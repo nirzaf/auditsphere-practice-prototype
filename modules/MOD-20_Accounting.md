@@ -23,7 +23,7 @@ Finish wider setup edits and downstream stale/rework across same-client periods.
 These are source-derived rehearsal instructions. Exact final labels and pending controls must be checked against the current build; they are not a record of browser actions executed during this review. Where a required control remains pending, show its limitation or defer that step—do not simulate a successful business outcome.
 
 1. Open Accounting Workbench for ENG-26002 and inspect client/entity, basis, currency, period and book.
-2. Review the posting chart and bounded dimension values.
+2. Review the posting chart and the bounded dimension list — Department, Cost centre and Project, each with an active flag and an optional value set (an empty set accepts any bounded value).
 3. Create a valid profile/chart revision, retaining previous context.
 4. Map accepted TB accounts to statement lines and review independently.
 5. Change an affected chart/context and inspect stale mappings/statements/packages before reapproval.
@@ -34,7 +34,7 @@ One client reporting context is preserved across imports and outputs; no operati
 
 ## Failure / denial / rework example
 
-Closed books, chart cycles, wrong-client references and invalid dimensions cannot silently alter approved output.
+Closed books, chart cycles, wrong-client references and invalid dimensions cannot silently alter approved output. GL intake rejects a dimension that is not configured and active on the selected profile, or a value outside its configured set, before any source row or revision is created; already-imported history is never rewritten.
 
 ## Implementation closure tasks
 

@@ -34,7 +34,7 @@ Template provenance, preparation, submission and clearance are visibly separate 
 
 ## Failure / denial / rework example
 
-The same natural person cannot clear their own preparation; unavailable or stale supporting evidence remains explicit.
+The same natural person cannot clear their own preparation; unavailable or stale supporting evidence remains explicit. Marking a workpaper not applicable, or advancing its revision, likewise flags any adjustment journal that pinned the previous revision as needing its support re-pinned.
 
 ## Implementation closure tasks
 

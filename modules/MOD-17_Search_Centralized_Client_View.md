@@ -5,14 +5,14 @@
 **Repository-reported baseline:** `REPOSITORY_REPORTED_PARTIAL`  
 **Client-demo rehearsal:** `NOT_RUN` by this review  
 **Route / workspace:** `Shell search → exact record`  
-**Component owner:** `Shell / ClientDetailView`  
+**Component owner:** `Shell global-search dialog → target module view`  
 **Persona sequence:** manager; repeat as client_admin and a narrow-grant user  
 **Starting scenario:** `full-practice`  
 **Source stories:** VP-008, VP-061
 
 ## What already exists
 
-Deterministic text/metadata search, scoped filters and many exact-record targets exist.
+Deterministic local metadata search runs in an accessible dialog named `Global search`, with record-type and permitted-context filters, grant-scoped results and exact-record targets. An unauthorized record contributes no title, snippet, count or ordering, and historical requirements text is not indexed.
 
 ## Remaining work / demonstration limit
 
@@ -22,10 +22,10 @@ Complete all persona/record/unavailable target permutations and return navigatio
 
 These are source-derived rehearsal instructions. Exact final labels and pending controls must be checked against the current build; they are not a record of browser actions executed during this review. Where a required control remains pending, show its limitation or defer that step—do not simulate a successful business outcome.
 
-1. Open Search from the shell and enter a known synthetic client/job/task/document code.
-2. Filter result type and permitted client/engagement context.
-3. Open a result and verify both the record highlight and active engagement.
-4. Return to the previous list without losing filters or unsaved work.
+1. Open **Search** from the shell and enter a known synthetic client/job/task/document code; the query field receives focus.
+2. Filter by result type and permitted client/engagement context; confirm the option list itself only offers permitted contexts.
+3. Open a result and verify both the record highlight and the active engagement.
+4. Dismiss with Escape or the backdrop and check focus returns to the opener; open a result while a draft is dirty and the shared Save/Discard/Stay decision appears first.
 5. Repeat as Amal Nasser and demonstrate CL-001/CL-003 but not CL-002.
 
 ## Expected client-visible outcome

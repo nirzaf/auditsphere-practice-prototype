@@ -34,7 +34,7 @@ One shared client/contact identity appears across related screens; historical re
 
 ## Failure / denial / rework example
 
-Try a duplicate normalized client code or invalid effective-date range; preserve the previous record after rejection.
+Try a duplicate normalized client code or invalid effective-date range; preserve the previous record after rejection. Closing the profile editor or navigating away with an unsaved draft asks to Save, Discard or Stay; Discard stores nothing and returns focus to the opener.
 
 ## Implementation closure tasks
 

@@ -22,11 +22,11 @@ Preserve controls; provide a clear manual role-handoff explanation in the presen
 
 These are source-derived rehearsal instructions. Exact final labels and pending controls must be checked against the current build; they are not a record of browser actions executed during this review. Where a required control remains pending, show its limitation or defer that step—do not simulate a successful business outcome.
 
-1. Open Sign-offs & EQR and inspect the current validated package/review requirements.
+1. Open Sign-offs & EQR and inspect the current validated package/review requirements; note that each revision and the TB/GL source lineage it is pinned to are shown.
 2. Present the exact client-safe package to a granted management approver.
 3. Record management rationale/evidence as that person, distinct from staff approval.
 4. Assign an eligible independent EQR and demonstrate the separate concern/completion path when applicable.
-5. Change a source/package revision and show stale decisions requiring fresh human review.
+5. Change a source/package revision — for example replace the GL source — and show the decision being refused with "The current financial package does not match the accepted GL source", then regenerate and re-review before recording the stage approval.
 
 ## Expected client-visible outcome
 
@@ -34,7 +34,7 @@ Approvals illustrate recorded human decisions only; no eSignature or professiona
 
 ## Failure / denial / rework example
 
-A manager/partner already on the engagement team or same preparer must not become the independent EQR by role switching.
+Missing approvals, changed bytes, stale generation, a package pinned to a superseded TB/GL revision and duplicate same-generation issue must fail; management presentation, stage approval, candidate preparation and local issue all re-check the same lineage. A manager/partner already on the engagement team or the same preparer must not become the independent EQR by role switching. The reserved `superuser` testing identity can force such a decision for rehearsal, but the action is logged as a `Prototype Superuser Override` and is explicitly not an independent approval — demonstrate independence with two distinct ordinary personas.
 
 ## Implementation closure tasks
 

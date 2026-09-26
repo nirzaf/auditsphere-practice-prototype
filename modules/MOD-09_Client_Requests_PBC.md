@@ -34,7 +34,7 @@ PBC receipt is separate from adequacy and professional workpaper review; revisio
 
 ## Failure / denial / rework example
 
-Uploader self-acceptance, wrong recipient, empty/unsupported file and quota failure must not create accepted metadata.
+Uploader self-acceptance, wrong recipient, empty/unsupported file and quota failure must not create accepted metadata. Request create, clarification and edit/reassignment drafts guard their close, backdrop and Cancel controls, so a dismissal never publishes a partial thread edit.
 
 ## Implementation closure tasks
 

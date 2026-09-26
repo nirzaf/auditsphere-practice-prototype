@@ -12,7 +12,7 @@
 
 ## What already exists
 
-Readiness gates, exact artifact freeze/issue and amendment history are reported verified.
+Readiness gates, exact artifact freeze/issue and amendment history are reported verified. Candidate preparation and issue re-verify the frozen package against the current TB generation, TB source revision, GL source revision/digest, mapping revision and all three artifact identities.
 
 ## Remaining work / demonstration limit
 
@@ -34,7 +34,7 @@ A local release record is not an email, provider delivery, signature or live cli
 
 ## Failure / denial / rework example
 
-Missing approvals, changed bytes, stale generation and duplicate same-generation issue must fail.
+Missing approvals, changed bytes, stale generation and duplicate same-generation issue must fail, as must replacing the GL source after the candidate was frozen — the release candidate no longer matches the accepted lineage and issue is refused until the package is regenerated, re-reviewed and re-approved.
 
 ## Implementation closure tasks
 

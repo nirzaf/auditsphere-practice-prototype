@@ -34,7 +34,7 @@ A finding disposition is not review-note clearance or an automatic immateriality
 
 ## Failure / denial / rework example
 
-Unresolved significant findings must independently block readiness; zero net does not make gross differences disappear.
+Unresolved significant findings must independently block readiness; zero net does not make gross differences disappear. Revising a finding also flags any adjustment journal that pinned the earlier revision, so its support must be re-pinned before the journal can be included in reporting.
 
 ## Implementation closure tasks
 

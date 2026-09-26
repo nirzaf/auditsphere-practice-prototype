@@ -6,9 +6,11 @@
 
 ## 1. Preflight
 
-Use the current React/Vite app, not a historical standalone HTML screenshot. Record full source/build identity, browser and viewport. Check the current package scripts. Use only synthetic data; fix the demo clock at **2026-09-23**. Start with one editing tab and preserve any local data before resetting.
+Use the current React/Vite app, not a historical standalone HTML screenshot. Record full source/build identity, browser and viewport. Check the current package scripts. Use only synthetic data; fix the demo clock at **2026-09-23**. Start with one editing tab and preserve any local data before resetting. The seeded `superuser` identity opens every module from one tab and is useful for rehearsing long paths; present it as a testing shortcut whose overrides are logged, and switch back to ordinary personas for any access, scope or independence boundary.
 
 Confirm the available presets in the existing chooser: `full-practice`, `accounting-only`, `audit-findings`, `two-component-consolidation`, `blocked-rework`, `empty-practice`. A scenario loads seeded records; it does not mean the presenter performed those business decisions. Explain that distinction.
+
+Scenario loading, identity/client/engagement switching and reset all pass through the unsaved-draft Save/Discard/Stay decision first; **Reset Demo State** additionally requires an explicit destructive confirmation. The replaced payload is retained as a recovery backup and can be downloaded (**Export current state** / **Export preserved payload**) and returned through **Import validated JSON**. Practice that path before the meeting rather than mid-demo.
 
 Download one supported generated sample before the meeting and verify it opens correctly. Keep a disclosed backup of screenshots or files for a failed environment, but do not substitute that fallback for a claimed live feature. Confirm the selected browser supports the app's local storage/IndexedDB behavior.
 
@@ -24,7 +26,7 @@ Download one supported generated sample before the meeting and verify it opens c
 | Acquire and start an engagement | full-practice / relationship → compliance/onboarding → partner → client management | 03 → 04 → 27 | Lead, proposal response and separate professional acceptance. |
 | Organize and collaborate | full-practice / manager → preparer | 05 → 06 → 07 → 11 | Manual job/template/tasks, internal discussion and basic local communications. |
 | Request and review information | full-practice / preparer → client_finance → independent reviewer | 10 → 09 → 08 → 33 | One request thread, versioned response, reviewed evidence and scoped portal. |
-| Prepare client financial output | accounting-only / ENG-26002 / preparer → reviewer → client management | 20 → 21 → 22 → 23 → 24 → 25 | Source import through reviewed genuine financial package; no client-ledger posting. |
+| Prepare client financial output | accounting-only / ENG-26002 / preparer → reviewer → client management | 20 → 21 → 22 → 23 → 24 → 25 | Source import, optional mapped dimensions, journals carrying revision-pinned support, through a reviewed genuine financial package whose lineage names the exact TB/GL revisions; no client-ledger posting. |
 | Perform the audit | audit-findings / permitted engagement | 28 → 29 → 30 → 31 → 32 → 34 → 35 → 36 | Deliberate plan, linked risks/tests/evidence, exceptions and independent decisions. |
 | Release and keep records | blocked-rework then a legitimately completed fixture | 37 → 38 | Visible blocker, lawful local rework, exact release and archive history. |
 | Run the firm's finances | full-practice / preparer → manager/reviewer → billing | 12 → 13 → 14 → 15 → 16 | Approved time, budget, issued demo invoice, offline receipt/aging/report. |
@@ -39,7 +41,7 @@ Open the corresponding [module rehearsal guide](01_MODULE_INDEX.md). Each includ
 
 ## 5. Required failure/rework stops
 
-Show same-natural-person review denial; an invalid TB/GL preview that does not overwrite accepted source; a reasoned PBC replacement with prior evidence retained; a changed source making a previously reviewed output stale; a significant unresolved finding blocking release; and failed/unknown simulated mail that does not pretend delivery or silently retry.
+Show same-natural-person review denial; an invalid TB/GL preview that does not overwrite accepted source; a reasoned PBC replacement with prior evidence retained; a changed source making a previously reviewed output stale; a journal whose pinned evidence, workpaper or finding revision moved, shown excluded from statements and packages with its stated reason until it is re-pinned and independently re-reviewed; a significant unresolved finding blocking release; and failed/unknown simulated mail that does not pretend delivery or silently retry.
 
 Use legitimate completion steps to resolve a blocker. Do not pre-clear missing evidence, change stored approval flags, weaken guards or introduce a hidden “make ready” action just for the meeting. Seeded baseline decisions must be visibly described as fixture data.
 

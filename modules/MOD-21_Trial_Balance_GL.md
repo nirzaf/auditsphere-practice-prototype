@@ -12,7 +12,7 @@
 
 ## What already exists
 
-Genuine CSV/XLSX TB imports are reported verified; bounded mapped GL imports, immutable revisions and tie-out exist.
+Genuine CSV/XLSX TB imports are reported verified; bounded mapped GL imports, immutable revisions and tie-out exist. GL lines keep the mapped posting date plus optional service date and Department/Cost centre/Project dimension values, and the scoped GL export reproduces them.
 
 ## Remaining work / demonstration limit
 
@@ -25,8 +25,8 @@ These are source-derived rehearsal instructions. Exact final labels and pending 
 1. Open the TB import panel in Accounting Workbench; select the scoped chart/book.
 2. Import a genuine synthetic CSV/XLSX, map headers and inspect preview/control totals.
 3. Commit a valid source; compare accepted revision/hash with predecessor history.
-4. Import a GL source with explicit opening balances and column mapping.
-5. Inspect opening + movement = closing by account, journal drill-down and scoped export.
+4. Map a nonstandard GL header: the nine required fields plus optional opening balance, service date and the three dimension columns. Every mapped field must point at a different source column, and the preview must show row-level errors without committing.
+5. Inspect opening + movement = closing by account, drill into one journal, filter by account, and export the filtered CSV — it carries posting date, service date and dimension values per line.
 
 ## Expected client-visible outcome
 
@@ -34,7 +34,7 @@ Imported client sources are immutable; a successful preview is not a committed o
 
 ## Failure / denial / rework example
 
-Partial GL batches, missing openings and unbalanced or mislabeled workbooks remain incomplete/rejected without overwriting accepted data.
+Partial GL batches, missing openings and unbalanced or mislabeled workbooks remain incomplete/rejected without overwriting accepted data. Unknown or deactivated dimension names, values outside the client's configured list, malformed service dates and out-of-period postings are rejected by the store before a new source revision or row is created.
 
 ## Implementation closure tasks
 

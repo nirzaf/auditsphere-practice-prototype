@@ -34,7 +34,7 @@ An evidence version is different from a document, PBC response, workpaper or rev
 
 ## Failure / denial / rework example
 
-Stale/inadequate evidence cannot be newly linked; a reason is required for unlink.
+Stale/inadequate evidence cannot be newly linked; a reason is required for unlink. Replacing a document or moving its adequacy state also leaves any adjustment journal that pinned the old revisions reporting that its support needs review, so it is excluded from reporting until re-pinned.
 
 ## Implementation closure tasks
 

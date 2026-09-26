@@ -1,6 +1,8 @@
 # AuditSphere Visual Prototype — Current Supported Scope (VP-001)
 
-Version 1.0 · 2026-09-23 · `docs/prototype/scope.md`
+Version 1.1 · recorded 2026-09-23 · revised 2026-09-26 for GL intake fields, the
+per-feature storage wording and the reserved prototype testing identity ·
+`docs/prototype/scope.md`
 
 This is the single visible supported-product scope. Anything outside it is not
 offered in navigation, setup, gates, catalogues, templates or release prerequisites.
@@ -15,7 +17,10 @@ simulation + manual incoming-call/meeting/email notes · client portal (explicit
 shared records only) · PBC request/response/acceptance loop · time, versioned
 budgets, invoice drafts from explicit sources, independent review, local issue,
 credit notes, offline receipts/allocations, as-of aging · import-first accounting
-(TB/GL intake, mappings, journals, reconciliations, statements, packages) ·
+(TB/GL intake with bounded column mapping plus optional service-date and
+Department/Cost centre/Project dimension values, mappings, journals that can pin
+supporting evidence/workpaper/finding revisions, reconciliations, statements,
+packages that record the exact TB and GL source lineage) ·
 bounded group consolidation (perimeter, pinned packages, FX table, eliminations) ·
 acceptance, planning/materiality, risks/programs, fieldwork, populations/sampling,
 workpapers, evidence catalogue, findings, review points, revision-bound approvals
@@ -48,9 +53,16 @@ arithmetic, content hashes, HTTPS hosting, escaping, access-view checks.
   credentials, tokens, tenant provisioning, or external calls.
 - Issued invoices change local demo records; nothing sends a demand for payment.
 - Approvals record human decisions; nothing is an electronic signature.
-- Uploads persist metadata + hash only; original bytes are in-session and must be
-  reselected after reload. Synthetic fixtures are downloadable and labelled.
+- Uploads differ by feature: accepted PBC response bytes and their digests persist
+  in browser-local IndexedDB across reload, while library document registrations and
+  workpaper/evidence attachments keep metadata + hash only and the original bytes
+  stay in-session (reselect after reload). Synthetic fixtures are downloadable and
+  labelled.
 - Client projections show explicitly shared records only.
+- The seeded `superuser` identity is a presenter/test tool, not a product role: it
+  reaches every supported route and records a labelled `Prototype Superuser Override`
+  event whenever it acts against its own work. It never relaxes validation, revision
+  staleness or client-portal disclosure filters, and it is not an independent approval.
 
 ## Historical source
 

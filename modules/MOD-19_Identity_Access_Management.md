@@ -12,7 +12,7 @@
 
 ## What already exists
 
-Local identities/invite lifecycle are reported verified; scoped grant/effective-window/revocation paths exist.
+Local identities/invite lifecycle are reported verified; scoped grant/effective-window/revocation paths exist. Route, visibility and administrator checks resolve centrally, and the seeded `superuser` testing identity appears with the other practice personas.
 
 ## Remaining work / demonstration limit
 
@@ -34,7 +34,7 @@ The browser illustrates intended authorization behavior; it is not a production 
 
 ## Failure / denial / rework example
 
-A contact, role suggestion or system administrator label is not a professional approval or automatic scope grant.
+A contact, role suggestion or system administrator label is not a professional approval or automatic scope grant. The reserved `superuser` persona is a testing shortcut, not a grant: the demo-identity role picker lists only the 14 product roles and the store rejects creating a second one, grants can only target a persona's own assigned role, and its actor-restricted actions are logged as labelled overrides rather than independent approvals.
 
 ## Implementation closure tasks
 

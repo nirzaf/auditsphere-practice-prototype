@@ -12,21 +12,21 @@
 
 ## What already exists
 
-Balanced journals, separate technical/management review, reflection evidence and amendment history exist.
+Balanced journals, separate technical/management review, reflection evidence and amendment history exist. A journal may additionally pin the exact supporting evidence (with its document), workpaper and finding revisions; those pins are re-checked when the journal is proposed, technically approved, accepted by management and recorded as included in reporting.
 
 ## Remaining work / demonstration limit
 
-Complete rejected/reflected replacement-source and evidence/workpaper/finding linkage demonstrations.
+Complete the browser rehearsal of the full rejected/reflected replacement-source and support-linkage matrix (foreign, unavailable, superseded and stale pins across evidence, workpaper and finding); the controls exist and are unit/Chrome tested in bounded combinations.
 
 ## How to demonstrate this module
 
 These are source-derived rehearsal instructions. Exact final labels and pending controls must be checked against the current build; they are not a record of browser actions executed during this review. Where a required control remains pending, show its limitation or defer that step—do not simulate a successful business outcome.
 
-1. Draft a balanced reporting adjustment with a scoped evidence/workpaper/finding reference.
+1. Draft a balanced reporting adjustment and, in the optional supporting-records block, select the in-scope evidence, workpaper and finding. Choices are limited to this engagement; unavailable, non-applicable or superseded records appear disabled, and the saved journal shows the exact revisions it pinned.
 2. Submit and obtain a different person’s technical review.
 3. Switch to authorized client management and record the separate decision.
-4. Set the evidence-backed reflection state against the exact TB source.
-5. Inspect statement impact, then amend or replace the source and show preserved history/reapproval.
+4. Set the evidence-backed reflection state against the exact TB source, then record reporting inclusion.
+5. Inspect statement impact, then replace the TB source or advance a linked record's revision and show the stale support warning, the prior pins retained in amendment history, and the fresh reapproval the journal now needs.
 
 ## Expected client-visible outcome
 
@@ -34,7 +34,7 @@ For the dedicated depreciation fixture assets move 23,000→22,500 and profit 3,
 
 ## Failure / denial / rework example
 
-Partial/Unknown reflection blocks relevant final output; an already-reflected adjustment must not be charged twice.
+Partial/Unknown reflection blocks relevant final output; an already-reflected adjustment must not be charged twice. A journal whose pinned evidence, workpaper or finding is foreign, superseded or behind the current revision is refused at approval and is excluded from statements and packages with an explicit “Journal support needs review” reason until it is re-pinned and independently re-reviewed.
 
 ## Implementation closure tasks
 

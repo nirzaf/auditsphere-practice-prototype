@@ -2,7 +2,7 @@
 
 [Module index](../01_MODULE_INDEX.md) · [Presenter playbook](../02_CLIENT_DEMO_PLAYBOOK.md)
 
-The inspected seed has **22 persona entries and 14 distinct role keys**. Persona entries are not necessarily distinct natural people or simultaneous authenticated users. The role selector is a simulation, not a real login. Source: [S13: Synthetic personas and records](https://github.com/nirzaf/auditsphere-visual-prototype/blob/b24359cd1832d6e026b4226cef8d9b2248903ee9/src/store/initialState.ts).
+The seeded store carries **23 persona entries across 15 distinct role keys**: the 14 product role keys plus the reserved `superuser` testing key. Persona entries are not necessarily distinct natural people or simultaneous authenticated users. The role selector is a simulation, not a real login. Older browser state gains the reserved persona through the schema v28 upgrade. Source: [S13: Synthetic personas and records](https://github.com/nirzaf/auditsphere-visual-prototype/blob/b24359cd1832d6e026b4226cef8d9b2248903ee9/src/store/initialState.ts).
 
 | Persona key | Synthetic name | Role key | Presentation use / boundary |
 |---|---|---|---|
@@ -28,6 +28,22 @@ The inspected seed has **22 persona entries and 14 distinct role keys**. Persona
 | `multirole-1` | Adam Khan | `billing` | Same personId as preparer; cannot self-approve through role switch |
 | `reviewer-disabled` | Tariq Aziz | `reviewer` | Inactive identity, negative demonstration only |
 | `group-user` | Mona Khalil | `manager` | Narrow ENG-26001 scope; no automatic access to other components |
+| `superuser` | AuditSphere Superuser | `superuser` | Reserved presenter/test identity; see “Prototype testing identity” below — not a product role |
+
+## Prototype testing identity
+
+`superuser` exists so one browser tab can trace every supported module, and every
+grant-scoped record, without rehearsing fourteen persona switches. It opens every
+supported route, sees every synthetic client/engagement and every consolidation
+group, and may take actor-restricted actions such as technically reviewing a journal
+it prepared. Each such action appends a `Prototype Superuser Override` line to the
+local event log and the workspace shows a full-access banner.
+
+It is not a demonstration of authority. Amount validation, revision pinning,
+staleness and client-portal disclosure filters behave identically under it, and
+an override is never an independent approval. Present separation-of-duties,
+scope and expiry boundaries with the ordinary personas above, and label anything
+reached only through the testing identity as a fixture shortcut.
 
 ## Handoffs to explain aloud
 
@@ -39,4 +55,10 @@ Use the module guide's proposed role order, then confirm the actual current gran
 
 ## Presenter-only tools
 
-Scenario reset, metadata backup/import and the persona chooser must be clearly separated from business actions. Loading a named demonstration fixture is not evidence that a client completed its workflow. Label fixture starting state and all preexisting data before presenting it.
+Scenario reset, metadata backup/import, the reserved `superuser` identity and the persona chooser must be clearly separated from business actions. Loading a named demonstration fixture is not evidence that a client completed its workflow. Label fixture starting state and all preexisting data before presenting it.
+
+Scenario loading, identity/client/engagement switching and reset all pass through the
+unsaved-draft Save/Discard/Stay decision first; reset then asks its own destructive
+confirmation and keeps the replaced payload as an exportable recovery backup. An
+imported validated JSON file replaces browser state directly, so export or reset
+instead of importing over unsaved work.

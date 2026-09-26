@@ -26,7 +26,7 @@ These are source-derived rehearsal instructions. Exact final labels and pending 
 2. Switch between statement types and trace a line to its source accounts.
 3. Select a compatible prior engagement; show Unavailable rather than fabricated zero when prior data is absent.
 4. Prepare/review evidence-backed cash-flow and equity movements, and select current note applicability.
-5. Save/review the exact statement revision, change an input and inspect stale state before regeneration.
+5. Save/review the exact statement revision, change an input — the TB source or a journal's pinned support record — and inspect the exclusion notice and stale state before regeneration.
 
 ## Expected client-visible outcome
 
@@ -34,7 +34,7 @@ Statements reconcile to accepted sources and adjustments; synthetic methods/rate
 
 ## Failure / denial / rework example
 
-Unmapped comparatives, unsupported component equity and unreviewed notes/schedules must not appear as valid supported output.
+Unmapped comparatives, unsupported component equity and unreviewed notes/schedules must not appear as valid supported output. A management-accepted adjustment is dropped from the presented figures with a stated reason when its reflection is partial/unknown, its source revision or account codes no longer match the current trial balance, or its pinned evidence, workpaper or finding needs review.
 
 ## Implementation closure tasks
 

@@ -12,7 +12,7 @@
 
 ## What already exists
 
-Ordered sections, exact persisted XLSX/DOCX/PDF files, cash/equity inclusion, atomic failure cleanup and replacement acknowledgement exist.
+Ordered sections, exact persisted XLSX/DOCX/PDF files, cash/equity inclusion, atomic failure cleanup and replacement acknowledgement exist. Each assembled revision also records the exact TB and, where GL intake is configured, GL source revision and digest.
 
 ## Remaining work / demonstration limit
 
@@ -24,9 +24,9 @@ These are source-derived rehearsal instructions. Exact final labels and pending 
 
 1. Open Financial Packages and select the exact current reviewed statement/schedule/note inputs.
 2. Choose and order supported sections, preview the client-visible contents.
-3. Assemble and inspect artifact identities, format, size and hashes.
+3. Assemble and inspect artifact identities, format, size and hashes, and the lineage header naming the pinned TB/GL revisions.
 4. Download genuine watermarked XLSX/DOCX/PDF; independently review/present the exact revision.
-5. Amend a source/package and show fresh management acknowledgement with the predecessor preserved.
+5. Amend a source/package and show fresh management acknowledgement with the predecessor preserved; replace the GL source and watch the saved revision report stale lineage against the current GL pins.
 
 ## Expected client-visible outcome
 
@@ -34,7 +34,7 @@ The artifact bytes and hashes are browser-local persisted demo evidence, not ext
 
 ## Failure / denial / rework example
 
-Internal-only note/comment/workpaper content must not appear in client artifacts; partial generation cannot announce a saved package.
+Internal-only note/comment/workpaper content must not appear in client artifacts; partial generation cannot announce a saved package. Any adjustment that is unapplied — including one whose pinned evidence, workpaper or finding needs review — keeps the pre-release validation blocked until it is resolved.
 
 ## Implementation closure tasks
 

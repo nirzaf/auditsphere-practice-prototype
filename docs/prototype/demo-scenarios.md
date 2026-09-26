@@ -16,7 +16,9 @@ CL-001 (ENG-26001 + ENG-26003); similar-name CL-001 vs CL-005; two preparers
 (Adam Khan, Nadia Rahman) + two reviewers (Sara Malik, Bilal Ahmed); multi-role
 Adam Khan (preparer + billing — SoD still by person); disabled Tariq Aziz;
 narrow group user Mona Khalil (ENG-26001 only); multi-grant Amal Nasser
-(CL-001 + CL-003).
+(CL-001 + CL-003); and the reserved `superuser` testing identity in the
+`System / Prototype Testing` group, which is a navigation shortcut whose
+actor-restricted actions are logged as overrides rather than independent decisions.
 
 ## Fixed calculation examples (§8.1)
 
@@ -47,7 +49,10 @@ visible, never plugged (unit-tested).
    evidence → reviews → package → release → archive.
 2. Failure/rework: blocked task needs reason; PBC replacement needs re-review;
    self-approval denied by person; stale revision rejected; TB error preview keeps
-   old source; mail failure fixture + retry; disconnect keeps local work.
+   old source; a journal whose pinned evidence, workpaper or finding moved is
+   excluded from statements and packages with a reason until it is re-pinned and
+   independently re-reviewed; GL replacement stales the pinned package lineage;
+   mail failure fixture + retry; disconnect keeps local work.
 3. These presenter steps are not all automated or fully accepted journeys.
    The current Chrome suite directly exercises shell/scope, M365 setup and
    recovery, identity mapping vs grant separation, staff route rendering, fresh

@@ -34,7 +34,7 @@ One Prospect per conversion operation; no duplicate engagement, authority grant 
 
 ## Failure / denial / rework example
 
-A non-Won conversion must fail; Lost/Unqualified requires a reason and is excluded from open totals.
+A non-Won conversion must fail; Lost/Unqualified requires a reason and is excluded from open totals. Leaving the pipeline with an unsaved inquiry draft is intercepted the same way: Stay keeps the draft, Discard creates no inquiry, and Save persists it before the client/engagement route change.
 
 ## Implementation closure tasks
 

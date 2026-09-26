@@ -26,7 +26,7 @@ These are source-derived rehearsal instructions. Exact final labels and pending 
 2. Enter source balances and dated timing items separately from proposed corrections.
 3. Calculate and inspect the explained and unexplained residual.
 4. Submit to an independent reviewer, return with a reason, then create a rework revision.
-5. Replace an input and compare the stale current schedule with its retained approved predecessor.
+5. Replace an input and compare the stale current schedule with its retained approved predecessor; open the stale schedule through its rework action to re-pin it to the current source revision, which returns it to draft for independent reapproval.
 
 ## Expected client-visible outcome
 

@@ -21,7 +21,8 @@ Microsoft screens simulate Entra/Graph/SharePoint/basic outgoing mail and option
 | Library registration of an original file | Metadata plus local digest can survive; do not promise original byte download after reload where bytes were not retained. |
 | Workpaper/session upload | Check actual in-memory/IndexedDB lifecycle for that specific action. Guidance must say when the user must reselect the original. |
 | PBC response | Newer repository evidence records versioned bytes and digests in IndexedDB across reload; validate that exact path instead of repeating the old universal metadata-only claim. |
-| Generated financial package | Genuine XLSX/DOCX/PDF bytes and SHA-256 manifest are saved browser-locally; a failed batch must not leave a successful revision. |
+| Generated financial package | Genuine XLSX/DOCX/PDF bytes and SHA-256 manifest are saved browser-locally; a failed batch must not leave a successful revision. Each revision also records the exact TB and, where GL intake is configured, GL source revision plus digest; a changed GL lineage marks the saved revision stale. |
+| Adjustment journal support | Links to evidence, workpaper or finding are stored as exact revisions, not live pointers. When the pinned source is replaced, superseded or becomes inadequate, the journal is excluded from statements/packages with a visible reason until it is re-pinned and independently re-reviewed. |
 | Group output | Current supported output is a watermarked, digest-verified JSON package with current input fingerprints and independent review; do not advertise it as an implemented group PDF/XLSX pack. |
 | Local archive | Copies of released artifact bytes/digests are stored locally. Holds/retention are application metadata, not provider locks or guaranteed physical preservation. |
 | Metadata recovery export | Does not automatically contain all blobs. Inspect export content and explain exactly what can be recovered. |
@@ -31,6 +32,10 @@ Browser storage can be cleared or modified outside the app. Do not upload real c
 ## Professional decisions
 
 Example percentages and financial fixtures are chosen demonstration inputs, not legally/professionally approved rates. A system calculation does not conclude audit opinion, fraud, materiality appropriateness, disclosure adequacy or evidence sufficiency. Distinct natural people must make preparation and independent review decisions; changing Adam Khan's role label does not make him a second person.
+
+## Prototype testing identity
+
+The seeded `superuser` persona is a presenter/test shortcut, not an implemented role and not an authorization model: it reaches every supported route and records a labelled `Prototype Superuser Override` event when it acts on its own work. Business validation, revision pinning and client-portal disclosure filters still apply to it. Use it only to navigate; use the ordinary personas to demonstrate access and segregation boundaries (see [role handoffs](ROLE_HANDOFF_GUIDE.md)).
 
 ## Important non-gaps
 

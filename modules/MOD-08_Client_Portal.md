@@ -34,7 +34,7 @@ Contributing a file, administering client contacts and approving management cont
 
 ## Failure / denial / rework example
 
-No Pay button, internal workpaper, draft invoice, cost rate or ungranted CL-002 record is exposed.
+No Pay button, internal workpaper, draft invoice, cost rate or ungranted CL-002 record is exposed. Previewing a portal role from the reserved `superuser` identity keeps the same client disclosure filters and stays visibly labelled `SUPERUSER PORTAL PREVIEW · Previewing as …`; it does not switch or weaken the signed-in persona.
 
 ## Implementation closure tasks
 
