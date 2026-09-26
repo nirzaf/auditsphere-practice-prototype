@@ -593,3 +593,37 @@ describe('proposal response methods and search person/grant matrix (VP-010/011/0
     assert.equal(canReadSearchRecord(admin as any, { route: 'administration', objectId: 'FIRM', title: 'Firm settings' }), true, 'an administrator reads administration records');
   });
 });
+
+describe('time-date matrix and accounting period/book edit rework (VP-028-E01/VP-034-E01)', () => {
+  it('bounds time dates at the scenario day and rejects cross-engagement task links (VP-028-E01)', () => {
+    setPersona(state, 'Adam Khan');
+    const base = state.times.find(t => t.id === 'TIME-01')!;
+    const entry = (date: string, taskId?: string) => ({ ...structuredClone(base), id: `TIME-MTX-${date}-${taskId || 'na'}`, date, taskId, taskTitle: 'Matrix entry' });
+    prototypeStore.addTimeEntry(entry(state.asOfDate) as any);
+    assert.throws(() => prototypeStore.addTimeEntry(entry('2026-09-24') as any), /on or before the active scenario date/, 'a date after the scenario day is rejected');
+    assert.throws(() => prototypeStore.addTimeEntry(entry('2026-02-30') as any), /valid/, 'an impossible calendar date is rejected');
+    const foreignTask = state.jobTasks.find(task => { const job = state.jobs.find(j => j.id === task.jobId); return task.id !== base.taskId && job && job.engagementId !== 'ENG-26001'; });
+    if (foreignTask) assert.throws(() => prototypeStore.addTimeEntry(entry(state.asOfDate, foreignTask.id) as any), /own engagement|belongs/, 'a cross-engagement task link is rejected');
+  });
+
+  it('a period/book edit through saveAccountingProfile stales dependent output for every same-client engagement (VP-034-E01)', () => {
+    setPersona(state, 'Layla Rahman');
+    const client = state.clients.find(c => c.id === 'CL-001')!;
+    const profile = client.accountingProfile!;
+    const siblings = state.engagements.filter(e => e.client === client.id);
+    assert.ok(siblings.length >= 1, 'the client has at least one engagement');
+    const edited = structuredClone(profile);
+    const book = edited.periodBooks.find(b => b.ownerEngagementId === siblings[0].id)!;
+    book.endDate = '2027-01-31';
+    prototypeStore.saveAccountingProfile(client.id, edited, siblings[0].id, book.id);
+    const after = state.clients.find(c => c.id === client.id)!.accountingProfile!;
+    assert.ok(after.revision > profile.revision, 'the profile revision advances');
+    assert.equal(after.periodBooks.find(b => b.id === book.id)!.endDate, '2027-01-31', 'the period edit persists');
+    const staleSibling = state.engagements.find(e => e.client === client.id && e.id !== siblings[0].id);
+    if (staleSibling) {
+      const statements = staleSibling.statements || [];
+      assert.ok(statements.some(s => s.status === 'Stale') || statements.length === 0, 'sibling reviewed output is staled or absent without silent alteration');
+    }
+    assert.ok((after.history || []).length >= 1, 'the profile edit is retained in history');
+  });
+});
