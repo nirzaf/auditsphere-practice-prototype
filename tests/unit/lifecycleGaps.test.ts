@@ -8,7 +8,7 @@ import assert from 'node:assert/strict';
 import { createInitialState } from '../../src/store/initialState.js';
 import { prototypeStore } from '../../src/store/prototypeStore.js';
 import { migratePersistedState } from '../../src/services/migrations.js';
-import { visibleClientIds, visibleEngagementIds, hasConsolidationGroupScope } from '../../src/services/guards.js';
+import { visibleClientIds, visibleEngagementIds, hasConsolidationGroupScope, canReadSearchRecord } from '../../src/services/guards.js';
 import { calculateBudgetVsActual } from '../../src/services/calculations.js';
 import type { PrototypeState } from '../../src/types/index.js';
 
@@ -508,5 +508,88 @@ describe('workspace, document and communication matrices (VP-020/021/026/027)', 
     const corrected = state.communications.find(c => c.id === comm.id)!;
     assert.equal(corrected.revision, expectedRevision, 'the revision advances');
     assert.ok((corrected.correctionHistory || []).length >= 1, 'the correction history is retained with actor and reason');
+  });
+});
+
+describe('proposal response methods and search person/grant matrix (VP-010/011/061)', () => {
+  it('records Email, Meeting and Letter responses with evidence, then withdraws and re-records (VP-011-E01/E02)', () => {
+    setPersona(state, 'Amira Qasim');
+    const seedClone = structuredClone(state.proposals.find(p => p.state === 'Accepted')!);
+    const proposal = { ...seedClone, id: 'PROP-REHEARSAL', revision: 1, state: 'Draft' as any, predecessorId: undefined, presentedBy: undefined, presentedAt: undefined, presentedSnapshot: undefined, clientResponse: undefined, responseHistory: [] as any[] };
+    state.proposals.unshift(proposal);
+    setPersona(state, 'Layla Rahman');
+    prototypeStore.reviewProposal(proposal.id, true, 'Rehearsal approval');
+    setPersona(state, 'Amira Qasim');
+    prototypeStore.presentProposal(proposal.id, 'Email presentation to the CFO', 'DOC-PROP-PRES');
+    setPersona(state, 'Omar Nasser');
+    let active = proposal;
+    for (const method of ['Email', 'Meeting', 'Letter'] as const) {
+      // Email and Meeting are recorded then withdrawn (the client misread the fee);
+      // each withdrawal forces the revise -> reapprove -> re-present rework path.
+      const responseType = method === 'Letter' ? 'Accepted' : 'Withdrawn';
+      prototypeStore.recordProposalResponse(active.id, { responseType, contact: 'Omar Nasser', date: state.asOfDate, method, notes: method === 'Letter' ? `${method} acceptance with linked correspondence` : `${method} response withdrawn to correct the fee reading`, evidenceRef: method === 'Letter' ? 'DOC-RESP-Letter' : `DOC-RESP-${method}-W` } as any);
+      if (method !== 'Letter') {
+        setPersona(state, 'Amira Qasim');
+        prototypeStore.createProposalRevision(active.id, `Re-present after the ${method} withdrawal with corrected fee wording`);
+        active = state.proposals.find(p => p.predecessorId === active.id)!;
+        setPersona(state, 'Layla Rahman');
+        prototypeStore.reviewProposal(active.id, true, `Rehearsal approval after the ${method} withdrawal`);
+        setPersona(state, 'Amira Qasim');
+        prototypeStore.presentProposal(active.id, `Re-presented after the ${method} withdrawal`, `DOC-PROP-PRES-${method}`);
+        setPersona(state, 'Omar Nasser');
+      }
+    }
+    const chain: any[] = [];
+    let cursor: any = state.proposals.find(p => p.id === proposal.id)!;
+    while (cursor) { chain.push(cursor); cursor = state.proposals.find(p => p.predecessorId === cursor.id); }
+    const responses = chain.map(p => p.clientResponse).filter(Boolean);
+    assert.equal(responses.length, 3, 'each proposal revision carries exactly one recorded response');
+    assert.ok(responses.some(r => r.method === 'Email') && responses.some(r => r.method === 'Meeting') && responses.some(r => r.method === 'Letter'), 'all three allowed response methods are demonstrated');
+    assert.ok(responses.filter(r => r.responseType === 'Withdrawn').length === 2, 'the two withdrawals are retained in history');
+    assert.ok(chain.every(p => p.presentedSnapshot), 'every presented revision keeps its snapshot');
+    const finalRevision = chain[chain.length - 1];
+    assert.equal(finalRevision.state, 'Accepted', 'the proposal ends accepted after the final Letter response');
+  });
+
+  it('a presented proposal revision keeps its presented snapshot across return and re-present (VP-010-E02)', () => {
+    setPersona(state, 'Amira Qasim');
+    const seedClone = structuredClone(state.proposals.find(p => p.state === 'Accepted')!);
+    const draft = { ...seedClone, id: 'PROP-SNAPSHOT', revision: 1, state: 'Draft' as any, predecessorId: undefined, presentedBy: undefined, presentedAt: undefined, presentedSnapshot: undefined, clientResponse: undefined, responseHistory: [] as any[] };
+    state.proposals.unshift(draft);
+    setPersona(state, 'Layla Rahman');
+    prototypeStore.reviewProposal(draft.id, true, 'Rehearsal approval');
+    setPersona(state, 'Amira Qasim');
+    prototypeStore.presentProposal(draft.id, 'Presented at the board meeting', 'DOC-PROP-PRES-2');
+    const presented = state.proposals.find(p => p.id === draft.id)!;
+    assert.ok(presented.presentedSnapshot, 'presentation pins a snapshot');
+    const snapshotBefore = JSON.stringify(presented.presentedSnapshot);
+    setPersona(state, 'Layla Rahman');
+    prototypeStore.createProposalRevision(draft.id, 'Fee restructure requested');
+    const revised = state.proposals.find(p => p.predecessorId === draft.id)!;
+    const predecessor = state.proposals.find(p => p.id === draft.id)!;
+    assert.equal(JSON.stringify(predecessor.presentedSnapshot), snapshotBefore, 'the prior presented snapshot is unchanged by the revision');
+    assert.notEqual(revised.id, draft.id, 'the revision is a new record');
+    assert.equal(revised.state, 'Draft', 'the revision starts as a fresh draft');
+  });
+
+  it('search read-access follows persona and grant across record types (VP-061-E02)', () => {
+    const s = state;
+    const doc = s.documents.find(d => d.visibility === 'Client shared')!;
+    const internalDoc = { route: 'documents', clientId: 'CL-001', objectId: 'X', title: 'Internal working paper' };
+    // Client persona: shared documents readable, internal staff routes not openable.
+    const clientUser = s.users.find(u => u.id === 'client_admin')!;
+    const clientState = { ...s, currentUserId: clientUser.id, currentRole: clientUser.role, currentPerson: clientUser.name };
+    assert.equal(canReadSearchRecord(clientState as any, { route: 'portal', clientId: doc.clientId, objectId: doc.id, title: doc.name }), true, 'a client reads its shared document through the portal route');
+    assert.equal(canReadSearchRecord(clientState as any, internalDoc as any), false, 'a client cannot open internal staff records through search');
+    // Narrow manager: granted engagement only.
+    const narrow = { ...s, currentUserId: 'group-user', currentRole: 'manager', currentPerson: 'Mona Khalil' };
+    assert.equal(canReadSearchRecord(narrow as any, { route: 'jobs', clientId: 'CL-001', engagementId: 'ENG-26001', objectId: 'JOB-2601', title: 'Granted job' }), true, 'the narrow manager reads granted-engagement records');
+    assert.equal(canReadSearchRecord(narrow as any, { route: 'jobs', clientId: 'CL-002', engagementId: 'ENG-26002', objectId: 'JOB-2602', title: 'Foreign job' }), false, 'the narrow manager cannot read sibling-engagement records');
+    // Revoked scope: strip the narrow grant and the record becomes unreadable.
+    const revoked = { ...narrow, roleGrants: s.roleGrants.filter(g => g.userId !== 'group-user') };
+    assert.equal(canReadSearchRecord(revoked as any, { route: 'jobs', clientId: 'CL-001', engagementId: 'ENG-26001', objectId: 'JOB-2601', title: 'Granted job' }), false, 'a revoked grant removes search readability');
+    // Superuser reads everything but overrides are labelled (checked elsewhere); admin reads staff records.
+    const admin = { ...s, currentUserId: 'admin', currentRole: 'admin', currentPerson: 'Khalid Al-Nuaimi' };
+    assert.equal(canReadSearchRecord(admin as any, { route: 'administration', objectId: 'FIRM', title: 'Firm settings' }), true, 'an administrator reads administration records');
   });
 });
