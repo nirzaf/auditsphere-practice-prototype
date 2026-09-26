@@ -153,7 +153,7 @@ export const App: React.FC = () => {
       'a[href],button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"])'
     )].filter(element => element.getAttribute('aria-hidden') !== 'true' && element.getClientRects().length > 0);
     const syncDialogs = () => {
-      const dialogs = [...document.querySelectorAll<HTMLElement>('.modal-backdrop .modal')];
+      const dialogs = [...document.querySelectorAll<HTMLElement>('.modal-backdrop .modal, .modal-overlay .modal-card')];
       dialogs.forEach(dialog => {
         if (!dialog.hasAttribute('role')) dialog.setAttribute('role', 'dialog');
         dialog.setAttribute('aria-modal', 'true');
@@ -187,7 +187,7 @@ export const App: React.FC = () => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (!activeDialog) return;
       if (event.key === 'Escape') {
-        const backdrop = activeDialog.closest<HTMLElement>('.modal-backdrop');
+        const backdrop = activeDialog.closest<HTMLElement>('.modal-backdrop') || activeDialog.closest<HTMLElement>('.modal-overlay');
         if (!backdrop) return;
         event.preventDefault();
         event.stopPropagation();
@@ -374,7 +374,7 @@ export const App: React.FC = () => {
       // Client Services & Admin
       case 'portal':
       case 'client-portal' as any:
-        return <ClientPortalView onNavigate={navigate} />;
+        return <ClientPortalView onNavigate={navigate} onBeforeContextChange={requestContextChange} onRegisterUnsavedForm={registerUnsavedForm} />;
       case 'reports':
       case 'reporting-centre' as any:
         return <ReportingCentreView onNavigate={navigate} />;

@@ -449,8 +449,8 @@ export const BudgetsView: React.FC<BudgetsViewProps> = ({ onNavigate, onRegister
 
       {/* Authoring & Rate Editing Modal */}
       {showAuthorModal && (
-        <div className="modal-overlay">
-          <div className="modal-card" style={{ maxWidth: 700 }}>
+        <div className="modal-overlay" onClick={discardBudgetDraft}>
+          <div className="modal-card" style={{ maxWidth: 700 }} onClick={e => e.stopPropagation()}>
             <div className="between">
               <h3>Author Budget Version (v{(rawBudget?.version || 0) + 1})</h3>
               <button className="btn sm ghost" aria-label="Discard budget draft" onClick={discardBudgetDraft}>✕</button>
