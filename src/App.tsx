@@ -305,7 +305,7 @@ export const App: React.FC = () => {
       case 'proposals':
         return <ProposalsView onNavigate={navigate} onRegisterUnsavedForm={registerUnsavedForm} />;
       case 'engagements':
-        return <EngagementsView onNavigate={navigate} />;
+        return <EngagementsView onNavigate={navigate} onRegisterUnsavedForm={registerUnsavedForm} onBeforeContextChange={requestContextChange} />;
       case 'onboarding':
       case 'audit-acceptance' as any:
         return <AuditAcceptanceView key={state.selectedEngagement} onNavigate={navigate} />;
@@ -360,7 +360,7 @@ export const App: React.FC = () => {
       case 'evidence':
         return <EvidenceCatalogueView onNavigate={navigate} />;
       case 'findings':
-        return <FindingsView key={`${state.selectedEngagement}:${searchTargetId || ''}`} searchTargetId={searchTargetId} onNavigate={navigate} />;
+        return <FindingsView key={`${state.selectedEngagement}:${searchTargetId || ''}`} searchTargetId={searchTargetId} onNavigate={navigate} onRegisterUnsavedForm={registerUnsavedForm} onBeforeContextChange={requestContextChange} />;
       case 'reviews':
         return <ReviewDeskView onNavigate={navigate} onRegisterUnsavedForm={registerUnsavedForm} />;
       case 'approvals':

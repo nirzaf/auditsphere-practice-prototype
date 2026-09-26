@@ -164,6 +164,11 @@ export function migratePersistedState(parsed: unknown, fresh: PrototypeState): M
   // The spread above is shallow: an older persisted firmSettings object replaces the fresh
   // one wholesale, so fields added in newer schemas (timezone, logoRef) must be backfilled.
   state.firmSettings = { ...fresh.firmSettings, ...((p?.firmSettings as Partial<PrototypeState['firmSettings']> | undefined) || {}) };
+  // A migrated accounting profile without a deliberately selected reporting basis stays
+  // explicitly 'Not selected' — never undefined, so TB/GL intake gates keep applying.
+  for (const client of state.clients || []) {
+    if (client.accountingProfile && !client.accountingProfile.reportingBasis) client.accountingProfile.reportingBasis = 'Not selected';
+  }
   if (!Array.isArray(state.proposalServices)) state.proposalServices = structuredClone(fresh.proposalServices || []);
   if (!Array.isArray(state.proposalServiceHistory)) state.proposalServiceHistory = [];
   if (!Array.isArray(state.proposalTemplates)) state.proposalTemplates = structuredClone(fresh.proposalTemplates || []);

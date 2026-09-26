@@ -1,17 +1,20 @@
 // Module 34: Audit Findings & Misstatements Register (VP-054)
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { RouteKey, AuditFindingItem } from '../../types';
 import { prototypeStore } from '../../store/prototypeStore';
 import { hasAnyRole } from '../../services/guards';
 import { Icon } from '../common/Icons';
 import { formatCurrency } from '../../services/calculations';
+import { UnsavedFormGuard } from '../../services/unsavedFormGuard';
 
 interface FindingsViewProps {
   onNavigate: (route: RouteKey) => void;
   searchTargetId?: string;
+  onBeforeContextChange: (run: () => void) => void;
+  onRegisterUnsavedForm: (guard: UnsavedFormGuard | null, key?: string) => void;
 }
 
-export const FindingsView: React.FC<FindingsViewProps> = ({ onNavigate, searchTargetId }) => {
+export const FindingsView: React.FC<FindingsViewProps> = ({ onNavigate, searchTargetId, onBeforeContextChange, onRegisterUnsavedForm }) => {
   const state = prototypeStore.getSnapshot();
   const findings = state.findings.filter(item => item.engagementId === state.selectedEngagement);
   const [showAddModal, setShowAddModal] = useState(false);
@@ -39,6 +42,33 @@ export const FindingsView: React.FC<FindingsViewProps> = ({ onNavigate, searchTa
   const [journalId, setJournalId] = useState('');
   const [reviewNoteId, setReviewNoteId] = useState('');
   const engagement = state.engagements.find(item => item.id === state.selectedEngagement);
+  const findingDraftBaseline = useRef('');
+  const findingDraft = () => JSON.stringify({
+    engagementId: state.selectedEngagement, title, category, severity, accounts, amount, currency, condition,
+    recommendation, managementResponse, proposedCorrection, owner, assertion, evidenceId, procedureId,
+    workpaperId, samplePopulationId, sampleItemId, journalId, reviewNoteId,
+  });
+  const discardFindingDraft = () => {
+    if (!findingDraftBaseline.current) return;
+    const draft = JSON.parse(findingDraftBaseline.current);
+    setTitle(draft.title); setCategory(draft.category); setSeverity(draft.severity); setAccounts(draft.accounts);
+    setAmount(draft.amount); setCurrency(draft.currency); setCondition(draft.condition); setRecommendation(draft.recommendation);
+    setManagementResponse(draft.managementResponse); setProposedCorrection(draft.proposedCorrection); setOwner(draft.owner);
+    setAssertion(draft.assertion); setEvidenceId(draft.evidenceId); setProcedureId(draft.procedureId); setWorkpaperId(draft.workpaperId);
+    setSamplePopulationId(draft.samplePopulationId); setSampleItemId(draft.sampleItemId); setJournalId(draft.journalId); setReviewNoteId(draft.reviewNoteId);
+  };
+  const closeFindingModal = () => onBeforeContextChange(() => setShowAddModal(false));
+
+  useEffect(() => {
+    if (!showAddModal || !engagement) { onRegisterUnsavedForm(null, 'finding-create'); return; }
+    onRegisterUnsavedForm({
+      label: 'audit finding draft',
+      isDirty: () => Boolean(findingDraftBaseline.current && findingDraft() !== findingDraftBaseline.current),
+      save: () => commitFinding(),
+      discard: discardFindingDraft,
+    }, 'finding-create');
+    return () => onRegisterUnsavedForm(null, 'finding-create');
+  }, [showAddModal, state.selectedEngagement, title, category, severity, accounts, amount, currency, condition, recommendation, managementResponse, proposedCorrection, owner, assertion, evidenceId, procedureId, workpaperId, samplePopulationId, sampleItemId, journalId, reviewNoteId, onRegisterUnsavedForm]);
   if (!engagement) {
     return (
       <div className="panel panel-pad text-center" style={{ padding: '60px 20px' }}>
@@ -70,8 +100,7 @@ export const FindingsView: React.FC<FindingsViewProps> = ({ onNavigate, searchTa
     return totals;
   }, new Map<string, { gross: number; net: number }>());
 
-  const handleAddFinding = (e: React.FormEvent) => {
-    e.preventDefault();
+  const commitFinding = (): boolean => {
     try {
       prototypeStore.addFinding({
         engagementId: state.selectedEngagement, title: title.trim(), category, severity,
@@ -87,8 +116,10 @@ export const FindingsView: React.FC<FindingsViewProps> = ({ onNavigate, searchTa
       });
       setShowAddModal(false);
       setNotice('Finding saved with its source references.');
-    } catch (error) { setNotice(error instanceof Error ? error.message : 'Could not save finding.'); }
+      return true;
+    } catch (error) { setNotice(error instanceof Error ? error.message : 'Could not save finding.'); return false; }
   };
+  const handleAddFinding = (event: React.FormEvent) => { event.preventDefault(); commitFinding(); };
 
   const handleDisposition = (finding: AuditFindingItem, disposition: AuditFindingItem['disposition']) => {
     const rationale = prompt(`Rationale for ${disposition}:`);
@@ -108,7 +139,7 @@ export const FindingsView: React.FC<FindingsViewProps> = ({ onNavigate, searchTa
           <button className="btn sm ghost" onClick={() => onNavigate('accounting-setup')}>
             <Icon name="calculator" /> Propose Journal
           </button>
-          <button className="btn primary sm" onClick={() => setShowAddModal(true)}>
+          <button className="btn primary sm" onClick={() => { findingDraftBaseline.current = findingDraft(); setShowAddModal(true); }}>
             <Icon name="plus" /> Raise Finding
           </button>
         </div>
@@ -192,11 +223,11 @@ export const FindingsView: React.FC<FindingsViewProps> = ({ onNavigate, searchTa
 
       {/* Add Finding Modal */}
       {showAddModal && (
-        <div className="modal-backdrop" onClick={() => setShowAddModal(false)}>
+        <div className="modal-backdrop" onClick={event => { if (event.target === event.currentTarget) closeFindingModal(); }}>
           <div className="modal" style={{ maxWidth: 500 }} onClick={e => e.stopPropagation()}>
             <div className="modal-head">
               <h2>Raise Audit Finding</h2>
-              <button className="icon-btn" onClick={() => setShowAddModal(false)}>✕</button>
+              <button className="icon-btn" onClick={closeFindingModal}>✕</button>
             </div>
             <form onSubmit={handleAddFinding}>
               <div className="modal-body stack" style={{ gap: 12 }}>
@@ -299,7 +330,7 @@ export const FindingsView: React.FC<FindingsViewProps> = ({ onNavigate, searchTa
                 <label className="caption">Proposed correction<textarea className="input" aria-label="Proposed correction" value={proposedCorrection} onChange={e => setProposedCorrection(e.target.value)} rows={2} /></label>
               </div>
               <div className="modal-foot">
-                <button type="button" className="btn ghost sm" onClick={() => setShowAddModal(false)}>Cancel</button>
+                <button type="button" className="btn ghost sm" onClick={closeFindingModal}>Cancel</button>
                 <button type="submit" className="btn primary sm">Record Finding</button>
               </div>
             </form>

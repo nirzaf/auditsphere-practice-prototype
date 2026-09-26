@@ -8,6 +8,8 @@ import assert from 'node:assert/strict';
 import { createInitialState } from '../../src/store/initialState.js';
 import { prototypeStore } from '../../src/store/prototypeStore.js';
 import { migratePersistedState } from '../../src/services/migrations.js';
+import { visibleClientIds, visibleEngagementIds, hasConsolidationGroupScope } from '../../src/services/guards.js';
+import { calculateBudgetVsActual } from '../../src/services/calculations.js';
 import type { PrototypeState } from '../../src/types/index.js';
 
 let state: PrototypeState;
@@ -309,6 +311,41 @@ describe('grant approval-evidence and compatible-role combinations (VP-019-E01)'
     assert.throws(() => prototypeStore.grantAccess('preparer-2', 'reviewer', 'Global', undefined, 'role mismatch check', { requestRef: 'REQ-M', approvalEvidenceRef: 'EVD-M' }), /assigned role/, 'a persona cannot be granted a different role');
     assert.throws(() => prototypeStore.grantAccess('preparer-2', 'reviewer', 'Client', 'CL-002', 'role mismatch check', { requestRef: 'REQ-M', approvalEvidenceRef: 'EVD-M' }), /assigned role/, 'the mismatch rule holds for every scope kind');
   });
+
+  it('expiry windows bound authority at both ends and a Group grant never widens client or engagement lists (VP-019-E01)', () => {
+    setPersona(state, 'Khalid Al-Nuaimi');
+    // manager-2 holds a seeded Global grant; replace it with a dated window.
+    prototypeStore.revokeAccess('manager-2', 'manager', undefined, 'dated-window matrix');
+    prototypeStore.grantAccess('manager-2', 'manager', 'Global', undefined, 'dated window', { effectiveFrom: '2026-09-01', expiresAt: '2026-09-23', requestRef: 'REQ-WIN', approvalEvidenceRef: 'EVD-WIN' });
+    state.currentUserId = 'manager-2';
+    state.currentRole = 'manager';
+    state.currentPerson = 'Mariam Saeed';
+    // The demo clock is 2026-09-23: the grant is valid today (inclusive boundary).
+    assert.equal(visibleEngagementIds(state), 'ALL', 'an expiry equal to the as-of date is still inside the window');
+    // Push expiry one day earlier: every engagement and client view closes.
+    const grant = state.roleGrants.find(g => g.userId === 'manager-2' && g.requestRef === 'REQ-WIN')!;
+    grant.expiresAt = '2026-09-22';
+    assert.notEqual(visibleEngagementIds(state), 'ALL');
+    assert.equal((visibleEngagementIds(state) as string[]).length, 0, 'an expired Global grant yields no engagement rows');
+    assert.equal((visibleClientIds(state, 'manager-2') as string[]).length, 0, 'an expired Global grant yields no client rows');
+    // A Group grant authorizes the named group workspace without widening raw component access.
+    const groupUser = state.users.find(u => u.id === 'group-user')!;
+    state.currentUserId = 'group-user';
+    state.currentRole = groupUser.role;
+    state.currentPerson = groupUser.name;
+    assert.equal(hasConsolidationGroupScope(state, 'GRP-01'), false, 'a narrow manager without the group grant is denied the group workspace');
+    const before = JSON.stringify(visibleEngagementIds(state));
+    setPersona(state, 'Khalid Al-Nuaimi');
+    prototypeStore.grantAccess('group-user', 'manager', 'Group', 'GRP-01', 'group-only scope', { requestRef: 'REQ-GRP', approvalEvidenceRef: 'EVD-GRP' });
+    assert.equal(hasConsolidationGroupScope(state, 'GRP-01', 'group-user'), true, 'the named Group grant opens the group workspace');
+    state.currentUserId = 'group-user';
+    state.currentRole = groupUser.role;
+    state.currentPerson = groupUser.name;
+    assert.equal(JSON.stringify(visibleEngagementIds(state)), before, 'a Group grant does not widen engagement lists');
+    assert.equal((visibleClientIds(state, 'group-user') as string[]).length, 1, 'a Group grant does not widen client lists beyond the original narrow scope');
+    setPersona(state, 'Khalid Al-Nuaimi');
+    assert.throws(() => prototypeStore.grantAccess('group-user', 'manager', 'Group', 'GRP-01', 'duplicate group grant', { requestRef: 'REQ-GRP2', approvalEvidenceRef: 'EVD-GRP2' }), /already granted/, 'a duplicate group grant is rejected');
+  });
 });
 
 describe('firm settings migration backfill (VP-004)', () => {
@@ -322,5 +359,100 @@ describe('firm settings migration backfill (VP-004)', () => {
     assert.equal(migrated.firmSettings.invoiceNextNumber, 9);
     assert.equal(migrated.firmSettings.timezone, 'UTC+03:00 (Asia/Qatar)', 'new required settings fields are backfilled from the fresh seed');
     assert.equal(migrated.firmSettings.logoRef, undefined);
+  });
+});
+
+describe('budget unallocated variance and rate attribution (VP-029-E01/E02)', () => {
+  it('unallocated planned lines show planned-only variance without double counting approved time', () => {
+    const budget = state.budgets.find(b => b.engagementId === 'ENG-26001' && !b.jobId)!;
+    // A second, job-less planned line that no approved time matches: the unallocated case.
+    const analysis = calculateBudgetVsActual(budget, state.times, 'ENG-26001');
+    assert.equal(analysis.plannedMinutes, budget.lines.reduce((s, l) => s + l.plannedMinutes, 0), 'planned totals count every line once');
+    assert.ok(analysis.approvedMinutes > 0 && analysis.approvedMinutes < analysis.plannedMinutes, 'approved time is a strict subset of the plan for this fixture');
+    assert.equal(analysis.varianceHours, Math.round(((analysis.approvedMinutes - analysis.plannedMinutes) / 60) * 100) / 100, 'variance is approved minus planned with no double counting');
+    assert.equal(analysis.actualBillableValue, null, 'a billable entry without a rate makes valuation Unknown, never zero');
+    const ratedOnly = calculateBudgetVsActual(budget, state.times.filter(t => t.id !== 'TIME-03'), 'ENG-26001');
+    assert.ok(ratedOnly.actualBillableValue !== null && ratedOnly.actualBillableValue > 0, 'entries with pinned rates are valued');
+    assert.equal(ratedOnly.approvedMinutes, analysis.approvedMinutes - state.times.find(t => t.id === 'TIME-03')!.durationMinutes, 'removing the rateless entry removes exactly its minutes');
+  });
+
+  it('a new budget version with different rates never restates approved-time valuation or history', () => {
+    setPersona(state, 'Layla Rahman');
+    const budget = state.budgets.find(b => b.engagementId === 'ENG-26001' && !b.jobId)!;
+    const before = calculateBudgetVsActual(budget, state.times, 'ENG-26001');
+    const doubled = structuredClone(budget);
+    doubled.version = (budget.version || 1) + 1;
+    doubled.lines = doubled.lines.map(line => ({ ...line, billingRatePerHour: line.billingRatePerHour * 2, costRatePerHour: line.costRatePerHour !== undefined ? line.costRatePerHour * 2 : undefined }));
+    prototypeStore.updateBudget(doubled);
+    const after = calculateBudgetVsActual(state.budgets.find(b => b.id === budget.id)!, state.times, 'ENG-26001');
+    assert.equal(after.actualBillableValue, before.actualBillableValue, 'approved time keeps its pinned approval-time rates');
+    assert.equal(after.approvedMinutes, before.approvedMinutes);
+    assert.ok(after.plannedFees > before.plannedFees, 'planned fees do restate to the new version');
+    const history = (state.budgets.find(b => b.id === budget.id)!).history || [];
+    assert.ok(history.some(h => h.version === budget.version), 'the prior version is retained in history');
+    assert.throws(() => prototypeStore.updateBudget({ ...doubled, version: 1 }), /must advance/, 'stale budget revisions are rejected');
+  });
+});
+
+describe('elimination duplicate inclusion and remaining finance negatives (VP-031/034/039/045)', () => {
+  it('rejects a second active elimination covering the same counterparty pair and account, in either direction (VP-045-E02)', () => {
+    setPersona(state, 'Layla Rahman');
+    const elimination = {
+      id: '', counterpartyA: 'ENG-26001', counterpartyB: 'ENG-26002',
+      title: 'Duplicate intercompany elimination', explanation: 'Same balance as the seeded elimination.',
+      currency: 'QAR', amount: 10000, evidenceRef: 'EVD-DUP-001',
+      lines: [
+        { account: 'Trade and other payables', type: 'debit' as const, amount: 10000 },
+        { account: 'Trade and other receivables', type: 'credit' as const, amount: 10000 }
+      ]
+    };
+    assert.throws(() => prototypeStore.saveConsolidationElimination('GRP-01', elimination, 'duplicate inclusion attempt'), /already covers one of these accounts/, 'the seeded approved elimination blocks a duplicate inclusion by component IDs');
+    const reversed = { ...elimination, counterpartyA: 'ENG-26002', counterpartyB: 'ENG-26001' };
+    assert.throws(() => prototypeStore.saveConsolidationElimination('GRP-01', reversed, 'reversed duplicate attempt'), /already covers one of these accounts/, 'reversing the counterparties is the same inclusion');
+    const legalName = { ...elimination, counterpartyA: 'Example Trading Entity', counterpartyB: 'Northstar Services' };
+    assert.throws(() => prototypeStore.saveConsolidationElimination('GRP-01', legalName, 'name-based duplicate attempt'), /distinct component entities/, 'name-based entries are rejected at validation, so no duplicate path exists through seeded names');
+  });
+
+  it('caps credits across successive issues and rejects cross-currency credits (VP-031-E01)', () => {
+    setPersona(state, 'Layla Rahman');
+    const invoice = state.invoices.find(i => i.id === 'INV-26002')!; // issued QAR 120,000 fixture
+    const first = { id: 'CN-CAP1', invoiceId: invoice.id, clientId: invoice.clientId, creditNumber: 'CRN-CAP-1', amount: 90000, currency: 'QAR', reason: 'Partial fee reversal', status: 'Draft' as const, issueDate: state.asOfDate, date: state.asOfDate, preparedBy: 'Layla Rahman' };
+    prototypeStore.addCreditNote(first);
+    setPersona(state, 'Daniel James');
+    prototypeStore.reviewCreditNote('CN-CAP1', true);
+    setPersona(state, 'Leila Hassan');
+    prototypeStore.issueCreditNote('CN-CAP1');
+    setPersona(state, 'Layla Rahman');
+    assert.equal(invoice.creditsApplied, 90000, 'the issued credit is applied to the invoice');
+    assert.throws(() => prototypeStore.addCreditNote({ ...first, id: 'CN-CAP2', creditNumber: 'CRN-CAP-2', amount: 110001, reason: 'Over-cap reversal' }), /exceeds remaining creditable amount/, 'the second credit cannot exceed the remaining balance');
+    assert.throws(() => prototypeStore.addCreditNote({ ...first, id: 'CN-CAP3', creditNumber: 'CRN-CAP-3', amount: 20000, currency: 'USD', reason: 'Wrong currency reversal' }), /must match the invoice currency/, 'cross-currency credits are rejected');
+    const exact = { ...first, id: 'CN-CAP4', creditNumber: 'CRN-CAP-4', amount: 30000, reason: 'Exact remaining reversal' };
+    prototypeStore.addCreditNote(exact);
+    assert.equal(invoice.creditsApplied, 90000, 'a drafted credit is not applied until issued');
+  });
+
+  it('keeps a migrated unselected reporting basis explicit and blocks TB intake until configured (VP-034-E02)', () => {
+    const legacy = createInitialState() as any;
+    legacy.schema = 12;
+    legacy.clients[0].accountingProfile!.reportingBasis = undefined;
+    const { state: migrated } = migratePersistedState(legacy, createInitialState());
+    assert.equal(migrated.clients[0].accountingProfile!.reportingBasis, 'Not selected', 'the migrated basis stays explicitly unselected, never defaulted');
+    const engagement = migrated.engagements.find(e => e.client === migrated.clients[0].id)!;
+    setPersona(migrated, 'Adam Khan');
+    (prototypeStore as any).state = migrated;
+    const rows = structuredClone(engagement.rows);
+    assert.throws(() => prototypeStore.updateTrialBalanceRows(engagement.id, rows, { fileName: 'basis.csv', format: 'CSV', sha256: 'a'.repeat(64), mapping: { code: 0, name: 1, debit: 2, credit: 3, signed: -1, convention: 'debit-credit' } }), /accounting setup/, 'TB intake stays blocked until the reporting basis is deliberately selected');
+  });
+
+  it('rejects reconciliation items in a foreign currency (VP-039-E01)', () => {
+    setPersona(state, 'Adam Khan');
+    const eng = state.engagements.find(e => e.id === 'ENG-26001')!;
+    const schedule = {
+      id: 'REC-FX', ref: 'REC-FX', title: 'Foreign-currency item guard', name: 'Foreign-currency item guard',
+      accountCode: eng.rows[0].code, status: 'Draft' as const, evidence: 'EVD-REC-FX', asOfDate: state.asOfDate,
+      sourceVersion: eng.sourceVersion, currency: 'QAR', statementBalance: 1000, glBalance: 1000,
+      items: [{ id: 'RI-FX1', date: state.asOfDate, description: 'USD-denominated timing item', amount: 250, type: 'Timing item' as const, currency: 'USD' }]
+    };
+    assert.throws(() => prototypeStore.saveReconciliationSchedule(eng.id, schedule as any), /engagement currency/, 'a foreign-currency reconciling item is rejected atomically');
   });
 });

@@ -2863,6 +2863,26 @@ class PrototypeStore {
     if (!debits || !credits || Math.abs(debits - credits) > 0.005 || Math.abs(debits - input.amount) > 0.005) throw new GuardError('INVALID_STATE', 'Elimination debit and credit lines must balance and equal the stated amount.');
     const availableAccounts = new Set(components.flatMap(component => component.packageRows || []).flatMap(row => [row.code.trim().toLowerCase(), row.name.trim().toLowerCase()]));
     if (input.lines.some(line => !availableAccounts.has(line.account.trim().toLowerCase()))) throw new GuardError('INVALID_STATE', 'Every elimination account must match an account in a pinned component package.');
+    // Duplicate-inclusion guard: one active elimination per counterparty pair and account,
+    // so the same intercompany balance cannot be eliminated twice (VP-045-E02). The pair is
+    // unordered, and seeded records may name counterparties by legal-entity name while new
+    // entries use component IDs — both resolve to the component before comparison.
+    const counterpartyKey = (value: string) => {
+      const bare = value.replace(/ \([^)]*\)$/, '').trim().toLowerCase();
+      const component = components.find(c => c.componentId === value || c.legalEntityName === value || c.legalEntityName.replace(/ \([^)]*\)$/, '').trim().toLowerCase() === bare);
+      return component?.componentId || value;
+    };
+    const samePair = (item: ConsolidationGroupRecord['eliminations'][number]) => {
+      const a1 = counterpartyKey(item.counterpartyA);
+      const b1 = counterpartyKey(item.counterpartyB);
+      const a2 = counterpartyKey(input.counterpartyA);
+      const b2 = counterpartyKey(input.counterpartyB);
+      return (a1 === a2 && b1 === b2) || (a1 === b2 && b1 === a2);
+    };
+    const duplicate = group.eliminations.find(item => item.id !== input.id
+      && samePair(item)
+      && item.lines.some(line => input.lines.some(next => next.account.trim().toLowerCase() === line.account.trim().toLowerCase())));
+    if (duplicate) throw new GuardError('INVALID_STATE', `Elimination ${duplicate.id} already covers one of these accounts for the same counterparty pair; return and amend that elimination instead of duplicating the inclusion.`);
     const index = group.eliminations.findIndex(item => item.id === input.id);
     const current = group.eliminations[index];
     if (current?.status === 'Approved') throw new GuardError('INVALID_STATE', 'Approved elimination content is immutable; create a new revision after a reasoned return.');

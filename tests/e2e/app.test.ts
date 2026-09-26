@@ -310,8 +310,9 @@ describe('actual Chrome browser acceptance', { concurrency: false }, () => {
   });
 
   it('UIX-02: desktop sidebar collapses and expands accessibly without losing navigation actions', async () => {
-    await browserTab!.evaluate(`localStorage.setItem('ste-auditsphere-sidebar-collapsed','0');location.reload()`);
-    assert.equal(await waitForBrowser(`document.querySelector('.sidebar-toggle[aria-label="Collapse sidebar"]')!==null`), true);
+    await browserTab!.evaluate(`localStorage.setItem('ste-auditsphere-sidebar-collapsed','0')`);
+    await browserTab!.command('Page.reload', { ignoreCache: true });
+    assert.equal(await waitForBrowser(`document.readyState==='complete'&&document.querySelector('#app-root .sidebar')!==null&&document.querySelector('.sidebar-toggle[aria-label="Collapse sidebar"]')!==null`), true);
     const expandedWidth = await browserTab!.evaluate<number>(`document.querySelector('.sidebar').getBoundingClientRect().width`);
     assert.ok(expandedWidth > 200, `expanded sidebar should retain its full width, got ${expandedWidth}px`);
 
@@ -342,6 +343,7 @@ describe('actual Chrome browser acceptance', { concurrency: false }, () => {
   it('UIX-01: exposes keyboard skip navigation and usable mobile navigation targets', async () => {
     try {
       await browserTab!.command('Emulation.setDeviceMetricsOverride', { width: 375, height: 812, deviceScaleFactor: 1, mobile: true });
+      assert.equal(await waitForBrowser(`document.querySelector('#app-root .mobile-menu')!==null&&document.querySelector('#primary-navigation .navitem')!==null`), true, 'responsive shell should remain mounted at mobile viewport');
       const state = await browserTab!.evaluate<any>(`(() => {
         const skip=document.querySelector('.skip-link');
         const menu=document.querySelector('.mobile-menu');
@@ -7018,8 +7020,28 @@ describe('actual Chrome browser acceptance', { concurrency: false }, () => {
     await clickButtonStartingWith('Findings & Differences');
     assert.equal(await browserTab!.evaluate<boolean>('document.body.innerText.includes("context only")'), true, 'materiality is contextual and does not auto-decide disposition');
     await clickButton('Raise Finding');
+    await browserTab!.evaluate(`(() => {const title=document.querySelector('[aria-label="Finding title"]');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(title,'Discarded finding draft');title.dispatchEvent(new Event('input',{bubbles:true}));})()`);
+    await clickButton('Cancel');
+    assert.equal(await waitForBrowser('document.body.innerText.includes("audit finding draft has unsaved changes")'), true, 'closing a populated finding form requests a draft decision');
+    await clickButton('Stay');
+    assert.equal(await browserTab!.evaluate<boolean>(`document.querySelector('[aria-label="Finding title"]')?.value==='Discarded finding draft'`), true, 'Stay retains the finding draft');
+    await clickButton('Cancel');
+    await clickButton('Discard and continue');
+    assert.equal(await browserTab!.evaluate<boolean>(`!JSON.parse(localStorage.getItem('ste-auditsphere-role-portals-v2')).findings.some(x=>x.title==='Discarded finding draft')`), true, 'discard never records a finding');
+    await clickButton('Raise Finding');
+    await browserTab!.evaluate(`(() => {const title=document.querySelector('[aria-label="Finding title"]');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(title,'Incomplete finding');title.dispatchEvent(new Event('input',{bubbles:true}));window.location.hash='#overview';})()`);
+    assert.equal(await waitForBrowser('document.body.innerText.includes("audit finding draft has unsaved changes")'), true);
+    await clickButton('Save and continue');
+    assert.equal(await waitForBrowser('document.body.innerText.includes("could not be saved")'), true, 'invalid finding Save explains why it cannot continue');
+    assert.equal(await browserTab!.evaluate<boolean>(`document.querySelector('[aria-label="Finding title"]')?.value==='Incomplete finding' && document.querySelector('main#main h1')?.innerText.includes('Findings')`), true, 'failed Save leaves the current view and draft open');
+    await clickButton('Stay');
+    assert.equal(await browserTab!.evaluate<boolean>(`location.hash==='#findings'`), true, 'Stay restores the previously accepted hash after a failed save');
     await browserTab!.evaluate(`(() => {const set=Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set;const title=document.querySelector('[aria-label="Finding title"]');set.call(title,'VP-054 inventory count control gap');title.dispatchEvent(new Event('input',{bubbles:true}));const textareaSet=Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype,'value').set;const condition=document.querySelector('[aria-label="Finding condition"]');textareaSet.call(condition,'Independent count sheets were not signed by a second counter.');condition.dispatchEvent(new Event('input',{bubbles:true}));const recommendation=document.querySelector('[aria-label="Finding recommendation"]');textareaSet.call(recommendation,'Require independent countersignature at each inventory location.');recommendation.dispatchEvent(new Event('input',{bubbles:true}));for(const [label,value] of [['Finding procedure','PRC-01'],['Finding evidence','EVD-01'],['Finding workpaper','WP-A1'],['Finding category','Internal control deficiency'],['Finding severity','Significant']]){const s=document.querySelector('[aria-label="'+label+'"]');Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype,'value').set.call(s,value);s.dispatchEvent(new Event('change',{bubbles:true}));}})()`);
-    await clickButton('Record Finding');
+    await browserTab!.evaluate(`window.location.hash='#overview'`);
+    assert.equal(await waitForBrowser('document.body.innerText.includes("audit finding draft has unsaved changes")'), true, 'hash navigation asks how to handle a valid finding draft');
+    await clickButton('Save and continue');
+    assert.equal(await waitForBrowser(`location.hash==='#overview' && JSON.parse(localStorage.getItem('ste-auditsphere-role-portals-v2')).findings.some(x=>x.title==='VP-054 inventory count control gap')`), true, 'explicit Save persists the finding before continuing to the requested route');
+    await clickButtonStartingWith('Findings & Differences');
     const created = await browserTab!.evaluate<any>(`(() => JSON.parse(localStorage.getItem('ste-auditsphere-role-portals-v2')).findings.find(x=>x.title==='VP-054 inventory count control gap'))()`);
     assert.ok(created?.id);
     assert.deepEqual([created.category, created.severity, created.amount, created.linkedProcedureId, created.linkedEvidenceId, created.linkedWorkpaperId], ['Internal control deficiency', 'Significant', undefined, 'PRC-01', 'EVD-01', 'WP-A1']);
@@ -7374,6 +7396,48 @@ describe('actual Chrome browser acceptance', { concurrency: false }, () => {
       assert.deepEqual(browserTab!.exceptions, []);
     } finally {
       if (original) await browserTab!.evaluate(`localStorage.setItem('ste-auditsphere-role-portals-v2', ${JSON.stringify(original)})`);
+      else await browserTab!.evaluate(`localStorage.removeItem('ste-auditsphere-role-portals-v2')`);
+      await browserTab!.command('Page.reload');
+      await waitForBrowser('!!document.querySelector("#app-root .brandname")');
+    }
+  });
+
+  it('VP-003-E02: guards engagement-create and administration drafts at modal and route boundaries', async () => {
+    const original = await browserTab!.evaluate<string | null>(`localStorage.getItem('ste-auditsphere-role-portals-v2')`);
+    try {
+      await browserTab!.evaluate(`localStorage.setItem('ste-auditsphere-role-portals-v2',${JSON.stringify(JSON.stringify(createInitialState()))})`);
+      await browserTab!.command('Page.reload');
+      assert.equal(await waitForBrowser('!!document.querySelector("#role-select")'), true);
+      await browserTab!.evaluate(`(() => {const role=document.querySelector('#role-select');Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype,'value').set.call(role,'manager');role.dispatchEvent(new Event('change',{bubbles:true}));})()`);
+      await clickButtonStartingWith('Engagements');
+      const startingCount = await browserTab!.evaluate<number>(`JSON.parse(localStorage.getItem('ste-auditsphere-role-portals-v2')).engagements.length`);
+      await clickButton('New Engagement');
+      await browserTab!.evaluate(`(() => {const year=document.querySelector('.modal input[type="number"]');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(year,'2027');year.dispatchEvent(new Event('input',{bubbles:true}));})()`);
+      assert.equal(await waitForBrowser(`document.querySelector('.modal input[type="number"]')?.value==='2027'`), true, 'new engagement year draft is reflected in the controlled field');
+      await clickButton('Cancel');
+      assert.equal(await waitForBrowser('document.body.innerText.includes("new engagement draft has unsaved changes")'), true, 'closing a populated engagement form requests an explicit draft decision');
+      await clickButton('Stay');
+      assert.equal(await browserTab!.evaluate<boolean>(`document.querySelector('.modal input[type="number"]')?.value==='2027'`), true, 'Stay preserves the new-engagement draft');
+      await clickButton('Cancel');
+      await clickButton('Discard and continue');
+      assert.equal(await browserTab!.evaluate<boolean>(`!document.querySelector('.modal') && JSON.parse(localStorage.getItem('ste-auditsphere-role-portals-v2')).engagements.length===${startingCount}`), true, 'discard closes the editor without creating an engagement');
+
+      await clickButton('Edit Engagement Details');
+      const originalYear = await browserTab!.evaluate<string>(`document.querySelector('[aria-label="Engagement reporting year"]').value`);
+      await browserTab!.evaluate(`(() => {const year=document.querySelector('[aria-label="Engagement reporting year"]');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(year,'2028');year.dispatchEvent(new Event('input',{bubbles:true}));})()`);
+      await clickButton('Cancel');
+      assert.equal(await waitForBrowser('document.body.innerText.includes("engagement administration draft has unsaved changes")'), true, 'closing edited engagement details is guarded');
+      await clickButton('Discard and continue');
+      assert.equal(await browserTab!.evaluate<boolean>(`JSON.parse(localStorage.getItem('ste-auditsphere-role-portals-v2')).engagements.find(e=>e.id===JSON.parse(localStorage.getItem('ste-auditsphere-role-portals-v2')).selectedEngagement).year===${originalYear}`), true, 'discard leaves the saved engagement unchanged');
+
+      await clickButton('New Engagement');
+      await browserTab!.evaluate(`(() => {const year=document.querySelector('.modal input[type="number"]');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(year,'2029');year.dispatchEvent(new Event('input',{bubbles:true}));window.location.hash='#overview';})()`);
+      assert.equal(await waitForBrowser('document.body.innerText.includes("new engagement draft has unsaved changes")'), true, 'hash navigation asks how to handle the active engagement draft');
+      await clickButton('Save and continue');
+      assert.equal(await waitForBrowser(`JSON.parse(localStorage.getItem('ste-auditsphere-role-portals-v2')).engagements.length===${startingCount + 1} && location.hash==='#overview'`), true, 'explicit Save creates once and continues the requested route');
+      assert.deepEqual(browserTab!.exceptions, []);
+    } finally {
+      if (original) await browserTab!.evaluate(`localStorage.setItem('ste-auditsphere-role-portals-v2',${JSON.stringify(original)})`);
       else await browserTab!.evaluate(`localStorage.removeItem('ste-auditsphere-role-portals-v2')`);
       await browserTab!.command('Page.reload');
       await waitForBrowser('!!document.querySelector("#app-root .brandname")');

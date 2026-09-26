@@ -1,17 +1,20 @@
 // Module 04: Engagements Workspace & Lifecycle Handoff (VP-012)
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { RouteKey, EngagementRecord } from '../../types';
 import { prototypeStore } from '../../store/prototypeStore';
 import { Icon } from '../common/Icons';
 import { formatCurrency } from '../../services/calculations';
 import { visibleClientIds, visibleEngagementIds } from '../../services/guards';
 import { InternalNotesPanel } from '../common/InternalNotesPanel';
+import { UnsavedFormGuard } from '../../services/unsavedFormGuard';
 
 interface EngagementsViewProps {
   onNavigate: (route: RouteKey) => void;
+  onBeforeContextChange: (run: () => void) => void;
+  onRegisterUnsavedForm: (guard: UnsavedFormGuard | null, key?: string) => void;
 }
 
-export const EngagementsView: React.FC<EngagementsViewProps> = ({ onNavigate }) => {
+export const EngagementsView: React.FC<EngagementsViewProps> = ({ onNavigate, onBeforeContextChange, onRegisterUnsavedForm }) => {
   const state = prototypeStore.getSnapshot();
   const visibleClients = visibleClientIds(state);
   const visibleEngagements = visibleEngagementIds(state);
@@ -36,6 +39,7 @@ export const EngagementsView: React.FC<EngagementsViewProps> = ({ onNavigate }) 
   const [partner, setPartner] = useState('Daniel James');
   const [fee, setFee] = useState(500000);
   const [proposalId, setProposalId] = useState('');
+  const newEngagementBaseline = useRef('');
   const acceptedProposals = state.proposals.filter(p => p.state === 'Accepted' && p.clientId && (visibleClients === 'ALL' || visibleClients.includes(p.clientId)) && p.clientResponse?.evidenceRef && p.presentedSnapshot?.revision === p.revision);
 
   const selectedEng = scopedEngagements.find(e => e.id === state.selectedEngagement) || scopedEngagements[0];
@@ -58,20 +62,56 @@ export const EngagementsView: React.FC<EngagementsViewProps> = ({ onNavigate }) 
     setEditTeam([...selectedEng.team]);
     setShowEditAdminModal(true);
   };
-  const saveAdminChanges = (event: React.FormEvent) => {
-    event.preventDefault();
-    if (!selectedEng) return;
+  const commitAdminChanges = (): boolean => {
+    if (!selectedEng) return false;
     try {
       prototypeStore.updateEngagement({ ...selectedEng, service: editService, year: editYear, period: editPeriod, due: editDue, manager: editManager, partner: editPartner, team: editTeam });
       setShowEditAdminModal(false);
-    } catch (error) { window.alert(error instanceof Error ? error.message : String(error)); }
+      return true;
+    } catch (error) { window.alert(error instanceof Error ? error.message : String(error)); return false; }
   };
+  const saveAdminChanges = (event: React.FormEvent) => { event.preventDefault(); commitAdminChanges(); };
   const assignedPeople = state.users.filter(user => {
     const visible = visibleEngagementIds(state, user.id);
     return user.status === 'Active' && user.group === 'Professional' && selectedEng && (visible === 'ALL' || visible.includes(selectedEng.id));
   });
   const engagementScopeChanged = Boolean(selectedEng && (editService !== selectedEng.service || editYear !== selectedEng.year || editPeriod !== selectedEng.period));
   const engagementTeamChanged = Boolean(selectedEng && (editManager !== selectedEng.manager || editPartner !== selectedEng.partner || JSON.stringify(editTeam) !== JSON.stringify(selectedEng.team)));
+
+  const newEngagementDraft = () => JSON.stringify({ clientId, service, year, manager, partner, fee, proposalId });
+  const discardNewEngagementDraft = () => {
+    if (!newEngagementBaseline.current) return;
+    const baseline = JSON.parse(newEngagementBaseline.current);
+    setClientId(baseline.clientId); setService(baseline.service); setYear(baseline.year);
+    setManager(baseline.manager); setPartner(baseline.partner); setFee(baseline.fee); setProposalId(baseline.proposalId);
+  };
+  const closeNewEngagement = () => onBeforeContextChange(() => setShowNewEngModal(false));
+  const closeEditEngagement = () => onBeforeContextChange(() => setShowEditAdminModal(false));
+
+  useEffect(() => {
+    if (!showNewEngModal) { onRegisterUnsavedForm(null, 'engagement-create'); return; }
+    onRegisterUnsavedForm({
+      label: 'new engagement draft',
+      isDirty: () => Boolean(newEngagementBaseline.current && newEngagementDraft() !== newEngagementBaseline.current),
+      save: () => commitNewEngagement(),
+      discard: discardNewEngagementDraft,
+    }, 'engagement-create');
+    return () => onRegisterUnsavedForm(null, 'engagement-create');
+  }, [showNewEngModal, clientId, service, year, manager, partner, fee, proposalId, onRegisterUnsavedForm]);
+
+  useEffect(() => {
+    if (!showEditAdminModal || !selectedEng) { onRegisterUnsavedForm(null, 'engagement-edit'); return; }
+    onRegisterUnsavedForm({
+      label: 'engagement administration draft',
+      isDirty: () => editService !== selectedEng.service || editYear !== selectedEng.year || editPeriod !== selectedEng.period || editDue !== selectedEng.due || editManager !== selectedEng.manager || editPartner !== selectedEng.partner || JSON.stringify(editTeam) !== JSON.stringify(selectedEng.team),
+      save: () => commitAdminChanges(),
+      discard: () => {
+        setEditService(selectedEng.service); setEditYear(selectedEng.year); setEditPeriod(selectedEng.period); setEditDue(selectedEng.due);
+        setEditManager(selectedEng.manager); setEditPartner(selectedEng.partner); setEditTeam([...selectedEng.team]);
+      },
+    }, 'engagement-edit');
+    return () => onRegisterUnsavedForm(null, 'engagement-edit');
+  }, [showEditAdminModal, selectedEng, editService, editYear, editPeriod, editDue, editManager, editPartner, editTeam, onRegisterUnsavedForm]);
 
   const steps = ['Acceptance', 'Planning', 'Production', 'Review', 'Release', 'Archive'];
   const currentStepIndex = selectedEng?.archive
@@ -86,10 +126,9 @@ export const EngagementsView: React.FC<EngagementsViewProps> = ({ onNavigate }) 
 
   if (!scopedEngagements.length) return <div className="panel panel-pad"><h2>No engagement access</h2><p className="sub mt8">No engagements are available under the active scope grant.</p></div>;
 
-  const handleCreateEngagement = (e: React.FormEvent) => {
-    e.preventDefault();
+  const commitNewEngagement = (): boolean => {
     const proposal = state.proposals.find(item => item.id === proposalId);
-    if (proposalId && !acceptedProposals.some(item => item.id === proposalId)) { window.alert('Select a currently accepted proposal with client response evidence.'); return; }
+    if (proposalId && !acceptedProposals.some(item => item.id === proposalId)) { window.alert('Select a currently accepted proposal with client response evidence.'); return false; }
     const newId = `ENG-2600${state.engagements.length + 1}`;
     const newEng: EngagementRecord = {
       id: newId,
@@ -138,9 +177,10 @@ export const EngagementsView: React.FC<EngagementsViewProps> = ({ onNavigate }) 
       events: []
     };
 
-    try { prototypeStore.addEngagement(newEng); setShowNewEngModal(false); setProposalId(''); }
-    catch (error: any) { window.alert(error.message); }
+    try { prototypeStore.addEngagement(newEng); setShowNewEngModal(false); setProposalId(''); return true; }
+    catch (error: any) { window.alert(error.message); return false; }
   };
+  const handleCreateEngagement = (event: React.FormEvent) => { event.preventDefault(); commitNewEngagement(); };
 
   return (
     <div className="stack" style={{ gap: 20 }}>
@@ -149,7 +189,7 @@ export const EngagementsView: React.FC<EngagementsViewProps> = ({ onNavigate }) 
           <h1>Engagements</h1>
           <p>One legal scope, one reporting period, one accountable team.</p>
         </div>
-        <button className="btn primary sm" onClick={() => setShowNewEngModal(true)}>
+        <button className="btn primary sm" onClick={() => { newEngagementBaseline.current = newEngagementDraft(); setShowNewEngModal(true); }}>
           <Icon name="plus" /> New Engagement
         </button>
       </div>
@@ -211,9 +251,9 @@ export const EngagementsView: React.FC<EngagementsViewProps> = ({ onNavigate }) 
       )}
 
       {showEditAdminModal && selectedEng && (
-        <div className="modal-backdrop" onClick={() => setShowEditAdminModal(false)}>
+        <div className="modal-backdrop" onClick={event => { if (event.target === event.currentTarget) closeEditEngagement(); }}>
           <form className="modal" style={{ maxWidth: 620 }} onSubmit={saveAdminChanges} onClick={event => event.stopPropagation()}>
-            <div className="modal-head"><h2>Edit Engagement Details</h2><button type="button" className="icon-btn" onClick={() => setShowEditAdminModal(false)}>✕</button></div>
+            <div className="modal-head"><h2>Edit Engagement Details</h2><button type="button" className="icon-btn" onClick={closeEditEngagement}>✕</button></div>
             <div className="modal-body stack" style={{ gap: 12 }}>
               <div className="grid2"><label>Service scope<select aria-label="Engagement service" className="input" value={editService} onChange={event => setEditService(event.target.value)}>{[...new Set(state.engagements.map(engagement => engagement.service))].sort().map(service => <option key={service}>{service}</option>)}</select></label><label>Reporting year<input aria-label="Engagement reporting year" className="input" type="number" min="1900" max="2100" value={editYear} onChange={event => setEditYear(Number(event.target.value))} required /></label></div>
               <label>Reporting period<input aria-label="Engagement reporting period" className="input" value={editPeriod} onChange={event => setEditPeriod(event.target.value)} required /></label>
@@ -228,7 +268,7 @@ export const EngagementsView: React.FC<EngagementsViewProps> = ({ onNavigate }) 
                {engagementTeamChanged && <div className="borderbox mt8" role="status" style={{ borderColor: '#d97706', background: '#fffbeb' }}><b>Team change impact</b><p>Saving will supersede the active audit-plan review and require reassessment of performed procedures. Existing records stay linked to this engagement; access is still checked for every assigned person.</p></div>}
                <p className="sub">Any saved administration change is recorded in history and invalidates prior release approvals.</p>
             </div>
-            <div className="modal-foot"><button type="button" className="btn sm ghost" onClick={() => setShowEditAdminModal(false)}>Cancel</button><button type="submit" className="btn sm primary">Save Engagement Details</button></div>
+            <div className="modal-foot"><button type="button" className="btn sm ghost" onClick={closeEditEngagement}>Cancel</button><button type="submit" className="btn sm primary">Save Engagement Details</button></div>
           </form>
         </div>
       )}
@@ -317,11 +357,11 @@ export const EngagementsView: React.FC<EngagementsViewProps> = ({ onNavigate }) 
 
       {/* Create Engagement Modal */}
       {showNewEngModal && (
-        <div className="modal-backdrop" onClick={() => setShowNewEngModal(false)}>
+        <div className="modal-backdrop" onClick={event => { if (event.target === event.currentTarget) closeNewEngagement(); }}>
           <div className="modal" style={{ maxWidth: 520 }} onClick={e => e.stopPropagation()}>
             <div className="modal-head">
               <h2>Launch New Engagement</h2>
-              <button className="icon-btn" onClick={() => setShowNewEngModal(false)}>✕</button>
+              <button className="icon-btn" onClick={closeNewEngagement}>✕</button>
             </div>
             <form onSubmit={handleCreateEngagement}>
               <div className="modal-body stack" style={{ gap: 12 }}>
@@ -399,7 +439,7 @@ export const EngagementsView: React.FC<EngagementsViewProps> = ({ onNavigate }) 
                 </div>
               </div>
               <div className="modal-foot">
-                <button type="button" className="btn ghost sm" onClick={() => setShowNewEngModal(false)}>Cancel</button>
+                <button type="button" className="btn ghost sm" onClick={closeNewEngagement}>Cancel</button>
                 <button type="submit" className="btn primary sm">Create Engagement</button>
               </div>
             </form>
