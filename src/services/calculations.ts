@@ -503,20 +503,20 @@ export function verifyGLCompleteness(
 export function calculateReconciliationVariance(rec: ReconciliationSchedule) {
   const items = rec.items || [];
   // Proposed corrections cannot clear timing residual (EX09)
-  const timingItems = items.filter(i => {
-    const t = (i as any).type || (i as any).itemType;
-    return t !== 'correction' && !(i as any).isCorrection;
-  });
-  const proposedCorrections = items.filter(i => {
-    const t = (i as any).type || (i as any).itemType;
-    return t === 'correction' || (i as any).isCorrection;
+  const isProposedCorrection = (item: (typeof items)[number]) => {
+    const type = String((item as any).type || (item as any).itemType || '').trim().toLowerCase();
+    return type === 'correction' || type === 'proposed correction' || Boolean((item as any).isCorrection);
+  };
+  const timingItems = items.filter(item => !isProposedCorrection(item));
+  const proposedCorrections = items.filter(item => {
+    return isProposedCorrection(item);
   });
 
   const timingSum = timingItems.reduce((s, i) => s + (i.amount || 0), 0);
   const correctionSum = proposedCorrections.reduce((s, i) => s + (i.amount || 0), 0);
 
-  const statementBal = (rec as any).statementBalance ?? (rec as any).statementClosingBalance ?? 0;
-  const glBal = (rec as any).glBalance ?? (rec as any).glClosingBalance ?? 0;
+  const statementBal = (rec as any).statementBalance ?? (rec as any).supportingBalance ?? (rec as any).statementClosingBalance ?? 0;
+  const glBal = (rec as any).glBalance ?? (rec as any).sourceBalance ?? (rec as any).glClosingBalance ?? 0;
 
   // Reconciled variance uses only genuine timing items against statement balance
   const diff = Math.abs(statementBal + timingSum - glBal);

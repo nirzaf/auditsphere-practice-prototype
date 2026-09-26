@@ -352,13 +352,25 @@ describe('Reconciliation variance tests (EX09)', () => {
       statementBalance: 1000,
       glBalance: 1100,
       items: [
-        { type: 'correction', amount: 100, description: 'Proposed bank fee adjustment' }
+        { type: 'correction', amount: 100, description: 'Legacy proposed bank fee adjustment' },
+        { type: 'Proposed correction', amount: 100, description: 'UI proposed bank fee adjustment' }
       ]
     };
     const res = calculateReconciliationVariance(recSchedule);
     // Proposed correction must not be counted as a timing item to artificially clear the residual
     assert.equal(res.unexplainedDifference, 100);
+    assert.equal(res.timingSum, 0);
+    assert.equal(res.correctionSum, 200);
     assert.equal(res.isReconciled, false);
+
+    const signedTiming = calculateReconciliationVariance({
+      supportingBalance: 1100,
+      sourceBalance: 1000,
+      items: [{ type: 'Timing item', amount: -100, description: 'Outstanding payment' }]
+    } as any);
+    assert.equal(signedTiming.timingSum, -100);
+    assert.equal(signedTiming.unexplainedDifference, 0);
+    assert.equal(signedTiming.isReconciled, true, 'negative signed timing values reconcile using the documented statement-plus-timing convention and legacy source/supporting aliases');
   });
 });
 

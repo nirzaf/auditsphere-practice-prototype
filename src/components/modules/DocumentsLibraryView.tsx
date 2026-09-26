@@ -292,7 +292,7 @@ export const DocumentsLibraryView: React.FC<DocumentsLibraryViewProps> = ({ onNa
                 <div className="info-grid mt12">
                   <div><label>Classification</label><span>{previewDoc.classification}</span></div>
                   <div><label>Storage Source</label><span>{previewDoc.source}</span></div>
-                  <div><label>SHA-256</label><span className="mono" style={{ fontSize: 10 }}>{previewDoc.sha ? `${previewDoc.sha.slice(0, 24)}…` : 'Not available for sample metadata'}</span></div>
+                  <div><label>SHA-256</label><span className="mono" style={{ fontSize: 11 }}>{previewDoc.sha ? `${previewDoc.sha.slice(0, 24)}…` : 'Not available for sample metadata'}</span></div>
                   <div><label>Uploaded By</label><span>{previewDoc.uploadedBy}</span></div>
                   <div><label>Uploaded Date</label><span>{new Date(previewDoc.uploadedAt).toLocaleDateString('en-GB')}</span></div>
                   <div><label>Client Visibility</label><span>{previewDoc.visibility}</span></div>

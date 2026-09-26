@@ -132,7 +132,7 @@ export const EvidenceCatalogueView: React.FC<EvidenceCatalogueViewProps> = ({ on
                     <div className="cell-sub">Pinned v{item.version}{pinnedDocument(item.documentId)?.brokenLink && <span className="tag red" role="status"> Reference unavailable</span>}{(latestDocument(item.documentId)?.version ?? item.version) > item.version && <span className="tag amber"> Newer version available</span>}</div>
                   </td>
                   <td>{item.provider || item.owner}</td>
-                  <td><span className="mono" style={{ fontSize: 10 }}>{item.sha ? `${item.sha.slice(0, 16)}…` : 'No file digest recorded'}</span></td>
+                  <td><span className="mono" style={{ fontSize: 11 }}>{item.sha ? `${item.sha.slice(0, 16)}…` : 'No file digest recorded'}</span></td>
                   <td>
                     {(item.linkedProcedures || []).map((p: string) => (
                       <span key={p} className="tag gray" style={{ marginRight: 4 }}>{p} <button className="btn sm ghost" aria-label={`Unlink ${p} from ${item.id}`} onClick={() => handleUnlink(item.id, p)}>×</button></span>

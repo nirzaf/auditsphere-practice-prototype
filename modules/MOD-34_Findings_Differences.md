@@ -16,7 +16,7 @@ Scoped qualitative/monetary findings, sample promotion and correction decisions 
 
 ## Remaining work / demonstration limit
 
-Complete reopen/waive/corrected/uncorrected and reporting/release re-evaluation matrices.
+Complete reopen/waive/uncorrected and reporting/release re-evaluation matrices. The Corrected-in-TB disposition is reachable live: link the finding to a management-accepted journal recorded as Reporting included at the current trial-balance revision, then record the disposition with its rationale.
 
 ## How to demonstrate this module
 

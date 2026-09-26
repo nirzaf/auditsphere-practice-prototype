@@ -975,6 +975,8 @@ export const AccountingWorkbenchView: React.FC<AccountingWorkbenchViewProps> = (
           )}
           {(selectedEng.reconciliations || []).map((rec: any) => {
             const variance = calculateReconciliationVariance(rec);
+            const glRollForward = glVerify.checks.find(check => check.accountCode === rec.accountCode);
+            const hasOpeningBalance = Boolean(glRollForward && !glRollForward.missingOpening && !glRollForward.unmatchedAccount);
             return (
               <div key={rec.id || rec.ref} className="panel panel-pad">
                 <div className="between">
@@ -982,14 +984,17 @@ export const AccountingWorkbenchView: React.FC<AccountingWorkbenchViewProps> = (
                     <h3>{rec.title || rec.name}</h3>
                     <div className="cell-sub">Reconciliation Ref: {rec.id || rec.ref} · Account: {rec.accountCode || 'N/A'} · {rec.currency || selectedEng.currency} · As of {rec.asOfDate || selectedEng.period} · Source v{rec.sourceVersion ?? selectedEng.sourceVersion}</div>
                   </div>
-                  <div className="stack"><span className={`badge ${rec.status === 'Approved' || rec.status === 'Cleared' ? 'green' : rec.status === 'Stale' ? 'red' : 'amber'}`}>{rec.status}</span><span className={`badge ${variance.isReconciled ? 'green' : 'amber'}`}>{variance.isReconciled ? 'Reconciled (Residual 0.00)' : `Unexplained Diff: ${formatCurrency(variance.unexplainedDifference)}`}</span></div>
+                  <div className="stack"><span className={`badge ${rec.status === 'Approved' || rec.status === 'Cleared' ? 'green' : rec.status === 'Stale' ? 'red' : 'amber'}`}>{rec.status}</span><span className={`badge ${variance.isReconciled ? 'green' : 'amber'}`}>{variance.isReconciled ? `Reconciled (Residual ${formatCurrency(0, rec.currency || selectedEng.currency)})` : `Unexplained Diff: ${formatCurrency(variance.unexplainedDifference, rec.currency || selectedEng.currency)}`}</span></div>
                 </div>
 
                 <div className="info-grid mt16">
-                  <div><label>General Ledger Balance</label><b>{formatCurrency(rec.glBalance || rec.sourceBalance || 0)}</b></div>
-                  <div><label>External Statement Balance</label><b>{formatCurrency(rec.statementBalance || rec.supportingBalance || 0)}</b></div>
-                  <div><label>Total Timing Adjustments</label><span>{formatCurrency(variance.timingSum)}</span></div>
-                  <div><label>Unexplained Variance</label><b>{formatCurrency(variance.unexplainedDifference)}</b></div>
+                  <div><label>General Ledger Balance</label><b>{formatCurrency(rec.glBalance ?? rec.sourceBalance ?? 0, rec.currency || selectedEng.currency)}</b></div>
+                  <div><label>External Statement Balance</label><b>{formatCurrency(rec.statementBalance ?? rec.supportingBalance ?? 0, rec.currency || selectedEng.currency)}</b></div>
+                  <div><label>Total Timing Adjustments</label><span>{formatCurrency(variance.timingSum, rec.currency || selectedEng.currency)}</span></div>
+                  <div><label>Unexplained Variance</label><b>{formatCurrency(variance.unexplainedDifference, rec.currency || selectedEng.currency)}</b></div>
+                  <div><label>GL Opening Balance</label><span>{hasOpeningBalance ? formatCurrency(glRollForward!.openingBalance, rec.currency || selectedEng.currency) : 'Unknown (no explicit opening balance)'}</span></div>
+                  <div><label>GL Net Movement</label><span>{glRollForward ? formatCurrency(glRollForward.netMovement, rec.currency || selectedEng.currency) : 'Unavailable'}</span></div>
+                  <div><label>GL Calculated Closing Balance</label><span>{hasOpeningBalance ? formatCurrency(glRollForward!.calculatedClosing, rec.currency || selectedEng.currency) : 'Unknown'}</span></div>
                 </div>
 
                 <h4 className="mt16">Timing / Reconciling Items</h4>
@@ -999,7 +1004,7 @@ export const AccountingWorkbenchView: React.FC<AccountingWorkbenchViewProps> = (
                       <tr>
                         <th>Description</th>
                         <th>Type</th>
-                        <th>Amount (QAR)</th>
+                        <th>Amount ({rec.currency || selectedEng.currency})</th>
                         <th>Evidence / Journal</th>
                         <th>Clearance Date</th>
                       </tr>
@@ -1009,7 +1014,7 @@ export const AccountingWorkbenchView: React.FC<AccountingWorkbenchViewProps> = (
                         <tr key={item.id}>
                           <td>{item.description}</td>
                           <td>{item.type}</td>
-                          <td><b>{formatCurrency(item.amount)}</b></td>
+                          <td><b>{formatCurrency(item.amount, item.currency || rec.currency || selectedEng.currency)}</b></td>
                           <td>{item.evidenceDoc || 'Missing evidence'}{item.type === 'Proposed correction' && ` · ${item.journalId || 'No journal linked'}`}</td>
                           <td>{item.clearedDate || 'Outstanding'}</td>
                         </tr>

@@ -1,7 +1,7 @@
 // AuditSphere Layout Shell
 // Sidebar, Topbar, Scenario Switcher, Search Modal, and Notifications
 
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { RouteKey, RoleKey } from '../../types';
 import { prototypeStore } from '../../store/prototypeStore';
 import { canOpenRoute, canReadSearchRecord, visibleClientIds, visibleEngagementIds, isClientRole } from '../../services/guards';
@@ -73,9 +73,9 @@ export const Shell: React.FC<ShellProps> = ({ currentRoute, onRouteChange, onSel
     document.addEventListener('keydown', onKeyDown);
     return () => document.removeEventListener('keydown', onKeyDown);
   }, [mobileMenuOpen]);
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!showSearchModal) return;
-    window.requestAnimationFrame(() => searchInput.current?.focus());
+    searchInput.current?.focus();
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
         event.preventDefault();
@@ -415,7 +415,7 @@ export const Shell: React.FC<ShellProps> = ({ currentRoute, onRouteChange, onSel
           <span className="firmavatar">STE</span>
           <span>
             <b>STE Audit & Accounting</b>
-            <div style={{ fontSize: '9px', color: '#789598', marginTop: '1px' }}>
+            <div style={{ fontSize: '10.5px', color: '#5d7175', marginTop: '1px' }}>
               Practice Workspace · Doha, Qatar
             </div>
           </span>

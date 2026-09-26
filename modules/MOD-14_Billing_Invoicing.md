@@ -12,7 +12,7 @@
 
 ## What already exists
 
-Approved-time/fixed-fee invoice sources, reservations, review/issue and partial credits exist.
+Approved-time/fixed-fee invoice sources, reservations, review/issue and partial credits exist. Drafts pre-fill the invoice/credit number from the saved firm-settings prefix and next number (the counter advances exactly once when that number is consumed; duplicates are rejected) and the due date from the saved payment terms. Source-linked drafts can be revised through Edit/Revise with the pinned time/fixed-fee lines carried byte-identically, and reviewer returns record a mandatory note that clears on rework or approval.
 
 ## Remaining work / demonstration limit
 

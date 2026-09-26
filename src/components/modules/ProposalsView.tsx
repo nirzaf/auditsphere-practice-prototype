@@ -109,27 +109,41 @@ export const ProposalsView: React.FC<ProposalsViewProps> = ({ onNavigate, onRegi
     setProposalTitle(template.title); setProposalScope(template.scope); setProposalExclusions(template.exclusions); setProposalDeliverables(template.deliverables); setProposalResponsibilities(template.clientResponsibilities); setProposalDependencies(template.dependencies); setProposalPeriod(template.period); setProposalPeriodStart(template.periodStart || ''); setProposalPeriodEnd(template.periodEnd || ''); setProposalFeeModel(template.feeModel); setProposalQuantity(template.quantity); setProposalRate(template.rate); setProposalAmount(template.feeModel === 'Fixed' ? template.rate : template.quantity * template.rate); setProposalCurrency(template.currency); setProposalTerms(template.terms); setProposalServiceId(template.serviceId); setProposalServiceRevision(template.serviceRevision);
   };
 
-  const persistServiceDefinition = () => {
-    if (!serviceDraft) return;
+  const persistServiceDefinition = (): boolean => {
+    if (!serviceDraft) return true;
     const current = prototypeStore.getSnapshot();
     const services = current.proposalServices || [];
-    if (!serviceDraft.name.trim() || !serviceDraft.scope.trim() || !serviceDraft.deliverables.trim() || !serviceDraft.periodStart || !serviceDraft.periodEnd || serviceDraft.periodStart > serviceDraft.periodEnd || !Number.isFinite(serviceDraft.rate) || serviceDraft.rate < 0 || !Number.isFinite(serviceDraft.quantity) || serviceDraft.quantity <= 0) { setNotice({ type: 'error', text: 'Service requires a name, scope, deliverables, valid start and end dates, positive quantity and nonnegative rate.' }); return; }
+    if (!serviceDraft.name.trim() || !serviceDraft.scope.trim() || !serviceDraft.deliverables.trim() || !serviceDraft.periodStart || !serviceDraft.periodEnd || serviceDraft.periodStart > serviceDraft.periodEnd || !Number.isFinite(serviceDraft.rate) || serviceDraft.rate < 0 || !Number.isFinite(serviceDraft.quantity) || serviceDraft.quantity <= 0) { setNotice({ type: 'error', text: 'Service requires a name, scope, deliverables, valid start and end dates, positive quantity and nonnegative rate.' }); return false; }
     const next = { ...serviceDraft, name: serviceDraft.name.trim(), revision: (services.find(item => item.id === serviceDraft.id)?.revision || 0) + 1 };
     try { prototypeStore.saveProposalService(next, services.find(item => item.id === next.id)?.revision); }
-    catch (error) { setNotice({ type: 'error', text: error instanceof Error ? error.message : String(error) }); return; }
+    catch (error) { setNotice({ type: 'error', text: error instanceof Error ? error.message : String(error) }); return false; }
     setEditingServiceId(null); setServiceDraft(null);
+    return true;
   };
 
-  const persistProposalTemplate = () => {
-    if (!templateDraft) return;
+  const persistProposalTemplate = (): boolean => {
+    if (!templateDraft) return true;
     const current = prototypeStore.getSnapshot();
     const templates = current.proposalTemplates || [];
-    if (!templateDraft.name.trim() || !templateDraft.title.trim() || !templateDraft.scope.trim() || !templateDraft.deliverables.trim() || !templateDraft.period.trim() || !templateDraft.periodStart || !templateDraft.periodEnd || templateDraft.periodStart > templateDraft.periodEnd || !templateDraft.terms.trim() || !Number.isFinite(templateDraft.quantity) || templateDraft.quantity <= 0 || !Number.isFinite(templateDraft.rate) || templateDraft.rate < 0) { setNotice({ type: 'error', text: 'Template requires title, scope, deliverables, valid period dates, terms, positive quantity and nonnegative rate.' }); return; }
+    if (!templateDraft.name.trim() || !templateDraft.title.trim() || !templateDraft.scope.trim() || !templateDraft.deliverables.trim() || !templateDraft.period.trim() || !templateDraft.periodStart || !templateDraft.periodEnd || templateDraft.periodStart > templateDraft.periodEnd || !templateDraft.terms.trim() || !Number.isFinite(templateDraft.quantity) || templateDraft.quantity <= 0 || !Number.isFinite(templateDraft.rate) || templateDraft.rate < 0) { setNotice({ type: 'error', text: 'Template requires title, scope, deliverables, valid period dates, terms, positive quantity and nonnegative rate.' }); return false; }
     const next = { ...templateDraft, name: templateDraft.name.trim(), revision: (templates.find(item => item.id === templateDraft.id)?.revision || 0) + 1 };
     try { prototypeStore.saveProposalTemplate(next, templates.find(item => item.id === next.id)?.revision); }
-    catch (error) { setNotice({ type: 'error', text: error instanceof Error ? error.message : String(error) }); return; }
+    catch (error) { setNotice({ type: 'error', text: error instanceof Error ? error.message : String(error) }); return false; }
     setEditingTemplateId(null); setTemplateDraft(null);
+    return true;
   };
+
+  useEffect(() => {
+    if (!onRegisterUnsavedForm) return;
+    onRegisterUnsavedForm({ label: 'supported service draft', isDirty: () => Boolean(serviceDraft), save: persistServiceDefinition, discard: () => { setEditingServiceId(null); setServiceDraft(null); } }, 'proposal-service-catalogue');
+    return () => onRegisterUnsavedForm(null, 'proposal-service-catalogue');
+  }, [onRegisterUnsavedForm, serviceDraft]);
+
+  useEffect(() => {
+    if (!onRegisterUnsavedForm) return;
+    onRegisterUnsavedForm({ label: 'proposal content template draft', isDirty: () => Boolean(templateDraft), save: persistProposalTemplate, discard: () => { setEditingTemplateId(null); setTemplateDraft(null); } }, 'proposal-content-template');
+    return () => onRegisterUnsavedForm(null, 'proposal-content-template');
+  }, [onRegisterUnsavedForm, templateDraft]);
 
   useEffect(() => {
     if (!onRegisterUnsavedForm) return;

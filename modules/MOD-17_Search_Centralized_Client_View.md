@@ -22,7 +22,7 @@ Complete all persona/record/unavailable target permutations and return navigatio
 
 These are source-derived rehearsal instructions. Exact final labels and pending controls must be checked against the current build; they are not a record of browser actions executed during this review. Where a required control remains pending, show its limitation or defer that step—do not simulate a successful business outcome.
 
-1. Open **Search** from the shell and enter a known synthetic client/job/task/document code; the query field receives focus.
+1. Open **Global search** from the shell search control and enter a known synthetic client/job/task/document code; the query field receives focus.
 2. Filter by result type and permitted client/engagement context; confirm the option list itself only offers permitted contexts.
 3. Open a result and verify both the record highlight and the active engagement.
 4. Dismiss with Escape or the backdrop and check focus returns to the opener; open a result while a draft is dirty and the shared Save/Discard/Stay decision appears first.

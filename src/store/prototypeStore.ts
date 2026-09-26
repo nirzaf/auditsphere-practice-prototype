@@ -16,6 +16,8 @@ const STORAGE_BACKUP_KEY = 'ste-auditsphere-role-portals-v2.backup';
 
 const isValidMoney = (amount: number, allowZero = false) =>
   Number.isFinite(amount) && (allowZero ? amount >= 0 : amount > 0) && Math.round(amount * 100) === amount * 100;
+const isActiveClientContact = (state: PrototypeState, clientId: string, name: string) =>
+  state.contacts.some(contact => contact.clientId === clientId && contact.active && contact.name.trim().toLocaleLowerCase() === name.trim().toLocaleLowerCase());
 
 const isSampleFrameReconciled = (state: PrototypeState, population: PrototypeState['samplePopulations'][number]) => {
   const engagement = state.engagements.find(item => item.id === population.engagementId);
@@ -3667,6 +3669,7 @@ class PrototypeStore {
     if (!eng) return;
     if (!request.id?.trim() || this.state.engagements.some(e => e.pbc.some(p => p.id === request.id))) throw new GuardError('INVALID_STATE', 'PBC request ID must be unique.');
     if (!request.title || !request.title.trim() || !request.category.trim() || !request.owner.trim() || !request.contributor?.trim()) throw new GuardError('INVALID_STATE', 'Request title, category, owner and client recipient are required.');
+    if (!isActiveClientContact(this.state, eng.client, request.contributor)) throw new GuardError('FORBIDDEN_SCOPE', 'Client recipient must be an active contact assigned to this client.');
     eng.pbc.unshift({ ...request, status: 'Draft', version: 1 });
     this.invalidateReleaseBasis(eng);
     this.logEvent(`PBC request drafted: ${request.title}`, request.id);
@@ -3702,6 +3705,7 @@ class PrototypeStore {
     const req = eng?.pbc.find(r => r.id === requestId);
     if (!eng || !req) throw new GuardError('INVALID_STATE', `PBC request "${requestId}" was not found.`);
     if (!req.title.trim() || !req.owner.trim() || !req.contributor?.trim()) throw new GuardError('INVALID_STATE', 'A title, owner, and client recipient are required before presentation.');
+    if (!isActiveClientContact(this.state, eng.client, req.contributor)) throw new GuardError('FORBIDDEN_SCOPE', 'Client recipient must be an active contact assigned to this client before presentation.');
     if (req.status !== 'Draft') throw new GuardError('INVALID_STATE', 'Only draft requests can be presented.');
     req.status = 'Requested';
     req.requestedBy = this.state.currentPerson;
@@ -3738,7 +3742,7 @@ class PrototypeStore {
 
   // --- PBC request lifecycle (VP-023): edits and cancellation retain identity,
   // attribution and prior submissions; cancellation is terminal but never deletes.
-  public updatePbcRequest(engId: string, requestId: string, changes: { title?: string; description?: string; due?: string; owner?: string }, reason: string) {
+  public updatePbcRequest(engId: string, requestId: string, changes: { title?: string; description?: string; due?: string; owner?: string; contributor?: string }, reason: string) {
     requireActiveIdentity(this.state);
     requireRole(this.state, ['manager', 'preparer', 'reviewer', 'partner'], 'edit client information requests');
     requireEngagementScope(this.state, engId);
@@ -3765,11 +3769,15 @@ class PrototypeStore {
     }
     if (changes.owner !== undefined) {
       const owner = changes.owner.trim();
-      if (!owner) throw new GuardError('INVALID_STATE', 'The client recipient cannot be empty.');
-      const client = this.state.clients.find(item => item.id === eng.client);
-      const authorized = this.state.contacts.some(contact => contact.clientId === eng.client && contact.active && contact.name.trim().toLocaleLowerCase() === owner.toLocaleLowerCase()) || owner.toLocaleLowerCase() === client?.contact?.trim().toLocaleLowerCase();
-      if (!authorized) throw new GuardError('FORBIDDEN_SCOPE', 'Recipient must be an active contact assigned to this client.');
-      if (owner !== req.owner) { req.owner = owner; changed.push('client recipient'); }
+      if (!owner) throw new GuardError('INVALID_STATE', 'The request owner cannot be empty.');
+      if (owner !== req.owner) { req.owner = owner; changed.push('request owner'); }
+    }
+    if (changes.contributor !== undefined) {
+      const contributor = changes.contributor.trim();
+      if (!contributor) throw new GuardError('INVALID_STATE', 'The client recipient cannot be empty.');
+      if (!isActiveClientContact(this.state, eng.client, contributor)) throw new GuardError('FORBIDDEN_SCOPE', 'Recipient must be an active contact assigned to this client.');
+      const authorizedContact = this.state.contacts.find(contact => contact.clientId === eng.client && contact.active && contact.name.trim().toLocaleLowerCase() === contributor.toLocaleLowerCase());
+      if (contributor !== req.contributor) { req.contributor = authorizedContact!.name; changed.push('client recipient'); }
     }
     if (!changed.length) throw new GuardError('INVALID_STATE', 'No changes were entered.');
     req.thread = req.thread || [];

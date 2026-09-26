@@ -68,6 +68,7 @@ describe('scope guards (AT-18)', () => {
 describe('prototype superuser access', () => {
   it('opens every route, sees every client, engagement and supported consolidation group', () => {
     setPersona(state, 'AuditSphere Superuser');
+    state.roleGrants = state.roleGrants.filter(grant => grant.userId !== 'superuser');
     const routes = ['overview','clients','client-detail','acquisition','proposals','engagements','jobs','job-templates','documents','communications','my-time','budgets','billing','receivables','accounting-setup','trial-balance','gl-transactions','account-mappings','adjustments','reconciliations','financial-statements','financial-packages','consolidation','onboarding','audit-planning','audit-risks','audit-fieldwork','sampling','audit','evidence','findings','reviews','approvals','quality','delivery','records','reports','search','administration','m365-setup','portal','services','role-guide','module-guide','requirements'] as const;
     assert.ok(routes.every(route => canOpenRoute('superuser', route)), 'every declared product route is available');
     assert.deepEqual(visibleClientIds(state), 'ALL');
@@ -266,10 +267,15 @@ describe('reconciliation schedules (VP-039)', () => {
     const account = engagement.rows.find(row => row.code === '1000')!;
     state.currentUserId = 'manager'; state.currentRole = 'manager'; state.currentPerson = 'Layla Rahman';
     const input = { name: 'VP-039 schedule', ref: 'REC-VP039', accountCode: account.code, status: 'Draft' as const, evidence: 'DOC-002', asOfDate: state.asOfDate, sourceVersion: engagement.sourceVersion, statementBalance: account.balance, items: [] };
+    const schedulesBeforeInvalidSaves = structuredClone(engagement.reconciliations);
     assert.throws(() => prototypeStore.saveReconciliationSchedule(engagement.id, { ...input, asOfDate: '2026-02-30' }), /valid as-of date/);
+    assert.throws(() => prototypeStore.saveReconciliationSchedule(engagement.id, { ...input, asOfDate: '2026-01-01', items: [{ id: 'RI-BEFORE-ASOF', date: '2026-01-02', description: 'After as-of date', amount: 1, type: 'Timing item' }] }), /dated in-scope items/);
     assert.throws(() => prototypeStore.saveReconciliationSchedule(engagement.id, { ...input, items: [{ id: 'RI-FUTURE', date: '2099-01-01', description: 'Out of period', amount: 1, type: 'Timing item' }] }), /dated in-scope items/);
     assert.throws(() => prototypeStore.saveReconciliationSchedule(engagement.id, { ...input, items: [{ id: 'RI-IMPOSSIBLE', date: '2026-02-30', description: 'Impossible date', amount: 1, type: 'Timing item' }] }), /dated in-scope items/);
     assert.throws(() => prototypeStore.saveReconciliationSchedule(engagement.id, { ...input, items: [{ id: 'RI-USD', date: state.asOfDate, description: 'Wrong currency', amount: 1, type: 'Timing item', currency: 'USD' }] }), /engagement currency/);
+    assert.throws(() => prototypeStore.saveReconciliationSchedule(engagement.id, { ...input, items: [{ id: 'RI-NAN', date: state.asOfDate, description: 'Non-finite amount', amount: Number.NaN, type: 'Timing item' }] }), /finite balances and complete/);
+    assert.throws(() => prototypeStore.saveReconciliationSchedule(engagement.id, { ...input, items: [{ id: 'RI-DUP', date: state.asOfDate, description: 'Duplicate item', amount: 1, type: 'Timing item' }, { id: 'RI-DUP', date: state.asOfDate, description: 'Duplicate item', amount: 2, type: 'Timing item' }] }), /complete, dated in-scope items/);
+    assert.deepEqual(engagement.reconciliations, schedulesBeforeInvalidSaves, 'invalid date, currency and amount combinations do not partially persist a schedule');
     const id = prototypeStore.saveReconciliationSchedule(engagement.id, input);
     let schedule = engagement.reconciliations.find(item => item.id === id)!;
     assert.equal(schedule.glBalance, account.balance);
@@ -278,6 +284,14 @@ describe('reconciliation schedules (VP-039)', () => {
     state.currentUserId = 'reviewer'; state.currentRole = 'reviewer'; state.currentPerson = 'Sara Malik';
     schedule.evidence = 'DOC-OUT-OF-SCOPE';
     assert.throws(() => prototypeStore.reviewReconciliationSchedule(engagement.id, id, 'Approved'), /in-scope evidence/);
+    const foreignEvidence = { ...structuredClone(state.documents.find(document => document.id === 'DOC-002')!), id: 'DOC-VP039-FOREIGN', clientId: 'CL-002', engagementId: engagement.id };
+    state.documents.push(foreignEvidence);
+    schedule.evidence = foreignEvidence.id;
+    assert.throws(() => prototypeStore.reviewReconciliationSchedule(engagement.id, id, 'Approved'), /in-scope evidence/, 'evidence owned by another client cannot satisfy the schedule header');
+    const siblingEngagementEvidence = { ...structuredClone(state.documents.find(document => document.id === 'DOC-002')!), id: 'DOC-VP039-SIBLING-ENG', clientId: engagement.client, engagementId: 'ENG-26003' };
+    state.documents.push(siblingEngagementEvidence);
+    schedule.evidence = siblingEngagementEvidence.id;
+    assert.throws(() => prototypeStore.reviewReconciliationSchedule(engagement.id, id, 'Approved'), /in-scope evidence/, 'same-client evidence pinned to a sibling engagement cannot satisfy the schedule header');
     schedule.evidence = 'DOC-002';
     schedule.items = [{ id: 'RI-NO-EVIDENCE', date: state.asOfDate, description: 'Unexplained timing item', amount: 0, type: 'Timing item' }];
     assert.throws(() => prototypeStore.reviewReconciliationSchedule(engagement.id, id, 'Approved'), /Every reconciliation reference must resolve to in-scope evidence/);
@@ -289,6 +303,18 @@ describe('reconciliation schedules (VP-039)', () => {
     assert.throws(() => prototypeStore.reviewReconciliationSchedule(engagement.id, id, 'Approved'), /in-scope evidence/);
     schedule.items[0].evidenceDoc = 'DOC-002';
     assert.throws(() => prototypeStore.reviewReconciliationSchedule(engagement.id, id, 'Approved'), /proposed corrections must link/);
+    const linkedJournal = state.adjustmentJournals.find(journal => journal.engagementId === engagement.id);
+    assert.ok(linkedJournal, 'fixture provides an engagement-scoped reporting journal');
+    schedule.items = [{ id: 'RI-LINKED-CORR', date: state.asOfDate, description: 'Linked proposed correction', amount: 10, type: 'Proposed correction', evidenceDoc: 'DOC-002', journalId: linkedJournal.id }];
+    schedule.statementBalance = account.balance - 10;
+    assert.throws(() => prototypeStore.reviewReconciliationSchedule(engagement.id, id, 'Approved'), /residual .* blocks approval/, 'a correctly linked proposed correction still cannot conceal the timing residual');
+    assert.equal(schedule.status, 'Draft', 'failed approval leaves the linked-correction schedule in Draft');
+    schedule.statementBalance = account.balance;
+    schedule.items = [{ id: 'RI-FOREIGN-EVIDENCE', date: state.asOfDate, description: 'Foreign support', amount: 1, type: 'Timing item', evidenceDoc: foreignEvidence.id }];
+    assert.throws(() => prototypeStore.reviewReconciliationSchedule(engagement.id, id, 'Approved'), /Every reconciliation reference must resolve to in-scope evidence/, 'item evidence must resolve to the same client and engagement scope');
+    schedule.items[0].evidenceDoc = siblingEngagementEvidence.id;
+    assert.throws(() => prototypeStore.reviewReconciliationSchedule(engagement.id, id, 'Approved'), /Every reconciliation reference must resolve to in-scope evidence/, 'item evidence cannot cross into a sibling engagement');
+    state.documents = state.documents.filter(document => ![foreignEvidence.id, siblingEngagementEvidence.id].includes(document.id));
     schedule.items = [];
     prototypeStore.reviewReconciliationSchedule(engagement.id, id, 'Returned', 'Clarify statement date and scope');
     assert.equal(schedule.status, 'Returned');

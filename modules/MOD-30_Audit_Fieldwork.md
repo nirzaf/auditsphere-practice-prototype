@@ -12,11 +12,11 @@
 
 ## What already exists
 
-Procedure execution, current evidence/limitation checks and independent clearance exist.
+Procedure execution, current evidence/limitation checks and independent clearance exist. Returning submitted or cleared fieldwork now requires a bounded reason (recorded with actor and time, shown as “Returned: …” until re-clearance), and the rendered scope-reassessment history surfaces planning/evidence invalidations.
 
 ## Remaining work / demonstration limit
 
-Complete full exception/return/rework coverage and link to the existing VP-049 template owner.
+Complete the remaining fieldwork acceptance matrix and link to the existing VP-049 template owner; the reasoned-return control itself is implemented (a return without a reason is rejected atomically).
 
 ## How to demonstrate this module
 
@@ -26,7 +26,7 @@ These are source-derived rehearsal instructions. Exact final labels and pending 
 2. Read objective/instructions, linked risks and current evidence.
 3. Record work performed, results, exceptions or an explicit limitation.
 4. Submit the exact current revision and switch to its eligible independent reviewer.
-5. Return/rework/clear appropriately; compare an unresolved exception such as PRC-04 without hiding it.
+5. Return with the required bounded reason, rework and clear; compare an unresolved exception such as PRC-04 without hiding it.
 
 ## Expected client-visible outcome
 

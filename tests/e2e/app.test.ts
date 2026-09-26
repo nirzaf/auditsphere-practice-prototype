@@ -2111,7 +2111,7 @@ describe('actual Chrome browser acceptance', { concurrency: false }, () => {
     assert.equal(await waitForBrowser(`document.querySelector('main#main')?.innerText.includes('Client 360 scoped job')`), true, 'new job is reflected in the client workspace jobs register');
     await clickWorkspaceTab('PBC Requests');
     await clickButton('New PBC Request');
-    await browserTab!.evaluate(`(() => {const f=document.querySelector('form.grid2');const inputs=[...f.querySelectorAll('input')];const set=Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set;set.call(inputs[0],'Client 360 acceptance request');inputs[0].dispatchEvent(new Event('input',{bubbles:true}));set.call(inputs[1],'Bank confirmations');inputs[1].dispatchEvent(new Event('input',{bubbles:true}));set.call(inputs[2],'2026-10-15');inputs[2].dispatchEvent(new Event('input',{bubbles:true}));set.call(inputs[3],'Finance Contact');inputs[3].dispatchEvent(new Event('input',{bubbles:true}));})()`);
+    await browserTab!.evaluate(`(() => {const f=document.querySelector('form.grid2');const inputs=[...f.querySelectorAll('input')];const set=Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set;set.call(inputs[0],'Client 360 acceptance request');inputs[0].dispatchEvent(new Event('input',{bubbles:true}));set.call(inputs[1],'Bank confirmations');inputs[1].dispatchEvent(new Event('input',{bubbles:true}));set.call(inputs[2],'2026-10-15');inputs[2].dispatchEvent(new Event('input',{bubbles:true}));const recipient=[...f.querySelectorAll('select')].find(select=>[...select.options].some(option=>option.value==='Aisha Saleh'));if(!recipient)throw Error('Active Northstar recipient selector missing');Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype,'value').set.call(recipient,'Aisha Saleh');recipient.dispatchEvent(new Event('change',{bubbles:true}));})()`);
     await clickButton('Save Draft Request');
     assert.equal(await waitForBrowser(`document.querySelector('main#main')?.innerText.includes('Client 360 acceptance request')`), true, 'new PBC request appears in the workspace register');
     const requestRecord = await browserTab!.evaluate<{id:string; engagementId:string}>(`(() => {const s=JSON.parse(localStorage.getItem('ste-auditsphere-role-portals-v2'));for(const e of s.engagements){const p=e.pbc.find(x=>x.title==='Client 360 acceptance request');if(p)return {id:p.id,engagementId:e.id};}return null;})()`);
@@ -3440,6 +3440,8 @@ describe('actual Chrome browser acceptance', { concurrency: false }, () => {
       const setField = (selector: string, value: string) => browserTab!.evaluate(`(() => {const input=document.querySelector(${JSON.stringify(selector)});if(!input)throw Error('draft input missing: '+${JSON.stringify(selector)});const proto=input instanceof HTMLTextAreaElement?HTMLTextAreaElement.prototype:HTMLInputElement.prototype;Object.getOwnPropertyDescriptor(proto,'value').set.call(input,${JSON.stringify(value)});input.dispatchEvent(new Event('input',{bubbles:true}));input.dispatchEvent(new Event('change',{bubbles:true}));})()`);
 
       const initialCount = await browserTab!.evaluate<number>(`JSON.parse(localStorage.getItem(${JSON.stringify(key)})).jobTemplates.length`);
+      const jobsBeforeTemplateAuthoring = await browserTab!.evaluate<number>(`JSON.parse(localStorage.getItem(${JSON.stringify(key)})).jobs.length`);
+      const templateAuthoringRoute = await browserTab!.evaluate<string>('location.hash');
       await clickButton('Author New Template');
       await setField('.modal-backdrop input[type="text"]', 'F05 saved draft template');
       await setField('.modal-backdrop textarea.mono', 'Reviewed phase one\nReviewed phase two');
@@ -3451,6 +3453,8 @@ describe('actual Chrome browser acceptance', { concurrency: false }, () => {
       await clickButton('Save and continue');
       assert.equal(await waitForBrowser('!!document.querySelector("[role=alertdialog] h2")?.innerText.includes("Reset local demo data?")'), true, 'template save completes before reset confirmation');
       assert.equal(await browserTab!.evaluate<boolean>(`JSON.parse(localStorage.getItem(${JSON.stringify(key)})).jobTemplates.some(t=>t.name==='F05 saved draft template'&&t.status==='Draft')`), true, 'Save creates one draft template');
+      assert.equal(await browserTab!.evaluate<number>(`JSON.parse(localStorage.getItem(${JSON.stringify(key)})).jobs.length`), jobsBeforeTemplateAuthoring, 'saving a template draft does not instantiate a job');
+      assert.equal(await browserTab!.evaluate<string>('location.hash'), templateAuthoringRoute, 'saving a template draft does not navigate as a side effect');
       await clickButton('Cancel reset');
 
       const jobsBefore = await browserTab!.evaluate<number>(`JSON.parse(localStorage.getItem(${JSON.stringify(key)})).jobs.length`);
@@ -3460,9 +3464,10 @@ describe('actual Chrome browser acceptance', { concurrency: false }, () => {
       await browserTab!.evaluate(`(() => {const dateInputs=[...document.querySelectorAll('.modal-backdrop input[type="date"]')];const input=dateInputs[1];Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(input,'2026-10-01');input.dispatchEvent(new Event('input',{bubbles:true}));input.dispatchEvent(new Event('change',{bubbles:true}));const owner=[...document.querySelectorAll('.modal-backdrop select')].find(select=>[...select.options].some(option=>option.text.includes('Layla Rahman')));Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype,'value').set.call(owner,'Layla Rahman');owner.dispatchEvent(new Event('change',{bubbles:true}));})()`);
       await requestReset();
       assert.equal(await waitForBrowser('[...document.querySelectorAll("[role=dialog] h2")].some(h=>h.innerText.includes("Unsaved changes"))'), true, 'instantiation registers its selected template and target draft');
-      await clickButton('Save and continue');
+      await browserTab!.evaluate(`(() => {const button=[...document.querySelectorAll('[role=dialog] button')].find(item=>item.innerText.trim()==='Save and continue');if(!button)throw Error('save-and-continue action missing');button.click();button.click();})()`);
       assert.equal(await waitForBrowser('!!document.querySelector("[role=alertdialog] h2")?.innerText.includes("Reset local demo data?")'), true, 'instantiation saves before the requested reset is confirmed');
       assert.equal(await browserTab!.evaluate<number>(`JSON.parse(localStorage.getItem(${JSON.stringify(key)})).jobs.length`), jobsBefore + 1, 'the chosen job is instantiated once');
+      assert.equal(await browserTab!.evaluate<number>(`(() => {const state=JSON.parse(localStorage.getItem(${JSON.stringify(key)}));const template=state.jobTemplates.find(item=>item.name==='Standard Financial Statement Audit');return state.jobs.filter(job=>job.fromTemplateId===template?.id).length;})()`), 1, 'rapid repeated activation reuses one template operation and creates no duplicate job');
       await clickButton('Cancel reset');
 
       const templatesBeforeInvalid = await browserTab!.evaluate<number>(`JSON.parse(localStorage.getItem(${JSON.stringify(key)})).jobTemplates.length`);
@@ -3477,6 +3482,52 @@ describe('actual Chrome browser acceptance', { concurrency: false }, () => {
       assert.ok(invalidDraftState.textareas.some((item: any) => item.classes.includes('mono') && item.value === ''), `failed validation keeps the entered draft available for correction: ${JSON.stringify(invalidDraftState)}`);
       await clickButton('Stay');
       await clickButton('Discard draft');
+      assert.deepEqual(browserTab!.exceptions.filter(error => !error.includes('Fetch.continueRequest: Invalid InterceptionId.')), []);
+    } finally {
+      if (original === null) await browserTab!.evaluate(`localStorage.removeItem(${JSON.stringify(key)})`);
+      else await browserTab!.evaluate(`localStorage.setItem(${JSON.stringify(key)},${JSON.stringify(original)})`);
+      await browserTab!.command('Page.reload');
+      await waitForBrowser('!!document.querySelector("#app-root .brandname")');
+    }
+  });
+
+  it('VP-003-E02: guards proposal service and content-template drafts across route changes', async () => {
+    const key = 'ste-auditsphere-role-portals-v2';
+    const original = await browserTab!.evaluate<string | null>(`localStorage.getItem(${JSON.stringify(key)})`);
+    const fixture = createInitialState();
+    try {
+      await browserTab!.evaluate(`localStorage.setItem(${JSON.stringify(key)},${JSON.stringify(JSON.stringify(fixture))});location.hash='#proposals'`);
+      await browserTab!.command('Page.reload');
+      assert.equal(await waitForBrowser('document.querySelector("main#main h1")?.innerText.includes("Proposals")'), true);
+      const setField = (selector: string, value: string) => browserTab!.evaluate(`(() => {const input=document.querySelector(${JSON.stringify(selector)});if(!input)throw Error('draft input missing: '+${JSON.stringify(selector)});const proto=input instanceof HTMLTextAreaElement?HTMLTextAreaElement.prototype:HTMLInputElement.prototype;Object.getOwnPropertyDescriptor(proto,'value').set.call(input,${JSON.stringify(value)});input.dispatchEvent(new Event('input',{bubbles:true}));input.dispatchEvent(new Event('change',{bubbles:true}));})()`);
+      const navigateTo = (route: 'jobs' | 'proposals') => clickButtonStartingWith(route === 'jobs' ? 'Jobs & Tasks' : 'Proposals & Terms');
+
+      const serviceCount = () => browserTab!.evaluate<number>(`JSON.parse(localStorage.getItem(${JSON.stringify(key)})).proposalServices.length`);
+      const originalServiceCount = await serviceCount();
+      await clickButton('Services & Templates');
+      await clickButton('Add Service');
+      await setField('.modal-backdrop input', 'VP003 unsaved service draft');
+      await navigateTo('jobs');
+      assert.equal(await waitForBrowser('[...document.querySelectorAll("[role=dialog] h2")].some(title=>title.innerText.includes("Unsaved changes"))'), true, 'service catalogue draft guards a route transition');
+      assert.equal(await browserTab!.evaluate<string>('location.hash'), '#proposals', 'route remains on proposals while a service draft decision is pending');
+      await clickButton('Stay');
+      assert.equal(await browserTab!.evaluate<string>(`document.querySelector('.modal-backdrop input')?.value||''`), 'VP003 unsaved service draft', 'Stay preserves service draft content');
+      await navigateTo('jobs');
+      await clickButton('Discard and continue');
+      assert.equal(await waitForBrowser('location.hash==="#jobs"&&document.querySelector("main#main h1")?.innerText.includes("Jobs")'), true, 'Discard resumes the accepted route transition');
+      assert.equal(await serviceCount(), originalServiceCount, 'discarding the service draft creates no catalogue record');
+
+      await navigateTo('proposals');
+      assert.equal(await waitForBrowser('document.querySelector("main#main h1")?.innerText.includes("Proposals")'), true);
+      await clickButton('Services & Templates');
+      await clickButton('Add Template');
+      const templateCount = await browserTab!.evaluate<number>(`JSON.parse(localStorage.getItem(${JSON.stringify(key)})).proposalTemplates.length`);
+      await setField('.modal-backdrop input', 'VP003 unsaved proposal template');
+      await navigateTo('jobs');
+      assert.equal(await waitForBrowser('[...document.querySelectorAll("[role=dialog] h2")].some(title=>title.innerText.includes("Unsaved changes"))'), true, 'proposal content-template draft guards a route transition');
+      await clickButton('Discard and continue');
+      assert.equal(await waitForBrowser('location.hash==="#jobs"&&document.querySelector("main#main h1")?.innerText.includes("Jobs")'), true);
+      assert.equal(await browserTab!.evaluate<number>(`JSON.parse(localStorage.getItem(${JSON.stringify(key)})).proposalTemplates.length`), templateCount, 'discarding the content-template draft creates no record');
       assert.deepEqual(browserTab!.exceptions.filter(error => !error.includes('Fetch.continueRequest: Invalid InterceptionId.')), []);
     } finally {
       if (original === null) await browserTab!.evaluate(`localStorage.removeItem(${JSON.stringify(key)})`);
@@ -5076,7 +5127,7 @@ describe('actual Chrome browser acceptance', { concurrency: false }, () => {
     await browserTab!.evaluate(`(() => {const state=JSON.parse(localStorage.getItem('ste-auditsphere-role-portals-v2'));const profile=state.clients.find(item=>item.id==='CL-002').accountingProfile;profile.dimensions[0].values=['Finance','Operations'];localStorage.setItem('ste-auditsphere-role-portals-v2',JSON.stringify(state));})()`);
     await browserTab!.command('Page.reload');
     await waitForBrowser('!!document.querySelector("#app-root .brandname")');
-    await clickButton('Accounting Workbench');
+    assert.equal(await waitForBrowser('document.body.innerText.includes("Trial-Balance Intake")'), true, 'the accepted workbench route is restored after reload');
     const setLabeledSelect = async (label: string, value: string) => browserTab!.evaluate(`(() => {const label=[...document.querySelectorAll('label')].find(item=>item.textContent.trim()===${JSON.stringify(label)});const select=label?.nextElementSibling;if(!(select instanceof HTMLSelectElement))throw Error('Missing select: '+${JSON.stringify(label)});Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype,'value').set.call(select,${JSON.stringify(value)});select.dispatchEvent(new Event('change',{bubbles:true}));})()`);
     await browserTab!.evaluate(file('signed-net-dimensions.csv', 'Code,Department,Balance,Name\n1000,Finance,50,Cash\n2000,Operations,-50,Payables'));
     assert.equal(await waitForBrowser('document.body.innerText.includes("Selected: signed-net-dimensions.csv")'), true);
@@ -5187,10 +5238,20 @@ describe('actual Chrome browser acceptance', { concurrency: false }, () => {
       await clickButton('Save response file');
     };
 
+    await browserTab!.evaluate(`(() => {const key='ste-auditsphere-role-portals-v2';const state=JSON.parse(${JSON.stringify(JSON.stringify(createInitialState()))});const engagement=state.engagements.find(item=>item.id==='ENG-26002');engagement.pbc.push(
+      {id:'PBC-FILTER-OVERDUE',title:'Overdue bank file',category:'Bank',status:'Requested',due:'2026-09-22',owner:'Omar Nasser',contributor:'Rami Nasser',version:1},
+      {id:'PBC-FILTER-TODAY',title:'Today payroll file',category:'Payroll',status:'Received',due:'2026-09-23',owner:'Omar Nasser',contributor:'Aisha Saleh',version:1},
+      {id:'PBC-FILTER-UPCOMING',title:'Upcoming register',category:'Assets',status:'Needs clarification',due:'2026-09-24',owner:'Omar Nasser',contributor:'Aisha Saleh',version:1},
+      {id:'PBC-FILTER-REVIEW',title:'Reviewed statement',category:'Bank',status:'Under review',due:'2026-09-25',owner:'Omar Nasser',contributor:'Rami Nasser',version:1},
+      {id:'PBC-FILTER-ACCEPTED',title:'Accepted evidence',category:'Bank',status:'Accepted',due:'2026-09-20',owner:'Omar Nasser',contributor:'Aisha Saleh',version:1},
+      {id:'PBC-FILTER-CANCELLED',title:'Cancelled evidence',category:'Assets',status:'Cancelled',due:'2026-09-23',owner:'Omar Nasser',contributor:'Aisha Saleh',version:1}
+    );localStorage.setItem(key,JSON.stringify(state));})()`);
+    await browserTab!.command('Page.reload');
+    assert.equal(await waitForBrowser('!!document.querySelector("#app-root .brandname")'), true);
     await switchPersona('Engagement manager', 'manager');
     await openNorthstarWorkspace();
     await clickButton('New PBC Request');
-    const formReady = await browserTab!.evaluate<boolean>(`(() => {const f=[...document.querySelectorAll('form')].find(x=>x.innerText.includes('Client recipient'));if(!f)return false;const inputs=f.querySelectorAll('input');const setter=Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set;setter.call(inputs[0],'Updated fixed-asset register');inputs[0].dispatchEvent(new Event('input',{bubbles:true}));inputs[0].dispatchEvent(new Event('change',{bubbles:true}));setter.call(inputs[3],'Aisha Saleh');inputs[3].dispatchEvent(new Event('input',{bubbles:true}));inputs[3].dispatchEvent(new Event('change',{bubbles:true}));return true;})()`);
+    const formReady = await browserTab!.evaluate<boolean>(`(() => {const f=[...document.querySelectorAll('form')].find(x=>x.innerText.includes('Client recipient'));if(!f)return false;const inputs=f.querySelectorAll('input');const setter=Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set;setter.call(inputs[0],'Updated fixed-asset register');inputs[0].dispatchEvent(new Event('input',{bubbles:true}));inputs[0].dispatchEvent(new Event('change',{bubbles:true}));const recipient=[...f.querySelectorAll('select')].find(select=>[...select.options].some(option=>option.value==='Aisha Saleh'));if(!recipient)return false;Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype,'value').set.call(recipient,'Aisha Saleh');recipient.dispatchEvent(new Event('change',{bubbles:true}));return true;})()`);
     assert.equal(formReady, true);
     await clickButton('Save Draft Request');
     const created = await browserTab!.evaluate<any>(`(() => {const e=JSON.parse(localStorage.getItem('ste-auditsphere-role-portals-v2')).engagements.find(x=>x.id==='ENG-26002');return e.pbc.find(x=>x.title==='Updated fixed-asset register');})()`);
@@ -5203,14 +5264,33 @@ describe('actual Chrome browser acceptance', { concurrency: false }, () => {
     const edited = await browserTab!.evaluate<any>(`(() => JSON.parse(localStorage.getItem('ste-auditsphere-role-portals-v2')).engagements.find(e=>e.id==='ENG-26002').pbc.find(p=>p.id===${JSON.stringify(created.id)}))()`);
     assert.equal(edited.title, 'Updated fixed-asset register v2');
     assert.equal(edited.due, '2026-10-20');
-    assert.equal(edited.owner, 'Aisha Saleh');
+    assert.equal(edited.contributor, 'Aisha Saleh', 'reassignment changes the portal-authorized contributor');
+    assert.equal(edited.owner, 'Layla Rahman', 'reassignment does not overwrite the staff request owner');
     assert.ok(edited.thread.some((message: any) => message.text.includes('Client asked for the signed and reconciled version.')));
-    const statusFilterReady = await browserTab!.evaluate<boolean>(`(() => {const s=document.querySelector('[aria-label="Filter PBC requests by status"]');const q=document.querySelector('[aria-label="Search PBC requests"]');return !!s&&!!q})()`);
-    assert.equal(statusFilterReady, true, 'request status and text filters are visible');
-    await browserTab!.evaluate(`(() => {const s=document.querySelector('[aria-label="Filter PBC requests by status"]');const setter=Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype,'value').set;setter.call(s,'Draft');s.dispatchEvent(new Event('change',{bubbles:true}));})()`);
-    assert.equal(await waitForBrowser(`document.querySelectorAll('tbody tr').length===1 && document.querySelector('tbody tr').innerText.includes(${JSON.stringify(created.id)})`), true, 'Draft filter returns the matching request');
-    await browserTab!.evaluate(`(() => {const s=document.querySelector('[aria-label="Filter PBC requests by status"]');const setter=Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype,'value').set;setter.call(s,'All');s.dispatchEvent(new Event('change',{bubbles:true}));const q=document.querySelector('[aria-label="Search PBC requests"]');const inputSetter=Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set;inputSetter.call(q,${JSON.stringify(created.id)});q.dispatchEvent(new Event('input',{bubbles:true}));})()`);
-    assert.equal(await waitForBrowser(`document.querySelectorAll('tbody tr').length===1 && document.querySelector('tbody tr').innerText.includes(${JSON.stringify(created.id)})`), true, 'text search returns the matching request');
+    const filterControls = await browserTab!.evaluate<any>(`(() => ({status:!!document.querySelector('[aria-label="Filter PBC requests by status"]'),due:!!document.querySelector('[aria-label="Filter PBC requests by due date"]'),recipient:!!document.querySelector('[aria-label="Filter PBC requests by client recipient"]'),search:!!document.querySelector('[aria-label="Search PBC requests"]')}))()`);
+    assert.deepEqual(filterControls, {status:true,due:true,recipient:true,search:true}, 'all requested PBC filters are available');
+    const setPbcFilter = async (selector: string, value: string) => browserTab!.evaluate(`(() => {const control=document.querySelector(${JSON.stringify(selector)});const setter=Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype,'value').set;setter.call(control,${JSON.stringify(value)});control.dispatchEvent(new Event('change',{bubbles:true}));})()`);
+    const visiblePbcIds = async () => browserTab!.evaluate<string[]>(`[...document.querySelectorAll('.tablewrap tbody tr')].map(row=>row.querySelector('td .cell-sub')?.innerText).filter(Boolean)`);
+    const statusCases: Array<[string,string]> = [['Draft',created.id],['Requested','PBC-FILTER-OVERDUE'],['Received','PBC-FILTER-TODAY'],['Under review','PBC-FILTER-REVIEW'],['Needs clarification','PBC-FILTER-UPCOMING'],['Accepted','PBC-FILTER-ACCEPTED'],['Cancelled','PBC-FILTER-CANCELLED']];
+    for (const [status, expectedId] of statusCases) {
+      await setPbcFilter('[aria-label="Filter PBC requests by status"]', status);
+      assert.deepEqual(await visiblePbcIds(), [expectedId], `${status} filter returns only its matching request`);
+    }
+    await setPbcFilter('[aria-label="Filter PBC requests by status"]', 'All');
+    assert.equal((await visiblePbcIds()).length, 7, 'All statuses restores the entire scoped set');
+    for (const [due, expectedIds] of [['Overdue',['PBC-FILTER-OVERDUE']],['Due today',['PBC-FILTER-TODAY']],['Upcoming',['PBC-FILTER-UPCOMING','PBC-FILTER-REVIEW']]] as Array<[string,string[]]>) {
+      await setPbcFilter('[aria-label="Filter PBC requests by due date"]', due);
+      assert.deepEqual(await visiblePbcIds(), expectedIds, `${due} bucket is anchored to the scenario date and excludes terminal/draft requests`);
+    }
+    await setPbcFilter('[aria-label="Filter PBC requests by due date"]', 'All dates');
+    await setPbcFilter('[aria-label="Filter PBC requests by client recipient"]', 'Aisha Saleh');
+    assert.deepEqual(await visiblePbcIds(), [created.id,'PBC-FILTER-TODAY','PBC-FILTER-UPCOMING','PBC-FILTER-ACCEPTED','PBC-FILTER-CANCELLED'], 'recipient filter uses the client contributor and retains all matching statuses');
+    await setPbcFilter('[aria-label="Filter PBC requests by client recipient"]', '');
+    await browserTab!.evaluate(`(() => {const q=document.querySelector('[aria-label="Search PBC requests"]');const setter=Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set;setter.call(q,'PAYROLL');q.dispatchEvent(new Event('input',{bubbles:true}));})()`);
+    assert.deepEqual(await visiblePbcIds(), ['PBC-FILTER-TODAY'], 'text search is case-insensitive and composes with the other filters');
+    await browserTab!.evaluate(`(() => [...document.querySelectorAll('button')].find(button=>button.innerText.trim()==='Clear filters')?.click())()`);
+    assert.equal(await waitForBrowser(`document.querySelectorAll('.tablewrap tbody tr').length===7`), true, 'Clear filters restores all rows');
+    assert.equal(await browserTab!.evaluate<string>(`[...document.querySelectorAll('main#main')].map(x=>x.innerText).join(' ').match(/Outstanding: 4 · Total: 7/)?.[0]||''`), 'Outstanding: 4 · Total: 7', 'outstanding count excludes drafts and terminal requests and reconciles to the same scoped set');
     await switchPersona('Northstar management approver', 'client');
     await openPortalRequests();
     assert.doesNotMatch(await browserTab!.evaluate<string>('document.body.innerText'), /Updated fixed-asset register/,'draft PBC must remain hidden from the client');
@@ -6671,7 +6751,7 @@ describe('actual Chrome browser acceptance', { concurrency: false }, () => {
       assert.equal(await waitForBrowser(`!!document.querySelector('[aria-label="General ledger source file"]')`), true, await browserTab!.evaluate<string>('document.body.innerText.slice(-1800)'));
       const header='Entry Reference,Line ID,Date,Account Code,Account Name,Debit,Credit,Currency,Description,Opening Balance,Department,Service Date';
       const csvCell=(value:unknown)=>`"${String(value).replaceAll('"','""')}"`;
-      const lines=fixtureEngagement.rows.flatMap((row,index)=>row.balance===0?[`J1,L${index+1}a,2026-09-23,${row.code},${csvCell(row.name)},1,0,QAR,Zero-balance control,0,${csvCell(row.dimensionDept||'')},2026-09-20`,`J1,L${index+1}b,2026-09-23,${row.code},${csvCell(row.name)},0,1,QAR,Zero-balance control,0,${csvCell(row.dimensionDept||'')},2026-09-20`]:[`J1,L${index+1},2026-09-23,${row.code},${csvCell(row.name)},${Math.max(row.balance,0)},${Math.max(-row.balance,0)},QAR,GL closing movement,0,${csvCell(row.dimensionDept||'')},2026-09-20`]);
+      const lines=fixtureEngagement.rows.flatMap((row,index)=>{const opening=row.code==='1000'?100:row.code==='3000'?-100:0;const movement=row.balance-opening;return movement===0?[`J1,L${index+1}a,2026-09-23,${row.code},${csvCell(row.name)},1,0,QAR,Zero-balance control,${opening},${csvCell(row.dimensionDept||'')},2026-09-20`,`J1,L${index+1}b,2026-09-23,${row.code},${csvCell(row.name)},0,1,QAR,Zero-balance control,${opening},${csvCell(row.dimensionDept||'')},2026-09-20`]:[`J1,L${index+1},2026-09-23,${row.code},${csvCell(row.name)},${Math.max(movement,0)},${Math.max(-movement,0)},QAR,GL closing movement,${opening},${csvCell(row.dimensionDept||'')},2026-09-20`];});
       const csv=[header,...lines].join('\n');
       const uploadCsv=async(contents:string)=>browserTab!.evaluate(`(() => {const input=document.querySelector('[aria-label="General ledger source file"]');const transfer=new DataTransfer();transfer.items.add(new File([${JSON.stringify(contents)}],'gl-source.csv',{type:'text/csv'}));input.files=transfer.files;input.dispatchEvent(new Event('change',{bubbles:true}));})()`);
       const partialCsv=[header,...lines,'J2,PARTIAL-01,2026-09-23,1000,Cash,5,0,QAR,Incomplete received batch,0,Treasury,2026-09-20'].join('\n');
@@ -6694,7 +6774,7 @@ describe('actual Chrome browser acceptance', { concurrency: false }, () => {
       await clickButton('Accounting Workbench'); await clickButtonStartingWith('General Ledger & Completeness');
       assert.equal(await waitForBrowser('document.body.innerText.includes("Source v1") && document.body.innerText.includes("GL Fully Reconciled to TB")'), true, await browserTab!.evaluate<string>(`document.body.innerText.slice(-800)`));
       const glEvidence = await browserTab!.evaluate<any>(`(() => {const e=JSON.parse(localStorage.getItem('ste-auditsphere-role-portals-v2')).engagements.find(x=>x.id==='ENG-26001');const r=e.glSourceHistory?.[0];const t=r?.transactions[0];return {revision:r?.revision,count:r?.transactions.length,allBound:r?.transactions.every(t=>t.engagementId===e.id),opening:r?.openingBalances['1000'],journal:r?.columnMapping?.journal,department:r?.columnMapping?.department,serviceDateColumn:r?.columnMapping?.serviceDate,transaction:t,expectedDepartment:e.rows.find(row=>row.code===t?.accountCode)?.dimensionDept,digest:r?.sha256};})()`);
-      assert.equal(glEvidence.revision===1&&glEvidence.count===8&&glEvidence.allBound&&glEvidence.opening===0&&glEvidence.journal==='1: Entry Reference'&&glEvidence.department==='11: Department'&&glEvidence.serviceDateColumn==='12: Service Date'&&glEvidence.transaction?.serviceDate==='2026-09-20'&&glEvidence.transaction?.dimensions?.Department===glEvidence.expectedDepartment&&/^[a-f0-9]{64}$/.test(glEvidence.digest), true, `source rows, mapping, dimension, service date, engagement identity and digest persist: ${JSON.stringify(glEvidence)}`);
+      assert.equal(glEvidence.revision===1&&glEvidence.count===8&&glEvidence.allBound&&glEvidence.opening===100&&glEvidence.journal==='1: Entry Reference'&&glEvidence.department==='11: Department'&&glEvidence.serviceDateColumn==='12: Service Date'&&glEvidence.transaction?.serviceDate==='2026-09-20'&&glEvidence.transaction?.dimensions?.Department===glEvidence.expectedDepartment&&/^[a-f0-9]{64}$/.test(glEvidence.digest), true, `source rows, opening, mapping, dimension, service date, engagement identity and digest persist: ${JSON.stringify(glEvidence)}`);
       assert.match(await browserTab!.evaluate<string>('document.querySelector("main#main")?.innerText||""'),/GL Detailed Transactions \(8\)/,'source count is consistent with the eight imported rows before filtering');
       assert.match(await browserTab!.evaluate<string>('document.querySelector("main#main")?.innerText||""'), /Reconciled/);
       await browserTab!.evaluate(`(() => {const input=document.querySelector('[aria-label="Filter GL journal"]');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(input,'J1');input.dispatchEvent(new Event('input',{bubbles:true}));})()`);
@@ -6724,6 +6804,10 @@ describe('actual Chrome browser acceptance', { concurrency: false }, () => {
       await clickButton('Save Reconciliation Draft');
       let recRevision = await browserTab!.evaluate<any>(`(() => {const s=JSON.parse(localStorage.getItem('ste-auditsphere-role-portals-v2'));return s.engagements.find(e=>e.id==='ENG-26001').reconciliations.find(r=>r.name==='AT-36 GL replacement reconciliation')})()`);
       assert.equal(recRevision.status,'Draft');
+      const recCard = await browserTab!.evaluate<string>(`(() => {const panel=[...document.querySelectorAll('.panel.panel-pad')].find(item=>item.querySelector('h3')?.innerText==='AT-36 GL replacement reconciliation');return panel?.innerText||'';})()`);
+      assert.match(recCard,/GL Opening Balance\s+QAR 100\.00/,'reconciliation card displays the explicit source opening balance');
+      assert.match(recCard,/GL Net Movement\s+QAR 999,900\.00/,'reconciliation card displays account-level source movements');
+      assert.match(recCard,/GL Calculated Closing Balance\s+QAR 1,000,000\.00/,'opening plus movements reproduce the displayed TB source balance');
       await browserTab!.evaluate(`(() => {const r=document.querySelector('#role-select');Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype,'value').set.call(r,'reviewer');r.dispatchEvent(new Event('change',{bubbles:true}));})()`);
       await clickButton('Approve schedule');
       recRevision = await browserTab!.evaluate<any>(`(() => {const s=JSON.parse(localStorage.getItem('ste-auditsphere-role-portals-v2'));return s.engagements.find(e=>e.id==='ENG-26001').reconciliations.find(r=>r.name==='AT-36 GL replacement reconciliation')})()`);
@@ -6798,6 +6882,15 @@ describe('actual Chrome browser acceptance', { concurrency: false }, () => {
       assert.equal(timingReconciled.items[0].amount, 100);
       assert.equal(timingReconciled.statementBalance + timingReconciled.items[0].amount, timingReconciled.glBalance, 'statement plus dated timing item reproduces the source balance');
       assert.equal(timingReconciled.revision, 2);
+      const displayedReconciliation = await browserTab!.evaluate<string>('document.body.innerText');
+      assert.match(displayedReconciliation, /General Ledger Balance\s+QAR 1,000,000\.00/);
+      assert.match(displayedReconciliation, /External Statement Balance\s+QAR 999,900\.00/);
+      assert.match(displayedReconciliation, /Total Timing Adjustments\s+QAR 100\.00/);
+      assert.match(displayedReconciliation, /Unexplained Variance\s+QAR 0\.00/);
+      assert.match(displayedReconciliation, /Reconciled \(Residual QAR 0\.00\)/);
+      assert.match(displayedReconciliation, /AMOUNT \(QAR\)/);
+      assert.match(displayedReconciliation, /GL Opening Balance\s+Unknown \(no explicit opening balance\)/, 'the reconciliation must not invent an opening balance when no GL source supplies one');
+      assert.match(displayedReconciliation, /GL Calculated Closing Balance\s+Unknown/);
       await clickButton('Edit schedule');
       await browserTab!.evaluate(`(() => {const evidence=document.querySelector('[aria-label="Reconciliation evidence"]');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(evidence,'DOC-OUT-OF-SCOPE');evidence.dispatchEvent(new Event('input',{bubbles:true}));})()`);
       await clickButton('Save Reconciliation Draft');

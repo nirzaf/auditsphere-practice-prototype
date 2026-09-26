@@ -9,6 +9,7 @@ import { formatCurrency, formatMinutesToHours, getEffectiveTimeEntries } from '.
 import { UnsavedFormGuard } from '../../services/unsavedFormGuard';
 import { InternalNotesPanel } from '../common/InternalNotesPanel';
 import { visibleEngagementIds } from '../../services/guards';
+import { filterPbcRequests, getOutstandingPbcRequestCount, getPbcRequestRecipient, PbcRequestDueFilter, PbcRequestStatusFilter } from '../../services/pbcRequestFilters';
 
 type ClientPbcRequest = PbcRequestItem & { engagementId: string };
 
@@ -71,15 +72,16 @@ export const ClientDetailView: React.FC<ClientDetailViewProps> = ({ clientId, se
   const invoiceIds = new Set(invoices.map(invoice => invoice.id));
   const receipts = state.receipts.filter(r => r.clientId === client.id && r.allocations.some(allocation => invoiceIds.has(allocation.invoiceId)));
   const activeCustomFields = state.customFields.filter(field => field.enabled !== false);
+  const defaultPbcContributor = contacts.find(contact => contact.active && contact.name === client.contact)?.name || contacts.find(contact => contact.active)?.name || '';
 
   const [showPbcForm, setShowPbcForm] = useState(false);
   const [pbcEngagementId, setPbcEngagementId] = useState(engagements[0]?.id || '');
   const [pbcTitle, setPbcTitle] = useState('');
   const [pbcCategory, setPbcCategory] = useState('Financial records');
   const [pbcDue, setPbcDue] = useState(state.asOfDate);
-  const [pbcContributor, setPbcContributor] = useState(client.contact || '');
+  const [pbcContributor, setPbcContributor] = useState(defaultPbcContributor);
   const pbcForm = useRef<HTMLFormElement>(null);
-  const initialPbcDraft = useRef({ engagementId: engagements[0]?.id || '', title: '', category: 'Financial records', due: state.asOfDate, contributor: client.contact || '' });
+  const initialPbcDraft = useRef({ engagementId: engagements[0]?.id || '', title: '', category: 'Financial records', due: state.asOfDate, contributor: defaultPbcContributor });
   const [clarification, setClarification] = useState<{ engagementId: string; request: PbcRequestItem } | null>(null);
   const [clarificationText, setClarificationText] = useState('');
   const clarificationForm = useRef<HTMLFormElement>(null);
@@ -92,11 +94,15 @@ export const ClientDetailView: React.FC<ClientDetailViewProps> = ({ clientId, se
   const [editReason, setEditReason] = useState('');
   const editRequestForm = useRef<HTMLFormElement>(null);
   const [requestNotice, setRequestNotice] = useState('');
-  const [requestStatusFilter, setRequestStatusFilter] = useState('All');
+  const [requestStatusFilter, setRequestStatusFilter] = useState<PbcRequestStatusFilter>('All');
+  const [requestDueFilter, setRequestDueFilter] = useState<PbcRequestDueFilter>('All dates');
+  const [requestRecipientFilter, setRequestRecipientFilter] = useState('');
   const [requestSearch, setRequestSearch] = useState('');
 
   const pbcRequests = engagements.flatMap(e => e.pbc.map(request => ({ ...request, engagementId: e.id })));
-  const visiblePbcRequests = pbcRequests.filter(request => (requestStatusFilter === 'All' || request.status === requestStatusFilter) && `${request.title} ${request.id} ${request.category} ${request.owner} ${request.contributor || ''}`.toLocaleLowerCase().includes(requestSearch.trim().toLocaleLowerCase()));
+  const requestRecipients = [...new Set(pbcRequests.map(getPbcRequestRecipient).filter(Boolean))].sort((left, right) => left.localeCompare(right));
+  const visiblePbcRequests = filterPbcRequests(pbcRequests, { status: requestStatusFilter, due: requestDueFilter, recipient: requestRecipientFilter, search: requestSearch }, state.asOfDate);
+  const outstandingPbcRequestCount = getOutstandingPbcRequestCount(pbcRequests);
   const workpapers = engagements.flatMap(e => e.workpapers);
   const visibleActivityRefs = new Set([client.id, ...engagements.map(item => item.id), ...contacts.map(item => item.id), ...jobs.map(item => item.id), ...documents.map(item => item.id), ...communications.map(item => item.id), ...times.map(item => item.id), ...invoices.map(item => item.id), ...receipts.map(item => item.id), ...pbcRequests.map(item => item.id), ...workpapers.map(item => item.id)]);
 
@@ -237,7 +243,7 @@ export const ClientDetailView: React.FC<ClientDetailViewProps> = ({ clientId, se
   const savePbcUpdate = () => {
     if (!editingRequest || !editRequestForm.current?.reportValidity()) return false;
     try {
-      prototypeStore.updatePbcRequest(editingRequest.engagementId, editingRequest.id, { title: editTitle, description: editDescription, due: editDue, owner: editRecipient }, editReason);
+      prototypeStore.updatePbcRequest(editingRequest.engagementId, editingRequest.id, { title: editTitle, description: editDescription, due: editDue, contributor: editRecipient }, editReason);
       setEditingRequest(null);
       setRequestNotice('Request updated; the edit is recorded in its thread with the reason and actor.');
       return true;
@@ -254,7 +260,7 @@ export const ClientDetailView: React.FC<ClientDetailViewProps> = ({ clientId, se
     };
     const editGuard: UnsavedFormGuard = {
       label: 'PBC request edit',
-      isDirty: () => Boolean(editingRequest && (editTitle !== editingRequest.title || editDescription !== (editingRequest.description || '') || editDue !== editingRequest.due || editRecipient !== editingRequest.owner || editReason.trim())),
+      isDirty: () => Boolean(editingRequest && (editTitle !== editingRequest.title || editDescription !== (editingRequest.description || '') || editDue !== editingRequest.due || editRecipient !== (editingRequest.contributor || '') || editReason.trim())),
       save: savePbcUpdate,
       discard: () => { setEditingRequest(null); setEditReason(''); }
     };
@@ -634,22 +640,25 @@ export const ClientDetailView: React.FC<ClientDetailViewProps> = ({ clientId, se
           <div className="panel-head">
             <h3>PBC Information Requests</h3>
             <div className="row" style={{ gap: 10 }}>
-              <span className="caption">Total: {pbcRequests.length}</span>
+              <span className="caption">Outstanding: {outstandingPbcRequestCount} · Total: {pbcRequests.length}</span>
               <button className="btn primary sm" onClick={() => showPbcForm ? onBeforeContextChange(() => setShowPbcForm(false)) : setShowPbcForm(true)}>{showPbcForm ? 'Close request form' : 'New PBC Request'}</button>
             </div>
           </div>
           {requestNotice && <div role="status" className="panel-pad sub">{requestNotice}</div>}
           <div className="row panel-pad" style={{ gap: 10, flexWrap: 'wrap' }}>
-            <label className="caption">Status <select aria-label="Filter PBC requests by status" className="input" value={requestStatusFilter} onChange={event => setRequestStatusFilter(event.target.value)}><option>All</option>{['Draft', 'Requested', 'Received', 'Needs clarification', 'Accepted', 'Cancelled'].map(status => <option key={status}>{status}</option>)}</select></label>
+            <label className="caption">Status <select aria-label="Filter PBC requests by status" className="input" value={requestStatusFilter} onChange={event => setRequestStatusFilter(event.target.value as PbcRequestStatusFilter)}><option value="All">All statuses</option>{(['Draft', 'Requested', 'Received', 'Under review', 'Needs clarification', 'Accepted', 'Cancelled'] as const).map(status => <option key={status}>{status}</option>)}</select></label>
+            <label className="caption">Due date <select aria-label="Filter PBC requests by due date" className="input" value={requestDueFilter} onChange={event => setRequestDueFilter(event.target.value as PbcRequestDueFilter)}>{(['All dates', 'Overdue', 'Due today', 'Upcoming'] as const).map(due => <option key={due}>{due}</option>)}</select></label>
+            <label className="caption">Client recipient <select aria-label="Filter PBC requests by client recipient" className="input" value={requestRecipientFilter} onChange={event => setRequestRecipientFilter(event.target.value)}><option value="">All recipients</option>{requestRecipients.map(recipient => <option key={recipient} value={recipient}>{recipient}</option>)}</select></label>
             <label className="caption">Search requests <input aria-label="Search PBC requests" className="input" value={requestSearch} onChange={event => setRequestSearch(event.target.value)} placeholder="Title, ID, category or contact" /></label>
-            <span className="caption">Showing {visiblePbcRequests.length} of {pbcRequests.length}</span>
+            <span className="caption" role="status" aria-live="polite">Showing {visiblePbcRequests.length} of {pbcRequests.length} requests · {outstandingPbcRequestCount} outstanding</span>
+            {(requestStatusFilter !== 'All' || requestDueFilter !== 'All dates' || requestRecipientFilter || requestSearch) && <button className="btn sm ghost" onClick={() => { setRequestStatusFilter('All'); setRequestDueFilter('All dates'); setRequestRecipientFilter(''); setRequestSearch(''); }}>Clear filters</button>}
           </div>
           {showPbcForm && <form ref={pbcForm} className="panel-pad grid2" onSubmit={handleCreatePbc}>
             <div><label className="caption">Engagement</label><select className="input" value={pbcEngagementId} onChange={e => setPbcEngagementId(e.target.value)} required>{engagements.map(e => <option key={e.id} value={e.id}>{e.id} · FY {e.year} · {e.service}</option>)}</select></div>
             <div><label className="caption">Request title</label><input className="input" value={pbcTitle} onChange={e => setPbcTitle(e.target.value)} required /></div>
             <div><label className="caption">Category</label><input className="input" value={pbcCategory} onChange={e => setPbcCategory(e.target.value)} required /></div>
             <div><label className="caption">Due date</label><input type="date" className="input" value={pbcDue} onChange={e => setPbcDue(e.target.value)} required /></div>
-            <div><label className="caption">Client recipient</label><input className="input" value={pbcContributor} onChange={e => setPbcContributor(e.target.value)} required /></div>
+            <div><label className="caption">Client recipient</label><select className="input" value={pbcContributor} onChange={e => setPbcContributor(e.target.value)} required><option value="">Select active client contact</option>{contacts.filter(contact => contact.active).map(contact => <option key={contact.id} value={contact.name}>{contact.name} · {contact.email}</option>)}</select>{!contacts.some(contact => contact.active) && <span className="caption">Add an active client contact before creating a request.</span>}</div>
             <div className="row" style={{ alignItems: 'end' }}><button className="btn primary sm" type="submit">Save Draft Request</button></div>
           </form>}
           <div className="tablewrap">
@@ -681,7 +690,7 @@ export const ClientDetailView: React.FC<ClientDetailViewProps> = ({ clientId, se
                     <td>
                       <div className="row" style={{ gap: 6 }}>
                         {p.status === 'Draft' && <button className="btn sm" onClick={() => handlePresentPbc(p.engagementId, p.id)}>Present request</button>}
-                        {!['Accepted', 'Cancelled'].includes(p.status) && <button className="btn sm ghost" onClick={() => { setEditingRequest(p); setEditTitle(p.title); setEditDescription(p.description || ''); setEditDue(p.due); setEditRecipient(p.owner); setEditReason(''); }}>Edit / reassign</button>}
+                        {!['Accepted', 'Cancelled'].includes(p.status) && <button className="btn sm ghost" onClick={() => { setEditingRequest(p); setEditTitle(p.title); setEditDescription(p.description || ''); setEditDue(p.due); setEditRecipient(p.contributor || ''); setEditReason(''); }}>Edit / reassign</button>}
                         {p.status !== 'Cancelled' && <button className="btn sm ghost" onClick={() => handleCancelPbc(p)}>Cancel request</button>}
                         {p.status === 'Cancelled' && <span className="caption">Cancelled — history retained</span>}
                         {p.status === 'Received' && <><button className="btn sm" onClick={() => { setClarification({ engagementId: p.engagementId, request: p }); setClarificationText(''); }}>Request clarification</button><button className="btn sm primary" onClick={() => handleAcceptPbc(p.engagementId, p.id)}>Accept response</button></>}

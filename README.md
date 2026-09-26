@@ -31,9 +31,10 @@ The app is a native React + TypeScript single-page application; there is no lega
 - `src/services/legacyRoutes.ts`: redirects historical hash links to current React routes; role checks still apply and denied destinations resolve to an allowed workspace.
 - `src/components/layout/Shell.tsx`: navigation shell, search and scenario controls.
 - `src/components/modules/*.tsx`: the 39-module route views.
+- `src/components/common/*.tsx`: shared presentational pieces (icon set and the internal-notes panel).
 - `src/services/*.ts`: guards, migrations, artifact/IndexedDB storage, exports, calculations.
 - `styles.css` / `roles.css`: responsive visual system, imported by Vite.
-- `roles.json` / `permissions.json` / `source.json`: synthetic source and role fixtures used by the scenario factories in `src/store/`.
+- `roles.json` / `permissions.json` / `source.json`: synthetic source and role fixtures for the historical bundle — `build.py` validates them and embeds them in `legacy/index.html`. The Vite app does not read them; its personas, grants and records come from `src/store/initialState.ts`, and route/role policy comes from `src/services/guards.ts`.
 
 ## Client file-request workflow
 

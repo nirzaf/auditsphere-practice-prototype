@@ -12,11 +12,11 @@
 
 ## What already exists
 
-Firm settings and local identity/grant screens exist; prospective settings are the intended model.
+Firm settings and local identity/grant screens exist, and settings are consumed prospectively: billing drafts pre-fill the saved invoice/credit prefix and next number (the counter advances once on consumption; duplicates are rejected) and due dates from the saved payment terms, while timezone and optional logo-reference settings show an explicit no-logo placeholder state. The Role-Based Access Control tab catalogues ten core business-authority roles; the commercial, records and reserved `superuser` identities are documented in the role reference rather than this catalogue.
 
 ## Remaining work / demonstration limit
 
-Close consumption/version/collision/logo-unavailable cases and reconcile dedicated editor ownership.
+Rehearse numbering-collision rejection and the logo-unavailable placeholder state, and reconcile dedicated editor ownership; prospective consumption itself is implemented and verified.
 
 ## How to demonstrate this module
 
@@ -26,7 +26,7 @@ These are source-derived rehearsal instructions. Exact final labels and pending 
 2. Change one supported setting with a reason and inspect its revision.
 3. Create a new draft/preview to demonstrate that the new default applies prospectively.
 4. Open an already-issued invoice or released package and show that it is unchanged.
-5. Inspect user/grant settings separately; explain that system administration does not confer professional review powers.
+5. Inspect user/grant settings separately; explain that system administration does not confer professional review powers, and that the `superuser` testing identity appears in the persona list only as a reserved fixture.
 
 ## Expected client-visible outcome
 
