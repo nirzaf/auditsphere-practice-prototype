@@ -2,7 +2,7 @@
 // Client portal subviews include management representation acknowledgement without signature capture or payment.
 // Strictly browser-only prototype: no online payments, no external mail delivery, local deterministic document registry.
 
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { RouteKey, PbcRequestItem } from '../../types';
 import { prototypeStore } from '../../store/prototypeStore';
 import { visibleClientIds, visibleEngagementIds } from '../../services/guards';
@@ -12,12 +12,15 @@ import { exportService } from '../../services/exportService';
 import { sha256OfFile } from '../../services/fileMetadata';
 import { persistArtifact } from '../../services/artifactStore';
 import { validatePbcUpload } from '../../services/pbcUpload';
+import { UnsavedFormGuard } from '../../services/unsavedFormGuard';
 
 interface ClientPortalViewProps {
   onNavigate: (route: RouteKey) => void;
+  onBeforeContextChange: (run: () => void) => void;
+  onRegisterUnsavedForm: (guard: UnsavedFormGuard | null, key?: string) => void;
 }
 
-export const ClientPortalView: React.FC<ClientPortalViewProps> = ({ onNavigate }) => {
+export const ClientPortalView: React.FC<ClientPortalViewProps> = ({ onNavigate, onBeforeContextChange, onRegisterUnsavedForm }) => {
   const state = prototypeStore.getSnapshot();
   const [previewRole, setPreviewRole] = useState<'client_admin' | 'client_finance' | 'client'>('client_finance');
   const portalRole = state.currentRole === 'superuser' ? previewRole : state.currentRole;
@@ -25,6 +28,7 @@ export const ClientPortalView: React.FC<ClientPortalViewProps> = ({ onNavigate }
   const [notice, setNotice] = useState<string | null>(null);
   const [uploadPbcModal, setUploadPbcModal] = useState<PbcRequestItem | null>(null);
   const [uploadFile, setUploadFile] = useState<File | null>(null);
+  const uploadDraftBaseline = useRef<{ requestId: string; clientId: string; engagementId: string } | null>(null);
   const [pbcReplies, setPbcReplies] = useState<Record<string, string>>({});
   const [rejectingAdjustmentId, setRejectingAdjustmentId] = useState<string | null>(null);
   const [adjustmentRejectNote, setAdjustmentRejectNote] = useState('');
@@ -118,10 +122,8 @@ export const ClientPortalView: React.FC<ClientPortalViewProps> = ({ onNavigate }
     triggerNotice(`Downloaded a local sample preview for release ${relId}.`);
   };
 
-  const handleUploadSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!uploadPbcModal || !uploadFile || !eng) return;
-
+  const commitPbcUpload = async (): Promise<boolean> => {
+    if (!uploadPbcModal || !uploadFile || !eng) return false;
     try {
       const validationError = validatePbcUpload(uploadFile);
       if (validationError) throw new Error(validationError);
@@ -139,10 +141,33 @@ export const ClientPortalView: React.FC<ClientPortalViewProps> = ({ onNavigate }
       triggerNotice(`Saved ${uploadFile.name} locally (${uploadFile.size} bytes, SHA-256 ${sha256.slice(0, 12)}…). No file was uploaded to an external service.`);
       setUploadPbcModal(null);
       setUploadFile(null);
+      uploadDraftBaseline.current = null;
+      return true;
     } catch (err: any) {
       triggerNotice(`Upload error: ${err.message}`);
+      return false;
     }
   };
+
+  const discardPbcUpload = () => {
+    setUploadFile(null);
+    setUploadPbcModal(null);
+    uploadDraftBaseline.current = null;
+  };
+  const closePbcUpload = () => onBeforeContextChange(discardPbcUpload);
+  const handleUploadSubmit = async (event: React.FormEvent) => { event.preventDefault(); await commitPbcUpload(); };
+
+  useEffect(() => {
+    const baseline = uploadDraftBaseline.current;
+    if (!uploadPbcModal || !baseline) { onRegisterUnsavedForm(null, 'portal-pbc-upload'); return; }
+    onRegisterUnsavedForm({
+      label: 'client PBC upload draft',
+      isDirty: () => Boolean(uploadFile && (uploadFile !== null || uploadPbcModal.id !== baseline.requestId || client?.id !== baseline.clientId || eng?.id !== baseline.engagementId)),
+      save: commitPbcUpload,
+      discard: discardPbcUpload,
+    }, 'portal-pbc-upload');
+    return () => onRegisterUnsavedForm(null, 'portal-pbc-upload');
+  }, [uploadPbcModal, uploadFile, client?.id, eng?.id, onRegisterUnsavedForm]);
 
   const handlePbcReply = (event: React.FormEvent, request: PbcRequestItem) => {
     event.preventDefault();
@@ -434,6 +459,7 @@ export const ClientPortalView: React.FC<ClientPortalViewProps> = ({ onNavigate }
                             disabled={!['Requested', 'Needs clarification', 'Received'].includes(p.status)}
                             title={!['Requested', 'Needs clarification', 'Received'].includes(p.status) ? 'This request is not open for uploads' : undefined}
                             onClick={() => {
+                              uploadDraftBaseline.current = { requestId: p.id, clientId: client.id, engagementId: eng?.id || '' };
                               setUploadPbcModal(p);
                               setUploadFile(null);
                             }}
@@ -658,11 +684,11 @@ export const ClientPortalView: React.FC<ClientPortalViewProps> = ({ onNavigate }
 
       {/* Upload PBC Modal */}
       {uploadPbcModal && (
-        <div className="modal-backdrop" onClick={() => setUploadPbcModal(null)}>
+        <div className="modal-backdrop" onClick={event => { if (event.target === event.currentTarget) closePbcUpload(); }}>
           <div className="modal" style={{ maxWidth: 480 }} onClick={e => e.stopPropagation()}>
             <div className="modal-head">
               <h2>Upload Evidence Schedule</h2>
-              <button className="icon-btn" onClick={() => setUploadPbcModal(null)}>✕</button>
+              <button className="icon-btn" onClick={closePbcUpload}>✕</button>
             </div>
             <form onSubmit={handleUploadSubmit}>
               <div className="modal-body stack" style={{ gap: 12 }}>
@@ -686,7 +712,7 @@ export const ClientPortalView: React.FC<ClientPortalViewProps> = ({ onNavigate }
                 </div>
               </div>
               <div className="modal-foot">
-                <button type="button" className="btn ghost sm" onClick={() => setUploadPbcModal(null)}>Cancel</button>
+                <button type="button" className="btn ghost sm" onClick={closePbcUpload}>Cancel</button>
                 <button type="submit" className="btn primary sm" disabled={!uploadFile}>Save response file</button>
               </div>
             </form>

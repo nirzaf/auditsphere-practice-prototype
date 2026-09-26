@@ -50,7 +50,13 @@ class CdpTab {
         void this.command(sameOrigin ? 'Fetch.continueRequest' : 'Fetch.failRequest', sameOrigin
           ? { requestId: message.params.requestId }
           : { requestId: message.params.requestId, errorReason: 'BlockedByClient' })
-          .catch(error => this.exceptions.push(String(error)));
+          .catch(error => {
+            const detail = String(error);
+            // A page may cancel a request while CDP is delivering Fetch.requestPaused.
+            // In that narrow race Chrome rejects the stale interception ID; it is not
+            // an application exception and the request is already no longer pending.
+            if (!/Fetch\.(?:continueRequest|failRequest): Invalid InterceptionId/i.test(detail)) this.exceptions.push(detail);
+          });
       }
       if (message.method === 'Runtime.exceptionThrown') this.exceptions.push(message.params.exceptionDetails.exception?.description || message.params.exceptionDetails.text || 'browser exception');
       if (message.id) this.pending.get(message.id)?.(message);
@@ -1695,6 +1701,22 @@ describe('actual Chrome browser acceptance', { concurrency: false }, () => {
     assert.equal(await browserTab!.evaluate<number>(`JSON.parse(localStorage.getItem('ste-auditsphere-role-portals-v2')).samplePopulations[0].sourceRevision`), 1, 'wrong context leaves the prior source unchanged');
     await uploadCsv('population.csv','itemRef,date,counterparty,amount,description,period,currency\nNEW-1,2026-09-20,Customer One,100000,Invoice one,2026,QAR\nNEW-2,2026-09-21,Customer Two,400000,Invoice two,2026,QAR');
     assert.equal(await waitForBrowser(`(() => {const p=JSON.parse(localStorage.getItem('ste-auditsphere-role-portals-v2')).samplePopulations[0];return p.sourceRevision===2&&p.sourceComplete&&p.totalPopulationCount===2&&p.totalPopulationValue===500000&&document.body.innerText.includes('Reconciled to GL Frame');})()`), true, 'CSV population ties to mapped QAR 500000 GL balance');
+    await browserTab!.evaluate(`(() => {const field=document.querySelector('[data-sample-item="SAMP-IMPORT-1"] [data-selection-rationale]');const set=Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype,'value').set;set.call(field,'Uncommitted rationale must stay local until sample selection is explicitly recorded.');field.dispatchEvent(new Event('input',{bubbles:true}));})()`);
+    assert.equal(await browserTab!.evaluate<boolean>(`document.querySelectorAll('[data-sample-draft]').length>0&&document.querySelector('[data-sample-item="SAMP-IMPORT-1"] [data-selection-rationale]')?.value.includes('Uncommitted rationale')`), true, 'sampling editor exposes the changed field for dirty comparison');
+    await browserTab!.evaluate(`window.location.hash='#overview'`);
+    assert.equal(await waitForBrowser('document.body.innerText.includes("Unsaved changes")'), true, `sampling rationale guards route changes: ${JSON.stringify(await browserTab!.evaluate<any>(`(() => ({hash:location.hash,route:document.querySelector('main#main h1')?.innerText,field:document.querySelector('[data-sample-item="SAMP-IMPORT-1"] [data-selection-rationale]')?.value,guardFields:document.querySelectorAll('[data-sample-draft]').length,dialog:document.querySelector('[role=dialog]')?.innerText}))()`))}`);
+    await clickButton('Save and continue');
+    assert.equal(await waitForBrowser('document.body.innerText.includes("could not be saved")'), true, 'generic navigation save does not create an implicit audit selection');
+    assert.equal(await browserTab!.evaluate<boolean>(`document.querySelector('[data-sample-item="SAMP-IMPORT-1"] [data-selection-rationale]')?.value.includes('Uncommitted rationale')&&!!document.querySelector('[role=dialog]')`), true, 'failed implicit save retains the rationale and workspace');
+    await clickButton('Stay');
+    assert.equal(await browserTab!.evaluate<boolean>(`location.hash==='#sampling'&&document.querySelector('[data-sample-item="SAMP-IMPORT-1"] [data-selection-rationale]')?.value.includes('Uncommitted rationale')`), true, 'Stay restores the accepted sampling route and draft');
+    await browserTab!.evaluate(`window.location.hash='#overview'`);
+    assert.equal(await waitForBrowser('document.body.innerText.includes("Unsaved changes")'), true);
+    await clickButton('Discard and continue');
+    assert.equal(await waitForBrowser(`location.hash==='#overview'`), true, 'Discard applies the pending route');
+    assert.equal(await browserTab!.evaluate<boolean>(`(() => {const p=JSON.parse(localStorage.getItem('ste-auditsphere-role-portals-v2')).samplePopulations[0];const item=p.items.find(x=>x.id==='SAMP-IMPORT-1');return !item.selected&&!item.selectionRationale;})()`), true, 'discard creates no sample selection or persisted rationale');
+    await clickButton('Sampling & Populations');
+    assert.equal(await waitForBrowser('document.body.innerText.includes("Substantive Sampling & Population Testing")'), true);
     const amountSet = await browserTab!.evaluate<boolean>(`(() => {const row=document.querySelector('[data-sample-item="SAMP-IMPORT-1"]');const checkbox=row?.querySelector('input[type=checkbox]');if(!checkbox||checkbox.disabled)return false;const setNote=Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype,'value').set;const rationale=row.querySelector('[data-selection-rationale]');setNote.call(rationale,'High-value item selected for targeted vouching.');rationale.dispatchEvent(new Event('input',{bubbles:true}));checkbox.click();const input=row.querySelector('[data-audited-amount]');const set=Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set;set.call(input,'99990');input.dispatchEvent(new Event('input',{bubbles:true}));const note=row.querySelector('[data-test-notes]');setNote.call(note,'Vouched to confirmation; QAR 10 shortfall requires follow-up.');note.dispatchEvent(new Event('input',{bubbles:true}));return true;})()`);
     assert.equal(amountSet, true);
     const record = await browserTab!.evaluate<boolean>(`(() => {const row=document.querySelector('[data-sample-item="SAMP-IMPORT-1"]');const b=[...row.querySelectorAll('button')].find(x=>x.innerText.trim()==='Record test');if(!b)return false;b.click();return true;})()`);
@@ -3913,6 +3935,22 @@ describe('actual Chrome browser acceptance', { concurrency: false }, () => {
       Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value').set.call(engagement, 'ENG-26001');
       engagement.dispatchEvent(new Event('change', { bubbles: true }));
     })()`);
+    await clickButton('Acceptance & KYC');
+    assert.equal(await waitForBrowser('document.body.innerText.includes("Client Acceptance & Continuance")'), true);
+    const acceptanceHash = await browserTab!.evaluate<string>('location.hash');
+    const casesBeforeDraft = await browserTab!.evaluate<number>(`JSON.parse(localStorage.getItem('ste-auditsphere-role-portals-v2')).acceptanceCases?.length||0`);
+    await browserTab!.evaluate(`(() => {const field=document.querySelector('[aria-label="Compliance recommendation summary"]');const set=Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype,'value').set;set.call(field,'Uncommitted acceptance rationale.');field.dispatchEvent(new Event('input',{bubbles:true}));window.location.hash='#overview';})()`);
+    assert.equal(await waitForBrowser('document.body.innerText.includes("Unsaved changes")'), true, 'acceptance recommendation draft guards route changes');
+    await clickButton('Save and continue');
+    assert.equal(await waitForBrowser('document.body.innerText.includes("Use Save Recommendation")'), true, 'generic transition Save cannot silently record an acceptance recommendation');
+    assert.equal(await browserTab!.evaluate<boolean>(`document.querySelector('[aria-label="Compliance recommendation summary"]')?.value==='Uncommitted acceptance rationale.'&&document.querySelector('main#main h1')?.innerText.includes('Client Acceptance & Continuance')`), true, 'rejected implicit save retains the acceptance draft and rendered workspace');
+    await clickButton('Stay');
+    assert.equal(await browserTab!.evaluate<boolean>(`location.hash===${JSON.stringify(acceptanceHash)}&&document.querySelector('[aria-label="Compliance recommendation summary"]')?.value==='Uncommitted acceptance rationale.'`), true, 'Stay retains the draft in the acceptance workspace');
+    await browserTab!.evaluate(`window.location.hash='#overview'`);
+    assert.equal(await waitForBrowser('document.body.innerText.includes("Unsaved changes")'), true);
+    await clickButton('Discard and continue');
+    assert.equal(await waitForBrowser(`location.hash==='#overview'`), true, 'Discard applies route navigation');
+    assert.equal(await browserTab!.evaluate<number>(`JSON.parse(localStorage.getItem('ste-auditsphere-role-portals-v2')).acceptanceCases?.length||0`), casesBeforeDraft, 'discarding does not persist an acceptance case');
     await clickButton('Acceptance & KYC');
     assert.equal(await waitForBrowser('document.body.innerText.includes("Client Acceptance & Continuance")'), true);
     await browserTab!.evaluate(`(() => {
@@ -7291,6 +7329,146 @@ describe('actual Chrome browser acceptance', { concurrency: false }, () => {
       await clickButton('Sign-offs & EQR');
       const text = await browserTab!.evaluate<string>('document.body.innerText');
       assert.match(text, /Sign-offs|EQR|Partner|Manager/);
+      assert.deepEqual(browserTab!.exceptions, []);
+    } finally {
+      if (original) await browserTab!.evaluate(`localStorage.setItem('ste-auditsphere-role-portals-v2', ${JSON.stringify(original)})`);
+      else await browserTab!.evaluate(`localStorage.removeItem('ste-auditsphere-role-portals-v2')`);
+      await browserTab!.command('Page.reload');
+      await waitForBrowser('!!document.querySelector("#app-root .brandname")');
+    }
+  });
+
+  it('VP-003-E02: guards staged evidence-procedure links until explicit linking', async () => {
+    const original = await browserTab!.evaluate<string | null>(`localStorage.getItem('ste-auditsphere-role-portals-v2')`);
+    try {
+      await browserTab!.evaluate(`localStorage.setItem('ste-auditsphere-role-portals-v2',${JSON.stringify(JSON.stringify(createInitialState()))})`);
+      await browserTab!.command('Page.reload');
+      assert.equal(await waitForBrowser('!!document.querySelector("#app-root #role-select")'), true);
+      await clickButton('Evidence Catalogue');
+      const staged = await browserTab!.evaluate<any>(`(() => {const select=[...document.querySelectorAll('select[aria-label^="Procedure to link"]')].find(s=>s.options.length>1);if(!select)throw Error('No evidence procedure-link selector with an available procedure');const option=select.options[1];Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype,'value').set.call(select,option.value);select.dispatchEvent(new Event('change',{bubbles:true}));return {label:select.getAttribute('aria-label'),value:option.value,evidenceId:select.getAttribute('aria-label').replace('Procedure to link ','')};})()`);
+      const linksBefore = await browserTab!.evaluate<string[]>(`JSON.parse(localStorage.getItem('ste-auditsphere-role-portals-v2')).evidenceCatalogue.find(e=>e.id===${JSON.stringify(staged.evidenceId)}).linkedProcedures`);
+      await browserTab!.evaluate(`location.hash='#overview'`);
+      assert.equal(await waitForBrowser('!![...document.querySelectorAll("[role=dialog] h2")].some(x=>x.innerText==="Unsaved changes")'), true, 'staged evidence link guards route changes');
+      assert.equal(await browserTab!.evaluate<boolean>(`[...document.querySelectorAll('[role=dialog]')].some(d=>d.querySelector('h2')?.innerText==='Unsaved changes'&&d.innerText.includes('evidence procedure-link draft'))`), true, 'the evidence-link draft is identified');
+      await clickButton('Save and continue');
+      assert.equal(await browserTab!.evaluate<boolean>(`[...document.querySelectorAll('[role=dialog]')].some(d=>d.querySelector('h2')?.innerText==='Unsaved changes'&&d.innerText.includes('row-specific Link action'))`), true, 'generic Save cannot apply a staged evidence link');
+      await clickButton('Stay');
+      assert.equal(await browserTab!.evaluate<string>(`document.querySelector('[aria-label=${JSON.stringify(staged.label)}]')?.value`), staged.value, 'Stay retains the selected procedure');
+      await browserTab!.evaluate(`location.hash='#overview'`);
+      assert.equal(await waitForBrowser('!![...document.querySelectorAll("[role=dialog] h2")].some(x=>x.innerText==="Unsaved changes")'), true);
+      await clickButton('Discard and continue');
+      assert.equal(await waitForBrowser('location.hash==="#overview"'), true, 'Discard applies the requested route');
+      const linksAfter = await browserTab!.evaluate<string[]>(`JSON.parse(localStorage.getItem('ste-auditsphere-role-portals-v2')).evidenceCatalogue.find(e=>e.id===${JSON.stringify(staged.evidenceId)}).linkedProcedures`);
+      assert.deepEqual(linksAfter, linksBefore, 'discarding the selector draft does not create an evidence relationship');
+      assert.deepEqual(browserTab!.exceptions, []);
+    } finally {
+      if (original) await browserTab!.evaluate(`localStorage.setItem('ste-auditsphere-role-portals-v2', ${JSON.stringify(original)})`);
+      else await browserTab!.evaluate(`localStorage.removeItem('ste-auditsphere-role-portals-v2')`);
+      await browserTab!.command('Page.reload');
+      await waitForBrowser('!!document.querySelector("#app-root .brandname")');
+    }
+  });
+
+  it('VP-003-E02: protects archive retention and handover drafts without creating records', async () => {
+    const original = await browserTab!.evaluate<string | null>(`localStorage.getItem('ste-auditsphere-role-portals-v2')`);
+    try {
+      const seeded = createInitialState() as any;
+      const engagement = seeded.engagements.find((item: any) => item.id === seeded.selectedEngagement);
+      engagement.archive = { archivedAt: '2026-09-26T12:00:00.000Z', archivedBy: 'Layla Rahman', releaseId: 'REL-ARCHIVE-GUARD', manifest: [], artifacts: [], onApplicationHold: false, retentionUntil: '2030-12-31', history: [] };
+      await browserTab!.evaluate(`localStorage.setItem('ste-auditsphere-role-portals-v2',${JSON.stringify(JSON.stringify(seeded))})`);
+      await browserTab!.command('Page.reload');
+      assert.equal(await waitForBrowser('!!document.querySelector("#app-root #role-select")'), true);
+      await clickButton('Records & Archive');
+      await browserTab!.evaluate(`(() => {const input=document.querySelector('input[type="date"]');if(!input)throw Error('Retention date input missing');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(input,'2031-12-31');input.dispatchEvent(new Event('input',{bubbles:true}));input.dispatchEvent(new Event('change',{bubbles:true}));})()`);
+      const requestOverview = async () => {
+        await browserTab!.evaluate(`location.hash='#overview'`);
+        assert.equal(await waitForBrowser('!![...document.querySelectorAll("[role=dialog] h2")].some(x=>x.innerText==="Unsaved changes")'), true, 'dirty archive data guards navigation');
+      };
+      await requestOverview();
+      assert.equal(await browserTab!.evaluate<boolean>(`document.querySelector('[role=dialog]')?.innerText.includes('archive retention date draft')`), true);
+      await clickButton('Save and continue');
+      assert.equal(await browserTab!.evaluate<boolean>(`document.querySelector('[role=dialog]')?.innerText.includes('Use Save Archive Metadata')`), true, 'generic navigation Save cannot persist retention metadata');
+      await clickButton('Stay');
+      assert.equal(await browserTab!.evaluate<string>(`document.querySelector('input[type="date"]')?.value`), '2031-12-31', 'Stay retains the changed retention date');
+      await requestOverview();
+      await clickButton('Discard and continue');
+      assert.equal(await waitForBrowser('location.hash==="#overview"'), true);
+      assert.equal(await browserTab!.evaluate<string>(`JSON.parse(localStorage.getItem('ste-auditsphere-role-portals-v2')).engagements.find(e=>e.id===JSON.parse(localStorage.getItem('ste-auditsphere-role-portals-v2')).selectedEngagement).archive.retentionUntil`), '2030-12-31', 'Discard preserves the persisted retention date');
+
+      await clickButton('Records & Archive');
+      await clickButton('Process Handover Request');
+      await browserTab!.evaluate(`(() => {const input=document.querySelector('.modal-overlay input[type="text"]');if(!input)throw Error('Handover requester field missing');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(input,'Draft successor auditor');input.dispatchEvent(new Event('input',{bubbles:true}));})()`);
+      await requestOverview();
+      assert.equal(await browserTab!.evaluate<boolean>(`[...document.querySelectorAll('[role=dialog]')].some(dialog=>dialog.querySelector('h2')?.innerText==='Unsaved changes'&&dialog.innerText.includes('archive handover request draft'))`), true, 'handover form is identified in the navigation guard');
+      await clickButton('Save and continue');
+      assert.equal(await browserTab!.evaluate<boolean>(`[...document.querySelectorAll('[role=dialog]')].some(dialog=>dialog.querySelector('h2')?.innerText==='Unsaved changes'&&dialog.innerText.includes('Use Authorize Handover Record'))`), true, 'generic navigation Save cannot submit a handover');
+      await clickButton('Stay');
+      assert.equal(await browserTab!.evaluate<string>(`document.querySelector('.modal-overlay input[type="text"]')?.value`), 'Draft successor auditor', 'Stay preserves the handover requester');
+      await requestOverview();
+      await clickButton('Discard and continue');
+      assert.equal(await waitForBrowser('location.hash==="#overview"'), true);
+      assert.equal(await browserTab!.evaluate<boolean>(`!JSON.parse(localStorage.getItem('ste-auditsphere-role-portals-v2')).engagements.find(e=>e.id===JSON.parse(localStorage.getItem('ste-auditsphere-role-portals-v2')).selectedEngagement).archive.handoverRequested`), true, 'discarded handover draft creates no request');
+      assert.deepEqual(browserTab!.exceptions, []);
+    } finally {
+      if (original) await browserTab!.evaluate(`localStorage.setItem('ste-auditsphere-role-portals-v2', ${JSON.stringify(original)})`);
+      else await browserTab!.evaluate(`localStorage.removeItem('ste-auditsphere-role-portals-v2')`);
+      await browserTab!.command('Page.reload');
+      await waitForBrowser('!!document.querySelector("#app-root .brandname")');
+    }
+  });
+
+  it('VP-003-E02: protects sign-off and EQR drafts without implicitly recording decisions', async () => {
+    const original = await browserTab!.evaluate<string | null>(`localStorage.getItem('ste-auditsphere-role-portals-v2')`);
+    try {
+      await browserTab!.evaluate(`localStorage.setItem('ste-auditsphere-role-portals-v2',${JSON.stringify(JSON.stringify(createInitialState()))})`);
+      await browserTab!.command('Page.reload');
+      assert.equal(await waitForBrowser('!!document.querySelector("#app-root #role-select")'), true);
+      await clickButton('Sign-offs & EQR');
+      const typeInput = async (ariaLabel: string, value: string) => browserTab!.evaluate(`(() => {const input=document.querySelector('[aria-label='+JSON.stringify(${JSON.stringify(ariaLabel)})+']');if(!input)throw Error('Missing '+${JSON.stringify(ariaLabel)});Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(input,${JSON.stringify(value)});input.dispatchEvent(new Event('input',{bubbles:true}));input.dispatchEvent(new Event('change',{bubbles:true}));})()`);
+      const setPersona = async (label: string) => {
+        await browserTab!.evaluate(`(() => {const select=document.querySelector('#role-select');const option=[...select.options].find(item=>item.textContent.includes(${JSON.stringify(label)}));if(!option)throw Error('Missing persona '+${JSON.stringify(label)});Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype,'value').set.call(select,option.value);select.dispatchEvent(new Event('change',{bubbles:true}));})()`);
+        assert.equal(await waitForBrowser(`JSON.parse(localStorage.getItem('ste-auditsphere-role-portals-v2')).currentRole===${JSON.stringify(label === 'Engagement quality reviewer' ? 'eqr' : 'manager')}`), true, `${label} persona selected`);
+      };
+      const changeRoute = async () => {
+        await browserTab!.evaluate(`location.hash='#overview'`);
+        assert.equal(await waitForBrowser('!![...document.querySelectorAll("[role=dialog] h2")].some(x=>x.innerText==="Unsaved changes")'), true, 'route navigation is held while EQR drafts are dirty');
+      };
+      await typeInput('EQR query', 'Discarded EQR query draft');
+      await changeRoute();
+      assert.equal(await browserTab!.evaluate<boolean>(`document.querySelector('[role=dialog]')?.innerText.includes('EQR matter draft')`), true, 'query draft is identified in the guard');
+      await clickButton('Save and continue');
+      assert.equal(await browserTab!.evaluate<boolean>(`document.querySelector('[role=dialog]')?.innerText.includes('Use Raise EQR Query')`), true, 'generic Save does not create a quality matter');
+      await clickButton('Stay');
+      assert.equal(await browserTab!.evaluate<string>(`document.querySelector('[aria-label="EQR query"]')?.value`), 'Discarded EQR query draft', 'Stay retains the query draft');
+      await changeRoute();
+      await clickButton('Discard and continue');
+      assert.equal(await waitForBrowser('location.hash==="#overview"'), true, 'Discard applies the requested route');
+      assert.equal(await browserTab!.evaluate<boolean>(`!JSON.parse(localStorage.getItem('ste-auditsphere-role-portals-v2')).engagements.find(e=>e.id===JSON.parse(localStorage.getItem('ste-auditsphere-role-portals-v2')).selectedEngagement).eqrConcerns?.some(c=>c.text==='Discarded EQR query draft')`), true, 'discarded query is not persisted');
+
+      await clickButton('Sign-offs & EQR');
+      await typeInput('EQR assignment reason', 'Temporary reviewer substitution');
+      await changeRoute();
+      assert.equal(await browserTab!.evaluate<boolean>(`document.querySelector('[role=dialog]')?.innerText.includes('EQR assignment draft')`), true, 'assignment reason is protected');
+      await clickButton('Discard and continue');
+      assert.equal(await waitForBrowser('location.hash==="#overview"'), true);
+      assert.equal(await browserTab!.evaluate<boolean>(`!JSON.parse(localStorage.getItem('ste-auditsphere-role-portals-v2')).engagements.find(e=>e.id===JSON.parse(localStorage.getItem('ste-auditsphere-role-portals-v2')).selectedEngagement).eqrAssignmentHistory?.some(x=>x.reason==='Temporary reviewer substitution')`), true, 'discarded assignment creates no history');
+
+      await clickButton('Sign-offs & EQR');
+      await setPersona('Engagement quality reviewer');
+      await typeInput('EQR query', 'Persisted matter for response draft test');
+      await clickButton('Raise EQR Query');
+      assert.equal(await waitForBrowser('document.body.innerText.includes("Persisted matter for response draft test")'), true, 'explicit query action creates the matter');
+      const concernId = await browserTab!.evaluate<string>(`JSON.parse(localStorage.getItem('ste-auditsphere-role-portals-v2')).engagements.find(e=>e.id===JSON.parse(localStorage.getItem('ste-auditsphere-role-portals-v2')).selectedEngagement).eqrConcerns.find(c=>c.text==='Persisted matter for response draft test').id`);
+      await setPersona('Engagement manager');
+      await typeInput(`Response to ${concernId}`, 'Draft response that must not submit implicitly');
+      await changeRoute();
+      assert.equal(await browserTab!.evaluate<boolean>(`document.querySelector('[role=dialog]')?.innerText.includes('EQR response draft')`), true, 'response draft is identified in the guard');
+      await clickButton('Stay');
+      assert.equal(await browserTab!.evaluate<string>(`document.querySelector('[aria-label="Response to ${concernId}"]')?.value`), 'Draft response that must not submit implicitly', 'Stay retains response draft');
+      await changeRoute();
+      await clickButton('Discard and continue');
+      assert.equal(await waitForBrowser('location.hash==="#overview"'), true);
+      assert.equal(await browserTab!.evaluate<boolean>(`!JSON.parse(localStorage.getItem('ste-auditsphere-role-portals-v2')).engagements.find(e=>e.id===JSON.parse(localStorage.getItem('ste-auditsphere-role-portals-v2')).selectedEngagement).eqrConcerns.find(c=>c.id===${JSON.stringify(concernId)}).response`), true, 'discarded response is not persisted');
       assert.deepEqual(browserTab!.exceptions, []);
     } finally {
       if (original) await browserTab!.evaluate(`localStorage.setItem('ste-auditsphere-role-portals-v2', ${JSON.stringify(original)})`);

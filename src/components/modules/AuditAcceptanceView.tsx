@@ -1,17 +1,19 @@
 // Module 27: Acceptance, Continuance & KYC Questionnaire (VP-047)
 // Engagement onboarding, independence evaluation, conditions management, partner sign-off, and persisted acceptance cases.
 
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { RouteKey, AcceptanceCaseRecord } from '../../types';
 import { prototypeStore } from '../../store/prototypeStore';
 import { hasAnyRole, hasRole } from '../../services/guards';
 import { Icon } from '../common/Icons';
+import { UnsavedFormGuard } from '../../services/unsavedFormGuard';
 
 interface AuditAcceptanceViewProps {
   onNavigate: (route: RouteKey) => void;
+  onRegisterUnsavedForm: (guard: UnsavedFormGuard | null, key?: string) => void;
 }
 
-export const AuditAcceptanceView: React.FC<AuditAcceptanceViewProps> = ({ onNavigate }) => {
+export const AuditAcceptanceView: React.FC<AuditAcceptanceViewProps> = ({ onNavigate, onRegisterUnsavedForm }) => {
   const state = prototypeStore.getSnapshot();
   const selectedEng = state.engagements.find(e => e.id === state.selectedEngagement) || state.engagements[0];
   const client = state.clients.find(c => c.id === selectedEng?.client);
@@ -59,6 +61,53 @@ export const AuditAcceptanceView: React.FC<AuditAcceptanceViewProps> = ({ onNavi
   );
   const historicalApprovalNeedsEvidenceReview = existingCase?.decisionStatus === 'Accepted' && !selectedEng.acceptance;
   const [changedFacts, setChangedFacts] = useState('');
+  const draftState = () => ({ riskRating, independenceConfirmed, amlKycCompleted, conflictsCleared, prohibitionsChecked, competenceConfirmed, screeningEvidence, conditions, newCondition, recommendationNotes, partnerDecision, partnerRationale, changedFacts });
+  const persistedDraftState = () => ({
+    riskRating: existingCase?.riskRating || 'Low',
+    independenceConfirmed: existingCase?.independenceConfirmed || false,
+    amlKycCompleted: existingCase?.amlKycCompleted || false,
+    conflictsCleared: existingCase?.conflictsCleared || false,
+    prohibitionsChecked: existingCase?.prohibitionsChecked || false,
+    competenceConfirmed: existingCase?.competenceConfirmed || false,
+    screeningEvidence: existingCase?.screeningEvidence || {},
+    conditions: existingCase?.conditions || [],
+    newCondition: '',
+    recommendationNotes: existingCase?.recommendationNotes || '',
+    partnerDecision: existingCase?.decisionStatus || 'Pending',
+    partnerRationale: existingCase?.decisionNotes || '',
+    changedFacts: '',
+  });
+  const draftBaseline = useRef(JSON.stringify(persistedDraftState()));
+  const currentDraft = useRef({ current: draftState(), saved: persistedDraftState() });
+  currentDraft.current = { current: draftState(), saved: persistedDraftState() };
+  const markDraftClean = (savedFields: Partial<ReturnType<typeof draftState>>) => {
+    const baseline = JSON.parse(draftBaseline.current) as ReturnType<typeof draftState>;
+    draftBaseline.current = JSON.stringify({ ...baseline, ...savedFields });
+  };
+  const discardDraft = () => {
+    const saved = currentDraft.current.saved;
+    setRiskRating(saved.riskRating as typeof riskRating);
+    setIndependenceConfirmed(saved.independenceConfirmed); setAmlKycCompleted(saved.amlKycCompleted);
+    setConflictsCleared(saved.conflictsCleared); setProhibitionsChecked(saved.prohibitionsChecked);
+    setCompetenceConfirmed(saved.competenceConfirmed); setScreeningEvidence(saved.screeningEvidence);
+    setConditions([...saved.conditions]); setNewCondition(saved.newCondition);
+    setRecommendationNotes(saved.recommendationNotes); setPartnerDecision(saved.partnerDecision as typeof partnerDecision);
+    setPartnerRationale(saved.partnerRationale); setChangedFacts(saved.changedFacts);
+    draftBaseline.current = JSON.stringify(saved);
+  };
+  useEffect(() => {
+    const key = `audit-acceptance:${selectedEng?.id || 'none'}`;
+    if (!selectedEng) return;
+    onRegisterUnsavedForm({
+      label: 'client acceptance and continuance draft',
+      isDirty: () => JSON.stringify(currentDraft.current.current) !== draftBaseline.current,
+      // Recommendation, partner decision and continuance creation are explicit
+      // professional actions; generic navigation must not perform them implicitly.
+      save: () => { throw new Error('Use Save Recommendation, Record Partner Decision, or Create Fresh FY Draft before continuing; these professional actions are never submitted implicitly.'); },
+      discard: discardDraft,
+    }, key);
+    return () => onRegisterUnsavedForm(null, key);
+  }, [selectedEng?.id, onRegisterUnsavedForm]);
 
   const triggerNotice = (type: 'success' | 'error', text: string) => {
     setNotice({ type, text });
@@ -115,6 +164,7 @@ export const AuditAcceptanceView: React.FC<AuditAcceptanceViewProps> = ({ onNavi
 
       prototypeStore.saveAcceptanceCase(caseRecord);
       setPartnerDecision('Pending');
+      markDraftClean({ riskRating, independenceConfirmed, amlKycCompleted, conflictsCleared, prohibitionsChecked, competenceConfirmed, screeningEvidence: { ...screeningEvidence }, conditions: [...conditions], recommendationNotes, partnerDecision: 'Pending' });
       triggerNotice('success', `Recommendation for case ${caseRecord.id} saved. Partner decision is pending.`);
     } catch (err: any) {
       triggerNotice('error', err.message);
@@ -125,6 +175,7 @@ export const AuditAcceptanceView: React.FC<AuditAcceptanceViewProps> = ({ onNavi
     if (!existingCase || partnerDecision === 'Pending') return;
     try {
       prototypeStore.decideAcceptanceCase(existingCase.id, partnerDecision, partnerRationale);
+      markDraftClean({ partnerDecision, partnerRationale });
       triggerNotice('success', `Partner ${partnerDecision.toLowerCase()} decision recorded for ${existingCase.id}.${partnerDecision === 'Accepted' ? ' Prepare the client workspace separately after the synthetic SharePoint binding succeeds.' : ''}`);
     } catch (err: any) {
       triggerNotice('error', err.message);
@@ -135,6 +186,8 @@ export const AuditAcceptanceView: React.FC<AuditAcceptanceViewProps> = ({ onNavi
   const handleCreateContinuance = () => {
     try {
       const draft = prototypeStore.createContinuanceDraft(selectedEng.id, changedFacts);
+      setChangedFacts('');
+      markDraftClean({ changedFacts: '' });
       triggerNotice('success', `Fresh FY${draft.year} draft ${draft.id} created. Its recommendation and partner decision are pending.`);
     } catch (err: any) {
       triggerNotice('error', err.message);

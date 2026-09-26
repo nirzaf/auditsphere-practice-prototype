@@ -1,17 +1,30 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { RouteKey, EvidenceItem, AuditProcedureItem } from '../../types';
 import { prototypeStore } from '../../store/prototypeStore';
 import { Icon } from '../common/Icons';
+import { UnsavedFormGuard } from '../../services/unsavedFormGuard';
 
 interface EvidenceCatalogueViewProps {
   onNavigate: (route: RouteKey) => void;
+  onRegisterUnsavedForm: (guard: UnsavedFormGuard | null, key?: string) => void;
 }
 
-export const EvidenceCatalogueView: React.FC<EvidenceCatalogueViewProps> = ({ onNavigate }) => {
+export const EvidenceCatalogueView: React.FC<EvidenceCatalogueViewProps> = ({ onNavigate, onRegisterUnsavedForm }) => {
   const state = prototypeStore.getSnapshot();
   const evidenceList = state.evidenceCatalogue;
   const [notice, setNotice] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [linkSelections, setLinkSelections] = useState<Record<string, string>>({});
+  const linkSelectionBaseline = useRef<Record<string, string>>({});
+
+  useEffect(() => {
+    onRegisterUnsavedForm({
+      label: 'evidence procedure-link draft',
+      isDirty: () => JSON.stringify(linkSelections) !== JSON.stringify(linkSelectionBaseline.current),
+      save: () => { throw new Error('Use the row-specific Link action to create the evidence relationship; navigation cannot apply a staged selection.'); },
+      discard: () => setLinkSelections({ ...linkSelectionBaseline.current }),
+    }, 'evidence-procedure-links');
+    return () => onRegisterUnsavedForm(null, 'evidence-procedure-links');
+  }, [linkSelections, onRegisterUnsavedForm]);
   const latestDocument = (documentId: string) => {
     let latest = state.documents.find(doc => doc.id === documentId);
     while (latest) {
@@ -66,6 +79,7 @@ export const EvidenceCatalogueView: React.FC<EvidenceCatalogueViewProps> = ({ on
   const handleLink = (evidenceId: string, procedureId: string) => {
     try {
       prototypeStore.linkEvidenceProcedure(evidenceId, procedureId);
+      linkSelectionBaseline.current = { ...linkSelectionBaseline.current, [evidenceId]: '' };
       setLinkSelections(current => ({ ...current, [evidenceId]: '' }));
       setNotice({ type: 'success', text: `${evidenceId} linked to ${procedureId}.` });
     } catch (e) {

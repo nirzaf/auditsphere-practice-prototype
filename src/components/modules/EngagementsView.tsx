@@ -324,7 +324,7 @@ export const EngagementsView: React.FC<EngagementsViewProps> = ({ onNavigate, on
         </div>
       </div>
 
-      {selectedEng && <InternalNotesPanel subjectType="engagement" subjectId={selectedEng.id} />}
+      {selectedEng && <InternalNotesPanel subjectType="engagement" subjectId={selectedEng.id} onBeforeContextChange={onBeforeContextChange} onRegisterUnsavedForm={onRegisterUnsavedForm} />}
 
       {/* Scope Modal */}
       {showScopeModal && selectedEng && (

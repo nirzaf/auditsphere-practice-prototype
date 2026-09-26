@@ -1,17 +1,19 @@
 // Module 36: Multi-Stage Sign-offs & Engagement Quality Review (EQR) (VP-056)
 // Formal 4-gate sign-off register, generational invalidation protection, and persistent per-engagement EQR concerns.
 
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { RouteKey } from '../../types';
 import { prototypeStore } from '../../store/prototypeStore';
 import { hasAnyRole, hasRole } from '../../services/guards';
 import { Icon } from '../common/Icons';
+import { UnsavedFormGuard } from '../../services/unsavedFormGuard';
 
 interface ApprovalsEQRViewProps {
   onNavigate: (route: RouteKey) => void;
+  onRegisterUnsavedForm: (guard: UnsavedFormGuard | null, key?: string) => void;
 }
 
-export const ApprovalsEQRView: React.FC<ApprovalsEQRViewProps> = ({ onNavigate }) => {
+export const ApprovalsEQRView: React.FC<ApprovalsEQRViewProps> = ({ onNavigate, onRegisterUnsavedForm }) => {
   const state = prototypeStore.getSnapshot();
   const selectedEng = state.engagements.find(e => e.id === state.selectedEngagement) || state.engagements[0];
   const [newConcern, setNewConcern] = useState('');
@@ -19,6 +21,55 @@ export const ApprovalsEQRView: React.FC<ApprovalsEQRViewProps> = ({ onNavigate }
   const [eqrReason, setEqrReason] = useState('');
   const [responses, setResponses] = useState<Record<string, string>>({});
   const [notice, setNotice] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const assignmentBaseline = useRef({ userId: eqrUserId, reason: '' });
+  const queryBaseline = useRef('');
+  const responseBaseline = useRef<Record<string, string>>({});
+
+  useEffect(() => {
+    const nextReviewer = selectedEng.eqrReviewerUserId || state.users.find(user => user.role === 'eqr' && user.status === 'Active')?.id || '';
+    assignmentBaseline.current = { userId: nextReviewer, reason: '' };
+    queryBaseline.current = '';
+    responseBaseline.current = {};
+    setEqrUserId(nextReviewer);
+    setEqrReason('');
+    setNewConcern('');
+    setResponses({});
+  }, [selectedEng.id]);
+
+  useEffect(() => {
+    const assignmentKey = `eqr-assignment:${selectedEng.id}`;
+    const queryKey = `eqr-query:${selectedEng.id}`;
+    const responsesKey = `eqr-responses:${selectedEng.id}`;
+    const assignmentGuard: UnsavedFormGuard = {
+      label: 'EQR assignment draft',
+      isDirty: () => eqrUserId !== assignmentBaseline.current.userId || eqrReason !== assignmentBaseline.current.reason,
+      save: () => { throw new Error('Use Assign EQR to record the reviewer and reason; navigation cannot record an assignment.'); },
+      discard: () => {
+        setEqrUserId(assignmentBaseline.current.userId);
+        setEqrReason(assignmentBaseline.current.reason);
+      },
+    };
+    const queryGuard: UnsavedFormGuard = {
+      label: 'EQR matter draft',
+      isDirty: () => newConcern !== queryBaseline.current,
+      save: () => { throw new Error('Use Raise EQR Query to add the matter to the engagement quality log.'); },
+      discard: () => setNewConcern(queryBaseline.current),
+    };
+    const responseGuard: UnsavedFormGuard = {
+      label: 'EQR response draft',
+      isDirty: () => Object.entries(responses).some(([id, value]) => value !== (responseBaseline.current[id] || '')),
+      save: () => { throw new Error('Use Record response for each EQR matter; navigation cannot submit an EQR response.'); },
+      discard: () => setResponses({ ...responseBaseline.current }),
+    };
+    onRegisterUnsavedForm(assignmentGuard, assignmentKey);
+    onRegisterUnsavedForm(queryGuard, queryKey);
+    onRegisterUnsavedForm(responseGuard, responsesKey);
+    return () => {
+      onRegisterUnsavedForm(null, assignmentKey);
+      onRegisterUnsavedForm(null, queryKey);
+      onRegisterUnsavedForm(null, responsesKey);
+    };
+  }, [selectedEng.id, eqrUserId, eqrReason, newConcern, responses, onRegisterUnsavedForm]);
 
   if (!selectedEng) {
     return (
@@ -55,6 +106,7 @@ export const ApprovalsEQRView: React.FC<ApprovalsEQRViewProps> = ({ onNavigate }
   const handleAssignEqr = () => {
     try {
       prototypeStore.assignEqrReviewer(selectedEng.id, eqrUserId, eqrReason);
+      assignmentBaseline.current = { userId: eqrUserId, reason: '' };
       setEqrReason('');
       triggerNotice('success', 'EQR assignment recorded; prior EQR concurrence was cleared.');
     } catch (err: any) {
@@ -77,6 +129,7 @@ export const ApprovalsEQRView: React.FC<ApprovalsEQRViewProps> = ({ onNavigate }
 
     try {
       prototypeStore.addEqrConcern(selectedEng.id, newConcern.trim());
+      queryBaseline.current = '';
       setNewConcern('');
       triggerNotice('success', 'EQR matter registered in the engagement quality log.');
     } catch (err: any) {
@@ -95,6 +148,7 @@ export const ApprovalsEQRView: React.FC<ApprovalsEQRViewProps> = ({ onNavigate }
   const handleRespondConcern = (id: string) => {
     try {
       prototypeStore.respondEqrConcern(selectedEng.id, id, responses[id] || '');
+      responseBaseline.current = { ...responseBaseline.current, [id]: '' };
       setResponses(prev => ({ ...prev, [id]: '' }));
       triggerNotice('success', 'EQR response saved for independent review.');
     } catch (err: any) {

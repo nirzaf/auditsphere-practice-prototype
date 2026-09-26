@@ -2,18 +2,21 @@
 // Cross-engagement archive register, optional retention dates,
 // handover request workflows, and application legal holds without Purview claims.
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { RouteKey, ArchiveRecord } from '../../types';
 import { prototypeStore } from '../../store/prototypeStore';
 import { Icon } from '../common/Icons';
 import { visibleEngagementIds } from '../../services/guards';
 import { copyReleaseArtifactsToArchive, downloadVerifiedArtifact } from '../../services/artifactStore';
+import { UnsavedFormGuard } from '../../services/unsavedFormGuard';
 
 interface RecordsArchiveViewProps {
   onNavigate: (route: RouteKey) => void;
+  onBeforeContextChange: (change: () => void) => void;
+  onRegisterUnsavedForm: (guard: UnsavedFormGuard | null, key?: string) => void;
 }
 
-export const RecordsArchiveView: React.FC<RecordsArchiveViewProps> = ({ onNavigate }) => {
+export const RecordsArchiveView: React.FC<RecordsArchiveViewProps> = ({ onNavigate, onBeforeContextChange, onRegisterUnsavedForm }) => {
   const state = prototypeStore.getSnapshot();
   const selectedEng = state.engagements.find(e => e.id === state.selectedEngagement);
   const client = state.clients.find(c => c.id === selectedEng?.client);
@@ -29,8 +32,54 @@ export const RecordsArchiveView: React.FC<RecordsArchiveViewProps> = ({ onNaviga
   const [handoverRequester, setHandoverRequester] = useState('KPMG Qatar (Successor Audit Firm)');
   const [notice, setNotice] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const archive = selectedEng?.archive;
+  const retentionBaseline = useRef(archive?.retentionUntil || '');
+  const handoverBaseline = useRef({ targetEng: selectedEng?.id || '', requester: 'KPMG Qatar (Successor Audit Firm)', reason: 'Successor auditor inspection requested under ISA 510.' });
 
-  useEffect(() => setRetentionYear(archive?.retentionUntil || ''), [selectedEng?.id, archive?.retentionUntil]);
+  useEffect(() => {
+    const value = archive?.retentionUntil || '';
+    retentionBaseline.current = value;
+    setRetentionYear(value);
+  }, [selectedEng?.id, archive?.retentionUntil]);
+
+  useEffect(() => {
+    if (!selectedEng) return;
+    const key = `archive-retention:${selectedEng.id}`;
+    onRegisterUnsavedForm({
+      label: 'archive retention date draft',
+      isDirty: () => retentionYear !== retentionBaseline.current,
+      save: () => { throw new Error(archive ? 'Use Save Archive Metadata to record the retention date.' : 'Use Create Local Archive Index to archive the released files; navigation cannot create an archive.'); },
+      discard: () => setRetentionYear(retentionBaseline.current),
+    }, key);
+    return () => onRegisterUnsavedForm(null, key);
+  }, [selectedEng?.id, archive, retentionYear, onRegisterUnsavedForm]);
+
+  useEffect(() => {
+    if (!showHandoverModal || !selectedEng) return;
+    const key = `archive-handover:${selectedEng.id}`;
+    onRegisterUnsavedForm({
+      label: 'archive handover request draft',
+      isDirty: () => handoverTargetEng !== handoverBaseline.current.targetEng || handoverRequester !== handoverBaseline.current.requester || handoverReason !== handoverBaseline.current.reason,
+      save: () => { throw new Error('Use Authorize Handover Record to record the request; navigation cannot submit a handover.'); },
+      discard: () => {
+        setHandoverTargetEng(handoverBaseline.current.targetEng);
+        setHandoverRequester(handoverBaseline.current.requester);
+        setHandoverReason(handoverBaseline.current.reason);
+        setShowHandoverModal(false);
+      },
+    }, key);
+    return () => onRegisterUnsavedForm(null, key);
+  }, [showHandoverModal, selectedEng?.id, handoverTargetEng, handoverRequester, handoverReason, onRegisterUnsavedForm]);
+
+  const openHandover = (targetEng: string) => {
+    const next = { targetEng, requester: 'KPMG Qatar (Successor Audit Firm)', reason: 'Successor auditor inspection requested under ISA 510.' };
+    handoverBaseline.current = next;
+    setHandoverTargetEng(next.targetEng);
+    setHandoverRequester(next.requester);
+    setHandoverReason(next.reason);
+    setShowHandoverModal(true);
+  };
+  const closeHandover = () => setShowHandoverModal(false);
+  const requestHandoverClose = () => onBeforeContextChange(closeHandover);
 
   const triggerNotice = (type: 'success' | 'error', text: string) => {
     setNotice({ type, text });
@@ -71,6 +120,7 @@ export const RecordsArchiveView: React.FC<RecordsArchiveViewProps> = ({ onNaviga
         undefined,
         artifactCopies
       );
+      retentionBaseline.current = retentionYear;
       triggerNotice('success', `Archived ${artifactCopies.length} verified artifact copies for ${targetEng.id} in this browser.`);
     } catch (err: any) {
       triggerNotice('error', err.message);
@@ -81,6 +131,7 @@ export const RecordsArchiveView: React.FC<RecordsArchiveViewProps> = ({ onNaviga
     if (!archive) return;
     try {
       prototypeStore.archiveEngagement(selectedEng.id, archive.releaseId, retentionYear, Boolean(archive.onApplicationHold), archive.holdReason);
+      retentionBaseline.current = retentionYear;
       triggerNotice('success', 'Archive metadata correction saved to its history.');
     } catch (err: any) {
       triggerNotice('error', err.message);
@@ -114,6 +165,7 @@ export const RecordsArchiveView: React.FC<RecordsArchiveViewProps> = ({ onNaviga
         return;
       }
       prototypeStore.recordArchiveHandover(eng.id, handoverRequester, handoverReason);
+      handoverBaseline.current = { targetEng: handoverTargetEng, requester: handoverRequester, reason: handoverReason };
       setShowHandoverModal(false);
       triggerNotice('success', `Local handover request metadata recorded for ${handoverRequester}. No inspection packet was sent.`);
     } catch (err: any) {
@@ -131,10 +183,7 @@ export const RecordsArchiveView: React.FC<RecordsArchiveViewProps> = ({ onNaviga
         <div className="row" style={{ gap: 10 }}>
           <button
             className="btn sm"
-            onClick={() => {
-              setHandoverTargetEng(selectedEng.id);
-              setShowHandoverModal(true);
-            }}
+            onClick={() => openHandover(selectedEng.id)}
           >
             <Icon name="share" /> Process Handover Request
           </button>
@@ -251,10 +300,7 @@ export const RecordsArchiveView: React.FC<RecordsArchiveViewProps> = ({ onNaviga
                 </button>
                 <button
                   className="btn sm"
-                  onClick={() => {
-                    setHandoverTargetEng(selectedEng.id);
-                    setShowHandoverModal(true);
-                  }}
+                  onClick={() => openHandover(selectedEng.id)}
                 >
                   Process Successor Handover
                 </button>
@@ -353,10 +399,7 @@ export const RecordsArchiveView: React.FC<RecordsArchiveViewProps> = ({ onNaviga
                               </button>
                               <button
                                 className="btn sm"
-                                onClick={() => {
-                                  setHandoverTargetEng(eng.id);
-                                  setShowHandoverModal(true);
-                                }}
+                                onClick={() => openHandover(eng.id)}
                               >
                                 Handover
                               </button>
@@ -386,7 +429,7 @@ export const RecordsArchiveView: React.FC<RecordsArchiveViewProps> = ({ onNaviga
           <div className="modal-card" style={{ maxWidth: 540 }}>
             <div className="between">
               <h3>Process Handover Inspection Request</h3>
-              <button className="btn sm ghost" onClick={() => setShowHandoverModal(false)}>✕</button>
+              <button className="btn sm ghost" onClick={requestHandoverClose}>✕</button>
             </div>
             <p className="sub mt4">
               Record a local request for successor auditor or regulator inspection. This prototype does not authorize access or send records.
@@ -428,7 +471,7 @@ export const RecordsArchiveView: React.FC<RecordsArchiveViewProps> = ({ onNaviga
             </div>
 
             <div className="row mt20" style={{ gap: 10, justifyContent: 'flex-end' }}>
-              <button className="btn sm ghost" onClick={() => setShowHandoverModal(false)}>Cancel</button>
+              <button className="btn sm ghost" onClick={requestHandoverClose}>Cancel</button>
               <button className="btn primary sm" onClick={handleProcessHandover}>
                 Authorize Handover Record
               </button>

@@ -833,7 +833,7 @@ export const ClientDetailView: React.FC<ClientDetailViewProps> = ({ clientId, se
       {/* Tab 12: Activity */}
       {activeTab === 'activity' && (
         <div className="stack" style={{ gap: 16 }}>
-          <InternalNotesPanel subjectType="client" subjectId={client.id} />
+          <InternalNotesPanel subjectType="client" subjectId={client.id} onBeforeContextChange={onBeforeContextChange} onRegisterUnsavedForm={onRegisterUnsavedForm} />
           <div className="panel panel-pad">
           <h3>Client Activity & Audit Events</h3>
           <div className="stack mt12" style={{ gap: 8 }}>

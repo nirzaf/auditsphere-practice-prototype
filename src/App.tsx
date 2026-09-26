@@ -308,7 +308,7 @@ export const App: React.FC = () => {
         return <EngagementsView onNavigate={navigate} onRegisterUnsavedForm={registerUnsavedForm} onBeforeContextChange={requestContextChange} />;
       case 'onboarding':
       case 'audit-acceptance' as any:
-        return <AuditAcceptanceView key={state.selectedEngagement} onNavigate={navigate} />;
+        return <AuditAcceptanceView key={state.selectedEngagement} onNavigate={navigate} onRegisterUnsavedForm={registerUnsavedForm} />;
 
       // Work & Collaboration
       case 'jobs':
@@ -354,22 +354,22 @@ export const App: React.FC = () => {
       case 'audit-fieldwork':
         return <AuditRisksProgramsView onNavigate={navigate} onRegisterUnsavedForm={registerUnsavedForm} />;
       case 'sampling':
-        return <SamplingView onNavigate={navigate} />;
+        return <SamplingView onNavigate={navigate} onBeforeContextChange={requestContextChange} onRegisterUnsavedForm={registerUnsavedForm} />;
       case 'audit':
         return <WorkpapersView key={`${state.selectedEngagement}:${searchTargetId || ''}`} searchTargetId={searchTargetId} onNavigate={navigate} onRegisterUnsavedForm={registerUnsavedForm} />;
       case 'evidence':
-        return <EvidenceCatalogueView onNavigate={navigate} />;
+        return <EvidenceCatalogueView onNavigate={navigate} onRegisterUnsavedForm={registerUnsavedForm} />;
       case 'findings':
         return <FindingsView key={`${state.selectedEngagement}:${searchTargetId || ''}`} searchTargetId={searchTargetId} onNavigate={navigate} onRegisterUnsavedForm={registerUnsavedForm} onBeforeContextChange={requestContextChange} />;
       case 'reviews':
         return <ReviewDeskView onNavigate={navigate} onRegisterUnsavedForm={registerUnsavedForm} />;
       case 'approvals':
       case 'quality':
-        return <ApprovalsEQRView onNavigate={navigate} />;
+        return <ApprovalsEQRView onNavigate={navigate} onRegisterUnsavedForm={registerUnsavedForm} />;
       case 'delivery':
         return <ReleaseCompletionView onNavigate={navigate} onRegisterUnsavedForm={registerUnsavedForm} />;
       case 'records':
-        return <RecordsArchiveView onNavigate={navigate} />;
+        return <RecordsArchiveView onNavigate={navigate} onBeforeContextChange={requestContextChange} onRegisterUnsavedForm={registerUnsavedForm} />;
 
       // Client Services & Admin
       case 'portal':

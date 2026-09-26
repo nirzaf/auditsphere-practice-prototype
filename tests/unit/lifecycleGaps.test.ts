@@ -691,3 +691,38 @@ describe('statement layout/mapping staleness and disclosure gating (VP-040/041)'
     assert.ok(Array.isArray(packageGen), 'package generations remain inspectable for staleness');
   });
 });
+
+describe('archived accounts cannot silently alter approved output (VP-034-E02)', () => {
+  it('an archived account blocks TB intake referencing it and explicitly stales — never silently alters — reviewed output', () => {
+    setPersona(state, 'Adam Khan');
+    const eng = state.engagements.find(e => e.id === 'ENG-26001')!;
+    const mapping = [...(state.accountMappingRevisions || [])].filter(m => m.engagementId === eng.id).sort((a, b) => b.revision - a.revision)[0];
+    const balanceSheet = new Set(['Cash and cash equivalents', 'Trade receivables', 'Other current assets', 'Property and equipment', 'Trade payables', 'Borrowings', 'Share capital and reserves']);
+    const mappedLines = [...new Set(mapping.mappings.flatMap(item => item.targets.map(target => target.statementLine)))].sort();
+    const layoutLines = (orderBase: number) => mappedLines.map((lineName, index) => ({ line: lineName, statement: balanceSheet.has(lineName) ? 'bs' : 'is', group: balanceSheet.has(lineName) ? 'Position' : 'Result', order: orderBase + index, accountCodes: mapping.mappings.filter(item => item.targets.some(target => target.statementLine === lineName)).map(item => item.accountCode) }));
+    prototypeStore.saveStatementLayoutRevision({ engagementId: eng.id, sourceVersion: eng.sourceVersion, mappingRevision: mapping.revision, lines: layoutLines(1), subtotals: [] } as any);
+    const savedLayout = [...(state.statementLayoutRevisions || [])].filter(l => l.engagementId === eng.id).sort((a, b) => b.revision - a.revision)[0];
+    prototypeStore.saveStatementSetRevision({ engagementId: eng.id, sourceVersion: eng.sourceVersion, mappingRevision: mapping.revision, layoutVersion: savedLayout.revision, subtotals: [], lines: savedLayout.lines.map(line => ({ line: line.line, current: 0, currentSources: mapping.mappings.filter(item => item.targets.some(target => target.statementLine === line.line)).map(item => item.accountCode), comparativeSources: [] })), layout: structuredClone(savedLayout.lines), totals: { assets: 0, liabilities: 0, equity: 0, revenue: 0, netProfit: 0 } });
+    setPersona(state, 'Sara Malik');
+    const savedSet = [...(state.statementSetRevisions || [])].filter(s => s.engagementId === eng.id).sort((a, b) => b.revision - a.revision)[0];
+    prototypeStore.reviewStatementSetRevision(eng.id, savedSet.revision);
+    const approvedSet = [...(state.statementSetRevisions || [])].find(s => s.id === savedSet.id)!;
+    assert.equal(approvedSet.status, 'Reviewed', 'a reviewed statement set is in place');
+    const approvedSnapshot = JSON.stringify(approvedSet.lines);
+    // Archive one mapped expense account through an authorized profile edit.
+    setPersona(state, 'Layla Rahman');
+    const profile = structuredClone(state.clients.find(c => c.id === 'CL-001')!.accountingProfile!);
+    const expenseCode = eng.rows.find(row => row.type === 'expense')!.code;
+    const archived = profile.accounts.find(a => a.code === expenseCode)!;
+    archived.active = false;
+    prototypeStore.saveAccountingProfile('CL-001', profile, eng.id, profile.periodBooks[0].id);
+    // The archive must not silently rewrite the approved output: it is explicitly staled, snapshot retained.
+    const afterArchive = [...(state.statementSetRevisions || [])].find(s => s.id === savedSet.id)!;
+    assert.equal(afterArchive.status, 'Stale', 'the archive explicitly stales the reviewed set');
+    assert.equal(JSON.stringify(afterArchive.lines), approvedSnapshot, 'the approved content itself is unchanged — no silent alteration');
+    // TB intake referencing the archived account is rejected.
+    setPersona(state, 'Adam Khan');
+    const rows = structuredClone(eng.rows);
+    assert.throws(() => prototypeStore.updateTrialBalanceRows(eng.id, rows, { fileName: 'post-archive.csv', format: 'CSV', sha256: 'c'.repeat(64), mapping: { code: 0, name: 1, debit: 2, credit: 3, signed: -1, convention: 'debit-credit' } }), /active posting accounts/, 'TB intake through an archived account is rejected');
+  });
+});
