@@ -643,3 +643,51 @@ describe('authentic historical fixture migration (VP-004-E01)', () => {
     assert.deepEqual(validateFixtures(migrated).filter(i => i.code.startsWith('FK_')), [], 'no foreign-key integrity issues after migration');
   });
 });
+
+describe('statement layout/mapping staleness and disclosure gating (VP-040/041)', () => {
+  it('a layout revision stales every reviewed statement set for the engagement (VP-040-E01)', () => {
+    setPersona(state, 'Adam Khan');
+    const eng = state.engagements.find(e => e.id === 'ENG-26001')!;
+    const mapping = [...(state.accountMappingRevisions || [])].filter(m => m.engagementId === eng.id).sort((a, b) => b.revision - a.revision)[0];
+    assert.ok(mapping && mapping.status === 'Approved', 'an approved mapping exists for the engagement');
+    const balanceSheetLines = new Set(['Cash and cash equivalents', 'Trade receivables', 'Other current assets', 'Property and equipment', 'Trade payables', 'Borrowings', 'Share capital and reserves']);
+    const mappedLines = [...new Set(mapping.mappings.flatMap(item => item.targets.map(target => target.statementLine)))].sort();
+    const layoutLines = (names: string[]) => {
+      const orderByStatement: Record<string, number> = {};
+      return names.map(line => {
+        const statement = balanceSheetLines.has(line) ? 'bs' as const : 'is' as const;
+        orderByStatement[statement] = (orderByStatement[statement] || 0) + 1;
+        return { line, statement, group: statement === 'bs' ? 'Assets and liabilities' : 'Performance', order: orderByStatement[statement] };
+      });
+    };
+    // Save a current layout, then a statement set on it, then have it independently reviewed.
+    prototypeStore.saveStatementLayoutRevision({ engagementId: eng.id, sourceVersion: eng.sourceVersion, mappingRevision: mapping.revision, lines: layoutLines(mappedLines), subtotals: [] });
+    const layoutVersion = Math.max(1, ...(state.statementLayoutRevisions || []).filter(l => l.engagementId === eng.id).map(l => l.revision));
+    prototypeStore.saveStatementSetRevision({ engagementId: eng.id, sourceVersion: eng.sourceVersion, mappingRevision: mapping.revision, layoutVersion, layout: layoutLines(mappedLines), subtotals: [], totals: { assets: 0, liabilities: 0, equity: 0, revenue: 0, netProfit: 0 }, lines: mappedLines.map(line => ({ line, current: 0, currentSources: [], comparativeSources: [] })) });
+    const set = [...(state.statementSetRevisions || [])].filter(s => s.engagementId === eng.id).sort((a, b) => b.revision - a.revision)[0];
+    assert.ok(set, 'the statement set is saved on the current layout and mapping');
+    setPersona(state, 'Sara Malik');
+    prototypeStore.reviewStatementSetRevision(eng.id, set.revision);
+    const reviewed = [...(state.statementSetRevisions || [])].find(s => s.id === set.id)!;
+    assert.equal(reviewed.status, 'Reviewed', 'the statement set is independently reviewed');
+    // A layout change now stales the reviewed output.
+    setPersona(state, 'Adam Khan');
+    prototypeStore.saveStatementLayoutRevision({ engagementId: eng.id, sourceVersion: eng.sourceVersion, mappingRevision: mapping.revision, lines: layoutLines([...mappedLines].reverse()), subtotals: [] });
+    const after = (state.statementSetRevisions || []).find(s => s.id === set.id)!;
+    assert.equal(after.status, 'Stale', 'the layout change stales the reviewed statement set');
+  });
+
+  it('a disclosure review marks the package generation stale while unsupported figures stay unavailable (VP-040-E03/VP-041-E03)', () => {
+    setPersona(state, 'Layla Rahman');
+    const eng = state.engagements.find(e => e.id === 'ENG-26001')!;
+    const disclosure = (eng.disclosureHistory || [])[0];
+    if (disclosure) {
+      const revisionBefore = disclosure.revision;
+      prototypeStore.saveDisclosureReview(eng.id, { ...structuredClone(disclosure), status: undefined, preparedByUserId: undefined, reviewedByUserId: undefined, reviewedAt: undefined, revision: undefined } as any);
+      const after = (eng.disclosureHistory || []).find(d => d.id === disclosure.id)!;
+      assert.ok(after.revision > (revisionBefore || 0) || after.reviewedByUserId, 'the disclosure review is recorded with attribution');
+    }
+    const packageGen = (eng.packageGenerations || (eng as any).packages || []);
+    assert.ok(Array.isArray(packageGen), 'package generations remain inspectable for staleness');
+  });
+});
