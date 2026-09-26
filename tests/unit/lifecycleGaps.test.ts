@@ -627,3 +627,19 @@ describe('time-date matrix and accounting period/book edit rework (VP-028-E01/VP
     assert.ok((after.history || []).length >= 1, 'the profile edit is retained in history');
   });
 });
+
+describe('authentic historical fixture migration (VP-004-E01)', () => {
+  it('migrates the genuine schema-5 historical seed from commit f5f4f78 with integrity', async () => {
+    const { readFileSync } = await import('node:fs');
+    const { join } = await import('node:path');
+    const legacy = JSON.parse(readFileSync(join(process.cwd(), 'tests', 'fixtures', 'legacy-seed-f5f4f78.json'), 'utf8'));
+    assert.equal(legacy.schema, 5, 'the fixture is the authentic schema-5 historical state');
+    const { state: migrated, warnings } = migratePersistedState(legacy, createInitialState());
+    assert.equal(migrated.schema, 28, 'the fixture migrates to the current schema');
+    assert.equal(migrated.clients.length, legacy.clients.length, 'every historical client survives');
+    assert.equal(migrated.engagements.length, legacy.engagements.length, 'every historical engagement survives');
+    assert.ok(warnings.length > 0, 'the migration records its warnings');
+    const { validateFixtures } = await import('../../src/services/migrations.js');
+    assert.deepEqual(validateFixtures(migrated).filter(i => i.code.startsWith('FK_')), [], 'no foreign-key integrity issues after migration');
+  });
+});
