@@ -1348,6 +1348,25 @@ describe('actual Chrome browser acceptance', { concurrency: false }, () => {
     }
   });
 
+  it('VP-003-AC01: blocks a restored engagement when the user has only a different client grant', async () => {
+    const saved = await browserTab!.evaluate<string | null>(`localStorage.getItem('ste-auditsphere-role-portals-v2')`);
+    try {
+      await browserTab!.evaluate(`(() => {const state=JSON.parse(${JSON.stringify(JSON.stringify(createInitialState()))});state.currentUserId='manager';state.currentPerson=state.users.find(user=>user.id==='manager').name;state.currentRole='manager';state.selectedEngagement='ENG-26001';state.roleGrants=state.roleGrants.filter(grant=>grant.userId!=='manager');state.roleGrants.push({userId:'manager',role:'manager',scopeKind:'Client',scopeId:'CL-002'});localStorage.setItem('ste-auditsphere-role-portals-v2',JSON.stringify(state));})()`);
+      await browserTab!.command('Page.reload');
+      assert.equal(await waitForBrowser('JSON.parse(localStorage.getItem("ste-auditsphere-role-portals-v2")||"{}").currentUserId==="manager"&&!!document.querySelector("#app-root .brandname")'), true, 'seeded restricted manager persona has restored');
+      await browserTab!.evaluate('location.hash="#financial-statements"');
+      assert.equal(await waitForBrowser('location.hash==="#financial-statements"&&!!document.querySelector("[data-testid=engagement-context-unavailable]")'), true, 'a client-only grant for another client cannot restore the selected engagement');
+      const body = await browserTab!.evaluate<string>('document.querySelector("main#main")?.innerText||""');
+      assert.match(body, /Engagement selection unavailable/);
+      assert.doesNotMatch(body, /ENG-26001|Example Trading Entity|CL-001/, 'the denied engagement and owning client are not disclosed');
+      assert.deepEqual(browserTab!.exceptions, []);
+    } finally {
+      await browserTab!.evaluate(`(() => {const key='ste-auditsphere-role-portals-v2';const prior=${JSON.stringify(saved)};if(prior===null)localStorage.removeItem(key);else localStorage.setItem(key,prior);})()`);
+      await browserTab!.command('Page.reload');
+      await waitForBrowser('!!document.querySelector("#app-root .brandname")');
+    }
+  });
+
   it('VP-003-E02: restores the accepted route when a dirty form stays on a denied direct target', async () => {
     const saved = await browserTab!.evaluate<string | null>(`localStorage.getItem('ste-auditsphere-role-portals-v2')`);
     try {
