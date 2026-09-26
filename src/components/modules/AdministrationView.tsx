@@ -1,17 +1,20 @@
 // Module 39: Firm Settings & Persona Directory (VP-019, VP-062)
 // Simulated identity directory, explicit scoped grants, grant authoring & revocation, and 14-role RBAC catalogue.
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { RoleKey, RouteKey, UserPersona } from '../../types';
 import { prototypeStore } from '../../store/prototypeStore';
 import { roleRequiresApprovalEvidence, isSuperuserRole } from '../../services/guards';
 import { Icon } from '../common/Icons';
+import { UnsavedFormGuard } from '../../services/unsavedFormGuard';
 
 interface AdministrationViewProps {
   onNavigate: (route: RouteKey) => void;
+  onBeforeContextChange: (run: () => void) => void;
+  onRegisterUnsavedForm: (guard: UnsavedFormGuard | null, key?: string) => void;
 }
 
-export const AdministrationView: React.FC<AdministrationViewProps> = ({ onNavigate }) => {
+export const AdministrationView: React.FC<AdministrationViewProps> = ({ onNavigate, onBeforeContextChange, onRegisterUnsavedForm }) => {
   const state = prototypeStore.getSnapshot();
   const [activeTab, setActiveTab] = useState<'users' | 'identities' | 'grants' | 'history' | 'firm' | 'permissions'>('users');
   const [selectedUser, setSelectedUser] = useState<UserPersona | null>(null);
@@ -32,17 +35,38 @@ export const AdministrationView: React.FC<AdministrationViewProps> = ({ onNaviga
   const [inviteScope, setInviteScope] = useState<'Global' | 'Client' | 'Engagement'>('Client');
   const [inviteScopeId, setInviteScopeId] = useState(state.clients[0]?.id || 'CL-001');
 
+  const resetIdentityDraft = () => {
+    setIdentityName('');
+    setIdentityEmail('');
+    setIdentityRole('preparer');
+    setInviteScope('Client');
+    setInviteScopeId(state.clients[0]?.id || 'CL-001');
+  };
+
+  useEffect(() => {
+    onRegisterUnsavedForm({
+      label: 'identity and invitation draft',
+      isDirty: () => Boolean(identityName || identityEmail || identityRole !== 'preparer' || inviteScope !== 'Client' || inviteScopeId !== (state.clients[0]?.id || 'CL-001')),
+      // Creating identities/invitations is an explicit business action; never submit it implicitly during navigation.
+      save: () => false,
+      discard: resetIdentityDraft,
+    }, 'administration-identities');
+    return () => onRegisterUnsavedForm(null, 'administration-identities');
+  }, [identityName, identityEmail, identityRole, inviteScope, inviteScopeId, onRegisterUnsavedForm, state.clients]);
+
   const triggerNotice = (type: 'success' | 'error', text: string) => {
     setNotice({ type, text });
     setTimeout(() => setNotice(null), 6000);
   };
 
-  const handleResetApp = () => {
+  const handleResetApp = () => onBeforeContextChange(() => {
     if (confirm('Reset prototype to factory initial state? All in-memory changes will be reset to default synthetic data.')) {
       prototypeStore.resetState();
       window.location.reload();
     }
-  };
+  });
+
+  const changeTab = (tab: typeof activeTab) => onBeforeContextChange(() => setActiveTab(tab));
 
   const handleGrantAccess = () => {
     if (!selectedUser) return;
@@ -98,22 +122,22 @@ export const AdministrationView: React.FC<AdministrationViewProps> = ({ onNaviga
       )}
 
       <div className="tabs">
-        <button className={`tab-btn ${activeTab === 'users' ? 'active' : ''}`} onClick={() => setActiveTab('users')}>
+        <button className={`tab-btn ${activeTab === 'users' ? 'active' : ''}`} onClick={() => changeTab('users')}>
           Practice Personas ({state.users.length})
         </button>
-        <button className={`tab-btn ${activeTab === 'identities' ? 'active' : ''}`} onClick={() => setActiveTab('identities')}>
+        <button className={`tab-btn ${activeTab === 'identities' ? 'active' : ''}`} onClick={() => changeTab('identities')}>
           Identity Lifecycle ({state.simulatedInvitations?.length || 0} invitations)
         </button>
-        <button className={`tab-btn ${activeTab === 'grants' ? 'active' : ''}`} onClick={() => setActiveTab('grants')}>
+        <button className={`tab-btn ${activeTab === 'grants' ? 'active' : ''}`} onClick={() => changeTab('grants')}>
           Active Access Grants ({state.roleGrants.length})
         </button>
-        <button className={`tab-btn ${activeTab === 'history' ? 'active' : ''}`} onClick={() => setActiveTab('history')}>
+        <button className={`tab-btn ${activeTab === 'history' ? 'active' : ''}`} onClick={() => changeTab('history')}>
           Access History ({state.roleGrantHistory.length})
         </button>
-        <button className={`tab-btn ${activeTab === 'firm' ? 'active' : ''}`} onClick={() => setActiveTab('firm')}>
+        <button className={`tab-btn ${activeTab === 'firm' ? 'active' : ''}`} onClick={() => changeTab('firm')}>
           Firm Legal Details &amp; Branding
         </button>
-        <button className={`tab-btn ${activeTab === 'permissions' ? 'active' : ''}`} onClick={() => setActiveTab('permissions')}>
+        <button className={`tab-btn ${activeTab === 'permissions' ? 'active' : ''}`} onClick={() => changeTab('permissions')}>
           Role-Based Access Control (RBAC)
         </button>
       </div>
@@ -121,7 +145,7 @@ export const AdministrationView: React.FC<AdministrationViewProps> = ({ onNaviga
       {activeTab === 'identities' && <div className="stack" style={{ gap: 16 }}>
         <div className="panel panel-pad">
           <div className="between"><div><h3>Local demo identities</h3><p className="sub">Simulated directory records only. Creating or inviting an identity never creates a scope grant.</p></div><span className="badge blue">No live account or message</span></div>
-          <form className="grid4 mt12" onSubmit={e => { e.preventDefault(); try { prototypeStore.createDemoIdentity({ name: identityName, email: identityEmail, role: identityRole, label: identityRole }); setIdentityName(''); setIdentityEmail(''); triggerNotice('success', 'Simulated identity created without access grants.'); } catch (err: any) { triggerNotice('error', err.message); } }}>
+          <form className="grid4 mt12" onSubmit={e => { e.preventDefault(); try { prototypeStore.createDemoIdentity({ name: identityName, email: identityEmail, role: identityRole, label: identityRole }); resetIdentityDraft(); triggerNotice('success', 'Simulated identity created without access grants.'); } catch (err: any) { triggerNotice('error', err.message); } }}>
             <input className="input" aria-label="Demo identity name" placeholder="Full name" value={identityName} onChange={e => setIdentityName(e.target.value)} required />
             <input className="input" type="email" aria-label="Demo identity email" placeholder="name@example.demo" value={identityEmail} onChange={e => setIdentityEmail(e.target.value)} required />
             <select className="input" aria-label="Demo identity role" value={identityRole} onChange={e => setIdentityRole(e.target.value as RoleKey)}>{(['relationship','onboarding','compliance','partner','manager','preparer','reviewer','eqr','client_admin','client_finance','client','billing','records','admin'] as RoleKey[]).map(role => <option key={role} value={role}>{role}</option>)}</select>
@@ -131,7 +155,7 @@ export const AdministrationView: React.FC<AdministrationViewProps> = ({ onNaviga
         </div>
         <div className="panel panel-pad">
           <h3>Simulated invitations</h3><p className="sub">Pending, expired, accepted and revoked states are local fixtures. No invitation is sent externally.</p>
-          <form className="grid4 mt12" onSubmit={e => { e.preventDefault(); try { const scopeId = inviteScope === 'Global' ? undefined : inviteScope === 'Client' ? (state.clients.some(c => c.id === inviteScopeId) ? inviteScopeId : state.clients[0]?.id) : inviteScopeId; prototypeStore.sendSimulatedInvitation({ email: identityEmail, name: identityName, role: identityRole, scopeKind: inviteScope, scopeId }); triggerNotice('success', 'Simulated invitation recorded locally; no message was sent.'); } catch (err: any) { triggerNotice('error', err.message); } }}>
+          <form className="grid4 mt12" onSubmit={e => { e.preventDefault(); try { const scopeId = inviteScope === 'Global' ? undefined : inviteScope === 'Client' ? (state.clients.some(c => c.id === inviteScopeId) ? inviteScopeId : state.clients[0]?.id) : inviteScopeId; prototypeStore.sendSimulatedInvitation({ email: identityEmail, name: identityName, role: identityRole, scopeKind: inviteScope, scopeId }); resetIdentityDraft(); triggerNotice('success', 'Simulated invitation recorded locally; no message was sent.'); } catch (err: any) { triggerNotice('error', err.message); } }}>
             <input className="input" aria-label="Invitation name" placeholder="Recipient name" value={identityName} onChange={e => setIdentityName(e.target.value)} required />
             <input className="input" type="email" aria-label="Invitation email" placeholder="name@example.demo" value={identityEmail} onChange={e => setIdentityEmail(e.target.value)} required />
             <select className="input" aria-label="Invitation scope" value={inviteScope} onChange={e => setInviteScope(e.target.value as typeof inviteScope)}><option>Client</option><option>Engagement</option><option>Global</option></select>
@@ -305,6 +329,7 @@ export const AdministrationView: React.FC<AdministrationViewProps> = ({ onNaviga
       {activeTab === 'firm' && (
         <FirmSettingsPanel
           state={state}
+          onRegisterUnsavedForm={onRegisterUnsavedForm}
           onSaved={(text) => triggerNotice('success', text)}
           onError={(text) => triggerNotice('error', text)}
         />
@@ -497,15 +522,36 @@ export const AdministrationView: React.FC<AdministrationViewProps> = ({ onNaviga
  *  captured identity; new PDF exports and generated artifacts use the saved values. */
 const FirmSettingsPanel: React.FC<{
   state: ReturnType<typeof prototypeStore.getSnapshot>;
+  onRegisterUnsavedForm: (guard: UnsavedFormGuard | null, key?: string) => void;
   onSaved: (text: string) => void;
   onError: (text: string) => void;
-}> = ({ state, onSaved, onError }) => {
+}> = ({ state, onRegisterUnsavedForm, onSaved, onError }) => {
   const firm = state.firmSettings;
   const [draft, setDraft] = useState({ ...firm });
   const [reason, setReason] = useState('');
   const isAdmin = isSuperuserRole(state.currentRole) || (state.currentRole === 'admin' && state.roleGrants.some(g => g.userId === state.currentUserId && g.role === 'admin' && g.scopeKind === 'Global'));
   const firmEvents = state.events.filter(event => event.ref === 'FIRM').slice(0, 5);
   const changed = JSON.stringify(draft) !== JSON.stringify(firm);
+
+  useEffect(() => {
+    onRegisterUnsavedForm({
+      label: 'firm settings draft',
+      isDirty: () => JSON.stringify(draft) !== JSON.stringify(firm) || Boolean(reason.trim()),
+      save: () => {
+        try {
+          prototypeStore.updateFirmSettings(draft, reason.trim() || 'firm profile update');
+          setReason('');
+          onSaved('Firm settings saved. Changes apply prospectively; existing issued invoices, releases and archives are unchanged.');
+          return true;
+        } catch (err: any) {
+          onError(err.message);
+          return false;
+        }
+      },
+      discard: () => { setDraft({ ...firm }); setReason(''); },
+    }, 'administration-firm-settings');
+    return () => onRegisterUnsavedForm(null, 'administration-firm-settings');
+  }, [draft, firm, onError, onRegisterUnsavedForm, onSaved, reason]);
 
   const handleSave = (event: React.FormEvent) => {
     event.preventDefault();
