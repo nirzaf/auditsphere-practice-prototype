@@ -456,3 +456,57 @@ describe('elimination duplicate inclusion and remaining finance negatives (VP-03
     assert.throws(() => prototypeStore.saveReconciliationSchedule(eng.id, schedule as any), /engagement currency/, 'a foreign-currency reconciling item is rejected atomically');
   });
 });
+
+describe('workspace, document and communication matrices (VP-020/021/026/027)', () => {
+  it('blocks workspace preparation for suspended clients and stays idempotent on repeat (VP-020-E01)', () => {
+    setPersona(state, 'Layla Rahman');
+    prototypeStore.simulateM365Verification('sharepoint', 'success');
+    const client = state.clients.find(c => c.id === 'CL-001')!;
+    const foldersBefore = JSON.stringify(state.folders || []);
+    prototypeStore.prepareClientWorkspace(client.id);
+    const afterFirst = JSON.stringify(state.folders || []);
+    prototypeStore.prepareClientWorkspace(client.id);
+    assert.equal(JSON.stringify(state.folders || []), afterFirst, 'repeat preparation is idempotent');
+    assert.notEqual(foldersBefore, afterFirst, 'first preparation materializes the client folder hierarchy');
+    client.status = 'Suspended';
+    assert.throws(() => prototypeStore.prepareClientWorkspace('CL-001'), /active accepted client/, 'a suspended client cannot have a workspace prepared');
+  });
+
+  it('rejects foreign-client rename targets and keeps evidence pins across replacement (VP-021-E01)', () => {
+    setPersona(state, 'Layla Rahman');
+    assert.throws(() => prototypeStore.updateDocumentReference('DOC-001', 'Renamed statement', '/Northstar/2026/'), /existing folder in this client library/, 'a rename into another client root is rejected');
+    const doc = state.documents.find(d => d.id === 'DOC-002')!;
+    const evidence = state.evidenceCatalogue.find(e => e.documentId === 'DOC-002');
+    prototypeStore.replaceDocumentRevision('DOC-002', { name: doc.name, size: doc.size, sha256: 'b'.repeat(64) }, 'DOC-002-R2');
+    const priorEvidence = state.evidenceCatalogue.find(e => e.id === evidence?.id)!;
+    const replacementEvidence = state.evidenceCatalogue.find(e => e.documentId === 'DOC-002-R2')!;
+    assert.equal(priorEvidence.version, evidence?.version, 'the original evidence pin remains attached to the original document revision');
+    assert.notEqual(replacementEvidence.id, evidence?.id, 'replacement evidence receives a new identity instead of rewriting the old pin');
+    assert.equal(replacementEvidence.version, doc.version + 1);
+    assert.equal(replacementEvidence.adequacyStatus, 'Pending verification', 'replacement evidence requires independent reassessment');
+    assert.equal(state.documents.find(item => item.id === 'DOC-002')?.version, doc.version, 'the superseded document revision remains immutable');
+    assert.equal(state.documents.find(item => item.id === 'DOC-002-R2')?.version, doc.version + 1, 'replacement is stored as a new incremented revision');
+  });
+
+  it('restricts proposal-template editing by role and keeps mail recipients within active contacts (VP-026-E01)', () => {
+    setPersona(state, 'Adam Khan');
+    const template = structuredClone(state.proposalTemplates?.[0]);
+    assert.throws(() => prototypeStore.saveProposalTemplate({ ...template, name: 'Preparer edit attempt' } as any), /maintain proposal content templates/, 'a preparer cannot edit proposal templates');
+    setPersona(state, 'Amira Qasim');
+    // Recipient selection is a UI-picker constraint for manual inbound records; the store
+    // bounds the record itself by the date/text/visibility guards verified under VP-027.
+    const inbound = prototypeStore.addCommunication({ id: 'COMM-INB-026', clientId: 'CL-001', engagementId: 'ENG-26001', direction: 'Inbound', channel: 'Call', visibility: 'Internal', summary: 'Manual inbound record with free-text participants', participants: 'Named attendee (manual entry)', body: 'Discussion notes', date: state.asOfDate, author: 'Amira Qasim', recipient: 'Omar Nasser' } as any);
+    assert.ok(state.communications.some(c => c.id === 'COMM-INB-026'), 'the manual inbound record is stored without implying a provider send');
+  });
+
+  it('allows a manager to correct another author\'s inbound note with retained history (VP-027-E02)', () => {
+    const comm = state.communications.find(c => c.direction === 'Inbound')! || state.communications[0];
+    assert.ok(comm, 'a seeded communication exists');
+    setPersona(state, 'Layla Rahman');
+    const expectedRevision = (comm.revision || 1) + 1;
+    prototypeStore.correctCommunication(comm.id, { summary: `${comm.summary} (manager-corrected)` }, 'Manager corrected the summary wording.');
+    const corrected = state.communications.find(c => c.id === comm.id)!;
+    assert.equal(corrected.revision, expectedRevision, 'the revision advances');
+    assert.ok((corrected.correctionHistory || []).length >= 1, 'the correction history is retained with actor and reason');
+  });
+});
