@@ -379,6 +379,7 @@ export const App: React.FC = () => {
       clientName: client?.name,
       clientId: client?.id,
       engagementId: selected?.id,
+      engagementClientId: selected?.client,
       service: selected?.service,
       period: selected?.period || (selected?.year ? `FY ${selected.year}` : undefined),
       year: selected?.year,

@@ -21,20 +21,6 @@ import {
 // StatusBadge
 // ---------------------------------------------------------------------------
 
-const TONE_GLYPH: Record<StatusTone, string> = {
-  neutral: '○',
-  progress: '◐',
-  waiting: '◔',
-  review: '◑',
-  returned: '↩',
-  blocked: '⊘',
-  stale: '⟳',
-  approved: '✓',
-  complete: '●',
-  'terminal-bad': '■',
-  simulated: '◇'
-};
-
 export interface StatusBadgeProps {
   /** Business status as stored. Missing values render as an explicit "Not set". */
   status?: string | null;
@@ -47,23 +33,28 @@ export interface StatusBadgeProps {
 }
 
 /**
- * Renders a status with text + glyph + tone together, so the meaning never
- * depends on colour alone and screen readers get the plain-language reading.
+ * Renders a status with a tone cue and a plain-language explanation.
+ *
+ * The literal status text stays the badge's only text node, so a status that
+ * already sits inside a sentence ("v8 · Approved") keeps exactly its previous
+ * inline text and no test or screenshot assertion changes meaning. The
+ * explanation travels in the accessible name and the tooltip, and the tone
+ * changes the badge's shape (left border, weight) as well as its colour, so the
+ * state is never carried by colour alone.
  */
 export const StatusBadge: React.FC<StatusBadgeProps> = ({ status, size = 'md', tone, explain = false, className = '' }) => {
   const semantic = statusSemantics(status);
   const appliedTone = tone ?? semantic.tone;
-  const description = explain ? `${semantic.label}. ${semantic.meaning}` : semantic.label;
+  const description = explain ? `${semantic.label}. ${semantic.meaning}` : semantic.meaning;
   return (
     <span
-      className={`status-badge ${appliedTone} ${size === 'sm' ? 'sm' : ''} ${className}`.trim()}
+      className={`status-badge tone-${appliedTone} ${size === 'sm' ? 'sm' : ''} ${className}`.trim()}
       data-status-tone={appliedTone}
       data-status-label={semantic.label}
-      title={semantic.meaning}
+      aria-label={description}
+      title={description}
     >
-      <span className="status-glyph" aria-hidden="true">{TONE_GLYPH[appliedTone]}</span>
-      <span className="status-text">{semantic.label}</span>
-      <span className="sr-only">{` — ${description}`}</span>
+      {semantic.label}
     </span>
   );
 };
@@ -208,6 +199,20 @@ export function useModuleIdentity(): PageIdentityItem[] {
   return moduleIdentity(useModuleContext().context);
 }
 
+/**
+ * Identity items scoped to one client record. A client workspace must never
+ * advertise an engagement that belongs to a different client, so when the
+ * selected engagement is not owned by `clientId` only the client-level facts are
+ * reported.
+ */
+export function useClientScopedIdentity(clientId: string | undefined, extra?: PageIdentityItem[]): PageIdentityItem[] {
+  const { context } = useModuleContext();
+  if (!clientId) return moduleIdentity(context);
+  const ownsSelected = context?.engagementClientId === clientId || (!context?.engagementClientId && context?.clientId === clientId);
+  if (ownsSelected) return [...moduleIdentity(context), ...(extra ?? [])];
+  return [...moduleIdentity({ ...(context ?? { isClientRole: false }), engagementId: undefined, service: undefined, currency: undefined, sourceVersion: undefined, packageRevision: null, packageStatus: null, lifecycleStatus: undefined }), ...(extra ?? [])];
+}
+
 /** The lifecycle model of the module currently being rendered. */
 export function useModuleLifecycle(): { title: string; steps: readonly string[] } {
   const model = lifecycleModelFor(useModuleContext().route);
@@ -222,9 +227,12 @@ export function useModuleLifecycle(): { title: string; steps: readonly string[] 
  * Renders nothing when there is no engagement context (practice-wide pages), so
  * it is safe to add unconditionally.
  */
-export const ModuleIdentityLine: React.FC<{ extra?: PageIdentityItem[]; className?: string }> = ({ extra, className = '' }) => {
+export const ModuleIdentityLine: React.FC<{ extra?: PageIdentityItem[]; clientId?: string; className?: string }> = ({ extra, clientId, className = '' }) => {
+  // A client workspace passes its own client id so a globally selected
+  // engagement from another client can never appear in the identity line.
+  const scoped = useClientScopedIdentity(clientId, extra);
   const { context } = useModuleContext();
-  const items = [...moduleIdentity(context), ...(extra ?? [])]
+  const items = (clientId ? scoped : [...moduleIdentity(context), ...(extra ?? [])])
     .filter(item => item.value !== undefined && item.value !== null && item.value !== '');
   if (!items.length) return null;
   return (
@@ -259,6 +267,8 @@ export interface ModuleContext {
   clientName?: string;
   clientId?: string;
   engagementId?: string;
+  /** Client that owns the selected engagement, used to refuse cross-client context. */
+  engagementClientId?: string;
   service?: string;
   period?: string;
   year?: number;

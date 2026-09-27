@@ -323,7 +323,7 @@ const ClientDetailWorkspace: React.FC<ClientDetailViewProps> = ({ clientId, sear
   return (
     <div className="stack" style={{ gap: 16 }}>
       {/* Client record header: the canonical page title for this routed record. */}
-      <div className="pagehead panel panel-pad" style={{ marginBottom: 0 }}>
+      <div className="pagehead panel panel-pad" style={{ marginBottom: 0, alignItems: 'center' }}>
         <div className="row" style={{ gap: 16, flexWrap: 'wrap' }}>
           <div className="firmavatar" style={{ width: 44, height: 44, fontSize: 17 }}>{client.initials}</div>
           <div style={{ minWidth: 0 }}>
@@ -335,16 +335,19 @@ const ClientDetailWorkspace: React.FC<ClientDetailViewProps> = ({ clientId, sear
               </span>
             </div>
             <p className="page-subtitle">
-              {client.tradingName || client.industry} · {client.jurisdiction} · one legal relationship with its own contacts,
-              engagements, requests and shared records.
+              Client ID: {client.id} · Code: {client.code} · {client.tradingName || client.industry} · {client.jurisdiction}.
+              One legal relationship with its own contacts, engagements, requests and shared records.
             </p>
-            <ModuleIdentityLine extra={[
-              { label: 'Client ID', value: client.id, mono: true },
-              { label: 'Code', value: client.code, mono: true },
+            <ModuleIdentityLine clientId={client.id} extra={[
               { label: 'Engagements', value: String(engagements.length) },
               { label: 'Relationship owner', value: client.relationshipOwner }
             ]} />
           </div>
+        </div>
+        <div className="head-actions">
+          <button type="button" className="btn sm ghost" onClick={onBack}>
+            <Icon name="arrow" /> Back to Portfolio
+          </button>
         </div>
       </div>
 

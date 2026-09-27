@@ -20,6 +20,21 @@
   --focus-ring: 0 0 0 3px #075f5722;
 }
 
+/* Screen-reader-only text for elements that are NOT inside a scroll container:
+ * an absolutely positioned box with no positioned ancestor would resolve against
+ * the initial containing block and widen the page. */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  border: 0;
+  clip-path: inset(50%);
+  overflow: hidden;
+  white-space: nowrap;
+}
+
 /* ---------------------------------------------------------------------------
  * 2. Utilities already referenced by views but previously undefined.
  *    Defining them removes silently unstyled markup.
@@ -73,7 +88,8 @@
 .max-w-md { max-width: 560px; }
 
 /* Dialogs: the shared dialog runtime looks for .modal-card / .modal-overlay,
- * so they must be real, fully styled dialog surfaces. */
+ * so they must be real, fully styled dialog surfaces. Width is bounded exactly
+ * like .modal so a card can never be wider than its viewport. */
 .modal-overlay {
   position: fixed;
   inset: 0;
@@ -99,36 +115,42 @@
 
 /* ---------------------------------------------------------------------------
  * 3. Status badges
- *    Tone is always paired with the literal status text and an icon, so colour
- *    is never the only carrier of meaning (WCAG 1.4.1).
+ *    Tone is paired with the literal status text, a shaped left border and a
+ *    plain-language accessible name, so colour is never the only carrier of
+ *    meaning (WCAG 1.4.1). The badge adds no separator glyph, so a status inside
+ *    a sentence keeps exactly its original inline text.
  * ------------------------------------------------------------------------- */
 .status-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  border-radius: 999px;
+  /* inline-block (not flex) so a badge does not force line breaks around itself
+   * in rendered text — a status inside a sentence must stay part of that text.
+   * inline-block also establishes a containing block, so the absolutely
+   * positioned .sr-only helper resolves against the badge and never widens the
+   * page inside a horizontally scrollable table. */
+  display: inline-block;
+  border-radius: 5px;
   border: 1px solid transparent;
-  padding: 3px 10px 3px 8px;
+  border-left-width: 3px;
+  padding: 1px 7px 2px;
   font-size: 11px;
-  font-weight: 600;
-  line-height: 1.6;
+  font-weight: 650;
+  line-height: 1.5;
   white-space: nowrap;
   max-width: 100%;
+  vertical-align: baseline;
 }
-.status-badge .status-glyph { font-size: 10px; line-height: 1; }
 .status-badge .status-text { overflow: hidden; text-overflow: ellipsis; }
-.status-badge.sm { padding: 1px 8px 1px 6px; font-size: 10.5px; }
-.status-badge.neutral { background: #eef2f3; border-color: #dde5e6; color: #4f6569; }
-.status-badge.progress { background: var(--bluesoft); border-color: #cfe0f3; color: #2f5d8a; }
-.status-badge.waiting { background: var(--ambersoft); border-color: #ecd9b4; color: #7d5810; }
-.status-badge.review { background: var(--purplesoft); border-color: #ded6f3; color: #53418f; }
-.status-badge.returned { background: var(--redsoft); border-color: #f0cfd5; color: #9d3f4d; }
-.status-badge.blocked { background: #fdeceb; border-color: #f3c9c5; color: #a1372c; }
-.status-badge.stale { background: #fff4e2; border-color: #eed6a4; color: #815a0d; }
-.status-badge.approved { background: var(--tealsoft); border-color: #c2e2d6; color: #1f6350; }
-.status-badge.complete { background: #e9f4ec; border-color: #c9e3d2; color: #23603f; }
-.status-badge.terminal-bad { background: #f1f1f3; border-color: #dcdde1; color: #5b5f68; }
-.status-badge.simulated { background: #eef6ea; border-color: #d3e6c8; color: #4a6b3a; font-style: italic; }
+.status-badge.sm { padding: 1px 6px; font-size: 10.5px; }
+.status-badge.tone-neutral { background: #eef2f3; border-color: #dde5e6; border-left-color: #9fb0b3; color: #44585c; }
+.status-badge.tone-progress { background: var(--bluesoft); border-color: #cfe0f3; border-left-color: #527eae; color: #2b5578; }
+.status-badge.tone-waiting { background: var(--ambersoft); border-color: #ecd9b4; border-left-color: #d2a94f; color: #6f4d0c; }
+.status-badge.tone-review { background: var(--purplesoft); border-color: #ded6f3; border-left-color: #7868bc; color: #4a3880; }
+.status-badge.tone-returned { background: var(--redsoft); border-color: #f0cfd5; border-left-color: #c96a78; color: #8f3745; }
+.status-badge.tone-blocked { background: #fdeceb; border-color: #f3c9c5; border-left-color: #b8493a; color: #8f2f26; }
+.status-badge.tone-stale { background: #fff4e2; border-color: #eed6a4; border-left-color: #c9902a; color: #6f4c0a; }
+.status-badge.tone-approved { background: var(--tealsoft); border-color: #c2e2d6; border-left-color: #097e74; color: #1b5a48; }
+.status-badge.tone-complete { background: #e9f4ec; border-color: #c9e3d2; border-left-color: #3f8b5c; color: #1f5636; }
+.status-badge.tone-terminal-bad { background: #f1f1f3; border-color: #dcdde1; border-left-color: #8a8f98; color: #4f545c; }
+.status-badge.tone-simulated { background: #eef6ea; border-color: #d3e6c8; border-left-color: #7aa961; color: #3f5d31; font-style: italic; }
 
 /* ---------------------------------------------------------------------------
  * 4. Page header + identity/context line
@@ -137,16 +159,24 @@
 .page-identity {
   display: flex;
   flex-wrap: wrap;
-  align-items: center;
-  gap: 6px 14px;
+  align-items: baseline;
+  gap: 4px 14px;
   margin-top: 10px;
   font-size: 11px;
   color: var(--muted);
+  min-width: 0;
+  max-width: 100%;
 }
-.page-identity .identity-item { display: inline-flex; align-items: baseline; gap: 5px; min-width: 0; }
-.page-identity .identity-item > span:first-child { text-transform: uppercase; letter-spacing: .7px; font-size: 10px; color: #7b8f93; }
-.page-identity .identity-item > b { font-weight: 600; color: #3b4f55; overflow-wrap: anywhere; }
-.page-status { display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.page-identity .identity-item {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 5px;
+  min-width: 0;
+  max-width: 100%;
+}
+.page-identity .identity-item > span:first-child { text-transform: uppercase; letter-spacing: .7px; font-size: 10px; color: #7b8f93; white-space: nowrap; }
+.page-identity .identity-item > b { font-weight: 600; color: #3b4f55; overflow-wrap: anywhere; min-width: 0; }
+.page-status { display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; min-width: 0; }
 
 /* Lifecycle hint strip: tells the reader how this module's journey works. */
 .lifecycle-hint {

@@ -167,15 +167,26 @@ describe('MOD-UX-01 static enterprise UX harness', () => {
     }
   });
 
-  it('renders every status vocabulary value with a tone and a glyph', () => {
+  it('renders every status vocabulary value with a tone and an accessible reading', () => {
     const tones = new Set<string>();
     for (const status of ['Draft', 'Requested', 'Under review', 'Returned', 'Blocked', 'Stale', 'Approved', 'Completed', 'Cancelled', 'Simulated accepted']) {
       tones.add(statusSemantics(status).tone);
     }
     assert.ok(tones.size >= 7, `the shared vocabulary must cover distinct lifecycle tones, got ${tones.size}`);
     const enterprise = read(join('src', 'components', 'common', 'Enterprise.tsx'));
-    // Colour is never the only signal: text plus a glyph plus a screen-reader reading.
-    assert.match(enterprise, /status-glyph/, 'badges must render a non-colour glyph');
-    assert.match(enterprise, /sr-only/, 'badges must expose an accessible description');
+    // Inspect the badge implementation itself, not the whole shared module.
+    const badge = enterprise.slice(enterprise.indexOf('export const StatusBadge'), enterprise.indexOf('export interface LifecycleStepperProps'));
+    assert.match(badge, /title=\{description\}/, 'the badge must expose a plain-language description');
+    assert.match(badge, /aria-label=\{description\}/, 'the badge must expose an accessible name');
+    assert.match(badge, /data-status-tone=\{appliedTone\}/, 'the badge must publish its tone for styling and tests');
+    assert.ok(!/status-glyph/.test(badge), 'the badge must not add a separator glyph that changes neighbouring text');
+    assert.ok(!/sr-only/.test(badge), 'the badge must not add hidden text nodes that change rendered innerText');
+    assert.match(badge, /\{semantic\.label\}/, 'the badge must render the literal status as its only text node');
+    // Every tone the vocabulary can produce must have a matching style rule.
+    const css = read(join('src', 'enterprise.css'));
+    const missing = [...tones].filter(tone => !css.includes(`.status-badge.tone-${tone}`));
+    assert.deepEqual(missing, [], `tones without a style rule: ${missing.join(', ')}`);
+    // Colour alone is not enough: the tone also changes the border shape.
+    assert.match(css, /\.status-badge\.tone-approved \{[^}]*border-left-color/, 'tone must change shape as well as colour');
   });
 });
