@@ -26,6 +26,23 @@ class CriterionLedgerTests(unittest.TestCase):
         self.assertTrue(any('no assertion basis' in error for error in errors))
         self.assertTrue(any('not found in source' in error for error in errors))
 
+    def test_todo_tests_block_full_suite_criteria(self):
+        import subprocess, sys
+        with tempfile.TemporaryDirectory() as tmp:
+            unit, e2e = Path(tmp) / 'unit.tap', Path(tmp) / 'e2e.tap'
+            for log, todo in ((unit, 1), (e2e, 0)):
+                log.write_text(f'TAP version 13\n# tests 1\n# pass 1\n# fail 0\n# cancelled 0\n# skipped 0\n# todo {todo}\n', encoding='utf-8')
+            original = ledger.LEDGER.read_text(encoding='utf-8')
+            try:
+                run = subprocess.run([sys.executable, str(ORIGINAL / 'tools/criterion_ledger.py'), 'generate', '--unit-log', str(unit), '--e2e-log', str(e2e),
+                                      '--sha', 'x', '--build-digest', 'x', '--run-id', 'x', '--run-date', 'x'], capture_output=True, text=True)
+                text = ledger.LEDGER.read_text(encoding='utf-8')
+            finally:
+                ledger.LEDGER.write_text(original, encoding='utf-8')
+            self.assertNotEqual(0, run.returncode)
+            row = next(line for line in text.splitlines() if line.startswith('| VP-063-AC04 |'))
+            self.assertIn('Full recorded suite — **FAIL**', row)
+
     def test_source_titles_unescape_quotes_like_the_runtime(self):
         tests = ledger.source_tests()
         self.assertIn("allows a manager to correct another author's inbound note with retained history (VP-027-E02)", tests)
