@@ -342,7 +342,7 @@ export const Shell: React.FC<ShellProps> = ({ currentRoute, onRouteChange, onSel
     } else {
       // Client projection: only explicitly shared documents/packages surface.
       state.documents.filter(d => d.visibility === 'Client shared' && matches(d.name, d.id))
-        .forEach(d => add({ title: d.name, sub: `Shared document · v${d.version}`, route: 'portal', objectId: d.id, clientId: d.clientId, engagementId: d.engagementId, requiresEngagement: true }));
+        .forEach(d => add({ title: d.name, sub: `Shared document · ${d.brokenLink ? 'Unavailable · ' : ''}v${d.version}`, route: 'portal', objectId: d.id, clientId: d.clientId, engagementId: d.engagementId, requiresEngagement: true }));
     }
     return out;
   })();
@@ -604,7 +604,7 @@ export const Shell: React.FC<ShellProps> = ({ currentRoute, onRouteChange, onSel
 
       {/* Scenario Chooser Modal */}
       {showScenarioModal && (
-        <div className="modal-backdrop" onClick={() => setShowScenarioModal(false)}>
+        <div className="modal-backdrop" data-dismiss-guard="none" onClick={() => setShowScenarioModal(false)}>
           <div className="modal" style={{ maxWidth: 640 }} onClick={e => e.stopPropagation()}>
             <div className="modal-head">
               <h2>Select Demo Scenario Preset</h2>
@@ -668,7 +668,7 @@ export const Shell: React.FC<ShellProps> = ({ currentRoute, onRouteChange, onSel
 
       {/* Global Search Modal */}
       {showSearchModal && (
-        <div className="modal-backdrop" onClick={closeSearch}>
+        <div className="modal-backdrop" data-dismiss-guard="none" onClick={closeSearch}>
           <div className="modal global-search-dialog" role="dialog" aria-modal="true" aria-label="Global search" style={{ maxWidth: 560 }} onClick={e => e.stopPropagation()}>
             <div className="modal-head">
               <div className="row" style={{ flex: 1, gap: 10 }}>

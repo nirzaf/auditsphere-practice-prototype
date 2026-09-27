@@ -346,6 +346,111 @@ describe('consolidation fixed example (AT-42)', () => {
   });
 });
 
+describe('signed fixtures F-SIGN-01..04 (MOD-24/MOD-26, VP-040-AC01, VP-045-AC04)', () => {
+  const sum = (rows: TrialBalanceRow[]) => rows.reduce((total, row) => total + row.balance, 0);
+
+  it('F-SIGN-01 contra revenue: revenue 800, profit/equity 800', () => {
+    const rows: TrialBalanceRow[] = [
+      { code: '1000', name: 'Cash', type: 'asset', balance: 800 },
+      { code: '4000', name: 'Revenue', type: 'revenue', balance: -1000 },
+      { code: '4090', name: 'Sales returns', type: 'revenue', balance: 200 }
+    ];
+    assert.equal(sum(rows), 0);
+    assert.equal(calculateIncomeStatement(rows).revenue, 800);
+    const position = calculateBalanceSheet(rows);
+    assert.equal(position.totalEquity, 800);
+    assert.equal(position.isBalanced, true);
+  });
+
+  it('F-SIGN-02 debit equity: presented equity 80, not 120', () => {
+    const rows: TrialBalanceRow[] = [
+      { code: '1000', name: 'Cash', type: 'asset', balance: 80 },
+      { code: '3000', name: 'Capital', type: 'equity', balance: -100 },
+      { code: '3900', name: 'Accumulated deficit', type: 'equity', balance: 20 }
+    ];
+    assert.equal(sum(rows), 0);
+    const position = calculateBalanceSheet(rows);
+    assert.equal(position.totalEquity, 80);
+    assert.equal(position.isBalanced, true);
+  });
+
+  it('F-SIGN-03 ordinary activity: revenue 1,000, expense 200, profit 800', () => {
+    const rows: TrialBalanceRow[] = [
+      { code: '1000', name: 'Cash', type: 'asset', balance: 800 },
+      { code: '4000', name: 'Revenue', type: 'revenue', balance: -1000 },
+      { code: '6000', name: 'Rent', type: 'expense', balance: 200 }
+    ];
+    const income = calculateIncomeStatement(rows);
+    assert.equal(income.revenue, 1000);
+    assert.equal(income.operatingExpenses, 200);
+    assert.equal(income.netProfit, 800);
+    assert.equal(calculateBalanceSheet(rows).totalEquity, 800);
+  });
+
+  it('F-SIGN-04 group debit equity: assets 130 and equity 130, not 170', () => {
+    const parent: TrialBalanceRow[] = [
+      { code: '1000', name: 'Cash', type: 'asset', balance: 80 },
+      { code: '3000', name: 'Capital', type: 'equity', balance: -100 },
+      { code: '3900', name: 'Debit equity balance', type: 'equity', balance: 20 }
+    ];
+    const sub: TrialBalanceRow[] = [
+      { code: '1000', name: 'Cash', type: 'asset', balance: 50 },
+      { code: '3000', name: 'Capital', type: 'equity', balance: -50 }
+    ];
+    assert.equal(sum(parent), 0);
+    assert.equal(sum(sub), 0);
+    const before = structuredClone([parent, sub]);
+    const out = calculateConsolidatedBalanceSheet(parent, sub, []);
+    assert.equal(out.totalAssets, 130);
+    assert.equal(out.totalLiabilities, 0);
+    assert.equal(out.totalEquity, 130, 'debit equity reduces group equity');
+    assert.equal(out.parentEquity, 80);
+    assert.equal(out.subsidiaryEquity, 50);
+    assert.equal(out.parentAssets + out.subsidiaryAssets, out.totalAssets, 'header totals agree with component columns');
+    assert.equal(out.isBalanced, true);
+    assert.deepEqual([parent, sub], before, 'component sources are not mutated');
+  });
+
+  it('nets a debit contra-liability and reports signed elimination effects per section', () => {
+    const parent: TrialBalanceRow[] = [
+      { code: '1000', name: 'Cash', type: 'asset', balance: 1000 },
+      { code: '1200', name: 'IC receivable', type: 'asset', balance: 300 },
+      { code: '2000', name: 'Payables', type: 'liability', balance: -500 },
+      { code: '2090', name: 'Supplier debit balances', type: 'liability', balance: 50 },
+      { code: '3000', name: 'Capital', type: 'equity', balance: -850 }
+    ];
+    const sub: TrialBalanceRow[] = [
+      { code: '1000', name: 'Cash', type: 'asset', balance: 400 },
+      { code: '2100', name: 'IC payable', type: 'liability', balance: -300 },
+      { code: '3000', name: 'Capital', type: 'equity', balance: -100 }
+    ];
+    const out = calculateConsolidatedBalanceSheet(parent, sub, [{ id: 'ELIM-IC', lines: [
+      { account: '1200', type: 'credit', amount: 300 },
+      { account: '2100', type: 'debit', amount: 300 }
+    ] }]);
+    assert.equal(out.totalAssets, 1400);
+    assert.equal(out.totalLiabilities, 450);
+    assert.equal(out.totalEquity, 950);
+    assert.equal(out.parentLiabilities, 450);
+    assert.equal(out.assetEliminationEffect, -300);
+    assert.equal(out.liabilityEliminationEffect, -300);
+    assert.equal(out.equityEliminationEffect, 0);
+    assert.equal(out.parentAssets + out.subsidiaryAssets + out.assetEliminationEffect, out.totalAssets);
+    assert.equal(out.parentLiabilities + out.subsidiaryLiabilities + out.liabilityEliminationEffect, out.totalLiabilities);
+    assert.equal(out.isBalanced, true);
+  });
+
+  it('does not report a false imbalance from 0.10 + 0.20 floating-point sums', () => {
+    const parent: TrialBalanceRow[] = [
+      { code: '1000', name: 'Cash', type: 'asset', balance: 0.1 },
+      { code: '1010', name: 'Petty cash', type: 'asset', balance: 0.2 },
+      { code: '3000', name: 'Capital', type: 'equity', balance: -0.3 }
+    ];
+    const out = calculateConsolidatedBalanceSheet(parent, [], []);
+    assert.equal(out.isBalanced, true);
+  });
+});
+
 describe('materiality math (AT-44, VP-048-AC02)', () => {
   it('computes explicit overall / performance / trivial rates deterministically', () => {
     const m = calculateMateriality(1000000, 5, 75, 5, 'Fixed calculation fixture.');

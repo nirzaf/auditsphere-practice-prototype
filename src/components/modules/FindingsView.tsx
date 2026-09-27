@@ -223,7 +223,7 @@ export const FindingsView: React.FC<FindingsViewProps> = ({ onNavigate, searchTa
 
       {/* Add Finding Modal */}
       {showAddModal && (
-        <div className="modal-backdrop" onClick={event => { if (event.target === event.currentTarget) closeFindingModal(); }}>
+        <div className="modal-backdrop" data-dismiss-guard="self" onClick={event => { if (event.target === event.currentTarget) closeFindingModal(); }}>
           <div className="modal" style={{ maxWidth: 500 }} onClick={e => e.stopPropagation()}>
             <div className="modal-head">
               <h2>Raise Audit Finding</h2>

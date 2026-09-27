@@ -967,14 +967,14 @@ const ClientDetailWorkspace: React.FC<ClientDetailViewProps> = ({ clientId, sear
         </div>
       )}
 
-      {clarification && <div className="modal-backdrop" onClick={requestClarificationClose}><div className="modal" role="dialog" aria-modal="true" aria-labelledby="pbc-clarification-title" onClick={e => e.stopPropagation()}>
+      {clarification && <div className="modal-backdrop" data-dismiss-guard="self" onClick={requestClarificationClose}><div className="modal" role="dialog" aria-modal="true" aria-labelledby="pbc-clarification-title" onClick={e => e.stopPropagation()}>
         <div className="modal-head"><h2 id="pbc-clarification-title">Request Clarification</h2><button type="button" className="icon-btn" onClick={requestClarificationClose}>✕</button></div>
         <form ref={clarificationForm} onSubmit={handleClarification}><div className="modal-body stack" style={{ gap: 10 }}>
           <p className="sub">{clarification.request.title} · {clarification.request.id}. This message is visible to the client in the local portal.</p>
           <label className="caption">Clarification details<textarea className="input" value={clarificationText} onChange={e => setClarificationText(e.target.value)} required /></label>
         </div><div className="modal-foot"><button type="button" className="btn ghost sm" onClick={requestClarificationClose}>Cancel</button><button type="submit" className="btn primary sm">Send clarification</button></div></form>
       </div></div>}
-      {editingRequest && <div className="modal-backdrop" onClick={requestPbcEditClose}><div className="modal" role="dialog" aria-modal="true" aria-labelledby="pbc-edit-title" onClick={e => e.stopPropagation()}>
+      {editingRequest && <div className="modal-backdrop" data-dismiss-guard="self" onClick={requestPbcEditClose}><div className="modal" role="dialog" aria-modal="true" aria-labelledby="pbc-edit-title" onClick={e => e.stopPropagation()}>
         <div className="modal-head"><h2 id="pbc-edit-title">Edit information request</h2><button type="button" className="icon-btn" onClick={requestPbcEditClose}>✕</button></div>
         <form ref={editRequestForm} onSubmit={handleUpdatePbc}><div className="modal-body stack" style={{ gap: 10 }}>
           <p className="sub">{editingRequest.id} · identity, attribution and prior submissions are retained; the edit is recorded in the request thread.</p>

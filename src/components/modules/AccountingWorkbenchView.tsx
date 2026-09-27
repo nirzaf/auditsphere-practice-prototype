@@ -1033,7 +1033,7 @@ export const AccountingWorkbenchView: React.FC<AccountingWorkbenchViewProps> = (
 
       {/* Add Adjustment Modal */}
       {(showAddAdjModal || amendAdjustment) && (
-        <div className="modal-backdrop" onClick={closeAdjustmentModal}>
+        <div className="modal-backdrop" data-dismiss-guard="self" onClick={closeAdjustmentModal}>
           <div className="modal" style={{ maxWidth: 620 }} onClick={e => e.stopPropagation()}>
             <div className="modal-head">
               <h2>{amendAdjustment ? 'Amend ' + amendAdjustment.id + ' · Rev ' + ((amendAdjustment.revision || 1) + 1) : 'Propose Correcting Adjustment Journal'}</h2>

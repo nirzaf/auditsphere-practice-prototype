@@ -2,6 +2,7 @@
 // Subscribes to prototypeStore and renders modern UI Shell with all 39 functional modules
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { RouteKey } from './types';
 import { prototypeStore } from './store/prototypeStore';
 import { canOpenRoute, isClientRole, hasSelectedEngagementScope } from './services/guards';
@@ -65,6 +66,8 @@ const ENGAGEMENT_CONTEXT_ROUTES = new Set<string>([
   'quality', 'delivery', 'records', 'm365-setup'
 ]);
 
+const ACTIVE_DIALOG_GUARD = '__active-dialog__';
+
 export const App: React.FC = () => {
   const [currentRoute, setCurrentRoute] = useState<RouteKey>(() => resolveRouteHash(window.location.hash)?.route || 'overview');
   const [selectedClientId, setSelectedClientId] = useState<string>('CLI-001');
@@ -75,6 +78,9 @@ export const App: React.FC = () => {
   const acceptedRouteHash = useRef(`#${resolveRouteHash(window.location.hash)?.route || 'overview'}`);
   const [pendingTransition, setPendingTransition] = useState<{ run: () => void; label: string } | null>(null);
   const [transitionError, setTransitionError] = useState('');
+  // VP-003-E01: dialog whose Escape/backdrop dismissal is waiting for an explicit discard decision.
+  const [dismissPrompt, setDismissPrompt] = useState<HTMLElement | null>(null);
+  const dismissActions = useRef<{ discard: () => void; keep: () => void }>({ discard: () => undefined, keep: () => undefined });
 
   const registerUnsavedForm = useCallback((guard: UnsavedFormGuard | null, key = 'default') => {
     if (guard) unsavedForms.current.set(key, guard);
@@ -95,7 +101,9 @@ export const App: React.FC = () => {
       for (const guard of dirty) {
         try {
           if (!await guard.save()) {
-            setTransitionError(`${guard.label} could not be saved. Check its message, or stay here and finish or discard the draft.`);
+            setTransitionError(guard === unsavedForms.current.get(ACTIVE_DIALOG_GUARD)
+              ? 'The open dialog could not be saved from navigation. Stay and use the dialog\'s own action, or discard its changes.'
+              : `${guard.label} could not be saved. Check its message, or stay here and finish or discard the draft.`);
             return;
           }
         } catch (error: any) {
@@ -105,7 +113,8 @@ export const App: React.FC = () => {
       }
     } else {
       dirty.forEach(guard => guard.discard());
-      dirty.forEach(guard => { for (const [key, registered] of unsavedForms.current) if (registered === guard) unsavedForms.current.delete(key); });
+      // The shared open-dialog guard stays registered for the next dialog.
+      dirty.forEach(guard => { for (const [key, registered] of unsavedForms.current) if (registered === guard && key !== ACTIVE_DIALOG_GUARD) unsavedForms.current.delete(key); });
     }
     setPendingTransition(null);
     setTransitionError('');
@@ -149,6 +158,74 @@ export const App: React.FC = () => {
     let returnFocus: HTMLElement | null = null;
     let lastDialogTrigger: HTMLElement | null = null;
     let dialogSequence = 0;
+    // Shared dismissal guard: Escape and backdrop clicks never silently drop edited
+    // dialog fields. Dialogs that already confirm through their own close handler
+    // (onBeforeContextChange / window.confirm) opt out with data-dismiss-guard.
+    // Per-dialog baseline, so a stacked prompt closing does not reset an edited dialog.
+    const dialogDrafts = new WeakMap<HTMLElement, { baseline: string; edited: boolean }>();
+    const draftOf = (dialog: HTMLElement) => {
+      let draft = dialogDrafts.get(dialog);
+      if (!draft) { draft = { baseline: dialogFields(dialog), edited: false }; dialogDrafts.set(dialog, draft); }
+      return draft;
+    };
+    let promptOpen = false;
+    let bypassDismissGuard = false;
+    const dialogFields = (dialog: HTMLElement) => JSON.stringify([...dialog.querySelectorAll<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>('input,select,textarea')]
+      .filter(field => !field.closest('[data-dismiss-prompt]'))
+      .map(field => field instanceof HTMLInputElement && (field.type === 'checkbox' || field.type === 'radio')
+        ? field.checked
+        : field instanceof HTMLInputElement && field.type === 'file' ? [...(field.files || [])].map(file => `${file.name}:${file.size}`).join('|') : field.value));
+    const backdropOf = (dialog: HTMLElement | null) => dialog?.closest<HTMLElement>('.modal-backdrop') || dialog?.closest<HTMLElement>('.modal-overlay') || null;
+    const closePrompt = () => { promptOpen = false; setDismissPrompt(null); };
+    dismissActions.current = {
+      keep: () => {
+        closePrompt();
+        if (activeDialog) (focusable(activeDialog).find(element => !element.closest('[data-dismiss-prompt]')) || activeDialog).focus();
+      },
+      discard: () => {
+        const backdrop = backdropOf(activeDialog);
+        closePrompt();
+        if (!backdrop) return;
+        bypassDismissGuard = true;
+        try { backdrop.dispatchEvent(new MouseEvent('click', { bubbles: true })); } finally { bypassDismissGuard = false; }
+      }
+    };
+    const dialogIsDirty = (dialog: HTMLElement | null = activeDialog) => {
+      const backdrop = backdropOf(dialog);
+      if (!dialog || !backdrop || backdrop.dataset.dismissGuard === 'self' || backdrop.dataset.dismissGuard === 'none') return false;
+      const draft = draftOf(dialog);
+      return draft.edited && dialogFields(dialog) !== draft.baseline;
+    };
+    // The topmost business dialog, looking beneath the shared "Unsaved changes" prompt.
+    const guardedDialog = () => [...document.querySelectorAll<HTMLElement>('.modal-backdrop .modal, .modal-overlay .modal-card')]
+      .reverse().find(dialog => backdropOf(dialog)?.dataset.dismissGuard !== 'none') || null;
+    // Fallback navigation guard for an edited dialog without its own registered draft
+    // guard: route, hash, back/forward and context switches ask first, and generic
+    // "Save and continue" never submits the dialog's decision on the user's behalf.
+    const dialogGuard: UnsavedFormGuard = {
+      label: 'The open dialog',
+      isDirty: () => dialogIsDirty(guardedDialog()) && ![...unsavedForms.current.entries()].some(([key, guard]) => key !== ACTIVE_DIALOG_GUARD && guard.isDirty()),
+      save: () => false,
+      discard: () => {
+        const backdrop = backdropOf(guardedDialog());
+        if (!backdrop) return;
+        bypassDismissGuard = true;
+        try { backdrop.dispatchEvent(new MouseEvent('click', { bubbles: true })); } finally { bypassDismissGuard = false; }
+      }
+    };
+    unsavedForms.current.set(ACTIVE_DIALOG_GUARD, dialogGuard);
+    const onDismissClick = (event: MouseEvent) => {
+      const backdrop = backdropOf(activeDialog);
+      if (bypassDismissGuard || !activeDialog || !backdrop || event.target !== backdrop) return;
+      if (!dialogIsDirty()) return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      promptOpen = true;
+      setDismissPrompt(activeDialog);
+    };
+    const onDialogInput = (event: Event) => {
+      if (activeDialog && event.target instanceof Node && activeDialog.contains(event.target)) draftOf(activeDialog).edited = true;
+    };
     const focusable = (dialog: HTMLElement) => [...dialog.querySelectorAll<HTMLElement>(
       'a[href],button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"])'
     )].filter(element => element.getAttribute('aria-hidden') !== 'true' && element.getClientRects().length > 0);
@@ -172,9 +249,15 @@ export const App: React.FC = () => {
         if (!dialog.hasAttribute('tabindex')) dialog.tabIndex = -1;
       });
       const next = dialogs.at(-1) || null;
-      if (next === activeDialog) return;
+      if (next === activeDialog) {
+        // Late-populated defaults are part of the baseline until the user edits.
+        if (next && !draftOf(next).edited) draftOf(next).baseline = dialogFields(next);
+        return;
+      }
       const previous = activeDialog;
       activeDialog = next;
+      if (next) draftOf(next);
+      if (promptOpen) closePrompt();
       if (next) {
         if (!previous) {
           returnFocus = lastDialogTrigger?.isConnected
@@ -196,6 +279,8 @@ export const App: React.FC = () => {
         if (!backdrop) return;
         event.preventDefault();
         event.stopPropagation();
+        // Escape while the discard prompt is open means "keep editing", never discard.
+        if (promptOpen) { dismissActions.current.keep(); return; }
         backdrop.dispatchEvent(new MouseEvent('click', { bubbles: true }));
       } else if (event.key === 'Tab') {
         const items = focusable(activeDialog);
@@ -219,11 +304,18 @@ export const App: React.FC = () => {
     const observer = new MutationObserver(syncDialogs);
     observer.observe(document.body, { childList: true, subtree: true });
     document.addEventListener('click', rememberDialogTrigger, true);
+    document.addEventListener('click', onDismissClick, true);
+    document.addEventListener('input', onDialogInput, true);
+    document.addEventListener('change', onDialogInput, true);
     document.addEventListener('keydown', onKeyDown, true);
     document.addEventListener('focusin', onFocus, true);
     syncDialogs();
     return () => {
       observer.disconnect();
+      unsavedForms.current.delete(ACTIVE_DIALOG_GUARD);
+      document.removeEventListener('click', onDismissClick, true);
+      document.removeEventListener('input', onDialogInput, true);
+      document.removeEventListener('change', onDialogInput, true);
       document.removeEventListener('click', rememberDialogTrigger, true);
       document.removeEventListener('keydown', onKeyDown, true);
       document.removeEventListener('focusin', onFocus, true);
@@ -402,7 +494,11 @@ export const App: React.FC = () => {
   return (
     <Shell currentRoute={effectiveRoute} onRouteChange={navigate} onSelectClient={(clientId) => requestContextChange(() => setSelectedClientId(clientId))} onBeforeContextChange={requestContextChange}>
       {renderModule()}
-      {pendingTransition && <div className="modal-backdrop" onClick={stayOnCurrentRoute}><section className="modal" role="dialog" aria-modal="true" aria-labelledby="unsaved-changes-title" style={{ maxWidth: 480 }} onClick={event => event.stopPropagation()}>
+      {dismissPrompt && createPortal(<div data-dismiss-prompt="" role="alert" className="banner amber mt12" style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center', justifyContent: 'space-between' }}>
+        <span>This dialog has unsaved changes. Nothing has been saved.</span>
+        <span className="row" style={{ gap: 8 }}><button type="button" className="btn sm" onClick={() => dismissActions.current.keep()}>Keep editing</button><button type="button" className="btn ghost sm" onClick={() => dismissActions.current.discard()}>Discard changes</button></span>
+      </div>, dismissPrompt)}
+      {pendingTransition && <div className="modal-backdrop" data-dismiss-guard="none" onClick={stayOnCurrentRoute}><section className="modal" role="dialog" aria-modal="true" aria-labelledby="unsaved-changes-title" style={{ maxWidth: 480 }} onClick={event => event.stopPropagation()}>
         <div className="modal-head"><h2 id="unsaved-changes-title">Unsaved changes</h2><button type="button" className="icon-btn" aria-label="Cancel navigation" onClick={stayOnCurrentRoute}>✕</button></div>
         <div className="modal-body"><p>{pendingTransition.label} has unsaved changes. Save them before leaving, discard them, or stay here.</p>{transitionError && <p className="banner amber mt12" role="alert">{transitionError}</p>}</div>
         <div className="modal-foot"><button type="button" className="btn ghost sm" onClick={() => resolveTransition('discard')}>Discard and continue</button><button type="button" className="btn sm" onClick={stayOnCurrentRoute}>Stay</button><button type="button" className="btn primary sm" onClick={() => void resolveTransition('save')}>Save and continue</button></div>

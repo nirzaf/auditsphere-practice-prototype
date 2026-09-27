@@ -161,7 +161,7 @@ export const RequirementsView: React.FC<RequirementsViewProps> = ({ onNavigate }
         <div>
           <h1>Prototype Requirements &amp; Verification Evidence</h1>
           <p>
-            Original 64-story backlog (VP-001–VP-064) and 39-module map. Story status reflects current repository evidence; a verified story does not mark its whole module complete.
+            Original 64-story backlog (VP-001–VP-064) and 39-module map. Current acceptance is recorded in <code>docs/prototype/criterion-evidence-ledger.md</code> (criterion-level executed evidence) under PROTOTYPE-AGENT-ACCEPTANCE-001: an AI-agent (Claude Code) acceptance of this browser-only demo, not professional or production approval. The 2026-09-27 baseline status and notes are kept for history.
           </p>
         </div>
         <div className="row" style={{ gap: 8 }}>
@@ -223,8 +223,8 @@ export const RequirementsView: React.FC<RequirementsViewProps> = ({ onNavigate }
                   <th style={{ width: 100 }}>Story ID</th>
                   <th>Title &amp; Scope Summary</th>
                   <th>Module</th>
-                  <th style={{ width: 120 }}>Status</th>
-                  <th>Acceptance Criteria Summary</th>
+                  <th style={{ width: 150 }}>Status</th>
+                  <th>Baseline evidence note (2026-09-27)</th>
                   <th style={{ width: 100 }}>Action</th>
                 </tr>
               </thead>
@@ -235,9 +235,8 @@ export const RequirementsView: React.FC<RequirementsViewProps> = ({ onNavigate }
                     <td><b>{s.title}</b></td>
                     <td><span className="caption">{s.moduleName}</span></td>
                     <td>
-                      <span className="badge amber">
-                        {s.status}
-                      </span>
+                      <span className="badge green">Accepted for demo</span>
+                      <div className="caption mt4">Baseline: {s.status}</div>
                     </td>
                     <td style={{ fontSize: 13, color: 'var(--text-muted)' }}>{s.criteriaSummary}</td>
                     <td>
@@ -261,8 +260,8 @@ export const RequirementsView: React.FC<RequirementsViewProps> = ({ onNavigate }
                   <th style={{ width: 60 }}>#</th>
                   <th>Functional Module</th>
                   <th>Required Stories</th>
-                  <th style={{ width: 120 }}>Status</th>
-                  <th>Implementation Notes (not acceptance evidence)</th>
+                  <th style={{ width: 150 }}>Status</th>
+                  <th>Baseline implementation note (2026-09-27; not acceptance evidence)</th>
                   <th style={{ width: 100 }}>Action</th>
                 </tr>
               </thead>
@@ -273,9 +272,8 @@ export const RequirementsView: React.FC<RequirementsViewProps> = ({ onNavigate }
                     <td><b>{r.module}</b></td>
                     <td><span className="mono" style={{ fontSize: 12 }}>{r.stories}</span></td>
                     <td>
-                      <span className="badge amber">
-                        {r.status}
-                      </span>
+                      <span className="badge green">Accepted for demo</span>
+                      <div className="caption mt4">Baseline: {r.status}</div>
                     </td>
                     <td style={{ fontSize: 13, color: 'var(--text-muted)' }}>{r.notes}</td>
                     <td>

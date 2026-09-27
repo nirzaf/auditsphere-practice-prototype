@@ -9,7 +9,7 @@ export const MODULE_GUIDES: ModuleGuideEntry[] = [
   {
     id: "MOD-01", name: "Practice Dashboard", route: "`overview`", component: "`DashboardView`",
     personas: "manager; repeat as partner, billing and a narrow-scope user", scenario: "`full-practice`",
-    exists: "Scoped portfolio metrics, as-of/overdue filters and count-to-list checks already exist.", limits: "Remaining persona combinations, empty/archived states and exact drill-down continuity need demonstration evidence.",
+    exists: "Scoped portfolio metrics, as-of/overdue filters and count-to-list checks already exist.", limits: "Counts are browser-local and scenario-dated; missing cost stays Unknown. No real-time feeds or scheduled refresh.",
     steps: [
       "Open Practice Overview as Layla Rahman. Set the demo as-of date to 2026-09-23.",
       "Filter by client and engagement; point out the selected context and currency.",
@@ -23,7 +23,7 @@ export const MODULE_GUIDES: ModuleGuideEntry[] = [
   {
     id: "MOD-02", name: "CRM & Client Management", route: "`clients → client-detail`", component: "`ClientsView / ClientDetailView`",
     personas: "relationship; manager for linked professional records", scenario: "`full-practice`",
-    exists: "Client/contact creation, primary contact, custom values and non-authorizing relationship groups exist; contact responsibility/effective dates now have recorded implementation.", limits: "Complete lifecycle and stale-edit coverage, required-field reconciliation and all Client 360 actions remain open.",
+    exists: "Client/contact creation, primary contact, custom values and non-authorizing relationship groups exist; contact responsibility/effective dates now have recorded implementation.", limits: "Contacts and relationship groups never create users or grants; archive is a soft state, not deletion.",
     steps: [
       "Open Client Portfolio and select Example Trading Entity (CL-001).",
       "Review Profile and Contacts; identify the primary contact, relationship owner and client code.",
@@ -37,7 +37,7 @@ export const MODULE_GUIDES: ModuleGuideEntry[] = [
   {
     id: "MOD-03", name: "Leads & Opportunities", route: "`acquisition`", component: "`LeadsPipelineView`",
     personas: "relationship", scenario: "`full-practice`",
-    exists: "Inquiry editing, stage/loss history, currency-separated pipeline, Won conversion and permitted client linking are repository-reported verified.", limits: "Preserve the implementation; only include it in integrated presentation rehearsal and regression.",
+    exists: "Inquiry editing, stage/loss history, currency-separated pipeline, Won conversion and permitted client linking are repository-reported verified.", limits: "Commercial Won/Lost never implies professional acceptance, access or billing.",
     steps: [
       "Open Acquisition & Pipeline and select an inquiry.",
       "Review service interest, expected fee/currency and stage history.",
@@ -51,7 +51,7 @@ export const MODULE_GUIDES: ModuleGuideEntry[] = [
   {
     id: "MOD-04", name: "Proposals & Engagements", route: "`proposals → engagements`", component: "`ProposalsView / EngagementsView`",
     personas: "relationship → independent reviewer → client management → partner", scenario: "`full-practice`",
-    exists: "Proposal drafting/review/presentation, evidence-backed client response, separate activation and engagement lifecycle editing exist.", limits: "Reusable content/service editor completeness, stale responses and full scope-change impact/rework need closure.",
+    exists: "Proposal drafting/review/presentation, evidence-backed client response, separate activation and engagement lifecycle editing exist.", limits: "Client responses are recorded manually (Email/Meeting/Letter); eSignature is excluded. Closed/Cancelled engagements are terminal; recurring engagements are excluded.",
     steps: [
       "Create a synthetic proposal from the selected opportunity/client; enter service, period, fee and terms.",
       "Submit, switch to a different eligible person and review the exact revision.",
@@ -65,7 +65,7 @@ export const MODULE_GUIDES: ModuleGuideEntry[] = [
   {
     id: "MOD-05", name: "Jobs & Tasks", route: "`jobs`", component: "`JobsTasksView`",
     personas: "manager → preparer / preparer-2", scenario: "`full-practice`",
-    exists: "Jobs, one-level subtasks, reassignment, editing/reordering and task comments/document links are present; VP-014 is recorded verified despite a stale Requirements UI row.", limits: "Close job completion/nonterminal rework combinations; retain terminal cancellation and reconcile status text.",
+    exists: "Jobs, one-level subtasks, reassignment, editing/reordering and task comments/document links are present; VP-014 is recorded verified despite a stale Requirements UI row.", limits: "One subtask level only; no dependencies, recurrence or automatic assignment.",
     steps: [
       "Open Jobs & Tasks for the selected engagement; apply owner/status/overdue filters.",
       "Open a job and show linked files, time and its task hierarchy.",
@@ -79,7 +79,7 @@ export const MODULE_GUIDES: ModuleGuideEntry[] = [
   {
     id: "MOD-06", name: "Job Templates", route: "`job-templates`", component: "`JobTemplatesView`",
     personas: "manager / permitted template author", scenario: "`full-practice`",
-    exists: "Draft, publish, apply, revise and retire flows and repeat-operation safeguards are present.", limits: "Remaining title/hierarchy/selection/cancel matrices and role-suggestion interpretation need verification.",
+    exists: "Draft, publish, apply, revise and retire flows and repeat-operation safeguards are present.", limits: "Templates apply only when a person chooses them; no schedules or relative-date rules.",
     steps: [
       "Open Job Templates and inspect a published template.",
       "Create or edit a Draft with tasks and at most one child level.",
@@ -93,7 +93,7 @@ export const MODULE_GUIDES: ModuleGuideEntry[] = [
   {
     id: "MOD-07", name: "Team Collaboration", route: "`communications + jobs`", component: "`CommunicationsView / JobsTasksView`",
     personas: "preparer → permitted internal colleague", scenario: "`full-practice`",
-    exists: "Authored notes/edits, staff mentions, recipient-local notices, read state and reasoned moderation now have recorded implementation.", limits: "Unsafe/oversized input, notification scope and subject-link consistency remain verify-first work.",
+    exists: "Authored notes/edits, staff mentions, recipient-local notices, read state and reasoned moderation now have recorded implementation.", limits: "Mentions create local notices only — no email, chat or mailbox sync.",
     steps: [
       "Open a job and add an internal note mentioning an eligible colleague.",
       "Switch to that colleague and inspect the local notice and linked record.",
@@ -107,7 +107,7 @@ export const MODULE_GUIDES: ModuleGuideEntry[] = [
   {
     id: "MOD-08", name: "Client Portal", route: "`portal`", component: "`ClientPortalView`",
     personas: "client_admin → client_finance → client", scenario: "`full-practice`",
-    exists: "Scoped multi-client portal, issued invoice PDF downloads and separate management acknowledgements exist; sharing withdrawal has been implemented.", limits: "Rehearse every list/action and withdrawal/no-access branch across the three client roles.",
+    exists: "Scoped multi-client portal, issued invoice PDF downloads and separate management acknowledgements exist; sharing withdrawal has been implemented.", limits: "Client roles are synthetic personas; no real invitation, login, payment button or signature capture.",
     steps: [
       "Choose Amal Nasser (client_admin) and open Client Experience Portal.",
       "Switch between her explicit CL-001 and CL-003 scopes; compare requests, documents and invoices.",
@@ -121,7 +121,7 @@ export const MODULE_GUIDES: ModuleGuideEntry[] = [
   {
     id: "MOD-09", name: "Client Requests / PBC", route: "`client-detail Requests → portal`", component: "`ClientDetailView / ClientPortalView`",
     personas: "onboarding or permitted staff → named client_finance → independent staff reviewer", scenario: "`full-practice`",
-    exists: "Draft/present/upload/clarify/replace/accept cycle and durable PBC blob/hash history are recorded working.", limits: "Request edit/reassign/cancel filters and the full accepted-response-to-evidence/procedure reassessment chain remain open.",
+    exists: "Draft/present/upload/clarify/replace/accept cycle and durable PBC blob/hash history are recorded working.", limits: "PBC bytes are browser-local (IndexedDB); receipt is not acceptance; no reminders.",
     steps: [
       "Open the selected client Requests tab and prepare a request with a due date and named contributor.",
       "Present it and show the simulated email preview; no message is sent.",
@@ -135,7 +135,7 @@ export const MODULE_GUIDES: ModuleGuideEntry[] = [
   {
     id: "MOD-10", name: "Document Management", route: "`documents`", component: "`DocumentsLibraryView`",
     personas: "manager / preparer with scoped access", scenario: "`full-practice`",
-    exists: "Logical SharePoint hierarchy, metadata registration, revisions, availability, optional OneDrive and evidence replacement flows exist.", limits: "Complete idempotent workspace/rename/link matrices and truthful byte-availability explanations.",
+    exists: "Logical SharePoint hierarchy, metadata registration, revisions, availability, optional OneDrive and evidence replacement flows exist.", limits: "SharePoint is simulated: library rows keep metadata and hashes; original bytes are in-session only unless the PBC store holds them.",
     steps: [
       "Open Documents & SharePoint and select the client/engagement hierarchy.",
       "Inspect a logical document ID, current revision, sharing and source classification.",
@@ -149,7 +149,7 @@ export const MODULE_GUIDES: ModuleGuideEntry[] = [
   {
     id: "MOD-11", name: "Communications", route: "`communications`", component: "`CommunicationsView`",
     personas: "relationship / permitted staff", scenario: "`full-practice`",
-    exists: "Template-based simulated mail, accepted/failed/unknown outcomes and manual communication/job links exist.", limits: "Sender/placeholder/duplicate-click guards, visibility correction and all linked projections need final checks.",
+    exists: "Template-based simulated mail, accepted/failed/unknown outcomes and manual communication/job links exist.", limits: "Outgoing mail is a local outcome record (accepted/failed/unknown); nothing is sent and unknown outcomes are never auto-resent.",
     steps: [
       "Open Team & Client Comms and choose an existing active client contact.",
       "Compose from a permitted template and inspect resolved placeholders and attachment references.",
@@ -163,7 +163,7 @@ export const MODULE_GUIDES: ModuleGuideEntry[] = [
   {
     id: "MOD-12", name: "Time Tracking", route: "`my-time`", component: "`TimeTrackingView`",
     personas: "preparer → independent time reviewer", scenario: "`full-practice`",
-    exists: "Draft/submit/return/approve and correction revisions already exist.", limits: "Remaining date/minute/link validation and already-billed correction impact need demonstrated closure.",
+    exists: "Draft/submit/return/approve and correction revisions already exist.", limits: "No timers or automatic capture; corrections create revisions and never rewrite issued invoices.",
     steps: [
       "Open Time Tracking and enter positive minutes against a permitted job/task.",
       "Save Draft, submit and inspect the pending-review state.",
@@ -177,7 +177,7 @@ export const MODULE_GUIDES: ModuleGuideEntry[] = [
   {
     id: "MOD-13", name: "Budgets", route: "`budgets`", component: "`BudgetsView`",
     personas: "manager; preparer for related time entry", scenario: "`full-practice`",
-    exists: "Revisioned budgets and approved-time rate snapshots exist.", limits: "Close fixed arithmetic, missing-cost and engagement/job aggregation cases and final variance UX.",
+    exists: "Revisioned budgets and approved-time rate snapshots exist.", limits: "Budgets have no approval workflow in the original contract; restricted cost rates stay hidden from billing roles.",
     steps: [
       "Open Budgets & Variances for the selected engagement/job.",
       "Set the dedicated rehearsal fixture to 600 planned minutes and QAR 200/hour billing rate.",
@@ -191,7 +191,7 @@ export const MODULE_GUIDES: ModuleGuideEntry[] = [
   {
     id: "MOD-14", name: "Billing & Invoicing", route: "`billing`", component: "`BillingInvoicingView`",
     personas: "billing → independent billing reviewer", scenario: "`full-practice`",
-    exists: "Approved-time/fixed-fee invoice sources, reservations, review/issue and partial credits exist.", limits: "Complete ad-hoc/draft/cancel/return, credit cap and download/correction matrices; reconcile whether per-service allocation is truly required.",
+    exists: "Approved-time/fixed-fee invoice sources, reservations, review/issue and partial credits exist.", limits: "Issuing an invoice records a local document only — no sending, tax engine or payment request.",
     steps: [
       "Open Billing & Invoices and select a client with approved billable time or an accepted proposal.",
       "Draft lines from permitted sources; compare currency, rate revision and remaining contract balance.",
@@ -205,7 +205,7 @@ export const MODULE_GUIDES: ModuleGuideEntry[] = [
   {
     id: "MOD-15", name: "Receivables", route: "`receivables`", component: "`ReceivablesView`",
     personas: "billing", scenario: "`full-practice`",
-    exists: "Offline receipts, split allocations, reversal history, as-of aging and bucket drill-down exist.", limits: "Complete all boundary/stale/currency/input matrices and browser print-content verification.",
+    exists: "Offline receipts, split allocations, reversal history, as-of aging and bucket drill-down exist.", limits: "Offline receipts only; no gateways, card/bank details or automated dunning. Print output depends on the browser.",
     steps: [
       "Open Receivables & Receipts and set a client, currency and fixed as-of date.",
       "Inspect an issued invoice and effective credits before entering an offline receipt.",
@@ -219,7 +219,7 @@ export const MODULE_GUIDES: ModuleGuideEntry[] = [
   {
     id: "MOD-16", name: "Reporting & Analytics", route: "`reports`", component: "`ReportingCentreView`",
     personas: "manager/partner; then billing and records", scenario: "`full-practice`",
-    exists: "All 16 report views, field-level CSV reconciliation, role catalogues and invoked print actions are repository-reported verified.", limits: "Retain tests and rehearse client-friendly interpretation; no new BI integration is pending.",
+    exists: "All 16 report views, field-level CSV reconciliation, role catalogues and invoked print actions are repository-reported verified.", limits: "Reports are deterministic over local records; no BI connector or AI narrative.",
     steps: [
       "Open Report Centre as manager and review the available report catalogue.",
       "Choose a practice report and filter by client/date/currency where offered.",
@@ -233,7 +233,7 @@ export const MODULE_GUIDES: ModuleGuideEntry[] = [
   {
     id: "MOD-17", name: "Search & Centralized Client View", route: "`Shell search → exact record`", component: "`Shell / ClientDetailView`",
     personas: "manager; repeat as client_admin and a narrow-grant user", scenario: "`full-practice`",
-    exists: "Deterministic text/metadata search, scoped filters and many exact-record targets exist.", limits: "Complete all persona/record/unavailable target permutations and return navigation.",
+    exists: "Deterministic text/metadata search, scoped filters and many exact-record targets exist.", limits: "Local text search over scoped projections; requirements text is searched separately.",
     steps: [
       "Open Search from the shell and enter a known synthetic client/job/task/document code.",
       "Filter result type and permitted client/engagement context.",
@@ -247,7 +247,7 @@ export const MODULE_GUIDES: ModuleGuideEntry[] = [
   {
     id: "MOD-18", name: "Microsoft 365 Integration", route: "`m365-setup`", component: "`M365SetupView`",
     personas: "admin", scenario: "`full-practice`",
-    exists: "Local setup, fixture people/role mapping, independent SharePoint/mail/optional OneDrive simulations and failures exist.", limits: "Complete start/back/cancel/summary, reconnect and stale-test matrices; improve clear local simulation instructions.",
+    exists: "Local setup, fixture people/role mapping, independent SharePoint/mail/optional OneDrive simulations and failures exist.", limits: "Always liveConnected=false: no OAuth, credentials, tenant provisioning, Purview or Teams/Planner.",
     steps: [
       "Open Microsoft 365 Setup as system administrator and read the simulation banner.",
       "Enter/select only fixture tenant/site/library/root/sender values; review initial identity mappings.",
@@ -261,7 +261,7 @@ export const MODULE_GUIDES: ModuleGuideEntry[] = [
   {
     id: "MOD-19", name: "Identity & Access Management", route: "`administration`", component: "`AdministrationView`",
     personas: "admin; test as the affected persona", scenario: "`full-practice`",
-    exists: "Local identities/invite lifecycle are reported verified; scoped grant/effective-window/revocation paths exist.", limits: "Complete professional approval evidence, narrow-group and same-person expiry/revocation matrices.",
+    exists: "Local identities/invite lifecycle are reported verified; scoped grant/effective-window/revocation paths exist.", limits: "Identities and grants are synthetic; the superuser is a presenter tool and never evidence of independence.",
     steps: [
       "Open Firm Administration and inspect a synthetic person separately from client contacts.",
       "Nominate/create a local identity or show a simulated invitation state.",
@@ -275,7 +275,7 @@ export const MODULE_GUIDES: ModuleGuideEntry[] = [
   {
     id: "MOD-20", name: "Accounting", route: "`accounting-setup`", component: "`AccountingWorkbenchView`",
     personas: "permitted accounting preparer → independent reviewer", scenario: "`accounting-only`",
-    exists: "Profiles, chart/period/book/dimension editors and independently reviewed versioned account mappings exist; mapping VP-037 is reported verified.", limits: "Finish wider setup edits and downstream stale/rework across same-client periods.",
+    exists: "Profiles, chart/period/book/dimension editors and independently reviewed versioned account mappings exist; mapping VP-037 is reported verified.", limits: "Import-first accounting context; not an operational ledger or ERP.",
     steps: [
       "Open Accounting Workbench for ENG-26002 and inspect client/entity, basis, currency, period and book.",
       "Review the posting chart and bounded dimension values.",
@@ -289,7 +289,7 @@ export const MODULE_GUIDES: ModuleGuideEntry[] = [
   {
     id: "MOD-21", name: "Trial Balance & GL", route: "`accounting-setup (TB and GL areas)`", component: "`AccountingWorkbenchView / import components`",
     personas: "preparer", scenario: "`accounting-only`",
-    exists: "Genuine CSV/XLSX TB imports are reported verified; bounded mapped GL imports, immutable revisions and tie-out exist.", limits: "Complete remaining original-control, partial-batch/replacement, source-review and output-staleness paths.",
+    exists: "Genuine CSV/XLSX TB imports are reported verified; bounded mapped GL imports, immutable revisions and tie-out exist.", limits: "CSV and genuine XLSX within the declared row limits; source bytes are not retained after reload.",
     steps: [
       "Open the TB import panel in Accounting Workbench; select the scoped chart/book.",
       "Import a genuine synthetic CSV/XLSX, map headers and inspect preview/control totals.",
@@ -303,7 +303,7 @@ export const MODULE_GUIDES: ModuleGuideEntry[] = [
   {
     id: "MOD-22", name: "Adjustments & Journals", route: "`accounting-setup (adjustments) → portal approvals`", component: "`AccountingWorkbenchView / ClientPortalView`",
     personas: "preparer → independent technical reviewer → client management", scenario: "`accounting-only`",
-    exists: "Balanced journals, separate technical/management review, reflection evidence and amendment history exist.", limits: "Complete rejected/reflected replacement-source and evidence/workpaper/finding linkage demonstrations.",
+    exists: "Balanced journals, separate technical/management review, reflection evidence and amendment history exist.", limits: "Reporting adjustments never post to client source ledgers; reflection must be confirmed per source revision.",
     steps: [
       "Draft a balanced reporting adjustment with a scoped evidence/workpaper/finding reference.",
       "Submit and obtain a different person’s technical review.",
@@ -317,7 +317,7 @@ export const MODULE_GUIDES: ModuleGuideEntry[] = [
   {
     id: "MOD-23", name: "Reconciliations", route: "`accounting-setup (reconciliations)`", component: "`AccountingWorkbenchView`",
     personas: "preparer → independent reviewer", scenario: "`accounting-only`",
-    exists: "Revisioned source-pinned schedules, typed timing/correction items, reasoned return and residual checks exist.", limits: "Close missing-evidence/correction-link and replacement-stale visibility cases, not live bank integration.",
+    exists: "Revisioned source-pinned schedules, typed timing/correction items, reasoned return and residual checks exist.", limits: "Manual schedules only; no bank feeds or statement provenance integration.",
     steps: [
       "Open a reconciliation schedule and select the exact scoped source/evidence revisions.",
       "Enter source balances and dated timing items separately from proposed corrections.",
@@ -331,7 +331,7 @@ export const MODULE_GUIDES: ModuleGuideEntry[] = [
   {
     id: "MOD-24", name: "Financial Statements", route: "`financial-statements`", component: "`FinancialStatementsView`",
     personas: "preparer → independent financial reviewer", scenario: "`accounting-only`",
-    exists: "Mapped balance sheet/income statement, comparative history, reviewed cash-flow/equity schedules and shared notes exist.", limits: "Close bounded layout/grouping/subtotals, component-equity support where evidenced and full comparative/disclosure rework.",
+    exists: "Mapped balance sheet/income statement, comparative history, reviewed cash-flow/equity schedules and shared notes exist.", limits: "Supported cash-flow/equity movements are manual and reviewed; unsupported component breakdowns stay labelled unavailable.",
     steps: [
       "Open Financial Statements with current approved mappings.",
       "Switch between statement types and trace a line to its source accounts.",
@@ -345,7 +345,7 @@ export const MODULE_GUIDES: ModuleGuideEntry[] = [
   {
     id: "MOD-25", name: "Financial Packages", route: "`financial-packages`", component: "`FinancialPackagesView`",
     personas: "preparer → independent reviewer → client management", scenario: "`accounting-only`",
-    exists: "Ordered sections, exact persisted XLSX/DOCX/PDF files, cash/equity inclusion, atomic failure cleanup and replacement acknowledgement exist.", limits: "Complete remaining sharing/generator-edge acceptance and make readiness/bytes guidance clear; do not rebuild exports.",
+    exists: "Ordered sections, exact persisted XLSX/DOCX/PDF files, cash/equity inclusion, atomic failure cleanup and replacement acknowledgement exist.", limits: "Genuine XLSX/DOCX/PDF bytes are stored locally in IndexedDB; this is not a signed or certified publication.",
     steps: [
       "Open Financial Packages and select the exact current reviewed statement/schedule/note inputs.",
       "Choose and order supported sections, preview the client-visible contents.",
@@ -359,7 +359,7 @@ export const MODULE_GUIDES: ModuleGuideEntry[] = [
   {
     id: "MOD-26", name: "Consolidation", route: "`consolidation`", component: "`ConsolidationView`",
     personas: "manager/group preparer → independent reviewer/partner", scenario: "`two-component-consolidation`",
-    exists: "Supported perimeter, dated FX, manual elimination lifecycle and reviewed digest-bound JSON group artifacts exist.", limits: "Finish exact component replacement, duplicate/mixed-source elimination and full group output/rework acceptance.",
+    exists: "Supported perimeter, dated FX, manual elimination lifecycle and reviewed digest-bound JSON group artifacts exist.", limits: "Only one parent + one 100%-owned subsidiary with closing-rate translation and manual eliminations; other ownership methods are refused.",
     steps: [
       "Load the Two-Component Group Consolidation preset and open GRP-01.",
       "Show the one Parent + one 100%-owned Subsidiary limitation and exact pinned component sources.",
@@ -373,7 +373,7 @@ export const MODULE_GUIDES: ModuleGuideEntry[] = [
   {
     id: "MOD-27", name: "Client Acceptance", route: "`onboarding`", component: "`AuditAcceptanceView`",
     personas: "onboarding/compliance → separately assigned partner", scenario: "`full-practice`",
-    exists: "Evidence-backed screening, prohibited outcome denial, independent acceptance and fresh continuance are reported verified.", limits: "Preserve it and include the commercial/professional decision distinction in the integrated client presentation.",
+    exists: "Evidence-backed screening, prohibited outcome denial, independent acceptance and fresh continuance are reported verified.", limits: "Five bounded screening checks; not real identity/sanctions screening.",
     steps: [
       "Open Acceptance & KYC for the synthetic prospect/client.",
       "Review screening questions and record each required manual evidence reference.",
@@ -387,7 +387,7 @@ export const MODULE_GUIDES: ModuleGuideEntry[] = [
   {
     id: "MOD-28", name: "Audit Planning", route: "`audit-planning`", component: "`AuditPlanningView`",
     personas: "preparer/manager → independent reviewer", scenario: "`full-practice`",
-    exists: "A versioned planning screen, materiality helper, team/milestone tabs and independent review are present.", limits: "Replace contractual hard-coded assumptions with deliberate inputs; remove prefilled approval claims and correct misleading return feedback.",
+    exists: "A versioned planning screen, materiality helper, team/milestone tabs and independent review are present.", limits: "Materiality inputs are entered deliberately; no benchmark is suggested or converted between currencies.",
     steps: [
       "Open Audit Planning & Materiality and inspect the selected engagement/source.",
       "Enter the synthetic benchmark, overall percentage, separate performance/trivial assumptions and rationale after the pending control is completed.",
@@ -401,7 +401,7 @@ export const MODULE_GUIDES: ModuleGuideEntry[] = [
   {
     id: "MOD-29", name: "Risks & Audit Programs", route: "`audit-risks`", component: "`AuditRisksProgramsView`",
     personas: "preparer/manager → independent reviewer", scenario: "`audit-findings`",
-    exists: "Risk edits, reciprocal procedure links, reusable template revisions/application/retirement and plan return/rework exist.", limits: "Complete multi-risk change/reopen combinations and repeated reassessment evidence.",
+    exists: "Risk edits, reciprocal procedure links, reusable template revisions/application/retirement and plan return/rework exist.", limits: "One program-template system; retirement preserves applied programs.",
     steps: [
       "Open Risks & Audit Programs and inspect one scoped risk and its response.",
       "Follow the reciprocal risk↔procedure links and coverage gaps.",
@@ -415,7 +415,7 @@ export const MODULE_GUIDES: ModuleGuideEntry[] = [
   {
     id: "MOD-30", name: "Audit Fieldwork", route: "`audit-risks / audit-fieldwork`", component: "`AuditRisksProgramsView`",
     personas: "preparer → assigned independent reviewer", scenario: "`audit-findings`",
-    exists: "Procedure execution, current evidence/limitation checks and independent clearance exist.", limits: "Complete full exception/return/rework coverage and link to the existing VP-049 template owner.",
+    exists: "Procedure execution, current evidence/limitation checks and independent clearance exist.", limits: "Fieldwork review is revision-bound; no automatic conclusions.",
     steps: [
       "Open an engagement procedure (for example PRC-01) in Risks & Audit Programs.",
       "Read objective/instructions, linked risks and current evidence.",
@@ -429,7 +429,7 @@ export const MODULE_GUIDES: ModuleGuideEntry[] = [
   {
     id: "MOD-31", name: "Populations & Sampling", route: "`sampling`", component: "`SamplingView`",
     personas: "preparer → independent selection reviewer", scenario: "`audit-findings`",
-    exists: "Scoped population CSV/XLSX intake, manual selections/tests, finding links and independent evaluation are reported verified.", limits: "No new sampling engine required; demonstrate the existing local/manual scope and preserve regression.",
+    exists: "Scoped population CSV/XLSX intake, manual selections/tests, finding links and independent evaluation are reported verified.", limits: "Manual selection only — no statistical sample sizes or assurance claims.",
     steps: [
       "Open Sampling & Populations and choose POP-01 or a scoped synthetic import.",
       "Compare source period/currency and population-to-GL reconciliation.",
@@ -443,7 +443,7 @@ export const MODULE_GUIDES: ModuleGuideEntry[] = [
   {
     id: "MOD-32", name: "Workpapers", route: "`audit`", component: "`WorkpapersView`",
     personas: "preparer → assigned reviewer", scenario: "`audit-findings`",
-    exists: "Template-pinned creation, genuine workbook versioning, evidence pinning, reassignment and independent clearance are reported verified.", limits: "Preserve the workspace and include its usage in the module tour; no duplicate workpaper subsystem.",
+    exists: "Template-pinned creation, genuine workbook versioning, evidence pinning, reassignment and independent clearance are reported verified.", limits: "Workbook originals are in-session; clearance applies to the exact submitted revision.",
     steps: [
       "Open Audit Workpapers and choose/create the Cash & Bank workpaper from the supported template.",
       "Read the template version, purpose/guidelines and originating procedures.",
@@ -457,7 +457,7 @@ export const MODULE_GUIDES: ModuleGuideEntry[] = [
   {
     id: "MOD-33", name: "Evidence", route: "`evidence`", component: "`EvidenceCatalogueView`",
     personas: "preparer → independent adequacy reviewer", scenario: "`audit-findings`",
-    exists: "Versioned adequacy, procedure/workpaper links, replacement reassessment and post-release preservation are reported verified.", limits: "Retain the existing flow; rehearse it alongside PBC and fieldwork without equating receipt with adequacy.",
+    exists: "Versioned adequacy, procedure/workpaper links, replacement reassessment and post-release preservation are reported verified.", limits: "Evidence links pin exact document versions; unavailable references block new links.",
     steps: [
       "Open Evidence Catalogue and inspect a document revision and adequacy state.",
       "Review its exact source/provenance and permitted engagement scope.",
@@ -471,7 +471,7 @@ export const MODULE_GUIDES: ModuleGuideEntry[] = [
   {
     id: "MOD-34", name: "Findings & Differences", route: "`findings`", component: "`FindingsView`",
     personas: "preparer → eligible decision-maker", scenario: "`audit-findings`",
-    exists: "Scoped qualitative/monetary findings, sample promotion and correction decisions with signed/gross totals exist.", limits: "Complete reopen/waive/corrected/uncorrected and reporting/release re-evaluation matrices.",
+    exists: "Scoped qualitative/monetary findings, sample promotion and correction decisions with signed/gross totals exist.", limits: "The app never decides that a difference is immaterial; dispositions are human, reasoned and role-checked.",
     steps: [
       "Open Findings & Differences and inspect FND-01 or promote a sampled exception.",
       "Show immutable population/item/workpaper/evidence provenance.",
@@ -485,7 +485,7 @@ export const MODULE_GUIDES: ModuleGuideEntry[] = [
   {
     id: "MOD-35", name: "Review Points", route: "`reviews`", component: "`ReviewDeskView`",
     personas: "reviewer → assigned responder → independent clearer", scenario: "`audit-findings`",
-    exists: "Scoped cross-engagement queues, reassignment, exact-revision responses and independent clearance are reported verified.", limits: "Keep working behavior and rehearse one workpaper-target and one finding-target review.",
+    exists: "Scoped cross-engagement queues, reassignment, exact-revision responses and independent clearance are reported verified.", limits: "Responders cannot self-clear; reopening keeps the original response and clearance.",
     steps: [
       "Open Review Desk, filter a permitted engagement and select RN-001/RN-002.",
       "Raise a point on an exact workpaper/finding revision; assign an eligible responder.",
@@ -499,7 +499,7 @@ export const MODULE_GUIDES: ModuleGuideEntry[] = [
   {
     id: "MOD-36", name: "Reviews & Approvals", route: "`approvals`", component: "`ApprovalsEQRView`",
     personas: "manager → client management → partner → assigned independent EQR", scenario: "`full-practice`",
-    exists: "Revision-bound management decisions, EQR assignment and current approval history are reported verified.", limits: "Preserve controls; provide a clear manual role-handoff explanation in the presentation.",
+    exists: "Revision-bound management decisions, EQR assignment and current approval history are reported verified.", limits: "Management decisions are recorded, not signed; EQR is independent of the engagement team.",
     steps: [
       "Open Sign-offs & EQR and inspect the current validated package/review requirements.",
       "Present the exact client-safe package to a granted management approver.",
@@ -513,7 +513,7 @@ export const MODULE_GUIDES: ModuleGuideEntry[] = [
   {
     id: "MOD-37", name: "Completion & Release", route: "`delivery`", component: "`ReleaseCompletionView`",
     personas: "partner / permitted release actor", scenario: "`blocked-rework`",
-    exists: "Readiness gates, exact artifact freeze/issue and amendment history are reported verified.", limits: "No replacement release engine; demonstrate blocking, resolution and exact local reissue.",
+    exists: "Readiness gates, exact artifact freeze/issue and amendment history are reported verified.", limits: "Release and dispatch are local records; nothing is emailed or legally issued.",
     steps: [
       "Open Release & Completion in Blocked / Rework State and inspect each blocker.",
       "Navigate to the owning screen for a missing review/input instead of forcing Ready.",
@@ -527,7 +527,7 @@ export const MODULE_GUIDES: ModuleGuideEntry[] = [
   {
     id: "MOD-38", name: "Records & Archive", route: "`records`", component: "`RecordsArchiveView`",
     personas: "records", scenario: "`full-practice`",
-    exists: "Separate local archive copies, digest checks, successor lineage and hold/handover metadata are reported verified.", limits: "Preserve it; the presentation must explain local archive versus real retention clearly.",
+    exists: "Separate local archive copies, digest checks, successor lineage and hold/handover metadata are reported verified.", limits: "Browser-local archive index — not legal retention or immutability; Purview is excluded.",
     steps: [
       "Open Records & Archive for a released synthetic engagement.",
       "Archive the exact release artifacts and inspect copied IDs, sizes and digests.",
@@ -541,7 +541,7 @@ export const MODULE_GUIDES: ModuleGuideEntry[] = [
   {
     id: "MOD-39", name: "Administration", route: "`administration`", component: "`AdministrationView`",
     personas: "admin; professional functions remain with their granted actors", scenario: "`full-practice`",
-    exists: "Firm settings and local identity/grant screens exist; prospective settings are the intended model.", limits: "Close consumption/version/collision/logo-unavailable cases and reconcile dedicated editor ownership.",
+    exists: "Firm settings and local identity/grant screens exist; prospective settings are the intended model.", limits: "Settings apply prospectively; admin status carries no professional approval authority.",
     steps: [
       "Open Firm Administration and review permitted firm/numbering/service defaults.",
       "Change one supported setting with a reason and inspect its revision.",

@@ -158,7 +158,7 @@ export const FinancialPackagesView: React.FC<FinancialPackagesViewProps> = ({ on
     `Auditor Opinion: ${selectedEng.opinion}`,
     `Signed trial-balance total: ${tbSum.toFixed(2)} ${selectedEng.currency}`,
     `Total assets: ${packageRows.filter(r => r.type === 'asset').reduce((sum, r) => sum + r.balance, 0).toFixed(2)} ${selectedEng.currency}`,
-    `Total liabilities: ${Math.abs(packageRows.filter(r => r.type === 'liability').reduce((sum, r) => sum + r.balance, 0)).toFixed(2)} ${selectedEng.currency}`,
+    `Total liabilities: ${(0 - packageRows.filter(r => r.type === 'liability').reduce((sum, r) => sum + r.balance, 0)).toFixed(2)} ${selectedEng.currency}`,
     `Included accepted unreflected adjustments: ${adjustmentResult.applied.join(', ') || 'None'}`,
     '', 'TABLE OF CONTENTS (ORDERED SECTIONS):',
     ...included.map((s, idx) => `${idx + 1}. ${s.title} — ${s.desc}`),

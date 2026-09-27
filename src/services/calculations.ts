@@ -16,7 +16,8 @@ import {
 } from '../types';
 
 export function formatCurrency(amount: number, currency = 'QAR'): string {
-  return `${currency} ${amount.toLocaleString('en-US', {
+  // Negating a zero balance for credit-normal presentation yields -0; show it as 0.00.
+  return `${currency} ${(Object.is(amount, -0) ? 0 : amount).toLocaleString('en-US', {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2
   })}`;
@@ -652,11 +653,13 @@ export function calculateConsolidatedBalanceSheet(
       parentAssets += parentBalance;
       subsidiaryAssets += subsidiaryBalance;
     } else if (category === 'liability') {
-      parentLiabilities += Math.abs(parentBalance);
-      subsidiaryLiabilities += Math.abs(subsidiaryBalance);
+      // Credit-normal balances are negative. Aggregate signed amounts and convert
+      // once at presentation so debit (contra) balances reduce the total.
+      parentLiabilities -= parentBalance;
+      subsidiaryLiabilities -= subsidiaryBalance;
     } else if (category === 'equity') {
-      parentEquity += Math.abs(parentBalance);
-      subsidiaryEquity += Math.abs(subsidiaryBalance);
+      parentEquity -= parentBalance;
+      subsidiaryEquity -= subsidiaryBalance;
     }
 
     return {
@@ -676,16 +679,22 @@ export function calculateConsolidatedBalanceSheet(
     .filter(l => l.category === 'asset')
     .reduce((s, l) => s + l.consolidatedBalance, 0);
 
-  const totalLiabilities = lines
+  // Signed aggregation (debit positive), presented credit-normal: a deficit or
+  // debit-equity balance reduces presented equity instead of inflating it.
+  const totalLiabilities = 0 - lines
     .filter(l => l.category === 'liability')
-    .reduce((s, l) => s + Math.abs(l.consolidatedBalance), 0);
+    .reduce((s, l) => s + l.consolidatedBalance, 0);
 
-  const totalEquity = lines
+  const totalEquity = 0 - lines
     .filter(l => l.category === 'equity')
-    .reduce((s, l) => s + Math.abs(l.consolidatedBalance), 0);
+    .reduce((s, l) => s + l.consolidatedBalance, 0);
+
+  const eliminationEffect = (category: string) => lines
+    .filter(l => l.category === category)
+    .reduce((s, l) => s + (category === 'asset' ? l.eliminationDebit - l.eliminationCredit : l.eliminationCredit - l.eliminationDebit), 0);
 
   const totalEliminations = totalEliminationCredits || totalEliminationDebits;
-  const isBalanced = Math.abs(totalAssets - (totalLiabilities + totalEquity)) === 0;
+  const isBalanced = Math.round((totalAssets - (totalLiabilities + totalEquity)) * 100) === 0;
 
   return {
     lines,
@@ -696,6 +705,9 @@ export function calculateConsolidatedBalanceSheet(
     parentEquity,
     subsidiaryEquity,
     totalEliminations,
+    assetEliminationEffect: eliminationEffect('asset'),
+    liabilityEliminationEffect: eliminationEffect('liability'),
+    equityEliminationEffect: eliminationEffect('equity'),
     totalAssets,
     totalLiabilities,
     totalEquity,

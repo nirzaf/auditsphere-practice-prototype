@@ -106,7 +106,7 @@ export const ClientProfileModal: React.FC<ClientProfileModalProps> = ({ existing
     </label>
   );
 
-  return <div className="modal-backdrop" onClick={onRequestClose}>
+  return <div className="modal-backdrop" data-dismiss-guard="self" onClick={onRequestClose}>
     <div className="modal" role="dialog" aria-modal="true" aria-labelledby="client-profile-title" style={{ maxWidth: 720 }} onClick={event => event.stopPropagation()}>
       <div className="modal-head">
         <h2 id="client-profile-title">{existing ? 'Edit Client Profile' : 'Create Client Profile'}</h2>
