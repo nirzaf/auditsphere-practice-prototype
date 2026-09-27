@@ -101,6 +101,7 @@ describe('VP-012-E02 terminal-state command inventory', () => {
     for (const name of [...INVENTORY.billing, ...INVENTORY.records]) {
       const body = source(name);
       assert.ok(!/requireEngagementScope\(this\.state,[^,()]+(\.[a-zA-Z]+)*\)/.test(body), `${name} must not apply professional lifecycle blocking`);
+      assert.ok(!body.includes('requireActiveEngagementLifecycle(') && !body.includes('requireActiveConsolidationComponents('), `${name} must stay available in terminal states`);
     }
   });
 

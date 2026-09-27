@@ -765,7 +765,7 @@ export const AccountingWorkbenchView: React.FC<AccountingWorkbenchViewProps> = (
 
           {/* Split Allocation Modal */}
           {splitModalAccount && (
-            <div className="modal-backdrop">
+            <div className="modal-backdrop" data-dismiss-guard="explicit">
               <div className="modal-content" style={{ maxWidth: 640 }}>
                 <div className="between mb16">
                   <h3>Split Account Allocation: {splitModalAccount.code}</h3>
