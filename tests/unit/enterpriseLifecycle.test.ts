@@ -118,4 +118,55 @@ describe('MOD-UX-01 shared status semantics', () => {
     assert.equal(describePackageBlocker({ status: 'Draft' }), null);
     assert.equal(describePackageBlocker({}), null);
   });
+
+  it('renders the shared stale notice with every lifecycle answer the reader needs', async () => {
+    // Rendered through react-dom/server so the shipped component, not a copy of
+    // its markup, is what the browser will produce.
+    const { renderToStaticMarkup } = await import('react-dom/server');
+    const React = (await import('react')).default;
+    const { StaleNotice, BlockerNotice, LifecycleStepper, StatusBadge, ListState } = await import('../../src/components/common/Enterprise.js');
+    const html = renderToStaticMarkup(React.createElement(StaleNotice, {
+      sourceLabel: 'Revision 4',
+      currentSourceLabel: 'Revision 5',
+      affected: ['Mapping review', 'Package approval'],
+      preserved: 'Partner approval of Revision 4 remains in history.',
+      required: 'Recalculate and review Revision 5.'
+    }));
+    assert.match(html, /Revision 4 → Revision 5/, 'the exact source movement must be visible');
+    assert.match(html, /Mapping review/, 'affected downstream items must be listed');
+    assert.match(html, /remains in history/, 'preserved history must be stated, not implied');
+    assert.match(html, /Recalculate and review Revision 5/, 'the required action must be stated');
+    assert.match(html, /role="status"/, 'the notice must announce itself to assistive technology');
+
+    // A returned record names the rework path rather than a bare "Returned".
+    const returned = renderToStaticMarkup(React.createElement(BlockerNotice, {
+      tone: 'waiting', title: 'Returned for rework', why: 'A reviewer returned this revision with a reason.',
+      required: 'Resolve the comments and resubmit a new revision.'
+    }));
+    assert.match(returned, /Returned for rework/);
+    assert.match(returned, /resubmit a new revision/);
+
+    // The stepper marks completed, current and blocked steps distinguishably.
+    const stepper = renderToStaticMarkup(React.createElement(LifecycleStepper, {
+      title: 'Prepare → approve', steps: [
+        { id: 'a', label: 'Draft', state: 'done' },
+        { id: 'b', label: 'In review', state: 'current', owner: 'Sara Malik' },
+        { id: 'c', label: 'Approved', state: 'blocked', reason: 'Independent reviewer required' }
+      ]
+    }));
+    for (const state of ['done', 'current', 'blocked']) assert.match(stepper, new RegExp(`lifecycle-node ${state}`), `${state} must be a distinct rendered state`);
+    assert.match(stepper, /Sara Malik/, 'the current step must name who it is waiting on');
+    assert.match(stepper, /Independent reviewer required/, 'a blocked step must state why');
+
+    // A list state distinguishes the three different kinds of empty.
+    assert.match(renderToStaticMarkup(React.createElement(ListState, { kind: 'empty' })), /No records yet/);
+    assert.match(renderToStaticMarkup(React.createElement(ListState, { kind: 'no-match' })), /No records match these filters/);
+    assert.match(renderToStaticMarkup(React.createElement(ListState, { kind: 'scoped' })), /outside your current scope|No records are available in your current scope/);
+
+    // A status carries its literal text plus an accessible reading of the state.
+    const badge = renderToStaticMarkup(React.createElement(StatusBadge, { status: 'In review', explain: true }));
+    assert.match(badge, />In review</, 'the literal status must remain the visible text');
+    assert.match(badge, /aria-label="In review\. /, 'the accessible name must explain the state');
+    assert.match(badge, /data-status-tone="review"/, 'the tone must be published');
+  });
 });

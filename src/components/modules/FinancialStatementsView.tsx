@@ -8,6 +8,7 @@ import { applyReportingAdjustments, calculateBalanceSheet, calculateIncomeStatem
 import { exportService } from '../../services/exportService';
 import { UnsavedFormGuard } from '../../services/unsavedFormGuard';
 import { visibleEngagementIds } from '../../services/guards';
+import { ModuleIdentityLine, StaleNotice, StatusBadge } from '../common/Enterprise';
 
 interface FinancialStatementsViewProps {
   onNavigate: (route: RouteKey) => void;
@@ -280,7 +281,31 @@ export const FinancialStatementsView: React.FC<FinancialStatementsViewProps> = (
           </div>
         </div>
         {revisionError && <p role="alert" className="badge danger mt12">{revisionError}</p>}
+        {/* The latest-revision line keeps its established wording; the shared
+            stale notice below it adds the reason, impact and required action. */}
         {latestStatementRevision && <p role="status" className="mt12">Latest: v{latestStatementRevision.revision} · {revisionCurrent ? latestStatementRevision.status : 'Stale'} · prepared by {latestStatementRevision.preparedByUserId}{latestStatementRevision.reviewedByUserId ? ` · reviewed by ${latestStatementRevision.reviewedByUserId}` : ''}</p>}
+        {latestStatementRevision && <p className="caption mt4">Current revision status: <StatusBadge status={revisionCurrent ? latestStatementRevision.status : 'Stale'} explain /></p>}
+        {latestStatementRevision && !revisionCurrent && (
+          <div className="mt12">
+            <StaleNotice
+              sourceLabel={`statement source v${latestStatementRevision.sourceVersion}`}
+              currentSourceLabel={`v${selectedEng.sourceVersion}`}
+              reason={latestStatementRevision.sourceVersion !== selectedEng.sourceVersion
+                ? `The trial-balance source advanced from v${latestStatementRevision.sourceVersion} to v${selectedEng.sourceVersion} after this statement revision was saved.`
+                : latestStatementRevision.mappingRevision !== currentMapping?.revision
+                ? `The approved account mapping changed from revision ${latestStatementRevision.mappingRevision} to ${currentMapping?.revision ?? 'a newer revision'} after this statement revision was saved.`
+                : latestStatementRevision.layoutVersion !== layoutVersion
+                ? `The statement layout changed from v${latestStatementRevision.layoutVersion} to v${layoutVersion} after this revision was saved.`
+                : 'The comparative period selection changed after this statement revision was saved.'}
+              affected={['Statement preview totals', 'Spreadsheet and PDF output derived from this revision', 'Any package that included this revision', 'Release readiness for this generation']}
+              preserved={latestStatementRevision.reviewedByUserId
+                ? `The independent review of v${latestStatementRevision.revision} by ${latestStatementRevision.reviewedByUserId} remains in history and is not erased.`
+                : `v${latestStatementRevision.revision} remains readable as history; nothing has been deleted.`}
+              required="Recalculate from the current source and mapping, save a new statement revision, then obtain a fresh independent review."
+              actions={<button type="button" className="btn sm primary" disabled={!mappingReady} onClick={saveStatementRevision}>Recalculate and save a new revision</button>}
+            />
+          </div>
+        )}
         <div className="caption mt8">{statementHistory.length ? statementHistory.map(item => `v${item.revision} ${item.status} · ${new Date(item.preparedAt).toLocaleString()}`).join(' | ') : 'No statement revisions saved.'}</div>
       </section>
 

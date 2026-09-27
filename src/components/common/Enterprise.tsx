@@ -508,6 +508,60 @@ export const BlockerNotice: React.FC<BlockerNoticeProps> = ({
 );
 
 // ---------------------------------------------------------------------------
+// StaleNotice — why a derived output can no longer be relied on
+// ---------------------------------------------------------------------------
+
+export interface StaleNoticeProps {
+  /**
+   * What the record was derived from, for example `Revision 4`. Omit when the
+   * exact movement is unknown so nothing is invented.
+   */
+  sourceLabel?: string;
+  /** What the source is now, for example `Revision 5`. */
+  currentSourceLabel?: string;
+  /** A specific recorded reason that takes precedence over the revision movement. */
+  reason?: React.ReactNode;
+  /** Downstream items this output feeds. */
+  affected?: readonly string[];
+  /** The historical decision that must remain visible rather than looking erased. */
+  preserved?: React.ReactNode;
+  /** What the reader must do next. */
+  required: React.ReactNode;
+  actions?: React.ReactNode;
+  tone?: 'stale' | 'blocked' | 'waiting';
+  title?: string;
+}
+
+/**
+ * Shows that a derived output no longer matches its source, naming the exact
+ * change, listing what it affects, stating which historical decision is
+ * deliberately preserved, and naming the required next action. Used instead of a
+ * bare "Stale" word so the reader never has to guess.
+ */
+export const StaleNotice: React.FC<StaleNoticeProps> = ({
+  sourceLabel, currentSourceLabel, reason, affected, preserved, required, actions, tone = 'stale', title
+}) => {
+  const movement = sourceLabel && currentSourceLabel
+    ? `${sourceLabel} → ${currentSourceLabel}`
+    : currentSourceLabel
+    ? `now at ${currentSourceLabel}`
+    : 'a newer source revision';
+  const why = reason ?? `The source this output was derived from changed (${movement}). The figures shown were produced from the earlier source and do not include that change.`;
+  return (
+    <BlockerNotice
+      tone={tone}
+      title={title ?? (tone === 'stale' ? 'Stale — recalculate required' : tone === 'blocked' ? 'Blocked' : 'Waiting')}
+      why={why}
+      affected={affected}
+      preserved={preserved}
+      required={required}
+      actions={actions}
+      label="Staleness and required action"
+    />
+  );
+};
+
+// ---------------------------------------------------------------------------
 // Provenance / review panel
 // ---------------------------------------------------------------------------
 

@@ -14,7 +14,7 @@ import { FinancialPackageRevision, GeneratedArtifactRecord } from '../../types';
 import { UnsavedFormGuard } from '../../services/unsavedFormGuard';
 import { isReleaseBlockingFinding } from '../../services/findings';
 
-import { StatusBadge } from '../common/Enterprise';
+import { StaleNotice, StatusBadge } from '../common/Enterprise';
 const DEFAULT_SECTIONS = [
   { id: 'rpt', title: 'Independent Auditor Report', desc: 'Standard unmodified opinion under ISA 700 with key audit matters.', enabled: true },
   { id: 'bs', title: 'Statement of Financial Position', desc: 'Comparative balance sheet verified to underlying trial balance.', enabled: true },
@@ -308,6 +308,24 @@ export const FinancialPackagesView: React.FC<FinancialPackagesViewProps> = ({ on
           {(savedPackage.glSourceRevision !== currentGLSource?.revision || savedPackage.glSourceSha256 !== currentGLSource?.sha256) && <p role="status" className="mt8">This package is pinned to GL source {savedPackage.glSourceRevision === undefined ? 'not configured' : `v${savedPackage.glSourceRevision} (${savedPackage.glSourceSha256})`}; current GL source is {currentGLSource ? `v${currentGLSource.revision} (${currentGLSource.sha256})` : 'not configured'}. Assemble a new revision before release.</p>}
           {savedPackage.generation !== selectedEng.generation && <p role="status" className="mt8">This package is pinned to generation {savedPackage.generation}; accounting or engagement context changed to generation {selectedEng.generation}. Assemble a new revision before release.</p>}
           {savedPackage.mappingRevision !== (currentMapping?.revision || 0) && <p role="status" className="mt8">This package is pinned to mapping v{savedPackage.mappingRevision}; the current mapping is v{currentMapping?.revision || 0}. Assemble a new revision before release.</p>}
+          {savedPackage.generation === selectedEng.generation && savedPackage.sourceVersion === selectedEng.sourceVersion && savedPackage.glSourceRevision === currentGLSource?.revision && savedPackage.glSourceSha256 === currentGLSource?.sha256 && savedPackage.mappingRevision === (currentMapping?.revision || 0) ? null : (
+            <div className="mt12">
+              <StaleNotice
+                title="Stale — this package no longer matches its source"
+                reason={savedPackage.sourceVersion !== selectedEng.sourceVersion
+                  ? `The trial-balance source advanced from v${savedPackage.sourceVersion} to v${selectedEng.sourceVersion} after this package was assembled.`
+                  : savedPackage.mappingRevision !== (currentMapping?.revision || 0)
+                  ? `The approved mapping advanced from v${savedPackage.mappingRevision} to v${currentMapping?.revision || 0} after this package was assembled.`
+                  : savedPackage.generation !== selectedEng.generation
+                  ? `The accounting or engagement context advanced from generation ${savedPackage.generation} to ${selectedEng.generation} after this package was assembled.`
+                  : 'The imported general-ledger source changed after this package was assembled.'}
+                affected={['Package validation', 'Every export generated from this revision', 'Management presentation', 'Partner approval and release readiness']}
+                preserved={`Revision ${savedPackage.revision} and its SHA-256 artifact identities remain in history and are never rewritten; any recorded decision for it stays attached to the revision it was made against.`}
+                required="Assemble a new revision from the current source, re-validate it, and obtain the approvals that apply to the new revision."
+                actions={<button type="button" className="btn sm primary" disabled={assembling || !hasAnyRole(state, ['manager', 'preparer'])} onClick={handleAssembleNewRevision}>Assemble a new revision</button>}
+              />
+            </div>
+          )}
           <div className="tablewrap mt8"><table>
             <thead><tr><th>Artifact</th><th>Exact identity</th><th>Type / bytes</th><th>SHA-256</th></tr></thead>
             <tbody>{savedPackage.artifacts.map(artifact => <tr key={artifact.id}>
