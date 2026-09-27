@@ -4,10 +4,12 @@
 // database and no scripted business approvals. Engineering acceptance labels stay
 // presenter-only; client personas see capabilities and simulation honesty only.
 import React, { useState } from 'react';
-import { RouteKey } from '../../types';
+import { RouteKey, ROUTE_KEYS } from '../../types';
 import { MODULE_GUIDES, ModuleGuideEntry } from '../../services/moduleGuideContent';
+import { ROUTE_REGISTRY, WORKSPACE_ROUTES } from '../../services/routeRegistry';
+import { LIFECYCLE_MODELS } from '../../services/lifecycle';
 import { prototypeStore } from '../../store/prototypeStore';
-import { isClientRole } from '../../services/guards';
+import { canOpenRoute, isClientRole } from '../../services/guards';
 import { Icon } from '../common/Icons';
 import { ListState } from '../common/Enterprise';
 
@@ -44,6 +46,9 @@ export const ModuleCatalogueView: React.FC<ModuleCatalogueViewProps> = ({ onNavi
   const state = prototypeStore.getSnapshot();
   const clientMode = isClientRole(state.currentRole);
   const [selectedId, setSelectedId] = useState<string>('MOD-01');
+  // The complete route index is built only when a presenter asks for it, so the
+  // 39-module catalogue stays the page's primary list.
+  const [showRouteIndex, setShowRouteIndex] = useState(false);
   const [tourStep, setTourStep] = useState<number>(() => {
     if (typeof localStorage === 'undefined') return 0;
     const saved = Number(localStorage.getItem(ITINERARY_STORAGE_KEY));
@@ -190,6 +195,49 @@ export const ModuleCatalogueView: React.FC<ModuleCatalogueViewProps> = ({ onNavi
           </table>
         </div>
       </div>
+
+      {/* Complete route index: every routed workspace, its lifecycle model and its
+          next step, so a presenter can reach any supported page from one place and
+          no supported route can silently drop out of the guide. Rendered on demand
+          so the 39-module catalogue above stays the primary list on the page. */}
+      <details className="ref-details">
+        <summary onClick={() => setShowRouteIndex(true)}>
+          Complete route index · {WORKSPACE_ROUTES.length} workspaces
+        </summary>
+        <div style={{ padding: '0 20px 18px' }}>
+          <p className="sub">Every supported route with the lifecycle it follows and the step that comes next. Routes marked “alias” resolve to another workspace and are kept only so an old bookmark still lands somewhere sensible.</p>
+          {!showRouteIndex ? (
+            <p className="caption">Select the heading above to build the index.</p>
+          ) : (
+            <div className="tablewrap">
+              <table>
+                <thead>
+                  <tr><th>Route</th><th>Workspace</th><th>Group</th><th>Primary record</th><th>Lifecycle</th><th>Next step</th><th>Action</th></tr>
+                </thead>
+                <tbody>
+                  {ROUTE_KEYS.map(route => {
+                    const entry = ROUTE_REGISTRY[route];
+                    return (
+                      <tr key={route}>
+                        <td><code>{route}</code></td>
+                        <td><b>{entry.label}</b>{entry.kind === 'alias' && <span className="cell-sub">Alias of {entry.aliasOf}</span>}</td>
+                        <td className="sub">{entry.group}</td>
+                        <td className="sub">{entry.record ? <code>{entry.record}</code> : '—'}</td>
+                        <td className="sub">{LIFECYCLE_MODELS[entry.lifecycle].title}</td>
+                        <td className="sub">{entry.nextStep}</td>
+                        <td>{entry.kind !== 'alias'
+                          ? <button className="btn sm" disabled={!canOpenRoute(state.currentRole, route, true)} onClick={() => onNavigate(route)}>Open</button>
+                          : <span className="caption">Use {entry.aliasOf}</span>}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      </details>
     </div>
   );
 };

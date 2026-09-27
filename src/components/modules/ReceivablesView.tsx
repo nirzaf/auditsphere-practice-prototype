@@ -7,7 +7,7 @@ import { calculateReceivablesAging, formatCurrency } from '../../services/calcul
 import { exportService } from '../../services/exportService';
 import { visibleClientIds } from '../../services/guards';
 import { UnsavedFormGuard } from '../../services/unsavedFormGuard';
-import { ListState } from '../common/Enterprise';
+import { ListState, ModuleIdentityLine, ModuleLifecycleHint } from '../common/Enterprise';
 
 interface ReceivablesViewProps {
   onNavigate: (route: RouteKey) => void;
@@ -198,6 +198,8 @@ export const ReceivablesView: React.FC<ReceivablesViewProps> = ({ onNavigate, on
             <Icon name="plus" /> Record Offline Receipt
           </button>
         </div>
+        <ModuleIdentityLine />
+        <ModuleLifecycleHint />
       </div>
 
       {notice && (

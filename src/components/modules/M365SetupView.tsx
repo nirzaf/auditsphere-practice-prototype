@@ -9,6 +9,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { RoleKey, RouteKey } from '../../types';
 import { prototypeStore } from '../../store/prototypeStore';
 import { UnsavedFormGuard } from '../../services/unsavedFormGuard';
+import { ModuleIdentityLine } from '../common/Enterprise';
 
 interface M365SetupViewProps {
   onNavigate: (route: RouteKey) => void;
@@ -120,6 +121,7 @@ export const M365SetupView: React.FC<M365SetupViewProps> = ({ onNavigate, onRegi
           <p>Guided Microsoft-only simulation: Entra identity concept, SharePoint canonical library, basic outgoing mail, optional bounded OneDrive import. No live connection.</p>
         </div>
         <span className="tag blue">liveConnected: false</span>
+        <ModuleIdentityLine />
       </div>
 
       {notice && <div role="status" className="panel panel-pad">{notice}</div>}

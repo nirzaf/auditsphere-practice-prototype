@@ -106,8 +106,37 @@ describe('MOD-UX-01 static enterprise UX harness', () => {
     assert.deepEqual(offenders, [], `statuses must use the shared vocabulary:\n  ${offenders.join('\n  ')}`);
   });
 
-  it('only uses stylesheet classes that are actually defined', () => {
-    const stylesheets = ['styles.css', 'roles.css', join('src', 'enterprise.css'), join('src', 'host.css')]
+  it('imports every shared primitive a module actually renders', () => {
+    // A view that renders a shared component without importing it fails at
+    // runtime, not at review time. This sweep makes that impossible to miss.
+    const PRIMITIVES = [
+      'ActionReason', 'ActivityTimeline', 'BlockerNotice', 'HandoffLinks', 'LifecycleHint',
+      'LifecycleStepper', 'ListState', 'MetricCard', 'ModuleIdentityLine', 'ModuleLifecycleHint',
+      'ModulePageHeader', 'PageHeader', 'ProvenancePanel', 'ReviewPanel', 'SectionCard',
+      'StaleNotice', 'StateBlock', 'StatusBadge'
+    ];
+    const offenders: string[] = [];
+    for (const [view, source] of moduleSource) {
+      const imports = /import \{([^}]*)\} from '\.\.\/common\/Enterprise';/.exec(source);
+      const declared = new Set((imports?.[1] ?? '').split(',').map(part => part.trim()).filter(Boolean));
+      for (const primitive of PRIMITIVES) {
+        const rendered = new RegExp(`<${primitive}[\\s/>]`).test(source);
+        if (rendered && !declared.has(primitive)) offenders.push(`${view} renders <${primitive}> without importing it`);
+      }
+      // A duplicated import line silently shadows the names it repeats.
+      const importLines = source.split('\n').filter(line => line.includes("from '../common/Enterprise'"));
+      if (importLines.length > 1) offenders.push(`${view} declares the shared import ${importLines.length} times`);
+      // A fused name (for example StatusBadgeModuleIdentityLine) is always a bug.
+      for (const name of declared) {
+        if (!/^[A-Z][A-Za-z0-9]*$|^[a-z][A-Za-z0-9]*$/.test(name) || name.split(/(?=[A-Z])/).length > 4) {
+          offenders.push(`${view} declares a malformed import name "${name}"`);
+        }
+      }
+    }
+    assert.deepEqual(offenders, [], `shared-primitive import violations:\n  ${offenders.join('\n  ')}`);
+  });
+
+  it('only uses stylesheet classes that are actually defined', () => {    const stylesheets = ['styles.css', 'roles.css', join('src', 'enterprise.css'), join('src', 'host.css')]
       .map(read).join('\n');
     const defined = new Set([...stylesheets.matchAll(/\.([a-zA-Z][\w-]*)/g)].map(match => match[1]));
     const offenders: string[] = [];

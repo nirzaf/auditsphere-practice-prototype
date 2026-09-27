@@ -3,6 +3,7 @@ import { RouteKey, EvidenceItem, AuditProcedureItem } from '../../types';
 import { prototypeStore } from '../../store/prototypeStore';
 import { Icon } from '../common/Icons';
 import { UnsavedFormGuard } from '../../services/unsavedFormGuard';
+import { ModuleIdentityLine } from '../common/Enterprise';
 
 interface EvidenceCatalogueViewProps {
   onNavigate: (route: RouteKey) => void;
@@ -97,6 +98,7 @@ export const EvidenceCatalogueView: React.FC<EvidenceCatalogueViewProps> = ({ on
         <button className="btn sm ghost" onClick={() => onNavigate('documents')}>
           <Icon name="folder" /> SharePoint Document Library
         </button>
+        <ModuleIdentityLine />
       </div>
 
       {notice && (

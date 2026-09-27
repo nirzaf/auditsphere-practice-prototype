@@ -14,7 +14,7 @@ import { FinancialPackageRevision, GeneratedArtifactRecord } from '../../types';
 import { UnsavedFormGuard } from '../../services/unsavedFormGuard';
 import { isReleaseBlockingFinding } from '../../services/findings';
 
-import { StaleNotice, StatusBadge } from '../common/Enterprise';
+import { ModuleIdentityLine, ModuleLifecycleHint, StaleNotice, StatusBadge } from '../common/Enterprise';
 const DEFAULT_SECTIONS = [
   { id: 'rpt', title: 'Independent Auditor Report', desc: 'Standard unmodified opinion under ISA 700 with key audit matters.', enabled: true },
   { id: 'bs', title: 'Statement of Financial Position', desc: 'Comparative balance sheet verified to underlying trial balance.', enabled: true },
@@ -262,6 +262,8 @@ export const FinancialPackagesView: React.FC<FinancialPackagesViewProps> = ({ on
             <Icon name="download" /> Download DOCX
           </button>
         </div>
+        <ModuleIdentityLine />
+        <ModuleLifecycleHint />
       </div>
 
       {notice && (

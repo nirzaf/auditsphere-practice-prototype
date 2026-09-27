@@ -7,7 +7,7 @@ import { Icon } from '../common/Icons';
 import { formatCurrency, formatMinutesToHours, getEffectiveTimeEntries } from '../../services/calculations';
 import { UnsavedFormGuard } from '../../services/unsavedFormGuard';
 
-import { StatusBadge } from '../common/Enterprise';
+import { ModuleIdentityLine, StatusBadge } from '../common/Enterprise';
 interface TimeTrackingViewProps {
   onNavigate: (route: RouteKey) => void;
   onRegisterUnsavedForm?: (guard: UnsavedFormGuard | null, key?: string) => void;
@@ -148,6 +148,7 @@ export const TimeTrackingView: React.FC<TimeTrackingViewProps> = ({ onNavigate, 
         <button className="btn primary sm" onClick={openNewTimeModal}>
           <Icon name="plus" /> Record Time Entry
         </button>
+        <ModuleIdentityLine />
       </div>
 
       {notice && (

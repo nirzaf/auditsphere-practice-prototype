@@ -10,7 +10,7 @@ import { UnsavedFormGuard } from '../../services/unsavedFormGuard';
 import { Icon } from '../common/Icons';
 import { calculateMateriality, formatCurrency } from '../../services/calculations';
 
-import { StatusBadge } from '../common/Enterprise';
+import { ModuleIdentityLine, ModuleLifecycleHint, StatusBadge } from '../common/Enterprise';
 interface AuditPlanningViewProps {
   onNavigate: (route: RouteKey) => void;
   onRegisterUnsavedForm?: (guard: UnsavedFormGuard | null, key?: string) => void;
@@ -204,6 +204,8 @@ export const AuditPlanningView: React.FC<AuditPlanningViewProps> = ({ onNavigate
             <Icon name="check" /> Save Version {(existingPlan?.version || 0) + 1}
           </button>
         </div>
+        <ModuleIdentityLine />
+        <ModuleLifecycleHint />
       </div>
 
       {notice && (

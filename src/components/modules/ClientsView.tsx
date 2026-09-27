@@ -7,7 +7,7 @@ import { Icon } from '../common/Icons';
 import { ClientProfileModal } from './ClientProfileModal';
 import { UnsavedFormGuard } from '../../services/unsavedFormGuard';
 
-import { ModuleIdentityLine, ListState, StatusBadge } from '../common/Enterprise';
+import { ListState, StatusBadge } from '../common/Enterprise';
 interface ClientsViewProps {
   onNavigate: (route: RouteKey) => void;
   onSelectClientDetail: (clientId: string) => void;

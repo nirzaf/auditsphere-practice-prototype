@@ -9,6 +9,7 @@ import { Icon } from '../common/Icons';
 import { loadVerifiedArtifact } from '../../services/artifactStore';
 import { UnsavedFormGuard } from '../../services/unsavedFormGuard';
 import { isReleaseBlockingFinding } from '../../services/findings';
+import { ModuleIdentityLine, ModuleLifecycleHint } from '../common/Enterprise';
 
 interface ReleaseCompletionViewProps {
   onNavigate: (route: RouteKey) => void;
@@ -136,6 +137,8 @@ export const ReleaseCompletionView: React.FC<ReleaseCompletionViewProps> = ({ on
         <button className="btn sm ghost" onClick={() => onNavigate('records')}>
           <Icon name="archive" /> Logical Records Archive
         </button>
+        <ModuleIdentityLine />
+        <ModuleLifecycleHint />
       </div>
 
       {notice && (

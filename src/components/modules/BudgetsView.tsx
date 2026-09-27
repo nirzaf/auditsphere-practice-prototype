@@ -9,6 +9,7 @@ import { formatCurrency, formatMinutesToHours, getEffectiveTimeEntries } from '.
 import { canOpenRoute, visibleEngagementIds, hasAnyRole } from '../../services/guards';
 import { UnsavedFormGuard } from '../../services/unsavedFormGuard';
 import { Icon } from '../common/Icons';
+import { ModuleIdentityLine, ModuleLifecycleHint } from '../common/Enterprise';
 
 interface BudgetsViewProps {
   onNavigate: (route: RouteKey) => void;
@@ -217,6 +218,8 @@ export const BudgetsView: React.FC<BudgetsViewProps> = ({ onNavigate, onRegister
             <span className="caption">Budget versions are authored by billing, manager, or partner roles.</span>
           )}
         </div>
+        <ModuleIdentityLine />
+        <ModuleLifecycleHint />
       </div>
 
       {unmatchedEntries.length > 0 && (

@@ -74,13 +74,27 @@ def inject(source: str, want_hint: bool) -> tuple[str, int]:
 
 
 def ensure_import(source: str) -> str:
-    if "from '../common/Enterprise'" in source:
-        return source
-    imports = list(re.finditer(r"^import .*?;\n", source, re.MULTILINE))
+    """Add the missing names to the shared-component import.
+
+    The import line usually already exists (views gained StatusBadge earlier), so
+    membership — not mere presence of the module specifier — decides whether the
+    new names must be merged in.
+    """
+    required = ["ModuleIdentityLine", "ModuleLifecycleHint"]
+    existing = re.search(r"import \{([^}]*)\} from '\.\./common/Enterprise';", source)
+    if existing:
+        names = [part.strip() for part in existing.group(1).split(",") if part.strip()]
+        missing = [name for name in required if name not in names]
+        if not missing:
+            return source
+        merged = sorted(set(names + missing))
+        return source[:existing.start()] + f"import {{ {', '.join(merged)} }} from '../common/Enterprise';" + source[existing.end():]
+    imports = list(re.finditer(r"^import\s[^\n]*?from\s+'[^']+';\s*$", source, re.MULTILINE))
     if not imports:
         return source
     anchor = imports[-1]
-    return source[:anchor.end()] + IMPORT_LINE + source[anchor.end():]
+    line = f"import {{ {', '.join(sorted(required))} }} from '../common/Enterprise';"
+    return source[:anchor.end()] + "\n" + line + source[anchor.end():]
 
 
 def main() -> int:

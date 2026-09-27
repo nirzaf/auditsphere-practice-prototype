@@ -6,6 +6,7 @@ import { hasAnyRole } from '../../services/guards';
 import { Icon } from '../common/Icons';
 import { sha256OfFile } from '../../services/fileMetadata';
 import { UnsavedFormGuard } from '../../services/unsavedFormGuard';
+import { ModuleIdentityLine, ModuleLifecycleHint } from '../common/Enterprise';
 
 interface DocumentsLibraryViewProps {
   onNavigate: (route: RouteKey, targetId?: string) => void;
@@ -144,6 +145,8 @@ export const DocumentsLibraryView: React.FC<DocumentsLibraryViewProps> = ({ onNa
             <Icon name="plus" /> Register File
           </button>
         </div>
+        <ModuleIdentityLine />
+        <ModuleLifecycleHint />
       </div>
 
       {notice && (

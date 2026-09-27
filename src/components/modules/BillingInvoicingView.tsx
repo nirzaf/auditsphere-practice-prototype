@@ -8,7 +8,7 @@ import { invoiceTaxLine, formatCurrency, getEffectiveTimeEntries } from '../../s
 import { exportService } from '../../services/exportService';
 import { UnsavedFormGuard } from '../../services/unsavedFormGuard';
 
-import { ListState, StatusBadge } from '../common/Enterprise';
+import { ListState, ModuleIdentityLine, ModuleLifecycleHint, StatusBadge } from '../common/Enterprise';
 interface BillingInvoicingViewProps {
   onNavigate: (route: RouteKey) => void;
   onRegisterUnsavedForm?: (guard: UnsavedFormGuard | null, key?: string) => void;
@@ -357,6 +357,8 @@ export const BillingInvoicingView: React.FC<BillingInvoicingViewProps> = ({ onNa
         <button className="btn primary sm" onClick={() => { setEditingInvoiceId(null); setInvoiceEditReason(''); setAdditionalLines([]); setInvNumber(`${state.firmSettings.invoiceNumberPrefix}${state.firmSettings.invoiceNextNumber}`); const base = new Date(`${state.asOfDate}T00:00:00Z`); base.setUTCDate(base.getUTCDate() + state.firmSettings.paymentTermsDays); setDue(base.toISOString().slice(0, 10)); setShowDraftModal(true); }}>
           <Icon name="plus" /> Draft New Invoice
         </button>
+        <ModuleIdentityLine />
+        <ModuleLifecycleHint />
       </div>
 
       {notice && (

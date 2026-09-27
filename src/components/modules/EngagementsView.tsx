@@ -8,8 +8,7 @@ import { visibleClientIds, visibleEngagementIds } from '../../services/guards';
 import { InternalNotesPanel } from '../common/InternalNotesPanel';
 import { UnsavedFormGuard } from '../../services/unsavedFormGuard';
 
-import { StatusBadge } from '../common/Enterprise';
-import { ListState } from '../common/Enterprise';
+import { ListState, ModuleIdentityLine, ModuleLifecycleHint, StatusBadge } from '../common/Enterprise';
 interface EngagementsViewProps {
   onNavigate: (route: RouteKey) => void;
   onBeforeContextChange: (run: () => void) => void;
@@ -194,6 +193,8 @@ export const EngagementsView: React.FC<EngagementsViewProps> = ({ onNavigate, on
         <button className="btn primary sm" onClick={() => { newEngagementBaseline.current = newEngagementDraft(); setShowNewEngModal(true); }}>
           <Icon name="plus" /> New Engagement
         </button>
+        <ModuleIdentityLine />
+        <ModuleLifecycleHint />
       </div>
 
       {/* Selected Engagement Card */}

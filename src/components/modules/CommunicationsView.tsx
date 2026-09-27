@@ -6,7 +6,7 @@ import { hasAnyRole } from '../../services/guards';
 import { Icon } from '../common/Icons';
 import { UnsavedFormGuard } from '../../services/unsavedFormGuard';
 
-import { StatusBadge } from '../common/Enterprise';
+import { ModuleIdentityLine, StatusBadge } from '../common/Enterprise';
 interface CommunicationsViewProps {
   onNavigate: (route: RouteKey) => void;
   onRegisterUnsavedForm?: (guard: UnsavedFormGuard | null, key?: string) => void;
@@ -202,6 +202,7 @@ export const CommunicationsView: React.FC<CommunicationsViewProps> = ({ onNaviga
             <Icon name="message" /> Compose Simulated Email
           </button>
         </div>
+        <ModuleIdentityLine />
       </div>
 
       <div className="panel">

@@ -8,7 +8,7 @@ import { visibleEngagementIds } from '../../services/guards';
 import { UnsavedFormGuard } from '../../services/unsavedFormGuard';
 import { Icon } from '../common/Icons';
 
-import { StatusBadge } from '../common/Enterprise';
+import { ModuleIdentityLine, StatusBadge } from '../common/Enterprise';
 interface JobTemplatesViewProps {
   onNavigate: (route: RouteKey) => void;
   onRegisterUnsavedForm?: (guard: UnsavedFormGuard | null, key?: string) => void;
@@ -257,6 +257,7 @@ export const JobTemplatesView: React.FC<JobTemplatesViewProps> = ({ onNavigate, 
             <Icon name="plus" /> Author New Template
           </button>
         </div>
+        <ModuleIdentityLine />
       </div>
 
       {notice && (

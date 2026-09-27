@@ -7,6 +7,7 @@ import { prototypeStore } from '../../store/prototypeStore';
 import { hasAnyRole, hasRole } from '../../services/guards';
 import { Icon } from '../common/Icons';
 import { UnsavedFormGuard } from '../../services/unsavedFormGuard';
+import { ModuleIdentityLine, ModuleLifecycleHint } from '../common/Enterprise';
 
 interface ApprovalsEQRViewProps {
   onNavigate: (route: RouteKey) => void;
@@ -167,6 +168,8 @@ export const ApprovalsEQRView: React.FC<ApprovalsEQRViewProps> = ({ onNavigate, 
         <button className="btn primary sm" onClick={() => onNavigate('delivery')}>
           <Icon name="archive" /> Proceed to Release Desk
         </button>
+        <ModuleIdentityLine />
+        <ModuleLifecycleHint />
       </div>
 
       {notice && (

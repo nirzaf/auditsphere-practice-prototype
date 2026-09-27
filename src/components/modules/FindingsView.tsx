@@ -6,6 +6,7 @@ import { hasAnyRole } from '../../services/guards';
 import { Icon } from '../common/Icons';
 import { formatCurrency } from '../../services/calculations';
 import { UnsavedFormGuard } from '../../services/unsavedFormGuard';
+import { ModuleIdentityLine, ModuleLifecycleHint } from '../common/Enterprise';
 
 interface FindingsViewProps {
   onNavigate: (route: RouteKey) => void;
@@ -143,6 +144,8 @@ export const FindingsView: React.FC<FindingsViewProps> = ({ onNavigate, searchTa
             <Icon name="plus" /> Raise Finding
           </button>
         </div>
+        <ModuleIdentityLine />
+        <ModuleLifecycleHint />
       </div>
 
       {notice && <div role="status" className="panel panel-pad">{notice}</div>}

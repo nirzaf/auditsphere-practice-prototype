@@ -12,7 +12,7 @@ import { TBImportWizard } from './TBImportWizard';
 import { GL_FILE_BYTES_LIMIT, GL_IMPORT_COLUMNS, GLImportColumn, parseGLWorkbook, ParsedGLSource } from '../../services/glImport';
 import { exportService } from '../../services/exportService';
 
-import { ListState, StatusBadge } from '../common/Enterprise';
+import { ListState, ModuleIdentityLine, ModuleLifecycleHint, StatusBadge } from '../common/Enterprise';
 const AccountingSetup: React.FC<{ clientId: string; engagementId: string; profile?: ClientAccountingProfile; onRegisterUnsavedForm?: (guard: UnsavedFormGuard | null, key?: string) => void }> = ({ clientId, engagementId, profile, onRegisterUnsavedForm }) => {
   const seed: ClientAccountingProfile = profile || { legalEntityName: '', reportingBasis: 'Not selected', baseCurrency: 'QAR', accounts: [], periodBooks: [], dimensions: [], revision: 0, chartRevision: 0, history: [] };
   const [draft, setDraft] = useState(structuredClone(seed));
@@ -344,6 +344,8 @@ export const AccountingWorkbenchView: React.FC<AccountingWorkbenchViewProps> = (
             <Icon name="file" /> Generate Financial Statements
           </button>
         </div>
+        <ModuleIdentityLine />
+        <ModuleLifecycleHint />
       </div>
 
       {/* Tabs */}

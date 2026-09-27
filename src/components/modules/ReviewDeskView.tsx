@@ -8,7 +8,7 @@ import { eligibleReviewAssignees, visibleEngagementIds } from '../../services/gu
 import { exportService } from '../../services/exportService';
 import { UnsavedFormGuard } from '../../services/unsavedFormGuard';
 
-import { StatusBadge } from '../common/Enterprise';
+import { ModuleIdentityLine, ModuleLifecycleHint, StatusBadge } from '../common/Enterprise';
 interface ReviewDeskViewProps {
   onNavigate: (route: RouteKey) => void;
   onRegisterUnsavedForm?: (guard: UnsavedFormGuard | null, key?: string) => void;
@@ -165,6 +165,8 @@ export const ReviewDeskView: React.FC<ReviewDeskViewProps> = ({ onNavigate, onRe
             <Icon name="plus" /> Raise Review Note
           </button>
         </div>
+        <ModuleIdentityLine />
+        <ModuleLifecycleHint />
       </div>
 
       {notice && (

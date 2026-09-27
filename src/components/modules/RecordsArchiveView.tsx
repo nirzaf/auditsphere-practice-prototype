@@ -9,6 +9,7 @@ import { Icon } from '../common/Icons';
 import { visibleEngagementIds } from '../../services/guards';
 import { copyReleaseArtifactsToArchive, downloadVerifiedArtifact } from '../../services/artifactStore';
 import { UnsavedFormGuard } from '../../services/unsavedFormGuard';
+import { ModuleIdentityLine } from '../common/Enterprise';
 
 interface RecordsArchiveViewProps {
   onNavigate: (route: RouteKey) => void;
@@ -188,6 +189,7 @@ export const RecordsArchiveView: React.FC<RecordsArchiveViewProps> = ({ onNaviga
             <Icon name="share" /> Process Handover Request
           </button>
         </div>
+        <ModuleIdentityLine />
       </div>
 
       {notice && (

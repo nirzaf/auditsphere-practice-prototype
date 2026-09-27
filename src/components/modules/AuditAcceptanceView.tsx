@@ -7,6 +7,7 @@ import { prototypeStore } from '../../store/prototypeStore';
 import { hasAnyRole, hasRole } from '../../services/guards';
 import { Icon } from '../common/Icons';
 import { UnsavedFormGuard } from '../../services/unsavedFormGuard';
+import { ModuleIdentityLine, ModuleLifecycleHint } from '../common/Enterprise';
 
 interface AuditAcceptanceViewProps {
   onNavigate: (route: RouteKey) => void;
@@ -206,6 +207,8 @@ export const AuditAcceptanceView: React.FC<AuditAcceptanceViewProps> = ({ onNavi
             <Icon name="check" /> Save Recommendation
           </button>
         </div>
+        <ModuleIdentityLine />
+        <ModuleLifecycleHint />
       </div>
 
       {selectedEng.continuanceFromEngagementId && (

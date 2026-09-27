@@ -11,8 +11,7 @@ import { InternalNotesPanel } from '../common/InternalNotesPanel';
 import { visibleEngagementIds } from '../../services/guards';
 import { filterPbcRequests, getOutstandingPbcRequestCount, getPbcRequestRecipient, PbcRequestDueFilter, PbcRequestStatusFilter } from '../../services/pbcRequestFilters';
 
-import { StatusBadge } from '../common/Enterprise';
-import { ModuleIdentityLine } from '../common/Enterprise';
+import { ModuleIdentityLine, StatusBadge } from '../common/Enterprise';
 type ClientPbcRequest = PbcRequestItem & { engagementId: string };
 
 interface ClientDetailViewProps {

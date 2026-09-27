@@ -10,7 +10,7 @@ import { Icon } from '../common/Icons';
 import { sha256OfFile } from '../../services/fileMetadata';
 import { UnsavedFormGuard } from '../../services/unsavedFormGuard';
 
-import { StatusBadge } from '../common/Enterprise';
+import { ModuleIdentityLine, ModuleLifecycleHint, StatusBadge } from '../common/Enterprise';
 interface WorkpapersViewProps {
   onNavigate: (route: RouteKey) => void;
   searchTargetId?: string;
@@ -160,6 +160,8 @@ export const WorkpapersView: React.FC<WorkpapersViewProps> = ({ onNavigate, sear
             <Icon name="shield" /> Release Gates
           </button>
         </div>
+        <ModuleIdentityLine />
+        <ModuleLifecycleHint />
       </div>
 
       {notice && (

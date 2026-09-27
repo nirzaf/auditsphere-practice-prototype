@@ -6,7 +6,7 @@ import { UnsavedFormGuard } from '../../services/unsavedFormGuard';
 import { eligibleAuditRiskOwners, hasAnyRole } from '../../services/guards';
 import { Icon } from '../common/Icons';
 
-import { StatusBadge } from '../common/Enterprise';
+import { ModuleIdentityLine, ModuleLifecycleHint, StatusBadge } from '../common/Enterprise';
 interface AuditRisksProgramsViewProps {
   onNavigate: (route: RouteKey) => void;
   onRegisterUnsavedForm?: (guard: UnsavedFormGuard | null, key?: string) => void;
@@ -176,6 +176,8 @@ export const AuditRisksProgramsView: React.FC<AuditRisksProgramsViewProps> = ({ 
             <Icon name="checkboard" /> Workpaper Workspace
           </button>
         </div>
+        <ModuleIdentityLine />
+        <ModuleLifecycleHint />
       </div>
 
       {notice && <div role="status" className="panel panel-pad">{notice}</div>}

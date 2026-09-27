@@ -15,7 +15,7 @@ import { persistArtifact } from '../../services/artifactStore';
 import { validatePbcUpload } from '../../services/pbcUpload';
 import { UnsavedFormGuard } from '../../services/unsavedFormGuard';
 
-import { ListState, ModuleIdentityLine, StatusBadge } from '../common/Enterprise';
+import { ModuleIdentityLine, StatusBadge } from '../common/Enterprise';
 interface ClientPortalViewProps {
   onNavigate: (route: RouteKey) => void;
   onBeforeContextChange: (run: () => void) => void;

@@ -457,6 +457,89 @@ describe('actual Chrome browser acceptance', { concurrency: false }, () => {
     assert.deepEqual(browserTab!.exceptions, []);
   });
 
+  it('MOD-UX-01: every staff route presents the shared enterprise page anatomy and status vocabulary', async () => {
+    // The static harness proves the source uses the shared layer; this journey
+    // proves the layer actually renders in Chrome on every supported route.
+    const key = 'ste-auditsphere-role-portals-v2';
+    await browserTab!.evaluate(`localStorage.setItem('${key}',${JSON.stringify(JSON.stringify(createInitialState()))})`);
+    await browserTab!.command('Page.reload');
+    assert.equal(await waitForBrowser('!!document.querySelector("#role-select")'), true);
+    await browserTab!.evaluate(`(() => {const r=document.querySelector('#role-select');Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype,'value').set.call(r,'partner');r.dispatchEvent(new Event('change',{bubbles:true}));})()`);
+    assert.equal(await waitForBrowser(`JSON.parse(localStorage.getItem('${key}')).currentRole==='partner'`), true);
+
+    const TONES = ['neutral', 'progress', 'waiting', 'review', 'returned', 'blocked', 'stale', 'approved', 'complete', 'terminal-bad', 'simulated'];
+    const violations: string[] = [];
+    const labels = await browserTab!.evaluate<string[]>(`[...document.querySelectorAll('nav button.navitem')].map(b=>b.innerText.trim().split('\\n')[0])`);
+    assert.ok(labels.length >= 20, `navigation available for the anatomy sweep, found ${labels.length}`);
+    for (const label of labels) {
+      await browserTab!.evaluate(`[...document.querySelectorAll('nav button.navitem')].find(b=>b.innerText.trim().split('\\n')[0]===${JSON.stringify(label)})?.click()`);
+      await new Promise(resolve => setTimeout(resolve, 120));
+      const report = await browserTab!.evaluate<any>(`(() => {
+        const main = document.querySelector('main#main');
+        const text = main?.innerText || '';
+        const headings = main ? [...main.querySelectorAll('h1')] : [];
+        const badges = [...(main?.querySelectorAll('[data-status-tone]') || [])];
+        const identity = main?.querySelector('.page-identity');
+        const toneNames = badges.map(badge => badge.getAttribute('data-status-tone'));
+        const glyphless = badges.filter(badge => !(badge.textContent || '').trim()).length;
+        const unreachable = badges.filter(badge => !badge.getAttribute('aria-label') || !badge.getAttribute('title')).length;
+        return {
+          headingCount: headings.length,
+          headingText: headings[0]?.textContent?.trim() || '',
+          tones: toneNames,
+          badgeCount: badges.length,
+          glyphless,
+          unreachable,
+          hasIdentity: Boolean(identity),
+          identityText: identity?.innerText.replace(/\\n/g, ' ') || '',
+          headerCount: main ? main.querySelectorAll('.pagehead, [data-testid="engagement-context-unavailable"]').length : 0
+        };
+      })()`);
+      if (report.headingCount > 1) violations.push(`${label}: ${report.headingCount} h1 headings`);
+      if (report.headerCount === 0) violations.push(`${label}: no page header anatomy`);
+      if (report.headerCount > 0 && report.headingCount === 0) violations.push(`${label}: header without an accessible page title`);
+      for (const tone of report.tones) if (!TONES.includes(tone)) violations.push(`${label}: unknown status tone ${tone}`);
+      if (report.glyphless) violations.push(`${label}: ${report.glyphless} status badge(s) with no visible text`);
+      if (report.unreachable) violations.push(`${label}: ${report.unreachable} status badge(s) with no accessible description`);
+    }
+    assert.deepEqual(violations, [], `shared page anatomy violations:\n  ${violations.join('\n  ')}`);
+
+    // Engagement-scoped pages must answer "which client and engagement am I in?".
+    const scoped = ['Accounting Workbench', 'Audit Workpapers', 'Documents & SharePoint', 'Billing & Invoices'];
+    for (const label of scoped) {
+      await browserTab!.evaluate(`[...document.querySelectorAll('nav button.navitem')].find(b=>b.innerText.trim().split('\\n')[0]===${JSON.stringify(label)})?.click()`);
+      await new Promise(resolve => setTimeout(resolve, 120));
+      const identity = await browserTab!.evaluate<string>(`document.querySelector('main#main .page-identity')?.innerText.replace(/\\n/g,' ')||''`);
+      assert.match(identity, /CLIENT/, `${label} must state the active client`);
+      assert.match(identity, /ENGAGEMENT\s+ENG-\d+/, `${label} must state the exact engagement`);
+      assert.match(identity, /PERIOD/, `${label} must state the reporting period`);
+    }
+
+    // The lifecycle hint explains how the module's work moves forward.
+    await browserTab!.evaluate(`[...document.querySelectorAll('nav button.navitem')].find(b=>b.innerText.trim().split('\\n')[0]==='Financial Packages')?.click()`);
+    assert.equal(await waitForBrowser(`document.querySelector('main#main .lifecycle-hint')!==null`), true, 'a multi-step module must explain its lifecycle');
+    const hint = await browserTab!.evaluate<string>(`document.querySelector('main#main .lifecycle-hint')?.innerText.replace(/\\n/g,' ')||''`);
+    assert.match(hint, /Calculated/, 'the package lifecycle must start at Calculated');
+    assert.match(hint, /Released/, 'the package lifecycle must end at Released');
+
+    // The module guide publishes a complete, navigable route index on demand.
+    await browserTab!.evaluate(`[...document.querySelectorAll('nav button.navitem')].find(b=>b.innerText.trim().split('\\n')[0]==='Module Guide & Tour')?.click()`);
+    assert.equal(await waitForBrowser(`document.body.innerText.includes('Complete route index')`), true, 'the guide must publish the route index');
+    await browserTab!.evaluate(`[...document.querySelectorAll('details.ref-details summary')].find(s=>s.innerText.includes('Complete route index'))?.click()`);
+    assert.equal(await waitForBrowser(`[...document.querySelectorAll('details.ref-details tbody tr')].length >= 40`), true, 'the route index must build on demand');
+    const routeNames = await browserTab!.evaluate<string[]>(`(() => {
+      const details=[...document.querySelectorAll('details.ref-details')].find(d=>d.innerText.includes('Complete route index'));
+      return [...details.querySelectorAll('tbody tr')].map(r=>r.querySelector('td code')?.textContent||'');
+    })()`);
+    for (const route of ['overview', 'clients', 'financial-packages', 'consolidation', 'portal', 'module-guide', 'requirements']) {
+      assert.ok(routeNames.includes(route), `the route index must list ${route}`);
+    }
+    assert.deepEqual(browserTab!.exceptions, []);
+    await browserTab!.evaluate(`localStorage.setItem('${key}',${JSON.stringify(JSON.stringify(createInitialState()))});location.hash='#overview';`);
+    await browserTab!.command('Page.reload');
+    await waitForBrowser('!!document.querySelector("#app-root .brandname")');
+  });
+
   it('AT-01/AT-03/AT-04: renders the app, keeps controls local, and presents scope disclosures', async () => {
     assert.match(await browserTab!.evaluate<string>('document.body.innerText'), /SIMULATED IDENTITY \(NOT LIVE AUTH\)/);
     assert.match(await browserTab!.evaluate<string>('document.body.innerText'), /Synthetic records\. No live external integrations/);

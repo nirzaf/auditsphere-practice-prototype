@@ -1,5 +1,36 @@
 # AuditSphere Visual Prototype — Remaining Limitations
 
+## Enterprise UX enhancement (MOD-UX-01, recorded 2026-09-27)
+
+The shared enterprise UX layer adds one lifecycle/status vocabulary, a per-module
+identity and lifecycle line, and consistent empty/no-match/out-of-scope list
+states across the supported routes. What it does **not** claim:
+
+- **Presentation only.** No shared primitive reads or writes business state, so
+  nothing in this layer relaxes a guard, a revision check or a segregation-of-duties
+  rule. Where a module's lifecycle is shown, it is derived from fields the store
+  already owns.
+- **Lifecycle models are reported, not enforced.** `LIFECYCLE_MODELS` describes how
+  each module's work moves; it is not a workflow engine, and there is no scheduler,
+  rules engine or background process (an explicit product exclusion).
+- **Status badge accessibility is text + tone + accessible name.** The visible
+  status text is not duplicated into a hidden text node, because a status inside a
+  sentence must keep its exact inline text; the plain-language meaning is carried
+  by the accessible name and the tooltip instead. This is a deliberate trade-off
+  recorded here rather than an omission.
+- **Per-module lifecycle depth varies.** The vocabulary, identity line and list
+  states are applied across the routed modules; the interactive stepper is applied
+  where a module derives its own step states, and several modules still present
+  lifecycle detail as prose. `docs/prototype/lifecycle-matrix.md` records the
+  evidence status per claim, including the rows marked Partial.
+- **Two pre-existing harness limitations** were found and are recorded rather than
+  changed, because neither is a product defect: the criterion ledger `check` mode
+  reports 623 "mapped test moved files" findings at the 2026-09-27 baseline commit
+  as well as after this work, and the VP-039 browser journey depends on the journey
+  before it having restored the manager persona (it also fails under a filtered
+  `--test-name-pattern` run at the same baseline). Neither affects the full
+  serialized suite, which passes.
+
 **Current (measured at `b988be1edf010f3f47c3aea646b5ad6a99f3dffe`):** 256/256 original criteria, 64/64 stories and 39/39 modules pass with executed
 evidence ([ledger](criterion-evidence-ledger.md)); 0 open action rows; decision **APPROVED_FOR_DEMO** under PROTOTYPE-AGENT-ACCEPTANCE-001
 (AI-agent acceptance of a browser-only demo). What remains are **intentional boundaries**, not open work:

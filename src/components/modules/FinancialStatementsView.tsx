@@ -8,7 +8,7 @@ import { applyReportingAdjustments, calculateBalanceSheet, calculateIncomeStatem
 import { exportService } from '../../services/exportService';
 import { UnsavedFormGuard } from '../../services/unsavedFormGuard';
 import { visibleEngagementIds } from '../../services/guards';
-import { ModuleIdentityLine, StaleNotice, StatusBadge } from '../common/Enterprise';
+import { StaleNotice, StatusBadge } from '../common/Enterprise';
 
 interface FinancialStatementsViewProps {
   onNavigate: (route: RouteKey) => void;

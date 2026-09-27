@@ -9,7 +9,7 @@ import { Icon } from '../common/Icons';
 import { visibleEngagementIds, isClientRole, canOpenRoute, hasAnyRole, isSuperuserRole } from '../../services/guards';
 import { UnsavedFormGuard } from '../../services/unsavedFormGuard';
 
-import { StatusBadge } from '../common/Enterprise';
+import { ModuleIdentityLine, StatusBadge } from '../common/Enterprise';
 interface JobsTasksViewProps {
   onNavigate: (route: RouteKey) => void;
   searchTargetId?: string;
@@ -298,6 +298,7 @@ export const JobsTasksView: React.FC<JobsTasksViewProps> = ({ onNavigate, search
             <span className="caption">Jobs are registered by managers or partners.</span>
           )}
         </div>
+        <ModuleIdentityLine />
       </div>
 
       {myLocalNotices.length > 0 && <section className="panel panel-pad" aria-label="My local notices"><div className="between"><div><h3>My Local Notices</h3><p className="caption">Only notices addressed to this identity in jobs it can currently access.</p></div><span className="badge blue">{myLocalNotices.filter(item => !item.readAt).length} unread</span></div><div className="stack mt8">{myLocalNotices.map(item => {const comment = state.comments.find(record => record.id === item.commentId)!;const job = comment.subjectType === 'task' ? state.jobs.find(record => record.id === state.jobTasks.find(task => task.id === comment.subjectId)?.jobId)! : state.jobs.find(record => record.id === comment.subjectId)!;return <div className="borderbox panel-pad" key={item.id}><div className="between"><span><b>{comment.author}</b> mentioned you on {comment.subjectType} · {job.title}{!item.readAt && <span className="tag blue ml8">Unread</span>}</span><div className="row"><button className="btn sm ghost" onClick={() => setSelectedJobId(job.id)}>Open job</button>{!item.readAt && <button className="btn sm" onClick={() => { try { prototypeStore.markLocalNoticeRead(item.id); } catch (err: any) { triggerNotice('error', err.message); } }}>Mark read</button>}</div></div></div>;})}</div></section>}

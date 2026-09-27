@@ -9,7 +9,7 @@ import { artifactSha256, downloadVerifiedArtifact, persistArtifact } from '../..
 import { consolidationOutputFingerprint } from '../../services/consolidationOutput';
 import { UnsavedFormGuard } from '../../services/unsavedFormGuard';
 
-import { StatusBadge } from '../common/Enterprise';
+import { ModuleIdentityLine, ModuleLifecycleHint, StatusBadge } from '../common/Enterprise';
 interface ConsolidationViewProps {
   onNavigate: (route: RouteKey) => void;
   onRegisterUnsavedForm?: (guard: UnsavedFormGuard | null, key?: string) => void;
@@ -315,6 +315,8 @@ export const ConsolidationView: React.FC<ConsolidationViewProps> = ({ onNavigate
             <h1>Group Consolidation Workbench</h1>
             <p>Wholly owned Parent + Subsidiary profile · scoped projection for your grant.</p>
           </div>
+          <ModuleIdentityLine />
+          <ModuleLifecycleHint />
         </div>
         <div className="panel panel-pad">
           <span className="eyebrow">CONSOLIDATION GROUP · {group.id}</span>
@@ -460,6 +462,8 @@ export const ConsolidationView: React.FC<ConsolidationViewProps> = ({ onNavigate
           <h1>Group Consolidation Workbench</h1>
           <p>Wholly owned Parent + Subsidiary profile · calculation from pinned component snapshots and approved manual eliminations.</p>
         </div>
+        <ModuleIdentityLine />
+        <ModuleLifecycleHint />
       </div>
 
       <div className="panel panel-pad">
