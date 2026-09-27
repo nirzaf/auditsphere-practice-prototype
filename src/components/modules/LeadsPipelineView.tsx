@@ -256,7 +256,7 @@ export const LeadsPipelineView: React.FC<LeadsPipelineViewProps> = ({ onNavigate
 
       {/* New Opportunity Modal */}
       {showAddModal && (
-        <div className="modal-backdrop" onClick={requestLeadClose}>
+        <div className="modal-backdrop" data-dismiss-guard="self" onClick={requestLeadClose}>
           <div className="modal" role="dialog" aria-modal="true" aria-labelledby="lead-create-title" style={{ maxWidth: 480 }} onClick={e => e.stopPropagation()}>
             <div className="modal-head">
               <h2 id="lead-create-title">Register Commercial Inquiry</h2>

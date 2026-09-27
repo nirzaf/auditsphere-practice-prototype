@@ -411,7 +411,7 @@ export const WorkpapersView: React.FC<WorkpapersViewProps> = ({ onNavigate, sear
                           <tr key={row.code}>
                             <td><span className="mono bold">{row.code}</span></td>
                             <td><b>{row.name}</b></td>
-                            <td>{Math.abs(row.balance).toLocaleString('en-GB')} QAR</td>
+                            <td>{Math.abs(row.balance).toLocaleString('en-GB')} {row.balance < 0 ? 'Cr' : 'Dr'} {selectedEng.currency || 'QAR'}</td>
                             <td>{row.mappedStatementLine}</td>
                             <td><span className="badge green">0.00</span></td>
                           </tr>

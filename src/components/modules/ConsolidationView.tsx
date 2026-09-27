@@ -538,7 +538,7 @@ export const ConsolidationView: React.FC<ConsolidationViewProps> = ({ onNavigate
                       <td style={{ textAlign: 'right' }}>{formatCurrency(l.subsidiaryBalance)}</td>
                       <td style={{ textAlign: 'right' }}>
                         {l.eliminationDebit !== 0 || l.eliminationCredit !== 0 ? (
-                          <span style={{ color: 'red' }}>({formatCurrency(l.eliminationCredit - l.eliminationDebit)})</span>
+                          <span style={{ color: 'red' }}>{formatCurrency(l.eliminationDebit - l.eliminationCredit)}</span>
                         ) : '—'}
                       </td>
                       <td style={{ textAlign: 'right' }}><b>{formatCurrency(l.consolidatedBalance)}</b></td>
@@ -548,7 +548,7 @@ export const ConsolidationView: React.FC<ConsolidationViewProps> = ({ onNavigate
                     <td><b>Total Assets</b></td>
                     <td style={{ textAlign: 'right' }}><b>{formatCurrency(consolidated.parentAssets)}</b></td>
                     <td style={{ textAlign: 'right' }}><b>{formatCurrency(consolidated.subsidiaryAssets)}</b></td>
-                    <td style={{ textAlign: 'right' }}>({formatCurrency(consolidated.totalEliminations)})</td>
+                    <td style={{ textAlign: 'right' }}>{formatCurrency(consolidated.assetEliminationEffect)}</td>
                     <td style={{ textAlign: 'right' }}><b>{formatCurrency(consolidated.totalAssets)}</b></td>
                   </tr>
 
@@ -556,19 +556,19 @@ export const ConsolidationView: React.FC<ConsolidationViewProps> = ({ onNavigate
                   {consolidated.lines.filter((l: any) => l.category === 'liability').map((l: any) => (
                     <tr key={l.code}>
                       <td>{l.name} ({l.code})</td>
-                      <td style={{ textAlign: 'right' }}>{formatCurrency(Math.abs(l.parentBalance))}</td>
-                      <td style={{ textAlign: 'right' }}>{formatCurrency(Math.abs(l.subsidiaryBalance))}</td>
+                      <td style={{ textAlign: 'right' }}>{formatCurrency(-l.parentBalance)}</td>
+                      <td style={{ textAlign: 'right' }}>{formatCurrency(-l.subsidiaryBalance)}</td>
                       <td style={{ textAlign: 'right' }}>
-                        {l.eliminationDebit !== 0 ? <span style={{ color: 'red' }}>({formatCurrency(l.eliminationDebit)})</span> : '—'}
+                        {l.eliminationDebit !== 0 || l.eliminationCredit !== 0 ? <span style={{ color: 'red' }}>{formatCurrency(l.eliminationCredit - l.eliminationDebit)}</span> : '—'}
                       </td>
-                      <td style={{ textAlign: 'right' }}><b>{formatCurrency(Math.abs(l.consolidatedBalance))}</b></td>
+                      <td style={{ textAlign: 'right' }}><b>{formatCurrency(-l.consolidatedBalance)}</b></td>
                     </tr>
                   ))}
                   <tr>
                     <td><b>Total Liabilities</b></td>
                     <td style={{ textAlign: 'right' }}><b>{formatCurrency(consolidated.parentLiabilities)}</b></td>
                     <td style={{ textAlign: 'right' }}><b>{formatCurrency(consolidated.subsidiaryLiabilities)}</b></td>
-                    <td style={{ textAlign: 'right' }}>({formatCurrency(consolidated.totalEliminations)})</td>
+                    <td style={{ textAlign: 'right' }}>{formatCurrency(consolidated.liabilityEliminationEffect)}</td>
                     <td style={{ textAlign: 'right' }}><b>{formatCurrency(consolidated.totalLiabilities)}</b></td>
                   </tr>
 
@@ -576,17 +576,17 @@ export const ConsolidationView: React.FC<ConsolidationViewProps> = ({ onNavigate
                   {consolidated.lines.filter((l: any) => l.category === 'equity').map((l: any) => (
                     <tr key={l.code}>
                       <td>{l.name} ({l.code})</td>
-                      <td style={{ textAlign: 'right' }}>{formatCurrency(Math.abs(l.parentBalance))}</td>
-                      <td style={{ textAlign: 'right' }}>{formatCurrency(Math.abs(l.subsidiaryBalance))}</td>
-                      <td style={{ textAlign: 'right' }}>—</td>
-                      <td style={{ textAlign: 'right' }}><b>{formatCurrency(Math.abs(l.consolidatedBalance))}</b></td>
+                      <td style={{ textAlign: 'right' }}>{formatCurrency(-l.parentBalance)}</td>
+                      <td style={{ textAlign: 'right' }}>{formatCurrency(-l.subsidiaryBalance)}</td>
+                      <td style={{ textAlign: 'right' }}>{l.eliminationDebit !== 0 || l.eliminationCredit !== 0 ? <span style={{ color: 'red' }}>{formatCurrency(l.eliminationCredit - l.eliminationDebit)}</span> : '—'}</td>
+                      <td style={{ textAlign: 'right' }}><b>{formatCurrency(-l.consolidatedBalance)}</b></td>
                     </tr>
                   ))}
                   <tr>
                     <td><b>Total Equity</b></td>
                     <td style={{ textAlign: 'right' }}><b>{formatCurrency(consolidated.parentEquity)}</b></td>
                     <td style={{ textAlign: 'right' }}><b>{formatCurrency(consolidated.subsidiaryEquity)}</b></td>
-                    <td style={{ textAlign: 'right' }}>—</td>
+                    <td style={{ textAlign: 'right' }}>{formatCurrency(consolidated.equityEliminationEffect)}</td>
                     <td style={{ textAlign: 'right' }}><b>{formatCurrency(consolidated.totalEquity)}</b></td>
                   </tr>
                 </tbody>

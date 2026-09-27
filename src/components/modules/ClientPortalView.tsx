@@ -3,6 +3,7 @@
 // Strictly browser-only prototype: no online payments, no external mail delivery, local deterministic document registry.
 
 import React, { useEffect, useRef, useState } from 'react';
+import { getOutstandingPbcRequestCount } from '../../services/pbcRequestFilters';
 import { RouteKey, PbcRequestItem } from '../../types';
 import { prototypeStore } from '../../store/prototypeStore';
 import { visibleClientIds, visibleEngagementIds } from '../../services/guards';
@@ -70,6 +71,11 @@ export const ClientPortalView: React.FC<ClientPortalViewProps> = ({ onNavigate, 
   // Strictly filter by client grant and exclude unissued/drafts from client visibility (VP-025, VP-033)
   const invoices = client && eng ? state.invoices.filter(i => i.clientId === client.id && (i.engagementId || i.eng) === eng.id && (i.status === 'Issued' || i.status === 'Paid')) : [];
   const pbc = eng?.pbc.filter(request => request.status !== 'Draft' && request.status !== 'Cancelled') || [];
+  // Same actionable-state filter as the staff request register (MOD-09-CL01).
+  const pendingRequestCount = getOutstandingPbcRequestCount(pbc);
+  // Issued credit notes reduce what the client still owes (MOD-08-CL01 / MOD-15).
+  const issuedCreditsFor = (invoiceId: string) => (state.creditNotes || []).filter(credit => credit.invoiceId === invoiceId && credit.status === 'Issued').reduce((sum, credit) => sum + credit.amount, 0);
+  const outstandingInvoiceCount = invoices.filter(inv => Math.round((inv.amount - (inv.paid || 0) - issuedCreditsFor(inv.id)) * 100) > 0).length;
   const sharedDocs = client ? state.documents.filter(d => d.visibility === 'Client shared' && d.clientId === client.id && (!d.engagementId || d.engagementId === eng?.id)) : [];
   const messages = client ? state.communications.filter(c => c.visibility === 'Client visible' && c.clientId === client.id && (!c.engagementId || c.engagementId === eng?.id)) : [];
 
@@ -346,7 +352,7 @@ export const ClientPortalView: React.FC<ClientPortalViewProps> = ({ onNavigate, 
           {[
             { key: 'home', label: 'Home Dashboard' },
             { key: 'status', label: 'Audit Engagement Status' },
-            { key: 'pbc', label: `Information Requests (${pbc.filter(p => p.status !== 'Accepted').length})` },
+            { key: 'pbc', label: `Information Requests (${pendingRequestCount})` },
             { key: 'docs', label: 'Shared Documents' },
             { key: 'messages', label: 'Messages & Mail' },
             { key: 'packages', label: 'Published Reports' },
@@ -377,12 +383,12 @@ export const ClientPortalView: React.FC<ClientPortalViewProps> = ({ onNavigate, 
             </div>
             <div className="metric blue">
               <span className="metric-label">Pending Client Requests</span>
-              <div className="metric-val">{pbc.filter(p => p.status !== 'Accepted').length}</div>
+              <div className="metric-val">{pendingRequestCount}</div>
               <span className="metric-sub">Action required from finance team</span>
             </div>
             <div className="metric green">
               <span className="metric-label">Outstanding Invoices</span>
-              <div className="metric-val">{invoices.filter(i => i.paid < i.amount).length}</div>
+              <div className="metric-val">{outstandingInvoiceCount}</div>
               <span className="metric-sub">Standard 30-day payment terms</span>
             </div>
           </div>
@@ -749,7 +755,7 @@ export const ClientPortalView: React.FC<ClientPortalViewProps> = ({ onNavigate, 
 
       {/* Upload PBC Modal */}
       {uploadPbcModal && (
-        <div className="modal-backdrop" onClick={event => { if (event.target === event.currentTarget) closePbcUpload(); }}>
+        <div className="modal-backdrop" data-dismiss-guard="self" onClick={event => { if (event.target === event.currentTarget) closePbcUpload(); }}>
           <div className="modal" style={{ maxWidth: 480 }} onClick={e => e.stopPropagation()}>
             <div className="modal-head">
               <h2>Upload Evidence Schedule</h2>

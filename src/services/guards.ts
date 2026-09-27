@@ -141,6 +141,22 @@ export function requireConsolidationGroupScope(state: PrototypeState, groupId: s
   if (!hasConsolidationGroupScope(state, groupId)) throw new GuardError('FORBIDDEN_SCOPE', `Consolidation group "${groupId}" is outside the current scoped grant.`);
 }
 
+/**
+ * Lifecycle-only check for professional writes that are not scoped through
+ * requireEngagementScope (accounting setup, group work on component engagements).
+ * Suspended, Closed and Cancelled engagements accept no new professional work.
+ */
+export function requireActiveEngagementLifecycle(state: PrototypeState, engagementId: string): void {
+  const status = state.engagements.find(item => item.id === engagementId)?.lifecycleStatus || 'Active';
+  if (status !== 'Active') throw new GuardError('INVALID_STATE', `Engagement ${engagementId} is ${status.toLowerCase()}; professional work is blocked.`);
+}
+
+/** Group professional writes require every component engagement to be Active. */
+export function requireActiveConsolidationComponents(state: PrototypeState, groupId: string): void {
+  const group = state.consolidationGroups.find(item => item.id === groupId);
+  for (const component of group?.components || []) requireActiveEngagementLifecycle(state, component.componentId);
+}
+
 export function eligibleReviewAssignees(state: PrototypeState, engagementId: string) {
   return state.users.filter(user => {
     const visible = visibleEngagementIds(state, user.id);

@@ -251,7 +251,7 @@ export const EngagementsView: React.FC<EngagementsViewProps> = ({ onNavigate, on
       )}
 
       {showEditAdminModal && selectedEng && (
-        <div className="modal-backdrop" onClick={event => { if (event.target === event.currentTarget) closeEditEngagement(); }}>
+        <div className="modal-backdrop" data-dismiss-guard="self" onClick={event => { if (event.target === event.currentTarget) closeEditEngagement(); }}>
           <form className="modal" style={{ maxWidth: 620 }} onSubmit={saveAdminChanges} onClick={event => event.stopPropagation()}>
             <div className="modal-head"><h2>Edit Engagement Details</h2><button type="button" className="icon-btn" onClick={closeEditEngagement}>✕</button></div>
             <div className="modal-body stack" style={{ gap: 12 }}>
@@ -357,7 +357,7 @@ export const EngagementsView: React.FC<EngagementsViewProps> = ({ onNavigate, on
 
       {/* Create Engagement Modal */}
       {showNewEngModal && (
-        <div className="modal-backdrop" onClick={event => { if (event.target === event.currentTarget) closeNewEngagement(); }}>
+        <div className="modal-backdrop" data-dismiss-guard="self" onClick={event => { if (event.target === event.currentTarget) closeNewEngagement(); }}>
           <div className="modal" style={{ maxWidth: 520 }} onClick={e => e.stopPropagation()}>
             <div className="modal-head">
               <h2>Launch New Engagement</h2>

@@ -353,7 +353,7 @@ export const CommunicationsView: React.FC<CommunicationsViewProps> = ({ onNaviga
       )}
 
       {showTemplateEditor && (
-        <div className="modal-backdrop" onClick={event => { if (event.target === event.currentTarget) cancelTemplateEditor(); }}>
+        <div className="modal-backdrop" data-dismiss-guard="self" onClick={event => { if (event.target === event.currentTarget) cancelTemplateEditor(); }}>
           <div className="modal" style={{ maxWidth: 620 }} role="dialog" aria-modal="true" aria-labelledby="email-template-editor-title">
             <div className="modal-head">
               <h2 id="email-template-editor-title">Manage Email Templates</h2>

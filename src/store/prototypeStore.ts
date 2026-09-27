@@ -5,7 +5,7 @@ import { PrototypeState, RoleKey, ClientRecord, EngagementRecord, JobRecord, Job
 import { createInitialState } from './initialState';
 import { ScenarioName, loadScenarioState } from './scenarios';
 import { CURRENT_SCHEMA, migratePersistedState, validateFixtures } from '../services/migrations';
-import { requireActiveIdentity, requireIndependentActor, requireEngagementScope, requireClientScope, visibleClientIds, visibleEngagementIds, eligibleReviewAssignees, eligibleAuditRiskOwners, isClientRole, canOpenRoute, GuardError, markStateStale, roleRequiresApprovalEvidence, requireConsolidationGroupScope, isSuperuserRole, hasAnyRole, recordPrototypeSuperuserOverride } from '../services/guards';
+import { requireActiveIdentity, requireIndependentActor, requireEngagementScope, requireClientScope, visibleClientIds, visibleEngagementIds, eligibleReviewAssignees, eligibleAuditRiskOwners, isClientRole, canOpenRoute, GuardError, markStateStale, roleRequiresApprovalEvidence, requireConsolidationGroupScope, isSuperuserRole, hasAnyRole, recordPrototypeSuperuserOverride, requireActiveEngagementLifecycle, requireActiveConsolidationComponents } from '../services/guards';
 import { applyReportingAdjustments, calculateReconciliationVariance } from '../services/calculations';
 import { validatePbcUpload } from '../services/pbcUpload';
 import { consolidationOutputFingerprint } from '../services/consolidationOutput';
@@ -2364,6 +2364,7 @@ class PrototypeStore {
     const client = this.state.clients.find(item => item.id === clientId);
     const engagement = this.state.engagements.find(item => item.id === engagementId && item.client === clientId);
     if (!client || !engagement) throw new GuardError('INVALID_STATE', 'Accounting setup requires an engagement belonging to this client.');
+    requireActiveEngagementLifecycle(this.state, engagement.id);
     const validDate = (value: string) => /^\d{4}-\d{2}-\d{2}$/.test(value) && Number.isFinite(Date.parse(value)) && new Date(`${value}T00:00:00Z`).toISOString().slice(0, 10) === value;
     const codes = input.accounts.map(account => account.code.trim());
     const dimensionIds = Array.isArray(input.dimensions) ? input.dimensions.map(dimension => typeof dimension?.id === 'string' ? dimension.id.trim().toLowerCase() : '') : [];
@@ -2943,6 +2944,7 @@ class PrototypeStore {
       const engagement = this.state.engagements.find(e => e.id === component.componentId);
       if (!engagement || engagement.year !== Number(group.period.match(/\d{4}/)?.[0])) throw new GuardError('INVALID_STATE', `Component ${component.componentId} does not match the group period.`);
       if (!existingGroup) requireEngagementScope(this.state, engagement.id);
+      else requireActiveEngagementLifecycle(this.state, engagement.id);
       const client = this.state.clients.find(item => item.id === engagement.client);
       const profile = client?.accountingProfile;
       const periodBook = profile?.periodBooks.find(book => book.id === engagement.accountingPeriodBookId && book.ownerEngagementId === engagement.id && book.status === 'Open');
@@ -3003,6 +3005,7 @@ class PrototypeStore {
     const group = this.state.consolidationGroups.find(item => item.id === groupId);
     if (!group || !reason.trim()) throw new GuardError('INVALID_STATE', 'Choose a group and record why this elimination is being saved.');
     requireConsolidationGroupScope(this.state, group.id);
+    requireActiveConsolidationComponents(this.state, group.id);
     const components = group.components;
     if (input.counterpartyA === input.counterpartyB || !components.some(component => component.componentId === input.counterpartyA) || !components.some(component => component.componentId === input.counterpartyB)) throw new GuardError('INVALID_STATE', 'Choose the two distinct component entities as counterparties.');
     const currency = group.presentationCurrency || group.currency;
@@ -3074,6 +3077,7 @@ class PrototypeStore {
     const elimination = group?.eliminations.find(item => item.id === eliminationId);
     if (!group || !elimination || elimination.status !== 'Draft') throw new GuardError('INVALID_STATE', 'Only a saved draft group elimination can be submitted.');
     requireConsolidationGroupScope(this.state, group.id);
+    requireActiveConsolidationComponents(this.state, group.id);
     if (elimination.preparedByUserId !== this.state.currentUserId && !recordPrototypeSuperuserOverride(this.state, 'submit another preparer\'s group elimination')) throw new GuardError('FORBIDDEN_SCOPE', 'Only the original preparer can submit this group elimination.');
     elimination.status = 'Submitted';
     elimination.submittedByUserId = this.state.currentUserId;
@@ -3089,6 +3093,7 @@ class PrototypeStore {
     const elimination = group?.eliminations.find(item => item.id === eliminationId);
     if (!group || !elimination || elimination.status !== 'Submitted') throw new GuardError('INVALID_STATE', 'Only a submitted group elimination can be reviewed.');
     requireConsolidationGroupScope(this.state, group.id);
+    requireActiveConsolidationComponents(this.state, group.id);
     if (!note.trim() || !evidenceRef.trim() || evidenceRef.trim().length > 160) throw new GuardError('INVALID_STATE', 'Record the review rationale and evidence reference (160 characters or fewer).');
     if (!elimination.preparedByUserId) throw new GuardError('INVALID_STATE', 'The elimination draft has no recorded preparer.');
     requireIndependentActor(elimination.preparedByUserId, this.state.currentUserId, 'review their own group elimination', this.state);
@@ -3136,6 +3141,7 @@ class PrototypeStore {
     const group = this.state.consolidationGroups.find(item => item.id === groupId);
     if (!group || !record.id || !record.evidenceRef.trim() || record.preparedByUserId !== this.state.currentUserId || record.status !== 'Draft' || !/^[a-f0-9]{64}$/i.test(record.artifact.sha256) || record.artifact.size <= 0 || !record.artifact.name || record.artifact.mimeType !== 'application/json' || group.outputPackages?.some(item => item.id === record.id || item.artifact.id === record.artifact.id)) throw new GuardError('INVALID_STATE', 'A prepared group output requires a unique identity, its exact active preparer, review evidence and a verified JSON artifact identity.');
     requireConsolidationGroupScope(this.state, group.id);
+    requireActiveConsolidationComponents(this.state, group.id);
     if (record.revision !== (group.outputPackages?.length || 0) + 1 || record.fingerprint !== consolidationOutputFingerprint(group, this.state)) throw new GuardError('STALE_REVISION', 'The consolidated output changed before its package could be saved. Rebuild from current reviewed inputs.');
     for (const component of group.components) {
       const engagement = this.state.engagements.find(item => item.id === component.componentId);
@@ -3157,6 +3163,7 @@ class PrototypeStore {
       : false;
     if (!group || !record || record.status === 'Approved' || !note.trim() || !evidenceRef.trim() || (record.preparedByUserId === this.state.currentUserId && !superuserOverride) || record.fingerprint !== consolidationOutputFingerprint(group, this.state)) throw new GuardError('STALE_REVISION', 'A different partner, current exact group-output revision, rationale and review evidence are required. Rebuild stale output packages.');
     requireConsolidationGroupScope(this.state, group.id);
+    requireActiveConsolidationComponents(this.state, group.id);
     record.reviewHistory.push({ status: decision, byUserId: this.state.currentUserId, by: this.state.currentPerson, at: new Date().toISOString(), note: note.trim(), evidenceRef: evidenceRef.trim() });
     record.status = decision;
     if (decision === 'Approved') record.approvedFingerprint = record.fingerprint;
@@ -3171,6 +3178,7 @@ class PrototypeStore {
     const group = this.state.consolidationGroups.find(item => item.id === groupId);
     if (!group) throw new GuardError('INVALID_STATE', `Consolidation group "${groupId}" was not found.`);
     requireConsolidationGroupScope(this.state, group.id);
+    requireActiveConsolidationComponents(this.state, group.id);
     const presentationCurrency = group.presentationCurrency || group.currency;
     if (!/^[A-Z]{3}$/.test(currency) || currency === presentationCurrency || !group.components.some(component => component.currency === currency)) throw new GuardError('INVALID_STATE', 'Select a foreign currency used by a group component.');
     if (!Number.isFinite(rate) || rate <= 0) throw new GuardError('INVALID_STATE', 'Exchange rate must be a finite number greater than zero.');
