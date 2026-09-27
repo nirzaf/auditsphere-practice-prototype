@@ -231,7 +231,9 @@ export const App: React.FC = () => {
       // own save already closed or committed this dialog (checked after React re-renders).
       save: async () => {
         const dialog = guardedDialog();
-        await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+        // Macrotask waits (not animation frames, which a hidden tab may never deliver) let React commit a close.
+        await new Promise(resolve => setTimeout(resolve, 0));
+        await new Promise(resolve => setTimeout(resolve, 0));
         return !dialog || !dialog.isConnected || !dialogIsDirty(dialog);
       },
       blocksDiscard: () => {
