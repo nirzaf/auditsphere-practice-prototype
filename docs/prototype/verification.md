@@ -224,9 +224,9 @@ the existing `steaudit-prototype` project serves `prototype.steaudit.com`.
 
 | Field | Value |
 |---|---|
-| Tested source | `b988be1edf010f3f47c3aea646b5ad6a99f3dffe` (clean committed tree; `git status` empty after the run) |
+| Tested source | `5f8f9efb4f216ffa9492ef7df5127c6077a8bfdf` (clean committed tree; `git status` empty after the run) |
 | Build manifest | sha256 `8a912583d3cac36e7a3fa460b11391a75a4532605d85125c6c4ce320493d6ca0` of the sorted `dist/` file digests |
-| Run window (UTC) | 2026-09-27T14:41:30Z → 2026-09-27T14:49:48Z |
+| Run window (UTC) | 2026-09-27T14:54:55Z → 2026-09-27T15:03:13Z |
 | Commands (exit codes) | `npm ci`, `npm run lint`, `npm run build`, `npm run legacy:check`, `npm run test:unit`, `CHROME_PATH=<pre-installed Chromium> npm run test:e2e`, `python3 tools/progress.py refresh`/`validate`, `python3 -m unittest tools/test_progress.py tools/test_criterion_ledger.py`, `git diff --check` — ci 0 · lint 0 · build 0 · legacy 0 · unit 0 · e2e 0 · progress-refresh 0 · progress-validate 0 · tools 0 · diffcheck 0 |
 | Results | unit 306/306, E2E 145/145; 0 failed, 0 skipped, 0 cancelled |
 | Criterion ledger | 256/256 PASS, FAIL 0, NOT_RUN 0 |
@@ -239,6 +239,9 @@ E2E 135/144: a dialog that saved, closed and navigated in one handler raised a f
 after AT-13) that cascaded into later journeys; fixed in `1222a9d` together with review round-2 follow-ups. Candidate
 `1222a9d` passed every step except E2E 137/145: the document dialog kept a recorded replacement file in its form, so leaving
 the page prompted for already-saved work (AT-20) and cascaded; fixed in `b988be1` (form reset; macrotask waits in the guard).
+Candidate `b988be1` then passed the full gate (unit 306/306, E2E 145/145). PR #2 had meanwhile been merged at `0212ace`, so the
+later commits were rebased onto `main` (tree of the rebased `8f59623` is identical to `b988be1`) and a ledger fix for TODO tests
+(`5f8f9ef`, from a PR #2 review finding) was added; the run recorded above is the fresh full gate on that rebased head.
 
 Defects found and fixed in this closure: signed group equity (F-SIGN-04 170 → 130); group current-period result
 applied before eliminations; silent discard of edited dialogs on Escape/backdrop/navigation; accounting setup and group

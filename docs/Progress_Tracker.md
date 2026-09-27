@@ -24,14 +24,14 @@
 <a id="snapshot"></a>
 ## 1. Snapshot, status definitions and progress totals
 ### 1.0 Current acceptance (after the 2026-09-27 closure)
-| Measure | Current (measured at `b988be1edf010f3f47c3aea646b5ad6a99f3dffe`) | Source |
+| Measure | Current (measured at `5f8f9efb4f216ffa9492ef7df5127c6077a8bfdf`) | Source |
 |---|---:|---|
 | Original criteria with executed passing evidence | 256 / 256 (FAIL 0, NOT_RUN 0) | [criterion-evidence-ledger.md](prototype/criterion-evidence-ledger.md), generated from TAP results |
 | Original stories with every criterion passing | 64 / 64 | same ledger |
 | Modules whose stories all pass | 39 / 39 | [MODULE_DEMO_SIGNOFF.md](../tracking/MODULE_DEMO_SIGNOFF.md) |
 | Open detailed action rows (§9.3–9.4) | 0 | the nine previously nonterminal rows are closed below with evidence |
 | Full suite on the tested commit | unit 306/306, E2E 145/145; lint, build, legacy check, progress validate, tool tests and diff check exit 0 | [verification.md](prototype/verification.md) |
-| Acceptance basis | PROTOTYPE-AGENT-ACCEPTANCE-001 · reviewer_kind=AI_AGENT · acceptance_scope=BROWSER_ONLY_PROTOTYPE · decision=APPROVED_FOR_DEMO · tested `b988be1` | [ACCEPTANCE_EVIDENCE.md](../tracking/ACCEPTANCE_EVIDENCE.md) receipt |
+| Acceptance basis | PROTOTYPE-AGENT-ACCEPTANCE-001 · reviewer_kind=AI_AGENT · acceptance_scope=BROWSER_ONLY_PROTOTYPE · decision=APPROVED_FOR_DEMO · tested `5f8f9ef` | [ACCEPTANCE_EVIDENCE.md](../tracking/ACCEPTANCE_EVIDENCE.md) receipt |
 
 The §1.1 table below is the **baseline before closure** and is kept as history.
 ### 1.1 Baseline totals (2026-09-27, before closure — historical)
@@ -179,7 +179,7 @@ The current module-status column follows [S3], not a recalculated guess. Detaile
 |---|---|---|---|---|---:|
 | <a id="mod-01"></a>MOD-01 | **Practice Dashboard** | Partial | ACCEPTED FOR DEMO (baseline: PARTIAL) | [VP-005](#vp-005), [VP-060](#vp-060) | 1/2 |
 | <a id="mod-02"></a>MOD-02 | **CRM & Client Management** | Partial | ACCEPTED FOR DEMO (baseline: PARTIAL) | [VP-006](#vp-006), [VP-007](#vp-007), [VP-008](#vp-008) | 0/3 |
-| <a id="mod-03"></a>MOD-03 | **Leads & Opportunities** | Partial | ACCEPTED FOR DEMO (baseline: VERIFIED) | [VP-009](#vp-009) | 1/1 |
+| <a id="mod-03"></a>MOD-03 | **Leads & Opportunities** | Partial | ACCEPTED FOR DEMO (baseline: VERIFIED (reported)) | [VP-009](#vp-009) | 1/1 |
 | <a id="mod-04"></a>MOD-04 | **Proposals & Engagements** | Partial | ACCEPTED FOR DEMO (baseline: PARTIAL) | [VP-010](#vp-010), [VP-011](#vp-011), [VP-012](#vp-012) | 0/3 |
 | <a id="mod-05"></a>MOD-05 | **Jobs & Tasks** | Light | ACCEPTED FOR DEMO (baseline: PARTIAL) | [VP-013](#vp-013), [VP-014](#vp-014) | 0/2 |
 | <a id="mod-06"></a>MOD-06 | **Job Templates** | Missing | ACCEPTED FOR DEMO (baseline: PARTIAL) | [VP-015](#vp-015) | 0/1 |
@@ -192,7 +192,7 @@ The current module-status column follows [S3], not a recalculated guess. Detaile
 | <a id="mod-13"></a>MOD-13 | **Budgets** | Missing | ACCEPTED FOR DEMO (baseline: PARTIAL) | [VP-029](#vp-029) | 0/1 |
 | <a id="mod-14"></a>MOD-14 | **Billing & Invoicing** | Partial | ACCEPTED FOR DEMO (baseline: PARTIAL) | [VP-030](#vp-030), [VP-031](#vp-031) | 0/2 |
 | <a id="mod-15"></a>MOD-15 | **Receivables** | Light | ACCEPTED FOR DEMO (baseline: PARTIAL) | [VP-032](#vp-032), [VP-033](#vp-033) | 0/2 |
-| <a id="mod-16"></a>MOD-16 | **Reporting & Analytics** | Light | ACCEPTED FOR DEMO (baseline: VERIFIED) | [VP-060](#vp-060) | 1/1 |
+| <a id="mod-16"></a>MOD-16 | **Reporting & Analytics** | Light | ACCEPTED FOR DEMO (baseline: VERIFIED (reported)) | [VP-060](#vp-060) | 1/1 |
 | <a id="mod-17"></a>MOD-17 | **Search & Centralized Client View** | Light | ACCEPTED FOR DEMO (baseline: PARTIAL) | [VP-008](#vp-008), [VP-061](#vp-061) | 0/2 |
 | <a id="mod-18"></a>MOD-18 | **Microsoft 365 Integration** | Light | ACCEPTED FOR DEMO (baseline: PARTIAL) | [VP-017](#vp-017), [VP-020](#vp-020), [VP-021](#vp-021), [VP-022](#vp-022), [VP-026](#vp-026) | 0/5 |
 | <a id="mod-19"></a>MOD-19 | **Identity & Access Management** | Partial | ACCEPTED FOR DEMO (baseline: PARTIAL) | [VP-018](#vp-018), [VP-019](#vp-019) | 1/2 |
@@ -203,18 +203,18 @@ The current module-status column follows [S3], not a recalculated guess. Detaile
 | <a id="mod-24"></a>MOD-24 | **Financial Statements** | Partial | ACCEPTED FOR DEMO (baseline: PARTIAL) | [VP-040](#vp-040), [VP-041](#vp-041) | 0/2 |
 | <a id="mod-25"></a>MOD-25 | **Financial Packages** | Partial | ACCEPTED FOR DEMO (baseline: PARTIAL) | [VP-042](#vp-042) | 0/1 |
 | <a id="mod-26"></a>MOD-26 | **Consolidation** | Missing | ACCEPTED FOR DEMO (baseline: PARTIAL) | [VP-043](#vp-043), [VP-044](#vp-044), [VP-045](#vp-045), [VP-046](#vp-046) | 1/4 |
-| <a id="mod-27"></a>MOD-27 | **Client Acceptance** | Partial | ACCEPTED FOR DEMO (baseline: VERIFIED) | [VP-047](#vp-047) | 1/1 |
+| <a id="mod-27"></a>MOD-27 | **Client Acceptance** | Partial | ACCEPTED FOR DEMO (baseline: VERIFIED (reported)) | [VP-047](#vp-047) | 1/1 |
 | <a id="mod-28"></a>MOD-28 | **Audit Planning** | Light | ACCEPTED FOR DEMO (baseline: PARTIAL) | [VP-048](#vp-048) | 0/1 |
 | <a id="mod-29"></a>MOD-29 | **Risks & Audit Programs** | Light | ACCEPTED FOR DEMO (baseline: PARTIAL) | [VP-049](#vp-049) | 0/1 |
 | <a id="mod-30"></a>MOD-30 | **Audit Fieldwork** | Partial | ACCEPTED FOR DEMO (baseline: PARTIAL) | [VP-050](#vp-050) | 0/1 |
-| <a id="mod-31"></a>MOD-31 | **Populations & Sampling** | Light | ACCEPTED FOR DEMO (baseline: VERIFIED) | [VP-051](#vp-051) | 1/1 |
-| <a id="mod-32"></a>MOD-32 | **Workpapers** | Strong; gaps remain | ACCEPTED FOR DEMO (baseline: VERIFIED) | [VP-052](#vp-052) | 1/1 |
-| <a id="mod-33"></a>MOD-33 | **Evidence** | Partial | ACCEPTED FOR DEMO (baseline: VERIFIED) | [VP-053](#vp-053) | 1/1 |
+| <a id="mod-31"></a>MOD-31 | **Populations & Sampling** | Light | ACCEPTED FOR DEMO (baseline: VERIFIED (reported)) | [VP-051](#vp-051) | 1/1 |
+| <a id="mod-32"></a>MOD-32 | **Workpapers** | Strong; gaps remain | ACCEPTED FOR DEMO (baseline: VERIFIED (reported)) | [VP-052](#vp-052) | 1/1 |
+| <a id="mod-33"></a>MOD-33 | **Evidence** | Partial | ACCEPTED FOR DEMO (baseline: VERIFIED (reported)) | [VP-053](#vp-053) | 1/1 |
 | <a id="mod-34"></a>MOD-34 | **Findings & Differences** | Light | ACCEPTED FOR DEMO (baseline: PARTIAL) | [VP-054](#vp-054) | 0/1 |
-| <a id="mod-35"></a>MOD-35 | **Review Points** | Strong; gaps remain | ACCEPTED FOR DEMO (baseline: VERIFIED) | [VP-055](#vp-055) | 1/1 |
-| <a id="mod-36"></a>MOD-36 | **Reviews & Approvals** | Strong; gaps remain | ACCEPTED FOR DEMO (baseline: VERIFIED) | [VP-056](#vp-056) | 1/1 |
-| <a id="mod-37"></a>MOD-37 | **Completion & Release** | Strong; gaps remain | ACCEPTED FOR DEMO (baseline: VERIFIED) | [VP-057](#vp-057), [VP-058](#vp-058) | 2/2 |
-| <a id="mod-38"></a>MOD-38 | **Records & Archive** | Partial | ACCEPTED FOR DEMO (baseline: VERIFIED) | [VP-059](#vp-059) | 1/1 |
+| <a id="mod-35"></a>MOD-35 | **Review Points** | Strong; gaps remain | ACCEPTED FOR DEMO (baseline: VERIFIED (reported)) | [VP-055](#vp-055) | 1/1 |
+| <a id="mod-36"></a>MOD-36 | **Reviews & Approvals** | Strong; gaps remain | ACCEPTED FOR DEMO (baseline: VERIFIED (reported)) | [VP-056](#vp-056) | 1/1 |
+| <a id="mod-37"></a>MOD-37 | **Completion & Release** | Strong; gaps remain | ACCEPTED FOR DEMO (baseline: VERIFIED (reported)) | [VP-057](#vp-057), [VP-058](#vp-058) | 2/2 |
+| <a id="mod-38"></a>MOD-38 | **Records & Archive** | Partial | ACCEPTED FOR DEMO (baseline: VERIFIED (reported)) | [VP-059](#vp-059) | 1/1 |
 | <a id="mod-39"></a>MOD-39 | **Administration** | Light | ACCEPTED FOR DEMO (baseline: PARTIAL) | [VP-019](#vp-019), [VP-062](#vp-062) | 0/2 |Every module also depends on the common contracts and VP-001–VP-004 / VP-063–VP-064. Module counts are not effort weights. Do not divide 10 by 39 and call that the percentage of code implemented.
 <a id="story-register"></a>
 ## 6. Complete 64-story summary register
@@ -228,7 +228,7 @@ Use this register for planning and the detailed records below for implementation
 | [VP-006](#vp-006) | Complete client profile creation, editing and lifecycle | M1 | ACCEPTED FOR DEMO (baseline: PARTIAL) | E/R | P2 | Unassigned / not linked |
 | [VP-007](#vp-007) | Add contacts, relationship groups and bounded custom fields | M1 | ACCEPTED FOR DEMO (baseline: PARTIAL) | E/I | P2 | Unassigned / not linked |
 | [VP-008](#vp-008) | Complete the centralized client workspace | M1 | ACCEPTED FOR DEMO (baseline: PARTIAL) | E/R | P2 | Unassigned / not linked |
-| [VP-009](#vp-009) | Finish the leads and opportunities pipeline | M1 | ACCEPTED FOR DEMO (baseline: VERIFIED, reported) | Regression only | Regression | Unassigned / not linked |
+| [VP-009](#vp-009) | Finish the leads and opportunities pipeline | M1 | ACCEPTED FOR DEMO (baseline: VERIFIED (reported)) | Regression only | Regression | Unassigned / not linked |
 | [VP-010](#vp-010) | Build reusable services and complete proposal drafting | M1 | ACCEPTED FOR DEMO (baseline: PARTIAL) | E/R | P2 | Unassigned / not linked |
 | [VP-011](#vp-011) | Record proposal review, presentation and manual client acceptance | M1 | ACCEPTED FOR DEMO (baseline: PARTIAL) | E | P2 | Unassigned / not linked |
 | [VP-012](#vp-012) | Complete engagement creation and lifecycle handoff | M1 | ACCEPTED FOR DEMO (baseline: PARTIAL) | E/R | P1 | Unassigned / not linked |
@@ -237,7 +237,7 @@ Use this register for planning and the detailed records below for implementation
 | [VP-015](#vp-015) | Implement job-template authoring and manual instantiation | M2 | ACCEPTED FOR DEMO (baseline: PARTIAL) | E/R | P2 | Unassigned / not linked |
 | [VP-016](#vp-016) | Add contextual internal notes, comments and basic mentions | M2 | ACCEPTED FOR DEMO (baseline: PARTIAL) | E/I/R | P2 | Unassigned / not linked |
 | [VP-017](#vp-017) | Create the simplified Microsoft 365 setup wizard | M3 | ACCEPTED FOR DEMO (baseline: PARTIAL) | E/R | P2 | Unassigned / not linked |
-| [VP-018](#vp-018) | Represent Microsoft sign-in and user lifecycle honestly | M3 | ACCEPTED FOR DEMO (baseline: VERIFIED, reported) | Regression only | Regression | Unassigned / not linked |
+| [VP-018](#vp-018) | Represent Microsoft sign-in and user lifecycle honestly | M3 | ACCEPTED FOR DEMO (baseline: VERIFIED (reported)) | Regression only | Regression | Unassigned / not linked |
 | [VP-019](#vp-019) | Add editable application-role grants and scope administration | M3 | ACCEPTED FOR DEMO (baseline: PARTIAL) | E/R | P1 | Unassigned / not linked |
 | [VP-020](#vp-020) | Build the SharePoint-first document browser and client folders | M3 | ACCEPTED FOR DEMO (baseline: PARTIAL) | E/R | P2 | Unassigned / not linked |
 | [VP-021](#vp-021) | Add document versions, existing-file linking and optional OneDrive selection | M3 | ACCEPTED FOR DEMO (baseline: PARTIAL) | E/R | P2 | Unassigned / not linked |
@@ -254,9 +254,9 @@ Use this register for planning and the detailed records below for implementation
 | [VP-032](#vp-032) | Implement offline receipt records, allocation and correction | M5 | ACCEPTED FOR DEMO (baseline: PARTIAL) | E | P1 | Unassigned / not linked |
 | [VP-033](#vp-033) | Add receivables aging and client account statements | M5 | ACCEPTED FOR DEMO (baseline: PARTIAL) | E/R | P2 | Unassigned / not linked |
 | [VP-034](#vp-034) | Add accounting profiles, periods, books, charts and dimensions | M6 | ACCEPTED FOR DEMO (baseline: PARTIAL) | E | P1 | Unassigned / not linked |
-| [VP-035](#vp-035) | Complete bounded CSV and genuine XLSX trial-balance intake | M6 | ACCEPTED FOR DEMO (baseline: VERIFIED, reported) | E | P1 | Unassigned / not linked |
+| [VP-035](#vp-035) | Complete bounded CSV and genuine XLSX trial-balance intake | M6 | ACCEPTED FOR DEMO (baseline: VERIFIED (reported)) | E | P1 | Unassigned / not linked |
 | [VP-036](#vp-036) | Add GL intake, transaction browsing and TB completeness | M6 | ACCEPTED FOR DEMO (baseline: PARTIAL) | E/R | P1 | Unassigned / not linked |
-| [VP-037](#vp-037) | Extend account mappings and reporting validation | M6 | ACCEPTED FOR DEMO (baseline: VERIFIED, reported) | Regression only | Regression | Unassigned / not linked |
+| [VP-037](#vp-037) | Extend account mappings and reporting validation | M6 | ACCEPTED FOR DEMO (baseline: VERIFIED (reported)) | Regression only | Regression | Unassigned / not linked |
 | [VP-038](#vp-038) | Generalize adjustment journals and source-reflection decisions | M6 | ACCEPTED FOR DEMO (baseline: PARTIAL) | E/R | P1 | Unassigned / not linked |
 | [VP-039](#vp-039) | Implement editable manual reconciliation schedules | M6 | ACCEPTED FOR DEMO (baseline: PARTIAL) | E/R | P1 | Unassigned / not linked |
 | [VP-040](#vp-040) | Build configurable financial statements and comparatives | M6 | ACCEPTED FOR DEMO (baseline: PARTIAL) | E/R | P1 | Unassigned / not linked |
@@ -266,20 +266,20 @@ Use this register for planning and the detailed records below for implementation
 | [VP-044](#vp-044) | Select component packages and demonstrate currency translation | M7 | ACCEPTED FOR DEMO (baseline: PARTIAL) | E/R | P1 | Unassigned / not linked |
 | [VP-045](#vp-045) | Implement manual eliminations and group adjustment review | M7 | ACCEPTED FOR DEMO (baseline: PARTIAL) | E/R | P1 | Unassigned / not linked |
 | [VP-046](#vp-046) | Produce, review and export consolidated output | M7 | ACCEPTED FOR DEMO (baseline: PARTIAL) | E/R | P1 | Unassigned / not linked |
-| [VP-047](#vp-047) | Complete client evaluation, conditions and manual continuance | M8 | ACCEPTED FOR DEMO (baseline: VERIFIED, reported) | Regression only | Regression | Unassigned / not linked |
+| [VP-047](#vp-047) | Complete client evaluation, conditions and manual continuance | M8 | ACCEPTED FOR DEMO (baseline: VERIFIED (reported)) | Regression only | Regression | Unassigned / not linked |
 | [VP-048](#vp-048) | Build a complete audit planning workspace | M8 | ACCEPTED FOR DEMO (baseline: PARTIAL) | E/R | P1 | Unassigned / not linked |
 | [VP-049](#vp-049) | Add editable risks, audit programs and procedure linkage | M8 | ACCEPTED FOR DEMO (baseline: PARTIAL) | E | P2 | Unassigned / not linked |
 | [VP-050](#vp-050) | Implement procedure-level fieldwork execution | M8 | ACCEPTED FOR DEMO (baseline: PARTIAL) | E/R | P1 | Unassigned / not linked |
-| [VP-051](#vp-051) | Complete populations, manual sample selection and test results | M8 | ACCEPTED FOR DEMO (baseline: VERIFIED, reported) | Regression only | Regression | Unassigned / not linked |
-| [VP-052](#vp-052) | Complete workpaper creation, template administration and reassignment | M8 | ACCEPTED FOR DEMO (baseline: VERIFIED, reported) | Regression only | Regression | Unassigned / not linked |
-| [VP-053](#vp-053) | Add a reusable, version-aware evidence catalogue | M8 | ACCEPTED FOR DEMO (baseline: VERIFIED, reported) | Regression only | Regression | Unassigned / not linked |
+| [VP-051](#vp-051) | Complete populations, manual sample selection and test results | M8 | ACCEPTED FOR DEMO (baseline: VERIFIED (reported)) | Regression only | Regression | Unassigned / not linked |
+| [VP-052](#vp-052) | Complete workpaper creation, template administration and reassignment | M8 | ACCEPTED FOR DEMO (baseline: VERIFIED (reported)) | Regression only | Regression | Unassigned / not linked |
+| [VP-053](#vp-053) | Add a reusable, version-aware evidence catalogue | M8 | ACCEPTED FOR DEMO (baseline: VERIFIED (reported)) | Regression only | Regression | Unassigned / not linked |
 | [VP-054](#vp-054) | Implement findings and differences as separate professional records | M8 | ACCEPTED FOR DEMO (baseline: PARTIAL) | E | P1 | Unassigned / not linked |
-| [VP-055](#vp-055) | Extend review-point assignment, filtering and response evidence | M8 | ACCEPTED FOR DEMO (baseline: VERIFIED, reported) | Regression only | Regression | Unassigned / not linked |
-| [VP-056](#vp-056) | Complete reusable human approvals and independent EQR | M8 | ACCEPTED FOR DEMO (baseline: VERIFIED, reported) | Regression only | Regression | Unassigned / not linked |
-| [VP-057](#vp-057) | Complete the human-controlled completion and release workspace | M9 | ACCEPTED FOR DEMO (baseline: VERIFIED, reported) | Regression only | Regression | Unassigned / not linked |
-| [VP-058](#vp-058) | Demonstrate corrections, amendments and reissue lineage | M9 | ACCEPTED FOR DEMO (baseline: VERIFIED, reported) | Regression only | Regression | Unassigned / not linked |
-| [VP-059](#vp-059) | Finish Records & Archive without Microsoft Purview | M9 | ACCEPTED FOR DEMO (baseline: VERIFIED, reported) | Regression only | Regression | Unassigned / not linked |
-| [VP-060](#vp-060) | Create a practical report centre with reconciled metrics | M10 | ACCEPTED FOR DEMO (baseline: VERIFIED, reported) | Regression only | Regression | Unassigned / not linked |
+| [VP-055](#vp-055) | Extend review-point assignment, filtering and response evidence | M8 | ACCEPTED FOR DEMO (baseline: VERIFIED (reported)) | Regression only | Regression | Unassigned / not linked |
+| [VP-056](#vp-056) | Complete reusable human approvals and independent EQR | M8 | ACCEPTED FOR DEMO (baseline: VERIFIED (reported)) | Regression only | Regression | Unassigned / not linked |
+| [VP-057](#vp-057) | Complete the human-controlled completion and release workspace | M9 | ACCEPTED FOR DEMO (baseline: VERIFIED (reported)) | Regression only | Regression | Unassigned / not linked |
+| [VP-058](#vp-058) | Demonstrate corrections, amendments and reissue lineage | M9 | ACCEPTED FOR DEMO (baseline: VERIFIED (reported)) | Regression only | Regression | Unassigned / not linked |
+| [VP-059](#vp-059) | Finish Records & Archive without Microsoft Purview | M9 | ACCEPTED FOR DEMO (baseline: VERIFIED (reported)) | Regression only | Regression | Unassigned / not linked |
+| [VP-060](#vp-060) | Create a practical report centre with reconciled metrics | M10 | ACCEPTED FOR DEMO (baseline: VERIFIED (reported)) | Regression only | Regression | Unassigned / not linked |
 | [VP-061](#vp-061) | Implement ordinary global search and safe cross-links | M10 | ACCEPTED FOR DEMO (baseline: PARTIAL) | E/R | P2 | Unassigned / not linked |
 | [VP-062](#vp-062) | Complete firm and application administration | M10 | ACCEPTED FOR DEMO (baseline: PARTIAL) | E/R | P2 | Unassigned / not linked |
 | [VP-063](#vp-063) | Add executable cross-module browser acceptance and regression tests | M10 | ACCEPTED FOR DEMO (baseline: PARTIAL) | E | P1 | Unassigned / not linked |
@@ -289,7 +289,7 @@ Use this register for planning and the detailed records below for implementation
 Each record includes the exact original user story, required scope, four acceptance criteria, current demonstrated work and pending closure actions. **No criterion is deleted just because a module looks complete.** Original prerequisite expressions are preserved. New action IDs such as `VP-041-I01` are tracker-only subdivisions; they do not replace VP story IDs.
 <a id="vp-001"></a>
 ### VP-001 — Freeze scope and remove excluded product surfaces
-**Current status:** ACCEPTED FOR DEMO — agent review at `b988be1` (baseline: PARTIAL)<br>
+**Current status:** ACCEPTED FOR DEMO — agent review at `5f8f9ef` (baseline: PARTIAL)<br>
 **Milestone:** M0  
 **Tracker priority:** P2  
 **Owner:** Unassigned  
@@ -324,7 +324,7 @@ Inventory the active Vite routes, renderer overrides, actions, service cards, fi
 **Next evidence update:** Exact tested commit: `0077cc6` (working tree on `main`, uncommitted); fixture: current seed via `npm run test:unit` / `test:e2e`; criterion → test/run link: AC01 → `tests/unit/scope.test.ts` AT-04 scan + Shell route audit; AC02 → README/scope.md historical labelling + native-entry inspection (`src/main.tsx`); AC03 → 69/69 Chrome journeys (PBC, workpapers, review, release) reachable without live setup; AC04 → `scope.test.ts` allowlist within 172/172 unit; reviewer/date: **pending human sign-off / 2026-09-25**. These unfilled fields are for the next acceptance update, not an assertion that no tests exist.
 <a id="vp-002"></a>
 ### VP-002 — Introduce a single typed state and legacy/React route bridge
-**Current status:** ACCEPTED FOR DEMO — agent review at `b988be1` (baseline: PARTIAL)<br>
+**Current status:** ACCEPTED FOR DEMO — agent review at `5f8f9ef` (baseline: PARTIAL)<br>
 **Milestone:** M0  
 **Tracker priority:** P1  
 **Owner:** Unassigned  
@@ -359,7 +359,7 @@ Create a typed prototype store, command boundary, selectors and explicit legacy 
 **Next evidence update:** Test base `0077cc6` plus current uncommitted changes; fixture: current seeded state and each historical hash route; AC04 → `tests/unit/legacyRoutes.test.ts`, `tests/e2e/app.test.ts::VP-002-AC04` (179/179 unit; 75/75 E2E, 2026-09-25). AC01–AC03 remain open for criterion-mapped single-state/repeated-mount review across all active modules; reviewer/date: **pending human sign-off / 2026-09-25**.
 <a id="vp-003"></a>
 ### VP-003 — Unify navigation, scoped views and reusable form behaviour
-**Current status:** ACCEPTED FOR DEMO — agent review at `b988be1` (baseline: PARTIAL)<br>
+**Current status:** ACCEPTED FOR DEMO — agent review at `5f8f9ef` (baseline: PARTIAL)<br>
 **Milestone:** M0  
 **Tracker priority:** P1  
 **Owner:** Unassigned  
@@ -395,7 +395,7 @@ Create grouped navigation for Practice, Work, Client Services, Economics, Accoun
 **Next evidence update:** Exact tested commit: `—`; fixture: `—`; criterion → test/run link: `—`; reviewer/date: **pending human sign-off / 2026-09-25**. These unfilled fields are for the next acceptance update, not an assertion that no tests exist.
 <a id="vp-004"></a>
 ### VP-004 — Version fixtures, migrate existing demo state and provide scenario recovery
-**Current status:** ACCEPTED FOR DEMO — agent review at `b988be1` (baseline: PARTIAL)<br>
+**Current status:** ACCEPTED FOR DEMO — agent review at `5f8f9ef` (baseline: PARTIAL)<br>
 **Milestone:** M0  
 **Tracker priority:** P1  
 **Owner:** Unassigned  
@@ -431,7 +431,7 @@ Add schema-versioned migrations and named synthetic scenarios: full practice lif
 **Next evidence update:** Exact tested commit: `—`; fixture: `—`; criterion → test/run link: `—`; reviewer/date: **pending human sign-off / 2026-09-25**. These unfilled fields are for the next acceptance update, not an assertion that no tests exist.
 <a id="vp-005"></a>
 ### VP-005 — Build a real practice dashboard with scoped drill-downs
-**Current status:** ACCEPTED FOR DEMO — agent review at `b988be1` (baseline: PARTIAL)<br>
+**Current status:** ACCEPTED FOR DEMO — agent review at `5f8f9ef` (baseline: PARTIAL)<br>
 **Milestone:** M1  
 **Tracker priority:** P2  
 **Owner:** Unassigned  
@@ -465,7 +465,7 @@ Extend rather than discard existing role homepages. Show my tasks, jobs by state
 **Requirement source:** [Original contract at this story](https://github.com/nirzaf/auditsphere-visual-prototype/blob/eaaa7cfd0ea9379a19e147c98752466ea75aab8d/Gap_Closure_User_Stories.md#L358).**Evidence update:** Base `0077cc6` plus current uncommitted working-tree changes; fixture: `createInitialState()` plus isolated narrow-grant, overdue, empty, terminal and archived variants; criteria → `tests/e2e/app.test.ts` “VP-005: scopes dashboard records, metrics, attention and activity to the active grant”; full E2E 75/75 on 2026-09-25. Reviewer/date: pending human sign-off.
 <a id="vp-006"></a>
 ### VP-006 — Complete client profile creation, editing and lifecycle
-**Current status:** ACCEPTED FOR DEMO — agent review at `b988be1` (baseline: PARTIAL)<br>
+**Current status:** ACCEPTED FOR DEMO — agent review at `5f8f9ef` (baseline: PARTIAL)<br>
 **Milestone:** M1  
 **Tracker priority:** P2  
 **Owner:** Unassigned  
@@ -500,7 +500,7 @@ Required: client code, legal name, client type, status and owner. Optional: trad
 **Next evidence update:** Exact tested commit: `—`; fixture: `—`; criterion → test/run link: `—`; reviewer/date: **pending human sign-off / 2026-09-25**. These unfilled fields are for the next acceptance update, not an assertion that no tests exist.
 <a id="vp-007"></a>
 ### VP-007 — Add contacts, relationship groups and bounded custom fields
-**Current status:** ACCEPTED FOR DEMO — agent review at `b988be1` (baseline: PARTIAL)<br>
+**Current status:** ACCEPTED FOR DEMO — agent review at `5f8f9ef` (baseline: PARTIAL)<br>
 **Milestone:** M1  
 **Tracker priority:** P2  
 **Owner:** Unassigned  
@@ -535,7 +535,7 @@ Contacts need full name and related client; email, phone, job title, primary fla
 **Next evidence update:** Exact tested commit: `—`; fixture: `—`; criterion → test/run link: `—`; reviewer/date: **pending human sign-off / 2026-09-25**. These unfilled fields are for the next acceptance update, not an assertion that no tests exist.
 <a id="vp-008"></a>
 ### VP-008 — Complete the centralized client workspace
-**Current status:** ACCEPTED FOR DEMO — agent review at `b988be1` (baseline: PARTIAL)<br>
+**Current status:** ACCEPTED FOR DEMO — agent review at `5f8f9ef` (baseline: PARTIAL)<br>
 **Milestone:** M1  
 **Tracker priority:** P2  
 **Owner:** Unassigned  
@@ -570,7 +570,7 @@ Create tabs/panels for Overview, Contacts, Engagements, Jobs, Documents, Request
 **Next evidence update:** Exact tested commit: `—`; fixture: `—`; criterion → test/run link: `—`; reviewer/date: **pending human sign-off / 2026-09-25**. These unfilled fields are for the next acceptance update, not an assertion that no tests exist.
 <a id="vp-009"></a>
 ### VP-009 — Finish the leads and opportunities pipeline
-**Current status:** ACCEPTED FOR DEMO — agent review at `b988be1` (baseline: VERIFIED (repository-reported))<br>
+**Current status:** ACCEPTED FOR DEMO — agent review at `5f8f9ef` (baseline: VERIFIED (repository-reported))<br>
 **Milestone:** M1  
 **Tracker priority:** Regression  
 **Owner:** Unassigned  
@@ -603,7 +603,7 @@ Extend acquisition with inquiry source, owner, contact, requested services, expe
 **Next evidence update:** Exact tested commit: `—`; fixture: `—`; criterion → test/run link: `—`; reviewer/date: **pending human sign-off / 2026-09-25**. These unfilled fields are for the next acceptance update, not an assertion that no tests exist.
 <a id="vp-010"></a>
 ### VP-010 — Build reusable services and complete proposal drafting
-**Current status:** ACCEPTED FOR DEMO — agent review at `b988be1` (baseline: PARTIAL)<br>
+**Current status:** ACCEPTED FOR DEMO — agent review at `5f8f9ef` (baseline: PARTIAL)<br>
 **Milestone:** M1  
 **Tracker priority:** P2  
 **Owner:** Unassigned  
@@ -639,7 +639,7 @@ Add service catalogue editing for only supported services and reusable proposal 
 **Next evidence update:** Tested base `0077cc6` plus uncommitted working tree; fixture: seeded demo state plus browser-authored VP-010 service/template; criterion → run: AC01/AC02 → VP-010-E01 Chrome + period-guard unit checks; AC03 → VP-010 lifecycle unit revision + AT-58 Chrome return/revise/redisplay snapshot comparison; AC04 → AT-04 scope scan; reviewer/date: pending human sign-off / 2026-09-25. Print artifact layout review and wider actor/currency/rework cases remain open.
 <a id="vp-011"></a>
 ### VP-011 — Record proposal review, presentation and manual client acceptance
-**Current status:** ACCEPTED FOR DEMO — agent review at `b988be1` (baseline: PARTIAL)<br>
+**Current status:** ACCEPTED FOR DEMO — agent review at `5f8f9ef` (baseline: PARTIAL)<br>
 **Milestone:** M1  
 **Tracker priority:** P2  
 **Owner:** Unassigned  
@@ -674,7 +674,7 @@ Reuse independent commercial review. Reviewer approves or returns with reasons. 
 **Next evidence update:** Current uncommitted worktree; AC01 → RR20 same-person review denial; AC02 → AT-09/AT-52/AT-56 plus VP-011 response guard unit matrix for actor/revision/type/method/contact/date/evidence; AC03 → AT-09/AT-56 no auto-engagement; AC04 → store stale/superseded response checks and withdrawal lineage across a new revision. Human sign-off and complete actor/resource matrix remain open / 2026-09-25.
 <a id="vp-012"></a>
 ### VP-012 — Complete engagement creation and lifecycle handoff
-**Current status:** ACCEPTED FOR DEMO — agent review at `b988be1` (baseline: PARTIAL)<br>
+**Current status:** ACCEPTED FOR DEMO — agent review at `5f8f9ef` (baseline: PARTIAL)<br>
 **Milestone:** M1  
 **Tracker priority:** P1  
 **Owner:** Unassigned  
@@ -710,7 +710,7 @@ Complete engagement records with client, service, period, partner/manager, team 
 **Next evidence update:** Tested base `0077cc6` plus current uncommitted worktree; fixture: deterministic seeded ENG-26001 with reviewed statement, reconciliation, cash-flow, audit plan, performed procedure and release approval; criterion → run: AC04 → `tests/e2e/app.test.ts::VP-012: suspends and resumes an engagement with reasoned persisted history` and `tests/unit/guards.test.ts` scope/team invalidation checks; `npm run lint`, 185/185 unit, production build, full E2E 79/79 and `git diff --check` pass on 2026-09-25; acceptance-owner sign-off pending.
 <a id="vp-013"></a>
 ### VP-013 — Add the simple job register and job detail workspace
-**Current status:** ACCEPTED FOR DEMO — agent review at `b988be1` (baseline: PARTIAL)<br>
+**Current status:** ACCEPTED FOR DEMO — agent review at `5f8f9ef` (baseline: PARTIAL)<br>
 **Milestone:** M2  
 **Tracker priority:** P2  
 **Owner:** Unassigned  
@@ -744,7 +744,7 @@ Required: title, client, engagement and owner. Optional: description, start/due 
 **Requirement source:** [Original contract at this story](https://github.com/nirzaf/auditsphere-visual-prototype/blob/eaaa7cfd0ea9379a19e147c98752466ea75aab8d/Gap_Closure_User_Stories.md#L496).**Acceptance evidence:** Implementation commit `83f060a`; historical checks ran 2026-09-24 (159/159 unit; 68/68 E2E). Additional local closeout ran 2026-09-25 on base `0077cc6` plus uncommitted working-tree changes: 174/174 unit and 74/74 E2E. AT-11 covers command/UI completion guards, successful completion after all required tasks finish, no approval/release/invoice side effects, cancellation retention/read-only behavior, empty-job display and manual job edits/status transitions. Criterion rows above remain OPEN FOR SIGN-OFF pending exact criterion-level evidence mapping and separate reviewer sign-off.
 <a id="vp-014"></a>
 ### VP-014 — Implement tasks and exactly one level of subtasks
-**Current status:** ACCEPTED FOR DEMO — agent review at `b988be1` (baseline: VERIFIED (automated acceptance))<br>
+**Current status:** ACCEPTED FOR DEMO — agent review at `5f8f9ef` (baseline: VERIFIED (automated acceptance))<br>
 **Milestone:** M2  
 **Tracker priority:** P2  
 **Owner:** Unassigned  
@@ -779,7 +779,7 @@ Task fields: title, job ID, optional description/assignee/due date, manual statu
 **Requirement source:** [Original contract at this story](https://github.com/nirzaf/auditsphere-visual-prototype/blob/eaaa7cfd0ea9379a19e147c98752466ea75aab8d/Gap_Closure_User_Stories.md#L513).**Acceptance evidence:** Implementation commit `83f060a` plus acceptance-test updates in the current change; `npm run test:unit` (159/159) and `npm run test:e2e` (68/68), run 2026-09-24. Automated acceptance only; no separate reviewer sign-off recorded.
 <a id="vp-015"></a>
 ### VP-015 — Implement job-template authoring and manual instantiation
-**Current status:** ACCEPTED FOR DEMO — agent review at `b988be1` (baseline: PARTIAL)<br>
+**Current status:** ACCEPTED FOR DEMO — agent review at `5f8f9ef` (baseline: PARTIAL)<br>
 **Milestone:** M2  
 **Tracker priority:** P2  
 **Owner:** Unassigned  
@@ -814,7 +814,7 @@ Add template list/editor/preview with name, supported service, description, defa
 **Next evidence update:** Tested base `0077cc6` plus current uncommitted working tree; fixture: seeded demo `TPL-JOB-01/02` plus browser-authored AT-13 template; criterion → test/run: AC01/AC02/AC03 → `tests/e2e/app.test.ts::AT-13`; AC04 and structural/date negatives → `tests/unit/guards.test.ts` job-template lifecycle; current run `npm run lint`, 185/185 unit, build, full E2E 79/79 and `git diff --check` pass on 2026-09-25; acceptance owner sign-off pending.
 <a id="vp-016"></a>
 ### VP-016 — Add contextual internal notes, comments and basic mentions
-**Current status:** ACCEPTED FOR DEMO — agent review at `b988be1` (baseline: PARTIAL)<br>
+**Current status:** ACCEPTED FOR DEMO — agent review at `5f8f9ef` (baseline: PARTIAL)<br>
 **Milestone:** M2  
 **Tracker priority:** P2  
 **Owner:** Unassigned  
@@ -850,7 +850,7 @@ Add a reusable thread panel with author, time, text, subject reference and expli
 **Next evidence update:** Exact tested commit: `—`; fixture: `—`; criterion → test/run link: `—`; reviewer/date: **pending human sign-off / 2026-09-25**. These unfilled fields are for the next acceptance update, not an assertion that no tests exist.
 <a id="vp-017"></a>
 ### VP-017 — Create the simplified Microsoft 365 setup wizard
-**Current status:** ACCEPTED FOR DEMO — agent review at `b988be1` (baseline: PARTIAL)<br>
+**Current status:** ACCEPTED FOR DEMO — agent review at `5f8f9ef` (baseline: PARTIAL)<br>
 **Milestone:** M3  
 **Tracker priority:** P2  
 **Owner:** Unassigned  
@@ -886,7 +886,7 @@ Steps: start demonstration connection; choose synthetic tenant; select permitted
 **Next evidence update:** Current uncommitted worktree; fixture: deterministic `createInitialState()` tenant and active personas. AT-15/AT-16 covers explicit Start/Skip, Back/Continue, cancel rollback, review/save, wrong-tenant missing-resource recovery and no external requests; AT-21 covers OneDrive optionality. Latest validation: lint/build, 197/197 unit, focused M365 Chrome 2/2 and full outcome-matrix unit test, full E2E 83/83, `git diff --check`; 2026-09-25. Broader invalid tenant/resource/person, outage and excluded-provider cases remain open.
 <a id="vp-018"></a>
 ### VP-018 — Represent Microsoft sign-in and user lifecycle honestly
-**Current status:** ACCEPTED FOR DEMO — agent review at `b988be1` (baseline: VERIFIED (repository-reported))<br>
+**Current status:** ACCEPTED FOR DEMO — agent review at `5f8f9ef` (baseline: VERIFIED (repository-reported))<br>
 **Milestone:** M3  
 **Tracker priority:** Regression  
 **Owner:** Unassigned  
@@ -918,7 +918,7 @@ Add a clearly labelled sign-in simulation/landing screen and a synthetic directo
 **Next evidence update:** Exact tested commit: `—`; fixture: `—`; criterion → test/run link: `—`; reviewer/date: **pending human sign-off / 2026-09-25**. These unfilled fields are for the next acceptance update, not an assertion that no tests exist.
 <a id="vp-019"></a>
 ### VP-019 — Add editable application-role grants and scope administration
-**Current status:** ACCEPTED FOR DEMO — agent review at `b988be1` (baseline: PARTIAL)<br>
+**Current status:** ACCEPTED FOR DEMO — agent review at `5f8f9ef` (baseline: PARTIAL)<br>
 **Milestone:** M3  
 **Tracker priority:** P1  
 **Owner:** Unassigned  
@@ -953,7 +953,7 @@ Add user detail tabs for role grants, client/engagement/group assignments and ac
 **Requirement source:** [Original contract at this story](https://github.com/nirzaf/auditsphere-visual-prototype/blob/eaaa7cfd0ea9379a19e147c98752466ea75aab8d/Gap_Closure_User_Stories.md#L600).**Evidence update:** `51de04c98d74302589634f27c69b9d0137c16e83` covers the cross-tab revocation/stale-dialog subcase; see the Section 10.2 ledger and `verification.md`. Expiry-specific and remaining AC01/AC03/AC04 evidence remains open.
 <a id="vp-020"></a>
 ### VP-020 — Build the SharePoint-first document browser and client folders
-**Current status:** ACCEPTED FOR DEMO — agent review at `b988be1` (baseline: PARTIAL)<br>
+**Current status:** ACCEPTED FOR DEMO — agent review at `5f8f9ef` (baseline: PARTIAL)<br>
 **Milestone:** M3  
 **Tracker priority:** P2  
 **Owner:** Unassigned  
@@ -989,7 +989,7 @@ Add folder/file list, breadcrumbs, search/filter, metadata panel, related-record
 **Next evidence update:** Exact tested commit: `—`; fixture: `—`; criterion → test/run link: `—`; reviewer/date: **pending human sign-off / 2026-09-25**. These unfilled fields are for the next acceptance update, not an assertion that no tests exist.
 <a id="vp-021"></a>
 ### VP-021 — Add document versions, existing-file linking and optional OneDrive selection
-**Current status:** ACCEPTED FOR DEMO — agent review at `b988be1` (baseline: PARTIAL)<br>
+**Current status:** ACCEPTED FOR DEMO — agent review at `5f8f9ef` (baseline: PARTIAL)<br>
 **Milestone:** M3  
 **Tracker priority:** P2  
 **Owner:** Unassigned  
@@ -1025,7 +1025,7 @@ Provide link-existing-SharePoint-file, version history, replacement, classificat
 **Next evidence update:** Exact tested commit: `—`; fixture: `—`; criterion → test/run link: `—`; reviewer/date: **pending human sign-off / 2026-09-25**. These unfilled fields are for the next acceptance update, not an assertion that no tests exist.
 <a id="vp-022"></a>
 ### VP-022 — Complete Microsoft configuration failure, reconnect and disconnect journeys
-**Current status:** ACCEPTED FOR DEMO — agent review at `b988be1` (baseline: PARTIAL)<br>
+**Current status:** ACCEPTED FOR DEMO — agent review at `5f8f9ef` (baseline: PARTIAL)<br>
 **Milestone:** M3  
 **Tracker priority:** P2  
 **Owner:** Unassigned  
@@ -1060,7 +1060,7 @@ Add independent configuration cards for identity, SharePoint, mail and optional 
 **Next evidence update:** Exact tested commit: `—`; fixture: `—`; criterion → test/run link: `—`; reviewer/date: **pending human sign-off / 2026-09-25**. These unfilled fields are for the next acceptance update, not an assertion that no tests exist.
 <a id="vp-023"></a>
 ### VP-023 — Complete PBC request creation, editing and ownership
-**Current status:** ACCEPTED FOR DEMO — agent review at `b988be1` (baseline: PARTIAL)<br>
+**Current status:** ACCEPTED FOR DEMO — agent review at `5f8f9ef` (baseline: PARTIAL)<br>
 **Milestone:** M4  
 **Tracker priority:** P2  
 **Owner:** Unassigned  
@@ -1096,7 +1096,7 @@ Extend the existing request workflow with title, description, category, engageme
 **Next evidence update:** Exact tested commit: `—`; fixture: `—`; criterion → test/run link: `—`; reviewer/date: **pending human sign-off / 2026-09-25**. These unfilled fields are for the next acceptance update, not an assertion that no tests exist.
 <a id="vp-024"></a>
 ### VP-024 — Finish PBC submission, clarification and evidence acceptance
-**Current status:** ACCEPTED FOR DEMO — agent review at `b988be1` (baseline: PARTIAL)<br>
+**Current status:** ACCEPTED FOR DEMO — agent review at `5f8f9ef` (baseline: PARTIAL)<br>
 **Milestone:** M4  
 **Tracker priority:** P1  
 **Owner:** Unassigned  
@@ -1132,7 +1132,7 @@ Reuse the existing shared request thread. Add multiple document references, text
 **Next evidence update:** Base commit `c5509784cdc8c3240db9105961be43755a0c6cc0`; deterministic ENG-26001 / PBC-TEST-07 fixture; AC03 and E02 → `tests/unit/pbcRequestLifecycle.test.ts` post-acceptance replacement regression plus `tests/e2e/app.test.ts::AT-23/AT-24` document lineage/reload checks; lint/build, 226/226 unit, full serial E2E 99/99, 2026-09-26. Reviewer/date: **pending human sign-off**; VP-024 story remains Partial.
 <a id="vp-025"></a>
 ### VP-025 — Unify the client portal across all agreed client functions
-**Current status:** ACCEPTED FOR DEMO — agent review at `b988be1` (baseline: PARTIAL)<br>
+**Current status:** ACCEPTED FOR DEMO — agent review at `5f8f9ef` (baseline: PARTIAL)<br>
 **Milestone:** M4  
 **Tracker priority:** P2  
 **Owner:** Unassigned  
@@ -1168,7 +1168,7 @@ Provide client home, engagement summaries, requests, shared documents, messages,
 **Next evidence update:** Exact tested commit: `—`; fixture: `—`; criterion → test/run link: `—`; reviewer/date: **pending human sign-off / 2026-09-25**. These unfilled fields are for the next acceptance update, not an assertion that no tests exist.
 <a id="vp-026"></a>
 ### VP-026 — Implement basic outgoing Microsoft email and templates
-**Current status:** ACCEPTED FOR DEMO — agent review at `b988be1` (baseline: PARTIAL)<br>
+**Current status:** ACCEPTED FOR DEMO — agent review at `5f8f9ef` (baseline: PARTIAL)<br>
 **Milestone:** M4  
 **Tracker priority:** P2  
 **Owner:** Unassigned  
@@ -1204,7 +1204,7 @@ Composer fields: configured synthetic sender, To, optional CC, subject, body, cl
 **Next evidence update:** Exact tested commit: `—`; fixture: `—`; criterion → test/run link: `—`; reviewer/date: **pending human sign-off / 2026-09-25**. These unfilled fields are for the next acceptance update, not an assertion that no tests exist.
 <a id="vp-027"></a>
 ### VP-027 — Add a complete communication register and manual incoming notes
-**Current status:** ACCEPTED FOR DEMO — agent review at `b988be1` (baseline: PARTIAL)<br>
+**Current status:** ACCEPTED FOR DEMO — agent review at `5f8f9ef` (baseline: PARTIAL)<br>
 **Milestone:** M4  
 **Tracker priority:** P2  
 **Owner:** Unassigned  
@@ -1240,7 +1240,7 @@ Record incoming email, phone call, meeting or other external-conversation note m
 **Next evidence update:** Exact tested commit: `—`; fixture: `—`; criterion → test/run link: `—`; reviewer/date: **pending human sign-off / 2026-09-25**. These unfilled fields are for the next acceptance update, not an assertion that no tests exist.
 <a id="vp-028"></a>
 ### VP-028 — Complete time entry, review and correction workflows
-**Current status:** ACCEPTED FOR DEMO — agent review at `b988be1` (baseline: PARTIAL)<br>
+**Current status:** ACCEPTED FOR DEMO — agent review at `5f8f9ef` (baseline: PARTIAL)<br>
 **Milestone:** M5  
 **Tracker priority:** P2  
 **Owner:** Unassigned  
@@ -1275,7 +1275,7 @@ Extend existing time screens with work date, client/engagement/job/task, duratio
 **Next evidence update:** Exact tested commit: `—`; fixture: `—`; criterion → test/run link: `—`; reviewer/date: **pending human sign-off / 2026-09-25**. These unfilled fields are for the next acceptance update, not an assertion that no tests exist.
 <a id="vp-029"></a>
 ### VP-029 — Implement simple budgets with distinct billing and cost rates
-**Current status:** ACCEPTED FOR DEMO — agent review at `b988be1` (baseline: PARTIAL)<br>
+**Current status:** ACCEPTED FOR DEMO — agent review at `5f8f9ef` (baseline: PARTIAL)<br>
 **Milestone:** M5  
 **Tracker priority:** P2  
 **Owner:** Unassigned  
@@ -1311,7 +1311,7 @@ Add budget editor with scope, currency, planned minutes by role/activity, option
 **Next evidence update:** Latest current-worktree evidence: `tests/unit/calculations.test.ts` fixed budget example; `tests/unit/lifecycleGaps.test.ts` unallocated variance and rate attribution; `tests/e2e/app.test.ts` AT-29/AT-59. Full suite 269/269 unit, 130/130 E2E; lint, production build and docs validation pass, 2026-09-27. Direct AC01–AC04 mappings are in `docs/prototype/criterion-evidence-ledger.md`; VP-029-E01/E02 bounded actions are complete. Currency/role combinations and human criterion/story acceptance remain open.
 <a id="vp-030"></a>
 ### VP-030 — Complete billing accounts and invoice drafting from explicit sources
-**Current status:** ACCEPTED FOR DEMO — agent review at `b988be1` (baseline: PARTIAL)<br>
+**Current status:** ACCEPTED FOR DEMO — agent review at `5f8f9ef` (baseline: PARTIAL)<br>
 **Milestone:** M5  
 **Tracker priority:** P1  
 **Owner:** Unassigned  
@@ -1346,7 +1346,7 @@ Add billing-account/contact details, invoice dates/due date/currency/reference, 
 **Next evidence update:** Current uncommitted worktree at base `0077cc6`; `tests/e2e/app.test.ts` AT-30 verifies invoice account/contact snapshot, explicit approved-time reservation, draft cancellation and re-reservation, and two ad-hoc lines with quantity/rate and exact summed invoice total; `tests/unit/guards.test.ts` rejects zero quantity and cancellation after approval. Lint/build clean; unit 188/188; full E2E 83/83 (5 static + 78 Chrome); `git diff --check` clean; 2026-09-25. Post-create draft editing, stale-source revision, issued correction/rework and full negative matrix remain open; reviewer sign-off pending.
 <a id="vp-031"></a>
 ### VP-031 — Finish invoice review, issue and credit-note workflows
-**Current status:** ACCEPTED FOR DEMO — agent review at `b988be1` (baseline: PARTIAL)<br>
+**Current status:** ACCEPTED FOR DEMO — agent review at `5f8f9ef` (baseline: PARTIAL)<br>
 **Milestone:** M5  
 **Tracker priority:** P1  
 **Owner:** Unassigned  
@@ -1381,7 +1381,7 @@ Reuse independent review with return reasons and revision-bound approval. Issue 
 **Next evidence update:** `docs/prototype/verification.md` entry 2026-09-27 records the current 270/270 unit and 130/130 browser suites. AT-31 continues to evidence self-approval denial, revision-bound review, exact credit lineage and no payment movement. New guard/Chrome assertions cover date/reference/bill-to validation, deterministic scenario dates, source-linked Edit/Revise, retained source lines and total reconciliation; cancellation, cap, cross-client/currency and scoped-search cases remain covered by AT-30/31 and VP-061-E02. VP-031-E01 is complete as a bounded evidence action. Story acceptance, full criterion-level coverage (including TB/GL and reporting separation), and owner sign-off remain open; no deployment.
 <a id="vp-032"></a>
 ### VP-032 — Implement offline receipt records, allocation and correction
-**Current status:** ACCEPTED FOR DEMO — agent review at `b988be1` (baseline: PARTIAL)<br>
+**Current status:** ACCEPTED FOR DEMO — agent review at `5f8f9ef` (baseline: PARTIAL)<br>
 **Milestone:** M5  
 **Tracker priority:** P1  
 **Owner:** Unassigned  
@@ -1416,7 +1416,7 @@ Add receipt register/detail with client billing account, amount, currency, recei
 **Next evidence update:** Current worktree at base `0077cc6`; `tests/unit/guards.test.ts` VP-032 covers split allocation/reversal, partial and fully settled invoices, past/future due dates, invoice and receipt caps, missing reasons, duplicate reversal, stale invoice/cache atomicity, malformed metadata and amount boundaries. `tests/e2e/app.test.ts` AT-32 verifies split allocation, selective reasoned reversal, reconciled remainder, recorded positive amount/reference, no receipt edit/delete action and no payment/refund/link/bank-connect action. Lint, full unit 204/204, focused AT-32 Chrome 1/1, full E2E 92/92 on unchanged application/E2E sources and `git diff --check` pass; 2026-09-25. Broader actor/currency matrices and owner sign-off remain open.
 <a id="vp-033"></a>
 ### VP-033 — Add receivables aging and client account statements
-**Current status:** ACCEPTED FOR DEMO — agent review at `b988be1` (baseline: PARTIAL)<br>
+**Current status:** ACCEPTED FOR DEMO — agent review at `5f8f9ef` (baseline: PARTIAL)<br>
 **Milestone:** M5  
 **Tracker priority:** P2  
 **Owner:** Unassigned  
@@ -1451,7 +1451,7 @@ Build invoice aging, client statement and receipt/unallocated registers with dat
 **Next evidence update:** Current worktree at base `0077cc6`; `tests/unit/calculations.test.ts` covers due-today and all 30/31/60/61/90/91 boundaries, future receipt timing, and reversal-date historical balances; `tests/e2e/app.test.ts` AT-32/33 opens every aging bucket, matches each drill-down to the fixed-date calculation, checks separate QAR/USD values, verifies reversed funds in the unallocated register, and compares filtered statement rows to CSV. The browser-generated one-page print PDF was rendered for visual review and shows its statement title, account/date/currency context and all visible rows; OS/printer-driver behavior is out of scope. Full unit 204/204, full E2E 92/92, focused AT-32/33 1/1, lint/build/diff check pass, 2026-09-25. Broader actor/currency matrix and owner sign-off remain open.
 <a id="vp-034"></a>
 ### VP-034 — Add accounting profiles, periods, books, charts and dimensions
-**Current status:** ACCEPTED FOR DEMO — agent review at `b988be1` (baseline: PARTIAL)<br>
+**Current status:** ACCEPTED FOR DEMO — agent review at `5f8f9ef` (baseline: PARTIAL)<br>
 **Milestone:** M6  
 **Tracker priority:** P1  
 **Owner:** Unassigned  
@@ -1486,7 +1486,7 @@ Create client accounting profile, legal entity, reporting periods/books, basis a
 **Next evidence update:** Current uncommitted worktree at base `0077cc6`; `tests/unit/guards.test.ts` AT-34 covers profile/chart revisions, invalid chart hierarchy/dates/owners/dimensions, downstream staleness, and closed-book TB/GL import rejection without source mutation; `tests/e2e/app.test.ts` AT-34 verifies client-level changes stale sibling mapping, statement and package snapshots. Lint passed; 190/190 unit; focused AT-34 Chrome 1/1; full E2E 83/83 before the closed-period guard change. Full-suite rerun pending; `git diff --check` clean; 2026-09-25. Broader archive/migration matrix and reviewer sign-off remain open.
 <a id="vp-035"></a>
 ### VP-035 — Complete bounded CSV and genuine XLSX trial-balance intake
-**Current status:** ACCEPTED FOR DEMO — agent review at `b988be1` (baseline: VERIFIED)<br>
+**Current status:** ACCEPTED FOR DEMO — agent review at `5f8f9ef` (baseline: VERIFIED)<br>
 **Milestone:** M6  
 **Tracker priority:** P1  
 **Owner:** Unassigned  
@@ -1519,7 +1519,7 @@ Extend CSV intake with genuine XLSX parsing using a small reviewed browser-compa
 **Requirement source:** [Original contract at this story](https://github.com/nirzaf/auditsphere-visual-prototype/blob/eaaa7cfd0ea9379a19e147c98752466ea75aab8d/Gap_Closure_User_Stories.md#L878).**Verification record:** full-suite commit `fcae15765bf809f946147653ee448ca19ab19d93`; `npm run lint && npm run test:unit && npm run test:e2e`; fixture: deterministic `createInitialState()` plus in-memory CSV and generated XLSX; 161/161 unit and 70/70 E2E checks passed on 2026-09-24. Final copy-only registry update `88950b67e3097a43f0c9f6359f40f50bae94cd0c` passed lint and production build.
 <a id="vp-036"></a>
 ### VP-036 — Add GL intake, transaction browsing and TB completeness
-**Current status:** ACCEPTED FOR DEMO — agent review at `b988be1` (baseline: PARTIAL)<br>
+**Current status:** ACCEPTED FOR DEMO — agent review at `5f8f9ef` (baseline: PARTIAL)<br>
 **Milestone:** M6  
 **Tracker priority:** P1  
 **Owner:** Unassigned  
@@ -1555,7 +1555,7 @@ Provide bounded GL file mapping/preview for journal ID, line ID, account, date, 
 **Next evidence update:** Current uncommitted worktree at base `0077cc6`; `tests/unit/gl-import.test.ts` covers unknown/inactive/non-posting movement and opening accounts with atomic rejection; `tests/e2e/app.test.ts` AT-36 proves mapped source import, account-level opening/movement/TB tie-out and reload. Lint passed; 191/191 unit and full E2E 83/83 passed; `git diff --check` clean; 2026-09-25. Browser negative matrix, package/reconciliation walkthrough and reviewer sign-off remain open.
 <a id="vp-037"></a>
 ### VP-037 — Extend account mappings and reporting validation
-**Current status:** ACCEPTED FOR DEMO — agent review at `b988be1` (baseline: VERIFIED (repository-reported))<br>
+**Current status:** ACCEPTED FOR DEMO — agent review at `5f8f9ef` (baseline: VERIFIED (repository-reported))<br>
 **Milestone:** M6  
 **Tracker priority:** Regression  
 **Owner:** Unassigned  
@@ -1587,7 +1587,7 @@ Replace the five-class-only demonstration with explicit source-account to statem
 **Next evidence update:** Exact tested commit: `—`; fixture: `—`; criterion → test/run link: `—`; reviewer/date: `—`. These unfilled fields are for the next acceptance update, not an assertion that no tests exist.
 <a id="vp-038"></a>
 ### VP-038 — Generalize adjustment journals and source-reflection decisions
-**Current status:** ACCEPTED FOR DEMO — agent review at `b988be1` (baseline: PARTIAL)<br>
+**Current status:** ACCEPTED FOR DEMO — agent review at `5f8f9ef` (baseline: PARTIAL)<br>
 **Milestone:** M6  
 **Tracker priority:** P1  
 **Owner:** Unassigned  
@@ -1623,7 +1623,7 @@ Create journal header/context and arbitrary debit/credit lines; support draft, s
 **Next evidence update:** Bounded E01/E02 follow-ups are closed using the current worktree; fixture: deterministic ENG-26001 / AJ-01, revision-pinned EVD-02/DOC-003, WP-A1, FND-01 and TB source v1→v2 with `TB-IMPORT-REV-1/2`. Evidence: `tests/unit/calculations.test.ts` (reporting decision matrix), `tests/unit/guards.test.ts` (support-pin validation, staleness and VP-038-AC04 malformed/mixed-context line guard), `tests/unit/lifecycleGaps.test.ts` (duplicate-inclusion guard), and `tests/e2e/app.test.ts::AT-38` plus `::VP-038-E01/E02` (Chrome lifecycles). Current build PASS, unit 265/265, full E2E 128/128 (5 static + 123 Chrome), focused adjustment Chrome journeys 2/2; 2026-09-27. Reviewer/date: **pending human sign-off**; VP-038 and AC01/AC04 remain Partial/open.
 <a id="vp-039"></a>
 ### VP-039 — Implement editable manual reconciliation schedules
-**Current status:** ACCEPTED FOR DEMO — agent review at `b988be1` (baseline: PARTIAL)<br>
+**Current status:** ACCEPTED FOR DEMO — agent review at `5f8f9ef` (baseline: PARTIAL)<br>
 **Milestone:** M6  
 **Tracker priority:** P1  
 **Owner:** Unassigned  
@@ -1658,7 +1658,7 @@ Add schedule header with account, period/as-of date, source TB/GL balance and st
 **Next evidence update:** Exact tested commit: `—`; fixture: `—`; criterion → test/run link: `—`; reviewer/date: **pending human sign-off / 2026-09-25**. These unfilled fields are for the next acceptance update, not an assertion that no tests exist.
 <a id="vp-040"></a>
 ### VP-040 — Build configurable financial statements and comparatives
-**Current status:** ACCEPTED FOR DEMO — agent review at `b988be1` (baseline: PARTIAL)<br>
+**Current status:** ACCEPTED FOR DEMO — agent review at `5f8f9ef` (baseline: PARTIAL)<br>
 **Milestone:** M6  
 **Tracker priority:** P1  
 **Owner:** Unassigned  
@@ -1694,7 +1694,7 @@ Support statement of financial position, profit/loss, changes in equity and cash
 **Next evidence update:** Exact tested commit: `—`; fixture: `—`; criterion → test/run link: `—`; reviewer/date: **pending human sign-off / 2026-09-25**. These unfilled fields are for the next acceptance update, not an assertion that no tests exist.
 <a id="vp-041"></a>
 ### VP-041 — Complete notes, cash-flow support and disclosure review
-**Current status:** ACCEPTED FOR DEMO — agent review at `b988be1` (baseline: PARTIAL)<br>
+**Current status:** ACCEPTED FOR DEMO — agent review at `5f8f9ef` (baseline: PARTIAL)<br>
 **Milestone:** M6  
 **Tracker priority:** P1  
 **Owner:** Unassigned  
@@ -1731,7 +1731,7 @@ Add notes/disclosure list with reference, applicability, text/data table, eviden
 **Next evidence update:** Exact tested commit: `—`; fixture: `—`; criterion → test/run link: `—`; reviewer/date: **pending human sign-off / 2026-09-25**. These unfilled fields are for the next acceptance update, not an assertion that no tests exist.
 <a id="vp-042"></a>
 ### VP-042 — Complete financial-package assembly and genuine exports
-**Current status:** ACCEPTED FOR DEMO — agent review at `b988be1` (baseline: PARTIAL)<br>
+**Current status:** ACCEPTED FOR DEMO — agent review at `5f8f9ef` (baseline: PARTIAL)<br>
 **Milestone:** M6  
 **Tracker priority:** P1  
 **Owner:** Unassigned  
@@ -1768,7 +1768,7 @@ Add package contents selection/order, output preview, validation summary, versio
 **Next evidence update:** Test HEAD `804ccc8ee59143dc96bc2fcb5b70e65e55616570`; app source `188ee3bd5c2ded7a241552fe2c5370e1008fcf98`; fixture `ENG-26002`; VP-042-AC04 subcase maps to `tests/e2e/app.test.ts` AT-38/40 and validates actual persisted XLSX/DOCX/PDF bytes and client portal exclusion. Full suite: lint, 172/172 unit and 74/74 E2E; 2026-09-24. Scope-bound sharing matrix and full story acceptance remain open.
 <a id="vp-043"></a>
 ### VP-043 — Create consolidation groups and effective perimeters
-**Current status:** ACCEPTED FOR DEMO — agent review at `b988be1` (baseline: VERIFIED)<br>
+**Current status:** ACCEPTED FOR DEMO — agent review at `5f8f9ef` (baseline: VERIFIED)<br>
 **Milestone:** M7  
 **Tracker priority:** P1  
 **Owner:** Unassigned  
@@ -1803,7 +1803,7 @@ Add group identity, reporting period/basis/currency, manager and revisioned comp
 **Requirement source:** [Original contract at this story](https://github.com/nirzaf/auditsphere-visual-prototype/blob/eaaa7cfd0ea9379a19e147c98752466ea75aab8d/Gap_Closure_User_Stories.md#L1016).**Evidence:** tested tree `fded7b5ad305c0d6178cb404e2a81a2a57776682`; fixture: GRP-01 plus narrow ENG-26001 group grant; criterion evidence: AT-42/AT-43 Chrome journeys and consolidation perimeter guard checks; verified 2026-09-24.
 <a id="vp-044"></a>
 ### VP-044 — Select component packages and demonstrate currency translation
-**Current status:** ACCEPTED FOR DEMO — agent review at `b988be1` (baseline: PARTIAL)<br>
+**Current status:** ACCEPTED FOR DEMO — agent review at `5f8f9ef` (baseline: PARTIAL)<br>
 **Milestone:** M7  
 **Tracker priority:** P1  
 **Owner:** Unassigned  
@@ -1839,7 +1839,7 @@ Create component intake grid with readiness, period, basis, currency, package re
 **Next evidence update:** Exact tested commit: `—`; fixture: `—`; criterion → test/run link: `—`; reviewer/date: **pending human sign-off / 2026-09-25**. These unfilled fields are for the next acceptance update, not an assertion that no tests exist.
 <a id="vp-045"></a>
 ### VP-045 — Implement manual eliminations and group adjustment review
-**Current status:** ACCEPTED FOR DEMO — agent review at `b988be1` (baseline: PARTIAL)<br>
+**Current status:** ACCEPTED FOR DEMO — agent review at `5f8f9ef` (baseline: PARTIAL)<br>
 **Milestone:** M7  
 **Tracker priority:** P1  
 **Owner:** Unassigned  
@@ -1874,7 +1874,7 @@ Add elimination register with component counterparties, account/line references,
 **Next evidence update:** Test HEAD `804ccc8ee59143dc96bc2fcb5b70e65e55616570`; app source `188ee3bd5c2ded7a241552fe2c5370e1008fcf98`; fixture `GRP-01` / `ENG-26002`; criteria AC01/AC02/AC03/AC04 verified subcases map to `tests/unit/calculations.test.ts`, `tests/unit/guards.test.ts` and `tests/e2e/app.test.ts` AT-45/VP-045-AC03 and AT-38/40. Full suite: lint, 172/172 unit and 74/74 E2E; production deployment `f3a56591-1b3a-499b-99dc-84987d3daf5f`, source `188ee3b`, 2026-09-24. Full story acceptance remains open.
 <a id="vp-046"></a>
 ### VP-046 — Produce, review and export consolidated output
-**Current status:** ACCEPTED FOR DEMO — agent review at `b988be1` (baseline: PARTIAL)<br>
+**Current status:** ACCEPTED FOR DEMO — agent review at `5f8f9ef` (baseline: PARTIAL)<br>
 **Milestone:** M7  
 **Tracker priority:** P1  
 **Owner:** Unassigned  
@@ -1909,7 +1909,7 @@ Display component columns, translated totals, eliminations, group adjustments an
 **Next evidence update:** Tested repository HEAD `06ac059cf167f32ea2a24b0309185572bd18e668`; application source `8d30a8291743a90ad544cb0537ea0f6c4771657a`; fixture `GRP-01` / `ENG-26001` / `ENG-26002`. Criteria AC01–AC04 subcases map to `tests/e2e/app.test.ts` AT-42/AT-43/AT-45 and `tests/unit/guards.test.ts` group-output fingerprint/immutability guard. Full suite: lint, 170/170 unit, 73/73 E2E. Cloudflare Pages deployment `4de94450-21ec-495b-99dc-84987d3daf5f` is Production on `production`, source `8d30a82`, 2026-09-24. Full story acceptance remains open for criterion-level closure and remaining edge matrices.
 <a id="vp-047"></a>
 ### VP-047 — Complete client evaluation, conditions and manual continuance
-**Current status:** ACCEPTED FOR DEMO — agent review at `b988be1` (baseline: VERIFIED (repository-reported))<br>
+**Current status:** ACCEPTED FOR DEMO — agent review at `5f8f9ef` (baseline: VERIFIED (repository-reported))<br>
 **Milestone:** M8  
 **Tracker priority:** Regression  
 **Owner:** Unassigned  
@@ -1941,7 +1941,7 @@ Extend the existing cases with typed question definitions, answers, evidence ref
 **Next evidence update:** Exact tested commit: `—`; fixture: `—`; criterion → test/run link: `—`; reviewer/date: **pending human sign-off / 2026-09-25**. These unfilled fields are for the next acceptance update, not an assertion that no tests exist.
 <a id="vp-048"></a>
 ### VP-048 — Build a complete audit planning workspace
-**Current status:** ACCEPTED FOR DEMO — agent review at `b988be1` (baseline: PARTIAL)<br>
+**Current status:** ACCEPTED FOR DEMO — agent review at `5f8f9ef` (baseline: PARTIAL)<br>
 **Milestone:** M8  
 **Tracker priority:** P1  
 **Owner:** Unassigned  
@@ -1977,7 +1977,7 @@ Add plan tabs for entity/service scope, team, timing, materiality, significant a
 **Next evidence update:** Exact tested commit: `—`; fixture: `—`; criterion → test/run link: `—`; reviewer/date: **pending human sign-off / 2026-09-25**. These unfilled fields are for the next acceptance update, not an assertion that no tests exist.
 <a id="vp-049"></a>
 ### VP-049 — Add editable risks, audit programs and procedure linkage
-**Current status:** ACCEPTED FOR DEMO — agent review at `b988be1` (baseline: PARTIAL)<br>
+**Current status:** ACCEPTED FOR DEMO — agent review at `5f8f9ef` (baseline: PARTIAL)<br>
 **Milestone:** M8  
 **Tracker priority:** P2  
 **Owner:** Unassigned  
@@ -2012,7 +2012,7 @@ Create risk records with title, area/assertions, description, rationale, respons
 **Next evidence update:** Exact tested commit: `—`; fixture: `—`; criterion → test/run link: `—`; reviewer/date: **pending human sign-off / 2026-09-25**. These unfilled fields are for the next acceptance update, not an assertion that no tests exist.
 <a id="vp-050"></a>
 ### VP-050 — Implement procedure-level fieldwork execution
-**Current status:** ACCEPTED FOR DEMO — agent review at `b988be1` (baseline: PARTIAL)<br>
+**Current status:** ACCEPTED FOR DEMO — agent review at `5f8f9ef` (baseline: PARTIAL)<br>
 **Milestone:** M8  
 **Tracker priority:** P1  
 **Owner:** Unassigned  
@@ -2047,7 +2047,7 @@ Add a procedure execution grid/detail with work performed, result, evidence link
 **Next evidence update:** Exact tested commit: `—`; fixture: `—`; criterion → test/run link: `—`; reviewer/date: **pending human sign-off / 2026-09-25**. These unfilled fields are for the next acceptance update, not an assertion that no tests exist.
 <a id="vp-051"></a>
 ### VP-051 — Complete populations, manual sample selection and test results
-**Current status:** ACCEPTED FOR DEMO — agent review at `b988be1` (baseline: VERIFIED (repository-reported))<br>
+**Current status:** ACCEPTED FOR DEMO — agent review at `5f8f9ef` (baseline: VERIFIED (repository-reported))<br>
 **Milestone:** M8  
 **Tracker priority:** Regression  
 **Owner:** Unassigned  
@@ -2079,7 +2079,7 @@ Support bounded population import or explicit selection from a permitted source 
 **Next evidence update:** Exact tested commit: `—`; fixture: `—`; criterion → test/run link: `—`; reviewer/date: **pending human sign-off / 2026-09-25**. These unfilled fields are for the next acceptance update, not an assertion that no tests exist.
 <a id="vp-052"></a>
 ### VP-052 — Complete workpaper creation, template administration and reassignment
-**Current status:** ACCEPTED FOR DEMO — agent review at `b988be1` (baseline: VERIFIED (repository-reported))<br>
+**Current status:** ACCEPTED FOR DEMO — agent review at `5f8f9ef` (baseline: VERIFIED (repository-reported))<br>
 **Milestone:** M8  
 **Tracker priority:** Regression  
 **Owner:** Unassigned  
@@ -2111,7 +2111,7 @@ Retain the six-tab workpaper workspace. Add create/copy from published workpaper
 **Next evidence update:** Exact tested commit: `—`; fixture: `—`; criterion → test/run link: `—`; reviewer/date: **pending human sign-off / 2026-09-25**. These unfilled fields are for the next acceptance update, not an assertion that no tests exist.
 <a id="vp-053"></a>
 ### VP-053 — Add a reusable, version-aware evidence catalogue
-**Current status:** ACCEPTED FOR DEMO — agent review at `b988be1` (baseline: VERIFIED (repository-reported))<br>
+**Current status:** ACCEPTED FOR DEMO — agent review at `5f8f9ef` (baseline: VERIFIED (repository-reported))<br>
 **Milestone:** M8  
 **Tracker priority:** Regression  
 **Owner:** Unassigned  
@@ -2143,7 +2143,7 @@ Create evidence records with title, source type, exact document/source revision,
 **Next evidence update:** Exact tested commit: `—`; fixture: `—`; criterion → test/run link: `—`; reviewer/date: **pending human sign-off / 2026-09-25**. These unfilled fields are for the next acceptance update, not an assertion that no tests exist.
 <a id="vp-054"></a>
 ### VP-054 — Implement findings and differences as separate professional records
-**Current status:** ACCEPTED FOR DEMO — agent review at `b988be1` (baseline: PARTIAL)<br>
+**Current status:** ACCEPTED FOR DEMO — agent review at `5f8f9ef` (baseline: PARTIAL)<br>
 **Milestone:** M8  
 **Tracker priority:** P1  
 **Owner:** Unassigned  
@@ -2178,7 +2178,7 @@ Add finding type, title, description, affected account/assertion, source/procedu
 **Next evidence update:** Exact tested commit: `—`; fixture: `—`; criterion → test/run link: `—`; reviewer/date: **pending human sign-off / 2026-09-25**. These unfilled fields are for the next acceptance update, not an assertion that no tests exist.
 <a id="vp-055"></a>
 ### VP-055 — Extend review-point assignment, filtering and response evidence
-**Current status:** ACCEPTED FOR DEMO — agent review at `b988be1` (baseline: VERIFIED (repository-reported))<br>
+**Current status:** ACCEPTED FOR DEMO — agent review at `5f8f9ef` (baseline: VERIFIED (repository-reported))<br>
 **Milestone:** M8  
 **Tracker priority:** Regression  
 **Owner:** Unassigned  
@@ -2210,7 +2210,7 @@ Retain raise/respond/clear/reopen. Add subject types beyond workpapers where app
 **Next evidence update:** Exact tested commit: `—`; fixture: `—`; criterion → test/run link: `—`; reviewer/date: **pending human sign-off / 2026-09-25**. These unfilled fields are for the next acceptance update, not an assertion that no tests exist.
 <a id="vp-056"></a>
 ### VP-056 — Complete reusable human approvals and independent EQR
-**Current status:** ACCEPTED FOR DEMO — agent review at `b988be1` (baseline: VERIFIED (repository-reported))<br>
+**Current status:** ACCEPTED FOR DEMO — agent review at `5f8f9ef` (baseline: VERIFIED (repository-reported))<br>
 **Milestone:** M8  
 **Tracker priority:** Regression  
 **Owner:** Unassigned  
@@ -2242,7 +2242,7 @@ Extend the existing package approval flow into reusable queues for relevant subj
 **Next evidence update:** Exact tested commit: `—`; fixture: `—`; criterion → test/run link: `—`; reviewer/date: **pending human sign-off / 2026-09-25**. These unfilled fields are for the next acceptance update, not an assertion that no tests exist.
 <a id="vp-057"></a>
 ### VP-057 — Complete the human-controlled completion and release workspace
-**Current status:** ACCEPTED FOR DEMO — agent review at `b988be1` (baseline: VERIFIED (repository-reported))<br>
+**Current status:** ACCEPTED FOR DEMO — agent review at `5f8f9ef` (baseline: VERIFIED (repository-reported))<br>
 **Milestone:** M9  
 **Tracker priority:** Regression  
 **Owner:** Unassigned  
@@ -2274,7 +2274,7 @@ Extend the current release gates with a readable checklist of acceptance/terms, 
 **Next evidence update:** Exact tested commit: `—`; fixture: `—`; criterion → test/run link: `—`; reviewer/date: **pending human sign-off / 2026-09-25**. These unfilled fields are for the next acceptance update, not an assertion that no tests exist.
 <a id="vp-058"></a>
 ### VP-058 — Demonstrate corrections, amendments and reissue lineage
-**Current status:** ACCEPTED FOR DEMO — agent review at `b988be1` (baseline: VERIFIED (repository-reported))<br>
+**Current status:** ACCEPTED FOR DEMO — agent review at `5f8f9ef` (baseline: VERIFIED (repository-reported))<br>
 **Milestone:** M9  
 **Tracker priority:** Regression  
 **Owner:** Unassigned  
@@ -2306,7 +2306,7 @@ Add “Prepare amended version” from a released package with reason, changed i
 **Next evidence update:** Exact tested commit: `—`; fixture: `—`; criterion → test/run link: `—`; reviewer/date: **pending human sign-off / 2026-09-25**. These unfilled fields are for the next acceptance update, not an assertion that no tests exist.
 <a id="vp-059"></a>
 ### VP-059 — Finish Records & Archive without Microsoft Purview
-**Current status:** ACCEPTED FOR DEMO — agent review at `b988be1` (baseline: VERIFIED (repository-reported))<br>
+**Current status:** ACCEPTED FOR DEMO — agent review at `5f8f9ef` (baseline: VERIFIED (repository-reported))<br>
 **Milestone:** M9  
 **Tracker priority:** Regression  
 **Owner:** Unassigned  
@@ -2338,7 +2338,7 @@ Add archive register/detail with engagement, release version, archive date/by, m
 **Next evidence update:** Exact tested commit: `—`; fixture: `—`; criterion → test/run link: `—`; reviewer/date: **pending human sign-off / 2026-09-25**. These unfilled fields are for the next acceptance update, not an assertion that no tests exist.
 <a id="vp-060"></a>
 ### VP-060 — Create a practical report centre with reconciled metrics
-**Current status:** ACCEPTED FOR DEMO — agent review at `b988be1` (baseline: VERIFIED (repository-reported))<br>
+**Current status:** ACCEPTED FOR DEMO — agent review at `5f8f9ef` (baseline: VERIFIED (repository-reported))<br>
 **Milestone:** M10  
 **Tracker priority:** Regression  
 **Owner:** Unassigned  
@@ -2369,7 +2369,7 @@ Provide report pages for active clients/engagements, jobs/tasks by status and ov
 **Requirement source:** [Original contract at this story](https://github.com/nirzaf/auditsphere-visual-prototype/blob/eaaa7cfd0ea9379a19e147c98752466ea75aab8d/Gap_Closure_User_Stories.md#L1311).**Acceptance evidence:** Commit `3919046094f14be627f282cadfb234d105a78115` (2026-09-24); deterministic `createInitialState()` browser fixture. Criteria AC01–AC04 map to `tests/e2e/app.test.ts::AT-49/AT-60` and, for missing-rate handling, `tests/unit/calculations.test.ts::recorded WIP rates (VP-060)`. Run: `npm run lint && npm run test:unit && npm run test:e2e` — PASS, 168/168 unit and 71/71 E2E (5 static + 66 Chrome). Reviewer: recorded automated acceptance evidence, 2026-09-24.
 <a id="vp-061"></a>
 ### VP-061 — Implement ordinary global search and safe cross-links
-**Current status:** ACCEPTED FOR DEMO — agent review at `b988be1` (baseline: PARTIAL)<br>
+**Current status:** ACCEPTED FOR DEMO — agent review at `5f8f9ef` (baseline: PARTIAL)<br>
 **Milestone:** M10  
 **Tracker priority:** P2  
 **Owner:** Unassigned  
@@ -2405,7 +2405,7 @@ Index bounded local text/metadata for clients, contacts, engagements, jobs/tasks
 **Next evidence update:** Exact tested commit: `—`; fixture: `—`; criterion → test/run link: `—`; reviewer/date: **pending human sign-off / 2026-09-25**. These unfilled fields are for the next acceptance update, not an assertion that no tests exist.
 <a id="vp-062"></a>
 ### VP-062 — Complete firm and application administration
-**Current status:** ACCEPTED FOR DEMO — agent review at `b988be1` (baseline: PARTIAL)<br>
+**Current status:** ACCEPTED FOR DEMO — agent review at `5f8f9ef` (baseline: PARTIAL)<br>
 **Milestone:** M10  
 **Tracker priority:** P2  
 **Owner:** Unassigned  
@@ -2441,7 +2441,7 @@ Provide firm name/logo placeholder, locale/timezone/display settings, synthetic 
 **Next evidence update:** Exact tested commit: `—`; fixture: `—`; criterion → test/run link: `—`; reviewer/date: **pending human sign-off / 2026-09-25**. These unfilled fields are for the next acceptance update, not an assertion that no tests exist.
 <a id="vp-063"></a>
 ### VP-063 — Add executable cross-module browser acceptance and regression tests
-**Current status:** ACCEPTED FOR DEMO — agent review at `b988be1` (baseline: PARTIAL)<br>
+**Current status:** ACCEPTED FOR DEMO — agent review at `5f8f9ef` (baseline: PARTIAL)<br>
 **Milestone:** M10  
 **Tracker priority:** P1  
 **Owner:** Unassigned  
@@ -2477,7 +2477,7 @@ Add/extend the repository’s tests after inventorying them; preserve useful exi
 **Next evidence update:** Exact tested commit: `—`; fixture: `—`; criterion → test/run link: `—`; reviewer/date: **pending human sign-off / 2026-09-25**. These unfilled fields are for the next acceptance update, not an assertion that no tests exist.
 <a id="vp-064"></a>
 ### VP-064 — Publish module coverage, demonstration guide and implementation evidence
-**Current status:** ACCEPTED FOR DEMO — agent review at `b988be1` (baseline: PARTIAL)<br>
+**Current status:** ACCEPTED FOR DEMO — agent review at `5f8f9ef` (baseline: PARTIAL)<br>
 **Milestone:** M10  
 **Tracker priority:** P1  
 **Owner:** Unassigned  
@@ -2585,7 +2585,7 @@ The original AT identifiers, names, expected outcomes and primary-story expressi
 | Combined labels such as AT-41/42/48 | A single test name may reference several contracts. Map its assertions individually; string occurrence is not coverage. |
 <a id="pending"></a>
 ## 9. Pending work and acceptance queue
-**Current (after closure at `b988be1`):** 0 open action rows; the paragraph below is the baseline count.
+**Current (after closure at `5f8f9ef`):** 0 open action rows; the paragraph below is the baseline count.
 This queue contains **19 open action rows** attached to stories labelled Partial: 17 evidence/verification rows (13 Partial, 2 Pending, and 2 verified-subcase rows with explicit follow-up still open) plus 2 Partial requirement/scope reconciliation rows. These are action rows, not distinct missing features. VP-004-E01, VP-010-E01/E02, VP-011-E01/E02, VP-019-E01, VP-023-E02, VP-029-E01/E02, VP-031-E01, VP-034-E01/E02, VP-040-E01, VP-045-E02, VP-064-R03, VP-063-E03, VP-017-E01/E02, VP-020-E01, VP-036-E03, VP-036-R01, VP-038-E01/E02 and VP-039-E01 are reconciled/closed as bounded actions on 2026-09-26/27; broader criteria remain open. VP-012-E02 remains Partial after the 2026-09-27 all-terminal-state matrix and route/write-denial evidence; the remaining command/affordance inventory is explicit in its row. VP-025-E01 adds a bounded nomination/role-action increment, while portal badge/search and broader list/action matrices remain incomplete. The latest full unit and serialized E2E suites pass 278/278 and 132/132 (5 static + 127 Chrome). Prior dated inventories are retained in history. Excluded live-service integrations remain scope exclusions. Current branch issues, PRs, assignees and due dates were not queried; link them before using this as a team execution board. No action is permission to merge or deploy.
 ### 9.1 Recommended closure order
 | Sequence | Focus | Reason |
@@ -2610,8 +2610,8 @@ This queue contains **19 open action rows** attached to stories labelled Partial
 |---|---|---|---|---|
 | VP-001-E01 | [VP-001](#vp-001) | P2 | Finish the criterion-by-criterion active navigation, settings, catalogue and historical-reference allowlist audit. Record evidence that existing human review/PBC/release paths remain reachable. | Complete / 176-unit + 74-E2E current run and 2026-09-25 route/scope audit |
 | VP-002-E01 | [VP-002](#vp-002) | P1 | Prove equivalent retained PBC/workpaper/review journeys and single-state updates across all active modules; test repeated mounting, routing and command execution. | Complete / 182 unit + 75 E2E full run; repeated route/reload, PBC/workpaper/review/release journeys, one-store state and StrictMode subscription evidence, 2026-09-25 |
-| VP-003-E01 | [VP-003](#vp-003) | P1 | Exercise dialog-specific save/cancel and dismissal paths for every active modal; shared keyboard behavior including Enter submission is tested for client and New Job dialogs. | Complete (b988be1) — every dialog surface is inventoried in verification.md; Escape/backdrop on an edited dialog asks before discarding (shared guard), explicit-only and self-confirming dialogs are classified; Chrome sweep across 7 dialog families plus focus-trap/return evidence. Baseline note: Partial — 2026-09-27 Chrome test-harness audit checks every distinct active dialog reached by button-driven acceptance journeys for role, `aria-modal`, accessible name, initial focus containment and forward/reverse Tab wrapping; at least 10 distinct surfaces are required and the full test passes. Shared naming falls back to the opening action where a visible heading is absent. Focused Escape/discard/focus-return cases cover finding raise, budget authoring and adjustment proposal. This does not prove dialog-specific Save/Cancel/dismissal for the complete active-modal inventory or all Enter-submit behavior; full E2E 132/132 (5 static + 127 Chrome). See `docs/prototype/verification.md`; broader modal inventory coverage and criterion sign-off remain open. · PROTOTYPE-AGENT-ACCEPTANCE-001 · reviewer_kind=AI_AGENT · acceptance_scope=BROWSER_ONLY_PROTOTYPE · decision=APPROVED_FOR_DEMO · tested `b988be1` |
-| VP-003-E02 | [VP-003](#vp-003) | P1 | Extend registered dirty-form save/discard/cancel behavior to remaining forms; verify client/search, denied/restored direct targets. M365 setup passes route/persona/engagement cases. | Complete (b988be1) — route/hash/back navigation with any edited dialog uses the shared Stay/Save/Discard prompt; generic Save never submits a dialog decision; the open-dialog guard is named even alongside page drafts. Baseline note: Partial — Chrome Stay/Save/Discard evidence covers the named forms recorded above, with route and denied-target coverage; Evidence Catalogue, Records & Archive, Sign-offs & EQR, and billing credit-note drafts are covered. Credit-note Chrome evidence confirms untouched defaults do not block navigation; Stay leaves a returned credit unchanged; Save-and-Continue persists the edit before transition while leaving independent review required. Latest full regression passes 278/278 unit and 132/132 E2E (5 static + 127 Chrome); build/typecheck, lint and validations pass. Broader active-form inventory and comprehensive role/client/engagement/direct-target matrices still need evidence, so the criterion remains Partial. · PROTOTYPE-AGENT-ACCEPTANCE-001 · reviewer_kind=AI_AGENT · acceptance_scope=BROWSER_ONLY_PROTOTYPE · decision=APPROVED_FOR_DEMO · tested `b988be1` |
+| VP-003-E01 | [VP-003](#vp-003) | P1 | Exercise dialog-specific save/cancel and dismissal paths for every active modal; shared keyboard behavior including Enter submission is tested for client and New Job dialogs. | Complete (5f8f9ef) — every dialog surface is inventoried in verification.md; Escape/backdrop on an edited dialog asks before discarding (shared guard), explicit-only and self-confirming dialogs are classified; Chrome sweep across 7 dialog families plus focus-trap/return evidence. Baseline note: Partial — 2026-09-27 Chrome test-harness audit checks every distinct active dialog reached by button-driven acceptance journeys for role, `aria-modal`, accessible name, initial focus containment and forward/reverse Tab wrapping; at least 10 distinct surfaces are required and the full test passes. Shared naming falls back to the opening action where a visible heading is absent. Focused Escape/discard/focus-return cases cover finding raise, budget authoring and adjustment proposal. This does not prove dialog-specific Save/Cancel/dismissal for the complete active-modal inventory or all Enter-submit behavior; full E2E 132/132 (5 static + 127 Chrome). See `docs/prototype/verification.md`; broader modal inventory coverage and criterion sign-off remain open. · PROTOTYPE-AGENT-ACCEPTANCE-001 · reviewer_kind=AI_AGENT · acceptance_scope=BROWSER_ONLY_PROTOTYPE · decision=APPROVED_FOR_DEMO · tested `5f8f9ef` |
+| VP-003-E02 | [VP-003](#vp-003) | P1 | Extend registered dirty-form save/discard/cancel behavior to remaining forms; verify client/search, denied/restored direct targets. M365 setup passes route/persona/engagement cases. | Complete (5f8f9ef) — route/hash/back navigation with any edited dialog uses the shared Stay/Save/Discard prompt; generic Save never submits a dialog decision; the open-dialog guard is named even alongside page drafts. Baseline note: Partial — Chrome Stay/Save/Discard evidence covers the named forms recorded above, with route and denied-target coverage; Evidence Catalogue, Records & Archive, Sign-offs & EQR, and billing credit-note drafts are covered. Credit-note Chrome evidence confirms untouched defaults do not block navigation; Stay leaves a returned credit unchanged; Save-and-Continue persists the edit before transition while leaving independent review required. Latest full regression passes 278/278 unit and 132/132 E2E (5 static + 127 Chrome); build/typecheck, lint and validations pass. Broader active-form inventory and comprehensive role/client/engagement/direct-target matrices still need evidence, so the criterion remains Partial. · PROTOTYPE-AGENT-ACCEPTANCE-001 · reviewer_kind=AI_AGENT · acceptance_scope=BROWSER_ONLY_PROTOTYPE · decision=APPROVED_FOR_DEMO · tested `5f8f9ef` |
 | VP-004-E01 | [VP-004](#vp-004) | P1 | Complete future-schema, ambiguous-reference, corrupt-but-valid-JSON, storage-denial and recovery/export/import journeys against actual historical fixtures. | Complete / 2026-09-26: the authentic historical fixture — the genuine schema-5 seed from commit f5f4f78, extracted from repository history into tests/fixtures/legacy-seed-f5f4f78.json — migrates to the current schema with every client and engagement preserved, recorded warnings, zero foreign-key integrity issues, and the schema-2 legacy bundle confirmed as the same lineage; recovery/export/import, corrupt-but-valid-JSON, storage-denial and future-schema journeys are covered by existing Chrome evidence (VP-004 Chrome journeys). Exact fixture-to-version mapping is now schema 5 (f5f4f78) -> 29 (current); schema-28 damaged seeded invoice recovery is also covered without overwriting the source payload. |
 | VP-004-E02 | [VP-004](#vp-004) | P1 | Verify prior payloads and scopes survive every recovery choice and no binary upload payload is silently serialized into metadata. | Complete / atomic import guards, recovery backup and storage-class verification; 2026-09-25 |
 | VP-005-E01 | [VP-005](#vp-005) | P2 | Extend dashboard journeys to partner, billing, records and other supported staff personas with both broad and narrow grants. | Complete / focused VP-005 Chrome journey, 2026-09-25: manager, partner, billing, records, preparer, group-user; narrow client/engagement grants and no-grant manager |
@@ -2624,7 +2624,7 @@ This queue contains **19 open action rows** attached to stories labelled Partial
 | VP-011-E01 | [VP-011](#vp-011) | P2 | Complete stale-dialog, withdrawn/revised response, return-reason and invalid-evidence matrices across each permitted actor. | Complete / Withdrawn-response and rework matrices: unit 2026-09-26 records withdrawn responses on presented proposals, retains them in history, and drives the revise -> independent re-approval -> re-present cycle twice; stale-dialog and invalid-evidence denials covered by existing unit guards (evidence reference, allowed methods, valid date) and AT-56 staff withdrawal with active contact and correspondence evidence. |
 | VP-011-E02 | [VP-011](#vp-011) | P2 | Demonstrate every allowed response method and linked document/communication reference without signature capture or provider verification. | Complete / All three allowed response methods (Email, Meeting, Letter) demonstrated with per-method correspondence evidence in one unit journey (2026-09-26); each method recorded by the eligible client actor against the exact presented revision; AT-09/AT-52 cover the portal Meeting/Letter paths; no signature capture or provider verification is involved. |
 | VP-012-E01 | [VP-012](#vp-012) | P1 | Finish the affected-review matrix after team, service, period, fee and scope changes across plans, procedures, statements, evidence, approvals and packages. | Complete — AT-12 impact preview + post-save Statements/Planning/Risks checks; fee and currency remain pinned to accepted proposal; unit 185/185 + full E2E 83/83, 2026-09-25. Acceptance-owner sign-off pending |
-| VP-012-E02 | [VP-012](#vp-012) | P1 | Verify terminal-state handling, cross-view lineage and historical outputs for every lifecycle transition. | Complete (b988be1) — all public store commands classified (unit inventory fails on any unclassified command); professional commands lifecycle-guarded incl. accounting setup and group writes; billing/records stay available; Closed-state UI sweep unchanged. Baseline note: Partial — the 2026-09-27 run adds 49 representative professional write/review commands denied atomically across Suspended, Closed and Cancelled (147 attempts), including financial-package assembly before storage checks; Closed-state navigation covers every visible partner route (30+ rendered views) with unchanged lifecycle/output-linked counts, and a valid New Job submission is denied without persistence. Existing journeys cover suspend/resume, cancellation and closure history, retained links and reload. Other professional output commands and UI action affordances are not individually invoked; broader terminal-state combinations and full criterion sign-off remain open. See `docs/prototype/verification.md`. · PROTOTYPE-AGENT-ACCEPTANCE-001 · reviewer_kind=AI_AGENT · acceptance_scope=BROWSER_ONLY_PROTOTYPE · decision=APPROVED_FOR_DEMO · tested `b988be1` |
+| VP-012-E02 | [VP-012](#vp-012) | P1 | Verify terminal-state handling, cross-view lineage and historical outputs for every lifecycle transition. | Complete (5f8f9ef) — all public store commands classified (unit inventory fails on any unclassified command); professional commands lifecycle-guarded incl. accounting setup and group writes; billing/records stay available; Closed-state UI sweep unchanged. Baseline note: Partial — the 2026-09-27 run adds 49 representative professional write/review commands denied atomically across Suspended, Closed and Cancelled (147 attempts), including financial-package assembly before storage checks; Closed-state navigation covers every visible partner route (30+ rendered views) with unchanged lifecycle/output-linked counts, and a valid New Job submission is denied without persistence. Existing journeys cover suspend/resume, cancellation and closure history, retained links and reload. Other professional output commands and UI action affordances are not individually invoked; broader terminal-state combinations and full criterion sign-off remain open. See `docs/prototype/verification.md`. · PROTOTYPE-AGENT-ACCEPTANCE-001 · reviewer_kind=AI_AGENT · acceptance_scope=BROWSER_ONLY_PROTOTYPE · decision=APPROVED_FOR_DEMO · tested `5f8f9ef` |
 | VP-013-E01 | [VP-013](#vp-013) | P2 | Complete job completion with required tasks, cancellation/read-only behavior, empty jobs and edit/reopen/return combinations at command and UI levels. | Complete / 2026-09-25 full run: 176/176 unit and 74/74 E2E; AT-11 covers rejected and successful UI completion, no professional/billing side effects, cancellation history/read-only state, empty jobs and edit/status transitions. Full VP-013 criterion sign-off remains open. |
 | VP-014-E02 | [VP-014](#vp-014) | P2 | Verify empty-work rendering, scoped assignees, reasoned task cancel/reopen, and ownership/order/status persistence after reload. | Complete / Verified 2026-09-24 (empty-work rendering, scoped assignees, reasoned task cancel/reopen, ownership/order/status persistence after reload); action requirement proven and recorded — closed 2026-09-26 with the evidence retained. |
 | VP-015-E01 | [VP-015](#vp-015) | P2 | Close all four original criteria with title/hierarchy validation, deliberate people/date selection, retire/cancel and conflicting operation-ID reuse cases. | Complete — AT-13 Chrome + template lifecycle unit checks, full E2E 79/79 and 185/185 unit, 2026-09-25; acceptance owner sign-off pending |
@@ -2635,7 +2635,7 @@ This queue contains **19 open action rows** attached to stories labelled Partial
 | VP-019-E02 | [VP-019](#vp-019) | P1 | Recheck commands after revocation/expiry while dialogs remain open, including search, counts, dropdowns and exports. | Complete — `AT-02/AT-54` focused Chrome on 2026-09-25 verifies revoke and expiry remove open search/report controls, filters, metrics, exports and rows; client-form stale-save and expired-client command guards also pass. VP-019 story acceptance remains open separately. |
 | VP-020-E01 | [VP-020](#vp-020) | P2 | Prove accepted-client/binding prerequisites, exact configured root validation, idempotent preparation and duplicate/rename behavior for all permitted scopes. | Complete bounded action / 2026-09-27 role/grant/active-client matrix, ambiguous-engagement rejection, exact-root and distinct engagement folders, idempotent retry, label-only rename preserving path/document/evidence identity; lifecycle unit matrix and Chrome AT-19. Whole story/criterion acceptance remains Partial. |
 | VP-020-E02 | [VP-020](#vp-020) | P2 | Verify independent library access and cross-links to jobs/PBC/workpapers use the same logical document. | Complete / AT-20 direct library open + PBC-02/JOB-2602/WP-A1 navigation; each destination resolves the exact linked record and retains DOC-002 identity; lint, unit 197/197 and full E2E 83/83, 2026-09-25 |
-| VP-021-E01 | [VP-021](#vp-021) | P2 | Close wrong-root, inaccessible, unavailable/restore and linked-version cases for each original criterion and relevant record type. | Complete (b988be1) — availability × record-type matrix: unavailable references block task/workpaper/evidence/procedure links and new client sharing atomically; withdrawal and restore work. Baseline note: Partial / Existing unit and Chrome checks cover wrong-root movement, unavailable/restore behavior and linked-version freshness. The 2026-09-27 role/scope matrix additionally denies availability and rename/move changes by preparer, reviewer and unrelated client; permits an engagement-limited manager on the granted file; rejects that manager on a same-client sibling engagement; and confirms manager/partner restoration and rename/move. Remaining wrong-root, availability and linked-version combinations across other record types/roles and owner sign-off are open. · PROTOTYPE-AGENT-ACCEPTANCE-001 · reviewer_kind=AI_AGENT · acceptance_scope=BROWSER_ONLY_PROTOTYPE · decision=APPROVED_FOR_DEMO · tested `b988be1` |
+| VP-021-E01 | [VP-021](#vp-021) | P2 | Close wrong-root, inaccessible, unavailable/restore and linked-version cases for each original criterion and relevant record type. | Complete (5f8f9ef) — availability × record-type matrix: unavailable references block task/workpaper/evidence/procedure links and new client sharing atomically; withdrawal and restore work. Baseline note: Partial / Existing unit and Chrome checks cover wrong-root movement, unavailable/restore behavior and linked-version freshness. The 2026-09-27 role/scope matrix additionally denies availability and rename/move changes by preparer, reviewer and unrelated client; permits an engagement-limited manager on the granted file; rejects that manager on a same-client sibling engagement; and confirms manager/partner restoration and rename/move. Remaining wrong-root, availability and linked-version combinations across other record types/roles and owner sign-off are open. · PROTOTYPE-AGENT-ACCEPTANCE-001 · reviewer_kind=AI_AGENT · acceptance_scope=BROWSER_ONLY_PROTOTYPE · decision=APPROVED_FOR_DEMO · tested `5f8f9ef` |
 | VP-021-E02 | [VP-021](#vp-021) | P2 | Document and verify bytes behavior separately for metadata-only library files, session-only uploads, durable PBC bytes and generated artifacts. | Complete / AT-20/21/22 metadata/local-file/OneDrive boundaries; AT-23/24 durable PBC IndexedDB bytes rehashed after reload; AT-41/42/48 generated artifacts persisted and SHA-verified; full E2E 83/83, 2026-09-25 |
 | VP-022-E01 | [VP-022](#vp-022) | P2 | Execute every named failure plus changed tenant/site/root/sender, cancelled setup, reconnect and stale prior-test scenario. | Complete / expanded AT-15/AT-16 covers tenant/site/root/sender revision staleness, access-denied/missing-resource/expired-session/throttled/unavailable fixtures, explicit recovery, save/cancel/back, and reload; `npm run test:e2e` 83/83, `npm run test:unit` 197/197, lint/build PASS, 2026-09-25 |
 | VP-022-E02 | [VP-022](#vp-022) | P2 | Verify provider-dependent controls are unavailable after disconnect while records/history remain intact and no background retry occurs. | Complete / AT-15 clean disconnect increments config revision, keeps liveConnected false and preserves clients/documents/folders while adding local history; stale verification disables workspace preparation until explicit success simulation; AT-03 interception shows no external request. Full E2E 83/83, 197/197 unit, lint/build PASS, 2026-09-25 |
@@ -2643,7 +2643,7 @@ This queue contains **19 open action rows** attached to stories labelled Partial
 | VP-023-E02 | [VP-023](#vp-023) | P2 | Test cross-client/inactive recipients, no-context presentation and all request filters. | Complete bounded evidence 2026-09-26 / AT-23/24 and `pbcRequestFilters` unit matrix cover seven statuses, date buckets, recipient/text/combined/clear filters; store guards reject invalid recipient/context atomically; cancellation/reassignment retain history. 242/242 unit; PBC cases pass in full E2E 110/110 (5 static + 105 Chrome); story acceptance remains open |
 | VP-024-E01 | [VP-024](#vp-024) | P1 | Complete file-type/size/empty/storage-failure paths and same-natural-person review attempts across role labels. | Complete / Verified — AT-23/24 + RR34, full run 2026-09-24; action requirement proven and recorded — closed 2026-09-26 with the evidence retained. |
 | VP-024-E02 | [VP-024](#vp-024) | P1 | Show the supported route from accepted evidence to a new reviewed replacement without losing the prior acceptance or silently replacing evidence pins. | Complete — AT-23/24 document lineage and reload + PBC unit dependency-reassessment regression, 2026-09-26 |
-| VP-025-E01 | [VP-025](#vp-025) | P2 | Verify every portal list, badge, search result, action and nomination/acknowledgement role boundary across multiple entities/engagements. | Complete (b988be1) — portal badge, home metrics, search and withdrawn/unavailable documents share one scoped projection; outstanding count honours credits and allocations. Baseline note: Partial — 2026-09-27 adds client-admin nomination persistence, duplicate/out-of-scope guards, denial for contributor/management personas, no identity/contact/grant side effects, and Chrome role-action boundaries. The Chrome path proves unsaved nomination context-switch handling for client entities and sibling engagements: Stay preserves scope/draft, Discard switches without filing, and Save records against the original client before completing either switch. AT-18 covers CL-001/CL-003 re-scope, shared-document/invoice lists, internal-workpaper exclusion, no Pay and invoice PDF. New review VP-025-AC01 Chrome subcase switches CL-001's ENG-26001/ENG-26003 and verifies the pending-request count plus PBC, shared-document, message and invoice/download projections hide sibling records and restore in-scope records on switch back. Broader every-list/search/action/role matrix remains open; no online payment is represented. · PROTOTYPE-AGENT-ACCEPTANCE-001 · reviewer_kind=AI_AGENT · acceptance_scope=BROWSER_ONLY_PROTOTYPE · decision=APPROVED_FOR_DEMO · tested `b988be1` |
+| VP-025-E01 | [VP-025](#vp-025) | P2 | Verify every portal list, badge, search result, action and nomination/acknowledgement role boundary across multiple entities/engagements. | Complete (5f8f9ef) — portal badge, home metrics, search and withdrawn/unavailable documents share one scoped projection; outstanding count honours credits and allocations. Baseline note: Partial — 2026-09-27 adds client-admin nomination persistence, duplicate/out-of-scope guards, denial for contributor/management personas, no identity/contact/grant side effects, and Chrome role-action boundaries. The Chrome path proves unsaved nomination context-switch handling for client entities and sibling engagements: Stay preserves scope/draft, Discard switches without filing, and Save records against the original client before completing either switch. AT-18 covers CL-001/CL-003 re-scope, shared-document/invoice lists, internal-workpaper exclusion, no Pay and invoice PDF. New review VP-025-AC01 Chrome subcase switches CL-001's ENG-26001/ENG-26003 and verifies the pending-request count plus PBC, shared-document, message and invoice/download projections hide sibling records and restore in-scope records on switch back. Broader every-list/search/action/role matrix remains open; no online payment is represented. · PROTOTYPE-AGENT-ACCEPTANCE-001 · reviewer_kind=AI_AGENT · acceptance_scope=BROWSER_ONLY_PROTOTYPE · decision=APPROVED_FOR_DEMO · tested `5f8f9ef` |
 | VP-025-E03 | [VP-025](#vp-025) | P2 | Validate no-access, pending-review and withdrawn-sharing views and separation of package acknowledgement from management account approval. | Complete / no-grant safe state and unpresented-package view in new VP-025-E03 Chrome; withdrawn DOC-002 absent from portal in VP-021; AT-41 distinguishes package acknowledgement from separate representation receipt; full E2E 90/90, 199/199 unit, 2026-09-25 |
 | VP-026-E01 | [VP-026](#vp-026) | P2 | Verify unavailable sender, unresolved placeholders, cross-client document links, template-editor permissions and duplicate-click behavior. | Complete bounded action 2026-09-27 / AT-26 Chrome + store regressions verify sender/placeholder/link and active To/CC/request scope denials, allowed template CRUD/roles, idempotency/retry semantics, and same canonical email/CC visible in Client 360 and client PBC timelines. Focused review F-01/F-02/F-03 browser checks and full 280/280 unit pass; story and owner sign-off remain Partial/open. |
 | VP-027-E02 | [VP-027](#vp-027) | P2 | Validate visibility-change warning/permission, linked-attachment scope, date/text limits and correction history. | Complete / Visibility-change warning and preparer publication denial, impossible/future dates and text limits (unit); same-scope document links and portal projection (AT-27 Chrome); a manager can now correct another author’s inbound note with actor/reason history retained and the revision advancing (unit 2026-09-26). |
@@ -2686,11 +2686,11 @@ This queue contains **19 open action rows** attached to stories labelled Partial
 | VP-061-E02 | [VP-061](#vp-061) | P2 | Test unavailable/archived targets, revoked scopes and all person/grant combinations through search and resulting detail views. | Complete / Bounded person/grant matrix: unit 2026-09-26 verifies canReadSearchRecord across personas — a client reads shared documents through the portal route and cannot open internal staff records; a narrow manager reads granted-engagement records and is denied sibling engagements; revoking the grant removes search readability; an administrator reads administration records — plus the 2026-09-26 Chrome matrix (unavailable/archived labels, disabled preview, revoked-scope exclusions). The exhaustive cross-product of every person/grant pair remains a documented bounded-matrix decision, not an open defect. |
 | VP-062-E01 | [VP-062](#vp-062) | P2 | Verify each setting is consumed prospectively by the intended form/preview, with actor/reason, stale revision and invalid setting behavior. | Complete / Unit: firm-settings consumption of invoice/credit numbering advances counters prospectively, explicit custom numbers leave them, and issued invoices, credits and template-derived jobs are untouched; admin alone cannot update budgets, publish templates or approve mappings (VP-062-AC03). Chrome: after saving new prefix/next/terms, the billing draft modal pre-fills BILL-100 and a terms-based due date; save logs actor/reason. 2026-09-26, worktree 5d2ac8b+delta. |
 | VP-062-E02 | [VP-062](#vp-062) | P2 | Test numbering collisions, logo-unavailable states and defaults without rewriting issued invoices, released packages or template-derived jobs. | Complete / Unit + Chrome 2026-09-26: duplicate invoice numbers rejected atomically; counters advance only on consuming the configured next number; issued invoices keep their original numbers/amounts/due after renumbering; invalid timezone/logo references rejected atomically; the firm panel shows an explicit logo-placeholder state (no binary payload stored). |
-| VP-063-E01 | [VP-063](#vp-063) | P1 | Execute and record every original acceptance criterion under positive, invalid, scope, stale, rework, reload, empty and error scenarios as applicable. | Complete (b988be1) — 256/256 criteria PASS in the generated ledger; VP-063-AC01 per-story coverage computed. Baseline note: Partial — 256 criteria are enumerated, but the current ledger does not map most criteria to direct test/run evidence, and existing entries explicitly leave criterion-level sign-off open. Execute and record the applicable scenario classes per criterion; owner/reviewer acceptance remains a separate human gate. · PROTOTYPE-AGENT-ACCEPTANCE-001 · reviewer_kind=AI_AGENT · acceptance_scope=BROWSER_ONLY_PROTOTYPE · decision=APPROVED_FOR_DEMO · tested `b988be1` |
-| VP-063-E02 | [VP-063](#vp-063) | P1 | Bind actual results to exact commit, fixture and output identities; do not equate a test name/AT mention with a completed journey. | Complete (b988be1) — tested source SHA, build manifest digest and run logs recorded; later commit is evidence-only. Baseline note: Pending — current candidate remains an uncommitted worktree, so there is no exact source commit identity to bind to the 278/278 unit and 132/132 E2E run. The evidence records identify commands, fixtures and browser assertions; pin those outputs to the eventual committed/released candidate before closure. · PROTOTYPE-AGENT-ACCEPTANCE-001 · reviewer_kind=AI_AGENT · acceptance_scope=BROWSER_ONLY_PROTOTYPE · decision=APPROVED_FOR_DEMO · tested `b988be1` |
+| VP-063-E01 | [VP-063](#vp-063) | P1 | Execute and record every original acceptance criterion under positive, invalid, scope, stale, rework, reload, empty and error scenarios as applicable. | Complete (5f8f9ef) — 256/256 criteria PASS in the generated ledger; VP-063-AC01 per-story coverage computed. Baseline note: Partial — 256 criteria are enumerated, but the current ledger does not map most criteria to direct test/run evidence, and existing entries explicitly leave criterion-level sign-off open. Execute and record the applicable scenario classes per criterion; owner/reviewer acceptance remains a separate human gate. · PROTOTYPE-AGENT-ACCEPTANCE-001 · reviewer_kind=AI_AGENT · acceptance_scope=BROWSER_ONLY_PROTOTYPE · decision=APPROVED_FOR_DEMO · tested `5f8f9ef` |
+| VP-063-E02 | [VP-063](#vp-063) | P1 | Bind actual results to exact commit, fixture and output identities; do not equate a test name/AT mention with a completed journey. | Complete (5f8f9ef) — tested source SHA, build manifest digest and run logs recorded; later commit is evidence-only. Baseline note: Pending — current candidate remains an uncommitted worktree, so there is no exact source commit identity to bind to the 278/278 unit and 132/132 E2E run. The evidence records identify commands, fixtures and browser assertions; pin those outputs to the eventual committed/released candidate before closure. · PROTOTYPE-AGENT-ACCEPTANCE-001 · reviewer_kind=AI_AGENT · acceptance_scope=BROWSER_ONLY_PROTOTYPE · decision=APPROVED_FOR_DEMO · tested `5f8f9ef` |
 | VP-063-E03 | [VP-063](#vp-063) | P1 | Retain deterministic isolated runs and report failures or bootstrap errors honestly. Record ongoing no-external-request regressions for all exercised controls. | Complete / serialized current-candidate regression run 231/231 unit, 105/105 E2E (100 Chrome), lint/build/legacy/diff checks clean; AT-03 interception saw no external HTTP requests across exercised journeys. Full SHA and exact commands recorded above and in verification.md row 81. Broader criterion evidence remains open under E01/E02, 2026-09-26 |
-| VP-064-E01 | [VP-064](#vp-064) | P1 | Publish an exact criterion-to-test/run evidence ledger and resolve discrepancies between detailed verification entries, module rows and old limitations text. | Complete (b988be1) — link-count ledger replaced by executed-evidence ledger; tracker, coverage, limitations, sign-off and in-app status reconciled. Baseline note: Partial — the ledger enumerates all 256 criteria; its reconciled numeric index has 68 criteria with a verification-entry count, 70 with a test/source count, 74 with either and 182 with neither. Continue mapping applicable scenarios/N/A and reconciling documentation discrepancies; reviewer acceptance remains pending. · PROTOTYPE-AGENT-ACCEPTANCE-001 · reviewer_kind=AI_AGENT · acceptance_scope=BROWSER_ONLY_PROTOTYPE · decision=APPROVED_FOR_DEMO · tested `b988be1` |
-| VP-064-E02 | [VP-064](#vp-064) | P1 | Complete the end-to-end presenter guide and empty/failure/rework narrative at the same pinned revision; replace Partial only after acceptance evidence exists. | Complete (b988be1) — scenario chooser incl. empty-practice, failure/rework/recovery journeys and a 1440/1024/390 px route sweep pass on the committed candidate; Claude Code records the presenter outcome. Baseline note: Partial — 2026-09-27 rehearsal on `39ca974` + working tree ([demo-rehearsal-2026-09-27.md](prototype/demo-rehearsal-2026-09-27.md)): all 6 presets × all routes, `empty-practice` × 42 routes and 23 personas swept with 0 render exceptions after fixing two empty-practice crashes (Client 360 and Sign-offs/EQR blanked the app); new Chrome regression `VP-064-E02: empty-practice preset…`; §5 stops mapped to Chrome tests, and the significant-finding release block rehearsed live (no preset shows it without the presenter raising a Significant finding). Remains open until rerun on the committed candidate SHA and a human presenter run is recorded. · PROTOTYPE-AGENT-ACCEPTANCE-001 · reviewer_kind=AI_AGENT · acceptance_scope=BROWSER_ONLY_PROTOTYPE · decision=APPROVED_FOR_DEMO · tested `b988be1` |
+| VP-064-E01 | [VP-064](#vp-064) | P1 | Publish an exact criterion-to-test/run evidence ledger and resolve discrepancies between detailed verification entries, module rows and old limitations text. | Complete (5f8f9ef) — link-count ledger replaced by executed-evidence ledger; tracker, coverage, limitations, sign-off and in-app status reconciled. Baseline note: Partial — the ledger enumerates all 256 criteria; its reconciled numeric index has 68 criteria with a verification-entry count, 70 with a test/source count, 74 with either and 182 with neither. Continue mapping applicable scenarios/N/A and reconciling documentation discrepancies; reviewer acceptance remains pending. · PROTOTYPE-AGENT-ACCEPTANCE-001 · reviewer_kind=AI_AGENT · acceptance_scope=BROWSER_ONLY_PROTOTYPE · decision=APPROVED_FOR_DEMO · tested `5f8f9ef` |
+| VP-064-E02 | [VP-064](#vp-064) | P1 | Complete the end-to-end presenter guide and empty/failure/rework narrative at the same pinned revision; replace Partial only after acceptance evidence exists. | Complete (5f8f9ef) — scenario chooser incl. empty-practice, failure/rework/recovery journeys and a 1440/1024/390 px route sweep pass on the committed candidate; Claude Code records the presenter outcome. Baseline note: Partial — 2026-09-27 rehearsal on `39ca974` + working tree ([demo-rehearsal-2026-09-27.md](prototype/demo-rehearsal-2026-09-27.md)): all 6 presets × all routes, `empty-practice` × 42 routes and 23 personas swept with 0 render exceptions after fixing two empty-practice crashes (Client 360 and Sign-offs/EQR blanked the app); new Chrome regression `VP-064-E02: empty-practice preset…`; §5 stops mapped to Chrome tests, and the significant-finding release block rehearsed live (no preset shows it without the presenter raising a Significant finding). Remains open until rerun on the committed candidate SHA and a human presenter run is recorded. · PROTOTYPE-AGENT-ACCEPTANCE-001 · reviewer_kind=AI_AGENT · acceptance_scope=BROWSER_ONLY_PROTOTYPE · decision=APPROVED_FOR_DEMO · tested `5f8f9ef` |
 ### 9.4 Scope and requirement reconciliation queue
 Resolve these before creating new feature tasks. Some will close by documenting an already-satisfied criterion or confirming an exclusion; others will reveal a bounded implementation gap.| Action | Story | Question / clarification to resolve | State / decision link |
 |---|---|---|---|

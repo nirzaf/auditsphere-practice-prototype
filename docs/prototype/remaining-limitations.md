@@ -1,6 +1,6 @@
 # AuditSphere Visual Prototype — Remaining Limitations
 
-**Current (measured at `b988be1edf010f3f47c3aea646b5ad6a99f3dffe`):** 256/256 original criteria, 64/64 stories and 39/39 modules pass with executed
+**Current (measured at `5f8f9efb4f216ffa9492ef7df5127c6077a8bfdf`):** 256/256 original criteria, 64/64 stories and 39/39 modules pass with executed
 evidence ([ledger](criterion-evidence-ledger.md)); 0 open action rows; decision **APPROVED_FOR_DEMO** under PROTOTYPE-AGENT-ACCEPTANCE-001
 (AI-agent acceptance of a browser-only demo). What remains are **intentional boundaries**, not open work:
 

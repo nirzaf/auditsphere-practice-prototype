@@ -1,7 +1,7 @@
 # AuditSphere Visual Prototype — 39-Module Coverage (VP-064)
 
-**Current acceptance (`b988be1edf010f3f47c3aea646b5ad6a99f3dffe`):** 39/39 modules have every original criterion passing in the executed
-[criterion ledger](criterion-evidence-ledger.md); decision APPROVED_FOR_DEMO (PROTOTYPE-AGENT-ACCEPTANCE-001 · reviewer_kind=AI_AGENT · acceptance_scope=BROWSER_ONLY_PROTOTYPE · decision=APPROVED_FOR_DEMO · tested `b988be1`). The Result/Limitation columns below are the
+**Current acceptance (`5f8f9efb4f216ffa9492ef7df5127c6077a8bfdf`):** 39/39 modules have every original criterion passing in the executed
+[criterion ledger](criterion-evidence-ledger.md); decision APPROVED_FOR_DEMO (PROTOTYPE-AGENT-ACCEPTANCE-001 · reviewer_kind=AI_AGENT · acceptance_scope=BROWSER_ONLY_PROTOTYPE · decision=APPROVED_FOR_DEMO · tested `5f8f9ef`). The Result/Limitation columns below are the
 baseline implementation notes and remain for history; current limits are listed in [remaining-limitations.md](remaining-limitations.md).
 
 Version 1.4 · 2026-09-27 · Acceptance status is not reviewer-approved. “Approve and continue” authorizes continued work; it is not product acceptance. `docs/Progress_Tracker.md` is the criterion-level source of record; module rows remain at their evidenced repository status and human sign-off is pending. See [real-project-crosswalk.md](real-project-crosswalk.md) for the route/domain comparison and owner-dependent parity classifications.

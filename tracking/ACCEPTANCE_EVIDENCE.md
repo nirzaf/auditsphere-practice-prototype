@@ -38,15 +38,15 @@ Any story not listed above does not exist: the original contract is VP-001–VP-
 
 ## Agent acceptance under PROTOTYPE-AGENT-ACCEPTANCE-001 — 2026-09-27
 
-Tested source `b988be1edf010f3f47c3aea646b5ad6a99f3dffe` (build manifest sha256 `8a912583d3cac36e7a3fa460b11391a75a4532605d85125c6c4ce320493d6ca0`), run 2026-09-27T14:41:30Z → 2026-09-27T14:49:48Z: unit 306/306, E2E 145/145 (Chromium via CDP), lint/build/legacy/progress/tool tests/diff-check exit 0.
+Tested source `5f8f9efb4f216ffa9492ef7df5127c6077a8bfdf` (build manifest sha256 `8a912583d3cac36e7a3fa460b11391a75a4532605d85125c6c4ce320493d6ca0`), run 2026-09-27T14:54:55Z → 2026-09-27T15:03:13Z: unit 306/306, E2E 145/145 (Chromium via CDP), lint/build/legacy/progress/tool tests/diff-check exit 0.
 Earlier "Reviewer pending" rows above are historical; this section records the owner-authorized AI-agent review basis.
 
 | Task | Original criterion / subcase | Full source/build | Scenario / persona / context | Assertion / command | Expected | Observed result | Evidence / reviewer |
 |---|---|---|---|---|---|---|---|
-| VP-063-E01 | All 256 original criteria | `b988be1edf010f3f47c3aea646b5ad6a99f3dffe` / `8a912583d3cac36e…` | Fixed as-of 2026-09-23; ordinary personas per mapped test; superuser not counted | `python3 tools/criterion_ledger.py generate` over the recorded TAP logs | Every criterion PASS only if all mapped tests exist and passed | 256/256 PASS; FAIL 0; NOT_RUN 0 | `docs/prototype/criterion-evidence-ledger.md` · Claude Code REVIEW-PASS-01..03 (fresh-context Claude Code review subagent aa3dd37, rounds 1–3, read-only) (AI_AGENT) |
-| VP-063-E02 | Exact candidate identity | `b988be1edf010f3f47c3aea646b5ad6a99f3dffe` | Clean committed tree; `npm ci` then serialized suites | Full gate in one uninterrupted run | No source change between build and tests | unit 306/306, E2E 145/145 (Chromium via CDP), lint/build/legacy/progress/tool tests/diff-check exit 0 | `docs/prototype/verification.md` run row · Claude Code (AI_AGENT) |
-| VP-064-E01 | Canonical status reconciliation | `b988be1edf010f3f47c3aea646b5ad6a99f3dffe` | Tracker, coverage, limitations, sign-off, in-app status | Generated ledger + docs contract unit test | No stale current-status claim | Records reconciled; baseline kept as history | Claude Code (AI_AGENT) |
-| VP-064-E02 | Presenter rehearsal | `b988be1edf010f3f47c3aea646b5ad6a99f3dffe` | Scenario chooser incl. empty-practice; failure/rework/recovery journeys; 1440/1024/390 px sweep | Chrome suite on the built dist | Journeys pass without exceptions | Included in E2E 145/145 | `docs/prototype/demo-rehearsal-2026-09-27.md` · Claude Code (AI_AGENT) |
+| VP-063-E01 | All 256 original criteria | `5f8f9efb4f216ffa9492ef7df5127c6077a8bfdf` / `8a912583d3cac36e…` | Fixed as-of 2026-09-23; ordinary personas per mapped test; superuser not counted | `python3 tools/criterion_ledger.py generate` over the recorded TAP logs | Every criterion PASS only if all mapped tests exist and passed | 256/256 PASS; FAIL 0; NOT_RUN 0 | `docs/prototype/criterion-evidence-ledger.md` · Claude Code REVIEW-PASS-01..03 (fresh-context Claude Code review subagent aa3dd37, rounds 1–3, read-only) (AI_AGENT) |
+| VP-063-E02 | Exact candidate identity | `5f8f9efb4f216ffa9492ef7df5127c6077a8bfdf` | Clean committed tree; `npm ci` then serialized suites | Full gate in one uninterrupted run | No source change between build and tests | unit 306/306, E2E 145/145 (Chromium via CDP), lint/build/legacy/progress/tool tests/diff-check exit 0 | `docs/prototype/verification.md` run row · Claude Code (AI_AGENT) |
+| VP-064-E01 | Canonical status reconciliation | `5f8f9efb4f216ffa9492ef7df5127c6077a8bfdf` | Tracker, coverage, limitations, sign-off, in-app status | Generated ledger + docs contract unit test | No stale current-status claim | Records reconciled; baseline kept as history | Claude Code (AI_AGENT) |
+| VP-064-E02 | Presenter rehearsal | `5f8f9efb4f216ffa9492ef7df5127c6077a8bfdf` | Scenario chooser incl. empty-practice; failure/rework/recovery journeys; 1440/1024/390 px sweep | Chrome suite on the built dist | Journeys pass without exceptions | Included in E2E 145/145 | `docs/prototype/demo-rehearsal-2026-09-27.md` · Claude Code (AI_AGENT) |
 
 Final receipt (machine-readable):
 
@@ -57,10 +57,10 @@ Final receipt (machine-readable):
   "acceptance_scope": "BROWSER_ONLY_PROTOTYPE",
   "reviewer_kind": "AI_AGENT",
   "reviewer": "Claude Code",
-  "review_mode": "Separate fresh-context Claude Code review subagent (three rounds, read-only) plus disclosed same-session AI self-review by the implementing session; not independent human assurance",
-  "implementation_pass_id": "IMPL-PASS-01 (Claude Code session_01KpBBpDKANB2jq3skBwdyf8, commits a34cd41, 374293d, 0212ace, 2203176, 1222a9d, b988be1)",
+  "review_mode": "Separate fresh-context Claude Code review subagent (three rounds, read-only) plus two chatgpt-codex-connector review findings on PR #2 (resolved) and disclosed same-session AI self-review by the implementing session; not independent human assurance",
+  "implementation_pass_id": "IMPL-PASS-01 (Claude Code session_01KpBBpDKANB2jq3skBwdyf8, commits a34cd41, 374293d, 0212ace (merged to main via PR #2), then rebased onto main as 9fadee3, 6a408f8, 8f59623, 5f8f9ef)",
   "review_pass_id": "REVIEW-PASS-01..03 (fresh-context Claude Code review subagent aa3dd37, rounds 1–3, read-only)",
-  "tested_source_sha": "b988be1edf010f3f47c3aea646b5ad6a99f3dffe",
+  "tested_source_sha": "5f8f9efb4f216ffa9492ef7df5127c6077a8bfdf",
   "evidence_commit_sha": "the commit that adds this receipt (evidence/docs only; no runtime or test source change)",
   "build_manifest_sha256": "8a912583d3cac36e7a3fa460b11391a75a4532605d85125c6c4ce320493d6ca0",
   "criterion_ledger": "docs/prototype/criterion-evidence-ledger.md",
@@ -74,7 +74,7 @@ Final receipt (machine-readable):
     "remaining_required_actions": 0
   },
   "decision": "APPROVED_FOR_DEMO",
-  "decided_at_utc": "2026-09-27T14:49:48Z",
+  "decided_at_utc": "2026-09-27T15:03:13Z",
   "production_or_professional_approval": false,
   "remote_deployment_authorized": false
 }

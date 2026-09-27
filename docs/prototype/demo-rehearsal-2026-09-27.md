@@ -65,12 +65,12 @@ walks 17 engagement/client-dependent routes as superuser, asserts no exceptions 
 Full chapter-by-chapter click-through of all ten playbook chapters with narration; XLSX/DOCX/PDF
 download verification in this browser; mobile widths (covered by Chrome AT-53 at 768/390/320).
 
-## Agent rehearsal on the committed candidate `b988be1edf010f3f47c3aea646b5ad6a99f3dffe` (2026-09-27)
+## Agent rehearsal on the committed candidate `5f8f9efb4f216ffa9492ef7df5127c6077a8bfdf` (2026-09-27)
 
-Recorded by Claude Code under PROTOTYPE-AGENT-ACCEPTANCE-001 (PROTOTYPE-AGENT-ACCEPTANCE-001 · reviewer_kind=AI_AGENT · acceptance_scope=BROWSER_ONLY_PROTOTYPE · decision=APPROVED_FOR_DEMO · tested `b988be1`). The earlier "pinning gap" above is closed: the
+Recorded by Claude Code under PROTOTYPE-AGENT-ACCEPTANCE-001 (PROTOTYPE-AGENT-ACCEPTANCE-001 · reviewer_kind=AI_AGENT · acceptance_scope=BROWSER_ONLY_PROTOTYPE · decision=APPROVED_FOR_DEMO · tested `5f8f9ef`). The earlier "pinning gap" above is closed: the
 rehearsal ran on the committed tree through the built `dist/` in Chromium.
 
-| Rehearsal stop | Evidence on `b988be1` | Outcome |
+| Rehearsal stop | Evidence on `5f8f9ef` | Outcome |
 |---|---|---|
 | Scenario chooser, empty-practice precondition | `VP-064-E02: empty-practice preset opens every workspace route…`, `VP-003-E01: scenario chooser dismisses…` | DEMONSTRATED |
 | Connected new-record cycle | `AT-52: carries manually entered client data through engagement, job, mapped statements and a persisted package` | DEMONSTRATED |
