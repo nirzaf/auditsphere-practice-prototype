@@ -17,7 +17,7 @@ export const ApprovalsEQRView: React.FC<ApprovalsEQRViewProps> = ({ onNavigate, 
   const state = prototypeStore.getSnapshot();
   const selectedEng = state.engagements.find(e => e.id === state.selectedEngagement) || state.engagements[0];
   const [newConcern, setNewConcern] = useState('');
-  const [eqrUserId, setEqrUserId] = useState(selectedEng.eqrReviewerUserId || state.users.find(user => user.role === 'eqr' && user.status === 'Active')?.id || '');
+  const [eqrUserId, setEqrUserId] = useState(selectedEng?.eqrReviewerUserId || state.users.find(user => user.role === 'eqr' && user.status === 'Active')?.id || '');
   const [eqrReason, setEqrReason] = useState('');
   const [responses, setResponses] = useState<Record<string, string>>({});
   const [notice, setNotice] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
@@ -26,7 +26,7 @@ export const ApprovalsEQRView: React.FC<ApprovalsEQRViewProps> = ({ onNavigate, 
   const responseBaseline = useRef<Record<string, string>>({});
 
   useEffect(() => {
-    const nextReviewer = selectedEng.eqrReviewerUserId || state.users.find(user => user.role === 'eqr' && user.status === 'Active')?.id || '';
+    const nextReviewer = selectedEng?.eqrReviewerUserId || state.users.find(user => user.role === 'eqr' && user.status === 'Active')?.id || '';
     assignmentBaseline.current = { userId: nextReviewer, reason: '' };
     queryBaseline.current = '';
     responseBaseline.current = {};
@@ -34,9 +34,10 @@ export const ApprovalsEQRView: React.FC<ApprovalsEQRViewProps> = ({ onNavigate, 
     setEqrReason('');
     setNewConcern('');
     setResponses({});
-  }, [selectedEng.id]);
+  }, [selectedEng?.id]);
 
   useEffect(() => {
+    if (!selectedEng) return undefined;
     const assignmentKey = `eqr-assignment:${selectedEng.id}`;
     const queryKey = `eqr-query:${selectedEng.id}`;
     const responsesKey = `eqr-responses:${selectedEng.id}`;
@@ -69,7 +70,7 @@ export const ApprovalsEQRView: React.FC<ApprovalsEQRViewProps> = ({ onNavigate, 
       onRegisterUnsavedForm(null, queryKey);
       onRegisterUnsavedForm(null, responsesKey);
     };
-  }, [selectedEng.id, eqrUserId, eqrReason, newConcern, responses, onRegisterUnsavedForm]);
+  }, [selectedEng?.id, eqrUserId, eqrReason, newConcern, responses, onRegisterUnsavedForm]);
 
   if (!selectedEng) {
     return (

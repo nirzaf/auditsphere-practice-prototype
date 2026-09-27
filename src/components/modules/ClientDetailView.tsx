@@ -22,7 +22,28 @@ interface ClientDetailViewProps {
   onRegisterUnsavedForm: (guard: UnsavedFormGuard | null, key?: string) => void;
 }
 
-export const ClientDetailView: React.FC<ClientDetailViewProps> = ({ clientId, searchTargetId, onBack, onNavigate, onBeforeContextChange, onRegisterUnsavedForm }) => {
+// An empty practice (e.g. the `empty-practice` preset) has no client to fall back to; render an
+// honest empty state instead of letting the workspace dereference a missing client.
+export const ClientDetailView: React.FC<ClientDetailViewProps> = props => {
+  if (!prototypeStore.getSnapshot().clients.length) {
+    return (
+      <div className="stack" style={{ gap: 16 }}>
+        <div className="between">
+          <button className="btn sm ghost" onClick={props.onBack}>
+            <Icon name="arrow" /> Back to Portfolio
+          </button>
+        </div>
+        <div role="status" className="panel panel-pad">
+          <h2>No client selected</h2>
+          <p className="sub">There are no clients in this practice yet. Create a client from the Client Portfolio to open its workspace.</p>
+        </div>
+      </div>
+    );
+  }
+  return <ClientDetailWorkspace {...props} />;
+};
+
+const ClientDetailWorkspace: React.FC<ClientDetailViewProps> = ({ clientId, searchTargetId, onBack, onNavigate, onBeforeContextChange, onRegisterUnsavedForm }) => {
   const state = prototypeStore.getSnapshot();
   const searchContact = state.contacts.find(contact => contact.id === searchTargetId && contact.clientId === clientId);
   const engagementScope = visibleEngagementIds(state);

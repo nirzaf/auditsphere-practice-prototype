@@ -14,6 +14,7 @@ import { canOpenRoute, isClientRole, visibleClientIds, visibleEngagementIds } fr
 import { LEGACY_ROUTE_REDIRECTS, resolveRouteHash } from '../../src/services/legacyRoutes.js';
 import type { RouteKey } from '../../src/types/index.js';
 import { createInitialState } from '../../src/store/initialState.js';
+import { loadScenarioState } from '../../src/store/scenarios.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const repoRoot = join(here, '..', '..');
@@ -2132,6 +2133,32 @@ describe('actual Chrome browser acceptance', { concurrency: false }, () => {
       assert.equal(await waitForBrowser(`location.hash==='#overview'&&!document.querySelector('.modal')`), true, 'Discard closes the upload draft before continuing');
       assert.equal(await browserTab!.evaluate<boolean>(`(() => {const s=JSON.parse(localStorage.getItem('ste-auditsphere-role-portals-v2'));const p=s.engagements.find(e=>e.id==='ENG-26001').pbc.find(p=>p.id==='PBC-03');return p.status==='Requested'&&!p.file;})()`), true, 'discarded invalid file creates no uploaded response');
       assert.deepEqual(browserTab!.exceptions, []);
+    } finally {
+      if (original) await browserTab!.evaluate(`localStorage.setItem('ste-auditsphere-role-portals-v2', ${JSON.stringify(original)})`);
+      else await browserTab!.evaluate(`localStorage.removeItem('ste-auditsphere-role-portals-v2')`);
+      await browserTab!.command('Page.reload');
+      await waitForBrowser('!!document.querySelector("#app-root .brandname")');
+    }
+  });
+
+  it('VP-064-E02: empty-practice preset opens every workspace route without a render exception', async () => {
+    const original = await browserTab!.evaluate<string | null>(`localStorage.getItem('ste-auditsphere-role-portals-v2')`);
+    try {
+      const fixture = loadScenarioState('empty-practice');
+      assert.equal(fixture.clients.length + fixture.engagements.length, 0, 'empty-practice fixture has no clients or engagements');
+      await browserTab!.evaluate(`localStorage.setItem('ste-auditsphere-role-portals-v2', ${JSON.stringify(JSON.stringify(fixture))})`);
+      await browserTab!.command('Page.reload');
+      assert.equal(await waitForBrowser('!!document.querySelector("#role-select")'), true);
+      await browserTab!.evaluate(`(() => {const select=document.querySelector('#role-select');Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype,'value').set.call(select,'superuser');select.dispatchEvent(new Event('change',{bubbles:true}));})()`);
+      assert.equal(await waitForBrowser(`document.querySelector('#role-select')?.value==='superuser'`), true);
+      // client-detail and approvals previously dereferenced a missing client/engagement and blanked the whole app.
+      for (const route of ['client-detail', 'approvals', 'quality', 'delivery', 'records', 'reviews', 'audit', 'financial-packages', 'financial-statements', 'accounting-setup', 'audit-planning', 'audit-risks', 'onboarding', 'budgets', 'communications', 'portal', 'overview']) {
+        await browserTab!.evaluate(`window.location.hash='#${route}'`);
+        assert.equal(await waitForBrowser(`location.hash==='#${route}'&&(document.querySelector('main#main')?.innerText||'').trim().length>0`), true, `empty-practice route rendered no content: ${route}`);
+        assert.deepEqual(browserTab!.exceptions, [], `render exception on empty-practice route ${route}`);
+      }
+      await browserTab!.evaluate(`window.location.hash='#client-detail'`);
+      assert.equal(await waitForBrowser(`document.querySelector('main#main')?.innerText.includes('No client selected')`), true, 'client workspace states that no client exists');
     } finally {
       if (original) await browserTab!.evaluate(`localStorage.setItem('ste-auditsphere-role-portals-v2', ${JSON.stringify(original)})`);
       else await browserTab!.evaluate(`localStorage.removeItem('ste-auditsphere-role-portals-v2')`);
