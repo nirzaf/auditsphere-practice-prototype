@@ -22,6 +22,8 @@ export const CommunicationsView: React.FC<CommunicationsViewProps> = ({ onNaviga
 
   // Email form
   const [recipientEmail, setRecipientEmail] = useState('omar.nasser@example-trading.demo');
+  const [ccEmailsText, setCcEmailsText] = useState('');
+  const [relatedRequestId, setRelatedRequestId] = useState('');
   const [emailDocumentId, setEmailDocumentId] = useState('');
   const [selectedTemplateId, setSelectedTemplateId] = useState<string>('TPL-EM-01');
   const [subject, setSubject] = useState('AuditSphere: Document Request for Example Trading Entity');
@@ -51,6 +53,7 @@ export const CommunicationsView: React.FC<CommunicationsViewProps> = ({ onNaviga
   const selectedEngagement = state.engagements.find(engagement => engagement.id === state.selectedEngagement);
   const client = state.clients.find(item => item.id === selectedEngagement?.client) || state.clients[0];
   const clientJobs = state.jobs.filter(job => job.clientId === client?.id);
+  const clientRequests = selectedEngagement?.pbc.filter(request => !['Draft', 'Cancelled'].includes(request.status)) || [];
   const communicationDocuments = state.documents.filter(item => item.clientId === client?.id && (!item.engagementId || item.engagementId === state.selectedEngagement));
   const relatedJob = clientJobs.find(job => job.id === relatedJobId);
 
@@ -60,8 +63,9 @@ export const CommunicationsView: React.FC<CommunicationsViewProps> = ({ onNaviga
     if (emailAttemptRecorded.current) return true;
     emailAttemptRecorded.current = true;
     try {
-      prototypeStore.addCommunication({ id: `COMM-${crypto.randomUUID()}`, clientId: client?.id || 'CL-001', engagementId: state.selectedEngagement, direction: 'Outbound', channel: 'Email', participants: `${state.currentPerson} -> ${recipientEmail.trim().toLowerCase()}`, recipientEmail: recipientEmail.trim().toLowerCase(), summary: subject, body: emailBody, author: state.currentPerson, date: new Date().toISOString(), visibility: 'Client visible', status: simulationOutcome, simulationReference: `MAIL-SIM-${crypto.randomUUID()}`, simulationEvidence: `Local simulation recorded ${simulationOutcome}; no provider receipt or external delivery confirmation exists.`, simulationSubmissionId: submissionId, ...(emailDocumentId ? { linkedDocumentId: emailDocumentId } : {}) });
-      emailBaseline.current = { recipientEmail, emailDocumentId, selectedTemplateId, subject, emailBody, simulationOutcome };
+      const ccEmails = ccEmailsText.split(/[;,\n]/).map(email => email.trim()).filter(Boolean);
+      prototypeStore.addCommunication({ id: `COMM-${crypto.randomUUID()}`, clientId: client?.id || 'CL-001', engagementId: state.selectedEngagement, direction: 'Outbound', channel: 'Email', participants: `${state.currentPerson} -> ${recipientEmail.trim().toLowerCase()}${ccEmails.length ? ` (CC: ${ccEmails.join(', ')})` : ''}`, recipientEmail: recipientEmail.trim().toLowerCase(), ccEmails, summary: subject, body: emailBody, author: state.currentPerson, date: new Date().toISOString(), visibility: 'Client visible', status: simulationOutcome, simulationReference: `MAIL-SIM-${crypto.randomUUID()}`, simulationEvidence: `Local simulation recorded ${simulationOutcome}; no provider receipt or external delivery confirmation exists.`, simulationSubmissionId: submissionId, ...(emailDocumentId ? { linkedDocumentId: emailDocumentId } : {}), ...(relatedRequestId ? { relatedRequestId } : {}) });
+      emailBaseline.current = { recipientEmail, ccEmailsText, relatedRequestId, emailDocumentId, selectedTemplateId, subject, emailBody, simulationOutcome };
       setEmailError(''); setShowComposeModal(false); return true;
     } catch (error) { emailAttemptRecorded.current = false; setEmailError(error instanceof Error ? error.message : 'Simulated email could not be recorded.'); return false; }
   };
@@ -119,28 +123,30 @@ export const CommunicationsView: React.FC<CommunicationsViewProps> = ({ onNaviga
     setTemplateDraft(structuredClone(selected));
     setTemplateError('');
   };
-  const emailBaseline = useRef({ recipientEmail, emailDocumentId, selectedTemplateId, subject, emailBody, simulationOutcome });
+  const emailBaseline = useRef({ recipientEmail, ccEmailsText, relatedRequestId, emailDocumentId, selectedTemplateId, subject, emailBody, simulationOutcome });
   const noteBaseline = useRef({ channel, participants, noteSummary, noteBody, noteDate, noteVisibility, noteDocumentId, relatedJobId, correctionReason });
   const openCompose = () => {
     emailAttemptRecorded.current = false;
     emailSubmissionId.current = crypto.randomUUID();
     setEmailError('');
     setEmailDocumentId('');
-    emailBaseline.current = { recipientEmail, emailDocumentId: '', selectedTemplateId, subject, emailBody, simulationOutcome };
+    setCcEmailsText('');
+    setRelatedRequestId('');
+    emailBaseline.current = { recipientEmail, ccEmailsText: '', relatedRequestId: '', emailDocumentId: '', selectedTemplateId, subject, emailBody, simulationOutcome };
     setShowComposeModal(true);
   };
   useEffect(() => {
     if (!onRegisterUnsavedForm) return;
-    const sameEmail = () => recipientEmail === emailBaseline.current.recipientEmail && emailDocumentId === emailBaseline.current.emailDocumentId && selectedTemplateId === emailBaseline.current.selectedTemplateId && subject === emailBaseline.current.subject && emailBody === emailBaseline.current.emailBody && simulationOutcome === emailBaseline.current.simulationOutcome;
+    const sameEmail = () => recipientEmail === emailBaseline.current.recipientEmail && ccEmailsText === emailBaseline.current.ccEmailsText && relatedRequestId === emailBaseline.current.relatedRequestId && emailDocumentId === emailBaseline.current.emailDocumentId && selectedTemplateId === emailBaseline.current.selectedTemplateId && subject === emailBaseline.current.subject && emailBody === emailBaseline.current.emailBody && simulationOutcome === emailBaseline.current.simulationOutcome;
     const sameNote = () => channel === noteBaseline.current.channel && participants === noteBaseline.current.participants && noteSummary === noteBaseline.current.noteSummary && noteBody === noteBaseline.current.noteBody && noteDate === noteBaseline.current.noteDate && noteVisibility === noteBaseline.current.noteVisibility && noteDocumentId === noteBaseline.current.noteDocumentId && relatedJobId === noteBaseline.current.relatedJobId && correctionReason === noteBaseline.current.correctionReason;
-    const discardEmail = () => { setShowComposeModal(false); setRecipientEmail(emailBaseline.current.recipientEmail); setEmailDocumentId(emailBaseline.current.emailDocumentId); setSelectedTemplateId(emailBaseline.current.selectedTemplateId); setSubject(emailBaseline.current.subject); setEmailBody(emailBaseline.current.emailBody); setSimulationOutcome(emailBaseline.current.simulationOutcome); };
+    const discardEmail = () => { setShowComposeModal(false); setRecipientEmail(emailBaseline.current.recipientEmail); setCcEmailsText(emailBaseline.current.ccEmailsText); setRelatedRequestId(emailBaseline.current.relatedRequestId); setEmailDocumentId(emailBaseline.current.emailDocumentId); setSelectedTemplateId(emailBaseline.current.selectedTemplateId); setSubject(emailBaseline.current.subject); setEmailBody(emailBaseline.current.emailBody); setSimulationOutcome(emailBaseline.current.simulationOutcome); };
     const discardNote = () => { setShowLogNoteModal(false); setEditingCommunicationId(null); setChannel(noteBaseline.current.channel); setParticipants(noteBaseline.current.participants); setNoteSummary(noteBaseline.current.noteSummary); setNoteBody(noteBaseline.current.noteBody); setNoteDate(noteBaseline.current.noteDate); setNoteVisibility(noteBaseline.current.noteVisibility); setNoteDocumentId(noteBaseline.current.noteDocumentId); setRelatedJobId(noteBaseline.current.relatedJobId); setCorrectionReason(noteBaseline.current.correctionReason); };
     const sameTemplate = () => JSON.stringify(templateDraft) === JSON.stringify(templateBaseline.current);
     onRegisterUnsavedForm({ label: 'simulated email draft', isDirty: () => showComposeModal && !sameEmail(), save: saveEmailDraft, discard: discardEmail }, 'communications-email-draft');
     onRegisterUnsavedForm({ label: 'communication note draft', isDirty: () => showLogNoteModal && !sameNote(), save: saveNoteDraft, discard: discardNote }, 'communications-note-draft');
     onRegisterUnsavedForm({ label: 'email template draft', isDirty: () => showTemplateEditor && !sameTemplate(), save: saveTemplateDraft, discard: discardTemplateDraft }, 'communications-template-draft');
     return () => { onRegisterUnsavedForm(null, 'communications-email-draft'); onRegisterUnsavedForm(null, 'communications-note-draft'); onRegisterUnsavedForm(null, 'communications-template-draft'); };
-  }, [showComposeModal, showLogNoteModal, showTemplateEditor, templateDraft, recipientEmail, emailDocumentId, selectedTemplateId, subject, emailBody, simulationOutcome, channel, participants, noteSummary, noteBody, noteDate, noteVisibility, noteDocumentId, relatedJobId, editingCommunicationId, correctionReason, onRegisterUnsavedForm]);
+  }, [showComposeModal, showLogNoteModal, showTemplateEditor, templateDraft, recipientEmail, ccEmailsText, relatedRequestId, emailDocumentId, selectedTemplateId, subject, emailBody, simulationOutcome, channel, participants, noteSummary, noteBody, noteDate, noteVisibility, noteDocumentId, relatedJobId, editingCommunicationId, correctionReason, onRegisterUnsavedForm]);
 
   const openNewNote = () => {
     const clean = { channel: 'Phone' as CommunicationItem['channel'], participants: 'Omar Nasser (CFO), Layla Rahman (Manager)', noteSummary: '', noteBody: '', noteDate: state.asOfDate, noteVisibility: 'Internal' as CommunicationItem['visibility'], noteDocumentId: '', relatedJobId: '', correctionReason: '' };
@@ -282,6 +288,19 @@ export const CommunicationsView: React.FC<CommunicationsViewProps> = ({ onNaviga
                     onChange={e => { setRecipientEmail(e.target.value); setEmailError(''); }}
                     required
                   />
+                </div>
+                <div>
+                  <label className="caption" htmlFor="email-cc">CC (optional, active client contacts)</label>
+                  <input id="email-cc" className="input" value={ccEmailsText} onChange={event => { setCcEmailsText(event.target.value); setEmailError(''); }} placeholder="name@example.com, colleague@example.com" aria-describedby="email-cc-help" />
+                  <span id="email-cc-help" className="caption">Separate addresses with commas or semicolons. Recipients must be active contacts for this client.</span>
+                </div>
+                <div>
+                  <label className="caption" htmlFor="email-pbc-request">Link to client request (optional)</label>
+                  <select id="email-pbc-request" className="input" value={relatedRequestId} onChange={event => setRelatedRequestId(event.target.value)}>
+                    <option value="">No linked request</option>
+                    {clientRequests.map(request => <option key={request.id} value={request.id}>{request.id} · {request.title}</option>)}
+                  </select>
+                  <span className="caption">The local message will appear in both the staff and client-visible conversation for this request.</span>
                 </div>
                 <div>
                   <label className="caption">Subject</label>

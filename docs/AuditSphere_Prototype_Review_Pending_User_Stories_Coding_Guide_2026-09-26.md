@@ -161,7 +161,7 @@ Preserve historical run entries, but clearly distinguish historical snapshots fr
 | MOD-08 — Client Portal | Partial | Nomination drafts now use guarded Save/Discard/Stay across entity and engagement context changes; remaining portal persona/entity/engagement list, badge, search and action matrix; do not rebuild entity scoping. | RV-M08 |
 | MOD-09 — Client Requests / PBC | Partial | Request-filter and recipient/context verification; accepted-evidence replacement is now complete. | RV-M09 |
 | MOD-10 — Document Management | Partial | Workspace retry/root/scope and availability matrices remain; PBC and library storage classes are now documented separately. | RV-M10 |
-| MOD-11 — Communications | Partial | Sender/placeholder/template/link cases remain; the F01 search projection leak is fixed and tested. | RV-M11 |
+| MOD-11 — Communications | Partial | VP-026’s bounded sender, placeholder, template permissions/CRUD, To/CC, attachment scope, duplicate-send and request-thread cases are now implemented and verified; VP-027 incoming-record actor/context/correction acceptance remains. F01 search scope remains verified. | RV-M11 |
 | MOD-12 — Time Tracking | Partial | Date/duration/link-scope matrix; billed-time correction is already implemented. | RV-M12 |
 | MOD-13 — Budgets | Partial | Unallocated aggregation and variance cases remain; F05 budget draft guards are fixed and tested. | RV-M13 |
 | MOD-14 — Billing & Invoicing | Partial | VP-031-E01 bounded evidence is complete (date/reference/correction and scoped-search regressions pass); whole-story criterion/sign-off status remains open. | RV-M14 |
@@ -548,26 +548,26 @@ An empty “local open action” list means the module's named action rows are c
 
 **Work type:** Targeted verification / acceptance; implement only a reproduced gap.  
 **Original stories:** VP-026, VP-027.  
-**Local open action rows:** `VP-026-E01`, `VP-027-E02`  
+**Local open action rows:** `VP-027-E02` (VP-026-E01 bounded action complete; VP-026 story/sign-off remains open)
 **Route/workspace:** `communications`.  
 **Implementation touchpoints:** [CommunicationsView.tsx](https://github.com/nirzaf/auditsphere-visual-prototype/blob/975502a1f0fb31db3814da6d6bf6854cf9c8879e/src/components/modules/CommunicationsView.tsx); existing `prototypeStore` commands, selectors and services.
 
 **User story:** As a communication author, I want to compose, record and correct messages with explicit simulated outcomes, so that a failed or unknown attempt is never confused with delivery or silently retried.
 
-**Preserve / current evidence:** Basic compose, manual incoming records, duplicate-submit protection and correction histories exist. VP-026-E01 and VP-027-E02 remain Partial; F01 also affects search. [S2]
+**Preserve / current evidence (updated 2026-09-27):** AT-26 now covers local-only accepted/failed/unknown attempts, To and optional CC validation, scoped shared-document attachment, PBC request linking, template CRUD/role boundaries and supported placeholders. Store validation rejects unavailable senders, unresolved tokens, inactive/foreign/duplicate contacts, unsafe attachment/request scope and duplicate simulation references atomically. The canonical email record is projected into both the staff Client 360 and client portal request timelines; neither claims delivery. VP-026-E01 bounded action is complete; VP-026 acceptance/sign-off and VP-027-E02 remain Partial/open. F01 search projection scope remains tested. [S2]
 
-**Required supported lifecycle:** draft/template → resolve fields and links → validate sender/recipient/scope → explicit simulated attempt → accepted/failed/unknown local result → deliberate new attempt or correction.
+**Required supported lifecycle (implemented; verified in AT-26):** draft/template → resolve fields and links → validate sender, To/CC, document and PBC request scope → explicit simulated attempt → accepted/failed/unknown local result → deliberate new attempt. Inbound corrections remain the separate VP-027 lifecycle.
 
 **Acceptance criteria**
-- [ ] Unavailable sender, unresolved template placeholders and forbidden template editing block the action with an actionable message and no communication mutation.
-- [ ] Cross-client/engagement or internal-only attachment links cannot be published to a client-facing message.
-- [ ] One operation token records one attempt; closing and reopening for a deliberate retry creates a new attributable attempt, including after Unknown.
+- [x] Unavailable sender, unresolved template placeholders and forbidden template editing block the action with an actionable message and no communication mutation (unit + AT-26/AC04 Chrome, 2026-09-27).
+- [x] Cross-client/engagement or internal-only attachment links cannot be published to a client-facing message; CC and linked PBC requests are also constrained to active, exact-scope client records (unit + AT-26 Chrome, 2026-09-27).
+- [x] One operation token records one attempt; closing and reopening for a deliberate retry creates a new attributable attempt, including after Unknown (AT-26 Chrome + store regression).
 - [ ] Incoming-record publication requires the existing warning and authority; reasoned correction retains prior content and scope.
-- [ ] Search applies the same role and engagement boundaries before exposing summaries, participants or type counts.
+- [x] Search applies the same role and engagement boundaries before exposing summaries, participants or type counts (F01 scoped Chrome journey).
 
 **Coding guide:** Reuse CommunicationsView and existing template/attempt/correction commands. Validate the saved configuration and current actor at execution; do not add mailbox polling, SMTP or an email provider.
 
-**Verification:** Extend AT-26/27 with sender/placeholder/template/link negatives and the F01 same-client sibling sentinel. Record the actual source/build, fixture and assertion; use the existing unit/Chrome harness and do not manufacture reviewer approval.
+**Verification (2026-09-27):** AT-26 now includes sender/placeholder/template/link negatives, optional CC validation, exact request linking and staff/client timeline projection; F01 covers the same-client sibling sentinel. Review F-01/F-02/F-03 browser journeys exercise signed statement preview/XLSX agreement plus planning currency and guarded context reset. Full unit suite: 280/280. Focused Chrome checks for AT-26, template permissions, F-01 and F-02/F-03 pass. Broader story acceptance and owner sign-off remain open; no reviewer approval is manufactured.
 
 ### RV-M12 — MOD-12: Time Tracking
 

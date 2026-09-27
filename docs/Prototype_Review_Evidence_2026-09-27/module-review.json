@@ -1,0 +1,406 @@
+{
+  "reviewDate": "2026-09-27",
+  "prototypeCommit": "27357ef0d0f9b2aabe1e786ca2b323f987cec5bd",
+  "realCommit": "eb0ad5f7e06d68f80427bf7aa4b7f468faed8897",
+  "evidenceBoundary": "Read-only GitHub source review; repository suites not rerun; isolated extracted-function probes only",
+  "modules": [
+    {
+      "id": "MOD-01",
+      "name": "Practice Dashboard",
+      "repository_status": "PARTIAL",
+      "demonstrated_scope": "Scope-aware metrics, filters and linked queues.",
+      "remaining": "Wider role/grant/filter/date combinations and criterion/owner acceptance.",
+      "real_domain": "Practice"
+    },
+    {
+      "id": "MOD-02",
+      "name": "CRM & Client Management",
+      "repository_status": "PARTIAL",
+      "demonstrated_scope": "Client profile lifecycle, contacts, custom fields, relationship groups and 12-tab Client 360.",
+      "remaining": "Complete tab/action/narrow-grant coverage and cross-record continuity.",
+      "real_domain": "Practice"
+    },
+    {
+      "id": "MOD-03",
+      "name": "Leads & Opportunities",
+      "repository_status": "VERIFIED",
+      "demonstrated_scope": "Capture/edit, qualification and reasoned outcomes, Won conversion or authorized existing-client linking, duplicate-safe retry.",
+      "remaining": "Preserve bounded simulation; fresh independent owner acceptance is not established by this review.",
+      "real_domain": "Practice / CRM"
+    },
+    {
+      "id": "MOD-04",
+      "name": "Proposals & Engagements",
+      "repository_status": "PARTIAL",
+      "demonstrated_scope": "Services/templates, line pricing, independent review, exact client response, version changes and engagement lifecycle.",
+      "remaining": "Print-layout and wider actor/currency/rework matrix; full change-impact acceptance.",
+      "real_domain": "Practice / Engagements"
+    },
+    {
+      "id": "MOD-05",
+      "name": "Jobs & Tasks",
+      "repository_status": "PARTIAL",
+      "demonstrated_scope": "Manual jobs/tasks/one-level subtasks, assignment, editing, status and cancellation history.",
+      "remaining": "Task-level comments/attachments and broader return/reopen behavior.",
+      "real_domain": "Practice / Engagements"
+    },
+    {
+      "id": "MOD-06",
+      "name": "Job Templates",
+      "repository_status": "PARTIAL",
+      "demonstrated_scope": "Draft/publish/revise/retire and explicit single job instantiation with fresh tasks.",
+      "remaining": "Technical evidence is recorded; full story/owner sign-off remains pending. Recurring automation is not required.",
+      "real_domain": "Practice / Engagements"
+    },
+    {
+      "id": "MOD-07",
+      "name": "Team Collaboration",
+      "repository_status": "PARTIAL",
+      "demonstrated_scope": "Internal notes, mentions, edits, visibility and local notices.",
+      "remaining": "Wider actor/scope and job/task return/reopen matrices.",
+      "real_domain": "Practice / communications"
+    },
+    {
+      "id": "MOD-08",
+      "name": "Client Portal",
+      "repository_status": "PARTIAL",
+      "demonstrated_scope": "Three client personas, multi-entity context, files, requests, invoices, package decisions and contact nomination requests.",
+      "remaining": "Full list/action/badge/search and nomination-review matrices; nomination must not be confused with an access grant.",
+      "real_domain": "Documents / client portal"
+    },
+    {
+      "id": "MOD-09",
+      "name": "Client Requests / PBC",
+      "repository_status": "PARTIAL",
+      "demonstrated_scope": "Requests, clarification, upload versions, IndexedDB byte/hash persistence, reopen and independent reacceptance.",
+      "remaining": "Recipient/entity switching and linkage to evidence adequacy and workpaper reassessment; whole-story acceptance.",
+      "real_domain": "Documents"
+    },
+    {
+      "id": "MOD-10",
+      "name": "Document Management",
+      "repository_status": "PARTIAL",
+      "demonstrated_scope": "Logical workspaces, exact links, revision replacement, availability and sharing states.",
+      "remaining": "Broader revision/availability/context acceptance. Library originals remaining in-session is a declared storage limitation, not a missing SharePoint integration.",
+      "real_domain": "Documents / Microsoft365"
+    },
+    {
+      "id": "MOD-11",
+      "name": "Communications",
+      "repository_status": "PARTIAL",
+      "demonstrated_scope": "Simulated accepted/failed/unknown outgoing messages, explicit retry intent, inbound notes and corrections.",
+      "remaining": "Template/sender/placeholder permissions, request linking and wider actor/context/rework checks. Inbox synchronization is excluded, not pending.",
+      "real_domain": "Microsoft365 / communications"
+    },
+    {
+      "id": "MOD-12",
+      "name": "Time Tracking",
+      "repository_status": "PARTIAL",
+      "demonstrated_scope": "Submit/return/resubmit/approve/correct, effective-revision totals and billed-source history.",
+      "remaining": "Wider job/task/role/date matrix and full criterion acceptance.",
+      "real_domain": "Practice"
+    },
+    {
+      "id": "MOD-13",
+      "name": "Budgets",
+      "repository_status": "PARTIAL",
+      "demonstrated_scope": "Versioned budgets, pinned time rates, separate currencies and role-based cost visibility.",
+      "remaining": "Broader rate/role/currency combinations and historical-variance acceptance.",
+      "real_domain": "Practice"
+    },
+    {
+      "id": "MOD-14",
+      "name": "Billing & Invoicing",
+      "repository_status": "PARTIAL",
+      "demonstrated_scope": "Source-linked/ad hoc invoices, reservations, revisions, independent review, issued PDF and credit-note lifecycles.",
+      "remaining": "Remaining source/review/credit criterion sign-off and edge matrices.",
+      "real_domain": "Practice"
+    },
+    {
+      "id": "MOD-15",
+      "name": "Receivables",
+      "repository_status": "PARTIAL",
+      "demonstrated_scope": "Offline receipts, partial allocations, reversal, historical ageing, statements and exports.",
+      "remaining": "Broader role/currency and receipt-allocation boundary acceptance. No online payment feature is required.",
+      "real_domain": "Practice"
+    },
+    {
+      "id": "MOD-16",
+      "name": "Reporting & Analytics",
+      "repository_status": "VERIFIED",
+      "demonstrated_scope": "Sixteen report views, scoped source-derived CSVs, missing-rate handling and browser print paths.",
+      "remaining": "Preserve bounded simulation; fresh independent owner acceptance is not established by this review.",
+      "real_domain": "Practice / portfolio and accounting reporting"
+    },
+    {
+      "id": "MOD-17",
+      "name": "Search & Centralized Client View",
+      "repository_status": "PARTIAL",
+      "demonstrated_scope": "Scoped search and exact record navigation with client context.",
+      "remaining": "Remaining target/back/filter/narrow-scope paths and shared Client 360 acceptance.",
+      "real_domain": "Practice / cross-cutting UX"
+    },
+    {
+      "id": "MOD-18",
+      "name": "Microsoft 365 Integration",
+      "repository_status": "PARTIAL",
+      "demonstrated_scope": "Local setup wizard, capability states, error outcomes, logical SharePoint binding and optional OneDrive import.",
+      "remaining": "Wider invalid-resource/outage/reconnect matrices. Live OAuth or tenant calls are deliberately outside the prototype.",
+      "real_domain": "Microsoft365"
+    },
+    {
+      "id": "MOD-19",
+      "name": "Identity & Access Management",
+      "repository_status": "PARTIAL",
+      "demonstrated_scope": "Person identities, scoped grants, approval references, expiry and revocation.",
+      "remaining": "Compatible-role changes and broader evidence/expiry/group-component scope matrices.",
+      "real_domain": "Security"
+    },
+    {
+      "id": "MOD-20",
+      "name": "Accounting",
+      "repository_status": "PARTIAL",
+      "demonstrated_scope": "Client/account/period/book/dimension setup and versioned approved split mappings.",
+      "remaining": "Broader chart/period/context edits and downstream output rework.",
+      "real_domain": "Accounting"
+    },
+    {
+      "id": "MOD-21",
+      "name": "Trial Balance & GL",
+      "repository_status": "PARTIAL",
+      "demonstrated_scope": "CSV/XLSX source intake, column mappings, control totals, explicit opening/movement checks, version history and exports.",
+      "remaining": "Broader negative/review/actor coverage and declared-size responsiveness.",
+      "real_domain": "Accounting"
+    },
+    {
+      "id": "MOD-22",
+      "name": "Adjustments & Journals",
+      "repository_status": "PARTIAL",
+      "demonstrated_scope": "Technical review, management decision, reporting inclusion, source reflection and evidence-linked correction.",
+      "remaining": "Whole original criteria/sign-off and wider reflection/amendment/role combinations; bounded evidence actions do not close the entire story.",
+      "real_domain": "Accounting"
+    },
+    {
+      "id": "MOD-23",
+      "name": "Reconciliations",
+      "repository_status": "PARTIAL",
+      "demonstrated_scope": "Source-bound balances, timing versus proposed correction, cent-exact residual, evidence review and staleness.",
+      "remaining": "Broader criterion/actor evidence and sign-off.",
+      "real_domain": "Accounting"
+    },
+    {
+      "id": "MOD-24",
+      "name": "Financial Statements",
+      "repository_status": "PARTIAL",
+      "demonstrated_scope": "Mapping, comparatives, layout, movement-based cash flow/equity and reviewed disclosures.",
+      "remaining": "Signed-balance defect found in this review; component equity breakdown, source/prior/layout and disclosure-rework matrices.",
+      "real_domain": "Accounting"
+    },
+    {
+      "id": "MOD-25",
+      "name": "Financial Packages",
+      "repository_status": "PARTIAL",
+      "demonstrated_scope": "XLSX/DOCX/PDF byte artifacts, section selection, digest verification and versioned management acknowledgement.",
+      "remaining": "DOCX/PDF-specific failure injection and remaining sharing/edge combinations.",
+      "real_domain": "Accounting / Completion"
+    },
+    {
+      "id": "MOD-26",
+      "name": "Consolidation",
+      "repository_status": "PARTIAL",
+      "demonstrated_scope": "One parent plus one wholly owned subsidiary, pinned component inputs, closing-rate FX, manual eliminations and reviewed JSON output.",
+      "remaining": "Finish bounded translation/reconciliation/review acceptance. NCI, associates and general advanced consolidation are outside the declared prototype profile.",
+      "real_domain": "Accounting / group reporting"
+    },
+    {
+      "id": "MOD-27",
+      "name": "Client Acceptance",
+      "repository_status": "VERIFIED",
+      "demonstrated_scope": "Five evidence-backed screening confirmations, separate partner decision, prohibited-case blocking and manual fresh-period draft creation.",
+      "remaining": "Preserve bounded simulation; fresh independent owner acceptance is not established by this review.",
+      "real_domain": "Acceptance"
+    },
+    {
+      "id": "MOD-28",
+      "name": "Audit Planning",
+      "repository_status": "PARTIAL",
+      "demonstrated_scope": "Deliberate materiality inputs, rationale, team/milestones and independent versioned review.",
+      "remaining": "Context-reset risk and currency-label defect identified by this review; broader planning and rework acceptance.",
+      "real_domain": "Audit"
+    },
+    {
+      "id": "MOD-29",
+      "name": "Risks & Audit Programs",
+      "repository_status": "PARTIAL",
+      "demonstrated_scope": "Linked risks/assertions/procedures, versioned program templates and plan/procedure reassessment.",
+      "remaining": "Wider multi-risk/template/rework criterion combinations and owner acceptance.",
+      "real_domain": "Audit"
+    },
+    {
+      "id": "MOD-30",
+      "name": "Audit Fieldwork",
+      "repository_status": "PARTIAL",
+      "demonstrated_scope": "Work performed, procedure results, exceptions, submission, independent return and clearance history.",
+      "remaining": "Broader evidence/exception-return cases and whole-story acceptance.",
+      "real_domain": "Audit"
+    },
+    {
+      "id": "MOD-31",
+      "name": "Populations & Sampling",
+      "repository_status": "VERIFIED",
+      "demonstrated_scope": "CSV/XLSX populations, source tie-out, manual selection, testing/limitations, exception-to-finding links and independent review.",
+      "remaining": "Preserve bounded simulation; fresh independent owner acceptance is not established by this review.",
+      "real_domain": "Audit"
+    },
+    {
+      "id": "MOD-32",
+      "name": "Workpapers",
+      "repository_status": "VERIFIED",
+      "demonstrated_scope": "Template-linked drafts, exact submissions, evidence pins, reasoned reassignment and independent clearance.",
+      "remaining": "Preserve bounded simulation; fresh independent owner acceptance is not established by this review.",
+      "real_domain": "Audit"
+    },
+    {
+      "id": "MOD-33",
+      "name": "Evidence",
+      "repository_status": "VERIFIED",
+      "demonstrated_scope": "Adequacy decisions, exact-version links, replacement/unlink history and dependent reassessment.",
+      "remaining": "Preserve bounded simulation; fresh independent owner acceptance is not established by this review.",
+      "real_domain": "Documents / Audit"
+    },
+    {
+      "id": "MOD-34",
+      "name": "Findings & Differences",
+      "repository_status": "PARTIAL",
+      "demonstrated_scope": "Qualitative and monetary findings, sample provenance, journal-linked correction and release blocking.",
+      "remaining": "Provenance/re-evaluation and cross-view disposition coverage; whole-story sign-off.",
+      "real_domain": "Audit / Completion"
+    },
+    {
+      "id": "MOD-35",
+      "name": "Review Points",
+      "repository_status": "VERIFIED",
+      "demonstrated_scope": "Raise/respond/clear/reopen, scoped queues, reassignment and revision-pinned responses.",
+      "remaining": "Preserve bounded simulation; fresh independent owner acceptance is not established by this review.",
+      "real_domain": "Reviews"
+    },
+    {
+      "id": "MOD-36",
+      "name": "Reviews & Approvals",
+      "repository_status": "VERIFIED",
+      "demonstrated_scope": "Management presentation/decision, eligible separate EQR and version/generation staleness.",
+      "remaining": "Preserve bounded simulation; fresh independent owner acceptance is not established by this review.",
+      "real_domain": "Reviews / Completion"
+    },
+    {
+      "id": "MOD-37",
+      "name": "Completion & Release",
+      "repository_status": "VERIFIED",
+      "demonstrated_scope": "Exact artifact manifest, readiness gates, duplicate prevention and controlled amendment.",
+      "remaining": "Preserve bounded simulation; fresh independent owner acceptance is not established by this review.",
+      "real_domain": "Completion"
+    },
+    {
+      "id": "MOD-38",
+      "name": "Records & Archive",
+      "repository_status": "VERIFIED",
+      "demonstrated_scope": "Verified browser-local artifact copies, manifests, predecessor/successor history and hold/handover metadata.",
+      "remaining": "Preserve bounded simulation; fresh independent owner acceptance is not established by this review.",
+      "real_domain": "Records"
+    },
+    {
+      "id": "MOD-39",
+      "name": "Administration",
+      "repository_status": "PARTIAL",
+      "demonstrated_scope": "Identity/grant administration plus prospective firm settings, numbering, terms, branding references and event history.",
+      "remaining": "Complete role/revision/settings acceptance; avoid conflating settings access with professional authority.",
+      "real_domain": "Security / Practice"
+    }
+  ],
+  "sources": {
+    "P1": [
+      "https://github.com/nirzaf/auditsphere-visual-prototype/blob/27357ef0d0f9b2aabe1e786ca2b323f987cec5bd/01_MODULE_INDEX.md",
+      "All 39 module names, IDs and recorded statuses"
+    ],
+    "P2": [
+      "https://github.com/nirzaf/auditsphere-visual-prototype/blob/27357ef0d0f9b2aabe1e786ca2b323f987cec5bd/docs/prototype/module-coverage.md",
+      "Module-level behavior and residual acceptance limitations"
+    ],
+    "P3": [
+      "https://github.com/nirzaf/auditsphere-visual-prototype/blob/27357ef0d0f9b2aabe1e786ca2b323f987cec5bd/docs/Progress_Tracker.md",
+      "Current counts, scope exclusions and acceptance rules"
+    ],
+    "P4": [
+      "https://github.com/nirzaf/auditsphere-visual-prototype/blob/27357ef0d0f9b2aabe1e786ca2b323f987cec5bd/docs/prototype/verification.md",
+      "Repository-reported execution evidence; many entries refer to a worktree"
+    ],
+    "P5": [
+      "https://github.com/nirzaf/auditsphere-visual-prototype/blob/27357ef0d0f9b2aabe1e786ca2b323f987cec5bd/README.md",
+      "Native runtime, role fixtures, storage classes and simulation boundary"
+    ],
+    "P6": [
+      "https://github.com/nirzaf/auditsphere-visual-prototype/blob/27357ef0d0f9b2aabe1e786ca2b323f987cec5bd/src/App.tsx",
+      "Actual routed component tree and transition guards"
+    ],
+    "P7": [
+      "https://github.com/nirzaf/auditsphere-visual-prototype/blob/27357ef0d0f9b2aabe1e786ca2b323f987cec5bd/src/services/guards.ts",
+      "Local role/grant scope and logged superuser override"
+    ],
+    "P8": [
+      "https://github.com/nirzaf/auditsphere-visual-prototype/blob/27357ef0d0f9b2aabe1e786ca2b323f987cec5bd/src/services/calculations.ts",
+      "Financial calculations and currency formatter"
+    ],
+    "P9": [
+      "https://github.com/nirzaf/auditsphere-visual-prototype/blob/27357ef0d0f9b2aabe1e786ca2b323f987cec5bd/src/components/modules/FinancialStatementsView.tsx",
+      "Active statement calculations and mapping consumer"
+    ],
+    "P10": [
+      "https://github.com/nirzaf/auditsphere-visual-prototype/blob/27357ef0d0f9b2aabe1e786ca2b323f987cec5bd/src/components/modules/AuditPlanningView.tsx",
+      "Planning local state, save target and display currency"
+    ],
+    "P11": [
+      "https://github.com/nirzaf/auditsphere-visual-prototype/blob/27357ef0d0f9b2aabe1e786ca2b323f987cec5bd/src/components/modules/ConsolidationView.tsx",
+      "Wholly owned, closing-rate-only group visualization"
+    ],
+    "P12": [
+      "https://github.com/nirzaf/auditsphere-visual-prototype/blob/27357ef0d0f9b2aabe1e786ca2b323f987cec5bd/src/components/modules/AuditAcceptanceView.tsx",
+      "Five screening confirmations and manual next-period draft"
+    ],
+    "P13": [
+      "https://github.com/nirzaf/auditsphere-visual-prototype/blob/27357ef0d0f9b2aabe1e786ca2b323f987cec5bd/src/components/modules/ModuleCatalogueView.tsx",
+      "Module help and ten-chapter manual presenter itinerary"
+    ],
+    "R1": [
+      "https://github.com/nirzaf/AuditSphere/blob/eb0ad5f7e06d68f80427bf7aa4b7f468faed8897/README.md",
+      "Current architecture and removed Purview/eSignature-provider scope"
+    ],
+    "R2": [
+      "https://github.com/nirzaf/AuditSphere/blob/eb0ad5f7e06d68f80427bf7aa4b7f468faed8897/docs/execution/status.json",
+      "Verified source SHA, current test evidence and live-adapter limitations"
+    ],
+    "R3": [
+      "https://github.com/nirzaf/AuditSphere/blob/eb0ad5f7e06d68f80427bf7aa4b7f468faed8897/docs/auditsphere-ui-mudblazor-conventions-migration-current.md",
+      "42 page components, 49 routes and MudBlazor conventions"
+    ],
+    "R4": [
+      "https://github.com/nirzaf/AuditSphere/blob/eb0ad5f7e06d68f80427bf7aa4b7f468faed8897/src/AuditSphereOps.Web/Components/Layout/MainLayout.razor",
+      "Real navigation shell"
+    ],
+    "R5": [
+      "https://github.com/nirzaf/AuditSphere/blob/eb0ad5f7e06d68f80427bf7aa4b7f468faed8897/src/AuditSphereOps.Web/Components/Pages/AccountingEvidence.razor",
+      "Specialist evidence queue and exact audit-result linkage"
+    ],
+    "R6": [
+      "https://github.com/nirzaf/AuditSphere/blob/eb0ad5f7e06d68f80427bf7aa4b7f468faed8897/src/AuditSphereOps.Web/Components/Pages/Finance.razor",
+      "Firm ledger, account catalogue, postings and fiscal close"
+    ],
+    "R7": [
+      "https://github.com/nirzaf/AuditSphere/blob/eb0ad5f7e06d68f80427bf7aa4b7f468faed8897/src/AuditSphereOps.Web/Components/Pages/Operations.razor",
+      "Durable operations, retry, cancellation and recovery quarantine"
+    ],
+    "R8": [
+      "https://github.com/nirzaf/AuditSphere/blob/eb0ad5f7e06d68f80427bf7aa4b7f468faed8897/src/AuditSphereOps.Web/Components/Pages/CurrencyRemeasurement.razor",
+      "Monetary/historical-cost source-linked FX workpaper"
+    ]
+  }
+}

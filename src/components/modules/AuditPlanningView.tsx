@@ -275,7 +275,7 @@ export const AuditPlanningView: React.FC<AuditPlanningViewProps> = ({ onNavigate
                 onChange={e => setBenchmarkValue(e.target.value === '' ? '' : Number(e.target.value))}
               />
               {client?.revenue != null && (
-                <span className="caption">Client master-data reference: {formatCurrency(client.revenue)} — confirm or replace with the filed figure.</span>
+                <span className="caption">Client master-data reference: {formatCurrency(client.revenue, selectedEng.currency)} — confirm or replace with the filed figure.</span>
               )}
             </div>
             <div>
@@ -346,19 +346,19 @@ export const AuditPlanningView: React.FC<AuditPlanningViewProps> = ({ onNavigate
             <div className="metric-grid mt20">
               <div className="metric purple">
                 <span className="metric-label">Overall Planning Materiality (PM)</span>
-                <div className="metric-val">{formatCurrency(materiality.overallMateriality)}</div>
-                <span className="metric-sub">{percentage}% of {formatCurrency(Number(benchmarkValue))}</span>
+                <div className="metric-val">{formatCurrency(materiality.overallMateriality, selectedEng.currency)}</div>
+                <span className="metric-sub">{percentage}% of {formatCurrency(Number(benchmarkValue), selectedEng.currency)}</span>
               </div>
 
               <div className="metric blue">
                 <span className="metric-label">Performance Materiality (Haircut {materiality.performancePct}%)</span>
-                <div className="metric-val">{formatCurrency(materiality.performanceMateriality)}</div>
+                <div className="metric-val">{formatCurrency(materiality.performanceMateriality, selectedEng.currency)}</div>
                 <span className="metric-sub">Substantive testing threshold</span>
               </div>
 
               <div className="metric amber">
                 <span className="metric-label">Clearly Trivial Threshold ({materiality.trivialPct}%)</span>
-                <div className="metric-val">{formatCurrency(materiality.clearlyTrivialThreshold)}</div>
+                <div className="metric-val">{formatCurrency(materiality.clearlyTrivialThreshold, selectedEng.currency)}</div>
                 <span className="metric-sub">Differences below this are not accumulated</span>
               </div>
             </div>

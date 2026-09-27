@@ -546,8 +546,10 @@ export function calculateBalanceSheet(rows: TrialBalanceRow[]) {
   const currentPeriodResult = calculateIncomeStatement(rows).netProfit;
 
   const totalAssets = assets.reduce((s, a) => s + a.balance, 0);
-  const totalLiabilities = liabilities.reduce((s, l) => s + Math.abs(l.balance), 0);
-  const totalEquity = equity.reduce((s, e) => s + Math.abs(e.balance), 0) + currentPeriodResult;
+  // Trial-balance credit balances are negative; convert the signed aggregate at
+  // the statement boundary so debit contra balances reduce the presented total.
+  const totalLiabilities = -liabilities.reduce((s, l) => s + l.balance, 0);
+  const totalEquity = -equity.reduce((s, e) => s + e.balance, 0) + currentPeriodResult;
 
   const difference = Math.abs(totalAssets - (totalLiabilities + totalEquity));
   const isBalanced = difference === 0;
@@ -569,7 +571,8 @@ export function calculateIncomeStatement(rows: TrialBalanceRow[]) {
   const revenues = rows.filter(r => r.type === 'revenue');
   const expenses = rows.filter(r => r.type === 'expense');
 
-  const revenue = revenues.reduce((s, r) => s + Math.abs(r.balance), 0);
+  // Revenue is credit-normal (negative); debit contra-revenue balances reduce it.
+  const revenue = -revenues.reduce((s, r) => s + r.balance, 0);
   const costOfSales = expenses.filter(e => e.name.toLowerCase().includes('cost') || e.code.startsWith('50')).reduce((s, e) => s + e.balance, 0);
   const operatingExpenses = expenses.filter(e => !e.name.toLowerCase().includes('cost') && !e.code.startsWith('50')).reduce((s, e) => s + e.balance, 0);
 

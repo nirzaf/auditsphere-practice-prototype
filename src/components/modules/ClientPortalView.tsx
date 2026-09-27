@@ -488,16 +488,16 @@ export const ClientPortalView: React.FC<ClientPortalViewProps> = ({ onNavigate, 
                           </details>
                         )}
                         <details className="mt4">
-                          <summary className="cell-sub text-teal">Conversation &amp; timeline ({p.thread?.filter(message => message.clientVisible === true).length || 0})</summary>
+                          <summary className="cell-sub text-teal">Conversation &amp; timeline ({(p.thread?.filter(message => message.clientVisible === true).length || 0) + state.communications.filter(item => item.relatedRequestId === p.id && item.clientId === client.id && item.engagementId === eng?.id && item.visibility === 'Client visible').length})</summary>
                           <div className="stack mt8" role="log" aria-label={`Client-visible conversation for ${p.id}`} style={{ gap: 6 }}>
-                            {(p.thread || []).filter(message => message.clientVisible === true).map(message => (
+                            {[...(p.thread || []).filter(message => message.clientVisible === true).map(message => ({ ...message, sortTime: message.time })), ...state.communications.filter(item => item.relatedRequestId === p.id && item.clientId === client.id && item.engagementId === eng?.id && item.visibility === 'Client visible').map(item => ({ id: item.id, kind: 'email' as const, author: item.author, role: 'Staff', text: `${item.summary}\n\n${item.body || ''}${item.ccEmails?.length ? `\n\nCC: ${item.ccEmails.join(', ')}` : ''}${item.status ? `\n\nLocal simulation outcome: ${item.status}. No email was sent.` : ''}`, time: item.date, sortTime: item.date, clientVisible: true, file: undefined, version: undefined }))].sort((a, b) => a.sortTime.localeCompare(b.sortTime)).map(message => (
                               <div className="borderbox" key={message.id} style={{ padding: 8 }}>
                                 <div className="between"><b>{message.author}</b><span className="caption">{Number.isNaN(Date.parse(message.time)) ? message.time : new Date(message.time).toLocaleString('en-GB')}</span></div>
-                                <div className="cell-sub">{message.kind === 'response' ? 'File response' : message.kind === 'clarification' ? 'Audit clarification' : 'Message'}{message.file ? ` · ${message.file}${message.version ? ` · v${message.version}` : ''}` : ''}</div>
+                                <div className="cell-sub">{message.kind === 'response' ? 'File response' : message.kind === 'clarification' ? 'Audit clarification' : message.kind === 'email' ? 'Email · local simulation' : 'Message'}{message.file ? ` · ${message.file}${message.version ? ` · v${message.version}` : ''}` : ''}</div>
                                 <p className="sub mt4" style={{ whiteSpace: 'pre-line' }}>{message.text}</p>
                               </div>
                             ))}
-                            {!p.thread?.some(message => message.clientVisible === true) && <p className="caption">No messages yet. Replies and file responses appear here for both parties.</p>}
+                            {!(p.thread?.some(message => message.clientVisible === true) || state.communications.some(item => item.relatedRequestId === p.id && item.clientId === client.id && item.engagementId === eng?.id && item.visibility === 'Client visible')) && <p className="caption">No messages yet. Replies and file responses appear here for both parties.</p>}
                           </div>
                           {['Requested', 'Needs clarification', 'Received'].includes(p.status) && (
                             <form className="stack mt8" onSubmit={event => handlePbcReply(event, p)} style={{ gap: 6 }}>

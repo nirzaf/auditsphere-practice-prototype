@@ -4,7 +4,7 @@ import { CashFlowScheduleRevision, RouteKey, TrialBalanceRow, StatementLayoutRev
 import { prototypeStore } from '../../store/prototypeStore';
 import { hasAnyRole } from '../../services/guards';
 import { Icon } from '../common/Icons';
-import { applyReportingAdjustments, calculateBalanceSheet, calculateIncomeStatement, formatCurrency } from '../../services/calculations';
+import { applyReportingAdjustments, calculateBalanceSheet, calculateIncomeStatement, formatCurrency as formatCurrencyFor } from '../../services/calculations';
 import { exportService } from '../../services/exportService';
 import { UnsavedFormGuard } from '../../services/unsavedFormGuard';
 import { visibleEngagementIds } from '../../services/guards';
@@ -90,6 +90,10 @@ export const FinancialStatementsView: React.FC<FinancialStatementsViewProps> = (
     );
   }
 
+  // Every statement surface and export follows the selected engagement currency.
+  // Comparative periods are already constrained to the same currency.
+  const formatCurrency = (amount: number, currency = selectedEng.currency) => formatCurrencyFor(amount, currency);
+
   const adjustmentResult = applyReportingAdjustments(selectedEng.rows, state.adjustmentJournals.filter(j => j.engagementId === selectedEng.id), selectedEng.sourceVersion, prototypeStore.getAdjustmentSupportIssues(selectedEng.id));
   const mappedAccounts = currentMapping?.mappings || [];
   const unmappedRows = selectedEng.rows.filter(row => !mappedAccounts.some(mapping => mapping.accountCode === row.code));
@@ -137,7 +141,7 @@ export const FinancialStatementsView: React.FC<FinancialStatementsViewProps> = (
   const priorBalanceSheet = priorRows.length ? calculateBalanceSheet(priorRows) : null;
   const priorIncomeStatement = priorRows.length ? calculateIncomeStatement(priorRows) : null;
   const comparativeReady = Boolean(mappingReady && priorBalanceSheet && priorIncomeStatement && comparativeEngagement);
-  const comparisonAmount = (row: TrialBalanceRow) => row.type === 'asset' ? row.balance : Math.abs(row.balance);
+  const comparisonAmount = (row: TrialBalanceRow) => ['liability', 'equity', 'revenue'].includes(row.type) ? -row.balance : row.balance;
   const comparisonLineRows = [...new Set(statementRows.map(row => row.mappedStatementLine).filter((line): line is string => Boolean(line)))].sort().map(line => {
     const currentRows = statementRows.filter(row => row.mappedStatementLine === line);
     const priorLineRows = priorRows.filter(row => row.mappedStatementLine === line);
@@ -218,7 +222,7 @@ export const FinancialStatementsView: React.FC<FinancialStatementsViewProps> = (
     const lines = [
       `Entity: ${client?.name || 'Example Trading Entity'}`,
       `Reporting Period: ${selectedEng.period}`,
-      `Currency: QAR`,
+      `Currency: ${selectedEng.currency}`,
       '',
       `BALANCE SHEET`,
       `Total Assets: ${formatCurrency(bs.totalAssets)}`,
@@ -372,7 +376,7 @@ export const FinancialStatementsView: React.FC<FinancialStatementsViewProps> = (
                   <tr>
                     <th>Line Item / Account Classification</th>
                     <th>Account Code</th>
-                    <th style={{ textAlign: 'right' }}>Amount (QAR)</th>
+                    <th style={{ textAlign: 'right' }}>Amount ({selectedEng.currency})</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -394,7 +398,7 @@ export const FinancialStatementsView: React.FC<FinancialStatementsViewProps> = (
                     <tr key={l.code}>
                       <td style={{ paddingLeft: 24 }}>{l.name} <span className="caption">· Source {l.code.split(' → ')[0]} · Mapping {l.mappedStatementLine || 'legacy'}</span></td>
                       <td><span className="mono">{l.code}</span></td>
-                      <td style={{ textAlign: 'right' }}>{formatCurrency(Math.abs(l.balance))}</td>
+                      <td style={{ textAlign: 'right' }}>{formatCurrency(-l.balance, selectedEng.currency)}</td>
                     </tr>
                   ))}
                   <tr>
@@ -407,7 +411,7 @@ export const FinancialStatementsView: React.FC<FinancialStatementsViewProps> = (
                     <tr key={e.code}>
                       <td style={{ paddingLeft: 24 }}>{e.name} <span className="caption">· Source {e.code.split(' → ')[0]} · Mapping {e.mappedStatementLine || 'legacy'}</span></td>
                       <td><span className="mono">{e.code}</span></td>
-                      <td style={{ textAlign: 'right' }}>{formatCurrency(Math.abs(e.balance))}</td>
+                      <td style={{ textAlign: 'right' }}>{formatCurrency(-e.balance, selectedEng.currency)}</td>
                     </tr>
                   ))}
                   <tr>
@@ -440,7 +444,7 @@ export const FinancialStatementsView: React.FC<FinancialStatementsViewProps> = (
               <thead>
                 <tr>
                   <th>Operating Category</th>
-                  <th style={{ textAlign: 'right' }}>Amount (QAR)</th>
+                  <th style={{ textAlign: 'right' }}>Amount ({selectedEng.currency})</th>
                 </tr>
               </thead>
               <tbody>

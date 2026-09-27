@@ -829,6 +829,7 @@ export interface CommunicationItem {
   visibility: 'Internal' | 'Client visible';
   status?: 'Simulated accepted' | 'Simulated failed' | 'Outcome unknown' | 'Recorded manually';
   relatedRequestId?: string;
+  ccEmails?: string[];
   linkedDocumentId?: string;
   recipientEmail?: string;
   simulationReference?: string;

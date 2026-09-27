@@ -1,0 +1,42 @@
+{
+  "sourceCommit": "27357ef0d0f9b2aabe1e786ca2b323f987cec5bd",
+  "method": "Isolated manually extracted source functions; no app, store or browser execution",
+  "results": [
+    {
+      "id": "CONTRA-REVENUE",
+      "sourceSignedTotal": 0,
+      "expectedRevenue": 800,
+      "actualRevenue": 1200,
+      "expectedEquity": 800,
+      "actualEquity": 1200,
+      "reportedBalanceDifference": 400,
+      "passes": false
+    },
+    {
+      "id": "DEBIT-EQUITY",
+      "sourceSignedTotal": 0,
+      "expectedRevenue": 0,
+      "actualRevenue": 0,
+      "expectedEquity": 80,
+      "actualEquity": 120,
+      "reportedBalanceDifference": 40,
+      "passes": false
+    },
+    {
+      "id": "ORDINARY-CONTROL",
+      "sourceSignedTotal": 0,
+      "expectedRevenue": 1000,
+      "actualRevenue": 1000,
+      "expectedEquity": 800,
+      "actualEquity": 800,
+      "reportedBalanceDifference": 0,
+      "passes": true
+    }
+  ],
+  "currencyProbe": {
+    "engagementCurrency": "USD",
+    "callUsedByPlanningView": "formatCurrency(amount)",
+    "actual": "QAR 1,000.00",
+    "expectedWithExplicitCurrency": "USD 1,000.00"
+  }
+}

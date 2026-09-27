@@ -10,6 +10,7 @@ import {
   calculateConsolidatedBalanceSheet,
   calculateMateriality,
   calculateBalanceSheet,
+  calculateIncomeStatement,
   applyReportingAdjustments,
   getEffectiveTimeEntries,
   getPackageContextDisplay
@@ -112,6 +113,54 @@ describe('accounting fixed example (AT-38/AT-40)', () => {
     const rejected = applyReportingAdjustments(TB_8, [{ ...journal, status: 'Rejected' } as any], 2);
     assert.deepEqual(rejected.rows, TB_8, 'rejected adjustments are never included');
     assert.deepEqual(rejected.unapplied, []);
+  });
+});
+
+describe('signed financial statement presentation (review F-01)', () => {
+  it('nets contra revenue and debit equity balances instead of taking absolute values row-by-row', () => {
+    const contraRevenue: TrialBalanceRow[] = [
+      { code: '1000', name: 'Cash', type: 'asset', balance: 800 },
+      { code: '4000', name: 'Sales', type: 'revenue', balance: -1000 },
+      { code: '4090', name: 'Sales returns', type: 'revenue', balance: 200 }
+    ];
+    const income = calculateIncomeStatement(contraRevenue);
+    const position = calculateBalanceSheet(contraRevenue);
+    assert.equal(income.revenue, 800);
+    assert.equal(income.netProfit, 800);
+    assert.equal(position.totalEquity, 800);
+    assert.equal(position.difference, 0);
+    assert.equal(position.isBalanced, true);
+
+    const debitEquity: TrialBalanceRow[] = [
+      { code: '1000', name: 'Cash', type: 'asset', balance: 80 },
+      { code: '3000', name: 'Capital', type: 'equity', balance: -100 },
+      { code: '3090', name: 'Accumulated deficit', type: 'equity', balance: 20 }
+    ];
+    const deficitPosition = calculateBalanceSheet(debitEquity);
+    assert.equal(deficitPosition.totalEquity, 80);
+    assert.equal(deficitPosition.difference, 0);
+    assert.equal(deficitPosition.isBalanced, true);
+  });
+
+  it('nets a debit contra-liability against credit payables and reconciles the full signed statement', () => {
+    const rows: TrialBalanceRow[] = [
+      { code: '1000', name: 'Cash', type: 'asset', balance: 960 },
+      { code: '2000', name: 'Trade payables', type: 'liability', balance: -200 },
+      { code: '2090', name: 'Supplier rebates receivable', type: 'liability', balance: 120 },
+      { code: '3000', name: 'Capital', type: 'equity', balance: -100 },
+      { code: '3090', name: 'Accumulated deficit', type: 'equity', balance: 20 },
+      { code: '4000', name: 'Sales', type: 'revenue', balance: -1000 },
+      { code: '4090', name: 'Sales returns', type: 'revenue', balance: 200 }
+    ];
+    const income = calculateIncomeStatement(rows);
+    const position = calculateBalanceSheet(rows);
+    assert.equal(income.revenue, 800);
+    assert.equal(income.netProfit, 800);
+    assert.equal(position.totalAssets, 960);
+    assert.equal(position.totalLiabilities, 80, 'debit contra-liability reduces credit payables');
+    assert.equal(position.totalEquity, 880, 'debit equity reduces capital before adding net profit');
+    assert.equal(position.difference, 0);
+    assert.equal(position.isBalanced, true);
   });
 });
 

@@ -1807,6 +1807,12 @@ class PrototypeStore {
       requireEngagementScope(this.state, comm.engagementId);
       if (this.state.engagements.find(e => e.id === comm.engagementId)?.client !== comm.clientId) throw new GuardError('INVALID_STATE', 'Communication client and engagement must match.');
     }
+    if (comm.relatedRequestId) {
+      const requestEngagement = this.state.engagements.find(engagement => engagement.pbc.some(request => request.id === comm.relatedRequestId));
+      const request = requestEngagement?.pbc.find(item => item.id === comm.relatedRequestId);
+      if (!requestEngagement || !request || requestEngagement.id !== comm.engagementId || requestEngagement.client !== comm.clientId || ['Draft', 'Cancelled'].includes(request.status)) throw new GuardError('FORBIDDEN_SCOPE', 'Linked request must be an active, client-visible request for this exact client and engagement.');
+      requireEngagementScope(this.state, requestEngagement.id);
+    }
     if (comm.direction === 'Outbound' && comm.channel === 'Email' && comm.simulationSubmissionId && this.state.communications.some(item => item.simulationSubmissionId === comm.simulationSubmissionId)) return;
     if (!comm.summary.trim()) throw new GuardError('INVALID_STATE', 'Communication summary is required.');
     if (comm.direction === 'Outbound' && comm.channel === 'Email') {
@@ -1819,8 +1825,14 @@ class PrototypeStore {
       if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(recipient) || !comm.body?.trim()) throw new GuardError('INVALID_STATE', 'A valid recipient email and message body are required.');
       if (/\{[^{}]+\}/.test(`${comm.summary}\n${comm.body}`)) throw new GuardError('INVALID_STATE', 'Resolve all template placeholders in the subject and message body before recording this attempt.');
       if (!this.state.contacts.some(contact => contact.clientId === comm.clientId && contact.active && contact.email?.trim().toLowerCase() === recipient)) throw new GuardError('FORBIDDEN_SCOPE', 'Recipient must be an active contact for this client.');
+      const ccEmails = comm.ccEmails || [];
+      if (!Array.isArray(ccEmails) || ccEmails.length > 20) throw new GuardError('INVALID_STATE', 'CC may include up to 20 active client contacts.');
+      const normalizedCc = ccEmails.map(email => typeof email === 'string' ? email.trim().toLowerCase() : '');
+      if (normalizedCc.some(email => !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) || new Set([recipient, ...normalizedCc]).size !== normalizedCc.length + 1) throw new GuardError('INVALID_STATE', 'Enter distinct valid email addresses for To and CC.');
+      if (normalizedCc.some(email => !this.state.contacts.some(contact => contact.clientId === comm.clientId && contact.active && contact.email?.trim().toLowerCase() === email))) throw new GuardError('FORBIDDEN_SCOPE', 'Every CC recipient must be an active contact for this client.');
       if (!comm.simulationReference?.trim() || !comm.simulationEvidence?.trim() || this.state.communications.some(item => item.id === comm.id || item.simulationReference === comm.simulationReference)) throw new GuardError('INVALID_STATE', 'Each simulated send needs a unique reference and recorded outcome evidence.');
       comm.recipientEmail = recipient;
+      comm.ccEmails = normalizedCc;
     }
     comm.revision ||= 1;
     this.state.communications.unshift(comm);

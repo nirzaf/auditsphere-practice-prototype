@@ -354,7 +354,7 @@ export const App: React.FC = () => {
 
       // Audit & Assurance
       case 'audit-planning':
-        return <AuditPlanningView onNavigate={navigate} onRegisterUnsavedForm={registerUnsavedForm} />;
+        return <AuditPlanningView key={state.selectedEngagement} onNavigate={navigate} onRegisterUnsavedForm={registerUnsavedForm} />;
       case 'audit-risks':
       case 'audit-fieldwork':
         return <AuditRisksProgramsView onNavigate={navigate} onRegisterUnsavedForm={registerUnsavedForm} />;
