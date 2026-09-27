@@ -8,7 +8,7 @@ import { RouteKey, PbcRequestItem } from '../../types';
 import { prototypeStore } from '../../store/prototypeStore';
 import { visibleClientIds, visibleEngagementIds } from '../../services/guards';
 import { Icon } from '../common/Icons';
-import { formatCurrency } from '../../services/calculations';
+import { invoiceTaxLine, formatCurrency } from '../../services/calculations';
 import { exportService } from '../../services/exportService';
 import { sha256OfFile } from '../../services/fileMetadata';
 import { persistArtifact } from '../../services/artifactStore';
@@ -94,7 +94,7 @@ export const ClientPortalView: React.FC<ClientPortalViewProps> = ({ onNavigate, 
         `Customer: ${client?.name}`,
         `Service: ${eng?.service || 'Statutory Audit'}`,
         `Amount Billed: ${formatCurrency(inv.amount, inv.currency)}`,
-        'Tax: not calculated (approved no-tax demo profile; historical tax totals are shown only where recorded)',
+        invoiceTaxLine(inv),
         `Amount Paid: ${formatCurrency(inv.paid, inv.currency)}`,
         `Due Date: ${inv.due}`,
         `Status: ${inv.status}`

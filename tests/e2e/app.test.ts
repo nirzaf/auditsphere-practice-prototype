@@ -2225,6 +2225,33 @@ describe('actual Chrome browser acceptance', { concurrency: false }, () => {
     assert.deepEqual(browserTab!.exceptions, []);
   });
 
+  it('VP-003-E02: an edited explicit-only dialog blocks a same-route persona switch instead of staying open under the new persona', async () => {
+    const key = 'ste-auditsphere-role-portals-v2';
+    await browserTab!.evaluate(`localStorage.setItem('${key}',${JSON.stringify(JSON.stringify(createInitialState()))})`);
+    await browserTab!.command('Page.reload');
+    assert.equal(await waitForBrowser('!!document.querySelector("#role-select")'), true);
+    await browserTab!.evaluate(`(() => {const r=document.querySelector('#role-select');Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype,'value').set.call(r,'admin');r.dispatchEvent(new Event('change',{bubbles:true}));})()`);
+    assert.equal(await waitForBrowser(`JSON.parse(localStorage.getItem('${key}')).currentUserId==='admin'`), true);
+    await clickButtonStartingWith('Firm Administration');
+    const opened = await browserTab!.evaluate<boolean>(`(() => {const row=[...document.querySelectorAll('tbody tr')].find(x=>x.innerText.includes('Omar Nasser'));const b=[...(row?.querySelectorAll('button')||[])].find(x=>x.innerText.trim()==='+ Grant Scope');if(!b)return false;b.click();return true;})()`);
+    assert.equal(opened, true, 'grant dialog opens');
+    assert.equal(await waitForBrowser(`!!document.querySelector('.modal-overlay[data-dismiss-guard="explicit"] [aria-label="Grant expiry date"]')`), true);
+    await browserTab!.evaluate(`(() => {const f=document.querySelector('.modal-overlay[data-dismiss-guard="explicit"] [aria-label="Grant expiry date"]');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(f,'2026-12-31');f.dispatchEvent(new Event('input',{bubbles:true}));f.dispatchEvent(new Event('change',{bubbles:true}));})()`);
+    assert.equal(await browserTab!.evaluate<string>(`document.querySelector('.modal-overlay[data-dismiss-guard="explicit"] [aria-label="Grant expiry date"]').value`), '2026-12-31');
+    const grantsBefore = await browserTab!.evaluate<string>(`JSON.stringify(JSON.parse(localStorage.getItem('${key}')).roleGrants)`);
+    await browserTab!.evaluate(`(() => {const r=document.querySelector('#role-select');Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype,'value').set.call(r,'manager');r.dispatchEvent(new Event('change',{bubbles:true}));})()`);
+    assert.equal(await waitForBrowser(`document.body.innerText.includes('the open dialog')&&document.body.innerText.includes('has unsaved changes')`), true, 'the persona switch asks about the edited dialog');
+    await clickButton('Discard and continue');
+    assert.equal(await waitForBrowser(`document.body.innerText.includes('can only be closed with its own Cancel or Save')`), true, 'discard is refused for an explicit-only dialog');
+    assert.equal(await browserTab!.evaluate<string>(`JSON.parse(localStorage.getItem('${key}')).currentUserId`), 'admin', 'the persona does not change underneath the open dialog');
+    await clickButton('Stay');
+    assert.equal(await browserTab!.evaluate<boolean>(`!!document.querySelector('.modal-overlay[data-dismiss-guard="explicit"]')`), true, 'the dialog remains open with its draft');
+    await browserTab!.evaluate(`[...document.querySelectorAll('.modal-overlay[data-dismiss-guard="explicit"] button')].find(b=>b.innerText.trim()==='✕').click()`);
+    assert.equal(await waitForBrowser(`!document.querySelector('.modal-overlay[data-dismiss-guard="explicit"]')`), true, 'the dialog closes through its own control');
+    assert.equal(await browserTab!.evaluate<string>(`JSON.stringify(JSON.parse(localStorage.getItem('${key}')).roleGrants)`), grantsBefore, 'no grant was recorded');
+    assert.deepEqual(browserTab!.exceptions, []);
+  });
+
   it('Superuser can open every product navigation area and preview a client-role projection', async () => {
     const original = await browserTab!.evaluate<string | null>(`localStorage.getItem('ste-auditsphere-role-portals-v2')`);
     try {
@@ -5120,6 +5147,9 @@ describe('actual Chrome browser acceptance', { concurrency: false }, () => {
     assert.deepEqual(successorArchive.records.map((x: any) => x.releaseId), [archive.releaseId, 'REL-E2E-SUCCESSOR'], 'predecessor archive remains indexed');
     await browserTab!.evaluate(`(async()=>{const s=JSON.parse(localStorage.getItem('ste-auditsphere-role-portals-v2'));const a=s.engagements.find(x=>x.id==='ENG-26002').archive;const db=await new Promise((resolve,reject)=>{const r=indexedDB.open('ste-auditsphere-generated-artifacts',1);r.onsuccess=()=>resolve(r.result);r.onerror=()=>reject(r.error);});const files=await Promise.all(a.artifacts.map(async x=>{const blob=await new Promise((resolve,reject)=>{const r=db.transaction('artifacts').objectStore('artifacts').get(x.id);r.onsuccess=()=>resolve(r.result?.blob);r.onerror=()=>reject(r.error);});return {id:x.id,sha:[...new Uint8Array(await crypto.subtle.digest('SHA-256',await blob.arrayBuffer()))].map(b=>b.toString(16).padStart(2,'0')).join(''),expected:x.sha256};}));db.close();if(files.some(x=>x.sha!==x.expected))throw Error('successor archived-byte hash mismatch');})()`);
     await clickButtonStartingWith('Selected Engagement');
+    // VP-059-AC03: a missing retention date is shown as an explicit state, never a default or schedule.
+    const shownRetention = await browserTab!.evaluate<any>(`(() => {const a=JSON.parse(localStorage.getItem('ste-auditsphere-role-portals-v2')).archives.filter(x=>x.engagementId==='ENG-26002').at(-1);const label=[...document.querySelectorAll('.info-grid label')].find(x=>x.innerText.trim()==='Retention Until');return {stored:a.retentionUntil||'',shown:label?.nextElementSibling?.innerText.trim()||''};})()`);
+    assert.equal(shownRetention.shown, shownRetention.stored || 'Not specified', 'retention is shown exactly as recorded, or explicitly Not specified');
     await browserTab!.evaluate(`(() => {const label=[...document.querySelectorAll('label')].find(x=>x.textContent.includes('Correct optional retention-until date'));const input=label.querySelector('input');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(input,'2030-12-31');input.dispatchEvent(new Event('input',{bubbles:true}));input.dispatchEvent(new Event('change',{bubbles:true}));})()`);
     await clickButton('Save Archive Metadata');
     // VP-059-AC02/AC03: the hold is an application record only and a retention date schedules nothing.

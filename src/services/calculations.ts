@@ -23,6 +23,13 @@ export function formatCurrency(amount: number, currency = 'QAR'): string {
   })}`;
 }
 
+/** VP-030-AC04: invoice tax wording — historical totals as recorded, otherwise the no-tax demo profile. */
+export function invoiceTaxLine(invoice: { taxTotal?: number; taxLabel?: string; currency?: string }): string {
+  return typeof invoice.taxTotal === 'number'
+    ? `Historical tax total (as recorded${invoice.taxLabel ? `: ${invoice.taxLabel}` : ''}): ${formatCurrency(invoice.taxTotal, invoice.currency)}`
+    : 'Tax: not calculated (approved no-tax demo profile)';
+}
+
 export function formatMinutesToHours(minutes: number): string {
   const hrs = minutes / 60;
   return `${hrs.toFixed(1)} hrs`;

@@ -146,7 +146,7 @@ def main() -> int:
 
     # VP-063-AC01 is computed, not assumed: every story needs at least one mapped positive
     # journey and one mapped negative (validation/scope/stale/rework) check, all passing.
-    negative = re.compile(r'reject|block|hid|den(y|ies|ied)|cannot|can.t|not |no |without|stale|invalid|prevent|refus|exclud|guard|forbid|only |never|limit|require|return|rework|revers|fail|unavailable|duplicate', re.I)
+    negative = re.compile(r'reject|block|den(y|ies|ied)|cannot|stale|invalid|prevent|refus|exclud|forbid|unavailable|duplicate|guard|hid|without|never|revers|return|rework|fail|limit|withdraw|expir|revok|disabled|out-of-scope|outside|missing|unknown|gate', re.I)
     coverage: dict[str, dict] = {}
     for criterion, entry in mapping.items():
         story = coverage.setdefault(criterion[:6], {'positive': set(), 'negative': set()})
@@ -168,7 +168,7 @@ def main() -> int:
         results = [(ref, outcome(ref)) for ref in entry['tests']]
         if criterion == 'VP-063-AC01':
             computed = 'PASS' if not story_gaps and not story_failures else 'FAIL'
-            results.append(({'file': '*', 'name': f'Computed story coverage: {62 - len(story_gaps)}/62 stories with positive and negative mapped checks; gaps {story_gaps or "none"}; failing {story_failures or "none"}'}, computed))
+            results.append(({'file': '*', 'name': f'Computed story coverage (title-keyword heuristic for negative checks, not a proof): {62 - len(story_gaps)}/62 stories with positive and negative mapped checks; gaps {story_gaps or "none"}; failing {story_failures or "none"}'}, computed))
         states = {state for _, state in results}
         aggregate = 'FAIL' if 'FAIL' in states else 'NOT_RUN' if 'NOT_RUN' in states else 'PASS'
         totals[aggregate] += 1

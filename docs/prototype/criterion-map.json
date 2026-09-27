@@ -204,6 +204,14 @@
     {
      "file": "tests/e2e/app.test.ts",
      "name": "VP-003-AC02: guards proposal, invoice, cash-flow and package drafts across route changes"
+    },
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "VP-003-E02: an edited explicit-only dialog blocks a same-route persona switch instead of staying open under the new persona"
+    },
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "VP-003-E01: Escape and backdrop never silently drop an edited dialog across the direct-discard dialog families"
     }
    ],
    "basis": "Test title/suite names this criterion; its assertions were reviewed against the criterion text."
@@ -555,7 +563,7 @@
    "tests": [
     {
      "file": "tests/unit/guards.test.ts",
-     "name": "requires a loss reason and retains opportunity stage history"
+     "name": "rejects Lost/Unqualified outcomes without a reason and retains opportunity stage history"
     }
    ],
    "basis": "Loss reason required; record retained and excluded from open pipeline"
@@ -3238,9 +3246,13 @@
     {
      "file": "tests/e2e/app.test.ts",
      "name": "VP-054-AC01/02/04: records a sourced qualitative finding and durable reasoned disposition"
+    },
+    {
+     "file": "tests/unit/guards.test.ts",
+     "name": "keeps unresolved significant findings as an independent release gate"
     }
    ],
-   "basis": "Test title/suite names this criterion; its assertions were reviewed against the criterion text."
+   "basis": "Tagged finding journeys plus the unit release gate: unresolved significant findings block release readiness"
   },
   "VP-055-AC01": {
    "tests": [
