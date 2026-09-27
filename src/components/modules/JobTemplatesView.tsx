@@ -424,7 +424,7 @@ export const JobTemplatesView: React.FC<JobTemplatesViewProps> = ({ onNavigate, 
 
       {/* Instantiate Modal */}
       {showInstantiateModal && selectedTemplate && (
-        <div className="modal-backdrop">
+        <div className="modal-backdrop" data-dismiss-guard="explicit">
           <div className="modal" style={{ maxWidth: 500 }} onClick={e => e.stopPropagation()}>
             <div className="modal-head">
               <h2>Create Job from "{selectedTemplate.name}"</h2>
@@ -515,7 +515,7 @@ export const JobTemplatesView: React.FC<JobTemplatesViewProps> = ({ onNavigate, 
 
       {/* Author New Template Modal */}
       {showNewTemplateModal && (
-        <div className="modal-backdrop">
+        <div className="modal-backdrop" data-dismiss-guard="explicit">
           <div className="modal" style={{ maxWidth: 520 }} onClick={e => e.stopPropagation()}>
             <div className="modal-head">
               <h2>{revisionSourceId ? `Revise ${templates.find(template => template.id === revisionSourceId)?.name}` : 'Author New Job Template'}</h2>

@@ -1466,7 +1466,9 @@ describe('actual Chrome browser acceptance', { concurrency: false }, () => {
       engagement.pbc.find(item => item.id === 'PBC-04')!.status = 'Cancelled';
       const invoice = fixture.invoices.find(item => item.id === 'INV-26002')!;
       const priorCredits = fixture.creditNotes.filter(item => item.invoiceId === invoice.id && item.status === 'Issued').reduce((sum, item) => sum + item.amount, 0);
-      fixture.creditNotes.push({ ...structuredClone(fixture.creditNotes.find(item => item.invoiceId === invoice.id)!), id: 'CRD-VP025-E01', creditNumber: 'CN-VP025-E01', amount: invoice.amount - invoice.paid - priorCredits, reason: 'VP-025-E01 fully credits the remaining balance' });
+      const allocated = fixture.receipts.flatMap(receipt => receipt.allocations || []).filter(allocation => allocation.invoiceId === invoice.id && !allocation.reversed).reduce((sum, allocation) => sum + allocation.amount, 0);
+      const settled = Math.max(invoice.paid || 0, allocated);
+      fixture.creditNotes.push({ ...structuredClone(fixture.creditNotes.find(item => item.invoiceId === invoice.id)!), id: 'CRD-VP025-E01', creditNumber: 'CN-VP025-E01', amount: invoice.amount - settled - priorCredits, reason: 'VP-025-E01 credits exactly the unsettled remainder' });
       fixture.documents.find(item => item.id === 'DOC-002')!.brokenLink = true;
       const withdrawn = fixture.documents.find(item => item.id === 'DOC-001')!;
       withdrawn.visibility = 'Internal';
@@ -2130,7 +2132,10 @@ describe('actual Chrome browser acceptance', { concurrency: false }, () => {
     assert.equal(await browserTab!.evaluate<string>(`document.querySelector('[role="dialog"] input[type="text"]')?.value`), '', 'reopening after Cancel starts with a clean draft');
     await setNewJobTitle('AT53 backdrop job draft');
     await browserTab!.evaluate(`(() => {const backdrop=document.querySelector('.modal-backdrop');if(!backdrop)throw Error('New Job backdrop missing');backdrop.dispatchEvent(new MouseEvent('click',{bubbles:true}));})()`);
-    assert.equal(await waitForBrowser('!document.querySelector("[role=dialog]")'), true, 'backdrop dismissal closes the New Job dialog');
+    // VP-003-E01: an edited dialog asks before a backdrop dismissal discards it.
+    assert.equal(await waitForBrowser('!!document.querySelector(".modal-backdrop [data-dismiss-prompt]")'), true, 'backdrop on the edited New Job dialog asks first');
+    await clickButton('Discard changes');
+    assert.equal(await waitForBrowser('!document.querySelector("[role=dialog]")'), true, 'backdrop dismissal closes the New Job dialog after an explicit discard');
     assert.equal(await browserTab!.evaluate<boolean>(`(() => document.activeElement?.innerText?.trim().endsWith('New Job'))()`), true, 'backdrop dismissal restores focus to the New Job opener');
     assert.equal(await browserTab!.evaluate<boolean>(`(() => {const s=JSON.parse(localStorage.getItem('ste-auditsphere-role-portals-v2'));return !s.jobs.some(job=>job.title==='AT53 backdrop job draft');})()`), true, 'backdrop dismissal does not create the job');
     const priorState = await browserTab!.evaluate<string | null>(`localStorage.getItem('ste-auditsphere-role-portals-v2')`);
@@ -2199,6 +2204,51 @@ describe('actual Chrome browser acceptance', { concurrency: false }, () => {
     assert.equal(await browserTab!.evaluate<number>('window.__vp061'), 0, 'search markup is not executed');
     assert.equal(await browserTab!.evaluate<boolean>(`document.querySelector('.global-search-dialog img, .global-search-dialog script')===null`), true, 'search creates no element from typed markup');
     await browserTab!.evaluate(`document.activeElement.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}))`);
+    assert.deepEqual(browserTab!.exceptions, []);
+  });
+
+  it('VP-057-AC01: an unmet release gate disables freezing, links to the missing records and creates no release', async () => {
+    const key = 'ste-auditsphere-role-portals-v2';
+    await browserTab!.evaluate(`localStorage.setItem('${key}',${JSON.stringify(JSON.stringify(createInitialState()))})`);
+    await browserTab!.command('Page.reload');
+    assert.equal(await waitForBrowser('!!document.querySelector("#role-select")'), true);
+    await browserTab!.evaluate(`(() => {const r=document.querySelector('#role-select');Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype,'value').set.call(r,'partner');r.dispatchEvent(new Event('change',{bubbles:true}));const e=document.querySelector('select[aria-label="Selected engagement"]');Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype,'value').set.call(e,'ENG-26001');e.dispatchEvent(new Event('change',{bubbles:true}));})()`);
+    assert.equal(await waitForBrowser(`JSON.parse(localStorage.getItem('${key}')).currentRole==='partner'&&JSON.parse(localStorage.getItem('${key}')).selectedEngagement==='ENG-26001'`), true);
+    const releasesBefore = await browserTab!.evaluate<string>(`JSON.stringify(JSON.parse(localStorage.getItem('${key}')).engagements.find(e=>e.id==='ENG-26001').releases)`);
+    await clickButton('Release & Completion');
+    const freeze = await browserTab!.evaluate<any>(`(() => {const b=[...document.querySelectorAll('main#main button')].find(x=>x.innerText.startsWith('Freeze Release Candidate'));return b?{disabled:b.disabled}:null;})()`);
+    assert.deepEqual(freeze, { disabled: true }, 'an unmet gate cannot be frozen into a candidate');
+    assert.equal(await browserTab!.evaluate<boolean>(`[...document.querySelectorAll('main#main button')].some(x=>x.innerText.trim()==='Inspect Workpapers')`), true, 'the gate links to the specific missing record family');
+    await clickButton('Inspect Workpapers');
+    assert.equal(await waitForBrowser(`location.hash==='#audit'`), true, 'the gate link opens the workpaper workspace');
+    assert.equal(await browserTab!.evaluate<string>(`JSON.stringify(JSON.parse(localStorage.getItem('${key}')).engagements.find(e=>e.id==='ENG-26001').releases)`), releasesBefore, 'no release event is created');
+    assert.deepEqual(browserTab!.exceptions, []);
+  });
+
+  it('VP-003-E02: an edited explicit-only dialog blocks a same-route persona switch instead of staying open under the new persona', async () => {
+    const key = 'ste-auditsphere-role-portals-v2';
+    await browserTab!.evaluate(`localStorage.setItem('${key}',${JSON.stringify(JSON.stringify(createInitialState()))})`);
+    await browserTab!.command('Page.reload');
+    assert.equal(await waitForBrowser('!!document.querySelector("#role-select")'), true);
+    await browserTab!.evaluate(`(() => {const r=document.querySelector('#role-select');Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype,'value').set.call(r,'admin');r.dispatchEvent(new Event('change',{bubbles:true}));})()`);
+    assert.equal(await waitForBrowser(`JSON.parse(localStorage.getItem('${key}')).currentUserId==='admin'`), true);
+    await clickButtonStartingWith('Firm Administration');
+    const opened = await browserTab!.evaluate<boolean>(`(() => {const row=[...document.querySelectorAll('tbody tr')].find(x=>x.innerText.includes('Omar Nasser'));const b=[...(row?.querySelectorAll('button')||[])].find(x=>x.innerText.trim()==='+ Grant Scope');if(!b)return false;b.click();return true;})()`);
+    assert.equal(opened, true, 'grant dialog opens');
+    assert.equal(await waitForBrowser(`!!document.querySelector('.modal-overlay[data-dismiss-guard="explicit"] [aria-label="Grant expiry date"]')`), true);
+    await browserTab!.evaluate(`(() => {const f=document.querySelector('.modal-overlay[data-dismiss-guard="explicit"] [aria-label="Grant expiry date"]');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(f,'2026-12-31');f.dispatchEvent(new Event('input',{bubbles:true}));f.dispatchEvent(new Event('change',{bubbles:true}));})()`);
+    assert.equal(await browserTab!.evaluate<string>(`document.querySelector('.modal-overlay[data-dismiss-guard="explicit"] [aria-label="Grant expiry date"]').value`), '2026-12-31');
+    const grantsBefore = await browserTab!.evaluate<string>(`JSON.stringify(JSON.parse(localStorage.getItem('${key}')).roleGrants)`);
+    await browserTab!.evaluate(`(() => {const r=document.querySelector('#role-select');Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype,'value').set.call(r,'manager');r.dispatchEvent(new Event('change',{bubbles:true}));})()`);
+    assert.equal(await waitForBrowser(`document.body.innerText.includes('the open dialog')&&document.body.innerText.includes('has unsaved changes')`), true, 'the persona switch asks about the edited dialog');
+    await clickButton('Discard and continue');
+    assert.equal(await waitForBrowser(`document.body.innerText.includes('can only be closed with its own Cancel or Save')`), true, 'discard is refused for an explicit-only dialog');
+    assert.equal(await browserTab!.evaluate<string>(`JSON.parse(localStorage.getItem('${key}')).currentUserId`), 'admin', 'the persona does not change underneath the open dialog');
+    await clickButton('Stay');
+    assert.equal(await browserTab!.evaluate<boolean>(`!!document.querySelector('.modal-overlay[data-dismiss-guard="explicit"]')`), true, 'the dialog remains open with its draft');
+    await browserTab!.evaluate(`[...document.querySelectorAll('.modal-overlay[data-dismiss-guard="explicit"] button')].find(b=>b.innerText.trim()==='✕').click()`);
+    assert.equal(await waitForBrowser(`!document.querySelector('.modal-overlay[data-dismiss-guard="explicit"]')`), true, 'the dialog closes through its own control');
+    assert.equal(await browserTab!.evaluate<string>(`JSON.stringify(JSON.parse(localStorage.getItem('${key}')).roleGrants)`), grantsBefore, 'no grant was recorded');
     assert.deepEqual(browserTab!.exceptions, []);
   });
 
@@ -3424,7 +3474,10 @@ describe('actual Chrome browser acceptance', { concurrency: false }, () => {
     assert.equal(await browserTab!.evaluate<number>(`JSON.parse(localStorage.getItem('ste-auditsphere-role-portals-v2')).comments.length`), commentsBeforeDiscard, 'Cancel discards the note draft');
     await clickButton('Add Internal Note');
     await browserTab!.evaluate(`(() => {const t=document.querySelector('.modal-backdrop textarea');Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype,'value').set.call(t,'AT14 Backdrop draft must not persist.');t.dispatchEvent(new Event('input',{bubbles:true}));document.querySelector('.modal-backdrop').dispatchEvent(new MouseEvent('click',{bubbles:true}));})()`);
-    assert.equal(await waitForBrowser('!document.querySelector("[role=dialog]")'), true, 'backdrop click closes the internal-note dialog');
+    // VP-003-E01: the edited note asks before the backdrop discards it.
+    assert.equal(await waitForBrowser('!!document.querySelector(".modal-backdrop [data-dismiss-prompt]")'), true, 'backdrop on an edited internal note asks first');
+    await clickButton('Discard changes');
+    assert.equal(await waitForBrowser('!document.querySelector("[role=dialog]")'), true, 'backdrop click closes the internal-note dialog after an explicit discard');
     assert.equal(await browserTab!.evaluate<boolean>('document.activeElement===window.__internalNoteOpener'), true, 'backdrop dismissal returns focus to Add Internal Note');
     assert.equal(await browserTab!.evaluate<number>(`JSON.parse(localStorage.getItem('ste-auditsphere-role-portals-v2')).comments.length`), commentsBeforeDiscard, 'backdrop dismissal discards the note draft');
     await clickButton('Add Internal Note');
@@ -3614,7 +3667,10 @@ describe('actual Chrome browser acceptance', { concurrency: false }, () => {
     assert.equal(await browserTab!.evaluate<number>(`JSON.parse(localStorage.getItem('ste-auditsphere-role-portals-v2')).communications.length`), initialCount, 'Cancel discards the unsent compose draft');
     await clickButton('Compose Simulated Email');
     await browserTab!.evaluate(`(() => {const subject=document.querySelector('.modal-backdrop input[type="text"]');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(subject,'AT26 discarded backdrop draft');subject.dispatchEvent(new Event('input',{bubbles:true}));document.querySelector('.modal-backdrop').dispatchEvent(new MouseEvent('click',{bubbles:true}));})()`);
-    assert.equal(await waitForBrowser('!document.querySelector("[role=dialog]")'), true, 'backdrop click dismisses the compose dialog');
+    // VP-003-E01: the edited compose draft asks before the backdrop discards it.
+    assert.equal(await waitForBrowser('!!document.querySelector(".modal-backdrop [data-dismiss-prompt]")'), true, 'backdrop on an edited compose draft asks first');
+    await clickButton('Discard changes');
+    assert.equal(await waitForBrowser('!document.querySelector("[role=dialog]")'), true, 'backdrop click dismisses the compose dialog after an explicit discard');
     assert.equal(await browserTab!.evaluate<boolean>('document.activeElement===window.__composeOpener'), true, 'backdrop dismissal restores focus to the compose opener');
     assert.equal(await browserTab!.evaluate<number>(`JSON.parse(localStorage.getItem('ste-auditsphere-role-portals-v2')).communications.length`), initialCount, 'backdrop dismissal does not create a communication attempt');
     for (const [outcome, expected] of [['Simulated accepted', 'Simulated accepted'], ['Simulated failed', 'Simulated failed'], ['Outcome unknown', 'Outcome unknown']] as const) {
@@ -4039,8 +4095,10 @@ describe('actual Chrome browser acceptance', { concurrency: false }, () => {
     await browserTab!.evaluate(`(() => {window.__realCreateObjectURL=URL.createObjectURL;window.__realAnchorClick=HTMLAnchorElement.prototype.click;window.__at31InvoicePdf={name:'',type:'',size:0};URL.createObjectURL=blob=>{window.__at31InvoicePdf.type=blob.type;window.__at31InvoicePdf.size=blob.size;window.__at31InvoicePdf.blob=blob;return 'blob:at31-invoice-pdf'};HTMLAnchorElement.prototype.click=function(){window.__at31InvoicePdf.name=this.download};})()`);
     try {
       await browserTab!.evaluate(`(() => {const row=[...document.querySelectorAll('tbody tr')].find(item=>item.innerText.includes('INV-AT31'));const button=[...row.querySelectorAll('button')].find(item=>item.innerText.trim()==='PDF');if(!button)throw Error('staff invoice PDF action missing');button.click();})()`);
-      const invoicePdf = await browserTab!.evaluate<any>(`(async()=>{const result=window.__at31InvoicePdf;const bytes=new Uint8Array(await result.blob.arrayBuffer());let raw='';for(const byte of bytes)raw+=String.fromCharCode(byte);return {name:result.name,type:result.type,size:result.size,signature:raw.slice(0,5),hasInvoiceNumber:raw.includes('INV-AT31')}})()`);
+      const invoicePdf = await browserTab!.evaluate<any>(`(async()=>{const result=window.__at31InvoicePdf;const bytes=new Uint8Array(await result.blob.arrayBuffer());let raw='';for(const byte of bytes)raw+=String.fromCharCode(byte);return {name:result.name,type:result.type,size:result.size,signature:raw.slice(0,5),hasInvoiceNumber:raw.includes('INV-AT31'),noTaxProfile:raw.includes('no-tax demo profile'),taxInvoiceTitle:raw.includes('Tax Invoice')}})()`);
       assert.equal(invoicePdf.name, 'INV-AT31_Document.pdf');
+      assert.equal(invoicePdf.noTaxProfile, true, 'VP-030-AC04: the issued invoice states the no-tax demo profile');
+      assert.equal(invoicePdf.taxInvoiceTitle, false, 'VP-030-AC04: no invented tax-invoice label');
       assert.equal(invoicePdf.type, 'application/pdf');
       assert.ok(invoicePdf.size > 0);
       assert.equal(invoicePdf.signature, '%PDF-', 'issued invoice download is a genuine PDF document');
@@ -5007,7 +5065,10 @@ describe('actual Chrome browser acceptance', { concurrency: false }, () => {
     assert.equal(await browserTab!.evaluate<number>(`JSON.parse(localStorage.getItem('ste-auditsphere-role-portals-v2')).engagements.find(e=>e.id==='ENG-26002').releases.length`), 0, 'discard does not create a release record');
     await clickButton('Release & Completion');
     await browserTab!.evaluate(`(() => {const labels=[...document.querySelectorAll('label')];const note=labels.find(x=>x.textContent.trim()==='Local release note')?.parentElement?.querySelector('textarea');const recipients=labels.find(x=>x.textContent.trim()==='Recipient metadata (comma separated)')?.parentElement?.querySelector('input');Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype,'value').set.call(note,'Approved local release of revision 2.');note.dispatchEvent(new Event('input',{bubbles:true}));Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(recipients,'board@example.invalid, client@example.invalid');recipients.dispatchEvent(new Event('input',{bubbles:true}));})()`);
+    assert.match(await browserTab!.evaluate<string>(`document.querySelector('main#main')?.innerText||''`), /The local release record does not send them to recipients\./, 'VP-057-AC04: the candidate is labelled as a local record, not delivery');
     await clickButton('Record Local Release');
+    assert.equal(await waitForBrowser(`document.querySelector('main#main')?.innerText.includes('Recorded locally · not delivered')`), true, 'VP-057-AC04: the release shows local dispatch simulation status');
+    assert.deepEqual(await browserTab!.evaluate<string[]>(`[...new Set(JSON.parse(localStorage.getItem('ste-auditsphere-role-portals-v2')).engagements.find(e=>e.id==='ENG-26002').releases.at(-1).manifest.map(m=>m.type||m.kind))].sort()`), ['DOCX', 'PDF', 'XLSX'], 'VP-057-AC04: the release manifest carries only the selected package artifacts, no workpapers');
     assert.equal(await waitForBrowser('JSON.parse(localStorage.getItem("ste-auditsphere-role-portals-v2")).engagements.find(e=>e.id==="ENG-26002").releases.length === 1'), true);
     const frozenRelease = await browserTab!.evaluate<any>(`(() => {const e=JSON.parse(localStorage.getItem('ste-auditsphere-role-portals-v2')).engagements.find(x=>x.id==='ENG-26002');return {release:e.releases[0], artifacts:e.packageHistory.find(x=>x.revision===2).artifacts};})()`);
     assert.deepEqual(frozenRelease.release.manifest.map((x: any) => x.artifactId).sort(), frozenRelease.artifacts.map((x: any) => x.id).sort());
@@ -5086,8 +5147,14 @@ describe('actual Chrome browser acceptance', { concurrency: false }, () => {
     assert.deepEqual(successorArchive.records.map((x: any) => x.releaseId), [archive.releaseId, 'REL-E2E-SUCCESSOR'], 'predecessor archive remains indexed');
     await browserTab!.evaluate(`(async()=>{const s=JSON.parse(localStorage.getItem('ste-auditsphere-role-portals-v2'));const a=s.engagements.find(x=>x.id==='ENG-26002').archive;const db=await new Promise((resolve,reject)=>{const r=indexedDB.open('ste-auditsphere-generated-artifacts',1);r.onsuccess=()=>resolve(r.result);r.onerror=()=>reject(r.error);});const files=await Promise.all(a.artifacts.map(async x=>{const blob=await new Promise((resolve,reject)=>{const r=db.transaction('artifacts').objectStore('artifacts').get(x.id);r.onsuccess=()=>resolve(r.result?.blob);r.onerror=()=>reject(r.error);});return {id:x.id,sha:[...new Uint8Array(await crypto.subtle.digest('SHA-256',await blob.arrayBuffer()))].map(b=>b.toString(16).padStart(2,'0')).join(''),expected:x.sha256};}));db.close();if(files.some(x=>x.sha!==x.expected))throw Error('successor archived-byte hash mismatch');})()`);
     await clickButtonStartingWith('Selected Engagement');
+    // VP-059-AC03: a missing retention date is shown as an explicit state, never a default or schedule.
+    const shownRetention = await browserTab!.evaluate<any>(`(() => {const a=JSON.parse(localStorage.getItem('ste-auditsphere-role-portals-v2')).archives.filter(x=>x.engagementId==='ENG-26002').at(-1);const label=[...document.querySelectorAll('.info-grid label')].find(x=>x.innerText.trim()==='Retention Until');return {stored:a.retentionUntil||'',shown:label?.nextElementSibling?.innerText.trim()||''};})()`);
+    assert.equal(shownRetention.shown, shownRetention.stored || 'Not specified', 'retention is shown exactly as recorded, or explicitly Not specified');
     await browserTab!.evaluate(`(() => {const label=[...document.querySelectorAll('label')].find(x=>x.textContent.includes('Correct optional retention-until date'));const input=label.querySelector('input');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(input,'2030-12-31');input.dispatchEvent(new Event('input',{bubbles:true}));input.dispatchEvent(new Event('change',{bubbles:true}));})()`);
     await clickButton('Save Archive Metadata');
+    // VP-059-AC02/AC03: the hold is an application record only and a retention date schedules nothing.
+    assert.match(await browserTab!.evaluate<string>(`document.querySelector('main#main')?.innerText||''`), /This application hold does not prevent direct SharePoint modification or deletion\. No remote archive, retention enforcement, or Purview lock/);
+    assert.deepEqual(await browserTab!.evaluate<string[]>(`(() => {const a=JSON.parse(localStorage.getItem('ste-auditsphere-role-portals-v2')).archives.filter(x=>x.engagementId==='ENG-26002').at(-1);return Object.keys(a).filter(k=>/delet|dispos|schedul|purge|expire/i.test(k));})()`), [], 'a retention date creates no deletion/disposition schedule');
     assert.equal(await waitForBrowser(`(() => {const a=JSON.parse(localStorage.getItem('ste-auditsphere-role-portals-v2')).archives.filter(x=>x.engagementId==='ENG-26002').at(-1);return a.retentionUntil==='2030-12-31'&&a.history.at(-1).action==='Metadata corrected'&&a.history.at(-1).before.retentionUntil===undefined;})()`), true, 'retention correction preserves the prior metadata and its actor/time history');
     await clickButton('Place Application Legal Hold');
     assert.equal(await waitForBrowser(`(() => {const a=JSON.parse(localStorage.getItem('ste-auditsphere-role-portals-v2')).archives.filter(x=>x.engagementId==='ENG-26002').at(-1);return a?.onApplicationHold&&a.holdReason?.includes('tax authority');})()`), true, 'application hold requires and retains its reason');
@@ -8187,14 +8254,14 @@ describe('actual Chrome browser acceptance', { concurrency: false }, () => {
     assert.equal(await waitForBrowser(`!!${topDialog}?.innerText.includes('Opportunity Details')`), true, 'lead detail dialog opens');
     await browserTab!.evaluate(`(() => {const field=[...${topDialog}.querySelectorAll('input.input')].find(i=>i.type!=='number'&&i.type!=='date');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(field,field.value+' VP003-E02');field.dispatchEvent(new Event('input',{bubbles:true}));})()`);
     await browserTab!.evaluate(`location.hash='#overview'`);
-    assert.equal(await waitForBrowser(`document.body.innerText.includes('The open dialog has unsaved changes')`), true, 'hash navigation asks before dropping the edited lead dialog');
+    assert.equal(await waitForBrowser(`document.body.innerText.includes('the open dialog has unsaved changes')`), true, 'hash navigation asks before dropping the edited lead dialog');
     await clickButton('Save and continue');
     assert.equal(await waitForBrowser(`document.body.innerText.includes('could not be saved from navigation')`), true, 'generic Save never submits the dialog on the user\'s behalf');
     await clickButton('Stay');
     assert.equal(await waitForBrowser(`!!${topDialog}?.innerText.includes('Opportunity Details') && location.hash==='#acquisition'`), true, 'Stay keeps the edited dialog and the accepted route');
     assert.equal(await browserTab!.evaluate<boolean>(`[...${topDialog}.querySelectorAll('input.input')].some(i=>i.value.endsWith(' VP003-E02'))`), true, 'Stay retains the edited value');
     await browserTab!.evaluate(`location.hash='#overview'`);
-    assert.equal(await waitForBrowser(`document.body.innerText.includes('The open dialog has unsaved changes')`), true);
+    assert.equal(await waitForBrowser(`document.body.innerText.includes('the open dialog has unsaved changes')`), true);
     await clickButton('Discard and continue');
     assert.equal(await waitForBrowser(`location.hash==='#overview' && !${topDialog}`), true, 'Discard closes the dialog and completes the navigation once');
     assert.equal(await snapshot('leads'), leadsBefore, 'the discarded lead edit wrote nothing');

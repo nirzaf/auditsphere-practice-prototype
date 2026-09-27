@@ -440,6 +440,29 @@ describe('signed fixtures F-SIGN-01..04 (MOD-24/MOD-26, VP-040-AC01, VP-045-AC04
     assert.equal(out.isBalanced, true);
   });
 
+  it('carries the current-period result into equity after eliminations that touch revenue or expense', () => {
+    const parent: TrialBalanceRow[] = [
+      { code: '1000', name: 'Cash', type: 'asset', balance: 100 },
+      { code: '3000', name: 'Capital', type: 'equity', balance: -20 },
+      { code: '4000', name: 'Revenue', type: 'revenue', balance: -120 },
+      { code: '5000', name: 'Management fee expense', type: 'expense', balance: 40 }
+    ];
+    // Dr revenue 20 / Cr cash 20: hand-computed assets 80, equity 20 + (120 - 20 - 40) = 80.
+    const crossing = calculateConsolidatedBalanceSheet(parent, [], [{ id: 'E1', lines: [{ account: '4000', type: 'debit', amount: 20 }, { account: '1000', type: 'credit', amount: 20 }] }]);
+    assert.equal(crossing.totalAssets, 80);
+    assert.equal(crossing.totalEquity, 80);
+    assert.equal(crossing.isBalanced, true);
+    const result = crossing.lines.find(line => line.code === 'CURRENT_PERIOD_RESULT')!;
+    assert.equal(result.eliminationDebit, 20, 'the P&L elimination is visible on the carried result line');
+    assert.equal(crossing.equityEliminationEffect, -20);
+    assert.equal(crossing.parentEquity + crossing.subsidiaryEquity + crossing.equityEliminationEffect, crossing.totalEquity, 'equity header columns reconcile');
+    // Pure P&L elimination (Dr revenue / Cr expense) leaves assets and equity at 100.
+    const internal = calculateConsolidatedBalanceSheet(parent, [], [{ id: 'E2', lines: [{ account: '4000', type: 'debit', amount: 40 }, { account: '5000', type: 'credit', amount: 40 }] }]);
+    assert.equal(internal.totalAssets, 100);
+    assert.equal(internal.totalEquity, 100);
+    assert.equal(internal.isBalanced, true);
+  });
+
   it('does not report a false imbalance from 0.10 + 0.20 floating-point sums', () => {
     const parent: TrialBalanceRow[] = [
       { code: '1000', name: 'Cash', type: 'asset', balance: 0.1 },

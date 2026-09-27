@@ -23,6 +23,13 @@ export function formatCurrency(amount: number, currency = 'QAR'): string {
   })}`;
 }
 
+/** VP-030-AC04: invoice tax wording — historical totals as recorded, otherwise the no-tax demo profile. */
+export function invoiceTaxLine(invoice: { taxTotal?: number; taxLabel?: string; currency?: string }): string {
+  return typeof invoice.taxTotal === 'number'
+    ? `Historical tax total (as recorded${invoice.taxLabel ? `: ${invoice.taxLabel}` : ''}): ${formatCurrency(invoice.taxTotal, invoice.currency)}`
+    : 'Tax: not calculated (approved no-tax demo profile)';
+}
+
 export function formatMinutesToHours(minutes: number): string {
   const hrs = minutes / 60;
   return `${hrs.toFixed(1)} hrs`;
@@ -553,7 +560,8 @@ export function calculateBalanceSheet(rows: TrialBalanceRow[]) {
   const totalEquity = -equity.reduce((s, e) => s + e.balance, 0) + currentPeriodResult;
 
   const difference = Math.abs(totalAssets - (totalLiabilities + totalEquity));
-  const isBalanced = difference === 0;
+  // Compare at the declared cent precision so 0.10 + 0.20 sums are not a false imbalance.
+  const isBalanced = Math.round(difference * 100) === 0;
 
   return {
     assets,
@@ -595,17 +603,6 @@ export function calculateConsolidatedBalanceSheet(
   subRows: TrialBalanceRow[],
   eliminations: any[]
 ) {
-  // Carry each component's current-period result into equity for the
-  // consolidated balance sheet; income-statement balances stay untouched.
-  const includeCurrentPeriodResult = (rows: TrialBalanceRow[]) => {
-    const result = rows.filter(row => row.type === 'revenue' || row.type === 'expense')
-      .reduce((sum, row) => sum + row.balance, 0);
-    return rows.some(row => row.type === 'revenue' || row.type === 'expense')
-      ? [...rows, { code: 'CURRENT_PERIOD_RESULT', name: 'Current period result', type: 'equity' as const, balance: result }]
-      : rows;
-  };
-  parentRows = includeCurrentPeriodResult(parentRows);
-  subRows = includeCurrentPeriodResult(subRows);
   const allCodes = Array.from(new Set([...parentRows.map(r => r.code), ...subRows.map(r => r.code)]));
 
   let parentAssets = 0;
@@ -673,6 +670,26 @@ export function calculateConsolidatedBalanceSheet(
       consolidatedBalance
     };
   });
+
+  // Carry the current-period result into equity AFTER eliminations, so an
+  // elimination touching revenue/expense moves equity with it (no imbalance).
+  const resultLines = lines.filter(l => l.category === 'revenue' || l.category === 'expense');
+  if (resultLines.length) {
+    const sum = (pick: (l: typeof lines[number]) => number) => resultLines.reduce((total, l) => total + pick(l), 0);
+    const resultLine = {
+      code: 'CURRENT_PERIOD_RESULT',
+      name: 'Current period result',
+      category: 'equity' as const,
+      parentBalance: sum(l => l.parentBalance),
+      subsidiaryBalance: sum(l => l.subsidiaryBalance),
+      eliminationDebit: sum(l => l.eliminationDebit),
+      eliminationCredit: sum(l => l.eliminationCredit),
+      consolidatedBalance: sum(l => l.consolidatedBalance)
+    };
+    parentEquity -= resultLine.parentBalance;
+    subsidiaryEquity -= resultLine.subsidiaryBalance;
+    lines.push(resultLine);
+  }
 
   // Calculate totals directly from lines ensuring header and line details strictly agree (EX12)
   const totalAssets = lines

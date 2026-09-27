@@ -1,5 +1,19 @@
 # AuditSphere Visual Prototype — Remaining Limitations
 
+**Current (measured at `b988be1edf010f3f47c3aea646b5ad6a99f3dffe`):** 256/256 original criteria, 64/64 stories and 39/39 modules pass with executed
+evidence ([ledger](criterion-evidence-ledger.md)); 0 open action rows; decision **APPROVED_FOR_DEMO** under PROTOTYPE-AGENT-ACCEPTANCE-001
+(AI-agent acceptance of a browser-only demo). What remains are **intentional boundaries**, not open work:
+
+- Microsoft 365 is simulated (`liveConnected` stays false): no OAuth, credentials, tenant provisioning, mail sending or Purview.
+- Browser storage is not a security boundary; the superuser is a presenter tool; approvals are recorded decisions, not signatures.
+- Library/workpaper originals are in-session only (metadata + SHA-256 persist); PBC response bytes and generated/archive artifacts persist in IndexedDB.
+- Group reporting supports one parent + one 100%-owned subsidiary with closing-rate translation and manual eliminations; other methods are refused.
+- No payments, tax/payroll engines, eSignature, recurrence/automation, AI features or non-Microsoft integrations.
+- Not production, not professional methodology or opinion, not legal retention; no deployment was part of this acceptance.
+- Review basis: separate fresh-context Claude review subagent (two rounds) and disclosed same-session AI self-review — not independent human assurance.
+
+## Baseline (2026-09-27, before closure — historical)
+
 Updated 2026-09-27. Selected R01–R14 defects received code and regression
 coverage, but that does not constitute full acceptance. The canonical tracker
 currently records 16 of 64 stories and 10 of 39 modules as Verified; 48 stories

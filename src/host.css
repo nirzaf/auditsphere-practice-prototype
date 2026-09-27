@@ -66,3 +66,8 @@
   .receivables-statement th,
   .receivables-statement td { border: 1px solid #777; padding: 6px; color: #111; }
 }
+
+/* CLOSE-J12: page-head action rows wrap instead of widening the page at tablet widths. */
+.pagehead > div:first-child { min-width: 0; }
+.pagehead > .row { flex-wrap: wrap; }
+@media (min-width: 761px) { .pagehead > .row { justify-content: flex-end; } }

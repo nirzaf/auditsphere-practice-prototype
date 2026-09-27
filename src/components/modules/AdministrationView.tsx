@@ -428,7 +428,7 @@ export const AdministrationView: React.FC<AdministrationViewProps> = ({ onNaviga
 
       {/* Grant Creation Modal */}
       {showGrantModal && selectedUser && (
-        <div className="modal-overlay">
+        <div className="modal-overlay" data-dismiss-guard="explicit">
           <div className="modal-card" style={{ maxWidth: 500 }}>
             <div className="between">
               <h3>Grant Access Scope</h3>

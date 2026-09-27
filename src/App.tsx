@@ -87,14 +87,24 @@ export const App: React.FC = () => {
     else unsavedForms.current.delete(key);
   }, []);
   const requestContextChange = useCallback((run: () => void) => {
-    const dirty = [...unsavedForms.current.values()].filter(guard => guard.isDirty());
+    const dirtyGuards = () => [...unsavedForms.current.values()].filter(guard => guard.isDirty());
+    const decide = (dirty: UnsavedFormGuard[]) => {
+      if (dirty.length) setPendingTransition({ run, label: [...new Set(dirty.map(guard => guard.label))].join(' and ') });
+      else run();
+    };
+    const dirty = dirtyGuards();
     setTransitionError('');
-    if (dirty.length) setPendingTransition({ run, label: [...new Set(dirty.map(guard => guard.label))].join(' and ') });
-    else run();
+    const dialogGuard = unsavedForms.current.get(ACTIVE_DIALOG_GUARD);
+    // A dialog action that saves, closes and navigates in one handler still has its dialog in
+    // the DOM here; re-check the open-dialog guard after React commits that close.
+    if (dirty.length && dirty.every(guard => guard === dialogGuard)) setTimeout(() => decide(dirtyGuards()), 0);
+    else decide(dirty);
   }, []);
   const resolveTransition = async (choice: 'save' | 'discard') => {
     const pending = pendingTransition;
-    const dirty = [...unsavedForms.current.values()].filter(guard => guard.isDirty());
+    // The shared open-dialog guard runs last, after the owning form had its chance to save.
+    const dialogGuard = unsavedForms.current.get(ACTIVE_DIALOG_GUARD);
+    const dirty = [...unsavedForms.current.values()].filter(guard => guard.isDirty()).sort((a, b) => Number(a === dialogGuard) - Number(b === dialogGuard));
     if (!pending || !dirty.length) return;
     if (choice === 'save') {
       // A rejected save keeps the user, the remaining drafts and the context unchanged.
@@ -112,6 +122,12 @@ export const App: React.FC = () => {
         }
       }
     } else {
+      // An explicit-only dialog cannot be dismissed from here; keep the context rather than
+      // leaving it open against a different client, engagement or persona.
+      if (dirty.some(guard => guard.blocksDiscard?.())) {
+        setTransitionError('The open dialog can only be closed with its own Cancel or Save. Stay and close it first.');
+        return;
+      }
       dirty.forEach(guard => guard.discard());
       // The shared open-dialog guard stays registered for the next dialog.
       dirty.forEach(guard => { for (const [key, registered] of unsavedForms.current) if (registered === guard && key !== ACTIVE_DIALOG_GUARD) unsavedForms.current.delete(key); });
@@ -130,9 +146,13 @@ export const App: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    const syncFromLocation = () => {
+    const syncFromLocation = (event?: Event) => {
       const resolved = resolveRouteHash(window.location.hash);
       if (!resolved) return;
+      // A hash/popstate event that lands on the already-accepted route changes nothing, so it
+      // must not raise an unsaved-changes decision. The initial sync (no event) still applies
+      // the route policy.
+      if (event && !resolved.redirected && `#${resolved.route}` === acceptedRouteHash.current) return;
       requestContextChange(() => {
         const snapshot = prototypeStore.getSnapshot();
         const active = snapshot.users.find(user => user.id === snapshot.currentUserId)?.status === 'Active';
@@ -203,12 +223,28 @@ export const App: React.FC = () => {
     // guard: route, hash, back/forward and context switches ask first, and generic
     // "Save and continue" never submits the dialog's decision on the user's behalf.
     const dialogGuard: UnsavedFormGuard = {
-      label: 'The open dialog',
-      isDirty: () => dialogIsDirty(guardedDialog()) && ![...unsavedForms.current.entries()].some(([key, guard]) => key !== ACTIVE_DIALOG_GUARD && guard.isDirty()),
-      save: () => false,
+      label: 'the open dialog',
+      // Always reported when the open dialog is edited, even alongside a page draft, so
+      // navigation never drops dialog edits without naming them.
+      isDirty: () => dialogIsDirty(guardedDialog()),
+      // Generic navigation never submits the dialog. It succeeds only if an earlier guard's
+      // own save already closed or committed this dialog (checked after React re-renders).
+      save: async () => {
+        const dialog = guardedDialog();
+        // Macrotask waits (not animation frames, which a hidden tab may never deliver) let React commit a close.
+        await new Promise(resolve => setTimeout(resolve, 0));
+        await new Promise(resolve => setTimeout(resolve, 0));
+        return !dialog || !dialog.isConnected || !dialogIsDirty(dialog);
+      },
+      blocksDiscard: () => {
+        const dialog = guardedDialog();
+        return backdropOf(dialog)?.dataset.dismissGuard === 'explicit' && dialogIsDirty(dialog);
+      },
       discard: () => {
-        const backdrop = backdropOf(guardedDialog());
-        if (!backdrop) return;
+        const dialog = guardedDialog();
+        const backdrop = backdropOf(dialog);
+        // Explicit-only dialogs have no dismissal handler; they close when the route changes.
+        if (!backdrop || backdrop.dataset.dismissGuard === 'explicit') return;
         bypassDismissGuard = true;
         try { backdrop.dispatchEvent(new MouseEvent('click', { bubbles: true })); } finally { bypassDismissGuard = false; }
       }
@@ -217,7 +253,7 @@ export const App: React.FC = () => {
     const onDismissClick = (event: MouseEvent) => {
       const backdrop = backdropOf(activeDialog);
       if (bypassDismissGuard || !activeDialog || !backdrop || event.target !== backdrop) return;
-      if (!dialogIsDirty()) return;
+      if (backdrop.dataset.dismissGuard === 'explicit' || !dialogIsDirty()) return;
       event.preventDefault();
       event.stopImmediatePropagation();
       promptOpen = true;

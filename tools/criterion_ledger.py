@@ -52,9 +52,13 @@ def source_tests() -> dict[str, dict]:
     for path in sorted(glob.glob(str(ROOT / 'tests' / 'unit' / '*.test.ts'))) + [str(ROOT / 'tests' / 'e2e' / 'app.test.ts')]:
         rel = str(Path(path).relative_to(ROOT))
         for number, line in enumerate(Path(path).read_text(encoding='utf-8').splitlines(), 1):
-            match = re.match(r"^\s*it\((['`\"])(.+?)\1", line)
+            # Titles may contain escaped quotes (for example author\'s); unescape them like the runtime does.
+            match = re.match(r"^\s*it\((['`\"])((?:\\.|(?!\1).)+)\1", line)
             if match:
-                tests[match.group(2)] = {'file': rel, 'line': number}
+                title = re.sub(r'\\(.)', r'\1', match.group(2))
+                if title in tests:
+                    tests.setdefault('__duplicates__', []).append(title)
+                tests[title] = {'file': rel, 'line': number}
     return tests
 
 
@@ -83,7 +87,7 @@ def summary_counts(path: str) -> dict[str, int]:
 
 
 def check(mapping: dict, tests: dict, criteria: dict) -> list[str]:
-    errors = []
+    errors = [f'duplicate test title (results would be ambiguous): {name}' for name in tests.get('__duplicates__', [])]
     if set(mapping) != set(criteria):
         errors.append(f'map/criteria mismatch: missing {sorted(set(criteria) - set(mapping))}, extra {sorted(set(mapping) - set(criteria))}')
     for criterion, entry in mapping.items():
@@ -125,32 +129,54 @@ def main() -> int:
 
     if not all([args.unit_log, args.e2e_log, args.sha, args.build_digest, args.run_id, args.run_date]):
         parser.error('generate requires --unit-log --e2e-log --sha --build-digest --run-id --run-date')
+    source_tests_cache = tests
     unit, e2e = parse_tap(args.unit_log), parse_tap(args.e2e_log)
     unit_counts, e2e_counts = summary_counts(args.unit_log), summary_counts(args.e2e_log)
     suite_passed = all(c['fail'] == 0 and c['cancelled'] == 0 and c['skipped'] == 0 and c['tests'] > 0 for c in (unit_counts, e2e_counts))
-    observed = {**unit, **e2e}
     modules = story_modules()
 
     def outcome(ref: dict) -> str:
         if ref['name'] == SUITE:
             return 'PASS' if suite_passed else 'FAIL'
+        # Results come only from the run that executes the mapped test's file.
+        observed = e2e if ref['file'].startswith('tests/e2e/') else unit
         pattern = title_pattern(ref['name'])
         matches = [passed for name, passed in observed.items() if pattern.match(name)]
         if not matches:
             return 'NOT_RUN'
         return 'PASS' if all(matches) else 'FAIL'
 
+    # VP-063-AC01 is computed, not assumed: every story needs at least one mapped positive
+    # journey and one mapped negative (validation/scope/stale/rework) check, all passing.
+    negative = re.compile(r'reject|block|den(y|ies|ied)|cannot|stale|invalid|prevent|refus|exclud|forbid|unavailable|duplicate|guard|hid|without|never|revers|return|rework|fail|limit|withdraw|expir|revok|disabled|out-of-scope|outside|missing|unknown|gate', re.I)
+    coverage: dict[str, dict] = {}
+    for criterion, entry in mapping.items():
+        story = coverage.setdefault(criterion[:6], {'positive': set(), 'negative': set()})
+        for ref in entry['tests']:
+            if ref['name'] == SUITE or criterion.startswith(('VP-063', 'VP-064')):
+                continue
+            story['negative' if negative.search(ref['name']) else 'positive'].add(ref['name'])
+            if ref['file'].startswith('tests/e2e/'):
+                story['positive'].add(ref['name'])  # a browser journey is also a positive run of the story
+    story_gaps = sorted(story for story, found in coverage.items()
+                        if not story.startswith(('VP-063', 'VP-064')) and (not found['positive'] or not found['negative']))
+    story_failures = sorted(story for story, found in coverage.items()
+                            if any(outcome({'file': source_tests_cache[name]['file'], 'name': name}) != 'PASS' for name in found['positive'] | found['negative']))
+
     rows, totals = [], {'PASS': 0, 'FAIL': 0, 'NOT_RUN': 0}
     story_state: dict[str, set] = {}
     for criterion in sorted(mapping):
         entry = mapping[criterion]
         results = [(ref, outcome(ref)) for ref in entry['tests']]
+        if criterion == 'VP-063-AC01':
+            computed = 'PASS' if not story_gaps and not story_failures else 'FAIL'
+            results.append(({'file': '*', 'name': f'Computed story coverage (title-keyword heuristic for negative checks, not a proof): {62 - len(story_gaps)}/62 stories with positive and negative mapped checks; gaps {story_gaps or "none"}; failing {story_failures or "none"}'}, computed))
         states = {state for _, state in results}
         aggregate = 'FAIL' if 'FAIL' in states else 'NOT_RUN' if 'NOT_RUN' in states else 'PASS'
         totals[aggregate] += 1
         story_state.setdefault(criterion[:6], set()).add(aggregate)
         refs = '<br>'.join(
-            ('Full recorded suite' if ref['name'] == SUITE else f'`{tests[ref["name"]]["file"]}:{tests[ref["name"]]["line"]}` {ref["name"]}') + f' — **{state}**'
+            ('Full recorded suite' if ref['name'] == SUITE else ref['name'] if ref['file'] == '*' else f'`{tests[ref["name"]]["file"]}:{tests[ref["name"]]["line"]}` {ref["name"]}') + f' — **{state}**'
             for ref, state in results)
         text = criteria.get(criterion, '').replace('|', '\\|')
         rows.append(f'| {criterion} | {", ".join(modules.get(criterion[:6], [])) or "—"} | {text} | {refs} | {entry["basis"].replace("|", "/")} | **{aggregate}** |')
