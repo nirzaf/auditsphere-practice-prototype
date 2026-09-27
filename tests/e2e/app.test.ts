@@ -540,6 +540,135 @@ describe('actual Chrome browser acceptance', { concurrency: false }, () => {
     await waitForBrowser('!!document.querySelector("#app-root .brandname")');
   });
 
+  it('MOD-UX-02: the workflow progress tracker reconciles with its own step track and reacts to real state', async () => {
+    // The tracker's whole value is that its numbers are derived. This journey
+    // proves, in the browser, that the printed counts agree with the rendered
+    // steps, that the percentage is consistent, and that a real state change
+    // (suspending the engagement) turns a step into an explained blocker.
+    const key = 'ste-auditsphere-role-portals-v2';
+    await browserTab!.evaluate(`localStorage.setItem('${key}',${JSON.stringify(JSON.stringify(createInitialState()))})`);
+    await browserTab!.command('Page.reload');
+    assert.equal(await waitForBrowser('!!document.querySelector("#role-select")'), true);
+    await browserTab!.evaluate(`(() => {const r=document.querySelector('#role-select');Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype,'value').set.call(r,'partner');r.dispatchEvent(new Event('change',{bubbles:true}));})()`);
+    assert.equal(await waitForBrowser(`JSON.parse(localStorage.getItem('${key}')).currentRole==='partner'`), true);
+
+    /** Reads a rendered tracker and recomputes its own arithmetic. */
+    const readTracker = () => browserTab!.evaluate<any>(`(() => {
+      const el=document.querySelector('[data-workflow-progress]');
+      if(!el)return null;
+      const steps=[...el.querySelectorAll('.lifecycle-node')].map(node=>({
+        label:node.getAttribute('data-step-label'), state:node.getAttribute('data-step-state')
+      }));
+      const num=attr=>Number(el.getAttribute(attr));
+      return {
+        title: el.getAttribute('data-workflow-progress'),
+        percent: num('data-progress-percent'),
+        completed: num('data-progress-completed'),
+        total: num('data-progress-total'),
+        pending: num('data-progress-pending'),
+        blocked: num('data-progress-blocked'),
+        summary: (el.querySelector('[data-progress-summary]')?.innerText||'').trim(),
+        nextAction: (el.querySelector('[data-next-action]')?.innerText||'').trim(),
+        barNow: Number(el.querySelector('[role="progressbar"]')?.getAttribute('aria-valuenow')),
+        blockedExplanations: [...el.querySelectorAll('[data-blocked-step]')].map(li=>li.innerText.replace(/\\n/g,' ').trim()),
+        stepStates: steps.map(s=>s.state),
+        stepLabels: steps.map(s=>s.label)
+      };
+    })()`);
+
+    const assertTrackerConsistent = (tracker: any, where: string) => {
+      assert.ok(tracker, `${where}: the tracker must render`);
+      assert.equal(tracker.stepStates.length, tracker.total, `${where}: step track must cover the tracker total`);
+      const done = tracker.stepStates.filter((state: string) => state === 'done' || state === 'not-applicable').length;
+      assert.equal(tracker.completed, done, `${where}: completed count must equal the steps shown complete`);
+      assert.equal(tracker.percent, Math.round((tracker.completed / tracker.total) * 100), `${where}: percentage must agree with the counts`);
+      assert.equal(tracker.barNow, tracker.percent, `${where}: the progress bar must show the same percentage`);
+      assert.match(tracker.summary, new RegExp(`^Completed ${tracker.completed} / ${tracker.total}`), `${where}: the summary must state the same counts`);
+      assert.ok(tracker.nextAction.length > 10, `${where}: the tracker must state the next action`);
+      // Every blocked step must explain itself and what would unblock it.
+      const blockedSteps = tracker.stepStates.filter((state: string) => state === 'blocked').length;
+      assert.ok(tracker.blockedExplanations.length >= blockedSteps, `${where}: every blocked step needs an explanation`);
+      for (const explanation of tracker.blockedExplanations) {
+        assert.match(explanation, /Required:/, `${where}: a blocked explanation must state what is required: ${explanation}`);
+      }
+    };
+
+    // --- Engagements: the audit journey -------------------------------------
+    await browserTab!.evaluate(`location.hash='#engagements'`);
+    assert.equal(await waitForBrowser(`document.querySelector('[data-workflow-progress="Engagement journey"]')!==null`), true, 'Engagements must show its workflow tracker');
+    const engagementsTracker = await readTracker();
+    assertTrackerConsistent(engagementsTracker, 'Engagements');
+    assert.equal(engagementsTracker.stepLabels.length, 8, 'the engagement tracker covers its declared eight-step model');
+    assert.ok(engagementsTracker.stepLabels.includes('Risks & programs'), 'the tracker names its real steps');
+    assert.equal(engagementsTracker.title, 'Engagement journey');
+
+    // Steps navigate to the section that governs them.
+    const navigated = await browserTab!.evaluate<boolean>(`(() => {
+      const el=document.querySelector('[data-workflow-progress="Engagement journey"]');
+      const button=[...el.querySelectorAll('.lifecycle-node button.life-action')].find(b=>b.innerText.includes('Fieldwork'));
+      if(!button)return false;button.click();return true;
+    })()`);
+    assert.equal(navigated, true, 'a tracker step must be an operable control');
+    assert.equal(await waitForBrowser(`location.hash==='#audit'`), true, 'selecting the Fieldwork step opens the workpapers workspace');
+    await browserTab!.evaluate(`location.hash='#engagements'`);
+    assert.equal(await waitForBrowser(`document.querySelector('[data-workflow-progress="Engagement journey"]')!==null`), true);
+
+    // A real state change must be reflected in the tracker. Suspending does not
+    // change which steps are done, but it must surface as an explicit blocker
+    // with a required action — not be silently absorbed into a number.
+    const before = await readTracker();
+    await browserTab!.evaluate(`(() => {
+      const key='${key}';
+      const s=JSON.parse(localStorage.getItem(key));
+      const eng=s.engagements.find(e=>e.id===s.selectedEngagement);
+      eng.lifecycleStatus='Suspended';
+      localStorage.setItem(key,JSON.stringify(s));
+      location.reload();
+    })()`);
+    assert.equal(await waitForBrowser(`!!document.querySelector('[data-workflow-progress="Engagement journey"]')`), true);
+    const suspended = await readTracker();
+    assertTrackerConsistent(suspended, 'Engagements (suspended)');
+    assert.equal(suspended.total, before.total, 'suspension does not change how many steps the journey has');
+    const suspensionExplained = suspended.blockedExplanations.some((text: string) => /Suspended/.test(text));
+    const suspensionInAction = /Suspended|Resume the engagement/.test(suspended.nextAction);
+    assert.ok(suspensionExplained, `the suspension must be explained as a blocker: ${JSON.stringify(suspended.blockedExplanations)}`);
+    assert.ok(suspensionInAction, `the next action must reflect the suspension: ${suspended.nextAction}`);
+
+    // --- Financial packages: the accounting journey -------------------------
+    await browserTab!.evaluate(`localStorage.setItem('${key}',${JSON.stringify(JSON.stringify(createInitialState()))});location.hash='#financial-packages';`);
+    await browserTab!.command('Page.reload');
+    assert.equal(await waitForBrowser(`document.querySelector('[data-workflow-progress="Package journey"]')!==null`), true, 'Financial Packages must show its workflow tracker');
+    const packageTracker = await readTracker();
+    assertTrackerConsistent(packageTracker, 'Financial Packages');
+    assert.equal(packageTracker.stepLabels.length, 6, 'the package tracker covers its declared six-step model');
+    assert.deepEqual(packageTracker.stepLabels, ['Calculated', 'Validated', 'Management approved', 'Accounting reviewed', 'Partner review', 'Released']);
+
+    // A revision built from an older source must go stale rather than look done.
+    await browserTab!.evaluate(`(() => {
+      const key='${key}';
+      const s=JSON.parse(localStorage.getItem(key));
+      const eng=s.engagements.find(e=>e.id===s.selectedEngagement);
+      const mappingRevision=(s.accountMappingRevisions||[]).filter(m=>m.engagementId===eng.id).sort((a,b)=>b.revision-a.revision)[0]?.revision;
+      eng.packageHistory=[{id:'PKG-PROBE',engagementId:eng.id,revision:1,generation:eng.generation,sourceVersion:eng.sourceVersion,mappingRevision,notes:'',noteRevision:1,sections:[],
+        validation:{passed:true,trialBalanceNet:0,pendingWorkpapers:0,openReviews:0,materialFindings:0},artifacts:[],createdAt:'2026-09-01T00:00:00.000Z',createdBy:'Layla Rahman',createdByUserId:'manager'}];
+      eng.packageRevision=1;
+      eng.sourceVersion=eng.sourceVersion+1;
+      localStorage.setItem(key,JSON.stringify(s));
+      location.reload();
+    })()`);
+    assert.equal(await waitForBrowser(`document.querySelector('[data-workflow-progress="Package journey"]')!==null`), true);
+    const stalePackage = await readTracker();
+    assertTrackerConsistent(stalePackage, 'Financial Packages (stale source)');
+    assert.ok(stalePackage.stepStates.includes('stale'), 'a revision built from an older source must show a stale step');
+    assert.match(stalePackage.nextAction, /Recalculate "Validated"/, 'the tracker must say what to recalculate');
+    assert.ok(stalePackage.blockedExplanations.length === 0 || stalePackage.blockedExplanations.every((text: string) => /Required:/.test(text)));
+
+    assert.deepEqual(browserTab!.exceptions, []);
+    await browserTab!.evaluate(`localStorage.setItem('${key}',${JSON.stringify(JSON.stringify(createInitialState()))});location.hash='#overview';`);
+    await browserTab!.command('Page.reload');
+    await waitForBrowser('!!document.querySelector("#app-root .brandname")');
+  });
+
   it('AT-01/AT-03/AT-04: renders the app, keeps controls local, and presents scope disclosures', async () => {
     assert.match(await browserTab!.evaluate<string>('document.body.innerText'), /SIMULATED IDENTITY \(NOT LIVE AUTH\)/);
     assert.match(await browserTab!.evaluate<string>('document.body.innerText'), /Synthetic records\. No live external integrations/);

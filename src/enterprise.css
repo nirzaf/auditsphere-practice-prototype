@@ -242,6 +242,112 @@
 .lifecycle-foot { margin-top: 13px; font-size: 11px; color: var(--muted); }
 
 /* ---------------------------------------------------------------------------
+ * 5b. Workflow progress tracker (MOD-UX-02)
+ *     The per-screen answer to "what is complete, what is pending, what is
+ *     blocked, what happens next".
+ * ------------------------------------------------------------------------- */
+.workflow-progress {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: white;
+  padding: 16px 20px 18px;
+}
+.workflow-progress.dense { padding: 14px 16px 15px; }
+.workflow-progress .workflow-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px 18px;
+}
+.workflow-progress .workflow-headline { min-width: 0; }
+.workflow-progress .workflow-headline h3 { font-size: 14px; }
+.workflow-progress .workflow-gauge { text-align: right; flex-shrink: 0; }
+.workflow-progress .workflow-percent {
+  display: block;
+  font-size: 24px;
+  font-weight: 650;
+  letter-spacing: -.6px;
+  line-height: 1.1;
+  color: var(--teal);
+  font-variant-numeric: tabular-nums;
+}
+.workflow-progress .workflow-bar {
+  height: 8px;
+  border-radius: 5px;
+  background: #eef2f1;
+  overflow: hidden;
+  margin: 12px 0 4px;
+}
+.workflow-progress .workflow-bar i {
+  display: block;
+  height: 100%;
+  border-radius: 5px;
+  background: linear-gradient(90deg, #0d9c8c, #66ac89);
+  transition: width .3s ease;
+}
+.workflow-progress .lifecycle { border: 0; padding: 12px 0 0; background: transparent; }
+.workflow-progress .lifecycle-track { margin-top: 0; }
+.workflow-progress .workflow-next {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px 18px;
+  border-top: 1px solid var(--line);
+  margin-top: 14px;
+  padding-top: 12px;
+}
+.workflow-progress .workflow-next-label {
+  display: block;
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: .8px;
+  color: #7b8f93;
+  margin-bottom: 3px;
+}
+.workflow-progress .workflow-next b { display: block; font-size: 12.5px; color: #33514c; }
+.workflow-progress .workflow-next .cell-sub { display: block; margin-top: 4px; }
+.workflow-progress .workflow-blockers { list-style: none; margin: 12px 0 0; padding: 0; display: flex; flex-direction: column; gap: 9px; }
+.workflow-progress .workflow-blockers li {
+  border: 1px solid #f3c9c5;
+  border-left: 4px solid #b8493a;
+  border-radius: 8px;
+  background: #fffafa;
+  padding: 10px 13px;
+  font-size: 11.5px;
+  color: #6b3b35;
+}
+.workflow-progress .workflow-blockers b { display: flex; align-items: center; gap: 6px; font-size: 12px; color: #8f2f26; }
+.workflow-progress .workflow-blockers span { display: block; margin-top: 4px; }
+.workflow-progress .workflow-required { color: #4b6065; }
+.workflow-progress .workflow-excluded { font-size: 11px; color: var(--muted); margin-top: 10px; }
+.lifecycle-percent { font-size: 12px; font-weight: 650; color: var(--teal); font-variant-numeric: tabular-nums; }
+
+/* A step that navigates becomes a real button, so it is keyboard reachable. */
+.lifecycle-node .life-action {
+  display: grid;
+  grid-template-columns: 22px 1fr;
+  gap: 9px;
+  align-items: start;
+  width: 100%;
+  padding: 0;
+  background: none;
+  text-align: left;
+  color: inherit;
+  border-radius: 6px;
+}
+.lifecycle-node .life-action:hover .life-label { text-decoration: underline; }
+.lifecycle-node .life-body { display: block; min-width: 0; }
+.lifecycle-node.returned { border-top-color: #c96a78; }
+.lifecycle-node.returned .life-mark { background: var(--redsoft); border-color: #f0cfd5; color: #8f3745; }
+.lifecycle-node.returned .life-label { color: #8f3745; font-weight: 650; }
+.lifecycle-node.stale { border-top-color: #c9902a; }
+.lifecycle-node.stale .life-mark { background: #fff4e2; border-color: #eed6a4; color: #6f4c0a; }
+.lifecycle-node.stale .life-label { color: #6f4c0a; font-weight: 650; }
+.lifecycle-node.pending .life-mark { color: #93a3a5; }
+
+/* ---------------------------------------------------------------------------
  * 6. Blocker / stale / provenance notices
  * ------------------------------------------------------------------------- */
 .notice { border: 1px solid var(--line); border-radius: 11px; padding: 14px 17px; background: white; }

@@ -165,7 +165,7 @@ export function isTerminalStatus(status: string | undefined | null): boolean {
 // Lifecycle models
 // ---------------------------------------------------------------------------
 
-export type LifecycleStepState = 'done' | 'current' | 'blocked' | 'pending' | 'skipped' | 'not-applicable';
+export type LifecycleStepState = 'done' | 'current' | 'blocked' | 'returned' | 'stale' | 'pending' | 'skipped' | 'not-applicable';
 
 export interface LifecycleStep {
   readonly id: string;
@@ -175,6 +175,8 @@ export interface LifecycleStep {
   readonly owner?: string;
   /** Why the step cannot proceed. Shown for `blocked` steps. */
   readonly reason?: string;
+  /** What must happen before a blocked, returned or stale step can proceed. */
+  readonly required?: string;
 }
 
 export type LifecycleModelId =

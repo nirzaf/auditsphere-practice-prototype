@@ -16,6 +16,7 @@ import {
   lifecycleModelFor,
   TONE_MEANING
 } from '../../services/lifecycle';
+import type { WorkflowProgress, TrackerStep } from '../../services/workflowProgress';
 
 // ---------------------------------------------------------------------------
 // StatusBadge
@@ -72,20 +73,55 @@ export interface LifecycleStepperProps {
   footer?: React.ReactNode;
   /** Accessible name; defaults to the title. */
   label?: string;
+  /** 0–100. When provided, a progress bar is shown above the track. */
+  percent?: number;
+  /** Opens the section a step governs, when the module can route to it. */
+  onStepSelect?: (step: LifecycleStep) => void;
 }
 
+const STEP_MARK: Record<string, string> = {
+  done: '✓',
+  current: '●',
+  blocked: '!',
+  returned: '↩',
+  stale: '⟳',
+  skipped: '–',
+  pending: '○',
+  'not-applicable': '–'
+};
+
+/** Human reading of a step state, used for the accessible description. */
+const STEP_STATE_TEXT: Record<string, string> = {
+  done: 'completed',
+  current: 'current',
+  blocked: 'blocked',
+  returned: 'returned for rework',
+  stale: 'stale, needs recalculation',
+  skipped: 'skipped',
+  pending: 'pending',
+  'not-applicable': 'not applicable'
+};
+
 /**
- * Shows a record's real lifecycle: completed steps, the step in progress, and
- * which steps are unreachable while a blocker stands.
+ * Shows a record's real lifecycle: completed steps, the step in progress, which
+ * steps were returned or have gone stale, and which are unreachable while a
+ * blocker stands. Steps become buttons when the module supplies `onStepSelect`,
+ * so a reader can jump to the section a step governs.
  */
-export const LifecycleStepper: React.FC<LifecycleStepperProps> = ({ title, steps, summary, footer, label }) => {
+export const LifecycleStepper: React.FC<LifecycleStepperProps> = ({ title, steps, summary, footer, label, percent, onStepSelect }) => {
   const current = steps.find(step => step.state === 'current');
   const blocked = steps.filter(step => step.state === 'blocked');
+  const returned = steps.filter(step => step.state === 'returned');
+  const stale = steps.filter(step => step.state === 'stale');
   const summaryText = summary
     ?? (blocked.length
       ? `Blocked at ${blocked.map(step => step.label).join(', ')}.`
-      : current ? `Current step: ${current.label}${current.owner ? ` — waiting on ${current.owner}` : ''}.`
-        : 'No step is currently in progress.');
+      : returned.length
+        ? `Returned for rework at ${returned.map(step => step.label).join(', ')}.`
+        : stale.length
+          ? `Stale at ${stale.map(step => step.label).join(', ')}; recalculation is required.`
+          : current ? `Current step: ${current.label}${current.owner ? ` — waiting on ${current.owner}` : ''}.`
+            : 'No step is currently in progress.');
   return (
     <section className="lifecycle" aria-label={label ?? `${title} lifecycle`} data-lifecycle-model={title}>
       <div className="lifecycle-head">
@@ -93,26 +129,141 @@ export const LifecycleStepper: React.FC<LifecycleStepperProps> = ({ title, steps
           <h3>{title}</h3>
           <p className="sub">{summaryText}</p>
         </div>
+        {percent !== undefined && <span className="lifecycle-percent" data-progress-percent={percent}>{percent}% complete</span>}
       </div>
       <ol className="lifecycle-track" style={{ listStyle: 'none', margin: 0, padding: 0 }}>
-        {steps.map(step => (
-          <li key={step.id} className={`lifecycle-node ${step.state}`}>
-            <span className="life-mark" aria-hidden="true">
-              {step.state === 'done' ? '✓' : step.state === 'blocked' ? '!' : step.state === 'current' ? '●' : step.state === 'skipped' ? '–' : '○'}
-            </span>
-            <div>
-              <div className="life-label">{step.label}</div>
-              {step.owner && step.state !== 'done' && <div className="life-owner">{step.owner}</div>}
-              {step.reason && step.state === 'blocked' && <div className="life-owner">{step.reason}</div>}
-              <span className="sr-only">{` — ${step.state === 'not-applicable' ? 'not applicable' : step.state}`}</span>
-            </div>
-          </li>
-        ))}
+        {steps.map(step => {
+          const body = (
+            <>
+              <span className="life-mark" aria-hidden="true">{STEP_MARK[step.state] ?? '○'}</span>
+              <span className="life-body">
+                <span className="life-label">{step.label}</span>
+                {step.owner && step.state !== 'done' && <span className="life-owner">{step.owner}</span>}
+                {(step.reason || step.required) && (step.state === 'blocked' || step.state === 'returned' || step.state === 'stale') && (
+                  <span className="life-owner">
+                    {step.reason}
+                    {step.reason && step.required ? ' ' : ''}
+                    {step.required}
+                  </span>
+                )}
+              </span>
+            </>
+          );
+          return (
+            <li key={step.id} className={`lifecycle-node ${step.state}`} data-step-state={step.state} data-step-label={step.label}>
+              {onStepSelect
+                ? <button type="button" className="life-action" onClick={() => onStepSelect(step)} aria-label={`${step.label} — ${STEP_STATE_TEXT[step.state] ?? step.state}. Open the related section.`}>{body}</button>
+                : body}
+              {!onStepSelect && <span className="sr-only">{` — ${STEP_STATE_TEXT[step.state] ?? step.state}`}</span>}
+            </li>
+          );
+        })}
       </ol>
       {footer && <div className="lifecycle-foot">{footer}</div>}
     </section>
   );
 };
+
+// ---------------------------------------------------------------------------
+// WorkflowProgress — the progress tracker every module screen shows
+// ---------------------------------------------------------------------------
+
+export interface WorkflowProgressTrackerProps {
+  progress: WorkflowProgress;
+  /** Opens the section a step governs, when the module can route to it. */
+  onStepSelect?: (step: TrackerStep) => void;
+  /** Extra controls placed beside the next-action line. */
+  actions?: React.ReactNode;
+  /** Compact form for panels and side columns. */
+  dense?: boolean;
+}
+
+/**
+ * The per-screen workflow tracker: a progress bar, completed/pending/blocked
+ * counts, the ordered step track, the single next action and who acts next, and
+ * an explicit explanation for every blocked step.
+ *
+ * Every number comes from `deriveWorkflowProgress`, which only aggregates what
+ * the module derived from records the reader is permitted to see.
+ */
+export const WorkflowProgressTracker: React.FC<WorkflowProgressTrackerProps> = ({ progress, onStepSelect, actions, dense = false }) => {
+  const blockers = progress.blockers.length
+    ? progress.blockers
+    : progress.steps
+      .filter(step => step.state === 'blocked')
+      .map(step => ({ step: step.label, reason: step.reason ?? 'A predecessor is unfinished.', required: step.required ?? 'Resolve the predecessor step first.', owner: step.owner }));
+
+  return (
+    <section
+      className={`workflow-progress ${dense ? 'dense' : ''}`.trim()}
+      aria-label={`${progress.title} progress`}
+      data-workflow-progress={progress.title}
+      data-progress-percent={progress.percent}
+      data-progress-completed={progress.completed}
+      data-progress-total={progress.total}
+      data-progress-pending={progress.pending}
+      data-progress-blocked={progress.blocked}
+    >
+      <div className="workflow-head">
+        <div className="workflow-headline">
+          <h3>{progress.title}</h3>
+          <p className="sub" data-progress-summary>{progress.summary}</p>
+        </div>
+        <div className="workflow-gauge">
+          <span className="workflow-percent">{progress.percent}%</span>
+          <span className="caption">complete</span>
+        </div>
+      </div>
+
+      <div
+        className="workflow-bar"
+        role="progressbar"
+        aria-valuenow={progress.percent}
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-label={`${progress.title}: ${progress.percent} percent complete. ${progress.summary}`}
+      >
+        <i style={{ width: `${progress.percent}%` }} />
+      </div>
+
+      {progress.total > 0 && (
+        <LifecycleStepper
+          title={progress.title}
+          label={`${progress.title} workflow steps`}
+          steps={progress.steps}
+          summary={progress.summary}
+          onStepSelect={onStepSelect as ((step: LifecycleStep) => void) | undefined}
+        />
+      )}
+
+      <div className="workflow-next">
+        <div>
+          <span className="workflow-next-label">Next action</span>
+          <b data-next-action>{progress.nextAction}</b>
+          {progress.nextOwner && <span className="cell-sub">Owner: {progress.nextOwner}</span>}
+          {progress.waitingOnOthers && <span className="cell-sub">Nothing further is actionable by you until this is resolved.</span>}
+        </div>
+        {actions && <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>{actions}</div>}
+      </div>
+
+      {blockers.length > 0 && (
+        <ul className="workflow-blockers">
+          {blockers.map(blocker => (
+            <li key={blocker.step} data-blocked-step={blocker.step}>
+              <b><Icon name="shield" size="sm" /> {blocker.step}</b>
+              <span>{blocker.reason}</span>
+              <span className="workflow-required">Required: {blocker.required}</span>
+              {blocker.owner && <span className="caption">Owner: {blocker.owner}</span>}
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {progress.excludedNote && <p className="workflow-excluded">{progress.excludedNote}</p>}
+    </section>
+  );
+};
+
 
 // ---------------------------------------------------------------------------
 // PageHeader

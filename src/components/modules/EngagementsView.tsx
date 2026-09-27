@@ -8,7 +8,8 @@ import { visibleClientIds, visibleEngagementIds } from '../../services/guards';
 import { InternalNotesPanel } from '../common/InternalNotesPanel';
 import { UnsavedFormGuard } from '../../services/unsavedFormGuard';
 
-import { ListState, ModuleIdentityLine, ModuleLifecycleHint, StatusBadge } from '../common/Enterprise';
+import { ListState, ModuleIdentityLine, ModuleLifecycleHint, StatusBadge, WorkflowProgressTracker } from '../common/Enterprise';
+import { deriveEngagementJourney } from '../../services/engagementJourney';
 interface EngagementsViewProps {
   onNavigate: (route: RouteKey) => void;
   onBeforeContextChange: (run: () => void) => void;
@@ -114,16 +115,12 @@ export const EngagementsView: React.FC<EngagementsViewProps> = ({ onNavigate, on
     return () => onRegisterUnsavedForm(null, 'engagement-edit');
   }, [showEditAdminModal, selectedEng, editService, editYear, editPeriod, editDue, editManager, editPartner, editTeam, onRegisterUnsavedForm]);
 
-  const steps = ['Acceptance', 'Planning', 'Production', 'Review', 'Release', 'Archive'];
-  const currentStepIndex = selectedEng?.archive
-    ? 5
-    : selectedEng?.stage === 'Draft' || selectedEng?.stage === 'Acceptance'
-    ? 0
-    : selectedEng?.releases.length
-    ? 4
-    : selectedEng?.stage === 'Review'
-    ? 3
-    : 2;
+  // The journey tracker is derived from this engagement's own records: its
+  // acceptance decision, reviewed plan, linked risks, workpapers, findings,
+  // review points, sign-offs and releases. Nothing here is positional.
+  const engagementProgress = selectedEng
+    ? deriveEngagementJourney({ state, engagement: selectedEng, clientName: scopedClients.find(item => item.id === selectedEng.client)?.name })
+    : null;
 
   if (!scopedEngagements.length) return <div className="panel panel-pad"><h2>No engagement access</h2><p className="sub mt8">No engagements are available under the active scope grant.</p></div>;
 
@@ -209,17 +206,20 @@ export const EngagementsView: React.FC<EngagementsViewProps> = ({ onNavigate, on
             <div className="stack" style={{ justifyItems: 'end', gap: 6 }}><StatusBadge status={selectedEng.stage} /><span className={`badge ${lifecycleStatus === 'Active' ? 'green' : lifecycleStatus === 'Suspended' ? 'amber' : 'red'}`}>{lifecycleStatus}</span></div>
           </div>
 
-          {/* Lifecycle Bar */}
-          <div className="lifecyclebar mt16">
-            {steps.map((st, i) => (
-              <div
-                key={st}
-                className={`life-step ${i < currentStepIndex ? 'done' : i === currentStepIndex ? 'current' : ''}`}
-              >
-                <em>{i < currentStepIndex ? <Icon name="check" size="sm" /> : i + 1}</em>
-                {st}
-              </div>
-            ))}
+          {/* Workflow progress tracker — every number is derived from this
+              engagement's own records, reviews, findings, approvals and releases.
+              It replaces the previous index-based bar, which could not express a
+              blocked, returned or stale step. */}
+          <div className="mt16">
+            {engagementProgress && (
+              <WorkflowProgressTracker
+                progress={engagementProgress}
+                onStepSelect={step => {
+                  const route = step.targetSection as RouteKey | undefined;
+                  if (route) onNavigate(route);
+                }}
+              />
+            )}
           </div>
 
           <div className="info-grid mt16">

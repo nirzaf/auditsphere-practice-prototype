@@ -14,7 +14,8 @@ import { FinancialPackageRevision, GeneratedArtifactRecord } from '../../types';
 import { UnsavedFormGuard } from '../../services/unsavedFormGuard';
 import { isReleaseBlockingFinding } from '../../services/findings';
 
-import { ModuleIdentityLine, ModuleLifecycleHint, StaleNotice, StatusBadge } from '../common/Enterprise';
+import { ModuleIdentityLine, ModuleLifecycleHint, StaleNotice, StatusBadge, WorkflowProgressTracker } from '../common/Enterprise';
+import { derivePackageJourney } from '../../services/packageJourney';
 const DEFAULT_SECTIONS = [
   { id: 'rpt', title: 'Independent Auditor Report', desc: 'Standard unmodified opinion under ISA 700 with key audit matters.', enabled: true },
   { id: 'bs', title: 'Statement of Financial Position', desc: 'Comparative balance sheet verified to underlying trial balance.', enabled: true },
@@ -244,6 +245,12 @@ export const FinancialPackagesView: React.FC<FinancialPackagesViewProps> = ({ on
     catch (err: any) { triggerNotice('error', err.message); }
   };
 
+  // The package journey is derived from the saved revision, its validation and
+  // lineage, the management decision, the sign-offs and the release records.
+  const packageProgress = selectedEng
+    ? derivePackageJourney({ state, engagement: selectedEng, revision: savedPackage })
+    : null;
+
   return (
     <div className="stack" style={{ gap: 20 }}>
       <div className="pagehead">
@@ -266,6 +273,18 @@ export const FinancialPackagesView: React.FC<FinancialPackagesViewProps> = ({ on
         <ModuleLifecycleHint />
       </div>
 
+      {/* Package journey tracker: every step is derived from the saved revision,
+          its validation result and source lineage, the management decision, the
+          generation-bound sign-offs and the release records. */}
+      {packageProgress && (
+        <WorkflowProgressTracker
+          progress={packageProgress}
+          onStepSelect={step => {
+            const route = step.targetSection as RouteKey | undefined;
+            if (route) onNavigate(route);
+          }}
+        />
+      )}
       {notice && (
         <div
           className="panel panel-pad"

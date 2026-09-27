@@ -33,6 +33,7 @@ Companion documents: [lifecycle matrix](lifecycle-matrix.md) ·
 | F-5 | "No records exist" and "no records match these filters" were usually the same sentence | empty-copy inventory | Implemented: `ListState` distinguishes empty / no-match / out-of-scope / error |
 | F-6 | Staleness was reported as a bare word next to a revision number | package and statement markup | Implemented: `StaleNotice` names the movement, the impact, the preserved history and the required action |
 | F-7 | No module registered what it governs, how its journey ends, or where the work continues | — | Implemented: `src/services/routeRegistry.ts` registers all 44 routes |
+| F-8 | No screen showed what was complete, what remained, or what was blocked: the Engagements view drew its "lifecycle bar" from a positional index, so a blocked, returned or stale step could only ever render as "current" | `EngagementsView` `currentStepIndex` | Implemented (MOD-UX-02): `deriveWorkflowProgress` + `WorkflowProgressTracker`, with per-module journey derivations that read named record fields |
 
 ## Module-by-module audit
 
@@ -128,14 +129,20 @@ The exact run window and outcome are recorded in [`verification.md`](verificatio
 
 **Implemented and Verified**: the shared status/lifecycle vocabulary, the route
 registry, the page anatomy with identity line, the status badges across the
-routed modules, the list-state distinction, the route index, and the stale
-notices on the two accounting modules that carry source drift.
+routed modules, the list-state distinction, the route index, the stale notices on
+the two accounting modules that carry source drift, and the derived workflow
+progress tracker on the two flagship journeys (Engagements and Financial
+Packages) with its counting rules, blocked explanations and step navigation.
 
-**Partial**: identical lifecycle depth in every stateful module (some still
-explain their state in prose rather than through the stepper — listed per row in
-the [lifecycle matrix](lifecycle-matrix.md)); record-level history panels that
-render through the shared timeline; the interactive stepper on every reviewed
-record.
+**Partial**: the derived tracker is rendered on two screens today; the remaining
+stateful modules show their own step or status indicators, which the shared
+vocabulary now tones consistently but which have not yet been moved onto the
+shared tracker. [`lifecycle-progress-matrix.md`](lifecycle-progress-matrix.md) —
+generated from the code — lists, per route, whether a screen renders the derived
+tracker, shows its own indicators, or has no workflow to track. Identical
+lifecycle depth in every module and record-level history panels rendering through
+the shared timeline are likewise Partial, listed per row in the
+[lifecycle matrix](lifecycle-matrix.md).
 
 **Outside scope, unchanged**: everything in [`scope.md`](scope.md) — no live
 integrations, no workflow automation, no production claim. This audit does not

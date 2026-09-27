@@ -135,10 +135,30 @@ not opt out (`data-dismiss-guard`) unless they confirm through their own handler
 
 ## 8. Lifecycle, review and staleness patterns
 
+- **`WorkflowProgressTracker`** — the per-screen tracker. Renders a progress bar,
+  the completed/pending/blocked counts, the ordered step track, the single next
+  action and who acts next, and an explicit reason + required action for every
+  blocked step. Every number comes from `deriveWorkflowProgress`, which only
+  aggregates what the module derived from records the reader may see, so a
+  tracker can never report progress for work it did not read.
+- **`deriveWorkflowProgress`** — the counting rules, in one place:
+  `completed` = done + not-applicable; `total` = every budgeted step, including
+  not-applicable and skipped. A step deliberately waived is therefore *budgeted
+  and resolved* (a fully scoped-out record reads 100%), while a skipped step stays
+  in the denominator so skipping work cannot raise the percentage. Returned and
+  stale steps outrank a blocker in the next-action line, because neither can be
+  ignored.
 - **`LifecycleStepper`** — declare the model's steps and each step's state
-  (`done` / `current` / `blocked` / `pending` / `skipped` / `not-applicable`), with
-  the owner or the blocking reason. `LIFECYCLE_MODELS` holds the seven declared
+  (`done` / `current` / `blocked` / `returned` / `stale` / `pending` / `skipped` /
+  `not-applicable`), with the owner, the reason and the required action. Steps
+  become operable buttons when the module supplies a section to open, so a reader
+  can jump to the work a step governs. `LIFECYCLE_MODELS` holds the seven declared
   models; `MODULE_LIFECYCLE_MODEL` says which one each route reports.
+- **Per-module journey derivations** — `engagementJourney.ts` (acceptance →
+  planned → risks → fieldwork → findings → review → completion → released) and
+  `packageJourney.ts` (calculated → validated → management → accounting → partner
+  → released). Each step's state is read from a named record field, so the tracker
+  is checked against the store contract rather than trusted.
 - **`ModuleLifecycleHint`** — the one-line strip naming the module's journey and
   its steps.
 - **`BlockerNotice`** / **`StaleNotice`** — answer four questions in a fixed order:
@@ -157,6 +177,11 @@ not opt out (`data-dismiss-guard`) unless they confirm through their own handler
 - **`HandoffLinks`** — contextual "open the source TB / view evidence / open the
   journal / view the package" navigation, so work continues without duplicating
   records.
+
+Where the tracker is applied today, and the record fields each module counts, are
+generated from the code into
+[`lifecycle-progress-matrix.md`](lifecycle-progress-matrix.md); a unit test fails
+if that document and the code disagree.
 
 ## 9. Accessibility rules the shared layer enforces
 
