@@ -2146,9 +2146,11 @@ describe('actual Chrome browser acceptance', { concurrency: false }, () => {
     try {
       const fixture = loadScenarioState('empty-practice');
       assert.equal(fixture.clients.length + fixture.engagements.length, 0, 'empty-practice fixture has no clients or engagements');
-      await browserTab!.evaluate(`localStorage.setItem('ste-auditsphere-role-portals-v2', ${JSON.stringify(JSON.stringify(fixture))})`);
-      await browserTab!.command('Page.reload');
-      assert.equal(await waitForBrowser('!!document.querySelector("#role-select")'), true);
+      // Load the preset through the presenter's scenario chooser, as the playbook does.
+      await clickButton('Explore Scenarios');
+      assert.equal(await waitForBrowser(`[...document.querySelectorAll('[role="dialog"] .borderbox')].some(b=>b.innerText.includes('Empty Practice'))`), true, 'scenario chooser lists the empty-practice preset');
+      await browserTab!.evaluate(`[...document.querySelectorAll('[role="dialog"] .borderbox')].find(b=>b.innerText.includes('Empty Practice')).click()`);
+      assert.equal(await waitForBrowser(`JSON.parse(localStorage.getItem('ste-auditsphere-role-portals-v2')||'{}').clients?.length===0&&!document.querySelector('[role="dialog"]')`), true, 'empty-practice preset is loaded with no clients');
       await browserTab!.evaluate(`(() => {const select=document.querySelector('#role-select');Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype,'value').set.call(select,'superuser');select.dispatchEvent(new Event('change',{bubbles:true}));})()`);
       assert.equal(await waitForBrowser(`document.querySelector('#role-select')?.value==='superuser'`), true);
       // client-detail and approvals previously dereferenced a missing client/engagement and blanked the whole app.
