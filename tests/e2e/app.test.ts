@@ -7353,9 +7353,10 @@ describe('actual Chrome browser acceptance', { concurrency: false }, () => {
     assert.deepEqual(browserTab!.exceptions, []);
   });
 
-  it('review F-01: statement preview and XLSX preserve contra-revenue, contra-liability and debit-equity signs', async () => {
+  it('review F-01: statement preview and PDF/XLSX preserve signed balances and engagement currency', async () => {
     const fixture = createInitialState();
     const engagement = fixture.engagements.find(item => item.id === 'ENG-26001')!;
+    engagement.currency = 'USD';
     engagement.rows = [
       { code: '1000', name: 'Cash', type: 'asset', balance: 960 },
       { code: '2000', name: 'Trade payables', type: 'liability', balance: -200 },
@@ -7374,13 +7375,18 @@ describe('actual Chrome browser acceptance', { concurrency: false }, () => {
     await browserTab!.command('Page.reload');
     assert.equal(await waitForBrowser(`document.querySelector('main#main h1')?.innerText.includes('Financial Statements')`), true);
     const statementText = await browserTab!.evaluate<string>('document.querySelector("main#main")?.innerText||""');
-    assert.match(statementText, /Revenue · Sources 4000, 4090\s+QAR 800\.00/);
+    assert.match(statementText, /Amount \(USD\)/i);
+    assert.match(statementText, /Revenue · Sources 4000, 4090\s+USD 800\.00/);
     assert.match(statementText, /Revenue · Sources 4000, 4090/);
-    assert.match(statementText, /Trade payables · Sources 2000, 2090\s+QAR 80\.00/);
-    assert.match(statementText, /Total Liabilities\s+QAR 80\.00/);
-    assert.match(statementText, /Total Assets\s+QAR 960\.00/);
+    assert.match(statementText, /Trade payables · Sources 2000, 2090\s+USD 80\.00/);
+    assert.match(statementText, /Total Liabilities\s+USD 80\.00/);
+    assert.match(statementText, /Total Assets\s+USD 960\.00/);
     assert.match(statementText, /Total Equity/);
-    assert.match(statementText, /Difference: QAR 0\.00/);
+    assert.match(statementText, /Difference: USD 0\.00/);
+    await clickButton('Statement of Comprehensive Income (P&L)');
+    const incomeStatementText = await browserTab!.evaluate<string>('document.querySelector("main#main")?.innerText||""');
+    assert.match(incomeStatementText, /Revenue from Contracts with Customers\s+USD 800\.00/, 'the income statement retains net revenue and the engagement currency');
+    assert.match(incomeStatementText, /Net Profit for the Year Attributable to Owners\s+USD 800\.00/, 'period result reconciles to the signed revenue fixture');
     await browserTab!.evaluate(`(() => {URL.createObjectURL=blob=>{window.__signedStatementExport=blob;return 'blob:signed-statement'};URL.revokeObjectURL=()=>{};})()`);
     await clickButton('Export XLSX');
     const bytes = await browserTab!.evaluate<string>(`(async()=>{const blob=window.__signedStatementExport;const data=new Uint8Array(await blob.arrayBuffer());let binary='';for(const value of data)binary+=String.fromCharCode(value);return btoa(binary)})()`);
@@ -7391,6 +7397,11 @@ describe('actual Chrome browser acceptance', { concurrency: false }, () => {
     assert.equal(rows.find(row => row[0] === 'Total assets')?.[1], 960);
     assert.equal(rows.find(row => row[0] === 'Total equity')?.[1], 880, 'debit equity reduces opening equity before current profit is added');
     assert.equal(rows.find(row => row[0] === 'Net profit')?.[1], 800);
+    assert.ok(rows[0].includes('Current FY2026 (USD)'), 'spreadsheet labels the exact engagement currency');
+    await clickButton('Export PDF');
+    const pdfText = await browserTab!.evaluate<string>(`(async()=>{const bytes=new Uint8Array(await window.__signedStatementExport.arrayBuffer());return String.fromCharCode(...bytes.slice(0,Math.min(bytes.length,100000)))})()`);
+    assert.match(pdfText, /Currency: USD/, 'PDF identifies the selected engagement currency');
+    assert.match(pdfText, /USD 800\.00/, 'PDF amounts use the selected engagement currency');
     assert.deepEqual(browserTab!.exceptions, []);
     await browserTab!.evaluate(`localStorage.setItem('ste-auditsphere-role-portals-v2',${JSON.stringify(JSON.stringify(createInitialState()))});location.hash='#overview';`);
     await browserTab!.command('Page.reload');
