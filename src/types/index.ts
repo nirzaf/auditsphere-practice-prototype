@@ -905,6 +905,9 @@ export interface InvoiceLineItem {
 
 export interface InvoiceRecord {
   id: string;
+  /** Historical tax total carried from a legacy record; new invoices use the no-tax demo profile. */
+  taxTotal?: number;
+  taxLabel?: string;
   clientId: string;
   eng: string;
   engagementId?: string;

@@ -49,6 +49,9 @@ describe('review pass evidence gaps', () => {
     assert.equal(invoice.taxTotal, 1500, 'a recorded historical tax total is preserved');
     assert.equal(invoice.taxLabel, legacy.invoices[0].taxLabel);
     assert.equal(invoice.amount, legacy.invoices[0].amount, 'the historical invoice total is not rewritten');
+    const { invoiceTaxLine } = await import('../../src/services/calculations.js');
+    assert.equal(invoiceTaxLine(invoice), `Historical tax total (as recorded: Historical VAT (recorded before the no-tax profile)): ${invoice.currency || 'QAR'} 1,500.00`, 'the recorded historical total is rendered as recorded');
+    assert.equal(invoiceTaxLine(fresh.invoices[1]), 'Tax: not calculated (approved no-tax demo profile)', 'new invoices state the no-tax profile');
   });
 
   it('VP-052-AC03: a reasoned N/A decision leaves the release progress denominator (workpaper gate)', () => {

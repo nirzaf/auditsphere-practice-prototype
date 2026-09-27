@@ -4,7 +4,7 @@ import { RouteKey, InvoiceRecord, InvoiceLineItem, CreditNoteRecord } from '../.
 import { prototypeStore } from '../../store/prototypeStore';
 import { hasAnyRole } from '../../services/guards';
 import { Icon } from '../common/Icons';
-import { formatCurrency, getEffectiveTimeEntries } from '../../services/calculations';
+import { invoiceTaxLine, formatCurrency, getEffectiveTimeEntries } from '../../services/calculations';
 import { exportService } from '../../services/exportService';
 import { UnsavedFormGuard } from '../../services/unsavedFormGuard';
 
@@ -337,7 +337,7 @@ export const BillingInvoicingView: React.FC<BillingInvoicingViewProps> = ({ onNa
         `Client Jurisdiction: ${client?.jurisdiction || 'State of Qatar'}`,
         `Billing Description: ${inv.description}`,
         `Billed Amount: ${formatCurrency(inv.amount, inv.currency)}`,
-        'Tax: not calculated (approved no-tax demo profile; historical tax totals are shown only where recorded)',
+        invoiceTaxLine(inv),
         `Amount Paid: ${formatCurrency(inv.paid, inv.currency)}`,
         `Balance Outstanding: ${formatCurrency(inv.amount - inv.paid - (inv.creditsApplied || 0), inv.currency)}`,
         `Payment Due Date: ${inv.due}`,

@@ -1304,7 +1304,7 @@ describe('opportunity and proposal lifecycle (AT-07/AT-08)', () => {
     assert.throws(() => target.saveProposalTemplate(savedTemplate, 1), /changed in another view/);
   });
 
-  it('requires a loss reason and retains opportunity stage history', async () => {
+  it('rejects Lost/Unqualified outcomes without a reason and retains opportunity stage history', async () => {
     const { prototypeStore } = await import('../../src/store/prototypeStore.js');
     const target = prototypeStore as any;
     target.state = createInitialState();
