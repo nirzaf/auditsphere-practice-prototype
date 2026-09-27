@@ -57,7 +57,7 @@ Final receipt (machine-readable):
   "acceptance_scope": "BROWSER_ONLY_PROTOTYPE",
   "reviewer_kind": "AI_AGENT",
   "reviewer": "Claude Code",
-  "review_mode": "Separate fresh-context Claude Code review subagent (two rounds, read-only) plus disclosed same-session AI self-review by the implementing session; not independent human assurance",
+  "review_mode": "Separate fresh-context Claude Code review subagent (three rounds, read-only) plus disclosed same-session AI self-review by the implementing session; not independent human assurance",
   "implementation_pass_id": "IMPL-PASS-01 (Claude Code session_01KpBBpDKANB2jq3skBwdyf8, commits a34cd41, 374293d, 0212ace, 2203176, 1222a9d, b988be1)",
   "review_pass_id": "REVIEW-PASS-01..03 (fresh-context Claude Code review subagent aa3dd37, rounds 1–3, read-only)",
   "tested_source_sha": "b988be1edf010f3f47c3aea646b5ad6a99f3dffe",
