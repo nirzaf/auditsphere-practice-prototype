@@ -32,6 +32,7 @@ export const FindingsView: React.FC<FindingsViewProps> = ({ onNavigate, searchTa
   const [condition, setCondition] = useState('');
   const [recommendation, setRecommendation] = useState('');
   const [managementResponse, setManagementResponse] = useState('');
+  const [submitAttempted, setSubmitAttempted] = useState(false);
   const [proposedCorrection, setProposedCorrection] = useState('');
   const [owner, setOwner] = useState(state.currentPerson);
   const [assertion, setAssertion] = useState('Valuation');
@@ -59,6 +60,8 @@ export const FindingsView: React.FC<FindingsViewProps> = ({ onNavigate, searchTa
     setSamplePopulationId(draft.samplePopulationId); setSampleItemId(draft.sampleItemId); setJournalId(draft.journalId); setReviewNoteId(draft.reviewNoteId);
   };
   const closeFindingModal = () => onBeforeContextChange(() => setShowAddModal(false));
+  // Reset the inline submit-attempt error whenever the finding modal closes or reopens.
+  useEffect(() => { if (!showAddModal) setSubmitAttempted(false); }, [showAddModal]);
 
   useEffect(() => {
     if (!showAddModal || !engagement) { onRegisterUnsavedForm(null, 'finding-create'); return; }
@@ -120,7 +123,7 @@ export const FindingsView: React.FC<FindingsViewProps> = ({ onNavigate, searchTa
       return true;
     } catch (error) { setNotice(error instanceof Error ? error.message : 'Could not save finding.'); return false; }
   };
-  const handleAddFinding = (event: React.FormEvent) => { event.preventDefault(); commitFinding(); };
+  const handleAddFinding = (event: React.FormEvent) => { event.preventDefault(); setSubmitAttempted(true); commitFinding(); };
 
   const handleDisposition = (finding: AuditFindingItem, disposition: AuditFindingItem['disposition']) => {
     const rationale = prompt(`Rationale for ${disposition}:`);
@@ -239,6 +242,7 @@ export const FindingsView: React.FC<FindingsViewProps> = ({ onNavigate, searchTa
               <div className="modal-body stack" style={{ gap: 12 }}>
                 <div>
                   <label className="caption">Finding Title</label>
+                  {submitAttempted && !title.trim() && <p className="field-error" role="alert">Finding title is required.</p>}
                     <input
                       type="text"
                       className="input"

@@ -398,6 +398,72 @@ describe('actual Chrome browser acceptance', { concurrency: false }, () => {
     assert.equal(await browserTab!.evaluate<string>(`localStorage.getItem('ste-auditsphere-sidebar-collapsed')`), '0');
   });
 
+  it('UIX-06: workflow progress tracker stays usable at 390/1024/1440 and navigates by keyboard', async () => {
+    try {
+      // Navigate to a stateful module screen via the sidebar (billing has a multi-step lifecycle).
+      const billingNav = await browserTab!.evaluate<boolean>(`(() => {
+        const nav=[...document.querySelectorAll('#primary-navigation .navitem, .sidebar button, .mobile-menu button')]
+          .find(b=>/billing/i.test(b.innerText));
+        if(!nav) return false;
+        nav.click();
+        return true;
+      })()`);
+      assert.ok(billingNav, 'billing navigation control exists');
+      assert.equal(await waitForBrowser(`document.querySelector('.wp-stepper-nav')!==null&&document.querySelectorAll('.wp-stepper .wp-step').length>1`), true, 'tracker stepper renders on the billing screen');
+
+      // 1440: current step marked, counts rendered, no horizontal overflow.
+      await browserTab!.command('Emulation.setDeviceMetricsOverride', { width: 1440, height: 1000, deviceScaleFactor: 1, mobile: false });
+      assert.equal(await waitForBrowser(`document.querySelector('.wp-stepper-nav [aria-current="step"]')!==null`), true, 'current step marked at 1440');
+      const at1440 = await browserTab!.evaluate<any>(`(() => {
+        const nav=document.querySelector('.wp-stepper-nav');
+        const counts=[...document.querySelectorAll('.wp-count-item')].map(x=>x.textContent.trim());
+        return {counts, fits: nav.scrollWidth<=nav.clientWidth+1, docFits: document.documentElement.scrollWidth<=window.innerWidth+1};
+      })()`);
+      assert.ok(at1440.fits && at1440.docFits, `tracker overflows at 1440: ${JSON.stringify(at1440)}`);
+      assert.ok(at1440.counts.length > 0, 'completion counts are rendered');
+
+      // 1024: still mounted and fitting.
+      await browserTab!.command('Emulation.setDeviceMetricsOverride', { width: 1024, height: 800, deviceScaleFactor: 1, mobile: false });
+      const at1024 = await browserTab!.evaluate<any>(`(() => {
+        const nav=document.querySelector('.wp-stepper-nav');
+        return {present: !!nav && nav.getBoundingClientRect().height>0, docFits: document.documentElement.scrollWidth<=window.innerWidth+1};
+      })()`);
+      assert.ok(at1024.present && at1024.docFits, `tracker unusable at 1024: ${JSON.stringify(at1024)}`);
+
+      // 390: remains visible and the document does not scroll horizontally.
+      await browserTab!.command('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 1, mobile: true });
+      const at390 = await browserTab!.evaluate<any>(`(() => {
+        const nav=document.querySelector('.wp-stepper-nav');
+        return {present: !!nav && nav.getBoundingClientRect().height>0, docFits: document.documentElement.scrollWidth<=window.innerWidth+1};
+      })()`);
+      assert.ok(at390.present, 'tracker disappears at 390');
+      assert.ok(at390.docFits, `document scrolls horizontally at 390: ${JSON.stringify(at390)}`);
+
+      // Keyboard: focus a clickable step, press Enter, and the app navigates to its target route.
+      await browserTab!.command('Emulation.clearDeviceMetricsOverride', {});
+      assert.equal(await waitForBrowser(`document.querySelectorAll('.wp-stepper .wp-step.is-clickable').length>0`), true, 'at least one clickable step exists');
+      const hashBefore = await browserTab!.evaluate<string>('location.hash');
+      let navigatedByKeyboard = false;
+      const clickableCount = await browserTab!.evaluate<number>(`document.querySelectorAll('.wp-stepper .wp-step.is-clickable').length`);
+      for (let index = 0; index < clickableCount && !navigatedByKeyboard; index++) {
+        const focusOutcome = await browserTab!.evaluate<any>(`(() => {
+          const step=[...document.querySelectorAll('.wp-stepper .wp-step.is-clickable')][${index}];
+          if(!step) return {found:false};
+          step.focus();
+          const focused=document.activeElement===step;
+          step.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true,cancelable:true}));
+          return {found:true, focused};
+        })()`);
+        assert.ok(focusOutcome.found && focusOutcome.focused, `clickable step ${index} is keyboard-focusable`);
+        navigatedByKeyboard = await waitForBrowser(`location.hash!=='${hashBefore}'`, 3000);
+      }
+      assert.ok(navigatedByKeyboard, 'pressing Enter on a workflow step navigates to its target route');
+      assert.notEqual(await browserTab!.evaluate<string>('location.hash'), hashBefore);
+    } finally {
+      await browserTab!.command('Emulation.clearDeviceMetricsOverride', {});
+    }
+  });
+
   it('UIX-01: exposes keyboard skip navigation and usable mobile navigation targets', async () => {
     try {
       await browserTab!.command('Emulation.setDeviceMetricsOverride', { width: 375, height: 812, deviceScaleFactor: 1, mobile: true });

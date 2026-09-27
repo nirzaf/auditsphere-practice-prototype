@@ -1,5 +1,6 @@
 // Module 03: Leads & Opportunities Pipeline (VP-009)
 import React, { useEffect, useRef, useState } from 'react';
+import { ActivityTimeline } from '../common/ActivityTimeline';
 import { RouteKey, LeadOpportunity } from '../../types';
 import { prototypeStore } from '../../store/prototypeStore';
 import { Icon } from '../common/Icons';
@@ -202,7 +203,7 @@ export const LeadsPipelineView: React.FC<LeadsPipelineViewProps> = ({ onNavigate
                 <div><label>Primary Contact</label><span>{selectedLead.contact}</span></div>
               <div><label>Commercial Owner</label><span>{selectedLead.owner}</span></div>
               <div className="full"><LifecycleStepper definition={lifecycleById('lead')} status={selectedLead.stage} label={`${selectedLead.id} pipeline stage`} />{['Lost', 'Unqualified'].includes(selectedLead.stage) && <p className="caption">{selectedLead.stage} is a terminal commercial outcome and is excluded from open pipeline totals.</p>}</div>
-              <div><label>Stage history</label><span>{(selectedLead.history || []).map(h => `${h.stage}${h.reason ? ` (${h.reason})` : ''} · ${new Date(h.at).toLocaleDateString()}`).join(' → ') || selectedLead.stage}</span></div>
+              <div><label>Stage history</label><ActivityTimeline label="Opportunity stage history" emptyText="No stage transitions recorded yet." entries={(selectedLead.history || []).map((h, i) => ({ id: `${i}`, title: h.stage, actor: h.by, at: h.at, reason: h.reason }))} /></div>
               </div>
 
               {!selectedLead.convertedClientId && <div className="stack" style={{ gap: 8 }}>

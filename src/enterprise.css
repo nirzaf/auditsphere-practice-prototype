@@ -632,3 +632,6 @@ tr[tabindex] { cursor: pointer; }
   }
 }
 
+
+/* Inline field-level validation messages (submit-attempt errors beside the field). */
+.field-error { color: #b91c1c; font-size: .85rem; margin: .25rem 0 0; }
