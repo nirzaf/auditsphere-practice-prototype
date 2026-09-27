@@ -992,7 +992,7 @@
     },
     {
      "file": "tests/unit/lifecycleGaps.test.ts",
-     "name": "allows a manager to correct another author\\"
+     "name": "allows a manager to correct another author's inbound note with retained history (VP-027-E02)"
     },
     {
      "file": "tests/e2e/app.test.ts",
@@ -1645,7 +1645,7 @@
     },
     {
      "file": "tests/unit/lifecycleGaps.test.ts",
-     "name": "allows a manager to correct another author\\"
+     "name": "allows a manager to correct another author's inbound note with retained history (VP-027-E02)"
     }
    ],
    "basis": "Corrections attributable; dates/text validated"
@@ -3513,9 +3513,13 @@
     {
      "file": "tests/e2e/app.test.ts",
      "name": "VP-003-E02: protects archive retention and handover drafts without creating records"
+    },
+    {
+     "file": "tests/unit/guards.test.ts",
+     "name": "retains corrections and links a successor release to its predecessor archive"
     }
    ],
-   "basis": "AT-41 asserts the retention date creates no deletion/disposition schedule and no retention enforcement is claimed"
+   "basis": "AT-41 asserts no deletion/disposition schedule, no retention enforcement claim and retention shown as recorded or Not specified; the archive unit test keeps a missing retention date explicit (undefined) until a reasoned correction; the hold-blocked handover stays unrequested"
   },
   "VP-059-AC04": {
    "tests": [

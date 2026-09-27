@@ -52,11 +52,13 @@ def source_tests() -> dict[str, dict]:
     for path in sorted(glob.glob(str(ROOT / 'tests' / 'unit' / '*.test.ts'))) + [str(ROOT / 'tests' / 'e2e' / 'app.test.ts')]:
         rel = str(Path(path).relative_to(ROOT))
         for number, line in enumerate(Path(path).read_text(encoding='utf-8').splitlines(), 1):
-            match = re.match(r"^\s*it\((['`\"])(.+?)\1", line)
+            # Titles may contain escaped quotes (for example author\'s); unescape them like the runtime does.
+            match = re.match(r"^\s*it\((['`\"])((?:\\.|(?!\1).)+)\1", line)
             if match:
-                if match.group(2) in tests:
-                    tests.setdefault('__duplicates__', []).append(match.group(2))
-                tests[match.group(2)] = {'file': rel, 'line': number}
+                title = re.sub(r'\\(.)', r'\1', match.group(2))
+                if title in tests:
+                    tests.setdefault('__duplicates__', []).append(title)
+                tests[title] = {'file': rel, 'line': number}
     return tests
 
 
