@@ -35,3 +35,47 @@ Accounting of all 64 original stories against the current Vite app at commit `2e
 | VP-064 | Pending — final status/handoff reconciliation recorded after reviewer pass (see tracker) | Tracker + verification record |
 
 Any story not listed above does not exist: the original contract is VP-001–VP-064 without gaps. Stories marked EVIDENCED_IN_REVIEW are NOT claimed as fully accepted — reviewer sign-off in `docs/Progress_Tracker.md` remains the acceptance gate.
+
+## Agent acceptance under PROTOTYPE-AGENT-ACCEPTANCE-001 — 2026-09-27
+
+Tested source `b988be1edf010f3f47c3aea646b5ad6a99f3dffe` (build manifest sha256 `8a912583d3cac36e7a3fa460b11391a75a4532605d85125c6c4ce320493d6ca0`), run 2026-09-27T14:41:30Z → 2026-09-27T14:49:48Z: unit 306/306, E2E 145/145 (Chromium via CDP), lint/build/legacy/progress/tool tests/diff-check exit 0.
+Earlier "Reviewer pending" rows above are historical; this section records the owner-authorized AI-agent review basis.
+
+| Task | Original criterion / subcase | Full source/build | Scenario / persona / context | Assertion / command | Expected | Observed result | Evidence / reviewer |
+|---|---|---|---|---|---|---|---|
+| VP-063-E01 | All 256 original criteria | `b988be1edf010f3f47c3aea646b5ad6a99f3dffe` / `8a912583d3cac36e…` | Fixed as-of 2026-09-23; ordinary personas per mapped test; superuser not counted | `python3 tools/criterion_ledger.py generate` over the recorded TAP logs | Every criterion PASS only if all mapped tests exist and passed | 256/256 PASS; FAIL 0; NOT_RUN 0 | `docs/prototype/criterion-evidence-ledger.md` · Claude Code REVIEW-PASS-01..03 (fresh-context Claude Code review subagent aa3dd37, rounds 1–3, read-only) (AI_AGENT) |
+| VP-063-E02 | Exact candidate identity | `b988be1edf010f3f47c3aea646b5ad6a99f3dffe` | Clean committed tree; `npm ci` then serialized suites | Full gate in one uninterrupted run | No source change between build and tests | unit 306/306, E2E 145/145 (Chromium via CDP), lint/build/legacy/progress/tool tests/diff-check exit 0 | `docs/prototype/verification.md` run row · Claude Code (AI_AGENT) |
+| VP-064-E01 | Canonical status reconciliation | `b988be1edf010f3f47c3aea646b5ad6a99f3dffe` | Tracker, coverage, limitations, sign-off, in-app status | Generated ledger + docs contract unit test | No stale current-status claim | Records reconciled; baseline kept as history | Claude Code (AI_AGENT) |
+| VP-064-E02 | Presenter rehearsal | `b988be1edf010f3f47c3aea646b5ad6a99f3dffe` | Scenario chooser incl. empty-practice; failure/rework/recovery journeys; 1440/1024/390 px sweep | Chrome suite on the built dist | Journeys pass without exceptions | Included in E2E 145/145 | `docs/prototype/demo-rehearsal-2026-09-27.md` · Claude Code (AI_AGENT) |
+
+Final receipt (machine-readable):
+
+```json
+{
+  "authorization_reference": "PROTOTYPE-AGENT-ACCEPTANCE-001",
+  "repository": "nirzaf/auditsphere-visual-prototype",
+  "acceptance_scope": "BROWSER_ONLY_PROTOTYPE",
+  "reviewer_kind": "AI_AGENT",
+  "reviewer": "Claude Code",
+  "review_mode": "Separate fresh-context Claude Code review subagent (two rounds, read-only) plus disclosed same-session AI self-review by the implementing session; not independent human assurance",
+  "implementation_pass_id": "IMPL-PASS-01 (Claude Code session_01KpBBpDKANB2jq3skBwdyf8, commits a34cd41, 374293d, 0212ace, 2203176, 1222a9d, b988be1)",
+  "review_pass_id": "REVIEW-PASS-01..03 (fresh-context Claude Code review subagent aa3dd37, rounds 1–3, read-only)",
+  "tested_source_sha": "b988be1edf010f3f47c3aea646b5ad6a99f3dffe",
+  "evidence_commit_sha": "the commit that adds this receipt (evidence/docs only; no runtime or test source change)",
+  "build_manifest_sha256": "8a912583d3cac36e7a3fa460b11391a75a4532605d85125c6c4ce320493d6ca0",
+  "criterion_ledger": "docs/prototype/criterion-evidence-ledger.md",
+  "module_signoff": "tracking/MODULE_DEMO_SIGNOFF.md",
+  "verification_log": "docs/prototype/verification.md",
+  "measured_totals": {
+    "accepted_modules": "39/39",
+    "accepted_original_stories": "64/64",
+    "accepted_original_criteria": "256/256",
+    "original_journeys_passed": "AT-01–AT-54 identities retained; their assertions are covered by the mapped criteria above (see ledger)",
+    "remaining_required_actions": 0
+  },
+  "decision": "APPROVED_FOR_DEMO",
+  "decided_at_utc": "2026-09-27T14:49:48Z",
+  "production_or_professional_approval": false,
+  "remote_deployment_authorized": false
+}
+```

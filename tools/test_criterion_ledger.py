@@ -26,6 +26,11 @@ class CriterionLedgerTests(unittest.TestCase):
         self.assertTrue(any('no assertion basis' in error for error in errors))
         self.assertTrue(any('not found in source' in error for error in errors))
 
+    def test_source_titles_unescape_quotes_like_the_runtime(self):
+        tests = ledger.source_tests()
+        self.assertIn("allows a manager to correct another author's inbound note with retained history (VP-027-E02)", tests)
+        self.assertFalse([title for title in tests if title.endswith('\\')], 'no title is truncated at an escaped quote')
+
     def test_tap_parsing_marks_failures_skips_and_templated_titles(self):
         with tempfile.TemporaryDirectory() as tmp:
             log = Path(tmp) / 'run.tap'

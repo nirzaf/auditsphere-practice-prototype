@@ -220,7 +220,99 @@ the existing `steaudit-prototype` project serves `prototype.steaudit.com`.
 | 2026-09-24 | VP-059 archive metadata lineage | `npm run lint`, `npm run test:unit`, `npm run test:e2e` | PASS — 141/141 unit, 58/58 E2E | Schema v21 migrates legacy archives with an attributable baseline; store tests verify corrections and successor links. Chrome verifies a retention correction, held-handover rejection without a record, and local handover after lift. The full run also rechecks AT-32's date-sensitive allocations and AT-23's named contributor using the permitted client identity. Vite retains the existing large-bundle advisory. Successor-release artifact copying remains unverified in Chrome. |
 | 2026-09-23 | AT-53 dialog keyboard behavior | `npm run lint`, `npm run test:unit`, `npm run test:e2e` | PASS — 139/139 unit, 58/58 E2E | Chrome verifies route rendering and no horizontal overflow at 320px, 390px and 768px; the client dialog has an accessible name, initial focus, Tab wrap, Escape cancel, and trigger focus restoration. Client portal projection also confirms shared documents appear while an internal workpaper stays hidden. VP-003 remains Partial; this does not cover every dialog or unsaved-change flow. |
 
-## Commands
+## Closure run under PROTOTYPE-AGENT-ACCEPTANCE-001 (2026-09-27)
+
+| Field | Value |
+|---|---|
+| Tested source | `b988be1edf010f3f47c3aea646b5ad6a99f3dffe` (clean committed tree; `git status` empty after the run) |
+| Build manifest | sha256 `8a912583d3cac36e7a3fa460b11391a75a4532605d85125c6c4ce320493d6ca0` of the sorted `dist/` file digests |
+| Run window (UTC) | 2026-09-27T14:41:30Z → 2026-09-27T14:49:48Z |
+| Commands (exit codes) | `npm ci`, `npm run lint`, `npm run build`, `npm run legacy:check`, `npm run test:unit`, `CHROME_PATH=<pre-installed Chromium> npm run test:e2e`, `python3 tools/progress.py refresh`/`validate`, `python3 -m unittest tools/test_progress.py tools/test_criterion_ledger.py`, `git diff --check` — ci 0 · lint 0 · build 0 · legacy 0 · unit 0 · e2e 0 · progress-refresh 0 · progress-validate 0 · tools 0 · diffcheck 0 |
+| Results | unit 306/306, E2E 145/145; 0 failed, 0 skipped, 0 cancelled |
+| Criterion ledger | 256/256 PASS, FAIL 0, NOT_RUN 0 |
+| Tool/runtime | Node v22.22.2, Chromium 1194 (Playwright bundle, driven through the repository's own CDP harness) |
+
+Earlier attempts on this closure (kept honestly): candidate `374293d` failed unit 296/297 (AT-04 scope scan caught
+excluded-product wording in new guide text) and E2E 137/142 (three test expectations still encoded silent discard of
+edited dialogs, plus cascades); both were fixed in `0212ace`/`2203176`. Candidate `2203176` then passed every step except
+E2E 135/144: a dialog that saved, closed and navigated in one handler raised a false open-dialog prompt (first in AT-14
+after AT-13) that cascaded into later journeys; fixed in `1222a9d` together with review round-2 follow-ups. Candidate
+`1222a9d` passed every step except E2E 137/145: the document dialog kept a recorded replacement file in its form, so leaving
+the page prompted for already-saved work (AT-20) and cascaded; fixed in `b988be1` (form reset; macrotask waits in the guard).
+
+Defects found and fixed in this closure: signed group equity (F-SIGN-04 170 → 130); group current-period result
+applied before eliminations; silent discard of edited dialogs on Escape/backdrop/navigation; accounting setup and group
+writes on inactive engagements; unavailable documents linkable/shareable; portal counts ignoring credits/allocations;
+new group components without a scope check; cash-flow equity tie using absolute values; 1024 px overflow on
+Communications; "Tax Invoice" title under the no-tax profile; a false navigation prompt after dialog save-and-navigate;
+explicit-only dialogs left open across a persona switch.
+
+### Active dialog inventory (VP-003-E01)
+
+52 dialog surfaces: Explicit controls only 5, Non-draft utility 3, Own confirmation 10, Shared dismissal guard 34
+
+| Dialog source | Backdrop/Escape handler | Dismissal contract |
+|---|---|---|
+| `components/layout/Shell.tsx:607` | `() => setShowScenarioModal(false)` | Non-draft utility |
+| `components/layout/Shell.tsx:652` | `() => setShowResetConfirmation(false)` | Shared dismissal guard |
+| `components/layout/Shell.tsx:671` | `closeSearch` | Non-draft utility |
+| `components/modules/AccountingWorkbenchView.tsx:768` | `—` | Explicit controls only |
+| `components/modules/AccountingWorkbenchView.tsx:1036` | `closeAdjustmentModal` | Own confirmation |
+| `components/modules/AdministrationView.tsx:370` | `() => setSelectedUser(null)` | Shared dismissal guard |
+| `components/modules/AdministrationView.tsx:431` | `—` | Explicit controls only |
+| `components/modules/BillingInvoicingView.tsx:524` | `() => setShowDraftModal(false)` | Shared dismissal guard |
+| `components/modules/BillingInvoicingView.tsx:654` | `() => setShowCreditModal(false)` | Shared dismissal guard |
+| `components/modules/BudgetsView.tsx:452` | `discardBudgetDraft` | Shared dismissal guard |
+| `components/modules/ClientDetailView.tsx:906` | `discardContact` | Shared dismissal guard |
+| `components/modules/ClientDetailView.tsx:970` | `requestClarificationClose` | Own confirmation |
+| `components/modules/ClientDetailView.tsx:977` | `requestPbcEditClose` | Own confirmation |
+| `components/modules/ClientPortalView.tsx:761` | `event => { if (event.target === event.currentTarget) closePbcUpload();` | Own confirmation |
+| `components/modules/ClientProfileModal.tsx:109` | `onRequestClose` | Own confirmation |
+| `components/modules/CommunicationsView.tsx:258` | `() => setShowComposeModal(false)` | Shared dismissal guard |
+| `components/modules/CommunicationsView.tsx:356` | `event => { if (event.target === event.currentTarget) cancelTemplateEdi` | Own confirmation |
+| `components/modules/CommunicationsView.tsx:388` | `() => setShowLogNoteModal(false)` | Shared dismissal guard |
+| `components/modules/DocumentsLibraryView.tsx:318` | `() => setPreviewDoc(null)` | Shared dismissal guard |
+| `components/modules/DocumentsLibraryView.tsx:377` | `discardUploadDraft` | Shared dismissal guard |
+| `components/modules/DocumentsLibraryView.tsx:433` | `() => setShowOneDriveModal(false)` | Shared dismissal guard |
+| `components/modules/EngagementsView.tsx:254` | `event => { if (event.target === event.currentTarget) closeEditEngageme` | Own confirmation |
+| `components/modules/EngagementsView.tsx:331` | `() => setShowScopeModal(false)` | Shared dismissal guard |
+| `components/modules/EngagementsView.tsx:360` | `event => { if (event.target === event.currentTarget) closeNewEngagemen` | Own confirmation |
+| `components/modules/FindingsView.tsx:226` | `event => { if (event.target === event.currentTarget) closeFindingModal` | Own confirmation |
+| `components/modules/JobTemplatesView.tsx:427` | `—` | Explicit controls only |
+| `components/modules/JobTemplatesView.tsx:518` | `—` | Explicit controls only |
+| `components/modules/JobsTasksView.tsx:554` | `discardJobEdit` | Shared dismissal guard |
+| `components/modules/JobsTasksView.tsx:568` | `closeAddJobModal` | Shared dismissal guard |
+| `components/modules/JobsTasksView.tsx:665` | `discardTaskEdit` | Shared dismissal guard |
+| `components/modules/JobsTasksView.tsx:682` | `discardReassignment` | Shared dismissal guard |
+| `components/modules/JobsTasksView.tsx:729` | `discardAddTaskDraft` | Shared dismissal guard |
+| `components/modules/JobsTasksView.tsx:770` | `discardNoteDraft` | Shared dismissal guard |
+| `components/modules/LeadsPipelineView.tsx:186` | `() => setSelectedLead(null)` | Shared dismissal guard |
+| `components/modules/LeadsPipelineView.tsx:259` | `requestLeadClose` | Own confirmation |
+| `components/modules/ProposalsView.tsx:240` | `() => { setServiceDraft(null); setEditingServiceId(null); }` | Shared dismissal guard |
+| `components/modules/ProposalsView.tsx:242` | `() => setTemplateDraft(null)` | Shared dismissal guard |
+| `components/modules/ProposalsView.tsx:348` | `() => setSelectedProposal(null)` | Shared dismissal guard |
+| `components/modules/ProposalsView.tsx:401` | `() => setShowReviewModal(false)` | Shared dismissal guard |
+| `components/modules/ProposalsView.tsx:450` | `() => setShowResponseModal(false)` | Shared dismissal guard |
+| `components/modules/ProposalsView.tsx:501` | `() => setShowNewModal(false)` | Shared dismissal guard |
+| `components/modules/ReceivablesView.tsx:324` | `discardReceiptDraft` | Shared dismissal guard |
+| `components/modules/ReceivablesView.tsx:390` | `discardAllocationDraft` | Shared dismissal guard |
+| `components/modules/RecordsArchiveView.tsx:428` | `—` | Explicit controls only |
+| `components/modules/ReleaseCompletionView.tsx:342` | `discardAmendDraft` | Shared dismissal guard |
+| `components/modules/ReportingCentreView.tsx:386` | `() => setDrillDownEng(null)` | Shared dismissal guard |
+| `components/modules/ReviewDeskView.tsx:275` | `discardRaiseDraft` | Shared dismissal guard |
+| `components/modules/ReviewDeskView.tsx:339` | `discardResponseDraft` | Shared dismissal guard |
+| `components/modules/TimeTrackingView.tsx:273` | `discardTimeDraft` | Shared dismissal guard |
+| `components/modules/TimeTrackingView.tsx:365` | `discardReturnDraft` | Shared dismissal guard |
+| `components/modules/WorkpapersView.tsx:586` | `discardRevisionDraft` | Shared dismissal guard |
+| `App.tsx:513` | `stayOnCurrentRoute` | Non-draft utility |
+
+
+"Shared dismissal guard" = Escape/backdrop on an edited dialog shows *Keep editing / Discard changes*; route, hash,
+back/forward and context changes show the shared Stay/Save/Discard prompt and generic Save never submits the dialog.
+"Own confirmation" dialogs route through `onBeforeContextChange` or a confirm dialog. "Explicit controls only" dialogs
+close via their own Cancel/Save; navigation still asks first.
+
+## Commands (historical notes)
 
 - `npm run build` runs `tsc --noEmit && vite build`.
 - `npm run test:unit` runs the deterministic Node test suite.

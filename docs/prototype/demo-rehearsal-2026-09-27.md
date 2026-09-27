@@ -64,3 +64,22 @@ walks 17 engagement/client-dependent routes as superuser, asserts no exceptions 
 
 Full chapter-by-chapter click-through of all ten playbook chapters with narration; XLSX/DOCX/PDF
 download verification in this browser; mobile widths (covered by Chrome AT-53 at 768/390/320).
+
+## Agent rehearsal on the committed candidate `b988be1edf010f3f47c3aea646b5ad6a99f3dffe` (2026-09-27)
+
+Recorded by Claude Code under PROTOTYPE-AGENT-ACCEPTANCE-001 (PROTOTYPE-AGENT-ACCEPTANCE-001 · reviewer_kind=AI_AGENT · acceptance_scope=BROWSER_ONLY_PROTOTYPE · decision=APPROVED_FOR_DEMO · tested `b988be1`). The earlier "pinning gap" above is closed: the
+rehearsal ran on the committed tree through the built `dist/` in Chromium.
+
+| Rehearsal stop | Evidence on `b988be1` | Outcome |
+|---|---|---|
+| Scenario chooser, empty-practice precondition | `VP-064-E02: empty-practice preset opens every workspace route…`, `VP-003-E01: scenario chooser dismisses…` | DEMONSTRATED |
+| Connected new-record cycle | `AT-52: carries manually entered client data through engagement, job, mapped statements and a persisted package` | DEMONSTRATED |
+| Deliberate invalid input | `AT-35` unbalanced TB rejected; PBC upload type/size errors (`AT-23/AT-24`) | DEMONSTRATED |
+| Denied scope | `VP-003-AC01` restored out-of-scope engagement; `VP-025-E01` portal projection | DEMONSTRATED |
+| Significant finding block / release gate | `keeps unresolved significant findings as an independent release gate`; `VP-057-AC01` gate UI | DEMONSTRATED |
+| Source-change rework | `VP-038-E01/E02`, `AT-20`, `VP-055` reopen after revision | DEMONSTRATED |
+| Recovery | `AT-02/AT-54` storage failure and conflict; `VP-004` future schema | DEMONSTRATED |
+| Release → amendment → archive | `AT-41/AT-42/AT-48` | DEMONSTRATED |
+| Desktop/tablet/narrow layout | `CLOSE-J12/UIX` route sweep at 1440/1024/390 px; `UIX-01` mobile navigation | DEMONSTRATED |
+
+Suite: unit 306/306, E2E 145/145. No human presenter was required under the owner's authorization.
