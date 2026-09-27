@@ -1,7 +1,7 @@
 // AuditSphere Single Typed Store & Command Boundary
 // VP-002, VP-004, VP-019, VP-056: Single state, guarded actions, reactive subscriptions
 
-import { PrototypeState, RoleKey, ClientRecord, EngagementRecord, JobRecord, JobTaskItem, JobTemplateItem, TimeEntryItem, InvoiceRecord, InvoiceLineItem, ReceiptRecord, CreditNoteRecord, PbcRequestItem, WorkpaperItem, WorkpaperTemplateItem, ReviewNoteItem, AdjustmentJournalItem, AdjustmentJournalSupportLinks, ConsolidationGroupRecord, DocumentItem, CommunicationItem, AcceptanceCaseRecord, AuditPlanRecord, ArchiveRecord, ArchiveHistoryEntry, ArchivedArtifactRecord, SimulatedInvitation, IdentityStatusEvent, StatementSetRevision, StatementLayoutRevision, CashFlowScheduleRevision, ReconciliationSchedule, ClientAccountingProfile, GLSourceRevision, ProposalServiceDefinition, ProposalContentTemplate } from '../types';
+import { PrototypeState, RoleKey, ClientRecord, EngagementRecord, JobRecord, JobTaskItem, JobTemplateItem, TimeEntryItem, InvoiceRecord, InvoiceLineItem, ReceiptRecord, CreditNoteRecord, PbcRequestItem, WorkpaperItem, WorkpaperTemplateItem, ReviewNoteItem, AdjustmentJournalItem, AdjustmentJournalSupportLinks, ConsolidationGroupRecord, DocumentItem, CommunicationItem, EmailTemplateItem, AcceptanceCaseRecord, AuditPlanRecord, ArchiveRecord, ArchiveHistoryEntry, ArchivedArtifactRecord, SimulatedInvitation, IdentityStatusEvent, StatementSetRevision, StatementLayoutRevision, CashFlowScheduleRevision, ReconciliationSchedule, ClientAccountingProfile, GLSourceRevision, ProposalServiceDefinition, ProposalContentTemplate } from '../types';
 import { createInitialState } from './initialState';
 import { ScenarioName, loadScenarioState } from './scenarios';
 import { CURRENT_SCHEMA, migratePersistedState, validateFixtures } from '../services/migrations';
@@ -16,6 +16,22 @@ const STORAGE_BACKUP_KEY = 'ste-auditsphere-role-portals-v2.backup';
 
 const isValidMoney = (amount: number, allowZero = false) =>
   Number.isFinite(amount) && (allowZero ? amount >= 0 : amount > 0) && Math.round(amount * 100) === amount * 100;
+const isCentAmount = (amount: unknown): amount is number => typeof amount === 'number' && Number.isFinite(amount) && Math.round(amount * 100) === amount * 100;
+const isValidAdjustmentJournalLines = (lines: unknown, engagement: EngagementRecord) =>
+  Array.isArray(lines) && lines.length >= 2 && lines.every((line: any) =>
+    Boolean(line && typeof line === 'object'
+      && typeof line.accountCode === 'string' && line.accountCode.trim()
+      && typeof line.accountName === 'string' && line.accountName.trim()
+      && ['debit', 'credit'].includes(line.type)
+      && isValidMoney(line.amount)
+      && ((line.debit === undefined && line.credit === undefined)
+        || (isValidMoney(line.debit ?? 0, true) && isValidMoney(line.credit ?? 0, true)
+          && line.debit === (line.type === 'debit' ? line.amount : 0)
+          && line.credit === (line.type === 'credit' ? line.amount : 0)))
+      && engagement.rows.some(row => row.code === line.accountCode)
+      && (line.engagementId === undefined || line.engagementId === engagement.id)
+      && (line.clientId === undefined || line.clientId === engagement.client)
+      && (line.currency === undefined || line.currency === engagement.currency)));
 const isActiveClientContact = (state: PrototypeState, clientId: string, name: string) =>
   state.contacts.some(contact => contact.clientId === clientId && contact.active && contact.name.trim().toLocaleLowerCase() === name.trim().toLocaleLowerCase());
 
@@ -466,6 +482,54 @@ class PrototypeStore {
     contact.history ||= [];
     this.state.contacts.push(contact);
     this.logEvent(`Contact added: ${contact.name} (${contact.clientId})`, contact.id);
+    this.notify();
+  }
+
+  /** A client administrator may nominate a contact for staff review; nomination never creates an identity or grant. */
+  public nominateClientContact(input: { clientId: string; name: string; email: string; reason: string }) {
+    requireActiveIdentity(this.state);
+    requireRole(this.state, ['client_admin'], 'nominate a client contact');
+    requireClientScope(this.state, input.clientId);
+    const name = input.name?.trim();
+    const email = input.email?.trim().toLowerCase();
+    const reason = input.reason?.trim();
+    if (!name || !email || !reason) throw new GuardError('INVALID_STATE', 'Contact name, email and nomination reason are required.');
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new GuardError('INVALID_STATE', 'Enter a valid contact email address.');
+    this.state.clientContactNominations ||= [];
+    if (this.state.clientContactNominations.some(item => item.clientId === input.clientId && item.email.toLowerCase() === email && item.status === 'Pending review')) {
+      throw new GuardError('INVALID_STATE', 'A contact nomination for this email is already awaiting review.');
+    }
+    const nomination = {
+      id: `NOM-${crypto.randomUUID()}`,
+      clientId: input.clientId,
+      name,
+      email,
+      nominatedByUserId: this.state.currentUserId,
+      nominatedBy: this.state.currentPerson,
+      nominatedAt: new Date().toISOString(),
+      reason,
+      status: 'Pending review' as const
+    };
+    this.state.clientContactNominations.push(nomination);
+    this.logEvent(`Client contact nominated for staff review: ${name}`, nomination.id);
+    this.notify();
+    return nomination.id;
+  }
+
+  public reviewClientContactNomination(nominationId: string, note: string) {
+    requireActiveIdentity(this.state);
+    requireRole(this.state, ['relationship', 'onboarding', 'manager', 'partner', 'admin'], 'review client contact nominations');
+    const nomination = (this.state.clientContactNominations || []).find(item => item.id === nominationId);
+    if (!nomination) throw new GuardError('INVALID_STATE', 'Contact nomination was not found.');
+    requireClientScope(this.state, nomination.clientId);
+    if (nomination.status !== 'Pending review') throw new GuardError('INVALID_STATE', 'Only a pending nomination can be reviewed.');
+    if (!note?.trim()) throw new GuardError('INVALID_STATE', 'A review note is required.');
+    nomination.status = 'Reviewed';
+    nomination.reviewedByUserId = this.state.currentUserId;
+    nomination.reviewedBy = this.state.currentPerson;
+    nomination.reviewedAt = new Date().toISOString();
+    nomination.reviewNote = note.trim();
+    this.logEvent(`Client contact nomination reviewed: ${nomination.name}`, nomination.id);
     this.notify();
   }
 
@@ -1697,6 +1761,24 @@ class PrototypeStore {
   }
 
   // --- Communications (VP-026, VP-027) ---
+  public saveEmailTemplate(template: EmailTemplateItem) {
+    requireActiveIdentity(this.state);
+    requireRole(this.state, ['relationship', 'manager', 'partner'], 'maintain email templates');
+    const supportedPlaceholders = new Set(['client_name', 'client_contact', 'request_title', 'due_date']);
+    const content = `${template.subject || ''}\n${template.body || ''}`;
+    const placeholders = [...new Set([...content.matchAll(/\{([^{}]+)\}/g)].map(match => match[1]))];
+    if (!template.id?.trim() || !template.name?.trim() || template.name.trim().length > 100 || !template.subject?.trim() || template.subject.trim().length > 240 || !template.body?.trim() || template.body.length > 5000) throw new GuardError('INVALID_STATE', 'Email template needs a name, subject and body within the supported length limits.');
+    if (placeholders.some(token => !supportedPlaceholders.has(token))) throw new GuardError('INVALID_STATE', `Unsupported email template placeholder: {${placeholders.find(token => !supportedPlaceholders.has(token))}}. Use client_name, client_contact, request_title or due_date.`);
+    if (this.state.emailTemplates.some(item => item.id !== template.id && item.name.trim().toLowerCase() === template.name.trim().toLowerCase())) throw new GuardError('INVALID_STATE', 'Email template names must be unique.');
+    const index = this.state.emailTemplates.findIndex(item => item.id === template.id);
+    const saved = { ...structuredClone(template), name: template.name.trim(), subject: template.subject.trim(), body: template.body.trim(), placeholders: placeholders.map(token => `{${token}}`) };
+    if (index < 0) this.state.emailTemplates.push(saved);
+    else this.state.emailTemplates[index] = saved;
+    this.logEvent(`Email template ${index < 0 ? 'created' : 'updated'}: ${saved.name}`, saved.id);
+    this.notify();
+    return structuredClone(saved);
+  }
+
   public addCommunication(comm: CommunicationItem) {
     requireActiveIdentity(this.state);
     requireClientScope(this.state, comm.clientId);
@@ -1728,8 +1810,14 @@ class PrototypeStore {
     if (comm.direction === 'Outbound' && comm.channel === 'Email' && comm.simulationSubmissionId && this.state.communications.some(item => item.simulationSubmissionId === comm.simulationSubmissionId)) return;
     if (!comm.summary.trim()) throw new GuardError('INVALID_STATE', 'Communication summary is required.');
     if (comm.direction === 'Outbound' && comm.channel === 'Email') {
+      const mailConfig = this.state.m365Config;
+      const sender = mailConfig?.mailSenderAccount?.trim() || '';
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(sender)) throw new GuardError('INVALID_STATE', 'The configured simulated mail sender is unavailable. Correct the sender in Microsoft 365 Setup before recording this attempt.');
+      const mailVerification = mailConfig.verificationResults?.mail;
+      if (mailVerification && (mailVerification.configRevision !== (mailConfig.configRevision || 1) || mailVerification.outcome !== 'success')) throw new GuardError('INVALID_STATE', 'The simulated mail sender is unavailable or has not been verified for the current configuration. Reverify mail in Microsoft 365 Setup before recording this attempt.');
       const recipient = comm.recipientEmail?.trim().toLowerCase() || '';
       if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(recipient) || !comm.body?.trim()) throw new GuardError('INVALID_STATE', 'A valid recipient email and message body are required.');
+      if (/\{[^{}]+\}/.test(`${comm.summary}\n${comm.body}`)) throw new GuardError('INVALID_STATE', 'Resolve all template placeholders in the subject and message body before recording this attempt.');
       if (!this.state.contacts.some(contact => contact.clientId === comm.clientId && contact.active && contact.email?.trim().toLowerCase() === recipient)) throw new GuardError('FORBIDDEN_SCOPE', 'Recipient must be an active contact for this client.');
       if (!comm.simulationReference?.trim() || !comm.simulationEvidence?.trim() || this.state.communications.some(item => item.id === comm.id || item.simulationReference === comm.simulationReference)) throw new GuardError('INVALID_STATE', 'Each simulated send needs a unique reference and recorded outcome evidence.');
       comm.recipientEmail = recipient;
@@ -1880,12 +1968,30 @@ class PrototypeStore {
     requireRole(this.state, ['billing', 'manager', 'partner'], 'draft invoices');
     requireClientScope(this.state, inv.clientId);
     if (inv.engagementId) requireEngagementScope(this.state, inv.engagementId, 'billing');
+    const client = this.state.clients.find(item => item.id === inv.clientId);
+    if (!client) throw new GuardError('INVALID_STATE', 'Invoice requires an existing client account.');
+    const invoiceNumber = typeof inv.invoiceNumber === 'string' ? inv.invoiceNumber.trim() : '';
+    if (!invoiceNumber || invoiceNumber.length > 64 || /[\u0000-\u001f\u007f]/.test(invoiceNumber)) throw new GuardError('INVALID_STATE', 'Invoice reference is required, must be at most 64 characters, and cannot contain control characters.');
+    if (typeof inv.description !== 'string' || !inv.description.trim() || inv.description.trim().length > 240) throw new GuardError('INVALID_STATE', 'Invoice description is required and must be at most 240 characters.');
+    const issueDate = inv.issueDate || this.state.asOfDate;
+    const validInvoiceDate = (value: string) => /^\d{4}-\d{2}-\d{2}$/.test(value) && Number.isFinite(Date.parse(`${value}T00:00:00Z`)) && new Date(`${value}T00:00:00Z`).toISOString().slice(0, 10) === value;
+    if (!validInvoiceDate(issueDate) || !validInvoiceDate(inv.due) || inv.due < issueDate) throw new GuardError('INVALID_STATE', 'Invoice and due dates must be valid calendar dates, with the due date on or after the invoice date.');
+    if (!isProposalCurrency(inv.currency)) throw new GuardError('INVALID_STATE', 'Invoice requires a supported currency.');
+    const billingDetails = inv.billingDetails ? { ...inv.billingDetails } : {
+      accountName: client.name,
+      contactName: client.contact,
+      email: client.email,
+      phone: client.phone,
+      address: client.address,
+      registrationNumber: client.registrationNumber
+    };
+    if (typeof billingDetails.accountName !== 'string' || !billingDetails.accountName.trim() || typeof billingDetails.contactName !== 'string' || !billingDetails.contactName.trim()) throw new GuardError('INVALID_STATE', 'Invoice requires a client billing account name and contact name.');
     if (!isValidMoney(inv.amount, true) || !Array.isArray(inv.lines) || Math.abs(inv.lines.reduce((s, line) => s + line.amount, 0) - inv.amount) > 0.005) throw new GuardError('INVALID_STATE', 'Invoice total must match its line items.');
     if (inv.lines.some(line => !line.description.trim() || !Number.isFinite(line.quantity) || line.quantity <= 0 || !Number.isFinite(line.rate) || line.rate < 0 || !Number.isFinite(line.amount) || line.amount < 0 || Math.abs(Math.round(line.amount * 100) / 100 - line.amount) > 0.005 || Math.abs(Math.round(line.quantity * line.rate * 100) / 100 - line.amount) > 0.005)) {
       throw new GuardError('INVALID_STATE', 'Every invoice line needs a description, positive quantity, non-negative finite rate, and matching rounded line total.');
     }
     if (inv.status !== 'Draft') throw new GuardError('INVALID_STATE', 'New invoices must begin as drafts.');
-    if (this.state.invoices.some(i => i.id === inv.id || i.invoiceNumber === inv.invoiceNumber)) throw new GuardError('INVALID_STATE', 'Invoice ID and number must be unique.');
+    if (this.state.invoices.some(i => i.id === inv.id || i.invoiceNumber.trim().toLocaleLowerCase() === invoiceNumber.toLocaleLowerCase())) throw new GuardError('INVALID_STATE', 'Invoice ID and number must be unique.');
     inv.revision = Math.max(1, inv.revision || 1);
     const timeLines = inv.lines.filter(line => line.sourceType === 'Time entry');
     const sourceIds = timeLines.map(line => line.sourceId);
@@ -1914,6 +2020,10 @@ class PrototypeStore {
       const requested = fixedLines.reduce((sum, line) => sum + line.amount, 0);
       if (fixedLines.some(line => !isValidMoney(line.amount)) || previouslyBilled + requested > contracted + 0.005) throw new GuardError('INVALID_STATE', `Fixed-service billing exceeds the remaining accepted proposal balance of ${Math.max(0, contracted - previouslyBilled)} ${proposal.currency}.`);
     }
+    inv.invoiceNumber = invoiceNumber;
+    inv.description = inv.description.trim();
+    inv.issueDate = issueDate;
+    inv.billingDetails = billingDetails;
     this.state.invoices.push(inv);
     timeSources.forEach(time => { time.billedInvoiceId = inv.id; });
     // Prospective numbering (VP-062-AC02): consuming the configured next number advances it;
@@ -2244,6 +2354,13 @@ class PrototypeStore {
     if (!client || !engagement) throw new GuardError('INVALID_STATE', 'Accounting setup requires an engagement belonging to this client.');
     const validDate = (value: string) => /^\d{4}-\d{2}-\d{2}$/.test(value) && Number.isFinite(Date.parse(value)) && new Date(`${value}T00:00:00Z`).toISOString().slice(0, 10) === value;
     const codes = input.accounts.map(account => account.code.trim());
+    const dimensionIds = Array.isArray(input.dimensions) ? input.dimensions.map(dimension => typeof dimension?.id === 'string' ? dimension.id.trim().toLowerCase() : '') : [];
+    const dimensionNames = Array.isArray(input.dimensions) ? input.dimensions.map(dimension => typeof dimension?.name === 'string' ? dimension.name.trim().toLowerCase() : '') : [];
+    const supportedDimensionNames = new Set(['Department', 'Cost centre', 'Project']);
+    const dimensionsValid = Array.isArray(input.dimensions)
+      && new Set(dimensionIds).size === dimensionIds.length
+      && new Set(dimensionNames).size === dimensionNames.length
+      && input.dimensions.every(dimension => Boolean(dimension && typeof dimension.id === 'string' && dimension.id.trim()) && supportedDimensionNames.has(dimension.name) && typeof dimension.active === 'boolean' && Array.isArray(dimension.values) && dimension.values.length > 0 && new Set(dimension.values.map(value => typeof value === 'string' ? value.trim().toLowerCase() : '')).size === dimension.values.length && dimension.values.every(value => typeof value === 'string' && Boolean(value.trim())));
     if (!input.legalEntityName.trim() || input.reportingBasis === 'Not selected' || !/^[A-Z]{3}$/.test(input.baseCurrency) || !input.accounts.length || new Set(codes).size !== codes.length || input.accounts.some(account => !account.code.trim() || !account.name.trim() || !['asset', 'liability', 'equity', 'revenue', 'expense'].includes(account.type))) throw new GuardError('INVALID_STATE', 'Setup requires a legal entity, reporting basis, three-letter currency and uniquely coded, named chart accounts.');
     const byCode = new Map(input.accounts.map(account => [account.code, account]));
     for (const account of input.accounts) {
@@ -2254,10 +2371,11 @@ class PrototypeStore {
     const ids = input.periodBooks.map(book => book.id);
     if (new Set(ids).size !== ids.length || input.periodBooks.some(book => !book.name.trim() || !book.bookName.trim() || !validDate(book.startDate) || !validDate(book.endDate) || book.startDate > book.endDate || !this.state.engagements.some(item => item.id === book.ownerEngagementId && item.client === clientId))) throw new GuardError('INVALID_STATE', 'Period books need unique IDs, valid ranges and an owner engagement for this client.');
     const selected = input.periodBooks.find(book => book.id === periodBookId && book.ownerEngagementId === engagementId);
-    if (!selected || selected.status !== 'Open' || input.dimensions.some(d => !d.values.length || new Set(d.values.map(value => value.trim().toLowerCase())).size !== d.values.length || d.values.some(value => !value.trim()))) throw new GuardError('INVALID_STATE', 'Select an open period book for this engagement and use non-empty, unique dimension values.');
+    if (!selected || selected.status !== 'Open' || !dimensionsValid) throw new GuardError('INVALID_STATE', 'Select an open period book for this engagement and use supported dimensions with unique identifiers/names and non-empty, unique dimension values.');
     const previous = client.accountingProfile || { legalEntityName: client.name, reportingBasis: 'Not selected' as const, baseCurrency: engagement.currency || 'QAR', accounts: [], periodBooks: [], dimensions: [], revision: 0, chartRevision: 0, history: [] };
     if (previous.revision && (engagement.accountingProfileRevision !== previous.revision || engagement.accountingChartRevision !== previous.chartRevision)) throw new GuardError('STALE_REVISION', 'Accounting setup changed; reload before saving.');
     const chartChanged = JSON.stringify(previous.accounts) !== JSON.stringify(input.accounts);
+    const dimensionsChanged = JSON.stringify(previous.dimensions || []) !== JSON.stringify(input.dimensions);
     const history = structuredClone(previous.history);
     if (previous.revision) history.push({ legalEntityName: previous.legalEntityName, reportingBasis: previous.reportingBasis, baseCurrency: previous.baseCurrency, accounts: structuredClone(previous.accounts), periodBooks: structuredClone(previous.periodBooks), dimensions: structuredClone(previous.dimensions), revision: previous.revision, chartRevision: previous.chartRevision, savedAt: new Date().toISOString(), savedByUserId: this.state.currentUserId });
     const profile: ClientAccountingProfile = { ...structuredClone(input), revision: previous.revision + 1, chartRevision: previous.chartRevision + Number(chartChanged), history };
@@ -2268,7 +2386,15 @@ class PrototypeStore {
       item.accountingProfileRevision = profile.revision; item.accountingChartRevision = profile.chartRevision;
       const book = profile.periodBooks.find(b => b.ownerEngagementId === item.id && b.id === (item.id === engagementId ? periodBookId : item.accountingPeriodBookId));
       if (book) item.accountingPeriodBookId = book.id;
-      if (chartChanged && item.mappingApproved) { item.mappingApproved = false; for (const mapping of this.state.accountMappingRevisions || []) if (mapping.engagementId === item.id && mapping.status === 'Approved') mapping.status = 'Draft'; }
+      if ((chartChanged || dimensionsChanged) && item.mappingApproved) {
+        item.mappingApproved = false;
+        const engagementMappings = (this.state.accountMappingRevisions || []).filter(mapping => mapping.engagementId === item.id).sort((a, b) => a.revision - b.revision);
+        const currentMapping = engagementMappings.at(-1);
+        if (currentMapping?.status === 'Approved') {
+          const revision = Math.max(0, ...engagementMappings.map(mapping => mapping.revision)) + 1;
+          this.state.accountMappingRevisions!.push({ engagementId: item.id, revision, mappings: structuredClone(currentMapping.mappings), status: 'Draft', preparedBy: this.state.currentUserId });
+        }
+      }
       this.staleStatementSetRevisions(item.id); this.invalidateReleaseBasis(item);
     }
     this.logEvent(`Accounting setup for ${client.name} saved as Rev ${profile.revision}${chartChanged ? ` (chart Rev ${profile.chartRevision})` : ''}`, engagementId);
@@ -2374,8 +2500,20 @@ class PrototypeStore {
     const date = input.asOfDate || this.state.asOfDate;
     const validDate = /^\d{4}-\d{2}-\d{2}$/.test(date) && Number.isFinite(Date.parse(date)) && new Date(`${date}T00:00:00Z`).toISOString().slice(0, 10) === date;
     const row = engagement?.rows.find(item => item.code === input.accountCode);
-    const items = input.items || [];
-    if (!engagement || !row || !input.name?.trim() || !input.accountCode || !validDate || !Number.isFinite(input.statementBalance ?? input.supportingBalance) || !input.evidence?.trim() || !Array.isArray(items) || new Set(items.map(item => item.id)).size !== items.length || items.some(item => !item.id.trim() || !item.description.trim() || !Number.isFinite(item.amount) || !['Timing item', 'Proposed correction'].includes(item.type) || !/^\d{4}-\d{2}-\d{2}$/.test(item.date) || !Number.isFinite(Date.parse(`${item.date}T00:00:00Z`)) || new Date(`${item.date}T00:00:00Z`).toISOString().slice(0, 10) !== item.date || item.date > date || item.currency && item.currency !== engagement.currency)) throw new GuardError('INVALID_STATE', 'Reconciliation requires a scoped account, valid as-of date, finite balances and complete, dated in-scope items in the engagement currency.');
+    const accountingProfile = engagement && this.state.clients.find(client => client.id === engagement.client)?.accountingProfile;
+    const periodBookId = engagement?.accountingPeriodBookId;
+    const periodBook = accountingProfile?.periodBooks.find(book => book.id === periodBookId && book.ownerEngagementId === engagementId);
+    const items = input.items ?? [];
+    if (!engagement || input.engagementId !== undefined && input.engagementId !== engagementId || !periodBook || !row || typeof input.name !== 'string' || !input.name.trim() || typeof input.accountCode !== 'string' || !input.accountCode.trim() || !validDate || date < periodBook.startDate || date > periodBook.endDate) throw new GuardError('INVALID_STATE', 'Reconciliation requires a valid account and an as-of date within the selected engagement period book.');
+    if (input.currency !== undefined && input.currency !== engagement.currency) throw new GuardError('INVALID_STATE', 'Reconciliation schedule currency must match the engagement currency.');
+    if (!isCentAmount(input.statementBalance ?? input.supportingBalance) || typeof input.evidence !== 'string' || !input.evidence.trim()) throw new GuardError('INVALID_STATE', 'Reconciliation requires finite cent-accurate balances and complete schedule evidence.');
+    if (!Array.isArray(items) || new Set(items.map((item: any) => item?.id).filter((id: unknown) => typeof id === 'string')).size !== items.length) throw new GuardError('INVALID_STATE', 'Reconciliation requires complete, dated in-scope items with unique identifiers.');
+    for (const item of items as any[]) {
+      if (!item || typeof item !== 'object' || typeof item.id !== 'string' || !item.id.trim() || item.id.length > 128 || typeof item.description !== 'string' || !item.description.trim() || item.description.length > 1000 || !['Timing item', 'Proposed correction'].includes(item.type) || typeof item.date !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(item.date) || !Number.isFinite(Date.parse(`${item.date}T00:00:00Z`)) || new Date(`${item.date}T00:00:00Z`).toISOString().slice(0, 10) !== item.date || item.date < periodBook.startDate || item.date > date) throw new GuardError('INVALID_STATE', 'Reconciliation requires complete, dated in-scope items within the selected period book and no later than the as-of date.');
+      if (!isCentAmount(item.amount)) throw new GuardError('INVALID_STATE', 'Reconciliation requires finite balances and complete, cent-accurate item amounts.');
+      if (item.currency !== undefined && item.currency !== engagement.currency) throw new GuardError('INVALID_STATE', 'Every reconciliation item currency must match the engagement currency.');
+      if (item.evidenceDoc !== undefined && (typeof item.evidenceDoc !== 'string' || !item.evidenceDoc.trim()) || item.journalId !== undefined && (typeof item.journalId !== 'string' || !item.journalId.trim())) throw new GuardError('INVALID_STATE', 'Reconciliation item evidence and journal references must be non-empty identifiers when supplied.');
+    }
     if (input.sourceVersion !== undefined && input.sourceVersion !== engagement.sourceVersion) throw new GuardError('STALE_REVISION', 'Trial balance changed; reload the schedule before editing.');
     const history = structuredClone(current?.history || input.history || []);
     if (current?.preparedAt) history.push({ revision: current.revision || 1, sourceVersion: current.sourceVersion || engagement.sourceVersion, status: current.status, savedAt: current.preparedAt, savedByUserId: current.preparedByUserId || '', glBalance: current.glBalance ?? current.sourceBalance, statementBalance: current.statementBalance ?? current.supportingBalance, items: structuredClone(current.items || []), reviewedByUserId: current.reviewedByUserId, reviewedAt: current.reviewedAt, reviewNote: current.reviewNote });
@@ -2616,9 +2754,9 @@ class PrototypeStore {
     requireActiveIdentity(this.state);
     requireRole(this.state, ['manager', 'preparer', 'reviewer', 'partner'], 'create adjustment journals');
     requireEngagementScope(this.state, journal.engagementId);
-    if (!journal.title.trim() || journal.lines.length < 2 || journal.lines.some(l => !l.accountCode.trim() || !l.accountName.trim() || !isValidMoney(l.amount)) || this.state.adjustmentJournals.some(j => j.id === journal.id)) throw new GuardError('INVALID_STATE', 'Journal needs a unique ID, title, at least two coded lines, and finite positive amounts.');
     const engagement = this.state.engagements.find(e => e.id === journal.engagementId);
-    if (!engagement || journal.lines.some(line => !engagement.rows.some(row => row.code === line.accountCode))) throw new GuardError('INVALID_STATE', 'Every adjustment account must exist in the engagement trial balance.');
+    if (typeof journal.id !== 'string' || !journal.id.trim() || typeof journal.title !== 'string' || !journal.title.trim() || this.state.adjustmentJournals.some(j => j.id === journal.id)) throw new GuardError('INVALID_STATE', 'Journal needs a unique ID and title.');
+    if (!engagement || !isValidAdjustmentJournalLines(journal.lines, engagement)) throw new GuardError('INVALID_STATE', 'Journal lines must contain at least two valid debit/credit entries using accounts and any supplied client, engagement or currency context from this engagement.');
     this.assertCurrentAdjustmentSupport(journal.engagementId, journal.supportLinks);
     const debits = journal.lines.filter(l => l.type === 'debit').reduce((s, l) => s + l.amount, 0);
     const credits = journal.lines.filter(l => l.type === 'credit').reduce((s, l) => s + l.amount, 0);
@@ -2636,9 +2774,9 @@ class PrototypeStore {
     requireEngagementScope(this.state, journal.engagementId);
     if (journal.status === 'Draft') throw new GuardError('INVALID_STATE', 'Only a reviewed or decided adjustment can be amended.');
     if (!reason.trim()) throw new GuardError('INVALID_STATE', 'An amendment reason is required.');
-    if (!changes.title.trim() || !changes.rationale.trim() || !Array.isArray(changes.lines) || changes.lines.length < 2 || changes.lines.some(line => !line.accountCode.trim() || !line.accountName.trim() || !isValidMoney(line.amount))) throw new GuardError('INVALID_STATE', 'An amended journal needs a title, rationale, and at least two coded lines with finite positive amounts.');
     const engagement = this.state.engagements.find(item => item.id === journal.engagementId);
-    if (!engagement || changes.lines.some(line => !engagement.rows.some(row => row.code === line.accountCode))) throw new GuardError('INVALID_STATE', 'Every amended account must exist in the engagement trial balance.');
+    if (typeof changes.title !== 'string' || !changes.title.trim() || typeof changes.rationale !== 'string' || !changes.rationale.trim()) throw new GuardError('INVALID_STATE', 'An amended journal needs a title and rationale.');
+    if (!engagement || !isValidAdjustmentJournalLines(changes.lines, engagement)) throw new GuardError('INVALID_STATE', 'Amended journal lines must contain at least two valid debit/credit entries using accounts and any supplied client, engagement or currency context from this engagement.');
     const supportLinks = Object.prototype.hasOwnProperty.call(changes, 'supportLinks') ? changes.supportLinks : journal.supportLinks;
     this.assertCurrentAdjustmentSupport(journal.engagementId, supportLinks);
     const debits = changes.lines.filter(line => line.type === 'debit').reduce((sum, line) => sum + line.amount, 0);
@@ -4640,8 +4778,8 @@ class PrototypeStore {
   public saveFinancialPackageRevision(record: import('../types').FinancialPackageRevision) {
     requireActiveIdentity(this.state);
     requireRole(this.state, ['manager', 'preparer'], 'assemble a financial package revision');
-    if (this.isSessionOnly) throw new GuardError('INVALID_STATE', 'Browser state storage is unavailable; package revisions cannot be claimed as persisted.');
     requireEngagementScope(this.state, record.engagementId);
+    if (this.isSessionOnly) throw new GuardError('INVALID_STATE', 'Browser state storage is unavailable; package revisions cannot be claimed as persisted.');
     const eng = this.state.engagements.find(e => e.id === record.engagementId);
     const latestGLSource = eng?.glSourceHistory?.at(-1);
     const requiredKinds = ['XLSX', 'DOCX', 'PDF'];
@@ -4748,6 +4886,12 @@ class PrototypeStore {
     if (!client) throw new GuardError('INVALID_STATE', `Client "${clientId}" not found.`);
     requireClientScope(this.state, clientId);
     if (client.status !== 'Active') throw new GuardError('INVALID_STATE', 'Only an active accepted client can have a workspace prepared.');
+    const matchingEngagements = this.state.engagements.filter(e => e.client === clientId && e.year === year);
+    const engagement = engagementId
+      ? matchingEngagements.find(e => e.id === engagementId)
+      : matchingEngagements.length === 1 ? matchingEngagements[0] : undefined;
+    if (engagementId && !engagement) throw new GuardError('INVALID_STATE', `Engagement "${engagementId}" does not match this client and year.`);
+    if (!engagementId && matchingEngagements.length > 1) throw new GuardError('INVALID_STATE', 'Choose the exact engagement before preparing a year workspace.');
     const binding = this.state.m365Config;
     const bindingRevision = binding.configRevision || 1;
     const sharePointResult = binding.verificationResults?.sharepoint;
@@ -4755,12 +4899,6 @@ class PrototypeStore {
     if (binding.liveConnected !== false || sharePointResult?.outcome !== 'success' || sharePointResult.configRevision !== bindingRevision || sharePointResult.resourceId !== expectedResourceId) {
       throw new GuardError('INVALID_STATE', 'Prepare a client workspace only after the current synthetic SharePoint binding succeeds.');
     }
-    const matchingEngagements = this.state.engagements.filter(e => e.client === clientId && e.year === year);
-    const engagement = engagementId
-      ? matchingEngagements.find(e => e.id === engagementId)
-      : matchingEngagements.length === 1 ? matchingEngagements[0] : undefined;
-    if (engagementId && !engagement) throw new GuardError('INVALID_STATE', `Engagement "${engagementId}" does not match this client and year.`);
-    if (!engagementId && matchingEngagements.length > 1) throw new GuardError('INVALID_STATE', 'Choose the exact engagement before preparing a year workspace.');
     const code = client.code;
     const configuredRoot = binding.folderRoot.replace(/\\/g, '/').replace(/\/+$/, '');
     const clientRoot = `${configuredRoot}/${code}/`;
@@ -4784,6 +4922,25 @@ class PrototypeStore {
     });
     this.logEvent(`Canonical SharePoint workspace prepared for client ${code}`, clientId);
     this.notify();
+  }
+
+  public renameClientWorkspaceFolder(folderPath: string, label: string) {
+    requireActiveIdentity(this.state);
+    requireRole(this.state, ['manager', 'partner'], 'rename workspace folder labels');
+    const folder = this.state.folders?.find(item => item.path === folderPath);
+    if (!folder || !folder.clientId) throw new GuardError('INVALID_STATE', 'Choose an existing client workspace folder.');
+    const client = this.state.clients.find(item => item.id === folder.clientId);
+    if (!client || client.status !== 'Active') throw new GuardError('INVALID_STATE', 'Only an active accepted client workspace can be renamed.');
+    requireClientScope(this.state, client.id);
+    if (folder.engagementId) requireEngagementScope(this.state, folder.engagementId);
+    const cleanLabel = label.trim();
+    if (!cleanLabel || cleanLabel.length > 120) throw new GuardError('INVALID_STATE', 'Folder display name must contain 1–120 characters.');
+    if (cleanLabel === folder.label) return folder;
+    const previousLabel = folder.label;
+    folder.label = cleanLabel;
+    this.logEvent(`Workspace folder display label changed: ${folder.path} · ${previousLabel} → ${cleanLabel}`, folder.engagementId || client.id);
+    this.notify();
+    return folder;
   }
 
   public archiveEngagement(engId: string, releaseId: string, retentionUntil?: string, onHold = false, holdReason?: string, artifactCopies?: ArchivedArtifactRecord[]) {

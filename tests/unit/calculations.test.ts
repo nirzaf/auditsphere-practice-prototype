@@ -297,7 +297,7 @@ describe('consolidation fixed example (AT-42)', () => {
   });
 });
 
-describe('materiality math (AT-44)', () => {
+describe('materiality math (AT-44, VP-048-AC02)', () => {
   it('computes explicit overall / performance / trivial rates deterministically', () => {
     const m = calculateMateriality(1000000, 5, 75, 5, 'Fixed calculation fixture.');
     assert.equal(m.overallMateriality, 50000);
@@ -346,7 +346,37 @@ describe('GL completeness tests (EX06, EX07, EX08)', () => {
 });
 
 describe('Reconciliation variance tests (EX09)', () => {
-  it('EX09: proposed correction cannot clear timing residual', async () => {
+  it('VP-039-AC01: calculates decimal timing combinations in exact cents (AT-39)', async () => {
+    const { calculateReconciliationVariance } = await import('../../src/services/calculations.js');
+    const balanced = calculateReconciliationVariance({
+      supportingBalance: 0.1,
+      sourceBalance: 0.3,
+      items: [{ type: 'Timing item', amount: 0.2, description: 'Deposit in transit' }]
+    } as any);
+    assert.deepEqual(balanced, { timingSum: 0.2, correctionSum: 0, unexplainedDifference: 0, isReconciled: true });
+
+    const residual = calculateReconciliationVariance({
+      statementBalance: 999.95,
+      glBalance: 1000,
+      items: [
+        { type: 'Timing item', amount: 0.1, description: 'Deposit in transit' },
+        { type: 'Timing item', amount: -0.05, description: 'Outstanding payment' }
+      ]
+    } as any);
+    assert.deepEqual(residual, { timingSum: 0.05, correctionSum: 0, unexplainedDifference: 0, isReconciled: true });
+
+    const correctionCannotClear = calculateReconciliationVariance({
+      statementBalance: 0.1,
+      glBalance: 0.3,
+      items: [
+        { type: 'Timing item', amount: 0.1, description: 'Timing item' },
+        { type: 'Proposed correction', amount: 0.1, description: 'Pending journal' }
+      ]
+    } as any);
+    assert.deepEqual(correctionCannotClear, { timingSum: 0.1, correctionSum: 0.1, unexplainedDifference: 0.1, isReconciled: false });
+  });
+
+  it('VP-039-AC01/EX09: proposed correction cannot clear timing residual', async () => {
     const { calculateReconciliationVariance } = await import('../../src/services/calculations.js');
     const recSchedule: any = {
       statementBalance: 1000,

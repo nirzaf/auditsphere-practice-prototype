@@ -384,11 +384,15 @@ export const Shell: React.FC<ShellProps> = ({ currentRoute, onRouteChange, onSel
         <div role="status" className="panel panel-pad recovery-banner" style={{ background: '#fff7ed', color: '#9a3412' }}>
           {prototypeStore.getLoadError() || 'Browser storage is unavailable; changes last only for this session.'}
           <div className="row mt8" style={{ gap: 8 }}>
-            <button className="btn sm" onClick={() => downloadJSON(`auditsphere-state-${state.asOfDate}.json`, prototypeStore.exportStateJSON())}>Export current state</button>
-            {prototypeStore.getPreservedStateJSON() && <button className="btn sm" onClick={() => downloadJSON(`auditsphere-preserved-${state.asOfDate}.json`, prototypeStore.getPreservedStateJSON()!)}>Export preserved payload</button>}
-            {importStateButton}
-            <button className="btn sm ghost" onClick={requestDemoReset}>Reset to default</button>
-            <span className="caption">A reset keeps the current payload as a recovery backup.</span>
+            {clientMode ? (
+              <span className="caption">Please contact your accountant before continuing; this browser cannot save changes right now.</span>
+            ) : <>
+              <button className="btn sm" onClick={() => downloadJSON(`auditsphere-state-${state.asOfDate}.json`, prototypeStore.exportStateJSON())}>Export current state</button>
+              {prototypeStore.getPreservedStateJSON() && <button className="btn sm" onClick={() => downloadJSON(`auditsphere-preserved-${state.asOfDate}.json`, prototypeStore.getPreservedStateJSON()!)}>Export preserved payload</button>}
+              {importStateButton}
+              <button className="btn sm ghost" onClick={requestDemoReset}>Reset to default</button>
+              <span className="caption">A reset keeps the current payload as a recovery backup.</span>
+            </>}
           </div>
         </div>
       )}

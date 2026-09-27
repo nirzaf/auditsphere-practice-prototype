@@ -1,7 +1,7 @@
 # AuditSphere Visual Prototype — Updated Code Review, Pending User Stories and Coding Guide
 
 
-> **Verdict: bounded repair and evidence actions are complete; the whole simulation is not.** The five source-code findings from the original review have been fixed and regression-tested. The listed cross-cutting and story-level bounded actions, including VP-023-E02, have been reconciled without promoting whole-story acceptance. The canonical tracker now has 33 open action rows (the original review baseline was 41). The original acceptance contract remains open. “A module exists,” “a bounded demo worked,” and “every required lifecycle is accepted” are different claims.
+> **Verdict: bounded repair and evidence actions are complete; the whole simulation is not.** The five source-code findings from the original review have been fixed and regression-tested. The listed cross-cutting and story-level bounded actions, including VP-004-E01, VP-010-E01/E02, VP-011-E01/E02, VP-019-E01, VP-020-E01, VP-023-E02, VP-029-E01/E02, VP-031-E01, VP-034-E01/E02, VP-039-E01, VP-040-E01 and VP-045-E02, have been reconciled without promoting whole-story acceptance. The canonical tracker now has 19 open action rows (the original review baseline was 41); VP-020-E01's bounded scope/rename matrix is evidenced, while VP-020 acceptance remains Partial. VP-012-E02 remains Partial for additional terminal-state commands and UI affordances. VP-025-E01 now has a scoped contact-nomination increment but remains open for portal badge/search and broader list/action-context coverage. The original acceptance contract remains open. “A module exists,” “a bounded demo worked,” and “every required lifecycle is accepted” are different claims.
 
 ## Contents
 
@@ -27,16 +27,16 @@
 | Modules labelled Partial by the repository | 29 | Some require code changes; others mainly require acceptance reconciliation. |
 | Original user stories / criteria | 64 / 256 | Preserve the original IDs and wording. |
 | Stories labelled Verified / Partial | 16 / 48 | Do not convert this ratio into a software-completion percentage. |
-| Open actions claimed by the original queue summary | 47 | Historical stale count; current tracker reports 33 after bounded action closures. |
-| Open verification rows found in §9.3 | **31** | 25 Partial, 4 Pending, 2 explicitly verified subcases with wider acceptance open. |
+| Open actions claimed by the original queue summary | 47 | Historical stale count; current tracker reports 19 after bounded action closures. |
+| Open verification follow-ups in Section 8 | **16** | 12 Partial, 2 Pending, 2 explicitly verified subcases with wider acceptance open. |
 | Open scope/reconciliation rows at original review baseline | **4** | 3 Partial and 1 Open; VP-064-R03 has since been reconciled. |
 | Open action-row inventory at original review baseline | **41** | 37 + 4; these are action rows, not distinct missing features. |
-| **Current open action-row inventory** | **33** | 31 verification + 2 scope actions after the bounded closures listed above and VP-023-E02. |
+| **Current open action-row inventory** | **19** | 17 verification + 2 scope actions after bounded closures including VP-004-E01, VP-010-E01/E02, VP-011-E01/E02, VP-019-E01, VP-020-E01, VP-023-E02, VP-029-E01/E02, VP-031-E01, VP-034-E01/E02, VP-039-E01, VP-040-E01 and VP-045-E02. VP-020 and VP-040 criterion/story acceptance remain Partial; VP-012-E02 remains Partial for remaining command/affordance breadth; VP-025-E01 remains Partial after its bounded nomination increment. |
 | Source-code finding groups identified by the review | **5** | Search visibility, destructive reset, misleading context, duplicate IDs, unguarded drafts; all five are now fixed and tested. |
 
-The current 84 enumerated verification rows comprise 49 Complete (including bounded evidence-action closures), 4 Verified, 25 Partial, 4 Pending and 2 verified-subcase rows with follow-up still open. This is the live row-level recount; older dated verification entries preserve their then-current denominators. At the original review baseline, 38 scope rows comprised 34 Complete/Reconciled and 4 open rows, for 41 total actions. The current scope table has 36 Complete/Reconciled rows and 2 Partial rows. Together, 31 verification and 2 scope actions leave 33 open action rows. Verified subcases with wider criterion follow-up remain open rather than being hidden in the Verified category. Exact open row IDs are retained in Section 8; bounded actions are noted separately. VP-017 acceptance criteria remain subcase-verified rather than fully signed off, including its broader optional-service/provider matrix. [S1] [S2]
+The current action tables contain 83 verification rows and 38 scope rows (121 total). The broad §9.3 verification table has 75 Complete, 6 Partial and 2 Pending rows; those are closure/evidence cards and must not be mistaken for the exact open-action inventory. Section 8 is the current remaining-action inventory: 17 verification follow-ups (13 Partial, 2 Pending and 2 verified-subcase follow-ups) plus 2 Partial scope rows, or 19 open actions. At the original review baseline, 38 scope rows comprised 34 Complete/Reconciled and 4 open rows. The current scope table has 36 Complete/Reconciled rows and 2 Partial rows. Older dated verification entries preserve their then-current denominators. Verified subcases with wider criterion follow-up remain open rather than being hidden in the Verified category. VP-017 acceptance criteria remain subcase-verified rather than fully signed off, including its broader optional-service/provider matrix. [S1] [S2]
 
-All five code findings overlap existing scope, navigation or acceptance obligations. **Do not add them arithmetically to the 33 current open actions** or invent MOD-40 and later modules.
+All five code findings overlap existing scope, navigation or acceptance obligations. **Do not add them arithmetically to the 19 current open actions** or invent MOD-40 and later modules.
 
 The current `App.tsx` imports the feature views and maps the application routes; `01_MODULE_INDEX.md` identifies all 39 functional areas. That establishes representation, not full lifecycle acceptance. A later deployed-browser sweep exercised all 34 staff navigation routes; shared routes and that sweep do not establish criterion-level acceptance of all 39 functional areas (see verification entry 88). [S3] [S10]
 
@@ -46,9 +46,9 @@ The original review pinned its source findings to `975502a1f0fb31db3814da6d6bf68
 
 Five **isolated JavaScript source-expression probes** were run locally. They reproduced three search-policy mismatches and two misleading context outputs. These probes use transcribed source expressions and small synthetic fixtures; they are **not** the repository's unit suite, React rendering tests or Chrome journeys. Their exact scope and output are in Section 10.
 
-At the original review snapshot, a fresh checkout and full test run were unavailable, so the source probes were not repository regressions. The first follow-up ran checks at documentation baseline `ffcf34c0000c9cc18bc9dc2c8d1fff87b6ca060f` (application source then unchanged from `e6a6edb`): lint, 231/231 unit tests, 105/105 E2E (5 static + 100 Chrome), build and legacy syntax passed. A subsequent uncommitted UI-guard change extends that tested state: lint, 231/231 unit tests, build and 109/109 serialized E2E (5 static + 104 Chrome) now pass, including acquisition, profile and PBC draft-guard journeys. The current tracker records the code delta and exact commands. The focused regressions cover the five original findings and the added draft guards. `npm ci` was not rerun; the installed dependencies were used.
+At the original review snapshot, a fresh checkout and full test run were unavailable, so the source probes were not repository regressions. The first follow-ups ran checks at documentation baseline `ffcf34c0000c9cc18bc9dc2c8d1fff87b6ca060f` (application source then unchanged from `e6a6edb`): lint, 231/231 unit tests, 105/105 E2E (5 static + 100 Chrome), build and legacy syntax passed; the subsequent UI-guard delta passed 231/231 unit and 109/109 serialized E2E (5 static + 104 Chrome). The latest full current-worktree run passes 278/278 unit and 132/132 serialized E2E (5 static + 127 Chrome), with lint/build and the focused nomination checks passing; it includes the VP-025 entity/engagement switch draft guard. These runs verify exercised paths, not the complete original acceptance contract. `npm ci` was not rerun; the installed dependencies were used.
 
-The 216/216 unit and 96/96 E2E results in older tracker entries remain historical snapshots. The latest observed 231/231 unit and 109/109 E2E results include the uncommitted draft-guard delta and verify tested paths, not the complete original 256-criterion contract. Earlier “current worktree” entries remain historical unless their own source/build attribution is stated. [S1] [S12]
+The 216/216 unit and 96/96 E2E results in older tracker entries remain historical snapshots; 231/231 and 109/109 were also valid results for their dated candidate. The latest full run is 278/278 unit and 132/132 E2E on the current uncommitted worktree. These results verify tested paths, not the complete original 256-criterion contract. Earlier “current worktree” entries remain historical unless their own source/build attribution is stated. [S1] [S12]
 
 ### 1.3 Correct earlier missing-feature claims
 
@@ -141,7 +141,7 @@ Budget save also derives its target engagement and next revision from the curren
 
 ### D01 — Reconcile acceptance and documentation without fabricating closure
 
-At the original review snapshot, the queue prose claimed 47 open actions while its rows yielded 41, and older descriptions called completed features missing. The current tracker reports 33 open actions after the bounded closures listed above and VP-023-E02; it retains 31 verification follow-ups (including two verified-subcase follow-ups) and two Partial scope rows. The README and storage guidance distinguish durable PBC IndexedDB bytes from metadata/session-only library originals, consistent with VP-024-R03; no storage implementation change was needed. Preserve historical run entries and keep closure-card status separate from product acceptance. [S1] [S2] [S11]
+At the original review snapshot, the queue prose claimed 47 open actions while its rows yielded 41, and older descriptions called completed features missing. The current tracker reports 19 open actions after bounded closures including VP-004-E01, VP-010-E01/E02, VP-011-E01/E02, VP-019-E01, VP-020-E01, VP-023-E02, VP-029-E01/E02, VP-031-E01, VP-034-E01/E02, VP-039-E01, VP-040-E01 and VP-045-E02; it retains 17 verification follow-ups (including two verified-subcase follow-ups) and two Partial scope rows. VP-020-E01 now has bounded 2026-09-27 evidence for role/grant/active-client checks, ambiguity rejection, exact client/engagement folder structure, idempotent retry, and label-only rename preserving stable paths and document/evidence links; whole-story/criterion acceptance remains Partial. VP-040-E01 now includes a reviewed current-source replacement/rework test with exact totals and subtotal; VP-040 story acceptance and broader coverage remain Partial. VP-045-E02's existing duplicate, mixed-context and source/rate/perimeter invalidation matrix is reconciled complete as a bounded action; VP-045 story and criteria remain Partial. VP-025-E01 adds client-admin contact nomination and staff review without creating identity or access, but its broader portal list/badge/search/action matrix remains Partial. VP-008-E01 remains open for broader representative-action coverage. VP-012-E02 now has a 49-command professional-write matrix across Suspended/Closed/Cancelled (147 denials), including package assembly denied before the session-storage gate, 30+ Closed-state navigation destinations and a denied valid New Job creation with no persistence. Other professional output commands and UI affordances, plus all-terminal-state historical-output combinations, remain untested, so the action stays Partial. VP-010-E01's focused proposal print/field action now has direct Chrome evidence; criterion/story acceptance remains Partial. The README and storage guidance distinguish durable PBC IndexedDB bytes from metadata/session-only library originals, consistent with VP-024-R03; no storage implementation change was needed. Preserve historical run entries and keep closure-card status separate from product acceptance. [S1] [S2] [S11]
 
 Preserve historical run entries, but clearly distinguish historical snapshots from current status. Do not bulk change every story to Verified because closure cards are Complete.
 
@@ -154,17 +154,17 @@ Preserve historical run entries, but clearly distinguish historical snapshots fr
 | MOD-01 — Practice Dashboard | Partial | Local dashboard action rows are complete; F03 shared-context display is fixed; close original criteria, not a rebuild. | RV-M01 |
 | MOD-02 — CRM & Client Management | Partial | Remaining tab-action/scope evidence; preserve implemented contacts, custom fields and shared projections. | RV-M02 |
 | MOD-03 — Leads & Opportunities | Verified | Preserve the accepted baseline; run the relevant shared-change and cross-module regressions. | Section 6 |
-| MOD-04 — Proposals & Engagements | Partial | Proposal field/print and stale-response matrices; engagement Closed-state/history cases. | RV-M04 |
+| MOD-04 — Proposals & Engagements | Partial | VP-010-E01/E02 and VP-011-E01/E02 bounded authoring/print, revision and response actions are complete; broader proposal validation and engagement Closed-state/history criteria remain open. | RV-M04 |
 | MOD-05 — Jobs & Tasks | Partial | Local job actions complete. Task notes/document links already exist; criterion sign-off and shared regressions remain. | RV-M05 |
 | MOD-06 — Job Templates | Partial | Lifecycle action complete; F05 authoring/instantiation draft guards are fixed and tested; original acceptance remains. | RV-M06 |
 | MOD-07 — Team Collaboration | Partial | Moderation/notices exist. Remaining communication publication/correction and actor/context cases. | RV-M07 |
-| MOD-08 — Client Portal | Partial | Remaining portal persona/entity/engagement/action matrix; do not rebuild entity scoping. | RV-M08 |
+| MOD-08 — Client Portal | Partial | Nomination drafts now use guarded Save/Discard/Stay across entity and engagement context changes; remaining portal persona/entity/engagement list, badge, search and action matrix; do not rebuild entity scoping. | RV-M08 |
 | MOD-09 — Client Requests / PBC | Partial | Request-filter and recipient/context verification; accepted-evidence replacement is now complete. | RV-M09 |
 | MOD-10 — Document Management | Partial | Workspace retry/root/scope and availability matrices remain; PBC and library storage classes are now documented separately. | RV-M10 |
 | MOD-11 — Communications | Partial | Sender/placeholder/template/link cases remain; the F01 search projection leak is fixed and tested. | RV-M11 |
 | MOD-12 — Time Tracking | Partial | Date/duration/link-scope matrix; billed-time correction is already implemented. | RV-M12 |
 | MOD-13 — Budgets | Partial | Unallocated aggregation and variance cases remain; F05 budget draft guards are fixed and tested. | RV-M13 |
-| MOD-14 — Billing & Invoicing | Partial | Date/reference/correction acceptance remains; source-linked invoice editing is complete and F01 invoice search is scoped. | RV-M14 |
+| MOD-14 — Billing & Invoicing | Partial | VP-031-E01 bounded evidence is complete (date/reference/correction and scoped-search regressions pass); whole-story criterion/sign-off status remains open. | RV-M14 |
 | MOD-15 — Receivables | Partial | Local allocation/aging actions complete; close full criteria and shared regressions. | RV-M15 |
 | MOD-16 — Reporting & Analytics | Verified | Preserve the accepted baseline; run the relevant shared-change and cross-module regressions. | Section 6 |
 | MOD-17 — Search & Centralized Client View | Partial | F01 role and sibling-engagement search leaks are fixed and tested; remaining target/scope acceptance stays open. | RV-M17 |
@@ -176,7 +176,7 @@ Preserve historical run entries, but clearly distinguish historical snapshots fr
 | MOD-23 — Reconciliations | Partial | Remaining bounded date/currency/scope acceptance, not new bank integrations. | RV-M23 |
 | MOD-24 — Financial Statements | Partial | Supported source/layout/comparative/disclosure matrix; do not invent component equity from combined totals. | RV-M24 |
 | MOD-25 — Financial Packages | Partial | Package failure and replacement actions complete; original criteria and dependent-note rework evidence remain. | RV-M25 |
-| MOD-26 — Consolidation | Partial | Remaining elimination duplicate/mixed-context/staleness matrix and contractual unmatched semantics. | RV-M26 |
+| MOD-26 — Consolidation | Partial | VP-045-E02/R01 now complete with replacement-package staleness and scope reconciliation; remaining story criteria and broader edge matrix stay open. | RV-M26 |
 | MOD-27 — Client Acceptance | Verified | Preserve the accepted baseline; run the relevant shared-change and cross-module regressions. | Section 6 |
 | MOD-28 — Audit Planning | Partial | Local planning actions complete; finish criterion-level evidence rather than rebuilding thresholds. | RV-M28 |
 | MOD-29 — Risks & Audit Programs | Partial | Both local risk/program closure actions complete; preserve multi-risk and template-version history. | RV-M29 |
@@ -373,13 +373,13 @@ An empty “local open action” list means the module's named action rows are c
 
 **Work type:** Targeted verification / acceptance; implement only a reproduced gap.  
 **Original stories:** VP-010, VP-011, VP-012.  
-**Local open action rows:** `VP-010-E01`, `VP-010-E02`, `VP-011-E01`, `VP-011-E02`, `VP-012-E02`  
+**Local open action rows:** `VP-012-E02` remains open for all-terminal-state cross-view evidence; full original story criteria and sign-off remain open.
 **Route/workspace:** `proposals / engagements`.  
 **Implementation touchpoints:** [ProposalsView.tsx](https://github.com/nirzaf/auditsphere-visual-prototype/blob/975502a1f0fb31db3814da6d6bf6854cf9c8879e/src/components/modules/ProposalsView.tsx), [EngagementsView.tsx](https://github.com/nirzaf/auditsphere-visual-prototype/blob/975502a1f0fb31db3814da6d6bf6854cf9c8879e/src/components/modules/EngagementsView.tsx); existing `prototypeStore` commands, selectors and services.
 
 **User story:** As a proposal author and independent reviewer, I want to complete proposal revision and engagement amendment/closure with exact historical snapshots, so that commercial decisions and professional acceptance remain separate and reproducible.
 
-**Preserve / current evidence:** Service/template editors and proposal revision flows exist. Source rows retain partial field/print, stale-response and Closed-state acceptance. [S2]
+**Preserve / current evidence:** VP-010-E01/E02 and VP-011-E01/E02 are complete bounded actions in the canonical tracker. Focused current-worktree Chrome verifies proposal authoring fields, branded print-media layout and PDF generation; other focused tests exercise preserved presented snapshots through return/revision/re-presentation and all Email/Meeting/Letter response evidence and withdrawal/re-recording. VP-012-E02 has the new 2026-09-27 focused matrix: 49 representative professional writes/reviews are atomically denied in Suspended, Closed and Cancelled (147 attempts), including financial-package assembly before the storage guard; the partner persona navigates 30+ visible routes in Closed without changing linked output counts; an attempted valid New Job is denied and not persisted. Existing tests verify reasoned suspend/resume/close/cancellation history, retained linked-record IDs and reload persistence. Closed-state views reopen Statements, Audit Planning, Risks & Programs, Jobs, Documents, Billing, Workpapers, Release & Completion, Financial Packages, Client PBC and Records & Archive; Suspended and Cancelled paths verify statement/document/billing/PBC visibility and lifecycle-aware archive labels. Other professional output commands and UI affordances, remaining all-terminal-state output combinations, complete criterion mapping and human story sign-off remain open. UIX-02 waits for its compact-width transition, and the shared Chrome `beforeEach` restores the expanded preference to prevent cross-journey contamination. Latest full run: 278/278 unit and 132/132 E2E (5 static + 127 Chrome). [S2]
 
 **Required supported lifecycle:** draft → validate/submit → independent review/return → revise → present → record evidenced response → professional acceptance → activate → amend/suspend/resume/close or cancel.
 
@@ -392,7 +392,7 @@ An empty “local open action” list means the module's named action rows are c
 
 **Coding guide:** Reuse ProposalsView, EngagementsView and existing version/response commands. Capture the draft's expected revision before submission; do not build a second proposal editor or auto-create future work.
 
-**Verification:** Extend VP-010-E01/E02, AT-56/58 and VP-012 cases. Assert exact prior snapshots, refused stale saves and rendered output content. Record the actual source/build, fixture and assertion; use the existing unit/Chrome harness and do not manufacture reviewer approval.
+**Verification:** focused proposal/print Chrome 1/1; focused cascade checks 4/4; `npm run build`, `npm run lint`, full unit 270/270 and full E2E 130/130 pass. The latest 2026-09-27 full serialized rerun also passes 130/130 after correcting immediate focus exclusion for the closed mobile drawer. Assertions include service/template revision history and field limits, quantity×rate and proposal-total arithmetic, every displayed proposal field (including client/opportunity and reporting dates), print-media visibility/unclipped layout/control omission and genuine PDF generation, reversed-period rejection, immutable prior presented snapshot through return/revision/re-present, all three response methods with evidence and withdrawal history, and terminal cancellation/closure with reason/history/retained links across reload. These close the named bounded actions only; original criteria/sign-off remain open. See `docs/prototype/verification.md`.
 
 ### RV-M05 — MOD-05: Jobs & Tasks
 
@@ -479,7 +479,7 @@ An empty “local open action” list means the module's named action rows are c
 
 **User story:** As a client administrator, finance contributor or authorized signatory, I want to complete each permitted portal action within the selected entity and engagement, so that role handoffs remain understandable without exposing internal work.
 
-**Preserve / current evidence:** Multi-entity portal and sharing-withdrawal/no-access paths exist. VP-025-E01 still requires a bounded list/badge/action and role matrix. [S2]
+**Preserve / current evidence:** Multi-entity portal and sharing-withdrawal/no-access paths exist. A new VP-025-E01 subcase lets client administrators nominate a contact for staff review; it validates scope/duplicates, denies contributor and management personas, records an auditable pending request, and creates no identity/contact/access grant. Chrome verifies nomination and management approval actions are separated by persona. Nomination drafts are guarded across both entity and sibling-engagement changes: Stay keeps context/draft, Discard changes context without filing, and Save records against the original client before changing context. VP-025-E01 remains Partial for the complete list/badge/search/action matrix and additional entity/engagement combinations. [S2]
 
 **Required supported lifecycle:** choose permitted entity/engagement → inspect requests/files/messages → respond or acknowledge where authorized → switch role/scope → revisit exact historical response.
 
@@ -492,7 +492,7 @@ An empty “local open action” list means the module's named action rows are c
 
 **Coding guide:** Extend existing ClientPortalView projections and command guards; do not create separate portal copies of requests, invoices or documents. Keep simulated identity labels.
 
-**Verification:** Extend the existing AT-18/25 and VP-025-E01/E03 cases with a finite persona/action matrix and sentinel records. Record the actual source/build, fixture and assertion; use the existing unit/Chrome harness and do not manufacture reviewer approval.
+**Verification:** VP-025 nomination tests pass focused unit 2/2 and Chrome 1/1; latest full unit/E2E pass 278/278 and 132/132 (5 static + 127 Chrome), including guarded entity/engagement context switching. Extend AT-18/25 with the remaining finite list/badge/search/action matrix and sentinel records. Record the actual source/build, fixture and assertion; do not manufacture reviewer approval.
 
 ### RV-M09 — MOD-09: Client Requests / PBC
 
@@ -523,7 +523,7 @@ An empty “local open action” list means the module's named action rows are c
 
 **Work type:** Targeted verification / acceptance; implement only a reproduced gap.  
 **Original stories:** VP-020, VP-021.  
-**Local open action rows:** `VP-020-E01`, `VP-021-E01`  
+**Local open action rows:** `VP-021-E01`
 **Route/workspace:** `documents`.  
 **Implementation touchpoints:** [DocumentsLibraryView.tsx](https://github.com/nirzaf/auditsphere-visual-prototype/blob/975502a1f0fb31db3814da6d6bf6854cf9c8879e/src/components/modules/DocumentsLibraryView.tsx); existing `prototypeStore` commands, selectors and services.
 
@@ -598,13 +598,13 @@ An empty “local open action” list means the module's named action rows are c
 
 **Work type:** Confirmed code correction plus verification.  
 **Original stories:** VP-029.  
-**Local open action rows:** `VP-029-E01`, `VP-029-E02`  
+**Local open action rows:** None; VP-029-E01/E02 bounded evidence actions are complete, while criterion and story sign-off remain open.
 **Route/workspace:** `budgets`.  
 **Implementation touchpoints:** [BudgetsView.tsx](https://github.com/nirzaf/auditsphere-visual-prototype/blob/975502a1f0fb31db3814da6d6bf6854cf9c8879e/src/components/modules/BudgetsView.tsx); existing `prototypeStore` commands, selectors and services.
 
 **User story:** As a budget author, I want to revise a context-bound budget and reconcile allocated/unallocated actuals, so that a draft cannot be lost or saved to another engagement and variances remain explainable.
 
-**Preserve / current evidence:** Versioned budgets, pinned time rates and currency/privacy checks exist. F05 confirms missing draft registration; VP-029-E01/E02 retain unallocated/variance cases. [S2]
+**Preserve / current evidence:** Versioned budgets, pinned time rates and currency/privacy checks exist. F05 confirms missing draft registration; AT-29/AT-59 and budget lifecycle unit tests verify unallocated/variance cases and historical valuation. The E01/E02 action rows are complete, without promoting criterion or story acceptance. [S2]
 
 **Required supported lifecycle:** open exact engagement/base version → edit bounded lines → validate/save new version → compare approved time → inspect unmatched/unallocated effort → revise while historical rates remain pinned.
 
@@ -623,26 +623,26 @@ An empty “local open action” list means the module's named action rows are c
 
 **Work type:** Targeted verification / acceptance; implement only a reproduced gap.  
 **Original stories:** VP-030, VP-031.  
-**Local open action rows:** `VP-031-E01`  
+**Local open action rows:** None after 2026-09-27 bounded verification; VP-031 story/criterion acceptance remains open.
 **Route/workspace:** `billing`.  
 **Implementation touchpoints:** [BillingInvoicingView.tsx](https://github.com/nirzaf/auditsphere-visual-prototype/blob/975502a1f0fb31db3814da6d6bf6854cf9c8879e/src/components/modules/BillingInvoicingView.tsx); existing `prototypeStore` commands, selectors and services.
 
 **User story:** As a billing preparer and independent reviewer, I want to finish invoice date/reference and correction acceptance using the existing source-linked revision flow, so that invoice edits preserve source reservations and issued records remain immutable.
 
-**Preserve / current evidence:** VP-030-E01 now records source-linked Edit/Revise as implemented and tested. Do not recreate it. Remaining work is VP-031-E01 plus shared search visibility. [S2]
+**Preserve / current evidence:** VP-030-E01 records source-linked Edit/Revise. VP-031-E01 is now a complete bounded evidence action: focused money-guard tests validate invoice references/dates/bill-to snapshots; Chrome verifies source-linked totals/revisions; existing credit/cancellation and F01 search-scope regressions pass. Broader story acceptance and human criterion sign-off remain separate. Do not recreate source-linked editing. [S2]
 
 **Required supported lifecycle:** select eligible source → draft/edit → submit → independent return/revise/reapprove → issue locally → permitted credit → independent review → inspect settlement separately.
 
 **Acceptance criteria**
-- [ ] Validate the remaining original dates, numbers, references and required account/contact fields at both form and command boundaries.
-- [ ] Source-linked revision retains exact source lines/reservations and clears stale review; current displayed totals equal the retained line data.
-- [ ] Cancelled unissued drafts release only their own eligible reservation; issued invoices are corrected through the supported credit/revision process, not in-place edits.
-- [ ] Credits reject wrong-client/currency, over-cap, invalid precision and stale invoice conditions atomically.
-- [ ] Invoice issue/credit never creates a real payment or email delivery; forbidden roles cannot discover the invoice through search.
+- [x] Validate invoice dates, reference length/uniqueness, and required account/contact snapshots at form and command boundaries (VP-031 unit guard + source-linked invoice Chrome regression).
+- [x] Source-linked revision retains exact source lines and clears stale review; displayed total equals the retained line total (VP-030-E01/VP-031-E01 Chrome).
+- [x] Cancelled unissued drafts release only their eligible reservation; issued invoices reject direct cancellation/edit and use the supported credit flow (AT-30/31 unit + Chrome).
+- [x] Credits reject wrong-client/currency, over-cap, precision and stale-invoice conditions atomically (AT-30/31 unit + Chrome).
+- [x] Invoice issue/credit remains separate from payment/email; a narrow unauthorized grant cannot discover a sibling invoice in search (AT-31 + VP-061-E02 Chrome).
 
 **Coding guide:** Use BillingInvoicingView and existing invoice/revision/credit commands; preserve legacy engagement ownership normalization and source-consumption IDs. Do not add milestone scheduling or a second ledger.
 
-**Verification:** Extend AT-30/31/51 with the missing date/reference cases and retain the new source-linked draft regression. Record the actual source/build, fixture and assertion; use the existing unit/Chrome harness and do not manufacture reviewer approval.
+**Verification:** 2026-09-27: focused VP-031 command test and source-linked Chrome test; `npm run build`; full `npm run test:unit` (270/270) and `npm run test:e2e` (130/130); `git diff --check`. Fixture `createInitialState()` with billing identity, CL-001/ENG-26001 and approved TIME-01. Assertions cover invalid/impossible/reversed dates, empty/overlength/duplicate references, required account/contact snapshot, scenario-clock date, native form constraints, pinned source-total equality and exact retained lines. Existing AT-30/31 and VP-061-E02 cases cover cancellation/credit/review/search boundaries. Story/criterion sign-off is not implied.
 
 ### RV-M15 — MOD-15: Receivables
 
@@ -698,13 +698,13 @@ An empty “local open action” list means the module's named action rows are c
 
 **Work type:** Targeted verification / acceptance; implement only a reproduced gap.  
 **Original stories:** VP-017, VP-020, VP-021, VP-022, VP-026.  
-**Local open action rows:** `VP-020-E01`, `VP-021-E01`, `VP-026-E01`
+**Local open action rows:** `VP-021-E01`, `VP-026-E01`
 **Route/workspace:** `m365-setup`.  
 **Implementation touchpoints:** [M365SetupView.tsx](https://github.com/nirzaf/auditsphere-visual-prototype/blob/975502a1f0fb31db3814da6d6bf6854cf9c8879e/src/components/modules/M365SetupView.tsx); existing `prototypeStore` commands, selectors and services.
 
 **User story:** As a setup administrator, I want to finish configuration validation while keeping disconnected local workflows usable, so that the simulation explains failure and recovery without implying a live provider.
 
-**Preserve / current evidence:** Changed-resource, outage, disconnect and recovery evidence covers the bounded VP-017-E01 action; broader VP-017 criterion acceptance remains open. VP-020-E01, VP-021-E01 and VP-026-E01, plus dependent document/mail cases, remain. [S2]
+**Preserve / current evidence:** Changed-resource, outage, disconnect and recovery evidence covers the bounded VP-017-E01 action; broader VP-017 criterion acceptance remains open. VP-020-E01 has bounded workspace role/scope and label-only rename evidence recorded in the tracker; VP-021-E01 and VP-026-E01, plus dependent document/mail cases, remain. [S2]
 
 **Required supported lifecycle:** start/skip → choose synthetic resources → validate → simulate per-capability outcomes → review/save → resource change/stale result → explicit recovery/disconnect.
 
@@ -723,13 +723,13 @@ An empty “local open action” list means the module's named action rows are c
 
 **Work type:** Targeted verification / acceptance; implement only a reproduced gap.  
 **Original stories:** VP-018, VP-019.  
-**Local open action rows:** `VP-019-E01`  
+**Local open action rows:** None; VP-019-E01 is complete as a bounded evidence action. Original VP-019 criteria and story acceptance remain open.
 **Route/workspace:** `administration`.  
 **Implementation touchpoints:** [AdministrationView.tsx](https://github.com/nirzaf/auditsphere-visual-prototype/blob/975502a1f0fb31db3814da6d6bf6854cf9c8879e/src/components/modules/AdministrationView.tsx); existing `prototypeStore` commands, selectors and services.
 
 **User story:** As a access administrator, I want to complete reviewed role, expiry and group-scope decisions, so that an identity or relationship never silently grants professional authority.
 
-**Preserve / current evidence:** Revocation/expiry open-dialog removal is recorded Complete. VP-019-E01 still has the professional-role/expiry/group matrix, and F01 shows a consumer that does not fully apply scope. [S2]
+**Preserve / current evidence:** Revalidated 2026-09-27: role/evidence/expiry/group unit matrix 3/3; AT-17/AT-18 and F01 scoped-search Chrome journeys 2/2. The action is complete per canonical tracker; original VP-019 criterion/story acceptance remains open, and other command/projection cases are not claimed as tested. [S2]
 
 **Required supported lifecycle:** nominate/create synthetic identity → review request/evidence → grant exact compatible role/scope → test access → expire/revoke → inspect retained history.
 
@@ -748,13 +748,13 @@ An empty “local open action” list means the module's named action rows are c
 
 **Work type:** Targeted verification / acceptance; implement only a reproduced gap.  
 **Original stories:** VP-034.  
-**Local open action rows:** `VP-034-E01`, `VP-034-E02`  
+**Local open action rows:** None; VP-034-E01/E02 are complete as bounded verification actions. Original criteria/story acceptance remain open.
 **Route/workspace:** `accounting-setup`.  
 **Implementation touchpoints:** [AccountingWorkbenchView.tsx](https://github.com/nirzaf/auditsphere-visual-prototype/blob/975502a1f0fb31db3814da6d6bf6854cf9c8879e/src/components/modules/AccountingWorkbenchView.tsx); existing `prototypeStore` commands, selectors and services.
 
 **User story:** As a accounting preparer, I want to revise client, chart, period, book and dimensions with explicit downstream impact, so that reviewed outputs never remain current after a relevant setup change.
 
-**Preserve / current evidence:** Invalid setup and sibling mapping/statement staleness have evidence. VP-034-E01/E02 retain period/book/archive/dimension/migration combinations. [S2]
+**Preserve / current evidence:** VP-034-E01/E02 completed bounded implementation/evidence actions. Revalidated 2026-09-27: focused setup unit matrix 6/6; AT-34 + new empty-setup Chrome cases 2/2; full 267/267 unit and 128/128 E2E baseline. Criterion-level and story sign-off remain open. [S2]
 
 **Required supported lifecycle:** configure context → activate valid setup → import/use → edit bounded setting → preview impact → save new revision → mark dependent work stale → rebuild/review.
 
@@ -843,7 +843,7 @@ An empty “local open action” list means the module's named action rows are c
 
 **User story:** As a reconciliation preparer and reviewer, I want to finish the date, currency and scope cases around the working reconciliation lifecycle, so that a mathematically balanced schedule is accepted only with valid scoped evidence.
 
-**Preserve / current evidence:** Draft/review/return/rework and stale-source history exist. AT-39 asserts visible arithmetic ($1,000,000 GL = $999,900 statement + $100 timing, $0 unexplained residual), and displays `Unknown` rather than inventing an opening when the source has none. AT-36 imports a balanced GL with an explicit QAR 100 opening for account 1000 and verifies the reconciliation card's opening + movement = calculated close. Cards use the existing account-level GL roll-forward; EX06/EX08 cover opening calculations. The variance function resolves legacy `sourceBalance`/`supportingBalance` aliases and signed negative timing items. Header and item evidence reject foreign-client and same-client/sibling-engagement records. A correctly linked proposed correction also cannot hide an unexplained residual or approve its schedule. EX09 verifies the UI's `Proposed correction` and legacy `correction` types cannot offset timing residuals. Reconciliation amounts, residuals and headers use schedule/engagement currency instead of hard-coded QAR. VP-039-E01 remains Partial pending the broader currency/date/scope matrix and criterion review; external bank provenance is explicitly not a missing feature. [S2]
+**Preserve / current evidence:** Draft/review/return/rework and stale-source history exist. AT-39 asserts visible arithmetic ($1,000,000 GL = $999,900 statement + $100 timing, $0 unexplained residual), and displays `Unknown` rather than inventing an opening when the source has none. AT-36 imports a balanced GL with an explicit QAR 100 opening for account 1000 and verifies the reconciliation card's opening + movement = calculated close. Cards use the existing account-level GL roll-forward; EX06/EX08 cover opening calculations. The variance function resolves legacy `sourceBalance`/`supportingBalance` aliases and signed negative timing items. Header and item evidence reject foreign-client and same-client/sibling-engagement records. A correctly linked proposed correction also cannot hide an unexplained residual or approve its schedule. EX09 verifies the UI's `Proposed correction` and legacy `correction` types cannot offset timing residuals. Reconciliation amounts, residuals and headers use schedule/engagement currency instead of hard-coded QAR. VP-039-E01 bounded evidence action is complete; VP-039 criteria/story review and human sign-off remain open. External bank provenance is explicitly not a missing feature. [S2]
 
 **Required supported lifecycle:** select source/as-of date → enter typed items → compute residual → link evidence/correction → submit → independent review/return → revise → approve → replace source/reassess.
 
@@ -862,19 +862,19 @@ An empty “local open action” list means the module's named action rows are c
 
 **Work type:** Targeted verification / acceptance; implement only a reproduced gap.  
 **Original stories:** VP-040, VP-041.  
-**Local open action rows:** `VP-040-E01`, `VP-040-E03`, `VP-041-E03`  
+**Local open action rows:** `VP-040-E03`, `VP-041-E03`
 **Route/workspace:** `financial-statements`.  
 **Implementation touchpoints:** [FinancialStatementsView.tsx](https://github.com/nirzaf/auditsphere-visual-prototype/blob/975502a1f0fb31db3814da6d6bf6854cf9c8879e/src/components/modules/FinancialStatementsView.tsx); existing `prototypeStore` commands, selectors and services.
 
 **User story:** As a statement preparer and reviewer, I want to complete the supported statement set across source, comparative, layout and disclosure changes, so that each displayed or exported amount is traceable to reviewed current inputs.
 
-**Preserve / current evidence:** Layout editing and bounded cash-flow/equity support exist. VP-040-E01/E03 and VP-041-E03 retain full supported-set and disclosure/rework acceptance. [S2]
+**Preserve / current evidence:** Layout editing and bounded cash-flow/equity support exist. VP-040-E01's bounded source-replacement, exact subtotal and reviewed-output regeneration action is complete; VP-040-E03 and VP-041-E03 retain full supported-set and disclosure/rework acceptance. The VP-040 story remains Partial. [S2]
 
 **Required supported lifecycle:** select current/prior sources → approved mapping → layout/group/subtotal → movement schedules/notes → independent review → package → input change → stale → regenerate/review.
 
 **Acceptance criteria**
 - [ ] Each supported layout group/subtotal, current figure and comparative reconciles to the selected source and mapping revision.
-- [ ] A changed current/prior source, mapping or layout invalidates the correct reviewed output; regeneration creates a fresh revision and leaves historical output intact.
+- [x] **Bounded evidence (2026-09-27):** AT-37 covers current/prior totals, comparative mapping, layout/subtotal export and layout staleness; a focused store test replaces a current TB with balanced +100 asset/+100 liability changes, preserves the old reviewed snapshot as Stale, regenerates with exact source-aligned totals/subtotal and obtains independent re-review. Broader supported operations, criteria and story acceptance remain open under VP-040-E03 / VP-041-E03 and owner sign-off.
 - [ ] Cash-flow/equity inputs produce only amounts supported by the approved fixture; absent component equity mapping remains unavailable, not invented from a combined total.
 - [ ] Note applicability, evidence, sharing and independent review are revision-bound; note/schedule changes stale package composition.
 - [ ] Client-visible artifacts contain only explicitly shared note content and exclude internal work/review material.
@@ -912,13 +912,13 @@ An empty “local open action” list means the module's named action rows are c
 
 **Work type:** Targeted verification / acceptance; implement only a reproduced gap.  
 **Original stories:** VP-043, VP-044, VP-045, VP-046.  
-**Local open action rows:** `VP-045-E02`, `VP-045-R01`  
+**Local open action rows:** none after 2026-09-27 targeted verification; VP-045 story acceptance remains Partial.
 **Route/workspace:** `consolidation`.  
 **Implementation touchpoints:** [ConsolidationView.tsx](https://github.com/nirzaf/auditsphere-visual-prototype/blob/975502a1f0fb31db3814da6d6bf6854cf9c8879e/src/components/modules/ConsolidationView.tsx); existing `prototypeStore` commands, selectors and services.
 
 **User story:** As a group-reporting preparer and reviewer, I want to finish manual elimination edge cases in the supported two-component profile, so that group totals stay reproducible when sources, rates or decisions change.
 
-**Preserve / current evidence:** Perimeter, translation and separate group-output lineage have evidence. VP-045-E02/R01 retain duplicate/mixed-context/staleness and contractual unmatched semantics. [S2]
+**Preserve / current evidence:** Perimeter, translation and separate group-output lineage have evidence. VP-045-E02 proves replacement-package staleness with retained journal revision, plus invalid counterparty/currency atomicity; existing checks cover duplicate inclusion, unbalanced lines and the visible unmatched residual. VP-045-R01 reconciles the original contract: a separately modeled unmatched record is not required because the explained residual remains visible for manual inspection. Broader story/criterion acceptance remains open. [S2]
 
 **Required supported lifecycle:** pin supported components → choose approved rates → identify pair/residual → draft elimination → submit → independent return/amend/approve → group output → upstream change → re-review.
 
@@ -1037,13 +1037,13 @@ An empty “local open action” list means the module's named action rows are c
 
 **Work type:** Targeted verification / acceptance; implement only a reproduced gap.  
 **Original stories:** VP-019, VP-062.  
-**Local open action rows:** `VP-019-E01`  
+**Local open action rows:** None; VP-019-E01 is complete as a bounded evidence action. Original VP-019 criteria and shared acceptance remain open.
 **Route/workspace:** `administration / services`.  
 **Implementation touchpoints:** [AdministrationView.tsx](https://github.com/nirzaf/auditsphere-visual-prototype/blob/975502a1f0fb31db3814da6d6bf6854cf9c8879e/src/components/modules/AdministrationView.tsx); existing `prototypeStore` commands, selectors and services.
 
 **User story:** As a firm administrator, I want to complete settings and access acceptance without acquiring professional authority, so that defaults affect future records while historic invoices and approvals remain unchanged.
 
-**Preserve / current evidence:** VP-062-E01/E02 and settings ownership reconciliation are Complete. Remaining module concerns overlap VP-019-E01 and shared context/documentation. [S2]
+**Preserve / current evidence:** VP-062-E01/E02, VP-019-E01 and settings ownership reconciliation are complete as bounded evidence actions. Remaining module concerns are original-story/shared acceptance and broader scope combinations, not an open local E01 action. [S2]
 
 **Required supported lifecycle:** edit permitted firm defaults → validate/save with reason → create future draft → inspect consumed numbering/terms → reject collision → review historical records → manage scoped access.
 
@@ -1224,42 +1224,42 @@ Record: original criterion/action; exact source SHA and dirty diff/tree hash; pa
 
 This inventory preserves the original IDs. It was transcribed from the pinned detailed rows and counted programmatically. `Partial`, `Pending` and explicitly subcase-only verification remain open; ordinary `Complete`, `Reconciled` and `Verified` rows are not counted as new implementation work. Source: tracker §9.3–9.4. [S2]
 
-### 8.1 Open verification/action rows — 33
+### 8.1 Verification/action register — 32 entries (16 open; 16 bounded closures)
 
 | Original action | Current row class | Specific remaining closure |
 |---|---|---|
-| [VP-003-E01](https://github.com/nirzaf/auditsphere-visual-prototype/blob/975502a1f0fb31db3814da6d6bf6854cf9c8879e/docs/Progress_Tracker.md#L2601) | Partial | Dirty client-profile Escape/backdrop decisions now have Stay/Discard and focus-return proof at 320/390/768px (AT-53); finish dialog-specific save/cancel/close/Escape/Enter/focus-return coverage across the remaining active-modal families. See `docs/prototype/verification.md`, entry 83. |
+| [VP-003-E01](https://github.com/nirzaf/auditsphere-visual-prototype/blob/975502a1f0fb31db3814da6d6bf6854cf9c8879e/docs/Progress_Tracker.md#L2601) | Partial | Dirty client-profile Escape/backdrop decisions have Stay/Discard and focus-return proof at 320/390/768px (AT-53); finding, budget-authoring and adjustment-proposal dialogs prove accessible naming, `aria-modal` and both Tab wrap boundaries. The 2026-09-27 Chrome harness now checks semantics, name, focus containment and forward/reverse Tab wrapping for each distinct dialog reached by the existing journeys (at least 10 surfaces; verification log). These checks do not complete dialog-specific save/cancel/close/Escape/Enter/focus-return coverage across every active-modal family. |
 | [VP-003-E02](https://github.com/nirzaf/auditsphere-visual-prototype/blob/975502a1f0fb31db3814da6d6bf6854cf9c8879e/docs/Progress_Tracker.md#L2602) | Partial | Complete dirty-form protection across remaining forms and route, hash, client, engagement and persona transitions. |
-| [VP-004-E01](https://github.com/nirzaf/auditsphere-visual-prototype/blob/975502a1f0fb31db3814da6d6bf6854cf9c8879e/docs/Progress_Tracker.md#L2603) | Partial | Exercise recovery using authentic historical persisted shapes, not only current fixtures with old version numbers. |
-| [VP-008-E01](https://github.com/nirzaf/auditsphere-visual-prototype/blob/975502a1f0fb31db3814da6d6bf6854cf9c8879e/docs/Progress_Tracker.md#L2609) | Partial | Close remaining Client 360 tab actions, exact targets and multiple engagement-scope combinations. |
-| [VP-010-E01](https://github.com/nirzaf/auditsphere-visual-prototype/blob/975502a1f0fb31db3814da6d6bf6854cf9c8879e/docs/Progress_Tracker.md#L2610) | Partial | Verify all contractual proposal/service/template fields, fee arithmetic and rendered preview/print content. |
-| [VP-010-E02](https://github.com/nirzaf/auditsphere-visual-prototype/blob/975502a1f0fb31db3814da6d6bf6854cf9c8879e/docs/Progress_Tracker.md#L2611) | Partial | Complete bounded proposal return/revise/redisplay cases without rewriting earlier presentations. |
-| [VP-011-E01](https://github.com/nirzaf/auditsphere-visual-prototype/blob/975502a1f0fb31db3814da6d6bf6854cf9c8879e/docs/Progress_Tracker.md#L2612) | Partial | Complete stale-dialog, withdrawn/revised-response, return-reason and invalid-evidence cases. |
-| [VP-011-E02](https://github.com/nirzaf/auditsphere-visual-prototype/blob/975502a1f0fb31db3814da6d6bf6854cf9c8879e/docs/Progress_Tracker.md#L2613) | Partial | Verify response methods and linked correspondence/document references for the permitted actors. |
-| [VP-012-E02](https://github.com/nirzaf/auditsphere-visual-prototype/blob/975502a1f0fb31db3814da6d6bf6854cf9c8879e/docs/Progress_Tracker.md#L2615) | Partial | Close Closed-state and cross-view historical-output behavior across engagement transitions. |
-| [VP-019-E01](https://github.com/nirzaf/auditsphere-visual-prototype/blob/975502a1f0fb31db3814da6d6bf6854cf9c8879e/docs/Progress_Tracker.md#L2622) | Partial | Complete professional-role approval evidence, expiry and narrow group/component grant combinations. |
-| [VP-020-E01](https://github.com/nirzaf/auditsphere-visual-prototype/blob/975502a1f0fb31db3814da6d6bf6854cf9c8879e/docs/Progress_Tracker.md#L2624) | Partial | Complete workspace prerequisite, exact-root, retry, rename and permitted-scope combinations. |
-| [VP-021-E01](https://github.com/nirzaf/auditsphere-visual-prototype/blob/975502a1f0fb31db3814da6d6bf6854cf9c8879e/docs/Progress_Tracker.md#L2626) | Partial | Complete document availability/restore, wrong-root and linked-version cases across relevant roles and record types. |
+| [VP-004-E01](https://github.com/nirzaf/auditsphere-visual-prototype/blob/975502a1f0fb31db3814da6d6bf6854cf9c8879e/docs/Progress_Tracker.md#L2603) | Complete | Authentic schema-5 historical seed plus a schema-v28 damaged-current-payload journey; migration repairs only exact unchanged synthetic invoice identity and preserves the original bytes. |
+| VP-008-E01 | Partial | Existing tab semantics, cross-client exclusion, exact child targets, filtered portfolio restoration and scoped workspaces are covered; remaining representative tab actions and same-client sibling-scope combinations are open. |
+| VP-010-E01 | Complete bounded evidence action | Chrome covers reusable authoring, defaults, multi-line arithmetic, reversed dates, every displayed proposal field, print-media visibility/layout/control omission and genuine PDF output. Full original criterion/story acceptance remains open. |
+| VP-010-E02 | Complete bounded evidence action | AT-58 Chrome returns, revises, independently reapproves and re-presents while retaining the previous presented snapshot; unit coverage verifies immutable snapshots through the response/rework chain. Focused Chrome 1/1; current full E2E 130/130. |
+| VP-011-E01 | Complete bounded evidence action | Unit lifecycle retains withdrawn responses and requires revision/reapproval/re-presentation before a subsequent response; AT-56 verifies a staff-recorded withdrawal with active contact/correspondence evidence. Current full unit 270/270 and E2E 130/130 pass. |
+| VP-011-E02 | Complete bounded evidence action | Unit matrix demonstrates Email, Meeting and Letter with evidence against the exact presented revision; AT-09/AT-52 cover client-facing Meeting/Letter flows. No signature capture or provider verification is claimed. Current full unit 270/270 and E2E 130/130 pass. |
+| VP-012-E02 | Partial | The 2026-09-27 run adds a 49-command professional write/review matrix denied atomically across Suspended, Closed and Cancelled (147 attempts), including financial-package assembly before storage checks; partner navigation through 30+ Closed-state views with unchanged linked-output counts; and a denied valid New Job submission that is not persisted. Existing Chrome journeys cover reasoned suspend/resume/close/cancellation history, retained links and reload. Other professional output commands and UI action affordances, plus broader terminal-state output combinations, remain open. |
+| VP-019-E01 | Complete bounded evidence action | Unit matrix verifies professional-role evidence distinct from request references, role-mismatched grant denial, inclusive/exclusive effective windows, and narrow group grant isolation from client/engagement lists. The bounded matrix is complete; broader VP-019 criteria/story acceptance remain open. |
+| [VP-020-E01](https://github.com/nirzaf/auditsphere-visual-prototype/blob/975502a1f0fb31db3814da6d6bf6854cf9c8879e/docs/Progress_Tracker.md#L2624) | Complete bounded evidence action | Role/grant/active-client matrix, ambiguous engagement rejection, exact-root and sibling engagement folders, idempotent retry, label-only rename preserving stable paths/document/evidence identity; full story acceptance remains Partial. |
+| [VP-021-E01](https://github.com/nirzaf/auditsphere-visual-prototype/blob/975502a1f0fb31db3814da6d6bf6854cf9c8879e/docs/Progress_Tracker.md#L2626) | Partial | The 2026-09-27 focused role/scope matrix covers manager/partner restore and rename/move, preparer/reviewer/unrelated-client denial, and same-client sibling-engagement denial for a narrow manager. Complete remaining wrong-root, availability and linked-version combinations across relevant record types/roles; acceptance-owner sign-off remains open. |
 | VP-023-E02 | Complete bounded evidence action | AT-23/24 and `pbcRequestFilters` matrix; full story acceptance remains open. |
-| [VP-025-E01](https://github.com/nirzaf/auditsphere-visual-prototype/blob/975502a1f0fb31db3814da6d6bf6854cf9c8879e/docs/Progress_Tracker.md#L2634) | Partial | Complete portal list, badge, search, action, nomination and acknowledgement role/resource matrix. |
+| [VP-025-E01](https://github.com/nirzaf/auditsphere-visual-prototype/blob/975502a1f0fb31db3814da6d6bf6854cf9c8879e/docs/Progress_Tracker.md#L2634) | Partial | Nomination/action role increment verified 2026-09-27, including unsaved-draft Stay/Discard/Save on both entity and sibling-engagement switches; complete portal list, badge, search and resource matrix across entity/engagement contexts remains open. |
 | [VP-026-E01](https://github.com/nirzaf/auditsphere-visual-prototype/blob/975502a1f0fb31db3814da6d6bf6854cf9c8879e/docs/Progress_Tracker.md#L2636) | Partial | Verify unavailable sender, unresolved placeholders, document-link scope and template permissions. |
 | [VP-027-E02](https://github.com/nirzaf/auditsphere-visual-prototype/blob/975502a1f0fb31db3814da6d6bf6854cf9c8879e/docs/Progress_Tracker.md#L2637) | Partial | Complete publication/correction, linked-request and attachment cases across permitted actors and contexts. |
 | [VP-028-E01](https://github.com/nirzaf/auditsphere-visual-prototype/blob/975502a1f0fb31db3814da6d6bf6854cf9c8879e/docs/Progress_Tracker.md#L2638) | Partial | Complete time-entry date/duration/link-scope cases and effective totals in every consuming view. |
-| [VP-029-E01](https://github.com/nirzaf/auditsphere-visual-prototype/blob/975502a1f0fb31db3814da6d6bf6854cf9c8879e/docs/Progress_Tracker.md#L2640) | Partial | Close unallocated/job budget aggregation against the fixed arithmetic fixture. |
-| [VP-029-E02](https://github.com/nirzaf/auditsphere-visual-prototype/blob/975502a1f0fb31db3814da6d6bf6854cf9c8879e/docs/Progress_Tracker.md#L2641) | Partial | Complete bounded budget change, historical-rate and variance cases; require review only where the contract does. |
-| [VP-031-E01](https://github.com/nirzaf/auditsphere-visual-prototype/blob/975502a1f0fb31db3814da6d6bf6854cf9c8879e/docs/Progress_Tracker.md#L2643) | Partial | Complete invoice date/reference and revision/correction cases; source-linked editing now exists. |
-| [VP-034-E01](https://github.com/nirzaf/auditsphere-visual-prototype/blob/975502a1f0fb31db3814da6d6bf6854cf9c8879e/docs/Progress_Tracker.md#L2648) | Partial | Finish accounting period/book/client/chart edits and downstream rework across sibling engagements. |
-| [VP-034-E02](https://github.com/nirzaf/auditsphere-visual-prototype/blob/975502a1f0fb31db3814da6d6bf6854cf9c8879e/docs/Progress_Tracker.md#L2649) | Partial | Close archived-account, dimension-only and migration cases without changing reviewed historical outputs. |
-| [VP-039-E01](https://github.com/nirzaf/auditsphere-visual-prototype/blob/975502a1f0fb31db3814da6d6bf6854cf9c8879e/docs/Progress_Tracker.md#L2656) | Partial | Complete the bounded reconciliation currency/date/scope matrix and criterion-level evidence. |
-| [VP-040-E01](https://github.com/nirzaf/auditsphere-visual-prototype/blob/975502a1f0fb31db3814da6d6bf6854cf9c8879e/docs/Progress_Tracker.md#L2657) | Partial | Finish current/prior source, mapping and layout regeneration cases with exact expected subtotals. |
+| [VP-029-E01](https://github.com/nirzaf/auditsphere-visual-prototype/blob/975502a1f0fb31db3814da6d6bf6854cf9c8879e/docs/Progress_Tracker.md#L2640) | Complete bounded evidence action | AT-29 arithmetic/missing-cost unit, AT-59 once-per-engagement/job-budget and currency Chrome, and unallocated-line variance/rate-less Unknown unit; broader criterion sign-off remains open. |
+| [VP-029-E02](https://github.com/nirzaf/auditsphere-visual-prototype/blob/975502a1f0fb31db3814da6d6bf6854cf9c8879e/docs/Progress_Tracker.md#L2641) | Complete bounded evidence action | v1→v2 history, planned-fee restatement, unchanged approved-time and invoice valuations, variance assertions and contract confirmation that a separate budget-review workflow is out of scope; broader criterion sign-off remains open. |
+| VP-031-E01 | Complete bounded evidence action | 2026-09-27 unit + full Chrome evidence closes date/reference/bill-to and source-linked total/revision checks; AT-30/31 covers cancellation/credits and VP-061-E02 covers denied invoice search. Broader VP-031 story acceptance remains open. |
+| [VP-034-E01](https://github.com/nirzaf/auditsphere-visual-prototype/blob/975502a1f0fb31db3814da6d6bf6854cf9c8879e/docs/Progress_Tracker.md#L2648) | Complete bounded evidence action | AT-34 and focused unit evidence cover client/profile revision/history, period/book/chart/dimension changes, retained approved mapping snapshots plus new Draft rework mappings, and dependent output staleness for same-client engagements. VP-034 unit 6/6 and Chrome 2/2 pass; full criteria/sign-off remain open. |
+| [VP-034-E02](https://github.com/nirzaf/auditsphere-visual-prototype/blob/975502a1f0fb31db3814da6d6bf6854cf9c8879e/docs/Progress_Tracker.md#L2649) | Complete bounded evidence action | Closed/foreign-book and invalid chart/dimension/account guards; dimension-only revisions preserve approved mapping predecessors and stale dependent outputs; archived-account change stales reviewed statements while preserving approved bytes and blocks TB intake; migrated “Not selected” basis blocks intake. Focused VP-034 unit 6/6 and Chrome 2/2 pass; broader criteria/sign-off remain open. |
+| [VP-039-E01](https://github.com/nirzaf/auditsphere-visual-prototype/blob/975502a1f0fb31db3814da6d6bf6854cf9c8879e/docs/Progress_Tracker.md#L2656) | Complete (bounded evidence action) | Explicit/unknown opening, source replacement, residual/evidence/review lifecycle and finite date/currency/scope checks are evidenced; story/criterion acceptance and human sign-off remain open. |
+| [VP-040-E01](https://github.com/nirzaf/auditsphere-visual-prototype/blob/975502a1f0fb31db3814da6d6bf6854cf9c8879e/docs/Progress_Tracker.md#L2657) | Complete bounded evidence action | AT-37 covers current/prior totals, approved split mapping, layout/subtotal preview and XLSX, and layout/comparative-mapping staleness; current TB replacement now additionally proves exact totals/subtotal, stale predecessor preservation, regeneration and independent re-review. Full VP-040 story acceptance remains Partial; VP-040-E03 and VP-041-E03 remain open. |
 | [VP-040-E03](https://github.com/nirzaf/auditsphere-visual-prototype/blob/975502a1f0fb31db3814da6d6bf6854cf9c8879e/docs/Progress_Tracker.md#L2658) | Verified subcase only | Close full supported statement coverage around the verified cash-flow/equity subcase. |
 | [VP-041-E03](https://github.com/nirzaf/auditsphere-visual-prototype/blob/975502a1f0fb31db3814da6d6bf6854cf9c8879e/docs/Progress_Tracker.md#L2659) | Verified subcase only | Close the remaining disclosure/schedule rework and client-sharing acceptance beyond verified subcases. |
-| [VP-045-E02](https://github.com/nirzaf/auditsphere-visual-prototype/blob/975502a1f0fb31db3814da6d6bf6854cf9c8879e/docs/Progress_Tracker.md#L2665) | Partial | Complete duplicate/mixed-context elimination and source/rate/perimeter invalidation cases. |
+| [VP-045-E02](https://github.com/nirzaf/auditsphere-visual-prototype/blob/975502a1f0fb31db3814da6d6bf6854cf9c8879e/docs/Progress_Tracker.md#L2665) | Complete bounded evidence action | Existing unit/Chrome coverage rejects duplicate pair/account inclusions in either order, unbalanced/unmapped/mixed-context records, and proves component-package replacement, FX-rate change and perimeter changes invalidate independent approval while retaining history/revision. The unmatched residual remains visible. Broader VP-045 criterion/story acceptance remains Partial; no automatic matching or separate unmatched-record model is implied. |
 | [VP-061-E02](https://github.com/nirzaf/auditsphere-visual-prototype/blob/975502a1f0fb31db3814da6d6bf6854cf9c8879e/docs/Progress_Tracker.md#L2675) | Partial | Finish search scope/role/target coverage; the F01 sibling-engagement and role leaks are fixed and tested. |
-| [VP-063-E01](https://github.com/nirzaf/auditsphere-visual-prototype/blob/975502a1f0fb31db3814da6d6bf6854cf9c8879e/docs/Progress_Tracker.md#L2678) | Pending | Execute the approved criterion-level positive, invalid, scope, stale, rework, reload and failure matrix. |
+| [VP-063-E01](https://github.com/nirzaf/auditsphere-visual-prototype/blob/975502a1f0fb31db3814da6d6bf6854cf9c8879e/docs/Progress_Tracker.md#L2678) | Partial | Execute the criterion-level positive, invalid, scope, stale, rework, reload and failure matrix across the 256 original criteria; owner/reviewer sign-off remains a separate human gate. |
 | [VP-063-E02](https://github.com/nirzaf/auditsphere-visual-prototype/blob/975502a1f0fb31db3814da6d6bf6854cf9c8879e/docs/Progress_Tracker.md#L2679) | Pending | Bind each result to the exact source/build, fixture, assertion and artifact. |
-| [VP-064-E01](https://github.com/nirzaf/auditsphere-visual-prototype/blob/975502a1f0fb31db3814da6d6bf6854cf9c8879e/docs/Progress_Tracker.md#L2681) | Pending | Publish one consistent criterion-to-evidence map and reconcile conflicting status documents. |
-| [VP-064-E02](https://github.com/nirzaf/auditsphere-visual-prototype/blob/975502a1f0fb31db3814da6d6bf6854cf9c8879e/docs/Progress_Tracker.md#L2682) | Pending | Rehearse the presenter guide on the same pinned build, including fresh/empty and failure/rework paths. |
+| [VP-064-E01](https://github.com/nirzaf/auditsphere-visual-prototype/blob/975502a1f0fb31db3814da6d6bf6854cf9c8879e/docs/Progress_Tracker.md#L2681) | Partial | Keep the 256-row numeric ledger and its 68/70/74/182 reconciled index current; continue mapping remaining criteria and resolving cross-document conflicts. Human/reviewer acceptance remains open. |
+| [VP-064-E02](https://github.com/nirzaf/auditsphere-visual-prototype/blob/975502a1f0fb31db3814da6d6bf6854cf9c8879e/docs/Progress_Tracker.md#L2682) | Pending | Rehearse the presenter guide on the same pinned committed/released build, including fresh/empty and failure/rework paths. |
 
 ### 8.2 Open scope/reconciliation rows — 2
 
@@ -1274,7 +1274,7 @@ This inventory preserves the original IDs. It was transcribed from the pinned de
 
 **Important:** the current 35 rows overlap capabilities and acceptance obligations. A scope row and a verification row can refer to the same feature. Ten Partial modules have no open module-local action in this inventory; that does not erase their original story/shared acceptance, and it does not justify inventing new work.
 
-The following Partial modules have complete local action rows apart from shared obligations: MOD-01, MOD-05, MOD-06, MOD-15, MOD-21, MOD-25, MOD-28, MOD-29, MOD-30 and MOD-34. MOD-06's shared-draft defect F05 is fixed and regression-tested; original story acceptance remains open. MOD-21's bounded control comparison is complete, but broader VP-036 story acceptance remains open. MOD-39's settings actions are complete, but its shared IAM responsibility still links to VP-019-E01.
+The following Partial modules have complete local action rows apart from shared obligations: MOD-01, MOD-05, MOD-06, MOD-15, MOD-20, MOD-21, MOD-25, MOD-28, MOD-29, MOD-30, MOD-34 and MOD-39. MOD-06's shared-draft defect F05 is fixed and regression-tested; original story acceptance remains open. MOD-20/21 bounded accounting/GL actions are complete, but broader criteria/story acceptance remains open. MOD-39's settings actions and shared VP-019-E01 action are complete; its original criteria/overall acceptance remain open.
 
 ## 9. Cross-module acceptance journeys and completion gates
 
@@ -1299,7 +1299,7 @@ At least one complete primary journey must start with manually entered business 
 ### 9.2 Recommended order
 
 1. F01, F02 and F05 repair slice is implemented and regression-tested; retain those regressions while closing the remaining scope/draft-guard acceptance.
-2. F03/F04 and the action-count/storage-guidance reconciliation (41-row review baseline to 33 current open actions) are implemented; continue the broader shared UI and original-story acceptance.
+2. F03/F04 and the action-count/storage-guidance reconciliation (41-row review baseline to 26 current open actions) are implemented; continue the broader shared UI and original-story acceptance.
 3. Close the remaining source/review/financial handoffs: MOD-20–26 and connected invoice/communication cases.
 4. Close the remaining portal, Client 360, role and proposal matrices; obtain authentic migration evidence.
 5. Reuse complete local-action evidence for the acceptance-only modules rather than rebuilding them.
@@ -1420,7 +1420,7 @@ summary["total_open_action_rows"] = sum(row["open"] for row in rows)
 print(json.dumps(summary, indent=2))
 ```
 
-Expected current inventory: **84 enumerated verification rows / 31 open** (49 Complete, 4 Verified, 25 Partial, 4 Pending, 2 verified-subcase follow-ups), **38 scope rows / 2 open** (2 Partial), **33 total open action rows**. The diagnostic treats explicit verified-subcase follow-up as open and prints the exact current open IDs; rerun it against the tracker before changing these counts.
+Expected current inventory: **121 action-table rows** (83 verification/evidence + 38 scope). The §9.3 evidence-card status recount is 75 Complete, 6 Partial and 2 Pending; Section 8 separately lists **19 remaining actions** (17 verification follow-ups + 2 scope, including 2 verified-subcase follow-ups). The diagnostic treats explicit verified-subcase follow-up as open and prints the exact current open IDs; rerun it against the tracker before changing these counts.
 
 ### 10.3 Standalone source-expression probe
 
@@ -1545,3 +1545,23 @@ All links below point to the reviewed SHA, so later repository changes cannot si
 **Progress update — 2026-09-26:** commercial inquiry, client-profile and Client 360 PBC create, clarification and edit/reassignment forms now use separate keyed unsaved-form guards; dirty close/backdrop actions require a decision, and the shared transition prompt has explicit accessible dialog semantics. Focused Chrome verifies inquiry/profile/PBC Stay and Discard, inquiry/profile Save, and no persisted discarded request/thread edits. Current regression: 231/231 unit and 109/109 serialized E2E (5 static + 104 Chrome), production build/typecheck, lint and diff checks pass; no deployment performed. These changes add evidence to VP-003 but close no complete VP-003 acceptance row; the broad remaining guard matrix and other pending actions remain.
 
 **Final decision:** the five source-confirmed findings and the bounded VP-003 acquisition/client-profile/PBC draft-guard slice are fixed and regression-tested; tracker counts and storage guidance remain reconciled. Do not claim 100% completion: 36 action rows, 48 Partial stories and 29 Partial modules remain, alongside original-criterion evidence and human acceptance. Continue closing bounded acceptance work against the original contract, preserving what already works.
+
+**Current-worktree progress update — 2026-09-27 (supersedes the historical status/counts above, not the pinned review findings or original requirements):**
+
+- `#search` is explicitly classified as a stale legacy hash that redirects to Overview; Search remains a modal utility. Client personas no longer receive whole-practice recovery export/import/reset controls after storage failure. Direct-only workspace routes are checked across active role fixtures. These VP-003 subcases are regression-tested; VP-003-E02 remains Partial for the wider editable-form/context matrix.
+- Reconciliation validation binds the schedule to its selected engagement-owned accounting period: as-of and item dates remain in-period and items cannot postdate as-of; malformed IDs/types, non-cent amounts and explicit context/currency mismatches reject atomically. Start/end period positives pass, and an independent USD fixture proves the store preserves USD without conversion or mixed-currency arithmetic. AT-36 and AT-39 jointly verify explicit versus absent opening, GL replacement, residual/evidence/review lifecycle; focused Chrome 2/2. VP-039-E01 bounded action is complete; criterion/story review and human sign-off remain open.
+- Accounting setup now rejects duplicate dimension IDs/names and unsupported dimension labels before saving; period/book edits retain revisions and stale dependent outputs; archived-account intake and migrated unselected reporting-basis cases remain guarded. Chart- or dimension-only changes preserve each approved mapping snapshot and create a new Draft revision with copied mapping content for re-review; dimension-only rework also stales reviewed statements across same-client engagements. Focused VP-034 unit cases 6/6 and AT-34 Chrome 1/1 pass. VP-034-E01/E02 bounded evidence actions are closed in the canonical tracker; VP-034 stories/criteria remain Partial pending broader combinations and review.
+- A reproduced MOD-22 journal-line integrity gap is fixed: unsupported debit/credit types and supplied client, engagement or currency context that disagrees with the journal are now rejected atomically on both create and amendment. Regression coverage verifies failed attempts leave no new journal or mutate amendment history. VP-038 remains Partial; AC01/AC04 and human sign-off are not promoted.
+- MOD-24 has direct evidence references for VP-040-AC01–AC04 and VP-041-AC01–AC04. AT-37 covers supported comparative statement detail/totals, preview/XLSX layout, revision staleness and unavailable unsupported equity; unit tests cover the versioned layout and cash-flow/disclosure lifecycle; AT-41/42/48 proves only explicitly shared notes reach package output. Replaced a conditional disclosure lifecycle test that could skip its key assertion with a deterministic save/review test proving package-generation advancement, retained history and cleared candidate/approval. Fresh full regression: unit 266/266, serialized Chrome/static E2E 128/128 and lint/build pass. Stories VP-040/041 and MOD-24 remain Partial: broad finite matrices and criterion/human sign-off are not complete.
+- MOD-25's four criteria now link directly to export-format tests and AT-37/38/40/41/42/48 for genuine formats/content/watermarks, generation failure cleanup, immutable predecessor artifacts/decisions with separate replacement acknowledgement, and internal-content exclusion. Focused export unit 4/4 and AT-37 + AT-38/40 browser 2/2 pass; one isolated AT-38/40 run without its earlier setup journey failed before export assertions, while the same case passed with AT-37 in front and in the full serialized suite. Current criterion-ledger index: 62 criteria with test/source reference counts, 60 with verification-reference counts, 66 with either and 190/256 with neither. VP-042 remains Partial for the broader sharing matrix and human sign-off.
+- MOD-26 VP-045-E02/R01 are complete after focused guards and Chrome evidence. A current component-package replacement returns an approved elimination to Draft, clears approval binding, prevents stale approval reuse, and preserves the journal revision and lines. The test also rejects unsupported counterparties and group-currency mismatch atomically; existing tests cover duplicate inclusion and AT-45/VP-045-AC03 confirms the $100 unmatched residual remains visible. Original-contract review shows no separately persisted “unmatched item” entity is required—the stated scope is manual visibility and explanation, with no automatic matching. Fresh full regression including this work passes 268/268 unit and 129/129 E2E. VP-045 remains Partial and no story sign-off is inferred.
+- Evidence records no longer treat “approve and continue” as human product acceptance. The detailed action tables contain 121 rows (83 verification + 38 scope), with 19 open follow-up rows (17 verification + 2 scope); VP-003-E02, VP-063-E01 and VP-064-E01 are three highlighted residual actions, not an exhaustive open-row count. VP-004-E01, VP-010-E01/E02, VP-011-E01/E02, VP-019-E01, VP-020-E01, VP-029-E01/E02, VP-031-E01, VP-034-E01/E02, VP-039-E01, VP-040-E01 and VP-045-E02 bounded evidence actions are complete, with criterion/story acceptance still open. VP-025-E01 now includes a bounded client-contact nomination increment, but remains Partial for its complete portal list/badge/search/action matrix. VP-003-E01 gains cross-journey dialog semantics and keyboard-focus evidence but remains Partial for full dialog-specific paths. VP-008-E01 and VP-012-E02 retain broader follow-up scope. Separately, 16/64 stories and 10/39 modules are Verified, with the rest Partial. The latest full worktree regression passes 278/278 unit and 132/132 E2E (5 static + 127 Chrome); build/typecheck, lint, and focused nomination unit/Chrome checks pass. Billing’s returned credit-note editor now uses baseline-aware dirty detection and accurately confirms an in-place save before route transition; VP-031 date/reference and source-linked total/revision evidence is closed as a bounded action, while story/criterion sign-off remains separate. The dedicated Chrome journeys pass, while VP-003-E02 remains Partial for the broader role/client/engagement/direct-target matrix. The criterion ledger maps VP-004 recovery, VP-029 budgets, MOD-19/39 access control, MOD-20 accounting setup, MOD-21 TB/GL/mapping, MOD-22 journal decisions, MOD-24 statements/disclosures, MOD-25 packages, MOD-26 consolidation, MOD-28 planning, MOD-29 risk/program lifecycle, MOD-30 fieldwork and MOD-34 findings/differences, in addition to VP-039. Its numeric index records 70 criteria with test/source references, 68 with verification references, 74 with either and 182/256 with neither. These references do not change story status or constitute reviewer sign-off.
+- MOD-28: the materiality view removes hard-coded threshold ranges and shows an accessible professional-boundary notice stating calculations use user-entered assumptions and plan approval does not constitute professional authority or audit sign-off. The rebuilt Chrome VP-048-AC01–AC04/VP-049 journey verifies the note, blank defaults, validation, calculations, independent review and revision/rework; VP-048 unit guards and deterministic calculation tests are tagged to their original criteria. Current full regression passes 268/268 unit and 129/129 E2E; lint/build pass. Criterion/story sign-off remains open and no deployment was performed.
+- MOD-29: existing risk/procedure reciprocity and cross-engagement guards, permitted-owner matrix, template publication/application snapshots and risk-driven plan/procedure reassessment are tagged to VP-049-AC01–AC04. Focused unit 3/3 and Chrome journeys 2/2 pass; full regression is 268/268 unit and 129/129 E2E. Criterion and story sign-off remain open; no new module workflow or deployment was introduced.
+- MOD-30: VP-050-AC01–AC04 directly reference the existing fieldwork Chrome journey and source-replacement guard: saved work/result and limitations, visible exceptions after clearance, preparer-versus-manager separation, reviewer/history context, workpaper version invalidation and no upload-driven blanket clearance. Focused Chrome 1/1 and unit guard 1/1 pass; full regression is 268/268 unit and 129/129 E2E. Original criterion/story sign-off remains open; no deployment performed.
+- MOD-34: VP-054-AC01–AC04 directly map to finding/source and gross/net guards, reasoned disposition/provenance tests, corrected-in-TB journal reflection, and the browser’s cross-view release/reporting consistency. Focused guard 2/2 and Chrome 2/2 pass; full regression is 268/268 unit and 129/129 E2E. The four original criteria remain open for actual human sign-off; no deployment performed.
+- VP-019-E01 reconciliation: the stale review-guide checklist said the action remained Partial, but the canonical tracker already marks it Complete. Re-ran its unit role/evidence/expiry/group matrix 3/3 plus AT-17/AT-18 and F01 scoped-search Chrome journeys 2/2. The guide now marks the action’s bounded matrix complete and links VP-019-AC01–AC04 to direct subcases; broader acceptance and the actual story remain open. No privilege scope or product behavior was changed.
+- MOD-20 reconciliation: VP-034-E01/E02 had conflicting story-section checkboxes marked partial while the action summary recorded both complete. Focused unit setup matrix 6/6 and AT-34 plus VP-034-AC04 Chrome 2/2 passed. The added empty-profile flow preserves “Not selected,” offers a manual Add account action, creates only an unsaved draft, and changes no invoices/receipts/journals or excluded tax/payroll settings. The guide/tracker now agree these bounded actions are complete; story criteria/sign-off remain open.
+- Verification: current candidate passes the full unit suite 270/270 and serialized build/Chrome/static E2E 130/130 (5 static + 125 Chrome), including schema-v29 seeded-invoice recovery, MOD-28/29/30/34, VP-019/034/039, and VP-031 date/reference/source-total cases. `npm run lint`, `npm run build`, progress validation and `git diff --check` pass. No deployment was performed.
+
+Continue with the guide’s next user-story modules, reconcile remaining tracker/criterion references, and complete the full candidate acceptance before requesting actual human sign-off. The historical §8 inventory is a pinned review baseline; use `docs/Progress_Tracker.md` for the current action queue.

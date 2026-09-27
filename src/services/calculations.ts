@@ -512,21 +512,29 @@ export function calculateReconciliationVariance(rec: ReconciliationSchedule) {
     return isProposedCorrection(item);
   });
 
-  const timingSum = timingItems.reduce((s, i) => s + (i.amount || 0), 0);
-  const correctionSum = proposedCorrections.reduce((s, i) => s + (i.amount || 0), 0);
+  // Store guards admit cent-precision amounts. Sum integer cents so common
+  // decimal combinations (for example 0.10 + 0.20) cannot render a false
+  // residual or disagree with the review gate due to IEEE-754 noise.
+  const timingCents = timingItems.reduce((sum, item) => sum + Math.round((item.amount || 0) * 100), 0);
+  const correctionCents = proposedCorrections.reduce((sum, item) => sum + Math.round((item.amount || 0) * 100), 0);
+  const timingSum = timingCents / 100;
+  const correctionSum = correctionCents / 100;
 
   const statementBal = (rec as any).statementBalance ?? (rec as any).supportingBalance ?? (rec as any).statementClosingBalance ?? 0;
   const glBal = (rec as any).glBalance ?? (rec as any).sourceBalance ?? (rec as any).glClosingBalance ?? 0;
 
   // Reconciled variance uses only genuine timing items against statement balance
-  const diff = Math.abs(statementBal + timingSum - glBal);
+  const statementCents = Math.round(statementBal * 100);
+  const sourceCents = Math.round(glBal * 100);
+  const residualCents = Math.abs(statementCents + timingCents - sourceCents);
+  const diff = residualCents / 100;
 
   return {
     timingSum,
     correctionSum,
     unexplainedDifference: diff,
     // Reconciliation is achieved only if unexplained timing diff is zero AND no pending unreflected corrections
-    isReconciled: diff === 0
+    isReconciled: residualCents === 0
   };
 }
 

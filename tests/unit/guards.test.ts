@@ -59,9 +59,64 @@ describe('scope guards (AT-18)', () => {
     assert.equal(engs.includes('ENG-26003'), false);
   });
 
+  it('does not apply a grant issued to a different role for the same identity', () => {
+    state.currentUserId = 'manager';
+    state.currentRole = 'manager';
+    state.currentPerson = 'Layla Rahman';
+    state.selectedEngagement = 'ENG-26001';
+    state.roleGrants = state.roleGrants.filter(grant => grant.userId !== 'manager');
+    state.roleGrants.push({ userId: 'manager', role: 'preparer', scopeKind: 'Engagement', scopeId: 'ENG-26001' });
+    assert.deepEqual(visibleEngagementIds(state), [], 'the manager cannot inherit a preparer grant bound to the same identity');
+    assert.equal(hasSelectedEngagementScope(state), false, 'the mismatched grant does not authorize its restored engagement');
+  });
+
   it('client identity with two grants sees both entities', () => {
     const clients = visibleClientIds(state, 'client_admin');
     assert.deepEqual([...(clients as string[])].sort(), ['CL-001', 'CL-003']);
+  });
+});
+
+describe('client contact nomination (VP-025)', () => {
+  beforeEach(() => prototypeStore.importStateJSON(JSON.stringify(createInitialState())));
+
+  it('records a client administrator nomination for staff review without creating an identity, contact or access grant', () => {
+    prototypeStore.setPersona('client_admin');
+    const before = prototypeStore.getSnapshot();
+    const nominationId = prototypeStore.nominateClientContact({ clientId: 'CL-001', name: 'Noura Example', email: 'Noura@example.test', reason: 'Supports the year-end bank reconciliation.' });
+    const after = prototypeStore.getSnapshot();
+    const nomination = after.clientContactNominations!.find(item => item.id === nominationId)!;
+    assert.equal(nomination.email, 'noura@example.test');
+    assert.equal(nomination.status, 'Pending review');
+    assert.equal(nomination.nominatedByUserId, 'client_admin');
+    assert.equal(after.users.length, before.users.length);
+    assert.equal(after.contacts.length, before.contacts.length);
+    assert.deepEqual(after.roleGrants, before.roleGrants);
+    assert.equal(after.clientContactNominations!.length, 1);
+    prototypeStore.setPersona('manager');
+    prototypeStore.reviewClientContactNomination(nominationId, 'Identity and authority reviewed; add separately if approved.');
+    const reviewed = prototypeStore.getSnapshot();
+    assert.equal(reviewed.clientContactNominations!.find(item => item.id === nominationId)!.status, 'Reviewed');
+    assert.equal(reviewed.clientContactNominations!.find(item => item.id === nominationId)!.reviewedByUserId, 'manager');
+    assert.equal(reviewed.users.length, before.users.length, 'staff review does not create an identity');
+    assert.equal(reviewed.contacts.length, before.contacts.length, 'staff review does not silently add a client contact');
+    assert.deepEqual(reviewed.roleGrants, before.roleGrants, 'staff review does not grant access');
+  });
+
+  it('denies contributor, management approver, out-of-scope and duplicate pending nominations', () => {
+    const input = { clientId: 'CL-001', name: 'Noura Example', email: 'noura@example.test', reason: 'Year-end support.' };
+    for (const persona of ['client_finance', 'client']) {
+      prototypeStore.setPersona(persona);
+      assert.throws(() => prototypeStore.nominateClientContact(input), /cannot nominate/i, `${persona} cannot nominate contacts`);
+    }
+    prototypeStore.setPersona('client_admin');
+    assert.throws(() => prototypeStore.nominateClientContact({ ...input, clientId: 'CL-002' }), /scope|permitted|access/i, 'the admin cannot nominate for a client outside their grants');
+    const nominationId = prototypeStore.nominateClientContact(input);
+    assert.throws(() => prototypeStore.nominateClientContact({ ...input, email: 'NOURA@example.test' }), /already awaiting review/i);
+    assert.throws(() => prototypeStore.nominateClientContact({ ...input, email: 'not-an-email' }), /valid contact email/i);
+    prototypeStore.setPersona('client_admin');
+    assert.throws(() => prototypeStore.reviewClientContactNomination(nominationId, 'Not a reviewer.'), /cannot review/i, 'client administrator cannot mark their own nomination reviewed');
+    prototypeStore.setPersona('manager');
+    assert.throws(() => prototypeStore.reviewClientContactNomination(nominationId, '  '), /review note is required/i);
   });
 });
 
@@ -212,7 +267,7 @@ describe('safe job cancellation (VP-013)', () => {
 });
 
 describe('accounting setup guards (AT-34)', () => {
-  it('versions setup, pins engagement context, and rejects invalid hierarchy and period ranges', async () => {
+  it('VP-034-AC01/AC02/AC03: versions setup, pins engagement context, and rejects invalid dimensions, hierarchy and period ranges', async () => {
     const { prototypeStore } = await import('../../src/store/prototypeStore.js');
     (prototypeStore as any).state = createInitialState();
     const current = (prototypeStore as any).state as PrototypeState;
@@ -223,6 +278,15 @@ describe('accounting setup guards (AT-34)', () => {
     profile.legalEntityName = `${client.name} Holdings`;
     profile.dimensions = [{ id: 'dept', name: 'Department', values: ['Sales'], active: true }];
     profile.accounts.push({ code: '9900', name: 'New account', type: 'asset', posting: true, active: true });
+    current.accountMappingRevisions ||= [];
+    const approvedMappings = new Map<string, any>();
+    for (const related of current.engagements.filter(item => item.client === client.id)) {
+      const revision = Math.max(0, ...current.accountMappingRevisions.filter(mapping => mapping.engagementId === related.id).map(mapping => mapping.revision)) + 1;
+      const mapping = { engagementId: related.id, revision, mappings: [{ accountCode: related.rows[0].code, targets: [{ statementLine: 'Cash and cash equivalents', percentage: 100 }] }], status: 'Approved' as const, preparedBy: 'preparer', reviewedBy: 'reviewer' };
+      current.accountMappingRevisions.push(mapping);
+      approvedMappings.set(related.id, mapping);
+      related.mappingApproved = true;
+    }
     const book = profile.periodBooks.find(item => item.id === engagement.accountingPeriodBookId)!;
     const previousGeneration = engagement.generation;
     engagement.packageRevision = 1;
@@ -236,11 +300,23 @@ describe('accounting setup guards (AT-34)', () => {
     assert.throws(() => prototypeStore.saveAccountingProfile(client.id, { ...profile, periodBooks: profile.periodBooks.map(item => item.id === book.id ? { ...item, ownerEngagementId: foreignEngagement.id } : item) }, engagement.id, book.id), /owner engagement for this client/);
     assert.throws(() => prototypeStore.saveAccountingProfile(client.id, { ...profile, periodBooks: profile.periodBooks.map(item => item.id === book.id ? { ...item, status: 'Closed' as const } : item) }, engagement.id, book.id), /open period book/);
     assert.throws(() => prototypeStore.saveAccountingProfile(client.id, { ...profile, dimensions: [{ id: 'dept', name: 'Department', values: ['Sales', ' sales '], active: true }] }, engagement.id, book.id), /unique dimension values/);
+    assert.throws(() => prototypeStore.saveAccountingProfile(client.id, { ...profile, dimensions: [{ id: 'dept', name: 'Department', values: ['Sales'], active: true }, { id: ' dept ', name: 'Cost centre', values: ['North'], active: true }] }, engagement.id, book.id), /unique identifiers\/names/);
+    assert.throws(() => prototypeStore.saveAccountingProfile(client.id, { ...profile, dimensions: [{ id: 'dept', name: 'Department', values: ['Sales'], active: true }, { id: 'location', name: 'Department', values: ['North'], active: true }] }, engagement.id, book.id), /unique identifiers\/names/);
+    assert.throws(() => prototypeStore.saveAccountingProfile(client.id, { ...profile, dimensions: [{ id: 'dept', name: 'Unsupported dimension' as any, values: ['Sales'], active: true }] }, engagement.id, book.id), /supported dimensions/);
     const revision = prototypeStore.saveAccountingProfile(client.id, profile, engagement.id, book.id);
     assert.equal(revision, 2);
     assert.equal(client.accountingProfile!.history.at(-1)?.revision, 1);
     assert.equal(engagement.accountingProfileRevision, 2);
     assert.equal(engagement.accountingChartRevision, 2);
+    for (const [relatedId, priorMapping] of approvedMappings) {
+      const related = current.engagements.find(item => item.id === relatedId)!;
+      const revisions = current.accountMappingRevisions.filter(mapping => mapping.engagementId === relatedId).sort((a, b) => a.revision - b.revision);
+      assert.equal(priorMapping.status, 'Approved', 'the prior reviewed mapping snapshot remains approved');
+      assert.equal(revisions.at(-2)?.status, 'Approved', 'setup rework does not overwrite the approved predecessor');
+      assert.equal(revisions.at(-1)?.status, 'Draft', 'the affected mapping is carried forward as a new draft revision');
+      assert.deepEqual(revisions.at(-1)?.mappings, priorMapping.mappings, 'the rework draft starts from the exact prior mapping content');
+      assert.equal(related.mappingApproved, false, 'the engagement cannot treat the mapping as current before re-review');
+    }
     assert.equal(engagement.generation, previousGeneration + 1);
     assert.equal(engagement.packageHistory[0].generation, previousGeneration, 'the existing package remains pinned to its prior generation');
     assert.equal(current.statementSetRevisions[0].status, 'Stale', 'setup changes stale dependent statement output');
@@ -259,23 +335,100 @@ describe('accounting setup guards (AT-34)', () => {
   });
 });
 
+describe('dimension-only accounting setup rework (VP-034-AC03)', () => {
+  it('preserves approved mapping snapshots and creates rework drafts for same-client engagements', () => {
+    (prototypeStore as any).state = state;
+    (prototypeStore as any).isSessionOnly = true;
+    setPersona(state, 'Layla Rahman');
+    const engagement = state.engagements.find(item => item.id === 'ENG-26001')!;
+    const client = state.clients.find(item => item.id === engagement.client)!;
+    const profile = structuredClone(client.accountingProfile!);
+    const dimension = profile.dimensions[0] || { id: 'dept', name: 'Department' as const, values: [], active: true };
+    profile.dimensions = [{ ...dimension, values: [...dimension.values, 'VP034-new-value'] }];
+    state.accountMappingRevisions ||= [];
+    const priorMappings = new Map<string, any>();
+    state.statementSetRevisions = [];
+    for (const related of state.engagements.filter(item => item.client === client.id)) {
+      const history = state.accountMappingRevisions.filter(mapping => mapping.engagementId === related.id);
+      const revision = Math.max(0, ...history.map(mapping => mapping.revision)) + 1;
+      const approved = { engagementId: related.id, revision, mappings: [{ accountCode: related.rows[0].code, targets: [{ statementLine: 'Cash and cash equivalents', percentage: 100 }] }], status: 'Approved' as const, preparedBy: 'preparer', reviewedBy: 'reviewer' };
+      state.accountMappingRevisions.push(approved);
+      priorMappings.set(related.id, approved);
+      related.mappingApproved = true;
+      state.statementSetRevisions.push({ id: `VP034-DIM-${related.id}`, engagementId: related.id, status: 'Reviewed' } as any);
+    }
+    const previousChartRevision = profile.chartRevision;
+    const book = profile.periodBooks.find(item => item.ownerEngagementId === engagement.id)!;
+
+    prototypeStore.saveAccountingProfile(client.id, profile, engagement.id, book.id);
+
+    assert.equal(client.accountingProfile!.chartRevision, previousChartRevision, 'a dimension-only change does not rewrite the chart revision');
+    for (const [engagementId, approved] of priorMappings) {
+      const related = state.engagements.find(item => item.id === engagementId)!;
+      const revisions = state.accountMappingRevisions.filter(mapping => mapping.engagementId === engagementId).sort((a, b) => a.revision - b.revision);
+      assert.equal(approved.status, 'Approved', 'the approved predecessor remains unchanged');
+      assert.equal(revisions.at(-2)?.status, 'Approved');
+      assert.equal(revisions.at(-1)?.status, 'Draft', 'each affected engagement gets a new mapping revision for rework');
+      assert.deepEqual(revisions.at(-1)?.mappings, approved.mappings, 'the new draft retains the exact approved mapping content');
+      assert.equal(related.mappingApproved, false);
+      assert.equal(state.statementSetRevisions.find(item => item.id === `VP034-DIM-${engagementId}`)?.status, 'Stale');
+    }
+  });
+});
+
 describe('reconciliation schedules (VP-039)', () => {
-  it('pins drafts to the TB source, requires independent review, preserves revisions and stales on source change', async () => {
+  it('VP-039-AC04: keeps a valid USD reconciliation in USD without combining or converting QAR balances', async () => {
+    const { prototypeStore } = await import('../../src/store/prototypeStore.js');
+    const usdState = createInitialState();
+    const engagement = usdState.engagements.find(item => item.id === 'ENG-26001')!;
+    const client = usdState.clients.find(item => item.id === engagement.client)!;
+    engagement.currency = 'USD';
+    client.accountingProfile!.baseCurrency = 'USD';
+    setPersona(usdState, 'Layla Rahman');
+    (prototypeStore as any).state = usdState;
+    const sourceBalance = engagement.rows.find(row => row.code === '1000')!.balance;
+    const scheduleId = prototypeStore.saveReconciliationSchedule(engagement.id, {
+      name: 'USD-only reconciliation', ref: 'REC-USD-ONLY', accountCode: '1000', status: 'Draft', evidence: 'DOC-002',
+      asOfDate: '2026-09-23', currency: 'USD', sourceVersion: engagement.sourceVersion, statementBalance: sourceBalance - 100,
+      items: [{ id: 'RI-USD-ONLY', date: '2026-09-23', description: 'USD timing item', amount: 100, type: 'Timing item', currency: 'USD' }]
+    });
+    const saved = engagement.reconciliations.find(item => item.id === scheduleId)!;
+    assert.equal(saved.currency, 'USD');
+    assert.equal(saved.statementBalance, sourceBalance - 100);
+    assert.equal(saved.items?.[0].amount, 100, 'the schedule retains its original amount and never converts or adds a QAR balance');
+  });
+
+  it('VP-039-AC02/AC03/AC04: validates residuals and scope, preserves reviewed history, and stales on source change', async () => {
     const { prototypeStore } = await import('../../src/store/prototypeStore.js');
     (prototypeStore as any).state = state;
     const engagement = state.engagements.find(item => item.id === 'ENG-26001')!;
     const account = engagement.rows.find(row => row.code === '1000')!;
     state.currentUserId = 'manager'; state.currentRole = 'manager'; state.currentPerson = 'Layla Rahman';
     const input = { name: 'VP-039 schedule', ref: 'REC-VP039', accountCode: account.code, status: 'Draft' as const, evidence: 'DOC-002', asOfDate: state.asOfDate, sourceVersion: engagement.sourceVersion, statementBalance: account.balance, items: [] };
+    const book = state.clients.find(client => client.id === engagement.client)!.accountingProfile!.periodBooks.find(item => item.id === engagement.accountingPeriodBookId)!;
     const schedulesBeforeInvalidSaves = structuredClone(engagement.reconciliations);
-    assert.throws(() => prototypeStore.saveReconciliationSchedule(engagement.id, { ...input, asOfDate: '2026-02-30' }), /valid as-of date/);
+    assert.throws(() => prototypeStore.saveReconciliationSchedule(engagement.id, { ...input, asOfDate: '2026-02-30' }), /valid account and an as-of date/);
+    assert.throws(() => prototypeStore.saveReconciliationSchedule(engagement.id, { ...input, engagementId: 'ENG-26003' } as any), /valid account and an as-of date/, 'a caller cannot silently rebind a schedule to another engagement');
+    assert.throws(() => prototypeStore.saveReconciliationSchedule(engagement.id, { ...input, asOfDate: '2025-12-31' }), /within the selected engagement period book/);
+    assert.throws(() => prototypeStore.saveReconciliationSchedule(engagement.id, { ...input, asOfDate: '2027-01-01' }), /within the selected engagement period book/);
     assert.throws(() => prototypeStore.saveReconciliationSchedule(engagement.id, { ...input, asOfDate: '2026-01-01', items: [{ id: 'RI-BEFORE-ASOF', date: '2026-01-02', description: 'After as-of date', amount: 1, type: 'Timing item' }] }), /dated in-scope items/);
     assert.throws(() => prototypeStore.saveReconciliationSchedule(engagement.id, { ...input, items: [{ id: 'RI-FUTURE', date: '2099-01-01', description: 'Out of period', amount: 1, type: 'Timing item' }] }), /dated in-scope items/);
+    assert.throws(() => prototypeStore.saveReconciliationSchedule(engagement.id, { ...input, asOfDate: book.startDate, items: [{ id: 'RI-BEFORE-PERIOD', date: '2025-12-31', description: 'Before period', amount: 1, type: 'Timing item' }] }), /selected period book/);
     assert.throws(() => prototypeStore.saveReconciliationSchedule(engagement.id, { ...input, items: [{ id: 'RI-IMPOSSIBLE', date: '2026-02-30', description: 'Impossible date', amount: 1, type: 'Timing item' }] }), /dated in-scope items/);
     assert.throws(() => prototypeStore.saveReconciliationSchedule(engagement.id, { ...input, items: [{ id: 'RI-USD', date: state.asOfDate, description: 'Wrong currency', amount: 1, type: 'Timing item', currency: 'USD' }] }), /engagement currency/);
+    assert.throws(() => prototypeStore.saveReconciliationSchedule(engagement.id, { ...input, currency: 'USD' }), /engagement currency/, 'an explicitly mismatched schedule currency cannot be silently normalized to the engagement currency');
+    assert.throws(() => prototypeStore.saveReconciliationSchedule(engagement.id, { ...input, currency: '' }), /engagement currency/, 'an explicitly blank currency is not silently normalized');
+    assert.throws(() => prototypeStore.saveReconciliationSchedule(engagement.id, { ...input, statementBalance: 1.001 }), /finite cent-accurate balances/);
     assert.throws(() => prototypeStore.saveReconciliationSchedule(engagement.id, { ...input, items: [{ id: 'RI-NAN', date: state.asOfDate, description: 'Non-finite amount', amount: Number.NaN, type: 'Timing item' }] }), /finite balances and complete/);
+    assert.throws(() => prototypeStore.saveReconciliationSchedule(engagement.id, { ...input, items: [{ id: 'RI-SUBCENT', date: state.asOfDate, description: 'Sub-cent amount', amount: 1.001, type: 'Timing item' }] }), /finite balances and complete/);
+    assert.throws(() => prototypeStore.saveReconciliationSchedule(engagement.id, { ...input, items: [{ id: 'RI-BAD-TYPE', date: state.asOfDate, description: 'Unsupported item type', amount: 1, type: 'Other' }] } as any), /dated in-scope items within the selected period book/);
+    assert.throws(() => prototypeStore.saveReconciliationSchedule(engagement.id, { ...input, items: [{ id: 5, date: state.asOfDate, description: 'Malformed identifier', amount: 1, type: 'Timing item' }] } as any), /unique identifiers/);
     assert.throws(() => prototypeStore.saveReconciliationSchedule(engagement.id, { ...input, items: [{ id: 'RI-DUP', date: state.asOfDate, description: 'Duplicate item', amount: 1, type: 'Timing item' }, { id: 'RI-DUP', date: state.asOfDate, description: 'Duplicate item', amount: 2, type: 'Timing item' }] }), /complete, dated in-scope items/);
     assert.deepEqual(engagement.reconciliations, schedulesBeforeInvalidSaves, 'invalid date, currency and amount combinations do not partially persist a schedule');
+    for (const boundary of [book.startDate, book.endDate]) {
+      const boundaryId = prototypeStore.saveReconciliationSchedule(engagement.id, { ...input, ref: `REC-${boundary}`, asOfDate: boundary, items: [{ id: `RI-${boundary}`, date: boundary, description: `Valid boundary ${boundary}`, amount: 0.01, type: 'Timing item' }] });
+      assert.equal(engagement.reconciliations.find(item => item.id === boundaryId)?.asOfDate, boundary, `period boundary ${boundary} is valid`);
+    }
     const id = prototypeStore.saveReconciliationSchedule(engagement.id, input);
     let schedule = engagement.reconciliations.find(item => item.id === id)!;
     assert.equal(schedule.glBalance, account.balance);
@@ -388,7 +541,7 @@ describe('fixture integrity (AT-02/AT-54)', () => {
     assert.equal(migratedFrom, 2);
     assert.equal(migrated.engagements.length > 0, true);
     assert.equal(warnings.length > 0, true);
-    assert.equal(migrated.schema, 28);
+    assert.equal(migrated.schema, 29);
   });
   it('adds proposal catalogue and historical period/fee metadata when upgrading pre-v25 state', () => {
     const legacy = structuredClone(createInitialState()) as any;
@@ -460,9 +613,33 @@ describe('fixture integrity (AT-02/AT-54)', () => {
     assert.equal(unresolved.invoices[0].lines, undefined, 'custom invoice details must not receive invented lines');
     assert.ok(validateFixtures(unresolved).some(issue => issue.code === 'INVOICE_LINES'));
   });
-  it('upgrades each persisted schema revision through current v28 without losing histories', () => {
+  it('repairs only unchanged seeded invoice shape in a current v28 browser payload', () => {
+    const currentButDamaged = structuredClone(createInitialState()) as any;
+    currentButDamaged.schema = 28;
+    delete currentButDamaged.invoices[0].clientId;
+    delete currentButDamaged.invoices[0].lines;
+    const { state: migrated, warnings } = migratePersistedState(currentButDamaged, createInitialState());
+    assert.equal(migrated.schema, 29);
+    assert.equal(migrated.invoices[0].clientId, 'CL-001');
+    assert.deepEqual(migrated.invoices[0].lines, createInitialState().invoices[0].lines);
+    assert.ok(warnings.some(warning => warning.includes('Restored missing client link for unchanged seeded invoice INV-26001')));
+    assert.ok(warnings.some(warning => warning.includes('Restored missing line collection for unchanged seeded invoice INV-26001')));
+    assert.deepEqual(validateFixtures(migrated), []);
+
+    const customized = structuredClone(createInitialState()) as any;
+    customized.schema = 28;
+    delete customized.invoices[0].clientId;
+    delete customized.invoices[0].lines;
+    customized.invoices[0].description = 'Client-customized invoice';
+    const unresolved = migratePersistedState(customized, createInitialState()).state;
+    assert.equal(unresolved.invoices[0].clientId, undefined);
+    assert.equal(unresolved.invoices[0].lines, undefined);
+    assert.ok(validateFixtures(unresolved).some(issue => issue.code === 'FK_INVOICE_CLIENT'));
+    assert.ok(validateFixtures(unresolved).some(issue => issue.code === 'INVOICE_LINES'));
+  });
+  it('upgrades each persisted schema revision through current v29 without losing histories', () => {
     const seed = createInitialState();
-    for (let version = 0; version <= 27; version++) {
+    for (let version = 0; version <= 28; version++) {
       const legacy = structuredClone(seed) as any;
       legacy.schema = version;
       if (version < 28) {
@@ -497,7 +674,7 @@ describe('fixture integrity (AT-02/AT-54)', () => {
       if (version < 21) legacy.archives?.forEach((archive: any) => { delete archive.history; delete archive.predecessorArchiveId; });
       if (version < 23) for (const group of legacy.consolidationGroups) { delete group.reportingBasis; group.components.forEach((component: any) => delete component.packageReview); }
       const { state: migrated } = migratePersistedState(legacy, createInitialState());
-      assert.equal(migrated.schema, 28, `schema ${version} should reach v28`);
+      assert.equal(migrated.schema, 29, `schema ${version} should reach v29`);
       assert.equal(migrated.users.some(user => user.id === 'superuser' && user.role === 'superuser'), true, 'the v28 upgrade adds the synthetic prototype superuser');
       assert.equal(migrated.consolidationGroups[0].components.find(item => item.componentId === 'ENG-26002')?.role, 'Subsidiary');
       assert.equal(migrated.consolidationGroups[0].components.find(item => item.componentId === 'ENG-26002')?.status, version < 23 ? 'Pending' : seed.consolidationGroups[0].components.find(item => item.componentId === 'ENG-26002')?.status);
@@ -544,6 +721,44 @@ describe('fixture integrity (AT-02/AT-54)', () => {
 });
 
 describe('document reference lifecycle (VP-021)', () => {
+  it('limits unavailable-reference changes to scoped manager and partner identities (VP-021-E01)', () => {
+    (prototypeStore as any).state = state;
+    const document = state.documents.find(item => item.id === 'DOC-002')!;
+    const validFolderPath = '/Engagements/2026/Accounting/';
+    const before = structuredClone({ brokenLink: document.brokenLink, events: state.activityLog });
+
+    for (const name of ['Adam Khan', 'Sara Malik', 'Aisha Saleh']) {
+      setPersona(state, name);
+      assert.throws(() => prototypeStore.setDocumentAvailability(document.id, true, 'Simulated source outage'), /cannot change document reference availability/, `${name} cannot alter link availability`);
+      assert.throws(() => prototypeStore.updateDocumentReference(document.id, 'Unauthorized rename.pdf', document.folderPath), /cannot rename or move documents/, `${name} cannot rename or move documents`);
+      assert.equal(document.brokenLink, before.brokenLink, `${name} denial preserves document availability`);
+      assert.equal(document.name, 'Bank_Statement_December.pdf', `${name} denial preserves document identity and name`);
+      assert.deepEqual(state.activityLog, before.events, `${name} denial creates no event`);
+    }
+
+    // Mona is a manager but has only the ENG-26001 grant. The in-scope file is
+    // reachable, while a file for a sibling engagement in the same client is not.
+    const siblingFile = { ...document, id: 'DOC-021-SIBLING', engagementId: 'ENG-26002', brokenLink: false };
+    state.documents.push(siblingFile);
+    setPersona(state, 'Mona Khalil');
+    prototypeStore.setDocumentAvailability(document.id, true, 'Scoped source outage');
+    prototypeStore.updateDocumentReference(document.id, 'Mona scoped rename.pdf', validFolderPath);
+    assert.equal(document.brokenLink, true, 'engagement-scoped manager can update an in-scope file');
+    assert.equal(document.name, 'Mona scoped rename.pdf', 'engagement-scoped manager can rename an in-scope file');
+    assert.throws(() => prototypeStore.setDocumentAvailability(siblingFile.id, true, 'Out-of-scope source outage'), /outside the current scoped grant/, 'same-client sibling file is denied');
+    assert.throws(() => prototypeStore.updateDocumentReference(siblingFile.id, 'Out-of-scope rename.pdf', siblingFile.folderPath), /outside the current scoped grant/, 'same-client sibling rename is denied');
+    assert.equal(siblingFile.brokenLink, false, 'out-of-scope denial leaves sibling file unchanged');
+    assert.equal(siblingFile.name, 'Bank_Statement_December.pdf', 'out-of-scope denial cannot rename the sibling file');
+
+    for (const name of ['Daniel James', 'Layla Rahman']) {
+      setPersona(state, name);
+      prototypeStore.setDocumentAvailability(document.id, false);
+      assert.equal(document.brokenLink, false, `${name} can restore an in-scope reference`);
+      prototypeStore.updateDocumentReference(document.id, 'Bank_Statement_December.pdf', validFolderPath);
+      prototypeStore.setDocumentAvailability(document.id, true, 'Recheck role grant');
+    }
+  });
+
   it('renames and moves without changing identity, and blocks unavailable evidence until restored', () => {
     (prototypeStore as any).state = state;
     setPersona(state, 'Layla Rahman');
@@ -1227,6 +1442,93 @@ describe('opportunity and proposal lifecycle (AT-07/AT-08)', () => {
 });
 
 describe('engagement lifecycle suspension (VP-012)', () => {
+  it('blocks representative professional outputs across work, accounting, audit and delivery commands in every inactive lifecycle state', () => {
+    const target = prototypeStore as any;
+    const lifecycleStates = ['Suspended', 'Closed', 'Cancelled'] as const;
+    for (const lifecycleStatus of lifecycleStates) {
+      target.state = createInitialState();
+      setPersona(target.state, 'Layla Rahman');
+      const asPartner = (run: () => unknown) => {
+        const identity = { currentUserId: target.state.currentUserId, currentPerson: target.state.currentPerson, currentRole: target.state.currentRole };
+        setPersona(target.state, 'Daniel James');
+        try { return run(); } finally { Object.assign(target.state, identity); }
+      };
+      const engagement = target.state.engagements.find((item: any) => item.id === 'ENG-26001');
+      target.setEngagementLifecycle(engagement.id, lifecycleStatus, `VP-012 guard matrix: ${lifecycleStatus}`);
+      const job = target.state.jobs.find((item: any) => item.engagementId === engagement.id);
+      const client = target.state.clients.find((item: any) => item.id === engagement.client);
+      const task = target.state.jobTasks.find((item: any) => item.jobId === job.id);
+      const document = target.state.documents.find((item: any) => item.engagementId === engagement.id);
+      const timeEntry = target.state.times.find((item: any) => item.engagementId === engagement.id);
+      const request = engagement.pbc[0];
+      target.state.communications.push({ id: 'VP012-INBOUND-FIXTURE', clientId: engagement.client, engagementId: engagement.id, direction: 'Inbound', author: 'Layla Rahman', date: target.state.asOfDate, channel: 'Email', summary: 'Existing communication', participants: 'Client contact', visibility: 'Internal' });
+      target.state.evidenceCatalogue.push({ id: 'VP012-EVIDENCE-FIXTURE', documentId: document.id, status: 'Linked' });
+      target.state.findings.push({ id: 'VP012-FINDING-FIXTURE', engagementId: engagement.id, title: 'Existing finding', disposition: 'Proposed for correction', dispositionHistory: [] });
+      target.state.auditPlans = [{ id: 'VP012-BLOCKED-PLAN', engagementId: engagement.id, version: 1, status: 'Under review', preparedByUserId: 'user-preparer' }];
+      engagement.disclosureHistory = [{ id: 'VP012-BLOCKED-DISCLOSURE', revision: 1, status: 'Draft' }];
+      engagement.cashFlowScheduleHistory = [{ id: 'VP012-BLOCKED-CF', engagementId: engagement.id, revision: 1, status: 'Draft' }];
+      const deniedActions: Array<[string, () => unknown]> = [
+        ['job creation', () => target.addJob({ id: 'VP012-BLOCKED-JOB', clientId: engagement.client, engagementId: engagement.id, title: 'Blocked', owner: 'Layla Rahman', dueDate: target.state.asOfDate, status: 'Not started' })],
+        ['job update', () => target.updateJob({ ...structuredClone(job), title: 'Must remain unchanged' })],
+        ['task creation', () => target.addTask({ id: 'VP012-BLOCKED-TASK', jobId: job.id, title: 'Blocked', assignee: 'Layla Rahman', status: 'Not started', order: 999 })],
+        ['task update', () => target.updateTask({ ...structuredClone(task), title: 'Must remain unchanged' })],
+        ['task reassignment', () => target.reassignTask(task.id, 'Omar Nasser', 'Blocked by lifecycle')],
+        ['engagement document registration', () => target.addDocument({ id: 'VP012-BLOCKED-DOC', clientId: engagement.client, engagementId: engagement.id, name: 'blocked.pdf', folderPath: '/', version: 1, size: 1, classification: 'Internal', visibility: 'Internal', source: 'SharePoint', uploadedBy: 'Layla Rahman', uploadedAt: new Date().toISOString() })],
+        ['document revision replacement', () => target.replaceDocumentRevision(document.id, { name: 'blocked.pdf', size: 1, sha256: '0'.repeat(64) })],
+        ['document reference update', () => target.updateDocumentReference(document.id, 'Must remain unchanged.pdf', document.folderPath)],
+        ['document availability update', () => target.setDocumentAvailability(document.id, true, 'Blocked by lifecycle')],
+        ['time entry', () => target.addTimeEntry({ id: 'VP012-BLOCKED-TIME', person: 'Layla Rahman', clientId: engagement.client, engagementId: engagement.id, date: target.state.asOfDate, durationMinutes: 30, billable: true, activity: 'Blocked', status: 'Draft' })],
+        ['time review', () => target.reviewTimeEntry(timeEntry.id, 'Approved')],
+        ['engagement comment', () => target.addComment({ id: 'VP012-BLOCKED-COMMENT', subjectType: 'engagement', subjectId: engagement.id, text: 'Blocked', author: 'Layla Rahman', createdAt: new Date().toISOString() })],
+        ['inbound communication correction', () => target.correctCommunication('VP012-INBOUND-FIXTURE', { summary: 'Must remain unchanged' }, 'Blocked by lifecycle')],
+        ['engagement budget revision', () => target.updateBudget({ ...structuredClone(target.state.budgets.find((item: any) => item.engagementId === engagement.id)), id: 'VP012-BLOCKED-BUDGET', engagementId: engagement.id })],
+        ['trial-balance replacement', () => target.updateTrialBalanceRows(engagement.id, [])],
+        ['general-ledger source intake', () => target.importGeneralLedgerSource(engagement.id, { fileName: 'blocked.csv', format: 'CSV', sha256: '0'.repeat(64), openingBalances: {}, transactions: [] })],
+        ['account reconciliation', () => target.saveReconciliationSchedule(engagement.id, {})],
+        ['reconciliation review', () => target.reviewReconciliationSchedule(engagement.id, 'REC-01', 'Approved')],
+        ['account mapping revision', () => target.saveAccountMappings(engagement.id, [])],
+        ['account mapping review', () => asPartner(() => target.approveAccountMappings(engagement.id, 1))],
+        ['financial statement layout revision', () => target.saveStatementLayoutRevision({ engagementId: engagement.id })],
+        ['financial statement revision', () => target.saveStatementSetRevision({ engagementId: engagement.id })],
+        ['cash-flow schedule revision', () => target.saveCashFlowSchedule({ engagementId: engagement.id })],
+        ['cash-flow schedule review', () => asPartner(() => target.reviewCashFlowSchedule(engagement.id, 1))],
+        ['adjustment journal', () => target.addAdjustmentJournal({ id: 'VP012-BLOCKED-JOURNAL', engagementId: engagement.id })],
+        ['workpaper creation', () => target.createWorkpaperFromTemplate(engagement.id, 'TPL-01', 'user-preparer', 'user-reviewer')],
+        ['workpaper revision', () => target.updateWorkpaper(engagement.id, 'WP-A1', { applicable: true, workPerformed: 'Blocked' })],
+        ['workpaper evidence link', () => target.linkWorkpaperEvidence(engagement.id, 'WP-A1', 'DOC-001')],
+        ['workpaper submission', () => target.submitWorkpaper(engagement.id, 'WP-A1')],
+        ['workpaper clearance', () => target.clearWorkpaper(engagement.id, 'WP-A1', 'Blocked')],
+        ['review note creation', () => target.addReviewNote(engagement.id, { id: 'VP012-BLOCKED-REVIEW', subjectId: 'WP-A1', text: 'Blocked' })],
+        ['engagement approval', () => target.recordApproval(engagement.id, 'partner', 'Blocked')],
+        ['PBC request creation', () => target.addPbcRequest(engagement.id, { id: 'VP012-BLOCKED-PBC' })],
+        ['PBC request amendment', () => target.updatePbcRequest(engagement.id, request.id, { title: 'Must remain unchanged' }, 'Blocked by lifecycle')],
+        ['PBC evidence acceptance', () => target.acceptPbcResponse(engagement.id, request.id)],
+        ['evidence-procedure link', () => target.linkEvidenceProcedure('VP012-EVIDENCE-FIXTURE', 'PRC-01')],
+        ['audit fieldwork', () => target.updateAuditProcedureExecution(engagement.id, 'PRC-01', 'Blocked', 'Blocked', '')],
+        ['audit procedure status review', () => target.updateAuditProcedureStatus(engagement.id, 'PRC-01', 'Submitted', 'Blocked by lifecycle')],
+        ['audit risk creation', () => target.createAuditRisk(engagement.id, {})],
+        ['audit risk amendment', () => target.updateAuditRisk(engagement.id, 'VP012-RISK-FIXTURE', {})],
+        ['finding creation', () => target.addFinding({ engagementId: engagement.id })],
+        ['finding disposition', () => target.setFindingDisposition('VP012-FINDING-FIXTURE', 'Accepted', 'Blocked by lifecycle')],
+        ['release candidate preparation', () => target.prepareReleaseCandidate(engagement.id)],
+        ['financial package assembly', () => target.saveFinancialPackageRevision({ engagementId: engagement.id })],
+        ['financial disclosure revision', () => target.saveDisclosureReview(engagement.id, { id: 'VP012-BLOCKED-DISCLOSURE' })],
+        ['financial disclosure review', () => asPartner(() => target.reviewDisclosure(engagement.id, 'VP012-BLOCKED-DISCLOSURE', 1))],
+        ['audit plan preparation', () => target.saveAuditPlan({ engagementId: engagement.id })],
+        ['audit plan review', () => target.reviewAuditPlan('VP012-BLOCKED-PLAN', true, 'Blocked by lifecycle')],
+        ['amended release preparation', () => asPartner(() => target.prepareAmendedRelease(engagement.id, 'Blocked by lifecycle'))]
+      ];
+      for (const [action, run] of deniedActions) {
+        const before = JSON.stringify(target.state);
+        assert.throws(run, /professional work is blocked/, `${lifecycleStatus} must reject ${action}`);
+        assert.equal(JSON.stringify(target.state), before, `${lifecycleStatus} rejection of ${action} must not write demo state`);
+      }
+      assert.ok(client, 'fixture client exists for engagement-bound file checks');
+    }
+    target.state = createInitialState();
+    setPersona(target.state, 'Layla Rahman');
+  });
+
   it('requires rationale, blocks professional work, keeps billing and records available, and preserves terminal history', async () => {
     const target = prototypeStore as any;
     target.state = createInitialState();
@@ -1245,6 +1547,11 @@ describe('engagement lifecycle suspension (VP-012)', () => {
     assert.throws(() => target.addJob(job), /professional work is blocked/);
     target.setEngagementLifecycle(engagement.id, 'Active', 'Client access restored.');
     target.setEngagementLifecycle(engagement.id, 'Closed', 'Final records indexed.');
+    for (const action of ['professional', 'activation'] as const) {
+      assert.throws(() => requireEngagementScope(target.state, engagement.id, action), /professional work is blocked/, `${action} work remains blocked while closed`);
+    }
+    assert.doesNotThrow(() => requireEngagementScope(target.state, engagement.id, 'billing'), 'historical billing remains available while closed');
+    assert.doesNotThrow(() => requireEngagementScope(target.state, engagement.id, 'records'), 'records remain available while closed');
     assert.throws(() => target.setEngagementLifecycle(engagement.id, 'Active', 'Reopen'), /cannot transition/);
     assert.throws(() => target.updateEngagement(engagement), /immutable/);
     assert.deepEqual(engagement.events.filter((event: any) => event.type === 'lifecycle').map((event: any) => event.text), [
@@ -1255,6 +1562,11 @@ describe('engagement lifecycle suspension (VP-012)', () => {
 
     const cancelled = target.state.engagements.find((item: any) => item.id === 'ENG-26002');
     target.setEngagementLifecycle(cancelled.id, 'Cancelled', 'Client withdrew before fieldwork.');
+    for (const action of ['professional', 'activation'] as const) {
+      assert.throws(() => requireEngagementScope(target.state, cancelled.id, action), /professional work is blocked/, `${action} work remains blocked after cancellation`);
+    }
+    assert.doesNotThrow(() => requireEngagementScope(target.state, cancelled.id, 'billing'), 'historical billing remains available after cancellation');
+    assert.doesNotThrow(() => requireEngagementScope(target.state, cancelled.id, 'records'), 'records remain available after cancellation');
     assert.throws(() => target.setEngagementLifecycle(cancelled.id, 'Active', 'Reopen'), /cannot transition/);
 
     target.state = createInitialState();
@@ -1405,6 +1717,24 @@ describe('task file references (VP-014)', () => {
 });
 
 describe('simulated mail attempts (AT-26)', () => {
+  it('restricts email template maintenance and saves only supported placeholders', () => {
+    (prototypeStore as any).state = state;
+    const before = structuredClone(state.emailTemplates);
+    const initialCount = state.communications.length;
+    setPersona(state, 'Adam Khan');
+    assert.throws(() => prototypeStore.saveEmailTemplate({ ...before[0], name: 'Unauthorized edit' }), /cannot maintain email templates/);
+    assert.deepEqual(state.emailTemplates, before, 'unauthorized template editing leaves templates unchanged');
+
+    setPersona(state, 'Layla Rahman');
+    const revised = prototypeStore.saveEmailTemplate({ ...before[0], name: 'PBC Request Notice Revised', subject: 'Request for {client_name}', body: 'Dear {client_contact}, request {request_title} is due {due_date}.', placeholders: [] });
+    assert.equal(state.emailTemplates.find(template => template.id === before[0].id)?.name, 'PBC Request Notice Revised');
+    assert.deepEqual(revised.placeholders, ['{client_name}', '{client_contact}', '{request_title}', '{due_date}'], 'the supported placeholder inventory is derived from saved content');
+    assert.throws(() => prototypeStore.saveEmailTemplate({ ...before[0], id: 'TPL-EM-UNSUPPORTED', name: 'Unsupported token', subject: 'Request {tenant_secret}', body: 'Body', placeholders: ['{tenant_secret}'] }), /Unsupported email template placeholder/);
+    assert.equal(state.emailTemplates.some(template => template.id === 'TPL-EM-UNSUPPORTED'), false, 'invalid template is not inserted');
+    assert.equal(state.communications.length, initialCount, 'template maintenance never records a client communication');
+    state.emailTemplates = before;
+  });
+
   it('accepts only an active client contact and requires unique local outcome evidence', () => {
     (prototypeStore as any).state = state;
     setPersona(state, 'Layla Rahman');
@@ -1415,6 +1745,29 @@ describe('simulated mail attempts (AT-26)', () => {
       simulationReference, simulationEvidence: 'Local simulation; no provider receipt.', simulationSubmissionId: `SUB-${id}`
     });
     const initialCount = state.communications.length;
+    const savedMailConfig = structuredClone(state.m365Config);
+    const originalDocumentCount = state.documents.length;
+    state.documents.push(
+      { id: 'VP026-DOC-FOREIGN', clientId: 'CL-002', engagementId: 'ENG-26002', name: 'Foreign client attachment', folderPath: '/Clients/CL-002/', version: 1, size: 1, classification: 'Correspondence', visibility: 'Client shared', source: 'SharePoint', uploadedBy: 'Layla Rahman', uploadedAt: `${state.asOfDate}T12:00:00.000Z` },
+      { id: 'VP026-DOC-SIBLING', clientId: 'CL-001', engagementId: 'ENG-26002', name: 'Sibling engagement attachment', folderPath: '/Clients/CL-001/ENG-26002/', version: 1, size: 1, classification: 'Correspondence', visibility: 'Client shared', source: 'SharePoint', uploadedBy: 'Layla Rahman', uploadedAt: `${state.asOfDate}T12:00:00.000Z` },
+      { id: 'VP026-DOC-INTERNAL', clientId: 'CL-001', engagementId: 'ENG-26001', name: 'Internal workpaper', folderPath: '/Clients/CL-001/ENG-26001/', version: 1, size: 1, classification: 'Working paper', visibility: 'Internal', source: 'SharePoint', uploadedBy: 'Layla Rahman', uploadedAt: `${state.asOfDate}T12:00:00.000Z` }
+    );
+    state.m365Config.mailSenderAccount = '';
+    assert.throws(() => prototypeStore.addCommunication(makeAttempt('COMM-NO-SENDER', 'omar.nasser@example-trading.demo', 'MAIL-SIM-NO-SENDER')), /configured simulated mail sender is unavailable/);
+    state.m365Config = structuredClone(savedMailConfig);
+    state.m365Config.verificationResults = { ...state.m365Config.verificationResults, mail: { outcome: 'missing-resource', testedAt: `${state.asOfDate}T12:00:00.000Z`, configRevision: state.m365Config.configRevision || 1, resourceId: state.m365Config.mailSenderAccount } };
+    assert.throws(() => prototypeStore.addCommunication(makeAttempt('COMM-UNAVAILABLE-SENDER', 'omar.nasser@example-trading.demo', 'MAIL-SIM-UNAVAILABLE-SENDER')), /simulated mail sender is unavailable/);
+    state.m365Config = structuredClone(savedMailConfig);
+    assert.throws(() => prototypeStore.addCommunication({ ...makeAttempt('COMM-UNRESOLVED-TOKEN', 'omar.nasser@example-trading.demo', 'MAIL-SIM-UNRESOLVED-TOKEN'), summary: 'Request {unknown_field}' }), /Resolve all template placeholders/);
+    const foreignDocument = state.documents.find(document => document.clientId !== 'CL-001');
+    assert.ok(foreignDocument, 'foreign-client sentinel is present');
+    assert.throws(() => prototypeStore.addCommunication({ ...makeAttempt('COMM-CROSS-CLIENT-DOC', 'omar.nasser@example-trading.demo', 'MAIL-SIM-CROSS-CLIENT-DOC'), linkedDocumentId: foreignDocument.id }), /same client and engagement/);
+    const siblingDocument = state.documents.find(document => document.clientId === 'CL-001' && document.engagementId && document.engagementId !== 'ENG-26001');
+    assert.ok(siblingDocument, 'same-client sibling-engagement sentinel is present');
+    assert.throws(() => prototypeStore.addCommunication({ ...makeAttempt('COMM-SIBLING-DOC', 'omar.nasser@example-trading.demo', 'MAIL-SIM-SIBLING-DOC'), linkedDocumentId: siblingDocument.id }), /same client and engagement/);
+    const internalDocument = state.documents.find(document => document.id === 'VP026-DOC-INTERNAL');
+    assert.ok(internalDocument, 'internal-document sentinel is present');
+    assert.throws(() => prototypeStore.addCommunication({ ...makeAttempt('COMM-INTERNAL-DOC', 'omar.nasser@example-trading.demo', 'MAIL-SIM-INTERNAL-DOC'), linkedDocumentId: internalDocument.id }), /internal documents cannot be linked/);
     assert.throws(() => prototypeStore.addCommunication(makeAttempt('COMM-BAD', 'not-an-email', 'MAIL-SIM-BAD')), /valid recipient email/);
     assert.throws(() => prototypeStore.addCommunication(makeAttempt('COMM-FOREIGN', 'aisha.saleh@northstar.demo', 'MAIL-SIM-FOREIGN')), /active contact for this client/);
     assert.throws(() => prototypeStore.addCommunication({ ...makeAttempt('COMM-BAD-JOB', 'omar.nasser@example-trading.demo', 'MAIL-SIM-BAD-JOB'), jobId: 'MISSING-JOB' }), /job must belong/);
@@ -1428,6 +1781,8 @@ describe('simulated mail attempts (AT-26)', () => {
     assert.equal(state.communications.length, initialCount + 1, 'repeated operation ID is idempotent even when the retry has a fresh record/reference ID');
     prototypeStore.addCommunication(makeAttempt('COMM-26-2', 'omar.nasser@example-trading.demo', 'MAIL-SIM-26-2'));
     assert.equal(state.communications.length, initialCount + 2, 'a second explicit manual send is recorded once as a separate attempt');
+    assert.equal(state.m365Config.mailSenderAccount, savedMailConfig.mailSenderAccount, 'denied sender attempts leave the saved mail setup unchanged');
+    state.documents.splice(originalDocumentCount);
   });
 });
 
@@ -1592,7 +1947,7 @@ describe('adjustment approval lifecycle (AT-38)', () => {
     assert.deepEqual(reflection.reflectionHistory.map((entry: any) => [entry.status, entry.sourceVersion, entry.evidenceRef]), [['Not reflected', 1, undefined], ['Reflected in TB', 1, 'TB-IMPORT-REV-1']]);
     setPersona(storeState, 'Adam Khan');
     assert.throws(() => prototypeStore.amendAdjustmentJournal('AJ-LIFECYCLE', { title: 'Amended lifecycle fixture', lines: accepted.lines, rationale: 'Corrected support.' }, ''), /amendment reason is required/);
-    assert.throws(() => prototypeStore.amendAdjustmentJournal('AJ-LIFECYCLE', { title: 'Amended lifecycle fixture', lines: [{ ...accepted.lines[0], amount: 200 }, accepted.lines[1]], rationale: 'Corrected support.' }, 'Corrected amount.'), /must balance/);
+    assert.throws(() => prototypeStore.amendAdjustmentJournal('AJ-LIFECYCLE', { title: 'Amended lifecycle fixture', lines: [{ ...accepted.lines[0], amount: 200, debit: 200 }, accepted.lines[1]], rationale: 'Corrected support.' }, 'Corrected amount.'), /must balance/);
     const sourceBeforeAmendment = structuredClone(storeState.engagements.find((e: any) => e.id === 'ENG-26001').rows);
     prototypeStore.amendAdjustmentJournal('AJ-LIFECYCLE', { title: 'Amended lifecycle fixture', lines: [{ ...accepted.lines[0], amount: 200, debit: 200 }, { ...accepted.lines[1], amount: 200, credit: 200 }], rationale: 'Revised using the corrected asset schedule.' }, 'Corrected amount from the approved schedule.');
     const amended = storeState.adjustmentJournals.find((j: any) => j.id === 'AJ-LIFECYCLE');
@@ -1725,6 +2080,45 @@ describe('adjustment journal support revision pins (VP-038-E01)', () => {
   });
 });
 
+describe('adjustment journal line integrity (VP-038-AC04)', () => {
+  it('rejects invalid line types and mixed client, engagement or currency context on create and amendment', () => {
+    const state = createInitialState();
+    (prototypeStore as any).state = state;
+    setPersona(state, 'Adam Khan');
+    const lines = [
+      { accountCode: '5000', accountName: 'Operating expenses', type: 'debit' as const, amount: 100, debit: 100, credit: 0 },
+      { accountCode: '1500', accountName: 'Property, plant and equipment', type: 'credit' as const, amount: 100, debit: 0, credit: 100 }
+    ];
+    const journal = (id: string, entries: any) => ({
+      id, engagementId: 'ENG-26001', title: 'Integrity test adjustment', status: 'Draft' as const,
+      preparedBy: 'Adam Khan', reflectionStatus: 'Not reflected' as const, reflectedInClientBooks: false,
+      rationale: 'Test that malformed and mixed-context lines are rejected.', lines: entries
+    });
+    const attempts = [
+      lines.map((line, index) => index === 0 ? { ...line, type: 'sideways' } : line),
+      lines.map((line, index) => index === 0 ? { ...line, clientId: 'CL-002' } : line),
+      lines.map((line, index) => index === 0 ? { ...line, engagementId: 'ENG-26002' } : line),
+      lines.map((line, index) => index === 0 ? { ...line, currency: 'USD' } : line),
+      lines.map((line, index) => index === 0 ? { ...line, debit: 80, credit: 20 } : line)
+    ];
+    attempts.forEach((entries, index) => {
+      assert.throws(() => prototypeStore.addAdjustmentJournal(journal(`AJ-BAD-LINE-${index}`, entries) as any), /Journal lines must contain/);
+    });
+    assert.equal(state.adjustmentJournals.some(item => item.id.startsWith('AJ-BAD-LINE-')), false, 'invalid create attempts leave no journal records');
+
+    prototypeStore.addAdjustmentJournal(journal('AJ-AMEND-LINE', lines));
+    const prior = state.adjustmentJournals.find(item => item.id === 'AJ-AMEND-LINE')!;
+    prior.status = 'Rejected';
+    const snapshot = structuredClone(prior);
+    attempts.forEach(entries => {
+      assert.throws(() => prototypeStore.amendAdjustmentJournal(prior.id, {
+        title: 'Invalid mixed-context amendment', rationale: 'Must not be saved.', lines: entries as any
+      }, 'Testing line integrity.'), /Amended journal lines must contain/);
+    });
+    assert.deepEqual(prior, snapshot, 'invalid amendment attempts preserve the rejected journal and its history');
+  });
+});
+
 describe('evidence adequacy (AT-20/AT-46)', () => {
   it('persists attributable adequacy and requires rationale for deficiency', async () => {
     const { prototypeStore } = await import('../../src/store/prototypeStore.js');
@@ -1844,7 +2238,7 @@ describe('evidence adequacy (AT-20/AT-46)', () => {
 });
 
 describe('finding lifecycle (VP-054)', () => {
-  it('separates gross and signed net amounts by currency and records disposition rationale', async () => {
+  it('VP-054-AC01/02/03/04: separates gross and signed net amounts by currency and records disposition rationale', async () => {
     const { prototypeStore } = await import('../../src/store/prototypeStore.js');
     const state = createInitialState();
     (prototypeStore as any).state = state;
@@ -1881,7 +2275,7 @@ describe('finding lifecycle (VP-054)', () => {
     assert.deepEqual(afterDisposition.dispositionHistory?.map(item => item.disposition), ['Uncorrected', 'Waived as immaterial'], 'release treatment changes only after a reasoned human disposition');
   });
 
-  it('requires scoped existing source references and preserves the originating sampling exception', async () => {
+  it('VP-054-AC01/02: requires scoped source references and preserves the originating sampling exception', async () => {
     const { prototypeStore } = await import('../../src/store/prototypeStore.js');
     const state = createInitialState();
     (prototypeStore as any).state = state;
@@ -1915,6 +2309,37 @@ describe('finding lifecycle (VP-054)', () => {
 });
 
 describe('money guards (AT-30/AT-31/AT-32)', () => {
+  it('VP-031 validates invoice references, dates and required account/contact snapshots at the command boundary', async () => {
+    const { prototypeStore } = await import('../../src/store/prototypeStore.js');
+    (prototypeStore as any).state = createInitialState();
+    const isolated = (prototypeStore as any).state as PrototypeState;
+    setPersona(isolated, 'Leila Hassan');
+    isolated.currentRole = 'billing';
+    const invoice = {
+      id: 'INV-VALIDATION-01', clientId: 'CL-001', eng: 'ENG-26001', engagementId: 'ENG-26001',
+      invoiceNumber: ' INV-VALIDATION-01 ', description: 'Valid ad-hoc invoice', amount: 25, paid: 0,
+      currency: 'QAR', status: 'Draft' as const, due: '2026-10-01', preparedBy: 'Leila Hassan',
+      lines: [{ id: 'LINE-VALIDATION-01', description: 'Consulting', quantity: 1, rate: 25, amount: 25, sourceType: 'Ad hoc' as const }]
+    };
+    const before = isolated.invoices.length;
+    assert.throws(() => prototypeStore.addInvoice({ ...invoice, id: 'INV-EMPTY-REF', invoiceNumber: '   ' }), /Invoice reference is required/);
+    assert.throws(() => prototypeStore.addInvoice({ ...invoice, id: 'INV-LONG-REF', invoiceNumber: 'R'.repeat(65) }), /at most 64 characters/);
+    assert.throws(() => prototypeStore.addInvoice({ ...invoice, id: 'INV-DUPLICATE-REF', invoiceNumber: ' inv-2026-001 ' }), /unique/);
+    assert.throws(() => prototypeStore.addInvoice({ ...invoice, id: 'INV-BAD-DUE', due: '2026-02-30' }), /valid calendar dates/);
+    assert.throws(() => prototypeStore.addInvoice({ ...invoice, id: 'INV-BAD-ISSUE', issueDate: '2026-02-30' }), /valid calendar dates/);
+    assert.throws(() => prototypeStore.addInvoice({ ...invoice, id: 'INV-DUE-BEFORE-ISSUE', issueDate: '2026-10-02' }), /due date on or after/);
+    assert.throws(() => prototypeStore.addInvoice({ ...invoice, id: 'INV-MISSING-BILL-TO', billingDetails: { accountName: ' ', contactName: '' } }), /billing account name and contact name/);
+    assert.equal(isolated.invoices.length, before, 'invalid invoice metadata is rejected without inserting a draft');
+
+    prototypeStore.addInvoice(invoice);
+    const saved = isolated.invoices.find(item => item.id === invoice.id)!;
+    assert.equal(saved.invoiceNumber, 'INV-VALIDATION-01', 'the invoice reference is trimmed before persistence');
+    assert.equal(saved.issueDate, isolated.asOfDate, 'an omitted issue date uses the deterministic scenario date');
+    assert.equal(saved.billingDetails?.accountName, isolated.clients.find(item => item.id === 'CL-001')?.name);
+    assert.equal(saved.billingDetails?.contactName, isolated.clients.find(item => item.id === 'CL-001')?.contact);
+    prototypeStore.resetState();
+  });
+
   it('VP-030 invoices approved time at its pinned rate exactly once', async () => {
     const { prototypeStore } = await import('../../src/store/prototypeStore.js');
     (prototypeStore as any).state = createInitialState();
@@ -2196,7 +2621,7 @@ describe('money guards (AT-30/AT-31/AT-32)', () => {
 });
 
 describe('prototype workflow guards & lifecycle (F03, F04, F05, F06, F13)', () => {
-  it('binds group output approval to an independent reviewer and current input fingerprint', () => {
+  it('VP-046-AC03: binds group output approval to an independent reviewer and current input fingerprint', () => {
     (prototypeStore as any).state = state;
     state.currentUserId = 'manager'; state.currentRole = 'manager'; state.currentPerson = 'Layla Rahman';
     const group = state.consolidationGroups[0];
@@ -2233,7 +2658,7 @@ describe('prototype workflow guards & lifecycle (F03, F04, F05, F06, F13)', () =
     assert.throws(() => prototypeStore.reviewConsolidationOutputPackage(group.id, 'GROUP-OUT-TEST', 'Returned', 'stale elimination', 'GROUP-REVIEW-05'), /exact group-output revision/);
   });
 
-  it('rejects consolidation ownership outside the supported wholly owned parent/subsidiary profile', async () => {
+  it('VP-043-AC02/AC04: rejects ownership outside the supported wholly owned parent/subsidiary profile', async () => {
     const { prototypeStore } = await import('../../src/store/prototypeStore.js');
     (prototypeStore as any).state = createInitialState();
     const state = (prototypeStore as any).state;
@@ -2271,7 +2696,7 @@ describe('prototype workflow guards & lifecycle (F03, F04, F05, F06, F13)', () =
     assert.equal(state.consolidationGroups.find((item: any) => item.id === 'GRP-02')?.components[1].packageRevisionPinned, state.engagements.find((item: any) => item.id === 'ENG-26002')?.packageRevision);
   });
 
-  it('rejects invalid consolidation perimeter edits and preserves the recorded perimeter', async () => {
+  it('VP-043-AC02: rejects invalid consolidation perimeter edits and preserves the recorded perimeter', async () => {
     const { prototypeStore } = await import('../../src/store/prototypeStore.js');
     (prototypeStore as any).state = createInitialState();
     const state = (prototypeStore as any).state;
@@ -2294,7 +2719,7 @@ describe('prototype workflow guards & lifecycle (F03, F04, F05, F06, F13)', () =
     assert.deepEqual(state.consolidationGroups[0], before, 'failed perimeter edits leave the recorded group untouched');
   });
 
-  it('versions consolidation perimeter edits, stales eliminations on component change and reverts', async () => {
+  it('VP-043-AC01/AC03, VP-045-AC04: versions perimeters, stales eliminations on component change and reverts', async () => {
     const { prototypeStore } = await import('../../src/store/prototypeStore.js');
     (prototypeStore as any).state = createInitialState();
     const state = (prototypeStore as any).state;
@@ -2342,7 +2767,7 @@ describe('prototype workflow guards & lifecycle (F03, F04, F05, F06, F13)', () =
     assert.deepEqual(state.engagements.map((e: any) => ({ id: e.id, rows: e.rows })), sourceBefore, 'perimeter work never mutates engagement trial balances');
   });
 
-  it('validates, independently reviews, and stales group elimination journals', async () => {
+  it('VP-045-AC01/AC02/AC04: validates, independently reviews, and stales group elimination journals', async () => {
     const { prototypeStore } = await import('../../src/store/prototypeStore.js');
     (prototypeStore as any).state = createInitialState();
     const state = (prototypeStore as any).state;
@@ -2380,6 +2805,50 @@ describe('prototype workflow guards & lifecycle (F03, F04, F05, F06, F13)', () =
     assert.equal(stale.amount, 100);
     assert.equal(stale.reviewHistory.at(-1).status, 'Returned');
     assert.equal(stale.approvalEvidenceRef, undefined);
+  });
+
+  it('VP-045-E02: a replacement component package preserves the approved journal and requires a fresh review', async () => {
+    const { prototypeStore } = await import('../../src/store/prototypeStore.js');
+    (prototypeStore as any).state = createInitialState();
+    const state = (prototypeStore as any).state;
+    setPersona(state, 'Layla Rahman');
+    const group = state.consolidationGroups[0];
+    group.eliminations = [];
+    const debit = group.components[0].packageRows.find((row: any) => row.type === 'liability');
+    const credit = group.components[1].packageRows.find((row: any) => row.type === 'asset');
+    const draft = { id: '', title: 'Replacement package elimination', counterpartyA: group.components[0].componentId, counterpartyB: group.components[1].componentId, amount: 100, currency: group.currency, status: 'Draft', explanation: 'Eliminate only the matched account pair.', evidenceRef: 'VP45-PKG-01', lines: [{ account: debit.code, type: 'debit', amount: 100 }, { account: credit.code, type: 'credit', amount: 100 }] };
+    const before = structuredClone(group);
+    assert.throws(() => prototypeStore.saveConsolidationElimination(group.id, { ...draft, counterpartyB: 'ENG-OUTSIDE' } as any, 'Unsupported component pair'), /two distinct component entities/);
+    assert.throws(() => prototypeStore.saveConsolidationElimination(group.id, { ...draft, currency: 'USD' } as any, 'Mixed currency'), /group-currency/);
+    assert.deepEqual(group, before, 'invalid counterparty/currency attempts do not mutate the group');
+    const id = prototypeStore.saveConsolidationElimination(group.id, draft as any, 'Create supported elimination');
+    prototypeStore.submitConsolidationElimination(group.id, id);
+    prototypeStore.setPersona('reviewer');
+    prototypeStore.reviewConsolidationElimination(group.id, id, 'Approved', 'The original pinned package pair agrees.', 'VP45-REVIEW-01');
+    const approvedBefore = structuredClone(group.eliminations.find((item: any) => item.id === id));
+
+    const component = group.components[1];
+    const replacedEngagement = state.engagements.find((item: any) => item.id === component.componentId);
+    replacedEngagement.rows[0].balance += 1;
+    replacedEngagement.sourceVersion += 1;
+    replacedEngagement.packageRevision += 1;
+    const replacement = structuredClone(group);
+    const replacementComponent = replacement.components.find((item: any) => item.componentId === component.componentId);
+    replacementComponent.packageRevisionPinned = replacedEngagement.packageRevision;
+    replacementComponent.packageRows = structuredClone(replacedEngagement.rows);
+    replacementComponent.packageReview = { ...replacementComponent.packageReview, componentId: component.componentId, packageRevision: replacedEngagement.packageRevision, sourceVersion: replacedEngagement.sourceVersion, reviewedByUserId: 'reviewer', reviewedAt: '2026-09-27T10:00:00Z', evidenceRef: 'VP45-REPIN-01' };
+    replacementComponent.status = 'Ready';
+    setPersona(state, 'Layla Rahman');
+    prototypeStore.updateConsolidationGroup(replacement, { reason: 'Pin the replacement component source package' });
+
+    const after = state.consolidationGroups[0].eliminations.find((item: any) => item.id === id);
+    assert.equal(after.status, 'Draft', 'the prior approval is invalidated when a replacement component package is pinned');
+    assert.equal(after.revision, approvedBefore.revision, 'staleness retains the same immutable journal revision');
+    assert.deepEqual(after.lines, approvedBefore.lines, 'staleness does not rewrite the approved journal content');
+    assert.equal(after.reviewHistory.at(-1).status, 'Returned');
+    assert.match(after.reviewHistory.at(-1).note, /perimeter revision/);
+    assert.equal(after.approvalEvidenceRef, undefined);
+    assert.throws(() => prototypeStore.reviewConsolidationElimination(group.id, id, 'Approved', 'Old approval attempt', 'VP45-STALE-01'), /Only a submitted group elimination/);
   });
 
   it('rejects consolidation perimeter edits outside manager/partner authority', async () => {
@@ -2439,7 +2908,7 @@ describe('prototype workflow guards & lifecycle (F03, F04, F05, F06, F13)', () =
     assert.deepEqual(state.consolidationGroups[0], before, 'a denied save discloses and changes nothing');
   });
 
-  it('version-controls explicit consolidation FX rates and rejects wrong context', async () => {
+  it('VP-044-AC03/AC04, VP-045-AC04: version-controls explicit consolidation FX rates and rejects wrong context', async () => {
     const { prototypeStore } = await import('../../src/store/prototypeStore.js');
     (prototypeStore as any).state = createInitialState();
     const state = (prototypeStore as any).state;
@@ -2517,7 +2986,7 @@ describe('prototype workflow guards & lifecycle (F03, F04, F05, F06, F13)', () =
     assert.equal(prototypeStore.getSnapshot().statementSetRevisions?.[0].status, 'Stale');
   });
 
-  it('versions statement layout order, groups and validated subtotals and stales prior output', async () => {
+  it('VP-040-AC03/AC04: versions statement layout order, groups and validated subtotals and stales prior output', async () => {
     const { prototypeStore } = await import('../../src/store/prototypeStore.js');
     (prototypeStore as any).state = createInitialState();
     const state = (prototypeStore as any).state;
@@ -2550,7 +3019,7 @@ describe('prototype workflow guards & lifecycle (F03, F04, F05, F06, F13)', () =
     assert.throws(() => prototypeStore.saveStatementSetRevision(layoutInput), /current saved layout version/);
   });
 
-  it('saves evidence-backed cash-flow schedules, requires independent reconciliation, and stales on source replacement', async () => {
+  it('VP-041-AC01/AC03: saves evidence-backed cash-flow schedules, requires independent reconciliation, and stales on source replacement', async () => {
     const { prototypeStore } = await import('../../src/store/prototypeStore.js');
     (prototypeStore as any).state = createInitialState();
     const state = (prototypeStore as any).state;
@@ -2587,7 +3056,7 @@ describe('prototype workflow guards & lifecycle (F03, F04, F05, F06, F13)', () =
     assert.equal(prototypeStore.getSnapshot().engagements.find(item => item.id === engagement.id)?.cashFlowScheduleHistory?.[0].status, 'Stale');
   });
 
-  it('persists per-note disclosure drafts and requires independent review plus scoped evidence', () => {
+  it('VP-041-AC02/AC03: persists per-note disclosure drafts and requires independent review plus scoped evidence', () => {
     (prototypeStore as any).state = state;
     const engagement = state.engagements.find(item => item.id === 'ENG-26001')!;
     const priorGeneration = engagement.generation;
@@ -2672,7 +3141,7 @@ describe('prototype workflow guards & lifecycle (F03, F04, F05, F06, F13)', () =
     assert.equal(engagement.packageHistory[0].glSourceSha256, sourceV1.sha256, 'accepted predecessor package source hash remains immutable');
   });
 
-  it('risk and procedure links are reciprocal and engagement scoped (VP-049)', async () => {
+  it('risk and procedure links are reciprocal and engagement scoped (VP-049-AC01/AC03/AC04)', async () => {
     const { prototypeStore } = await import('../../src/store/prototypeStore.js');
     (prototypeStore as any).state = createInitialState();
     setPersona((prototypeStore as any).state, 'Layla Rahman');
@@ -2748,7 +3217,7 @@ describe('prototype workflow guards & lifecycle (F03, F04, F05, F06, F13)', () =
     prototypeStore.resetState();
   });
 
-  it('VP-049-E02: risk owners must be active professional staff with selected-engagement access', async () => {
+  it('VP-049-E02/AC04: risk owners must be active professional staff with selected-engagement access', async () => {
     state = structuredClone(createInitialState());
     (prototypeStore as any).state = state;
     setPersona(state, 'Layla Rahman');
@@ -2782,7 +3251,7 @@ describe('prototype workflow guards & lifecycle (F03, F04, F05, F06, F13)', () =
     prototypeStore.resetState();
   });
 
-  it('audit program templates preserve revisions and apply fresh work (VP-049)', async () => {
+  it('audit program templates preserve revisions and apply fresh work (VP-049-AC02/AC03/AC04)', async () => {
     const { prototypeStore } = await import('../../src/store/prototypeStore.js');
     (prototypeStore as any).state = createInitialState();
     setPersona((prototypeStore as any).state, 'Layla Rahman');
@@ -2986,7 +3455,7 @@ describe('prototype workflow guards & lifecycle (F03, F04, F05, F06, F13)', () =
     assert.equal(fullyAllocatedReceipt.allocations[0].reversalReason, 'Restore fully settled balance.');
   });
 
-  it('audit plans require explicit rates and rate-consistent threshold amounts', async () => {
+  it('VP-048-AC01/AC02: audit plans require explicit rates and rate-consistent threshold amounts', async () => {
     const { prototypeStore } = await import('../../src/store/prototypeStore.js');
     const current = createInitialState();
     (prototypeStore as any).state = current;
@@ -3016,7 +3485,7 @@ describe('prototype workflow guards & lifecycle (F03, F04, F05, F06, F13)', () =
     assert.equal(current.auditPlans?.[0].clearlyTrivialRate, 5);
   });
 
-  it('audit plans retain revisions and require a different reviewer', async () => {
+  it('VP-048-AC03/AC04: audit plans retain revisions and require a different reviewer', async () => {
     const { prototypeStore } = await import('../../src/store/prototypeStore.js');
     const current = createInitialState();
     (prototypeStore as any).state = current;
@@ -3111,7 +3580,7 @@ describe('prototype workflow guards & lifecycle (F03, F04, F05, F06, F13)', () =
     );
   });
 
-  it('Workpaper version replacement invalidates clearance and resets status (VP-050 / F05)', async () => {
+  it('Workpaper version replacement invalidates clearance and resets status (VP-050-AC03/AC04 / F05)', async () => {
     const { prototypeStore } = await import('../../src/store/prototypeStore.js');
     (prototypeStore as any).state = createInitialState();
     const eng = (prototypeStore as any).state.engagements[0];

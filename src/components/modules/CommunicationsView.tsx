@@ -15,11 +15,14 @@ export const CommunicationsView: React.FC<CommunicationsViewProps> = ({ onNaviga
   const state = prototypeStore.getSnapshot();
   const [showComposeModal, setShowComposeModal] = useState(false);
   const [showLogNoteModal, setShowLogNoteModal] = useState(false);
+  const [showTemplateEditor, setShowTemplateEditor] = useState(false);
   const [emailError, setEmailError] = useState('');
   const [noteError, setNoteError] = useState('');
+  const [templateError, setTemplateError] = useState('');
 
   // Email form
   const [recipientEmail, setRecipientEmail] = useState('omar.nasser@example-trading.demo');
+  const [emailDocumentId, setEmailDocumentId] = useState('');
   const [selectedTemplateId, setSelectedTemplateId] = useState<string>('TPL-EM-01');
   const [subject, setSubject] = useState('AuditSphere: Document Request for Example Trading Entity');
   const [emailBody, setEmailBody] = useState(
@@ -28,6 +31,9 @@ export const CommunicationsView: React.FC<CommunicationsViewProps> = ({ onNaviga
   const [simulationOutcome, setSimulationOutcome] = useState<'Simulated accepted' | 'Simulated failed' | 'Outcome unknown'>('Simulated accepted');
   const emailAttemptRecorded = useRef(false);
   const emailSubmissionId = useRef<string>(crypto.randomUUID());
+  const newEmailTemplate = (): EmailTemplateItem => ({ id: `TPL-EM-${crypto.randomUUID()}`, name: '', subject: '', body: '', placeholders: [] });
+  const [templateDraft, setTemplateDraft] = useState<EmailTemplateItem>(() => state.emailTemplates[0] || newEmailTemplate());
+  const templateBaseline = useRef<EmailTemplateItem>(structuredClone(state.emailTemplates[0] || newEmailTemplate()));
 
   // Log note form
   const [channel, setChannel] = useState<CommunicationItem['channel']>('Phone');
@@ -54,8 +60,8 @@ export const CommunicationsView: React.FC<CommunicationsViewProps> = ({ onNaviga
     if (emailAttemptRecorded.current) return true;
     emailAttemptRecorded.current = true;
     try {
-      prototypeStore.addCommunication({ id: `COMM-${crypto.randomUUID()}`, clientId: client?.id || 'CL-001', engagementId: state.selectedEngagement, direction: 'Outbound', channel: 'Email', participants: `${state.currentPerson} -> ${recipientEmail.trim().toLowerCase()}`, recipientEmail: recipientEmail.trim().toLowerCase(), summary: subject, body: emailBody, author: state.currentPerson, date: new Date().toISOString(), visibility: 'Client visible', status: simulationOutcome, simulationReference: `MAIL-SIM-${crypto.randomUUID()}`, simulationEvidence: `Local simulation recorded ${simulationOutcome}; no provider receipt or external delivery confirmation exists.`, simulationSubmissionId: submissionId });
-      emailBaseline.current = { recipientEmail, selectedTemplateId, subject, emailBody, simulationOutcome };
+      prototypeStore.addCommunication({ id: `COMM-${crypto.randomUUID()}`, clientId: client?.id || 'CL-001', engagementId: state.selectedEngagement, direction: 'Outbound', channel: 'Email', participants: `${state.currentPerson} -> ${recipientEmail.trim().toLowerCase()}`, recipientEmail: recipientEmail.trim().toLowerCase(), summary: subject, body: emailBody, author: state.currentPerson, date: new Date().toISOString(), visibility: 'Client visible', status: simulationOutcome, simulationReference: `MAIL-SIM-${crypto.randomUUID()}`, simulationEvidence: `Local simulation recorded ${simulationOutcome}; no provider receipt or external delivery confirmation exists.`, simulationSubmissionId: submissionId, ...(emailDocumentId ? { linkedDocumentId: emailDocumentId } : {}) });
+      emailBaseline.current = { recipientEmail, emailDocumentId, selectedTemplateId, subject, emailBody, simulationOutcome };
       setEmailError(''); setShowComposeModal(false); return true;
     } catch (error) { emailAttemptRecorded.current = false; setEmailError(error instanceof Error ? error.message : 'Simulated email could not be recorded.'); return false; }
   };
@@ -71,18 +77,62 @@ export const CommunicationsView: React.FC<CommunicationsViewProps> = ({ onNaviga
       setNoteError(''); setShowLogNoteModal(false); setEditingCommunicationId(null); setCorrectionReason(''); setChannel(clean.channel); setParticipants(clean.participants); setNoteSummary(''); setNoteBody(''); setNoteDate(state.asOfDate); setNoteVisibility('Internal'); setNoteDocumentId(''); setRelatedJobId(''); return true;
     } catch (error) { setNoteError(error instanceof Error ? error.message : 'Communication note could not be saved.'); return false; }
   };
-  const emailBaseline = useRef({ recipientEmail, selectedTemplateId, subject, emailBody, simulationOutcome });
+  const saveTemplateDraft = () => {
+    try {
+      const saved = prototypeStore.saveEmailTemplate(templateDraft);
+      templateBaseline.current = structuredClone(saved);
+      setTemplateDraft(saved);
+      setTemplateError('');
+      setShowTemplateEditor(false);
+      return true;
+    } catch (error) {
+      setTemplateError(error instanceof Error ? error.message : 'Email template could not be saved.');
+      return false;
+    }
+  };
+  const discardTemplateDraft = () => {
+    setTemplateDraft(structuredClone(templateBaseline.current));
+    setTemplateError('');
+    setShowTemplateEditor(false);
+  };
+  const cancelTemplateEditor = () => {
+    if (JSON.stringify(templateDraft) !== JSON.stringify(templateBaseline.current) && !window.confirm('Discard the unsaved email template changes?')) return;
+    discardTemplateDraft();
+  };
+  const openTemplateEditor = () => {
+    const first = prototypeStore.getSnapshot().emailTemplates[0] || newEmailTemplate();
+    templateBaseline.current = structuredClone(first);
+    setTemplateDraft(structuredClone(first));
+    setTemplateError('');
+    setShowTemplateEditor(true);
+  };
+  const beginNewTemplate = () => {
+    const fresh = newEmailTemplate();
+    templateBaseline.current = structuredClone(fresh);
+    setTemplateDraft(fresh);
+    setTemplateError('');
+  };
+  const selectTemplateForEdit = (id: string) => {
+    const selected = prototypeStore.getSnapshot().emailTemplates.find(template => template.id === id);
+    if (!selected) return;
+    templateBaseline.current = structuredClone(selected);
+    setTemplateDraft(structuredClone(selected));
+    setTemplateError('');
+  };
+  const emailBaseline = useRef({ recipientEmail, emailDocumentId, selectedTemplateId, subject, emailBody, simulationOutcome });
   const noteBaseline = useRef({ channel, participants, noteSummary, noteBody, noteDate, noteVisibility, noteDocumentId, relatedJobId, correctionReason });
   useEffect(() => {
     if (!onRegisterUnsavedForm) return;
-    const sameEmail = () => recipientEmail === emailBaseline.current.recipientEmail && selectedTemplateId === emailBaseline.current.selectedTemplateId && subject === emailBaseline.current.subject && emailBody === emailBaseline.current.emailBody && simulationOutcome === emailBaseline.current.simulationOutcome;
+    const sameEmail = () => recipientEmail === emailBaseline.current.recipientEmail && emailDocumentId === emailBaseline.current.emailDocumentId && selectedTemplateId === emailBaseline.current.selectedTemplateId && subject === emailBaseline.current.subject && emailBody === emailBaseline.current.emailBody && simulationOutcome === emailBaseline.current.simulationOutcome;
     const sameNote = () => channel === noteBaseline.current.channel && participants === noteBaseline.current.participants && noteSummary === noteBaseline.current.noteSummary && noteBody === noteBaseline.current.noteBody && noteDate === noteBaseline.current.noteDate && noteVisibility === noteBaseline.current.noteVisibility && noteDocumentId === noteBaseline.current.noteDocumentId && relatedJobId === noteBaseline.current.relatedJobId && correctionReason === noteBaseline.current.correctionReason;
-    const discardEmail = () => { setShowComposeModal(false); setRecipientEmail(emailBaseline.current.recipientEmail); setSelectedTemplateId(emailBaseline.current.selectedTemplateId); setSubject(emailBaseline.current.subject); setEmailBody(emailBaseline.current.emailBody); setSimulationOutcome(emailBaseline.current.simulationOutcome); };
+    const discardEmail = () => { setShowComposeModal(false); setRecipientEmail(emailBaseline.current.recipientEmail); setEmailDocumentId(emailBaseline.current.emailDocumentId); setSelectedTemplateId(emailBaseline.current.selectedTemplateId); setSubject(emailBaseline.current.subject); setEmailBody(emailBaseline.current.emailBody); setSimulationOutcome(emailBaseline.current.simulationOutcome); };
     const discardNote = () => { setShowLogNoteModal(false); setEditingCommunicationId(null); setChannel(noteBaseline.current.channel); setParticipants(noteBaseline.current.participants); setNoteSummary(noteBaseline.current.noteSummary); setNoteBody(noteBaseline.current.noteBody); setNoteDate(noteBaseline.current.noteDate); setNoteVisibility(noteBaseline.current.noteVisibility); setNoteDocumentId(noteBaseline.current.noteDocumentId); setRelatedJobId(noteBaseline.current.relatedJobId); setCorrectionReason(noteBaseline.current.correctionReason); };
+    const sameTemplate = () => JSON.stringify(templateDraft) === JSON.stringify(templateBaseline.current);
     onRegisterUnsavedForm({ label: 'simulated email draft', isDirty: () => showComposeModal && !sameEmail(), save: saveEmailDraft, discard: discardEmail }, 'communications-email-draft');
     onRegisterUnsavedForm({ label: 'communication note draft', isDirty: () => showLogNoteModal && !sameNote(), save: saveNoteDraft, discard: discardNote }, 'communications-note-draft');
-    return () => { onRegisterUnsavedForm(null, 'communications-email-draft'); onRegisterUnsavedForm(null, 'communications-note-draft'); };
-  }, [showComposeModal, showLogNoteModal, recipientEmail, selectedTemplateId, subject, emailBody, simulationOutcome, channel, participants, noteSummary, noteBody, noteDate, noteVisibility, noteDocumentId, relatedJobId, editingCommunicationId, correctionReason, onRegisterUnsavedForm]);
+    onRegisterUnsavedForm({ label: 'email template draft', isDirty: () => showTemplateEditor && !sameTemplate(), save: saveTemplateDraft, discard: discardTemplateDraft }, 'communications-template-draft');
+    return () => { onRegisterUnsavedForm(null, 'communications-email-draft'); onRegisterUnsavedForm(null, 'communications-note-draft'); onRegisterUnsavedForm(null, 'communications-template-draft'); };
+  }, [showComposeModal, showLogNoteModal, showTemplateEditor, templateDraft, recipientEmail, emailDocumentId, selectedTemplateId, subject, emailBody, simulationOutcome, channel, participants, noteSummary, noteBody, noteDate, noteVisibility, noteDocumentId, relatedJobId, editingCommunicationId, correctionReason, onRegisterUnsavedForm]);
 
   const openNewNote = () => {
     const clean = { channel: 'Phone' as CommunicationItem['channel'], participants: 'Omar Nasser (CFO), Layla Rahman (Manager)', noteSummary: '', noteBody: '', noteDate: state.asOfDate, noteVisibility: 'Internal' as CommunicationItem['visibility'], noteDocumentId: '', relatedJobId: '', correctionReason: '' };
@@ -129,6 +179,7 @@ export const CommunicationsView: React.FC<CommunicationsViewProps> = ({ onNaviga
           <p>Microsoft 365 synthetic mail sender, delivery simulation outcomes, and client contact log.</p>
         </div>
         <div className="row" style={{ gap: 10 }}>
+          {hasAnyRole(state, ['relationship', 'manager', 'partner']) && <button className="btn sm ghost" onClick={openTemplateEditor}>Manage Email Templates</button>}
           <button className="btn sm ghost" onClick={openNewNote}>
             <Icon name="message" /> Log Call / Meeting Note
           </button>
@@ -244,6 +295,12 @@ export const CommunicationsView: React.FC<CommunicationsViewProps> = ({ onNaviga
                     required
                   />
                 </div>
+                <label className="caption">Shared document (optional)
+                  <select className="input mt4" aria-label="Email shared document" value={emailDocumentId} onChange={event => setEmailDocumentId(event.target.value)}>
+                    <option value="">No document link</option>
+                    {communicationDocuments.filter(document => document.visibility === 'Client shared' && !document.brokenLink).map(document => <option key={document.id} value={document.id}>{document.name} · v{document.version}</option>)}
+                  </select>
+                </label>
                 <div>
                   <label className="caption">Simulated Delivery Outcome</label>
                   <select
@@ -262,6 +319,37 @@ export const CommunicationsView: React.FC<CommunicationsViewProps> = ({ onNaviga
               <div className="modal-foot">
                 <button type="button" className="btn ghost sm" onClick={() => setShowComposeModal(false)}>Cancel</button>
                 <button type="submit" className="btn primary sm">Simulate Send</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {showTemplateEditor && (
+        <div className="modal-backdrop" onClick={event => { if (event.target === event.currentTarget) cancelTemplateEditor(); }}>
+          <div className="modal" style={{ maxWidth: 620 }} role="dialog" aria-modal="true" aria-labelledby="email-template-editor-title">
+            <div className="modal-head">
+              <h2 id="email-template-editor-title">Manage Email Templates</h2>
+              <button type="button" className="icon-btn" aria-label="Close email template editor" onClick={cancelTemplateEditor}>✕</button>
+            </div>
+            <form onSubmit={event => { event.preventDefault(); saveTemplateDraft(); }}>
+              <div className="modal-body stack" style={{ gap: 12 }}>
+                <label className="caption">Template to edit
+                  <select className="input mt4" aria-label="Template to edit" value={templateDraft.id} onChange={event => selectTemplateForEdit(event.target.value)}>
+                    {prototypeStore.getSnapshot().emailTemplates.map(template => <option key={template.id} value={template.id}>{template.name}</option>)}
+                    {!prototypeStore.getSnapshot().emailTemplates.some(template => template.id === templateDraft.id) && <option value={templateDraft.id}>New template</option>}
+                  </select>
+                </label>
+                <button type="button" className="btn sm ghost" onClick={beginNewTemplate}>New template</button>
+                <label className="caption">Template name<input className="input mt4" aria-label="Email template name" maxLength={100} value={templateDraft.name} onChange={event => setTemplateDraft(current => ({ ...current, name: event.target.value }))} required /></label>
+                <label className="caption">Subject<input className="input mt4" aria-label="Email template subject" maxLength={240} value={templateDraft.subject} onChange={event => setTemplateDraft(current => ({ ...current, subject: event.target.value }))} required /></label>
+                <label className="caption">Message body<textarea className="input mt4" aria-label="Email template body" rows={7} maxLength={5000} value={templateDraft.body} onChange={event => setTemplateDraft(current => ({ ...current, body: event.target.value }))} required /></label>
+                <p className="caption">Supported placeholders: {'{client_name}'}, {'{client_contact}'}, {'{request_title}'}, {'{due_date}'}. Unsupported or unresolved placeholders cannot be saved or sent.</p>
+                {templateError && <div className="badge red" role="alert">{templateError}</div>}
+              </div>
+              <div className="modal-foot">
+                <button type="button" className="btn ghost sm" onClick={cancelTemplateEditor}>Cancel</button>
+                <button type="submit" className="btn primary sm">Save Template</button>
               </div>
             </form>
           </div>

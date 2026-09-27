@@ -200,6 +200,7 @@ export function createInitialState(): PrototypeState {
       { id: 'CNT-03', clientId: 'CL-001', name: 'Rami Nasser', email: 'rami.nasser@example-trading.demo', phone: '+974 4411 2235', title: 'Senior Accountant', isPrimary: false, active: true, portalAccessRequested: true },
       { id: 'CNT-04', clientId: 'CL-002', name: 'Aisha Saleh', email: 'aisha.saleh@northstar.demo', title: 'Managing Director', isPrimary: true, active: true }
     ],
+    clientContactNominations: [],
 
     relationshipGroups: [
       { id: 'GRP-REL-01', name: 'Example Holdings Alliance', description: 'Cross-entity commercial relationship group (non-authorizing)', clientIds: ['CL-001', 'CL-003'] }

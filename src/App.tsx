@@ -162,6 +162,11 @@ export const App: React.FC = () => {
           if (title) {
             title.id ||= `dialog-title-${++dialogSequence}`;
             dialog.setAttribute('aria-labelledby', title.id);
+          } else {
+            const triggerName = lastDialogTrigger?.getAttribute('aria-label')
+              || lastDialogTrigger?.getAttribute('title')
+              || lastDialogTrigger?.innerText.trim();
+            if (triggerName) dialog.setAttribute('aria-label', triggerName);
           }
         }
         if (!dialog.hasAttribute('tabindex')) dialog.tabIndex = -1;

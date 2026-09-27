@@ -357,7 +357,10 @@ export const ProposalsView: React.FC<ProposalsViewProps> = ({ onNavigate, onRegi
                 <div><label>Revision</label><span>Rev {selectedProposal.presentedSnapshot?.revision || selectedProposal.revision}</span></div>
                 <div><label>Prepared By</label><span>{selectedProposal.preparedBy}</span></div>
                 <div><label>Date</label><span>{selectedProposal.preparedAt}</span></div>
+                <div><label>Client</label><span>{state.clients.find(client => client.id === selectedProposal.clientId)?.name || 'Not linked'}</span></div>
+                <div><label>Opportunity</label><span>{state.leads.find(lead => lead.id === selectedProposal.leadId)?.name || 'Not linked'}</span></div>
                 <div><label>Period</label><span>{selectedProposal.period || selectedProposal.items[0]?.period || 'Period to be agreed'}</span></div>
+                {(selectedProposal.periodStart || selectedProposal.periodEnd) && <div><label>Reporting dates</label><span>{selectedProposal.periodStart || 'Not set'} – {selectedProposal.periodEnd || 'Not set'}</span></div>}
                 <div><label>Total Fee</label><span>{formatCurrency(selectedProposal.presentedSnapshot?.totalAmount ?? selectedProposal.totalAmount, selectedProposal.presentedSnapshot?.currency || selectedProposal.currency)}</span></div>
               </div>
 

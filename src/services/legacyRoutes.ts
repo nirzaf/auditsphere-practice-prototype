@@ -42,6 +42,8 @@ export const LEGACY_ROUTE_REDIRECTS: Readonly<Record<string, RouteKey>> = {
   privileges: 'administration',
   'role-guide': 'requirements',
   requirements: 'requirements',
+  // Global Search is a modal utility rather than a standalone workspace route.
+  search: 'overview',
 };
 
 const ACTIVE_ROUTES = new Set<RouteKey>([
@@ -51,7 +53,7 @@ const ACTIVE_ROUTES = new Set<RouteKey>([
   'account-mappings', 'adjustments', 'reconciliations', 'financial-statements',
   'financial-packages', 'consolidation', 'onboarding', 'audit-planning', 'audit-risks',
   'audit-fieldwork', 'sampling', 'audit', 'evidence', 'findings', 'reviews', 'approvals',
-  'quality', 'delivery', 'records', 'reports', 'search', 'administration', 'm365-setup',
+  'quality', 'delivery', 'records', 'reports', 'administration', 'm365-setup',
   'portal', 'services', 'role-guide', 'module-guide', 'requirements',
 ]);
 

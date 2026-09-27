@@ -126,6 +126,19 @@ export const ClientDetailView: React.FC<ClientDetailViewProps> = ({ clientId, se
     { key: 'audit', label: 'Audit & Reviews', count: workpapers.length },
     { key: 'activity', label: 'Audit Log' }
   ];
+  const handleWorkspaceTabKeyDown = (event: React.KeyboardEvent<HTMLButtonElement>, currentKey: typeof activeTab) => {
+    const currentIndex = tabs.findIndex(tab => tab.key === currentKey);
+    let nextIndex = currentIndex;
+    if (event.key === 'ArrowRight') nextIndex = (currentIndex + 1) % tabs.length;
+    else if (event.key === 'ArrowLeft') nextIndex = (currentIndex - 1 + tabs.length) % tabs.length;
+    else if (event.key === 'Home') nextIndex = 0;
+    else if (event.key === 'End') nextIndex = tabs.length - 1;
+    else return;
+    event.preventDefault();
+    const nextTab = tabs[nextIndex];
+    setActiveTab(nextTab.key);
+    requestAnimationFrame(() => document.getElementById(`client-workspace-tab-${nextTab.key}`)?.focus());
+  };
 
   const saveContact = useCallback(() => {
     if (!showAddContact || !contactForm.current?.reportValidity() || !contactName.trim()) return false;
@@ -318,12 +331,19 @@ export const ClientDetailView: React.FC<ClientDetailViewProps> = ({ clientId, se
         </div>
 
         {/* Workspace Tab Bar */}
-        <div className="tabs mt16">
+        <div className="tabs mt16" role="tablist" aria-label={`${client.name} workspace sections`}>
           {tabs.map(tab => (
             <button
               key={tab.key}
+              id={`client-workspace-tab-${tab.key}`}
+              type="button"
+              role="tab"
+              aria-selected={activeTab === tab.key}
+              aria-controls="client-workspace-panel"
+              tabIndex={activeTab === tab.key ? 0 : -1}
               className={`tab-btn ${activeTab === tab.key ? 'active' : ''}`}
               onClick={() => setActiveTab(tab.key)}
+              onKeyDown={event => handleWorkspaceTabKeyDown(event, tab.key)}
             >
               {tab.label}
               {tab.count !== undefined && tab.count > 0 && (
@@ -334,6 +354,7 @@ export const ClientDetailView: React.FC<ClientDetailViewProps> = ({ clientId, se
         </div>
       </div>
 
+      <div id="client-workspace-panel" role="tabpanel" aria-labelledby={`client-workspace-tab-${activeTab}`} tabIndex={0}>
       {/* Tab 1: Overview */}
       {activeTab === 'overview' && (
         <div className="grid-main">
@@ -505,6 +526,13 @@ export const ClientDetailView: React.FC<ClientDetailViewProps> = ({ clientId, se
                 ))}
               </tbody>
             </table>
+          </div>
+          <div className="panel-pad borderbox mt12">
+            <h3>Client-nominated contacts</h3>
+            <p className="sub">Nominations are requests only. They do not create client contacts, portal identities, access grants or approval authority.</p>
+            {(state.clientContactNominations || []).filter(item => item.clientId === client.id).length === 0
+              ? <p className="caption mt8">No contact nominations received.</p>
+              : <div className="stack mt8">{(state.clientContactNominations || []).filter(item => item.clientId === client.id).map(item => <div className="borderbox" key={item.id}><div className="between"><b>{item.name} · {item.email}</b><span className={`badge ${item.status === 'Reviewed' ? 'green' : 'amber'}`}>{item.status}</span></div><div className="cell-sub">Submitted by {item.nominatedBy} · {new Date(item.nominatedAt).toLocaleString('en-GB')}</div><p className="sub mt4">{item.reason}</p>{item.reviewNote && <p className="caption mt4">Staff review by {item.reviewedBy}: {item.reviewNote}</p>}{item.status === 'Pending review' && ['relationship', 'onboarding', 'manager', 'partner', 'admin'].includes(state.currentRole) && <button className="btn sm mt8" onClick={() => { const note = window.prompt('Record a staff review note. This does not create a contact or access grant:'); if (note?.trim()) try { prototypeStore.reviewClientContactNomination(item.id, note); setClientNotice('Staff review recorded. Add a client contact and grant access separately if authorized.'); } catch (error) { setClientNotice(error instanceof Error ? error.message : 'Nomination review could not be recorded.'); } }}>Record staff review</button>}</div>)}</div>}
           </div>
         </div>
       )}
@@ -850,6 +878,7 @@ export const ClientDetailView: React.FC<ClientDetailViewProps> = ({ clientId, se
         </div>
         </div>
       )}
+      </div>
 
       {/* Add Contact Modal */}
       {showAddContact && (

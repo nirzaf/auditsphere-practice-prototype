@@ -1,10 +1,15 @@
 # AuditSphere Visual Prototype — Remaining Limitations
 
-Updated 2026-09-25. Selected R01–R14 defects received code and regression
-coverage, but that does not constitute full acceptance. VP-009, VP-014, VP-018,
-VP-035, VP-037, VP-047, VP-051, VP-052, VP-053, VP-055, VP-056, VP-057,
-VP-043, VP-058, VP-059 and VP-060 are Verified; 48 of 64 stories and 29 of 39 modules remain
-Partial.
+Updated 2026-09-27. Selected R01–R14 defects received code and regression
+coverage, but that does not constitute full acceptance. The canonical tracker
+currently records 16 of 64 stories and 10 of 39 modules as Verified; 48 stories
+and 29 modules remain Partial. The detailed tracker action tables contain 121 rows:
+83 verification/evidence cards and 38 scope cards. The separate remaining-action
+inventory has 27 open rows (25 verification and 2 scope). VP-003-E02, VP-063-E01 and VP-064-E01
+are three highlighted residual actions within that broader queue, not an exhaustive
+count of open rows. Human acceptance remains pending.
+The detailed notes below include historical snapshots and must not override
+the current tracker totals or evidence status.
 Automated sources explicitly trace AT-01 through AT-55; supplemental journeys AT-56 through AT-58 are listed separately. See
 `verification.md` for exact executed checks.
 
@@ -55,7 +60,12 @@ Automated sources explicitly trace AT-01 through AT-55; supplemental journeys AT
   result. Unsupported output remains unavailable; approved combined equity
   mapping does not support component balances. Versioned statement groups,
   ordering and subtotals are now editable and flow into previews and XLSX;
-  broader source/layout acceptance and disclosure/rework matrices remain open.
+  AT-37 and AT-41/42/48 plus named store regressions now directly map all eight
+  VP-040/041 criteria to exercised subcases. The disclosure lifecycle regression
+  asserts generation advancement, retained package history and invalidated
+  candidate/approval. Broad source/prior/layout combinations, component equity,
+  disclosure rework matrices and human acceptance remain open (full unit
+  266/266; full E2E 128/128 on 2026-09-27).
 
 - **VP-044 — consolidation packages and translation (Partial):** AT-44 now
   warns when the component source moves past its pinned revision, preserves the
@@ -68,8 +78,13 @@ Automated sources explicitly trace AT-01 through AT-55; supplemental journeys AT
   returned content can be amended into a new draft revision, and approval still
   binds to current perimeter/package/rate pins. AT-45 covers the full lifecycle.
   A Chrome/unit example verifies a 100 receivable remains visible after only a
-  900 matched pair is eliminated. A separate linked unmatched-item record,
-  duplicate/mixed-source and component-replacement edge matrices remain open.
+  900 matched pair is eliminated. MOD-26 now directly maps VP-043/044/045/046
+  criteria to consolidation Chrome and guard tests. VP-045-E02/R01 close with
+  replacement-package stale-review evidence, invalid counterparty/currency
+  atomicity, duplicate inclusion and retained prior journal content. A separate
+  unmatched record is not required by the original contract; the unexplained
+  residual is displayed for manual resolution. Broader story matrices and
+  independent sign-off remain open.
 
 ## Known acceptance gaps
 
@@ -103,10 +118,12 @@ Automated sources explicitly trace AT-01 through AT-55; supplemental journeys AT
   reflected, rejected, partial, unknown, stale source and stale support outcomes,
   duplicate inclusion rejection, fresh review after amendment, unchanged source
   rows, and TB v1→v2 re-confirmation with no duplicate effect. The current
-  verification is build PASS, unit 240/240, full E2E 110/110, focused Chrome
-  2/2. VP-038 remains Partial: AC01 and AC04 are not signed off, malformed or
-  mixed-context line coverage and human review remain open. Real ledger posting
-  is out of scope; no production ledger behavior is claimed.
+  verification is build PASS, unit 266/266, full E2E 128/128, focused adjustment
+  Chrome 2/2. New VP-038-AC04 store guards and unit regression reject invalid
+  line types and mismatched client/engagement/currency context atomically on
+  create and amendment. VP-038 remains Partial: AC01/AC04 and human review are
+  not signed off, and remaining ledger-boundary review is open. Real ledger
+  posting is out of scope; no production ledger behavior is claimed.
 
 - **VP-034 — accounting setup:** client legal entity, reporting basis and
   currency; versioned chart accounts with parent/posting/active state; owned
@@ -134,11 +151,17 @@ Automated sources explicitly trace AT-01 through AT-55; supplemental journeys AT
   stales the live schedule while the prior Approved revision remains visible.
   Unit coverage verifies TB replacement staleness; Chrome verifies draft creation, self-approval
   denial, reasoned return, manager rework as a new revision, retained return
-  rationale and independent approval against scoped evidence. A new VP-039 unit
-  assertion also proves approval rejects a timing item with no evidence link.
-  Broader currency/date/scope and criterion sign-off remain open; fully external
-  statement provenance and subsequent bank reconciliation remain outside the
-  local simulation.
+  rationale and independent approval against scoped evidence. The current unit
+  matrix binds header/item dates to the selected engagement-owned accounting
+  period, accepts both period boundaries, rejects malformed/non-cent amounts,
+  invalid types/IDs, cross-engagement rebinding and mismatched/blank currencies,
+  and preserves a valid USD schedule without conversion. Foreign-client and
+  sibling evidence remain rejected. Full unit 266/266 and full E2E 128/128 pass.
+  VP-039-E01's bounded evidence action is complete: AT-36 verifies explicit opening
+  plus movement to TB close and source replacement; AT-39 verifies unknown opening,
+  residual/evidence gates and statement staleness. Criterion/story review and human
+  sign-off remain open; external statement provenance and subsequent bank reconciliation
+  remain outside the local simulation.
 - **AT-22 — local document metadata:** Chrome registers a real selected local
   file, reloads the browser, and confirms the original bytes are not stored or
   presented as downloadable. Upload to a remote library is outside scope.
@@ -461,6 +484,15 @@ Automated sources explicitly trace AT-01 through AT-55; supplemental journeys AT
   dates, reversed periods, broken references, personal email, binary payloads
   and monetary control totals. Historical recovery choices and downloaded-byte
   verification remain unverified.
+  **Current-worktree update (2026-09-27):** schema v29 now repairs a missing client
+  link and invoice-line collection only for the unchanged synthetic INV-26001,
+  provided its unique engagement and remaining invoice identity match the fresh
+  seed. The damaged-v28 browser journey confirms the workspace opens and the exact
+  original payload remains stored/backup-exportable; customized invoices are not
+  guessed. Authenticated schema-5 history, migration revisions 0–28, future-schema
+  export, ambiguous import, quota/conflict and recovery journeys have passing
+  evidence. VP-004-E01 bounded evidence is Complete; VP-004 criterion/story review
+  and human sign-off remain open.
 - **R12 — acceptance breadth:** Chrome now executes annual continuance, generated
   package persistence/release/amendment/archive, the full report catalogue and
   storage recovery journeys, CSV/XLSX TB replacement, and the complete PBC
@@ -528,13 +560,13 @@ browser regressions that pass in the full suite. The prior 224/224 + 98/98 run a
 search target-state matrix, TB-replacement journal staleness, grant
 evidence/role-combination matrix) is retained as historical detail below. AT-30 covers invoice account/contact snapshots, multiple ad-hoc lines, approved-time source reservation, explicit draft cancellation and re-reservation; approved invoice cancellation is rejected. AT-31 also covers return with reason, credit revision 2, independent reapproval of that exact revision, local issue and no payment movement. AT-32 covers receipt split, selective allocation reversal and balances; store guards reject malformed metadata, seeded allocations and stale receipt caches atomically. AT-34 verifies client-wide profile revision, sibling mapping/statement/package invalidation, retained prior package state, and closed-period TB/GL import denial. AT-36 verifies mapped GL tie-out and store guards reject unrecognized or inactive posting chart accounts before committing a GL revision. VP-006 supports full profile fields, revision-checked editing, soft archive/reactivation, duplicate and similar-entity checks, scoped profile editing and blocks new active work for suspended/archived clients. AT-05/AT-06 browser lifecycle covers edit, suspension, retained contacts, archive and reactivation; a store test confirms established engagement, invoice, document and workpaper links remain. VP-007 contact revision history and non-authorizing group behavior pass. VP-008 opens all 12 tabs under CL-001/CL-002 and, under an ENG-26001-only manager grant, filters the portfolio engagement count/Open Work shortcut and every Client 360 tab to ENG-26001 while excluding an ENG-26003-only PBC sentinel; it also preserves portfolio filters and context on back/forward. CL-002 creation journeys cover a job, PBC request, internal note and Draft invoice. VP-025 AT-18 verifies mounted portal entity refresh across client identities; VP-025-E03 covers no-access and unpresented-package states, withdrawn DOC-002 exclusion and separate package acknowledgement/management representation records; wider portal list and actor matrices remain open. AT-02/AT-54 cross-tab conflict, expiry and storage-denial checks now pass with the new profile form. VP-048 requires deliberate benchmark and percentage inputs, validates assigned staff and dates, and invalidates cleared fieldwork after approved materiality changes. VP-002 redirects every former role-view hash route into the React application and preserves browser history with current role guards. VP-017 AT-15 now exercises Start/Skip and four-step tenant/resource/optional/review navigation, backtracking, cancellation without persistence, reviewed configuration save and reload. Its wrong-tenant case holds site/library/root fixed and proves explicit recovery while stale identity still blocks overall readiness; a separate root-only change stales prior results, produces access-denied, then recovers. RR35 rejects invalid tenant/domain lengths, credentialed or queried URLs, invalid library/root/mailbox values and missing/duplicate/inactive/unknown-role identity mappings atomically; unit tests now cover all six simulated outcomes on each capability while broad browser invalid-resource and outage matrices remain outstanding.
 
-The canonical tracker now has **33 open action rows**: 31 verification/evidence follow-ups and 2 scope reconciliations. VP-023-E02 is closed as a bounded evidence action, not as whole-story acceptance. The 41-row original review baseline and older interim counts remain historical. VP-064-R03, VP-063-E03, VP-036-E03, VP-036-R01, VP-038-E01/E02 and bounded VP-017-E01/E02 evidence actions are closed; VP-063-E01/E02 and VP-064-E01/E02 remain open, and all 48 Partial stories / 29 Partial modules still require acceptance closure. The VP-017 criteria remain partially evidenced rather than fully accepted.
+The canonical tracker currently has **27 detailed open action rows**; the action tables contain 121 rows total (83 verification/evidence cards + 38 scope cards): 25 verification follow-ups (20 Partial, 3 Pending and 2 verified-subcase follow-ups) plus 2 Partial scope rows. VP-003-E02, VP-063-E01 and VP-064-E01 are three highlighted residual actions within this queue, not its exhaustive count. VP-004-E01, VP-029-E01/E02, VP-034-E01/E02 and VP-039-E01 bounded evidence actions are complete, while those stories' criterion acceptance and human sign-off remain open. Earlier counts in the historical notes below are not current. The 41-row original review baseline and older interim counts remain historical; closure of an evidence action is not whole-story acceptance. VP-017 criteria remain partially evidenced rather than fully accepted.
 The VP-042 AT-38/40 package subcase confirms internal-only disclosure/comment/workpaper references do not
 appear in generated XLSX, DOCX, PDF bytes, or the client portal. The Chrome suite blocks
 non-local HTTP(S) requests with CDP Fetch and asserts no external request was
 attempted by the exercised flows. The built HTML also enforces same-origin
-resource loading and runtime connections through CSP. VP-009, VP-014, VP-018,
-VP-035, VP-037, VP-043, VP-047, VP-051, VP-052, VP-053, VP-055, VP-056,
-VP-057, VP-058, VP-059 and VP-060 are Verified; 48 of 64 stories and 29 of 39 modules remain Partial because full
+resource loading and runtime connections through CSP. The canonical tracker
+records 16 of 64 stories and 10 of 39 modules Verified; 48 stories and 29 modules
+remain Partial because full
 criterion-by-criterion acceptance evidence is not complete. See
 `verification.md`; earlier counts in this repository are historical.

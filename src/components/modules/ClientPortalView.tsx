@@ -24,7 +24,7 @@ export const ClientPortalView: React.FC<ClientPortalViewProps> = ({ onNavigate, 
   const state = prototypeStore.getSnapshot();
   const [previewRole, setPreviewRole] = useState<'client_admin' | 'client_finance' | 'client'>('client_finance');
   const portalRole = state.currentRole === 'superuser' ? previewRole : state.currentRole;
-  const [activeSub, setActiveSub] = useState<'home' | 'status' | 'pbc' | 'docs' | 'messages' | 'packages' | 'invoices' | 'approvals' | 'proposals'>('home');
+  const [activeSub, setActiveSub] = useState<'home' | 'status' | 'pbc' | 'docs' | 'messages' | 'packages' | 'invoices' | 'approvals' | 'proposals' | 'nominations'>('home');
   const [notice, setNotice] = useState<string | null>(null);
   const [uploadPbcModal, setUploadPbcModal] = useState<PbcRequestItem | null>(null);
   const [uploadFile, setUploadFile] = useState<File | null>(null);
@@ -38,6 +38,9 @@ export const ClientPortalView: React.FC<ClientPortalViewProps> = ({ onNavigate, 
   const [proposalResponseMethod, setProposalResponseMethod] = useState<'Email' | 'Meeting' | 'Letter'>('Email');
   const [packageRationale, setPackageRationale] = useState('');
   const [packageEvidence, setPackageEvidence] = useState('');
+  const [nomineeName, setNomineeName] = useState('');
+  const [nomineeEmail, setNomineeEmail] = useState('');
+  const [nominationReason, setNominationReason] = useState('');
 
   // Client resolution supporting multi-entity grants (VP-025)
   const allowedClientIds = visibleClientIds(state);
@@ -221,6 +224,40 @@ export const ClientPortalView: React.FC<ClientPortalViewProps> = ({ onNavigate, 
     } catch (err) { triggerNotice(err instanceof Error ? err.message : 'Proposal response could not be recorded.'); }
   };
 
+  const clearNominationDraft = () => {
+    setNomineeName('');
+    setNomineeEmail('');
+    setNominationReason('');
+  };
+
+  const commitNomination = (): boolean => {
+    if (!client || portalRole !== 'client_admin') return false;
+    try {
+      prototypeStore.nominateClientContact({ clientId: client.id, name: nomineeName, email: nomineeEmail, reason: nominationReason });
+      clearNominationDraft();
+      triggerNotice('Contact nomination submitted for staff review. No identity or access grant was created.');
+      return true;
+    } catch (err) {
+      triggerNotice(err instanceof Error ? err.message : 'Contact nomination could not be submitted.');
+      return false;
+    }
+  };
+
+  useEffect(() => {
+    const hasDraft = Boolean(nomineeName.trim() || nomineeEmail.trim() || nominationReason.trim());
+    if (portalRole !== 'client_admin' || activeSub !== 'nominations' || !hasDraft) {
+      onRegisterUnsavedForm(null, 'portal-contact-nomination');
+      return;
+    }
+    onRegisterUnsavedForm({
+      label: 'client contact nomination draft',
+      isDirty: () => Boolean(nomineeName.trim() || nomineeEmail.trim() || nominationReason.trim()),
+      save: () => commitNomination(),
+      discard: clearNominationDraft,
+    }, 'portal-contact-nomination');
+    return () => onRegisterUnsavedForm(null, 'portal-contact-nomination');
+  }, [portalRole, activeSub, nomineeName, nomineeEmail, nominationReason, client?.id, onRegisterUnsavedForm]);
+
   if (!client) {
     return (
       <div className="panel panel-pad text-center" style={{ padding: '60px 20px' }}>
@@ -269,8 +306,10 @@ export const ClientPortalView: React.FC<ClientPortalViewProps> = ({ onNavigate, 
                   value={resolvedClientId}
                   onChange={e => {
                     const nextClientId = e.target.value;
-                    setSelectedClientId(nextClientId);
-                    setSelectedEngagementId(state.engagements.find(item => item.client === nextClientId && (allowedEngIds === 'ALL' || (allowedEngIds as string[]).includes(item.id)))?.id || '');
+                    onBeforeContextChange(() => {
+                      setSelectedClientId(nextClientId);
+                      setSelectedEngagementId(state.engagements.find(item => item.client === nextClientId && (allowedEngIds === 'ALL' || (allowedEngIds as string[]).includes(item.id)))?.id || '');
+                    });
                   }}
                 >
                   {availableClients.map(c => (
@@ -284,7 +323,7 @@ export const ClientPortalView: React.FC<ClientPortalViewProps> = ({ onNavigate, 
             {availableEngagements.length > 1 && (
               <div className="row" style={{ gap: 6, alignItems: 'center' }}>
                 <span className="caption" style={{ color: '#9fc4c9' }}>Engagement:</span>
-                <select className="input sm" aria-label="Switch engagement" style={{ background: '#193f49', color: '#fff', borderColor: '#2e5661' }} value={resolvedEngagementId} onChange={e => setSelectedEngagementId(e.target.value)}>
+                <select className="input sm" aria-label="Switch engagement" style={{ background: '#193f49', color: '#fff', borderColor: '#2e5661' }} value={resolvedEngagementId} onChange={e => { const nextEngagementId = e.target.value; onBeforeContextChange(() => setSelectedEngagementId(nextEngagementId)); }}>
                   {availableEngagements.map(item => <option key={item.id} value={item.id} style={{ color: '#000' }}>{item.id} · {item.service} · FY{item.year}</option>)}
                 </select>
               </div>
@@ -312,6 +351,7 @@ export const ClientPortalView: React.FC<ClientPortalViewProps> = ({ onNavigate, 
             { key: 'messages', label: 'Messages & Mail' },
             { key: 'packages', label: 'Published Reports' },
             { key: 'invoices', label: 'Fee Invoices' },
+            ...(portalRole === 'client_admin' ? [{ key: 'nominations', label: 'Nominate a Contact' }] : []),
             ...(portalRole === 'client' ? [{ key: 'proposals', label: 'Proposals & Terms' }, { key: 'approvals', label: 'Management Approvals' }] : [])
           ].map(t => (
             <button
@@ -364,6 +404,31 @@ export const ClientPortalView: React.FC<ClientPortalViewProps> = ({ onNavigate, 
                 ))
               )}
             </div>
+          </div>
+        </div>
+      )}
+
+      {activeSub === 'nominations' && portalRole === 'client_admin' && (
+        <div className="stack" style={{ gap: 12 }}>
+          <div className="panel panel-pad">
+            <h3>Nominate a client contact</h3>
+            <p className="sub">Send a contact suggestion to the audit practice for review. This does not create a portal login, grant access, or confer management-approval authority.</p>
+            <form className="grid-2 mt12" onSubmit={event => {
+              event.preventDefault();
+              commitNomination();
+            }}>
+              <label className="caption">Contact name<input className="input mt4" aria-label="Nominee name" value={nomineeName} onChange={event => setNomineeName(event.target.value)} required maxLength={120} /></label>
+              <label className="caption">Contact email<input className="input mt4" aria-label="Nominee email" type="email" value={nomineeEmail} onChange={event => setNomineeEmail(event.target.value)} required maxLength={254} /></label>
+              <label className="caption" style={{ gridColumn: '1 / -1' }}>Why should this contact be added?<textarea className="input mt4" aria-label="Nomination reason" value={nominationReason} onChange={event => setNominationReason(event.target.value)} required maxLength={1000} rows={3} /></label>
+              <div><button className="btn primary" type="submit">Submit nomination</button></div>
+            </form>
+          </div>
+          <div className="panel panel-pad">
+            <h3>Nomination history</h3>
+            {(state.clientContactNominations || []).filter(item => item.clientId === client.id).length === 0
+              ? <p className="sub mt8">No contacts have been nominated for this entity.</p>
+              : <div className="stack mt8">{(state.clientContactNominations || []).filter(item => item.clientId === client.id).map(item => <div className="borderbox" key={item.id}><div className="between"><b>{item.name}</b><span className="badge amber">{item.status}</span></div><div className="cell-sub">{item.email} · Nominated by {item.nominatedBy} · {new Date(item.nominatedAt).toLocaleString('en-GB')}</div><p className="sub mt4">{item.reason}</p></div>)}</div>}
+            <p className="caption mt8">Only authorized staff can review a nomination and separately manage contacts or access grants.</p>
           </div>
         </div>
       )}

@@ -237,7 +237,7 @@ export const RecordsArchiveView: React.FC<RecordsArchiveViewProps> = ({ onNaviga
               <p className="sub">Engagement Service: {selectedEng.service}</p>
             </div>
             <span className={`badge ${archive ? 'green' : 'amber'}`}>
-              {archive ? 'Archived Record' : 'Active Engagement'}
+              {archive ? 'Archived Record' : selectedEng.lifecycleStatus === 'Closed' ? selectedEng.releases.length ? 'Closed · Pending Archive' : 'Closed · No Release to Archive' : selectedEng.lifecycleStatus === 'Suspended' ? 'Suspended' : selectedEng.lifecycleStatus === 'Cancelled' ? selectedEng.releases.length ? 'Cancelled · Pending Archive' : 'Cancelled · No Release to Archive' : 'Active Engagement'}
             </span>
           </div>
 

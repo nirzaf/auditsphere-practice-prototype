@@ -13,6 +13,7 @@
   display: none;
 }
 @media print {
+  @page { size: A4; margin: 14mm; }
   body * { visibility: hidden !important; }
   .practice-report-page,
   .practice-report-page * { visibility: visible !important; }
@@ -28,6 +29,27 @@
   .practice-report-page table { width: 100%; border-collapse: collapse; }
   .practice-report-page th,
   .practice-report-page td { border: 1px solid #777; padding: 6px; color: #111; }
+  .proposal-preview,
+  .proposal-preview * { visibility: visible !important; }
+  .proposal-preview {
+    position: absolute !important;
+    inset: 0 auto auto 0 !important;
+    width: 100% !important;
+    max-width: none !important;
+    max-height: none !important;
+    margin: 0 !important;
+    overflow: visible !important;
+    border: 0 !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+    color: #111 !important;
+    background: #fff !important;
+  }
+  .proposal-preview .modal-head button,
+  .proposal-preview .modal-foot,
+  .proposal-preview .no-print { display: none !important; }
+  .proposal-preview .modal-body { max-height: none !important; overflow: visible !important; }
+  .proposal-preview .borderbox { break-inside: avoid; page-break-inside: avoid; }
   .receivables-statement,
   .receivables-statement * { visibility: visible !important; }
   .receivables-statement {

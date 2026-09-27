@@ -21,6 +21,8 @@ export const DocumentsLibraryView: React.FC<DocumentsLibraryViewProps> = ({ onNa
   const [showUploadModal, setShowUploadModal] = useState(false);
   const [showOneDriveModal, setShowOneDriveModal] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
+  const [editingFolderPath, setEditingFolderPath] = useState<string | null>(null);
+  const [folderLabelDraft, setFolderLabelDraft] = useState('');
 
   // New file form
   const [uploadFile, setUploadFile] = useState<File | null>(null);
@@ -155,17 +157,59 @@ export const DocumentsLibraryView: React.FC<DocumentsLibraryViewProps> = ({ onNa
             <p className="sub" style={{ marginBottom: 12 }}>
               Site: <code>ClientEngagements/2026</code>
             </p>
-            <div className="stack" style={{ gap: 4 }}>
+            <div className="stack" style={{ gap: 8 }}>
               {folders.map(f => (
-                <button
-                  key={f.path}
-                  className={`navitem ${selectedFolder === f.path ? 'active' : ''}`}
-                  onClick={() => setSelectedFolder(f.path)}
-                  style={{ textAlign: 'left', width: '100%', fontSize: 13 }}
-                >
-                  <Icon name="folder" />
-                  <span>{f.label}</span>
-                </button>
+                <div key={f.path} className="stack" style={{ gap: 4 }}>
+                  <div className="row" style={{ gap: 6 }}>
+                    <button
+                      className={`navitem ${selectedFolder === f.path ? 'active' : ''}`}
+                      onClick={() => setSelectedFolder(f.path)}
+                      style={{ textAlign: 'left', flex: 1, minWidth: 0, fontSize: 13 }}
+                    >
+                      <Icon name="folder" />
+                      <span>{f.label}</span>
+                    </button>
+                    {hasAnyRole(state, ['manager', 'partner']) && f.clientId && (
+                      <button
+                        type="button"
+                        className="btn sm ghost"
+                        aria-label={`Rename display name for ${f.label}`}
+                        onClick={() => { setEditingFolderPath(f.path); setFolderLabelDraft(f.label); }}
+                      >Rename</button>
+                    )}
+                  </div>
+                  {editingFolderPath === f.path && (
+                    <form
+                      className="panel panel-pad stack"
+                      aria-label={`Rename folder display name for ${f.label}`}
+                      onSubmit={event => {
+                        event.preventDefault();
+                        try {
+                          prototypeStore.renameClientWorkspaceFolder(f.path, folderLabelDraft);
+                          setEditingFolderPath(null);
+                          setNotice('Folder display name updated. Its path, document references, and linked evidence are unchanged.');
+                        } catch (err) {
+                          setNotice(err instanceof Error ? err.message : 'Folder display name could not be updated.');
+                        }
+                      }}
+                    >
+                      <label htmlFor="workspace-folder-display-name">Folder display name</label>
+                      <input
+                        id="workspace-folder-display-name"
+                        aria-label="Folder display name"
+                        value={folderLabelDraft}
+                        onChange={event => setFolderLabelDraft(event.target.value)}
+                        maxLength={120}
+                        required
+                      />
+                      <span className="caption">Changing this label does not move the folder or alter file/evidence links.</span>
+                      <div className="row" style={{ gap: 8 }}>
+                        <button className="btn primary sm" type="submit">Save name</button>
+                        <button className="btn sm" type="button" onClick={() => setEditingFolderPath(null)}>Cancel</button>
+                      </div>
+                    </form>
+                  )}
+                </div>
               ))}
             </div>
 

@@ -26,6 +26,7 @@ describe('legacy hash routes (VP-002)', () => {
 
   it('keeps current route IDs and declines unknown fragments', () => {
     assert.deepEqual(resolveRouteHash('#audit-planning'), { route: 'audit-planning', redirected: false });
+    assert.deepEqual(resolveRouteHash('#search'), { route: 'overview', redirected: true }, 'Search is a modal utility and stale standalone hashes return to a real workspace');
     assert.equal(resolveRouteHash('#not-a-route'), null);
     assert.equal(resolveRouteHash(''), null);
   });

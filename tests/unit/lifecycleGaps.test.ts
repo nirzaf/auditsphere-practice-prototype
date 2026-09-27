@@ -9,7 +9,7 @@ import { createInitialState } from '../../src/store/initialState.js';
 import { prototypeStore } from '../../src/store/prototypeStore.js';
 import { migratePersistedState } from '../../src/services/migrations.js';
 import { visibleClientIds, visibleEngagementIds, hasConsolidationGroupScope, canReadSearchRecord } from '../../src/services/guards.js';
-import { calculateBudgetVsActual } from '../../src/services/calculations.js';
+import { applyReportingAdjustments, calculateBalanceSheet, calculateBudgetVsActual, calculateIncomeStatement } from '../../src/services/calculations.js';
 import type { PrototypeState } from '../../src/types/index.js';
 
 let state: PrototypeState;
@@ -472,6 +472,94 @@ describe('workspace, document and communication matrices (VP-020/021/026/027)', 
     assert.throws(() => prototypeStore.prepareClientWorkspace('CL-001'), /active accepted client/, 'a suspended client cannot have a workspace prepared');
   });
 
+  it('renames only the folder display label under manager/partner authority (VP-020-AC01/02)', () => {
+    setPersona(state, 'Layla Rahman');
+    prototypeStore.simulateM365Verification('sharepoint', 'success');
+    prototypeStore.prepareClientWorkspace('CL-001', 2026, 'ENG-26001');
+    const path = '/ClientEngagements/2026/EXP-TRAD/2026/ENG-26001/02_Planning/';
+    const folder = state.folders!.find(item => item.path === path)!;
+    assert.ok(folder, 'the exact engagement folder is prepared beneath the configured synthetic root');
+    const document = state.documents.find(item => item.id === 'DOC-002')!;
+    const originalDocument = structuredClone(document);
+    const originalPaths = state.folders!.map(item => item.path);
+
+    prototypeStore.renameClientWorkspaceFolder(path, 'Planning - client review');
+    assert.equal(folder.label, 'Planning - client review');
+    assert.equal(folder.path, path, 'renaming changes display metadata, not the stable folder path');
+    assert.deepEqual(state.folders!.map(item => item.path), originalPaths, 'rename creates no duplicate folder and changes no path');
+    assert.deepEqual(state.documents.find(item => item.id === document.id), originalDocument, 'document identity, path, revision and evidence linkage are untouched');
+
+    prototypeStore.prepareClientWorkspace('CL-001', 2026, 'ENG-26001');
+    assert.equal(state.folders!.filter(item => item.path === path).length, 1, 'retry remains idempotent after a display rename');
+    assert.equal(state.folders!.find(item => item.path === path)?.label, 'Planning - client review', 'retry does not overwrite a deliberate folder label');
+
+    const beforeInvalid = structuredClone(state.folders);
+    assert.throws(() => prototypeStore.renameClientWorkspaceFolder(path, '   '), /1–120 characters/);
+    assert.throws(() => prototypeStore.renameClientWorkspaceFolder(path, 'x'.repeat(121)), /1–120 characters/);
+    assert.deepEqual(state.folders, beforeInvalid, 'invalid names leave folder metadata unchanged');
+
+    setPersona(state, 'Daniel James');
+    prototypeStore.renameClientWorkspaceFolder(path, 'Planning - partner review');
+    assert.equal(state.folders!.find(item => item.path === path)?.label, 'Planning - partner review', 'partner authority can perform the same scoped metadata update');
+    prototypeStore.prepareClientWorkspace('CL-002', 2026, 'ENG-26002');
+    const siblingClientFolderPath = state.folders!.find(item => item.clientId === 'CL-002' && item.engagementId === 'ENG-26002' && item.label === '02 Audit Planning')!.path;
+    setPersona(state, 'Mona Khalil');
+    prototypeStore.renameClientWorkspaceFolder(path, 'Planning - narrow manager');
+    assert.equal(state.folders!.find(item => item.path === path)?.label, 'Planning - narrow manager', 'an engagement-scoped manager can rename within the granted engagement');
+    const beforeOutOfScope = structuredClone(state.folders);
+    assert.throws(() => prototypeStore.renameClientWorkspaceFolder(siblingClientFolderPath, 'Out-of-scope rename'), /outside the current scoped grant/);
+    assert.deepEqual(state.folders, beforeOutOfScope, 'a narrow engagement grant cannot rename a sibling client folder');
+    setPersona(state, 'Adam Khan');
+    const beforeDenied = structuredClone(state.folders);
+    assert.throws(() => prototypeStore.renameClientWorkspaceFolder(path, 'Preparer rename'), /rename workspace folder labels/);
+    assert.deepEqual(state.folders, beforeDenied, 'preparers cannot rename folder metadata');
+  });
+
+  it('limits workspace preparation to the documented staff roles and active client scope (VP-020-E01)', () => {
+    setPersona(state, 'Layla Rahman');
+    prototypeStore.simulateM365Verification('sharepoint', 'success');
+    prototypeStore.prepareClientWorkspace('CL-001', 2026, 'ENG-26001');
+    const canonicalFolders = structuredClone(state.folders);
+    for (const staffName of ['Khalid Al-Nuaimi', 'Hana Ali', 'Amira Qasim', 'Daniel James']) {
+      setPersona(state, staffName);
+      prototypeStore.prepareClientWorkspace('CL-001', 2026, 'ENG-26001');
+    }
+    assert.deepEqual(state.folders, canonicalFolders, 'all expressly permitted preparation roles share one idempotent hierarchy');
+
+    prototypeStore.prepareClientWorkspace('CL-002', 2026, 'ENG-26002');
+    for (const deniedName of ['Adam Khan', 'Leila Hassan', 'Farooq Mansour', 'Omar Nasser']) {
+      setPersona(state, deniedName);
+      const before = structuredClone(state.folders);
+      assert.throws(() => prototypeStore.prepareClientWorkspace('CL-001', 2026, 'ENG-26001'), /prepare client workspaces/);
+      assert.deepEqual(state.folders, before, `${deniedName} cannot write workspace folders`);
+    }
+
+    setPersona(state, 'Mona Khalil');
+    const beforeOutOfScope = structuredClone(state.folders);
+    assert.throws(() => prototypeStore.prepareClientWorkspace('CL-002', 2026, 'ENG-26002'), /outside the current scoped grant/);
+    assert.deepEqual(state.folders, beforeOutOfScope, 'the allowed manager role cannot prepare an ungranted client workspace');
+  });
+
+  it('requires an exact engagement for shared client/year workspaces and keeps sibling folders distinct (VP-020-AC01/02)', () => {
+    setPersona(state, 'Layla Rahman');
+    prototypeStore.simulateM365Verification('sharepoint', 'success');
+    const sibling = structuredClone(state.engagements.find(item => item.id === 'ENG-26001')!);
+    sibling.id = 'ENG-26001-SIBLING';
+    state.engagements.push(sibling);
+    const before = structuredClone(state.folders);
+    assert.throws(() => prototypeStore.prepareClientWorkspace('CL-001', 2026), /Choose the exact engagement/);
+    assert.deepEqual(state.folders, before, 'ambiguous workspace preparation is rejected before folder creation');
+
+    prototypeStore.prepareClientWorkspace('CL-001', 2026, 'ENG-26001');
+    prototypeStore.prepareClientWorkspace('CL-001', 2026, 'ENG-26001-SIBLING');
+    const clientRoot = state.m365Config.folderRoot.replace(/\\/g, '/').replace(/\/+$/, '') + '/EXP-TRAD/';
+    assert.equal(state.folders!.filter(item => item.path === clientRoot).length, 1, 'sibling engagements share one canonical client root');
+    assert.equal(state.folders!.filter(item => item.path === `${clientRoot}2026/ENG-26001/`).length, 1);
+    assert.equal(state.folders!.filter(item => item.path === `${clientRoot}2026/ENG-26001-SIBLING/`).length, 1);
+    assert.throws(() => prototypeStore.prepareClientWorkspace('CL-002', 2026, 'ENG-26001-SIBLING'), /does not match this client and year/);
+    assert.equal(state.folders!.some(item => item.path.includes('/NORTH-SRV/')), false, 'a foreign engagement cannot create folders beneath another client');
+  });
+
   it('rejects foreign-client rename targets and keeps evidence pins across replacement (VP-021-E01)', () => {
     setPersona(state, 'Layla Rahman');
     assert.throws(() => prototypeStore.updateDocumentReference('DOC-001', 'Renamed statement', '/Northstar/2026/'), /existing folder in this client library/, 'a rename into another client root is rejected');
@@ -606,7 +694,7 @@ describe('time-date matrix and accounting period/book edit rework (VP-028-E01/VP
     if (foreignTask) assert.throws(() => prototypeStore.addTimeEntry(entry(state.asOfDate, foreignTask.id) as any), /own engagement|belongs/, 'a cross-engagement task link is rejected');
   });
 
-  it('a period/book edit through saveAccountingProfile stales dependent output for every same-client engagement (VP-034-E01)', () => {
+  it('VP-034-AC03: a period/book edit through saveAccountingProfile stales dependent output for every same-client engagement', () => {
     setPersona(state, 'Layla Rahman');
     const client = state.clients.find(c => c.id === 'CL-001')!;
     const profile = client.accountingProfile!;
@@ -635,7 +723,7 @@ describe('authentic historical fixture migration (VP-004-E01)', () => {
     const legacy = JSON.parse(readFileSync(join(process.cwd(), 'tests', 'fixtures', 'legacy-seed-f5f4f78.json'), 'utf8'));
     assert.equal(legacy.schema, 5, 'the fixture is the authentic schema-5 historical state');
     const { state: migrated, warnings } = migratePersistedState(legacy, createInitialState());
-    assert.equal(migrated.schema, 28, 'the fixture migrates to the current schema');
+    assert.equal(migrated.schema, 29, 'the fixture migrates to the current schema');
     assert.equal(migrated.clients.length, legacy.clients.length, 'every historical client survives');
     assert.equal(migrated.engagements.length, legacy.engagements.length, 'every historical engagement survives');
     assert.ok(warnings.length > 0, 'the migration records its warnings');
@@ -645,6 +733,83 @@ describe('authentic historical fixture migration (VP-004-E01)', () => {
 });
 
 describe('statement layout/mapping staleness and disclosure gating (VP-040/041)', () => {
+  it('stales the reviewed statement on TB replacement and regenerates exact current totals and subtotals (VP-040-E01)', () => {
+    const engagement = state.engagements.find(item => item.id === 'ENG-26001')!;
+    const mapping = state.accountMappingRevisions!.find(item => item.engagementId === engagement.id)!;
+    // Isolate the source-replacement delta from unrelated journal-reflection changes.
+    state.adjustmentJournals = [];
+    setPersona(state, 'Adam Khan');
+    const statementLines = [...new Set(mapping.mappings.flatMap(item => item.targets.map(target => target.statementLine)))].sort();
+    const balanceSheetLines = new Set(['Cash and cash equivalents', 'Trade receivables', 'Other current assets', 'Property and equipment', 'Trade payables', 'Borrowings', 'Share capital and reserves']);
+    const orderByStatement: Record<string, number> = {};
+    const lines = statementLines.map(line => {
+      const statement = balanceSheetLines.has(line) ? 'bs' as const : 'is' as const;
+      orderByStatement[statement] = (orderByStatement[statement] || 0) + 1;
+      return { line, statement, group: statement === 'bs' ? 'Current position' : 'Performance', order: orderByStatement[statement] };
+    });
+    const layoutSubtotal = { id: 'vp040-current-assets', label: 'Current assets subtotal', statement: 'bs' as const, lineNames: ['Cash and cash equivalents', 'Trade receivables'] };
+    const layoutVersion = prototypeStore.saveStatementLayoutRevision({ engagementId: engagement.id, sourceVersion: engagement.sourceVersion, mappingRevision: mapping.revision, lines, subtotals: [layoutSubtotal] });
+    const makeRevision = () => {
+      const adjustments = applyReportingAdjustments(engagement.rows, state.adjustmentJournals.filter(item => item.engagementId === engagement.id), engagement.sourceVersion, prototypeStore.getAdjustmentSupportIssues(engagement.id));
+      const statementRows = adjustments.rows.flatMap(row => {
+        const targets = mapping.mappings.find(item => item.accountCode === row.code)?.targets || [];
+        let allocatedCents = 0;
+        return targets.map((target, index) => {
+          const cents = index === targets.length - 1 ? Math.round(row.balance * 100) - allocatedCents : Math.round(row.balance * 100 * target.percentage / 100);
+          allocatedCents += cents;
+          const type = ['Cash and cash equivalents', 'Trade receivables', 'Other current assets', 'Property and equipment'].includes(target.statementLine) ? 'asset' : ['Trade payables', 'Borrowings'].includes(target.statementLine) ? 'liability' : target.statementLine === 'Share capital and reserves' ? 'equity' : target.statementLine === 'Revenue' ? 'revenue' : 'expense';
+          return { ...row, code: `${row.code} → ${target.statementLine}`, type, name: target.statementLine, mappedStatementLine: target.statementLine, balance: cents / 100 };
+        });
+      });
+      const bs = calculateBalanceSheet(statementRows);
+      const income = calculateIncomeStatement(statementRows);
+      const mappedLineValues = new Map<string, number>();
+      const sourcesByLine = new Map<string, string[]>();
+      for (const row of statementRows) {
+        const line = row.mappedStatementLine!;
+        const amount = row.type === 'asset' ? row.balance : Math.abs(row.balance);
+        mappedLineValues.set(line, (mappedLineValues.get(line) || 0) + amount);
+        sourcesByLine.set(line, [...(sourcesByLine.get(line) || []), row.code.split(' → ')[0]]);
+      }
+      const currentAssets = ['Cash and cash equivalents', 'Trade receivables'].reduce((sum, line) => sum + (mappedLineValues.get(line) || 0), 0);
+      const totals = { assets: bs.totalAssets, liabilities: bs.totalLiabilities, equity: bs.totalEquity, revenue: income.revenue, netProfit: income.netProfit };
+      return prototypeStore.saveStatementSetRevision({
+        engagementId: engagement.id, sourceVersion: engagement.sourceVersion, mappingRevision: mapping.revision,
+        layoutVersion, layout: structuredClone(lines),
+        subtotals: [{ ...layoutSubtotal, current: currentAssets }], totals,
+        lines: lines.map(line => ({ line: line.line, current: mappedLineValues.get(line.line) || 0, currentSources: sourcesByLine.get(line.line) || [], comparativeSources: [] }))
+      });
+    };
+
+    const firstRevision = makeRevision();
+    const first = state.statementSetRevisions!.find(item => item.engagementId === engagement.id && item.revision === firstRevision)!;
+    setPersona(state, 'Sara Malik');
+    prototypeStore.reviewStatementSetRevision(engagement.id, firstRevision);
+    const approvedSnapshot = structuredClone(first);
+    assert.equal(first.totals.assets, 2_300_000);
+    assert.equal(first.subtotals[0].current, 1_500_000);
+
+    setPersona(state, 'Adam Khan');
+    const replacement = structuredClone(engagement.rows).map(row => ({ ...row, balance: row.code === '1000' ? row.balance + 100 : row.code === '2000' ? row.balance - 100 : row.balance }));
+    prototypeStore.updateTrialBalanceRows(engagement.id, replacement);
+    assert.equal(first.status, 'Stale', 'accepted source replacement invalidates reviewed statement output');
+    assert.equal(first.sourceVersion, approvedSnapshot.sourceVersion, 'stale historical statement remains pinned to its source version');
+    assert.deepEqual(first.lines, approvedSnapshot.lines, 'source replacement never rewrites the reviewed statement snapshot');
+
+    const regeneratedRevision = makeRevision();
+    const regenerated = state.statementSetRevisions!.find(item => item.engagementId === engagement.id && item.revision === regeneratedRevision)!;
+    assert.equal(regenerated.status, 'Draft');
+    assert.equal(regenerated.sourceVersion, engagement.sourceVersion);
+    assert.equal(regenerated.totals.assets, 2_300_100, 'current asset total reflects exactly +100');
+    assert.equal(regenerated.totals.liabilities, 1_000_100, 'current liability total reflects the balancing +100');
+    assert.equal(regenerated.subtotals[0].current, 1_500_100, 'configured subtotal is regenerated from the new mapped source');
+    assert.deepEqual(first.lines, approvedSnapshot.lines, 'new revision retains the exact old statement lines in its predecessor');
+    setPersona(state, 'Sara Malik');
+    prototypeStore.reviewStatementSetRevision(engagement.id, regeneratedRevision);
+    assert.equal(regenerated.status, 'Reviewed', 'fresh output can receive an independent review');
+    assert.equal(regenerated.reviewedByUserId, state.currentUserId);
+  });
+
   it('a layout revision stales every reviewed statement set for the engagement (VP-040-E01)', () => {
     setPersona(state, 'Adam Khan');
     const eng = state.engagements.find(e => e.id === 'ENG-26001')!;
@@ -677,23 +842,33 @@ describe('statement layout/mapping staleness and disclosure gating (VP-040/041)'
     assert.equal(after.status, 'Stale', 'the layout change stales the reviewed statement set');
   });
 
-  it('a disclosure review marks the package generation stale while unsupported figures stay unavailable (VP-040-E03/VP-041-E03)', () => {
+  it('VP-041-AC02/AC03: disclosure drafts require independent review and stale the package generation', () => {
     setPersona(state, 'Layla Rahman');
     const eng = state.engagements.find(e => e.id === 'ENG-26001')!;
-    const disclosure = (eng.disclosureHistory || [])[0];
-    if (disclosure) {
-      const revisionBefore = disclosure.revision;
-      prototypeStore.saveDisclosureReview(eng.id, { ...structuredClone(disclosure), status: undefined, preparedByUserId: undefined, reviewedByUserId: undefined, reviewedAt: undefined, revision: undefined } as any);
-      const after = (eng.disclosureHistory || []).find(d => d.id === disclosure.id)!;
-      assert.ok(after.revision > (revisionBefore || 0) || after.reviewedByUserId, 'the disclosure review is recorded with attribution');
-    }
-    const packageGen = (eng.packageGenerations || (eng as any).packages || []);
-    assert.ok(Array.isArray(packageGen), 'package generations remain inspectable for staleness');
+    const beforeGeneration = eng.generation;
+    eng.packageHistory = [{ revision: 1, generation: beforeGeneration }] as any;
+    eng.candidate = { id: 'DISCLOSURE-STALE-CANDIDATE' } as any;
+    eng.approvals.manager = { by: 'Manager', byUserId: 'manager', at: '2026-09-20', generation: beforeGeneration };
+    const note = { id: 'VP041-LIFECYCLE-NOTE', title: 'Significant accounting policy', applicability: 'Applicable' as const, text: 'Revenue is recognized when control transfers.', evidenceRef: 'DOC-002', sharedWithClient: false };
+    prototypeStore.saveDisclosureReview(eng.id, note);
+    const draft = (eng.disclosureHistory || []).find(item => item.id === note.id)!;
+    assert.equal(draft.status, 'Draft');
+    assert.equal(draft.revision, 1);
+    assert.throws(() => prototypeStore.reviewDisclosure(eng.id, note.id, 1), /cannot review financial disclosures/);
+    setPersona(state, 'Sara Malik');
+    prototypeStore.reviewDisclosure(eng.id, note.id, 1);
+    const reviewed = (eng.disclosureHistory || []).find(item => item.id === note.id)!;
+    assert.equal(reviewed.status, 'Reviewed');
+    assert.notEqual(reviewed.preparedByUserId, reviewed.reviewedByUserId);
+    assert.equal(eng.generation, beforeGeneration + 2, 'both draft save and independent review advance the package generation');
+    assert.equal(eng.packageHistory[0].generation, beforeGeneration, 'the previous package remains retained at its original generation');
+    assert.equal(eng.candidate, null, 'the prior release candidate is cleared');
+    assert.equal(eng.approvals.manager, null, 'the generation-bound approval is cleared');
   });
 });
 
 describe('archived accounts cannot silently alter approved output (VP-034-E02)', () => {
-  it('an archived account blocks TB intake referencing it and explicitly stales — never silently alters — reviewed output', () => {
+  it('VP-034-E02: an archived account blocks TB intake and explicitly stales — never silently alters — reviewed output', () => {
     setPersona(state, 'Adam Khan');
     const eng = state.engagements.find(e => e.id === 'ENG-26001')!;
     const mapping = [...(state.accountMappingRevisions || [])].filter(m => m.engagementId === eng.id).sort((a, b) => b.revision - a.revision)[0];

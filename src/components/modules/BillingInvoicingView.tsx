@@ -78,8 +78,12 @@ export const BillingInvoicingView: React.FC<BillingInvoicingViewProps> = ({ onNa
   };
   const saveCreditDraft = () => {
     if (!showCreditModal || !selectedInvoice) return true;
+    const previousCreditCount = state.creditNotes.length;
     handleCreateCredit(new Event('submit') as unknown as React.FormEvent);
-    const saved = prototypeStore.getSnapshot().creditNotes.length > state.creditNotes.length;
+    const latestCredits = prototypeStore.getSnapshot().creditNotes;
+    const saved = editingCreditId
+      ? latestCredits.some(credit => credit.id === editingCreditId && credit.amount === creditAmount && credit.reason === creditReason.trim() && !credit.reviewedBy && !credit.reviewedRevision)
+      : latestCredits.length > previousCreditCount;
     if (saved) initialCreditDraft.current = JSON.stringify(creditDraft);
     return saved;
   };
@@ -87,7 +91,7 @@ export const BillingInvoicingView: React.FC<BillingInvoicingViewProps> = ({ onNa
     if (!onRegisterUnsavedForm) return;
     const guards: UnsavedFormGuard[] = [
       { label: 'Invoice draft', isDirty: () => showDraftModal, save: saveInvoiceDraft, discard: () => { setShowDraftModal(false); setSelectedTimeSourceIds([]); setSelectedFixedServiceSource(false); } },
-      { label: 'Credit note draft', isDirty: () => showCreditModal, save: saveCreditDraft, discard: () => { setShowCreditModal(false); setSelectedInvoice(null); } }
+      { label: 'Credit note draft', isDirty: () => showCreditModal && JSON.stringify(creditDraft) !== initialCreditDraft.current, save: saveCreditDraft, discard: () => { setShowCreditModal(false); setSelectedInvoice(null); setEditingCreditId(null); } }
     ];
     onRegisterUnsavedForm(guards[0], 'billing-invoice-draft');
     onRegisterUnsavedForm(guards[1], 'billing-credit-draft');
@@ -150,7 +154,7 @@ export const BillingInvoicingView: React.FC<BillingInvoicingViewProps> = ({ onNa
         address: client.address,
         registrationNumber: client.registrationNumber
       } : undefined),
-      issueDate: new Date().toISOString().split('T')[0],
+      issueDate: originalInvoice?.issueDate || state.asOfDate,
       due,
       status: 'Draft',
       preparedBy: originalInvoice?.preparedBy || state.currentPerson,
@@ -308,6 +312,7 @@ export const BillingInvoicingView: React.FC<BillingInvoicingViewProps> = ({ onNa
     setSelectedInvoice(invoices.find(invoice => invoice.id === credit.invoiceId) || null);
     setCreditAmount(credit.amount);
     setCreditReason(credit.reason);
+    initialCreditDraft.current = JSON.stringify({ creditAmount: credit.amount, creditReason: credit.reason });
     setShowCreditModal(true);
   };
 
@@ -353,7 +358,7 @@ export const BillingInvoicingView: React.FC<BillingInvoicingViewProps> = ({ onNa
       </div>
 
       {notice && (
-        <div className={`badge ${notice.type === 'error' ? 'danger' : 'success'}`} style={{ padding: '8px 12px', display: 'block', fontSize: 13 }}>
+        <div className={`badge ${notice.type === 'error' ? 'danger' : 'success'}`} role={notice.type === 'error' ? 'alert' : 'status'} aria-live={notice.type === 'error' ? 'assertive' : 'polite'} style={{ padding: '8px 12px', display: 'block', fontSize: 13 }}>
           {notice.text}
         </div>
       )}
@@ -443,7 +448,11 @@ export const BillingInvoicingView: React.FC<BillingInvoicingViewProps> = ({ onNa
                           <button
                             className="btn sm ghost"
                             onClick={() => {
+                              setEditingCreditId(null);
                               setSelectedInvoice(inv);
+                              setCreditAmount(25000);
+                              setCreditReason('Commercial fee adjustment approved by partner');
+                              initialCreditDraft.current = JSON.stringify({ creditAmount: 25000, creditReason: 'Commercial fee adjustment approved by partner' });
                               setShowCreditModal(true);
                             }}
                           >
@@ -535,6 +544,7 @@ export const BillingInvoicingView: React.FC<BillingInvoicingViewProps> = ({ onNa
                 </fieldset>}
                 {client && <fieldset className="stack" style={{ gap: 4, border: '1px solid var(--border)', borderRadius: 8, padding: 12 }}>
                   <legend className="caption">Bill to — client profile snapshot</legend>
+                  <div><span className="caption">Invoice date (scenario)</span><br /><b>{editingInvoice?.issueDate || state.asOfDate}</b></div>
                   <b>{client.name}</b>
                   <span>{client.contact}</span>
                   {client.email && <span>{client.email}</span>}
@@ -545,34 +555,44 @@ export const BillingInvoicingView: React.FC<BillingInvoicingViewProps> = ({ onNa
                 </fieldset>}
                 <div className="grid2">
                   <div>
-                    <label className="caption">Invoice Number</label>
+                    <label className="caption" htmlFor="invoice-number">Invoice Number (required)</label>
                     <input
+                      id="invoice-number"
                       type="text"
                       className="input"
                       value={invNumber}
                       onChange={e => setInvNumber(e.target.value)}
+                      maxLength={64}
+                      pattern=".*\S.*"
+                      title="Enter an invoice reference containing at least one non-space character."
                       disabled={Boolean(editingInvoiceId)}
                       required
                     />
                   </div>
                   <div>
-                    <label className="caption">Payment Due Date</label>
+                    <label className="caption" htmlFor="invoice-due-date">Payment Due Date (required)</label>
                     <input
+                      id="invoice-due-date"
                       type="date"
                       className="input"
                       value={due}
                       onChange={e => setDue(e.target.value)}
+                      min={editingInvoice?.issueDate || state.asOfDate}
+                      aria-describedby="invoice-due-date-help"
                       required
                     />
+                    <span id="invoice-due-date-help" className="caption">Choose a valid date on or after the invoice date shown above.</span>
                   </div>
                 </div>
                 <div>
-                  <label className="caption">Fee Description</label>
+                  <label className="caption" htmlFor="invoice-description">Fee Description (required)</label>
                   <input
+                    id="invoice-description"
                     type="text"
                     className="input"
                     value={description}
                     onChange={e => setDescription(e.target.value)}
+                    maxLength={240}
                     required
                   />
                 </div>

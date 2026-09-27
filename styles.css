@@ -87,7 +87,7 @@ main[id],h1{scroll-margin-top:90px}
 
 /* Keep the mobile drawer out of keyboard navigation while it is off-canvas. */
 @media(max-width:760px){
-  .sidebar{visibility:hidden;transition:transform .2s ease,visibility 0s linear .2s}
+  .sidebar{visibility:hidden;transition:transform .2s ease,visibility 0s}
   .sidebar.open{visibility:visible;transition:transform .2s ease,visibility 0s}
   .search-trigger{min-width:44px;min-height:44px;justify-content:center}
 }

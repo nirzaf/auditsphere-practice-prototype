@@ -98,7 +98,6 @@ export type RouteKey =
   | 'delivery'
   | 'records'
   | 'reports'
-  | 'search'
   | 'administration'
   | 'm365-setup'
   | 'portal'
@@ -143,6 +142,22 @@ export interface ClientContact {
   portalAccessRequested?: boolean;
   revision?: number;
   history?: ClientContactHistoryEntry[];
+}
+
+export interface ClientContactNomination {
+  id: string;
+  clientId: string;
+  name: string;
+  email: string;
+  nominatedByUserId: string;
+  nominatedBy: string;
+  nominatedAt: string;
+  reason: string;
+  status: 'Pending review' | 'Reviewed';
+  reviewedByUserId?: string;
+  reviewedBy?: string;
+  reviewedAt?: string;
+  reviewNote?: string;
 }
 
 export interface ClientRelationshipGroup {
@@ -1659,6 +1674,7 @@ export interface PrototypeState {
   users: UserPersona[];
   clients: ClientRecord[];
   contacts: ClientContact[];
+  clientContactNominations?: ClientContactNomination[];
   relationshipGroups: ClientRelationshipGroup[];
   customFields: CustomFieldDefinition[];
   leads: LeadOpportunity[];

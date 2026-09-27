@@ -4,7 +4,7 @@
 
 import type { PrototypeState } from '../types';
 
-export const CURRENT_SCHEMA = 28;
+export const CURRENT_SCHEMA = 29;
 
 export interface MigrationResult {
   state: PrototypeState;
@@ -450,6 +450,35 @@ export function migratePersistedState(parsed: unknown, fresh: PrototypeState): M
       warnings.push('Added the synthetic full-access prototype testing persona (v28).');
     }
   }
+  if (from < 29) {
+    for (const invoice of state.invoices || []) {
+      const seededInvoices = fresh.invoices.filter(item => item.id === invoice.id);
+      if (seededInvoices.length !== 1) continue;
+      const seeded = seededInvoices[0];
+      const engagementId = invoice.engagementId || invoice.eng;
+      const seededEngagementId = seeded.engagementId || seeded.eng;
+      const matchesSeedIdentity = engagementId === seededEngagementId
+        && invoice.invoiceNumber === seeded.invoiceNumber
+        && invoice.description === seeded.description
+        && invoice.amount === seeded.amount
+        && invoice.currency === seeded.currency;
+      if (!matchesSeedIdentity) continue;
+
+      if (!invoice.clientId) {
+        const linkedEngagements = state.engagements.filter(item => item.id === engagementId);
+        if (linkedEngagements.length === 1 && linkedEngagements[0].client === seeded.clientId
+          && state.clients.some(client => client.id === seeded.clientId)) {
+          invoice.clientId = seeded.clientId;
+          warnings.push(`Restored missing client link for unchanged seeded invoice ${invoice.id} (v29).`);
+        }
+      }
+      if (!Array.isArray(invoice.lines) && invoice.clientId === seeded.clientId
+        && Array.isArray(seeded.lines) && seeded.lines.length > 0) {
+        invoice.lines = structuredClone(seeded.lines);
+        warnings.push(`Restored missing line collection for unchanged seeded invoice ${invoice.id} (v29).`);
+      }
+    }
+  }
   for (const evidence of state.evidenceCatalogue || []) {
     evidence.linkedProcedureHistory ||= [];
     evidence.adequacyHistory ||= [];
@@ -460,6 +489,7 @@ export function migratePersistedState(parsed: unknown, fresh: PrototypeState): M
   state.statementSetRevisions = Array.isArray(state.statementSetRevisions) ? state.statementSetRevisions : [];
   state.statementLayoutRevisions = Array.isArray(state.statementLayoutRevisions) ? state.statementLayoutRevisions : [];
   state.simulatedInvitations = Array.isArray(state.simulatedInvitations) ? state.simulatedInvitations : [];
+  state.clientContactNominations = Array.isArray(state.clientContactNominations) ? state.clientContactNominations : [];
   state.identityStatusHistory = Array.isArray(state.identityStatusHistory) ? state.identityStatusHistory : [];
   state.auditProgramTemplates = Array.isArray(state.auditProgramTemplates) ? state.auditProgramTemplates : [];
   state.auditProgramTemplateHistory = Array.isArray(state.auditProgramTemplateHistory) ? state.auditProgramTemplateHistory : [];

@@ -258,10 +258,10 @@ export const AuditPlanningView: React.FC<AuditPlanningViewProps> = ({ onNavigate
                 value={benchmarkType}
                 onChange={e => setBenchmarkType(e.target.value as any)}
               >
-                <option value="revenue">Annual Gross Revenue (0.5% – 2%)</option>
-                <option value="profit">Profit Before Tax (5% – 10%)</option>
-                <option value="assets">Total Balance Sheet Assets (1% – 2%)</option>
-                <option value="equity">Net Equity (2% – 5%)</option>
+                <option value="revenue">Annual Gross Revenue</option>
+                <option value="profit">Profit Before Tax</option>
+                <option value="assets">Total Balance Sheet Assets</option>
+                <option value="equity">Net Equity</option>
               </select>
             </div>
             <div>
@@ -334,6 +334,11 @@ export const AuditPlanningView: React.FC<AuditPlanningViewProps> = ({ onNavigate
                 onChange={e => setSignificantAreas(e.target.value)}
               />
             </div>
+          </div>
+
+          <div className="panel panel-pad mt12" role="note" aria-label="Professional judgment notice">
+            <b>Illustrative calculation — not a recommendation.</b>
+            <p className="sub mt4">This calculator applies the assumptions you enter; it does not recommend a benchmark or threshold. Plan approval records workflow status only and does not confer professional authority or sign an audit conclusion.</p>
           </div>
 
           {/* Calculated Thresholds */}
