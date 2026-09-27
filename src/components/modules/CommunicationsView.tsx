@@ -121,6 +121,14 @@ export const CommunicationsView: React.FC<CommunicationsViewProps> = ({ onNaviga
   };
   const emailBaseline = useRef({ recipientEmail, emailDocumentId, selectedTemplateId, subject, emailBody, simulationOutcome });
   const noteBaseline = useRef({ channel, participants, noteSummary, noteBody, noteDate, noteVisibility, noteDocumentId, relatedJobId, correctionReason });
+  const openCompose = () => {
+    emailAttemptRecorded.current = false;
+    emailSubmissionId.current = crypto.randomUUID();
+    setEmailError('');
+    setEmailDocumentId('');
+    emailBaseline.current = { recipientEmail, emailDocumentId: '', selectedTemplateId, subject, emailBody, simulationOutcome };
+    setShowComposeModal(true);
+  };
   useEffect(() => {
     if (!onRegisterUnsavedForm) return;
     const sameEmail = () => recipientEmail === emailBaseline.current.recipientEmail && emailDocumentId === emailBaseline.current.emailDocumentId && selectedTemplateId === emailBaseline.current.selectedTemplateId && subject === emailBaseline.current.subject && emailBody === emailBaseline.current.emailBody && simulationOutcome === emailBaseline.current.simulationOutcome;
@@ -183,7 +191,7 @@ export const CommunicationsView: React.FC<CommunicationsViewProps> = ({ onNaviga
           <button className="btn sm ghost" onClick={openNewNote}>
             <Icon name="message" /> Log Call / Meeting Note
           </button>
-          <button className="btn primary sm" onClick={() => { emailAttemptRecorded.current = false; emailSubmissionId.current = crypto.randomUUID(); setEmailError(''); setShowComposeModal(true); }}>
+          <button className="btn primary sm" onClick={openCompose}>
             <Icon name="message" /> Compose Simulated Email
           </button>
         </div>
