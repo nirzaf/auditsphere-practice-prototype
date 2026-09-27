@@ -131,11 +131,13 @@ before(async () => {
     'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',
     'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe',
     '/usr/bin/google-chrome', '/usr/bin/chromium', '/usr/bin/chromium-browser',
+    '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
   ].filter((path): path is string => Boolean(path)).find(path => existsSync(path));
   assert.ok(chromePath, 'Chrome/Chromium is required for actual browser acceptance');
   profileDir = mkdtempSync(join(tmpdir(), 'auditsphere-e2e-'));
   chrome = spawn(chromePath, [
-    '--headless=new', '--no-sandbox', '--disable-gpu', '--disable-dev-shm-usage',
+    // Pin the desktop viewport: macOS headless Chrome otherwise opens at ~756px (mobile layout).
+    '--headless=new', '--no-sandbox', '--disable-gpu', '--disable-dev-shm-usage', '--window-size=1440,1000',
     '--remote-debugging-port=0', '--remote-allow-origins=*', `--user-data-dir=${profileDir}`,
     '--no-first-run', '--no-default-browser-check', 'about:blank'
   ], { stdio: 'ignore' });
@@ -9258,6 +9260,95 @@ describe('actual Chrome browser acceptance', { concurrency: false }, () => {
       await browserTab!.command('Page.reload');
       await waitForBrowser('!!document.querySelector("#app-root .brandname")');
     }
+  });
+
+  describe('UX-ENT: enterprise UX lifecycle, queues and scope presentation', () => {
+    const key = 'ste-auditsphere-role-portals-v2';
+    const resetState = async () => {
+      await browserTab!.evaluate(`localStorage.setItem('${key}',${JSON.stringify(JSON.stringify(createInitialState()))})`);
+      await browserTab!.command('Page.reload');
+      assert.equal(await waitForBrowser('!!document.querySelector("#role-select")'), true);
+    };
+    const setPersona = async (id: string) => {
+      await browserTab!.evaluate(`(() => {const s=document.querySelector('#role-select');Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype,'value').set.call(s,${JSON.stringify(id)});s.dispatchEvent(new Event('change',{bubbles:true}));})()`);
+      assert.equal(await waitForBrowser(`JSON.parse(localStorage.getItem('${key}')).currentUserId===${JSON.stringify(id)}`), true, `persona ${id} selected`);
+    };
+    const go = async (route: string) => {
+      await browserTab!.evaluate(`location.hash='#${route}'`);
+      assert.equal(await waitForBrowser(`document.querySelector('.crumb')?.innerText.includes(${JSON.stringify(route.toUpperCase().replace('-', ' '))})`), true, `${route} opened`);
+    };
+
+    it('UX-ENT-01: every work queue count equals its drill-down list, and returned work reaches the preparer', async () => {
+      await resetState();
+      await setPersona('preparer');
+      await go('overview');
+      assert.equal(await waitForBrowser(`document.querySelectorAll('.queue-card').length===6`), true, 'six role work queues render');
+      const queues = await browserTab!.evaluate<Array<{ title: string; count: number; rows: number; ids: string[] }>>(`(async () => {
+        const out=[];
+        for (const card of [...document.querySelectorAll('.queue-card')]) {
+          const count=Number(card.querySelector('.queue-count').innerText);
+          card.click(); await new Promise(r=>setTimeout(r,60));
+          const panel=document.querySelector('[data-testid="work-queue-list"]');
+          const rows=[...(panel?.querySelectorAll('tbody tr')||[])].filter(r=>!r.classList.contains('empty-row'));
+          out.push({title:card.querySelector('.queue-top span').innerText,count,rows:rows.length,ids:rows.map(r=>r.querySelector('td:nth-child(2) .cell-sub')?.innerText||'')});
+          card.click(); await new Promise(r=>setTimeout(r,60));
+        }
+        return out;
+      })()`);
+      for (const queue of queues) assert.equal(queue.rows, queue.count, `${queue.title} count reconciles with its list: ${JSON.stringify(queue)}`);
+      assert.deepEqual(queues.find(queue => queue.title === 'Returned to me')?.ids.sort(), ['RN-001', 'RN-002', 'WP-C1', 'WP-F1'], 'review points and changed workpapers are returned to the preparer');
+      assert.equal(queues.find(queue => queue.title === 'Waiting for my review')?.count, 0, 'a preparer is not offered independent reviews');
+      assert.deepEqual(browserTab!.exceptions, []);
+    });
+
+    it('UX-ENT-02: billing explains segregation of duties and hides out-of-scope invoices', async () => {
+      await resetState();
+      await setPersona('billing');
+      await go('billing');
+      const preparerRow = await browserTab!.evaluate<string>(`[...document.querySelectorAll('tbody tr')].find(r=>r.innerText.includes('INV-2026-003'))?.innerText||''`);
+      assert.match(preparerRow, /You prepared this draft; another person must approve it/, 'the preparer sees why approval will be refused before trying');
+      assert.equal(await browserTab!.evaluate<boolean>(`[...[...document.querySelectorAll('tbody tr')].find(r=>r.innerText.includes('INV-2026-003')).querySelectorAll('button')].some(b=>b.innerText.trim()==='Approve')`), true, 'the action stays available so the enforced store denial remains demonstrable');
+      await browserTab!.evaluate(`[...document.querySelectorAll('button')].find(b=>(b.getAttribute('aria-label')||'').includes('INV-2026-003'))?.click()`);
+      assert.equal(await waitForBrowser(`!!document.querySelector('[aria-label="Invoice INV-2026-003 detail"] section[data-lifecycle="invoice"]')`), true, 'invoice detail shows its lifecycle');
+      await setPersona('group-user');
+      await go('billing');
+      const narrow = await browserTab!.evaluate<string>(`document.querySelector('main#main')?.innerText||''`);
+      assert.equal(narrow.includes('INV-2026-003'), false, 'an ENG-26001-only persona cannot see the ENG-26002 invoice');
+      assert.equal(narrow.includes('INV-2026-001'), true, 'in-scope invoices remain visible');
+    });
+
+    it('UX-ENT-03: adjustment journals stay inside their engagement context with a visible lifecycle', async () => {
+      await resetState();
+      await setPersona('manager');
+      const selectEngagement = (id: string) => browserTab!.evaluate(`(() => {const e=document.querySelector('select[aria-label="Selected engagement"]');Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype,'value').set.call(e,${JSON.stringify(id)});e.dispatchEvent(new Event('change',{bubbles:true}));})()`);
+      await go('accounting-setup');
+      await selectEngagement('ENG-26002');
+      await clickButtonStartingWith('Adjustments (');
+      assert.equal(await waitForBrowser(`[...document.querySelectorAll('button')].some(b=>b.innerText.trim()==='Adjustments (0)')`), true, 'the Northstar engagement lists none of the ENG-26001 journals');
+      assert.equal(await browserTab!.evaluate<boolean>(`!document.querySelector('[aria-label="AJ-01 lifecycle"]')`), true);
+      await selectEngagement('ENG-26001');
+      await clickButtonStartingWith('Adjustments (');
+      assert.equal(await waitForBrowser(`!!document.querySelector('[aria-label="AJ-01 lifecycle"] [aria-current="step"]')`), true, 'the journal shows its lifecycle position');
+      assert.match(await browserTab!.evaluate<string>(`document.querySelector('[aria-label="AJ-01 lifecycle"] [aria-current="step"]').innerText`), /Management accepted/);
+    });
+
+    it('UX-ENT-04: rework, review history and cross-module links are explicit', async () => {
+      await resetState();
+      await setPersona('manager');
+      await go('reviews');
+      const row = await browserTab!.evaluate<string[]>(`[...[...document.querySelectorAll('tbody tr')].find(r=>r.innerText.includes('RN-001')).querySelectorAll('td')].map(td=>td.innerText.trim())`);
+      assert.equal(row[2], 'Sara Malik', 'author falls back to the recorded raiser');
+      assert.match(row[4], /Support the depreciation assumptions/, 'the review query is visible for seeded notes');
+      await browserTab!.evaluate(`[...document.querySelectorAll('tbody tr')].find(r=>r.innerText.includes('RN-001')).querySelector('a[href="#audit"]').click()`);
+      assert.equal(await waitForBrowser(`document.querySelector('.crumb')?.innerText.includes('AUDIT')&&document.querySelector('tr.selected-row')?.innerText.includes('WP-C1')`), true, 'the subject link opens the exact workpaper');
+      assert.equal(await waitForBrowser(`document.querySelector('section[data-lifecycle="workpaper"] [aria-current="step"]')?.classList.contains('lc-returned')`), true, 'Changes required is presented as rework, not an error');
+      assert.match(await browserTab!.evaluate<string>(`document.querySelector('section[data-lifecycle="workpaper"]').innerText`), /Evidence or document changes require rework/);
+      const guide = await browserTab!.evaluate<any>(`(() => {const d=document.querySelector('[data-testid="module-guide-strip"]');const closed=!d.open;d.open=true;return {closed,text:d.innerText};})()`);
+      assert.equal(guide.closed, true, 'the module guide starts collapsed');
+      assert.match(guide.text, /MOD-32/);
+      assert.match(guide.text, /Planned → In progress → Submitted → Cleared/);
+      assert.deepEqual(browserTab!.exceptions, []);
+    });
   });
 
   it('VP-003-E01: checks accessible keyboard behavior across distinct dialogs opened in the Chrome journeys', () => {

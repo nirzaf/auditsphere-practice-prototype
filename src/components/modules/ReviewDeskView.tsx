@@ -4,12 +4,16 @@ import { RouteKey, ReviewNoteItem } from '../../types';
 import { prototypeStore } from '../../store/prototypeStore';
 import { hasAnyRole } from '../../services/guards';
 import { Icon } from '../common/Icons';
+import { StatusBadge } from '../common/StatusBadge';
+import { Notice, EmptyTableRow, ActionReason } from '../common/Feedback';
+import { ActivityTimeline } from '../common/ActivityTimeline';
 import { eligibleReviewAssignees, visibleEngagementIds } from '../../services/guards';
 import { exportService } from '../../services/exportService';
 import { UnsavedFormGuard } from '../../services/unsavedFormGuard';
+import { consequencePrompt } from '../../services/terminalActions';
 
 interface ReviewDeskViewProps {
-  onNavigate: (route: RouteKey) => void;
+  onNavigate: (route: RouteKey, targetId?: string) => void;
   onRegisterUnsavedForm?: (guard: UnsavedFormGuard | null, key?: string) => void;
 }
 
@@ -130,7 +134,7 @@ export const ReviewDeskView: React.FC<ReviewDeskViewProps> = ({ onNavigate, onRe
   };
 
   const handleReassign = (engagementId: string, note: ReviewNoteItem, assigneeUserId: string) => {
-    const reason = window.prompt('Reason for reassigning this review point:');
+    const reason = window.prompt(consequencePrompt('review-reassigned', `${engagementId} · ${note.id}`, 'Reason for reassigning this review point'));
     if (reason === null) return;
     try {
       prototypeStore.reassignReviewNote(engagementId, note.id, assigneeUserId, reason);
@@ -160,17 +164,13 @@ export const ReviewDeskView: React.FC<ReviewDeskViewProps> = ({ onNavigate, onRe
           <p>Multi-tiered review queries, evidentiary responses, and independent sign-off gates.</p>
         </div>
         <div className="row" style={{ gap: 10 }}>
-          <button className="btn primary sm" onClick={() => { raiseBaseline.current = { subjectType, targetWp, assignee, queryText }; setShowRaiseModal(true); }}>
+          {hasAnyRole(state, ['manager', 'reviewer', 'partner', 'eqr']) ? <button className="btn primary sm" onClick={() => { raiseBaseline.current = { subjectType, targetWp, assignee, queryText }; setShowRaiseModal(true); }}>
             <Icon name="plus" /> Raise Review Note
-          </button>
+          </button> : <ActionReason>Review points are raised by managers, reviewers, partners and EQR; you respond to those assigned to you</ActionReason>}
         </div>
       </div>
 
-      {notice && (
-        <div className={`badge ${notice.type === 'error' ? 'danger' : 'success'}`} style={{ padding: '8px 12px', display: 'block', fontSize: 13 }}>
-          {notice.text}
-        </div>
-      )}
+      {notice && <Notice tone={notice.type} onDismiss={() => setNotice(null)}>{notice.text}</Notice>}
 
       <div className="panel">
         <div className="panel-head">
@@ -215,23 +215,25 @@ export const ReviewDeskView: React.FC<ReviewDeskViewProps> = ({ onNavigate, onRe
             <tbody>
               {filteredQueueRows.map(({ engagementId, note: r }) => (
                 <tr key={`${engagementId}:${r.id}`}>
-                  <td><b>{r.id}</b></td>
-                  <td><span className="mono">{engagementId} · {r.subjectType === 'finding' ? 'Finding' : 'Workpaper'} {r.wp}</span></td>
-                  <td>{r.author}</td>
+                  <td><b>{r.id}</b><div className="cell-sub nowrap">{r.severity} · Due {r.due}{r.status !== 'Cleared' && r.due && r.due < state.asOfDate ? ' · overdue' : ''}</div></td>
+                  <td><a className="tablelink mono" href={`#${r.subjectType === 'finding' ? 'findings' : 'audit'}`} title={`Open ${r.subjectType === 'finding' ? 'finding' : 'workpaper'} ${r.wp}`} onClick={event => { event.preventDefault(); prototypeStore.setSelectedEngagement(engagementId); onNavigate(r.subjectType === 'finding' ? 'findings' : 'audit', r.wp); }}>{engagementId} · {r.subjectType === 'finding' ? 'Finding' : 'Workpaper'} {r.wp}</a></td>
+                  <td>{r.author || r.raisedBy}</td>
                   <td><b>{r.assignee || r.assigned}</b>{r.assignmentHistory && r.assignmentHistory.length > 1 && <div className="caption">{r.assignmentHistory.length} assignment events</div>}</td>
                   <td>
-                    <b>{r.text}</b>
+                    <b>{r.text || r.title}</b>
+                    {!r.text && r.body && <div className="cell-sub">{r.body}</div>}
                     {r.response && (
                       <div className="cell-sub" style={{ color: 'var(--teal-dark)', marginTop: 4 }}>
                         <strong>{r.status === 'Reopened' ? 'Prior response:' : 'Response:'}</strong> {r.response}
                         {r.responseEvidence && <span> (Evidence: {r.responseEvidence})</span>}
                       </div>
                     )}
+                    {r.history?.length > 0 && <details className="mt4"><summary className="caption">History ({r.history.length})</summary>
+                      <ActivityTimeline label={`${r.id} history`} entries={[...r.history].reverse().map(item => ({ title: item.action, actor: item.actor, at: item.time, reason: item.text }))} />
+                    </details>}
                   </td>
                   <td>
-                    <span className={`badge ${r.status === 'Cleared' ? 'green' : r.status === 'Responded' ? 'blue' : 'amber'}`}>
-                      {r.status}
-                    </span>
+                    <StatusBadge status={r.status} />
                   </td>
                   <td>
                     <div className="row" style={{ gap: 6 }}>
@@ -264,7 +266,7 @@ export const ReviewDeskView: React.FC<ReviewDeskViewProps> = ({ onNavigate, onRe
                   </td>
                 </tr>
               ))}
-              {filteredQueueRows.length === 0 && <tr><td colSpan={7} className="caption">No review points match these filters in your permitted scope.</td></tr>}
+              {filteredQueueRows.length === 0 && <EmptyTableRow colSpan={7} variant={queueRows.length ? 'filtered' : 'none'} title="No review points match these filters in your permitted scope." description={queueRows.length ? 'Change the queue scope, status or severity filter to see other review points.' : 'Review points are raised from workpapers and findings by managers, reviewers, partners and EQR.'} />}
             </tbody>
           </table>
         </div>

@@ -4,6 +4,7 @@ import { ClientRecord, RouteKey } from '../../types';
 import { prototypeStore } from '../../store/prototypeStore';
 import { visibleClientIds, visibleEngagementIds, hasAnyRole } from '../../services/guards';
 import { Icon } from '../common/Icons';
+import { StatusBadge } from '../common/StatusBadge';
 import { ClientProfileModal } from './ClientProfileModal';
 import { UnsavedFormGuard } from '../../services/unsavedFormGuard';
 
@@ -145,9 +146,7 @@ export const ClientsView: React.FC<ClientsViewProps> = ({ onNavigate, onSelectCl
                     <div className="cell-sub">{client.industry}</div>
                   </div>
                 </div>
-                <span className={`badge ${client.status === 'Active' ? 'green' : 'gray'}`}>
-                  {client.status}
-                </span>
+                <StatusBadge status={client.status} />
               </div>
 
               <div className="row mt12" style={{ gap: 8 }}>

@@ -6,8 +6,12 @@ import { RouteKey, JobRecord, JobTaskItem, CommentItem } from '../../types';
 import { prototypeStore } from '../../store/prototypeStore';
 import { getEffectiveTimeEntries } from '../../services/calculations';
 import { Icon } from '../common/Icons';
+import { StatusBadge } from '../common/StatusBadge';
+import { Notice, EmptyTableRow } from '../common/Feedback';
 import { visibleEngagementIds, isClientRole, canOpenRoute, hasAnyRole, isSuperuserRole } from '../../services/guards';
 import { UnsavedFormGuard } from '../../services/unsavedFormGuard';
+import { consequencePrompt } from '../../services/terminalActions';
+import { keyboardActivate } from '../common/keyboardActivate';
 
 interface JobsTasksViewProps {
   onNavigate: (route: RouteKey) => void;
@@ -214,11 +218,11 @@ export const JobsTasksView: React.FC<JobsTasksViewProps> = ({ onNavigate, search
     let blockedReason = task.blockedReason;
     let statusChangeReason = '';
     if (status === 'Blocked') {
-      blockedReason = window.prompt('Why is this task blocked?')?.trim();
+      blockedReason = window.prompt(consequencePrompt('task-blocked', task.title, 'Why is this task blocked?'))?.trim();
       if (!blockedReason) return;
     } else blockedReason = undefined;
-    if (status === 'Cancelled') statusChangeReason = window.prompt('Why is this task being cancelled?')?.trim() || '';
-    else if (task.status === 'Cancelled') statusChangeReason = window.prompt('Why is this cancelled task being reopened?')?.trim() || '';
+    if (status === 'Cancelled') statusChangeReason = window.prompt(consequencePrompt('task-cancelled', task.title, 'Why is this task being cancelled?'))?.trim() || '';
+    else if (task.status === 'Cancelled') statusChangeReason = window.prompt(consequencePrompt('task-reopened', task.title, 'Why is this cancelled task being reopened?'))?.trim() || '';
     if ((status === 'Cancelled' || task.status === 'Cancelled') && !statusChangeReason) return;
     try {
       prototypeStore.updateTask({
@@ -263,11 +267,11 @@ export const JobsTasksView: React.FC<JobsTasksViewProps> = ({ onNavigate, search
     let blockedReason = job.blockedReason;
     let cancellationReason = job.cancellationReason;
     if (status === 'Blocked') {
-      blockedReason = window.prompt('Why is this job blocked?')?.trim();
+      blockedReason = window.prompt(consequencePrompt('job-blocked', job.title, 'Why is this job blocked?'))?.trim();
       if (!blockedReason) return;
     }
     if (status === 'Cancelled') {
-      cancellationReason = window.prompt('Why is this job being cancelled? Its tasks, time and linked document history will be retained.')?.trim();
+      cancellationReason = window.prompt(consequencePrompt('job-cancelled', job.title, 'Why is this job being cancelled?'))?.trim();
       if (!cancellationReason) return;
     }
     try {
@@ -301,20 +305,7 @@ export const JobsTasksView: React.FC<JobsTasksViewProps> = ({ onNavigate, search
 
       {myLocalNotices.length > 0 && <section className="panel panel-pad" aria-label="My local notices"><div className="between"><div><h3>My Local Notices</h3><p className="caption">Only notices addressed to this identity in jobs it can currently access.</p></div><span className="badge blue">{myLocalNotices.filter(item => !item.readAt).length} unread</span></div><div className="stack mt8">{myLocalNotices.map(item => {const comment = state.comments.find(record => record.id === item.commentId)!;const job = comment.subjectType === 'task' ? state.jobs.find(record => record.id === state.jobTasks.find(task => task.id === comment.subjectId)?.jobId)! : state.jobs.find(record => record.id === comment.subjectId)!;return <div className="borderbox panel-pad" key={item.id}><div className="between"><span><b>{comment.author}</b> mentioned you on {comment.subjectType} · {job.title}{!item.readAt && <span className="tag blue ml8">Unread</span>}</span><div className="row"><button className="btn sm ghost" onClick={() => setSelectedJobId(job.id)}>Open job</button>{!item.readAt && <button className="btn sm" onClick={() => { try { prototypeStore.markLocalNoticeRead(item.id); } catch (err: any) { triggerNotice('error', err.message); } }}>Mark read</button>}</div></div></div>;})}</div></section>}
 
-      {notice && (
-        <div
-          className="panel panel-pad"
-          style={{
-            background: notice.type === 'success' ? '#f0fdf4' : '#fef2f2',
-            borderColor: notice.type === 'success' ? '#86efac' : '#fca5a5',
-            color: notice.type === 'success' ? '#166534' : '#991b1b',
-            padding: '10px 16px'
-          }}
-        >
-          <b>{notice.type === 'success' ? '✓ ' : '⚠ '}</b>
-          {notice.text}
-        </div>
-      )}
+      {notice && <Notice tone={notice.type} onDismiss={() => setNotice(null)}>{notice.text}</Notice>}
 
       {scopedJobs.length === 0 ? (
         <div className="panel panel-pad text-center" style={{ padding: '60px 20px' }}>
@@ -335,14 +326,14 @@ export const JobsTasksView: React.FC<JobsTasksViewProps> = ({ onNavigate, search
           </div>
         </div>
       ) : (
-        <div className="grid-main">
+        <div className="master-detail">
           {/* Left: Jobs List */}
           <div className="stack" style={{ gap: 16 }}>
             <div className="panel">
               <div className="panel-head">
                 <h3>Practice Jobs Register ({filteredJobs.length} of {scopedJobs.length})</h3>
               </div>
-              <div className="grid grid-3 panel-pad" style={{ paddingTop: 0 }}>
+              <div className="filter-grid filter-grid-compact" style={{ paddingTop: 0 }}>
                 <label>Client<select aria-label="Jobs client filter" value={clientFilter} onChange={e => setClientFilter(e.target.value)}><option value="ALL">All permitted clients</option>{scopedClients.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
                 <label>Engagement<select aria-label="Jobs engagement filter" value={engagementFilter} onChange={e => setEngagementFilter(e.target.value)}><option value="ALL">All permitted engagements</option>{scopedEngagements.filter(item => clientFilter === 'ALL' || item.client === clientFilter).map(item => <option key={item.id} value={item.id}>{item.id} · FY{item.year}</option>)}</select></label>
                 <label>Owner<select aria-label="Jobs owner filter" value={ownerFilter} onChange={e => setOwnerFilter(e.target.value)}><option value="ALL">All owners</option>{[...new Set(scopedJobs.map(job => job.owner))].sort().map(owner => <option key={owner}>{owner}</option>)}</select></label>
@@ -360,7 +351,7 @@ export const JobsTasksView: React.FC<JobsTasksViewProps> = ({ onNavigate, search
                   </thead>
                   <tbody>
                     {filteredJobs.map(job => (
-                      <tr
+                      <tr {...keyboardActivate}
                         key={job.id}
                         className={job.id === selectedJob?.id ? 'selected-row' : ''}
                         style={{ cursor: 'pointer' }}
@@ -371,13 +362,11 @@ export const JobsTasksView: React.FC<JobsTasksViewProps> = ({ onNavigate, search
                           <div className="cell-sub">{job.id} · {job.owner}</div>
                         </td>
                         <td>
-                          <span className={`badge ${job.status === 'Completed' ? 'green' : 'amber'}`}>
-                            {job.status}
-                          </span>
+                          <StatusBadge status={job.status} />
                         </td>
                       </tr>
                     ))}
-                    {filteredJobs.length === 0 && <tr><td colSpan={2} className="sub">No jobs match these filters.</td></tr>}
+                    {filteredJobs.length === 0 && <EmptyTableRow colSpan={2} variant="filtered" title="No jobs match these filters." />}
                   </tbody>
                 </table>
               </div>
@@ -393,9 +382,10 @@ export const JobsTasksView: React.FC<JobsTasksViewProps> = ({ onNavigate, search
                     <span className="eyebrow">JOB WORKSPACE · {selectedJob.id}</span>
                     <h2>{selectedJob.title}</h2>
                     <p className="sub">{client?.name || selectedJob.clientId} · Due: {selectedJob.dueDate} · Owner: {selectedJob.owner}</p>
+                    <div className="mt4"><StatusBadge status={selectedJob.status} />{!['Completed', 'Cancelled'].includes(selectedJob.status) && selectedJob.dueDate < state.asOfDate && <> <StatusBadge status="Overdue" kind="blocked" title={`Due ${selectedJob.dueDate}; as of ${state.asOfDate}`} /></>}</div>
                     {isModerator && selectedJob.status !== 'Cancelled' && <button className="btn sm ghost mt8" onClick={() => openJobEdit(selectedJob)}>Edit Job Details</button>}
                     <label className="caption block mt8">Manual job status<select aria-label="Selected job status" value={selectedJob.status} disabled={!isModerator || selectedJob.status === 'Cancelled'} onChange={e => handleUpdateJobStatus(selectedJob, e.target.value as JobRecord['status'])}>{['Not started', 'In progress', 'Blocked', 'Completed', 'Cancelled'].map(status => <option key={status}>{status}</option>)}</select></label>
-                    {selectedJob.status === 'Blocked' && <p className="caption mt4">Blocked: {selectedJob.blockedReason}</p>}
+                    {selectedJob.status === 'Blocked' && <p className="blocked-line mt4">Blocked: {selectedJob.blockedReason}</p>}
                     {selectedJob.status === 'Cancelled' && <p className="caption mt4" role="status">Cancelled by {selectedJob.cancelledByUserId || 'recorded user'} on {selectedJob.cancelledAt || 'date unavailable'} · {selectedJob.cancellationReason || 'No reason recorded'}. Tasks and linked records are retained.</p>}
                   </div>
                   <div style={{ textAlign: 'right' }}>
@@ -446,7 +436,7 @@ export const JobsTasksView: React.FC<JobsTasksViewProps> = ({ onNavigate, search
                                 <div className="cell-sub">Assigned: {parent.assignee} · Status: {parent.status}</div>
                                 {parent.statusHistory?.length ? <div className="cell-sub">Status history: {parent.statusHistory.map(event => `${event.from} → ${event.to} by ${event.by}${event.reason ? `: ${event.reason}` : ''}`).join(' · ')}</div> : null}
                                 {parent.reassignmentHistory?.length ? <div className="cell-sub">Reassignment history: {parent.reassignmentHistory.map(event => `${event.from} → ${event.to} on ${event.date.slice(0, 10)}${event.reason ? `: ${event.reason}` : ''}`).join(' · ')}</div> : null}
-                                {parent.status === 'Blocked' && <div className="cell-sub">Blocked: {parent.blockedReason}</div>}
+                                {parent.status === 'Blocked' && <div className="blocked-line">Blocked: {parent.blockedReason}</div>}
                                 <select className="input sm mt4" aria-label={`Task status ${parent.id}`} value={parent.status} disabled={selectedJob.status === 'Cancelled'} onChange={e => handleSetTaskStatus(parent, e.target.value as JobTaskItem['status'])}>{['Not started', 'In progress', 'Blocked', 'Completed', 'Cancelled'].map(status => <option key={status}>{status}</option>)}</select>
                               </div>
                             </div>
@@ -493,7 +483,7 @@ export const JobsTasksView: React.FC<JobsTasksViewProps> = ({ onNavigate, search
                                         {sub.title}
                                       </span>
                                       <div className="cell-sub">{sub.assignee}</div>
-                                      {sub.status === 'Blocked' && <div className="cell-sub">Blocked: {sub.blockedReason}</div>}
+                                      {sub.status === 'Blocked' && <div className="blocked-line">Blocked: {sub.blockedReason}</div>}
                                       <select className="input sm mt4" aria-label={`Task status ${sub.id}`} value={sub.status} disabled={selectedJob.status === 'Cancelled'} onChange={e => handleSetTaskStatus(sub, e.target.value as JobTaskItem['status'])}>{['Not started', 'In progress', 'Blocked', 'Completed', 'Cancelled'].map(status => <option key={status}>{status}</option>)}</select>
                                     </div>
                                   </div>

@@ -8,7 +8,11 @@ import { prototypeStore } from '../../store/prototypeStore';
 import { hasAnyRole } from '../../services/guards';
 import { UnsavedFormGuard } from '../../services/unsavedFormGuard';
 import { Icon } from '../common/Icons';
+import { StatusBadge } from '../common/StatusBadge';
+import { Notice, EmptyTableRow, EmptyState } from '../common/Feedback';
 import { calculateMateriality, formatCurrency } from '../../services/calculations';
+import { LifecyclePanel } from '../common/Lifecycle';
+import { lifecycleById } from '../../services/lifecycles';
 
 interface AuditPlanningViewProps {
   onNavigate: (route: RouteKey) => void;
@@ -205,32 +209,35 @@ export const AuditPlanningView: React.FC<AuditPlanningViewProps> = ({ onNavigate
         </div>
       </div>
 
-      {notice && (
-        <div
-          className="panel panel-pad"
-          style={{
-            background: notice.type === 'success' ? '#f0fdf4' : '#fef2f2',
-            borderColor: notice.type === 'success' ? '#86efac' : '#fca5a5',
-            color: notice.type === 'success' ? '#166534' : '#991b1b',
-            padding: '10px 16px'
-          }}
-        >
-          <b>{notice.type === 'success' ? '✓ ' : '⚠ '}</b>
-          {notice.text}
-        </div>
-      )}
+      {notice && <Notice tone={notice.type} onDismiss={() => setNotice(null)}>{notice.text}</Notice>}
+
+      {existingPlan ? <LifecyclePanel
+        definition={lifecycleById('audit-plan')}
+        subject={`${existingPlan.id} · Version ${existingPlan.version}`}
+        status={existingPlan.status}
+        returned={existingPlan.status === 'Draft' && Boolean(existingPlan.reviewNotes)}
+        headingLevel="h4"
+        facts={[
+          { label: 'Prepared by', value: existingPlan.preparedBy || '—' },
+          { label: 'Reviewed by', value: existingPlan.reviewedBy || (existingPlan.status === 'Under review' ? 'Awaiting manager/partner' : '—') },
+          { label: 'Review notes', value: existingPlan.reviewNotes || '—' },
+          { label: 'Superseded reason', value: existingPlan.supersededReason || '—' }
+        ]}
+        nextAction={existingPlan.status === 'Draft' ? 'Complete materiality, team and milestones, then submit the plan for review.' : existingPlan.status === 'Under review' ? 'A manager or partner independent of the preparer approves or returns this version.' : existingPlan.status === 'Approved' ? 'Proceed to risks and programs. A later risk change opens a new plan version; this approval stays in history.' : 'Superseded by a later version — open the latest version.'}
+        downstream="Approved materiality drives sampling thresholds and finding classification; changing the plan creates a new version and never rewrites the approved one."
+      /> : <div className="panel"><EmptyState title="No audit plan recorded yet" description="Enter benchmark, materiality rates, team allocations and milestones, then submit version 1 for independent review." /></div>}
 
       <div className="tabs">
-        <button className={`tab-btn ${activeTab === 'materiality' ? 'active' : ''}`} onClick={() => setActiveTab('materiality')}>
+        <button className={`tab-btn ${activeTab === 'materiality' ? 'active' : ''}`} aria-pressed={activeTab === 'materiality'} onClick={() => setActiveTab('materiality')}>
           Materiality Strategy (ISA 320)
         </button>
-        <button className={`tab-btn ${activeTab === 'team' ? 'active' : ''}`} onClick={() => setActiveTab('team')}>
+        <button className={`tab-btn ${activeTab === 'team' ? 'active' : ''}`} aria-pressed={activeTab === 'team'} onClick={() => setActiveTab('team')}>
           Team &amp; Section Allocations
         </button>
-        <button className={`tab-btn ${activeTab === 'milestones' ? 'active' : ''}`} onClick={() => setActiveTab('milestones')}>
+        <button className={`tab-btn ${activeTab === 'milestones' ? 'active' : ''}`} aria-pressed={activeTab === 'milestones'} onClick={() => setActiveTab('milestones')}>
           Timing &amp; Milestones ({milestones.length})
         </button>
-        <button className={`tab-btn ${activeTab === 'history' ? 'active' : ''}`} onClick={() => setActiveTab('history')}>
+        <button className={`tab-btn ${activeTab === 'history' ? 'active' : ''}`} aria-pressed={activeTab === 'history'} onClick={() => setActiveTab('history')}>
           Plan Versions &amp; Review ({existingPlan ? `v${existingPlan.version}` : 'Draft'})
         </button>
       </div>
@@ -244,9 +251,7 @@ export const AuditPlanningView: React.FC<AuditPlanningViewProps> = ({ onNavigate
               <h2>{client?.name} · Materiality Strategy</h2>
               <p className="sub">Engagement: {selectedEng.id} · Currency: {selectedEng.currency} · Status: {existingPlan?.status || 'Draft'}</p>
             </div>
-            <span className={`badge ${existingPlan?.status === 'Approved' ? 'green' : 'amber'}`}>
-              {existingPlan?.status || 'Draft Plan'}
-            </span>
+            <StatusBadge status={existingPlan?.status || 'Draft Plan'} />
           </div>
 
           <div className="grid3 mt20">
@@ -404,7 +409,7 @@ export const AuditPlanningView: React.FC<AuditPlanningViewProps> = ({ onNavigate
               </thead>
               <tbody>
                 {teamAllocations.length === 0 && (
-                  <tr><td colSpan={6} className="sub">No team allocations recorded yet. Add the professionals deliberately assigned to this engagement.</td></tr>
+                  <EmptyTableRow colSpan={6} variant="none" title="No team allocations recorded yet." description="Add the professionals deliberately assigned to this engagement." />
                 )}
                 {teamAllocations.map((alloc, idx) => (
                   <tr key={idx}>
@@ -445,7 +450,7 @@ export const AuditPlanningView: React.FC<AuditPlanningViewProps> = ({ onNavigate
               </thead>
               <tbody>
                 {milestones.length === 0 && (
-                  <tr><td colSpan={5} className="sub">No timing milestones recorded yet. Add the phases this engagement commits to.</td></tr>
+                  <EmptyTableRow colSpan={5} variant="none" title="No timing milestones recorded yet." description="Add the phases this engagement commits to." />
                 )}
                 {milestones.map((m, idx) => (
                   <tr key={idx}>

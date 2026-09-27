@@ -4,6 +4,8 @@ import { RouteKey, TimeEntryItem } from '../../types';
 import { prototypeStore } from '../../store/prototypeStore';
 import { hasAnyRole, isSuperuserRole } from '../../services/guards';
 import { Icon } from '../common/Icons';
+import { StatusBadge } from '../common/StatusBadge';
+import { Notice, EmptyTableRow, ActionReason } from '../common/Feedback';
 import { formatCurrency, formatMinutesToHours, getEffectiveTimeEntries } from '../../services/calculations';
 import { UnsavedFormGuard } from '../../services/unsavedFormGuard';
 
@@ -149,11 +151,7 @@ export const TimeTrackingView: React.FC<TimeTrackingViewProps> = ({ onNavigate, 
         </button>
       </div>
 
-      {notice && (
-        <div className={`badge ${notice.type === 'error' ? 'danger' : 'success'}`} style={{ padding: '8px 12px', display: 'block', fontSize: 13 }}>
-          {notice.text}
-        </div>
-      )}
+      {notice && <Notice tone={notice.type} onDismiss={() => setNotice(null)}>{notice.text}</Notice>}
 
       <div className="metric-grid">
         <div className="metric">
@@ -194,12 +192,7 @@ export const TimeTrackingView: React.FC<TimeTrackingViewProps> = ({ onNavigate, 
               </tr>
             </thead>
             <tbody>
-              {times.length === 0 && (
-                <tr><td colSpan={9} style={{ textAlign: 'center', padding: '28px 12px' }}>
-                  <b>No time entries yet</b>
-                  <p className="sub mt8">Use “Record Time Entry” to log work against a job. Entries are submitted for independent review, can be returned with a reason, corrected, and resubmitted; approved billable time becomes eligible for invoicing.</p>
-                </td></tr>
-              )}
+              {times.length === 0 && <EmptyTableRow colSpan={9} title="No time entries yet" description="Use “Record Time Entry” to log work against a job. Entries are submitted for independent review, can be returned with a reason, corrected, and resubmitted; approved billable time becomes eligible for invoicing." />}
               {times.map(t => (
                 <tr key={t.id}>
                   <td><b>{t.id}</b></td>
@@ -208,8 +201,8 @@ export const TimeTrackingView: React.FC<TimeTrackingViewProps> = ({ onNavigate, 
                   <td>
                     <b>{t.taskTitle}</b>
                     {t.narrative && <div className="cell-sub">{t.narrative}</div>}
-                    {t.returnReason && <div className="cell-sub" style={{ color: 'red' }}>Returned: {t.returnReason}</div>}
-                    {t.supersedesId && <div className="cell-sub">Revision of {t.supersedesId}</div>}
+                    {t.returnReason && <div className="rework-note"><StatusBadge status="Returned" /> <span>Returned: {t.returnReason}{t.reviewedBy ? ` — ${t.reviewedBy}` : ''}</span></div>}
+                    {t.supersedesId && <div className="cell-sub">Revision of {t.supersedesId}{t.correctionRevision ? ` · correction r${t.correctionRevision}` : ''}</div>}
                   </td>
                   <td>{t.activity}</td>
                   <td>
@@ -222,9 +215,7 @@ export const TimeTrackingView: React.FC<TimeTrackingViewProps> = ({ onNavigate, 
                     </span>
                   </td>
                   <td>
-                    <span className={`badge ${t.status === 'Approved' ? 'green' : t.status === 'Returned' ? 'red' : 'amber'}`}>
-                      {t.status}
-                    </span>
+                    <StatusBadge status={t.status} />
                   </td>
                   <td>
                     {t.status === 'Submitted' && (
@@ -249,8 +240,8 @@ export const TimeTrackingView: React.FC<TimeTrackingViewProps> = ({ onNavigate, 
                             </button>
                           </>
                         )}
-                        {hasAnyRole(state, ['manager', 'reviewer', 'partner']) && t.person === state.currentPerson && !isSuperuser && <span className="caption" title="Independent review required">Self-review not permitted</span>}
-                        {!hasAnyRole(state, ['manager', 'reviewer', 'partner']) && <span className="caption">Awaiting review</span>}
+                        {hasAnyRole(state, ['manager', 'reviewer', 'partner']) && t.person === state.currentPerson && !isSuperuser && <ActionReason>Self-review not permitted — another reviewer must decide</ActionReason>}
+                        {!hasAnyRole(state, ['manager', 'reviewer', 'partner']) && <ActionReason>Awaiting review by a manager, reviewer or partner</ActionReason>}
                       </div>
                     )}
                     {t.status === 'Approved' && (

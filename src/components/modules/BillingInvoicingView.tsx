@@ -2,11 +2,17 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { RouteKey, InvoiceRecord, InvoiceLineItem, CreditNoteRecord } from '../../types';
 import { prototypeStore } from '../../store/prototypeStore';
-import { hasAnyRole } from '../../services/guards';
+import { hasAnyRole, isSamePerson, scopedInvoices } from '../../services/guards';
 import { Icon } from '../common/Icons';
+import { StatusBadge } from '../common/StatusBadge';
+import { Notice, ActionReason, EmptyTableRow } from '../common/Feedback';
+import { LifecyclePanel } from '../common/Lifecycle';
+import { ActivityTimeline, TimelineEntry } from '../common/ActivityTimeline';
+import { lifecycleById } from '../../services/lifecycles';
 import { invoiceTaxLine, formatCurrency, getEffectiveTimeEntries } from '../../services/calculations';
 import { exportService } from '../../services/exportService';
 import { UnsavedFormGuard } from '../../services/unsavedFormGuard';
+import { consequencePrompt } from '../../services/terminalActions';
 
 interface BillingInvoicingViewProps {
   onNavigate: (route: RouteKey) => void;
@@ -24,6 +30,7 @@ export const BillingInvoicingView: React.FC<BillingInvoicingViewProps> = ({ onNa
   const [selectedInvoice, setSelectedInvoice] = useState<InvoiceRecord | null>(null);
   const [editingCreditId, setEditingCreditId] = useState<string | null>(null);
   const [notice, setNotice] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [focusedInvoiceId, setFocusedInvoiceId] = useState<string | null>(null);
 
   // New draft invoice form — numbering and due-date defaults come from the saved firm settings
   // (VP-062-AC01/AC02 prospective application).
@@ -45,7 +52,10 @@ export const BillingInvoicingView: React.FC<BillingInvoicingViewProps> = ({ onNa
   const creditDraft = { creditAmount, creditReason };
   const initialCreditDraft = useRef(JSON.stringify(creditDraft));
 
-  const invoices = state.invoices;
+  // Only invoices whose client and engagement are in the persona's scope (same rule as the navigation count).
+  const invoices = scopedInvoices(state);
+  const scopedInvoiceIds = new Set(invoices.map(invoice => invoice.id));
+  const creditNotes = state.creditNotes.filter(credit => scopedInvoiceIds.has(credit.invoiceId));
   const selectedEngagement = state.engagements.find(e => e.id === state.selectedEngagement);
   const client = state.clients.find(c => c.id === selectedEngagement?.client);
   const currency = selectedEngagement?.currency || 'QAR';
@@ -205,7 +215,7 @@ export const BillingInvoicingView: React.FC<BillingInvoicingViewProps> = ({ onNa
   };
 
   const handleReturnInvoice = (inv: InvoiceRecord) => {
-    const reason = window.prompt('Reason for returning this invoice draft for changes:');
+    const reason = window.prompt(consequencePrompt('invoice-returned', `${inv.invoiceNumber} · revision ${Math.max(1, inv.revision || 1)}`, 'Reason for returning this invoice draft for changes'));
     if (!reason?.trim()) return;
     try {
       prototypeStore.reviewInvoice(inv.id, false, reason);
@@ -301,7 +311,7 @@ export const BillingInvoicingView: React.FC<BillingInvoicingViewProps> = ({ onNa
   };
 
   const handleReturnCredit = (creditId: string) => {
-    const reason = window.prompt('Reason for returning this credit note for revision:');
+    const reason = window.prompt(consequencePrompt('credit-returned', creditId, 'Reason for returning this credit note for revision'));
     if (!reason?.trim()) return;
     try { prototypeStore.reviewCreditNote(creditId, false, reason); setNotice({ type: 'success', text: 'Credit note returned with a recorded reason.' }); }
     catch (err: any) { setNotice({ type: 'error', text: err.message }); }
@@ -358,11 +368,7 @@ export const BillingInvoicingView: React.FC<BillingInvoicingViewProps> = ({ onNa
         </button>
       </div>
 
-      {notice && (
-        <div className={`badge ${notice.type === 'error' ? 'danger' : 'success'}`} role={notice.type === 'error' ? 'alert' : 'status'} aria-live={notice.type === 'error' ? 'assertive' : 'polite'} style={{ padding: '8px 12px', display: 'block', fontSize: 13 }}>
-          {notice.text}
-        </div>
-      )}
+      {notice && <Notice tone={notice.type} onDismiss={() => setNotice(null)}>{notice.text}</Notice>}
 
       <div className="panel">
         <div className="panel-head">
@@ -385,18 +391,13 @@ export const BillingInvoicingView: React.FC<BillingInvoicingViewProps> = ({ onNa
               </tr>
             </thead>
             <tbody>
-              {invoices.length === 0 && (
-                <tr><td colSpan={9} style={{ textAlign: 'center', padding: '28px 12px' }}>
-                  <b>No invoices match the current scope</b>
-                  <p className="sub mt8">Use “Draft New Invoice” to create a draft from approved billable time or an accepted fixed-fee proposal. Drafts then move through independent review (approve or reasoned return), issue, and — if needed — credit notes.</p>
-                </td></tr>
-              )}
+              {invoices.length === 0 && <EmptyTableRow colSpan={9} variant={state.invoices.length ? 'scope' : 'none'} title="No invoices match the current scope" description="Use “Draft New Invoice” to create a draft from approved billable time or an accepted fixed-fee proposal. Drafts then move through independent review (approve or reasoned return), issue, and — if needed — credit notes." />}
               {invoices.map(inv => {
                 const outstanding = Math.max(0, inv.amount - inv.paid - (inv.creditsApplied || 0));
                 return (
-                  <tr key={inv.id}>
-                    <td><b>{inv.invoiceNumber}</b></td>
-                    <td>
+                  <tr key={inv.id} className={focusedInvoiceId === inv.id ? 'row-selected' : undefined}>
+                    <td><button type="button" className="tablelink" aria-pressed={focusedInvoiceId === inv.id} aria-label={`Show lifecycle and history for ${inv.invoiceNumber}`} onClick={() => setFocusedInvoiceId(focusedInvoiceId === inv.id ? null : inv.id)}><b>{inv.invoiceNumber}</b></button></td>
+                    <td className="cell-wide">
                       {inv.description}
                       {inv.reviewNote && <div className="caption text-danger mt4">Returned by reviewer: {inv.reviewNote}</div>}
                       {inv.commercialApproval && <div className="caption mt4">Approved by {inv.commercialApproval.by}{inv.commercialApproval.at ? ` · ${new Date(inv.commercialApproval.at).toLocaleString()}` : ''}</div>}
@@ -412,18 +413,17 @@ export const BillingInvoicingView: React.FC<BillingInvoicingViewProps> = ({ onNa
                         </details>
                       )}
                     </td>
-                    <td><b>{formatCurrency(inv.amount, inv.currency)}</b></td>
-                    <td>{formatCurrency(inv.paid, inv.currency)}</td>
-                    <td>{inv.creditsApplied ? formatCurrency(inv.creditsApplied, inv.currency) : '—'}</td>
-                    <td><b>{formatCurrency(outstanding, inv.currency)}</b></td>
+                    <td className="num"><b>{formatCurrency(inv.amount, inv.currency)}</b></td>
+                    <td className="num">{formatCurrency(inv.paid, inv.currency)}</td>
+                    <td className="num">{inv.creditsApplied ? formatCurrency(inv.creditsApplied, inv.currency) : '—'}</td>
+                    <td className="num"><b>{formatCurrency(outstanding, inv.currency)}</b></td>
                     <td>
-                      <span className={`badge ${inv.status === 'Paid' ? 'green' : inv.status === 'Issued' ? 'blue' : 'amber'}`}>
-                        {inv.status}
-                      </span>
+                      <StatusBadge status={inv.status} detail={`r${Math.max(1, inv.revision || 1)}`} />
+                      {inv.status === 'Draft' && inv.reviewNote && <div className="mt4"><StatusBadge status="Returned" title={inv.reviewNote} /></div>}
                     </td>
-                    <td>{inv.due}</td>
+                    <td className="nowrap">{inv.due}</td>
                     <td>
-                      <div className="row" style={{ gap: 6 }}>
+                      <div className="row wrap" style={{ gap: 6, minWidth: 180 }}>
                         <button
                           className="btn sm"
                           onClick={() => handleExportPDF(inv)}
@@ -433,6 +433,7 @@ export const BillingInvoicingView: React.FC<BillingInvoicingViewProps> = ({ onNa
                         </button>
                         {inv.status === 'Draft' && (
                           <>
+                            {isSamePerson(state, inv.preparedBy, state.currentPerson) && <ActionReason>You prepared this draft; another person must approve it</ActionReason>}
                             {canReviseInvoice(inv) && <button className="btn sm ghost" onClick={() => handleReviseInvoice(inv)}>Edit</button>}
                             <button className="btn sm ghost" onClick={() => handleApprove(inv)}>Approve</button>
                             <button className="btn sm ghost text-danger" onClick={() => handleReturnInvoice(inv)}>Return</button>
@@ -441,6 +442,7 @@ export const BillingInvoicingView: React.FC<BillingInvoicingViewProps> = ({ onNa
                         )}
                         {inv.status === 'Approved' && (
                           <>
+                            {inv.commercialApproval && isSamePerson(state, inv.commercialApproval.by, state.currentPerson) && <ActionReason>You reviewed this revision; another person must issue it</ActionReason>}
                             {canReviseInvoice(inv) && <button className="btn sm ghost" onClick={() => handleReviseInvoice(inv)}>Revise</button>}
                             <button className="btn sm primary" onClick={() => handleIssue(inv)}>Issue</button>
                           </>
@@ -470,11 +472,51 @@ export const BillingInvoicingView: React.FC<BillingInvoicingViewProps> = ({ onNa
         </div>
       </div>
 
+      {(() => {
+        const focused = invoices.find(invoice => invoice.id === focusedInvoiceId);
+        if (!focused) return null;
+        const revision = Math.max(1, focused.revision || 1);
+        const entries: TimelineEntry[] = [
+          ...state.events.filter(event => event.ref === focused.id).map(event => ({ title: event.text, at: event.time })),
+          ...(focused.revisionHistory || []).map(entry => ({ title: `Revised to revision ${entry.revision + 1}`, actor: entry.editedBy, at: entry.editedAt, revision: entry.revision + 1, reason: entry.reason })),
+          ...(focused.commercialApprovalHistory || []).map(entry => ({ title: 'Approval superseded by a later revision', actor: entry.by, at: entry.at, revision: entry.revision, from: 'Approved', to: 'Superseded' }))
+        ];
+        const nextAction = focused.status === 'Draft' ? (focused.reviewNote ? `Preparer revises the draft to address: “${focused.reviewNote}”, then it returns to independent review.` : `An independent reviewer (not ${focused.preparedBy}) approves or returns revision ${revision}.`)
+          : focused.status === 'Approved' ? `Issue revision ${revision}; the issuer must differ from the reviewer ${focused.commercialApproval?.by || ''}.`
+          : focused.status === 'Issued' ? 'Record an offline receipt and allocate it in Receivables, or raise a credit note.'
+          : focused.status === 'Paid' ? 'Fully settled. Corrections use credit notes; the invoice itself is never edited.'
+          : 'Cancelled drafts are terminal; billed time sources were released for re-use.';
+        return <div className="panel panel-pad" aria-label={`Invoice ${focused.invoiceNumber} detail`}>
+          <div className="grid-main" style={{ gap: 16 }}>
+            <LifecyclePanel
+              definition={lifecycleById('invoice')}
+              subject={`${focused.invoiceNumber} · Revision ${revision}`}
+              status={focused.status}
+              returned={focused.status === 'Draft' && Boolean(focused.reviewNote)}
+              facts={[
+                { label: 'Prepared by', value: focused.preparedBy },
+                { label: 'Amount', value: formatCurrency(focused.amount, focused.currency) },
+                { label: 'Reviewer / approver', value: focused.commercialApproval ? `${focused.commercialApproval.by} · approved r${focused.commercialApproval.reviewedRevision ?? revision}` : 'Not yet approved' },
+                { label: 'Return reason', value: focused.reviewNote || '—' },
+                { label: 'Issue date', value: focused.status === 'Issued' || focused.status === 'Paid' ? focused.issueDate : '—' }
+              ]}
+              nextAction={nextAction}
+              downstream="Issued invoices feed Receivables aging and the client portal. Issuing changes local demo records only; no payment demand or email is sent."
+            />
+            <div>
+              <h3>History</h3>
+              <ActivityTimeline label={`${focused.invoiceNumber} history`} entries={entries} />
+              <div className="handoff-bar mt12"><span className="eyebrow">Related</span><a className="btn sm" href="#receivables" onClick={event => { event.preventDefault(); onNavigate('receivables'); }}>Receivables &amp; aging</a><a className="btn sm" href="#my-time" onClick={event => { event.preventDefault(); onNavigate('my-time'); }}>Source time</a><a className="btn sm" href="#proposals" onClick={event => { event.preventDefault(); onNavigate('proposals'); }}>Accepted proposal</a></div>
+            </div>
+          </div>
+        </div>;
+      })()}
+
       {/* Credit Notes Register */}
-      {state.creditNotes.length > 0 && (
+      {creditNotes.length > 0 && (
         <div className="panel">
           <div className="panel-head">
-            <h3>Credit Notes ({state.creditNotes.length})</h3>
+            <h3>Credit Notes ({creditNotes.length})</h3>
           </div>
           <div className="tablewrap">
             <table>
@@ -491,14 +533,14 @@ export const BillingInvoicingView: React.FC<BillingInvoicingViewProps> = ({ onNa
                 </tr>
               </thead>
               <tbody>
-                {state.creditNotes.map(cn => (
+                {creditNotes.map(cn => (
                   <tr key={cn.id}>
                     <td><b>{cn.creditNumber}</b></td>
                     <td>{cn.invoiceId}</td>
                     <td><b>{formatCurrency(cn.amount, cn.currency)}</b></td>
                     <td>{cn.reason}</td>
                     <td>{cn.date}</td>
-                    <td>{cn.status}</td>
+                    <td><StatusBadge status={cn.status} />{cn.status === 'Draft' && cn.returnReason && <> <StatusBadge status="Returned" title={cn.returnReason} /></>}</td>
                     <td>{[cn.preparedBy, cn.reviewedBy, cn.issuedBy].filter(Boolean).join(' / ') || '—'}</td>
                     <td>
                       {cn.status === 'Draft' && <>

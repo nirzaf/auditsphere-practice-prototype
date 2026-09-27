@@ -3,10 +3,13 @@ import React, { useEffect, useRef, useState } from 'react';
 import { RouteKey, EngagementRecord } from '../../types';
 import { prototypeStore } from '../../store/prototypeStore';
 import { Icon } from '../common/Icons';
+import { StatusBadge } from '../common/StatusBadge';
 import { formatCurrency } from '../../services/calculations';
-import { visibleClientIds, visibleEngagementIds } from '../../services/guards';
+import { visibleClientIds, visibleEngagementIds, hasAnyRole } from '../../services/guards';
 import { InternalNotesPanel } from '../common/InternalNotesPanel';
 import { UnsavedFormGuard } from '../../services/unsavedFormGuard';
+import { consequencePrompt, ConsequenceKey } from '../../services/terminalActions';
+import { Notice, EmptyState, ActionReason } from '../common/Feedback';
 
 interface EngagementsViewProps {
   onNavigate: (route: RouteKey) => void;
@@ -45,11 +48,14 @@ export const EngagementsView: React.FC<EngagementsViewProps> = ({ onNavigate, on
   const selectedEng = scopedEngagements.find(e => e.id === state.selectedEngagement) || scopedEngagements[0];
   const client = scopedClients.find(c => c.id === selectedEng?.client);
   const lifecycleStatus = selectedEng?.lifecycleStatus || 'Active';
+  const [actionError, setActionError] = useState('');
+  const [modalError, setModalError] = useState('');
   const updateLifecycle = (status: NonNullable<EngagementRecord['lifecycleStatus']>) => {
-    const reason = window.prompt(`Reason for ${status.toLowerCase()} engagement:`);
+    const reason = window.prompt(consequencePrompt(`engagement-${status.toLowerCase()}` as ConsequenceKey, `${selectedEng!.id} · ${client?.name || selectedEng!.client}`, `Reason for ${status.toLowerCase()} engagement`));
     if (!reason?.trim()) return;
+    setActionError('');
     try { prototypeStore.setEngagementLifecycle(selectedEng!.id, status, reason); }
-    catch (error) { window.alert(error instanceof Error ? error.message : String(error)); }
+    catch (error) { setActionError(error instanceof Error ? error.message : String(error)); }
   };
   const openAdminEditor = () => {
     if (!selectedEng) return;
@@ -64,11 +70,12 @@ export const EngagementsView: React.FC<EngagementsViewProps> = ({ onNavigate, on
   };
   const commitAdminChanges = (): boolean => {
     if (!selectedEng) return false;
+    setModalError('');
     try {
       prototypeStore.updateEngagement({ ...selectedEng, service: editService, year: editYear, period: editPeriod, due: editDue, manager: editManager, partner: editPartner, team: editTeam });
       setShowEditAdminModal(false);
       return true;
-    } catch (error) { window.alert(error instanceof Error ? error.message : String(error)); return false; }
+    } catch (error) { setModalError(error instanceof Error ? error.message : String(error)); return false; }
   };
   const saveAdminChanges = (event: React.FormEvent) => { event.preventDefault(); commitAdminChanges(); };
   const assignedPeople = state.users.filter(user => {
@@ -124,11 +131,12 @@ export const EngagementsView: React.FC<EngagementsViewProps> = ({ onNavigate, on
     ? 3
     : 2;
 
-  if (!scopedEngagements.length) return <div className="panel panel-pad"><h2>No engagement access</h2><p className="sub mt8">No engagements are available under the active scope grant.</p></div>;
+  if (!scopedEngagements.length) return <div className="panel"><EmptyState variant="scope" title="No engagement access" description="No engagements are available under the active scope grant." /></div>;
 
   const commitNewEngagement = (): boolean => {
     const proposal = state.proposals.find(item => item.id === proposalId);
-    if (proposalId && !acceptedProposals.some(item => item.id === proposalId)) { window.alert('Select a currently accepted proposal with client response evidence.'); return false; }
+    setModalError('');
+    if (proposalId && !acceptedProposals.some(item => item.id === proposalId)) { setModalError('Select a currently accepted proposal with client response evidence.'); return false; }
     const newId = `ENG-2600${state.engagements.length + 1}`;
     const newEng: EngagementRecord = {
       id: newId,
@@ -178,7 +186,7 @@ export const EngagementsView: React.FC<EngagementsViewProps> = ({ onNavigate, on
     };
 
     try { prototypeStore.addEngagement(newEng); setShowNewEngModal(false); setProposalId(''); return true; }
-    catch (error: any) { window.alert(error.message); return false; }
+    catch (error: any) { setModalError(error.message); return false; }
   };
   const handleCreateEngagement = (event: React.FormEvent) => { event.preventDefault(); commitNewEngagement(); };
 
@@ -189,10 +197,12 @@ export const EngagementsView: React.FC<EngagementsViewProps> = ({ onNavigate, on
           <h1>Engagements</h1>
           <p>One legal scope, one reporting period, one accountable team.</p>
         </div>
-        <button className="btn primary sm" onClick={() => { newEngagementBaseline.current = newEngagementDraft(); setShowNewEngModal(true); }}>
+        {hasAnyRole(state, ['manager', 'partner']) ? <button className="btn primary sm" onClick={() => { newEngagementBaseline.current = newEngagementDraft(); setShowNewEngModal(true); }}>
           <Icon name="plus" /> New Engagement
-        </button>
+        </button> : <ActionReason>New engagements are created by a manager or partner</ActionReason>}
       </div>
+
+      {actionError && <Notice tone="error" onDismiss={() => setActionError('')}>{actionError}</Notice>}
 
       {/* Selected Engagement Card */}
       {selectedEng && (
@@ -203,7 +213,7 @@ export const EngagementsView: React.FC<EngagementsViewProps> = ({ onNavigate, on
               <h2 className="mt8">{client?.name}</h2>
               <p className="sub">{selectedEng.service} · {selectedEng.period} · {selectedEng.mode}</p>
             </div>
-            <div className="stack" style={{ justifyItems: 'end', gap: 6 }}><span className="badge purple">{selectedEng.stage}</span><span className={`badge ${lifecycleStatus === 'Active' ? 'green' : lifecycleStatus === 'Suspended' ? 'amber' : 'red'}`}>{lifecycleStatus}</span></div>
+            <div className="stack" style={{ justifyItems: 'end', gap: 6 }}><span className="badge purple">{selectedEng.stage}</span><StatusBadge status={lifecycleStatus} /></div>
           </div>
 
           {/* Lifecycle Bar */}
@@ -230,7 +240,7 @@ export const EngagementsView: React.FC<EngagementsViewProps> = ({ onNavigate, on
 
           <div className="row mt20 wrap" style={{ gap: 10 }}>
             {!['Cancelled', 'Closed'].includes(lifecycleStatus) && <button className="btn sm" onClick={openAdminEditor}>Edit Engagement Details</button>}
-            {selectedEng.stage === 'Draft' && <button className="btn primary sm" onClick={() => { const evidence = window.prompt('Professional acceptance evidence reference:'); if (evidence?.trim()) { try { prototypeStore.activateEngagement(selectedEng.id, evidence); } catch (error: any) { window.alert(error.message); } } }}>Activate Engagement</button>}
+            {selectedEng.stage === 'Draft' && <button className="btn primary sm" onClick={() => { const evidence = window.prompt('Professional acceptance evidence reference:'); if (evidence?.trim()) { setActionError(''); try { prototypeStore.activateEngagement(selectedEng.id, evidence); } catch (error: any) { setActionError(error.message); } } }}>Activate Engagement</button>}
             {lifecycleStatus === 'Active' && <><button className="btn sm" onClick={() => updateLifecycle('Suspended')}>Suspend Engagement</button><button className="btn sm danger" onClick={() => updateLifecycle('Cancelled')}>Cancel Engagement</button><button className="btn sm ghost" onClick={() => updateLifecycle('Closed')}>Close Engagement</button></>}
             {lifecycleStatus === 'Suspended' && <><button className="btn sm primary" onClick={() => updateLifecycle('Active')}>Resume Engagement</button><button className="btn sm danger" onClick={() => updateLifecycle('Cancelled')}>Cancel Engagement</button><button className="btn sm ghost" onClick={() => updateLifecycle('Closed')}>Close Engagement</button></>}
             <button className="btn sm" onClick={() => onNavigate('accounting-setup')}>
@@ -255,6 +265,7 @@ export const EngagementsView: React.FC<EngagementsViewProps> = ({ onNavigate, on
           <form className="modal" style={{ maxWidth: 620 }} onSubmit={saveAdminChanges} onClick={event => event.stopPropagation()}>
             <div className="modal-head"><h2>Edit Engagement Details</h2><button type="button" className="icon-btn" onClick={closeEditEngagement}>✕</button></div>
             <div className="modal-body stack" style={{ gap: 12 }}>
+              {modalError && <Notice tone="error" onDismiss={() => setModalError('')}>{modalError}</Notice>}
               <div className="grid2"><label>Service scope<select aria-label="Engagement service" className="input" value={editService} onChange={event => setEditService(event.target.value)}>{[...new Set(state.engagements.map(engagement => engagement.service))].sort().map(service => <option key={service}>{service}</option>)}</select></label><label>Reporting year<input aria-label="Engagement reporting year" className="input" type="number" min="1900" max="2100" value={editYear} onChange={event => setEditYear(Number(event.target.value))} required /></label></div>
               <label>Reporting period<input aria-label="Engagement reporting period" className="input" value={editPeriod} onChange={event => setEditPeriod(event.target.value)} required /></label>
               <label>Target date<input aria-label="Engagement target date" className="input" type="date" value={editDue} onChange={event => setEditDue(event.target.value)} required /></label>
@@ -365,6 +376,7 @@ export const EngagementsView: React.FC<EngagementsViewProps> = ({ onNavigate, on
             </div>
             <form onSubmit={handleCreateEngagement}>
               <div className="modal-body stack" style={{ gap: 12 }}>
+              {modalError && <Notice tone="error" onDismiss={() => setModalError('')}>{modalError}</Notice>}
                 <div>
                   <label className="caption">Accepted proposal (optional)</label>
                   <select className="input" value={proposalId} onChange={e => { const id = e.target.value; setProposalId(id); const p = acceptedProposals.find(item => item.id === id); if (p) setClientId(p.clientId!); }}>

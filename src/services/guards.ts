@@ -196,13 +196,35 @@ export function requireEngagementScope(state: PrototypeState, engagementId: stri
 }
 
 /** Same natural person cannot approve their own preparation by switching role labels. */
-export function requireIndependentActor(preparer: string, actor: string, action: string, state?: PrototypeState): void {
-  if (state && recordPrototypeSuperuserOverride(state, action)) return;
+/**
+ * Invoices the current persona may see: the invoice's client and engagement must both be in
+ * scope and the engagement must belong to the invoice's client. Shared by the billing register
+ * and the navigation count so the list and its count cannot disagree.
+ */
+export function scopedInvoices(state: PrototypeState) {
+  const clients = visibleClientIds(state);
+  const engagements = visibleEngagementIds(state);
+  return state.invoices.filter(invoice => {
+    const engagementId = invoice.engagementId || invoice.eng;
+    const engagement = state.engagements.find(item => item.id === engagementId);
+    return Boolean(engagement) && engagement?.client === invoice.clientId
+      && (clients === 'ALL' || clients.includes(invoice.clientId))
+      && (engagements === 'ALL' || engagements.includes(engagementId));
+  });
+}
+
+/** True when two identities (user id or display name) resolve to the same natural person. */
+export function isSamePerson(state: PrototypeState | undefined, first: string, second: string): boolean {
   const naturalId = (identity: string) => {
     const user = state?.users.find(u => u.id === identity || u.name === identity);
     return user?.personId || user?.id || identity;
   };
-  if (naturalId(preparer) === naturalId(actor)) {
+  return naturalId(first) === naturalId(second);
+}
+
+export function requireIndependentActor(preparer: string, actor: string, action: string, state?: PrototypeState): void {
+  if (state && recordPrototypeSuperuserOverride(state, action)) return;
+  if (isSamePerson(state, preparer, actor)) {
     throw new GuardError('SELF_APPROVAL', `Separation of duties: ${actor} cannot ${action}; the same person cannot review their own work, even under a different role label.`);
   }
 }

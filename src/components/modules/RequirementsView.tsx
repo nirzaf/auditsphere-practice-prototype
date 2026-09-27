@@ -189,13 +189,13 @@ export const RequirementsView: React.FC<RequirementsViewProps> = ({ onNavigate }
         <div className="between" style={{ flexWrap: 'wrap', gap: 12 }}>
           <div className="tabs" style={{ margin: 0, borderBottom: 'none' }}>
             <button
-              className={`tab-btn ${activeTab === 'stories' ? 'active' : ''}`}
+              className={`tab-btn ${activeTab === 'stories' ? 'active' : ''}`} aria-pressed={activeTab === 'stories'}
               onClick={() => setActiveTab('stories')}
             >
               Acceptance User Stories (VP-001 to VP-064)
             </button>
             <button
-              className={`tab-btn ${activeTab === 'modules' ? 'active' : ''}`}
+              className={`tab-btn ${activeTab === 'modules' ? 'active' : ''}`} aria-pressed={activeTab === 'modules'}
               onClick={() => setActiveTab('modules')}
             >
               39 Functional Modules Traceability Matrix

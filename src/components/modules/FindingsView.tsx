@@ -4,11 +4,12 @@ import { RouteKey, AuditFindingItem } from '../../types';
 import { prototypeStore } from '../../store/prototypeStore';
 import { hasAnyRole } from '../../services/guards';
 import { Icon } from '../common/Icons';
+import { StatusBadge } from '../common/StatusBadge';
 import { formatCurrency } from '../../services/calculations';
 import { UnsavedFormGuard } from '../../services/unsavedFormGuard';
 
 interface FindingsViewProps {
-  onNavigate: (route: RouteKey) => void;
+  onNavigate: (route: RouteKey, targetId?: string) => void;
   searchTargetId?: string;
   onBeforeContextChange: (run: () => void) => void;
   onRegisterUnsavedForm: (guard: UnsavedFormGuard | null, key?: string) => void;
@@ -178,18 +179,16 @@ export const FindingsView: React.FC<FindingsViewProps> = ({ onNavigate, searchTa
           <div key={f.id} data-search-target={f.id === searchTargetId ? 'true' : undefined} className="panel panel-pad" style={f.id === searchTargetId ? { outline: '2px solid #0f766e' } : undefined}>
             <div className="between">
               <div className="row" style={{ gap: 10 }}>
-                <span className={`badge ${f.severity === 'Material' ? 'red' : f.severity === 'Significant' ? 'amber' : 'blue'}`}>
-                  {f.severity}
+                <span className={`badge ${f.severity === 'Material' ? 'red' : f.severity === 'Significant' ? 'amber' : f.severity ? 'blue' : 'gray'}`}>
+                  {f.severity || 'Unclassified'}
                 </span>
                 <div>
                   <h3>{f.title}</h3>
-                  <div className="cell-sub">{f.id} · Category: {f.category} · Account: {f.financialStatementLine}</div>
+                  <div className="cell-sub">{f.id} · Category: {f.category || f.type || 'Not classified'} · Account: {f.financialStatementLine || f.affectedAccount || '—'}</div>
                 </div>
               </div>
               <div className="row" style={{ gap: 8 }}>
-                <span className={`badge ${['Corrected by client', 'Corrected in TB'].includes(f.disposition) ? 'green' : 'amber'}`}>
-                  {f.disposition}
-                </span>
+                <StatusBadge status={f.disposition} />
                 {canDisposition ? (
                   <select className="input" aria-label={`Disposition for ${f.id}`} value={f.disposition} onChange={e => handleDisposition(f, e.target.value as AuditFindingItem['disposition'])}>
                     {['Uncorrected', 'Management agreed', 'Proposed for correction', 'Corrected by client', 'Corrected in TB', 'Waived as immaterial', 'Uncorrected waived'].map(value => <option key={value}>{value}</option>)}
@@ -209,12 +208,19 @@ export const FindingsView: React.FC<FindingsViewProps> = ({ onNavigate, searchTa
 
             <div className="borderbox mt12" style={{ padding: 12 }}>
               <b>Condition & Cause:</b>
-              <p className="sub mt4">{f.condition}</p>
+              <p className="sub mt4">{f.condition || f.description || 'Not recorded'}</p>
               <b className="mt12" style={{ display: 'block' }}>Auditor Recommendation:</b>
-              <p className="sub mt4">{f.recommendation}</p>
+              <p className="sub mt4">{f.recommendation || 'Not recorded'}</p>
               <p className="cell-sub">Assertion: {f.assertion || '—'} · Evidence: {f.linkedEvidenceId || '—'} · Procedure: {f.linkedProcedureId || '—'} · Workpaper: {f.linkedWorkpaperId || '—'} · Journal: {f.linkedJournalId || '—'} · Review: {f.linkedReviewNoteId || '—'}{f.linkedSampleItemId ? ` · Sample: ${f.linkedSamplePopulationId}/${f.linkedSampleItemId}` : ''}</p>
               {f.managementResponse && <p className="cell-sub">Management response: {f.managementResponse}</p>}
               {f.proposedCorrection && <p className="cell-sub">Proposed correction: {f.proposedCorrection}</p>}
+              {(f.linkedWorkpaperId || f.linkedJournalId || f.linkedEvidenceId || f.linkedProcedureId || f.linkedSamplePopulationId) && <div className="handoff-bar mt8" aria-label={`Records linked to ${f.id}`}><span className="eyebrow">Linked records</span>
+                {f.linkedWorkpaperId && <a className="btn sm" href="#audit" onClick={event => { event.preventDefault(); onNavigate('audit', f.linkedWorkpaperId); }}>Open workpaper {f.linkedWorkpaperId}</a>}
+                {f.linkedJournalId && <a className="btn sm" href="#adjustments" onClick={event => { event.preventDefault(); onNavigate('adjustments'); }}>Open related journal {f.linkedJournalId}</a>}
+                {f.linkedEvidenceId && <a className="btn sm" href="#evidence" onClick={event => { event.preventDefault(); onNavigate('evidence'); }}>View supporting evidence</a>}
+                {f.linkedProcedureId && <a className="btn sm" href="#audit-risks" onClick={event => { event.preventDefault(); onNavigate('audit-risks'); }}>Open procedure {f.linkedProcedureId}</a>}
+                {f.linkedSamplePopulationId && <a className="btn sm" href="#sampling" onClick={event => { event.preventDefault(); onNavigate('sampling'); }}>Open sample population</a>}
+              </div>}
               {(f.dispositionHistory || []).map((event, index) => <p key={index} className="cell-sub">{event.from} → {event.disposition} · {event.rationale} · {event.actorId} · {new Date(event.at).toLocaleString()}</p>)}
             </div>
           </div>

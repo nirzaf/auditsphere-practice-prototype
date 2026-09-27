@@ -5,6 +5,7 @@ import { prototypeStore } from '../../store/prototypeStore';
 import { UnsavedFormGuard } from '../../services/unsavedFormGuard';
 import { eligibleAuditRiskOwners, hasAnyRole } from '../../services/guards';
 import { Icon } from '../common/Icons';
+import { consequencePrompt } from '../../services/terminalActions';
 
 interface AuditRisksProgramsViewProps {
   onNavigate: (route: RouteKey) => void;
@@ -109,7 +110,7 @@ export const AuditRisksProgramsView: React.FC<AuditRisksProgramsViewProps> = ({ 
     const isReturn = (procedure?.status === 'Submitted' || procedure?.status === 'Cleared') && ['Not started', 'In progress', 'Blocked'].includes(status);
     let reason = '';
     if (isReturn) {
-      const entered = window.prompt('Reason for returning this fieldwork to the preparer:');
+      const entered = window.prompt(consequencePrompt('fieldwork-returned', procId, 'Reason for returning this fieldwork to the preparer'));
       if (!entered?.trim()) return;
       reason = entered;
     }
@@ -180,13 +181,13 @@ export const AuditRisksProgramsView: React.FC<AuditRisksProgramsViewProps> = ({ 
       {notice && <div role="status" className="panel panel-pad">{notice}</div>}
 
       <div className="tabs">
-        <button className={`tab-btn ${activeTab === 'programs' ? 'active' : ''}`} onClick={() => setActiveTab('programs')}>
+        <button className={`tab-btn ${activeTab === 'programs' ? 'active' : ''}`} aria-pressed={activeTab === 'programs'} onClick={() => setActiveTab('programs')}>
           Substantive Audit Programs ({programs.length})
         </button>
-        <button className={`tab-btn ${activeTab === 'risks' ? 'active' : ''}`} onClick={() => setActiveTab('risks')}>
+        <button className={`tab-btn ${activeTab === 'risks' ? 'active' : ''}`} aria-pressed={activeTab === 'risks'} onClick={() => setActiveTab('risks')}>
           Identified Risk Register ({risks.length})
         </button>
-        <button className={`tab-btn ${activeTab === 'templates' ? 'active' : ''}`} onClick={() => setActiveTab('templates')}>
+        <button className={`tab-btn ${activeTab === 'templates' ? 'active' : ''}`} aria-pressed={activeTab === 'templates'} onClick={() => setActiveTab('templates')}>
           Reusable Program Templates ({templates.length})
         </button>
       </div>

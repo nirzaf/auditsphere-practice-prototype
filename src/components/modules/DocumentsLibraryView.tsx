@@ -4,8 +4,10 @@ import { RouteKey, DocumentItem } from '../../types';
 import { prototypeStore } from '../../store/prototypeStore';
 import { hasAnyRole } from '../../services/guards';
 import { Icon } from '../common/Icons';
+import { Notice } from '../common/Feedback';
 import { sha256OfFile } from '../../services/fileMetadata';
 import { UnsavedFormGuard } from '../../services/unsavedFormGuard';
+import { consequencePrompt } from '../../services/terminalActions';
 
 interface DocumentsLibraryViewProps {
   onNavigate: (route: RouteKey, targetId?: string) => void;
@@ -20,7 +22,7 @@ export const DocumentsLibraryView: React.FC<DocumentsLibraryViewProps> = ({ onNa
   const [previewDoc, setPreviewDoc] = useState<DocumentItem | null>(null);
   const [showUploadModal, setShowUploadModal] = useState(false);
   const [showOneDriveModal, setShowOneDriveModal] = useState(false);
-  const [notice, setNotice] = useState<string | null>(null);
+  const [notice, setNotice] = useState<{ tone: 'success' | 'warning' | 'error'; text: string } | null>(null);
   const [editingFolderPath, setEditingFolderPath] = useState<string | null>(null);
   const [folderLabelDraft, setFolderLabelDraft] = useState('');
 
@@ -54,7 +56,7 @@ export const DocumentsLibraryView: React.FC<DocumentsLibraryViewProps> = ({ onNa
     if (!uploadFile) return false;
 
     const currentEng = state.engagements.find(e => e.id === state.selectedEngagement);
-    if (!currentEng) { setNotice('Select an engagement before registering a file.'); return false; }
+    if (!currentEng) { setNotice({ tone: 'warning', text: 'Select an engagement before registering a file.' }); return false; }
     const sha = await sha256OfFile(uploadFile);
     const newDoc: DocumentItem = {
       id: `DOC-${crypto.randomUUID()}`,
@@ -75,9 +77,9 @@ export const DocumentsLibraryView: React.FC<DocumentsLibraryViewProps> = ({ onNa
     try {
       prototypeStore.addDocument(newDoc);
       discardUploadDraft();
-      setNotice(`${uploadFile.name} metadata recorded (SHA-256 ${sha.slice(0, 12)}…). File bytes remain local and are not saved or uploaded.`);
+      setNotice({ tone: 'success', text: `${uploadFile.name} metadata recorded (SHA-256 ${sha.slice(0, 12)}…). File bytes remain local and are not saved or uploaded.` });
       return true;
-    } catch (err) { setNotice(err instanceof Error ? err.message : 'Document metadata could not be recorded.'); return false; }
+    } catch (err) { setNotice({ tone: 'error', text: err instanceof Error ? err.message : 'Document metadata could not be recorded.' }); return false; }
   };
   const handleUploadSubmit = async (e: React.FormEvent) => { e.preventDefault(); await saveUploadDraft(); };
 
@@ -93,7 +95,7 @@ export const DocumentsLibraryView: React.FC<DocumentsLibraryViewProps> = ({ onNa
     const currentEng = state.engagements.find(e => e.id === state.selectedEngagement);
     const result = state.m365Config.verificationResults?.onedrive;
     if (!currentEng || !state.m365Config.oneDriveEnabled || result?.outcome !== 'success' || result.configRevision !== state.m365Config.configRevision) {
-      setNotice('OneDrive import simulation requires an enabled option and a current success result for this configuration.');
+      setNotice({ tone: 'warning', text: 'OneDrive import simulation requires an enabled option and a current success result for this configuration.' });
       return;
     }
     const newDoc: DocumentItem = {
@@ -123,10 +125,10 @@ export const DocumentsLibraryView: React.FC<DocumentsLibraryViewProps> = ({ onNa
     try {
       const sha = await sha256OfFile(replacementFile);
       const revision = prototypeStore.replaceDocumentRevision(previewDoc.id, { name: replacementFile.name, size: replacementFile.size, sha256: sha });
-      setNotice(`Replacement v${revision.version} recorded. ${previewDoc.name} v${previewDoc.version} remains pinned for existing evidence; file bytes are not uploaded.`);
+      setNotice({ tone: 'success', text: `Replacement v${revision.version} recorded. ${previewDoc.name} v${previewDoc.version} remains pinned for existing evidence; file bytes are not uploaded.` });
       setReplacementFile(null);
       form.reset();
-    } catch (err) { setNotice(err instanceof Error ? err.message : 'Document replacement could not be recorded.'); }
+    } catch (err) { setNotice({ tone: 'error', text: err instanceof Error ? err.message : 'Document replacement could not be recorded.' }); }
   };
 
   return (
@@ -146,11 +148,7 @@ export const DocumentsLibraryView: React.FC<DocumentsLibraryViewProps> = ({ onNa
         </div>
       </div>
 
-      {notice && (
-        <div className="badge success" style={{ padding: '8px 12px', display: 'block', fontSize: 13 }}>
-          {notice}
-        </div>
-      )}
+      {notice && <Notice tone={notice.tone} onDismiss={() => setNotice(null)}>{notice.text}</Notice>}
 
       <div className="grid-main">
         {/* Left: Folder Hierarchy */}
@@ -190,9 +188,9 @@ export const DocumentsLibraryView: React.FC<DocumentsLibraryViewProps> = ({ onNa
                         try {
                           prototypeStore.renameClientWorkspaceFolder(f.path, folderLabelDraft);
                           setEditingFolderPath(null);
-                          setNotice('Folder display name updated. Its path, document references, and linked evidence are unchanged.');
+                          setNotice({ tone: 'success', text: 'Folder display name updated. Its path, document references, and linked evidence are unchanged.' });
                         } catch (err) {
-                          setNotice(err instanceof Error ? err.message : 'Folder display name could not be updated.');
+                          setNotice({ tone: 'error', text: err instanceof Error ? err.message : 'Folder display name could not be updated.' });
                         }
                       }}
                     >
@@ -222,13 +220,13 @@ export const DocumentsLibraryView: React.FC<DocumentsLibraryViewProps> = ({ onNa
               style={{ width: '100%' }}
               onClick={() => {
                 const engagement = state.engagements.find(item => item.id === state.selectedEngagement);
-                if (!engagement) { setNotice('Select an engagement before preparing its client workspace.'); return; }
+                if (!engagement) { setNotice({ tone: 'warning', text: 'Select an engagement before preparing its client workspace.' }); return; }
                 try {
                   prototypeStore.prepareClientWorkspace(engagement.client, engagement.year, engagement.id);
-                  setNotice('Local workspace folders were verified under the configured synthetic SharePoint root. No remote folders were provisioned.');
+                  setNotice({ tone: 'success', text: 'Local workspace folders were verified under the configured synthetic SharePoint root. No remote folders were provisioned.' });
                   setTimeout(() => setNotice(null), 4000);
                 } catch (err) {
-                  setNotice(err instanceof Error ? err.message : 'Workspace folders could not be prepared.');
+                  setNotice({ tone: 'error', text: err instanceof Error ? err.message : 'Workspace folders could not be prepared.' });
                 }
               }}
             >
@@ -286,24 +284,24 @@ export const DocumentsLibraryView: React.FC<DocumentsLibraryViewProps> = ({ onNa
                           <button className="btn sm" disabled={doc.brokenLink} onClick={() => setPreviewDoc(doc)}>{doc.brokenLink ? 'Unavailable' : 'Open in M365'}</button>
                           {hasAnyRole(state, ['relationship', 'manager', 'partner', 'admin']) && <button className="btn sm ghost" aria-label={`${doc.visibility === 'Client shared' ? 'Withdraw sharing' : 'Share with client'} ${doc.name}`} onClick={() => {
                             const shared = doc.visibility !== 'Client shared';
-                            const reason = window.prompt(`Why ${shared ? 'share this document with the client' : 'withdraw client sharing'}?`) || '';
+                            const reason = window.prompt(consequencePrompt('document-sharing', doc.name, `Why ${shared ? 'share this document with the client' : 'withdraw client sharing'}?`)) || '';
                             if (!reason.trim()) return;
-                            try { prototypeStore.setDocumentClientSharing(doc.id, shared, reason); setNotice(`Client sharing ${shared ? 'enabled' : 'withdrawn'} for ${doc.name}.`); }
-                            catch (err) { setNotice(err instanceof Error ? err.message : 'Client sharing could not be updated.'); }
+                            try { prototypeStore.setDocumentClientSharing(doc.id, shared, reason); setNotice({ tone: 'success', text: `Client sharing ${shared ? 'enabled' : 'withdrawn'} for ${doc.name}.` }); }
+                            catch (err) { setNotice({ tone: 'error', text: err instanceof Error ? err.message : 'Client sharing could not be updated.' }); }
                           }}>{doc.visibility === 'Client shared' ? 'Withdraw sharing' : 'Share with client'}</button>}
                           {hasAnyRole(state, ['manager', 'partner']) && <button className="btn sm ghost" onClick={() => {
                             const name = window.prompt('Document name', doc.name);
                             if (name === null) return;
                             const path = window.prompt('Existing library folder path', doc.folderPath);
                             if (path === null) return;
-                            try { prototypeStore.updateDocumentReference(doc.id, name, path); setNotice(`Document reference ${doc.id} updated; its identity and evidence links remain unchanged.`); }
-                            catch (err) { setNotice(err instanceof Error ? err.message : 'Document reference could not be updated.'); }
+                            try { prototypeStore.updateDocumentReference(doc.id, name, path); setNotice({ tone: 'success', text: `Document reference ${doc.id} updated; its identity and evidence links remain unchanged.` }); }
+                            catch (err) { setNotice({ tone: 'error', text: err instanceof Error ? err.message : 'Document reference could not be updated.' }); }
                           }}>Rename / Move</button>}
                           {hasAnyRole(state, ['manager', 'partner']) && <button className="btn sm ghost" onClick={() => {
-                            const reason = doc.brokenLink ? '' : window.prompt('Why is this reference unavailable?') || '';
+                            const reason = doc.brokenLink ? '' : window.prompt(consequencePrompt('document-unavailable', doc.name, 'Why is this reference unavailable?')) || '';
                             if (!doc.brokenLink && !reason) return;
-                            try { prototypeStore.setDocumentAvailability(doc.id, !doc.brokenLink, reason); setNotice(doc.brokenLink ? `Document reference ${doc.id} restored.` : `Document reference ${doc.id} marked unavailable.`); }
-                            catch (err) { setNotice(err instanceof Error ? err.message : 'Availability could not be updated.'); }
+                            try { prototypeStore.setDocumentAvailability(doc.id, !doc.brokenLink, reason); setNotice({ tone: 'success', text: doc.brokenLink ? `Document reference ${doc.id} restored.` : `Document reference ${doc.id} marked unavailable.` }); }
+                            catch (err) { setNotice({ tone: 'error', text: err instanceof Error ? err.message : 'Availability could not be updated.' }); }
                           }}>{doc.brokenLink ? 'Restore reference' : 'Simulate unavailable'}</button>}
                         </div>
                       </td>

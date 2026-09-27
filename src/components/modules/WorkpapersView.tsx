@@ -7,8 +7,15 @@ import { RouteKey } from '../../types';
 import { prototypeStore } from '../../store/prototypeStore';
 import { hasAnyRole, isSuperuserRole } from '../../services/guards';
 import { Icon } from '../common/Icons';
+import { StatusBadge } from '../common/StatusBadge';
+import { LifecyclePanel } from '../common/Lifecycle';
+import { lifecycleById } from '../../services/lifecycles';
+import { workpaperChangesSinceReview } from '../../services/reviewDiff';
+import { Notice } from '../common/Feedback';
 import { sha256OfFile } from '../../services/fileMetadata';
 import { UnsavedFormGuard } from '../../services/unsavedFormGuard';
+import { consequencePrompt } from '../../services/terminalActions';
+import { keyboardActivate } from '../common/keyboardActivate';
 
 interface WorkpapersViewProps {
   onNavigate: (route: RouteKey) => void;
@@ -91,7 +98,7 @@ export const WorkpapersView: React.FC<WorkpapersViewProps> = ({ onNavigate, sear
   };
 
   const handleUnlinkEvidence = (documentId: string) => {
-    const reason = window.prompt(`Why remove ${documentId} from ${wp.id}?`);
+    const reason = window.prompt(consequencePrompt('evidence-unlinked', `${documentId} from ${wp.id}`, `Why remove ${documentId} from ${wp.id}?`));
     if (reason === null) return;
     try { prototypeStore.unlinkWorkpaperEvidence(selectedEng.id, wp.id, documentId, reason); triggerNotice('success', `${documentId} removed; the reason is retained in history.`); }
     catch (error) { triggerNotice('error', error instanceof Error ? error.message : 'Could not remove evidence.'); }
@@ -109,7 +116,7 @@ export const WorkpapersView: React.FC<WorkpapersViewProps> = ({ onNavigate, sear
 
   const handleToggleApplicability = () => {
     const updated = !wp.applicable;
-    const rationale = updated ? undefined : window.prompt('Why is this workpaper not applicable?');
+    const rationale = updated ? undefined : window.prompt(consequencePrompt('workpaper-not-applicable', `${wp.id} · ${wp.title}`, 'Why is this workpaper not applicable?'));
     if (!updated && rationale === null) return;
     prototypeStore.updateWorkpaper(selectedEng.id, wp.id, { applicable: updated, rationale: rationale || undefined });
     triggerNotice('success', `Workpaper ${wp.id} marked as ${updated ? 'applicable' : 'not applicable'}.`);
@@ -161,20 +168,7 @@ export const WorkpapersView: React.FC<WorkpapersViewProps> = ({ onNavigate, sear
         </div>
       </div>
 
-      {notice && (
-        <div
-          className="panel panel-pad"
-          style={{
-            background: notice.type === 'success' ? '#f0fdf4' : '#fef2f2',
-            borderColor: notice.type === 'success' ? '#86efac' : '#fca5a5',
-            color: notice.type === 'success' ? '#166534' : '#991b1b',
-            padding: '10px 16px'
-          }}
-        >
-          <b>{notice.type === 'success' ? '✓ ' : '⚠ '}</b>
-          {notice.text}
-        </div>
-      )}
+      {notice && <Notice tone={notice.type} onDismiss={() => setNotice(null)}>{notice.text}</Notice>}
 
       <div className="panel panel-pad">
         <h3>Create from a published workpaper template</h3>
@@ -188,7 +182,7 @@ export const WorkpapersView: React.FC<WorkpapersViewProps> = ({ onNavigate, sear
         <p className="caption mt8">A new workpaper keeps the published template revision and starts without evidence, uploaded files, conclusions or clearance.</p>
       </div>
 
-      <div className="grid-main">
+      <div className="master-detail">
         {/* Left: Workpapers List */}
         <div className="stack" style={{ gap: 16 }}>
           <div className="panel">
@@ -206,7 +200,7 @@ export const WorkpapersView: React.FC<WorkpapersViewProps> = ({ onNavigate, sear
                 </thead>
                 <tbody>
                   {workpapers.map(w => (
-                    <tr
+                    <tr {...keyboardActivate}
                       key={w.id}
                       className={w.id === wp?.id ? 'selected-row' : ''}
                       style={{ cursor: 'pointer' }}
@@ -262,17 +256,7 @@ export const WorkpapersView: React.FC<WorkpapersViewProps> = ({ onNavigate, sear
                   >
                     {wp.applicable ? 'Mark N/A' : 'Mark Applicable'}
                   </button>
-                  <span
-                    className={`badge ${
-                      wp.status === 'Cleared'
-                        ? 'green'
-                        : wp.status === 'Not applicable'
-                        ? 'gray'
-                        : 'amber'
-                    }`}
-                  >
-                    {wp.status}
-                  </span>
+                  <StatusBadge status={wp.status} />
                 </div>
               </div>
 
@@ -288,7 +272,7 @@ export const WorkpapersView: React.FC<WorkpapersViewProps> = ({ onNavigate, sear
                 ].map(t => (
                   <button
                     key={t.key}
-                    className={`tab-btn ${activeTab === t.key ? 'active' : ''}`}
+                    className={`tab-btn ${activeTab === t.key ? 'active' : ''}`} aria-pressed={activeTab === t.key}
                     onClick={() => setActiveTab(t.key as any)}
                   >
                     {t.label}
@@ -296,6 +280,52 @@ export const WorkpapersView: React.FC<WorkpapersViewProps> = ({ onNavigate, sear
                 ))}
               </div>
             </div>
+
+            {(() => {
+              const { baseline, changes } = workpaperChangesSinceReview(wp, selectedEng);
+              const openPoints = selectedEng.reviews.filter(note => note.wp === wp.id && note.status !== 'Cleared');
+              const lastSubmission = wp.submissionHistory?.at(-1);
+              const blockers = [
+                ...(!wp.workPerformed?.trim() ? ['Work performed not recorded'] : []),
+                ...(!wp.conclusion?.trim() ? ['Conclusion not recorded'] : []),
+                ...(!wp.workingPaper ? ['No current workbook uploaded'] : wp.workingPaper.version !== wp.version ? ['Workbook is not the current revision'] : []),
+                ...(!(wp.evidenceRefs || []).length ? ['No linked evidence'] : []),
+                ...(openPoints.length ? [`${openPoints.length} open review point(s)`] : [])
+              ];
+              const next = wp.status === 'Not applicable' ? 'Not applicable — excluded from clearance gates with a recorded rationale.'
+                : wp.status === 'Cleared' ? `Cleared at v${wp.clearance?.version}. Any evidence or workbook change returns it to rework.`
+                : wp.status === 'Submitted' ? `${wp.reviewer} reviews submitted v${wp.submittedVersion} and clears it or raises a review point (${wp.preparer} cannot clear their own work).`
+                : wp.status === 'Changes required' ? `${wp.preparer} refreshes evidence/workbook and resubmits the current revision.`
+                : `${wp.preparer} completes scope, work performed, conclusion, workbook and evidence, then submits.`;
+              return <>
+                <LifecyclePanel
+                  definition={lifecycleById('workpaper')}
+                  subject={`${wp.id} · Revision v${wp.version}`}
+                  status={wp.status}
+                  headingLevel="h4"
+                  facts={[
+                    { label: 'Preparer', value: wp.preparer },
+                    { label: 'Reviewer', value: wp.reviewer },
+                    { label: 'Last submitted', value: lastSubmission ? `v${lastSubmission.version} · ${new Date(lastSubmission.submittedAt).toLocaleDateString('en-GB')}` : 'Not submitted' },
+                    { label: 'Clearance', value: wp.clearance ? `v${wp.clearance.version} by ${wp.clearance.clearedBy}` : wp.clearanceHistory.length ? `Prior clearance v${wp.clearanceHistory.at(-1)!.version} (history)` : 'Not cleared' }
+                  ]}
+                  blockers={wp.status === 'Cleared' || wp.status === 'Not applicable' ? undefined : blockers}
+                  nextAction={next}
+                  downstream="Release gates require every applicable workpaper cleared; clearing or reopening changes the engagement generation and resets current approvals (history kept)."
+                />
+                {baseline && <section className="panel panel-pad" aria-label="Changes since last review">
+                  <div className="section-title"><h4>Since last {baseline.kind === 'clearance' ? 'clearance' : 'submission'}</h4><span className="caption">Baseline v{baseline.version} · {baseline.by} · {new Date(baseline.at).toLocaleString('en-GB')}</span></div>
+                  {changes.length ? <ul className="mt8 small">{changes.map((change, index) => <li key={index}><b>{change.field}:</b> {change.detail}</li>)}</ul> : <p className="sub mt8">No recorded changes since the baseline revision.</p>}
+                  <p className="caption mt8">Deterministic comparison of recorded fields and history — not an automated summary.</p>
+                </section>}
+                <div className="handoff-bar" aria-label="Related records"><span className="eyebrow">Related</span>
+                  <a className="btn sm" href="#reviews" onClick={event => { event.preventDefault(); onNavigate('reviews'); }}>View review points ({openPoints.length})</a>
+                  <a className="btn sm" href="#evidence" onClick={event => { event.preventDefault(); onNavigate('evidence'); }}>View supporting evidence</a>
+                  <a className="btn sm" href="#findings" onClick={event => { event.preventDefault(); onNavigate('findings'); }}>Findings</a>
+                  <a className="btn sm" href="#audit-risks" onClick={event => { event.preventDefault(); onNavigate('audit-risks'); }}>Audit program</a>
+                </div>
+              </>;
+            })()}
 
             {/* Tab 1: Objective */}
             {activeTab === 'overview' && (
@@ -507,9 +537,7 @@ export const WorkpapersView: React.FC<WorkpapersViewProps> = ({ onNavigate, sear
                       Separation of duties: Preparer ({wp.preparer}) cannot clear their own workpaper.
                     </p>
                   </div>
-                  <span className={`badge ${wp.status === 'Cleared' ? 'green' : 'amber'}`}>
-                    {wp.status}
-                  </span>
+                  <StatusBadge status={wp.status} />
                 </div>
 
                 {hasAnyRole(state, ['manager', 'partner']) && <div className="borderbox mt12" style={{ padding: 12 }}>

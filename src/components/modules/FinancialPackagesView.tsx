@@ -13,6 +13,10 @@ import { artifactSha256, downloadVerifiedArtifact, persistArtifacts } from '../.
 import { FinancialPackageRevision, GeneratedArtifactRecord } from '../../types';
 import { UnsavedFormGuard } from '../../services/unsavedFormGuard';
 import { isReleaseBlockingFinding } from '../../services/findings';
+import { Notice, StaleBanner, GateList, EmptyState, ActionReason } from '../common/Feedback';
+import { LifecyclePanel } from '../common/Lifecycle';
+import { StatusBadge } from '../common/StatusBadge';
+import { lifecycleById } from '../../services/lifecycles';
 
 const DEFAULT_SECTIONS = [
   { id: 'rpt', title: 'Independent Auditor Report', desc: 'Standard unmodified opinion under ISA 700 with key audit matters.', enabled: true },
@@ -82,15 +86,8 @@ export const FinancialPackagesView: React.FC<FinancialPackagesViewProps> = ({ on
 
   if (!selectedEng) {
     return (
-      <div className="panel panel-pad text-center" style={{ padding: '60px 20px' }}>
-        <Icon name="archive" size="xl" className="text-muted mb16" />
-        <h3>No Active Engagement Selected</h3>
-        <p className="sub max-w-md mx-auto mt8">
-          Select or create an engagement to compile and export financial packages.
-        </p>
-        <button className="btn primary sm mt16" onClick={() => onNavigate('engagements')}>
-          Go to Engagements
-        </button>
+      <div className="panel">
+        <EmptyState title="No Active Engagement Selected" description="Select or create an engagement to compile and export financial packages." actions={<button className="btn primary sm" onClick={() => onNavigate('engagements')}>Go to Engagements</button>} />
       </div>
     );
   }
@@ -114,6 +111,44 @@ export const FinancialPackagesView: React.FC<FinancialPackagesViewProps> = ({ on
   const equityRequired = sections.some(section => section.id === 'eq' && section.enabled);
   const allValid = tbBalanced && workpapersCleared && reviewNotesCleared && findingsImmaterial && adjustmentResult.unapplied.length === 0 && mappingsReady && disclosuresReady && (!cashFlowRequired || cashFlowReady) && (!equityRequired || equityReady);
   const packageSections = sections.map(section => section.id === 'cf' ? { ...section, desc: cashFlowReady && cashFlowSchedule ? `Reviewed cash-flow schedule v${cashFlowSchedule.revision}; ${selectedEng!.currency}.` : DEFAULT_SECTIONS.find(item => item.id === 'cf')!.desc, enabled: section.enabled && cashFlowReady } : section.id === 'eq' ? { ...section, desc: equityReady && cashFlowSchedule ? `Reviewed opening equity and evidence-backed movements in schedule v${cashFlowSchedule.revision}; ${selectedEng!.currency}.` : DEFAULT_SECTIONS.find(item => item.id === 'eq')!.desc, enabled: section.enabled && equityReady } : section);
+
+  // Package lifecycle projection (presentation only; the store and gates above stay authoritative).
+  const staleChanges = savedPackage ? [
+    ...(savedPackage.sourceVersion !== selectedEng.sourceVersion ? [{ source: 'Trial balance source', from: `v${savedPackage.sourceVersion}`, to: `v${selectedEng.sourceVersion}` }] : []),
+    ...(savedPackage.glSourceRevision !== currentGLSource?.revision || savedPackage.glSourceSha256 !== currentGLSource?.sha256 ? [{ source: 'GL source', from: savedPackage.glSourceRevision === undefined ? 'not configured' : `v${savedPackage.glSourceRevision}`, to: currentGLSource ? `v${currentGLSource.revision}` : 'not configured' }] : []),
+    ...(savedPackage.mappingRevision !== (currentMapping?.revision || 0) ? [{ source: 'Account mapping', from: `v${savedPackage.mappingRevision}`, to: `v${currentMapping?.revision || 0}` }] : []),
+    ...(savedPackage.generation !== selectedEng.generation ? [{ source: 'Accounting or engagement context changed (generation)', from: `${savedPackage.generation}`, to: `${selectedEng.generation}` }] : [])
+  ] : [];
+  const packageStale = staleChanges.length > 0;
+  const presentation = selectedEng.managementPresentation?.packageRevision === savedPackage?.revision ? selectedEng.managementPresentation : undefined;
+  const decision = selectedEng.managementPackageDecision?.packageRevision === savedPackage?.revision ? selectedEng.managementPackageDecision : undefined;
+  const released = Boolean(savedPackage && selectedEng.releases.some(release => release.generation === savedPackage.generation));
+  const packageStatus = !savedPackage ? 'Not assembled'
+    : packageStale ? 'Stale'
+    : !savedPackage.validation.passed ? 'Validation blocked'
+    : released ? 'Released'
+    : decision ? (decision.decision === 'Rejected' ? 'Rejected' : 'Acknowledged')
+    : presentation ? 'Presented' : 'Validated';
+  const gates = [
+    { label: 'Trial balance nets to zero', passed: tbBalanced, detail: tbBalanced ? 'Balanced (Net 0)' : `Unbalanced (${tbSum}) — by ${tbSum.toFixed(2)} ${selectedEng.currency}` },
+    { label: 'Accepted adjustments applied once', passed: adjustmentResult.unapplied.length === 0, detail: adjustmentResult.unapplied.length ? `${adjustmentResult.unapplied.length} require resolution — ${adjustmentResult.unapplied.map(item => `${item.journalId}: ${item.reason}`).join('; ')}` : `${adjustmentResult.applied.length} included once` },
+    { label: 'Account mappings approved and complete', passed: mappingsReady, detail: mappingsReady ? `Mapping v${currentMapping?.revision} approved` : `Package validation blocked: account mappings must be independently approved and cover every trial balance account. Unmapped: ${unmappedAccounts.map(row => row.code).join(', ') || 'none'}.` },
+    { label: 'Workpapers cleared', passed: workpapersCleared, detail: workpapersCleared ? 'All WPs Cleared' : `Pending WPs — ${selectedEng.workpapers.filter(w => w.applicable && w.status !== 'Cleared' && w.status !== 'Not applicable').length} applicable workpaper(s) not cleared` },
+    { label: 'Review notes cleared', passed: reviewNotesCleared, detail: reviewNotesCleared ? 'Zero Open Notes' : `Pending Notes — ${selectedEng.reviews.filter(r => r.status !== 'Cleared').length} review point(s) open` },
+    { label: 'No release-blocking findings', passed: findingsImmaterial, detail: findingsImmaterial ? 'Immaterial / Cleared' : 'Uncorrected Found — a release-blocking finding is recorded' },
+    { label: 'Disclosures prepared and reviewed', passed: disclosuresReady, detail: disclosuresReady ? 'Every disclosure independently reviewed' : 'Package validation blocked: every disclosure must be prepared, supported or justified, and independently reviewed.' },
+    ...(cashFlowRequired ? [{ label: 'Cash-flow schedule reviewed', passed: cashFlowReady, detail: cashFlowReady ? `Schedule v${cashFlowSchedule?.revision} current` : 'Requires a current independently reviewed cash-flow schedule' }] : []),
+    ...(equityRequired ? [{ label: 'Equity movements reviewed', passed: equityReady, detail: equityReady ? 'Opening equity and movements reviewed' : 'Requires reviewed opening equity and evidence-backed movements' }] : [])
+  ];
+  const canAssemble = hasAnyRole(state, ['manager', 'preparer']);
+  const nextAction = !savedPackage ? 'Assemble the first package revision from the current source.'
+    : packageStale ? 'Assemble a new revision from the current source, then re-validate.'
+    : !savedPackage.validation.passed ? 'Resolve the blocked gates below, then assemble a new revision.'
+    : packageStatus === 'Validated' ? 'Present the package to client management from Sign-offs & EQR.'
+    : packageStatus === 'Presented' ? 'Record the client management decision in Sign-offs & EQR.'
+    : packageStatus === 'Acknowledged' ? 'Complete approvals, then prepare the release candidate in Release & Completion.'
+    : packageStatus === 'Rejected' ? 'Address management\'s rationale and assemble a new revision.'
+    : 'Released — view the release record or archive.';
 
   const handleMoveUp = (index: number) => {
     if (index === 0) return;
@@ -263,20 +298,41 @@ export const FinancialPackagesView: React.FC<FinancialPackagesViewProps> = ({ on
         </div>
       </div>
 
-      {notice && (
-        <div
-          className="panel panel-pad"
-          style={{
-            background: notice.type === 'success' ? '#f0fdf4' : '#fef2f2',
-            borderColor: notice.type === 'success' ? '#86efac' : '#fca5a5',
-            color: notice.type === 'success' ? '#166534' : '#991b1b',
-            padding: '10px 16px'
-          }}
-        >
-          <b>{notice.type === 'success' ? '✓ ' : '⚠ '}</b>
-          {notice.text}
-        </div>
-      )}
+      {notice && <Notice tone={notice.type} onDismiss={() => setNotice(null)}>{notice.text}</Notice>}
+
+      <LifecyclePanel
+        definition={lifecycleById('package')}
+        subject={savedPackage ? `${client?.name} · Package Rev ${savedPackage.revision}` : `${client?.name} · No package assembled`}
+        status={packageStatus}
+        facts={[
+          { label: 'Revision', value: savedPackage ? `Rev ${savedPackage.revision} · generation ${savedPackage.generation}` : 'Not assembled' },
+          { label: 'Assembled by', value: savedPackage ? `${savedPackage.createdBy} · ${new Date(savedPackage.createdAt).toLocaleDateString('en-GB')}` : '—' },
+          { label: 'Source lineage', value: savedPackage ? `TB v${savedPackage.sourceVersion} · Mapping v${savedPackage.mappingRevision}${savedPackage.glSourceRevision !== undefined ? ` · GL v${savedPackage.glSourceRevision}` : ''}` : '—' },
+          { label: 'Management decision', value: decision ? `${decision.decision} by ${decision.by}` : presentation ? `Presented by ${presentation.presentedBy}; awaiting decision` : 'Not presented' },
+          { label: 'Signing partner', value: selectedEng.partner }
+        ]}
+        blockers={packageStale ? ['Package is stale against the current source'] : gates.filter(gate => !gate.passed).map(gate => gate.label)}
+        nextAction={nextAction}
+        downstream="Release candidates, management presentation and the client portal use only the exact saved revision and its verified files."
+      />
+
+      {savedPackage && packageStale && <StaleBanner
+        subject={`Financial package Rev ${savedPackage.revision}`}
+        changes={staleChanges}
+        affected={['Package validation', 'Management presentation', 'Partner and EQR approvals', 'Release candidate']}
+        preserved={`Rev ${savedPackage.revision} and its exact XLSX, DOCX and PDF files remain in history; approvals recorded against it are not erased.`}
+        required="Assemble a new revision before release."
+      />}
+
+      <div className="handoff-bar" aria-label="Related modules">
+        <span className="eyebrow">Related</span>
+        <a className="btn sm" href="#trial-balance" onClick={event => { event.preventDefault(); onNavigate('trial-balance'); }}>Open source TB</a>
+        <a className="btn sm" href="#account-mappings" onClick={event => { event.preventDefault(); onNavigate('account-mappings'); }}>Account mappings</a>
+        <a className="btn sm" href="#financial-statements" onClick={event => { event.preventDefault(); onNavigate('financial-statements'); }}>Financial statements</a>
+        <a className="btn sm" href="#reviews" onClick={event => { event.preventDefault(); onNavigate('reviews'); }}>Review points</a>
+        <a className="btn sm" href="#approvals" onClick={event => { event.preventDefault(); onNavigate('approvals'); }}>Sign-offs &amp; EQR</a>
+        <a className="btn sm" href="#delivery" onClick={event => { event.preventDefault(); onNavigate('delivery'); }}>View release candidate</a>
+      </div>
 
       {/* Package Header & Revision Info */}
       <div className="panel panel-pad">
@@ -284,11 +340,14 @@ export const FinancialPackagesView: React.FC<FinancialPackagesViewProps> = ({ on
           <div>
             <span className="eyebrow">ACTIVE PACKAGE LINEAGE</span>
             <h2>{client?.name} · Rev {selectedEng.packageRevision}</h2>
-            <p className="sub">TB v{savedPackage?.sourceVersion ?? 'not assembled'} · GL {savedPackage?.glSourceRevision === undefined ? 'not configured' : `v${savedPackage.glSourceRevision} · SHA-256 ${savedPackage.glSourceSha256}`} · Mapping v{savedPackage?.mappingRevision ?? 'not assembled'} · Generation {selectedEng.generation}</p>
+            <p className="sub">TB {savedPackage ? `v${savedPackage.sourceVersion}` : 'not assembled'} · GL {savedPackage?.glSourceRevision === undefined ? 'not configured' : `v${savedPackage.glSourceRevision} · SHA-256 ${savedPackage.glSourceSha256}`} · Mapping {savedPackage ? `v${savedPackage.mappingRevision}` : 'not assembled'} · Generation {selectedEng.generation}</p>
           </div>
-          <button className="btn sm" disabled={assembling || !hasAnyRole(state, ['manager', 'preparer'])} onClick={handleAssembleNewRevision}>
-            {assembling ? 'Saving exact artifacts…' : `+ Assemble New Revision (Rev ${selectedEng.packageRevision + 1})`}
-          </button>
+          <div className="stack" style={{ gap: 4, alignItems: 'flex-end' }}>
+            <button className="btn sm primary" aria-describedby={canAssemble ? undefined : 'assemble-reason'} disabled={assembling || !canAssemble} onClick={handleAssembleNewRevision}>
+              {assembling ? 'Saving exact artifacts…' : `+ Assemble New Revision (Rev ${selectedEng.packageRevision + 1})`}
+            </button>
+            {!canAssemble && <ActionReason id="assemble-reason">Manager or preparer role required to assemble</ActionReason>}
+          </div>
         </div>
 
         <div className="info-grid mt16">
@@ -303,10 +362,12 @@ export const FinancialPackagesView: React.FC<FinancialPackagesViewProps> = ({ on
         <div className="panel panel-pad">
           <h3>Saved Revision {savedPackage.revision} · {savedPackage.generation === selectedEng.generation && savedPackage.sourceVersion === selectedEng.sourceVersion && savedPackage.glSourceRevision === currentGLSource?.revision && savedPackage.glSourceSha256 === currentGLSource?.sha256 && savedPackage.mappingRevision === (currentMapping?.revision || 0) ? (savedPackage.validation.passed ? 'Validated' : 'Validation blocked') : 'Stale'}</h3>
           <p className="sub mt4">Notes revision {savedPackage.noteRevision} · assembled by {savedPackage.createdBy} · {new Date(savedPackage.createdAt).toLocaleString('en-GB')}</p>
-          {savedPackage.sourceVersion !== selectedEng.sourceVersion && <p role="status" className="mt8">This package is pinned to TB source v{savedPackage.sourceVersion}; current source is v{selectedEng.sourceVersion}. Assemble a new revision before release.</p>}
-          {(savedPackage.glSourceRevision !== currentGLSource?.revision || savedPackage.glSourceSha256 !== currentGLSource?.sha256) && <p role="status" className="mt8">This package is pinned to GL source {savedPackage.glSourceRevision === undefined ? 'not configured' : `v${savedPackage.glSourceRevision} (${savedPackage.glSourceSha256})`}; current GL source is {currentGLSource ? `v${currentGLSource.revision} (${currentGLSource.sha256})` : 'not configured'}. Assemble a new revision before release.</p>}
-          {savedPackage.generation !== selectedEng.generation && <p role="status" className="mt8">This package is pinned to generation {savedPackage.generation}; accounting or engagement context changed to generation {selectedEng.generation}. Assemble a new revision before release.</p>}
-          {savedPackage.mappingRevision !== (currentMapping?.revision || 0) && <p role="status" className="mt8">This package is pinned to mapping v{savedPackage.mappingRevision}; the current mapping is v{currentMapping?.revision || 0}. Assemble a new revision before release.</p>}
+          {packageStale && <ul className="sub mt8" aria-label="Pinned source differences">
+            {savedPackage.sourceVersion !== selectedEng.sourceVersion && <li>Pinned to TB source v{savedPackage.sourceVersion}; current source is v{selectedEng.sourceVersion}.</li>}
+            {(savedPackage.glSourceRevision !== currentGLSource?.revision || savedPackage.glSourceSha256 !== currentGLSource?.sha256) && <li>Pinned to GL source {savedPackage.glSourceRevision === undefined ? 'not configured' : `v${savedPackage.glSourceRevision} (${savedPackage.glSourceSha256})`}; current GL source is {currentGLSource ? `v${currentGLSource.revision} (${currentGLSource.sha256})` : 'not configured'}.</li>}
+            {savedPackage.generation !== selectedEng.generation && <li>Pinned to generation {savedPackage.generation}; accounting or engagement context changed to generation {selectedEng.generation}.</li>}
+            {savedPackage.mappingRevision !== (currentMapping?.revision || 0) && <li>Pinned to mapping v{savedPackage.mappingRevision}; the current mapping is v{currentMapping?.revision || 0}.</li>}
+          </ul>}
           <div className="tablewrap mt8"><table>
             <thead><tr><th>Artifact</th><th>Exact identity</th><th>Type / bytes</th><th>SHA-256</th></tr></thead>
             <tbody>{savedPackage.artifacts.map(artifact => <tr key={artifact.id}>
@@ -323,58 +384,9 @@ export const FinancialPackagesView: React.FC<FinancialPackagesViewProps> = ({ on
             <h3>Pre-Publication Validation Summary</h3>
             <p className="sub">Comprehensive integrity gates required before deliverable freezing and client release.</p>
           </div>
-          <span className={`badge ${allValid ? 'green' : 'amber'}`}>
-            {allValid ? 'All Gates Cleared' : 'Action Required'}
-          </span>
+          <StatusBadge status={allValid ? 'All Gates Cleared' : 'Action Required'} kind={allValid ? 'approved' : 'blocked'} />
         </div>
-        {!mappingsReady && <div role="alert" className="badge danger mt12" style={{ display: 'block', padding: 12 }}>Package validation blocked: account mappings must be independently approved and cover every trial balance account. Unmapped: {unmappedAccounts.map(row => row.code).join(', ') || 'none'}.</div>}
-        {!disclosuresReady && <div role="alert" className="badge amber mt12" style={{ display: 'block', padding: 12 }}>Package validation blocked: every disclosure must be prepared, supported or justified, and independently reviewed.</div>}
-
-        <div className="grid4 mt16" style={{ gap: 12 }}>
-          <div className="borderbox" style={{ padding: 12 }}>
-            <span className="caption">Trial Balance Net Zero</span>
-            <div className="mt4">
-              <span className={`badge ${tbBalanced ? 'green' : 'red'}`}>
-                {tbBalanced ? 'Balanced (Net 0)' : `Unbalanced (${tbSum})`}
-              </span>
-            </div>
-          </div>
-
-          <div className="borderbox" style={{ padding: 12 }}>
-            <span className="caption">Accepted Adjustments</span>
-            <div className="mt4"><span className={`badge ${adjustmentResult.unapplied.length ? 'red' : 'green'}`}>
-              {adjustmentResult.unapplied.length ? `${adjustmentResult.unapplied.length} require resolution` : `${adjustmentResult.applied.length} included once`}
-            </span></div>
-            {adjustmentResult.unapplied.map(item => <div className="caption mt4" key={item.journalId}>{item.journalId}: {item.reason}</div>)}
-          </div>
-
-          <div className="borderbox" style={{ padding: 12 }}>
-            <span className="caption">Working Papers Clearance</span>
-            <div className="mt4">
-              <span className={`badge ${workpapersCleared ? 'green' : 'amber'}`}>
-                {workpapersCleared ? 'All WPs Cleared' : 'Pending WPs'}
-              </span>
-            </div>
-          </div>
-
-          <div className="borderbox" style={{ padding: 12 }}>
-            <span className="caption">Review Notes Clearance</span>
-            <div className="mt4">
-              <span className={`badge ${reviewNotesCleared ? 'green' : 'amber'}`}>
-                {reviewNotesCleared ? 'Zero Open Notes' : 'Pending Notes'}
-              </span>
-            </div>
-          </div>
-
-          <div className="borderbox" style={{ padding: 12 }}>
-            <span className="caption">Significant / Material Findings</span>
-            <div className="mt4">
-              <span className={`badge ${findingsImmaterial ? 'green' : 'red'}`}>
-                {findingsImmaterial ? 'Immaterial / Cleared' : 'Uncorrected Found'}
-              </span>
-            </div>
-          </div>
-        </div>
+        <div className="mt12"><GateList label="Package validation gates" gates={gates} /></div>
       </div>
 
       {/* Interactive Contents Selection & Ordering */}
@@ -420,14 +432,14 @@ export const FinancialPackagesView: React.FC<FinancialPackagesViewProps> = ({ on
                         disabled={idx === 0}
                         onClick={() => handleMoveUp(idx)}
                       >
-                        ▲ Up
+                        <span aria-hidden="true">↑</span> Up
                       </button>
                       <button
                         className="btn sm ghost"
                         disabled={idx === sections.length - 1}
                         onClick={() => handleMoveDown(idx)}
                       >
-                        ▼ Down
+                        <span aria-hidden="true">↓</span> Down
                       </button>
                     </div>
                   </td>

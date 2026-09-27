@@ -6,6 +6,10 @@ import { RouteKey } from '../../types';
 import { prototypeStore } from '../../store/prototypeStore';
 import { hasAnyRole, hasRole } from '../../services/guards';
 import { Icon } from '../common/Icons';
+import { Notice, EmptyTableRow } from '../common/Feedback';
+import { StatusBadge } from '../common/StatusBadge';
+import { LifecyclePanel } from '../common/Lifecycle';
+import { lifecycleById } from '../../services/lifecycles';
 import { loadVerifiedArtifact } from '../../services/artifactStore';
 import { UnsavedFormGuard } from '../../services/unsavedFormGuard';
 import { isReleaseBlockingFinding } from '../../services/findings';
@@ -138,20 +142,39 @@ export const ReleaseCompletionView: React.FC<ReleaseCompletionViewProps> = ({ on
         </button>
       </div>
 
-      {notice && (
-        <div
-          className="panel panel-pad"
-          style={{
-            background: notice.type === 'success' ? '#f0fdf4' : '#fef2f2',
-            borderColor: notice.type === 'success' ? '#86efac' : '#fca5a5',
-            color: notice.type === 'success' ? '#166534' : '#991b1b',
-            padding: '10px 16px'
-          }}
-        >
-          <b>{notice.type === 'success' ? '✓ ' : '⚠ '}</b>
-          {notice.text}
-        </div>
-      )}
+      {notice && <Notice tone={notice.type} onDismiss={() => setNotice(null)}>{notice.text}</Notice>}
+
+      {(() => {
+        const archived = Boolean(selectedEng.archive);
+        const latestRelease = selectedEng.releases.at(-1);
+        const releaseStatus = archived ? 'Archived' : latestRelease ? 'Released' : selectedEng.candidate ? 'Candidate' : gatesPass ? 'Ready' : 'Blocked';
+        const blockers = [
+          ...(!allWpCleared ? ['Applicable workpapers not all cleared'] : []),
+          ...(!noOpenReviews ? ['Open review points'] : []),
+          ...(!noMaterialFindings ? [`${openBlockingFindings.length} unresolved significant/material finding(s)`] : []),
+          ...(!approvalsValid ? [`Sign-offs are not all valid for generation ${selectedEng.generation}`] : [])
+        ];
+        const next = releaseStatus === 'Blocked' ? 'Clear the blocked gates below; each links to its module.'
+          : releaseStatus === 'Ready' ? `Freeze the release candidate for generation ${selectedEng.generation}.`
+          : releaseStatus === 'Candidate' ? 'Issue the release (dispatch is simulated — no email is sent).'
+          : releaseStatus === 'Released' ? 'Archive the release in Records & Archive, or reopen for amendment with a reason.'
+          : 'Archived — view the archive record or its handover history.';
+        return <LifecyclePanel
+          definition={lifecycleById('release')}
+          subject={`${selectedEng.id} · Generation ${selectedEng.generation}`}
+          status={releaseStatus}
+          headingLevel="h4"
+          facts={[
+            { label: 'Latest release', value: latestRelease ? `v${latestRelease.version} · ${latestRelease.releasedBy}${latestRelease.isAmended ? ' · amended' : ''}` : 'None' },
+            { label: 'Candidate', value: selectedEng.candidate ? `Generation ${selectedEng.candidate.generation} · ${selectedEng.candidate.preparedBy}` : 'Not frozen' },
+            { label: 'Signing partner', value: selectedEng.partner },
+            { label: 'EQR', value: selectedEng.eqrRequired ? 'Required' : 'Not required' }
+          ]}
+          blockers={releaseStatus === 'Blocked' ? blockers : undefined}
+          nextAction={next}
+          downstream="Any change to workpapers, reviews, findings or source data advances the generation, clears the candidate and resets current sign-offs; prior releases stay as history."
+        />;
+      })()}
 
       {/* Gates Checklist */}
       <div className="panel panel-pad">
@@ -172,7 +195,7 @@ export const ReleaseCompletionView: React.FC<ReleaseCompletionViewProps> = ({ on
             <div className="row" style={{ gap: 10, alignItems: 'center' }}>
               <Icon name={allWpCleared ? 'checkcircle' : 'target'} className={allWpCleared ? 'text-green' : 'text-amber'} />
               <div>
-                <b>1. All Audit Workpapers Cleared</b>
+                <b>1. All Audit Workpapers Cleared</b> <StatusBadge status={allWpCleared ? 'Passed' : 'Blocked'} kind={allWpCleared ? 'approved' : 'blocked'} />
                 <div className="cell-sub">
                   {selectedEng.workpapers.filter(w => w.status === 'Cleared' || w.status === 'Not applicable').length} of {selectedEng.workpapers.length} cleared / N/A
                 </div>
@@ -186,7 +209,7 @@ export const ReleaseCompletionView: React.FC<ReleaseCompletionViewProps> = ({ on
             <div className="row" style={{ gap: 10, alignItems: 'center' }}>
               <Icon name={noOpenReviews ? 'checkcircle' : 'message'} className={noOpenReviews ? 'text-green' : 'text-amber'} />
               <div>
-                <b>2. Review Desk Queries Cleared</b>
+                <b>2. Review Desk Queries Cleared</b> <StatusBadge status={noOpenReviews ? 'Passed' : 'Blocked'} kind={noOpenReviews ? 'approved' : 'blocked'} />
                 <div className="cell-sub">
                   {selectedEng.reviews.filter(r => r.status === 'Cleared').length} of {selectedEng.reviews.length} review points cleared
                 </div>
@@ -200,7 +223,7 @@ export const ReleaseCompletionView: React.FC<ReleaseCompletionViewProps> = ({ on
             <div className="row" style={{ gap: 10, alignItems: 'center' }}>
               <Icon name={noMaterialFindings ? 'checkcircle' : 'shield'} className={noMaterialFindings ? 'text-green' : 'text-amber'} />
               <div>
-                <b>3. No Unresolved Significant/Material Findings</b>
+                <b>3. No Unresolved Significant/Material Findings</b> <StatusBadge status={noMaterialFindings ? 'Passed' : 'Blocked'} kind={noMaterialFindings ? 'approved' : 'blocked'} />
                 <div className="cell-sub">
                   {openBlockingFindings.length === 0
                     ? 'All audit findings resolved or classified as trivial'
@@ -216,7 +239,7 @@ export const ReleaseCompletionView: React.FC<ReleaseCompletionViewProps> = ({ on
             <div className="row" style={{ gap: 10, alignItems: 'center' }}>
               <Icon name={approvalsValid ? 'checkcircle' : 'shield'} className={approvalsValid ? 'text-green' : 'text-amber'} />
               <div>
-                <b>4. Multi-Stage Sign-offs Valid for Generation {selectedEng.generation}</b>
+                <b>4. Multi-Stage Sign-offs Valid for Generation {selectedEng.generation}</b> <StatusBadge status={approvalsValid ? 'Passed' : 'Blocked'} kind={approvalsValid ? 'approved' : 'blocked'} />
                 <div className="cell-sub">
                   Manager: {selectedEng.approvals.manager?.generation === selectedEng.generation ? '✓' : '✗'} ·
                   Client Rep: {selectedEng.approvals.client?.generation === selectedEng.generation ? '✓' : '✗'} ·
@@ -305,7 +328,7 @@ export const ReleaseCompletionView: React.FC<ReleaseCompletionViewProps> = ({ on
             </thead>
             <tbody>
               {selectedEng.releases.length === 0 ? (
-                <tr><td colSpan={10} className="text-center sub" style={{ padding: 20 }}>No local release records exist for this engagement.</td></tr>
+                <EmptyTableRow colSpan={10} variant="none" title="No local release records exist for this engagement." />
               ) : (
                 selectedEng.releases.map(rel => (
                   <tr key={rel.id}>

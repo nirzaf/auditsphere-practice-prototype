@@ -8,6 +8,7 @@ import { applyReportingAdjustments, calculateBalanceSheet, calculateIncomeStatem
 import { exportService } from '../../services/exportService';
 import { UnsavedFormGuard } from '../../services/unsavedFormGuard';
 import { visibleEngagementIds } from '../../services/guards';
+import { StaleBanner } from '../common/Feedback';
 
 interface FinancialStatementsViewProps {
   onNavigate: (route: RouteKey) => void;
@@ -280,6 +281,20 @@ export const FinancialStatementsView: React.FC<FinancialStatementsViewProps> = (
           </div>
         </div>
         {revisionError && <p role="alert" className="badge danger mt12">{revisionError}</p>}
+        {latestStatementRevision && !revisionCurrent && (() => {
+          const changes = [
+            ...(latestStatementRevision.sourceVersion !== selectedEng.sourceVersion ? [{ source: 'Trial balance source', from: `v${latestStatementRevision.sourceVersion}`, to: `v${selectedEng.sourceVersion}` }] : []),
+            ...(latestStatementRevision.mappingRevision !== currentMapping?.revision ? [{ source: 'Account mapping', from: `v${latestStatementRevision.mappingRevision}`, to: `v${currentMapping?.revision ?? '—'}` }] : []),
+            ...(latestStatementRevision.layoutVersion !== layoutVersion ? [{ source: 'Statement layout', from: `v${latestStatementRevision.layoutVersion}`, to: `v${layoutVersion}` }] : [])
+          ];
+          return <div className="mt12"><StaleBanner
+            subject={`Statement set v${latestStatementRevision.revision}`}
+            changes={changes.length ? changes : [{ source: 'Comparative period or scope', from: 'as saved', to: 'changed' }]}
+            affected={['Statement review', 'Financial package validation', 'Release approvals']}
+            preserved={latestStatementRevision.reviewedByUserId ? `The review of v${latestStatementRevision.revision} stays in revision history.` : `Revision v${latestStatementRevision.revision} stays in history.`}
+            required="Save a new statement revision from the current source and have it independently reviewed."
+          /></div>;
+        })()}
         {latestStatementRevision && <p role="status" className="mt12">Latest: v{latestStatementRevision.revision} · {revisionCurrent ? latestStatementRevision.status : 'Stale'} · prepared by {latestStatementRevision.preparedByUserId}{latestStatementRevision.reviewedByUserId ? ` · reviewed by ${latestStatementRevision.reviewedByUserId}` : ''}</p>}
         <div className="caption mt8">{statementHistory.length ? statementHistory.map(item => `v${item.revision} ${item.status} · ${new Date(item.preparedAt).toLocaleString()}`).join(' | ') : 'No statement revisions saved.'}</div>
       </section>
@@ -338,16 +353,16 @@ export const FinancialStatementsView: React.FC<FinancialStatementsViewProps> = (
 
       {/* Statement Select Tabs */}
       <div className="tabs">
-        <button className={`tab-btn ${statementType === 'bs' ? 'active' : ''}`} onClick={() => setStatementType('bs')}>
+        <button className={`tab-btn ${statementType === 'bs' ? 'active' : ''}`} aria-pressed={statementType === 'bs'} onClick={() => setStatementType('bs')}>
           Statement of Financial Position (Balance Sheet)
         </button>
-        <button className={`tab-btn ${statementType === 'is' ? 'active' : ''}`} onClick={() => setStatementType('is')}>
+        <button className={`tab-btn ${statementType === 'is' ? 'active' : ''}`} aria-pressed={statementType === 'is'} onClick={() => setStatementType('is')}>
           Statement of Comprehensive Income (P&L)
         </button>
-        <button className={`tab-btn ${statementType === 'equity' ? 'active' : ''}`} onClick={() => setStatementType('equity')}>
+        <button className={`tab-btn ${statementType === 'equity' ? 'active' : ''}`} aria-pressed={statementType === 'equity'} onClick={() => setStatementType('equity')}>
           Statement of Changes in Equity
         </button>
-        <button className={`tab-btn ${statementType === 'cashflow' ? 'active' : ''}`} onClick={() => setStatementType('cashflow')}>
+        <button className={`tab-btn ${statementType === 'cashflow' ? 'active' : ''}`} aria-pressed={statementType === 'cashflow'} onClick={() => setStatementType('cashflow')}>
           Statement of Cash Flows
         </button>
       </div>

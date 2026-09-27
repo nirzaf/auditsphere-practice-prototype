@@ -6,6 +6,10 @@ import { Icon } from '../common/Icons';
 import { formatCurrency } from '../../services/calculations';
 import { visibleClientIds } from '../../services/guards';
 import { UnsavedFormGuard } from '../../services/unsavedFormGuard';
+import { StatusBadge } from '../common/StatusBadge';
+import { LifecycleStepper } from '../common/Lifecycle';
+import { lifecycleById } from '../../services/lifecycles';
+import { keyboardActivate } from '../common/keyboardActivate';
 
 interface LeadsPipelineViewProps {
   onNavigate: (route: RouteKey) => void;
@@ -148,7 +152,7 @@ export const LeadsPipelineView: React.FC<LeadsPipelineViewProps> = ({ onNavigate
                 <span className="tag gray">{colLeads.length}</span>
               </div>
               {colLeads.map(l => (
-                <div
+                <div {...keyboardActivate}
                   key={l.id}
                   className="lead-card"
                   onClick={() => { setSelectedLead(l); setConversionClientId(''); }}
@@ -194,9 +198,10 @@ export const LeadsPipelineView: React.FC<LeadsPipelineViewProps> = ({ onNavigate
                 <div><label>ID</label><span>{selectedLead.id}</span></div>
                 <div><label>Service</label><span>{selectedLead.service}</span></div>
                 <div><label>Pipeline Value</label><span>{formatCurrency(selectedLead.value, selectedLead.currency)}</span></div>
-                <div><label>Current Stage</label><span>{selectedLead.stage}</span></div>
+                <div><label>Current Stage</label><span><StatusBadge status={selectedLead.stage} /></span></div>
                 <div><label>Primary Contact</label><span>{selectedLead.contact}</span></div>
               <div><label>Commercial Owner</label><span>{selectedLead.owner}</span></div>
+              <div className="full"><LifecycleStepper definition={lifecycleById('lead')} status={selectedLead.stage} label={`${selectedLead.id} pipeline stage`} />{['Lost', 'Unqualified'].includes(selectedLead.stage) && <p className="caption">{selectedLead.stage} is a terminal commercial outcome and is excluded from open pipeline totals.</p>}</div>
               <div><label>Stage history</label><span>{(selectedLead.history || []).map(h => `${h.stage}${h.reason ? ` (${h.reason})` : ''} · ${new Date(h.at).toLocaleDateString()}`).join(' → ') || selectedLead.stage}</span></div>
               </div>
 

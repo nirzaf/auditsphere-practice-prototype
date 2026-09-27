@@ -31,7 +31,9 @@ The app is a native React + TypeScript single-page application; there is no lega
 - `src/services/legacyRoutes.ts`: redirects historical hash links to current React routes; role checks still apply and denied destinations resolve to an allowed workspace.
 - `src/components/layout/Shell.tsx`: navigation shell, search and scenario controls.
 - `src/components/modules/*.tsx`: the 39-module route views.
-- `src/components/common/*.tsx`: shared presentational pieces (icon set and the internal-notes panel).
+- `src/components/common/*.tsx`: shared presentational pieces — icon set, internal-notes panel, `StatusBadge`, `Feedback` (notices, empty/no-result/out-of-scope states, stale banners, gate lists, action reasons), `Lifecycle` (stepper and panel), `ActivityTimeline` and the collapsed module lifecycle guide.
+- `src/services/statusSemantics.ts`, `lifecycles.ts`, `workQueues.ts`, `reviewDiff.ts`, `terminalActions.ts`, `routeCatalog.ts`: presentation-layer projections of existing state (status vocabulary, lifecycle definitions grounded in store commands, scoped role queues, deterministic "changed since last review", terminal-action consequences, breadcrumb catalogue). They never decide eligibility — guards and store commands remain the authority.
+- `src/enterprise.css`: the enterprise UX layer stylesheet (loaded after `styles.css`, `roles.css`, `host.css`).
 - `src/services/*.ts`: guards, migrations, artifact/IndexedDB storage, exports, calculations.
 - `styles.css` / `roles.css`: responsive visual system, imported by Vite.
 - `roles.json` / `permissions.json` / `source.json`: synthetic source and role fixtures for the historical bundle — `build.py` validates them and embeds them in `legacy/index.html`. The Vite app does not read them; its personas, grants and records come from `src/store/initialState.ts`, and route/role policy comes from `src/services/guards.ts`.
@@ -68,6 +70,8 @@ The visualization does not implement production authentication, enforceable mult
 
 The `superuser` persona is a presenter/test tool, not a fifteenth product role. It opens every supported route and sees every synthetic client, engagement and group, and it may perform actor-restricted actions (for example reviewing a journal it prepared) — each such action appends a `Prototype Superuser Override` entry to the local event log and is labelled by the on-screen banner. Data validation, client-portal disclosure filters and revision staleness rules are unchanged for it, so boundary demonstrations must use the ordinary personas. It is seeded in every scenario preset and is added to older stored state by the schema v28 upgrade; demo-identity administration offers only the 14 product roles, and the store rejects an attempt to create a second one.
 
+Enterprise UX layer: shared status semantics, lifecycle panels, stale banners, work queues and the page anatomy are documented in `docs/prototype/design-system.md`; the per-record lifecycles are generated into `docs/prototype/lifecycle-matrix.md` (`npx tsx tools/lifecycle-matrix.ts`) from `src/services/lifecycles.ts`, and the 39-module review is `docs/prototype/enterprise-ux-audit.md`.
+
 Current supported scope, exclusions and historical-source labelling: `docs/prototype/scope.md`. Inspected baseline inventory: `docs/prototype/baseline.md`. 39-module route/command/test map: `docs/prototype/module-coverage.md`. Presenter scenarios with fixed arithmetic: `docs/prototype/demo-scenarios.md`. Actually executed checks (never claimed in advance): `docs/prototype/verification.md`.
 
 ## Verification (VP-063)
@@ -78,6 +82,8 @@ npm run build
 npm run legacy:check
 npm run test:unit   # deterministic calculations, guards, migrations, scope scan, TB parsing, export formats
 npm run test:e2e    # serves dist/ on loopback; asserts shell boot, no provider egress, simulated surfaces
+# macOS: Google Chrome in /Applications is detected automatically; elsewhere set CHROME_PATH.
+# The harness pins a 1440x1000 window so every platform starts in the desktop layout.
 ```
 
 Microsoft 365 screens are local simulations (`liveConnected: false`); SharePoint is the canonical demo library, OneDrive import is optional and disabled by default, mail outcomes are simulated accepted/failed/unknown, and Microsoft Purview is not part of this product. Issued invoices, approvals and releases change local demo records only — no payment demand, signature, email delivery or external retention is performed.

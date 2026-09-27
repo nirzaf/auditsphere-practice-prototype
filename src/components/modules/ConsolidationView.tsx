@@ -8,6 +8,8 @@ import { calculateConsolidatedBalanceSheet, formatCurrency } from '../../service
 import { artifactSha256, downloadVerifiedArtifact, persistArtifact } from '../../services/artifactStore';
 import { consolidationOutputFingerprint } from '../../services/consolidationOutput';
 import { UnsavedFormGuard } from '../../services/unsavedFormGuard';
+import { LifecycleStepper } from '../common/Lifecycle';
+import { lifecycleById } from '../../services/lifecycles';
 
 interface ConsolidationViewProps {
   onNavigate: (route: RouteKey) => void;
@@ -472,16 +474,16 @@ export const ConsolidationView: React.FC<ConsolidationViewProps> = ({ onNavigate
         </div>
 
         <div className="tabs mt16">
-          <button className={`tab-btn ${activeTab === 'grid' ? 'active' : ''}`} onClick={() => setActiveTab('grid')}>
+          <button className={`tab-btn ${activeTab === 'grid' ? 'active' : ''}`} aria-pressed={activeTab === 'grid'} onClick={() => setActiveTab('grid')}>
             Consolidated Balance Sheet Grid
           </button>
-          <button className={`tab-btn ${activeTab === 'perimeter' ? 'active' : ''}`} onClick={() => setActiveTab('perimeter')}>
+          <button className={`tab-btn ${activeTab === 'perimeter' ? 'active' : ''}`} aria-pressed={activeTab === 'perimeter'} onClick={() => setActiveTab('perimeter')}>
             Group Perimeter & Pinned Packages ({group.components.length})
           </button>
-          <button className={`tab-btn ${activeTab === 'eliminations' ? 'active' : ''}`} onClick={() => setActiveTab('eliminations')}>
+          <button className={`tab-btn ${activeTab === 'eliminations' ? 'active' : ''}`} aria-pressed={activeTab === 'eliminations'} onClick={() => setActiveTab('eliminations')}>
             Intercompany Eliminations ({group.eliminations.length})
           </button>
-          <button className={`tab-btn ${activeTab === 'fx' ? 'active' : ''}`} onClick={() => setActiveTab('fx')}>
+          <button className={`tab-btn ${activeTab === 'fx' ? 'active' : ''}`} aria-pressed={activeTab === 'fx'} onClick={() => setActiveTab('fx')}>
             Currency Translation (FX)
           </button>
         </div>
@@ -678,10 +680,11 @@ export const ConsolidationView: React.FC<ConsolidationViewProps> = ({ onNavigate
                   <b>{e.description || e.title}</b>
                   <b style={{ color: 'var(--teal-dark)' }}>{formatCurrency(e.amount, e.currency)}</b>
                 </div>
+                <LifecycleStepper definition={lifecycleById('consolidation-elimination')} status={e.status === 'Approved' && !eliminationApprovalIsCurrent(group, e, state) ? 'Returned' : e.status} returned={e.status === 'Draft' && (e.reviewHistory || []).length > 0} label={`${e.id} lifecycle`} />
                 <div className="cell-sub mt8">
                   Debit: {e.debitAccount || e.counterpartyA} · Credit: {e.creditAccount || e.counterpartyB} · Status: {e.status === 'Approved' && !eliminationApprovalIsCurrent(group, e, state) ? 'Approved — re-review required' : e.status} · Evidence: {e.approvalEvidenceRef || e.evidenceRef || 'none'}
                 </div>
-                {e.status === 'Draft' && (e.reviewHistory || []).length > 0 && <div className="caption mt4" style={{ color: '#92400e' }}>
+                {e.status === 'Draft' && (e.reviewHistory || []).length > 0 && <div className="rework-note">
                   Re-review required: {e.reviewHistory[e.reviewHistory.length - 1].note} Prior approval and journal lines are preserved in history.
                 </div>}
               </div>

@@ -6,7 +6,11 @@ import { RoleKey, RouteKey, UserPersona } from '../../types';
 import { prototypeStore } from '../../store/prototypeStore';
 import { roleRequiresApprovalEvidence, isSuperuserRole } from '../../services/guards';
 import { Icon } from '../common/Icons';
+import { StatusBadge } from '../common/StatusBadge';
+import { Notice } from '../common/Feedback';
 import { UnsavedFormGuard } from '../../services/unsavedFormGuard';
+import { consequencePrompt } from '../../services/terminalActions';
+import { keyboardActivate } from '../common/keyboardActivate';
 
 interface AdministrationViewProps {
   onNavigate: (route: RouteKey) => void;
@@ -83,7 +87,7 @@ export const AdministrationView: React.FC<AdministrationViewProps> = ({ onNaviga
 
   const handleRevokeAccess = (grant: typeof state.roleGrants[0]) => {
     try {
-      const reason = window.prompt('Reason for revoking this access grant:');
+      const reason = window.prompt(consequencePrompt('grant-revoked', `${grant.userId} · ${grant.role} · ${grant.scopeKind}${grant.scopeId ? ` ${grant.scopeId}` : ''}`, 'Reason for revoking this access grant'));
       if (reason === null) return;
       prototypeStore.revokeAccess(grant.userId, grant.role, grant.scopeId, reason);
       triggerNotice('success', 'Access grant revoked. User authority narrowed or zeroed if last grant removed.');
@@ -106,38 +110,25 @@ export const AdministrationView: React.FC<AdministrationViewProps> = ({ onNaviga
         </button>
       </div>
 
-      {notice && (
-        <div
-          className="panel panel-pad"
-          style={{
-            background: notice.type === 'success' ? '#f0fdf4' : '#fef2f2',
-            borderColor: notice.type === 'success' ? '#86efac' : '#fca5a5',
-            color: notice.type === 'success' ? '#166534' : '#991b1b',
-            padding: '10px 16px'
-          }}
-        >
-          <b>{notice.type === 'success' ? '✓ ' : '⚠ '}</b>
-          {notice.text}
-        </div>
-      )}
+      {notice && <Notice tone={notice.type} onDismiss={() => setNotice(null)}>{notice.text}</Notice>}
 
       <div className="tabs">
-        <button className={`tab-btn ${activeTab === 'users' ? 'active' : ''}`} onClick={() => changeTab('users')}>
+        <button className={`tab-btn ${activeTab === 'users' ? 'active' : ''}`} aria-pressed={activeTab === 'users'} onClick={() => changeTab('users')}>
           Practice Personas ({state.users.length})
         </button>
-        <button className={`tab-btn ${activeTab === 'identities' ? 'active' : ''}`} onClick={() => changeTab('identities')}>
+        <button className={`tab-btn ${activeTab === 'identities' ? 'active' : ''}`} aria-pressed={activeTab === 'identities'} onClick={() => changeTab('identities')}>
           Identity Lifecycle ({state.simulatedInvitations?.length || 0} invitations)
         </button>
-        <button className={`tab-btn ${activeTab === 'grants' ? 'active' : ''}`} onClick={() => changeTab('grants')}>
+        <button className={`tab-btn ${activeTab === 'grants' ? 'active' : ''}`} aria-pressed={activeTab === 'grants'} onClick={() => changeTab('grants')}>
           Active Access Grants ({state.roleGrants.length})
         </button>
-        <button className={`tab-btn ${activeTab === 'history' ? 'active' : ''}`} onClick={() => changeTab('history')}>
+        <button className={`tab-btn ${activeTab === 'history' ? 'active' : ''}`} aria-pressed={activeTab === 'history'} onClick={() => changeTab('history')}>
           Access History ({state.roleGrantHistory.length})
         </button>
-        <button className={`tab-btn ${activeTab === 'firm' ? 'active' : ''}`} onClick={() => changeTab('firm')}>
+        <button className={`tab-btn ${activeTab === 'firm' ? 'active' : ''}`} aria-pressed={activeTab === 'firm'} onClick={() => changeTab('firm')}>
           Firm Legal Details &amp; Branding
         </button>
-        <button className={`tab-btn ${activeTab === 'permissions' ? 'active' : ''}`} onClick={() => changeTab('permissions')}>
+        <button className={`tab-btn ${activeTab === 'permissions' ? 'active' : ''}`} aria-pressed={activeTab === 'permissions'} onClick={() => changeTab('permissions')}>
           Role-Based Access Control (RBAC)
         </button>
       </div>
@@ -194,7 +185,7 @@ export const AdministrationView: React.FC<AdministrationViewProps> = ({ onNaviga
                 {state.users.map(u => {
                   const grants = userGrants(u);
                   return (
-                    <tr
+                    <tr {...keyboardActivate}
                       key={u.id}
                       style={{
                         background: u.id === state.currentUserId ? '#f0fdf4' : 'inherit',
@@ -214,9 +205,7 @@ export const AdministrationView: React.FC<AdministrationViewProps> = ({ onNaviga
                       <td>{u.label}</td>
                       <td><span className="mono">{u.email}</span></td>
                       <td>
-                        <span className={`badge ${u.status === 'Active' ? 'green' : 'red'}`}>
-                          {u.status}
-                        </span>
+                        <StatusBadge status={u.status} />
                       </td>
                       <td>
                         <b>{grants.length} grants</b>
@@ -378,7 +367,7 @@ export const AdministrationView: React.FC<AdministrationViewProps> = ({ onNaviga
               <div><label>Practice Role</label><span>{selectedUser.label}</span></div>
               <div><label>Role Code</label><span className="mono">{selectedUser.role}</span></div>
               <div><label>Email</label><span className="mono">{selectedUser.email}</span></div>
-              <div><label>Account Status</label><span className={`badge ${selectedUser.status === 'Active' ? 'green' : 'red'}`}>{selectedUser.status}</span></div>
+              <div><label>Account Status</label><StatusBadge status={selectedUser.status} /></div>
             </div>
 
             <div className="divider mt16" />

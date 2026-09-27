@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { RouteKey, EvidenceItem, AuditProcedureItem } from '../../types';
 import { prototypeStore } from '../../store/prototypeStore';
 import { Icon } from '../common/Icons';
+import { Notice } from '../common/Feedback';
 import { UnsavedFormGuard } from '../../services/unsavedFormGuard';
 
 interface EvidenceCatalogueViewProps {
@@ -99,11 +100,7 @@ export const EvidenceCatalogueView: React.FC<EvidenceCatalogueViewProps> = ({ on
         </button>
       </div>
 
-      {notice && (
-        <div className={`badge ${notice.type === 'error' ? 'danger' : 'success'}`} style={{ padding: '8px 12px', display: 'block', fontSize: 13 }}>
-          {notice.text}
-        </div>
-      )}
+      {notice && <Notice tone={notice.type} onDismiss={() => setNotice(null)}>{notice.text}</Notice>}
 
       <div className="panel panel-pad" style={{ background: '#fffbeb', borderLeft: '4px solid #d97706' }}>
         <b>Prototype note — evidence replacement impact.</b>
