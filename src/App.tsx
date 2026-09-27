@@ -57,6 +57,8 @@ import { ModuleCatalogueView } from './components/modules/ModuleCatalogueView';
 import { UnsavedFormGuard } from './services/unsavedFormGuard';
 import { resolveRouteHash } from './services/legacyRoutes';
 import { ModuleGuideStrip } from './components/common/ModuleGuideStrip';
+import { WorkflowProgress } from './components/common/WorkflowProgress';
+import { computeModuleWorkflowProgress } from './services/workflowProgress';
 
 const ENGAGEMENT_CONTEXT_ROUTES = new Set<string>([
   'onboarding', 'audit-acceptance', 'jobs', 'job-templates', 'documents', 'communications',
@@ -531,6 +533,13 @@ export const App: React.FC = () => {
   return (
     <Shell currentRoute={effectiveRoute} onRouteChange={navigate} onSelectClient={(clientId) => requestContextChange(() => setSelectedClientId(clientId))} onBeforeContextChange={requestContextChange}>
       {!isClient && !['module-guide', 'requirements', 'role-guide'].includes(effectiveRoute) && <ModuleGuideStrip key={effectiveRoute} route={effectiveRoute} />}
+      {!['module-guide', 'requirements', 'role-guide'].includes(effectiveRoute) && (
+        <WorkflowProgress
+          key={`wp-${effectiveRoute}-${state.selectedEngagement || ''}`}
+          progress={computeModuleWorkflowProgress(effectiveRoute, state)}
+          onNavigate={navigate}
+        />
+      )}
       {renderModule()}
       {dismissPrompt && createPortal(<div data-dismiss-prompt="" role="alert" className="banner amber mt12" style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center', justifyContent: 'space-between' }}>
         <span>This dialog has unsaved changes. Nothing has been saved.</span>

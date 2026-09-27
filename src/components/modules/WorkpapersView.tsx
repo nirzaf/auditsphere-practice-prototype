@@ -16,6 +16,7 @@ import { sha256OfFile } from '../../services/fileMetadata';
 import { UnsavedFormGuard } from '../../services/unsavedFormGuard';
 import { consequencePrompt } from '../../services/terminalActions';
 import { keyboardActivate } from '../common/keyboardActivate';
+import { ActivityTimeline } from '../common/ActivityTimeline';
 
 interface WorkpapersViewProps {
   onNavigate: (route: RouteKey) => void;
@@ -312,7 +313,16 @@ export const WorkpapersView: React.FC<WorkpapersViewProps> = ({ onNavigate, sear
                   blockers={wp.status === 'Cleared' || wp.status === 'Not applicable' ? undefined : blockers}
                   nextAction={next}
                   downstream="Release gates require every applicable workpaper cleared; clearing or reopening changes the engagement generation and resets current approvals (history kept)."
-                />
+                >
+                  <details className="mt12"><summary className="caption">Workpaper history ({(wp.submissionHistory?.length || 0) + wp.clearanceHistory.length + (wp.assignmentHistory?.length || 0) + (wp.evidenceLinkHistory?.length || 0)} events)</summary>
+                    <ActivityTimeline label={`${wp.id} history`} entries={[
+                      ...(wp.submissionHistory || []).map(entry => ({ title: 'Submitted for independent review', actor: state.users.find(user => user.id === entry.submittedBy)?.name || entry.submittedBy, at: entry.submittedAt, revision: `v${entry.version}`, to: 'Submitted' })),
+                      ...wp.clearanceHistory.map(entry => ({ title: 'Cleared by reviewer', actor: entry.clearedBy, at: entry.clearedAt, revision: `v${entry.version}`, reason: entry.notes, to: 'Cleared' })),
+                      ...(wp.assignmentHistory || []).map(entry => ({ title: `${entry.role === 'preparer' ? 'Preparer' : 'Reviewer'} reassigned`, actor: entry.assignedBy, at: entry.assignedAt, reason: entry.reason, from: entry.from || 'unassigned', to: entry.to })),
+                      ...(wp.evidenceLinkHistory || []).map(entry => ({ title: `Evidence ${entry.action.toLowerCase()}: ${entry.documentId} v${entry.version}`, actor: state.users.find(user => user.id === entry.actorId)?.name || entry.actorId, at: entry.at, reason: entry.reason }))
+                    ].sort((a, b) => (b.at || '').localeCompare(a.at || ''))} />
+                  </details>
+                </LifecyclePanel>
                 {baseline && <section className="panel panel-pad" aria-label="Changes since last review">
                   <div className="section-title"><h4>Since last {baseline.kind === 'clearance' ? 'clearance' : 'submission'}</h4><span className="caption">Baseline v{baseline.version} · {baseline.by} · {new Date(baseline.at).toLocaleString('en-GB')}</span></div>
                   {changes.length ? <ul className="mt8 small">{changes.map((change, index) => <li key={index}><b>{change.field}:</b> {change.detail}</li>)}</ul> : <p className="sub mt8">No recorded changes since the baseline revision.</p>}

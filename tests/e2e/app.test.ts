@@ -247,8 +247,9 @@ async function clickButton(label: string): Promise<void> {
 }
 
 async function clickButtonStartingWith(label: string): Promise<void> {
+  await waitForBrowser(`[...document.querySelectorAll("button")].some(x => x.innerText.trim().startsWith(${JSON.stringify(label)}) || (x.getAttribute('aria-label') || x.title || '').startsWith(${JSON.stringify(label)}))`, 4000);
   const found = await browserTab!.evaluate<boolean>(`(() => {
-    const b = [...document.querySelectorAll("button")].find(x => x.innerText.trim().startsWith(${JSON.stringify(label)}) || (x.getAttribute('aria-label') || x.title).startsWith(${JSON.stringify(label)}));
+    const b = [...document.querySelectorAll("button")].find(x => x.innerText.trim().startsWith(${JSON.stringify(label)}) || (x.getAttribute('aria-label') || x.title || '').startsWith(${JSON.stringify(label)}));
     if (!b) return false; b.click(); return true;
   })()`);
   assert.equal(found, true, `button not found starting with: ${label}`);
@@ -9347,6 +9348,51 @@ describe('actual Chrome browser acceptance', { concurrency: false }, () => {
       assert.equal(guide.closed, true, 'the module guide starts collapsed');
       assert.match(guide.text, /MOD-32/);
       assert.match(guide.text, /Planned → In progress → Submitted → Cleared/);
+      assert.deepEqual(browserTab!.exceptions, []);
+    });
+
+    it('UX-ENT-05: workflow progress tracker renders on operational modules, displays percentage, steps, counts, and answers 6 questions', async () => {
+      await resetState();
+      await setPersona('manager');
+      await go('overview');
+      assert.equal(await waitForBrowser(`!!document.querySelector('.workflow-progress-panel')`), true, 'tracker panel is present on overview');
+      const overviewTracker = await browserTab!.evaluate<any>(`(() => {
+        const panel = document.querySelector('.workflow-progress-panel');
+        const title = panel?.querySelector('.wp-title')?.textContent?.trim();
+        const percent = panel?.querySelector('.wp-percent-label')?.textContent?.trim();
+        const steps = [...(panel?.querySelectorAll('.wp-step') || [])].map(s => s.textContent?.trim());
+        const counts = panel?.querySelector('.wp-counts-pill')?.textContent?.trim();
+        return { title, percent, stepsCount: steps.length, counts };
+      })()`);
+      assert.equal(overviewTracker.title, 'Practice Overview');
+      assert.match(overviewTracker.percent, /% Complete/);
+      assert.ok(overviewTracker.stepsCount >= 4, 'at least 4 workflow steps shown');
+      assert.match(overviewTracker.counts, /Done/);
+      assert.match(overviewTracker.counts, /Pending/);
+
+      // Open the 6 enterprise questions drawer
+      await browserTab!.evaluate(`document.querySelector('.wp-toggle-btn').click()`);
+      assert.equal(await waitForBrowser(`!!document.querySelector('.wp-answers-drawer')`), true, 'drawer opens');
+      const questions = await browserTab!.evaluate<string[]>(`[...document.querySelectorAll('.wp-answer-q')].map(q => q.textContent.trim())`);
+      assert.deepEqual(questions, [
+        'Where am I?',
+        'What is complete?',
+        'What is pending?',
+        'What is blocked?',
+        'What can I do next?',
+        'Who acts next?'
+      ], 'drawer displays all 6 enterprise questions');
+
+      // Navigate to delivery and verify gates progress
+      await go('delivery');
+      assert.equal(await waitForBrowser(`document.querySelector('.workflow-progress-panel .wp-title')?.textContent?.includes('Release & Completion')`), true);
+      const deliveryTracker = await browserTab!.evaluate<any>(`(() => {
+        const panel = document.querySelector('.workflow-progress-panel');
+        return {
+          steps: [...(panel?.querySelectorAll('.wp-step') || [])].map(s => s.textContent?.trim())
+        };
+      })()`);
+      assert.ok(deliveryTracker.steps.length >= 4, 'delivery steps present');
       assert.deepEqual(browserTab!.exceptions, []);
     });
   });

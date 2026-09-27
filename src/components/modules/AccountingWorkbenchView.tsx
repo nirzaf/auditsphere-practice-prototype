@@ -15,6 +15,7 @@ import { exportService } from '../../services/exportService';
 import { StaleBanner } from '../common/Feedback';
 import { LifecycleStepper } from '../common/Lifecycle';
 import { lifecycleById } from '../../services/lifecycles';
+import { ActivityTimeline } from '../common/ActivityTimeline';
 
 const AccountingSetup: React.FC<{ clientId: string; engagementId: string; profile?: ClientAccountingProfile; onRegisterUnsavedForm?: (guard: UnsavedFormGuard | null, key?: string) => void }> = ({ clientId, engagementId, profile, onRegisterUnsavedForm }) => {
   const seed: ClientAccountingProfile = profile || { legalEntityName: '', reportingBasis: 'Not selected', baseCurrency: 'QAR', accounts: [], periodBooks: [], dimensions: [], revision: 0, chartRevision: 0, history: [] };
@@ -908,6 +909,14 @@ export const AccountingWorkbenchView: React.FC<AccountingWorkbenchViewProps> = (
                     <b>{adj.title}</b>
                     <div className="cell-sub">{adj.id} · Proposed by {adj.preparedBy}</div>
                     <LifecycleStepper definition={lifecycleById('adjustment')} status={adj.status} label={`${adj.id} lifecycle`} />
+                    {Boolean(adj.amendmentHistory?.length || adj.reflectionHistory?.length || adj.reviewedBy) && <details className="mt4"><summary className="caption">Journal history</summary>
+                      <ActivityTimeline label={`${adj.id} history`} entries={[
+                        ...(adj.reviewedBy ? [{ title: adj.status === 'Rejected' ? 'Rejected in technical review' : 'Technical review recorded', actor: adj.reviewedBy, reason: adj.reviewNote, revision: adj.revision || 1 }] : []),
+                        ...(adj.managementAcceptedBy ? [{ title: 'Management decision recorded', actor: adj.managementAcceptedBy, reason: adj.managementDecisionNote }] : []),
+                        ...(adj.amendmentHistory || []).map(entry => ({ title: `Amended from revision ${entry.revision}`, actor: state.users.find(user => user.id === entry.amendedByUserId)?.name || entry.amendedByUserId, at: entry.amendedAt, revision: entry.revision + 1, reason: (entry as { reason?: string }).reason, from: entry.status, to: 'Draft' })),
+                        ...(adj.reflectionHistory || []).map(entry => ({ title: `Reflection: ${entry.status} on TB v${entry.sourceVersion}`, actor: state.users.find(user => user.id === entry.recordedByUserId)?.name || entry.recordedByUserId, at: entry.recordedAt, reason: entry.evidenceRef ? `Evidence ${entry.evidenceRef}` : undefined }))
+                      ]} />
+                    </details>}
                   </div>
                   <div className="row" style={{ gap: 8 }}>
                     <span className={`badge ${adj.status === 'Management accepted' || adj.status === 'Reporting included' ? 'green' : adj.status === 'Rejected' ? 'red' : 'amber'}`}>

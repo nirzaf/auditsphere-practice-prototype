@@ -2,7 +2,7 @@
 
 `docs/prototype/enterprise-ux-audit.md` · recorded 2026-09-27 · companion documents:
 [design-system.md](design-system.md) (vocabulary), [lifecycle-matrix.md](lifecycle-matrix.md) (generated
-lifecycles), [remaining-limitations.md](remaining-limitations.md) (canonical limits — not duplicated here).
+lifecycles plus the 39-row `Module | Steps | Current State | Completed | Pending | Blocked | Review/Rework | Role/Scope | Dependencies | Next Action` matrix), [remaining-limitations.md](remaining-limitations.md) (canonical limits — not duplicated here).
 
 Scope and honesty: this is an enhancement of the accepted browser-only prototype, not a rewrite. No store
 command, guard, calculation, migration or scenario was removed or weakened; two display-scope defects were
@@ -16,6 +16,7 @@ suite; **Partial** = improved but not every item in the spec's module acceptance
 
 | Area | Before | After | Evidence |
 |---|---|---|---|
+| Progress & Six Questions | No screen-level progress or remaining work visible | Visible `WorkflowProgress` stepper, real-state percent complete bar, counts pill (Done · Pending · Blocked · Rework), and drawer answering: Where am I? What is complete? What is pending? What is blocked? What can I do next? Who acts next? | `workflowProgress.test.ts` unit suite; E2E `UX-ENT-05` |
 | Status presentation | `.badge` used at 136 call sites was never defined in CSS — statuses rendered as plain text; each module picked its own colours | Shared `statusSemantics.ts` (every status literal in `src/types` mapped, unit-tested) + `StatusBadge` (text + glyph + tone); legacy `.badge` defined with the same tones | `enterpriseUx.test.ts` “maps every declared status…” |
 | Breadcrumb / context | `Workspace / ROUTE-KEY` | `Section / Module [ROUTE CODE]`; context bar adds the last loaded scenario | E2E crumb assertions (unchanged) |
 | Undefined CSS | `.tab-btn` (12 modules, 36 tabs), `.modal-overlay/.modal-card` (4 dialogs), `.modal-foot` (all dialog footers incl. “Unsaved changes”), `metric-label/val/sub` (10 modules), `.grid4`, `.text-danger`, spacing utilities | All defined; tabs expose `aria-pressed`; dialogs render as proper overlays | Visual review 1440 px; CLOSE-J12 overflow test |
@@ -54,7 +55,7 @@ Legend for the “States verified” column: **R** role/SoD, **F** failure/denia
 | 19 | Identity & Access | Dialogs unstyled; revoke prompt bare | `invitation` | Styled dialogs/tabs, consequence prompt | StatusBadge | Regression | Verified | Partial | AT-17/AT-18 | — |
 | 20 | Accounting | Tabs unstyled | — | Styled tabs, guide | — | Regression | Verified | Partial | Regression | — |
 | 21 | Trial Balance & GL | — | `mapping` | Guide, styled badges | — | Regression | Verified | Partial | AT-35, AT-36 | — |
-| 22 | Adjustments & Journals | **Journals of every engagement listed (and counted) under the selected engagement** | `adjustment` | Engagement-scoped list + lifecycle stepper per journal | LifecycleStepper | F S (regression) | Verified | Partial | UX-ENT-03; AT-38; VP-038 | — |
+| 22 | Adjustments & Journals | **Journals of every engagement listed (and counted) under the selected engagement** | `adjustment` | Engagement-scoped list, lifecycle stepper and history timeline (review, management decision, amendments, reflection) per journal | LifecycleStepper | F S (regression) | Verified | Partial | UX-ENT-03; AT-38; VP-038 | — |
 | 23 | Reconciliations | Stale shown only as a status word | `reconciliation` | Stale banner (source vN → vM, affected, preserved, required) | StaleBanner | S W (regression) | Verified | Partial | VP-039 | — |
 | 24 | Financial Statements | Stale revision only in a status line | `statement-set` | Stale banner naming the moved source/mapping/layout | StaleBanner | S (regression) | Verified | Partial | AT-37, review F-01 | — |
 | 25 | Financial Packages | “TB vnot assembled” text bug; unstyled gate badges; stale as four paragraphs | `package`, `disclosure` | Lifecycle panel, stale banner, gate list with original gate wording, handoff links, assemble reason | LifecyclePanel, StaleBanner, GateList, ActionReason | F S (regression) | Verified | Partial | AT-41/AT-42/AT-48; AT-52 | — |
@@ -64,7 +65,7 @@ Legend for the “States verified” column: **R** role/SoD, **F** failure/denia
 | 29 | Risks & Audit Programs | Tabs unstyled | `audit-procedure`, `audit-program-template` | Styled tabs, consequence prompt for fieldwork return | — | W (regression) | Verified | Partial | VP-049 | — |
 | 30 | Audit Fieldwork | (shares 29) | `audit-procedure` | (shares 29) | — | Regression | Verified | Partial | VP-048 | — |
 | 31 | Populations & Sampling | — | `sample` | Guide, styled badges | — | Regression | Verified | Partial | VP-051 | — |
-| 32 | Workpapers | Detail squeezed into the narrow column; no “what changed” view | `workpaper` | Master/detail, lifecycle panel with blockers, deterministic changes-since-review, handoff links, consequence prompts | LifecyclePanel, reviewDiff | R W S | Verified | Partial | UX-ENT-04; reviewDiff unit tests; VP-052 | — |
+| 32 | Workpapers | Detail squeezed into the narrow column; no “what changed” view | `workpaper` | Master/detail, lifecycle panel with blockers, deterministic changes-since-review, combined history timeline (submissions, clearances, reassignments, evidence links), handoff links, consequence prompts | LifecyclePanel, reviewDiff | R W S | Verified | Partial | UX-ENT-04; reviewDiff unit tests; VP-052 | — |
 | 33 | Evidence | — | `evidence` | Notices, badges | Notice | Regression | Verified | Partial | AT-46 | — |
 | 34 | Findings & Differences | Blank severity pill and empty Category/Condition/Recommendation fields | `finding` | Explicit “Unclassified / Not recorded”, linked-record navigation | — | Regression | Verified | Partial | VP-054 | — |
 | 35 | Review Points | **Author and Review Query columns blank for seeded notes**; subject not navigable | `review-note` | Author/query fallbacks, subject link to exact workpaper/finding, due/severity/overdue, history timeline, empty variants | ActivityTimeline, EmptyTableRow | R W | Verified | Partial | UX-ENT-04; AT-55; VP-055 | — |
