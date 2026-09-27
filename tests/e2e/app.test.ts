@@ -429,6 +429,34 @@ describe('actual Chrome browser acceptance', { concurrency: false }, () => {
     }
   });
 
+  it('CLOSE-J12/UIX: every staff route renders without page-level horizontal overflow at 1440, 1024 and 390 px', async () => {
+    const key = 'ste-auditsphere-role-portals-v2';
+    await browserTab!.evaluate(`localStorage.setItem('${key}',${JSON.stringify(JSON.stringify(createInitialState()))})`);
+    await browserTab!.command('Page.reload');
+    assert.equal(await waitForBrowser('!!document.querySelector("#role-select")'), true);
+    await browserTab!.evaluate(`(() => {const r=document.querySelector('#role-select');Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype,'value').set.call(r,'partner');r.dispatchEvent(new Event('change',{bubbles:true}));})()`);
+    assert.equal(await waitForBrowser(`JSON.parse(localStorage.getItem('${key}')).currentRole==='partner'`), true);
+    const overflow: string[] = [];
+    try {
+      for (const [width, height, mobile] of [[1440, 900, false], [1024, 768, false], [390, 844, true]] as const) {
+        await browserTab!.command('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor: 1, mobile });
+        await new Promise(resolve => setTimeout(resolve, 150));
+        const labels = await browserTab!.evaluate<string[]>(`[...document.querySelectorAll('nav button.navitem')].map(b=>b.innerText.trim().split('\\n')[0])`);
+        assert.ok(labels.length >= 20, `navigation available at ${width}px`);
+        for (const label of labels) {
+          await browserTab!.evaluate(`[...document.querySelectorAll('nav button.navitem')].find(b=>b.innerText.trim().split('\\n')[0]===${JSON.stringify(label)})?.click()`);
+          await new Promise(resolve => setTimeout(resolve, 80));
+          const widths = await browserTab!.evaluate<number[]>(`[document.documentElement.scrollWidth, window.innerWidth]`);
+          if (widths[0] > widths[1] + 1) overflow.push(`${width}px ${label}: page ${widths[0]} > viewport ${widths[1]}`);
+        }
+      }
+    } finally {
+      await browserTab!.command('Emulation.setDeviceMetricsOverride', { width: 1280, height: 800, deviceScaleFactor: 1, mobile: false });
+    }
+    assert.deepEqual(overflow, [], 'no route forces page-level horizontal scrolling');
+    assert.deepEqual(browserTab!.exceptions, []);
+  });
+
   it('AT-01/AT-03/AT-04: renders the app, keeps controls local, and presents scope disclosures', async () => {
     assert.match(await browserTab!.evaluate<string>('document.body.innerText'), /SIMULATED IDENTITY \(NOT LIVE AUTH\)/);
     assert.match(await browserTab!.evaluate<string>('document.body.innerText'), /Synthetic records\. No live external integrations/);

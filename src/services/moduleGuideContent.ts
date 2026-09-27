@@ -51,7 +51,7 @@ export const MODULE_GUIDES: ModuleGuideEntry[] = [
   {
     id: "MOD-04", name: "Proposals & Engagements", route: "`proposals → engagements`", component: "`ProposalsView / EngagementsView`",
     personas: "relationship → independent reviewer → client management → partner", scenario: "`full-practice`",
-    exists: "Proposal drafting/review/presentation, evidence-backed client response, separate activation and engagement lifecycle editing exist.", limits: "Client responses are recorded manually (Email/Meeting/Letter) — no eSignature. Closed/Cancelled engagements are terminal; no recurring engagements.",
+    exists: "Proposal drafting/review/presentation, evidence-backed client response, separate activation and engagement lifecycle editing exist.", limits: "Client responses are recorded manually (Email/Meeting/Letter); eSignature is excluded. Closed/Cancelled engagements are terminal; recurring engagements are excluded.",
     steps: [
       "Create a synthetic proposal from the selected opportunity/client; enter service, period, fee and terms.",
       "Submit, switch to a different eligible person and review the exact revision.",
@@ -527,7 +527,7 @@ export const MODULE_GUIDES: ModuleGuideEntry[] = [
   {
     id: "MOD-38", name: "Records & Archive", route: "`records`", component: "`RecordsArchiveView`",
     personas: "records", scenario: "`full-practice`",
-    exists: "Separate local archive copies, digest checks, successor lineage and hold/handover metadata are reported verified.", limits: "Browser-local archive index — not legal retention, immutability or Purview.",
+    exists: "Separate local archive copies, digest checks, successor lineage and hold/handover metadata are reported verified.", limits: "Browser-local archive index — not legal retention or immutability; Purview is excluded.",
     steps: [
       "Open Records & Archive for a released synthetic engagement.",
       "Archive the exact release artifacts and inspect copied IDs, sizes and digests.",
