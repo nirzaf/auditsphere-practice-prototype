@@ -9,6 +9,7 @@ import { Icon } from '../common/Icons';
 import { visibleEngagementIds, isClientRole, canOpenRoute, hasAnyRole, isSuperuserRole } from '../../services/guards';
 import { UnsavedFormGuard } from '../../services/unsavedFormGuard';
 
+import { StatusBadge } from '../common/Enterprise';
 interface JobsTasksViewProps {
   onNavigate: (route: RouteKey) => void;
   searchTargetId?: string;
@@ -372,7 +373,7 @@ export const JobsTasksView: React.FC<JobsTasksViewProps> = ({ onNavigate, search
                         </td>
                         <td>
                           <span className={`badge ${job.status === 'Completed' ? 'green' : 'amber'}`}>
-                            {job.status}
+                            <StatusBadge status={job.status} />
                           </span>
                         </td>
                       </tr>
@@ -443,7 +444,7 @@ export const JobsTasksView: React.FC<JobsTasksViewProps> = ({ onNavigate, search
                                 <b style={{ textDecoration: parent.status === 'Completed' ? 'line-through' : 'none' }}>
                                   {parent.title}
                                 </b>
-                                <div className="cell-sub">Assigned: {parent.assignee} · Status: {parent.status}</div>
+                                <div className="cell-sub">Assigned: {parent.assignee} · Status: <StatusBadge status={parent.status} /></div>
                                 {parent.statusHistory?.length ? <div className="cell-sub">Status history: {parent.statusHistory.map(event => `${event.from} → ${event.to} by ${event.by}${event.reason ? `: ${event.reason}` : ''}`).join(' · ')}</div> : null}
                                 {parent.reassignmentHistory?.length ? <div className="cell-sub">Reassignment history: {parent.reassignmentHistory.map(event => `${event.from} → ${event.to} on ${event.date.slice(0, 10)}${event.reason ? `: ${event.reason}` : ''}`).join(' · ')}</div> : null}
                                 {parent.status === 'Blocked' && <div className="cell-sub">Blocked: {parent.blockedReason}</div>}
@@ -541,7 +542,7 @@ export const JobsTasksView: React.FC<JobsTasksViewProps> = ({ onNavigate, search
                 <div className="grid2 mt20">
                   <div className="panel panel-pad"><h4>Job Files ({jobDocuments.length})</h4>{jobDocuments.length ? <div className="stack mt8">{jobDocuments.map(document => <div className="between" key={document.id}><span><b>{document.name}</b><span className="cell-sub">{document.id} · v{document.version}</span></span><span className={document.brokenLink ? 'tag red' : 'tag gray'}>{document.brokenLink ? 'Reference unavailable' : document.classification}</span></div>)}</div> : <p className="sub mt8">No files are linked to this job.</p>}<button className="btn sm mt8" onClick={() => onNavigate('documents')}>Open document library</button></div>
                   <div className="panel panel-pad"><h4>Job Communications ({jobCommunications.length})</h4>{jobCommunications.length ? <div className="stack mt8">{jobCommunications.map(item => <div className="borderbox panel-pad" key={item.id}><b>{item.summary}</b><div className="cell-sub mt4">{item.direction} · {item.channel} · {item.visibility} · {item.author} · {new Date(item.date).toLocaleDateString('en-GB')}</div><p className="sub mt4" style={{whiteSpace:'pre-line'}}>{item.body}</p></div>)}</div> : <p className="sub mt8">No communication records are linked to this job.</p>}<button className="btn sm mt8" onClick={() => onNavigate('communications')}>Open communications register</button></div>
-                  <div className="panel panel-pad"><h4>Job Time ({jobTimeEntries.length})</h4><p className="caption">Historical records retained · Current effective entries: {effectiveJobTimeEntries.reduce((sum, entry) => sum + entry.durationMinutes, 0)} min · Approved: {effectiveJobTimeEntries.filter(entry => entry.status === 'Approved').reduce((sum, entry) => sum + entry.durationMinutes, 0)} min · Pending review: {effectiveJobTimeEntries.filter(entry => entry.status === 'Submitted').length}</p>{jobTimeEntries.length ? <div className="tablewrap mt8"><table><thead><tr><th>Date</th><th>Person</th><th>Task</th><th>Minutes</th><th>Status</th></tr></thead><tbody>{jobTimeEntries.map(entry => <tr key={entry.id}><td>{entry.date}</td><td>{entry.person}</td><td>{entry.taskTitle}</td><td>{entry.durationMinutes}</td><td>{entry.status}</td></tr>)}</tbody></table></div> : <p className="sub mt8">No time has been recorded against this job.</p>}<button className="btn sm mt8" onClick={() => onNavigate('my-time')}>Open time tracking</button></div>
+                  <div className="panel panel-pad"><h4>Job Time ({jobTimeEntries.length})</h4><p className="caption">Historical records retained · Current effective entries: {effectiveJobTimeEntries.reduce((sum, entry) => sum + entry.durationMinutes, 0)} min · Approved: {effectiveJobTimeEntries.filter(entry => entry.status === 'Approved').reduce((sum, entry) => sum + entry.durationMinutes, 0)} min · Pending review: {effectiveJobTimeEntries.filter(entry => entry.status === 'Submitted').length}</p>{jobTimeEntries.length ? <div className="tablewrap mt8"><table><thead><tr><th>Date</th><th>Person</th><th>Task</th><th>Minutes</th><th>Status</th></tr></thead><tbody>{jobTimeEntries.map(entry => <tr key={entry.id}><td>{entry.date}</td><td>{entry.person}</td><td>{entry.taskTitle}</td><td>{entry.durationMinutes}</td><td><StatusBadge status={entry.status} /></td></tr>)}</tbody></table></div> : <p className="sub mt8">No time has been recorded against this job.</p>}<button className="btn sm mt8" onClick={() => onNavigate('my-time')}>Open time tracking</button></div>
                 </div>
               </div>
             </div>

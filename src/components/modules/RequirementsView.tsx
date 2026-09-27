@@ -5,6 +5,7 @@
 import React, { useState } from 'react';
 import { RouteKey } from '../../types';
 
+import { ListState, StatusBadge } from '../common/Enterprise';
 interface RequirementsViewProps {
   onNavigate: (route: RouteKey) => void;
 }
@@ -229,6 +230,11 @@ export const RequirementsView: React.FC<RequirementsViewProps> = ({ onNavigate }
                 </tr>
               </thead>
               <tbody>
+                {filteredStories.length === 0 && (
+                  STORY_ROWS.length === 0
+                    ? <ListState colSpan={6} kind="empty" message="No requirement stories recorded yet" hint="The original backlog is empty for this build." />
+                    : <ListState colSpan={6} kind="no-match" message="No story records match these filters" hint={`${STORY_ROWS.length} original requirement stories exist but none match “${searchQuery}”. Clear the search to see the whole backlog.`} />
+                )}
                 {filteredStories.map(s => (
                   <tr key={s.id}>
                     <td><span className="mono"><b>{s.id}</b></span></td>
@@ -236,7 +242,7 @@ export const RequirementsView: React.FC<RequirementsViewProps> = ({ onNavigate }
                     <td><span className="caption">{s.moduleName}</span></td>
                     <td>
                       <span className="badge green">Accepted for demo</span>
-                      <div className="caption mt4">Baseline: {s.status}</div>
+                      <div className="caption mt4">Baseline: <StatusBadge status={s.status} /></div>
                     </td>
                     <td style={{ fontSize: 13, color: 'var(--text-muted)' }}>{s.criteriaSummary}</td>
                     <td>
@@ -266,6 +272,11 @@ export const RequirementsView: React.FC<RequirementsViewProps> = ({ onNavigate }
                 </tr>
               </thead>
               <tbody>
+                {filteredModules.length === 0 && (
+                  MODULE_ROWS.length === 0
+                    ? <ListState colSpan={5} kind="empty" message="No module rows recorded yet" hint="The module map is empty for this build." />
+                    : <ListState colSpan={5} kind="no-match" message="No module rows match these filters" hint={`${MODULE_ROWS.length} module rows exist but none match “${searchQuery}”. Clear the search to see the whole map.`} />
+                )}
                 {filteredModules.map(r => (
                   <tr key={r.moduleId}>
                     <td><b>{r.moduleId}</b></td>
@@ -273,7 +284,7 @@ export const RequirementsView: React.FC<RequirementsViewProps> = ({ onNavigate }
                     <td><span className="mono" style={{ fontSize: 12 }}>{r.stories}</span></td>
                     <td>
                       <span className="badge green">Accepted for demo</span>
-                      <div className="caption mt4">Baseline: {r.status}</div>
+                      <div className="caption mt4">Baseline: <StatusBadge status={r.status} /></div>
                     </td>
                     <td style={{ fontSize: 13, color: 'var(--text-muted)' }}>{r.notes}</td>
                     <td>

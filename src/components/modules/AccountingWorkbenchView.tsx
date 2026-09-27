@@ -12,6 +12,7 @@ import { TBImportWizard } from './TBImportWizard';
 import { GL_FILE_BYTES_LIMIT, GL_IMPORT_COLUMNS, GLImportColumn, parseGLWorkbook, ParsedGLSource } from '../../services/glImport';
 import { exportService } from '../../services/exportService';
 
+import { ListState, StatusBadge } from '../common/Enterprise';
 const AccountingSetup: React.FC<{ clientId: string; engagementId: string; profile?: ClientAccountingProfile; onRegisterUnsavedForm?: (guard: UnsavedFormGuard | null, key?: string) => void }> = ({ clientId, engagementId, profile, onRegisterUnsavedForm }) => {
   const seed: ClientAccountingProfile = profile || { legalEntityName: '', reportingBasis: 'Not selected', baseCurrency: 'QAR', accounts: [], periodBooks: [], dimensions: [], revision: 0, chartRevision: 0, history: [] };
   const [draft, setDraft] = useState(structuredClone(seed));
@@ -543,6 +544,11 @@ export const AccountingWorkbenchView: React.FC<AccountingWorkbenchViewProps> = (
                   </tr>
                 </thead>
                 <tbody>
+                  {visibleGLTransactions.length === 0 && (
+                    glTransactions.length === 0
+                      ? <ListState colSpan={9} kind="empty" message="No general-ledger lines imported yet" hint="Import a GL journal file for this engagement; the mapped lines and their account codes appear here." />
+                      : <ListState colSpan={9} kind="no-match" message="No GL lines match this account filter" hint={`${glTransactions.length} imported line(s) exist for this engagement but none match “${glAccountFilter}”. Clear the account filter to see them all.`} />
+                  )}
                   {visibleGLTransactions.map(tx => (
                     <tr key={tx.id}>
                       <td>{tx.date}</td>
@@ -753,7 +759,7 @@ export const AccountingWorkbenchView: React.FC<AccountingWorkbenchViewProps> = (
               <ul className="mt8" style={{ fontSize: 13, lineHeight: '1.8' }}>
                 {mappingHistory.map(rev => (
                   <li key={rev.revision}>
-                    <b>Revision {rev.revision}</b> — Status: <span className={`badge ${rev.status === 'Approved' ? 'green' : 'amber'}`}>{rev.status}</span>
+                    <b>Revision {rev.revision}</b> — Status: <span className={`badge ${rev.status === 'Approved' ? 'green' : 'amber'}`}><StatusBadge status={rev.status} /></span>
                     {rev.preparedBy && ` · Prepared by: ${rev.preparedBy}`}
                     {rev.reviewedBy && ` · Approved by: ${rev.reviewedBy}`}
                     {` · Mapped Accounts: ${rev.mappings.length}/${selectedEng.rows.length}`}
@@ -904,7 +910,7 @@ export const AccountingWorkbenchView: React.FC<AccountingWorkbenchViewProps> = (
                   </div>
                   <div className="row" style={{ gap: 8 }}>
                     <span className={`badge ${adj.status === 'Management accepted' || adj.status === 'Reporting included' ? 'green' : adj.status === 'Rejected' ? 'red' : 'amber'}`}>
-                      {adj.status} · Rev {adj.revision || 1}
+                      <StatusBadge status={adj.status} /> · Rev {adj.revision || 1}
                     </span>
                     {adj.status !== 'Draft' && hasAnyRole(state, ['preparer', 'manager', 'partner']) && <button type="button" className="btn sm ghost" aria-label={`Amend adjustment ${adj.id}`} onClick={() => startAdjustmentAmendment(adj)}>Amend journal</button>}
                     {adj.status === 'Draft' && hasAnyRole(state, ['manager', 'reviewer', 'partner']) && (adj.preparedBy !== state.currentPerson || state.currentRole === 'superuser') && <button className="btn sm ghost" onClick={() => { try { prototypeStore.reviewAdjustmentJournal(adj.id, true); setAdjustmentNotice('Technical review recorded (superuser actions are logged as test overrides).'); } catch (error) { setAdjustmentNotice(error instanceof Error ? error.message : String(error)); } }}>Approve technical review</button>}
@@ -946,7 +952,7 @@ export const AccountingWorkbenchView: React.FC<AccountingWorkbenchViewProps> = (
                     <strong>Rationale:</strong> {adj.rationale}
                   </div>
                 )}
-                {Boolean(adj.amendmentHistory?.length) && <details className="mt8"><summary>Prior journal revisions ({adj.amendmentHistory!.length})</summary>{adj.amendmentHistory!.map(version => <div className="borderbox mt8" key={version.revision}><b>Revision {version.revision} · {version.status}</b><div className="caption">Amended by {state.users.find(user => user.id === version.amendedByUserId)?.name || version.amendedByUserId} on {new Date(version.amendedAt).toLocaleString()} · {version.reason}</div><div>{version.title} · {version.reflectionStatus} on TB v{version.reflectionSourceVersion ?? '—'}{version.reflectionEvidenceRef ? ` · Evidence ${version.reflectionEvidenceRef}` : ''}</div><div className="caption">{version.lines.map(line => `${line.accountCode} ${line.type} ${formatCurrency(line.amount, selectedEng.currency)}`).join(' · ')}{version.rationale ? ` · ${version.rationale}` : ''}</div><div className="caption">Prior support pins: {describeJournalSupport(version.supportLinks)}</div>{(version.reviewedBy || version.managementAcceptedBy || version.managementDecisionNote) && <div className="caption">Prior decision: reviewer {version.reviewedBy || '—'} · management {version.managementAcceptedBy || '—'}{version.managementDecisionNote ? ` · ${version.managementDecisionNote}` : ''}</div>}</div>)}</details>}
+                {Boolean(adj.amendmentHistory?.length) && <details className="mt8"><summary>Prior journal revisions ({adj.amendmentHistory!.length})</summary>{adj.amendmentHistory!.map(version => <div className="borderbox mt8" key={version.revision}><b>Revision {version.revision} · <StatusBadge status={version.status} /></b><div className="caption">Amended by {state.users.find(user => user.id === version.amendedByUserId)?.name || version.amendedByUserId} on {new Date(version.amendedAt).toLocaleString()} · {version.reason}</div><div>{version.title} · {version.reflectionStatus} on TB v{version.reflectionSourceVersion ?? '—'}{version.reflectionEvidenceRef ? ` · Evidence ${version.reflectionEvidenceRef}` : ''}</div><div className="caption">{version.lines.map(line => `${line.accountCode} ${line.type} ${formatCurrency(line.amount, selectedEng.currency)}`).join(' · ')}{version.rationale ? ` · ${version.rationale}` : ''}</div><div className="caption">Prior support pins: {describeJournalSupport(version.supportLinks)}</div>{(version.reviewedBy || version.managementAcceptedBy || version.managementDecisionNote) && <div className="caption">Prior decision: reviewer {version.reviewedBy || '—'} · management {version.managementAcceptedBy || '—'}{version.managementDecisionNote ? ` · ${version.managementDecisionNote}` : ''}</div>}</div>)}</details>}
               </div>
             ))}
           </div>
@@ -984,7 +990,7 @@ export const AccountingWorkbenchView: React.FC<AccountingWorkbenchViewProps> = (
                     <h3>{rec.title || rec.name}</h3>
                     <div className="cell-sub">Reconciliation Ref: {rec.id || rec.ref} · Account: {rec.accountCode || 'N/A'} · {rec.currency || selectedEng.currency} · As of {rec.asOfDate || selectedEng.period} · Source v{rec.sourceVersion ?? selectedEng.sourceVersion}</div>
                   </div>
-                  <div className="stack"><span className={`badge ${rec.status === 'Approved' || rec.status === 'Cleared' ? 'green' : rec.status === 'Stale' ? 'red' : 'amber'}`}>{rec.status}</span><span className={`badge ${variance.isReconciled ? 'green' : 'amber'}`}>{variance.isReconciled ? `Reconciled (Residual ${formatCurrency(0, rec.currency || selectedEng.currency)})` : `Unexplained Diff: ${formatCurrency(variance.unexplainedDifference, rec.currency || selectedEng.currency)}`}</span></div>
+                  <div className="stack"><span className={`badge ${rec.status === 'Approved' || rec.status === 'Cleared' ? 'green' : rec.status === 'Stale' ? 'red' : 'amber'}`}><StatusBadge status={rec.status} /></span><span className={`badge ${variance.isReconciled ? 'green' : 'amber'}`}>{variance.isReconciled ? `Reconciled (Residual ${formatCurrency(0, rec.currency || selectedEng.currency)})` : `Unexplained Diff: ${formatCurrency(variance.unexplainedDifference, rec.currency || selectedEng.currency)}`}</span></div>
                 </div>
 
                 <div className="info-grid mt16">
@@ -1024,7 +1030,7 @@ export const AccountingWorkbenchView: React.FC<AccountingWorkbenchViewProps> = (
                 </div>
                 <div className="row mt12">{rec.status !== 'Approved' && <button className="btn sm" onClick={() => setRecDraft({ ...rec, name: rec.name, asOfDate: rec.asOfDate || state.asOfDate, statementBalance: rec.statementBalance ?? rec.supportingBalance ?? 0, glBalance: rec.glBalance ?? rec.sourceBalance, sourceVersion: selectedEng.sourceVersion, items: structuredClone(rec.items || []) })}>{rec.status === 'Stale' ? 'Rework stale schedule' : 'Edit schedule'}</button>}{['Draft', 'Returned'].includes(rec.status) && <button className="btn sm primary" onClick={() => { try { prototypeStore.reviewReconciliationSchedule(selectedEng.id, rec.id, 'Approved'); setRecNotice('Independent approval recorded.'); } catch (error) { setRecNotice(error instanceof Error ? error.message : String(error)); } }}>Approve schedule</button>}{['Draft', 'Returned'].includes(rec.status) && <button className="btn sm ghost" onClick={() => { const reason = window.prompt('Reason for returning this reconciliation:'); if (reason?.trim()) try { prototypeStore.reviewReconciliationSchedule(selectedEng.id, rec.id, 'Returned', reason); } catch (error) { setRecNotice(error instanceof Error ? error.message : String(error)); } }}>Return for rework</button>}</div>
                 {rec.reviewedByUserId && <p className="caption">Reviewed by {state.users.find(user => user.id === rec.reviewedByUserId)?.name || rec.reviewedByUserId} · {rec.reviewedAt}{rec.reviewNote ? ` · ${rec.reviewNote}` : ''}</p>}
-                {rec.history?.length > 0 && <details><summary>Prior reconciliation revisions ({rec.history.length})</summary>{rec.history.map((version: any) => <div className="caption" key={`${version.revision}-${version.savedAt}`}>v{version.revision} · {version.status} · TB v{version.sourceVersion} · saved by {state.users.find(user => user.id === version.savedByUserId)?.name || version.savedByUserId}{version.reviewedByUserId ? ` · reviewed by ${state.users.find(user => user.id === version.reviewedByUserId)?.name || version.reviewedByUserId}` : ''}{version.reviewNote ? ` · review note: ${version.reviewNote}` : ''}</div>)}</details>}
+                {rec.history?.length > 0 && <details><summary>Prior reconciliation revisions ({rec.history.length})</summary>{rec.history.map((version: any) => <div className="caption" key={`${version.revision}-${version.savedAt}`}>v{version.revision} · <StatusBadge status={version.status} /> · TB v{version.sourceVersion} · saved by {state.users.find(user => user.id === version.savedByUserId)?.name || version.savedByUserId}{version.reviewedByUserId ? ` · reviewed by ${state.users.find(user => user.id === version.reviewedByUserId)?.name || version.reviewedByUserId}` : ''}{version.reviewNote ? ` · review note: ${version.reviewNote}` : ''}</div>)}</details>}
               </div>
             );
           })}

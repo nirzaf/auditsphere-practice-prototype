@@ -10,6 +10,7 @@ import { Icon } from '../common/Icons';
 import { sha256OfFile } from '../../services/fileMetadata';
 import { UnsavedFormGuard } from '../../services/unsavedFormGuard';
 
+import { StatusBadge } from '../common/Enterprise';
 interface WorkpapersViewProps {
   onNavigate: (route: RouteKey) => void;
   searchTargetId?: string;
@@ -231,7 +232,7 @@ export const WorkpapersView: React.FC<WorkpapersViewProps> = ({ onNavigate, sear
                               : 'amber'
                           }`}
                         >
-                          {w.status}
+                          <StatusBadge status={w.status} />
                         </span>
                       </td>
                     </tr>
@@ -271,7 +272,7 @@ export const WorkpapersView: React.FC<WorkpapersViewProps> = ({ onNavigate, sear
                         : 'amber'
                     }`}
                   >
-                    {wp.status}
+                    <StatusBadge status={wp.status} />
                   </span>
                 </div>
               </div>
@@ -456,7 +457,7 @@ export const WorkpapersView: React.FC<WorkpapersViewProps> = ({ onNavigate, sear
                     Objective: {wp.objective}<br />
                     Testing procedures executed by {wp.preparer}.<br />
                     Artifact revision v{wp.version} registered in SharePoint canonical engagement hierarchy.<br />
-                    Clearance State: {wp.status}
+                    Clearance State: <StatusBadge status={wp.status} />
                   </p>
                 </div>
               </div>
@@ -508,7 +509,7 @@ export const WorkpapersView: React.FC<WorkpapersViewProps> = ({ onNavigate, sear
                     </p>
                   </div>
                   <span className={`badge ${wp.status === 'Cleared' ? 'green' : 'amber'}`}>
-                    {wp.status}
+                    <StatusBadge status={wp.status} />
                   </span>
                 </div>
 

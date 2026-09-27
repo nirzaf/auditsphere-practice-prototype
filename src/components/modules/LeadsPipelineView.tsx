@@ -7,6 +7,7 @@ import { formatCurrency } from '../../services/calculations';
 import { visibleClientIds } from '../../services/guards';
 import { UnsavedFormGuard } from '../../services/unsavedFormGuard';
 
+import { StatusBadge } from '../common/Enterprise';
 interface LeadsPipelineViewProps {
   onNavigate: (route: RouteKey) => void;
   onBeforeContextChange: (change: () => void) => void;
@@ -138,7 +139,7 @@ export const LeadsPipelineView: React.FC<LeadsPipelineViewProps> = ({ onNavigate
           </p>
         </div>
       )}
-      {viewMode === 'list' ? <div className="panel tablewrap"><table><thead><tr><th>Opportunity</th><th>Stage</th><th>Service</th><th>Owner</th><th>Expected fee</th><th>Target date</th><th>Next action</th><th /></tr></thead><tbody>{state.leads.length === 0 && <tr><td colSpan={8} className="sub text-center" style={{ padding: 16 }}>No leads match the current view.</td></tr>}{state.leads.map(lead => <tr key={lead.id}><td>{lead.name}<div className="cell-sub">{lead.contact} · {lead.id}</div></td><td>{lead.stage}{lead.lostReason ? <div className="cell-sub">{lead.lostReason}</div> : null}</td><td>{lead.service}</td><td>{lead.owner}</td><td>{formatCurrency(lead.value, lead.currency)}</td><td>{lead.targetDate || '—'}</td><td>{lead.nextAction || '—'}</td><td><button className="btn sm ghost" onClick={() => { setSelectedLead(lead); setConversionClientId(''); }}>Details</button></td></tr>)}</tbody></table></div> : <div className="kanban">
+      {viewMode === 'list' ? <div className="panel tablewrap"><table><thead><tr><th>Opportunity</th><th>Stage</th><th>Service</th><th>Owner</th><th>Expected fee</th><th>Target date</th><th>Next action</th><th /></tr></thead><tbody>{state.leads.length === 0 && <tr><td colSpan={8} className="sub text-center" style={{ padding: 16 }}>No leads match the current view.</td></tr>}{state.leads.map(lead => <tr key={lead.id}><td>{lead.name}<div className="cell-sub">{lead.contact} · {lead.id}</div></td><td><StatusBadge status={lead.stage} />{lead.lostReason ? <div className="cell-sub">{lead.lostReason}</div> : null}</td><td>{lead.service}</td><td>{lead.owner}</td><td>{formatCurrency(lead.value, lead.currency)}</td><td>{lead.targetDate || '—'}</td><td>{lead.nextAction || '—'}</td><td><button className="btn sm ghost" onClick={() => { setSelectedLead(lead); setConversionClientId(''); }}>Details</button></td></tr>)}</tbody></table></div> : <div className="kanban">
         {stages.filter(s => !['Lost', 'Unqualified'].includes(s)).map((col, idx) => {
           const colLeads = state.leads.filter(l => l.stage === col);
           return (
@@ -194,7 +195,7 @@ export const LeadsPipelineView: React.FC<LeadsPipelineViewProps> = ({ onNavigate
                 <div><label>ID</label><span>{selectedLead.id}</span></div>
                 <div><label>Service</label><span>{selectedLead.service}</span></div>
                 <div><label>Pipeline Value</label><span>{formatCurrency(selectedLead.value, selectedLead.currency)}</span></div>
-                <div><label>Current Stage</label><span>{selectedLead.stage}</span></div>
+                <div><label>Current Stage</label><span><StatusBadge status={selectedLead.stage} /></span></div>
                 <div><label>Primary Contact</label><span>{selectedLead.contact}</span></div>
               <div><label>Commercial Owner</label><span>{selectedLead.owner}</span></div>
               <div><label>Stage history</label><span>{(selectedLead.history || []).map(h => `${h.stage}${h.reason ? ` (${h.reason})` : ''} · ${new Date(h.at).toLocaleDateString()}`).join(' → ') || selectedLead.stage}</span></div>

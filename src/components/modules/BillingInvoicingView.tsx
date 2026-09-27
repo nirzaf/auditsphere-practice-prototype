@@ -8,6 +8,7 @@ import { invoiceTaxLine, formatCurrency, getEffectiveTimeEntries } from '../../s
 import { exportService } from '../../services/exportService';
 import { UnsavedFormGuard } from '../../services/unsavedFormGuard';
 
+import { ListState, StatusBadge } from '../common/Enterprise';
 interface BillingInvoicingViewProps {
   onNavigate: (route: RouteKey) => void;
   onRegisterUnsavedForm?: (guard: UnsavedFormGuard | null, key?: string) => void;
@@ -386,10 +387,14 @@ export const BillingInvoicingView: React.FC<BillingInvoicingViewProps> = ({ onNa
             </thead>
             <tbody>
               {invoices.length === 0 && (
-                <tr><td colSpan={9} style={{ textAlign: 'center', padding: '28px 12px' }}>
-                  <b>No invoices match the current scope</b>
-                  <p className="sub mt8">Use “Draft New Invoice” to create a draft from approved billable time or an accepted fixed-fee proposal. Drafts then move through independent review (approve or reasoned return), issue, and — if needed — credit notes.</p>
-                </td></tr>
+                <ListState
+                  colSpan={9}
+                  kind={state.invoices.length > 0 ? 'no-match' : 'empty'}
+                  message={state.invoices.length > 0 ? 'No invoices match these filters' : 'No invoice records yet'}
+                  hint={state.invoices.length > 0
+                    ? `${state.invoices.length} invoice record(s) exist in this practice but none are in the current scope or match the selected filters.`
+                    : 'Use “Draft New Invoice” to create a draft from approved billable time or an accepted fixed-fee proposal. Drafts then move through independent review (approve or reasoned return), issue, and — if needed — credit notes.'}
+                />
               )}
               {invoices.map(inv => {
                 const outstanding = Math.max(0, inv.amount - inv.paid - (inv.creditsApplied || 0));
@@ -418,7 +423,7 @@ export const BillingInvoicingView: React.FC<BillingInvoicingViewProps> = ({ onNa
                     <td><b>{formatCurrency(outstanding, inv.currency)}</b></td>
                     <td>
                       <span className={`badge ${inv.status === 'Paid' ? 'green' : inv.status === 'Issued' ? 'blue' : 'amber'}`}>
-                        {inv.status}
+                        <StatusBadge status={inv.status} />
                       </span>
                     </td>
                     <td>{inv.due}</td>
@@ -498,7 +503,7 @@ export const BillingInvoicingView: React.FC<BillingInvoicingViewProps> = ({ onNa
                     <td><b>{formatCurrency(cn.amount, cn.currency)}</b></td>
                     <td>{cn.reason}</td>
                     <td>{cn.date}</td>
-                    <td>{cn.status}</td>
+                    <td><StatusBadge status={cn.status} /></td>
                     <td>{[cn.preparedBy, cn.reviewedBy, cn.issuedBy].filter(Boolean).join(' / ') || '—'}</td>
                     <td>
                       {cn.status === 'Draft' && <>

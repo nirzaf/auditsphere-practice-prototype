@@ -15,6 +15,7 @@ import { persistArtifact } from '../../services/artifactStore';
 import { validatePbcUpload } from '../../services/pbcUpload';
 import { UnsavedFormGuard } from '../../services/unsavedFormGuard';
 
+import { ListState, ModuleIdentityLine, StatusBadge } from '../common/Enterprise';
 interface ClientPortalViewProps {
   onNavigate: (route: RouteKey) => void;
   onBeforeContextChange: (run: () => void) => void;
@@ -281,6 +282,28 @@ export const ClientPortalView: React.FC<ClientPortalViewProps> = ({ onNavigate, 
 
   return (
     <div className="stack" style={{ gap: 20 }}>
+      {/* Routed page title, so the portal presents the same page anatomy as every
+          staff workspace while keeping its own hero styling below. */}
+      <div className="pagehead">
+        <div style={{ minWidth: 0 }}>
+          <div className="row" style={{ gap: 10, flexWrap: 'wrap' }}>
+            <h1>Client Portal Preview</h1>
+            <span className="page-status">
+              <StatusBadge status="Simulated shared view" tone="simulated" explain />
+              {client.status !== 'Active' && <StatusBadge status={client.status} />}
+            </span>
+          </div>
+          <p className="page-subtitle">
+            Exactly what this client sees: only records explicitly shared with them. Nothing on this page is visible to
+            other clients, and no staff economics, internal notes or presenter controls appear here.
+          </p>
+          <ModuleIdentityLine extra={[
+            { label: 'Client entity', value: client.name },
+            { label: 'Shared records', value: String(sharedDocs.length) }
+          ]} />
+        </div>
+      </div>
+
       {/* Portal Top Bar */}
       <div className="panel panel-pad" style={{ background: '#0e2f38', color: '#fff' }}>
         <div className="between">
@@ -436,7 +459,7 @@ export const ClientPortalView: React.FC<ClientPortalViewProps> = ({ onNavigate, 
             <h3>Nomination history</h3>
             {(state.clientContactNominations || []).filter(item => item.clientId === client.id).length === 0
               ? <p className="sub mt8">No contacts have been nominated for this entity.</p>
-              : <div className="stack mt8">{(state.clientContactNominations || []).filter(item => item.clientId === client.id).map(item => <div className="borderbox" key={item.id}><div className="between"><b>{item.name}</b><span className="badge amber">{item.status}</span></div><div className="cell-sub">{item.email} · Nominated by {item.nominatedBy} · {new Date(item.nominatedAt).toLocaleString('en-GB')}</div><p className="sub mt4">{item.reason}</p></div>)}</div>}
+              : <div className="stack mt8">{(state.clientContactNominations || []).filter(item => item.clientId === client.id).map(item => <div className="borderbox" key={item.id}><div className="between"><b>{item.name}</b><StatusBadge status={item.status} /></div><div className="cell-sub">{item.email} · Nominated by {item.nominatedBy} · {new Date(item.nominatedAt).toLocaleString('en-GB')}</div><p className="sub mt4">{item.reason}</p></div>)}</div>}
             <p className="caption mt8">Only authorized staff can review a nomination and separately manage contacts or access grants.</p>
           </div>
         </div>
@@ -521,7 +544,7 @@ export const ClientPortalView: React.FC<ClientPortalViewProps> = ({ onNavigate, 
                       <td>{p.due}</td>
                       <td>
                         <span className={`badge ${p.status === 'Accepted' ? 'green' : p.status === 'Received' ? 'blue' : 'amber'}`}>
-                          {p.status}
+                          <StatusBadge status={p.status} />
                         </span>
                       </td>
                       <td>
@@ -673,7 +696,7 @@ export const ClientPortalView: React.FC<ClientPortalViewProps> = ({ onNavigate, 
                       <td>{formatCurrency(inv.paid, inv.currency)}</td>
                       <td>
                         <span className={`badge ${inv.status === 'Paid' ? 'green' : 'amber'}`}>
-                          {inv.status}
+                          <StatusBadge status={inv.status} />
                         </span>
                       </td>
                       <td>{inv.due}</td>
@@ -698,7 +721,7 @@ export const ClientPortalView: React.FC<ClientPortalViewProps> = ({ onNavigate, 
           {state.proposals.filter(item => item.clientId === client.id && ['Presented', 'Accepted', 'Declined', 'Withdrawn', 'Superseded'].includes(item.state)).length === 0 ? <p className="sub mt12">No presented proposals for this entity.</p> : state.proposals.filter(item => item.clientId === client.id && ['Presented', 'Accepted', 'Declined', 'Withdrawn', 'Superseded'].includes(item.state)).map(item => {
             const snapshot = item.presentedSnapshot;
             return <div className="borderbox mt12" key={item.id}>
-              <div className="between"><b>{snapshot?.title || item.title} · Rev {snapshot?.revision ?? item.revision}</b><span className="badge blue">{item.state}</span></div>
+              <div className="between"><b>{snapshot?.title || item.title} · Rev {snapshot?.revision ?? item.revision}</b><StatusBadge status={item.state} /></div>
               <div className="cell-sub mt4">{item.id} · {snapshot ? formatCurrency(snapshot.totalAmount, snapshot.currency) : 'No presentation snapshot'}</div>
               {snapshot?.items.map(line => <div className="mt12" key={line.id}><b>{line.serviceName}</b><p className="sub mt4">Scope: {line.scope}</p><p className="sub">Exclusions: {line.exclusions || 'None stated'}</p><p className="sub">Deliverables: {line.deliverables}</p><p className="sub">Client responsibilities: {line.clientResponsibilities}</p></div>)}
               {snapshot && <p className="sub mt8">Terms: {snapshot.terms}</p>}

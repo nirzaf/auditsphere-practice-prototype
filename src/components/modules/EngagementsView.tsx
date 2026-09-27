@@ -8,6 +8,8 @@ import { visibleClientIds, visibleEngagementIds } from '../../services/guards';
 import { InternalNotesPanel } from '../common/InternalNotesPanel';
 import { UnsavedFormGuard } from '../../services/unsavedFormGuard';
 
+import { StatusBadge } from '../common/Enterprise';
+import { ListState } from '../common/Enterprise';
 interface EngagementsViewProps {
   onNavigate: (route: RouteKey) => void;
   onBeforeContextChange: (run: () => void) => void;
@@ -203,7 +205,7 @@ export const EngagementsView: React.FC<EngagementsViewProps> = ({ onNavigate, on
               <h2 className="mt8">{client?.name}</h2>
               <p className="sub">{selectedEng.service} · {selectedEng.period} · {selectedEng.mode}</p>
             </div>
-            <div className="stack" style={{ justifyItems: 'end', gap: 6 }}><span className="badge purple">{selectedEng.stage}</span><span className={`badge ${lifecycleStatus === 'Active' ? 'green' : lifecycleStatus === 'Suspended' ? 'amber' : 'red'}`}>{lifecycleStatus}</span></div>
+            <div className="stack" style={{ justifyItems: 'end', gap: 6 }}><StatusBadge status={selectedEng.stage} /><span className={`badge ${lifecycleStatus === 'Active' ? 'green' : lifecycleStatus === 'Suspended' ? 'amber' : 'red'}`}>{lifecycleStatus}</span></div>
           </div>
 
           {/* Lifecycle Bar */}
@@ -294,6 +296,14 @@ export const EngagementsView: React.FC<EngagementsViewProps> = ({ onNavigate, on
               </tr>
             </thead>
             <tbody>
+              {scopedEngagements.length === 0 && (
+                <ListState
+                  colSpan={8}
+                  kind="no-match"
+                  message="No engagements match the current scope and filters"
+                  hint="Engagements exist for this practice but none are reachable with your current client, status and search filters. Clear a filter, or confirm the engagement has been accepted and activated."
+                />
+              )}
               {scopedEngagements.map(eng => {
                 const c = scopedClients.find(x => x.id === eng.client);
                 return (
@@ -302,7 +312,7 @@ export const EngagementsView: React.FC<EngagementsViewProps> = ({ onNavigate, on
                     <td><span className="mono">{eng.id}</span></td>
                     <td>{eng.service}</td>
                     <td>{eng.period}</td>
-                    <td><span className="badge teal">{eng.stage}</span></td>
+                    <td><StatusBadge status={eng.stage} /></td>
                     <td>
                       <div className="cell-sub">Mgr: {eng.manager}</div>
                       <div className="cell-sub">Ptnr: {eng.partner}</div>

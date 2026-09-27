@@ -7,6 +7,7 @@ import { calculateReceivablesAging, formatCurrency } from '../../services/calcul
 import { exportService } from '../../services/exportService';
 import { visibleClientIds } from '../../services/guards';
 import { UnsavedFormGuard } from '../../services/unsavedFormGuard';
+import { ListState } from '../common/Enterprise';
 
 interface ReceivablesViewProps {
   onNavigate: (route: RouteKey) => void;
@@ -232,7 +233,11 @@ export const ReceivablesView: React.FC<ReceivablesViewProps> = ({ onNavigate, on
         <div className="panel-head between"><div><h3>{selectedAgingBucket ? `${selectedAgingBucket} invoice detail` : 'Outstanding invoice detail'}</h3><p className="sub">{agingDetails.length} issued invoice(s) · {currencyFilter} · as of {asOfDate}</p></div>{selectedAgingBucket && <button className="btn sm ghost" onClick={() => setSelectedAgingBucket('')}>Show all</button>}</div>
         <div className="tablewrap"><table><thead><tr><th>Invoice</th><th>Client</th><th>Due</th><th>Gross</th><th>Credits</th><th>Payments</th><th>Outstanding</th><th>Aging</th><th>Days overdue</th></tr></thead><tbody>
           {agingDetails.map(row => <tr key={row.invoice.id} data-outstanding={row.outstanding}><td><b>{row.invoice.invoiceNumber}</b></td><td>{scopedClients.find(c => c.id === row.invoice.clientId)?.name || row.invoice.clientId}</td><td>{row.invoice.due}</td><td>{formatCurrency(row.grossAmount, currencyFilter)}</td><td>{formatCurrency(row.effectiveCredits, currencyFilter)}</td><td>{formatCurrency(row.effectivePayments, currencyFilter)}</td><td><b>{formatCurrency(row.outstanding, currencyFilter)}</b></td><td>{row.bucket}</td><td>{row.daysOverdue}</td></tr>)}
-          {!agingDetails.length && <tr><td colSpan={9}>No outstanding invoices match this aging bucket.</td></tr>}
+          {!agingDetails.length && (
+            state.invoices.length === 0
+              ? <ListState colSpan={9} kind="empty" message="No invoice records yet" hint="Issued invoices appear here once billing has issued them; receipts and credit notes then allocate against them." />
+              : <ListState colSpan={9} kind="no-match" message="No outstanding invoices match these filters" hint="Issued invoices exist in this practice but none remain outstanding under the selected currency and aging bucket." />
+          )}
         </tbody></table></div>
       </div>
 

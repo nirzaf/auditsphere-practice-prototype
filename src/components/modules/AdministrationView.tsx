@@ -8,6 +8,7 @@ import { roleRequiresApprovalEvidence, isSuperuserRole } from '../../services/gu
 import { Icon } from '../common/Icons';
 import { UnsavedFormGuard } from '../../services/unsavedFormGuard';
 
+import { StatusBadge } from '../common/Enterprise';
 interface AdministrationViewProps {
   onNavigate: (route: RouteKey) => void;
   onBeforeContextChange: (run: () => void) => void;
@@ -151,7 +152,7 @@ export const AdministrationView: React.FC<AdministrationViewProps> = ({ onNaviga
             <select className="input" aria-label="Demo identity role" value={identityRole} onChange={e => setIdentityRole(e.target.value as RoleKey)}>{(['relationship','onboarding','compliance','partner','manager','preparer','reviewer','eqr','client_admin','client_finance','client','billing','records','admin'] as RoleKey[]).map(role => <option key={role} value={role}>{role}</option>)}</select>
             <button className="btn primary" type="submit">Add local identity</button>
           </form>
-          <div className="tablewrap mt12"><table><thead><tr><th>Identity</th><th>Role</th><th>Status</th><th>Explicit access grants</th><th>Lifecycle action</th></tr></thead><tbody>{state.users.map(user => <tr key={user.id}><td>{user.name}<div className="caption">{user.email} · ID {user.id}</div></td><td>{user.label}</td><td>{user.status}</td><td>{userGrants(user).length || 'None'}</td><td>{user.id !== state.currentUserId && <button className="btn sm ghost" onClick={() => { const next = user.status === 'Active' ? 'Disabled' : 'Active'; const reason = next === 'Disabled' ? window.prompt(`Reason for disabling ${user.name}:`) : `Reactivated by ${state.currentPerson}`; if (reason !== null) try { prototypeStore.setUserStatus(user.id, next, reason); } catch (err: any) { triggerNotice('error', err.message); } }}>{user.status === 'Active' ? 'Disable' : 'Reactivate'}</button>}</td></tr>)}</tbody></table></div>
+          <div className="tablewrap mt12"><table><thead><tr><th>Identity</th><th>Role</th><th>Status</th><th>Explicit access grants</th><th>Lifecycle action</th></tr></thead><tbody>{state.users.map(user => <tr key={user.id}><td>{user.name}<div className="caption">{user.email} · ID {user.id}</div></td><td>{user.label}</td><td><StatusBadge status={user.status} /></td><td>{userGrants(user).length || 'None'}</td><td>{user.id !== state.currentUserId && <button className="btn sm ghost" onClick={() => { const next = user.status === 'Active' ? 'Disabled' : 'Active'; const reason = next === 'Disabled' ? window.prompt(`Reason for disabling ${user.name}:`) : `Reactivated by ${state.currentPerson}`; if (reason !== null) try { prototypeStore.setUserStatus(user.id, next, reason); } catch (err: any) { triggerNotice('error', err.message); } }}>{user.status === 'Active' ? 'Disable' : 'Reactivate'}</button>}</td></tr>)}</tbody></table></div>
         </div>
         <div className="panel panel-pad">
           <h3>Simulated invitations</h3><p className="sub">Pending, expired, accepted and revoked states are local fixtures. No invitation is sent externally.</p>
@@ -215,7 +216,7 @@ export const AdministrationView: React.FC<AdministrationViewProps> = ({ onNaviga
                       <td><span className="mono">{u.email}</span></td>
                       <td>
                         <span className={`badge ${u.status === 'Active' ? 'green' : 'red'}`}>
-                          {u.status}
+                          <StatusBadge status={u.status} />
                         </span>
                       </td>
                       <td>
@@ -378,7 +379,7 @@ export const AdministrationView: React.FC<AdministrationViewProps> = ({ onNaviga
               <div><label>Practice Role</label><span>{selectedUser.label}</span></div>
               <div><label>Role Code</label><span className="mono">{selectedUser.role}</span></div>
               <div><label>Email</label><span className="mono">{selectedUser.email}</span></div>
-              <div><label>Account Status</label><span className={`badge ${selectedUser.status === 'Active' ? 'green' : 'red'}`}>{selectedUser.status}</span></div>
+              <div><label>Account Status</label><span className={`badge ${selectedUser.status === 'Active' ? 'green' : 'red'}`}><StatusBadge status={selectedUser.status} /></span></div>
             </div>
 
             <div className="divider mt16" />

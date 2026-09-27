@@ -8,6 +8,7 @@ import { eligibleReviewAssignees, visibleEngagementIds } from '../../services/gu
 import { exportService } from '../../services/exportService';
 import { UnsavedFormGuard } from '../../services/unsavedFormGuard';
 
+import { StatusBadge } from '../common/Enterprise';
 interface ReviewDeskViewProps {
   onNavigate: (route: RouteKey) => void;
   onRegisterUnsavedForm?: (guard: UnsavedFormGuard | null, key?: string) => void;
@@ -230,7 +231,7 @@ export const ReviewDeskView: React.FC<ReviewDeskViewProps> = ({ onNavigate, onRe
                   </td>
                   <td>
                     <span className={`badge ${r.status === 'Cleared' ? 'green' : r.status === 'Responded' ? 'blue' : 'amber'}`}>
-                      {r.status}
+                      <StatusBadge status={r.status} />
                     </span>
                   </td>
                   <td>

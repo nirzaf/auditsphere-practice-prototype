@@ -14,6 +14,7 @@ import { FinancialPackageRevision, GeneratedArtifactRecord } from '../../types';
 import { UnsavedFormGuard } from '../../services/unsavedFormGuard';
 import { isReleaseBlockingFinding } from '../../services/findings';
 
+import { StatusBadge } from '../common/Enterprise';
 const DEFAULT_SECTIONS = [
   { id: 'rpt', title: 'Independent Auditor Report', desc: 'Standard unmodified opinion under ISA 700 with key audit matters.', enabled: true },
   { id: 'bs', title: 'Statement of Financial Position', desc: 'Comparative balance sheet verified to underlying trial balance.', enabled: true },
@@ -440,7 +441,7 @@ export const FinancialPackagesView: React.FC<FinancialPackagesViewProps> = ({ on
         <div className="panel-pad">
           <h3>Disclosure register</h3>
           {disclosures.map(item => <div className="borderbox mt8 panel-pad" key={item.id}>
-            <b>{item.title} · v{item.revision} · {item.status}</b>
+            <b>{item.title} · v{item.revision} · <StatusBadge status={item.status} /></b>
             <div className="grid2 mt8">
               <label className="caption">Disclosure title<input aria-label="Disclosure title" className="input mt4" value={item.title} disabled={item.status === 'Reviewed'} onChange={e => setDisclosures(items => items.map(row => row.id === item.id ? { ...row, title: e.target.value } : row))} /></label>
               <label className="caption">Applicability<select aria-label={`${item.title} applicability`} className="input mt4" value={item.applicability} disabled={item.status === 'Reviewed'} onChange={e => setDisclosures(items => items.map(row => row.id === item.id ? { ...row, applicability: e.target.value as typeof row.applicability } : row))}><option>Applicable</option><option>Not applicable</option></select></label>

@@ -7,6 +7,7 @@ import { Icon } from '../common/Icons';
 import { formatCurrency, formatMinutesToHours, getEffectiveTimeEntries } from '../../services/calculations';
 import { UnsavedFormGuard } from '../../services/unsavedFormGuard';
 
+import { StatusBadge } from '../common/Enterprise';
 interface TimeTrackingViewProps {
   onNavigate: (route: RouteKey) => void;
   onRegisterUnsavedForm?: (guard: UnsavedFormGuard | null, key?: string) => void;
@@ -223,7 +224,7 @@ export const TimeTrackingView: React.FC<TimeTrackingViewProps> = ({ onNavigate, 
                   </td>
                   <td>
                     <span className={`badge ${t.status === 'Approved' ? 'green' : t.status === 'Returned' ? 'red' : 'amber'}`}>
-                      {t.status}
+                      <StatusBadge status={t.status} />
                     </span>
                   </td>
                   <td>

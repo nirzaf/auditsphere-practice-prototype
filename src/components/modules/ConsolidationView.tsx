@@ -9,6 +9,7 @@ import { artifactSha256, downloadVerifiedArtifact, persistArtifact } from '../..
 import { consolidationOutputFingerprint } from '../../services/consolidationOutput';
 import { UnsavedFormGuard } from '../../services/unsavedFormGuard';
 
+import { StatusBadge } from '../common/Enterprise';
 interface ConsolidationViewProps {
   onNavigate: (route: RouteKey) => void;
   onRegisterUnsavedForm?: (guard: UnsavedFormGuard | null, key?: string) => void;
@@ -113,7 +114,7 @@ const EliminationEditor: React.FC<{ group: ConsolidationGroup; state: ReturnType
       {notice && <p role="status" className="caption mt8">{notice}</p>}
     </form>
     {group.eliminations.map(entry => <div className="borderbox panel-pad mt8" key={`review-${entry.id}`}>
-      <div className="between"><b>{entry.id} · revision {entry.revision || 1} · {entry.status}</b>{(entry.status === 'Draft' || entry.status === 'Returned') && <button className="btn sm" type="button" onClick={() => edit(entry)}>Edit draft</button>}</div>
+      <div className="between"><b>{entry.id} · revision {entry.revision || 1} · <StatusBadge status={entry.status} /></b>{(entry.status === 'Draft' || entry.status === 'Returned') && <button className="btn sm" type="button" onClick={() => edit(entry)}>Edit draft</button>}</div>
       {entry.status === 'Draft' && <button className="btn primary sm mt8" type="button" onClick={() => { try { prototypeStore.submitConsolidationElimination(group.id, entry.id); setNotice(`${entry.id} submitted for independent review.`); } catch (error: any) { setNotice(error.message); } }}>Submit elimination for review</button>}
       {entry.status === 'Submitted' && <p className="caption mt8">Submitted by {entry.submittedByUserId} · {entry.submittedAt ? new Date(entry.submittedAt).toLocaleString() : 'time unavailable'}</p>}
       {entry.status === 'Submitted' && <>
@@ -121,7 +122,7 @@ const EliminationEditor: React.FC<{ group: ConsolidationGroup; state: ReturnType
       <label className="caption mt8">Review evidence reference<input className="input mt4" aria-label={`Elimination review evidence ${entry.id}`} value={reviewEvidence} onChange={event => setReviewEvidence(event.target.value)} /></label>
       <div className="row mt8"><button className="btn primary sm" type="button" onClick={() => { try { prototypeStore.reviewConsolidationElimination(group.id, entry.id, 'Approved', reviewNote, reviewEvidence); setNotice(`${entry.id} approved for perimeter revision ${group.perimeterRevision || 1}.`); setReviewNote(''); setReviewEvidence(''); } catch (error: any) { setNotice(error.message); } }}>Approve elimination</button><button className="btn sm" type="button" onClick={() => { try { prototypeStore.reviewConsolidationElimination(group.id, entry.id, 'Returned', reviewNote, reviewEvidence); setNotice(`${entry.id} returned with its review history retained.`); setReviewNote(''); setReviewEvidence(''); } catch (error: any) { setNotice(error.message); } }}>Return for rework</button></div>
       </>}
-      {entry.reviewHistory?.map((review, index) => <div className="caption mt4" key={`${entry.id}-review-${index}`}>{review.status} by {review.changedBy}: {review.note} · {review.evidenceRef}</div>)}
+      {entry.reviewHistory?.map((review, index) => <div className="caption mt4" key={`${entry.id}-review-${index}`}><StatusBadge status={review.status} /> by {review.changedBy}: {review.note} · {review.evidenceRef}</div>)}
     </div>)}
   </div>;
 };
@@ -612,7 +613,7 @@ export const ConsolidationView: React.FC<ConsolidationViewProps> = ({ onNavigate
                 <div className="row mt8"><button className="btn primary sm" onClick={() => { try { prototypeStore.reviewConsolidationOutputPackage(group.id, latestOutput.id, 'Approved', outputReviewNote, outputReviewEvidence); setOutputNotice('Group output independently approved.'); } catch (error: any) { setOutputNotice(error.message); } }}>Approve group output</button><button className="btn sm" onClick={() => { try { prototypeStore.reviewConsolidationOutputPackage(group.id, latestOutput.id, 'Returned', outputReviewNote, outputReviewEvidence); setOutputNotice('Group output returned with review history retained.'); } catch (error: any) { setOutputNotice(error.message); } }}>Return for rework</button></div>
               </>}
               {outputIsCurrent && latestOutput.status === 'Approved' && latestOutput.approvedFingerprint === outputFingerprint && <button className="btn sm mt8" onClick={() => void downloadVerifiedArtifact({ ...latestOutput.artifact, kind: 'GROUP_JSON' })}>Download verified group output</button>}
-              {latestOutput.reviewHistory.map((item, index) => <div className="caption mt4" key={`${latestOutput.id}-${index}`}>{item.status} by {item.by} · {item.note} · {item.evidenceRef}</div>)}
+              {latestOutput.reviewHistory.map((item, index) => <div className="caption mt4" key={`${latestOutput.id}-${index}`}><StatusBadge status={item.status} /> by {item.by} · {item.note} · {item.evidenceRef}</div>)}
             </div>}
             {outputNotice && <p role="status" className="caption mt8">{outputNotice}</p>}
           </div>

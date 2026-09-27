@@ -6,7 +6,10 @@ import { createPortal } from 'react-dom';
 import { RouteKey } from './types';
 import { prototypeStore } from './store/prototypeStore';
 import { canOpenRoute, isClientRole, hasSelectedEngagementScope } from './services/guards';
+import { getPackageContextDisplay } from './services/calculations';
 import { Shell } from './components/layout/Shell';
+import { ModuleContextProvider, ModuleContext } from './components/common/Enterprise';
+import { visibleClientIds, visibleEngagementIds } from './services/guards';
 
 // Practice & CRM Modules
 import { DashboardView } from './components/modules/DashboardView';
@@ -361,6 +364,36 @@ export const App: React.FC = () => {
   const state = prototypeStore.getSnapshot();
   const isClient = isClientRole(state.currentRole);
   const activeIdentity = state.users.find(user => user.id === state.currentUserId)?.status === 'Active';
+
+  // The shared context line every module header derives from. Values are read
+  // through the same scope guards the modules use, so the header can never
+  // advertise a client or engagement the persona cannot reach.
+  const moduleContext: ModuleContext = (() => {
+    const allowedClients = visibleClientIds(state);
+    const allowedEngagements = visibleEngagementIds(state);
+    const scopedEngagements = state.engagements.filter(e => allowedEngagements === 'ALL' || allowedEngagements.includes(e.id));
+    const selected = scopedEngagements.find(e => e.id === state.selectedEngagement) ?? scopedEngagements[0];
+    const client = selected ? state.clients.find(c => c.id === selected.client && (allowedClients === 'ALL' || allowedClients.includes(c.id))) : undefined;
+    const packageDisplay = selected ? getPackageContextDisplay(selected) : null;
+    return {
+      clientName: client?.name,
+      clientId: client?.id,
+      engagementId: selected?.id,
+      service: selected?.service,
+      period: selected?.period || (selected?.year ? `FY ${selected.year}` : undefined),
+      year: selected?.year,
+      currency: selected?.currency,
+      lifecycleStatus: selected?.lifecycleStatus ?? selected?.stage,
+      stage: selected?.stage,
+      manager: selected?.manager,
+      due: selected?.due,
+      archive: Boolean(selected?.archive),
+      packageRevision: packageDisplay?.revision ?? null,
+      packageStatus: packageDisplay?.status ?? null,
+      sourceVersion: selected?.sourceVersion,
+      isClientRole: isClient
+    };
+  })();
   const navigate = (route: RouteKey, targetId?: string) => {
     if (route === 'module-guide' && effectiveRoute !== 'module-guide') setGuideOrigin(effectiveRoute);
     requestContextChange(() => {
@@ -529,7 +562,9 @@ export const App: React.FC = () => {
 
   return (
     <Shell currentRoute={effectiveRoute} onRouteChange={navigate} onSelectClient={(clientId) => requestContextChange(() => setSelectedClientId(clientId))} onBeforeContextChange={requestContextChange}>
-      {renderModule()}
+      <ModuleContextProvider route={effectiveRoute} context={moduleContext}>
+        {renderModule()}
+      </ModuleContextProvider>
       {dismissPrompt && createPortal(<div data-dismiss-prompt="" role="alert" className="banner amber mt12" style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center', justifyContent: 'space-between' }}>
         <span>This dialog has unsaved changes. Nothing has been saved.</span>
         <span className="row" style={{ gap: 8 }}><button type="button" className="btn sm" onClick={() => dismissActions.current.keep()}>Keep editing</button><button type="button" className="btn ghost sm" onClick={() => dismissActions.current.discard()}>Discard changes</button></span>

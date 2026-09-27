@@ -6,6 +6,7 @@ import { canOpenRoute, visibleEngagementIds } from '../../services/guards';
 import { calculateReceivablesAging, formatCurrency } from '../../services/calculations';
 import { Icon } from '../common/Icons';
 
+import { StatusBadge } from '../common/Enterprise';
 type DashboardItem = { id: string; engagementId: string; label: string; status: string; due?: string; route: RouteKey; kind: string };
 
 interface DashboardViewProps {
@@ -137,7 +138,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigate }) => {
       {activeList && <div className="panel">
         <div className="panel-head between"><div><h2>Filtered work list</h2><p className="sub">{listItems.length} record(s) for the selected dashboard metric and filters · as of {asOfDate}</p></div><button className="btn sm ghost" onClick={() => setActiveList('')}>Close</button></div>
         <div className="tablewrap"><table><thead><tr><th>Type</th><th>Record</th><th>Engagement</th><th>Status</th><th>Due</th><th /></tr></thead><tbody>
-          {listItems.map(item => <tr key={`${item.kind}-${item.id}`}><td>{item.kind}</td><td><b>{item.label}</b><div className="cell-sub">{item.id}</div></td><td>{item.engagementId}</td><td>{item.status}</td><td>{item.due || '—'}</td><td><button className="btn sm" onClick={() => openItem(item)}>Open</button></td></tr>)}
+          {listItems.map(item => <tr key={`${item.kind}-${item.id}`}><td>{item.kind}</td><td><b>{item.label}</b><div className="cell-sub">{item.id}</div></td><td>{item.engagementId}</td><td><StatusBadge status={item.status} /></td><td>{item.due || '—'}</td><td><button className="btn sm" onClick={() => openItem(item)}>Open</button></td></tr>)}
           {!listItems.length && <tr><td colSpan={6}>No matching records.</td></tr>}
         </tbody></table></div>
       </div>}
@@ -186,7 +187,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigate }) => {
                         <td>{eng.service}</td>
                         <td>
                           <span className={`badge ${eng.stage === 'Review' ? 'purple' : 'teal'}`}>
-                            {eng.stage}
+                            <StatusBadge status={eng.stage} />
                           </span>
                         </td>
                         <td>{eng.due}</td>
@@ -215,7 +216,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigate }) => {
             <h3>Your Attention, Where It Matters</h3>
             <p className="sub" style={{ marginBottom: 16 }}>Current work for selected engagement ({currentEng?.id || 'none in scope'}).</p>
             <div className="stack" style={{ gap: 12 }}>
-              {myTasks.slice(0, 4).map(item => <div className="taskrow" key={item.id}><div className="taskcheck blue"><Icon name="checkcircle" /></div><div style={{ flex: 1 }}><h4>{item.label}</h4><p className="sub">{item.engagementId} · {item.status} · Due {item.due || 'not dated'}</p></div><button className="btn sm" onClick={() => openItem(item)}>Open task</button></div>)}
+              {myTasks.slice(0, 4).map(item => <div className="taskrow" key={item.id}><div className="taskcheck blue"><Icon name="checkcircle" /></div><div style={{ flex: 1 }}><h4>{item.label}</h4><p className="sub">{item.engagementId} · <StatusBadge status={item.status} /> · Due {item.due || 'not dated'}</p></div><button className="btn sm" onClick={() => openItem(item)}>Open task</button></div>)}
               {!myTasks.length && <p className="sub">No open tasks assigned to you in this scope.</p>}
             </div>
           </div>
@@ -226,7 +227,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigate }) => {
           {/* The nearest dated item from the filtered registers */}
           <div className="focus-card">
             <div className="focus-label">Next Attention Item</div>
-            {attention ? <><div className="focus-title">{attention.label}</div><p style={{ margin: '10px 0 16px 0', fontSize: 13 }}>{attention.kind} · {attention.engagementId} · {attention.status} · Due {attention.due}</p><button className="btn primary sm" onClick={() => openItem(attention)}>Open work</button></> : <><div className="focus-title">No dated open work</div><p style={{ margin: '10px 0 16px 0', fontSize: 13 }}>No matching tasks, requests, reviews or jobs have a due date.</p></>}
+            {attention ? <><div className="focus-title">{attention.label}</div><p style={{ margin: '10px 0 16px 0', fontSize: 13 }}>{attention.kind} · {attention.engagementId} · <StatusBadge status={attention.status} /> · Due {attention.due}</p><button className="btn primary sm" onClick={() => openItem(attention)}>Open work</button></> : <><div className="focus-title">No dated open work</div><p style={{ margin: '10px 0 16px 0', fontSize: 13 }}>No matching tasks, requests, reviews or jobs have a due date.</p></>}
           </div>
 
           {/* Jobs by status, computed from permitted job records */}

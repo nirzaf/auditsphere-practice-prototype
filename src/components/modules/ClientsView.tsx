@@ -7,6 +7,7 @@ import { Icon } from '../common/Icons';
 import { ClientProfileModal } from './ClientProfileModal';
 import { UnsavedFormGuard } from '../../services/unsavedFormGuard';
 
+import { ModuleIdentityLine, ListState, StatusBadge } from '../common/Enterprise';
 interface ClientsViewProps {
   onNavigate: (route: RouteKey) => void;
   onSelectClientDetail: (clientId: string) => void;
@@ -129,6 +130,16 @@ export const ClientsView: React.FC<ClientsViewProps> = ({ onNavigate, onSelectCl
       </div>
 
       <div className="grid3">
+        {/* A filtered search must never look like an empty practice. */}
+        {filteredClients.length === 0 && (
+          state.clients.length === 0
+            ? <ListState kind="empty" message="No client records yet" hint="Client profiles appear here once the practice onboards its first client." />
+            : <ListState
+                kind="no-match"
+                message="No clients match these filters"
+                hint={`${state.clients.length} client record(s) exist in your scope but none match “${filterText || statusFilter}”. Clear the search or reset the status filter to see them.`}
+              />
+        )}
         {filteredClients.map(client => {
           const clientEngs = state.engagements.filter(e => e.client === client.id && (allowedEngagementIds === 'ALL' || allowedEngagementIds.includes(e.id)));
           const clientContacts = state.contacts.filter(c => c.clientId === client.id);
@@ -146,7 +157,7 @@ export const ClientsView: React.FC<ClientsViewProps> = ({ onNavigate, onSelectCl
                   </div>
                 </div>
                 <span className={`badge ${client.status === 'Active' ? 'green' : 'gray'}`}>
-                  {client.status}
+                  <StatusBadge status={client.status} />
                 </span>
               </div>
 

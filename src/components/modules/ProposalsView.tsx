@@ -7,6 +7,7 @@ import { formatCurrency } from '../../services/calculations';
 import { UnsavedFormGuard } from '../../services/unsavedFormGuard';
 import { visibleClientIds } from '../../services/guards';
 
+import { StatusBadge } from '../common/Enterprise';
 interface ProposalsViewProps {
   onNavigate: (route: RouteKey) => void;
   onRegisterUnsavedForm?: (guard: UnsavedFormGuard | null, key?: string) => void;
@@ -301,7 +302,7 @@ export const ProposalsView: React.FC<ProposalsViewProps> = ({ onNavigate, onRegi
                     )}
                   </td>
                   <td>
-                    <span className="badge blue">{p.state}</span>
+                    <StatusBadge status={p.state} />
                   </td>
                   <td>
                     <div className="row" style={{ gap: 6 }}>

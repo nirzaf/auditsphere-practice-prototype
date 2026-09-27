@@ -8,6 +8,7 @@ import { visibleEngagementIds } from '../../services/guards';
 import { UnsavedFormGuard } from '../../services/unsavedFormGuard';
 import { Icon } from '../common/Icons';
 
+import { StatusBadge } from '../common/Enterprise';
 interface JobTemplatesViewProps {
   onNavigate: (route: RouteKey) => void;
   onRegisterUnsavedForm?: (guard: UnsavedFormGuard | null, key?: string) => void;
@@ -320,7 +321,7 @@ export const JobTemplatesView: React.FC<JobTemplatesViewProps> = ({ onNavigate, 
                               : 'amber'
                           }`}
                         >
-                          {tpl.status}
+                          <StatusBadge status={tpl.status} />
                         </span>
                       </td>
                       <td>{tpl.tasks.length} phases</td>
@@ -394,7 +395,7 @@ export const JobTemplatesView: React.FC<JobTemplatesViewProps> = ({ onNavigate, 
               {selectedTemplate.status !== 'Published' && (
                 <div className="borderbox mt12" style={{ background: '#fffbeb', padding: 10, borderColor: '#fde68a' }}>
                   <span className="caption" style={{ color: '#92400e' }}>
-                    <strong>Governance notice:</strong> This template is currently in '{selectedTemplate.status}' status. Only published templates can be instantiated to create engagement jobs.
+                    <strong>Governance notice:</strong> This template is currently in '<StatusBadge status={selectedTemplate.status} />' status. Only published templates can be instantiated to create engagement jobs.
                   </span>
                 </div>
               )}

@@ -10,6 +10,7 @@ import { UnsavedFormGuard } from '../../services/unsavedFormGuard';
 import { Icon } from '../common/Icons';
 import { calculateMateriality, formatCurrency } from '../../services/calculations';
 
+import { StatusBadge } from '../common/Enterprise';
 interface AuditPlanningViewProps {
   onNavigate: (route: RouteKey) => void;
   onRegisterUnsavedForm?: (guard: UnsavedFormGuard | null, key?: string) => void;
@@ -540,7 +541,7 @@ export const AuditPlanningView: React.FC<AuditPlanningViewProps> = ({ onNavigate
           <div className="panel">
             <div className="panel-head"><h3>Saved Plan Revisions ({planHistory.length})</h3><span className="caption">Older revisions remain visible; only the latest approved revision clears planning.</span></div>
             <div className="tablewrap"><table><thead><tr><th>Version</th><th>Status</th><th>Prepared By</th><th>Reviewed By</th><th>Review Notes</th></tr></thead><tbody>
-              {planHistory.map(plan => <tr key={plan.id}><td><b>v{plan.version}</b></td><td>{plan.status}</td><td>{plan.preparedBy || 'Unknown'}</td><td>{plan.reviewedBy || '—'}</td><td>{[plan.reviewNotes, plan.supersededReason].filter(Boolean).join(' · ') || '—'}</td></tr>)}
+              {planHistory.map(plan => <tr key={plan.id}><td><b>v{plan.version}</b></td><td><StatusBadge status={plan.status} /></td><td>{plan.preparedBy || 'Unknown'}</td><td>{plan.reviewedBy || '—'}</td><td>{[plan.reviewNotes, plan.supersededReason].filter(Boolean).join(' · ') || '—'}</td></tr>)}
             </tbody></table></div>
           </div>
         </div>

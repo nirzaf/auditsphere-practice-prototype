@@ -11,6 +11,7 @@ import { calculateRecordedWipValue, calculateReceivablesAging, formatCurrency, f
 import { exportService } from '../../services/exportService';
 import { visibleClientIds, visibleEngagementIds } from '../../services/guards';
 
+import { ListState, StatusBadge } from '../common/Enterprise';
 interface ReportingCentreViewProps {
   onNavigate: (route: RouteKey) => void;
 }
@@ -146,6 +147,9 @@ export const ReportingCentreView: React.FC<ReportingCentreViewProps> = ({ onNavi
     }))
   };
   const activeDataset = datasets[report] || { headers: [], rows: [] };
+  // Distinguishes "the practice has no records of this kind" from "your client
+  // filter excludes the ones that exist" — two different answers for the reader.
+  const hasAnyReportableRecord = Object.values(datasets).some(dataset => dataset.rows.length > 0);
   const drillRoute: Partial<Record<ReportKey, RouteKey>> = { clients: 'engagements', jobs: 'jobs', tasks: 'jobs', pbc: 'documents', time: 'my-time', budget: 'budgets', invoices: 'billing', credits: 'receivables', receipts: 'receivables', ar: 'receivables', findings: 'findings', reviews: 'reviews', packages: 'financial-packages', wip: 'budgets', utilization: 'my-time', compliance: 'engagements' };
 
   const handleExportCSV = () => exportService.exportCSV(`${report}_practice_report_${state.asOfDate}`, [activeDataset.headers, ...activeDataset.rows.map(r => r.cells)]);
@@ -356,7 +360,7 @@ export const ReportingCentreView: React.FC<ReportingCentreViewProps> = ({ onNavi
                       <td>{e.service}</td>
                       <td>FY {e.year}</td>
                       <td><b>{e.due}</b></td>
-                      <td><span className="badge blue">{e.stage}</span></td>
+                      <td><StatusBadge status={e.stage} /></td>
                       <td>{e.partner}</td>
                     </tr>
                   );
@@ -377,7 +381,19 @@ export const ReportingCentreView: React.FC<ReportingCentreViewProps> = ({ onNavi
               <td>{row.engagementId ? <button className="btn sm ghost" onClick={() => { prototypeStore.setSelectedEngagement(row.engagementId!); onNavigate(drillRoute[report] || 'engagements'); }}>Open source</button> : '—'}</td>
             </tr>)}</tbody>
           </table></div>
-          {!activeDataset.rows.length && <p className="sub panel-pad">No records match this client filter and the current role scope.</p>}
+          {!activeDataset.rows.length && (
+            hasAnyReportableRecord
+              ? <ListState
+                  kind="no-match"
+                  message="No records match this client filter and the current role scope"
+                  hint="This report is deterministic and only covers records your grant permits. Clear the client filter to widen it; records outside your scope are never counted or listed."
+                />
+              : <ListState
+                  kind="empty"
+                  message="No records exist to report on yet"
+                  hint="This report is derived from existing practice records. Once engagements, time, invoices and requests exist in your scope, their rows appear here — nothing is invented to fill the table."
+                />
+          )}
         </div>
       )}
 
@@ -415,7 +431,7 @@ export const ReportingCentreView: React.FC<ReportingCentreViewProps> = ({ onNavi
                         <td>{t.activity}</td>
                         <td>{formatMinutesToHours(t.durationMinutes)}</td>
                         <td>{t.billable ? 'Yes' : 'No'}</td>
-                        <td><span className="badge green">{t.status}</span></td>
+                        <td><StatusBadge status={t.status} /></td>
                       </tr>
                     ))}
                 </tbody>

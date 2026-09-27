@@ -11,6 +11,8 @@ import { InternalNotesPanel } from '../common/InternalNotesPanel';
 import { visibleEngagementIds } from '../../services/guards';
 import { filterPbcRequests, getOutstandingPbcRequestCount, getPbcRequestRecipient, PbcRequestDueFilter, PbcRequestStatusFilter } from '../../services/pbcRequestFilters';
 
+import { StatusBadge } from '../common/Enterprise';
+import { ModuleIdentityLine } from '../common/Enterprise';
 type ClientPbcRequest = PbcRequestItem & { engagementId: string };
 
 interface ClientDetailViewProps {
@@ -320,13 +322,32 @@ const ClientDetailWorkspace: React.FC<ClientDetailViewProps> = ({ clientId, sear
 
   return (
     <div className="stack" style={{ gap: 16 }}>
-      {/* Top breadcrumb & back button */}
-      <div className="between">
-        <button className="btn sm ghost" onClick={onBack}>
-          <Icon name="arrow" /> Back to Portfolio
-        </button>
-        <span className="caption">Client ID: {client.id} · Code: {client.code}</span>
+      {/* Client record header: the canonical page title for this routed record. */}
+      <div className="pagehead panel panel-pad" style={{ marginBottom: 0 }}>
+        <div className="row" style={{ gap: 16, flexWrap: 'wrap' }}>
+          <div className="firmavatar" style={{ width: 44, height: 44, fontSize: 17 }}>{client.initials}</div>
+          <div style={{ minWidth: 0 }}>
+            <div className="row" style={{ gap: 10, flexWrap: 'wrap' }}>
+              <h1>{client.name}</h1>
+              <span className="page-status">
+                <StatusBadge status={client.status} explain />
+                <span className={`badge ${client.risk === 'Low' ? 'green' : 'amber'}`}>{client.risk} risk</span>
+              </span>
+            </div>
+            <p className="page-subtitle">
+              {client.tradingName || client.industry} · {client.jurisdiction} · one legal relationship with its own contacts,
+              engagements, requests and shared records.
+            </p>
+            <ModuleIdentityLine extra={[
+              { label: 'Client ID', value: client.id, mono: true },
+              { label: 'Code', value: client.code, mono: true },
+              { label: 'Engagements', value: String(engagements.length) },
+              { label: 'Relationship owner', value: client.relationshipOwner }
+            ]} />
+          </div>
+        </div>
       </div>
+
       {clientNotice && <div role="status" className="panel panel-pad">{clientNotice}</div>}
 
       {/* Client Header Card */}
@@ -343,7 +364,7 @@ const ClientDetailWorkspace: React.FC<ClientDetailViewProps> = ({ clientId, sear
           </div>
           <div className="row" style={{ gap: 10 }}>
             <span className={`badge ${client.status === 'Active' ? 'green' : 'gray'}`}>
-              {client.status}
+              <StatusBadge status={client.status} />
             </span>
             <span className={`badge ${client.risk === 'Low' ? 'green' : 'amber'}`}>
               {client.risk} Risk
@@ -553,7 +574,7 @@ const ClientDetailWorkspace: React.FC<ClientDetailViewProps> = ({ clientId, sear
             <p className="sub">Nominations are requests only. They do not create client contacts, portal identities, access grants or approval authority.</p>
             {(state.clientContactNominations || []).filter(item => item.clientId === client.id).length === 0
               ? <p className="caption mt8">No contact nominations received.</p>
-              : <div className="stack mt8">{(state.clientContactNominations || []).filter(item => item.clientId === client.id).map(item => <div className="borderbox" key={item.id}><div className="between"><b>{item.name} · {item.email}</b><span className={`badge ${item.status === 'Reviewed' ? 'green' : 'amber'}`}>{item.status}</span></div><div className="cell-sub">Submitted by {item.nominatedBy} · {new Date(item.nominatedAt).toLocaleString('en-GB')}</div><p className="sub mt4">{item.reason}</p>{item.reviewNote && <p className="caption mt4">Staff review by {item.reviewedBy}: {item.reviewNote}</p>}{item.status === 'Pending review' && ['relationship', 'onboarding', 'manager', 'partner', 'admin'].includes(state.currentRole) && <button className="btn sm mt8" onClick={() => { const note = window.prompt('Record a staff review note. This does not create a contact or access grant:'); if (note?.trim()) try { prototypeStore.reviewClientContactNomination(item.id, note); setClientNotice('Staff review recorded. Add a client contact and grant access separately if authorized.'); } catch (error) { setClientNotice(error instanceof Error ? error.message : 'Nomination review could not be recorded.'); } }}>Record staff review</button>}</div>)}</div>}
+              : <div className="stack mt8">{(state.clientContactNominations || []).filter(item => item.clientId === client.id).map(item => <div className="borderbox" key={item.id}><div className="between"><b>{item.name} · {item.email}</b><span className={`badge ${item.status === 'Reviewed' ? 'green' : 'amber'}`}><StatusBadge status={item.status} /></span></div><div className="cell-sub">Submitted by {item.nominatedBy} · {new Date(item.nominatedAt).toLocaleString('en-GB')}</div><p className="sub mt4">{item.reason}</p>{item.reviewNote && <p className="caption mt4">Staff review by {item.reviewedBy}: {item.reviewNote}</p>}{item.status === 'Pending review' && ['relationship', 'onboarding', 'manager', 'partner', 'admin'].includes(state.currentRole) && <button className="btn sm mt8" onClick={() => { const note = window.prompt('Record a staff review note. This does not create a contact or access grant:'); if (note?.trim()) try { prototypeStore.reviewClientContactNomination(item.id, note); setClientNotice('Staff review recorded. Add a client contact and grant access separately if authorized.'); } catch (error) { setClientNotice(error instanceof Error ? error.message : 'Nomination review could not be recorded.'); } }}>Record staff review</button>}</div>)}</div>}
           </div>
         </div>
       )}
@@ -587,7 +608,7 @@ const ClientDetailWorkspace: React.FC<ClientDetailViewProps> = ({ clientId, sear
                     <td><b>{e.id}</b></td>
                     <td>{e.service}</td>
                     <td>{e.period}</td>
-                    <td><span className="badge teal">{e.stage}</span></td>
+                    <td><StatusBadge status={e.stage} /></td>
                     <td>{e.manager}</td>
                     <td>{formatCurrency(e.agreedFee, e.currency)}</td>
                     <td>
@@ -636,7 +657,7 @@ const ClientDetailWorkspace: React.FC<ClientDetailViewProps> = ({ clientId, sear
                     <td><b>{j.title}</b><div className="cell-sub">{j.id}</div></td>
                     <td>{j.owner}</td>
                     <td>{j.dueDate}</td>
-                    <td><span className="badge gray">{j.status}</span></td>
+                    <td><StatusBadge status={j.status} /></td>
                     <td>{j.budgetHours ? `${j.budgetHours} hrs` : '—'}</td>
                   </tr>
                 ))}
@@ -734,7 +755,7 @@ const ClientDetailWorkspace: React.FC<ClientDetailViewProps> = ({ clientId, sear
                     <td><b>{p.title}</b><div className="cell-sub">{p.id}</div>{p.clarificationNote && <div className="cell-sub">Clarification: {p.clarificationNote}</div>}{Boolean(p.sharedFiles?.length) && <details className="mt4"><summary className="caption">Submitted files ({p.sharedFiles!.length})</summary>{p.sharedFiles!.map((file, index) => <div className="cell-sub" key={`${file.id}-${index}`}>v{file.version} · {file.name} · {new Date(file.uploadedAt).toLocaleDateString()} · by {file.uploadedBy}</div>)}</details>}{Boolean(p.acceptanceHistory?.length) && <details className="mt4"><summary className="caption">Acceptance history ({p.acceptanceHistory!.length})</summary>{p.acceptanceHistory!.map(entry => <div className="cell-sub" key={`${entry.version}-${entry.acceptedAt}`}>v{entry.version} accepted by {entry.acceptedBy} · {new Date(entry.acceptedAt).toLocaleString()}</div>)}</details>}</td>
                     <td>{p.category}</td>
                     <td>{p.due}</td>
-                    <td><span className={`badge ${p.status === 'Accepted' ? 'green' : p.status === 'Received' ? 'blue' : 'amber'}`}>{p.status}</span></td>
+                    <td><span className={`badge ${p.status === 'Accepted' ? 'green' : p.status === 'Received' ? 'blue' : 'amber'}`}><StatusBadge status={p.status} /></span></td>
                     <td>{p.file || 'Awaiting upload'}{state.documents.some(document => document.linkedPbcId === p.id && document.clientId === client.id && document.engagementId === p.engagementId && document.brokenLink) && <div className="tag red" role="status">Reference unavailable</div>}</td>
                     <td>
                       <div className="row" style={{ gap: 6 }}>
@@ -822,7 +843,7 @@ const ClientDetailWorkspace: React.FC<ClientDetailViewProps> = ({ clientId, sear
                     <td>{inv.description}</td>
                     <td>{formatCurrency(inv.amount, inv.currency)}</td>
                     <td>{formatCurrency(inv.paid, inv.currency)}</td>
-                    <td><span className={`badge ${inv.status === 'Paid' ? 'green' : 'amber'}`}>{inv.status}</span></td>
+                    <td><span className={`badge ${inv.status === 'Paid' ? 'green' : 'amber'}`}><StatusBadge status={inv.status} /></span></td>
                     <td>{inv.due}</td>
                   </tr>
                 ))}
@@ -869,7 +890,7 @@ const ClientDetailWorkspace: React.FC<ClientDetailViewProps> = ({ clientId, sear
                     <td><b>{w.id}</b></td>
                     <td>{w.title}</td>
                     <td>{w.objective}</td>
-                    <td><span className={`badge ${w.status === 'Cleared' ? 'green' : 'amber'}`}>{w.status}</span></td>
+                    <td><span className={`badge ${w.status === 'Cleared' ? 'green' : 'amber'}`}><StatusBadge status={w.status} /></span></td>
                     <td>{w.reviewer}</td>
                   </tr>
                 ))}

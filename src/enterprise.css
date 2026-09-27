@@ -1,0 +1,330 @@
+/* AuditSphere enterprise UX layer (MOD-UX-01).
+ *
+ * Additive only. This file defines the shared primitives introduced by the
+ * enterprise visual vocabulary and fills the utility classes that views already
+ * reference but that no earlier stylesheet defined (they previously rendered as
+ * plain unstyled text). Loaded after styles.css so it can refine, never
+ * contradict, the established look.
+ */
+
+/* ---------------------------------------------------------------------------
+ * 1. Tokens added to the existing palette
+ * ------------------------------------------------------------------------- */:root {
+  --sp-1: 4px;
+  --sp-2: 8px;
+  --sp-3: 12px;
+  --sp-4: 16px;
+  --sp-5: 20px;
+  --sp-6: 24px;
+  --row-h: 34px;
+  --focus-ring: 0 0 0 3px #075f5722;
+}
+
+/* ---------------------------------------------------------------------------
+ * 2. Utilities already referenced by views but previously undefined.
+ *    Defining them removes silently unstyled markup.
+ * ------------------------------------------------------------------------- */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  white-space: nowrap;
+  border-radius: 5px;
+  font-size: 11px;
+  font-weight: 550;
+  padding: 3px 7px;
+  line-height: 1.5;
+  background: #eef2f3;
+  color: #5d7377;
+}
+.badge.teal { background: var(--tealsoft); color: #276653; }
+.badge.purple { background: var(--purplesoft); color: #594897; }
+.badge.amber { background: var(--ambersoft); color: #80590f; }
+.badge.blue { background: var(--bluesoft); color: #355f8a; }
+.badge.red { background: var(--redsoft); color: #a43f4e; }
+.badge.green { background: var(--tealsoft); color: #276653; }
+.badge.success { background: var(--tealsoft); color: #1f6350; }
+.badge.warning { background: var(--ambersoft); color: #7d5810; }
+.banner.success { color: #2c6a52; border-color: #c9e3d2; background: #f2faf5; }
+.banner.warning { color: #7d5810; border-color: #ecd9b4; background: #fffbf1; }
+
+.metric-label, .metric-sub, .metric-val { display: block; }
+.metric-label { font-size: 11px; color: var(--muted); }
+.metric-sub { font-size: 11px; color: var(--muted); margin-top: 4px; }
+.metric-val { font-size: 26px; font-weight: 650; letter-spacing: -.6px; font-variant-numeric: tabular-nums; }
+
+.grid-cols-2, .grid-2, .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: var(--sp-5); min-width: 0; }
+.grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--sp-4); min-width: 0; }
+.grid4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: var(--sp-4); min-width: 0; }
+.grid > * , .grid-2 > *, .grid-3 > *, .grid4 > *, .grid-cols-2 > * { min-width: 0; }
+
+.mt4 { margin-top: 4px; }
+.mb8 { margin-bottom: 8px; }
+.mb12 { margin-bottom: 12px; }
+.ml8 { margin-left: 8px; }
+.mx-auto { margin-left: auto; margin-right: auto; }
+.text-center { text-align: center; }
+.text-danger { color: var(--red); }
+.text-muted, .muted-text { color: var(--muted); }
+.text-teal { color: var(--teal); }
+.xs { font-size: 11px; }
+.gap12 { gap: 12px; }
+.block { display: block; }
+.max-w-md { max-width: 560px; }
+
+/* Dialogs: the shared dialog runtime looks for .modal-card / .modal-overlay,
+ * so they must be real, fully styled dialog surfaces. */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  background: #0a1d2780;
+  backdrop-filter: blur(3px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 25px;
+}
+.modal-card, .modal-content {
+  background: white;
+  width: 660px;
+  max-width: 100%;
+  max-height: 90vh;
+  overflow: auto;
+  border-radius: 15px;
+  box-shadow: 0 25px 90px #05182360;
+}
+/* Global search is a compact command palette, not a full dialog. */
+.global-search-dialog { width: 560px; }
+
+/* ---------------------------------------------------------------------------
+ * 3. Status badges
+ *    Tone is always paired with the literal status text and an icon, so colour
+ *    is never the only carrier of meaning (WCAG 1.4.1).
+ * ------------------------------------------------------------------------- */
+.status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  padding: 3px 10px 3px 8px;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.6;
+  white-space: nowrap;
+  max-width: 100%;
+}
+.status-badge .status-glyph { font-size: 10px; line-height: 1; }
+.status-badge .status-text { overflow: hidden; text-overflow: ellipsis; }
+.status-badge.sm { padding: 1px 8px 1px 6px; font-size: 10.5px; }
+.status-badge.neutral { background: #eef2f3; border-color: #dde5e6; color: #4f6569; }
+.status-badge.progress { background: var(--bluesoft); border-color: #cfe0f3; color: #2f5d8a; }
+.status-badge.waiting { background: var(--ambersoft); border-color: #ecd9b4; color: #7d5810; }
+.status-badge.review { background: var(--purplesoft); border-color: #ded6f3; color: #53418f; }
+.status-badge.returned { background: var(--redsoft); border-color: #f0cfd5; color: #9d3f4d; }
+.status-badge.blocked { background: #fdeceb; border-color: #f3c9c5; color: #a1372c; }
+.status-badge.stale { background: #fff4e2; border-color: #eed6a4; color: #815a0d; }
+.status-badge.approved { background: var(--tealsoft); border-color: #c2e2d6; color: #1f6350; }
+.status-badge.complete { background: #e9f4ec; border-color: #c9e3d2; color: #23603f; }
+.status-badge.terminal-bad { background: #f1f1f3; border-color: #dcdde1; color: #5b5f68; }
+.status-badge.simulated { background: #eef6ea; border-color: #d3e6c8; color: #4a6b3a; font-style: italic; }
+
+/* ---------------------------------------------------------------------------
+ * 4. Page header + identity/context line
+ * ------------------------------------------------------------------------- */
+.pagehead .page-subtitle { color: var(--muted); margin-top: 8px; font-size: 12px; max-width: 75ch; line-height: 1.6; }
+.page-identity {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 14px;
+  margin-top: 10px;
+  font-size: 11px;
+  color: var(--muted);
+}
+.page-identity .identity-item { display: inline-flex; align-items: baseline; gap: 5px; min-width: 0; }
+.page-identity .identity-item > span:first-child { text-transform: uppercase; letter-spacing: .7px; font-size: 10px; color: #7b8f93; }
+.page-identity .identity-item > b { font-weight: 600; color: #3b4f55; overflow-wrap: anywhere; }
+.page-status { display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+
+/* Lifecycle hint strip: tells the reader how this module's journey works. */
+.lifecycle-hint {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--teal);
+  background: #fbfdfc;
+  border-radius: 9px;
+  padding: 10px 14px;
+  font-size: 11.5px;
+  color: var(--muted);
+}
+.lifecycle-hint b { color: #33514c; font-weight: 600; }
+
+/* ---------------------------------------------------------------------------
+ * 5. Lifecycle stepper
+ * ------------------------------------------------------------------------- */
+.lifecycle {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: white;
+  padding: 16px 20px;
+}
+.lifecycle-head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 8px 16px; }
+.lifecycle-head h3 { font-size: 13px; }
+.lifecycle-head .sub { margin-top: 3px; }
+.lifecycle-track { display: flex; flex-wrap: wrap; gap: 8px 10px; margin-top: 14px; }
+.lifecycle-node {
+  flex: 1 1 150px;
+  min-width: 140px;
+  display: grid;
+  grid-template-columns: 22px 1fr;
+  gap: 9px;
+  align-items: start;
+  border-top: 3px solid #e2eae8;
+  padding-top: 10px;
+}
+.lifecycle-node .life-mark {
+  width: 20px; height: 20px; border-radius: 50%;
+  display: grid; place-items: center;
+  font-size: 11px; font-weight: 700;
+  background: #f0f4f4; color: #869799;
+  border: 1px solid #e0e8e7;
+}
+.lifecycle-node .life-label { font-size: 11.5px; font-weight: 600; color: #6d8286; line-height: 1.35; }
+.lifecycle-node .life-owner { font-size: 10.5px; color: var(--muted); margin-top: 3px; }
+.lifecycle-node.done { border-top-color: #b5d8c6; }
+.lifecycle-node.done .life-mark { background: #e8f3ec; border-color: #b5d8c6; color: #2f6d52; }
+.lifecycle-node.done .life-label { color: #33514c; }
+.lifecycle-node.current { border-top-color: var(--teal); }
+.lifecycle-node.current .life-mark { background: var(--teal); border-color: var(--teal); color: white; box-shadow: 0 0 0 4px #e8f3ec; }
+.lifecycle-node.current .life-label { color: var(--teal); font-weight: 700; }
+.lifecycle-node.blocked { border-top-color: #e0a09a; }
+.lifecycle-node.blocked .life-mark { background: #fdeceb; border-color: #f3c9c5; color: #a1372c; }
+.lifecycle-node.blocked .life-label { color: #8f4038; }
+.lifecycle-node.skipped .life-label { text-decoration: line-through; color: #93a3a5; }
+.lifecycle-node.not-applicable { border-top-color: #eef1f1; }
+.lifecycle-node.not-applicable .life-mark { background: #f7f9f9; color: #a9b6b7; border-style: dashed; }
+.lifecycle-node.not-applicable .life-label { color: #93a3a5; font-style: italic; }
+.lifecycle-foot { margin-top: 13px; font-size: 11px; color: var(--muted); }
+
+/* ---------------------------------------------------------------------------
+ * 6. Blocker / stale / provenance notices
+ * ------------------------------------------------------------------------- */
+.notice { border: 1px solid var(--line); border-radius: 11px; padding: 14px 17px; background: white; }
+.notice + .notice { margin-top: 12px; }
+.notice-head { display: flex; align-items: center; gap: 9px; flex-wrap: wrap; }
+.notice-head h3 { font-size: 13px; }
+.notice-body { margin-top: 9px; font-size: 12px; line-height: 1.7; color: #3f5459; }
+.notice-body dl { margin: 0; display: grid; grid-template-columns: max-content 1fr; gap: 5px 14px; }
+.notice-body dt { font-size: 10.5px; text-transform: uppercase; letter-spacing: .7px; color: #7b8f93; padding-top: 2px; }
+.notice-body dd { margin: 0; }
+.notice-body ul { margin: 0; padding-left: 18px; }
+.notice.blocked { border-left: 4px solid #cf7268; background: #fffafa; }
+.notice.stale { border-left: 4px solid #d9a53f; background: #fffcf6; }
+.notice.waiting { border-left: 4px solid #d2a94f; background: #fffdf8; }
+.notice.history { border-left: 4px solid #9aaeb2; background: #fbfcfc; }
+
+/* ---------------------------------------------------------------------------
+ * 7. Empty / no-result / out-of-scope states
+ * ------------------------------------------------------------------------- */
+.state-block {
+  border: 1px dashed #d7e1e0;
+  border-radius: 11px;
+  background: #fbfcfc;
+  padding: 26px 22px;
+  text-align: center;
+}
+.state-block .state-icon { color: #8fa5a4; display: inline-flex; }
+.state-block h3 { font-size: 13px; margin-top: 10px; color: #3b4f55; }
+.state-block p { font-size: 12px; color: var(--muted); margin-top: 6px; max-width: 62ch; margin-left: auto; margin-right: auto; line-height: 1.65; }
+.state-block .state-actions { display: flex; flex-wrap: wrap; gap: 9px; justify-content: center; margin-top: 15px; }
+.state-block.scoped { border-style: solid; border-color: #dfe7e8; background: #f7fafa; }
+
+/* ---------------------------------------------------------------------------
+ * 8. Provenance / review + activity timeline
+ * ------------------------------------------------------------------------- */
+.provenance { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 13px 20px; }
+.provenance > div { min-width: 0; }
+.provenance dt, .provenance .prov-label { font-size: 10.5px; text-transform: uppercase; letter-spacing: .7px; color: #7b8f93; }
+.provenance dd, .provenance .prov-value { margin: 3px 0 0; font-size: 12px; font-weight: 600; color: #3b4f55; overflow-wrap: anywhere; }
+.provenance .prov-value.muted { font-weight: 500; color: var(--muted); }
+
+.timeline-list { list-style: none; margin: 0; padding: 0; }
+.timeline-item .timeline-actor { font-size: 11px; color: var(--muted); }
+.timeline-item .timeline-title { font-size: 12px; font-weight: 600; }
+.timeline-item .timeline-meta { font-size: 10.5px; color: #869799; margin-top: 3px; display: flex; flex-wrap: wrap; gap: 4px 12px; }
+.timeline-item .timeline-reason { font-size: 11.5px; color: #4b6065; margin-top: 5px; }
+.timeline-item .timeline-transition { font-size: 11px; color: var(--muted); margin-top: 4px; }
+
+/* ---------------------------------------------------------------------------
+ * 9. Review panel (who prepared / who must act next)
+ * ------------------------------------------------------------------------- */
+.review-panel { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 14px; }
+.review-panel .review-cell { border: 1px solid var(--line); border-radius: 9px; padding: 12px 14px; background: #fcfdfd; }
+.review-panel .review-cell.attention { border-color: #ecd9b4; background: #fffdf7; }
+.review-panel .review-cell h4 { font-size: 10.5px; text-transform: uppercase; letter-spacing: .7px; color: #7b8f93; }
+.review-panel .review-cell b { display: block; font-size: 12.5px; margin-top: 6px; color: #33484e; }
+.review-panel .review-cell p { font-size: 11px; color: var(--muted); margin-top: 5px; line-height: 1.6; }
+
+/* ---------------------------------------------------------------------------
+ * 10. Cross-module handoff links
+ * ------------------------------------------------------------------------- */
+.handoff-links { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.handoff-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: white;
+  padding: 5px 12px 5px 10px;
+  font-size: 11px;
+  font-weight: 550;
+  color: #3b4f55;
+}
+.handoff-link:hover { border-color: #adcabe; background: #f8fbfa; }
+.handoff-link .handoff-kind { font-size: 10px; text-transform: uppercase; letter-spacing: .6px; color: #8a9c9f; }
+
+/* ---------------------------------------------------------------------------
+ * 11. Metric cards that navigate to their own filtered list
+ * ------------------------------------------------------------------------- */
+.metric { text-align: left; }
+.metric[aria-pressed="true"] { border-color: var(--teal); box-shadow: 0 0 0 3px #12877312; }
+.metric .metric-drill { font-size: 10.5px; color: var(--teal); margin-top: 8px; display: inline-flex; align-items: center; gap: 5px; }
+.metric.unavailable { background: #fbfcfc; }
+.metric.unavailable .metric-value { color: #93a3a5; }
+
+/* Section wrapper that keeps related panels visually grouped. */
+.section-card { border: 1px solid var(--line); border-radius: var(--radius); background: white; overflow: hidden; }
+.section-card > header { padding: 15px 20px; border-bottom: 1px solid var(--line); display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: baseline; justify-content: space-between; }
+.section-card > header h3 { font-size: 13px; }
+.section-card > .section-body { padding: 18px 20px; }
+
+/* Disabled controls still explain themselves. */
+.btn[aria-disabled="true"], .btn.reason-disabled { opacity: .6; }
+.action-reason { font-size: 10.5px; color: var(--muted); margin-top: 4px; }
+
+/* ---------------------------------------------------------------------------
+ * 12. Responsive behaviour for the new primitives
+ * ------------------------------------------------------------------------- */
+@media (max-width: 1000px) {
+  .grid-3, .grid4, .grid-cols-2, .grid-2, .grid2 { grid-template-columns: 1fr; }
+  .lifecycle-node { flex-basis: 128px; min-width: 122px; }
+}
+@media (max-width: 760px) {
+  .page-identity { gap: 4px 10px; }
+  .lifecycle { padding: 14px 15px; }
+  .lifecycle-node { flex-basis: 100%; }
+  .notice-body dl { grid-template-columns: 1fr; gap: 2px; }
+  .notice-body dt { padding-top: 6px; }
+  .provenance { grid-template-columns: 1fr 1fr; }
+  .review-panel { grid-template-columns: 1fr; }
+  .state-block { padding: 20px 15px; }
+}
+@media print {
+  .lifecycle, .notice, .state-block { break-inside: avoid; }
+}

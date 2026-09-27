@@ -9,6 +9,7 @@ import { MODULE_GUIDES, ModuleGuideEntry } from '../../services/moduleGuideConte
 import { prototypeStore } from '../../store/prototypeStore';
 import { isClientRole } from '../../services/guards';
 import { Icon } from '../common/Icons';
+import { ListState } from '../common/Enterprise';
 
 interface ModuleCatalogueViewProps {
   onNavigate: (route: RouteKey, targetId?: string) => void;
@@ -165,6 +166,14 @@ export const ModuleCatalogueView: React.FC<ModuleCatalogueViewProps> = ({ onNavi
               <tr><th>Module</th><th>Workspace</th><th>People involved</th><th>Starting preset</th><th>Action</th></tr>
             </thead>
             <tbody>
+              {MODULE_GUIDES.length === 0 && (
+                <ListState
+                  colSpan={5}
+                  kind="empty"
+                  message="No module guides exist yet"
+                  hint="Guides are derived from the shipped module catalogue; nothing has been recorded for this build."
+                />
+              )}
               {MODULE_GUIDES.map(guide => (
                 <tr key={guide.id} style={guide.id === selected.id ? { background: '#eff6ff' } : undefined}>
                   <td><b>{guide.id}</b> · {guide.name}</td>

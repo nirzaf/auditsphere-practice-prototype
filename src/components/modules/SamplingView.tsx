@@ -7,6 +7,7 @@ import { formatCurrency } from '../../services/calculations';
 import { hasAnyRole, visibleEngagementIds } from '../../services/guards';
 import { parsePopulation, POPULATION_FILE_LIMIT } from '../../services/populationImport';
 import { UnsavedFormGuard } from '../../services/unsavedFormGuard';
+import { ListState } from '../common/Enterprise';
 
 interface SamplingViewProps {
   onNavigate: (route: RouteKey) => void;
@@ -145,6 +146,14 @@ export const SamplingView: React.FC<SamplingViewProps> = ({ onNavigate, onBefore
       </div>
       <div className="panel"><div className="panel-head between"><h3>Population items and test results</h3><span className="caption">Selection and fieldwork are saved in this engagement · Remainder: {population.totalPopulationCount - selected} items / {formatCurrency(population.totalPopulationValue - selectedValue)}</span></div>
         <div className="tablewrap"><table><thead><tr><th>Select</th><th>Selection rationale / reference</th><th>Recorded</th><th>Audited amount</th><th>Difference</th><th>Result</th><th>Testing notes</th><th>Action</th></tr></thead><tbody>
+          {population.items.length === 0 && (
+            <ListState
+              colSpan={8}
+              kind="empty"
+              message="No population records exist for this engagement yet"
+              hint="Import a population file or define the population frame for this engagement; items appear here once the frame is loaded and reconciled."
+            />
+          )}
           {population.items.map(item => <tr key={item.id} data-sample-item={item.id}>
             <td><input aria-label={`Select ${item.itemRef}`} type="checkbox" checked={Boolean(item.selected)} disabled={!frameReconciled} onChange={event => run(() => prototypeStore.setSampleItemSelected(population.id, item.id, event.target.checked, event.currentTarget.closest('tr')?.querySelector<HTMLTextAreaElement>('[data-selection-rationale]')?.value || ''))} /></td>
             <td><textarea className="input" data-sample-draft="rationale" data-selection-rationale rows={2} defaultValue={item.selectionRationale || ''} disabled={!frameReconciled || item.selected} aria-label={`Selection rationale ${item.itemRef}`} placeholder="Why this item was selected" /><b>{item.itemRef}</b><div className="cell-sub">{item.date} · {item.counterparty}</div></td>

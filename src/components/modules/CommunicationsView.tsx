@@ -6,6 +6,7 @@ import { hasAnyRole } from '../../services/guards';
 import { Icon } from '../common/Icons';
 import { UnsavedFormGuard } from '../../services/unsavedFormGuard';
 
+import { StatusBadge } from '../common/Enterprise';
 interface CommunicationsViewProps {
   onNavigate: (route: RouteKey) => void;
   onRegisterUnsavedForm?: (guard: UnsavedFormGuard | null, key?: string) => void;
@@ -231,7 +232,7 @@ export const CommunicationsView: React.FC<CommunicationsViewProps> = ({ onNaviga
                     {comm.direction} · {comm.channel}
                   </span>
                   <span className={`badge ${comm.status === 'Simulated accepted' ? 'green' : 'amber'}`}>
-                    {comm.status}
+                    <StatusBadge status={comm.status} />
                   </span>
                 </div>
               </div>

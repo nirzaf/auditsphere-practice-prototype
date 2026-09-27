@@ -106,6 +106,27 @@ export type RouteKey =
   | 'module-guide'
   | 'requirements';
 
+/**
+ * Exhaustive route list, typed against the union above so adding a RouteKey
+ * without registering it fails type checking. Shared UI layers (lifecycle
+ * models, the route registry and the static UX harness) iterate this instead of
+ * hand-maintaining their own copy.
+ */
+export const ROUTE_KEYS = [
+  'overview', 'clients', 'client-detail', 'acquisition', 'proposals', 'engagements', 'jobs',
+  'job-templates', 'documents', 'communications', 'my-time', 'budgets', 'billing', 'receivables',
+  'accounting-setup', 'trial-balance', 'gl-transactions', 'account-mappings', 'adjustments',
+  'reconciliations', 'financial-statements', 'financial-packages', 'consolidation', 'onboarding',
+  'audit-planning', 'audit-risks', 'audit-fieldwork', 'sampling', 'audit', 'evidence', 'findings',
+  'reviews', 'approvals', 'quality', 'delivery', 'records', 'reports', 'administration',
+  'm365-setup', 'portal', 'services', 'role-guide', 'module-guide', 'requirements'
+] as const satisfies readonly RouteKey[];
+
+/** True only when ROUTE_KEYS lists every RouteKey, so the list can never drift. */
+type MissingRouteKey = Exclude<RouteKey, typeof ROUTE_KEYS[number]>;
+const ROUTE_KEYS_ARE_EXHAUSTIVE: MissingRouteKey extends never ? true : never = true;
+void ROUTE_KEYS_ARE_EXHAUSTIVE;
+
 // Module 02: Clients & CRM
 export interface ClientContactSnapshot {
   name: string;
