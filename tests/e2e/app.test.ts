@@ -399,7 +399,9 @@ describe('actual Chrome browser acceptance', { concurrency: false }, () => {
   });
 
   it('UIX-06: workflow progress tracker stays usable at 390/1024/1440 and navigates by keyboard', async () => {
+    let hashBefore = '';
     try {
+      hashBefore = await browserTab!.evaluate<string>('location.hash');
       // Navigate to a stateful module screen via the sidebar (billing has a multi-step lifecycle).
       const billingNav = await browserTab!.evaluate<boolean>(`(() => {
         const nav=[...document.querySelectorAll('#primary-navigation .navitem, .sidebar button, .mobile-menu button')]
@@ -442,7 +444,6 @@ describe('actual Chrome browser acceptance', { concurrency: false }, () => {
       // Keyboard: focus a clickable step, press Enter, and the app navigates to its target route.
       await browserTab!.command('Emulation.clearDeviceMetricsOverride', {});
       assert.equal(await waitForBrowser(`document.querySelectorAll('.wp-stepper .wp-step.is-clickable').length>0`), true, 'at least one clickable step exists');
-      const hashBefore = await browserTab!.evaluate<string>('location.hash');
       let navigatedByKeyboard = false;
       const clickableCount = await browserTab!.evaluate<number>(`document.querySelectorAll('.wp-stepper .wp-step.is-clickable').length`);
       for (let index = 0; index < clickableCount && !navigatedByKeyboard; index++) {
@@ -461,6 +462,11 @@ describe('actual Chrome browser acceptance', { concurrency: false }, () => {
       assert.notEqual(await browserTab!.evaluate<string>('location.hash'), hashBefore);
     } finally {
       await browserTab!.command('Emulation.clearDeviceMetricsOverride', {});
+      // Restore the pre-test route and drop focus so subsequent keyboard tests
+      // (skip-link reveal) start from a clean, top-of-document state.
+      await browserTab!.evaluate(`location.hash = '${hashBefore}'`);
+      await waitForBrowser(`location.hash === '${hashBefore}'`, 4000);
+      await browserTab!.evaluate('if(document.activeElement&&document.activeElement!==document.body)document.activeElement.blur()');
     }
   });
 

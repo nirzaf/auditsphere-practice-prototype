@@ -584,7 +584,7 @@ Remaining limitations of the UX layer (intentional or not yet done — not claim
 - **Work queues are projections, not a workflow engine**: no assignment rules, reminders, scheduling or
   notifications. Sign-off items in "Waiting for my review" only indicate that the assigned approver's sign-off
   for the current generation is outstanding; the store still decides whether it can be recorded.
-- **History timelines** are shown for invoices, workpapers, adjustment journals and review points; other records keep their existing history lists or the engagement event log.
+- **History timelines** render through the shared `ActivityTimeline` for invoices, workpapers, adjustment journals, review points and lead/opportunity stage history; other records keep their existing history lists or the engagement event log.
 - **"What changed since last review" is implemented for workpapers only**, as deterministic field differences
   against the last clearance or submission; other review-driven records show their revision history instead.
 - **SoD-protected actions stay clickable** and show an explanation beforehand; the enforced store denial remains
@@ -592,9 +592,10 @@ Remaining limitations of the UX layer (intentional or not yet done — not claim
   can never perform them (engagement creation, review-point raising, job creation).
 - **Scenario context in the context bar** is derived from the retained local event log ("Loaded scenario
   preset"), not a stored field; after many later events it falls back to "Default baseline".
-- **Form validation** remains store-authored: guard/validation errors are shown as notices beside the failed action (inside the dialog for dialog forms, e.g. engagement create/edit). Field-by-field inline validation was not added across all forms.
+- **Form validation** remains store-authored: guard/validation errors are shown as notices beside the failed action, and the finding form adds submit-attempt inline field errors (`.field-error`, `role=alert`, `aria-invalid`) for its required title. Field-by-field inline validation is not yet wired into every remaining dialog form.
 - **Accessibility** is practical, not certified: status text + glyph (never colour alone), `aria-pressed` tabs,
-  `aria-current` lifecycle steps, keyboard-operable selectable rows and scenario presets, and the existing
+  `aria-current` lifecycle steps, keyboard-operable selectable rows, scenario presets and workflow steps
+  (UIX-06 exercises 390/1024/1440 responsiveness plus Enter-to-navigate on stepper steps), and the existing
   dialog focus-trap contract. No automated WCAG scanner was run and screen-reader testing was not performed.
 - **Journeys A–F** (client-to-engagement, PBC, accounting, audit, billing, consolidation) are demonstrated by
   executed test segments; no single automated test walks an entire journey end to end.
