@@ -1598,6 +1598,7 @@ class PrototypeStore {
     const job = task && this.state.jobs.find(item => item.id === task.jobId);
     if (!document || !task || !job || document.clientId !== job.clientId || document.engagementId !== job.engagementId) throw new GuardError('INVALID_STATE', 'Task file must be a registered document in the same client and engagement.');
     requireEngagementScope(this.state, job.engagementId, 'records');
+    if (document.brokenLink) throw new GuardError('INVALID_STATE', 'An unavailable document reference cannot be linked to a task. Restore it first.');
     if (document.linkedTaskId === taskId) return;
     if (document.linkedTaskId) throw new GuardError('INVALID_STATE', 'Unlink the document from its current task before linking it elsewhere.');
     document.linkedTaskId = taskId;
@@ -1633,6 +1634,8 @@ class PrototypeStore {
     if (typeof reason !== 'string' || !reason.trim()) throw new GuardError('INVALID_STATE', 'A reason is required to change client document sharing.');
     const next = shared ? 'Client shared' : 'Internal';
     if (document.visibility === next) throw new GuardError('INVALID_STATE', `Document is already ${shared ? 'shared with the client' : 'internal'}.`);
+    // Withdrawal stays possible; a new client exposure needs an available file.
+    if (shared && document.brokenLink) throw new GuardError('INVALID_STATE', 'An unavailable document reference cannot be shared with the client. Restore it first.');
     document.sharingHistory ||= [];
     document.sharingHistory.push({ from: document.visibility, to: next, by: this.state.currentPerson, byUserId: this.state.currentUserId, at: new Date().toISOString(), reason: reason.trim() });
     document.visibility = next;

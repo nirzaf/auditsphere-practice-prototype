@@ -2124,6 +2124,56 @@ describe('actual Chrome browser acceptance', { concurrency: false }, () => {
     assert.deepEqual(browserTab!.exceptions, []);
   });
 
+  it('VP-001-AC02/VP-002-AC03/VP-061-AC04: historical scope view is non-actionable; repeated navigation keeps one app root and one command effect; search text never executes', async () => {
+    const key = 'ste-auditsphere-role-portals-v2';
+    await browserTab!.evaluate(`localStorage.setItem('${key}',${JSON.stringify(JSON.stringify(createInitialState()))})`);
+    await browserTab!.command('Page.reload');
+    assert.equal(await waitForBrowser('!!document.querySelector("#role-select")'), true);
+    await browserTab!.evaluate(`(() => {const r=document.querySelector('#role-select');Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype,'value').set.call(r,'manager');r.dispatchEvent(new Event('change',{bubbles:true}));})()`);
+    assert.equal(await waitForBrowser(`JSON.parse(localStorage.getItem('${key}')).currentRole==='manager'`), true);
+    const business = `(() => {const s=JSON.parse(localStorage.getItem('${key}'));return JSON.stringify([s.clients,s.engagements,s.jobs,s.jobTasks,s.times,s.invoices,s.receipts,s.documents,s.communications,s.findings,s.proposals]);})()`;
+    // VP-001-AC02: the requirements/history view discloses the scope boundary and only navigates.
+    const before = await browserTab!.evaluate<string>(business);
+    await clickButtonStartingWith('Requirements & PRD');
+    const text = await browserTab!.evaluate<string>(`document.querySelector('main#main')?.innerText||''`);
+    assert.match(text, /Prototype Scope Boundary & Exclusions Disclosure/);
+    assert.match(text, /strictly excludes \(hard exclusion, not offered\)/);
+    const actions = await browserTab!.evaluate<string[]>(`[...new Set([...document.querySelectorAll('main#main button')].map(b=>b.innerText.trim()))]`);
+    assert.deepEqual(actions.filter(label => !['Open', 'Acceptance User Stories (VP-001 to VP-064)', '39 Functional Modules Traceability Matrix'].includes(label)), [], `historical view offers only navigation controls: ${actions.join(', ')}`);
+    await browserTab!.evaluate(`[...document.querySelectorAll('main#main button')].find(b=>b.innerText.trim()==='Open').click()`);
+    await new Promise(resolve => setTimeout(resolve, 200));
+    assert.equal(await browserTab!.evaluate<string>(business), before, 'opening a historical story reference changes no business record');
+    // VP-002-AC03: two full passes through every visible route keep exactly one root, one persona control and no stray dialogs.
+    const routes = await browserTab!.evaluate<string[]>(`[...document.querySelectorAll('nav button.navitem')].map(b=>b.innerText.trim().split('\\n')[0])`);
+    assert.ok(routes.length >= 20, `staff navigation offers the workspace routes: ${routes.length}`);
+    for (let pass = 0; pass < 2; pass++) {
+      for (const label of routes) {
+        await browserTab!.evaluate(`[...document.querySelectorAll('nav button.navitem')].find(b=>b.innerText.trim().split('\\n')[0]===${JSON.stringify(label)})?.click()`);
+        await new Promise(resolve => setTimeout(resolve, 60));
+      }
+    }
+    assert.deepEqual(await browserTab!.evaluate<number[]>(`[document.querySelectorAll('#app-root').length, document.querySelectorAll('#role-select').length, document.querySelectorAll('main#main').length, document.querySelectorAll('.modal-backdrop, .modal-overlay').length]`), [1, 1, 1, 0], 'repeated mounting keeps one root, one persona control, one main region and no orphaned dialogs');
+    assert.equal(await browserTab!.evaluate<string>(business), before, 'navigation alone writes no business record');
+    // One command after repeated mounting executes exactly once.
+    await clickButton('Time Tracking');
+    const timesBefore = await browserTab!.evaluate<number>(`JSON.parse(localStorage.getItem('${key}')).times.length`);
+    await clickButton('Record Time Entry');
+    assert.equal(await browserTab!.evaluate<number>(`document.querySelectorAll('.modal-backdrop').length`), 1, 'one click opens one dialog');
+    await browserTab!.evaluate(`(() => {const f=document.querySelector('.modal-backdrop form');f.requestSubmit();})()`);
+    assert.equal(await waitForBrowser(`JSON.parse(localStorage.getItem('${key}')).times.length===${timesBefore + 1}`), true, 'the submitted entry is recorded');
+    await new Promise(resolve => setTimeout(resolve, 300));
+    assert.equal(await browserTab!.evaluate<number>(`JSON.parse(localStorage.getItem('${key}')).times.length`), timesBefore + 1, 'the command executed exactly once despite repeated mounts');
+    // VP-061-AC04: markup typed into search is inert text.
+    await browserTab!.evaluate(`document.querySelector('.search-trigger')?.click()`);
+    assert.equal(await waitForBrowser('!!document.querySelector(".global-search-dialog input")'), true);
+    await browserTab!.evaluate(`(() => {window.__vp061=0;const input=document.querySelector('.global-search-dialog input');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(input,'<img src=x onerror="window.__vp061=1"><script>window.__vp061=2</script>');input.dispatchEvent(new Event('input',{bubbles:true}));})()`);
+    await new Promise(resolve => setTimeout(resolve, 200));
+    assert.equal(await browserTab!.evaluate<number>('window.__vp061'), 0, 'search markup is not executed');
+    assert.equal(await browserTab!.evaluate<boolean>(`document.querySelector('.global-search-dialog img, .global-search-dialog script')===null`), true, 'search creates no element from typed markup');
+    await browserTab!.evaluate(`document.activeElement.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}))`);
+    assert.deepEqual(browserTab!.exceptions, []);
+  });
+
   it('Superuser can open every product navigation area and preview a client-role projection', async () => {
     const original = await browserTab!.evaluate<string | null>(`localStorage.getItem('ste-auditsphere-role-portals-v2')`);
     try {

@@ -1,0 +1,3746 @@
+{
+ "schema": "criterion-map-v1",
+ "note": "Reviewed criterion -> executed test mapping (VP-063-E01). Tests are matched by exact title; templated titles cover every expansion. *SUITE* means the whole recorded run.",
+ "criteria": {
+  "VP-001-AC01": {
+   "tests": [
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "AT-04: served bundle advertises no excluded product surface"
+    },
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "AT-01/AT-03/AT-04: renders the app, keeps controls local, and presents scope disclosures"
+    },
+    {
+     "file": "tests/unit/scope.test.ts",
+     "name": "scans all src target-facing code"
+    },
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "VP-003-AC04: gives every active role fixture labeled navigation only to policy-allowed routes"
+    },
+    {
+     "file": "tests/unit/scope.test.ts",
+     "name": "M365 config keeps liveConnected=false and offers no Purview control"
+    }
+   ],
+   "basis": "Bundle/UI/nav scans show no excluded module as available or setup/prerequisite"
+  },
+  "VP-001-AC02": {
+   "tests": [
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "VP-001-AC02/VP-002-AC03/VP-061-AC04: historical scope view is non-actionable; repeated navigation keeps one app root and one command effect; search text never executes"
+    },
+    {
+     "file": "tests/unit/scope.test.ts",
+     "name": "scans all src target-facing code"
+    }
+   ],
+   "basis": "Requirements view shows the exclusion disclosure and offers only navigation; allowlist scan"
+  },
+  "VP-001-AC03": {
+   "tests": [
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "AT-23/AT-24: creates a PBC request, receives a replacement after clarification, then accepts it independently"
+    },
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "VP-055: requires an independent response review and reopens after workpaper revision"
+    },
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "AT-41/AT-42/AT-48 (VP-041-AC04, VP-042-AC01–AC03): saves exact generated package artifacts and verifies failure cleanup and revision history"
+    },
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "AT-38: routes a new adjustment through independent technical review and client acceptance"
+    },
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "AT-53: opens every staff navigation route in Chrome without a render exception"
+    }
+   ],
+   "basis": "PBC, workpaper review, adjustment approval and release journeys remain reachable and pass"
+  },
+  "VP-001-AC04": {
+   "tests": [
+    {
+     "file": "tests/unit/scope.test.ts",
+     "name": "scans all src target-facing code"
+    },
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "AT-04: served bundle advertises no excluded product surface"
+    },
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "AT-53: opens every staff navigation route in Chrome without a render exception"
+    }
+   ],
+   "basis": "Source/bundle scan with explicit allowlist plus route sweep"
+  },
+  "VP-002-AC01": {
+   "tests": [
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "AT-52: carries manually entered client data through engagement, job, mapped statements and a persisted package"
+    },
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "AT-37 (VP-040-AC01–AC04, VP-041-AC01): independently approves mappings, builds/reviews configurable statements, and rejects unsupported output"
+    },
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "VP-050-AC01–AC04: persists procedure fieldwork, exceptions, history and independent clearance"
+    }
+   ],
+   "basis": "Records created/updated in one view are read by accounting/statement/workpaper views by ID without reload"
+  },
+  "VP-002-AC02": {
+   "tests": [
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "AT-52: carries manually entered client data through engagement, job, mapped statements and a persisted package"
+    },
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "AT-28: records, returns, resubmits and corrects approved time as retained revisions"
+    },
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "VP-001-AC02/VP-002-AC03/VP-061-AC04: historical scope view is non-actionable; repeated navigation keeps one app root and one command effect; search text never executes"
+    }
+   ],
+   "basis": "Single store: commands persist one revision and update subscribed views once"
+  },
+  "VP-002-AC03": {
+   "tests": [
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "VP-001-AC02/VP-002-AC03/VP-061-AC04: historical scope view is non-actionable; repeated navigation keeps one app root and one command effect; search text never executes"
+    },
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "VP-002-AC04: redirects former hash routes and supports browser back navigation"
+    },
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "AT-53: opens every staff navigation route in Chrome without a render exception"
+    }
+   ],
+   "basis": "Two full route passes keep one root/controls/no stray dialogs; one command executes once"
+  },
+  "VP-002-AC04": {
+   "tests": [
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "VP-002-AC04: redirects former hash routes and supports browser back navigation"
+    }
+   ],
+   "basis": "Test title names this criterion; assertions reviewed in the tagged test."
+  },
+  "VP-003-AC01": {
+   "tests": [
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "VP-003-AC01: blocks a restored engagement selection outside the active grant"
+    },
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "VP-003-AC01: blocks a restored engagement when the user has only a different client grant"
+    },
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "VP-003-AC01: keeps every engagement-context route behind the unavailable-state guard"
+    },
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "VP-003-AC01: blocks restored engagement context for every staff role that can open Financial Statements"
+    },
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "VP-003-AC01: blocks a restored engagement after its grant has expired"
+    },
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "VP-003-AC01: blocks a restored engagement before its grant becomes effective"
+    },
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "VP-003-AC01: keeps a consolidation-group grant out of engagement workspaces"
+    }
+   ],
+   "basis": "Test title names this criterion; assertions reviewed in the tagged test."
+  },
+  "VP-003-AC02": {
+   "tests": [
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "VP-003-AC02: guards an unsaved client contact across persona changes"
+    },
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "VP-003-AC02: guards a commercial inquiry draft across route changes"
+    },
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "VP-003-AC02: guards client profile drafts across route changes"
+    },
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "VP-003-AC02: guards a client PBC request draft across route changes"
+    },
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "VP-003-AC02: guards PBC clarification and edit drafts across route changes"
+    },
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "VP-003-AC02: protects consolidation output drafts during global engagement-context changes"
+    },
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "VP-003-AC02: guards proposal, invoice, cash-flow and package drafts across route changes"
+    }
+   ],
+   "basis": "Test title names this criterion; assertions reviewed in the tagged test."
+  },
+  "VP-003-AC03": {
+   "tests": [
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "VP-003-E01: Escape dismisses the finding, budget-authoring and adjustment-proposal modals without creating records"
+    },
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "VP-003-E01: Escape and backdrop never silently drop an edited dialog across the direct-discard dialog families"
+    },
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "VP-003-E01: global search traps keyboard focus and dismisses without persisting its draft"
+    },
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "VP-003-E01: scenario chooser dismisses without loading or changing demo state"
+    },
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "VP-003-E01: checks accessible keyboard behavior across distinct dialogs opened in the Chrome journeys"
+    }
+   ],
+   "basis": "Keyboard open/edit/dismiss with focus trap and focus return to opener"
+  },
+  "VP-003-AC04": {
+   "tests": [
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "VP-003-AC04: gives every active role fixture labeled navigation only to policy-allowed routes"
+    },
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "VP-003-AC04: verifies direct-route capability boundaries and role fixtures for non-sidebar workspaces"
+    },
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "VP-003-AC04: withholds whole-state recovery controls from client personas"
+    }
+   ],
+   "basis": "Test title names this criterion; assertions reviewed in the tagged test."
+  },
+  "VP-004-AC01": {
+   "tests": [
+    {
+     "file": "tests/unit/guards.test.ts",
+     "name": "migrates legacy payloads deterministically and preserves history"
+    },
+    {
+     "file": "tests/unit/guards.test.ts",
+     "name": "upgrades each persisted schema revision through current v29 without losing histories"
+    },
+    {
+     "file": "tests/unit/lifecycleGaps.test.ts",
+     "name": "migrates the genuine schema-5 historical seed from commit f5f4f78 with integrity"
+    }
+   ],
+   "basis": "Legacy/genuine schema-5 payloads migrate with histories retained"
+  },
+  "VP-004-AC02": {
+   "tests": [
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "AT-02: preserves malformed saved state and offers a recoverable demo session"
+    },
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "VP-004: preserves a future-schema payload and restores a validated import"
+    },
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "VP-004/v29: recovers a damaged current-schema seeded invoice without overwriting the source payload"
+    },
+    {
+     "file": "tests/unit/guards.test.ts",
+     "name": "keeps prior acceptance decisions as history but removes unsupported active authority"
+    }
+   ],
+   "basis": "Malformed/future/ambiguous state preserved with recovery guidance"
+  },
+  "VP-004-AC03": {
+   "tests": [
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "AT-02/AT-54: preserves conflicts and reports browser-storage failure without silent overwrite"
+    }
+   ],
+   "basis": "Storage denial shows session-only; stale second tab cannot overwrite"
+  },
+  "VP-004-AC04": {
+   "tests": [
+    {
+     "file": "tests/unit/guards.test.ts",
+     "name": "seed fixtures pass integrity with no broken references"
+    },
+    {
+     "file": "tests/unit/guards.test.ts",
+     "name": "rejects inline binary payloads in persisted state"
+    },
+    {
+     "file": "tests/unit/guards.test.ts",
+     "name": "rejects broken references, invalid dates, real user emails and inconsistent control totals"
+    },
+    {
+     "file": "tests/unit/guards.test.ts",
+     "name": "rejects reversed accounting period dates"
+    }
+   ],
+   "basis": "Fixture integrity rejects broken refs, bad dates, real emails, binaries, bad totals"
+  },
+  "VP-005-AC01": {
+   "tests": [
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "VP-005: scopes dashboard records, metrics, attention and activity to the active grant"
+    }
+   ],
+   "basis": "Counters and drill-down rows reconcile and recalculate after filter/as-of changes"
+  },
+  "VP-005-AC02": {
+   "tests": [
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "VP-005: scopes dashboard records, metrics, attention and activity to the active grant"
+    },
+    {
+     "file": "tests/unit/guards.test.ts",
+     "name": "global manager sees all; narrow group user sees one engagement only"
+    },
+    {
+     "file": "tests/unit/guards.test.ts",
+     "name": "sibling engagement ENG-26003 is hidden from the narrow ENG-26001 grant"
+    }
+   ],
+   "basis": "Narrow grant excludes sibling engagement/client counts and activity"
+  },
+  "VP-005-AC03": {
+   "tests": [
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "VP-005: scopes dashboard records, metrics, attention and activity to the active grant"
+    }
+   ],
+   "basis": "Overdue uses as-of date, excludes completed items; boundary date recalculates"
+  },
+  "VP-005-AC04": {
+   "tests": [
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "VP-005: scopes dashboard records, metrics, attention and activity to the active grant"
+    }
+   ],
+   "basis": "Each headline metric opens its filtered working list"
+  },
+  "VP-006-AC01": {
+   "tests": [
+    {
+     "file": "tests/unit/guards.test.ts",
+     "name": "creates and revision-checks client profiles without changing linked identity or accounting data"
+    },
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "AT-05/AT-06: creates a client, primary contact, typed value and non-authorizing relationship group"
+    }
+   ],
+   "basis": "Profile save/edit keeps one client ID across lists and links"
+  },
+  "VP-006-AC02": {
+   "tests": [
+    {
+     "file": "tests/unit/guards.test.ts",
+     "name": "duplicate normalized client codes are rejected"
+    },
+    {
+     "file": "tests/unit/guards.test.ts",
+     "name": "creates and revision-checks client profiles without changing linked identity or accounting data"
+    }
+   ],
+   "basis": "Duplicate normalized code rejected; similar name returns a warning"
+  },
+  "VP-006-AC03": {
+   "tests": [
+    {
+     "file": "tests/unit/guards.test.ts",
+     "name": "blocks new active work for suspended and archived clients while preserving draft work"
+    },
+    {
+     "file": "tests/unit/guards.test.ts",
+     "name": "soft-archives an established client without changing engagement, invoice or evidence references"
+    }
+   ],
+   "basis": "Suspended/archived client blocks new active work; history retained"
+  },
+  "VP-006-AC04": {
+   "tests": [
+    {
+     "file": "tests/unit/guards.test.ts",
+     "name": "creates and revision-checks client profiles without changing linked identity or accounting data"
+    },
+    {
+     "file": "tests/unit/guards.test.ts",
+     "name": "client list and create commands require the active Global client grant"
+    },
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "AT-05/AT-06: creates a client, primary contact, typed value and non-authorizing relationship group"
+    }
+   ],
+   "basis": "Stale revision, missing name, invalid values and unauthorized owner rejected atomically"
+  },
+  "VP-007-AC01": {
+   "tests": [
+    {
+     "file": "tests/unit/guards.test.ts",
+     "name": "validates custom values, keeps contacts non-authorizing and relationship groups outside access grants"
+    },
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "AT-05/AT-06: creates a client, primary contact, typed value and non-authorizing relationship group"
+    }
+   ],
+   "basis": "Primary contact switching clears previous; inactive contact loses/cannot take primary"
+  },
+  "VP-007-AC02": {
+   "tests": [
+    {
+     "file": "tests/unit/guards.test.ts",
+     "name": "validates custom values, keeps contacts non-authorizing and relationship groups outside access grants"
+    },
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "AT-05/AT-06: creates a client, primary contact, typed value and non-authorizing relationship group"
+    }
+   ],
+   "basis": "Relationship group grants no sibling access and creates no consolidation group"
+  },
+  "VP-007-AC03": {
+   "tests": [
+    {
+     "file": "tests/unit/guards.test.ts",
+     "name": "validates custom values, keeps contacts non-authorizing and relationship groups outside access grants"
+    },
+    {
+     "file": "tests/unit/guards.test.ts",
+     "name": "records a client administrator nomination for staff review without creating an identity, contact or access grant"
+    },
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "VP-025-E01: client nominations are review requests, not identities, grants or management approvals"
+    }
+   ],
+   "basis": "Contact creation/nomination creates no login, authority or role"
+  },
+  "VP-007-AC04": {
+   "tests": [
+    {
+     "file": "tests/unit/guards.test.ts",
+     "name": "validates custom values, keeps contacts non-authorizing and relationship groups outside access grants"
+    },
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "AT-05/AT-06: creates a client, primary contact, typed value and non-authorizing relationship group"
+    }
+   ],
+   "basis": "Typed custom values validate; disabled field keeps history"
+  },
+  "VP-008-AC01": {
+   "tests": [
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "VP-008-E01: preserves filtered portfolio and exact engagement context across two client workspaces"
+    },
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "AT-05/AT-06: creates a client, primary contact, typed value and non-authorizing relationship group"
+    }
+   ],
+   "basis": "Client 360 tabs project the same client with engagement restrictions"
+  },
+  "VP-008-AC02": {
+   "tests": [
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "VP-008-E01: preserves filtered portfolio and exact engagement context across two client workspaces"
+    },
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "VP-003-AC02: guards a client PBC request draft across route changes"
+    },
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "AT-23/AT-24: creates a PBC request, receives a replacement after clarification, then accepts it independently"
+    }
+   ],
+   "basis": "Creating from the workspace preselects client/engagement and appears in module register"
+  },
+  "VP-008-AC03": {
+   "tests": [
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "F01: search hides sibling-engagement and role-denied metadata before type projection"
+    },
+    {
+     "file": "tests/unit/lifecycleGaps.test.ts",
+     "name": "search read-access follows persona and grant across record types (VP-061-E02)"
+    },
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "VP-005: scopes dashboard records, metrics, attention and activity to the active grant"
+    }
+   ],
+   "basis": "Unauthorized totals/snippets/recent items are omitted before projection"
+  },
+  "VP-008-AC04": {
+   "tests": [
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "VP-008-E01: preserves filtered portfolio and exact engagement context across two client workspaces"
+    },
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "VP-002-AC04: redirects former hash routes and supports browser back navigation"
+    },
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "VP-003-AC01: blocks a restored engagement selection outside the active grant"
+    }
+   ],
+   "basis": "Back/forward/direct links restore context safely; unavailable state for denied targets"
+  },
+  "VP-009-AC01": {
+   "tests": [
+    {
+     "file": "tests/unit/guards.test.ts",
+     "name": "converts only won opportunities to non-authorizing prospect records once"
+    },
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "AT-07/AT-08: registers an opportunity, drafts a proposal and presents only after independent review"
+    }
+   ],
+   "basis": "Won opportunity converts once to a linked prospect with history"
+  },
+  "VP-009-AC02": {
+   "tests": [
+    {
+     "file": "tests/unit/guards.test.ts",
+     "name": "requires a loss reason and retains opportunity stage history"
+    }
+   ],
+   "basis": "Loss reason required; record retained and excluded from open pipeline"
+  },
+  "VP-009-AC03": {
+   "tests": [
+    {
+     "file": "tests/unit/guards.test.ts",
+     "name": "converts only won opportunities to non-authorizing prospect records once"
+    }
+   ],
+   "basis": "Links existing client without duplicate; no acceptance/activation"
+  },
+  "VP-009-AC04": {
+   "tests": [
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "AT-07/AT-08: registers an opportunity, drafts a proposal and presents only after independent review"
+    },
+    {
+     "file": "tests/unit/guards.test.ts",
+     "name": "converts only won opportunities to non-authorizing prospect records once"
+    }
+   ],
+   "basis": "Open fee totals split by currency; invalid fee and cross-client proposal rejected"
+  },
+  "VP-010-AC01": {
+   "tests": [
+    {
+     "file": "tests/unit/guards.test.ts",
+     "name": "revises supported service and proposal templates without rewriting copied proposal defaults"
+    },
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "VP-010-E01: authors reusable service/template defaults and prints a complete branded proposal preview"
+    }
+   ],
+   "basis": "Template/service defaults copied once and editable without changing source"
+  },
+  "VP-010-AC02": {
+   "tests": [
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "VP-010-E01: authors reusable service/template defaults and prints a complete branded proposal preview"
+    },
+    {
+     "file": "tests/unit/guards.test.ts",
+     "name": "requires independent review before presentation and preserves the exact presented revision"
+    }
+   ],
+   "basis": "Line/overall totals reconcile; missing scope/currency/invalid period blocked"
+  },
+  "VP-010-AC03": {
+   "tests": [
+    {
+     "file": "tests/unit/lifecycleGaps.test.ts",
+     "name": "a presented proposal revision keeps its presented snapshot across return and re-present (VP-010-E02)"
+    },
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "AT-58/VP-010-E02: returns, revises and redisplays a proposal without rewriting the earlier presented snapshot"
+    },
+    {
+     "file": "tests/unit/guards.test.ts",
+     "name": "requires independent review before presentation and preserves the exact presented revision"
+    }
+   ],
+   "basis": "Editing after review/presentation invalidates review and retains snapshot"
+  },
+  "VP-010-AC04": {
+   "tests": [
+    {
+     "file": "tests/unit/scope.test.ts",
+     "name": "scans all src target-facing code"
+    },
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "VP-010-E01: authors reusable service/template defaults and prints a complete branded proposal preview"
+    },
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "AT-04: served bundle advertises no excluded product surface"
+    }
+   ],
+   "basis": "Catalogue/preview contain no excluded options (scan + preview)"
+  },
+  "VP-011-AC01": {
+   "tests": [
+    {
+     "file": "tests/unit/reproduction_register.test.ts",
+     "name": "RR20 (VP-011): Same-person proposal approval is blocked"
+    },
+    {
+     "file": "tests/unit/guards.test.ts",
+     "name": "EX13: Proposal prevents self approval"
+    },
+    {
+     "file": "tests/unit/guards.test.ts",
+     "name": "a person cannot approve their own proposal, time, workpaper or review point"
+    }
+   ],
+   "basis": "Same-person commercial approval denied across role labels"
+  },
+  "VP-011-AC02": {
+   "tests": [
+    {
+     "file": "tests/unit/lifecycleGaps.test.ts",
+     "name": "records Email, Meeting and Letter responses with evidence, then withdraws and re-records (VP-011-E01/E02)"
+    },
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "AT-09: client records a presented proposal response with evidence without auto-creating an engagement"
+    },
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "AT-56: staff records a dated withdrawn client response with active contact and correspondence evidence"
+    }
+   ],
+   "basis": "Response retains actor/contact/date/method/revision/evidence"
+  },
+  "VP-011-AC03": {
+   "tests": [
+    {
+     "file": "tests/unit/guards.test.ts",
+     "name": "requires client response evidence and does not create an engagement"
+    },
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "AT-09: client records a presented proposal response with evidence without auto-creating an engagement"
+    },
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "AT-10: creates a draft once from accepted proposal terms then requires partner activation evidence"
+    }
+   ],
+   "basis": "Acceptance creates no engagement/job/invoice/client approval"
+  },
+  "VP-011-AC04": {
+   "tests": [
+    {
+     "file": "tests/unit/guards.test.ts",
+     "name": "requires client response evidence and does not create an engagement"
+    },
+    {
+     "file": "tests/unit/lifecycleGaps.test.ts",
+     "name": "records Email, Meeting and Letter responses with evidence, then withdraws and re-records (VP-011-E01/E02)"
+    }
+   ],
+   "basis": "Response to a superseded revision rejected as current acceptance"
+  },
+  "VP-012-AC01": {
+   "tests": [
+    {
+     "file": "tests/unit/guards.test.ts",
+     "name": "creates one draft per accepted proposal and requires partner evidence to activate"
+    },
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "AT-10: creates a draft once from accepted proposal terms then requires partner activation evidence"
+    }
+   ],
+   "basis": "One draft per accepted proposal; repeat does not duplicate"
+  },
+  "VP-012-AC02": {
+   "tests": [
+    {
+     "file": "tests/unit/guards.test.ts",
+     "name": "creates one draft per accepted proposal and requires partner evidence to activate"
+    },
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "AT-10: creates a draft once from accepted proposal terms then requires partner activation evidence"
+    }
+   ],
+   "basis": "Activation requires partner decision evidence; no fabricated evidence or live M365"
+  },
+  "VP-012-AC03": {
+   "tests": [
+    {
+     "file": "tests/unit/guards.test.ts",
+     "name": "blocks representative professional outputs across work, accounting, audit and delivery commands in every inactive lifecycle state"
+    },
+    {
+     "file": "tests/unit/guards.test.ts",
+     "name": "requires rationale, blocks professional work, keeps billing and records available, and preserves terminal history"
+    },
+    {
+     "file": "tests/unit/terminalStateInventory.test.ts",
+     "name": "classifies every public store command exactly once"
+    },
+    {
+     "file": "tests/unit/terminalStateInventory.test.ts",
+     "name": "routes every professional command through a lifecycle guard"
+    },
+    {
+     "file": "tests/unit/terminalStateInventory.test.ts",
+     "name": "keeps billing and records families on their non-professional scope"
+    },
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "VP-012-E02: cancels an engagement terminally with reasoned history, retained outputs and reload persistence"
+    },
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "VP-012: suspends and resumes an engagement with reasoned persisted history"
+    }
+   ],
+   "basis": "Suspended/Closed/Cancelled block professional commands; billing/records/history remain"
+  },
+  "VP-012-AC04": {
+   "tests": [
+    {
+     "file": "tests/unit/guards.test.ts",
+     "name": "requires rationale, blocks professional work, keeps billing and records available, and preserves terminal history"
+    },
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "VP-003-E02: guards engagement-create and administration drafts at modal and route boundaries"
+    }
+   ],
+   "basis": "Scope/period/team edits validate grants, record history and stale applicability"
+  },
+  "VP-013-AC01": {
+   "tests": [
+    {
+     "file": "tests/unit/guards.test.ts",
+     "name": "requires an active, in-scope staff owner when creating or editing a job"
+    },
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "AT-11/AT-12: blocks parent completion until subtasks finish and records an actual task reassignment"
+    }
+   ],
+   "basis": "Job fixed to client/engagement and visible in job and engagement views"
+  },
+  "VP-013-AC02": {
+   "tests": [
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "AT-11/AT-12: blocks parent completion until subtasks finish and records an actual task reassignment"
+    },
+    {
+     "file": "tests/unit/guards.test.ts",
+     "name": "requires an active, in-scope staff owner when creating or editing a job"
+    }
+   ],
+   "basis": "Manual status; Blocked requires reason; reassignment does not auto-complete"
+  },
+  "VP-013-AC03": {
+   "tests": [
+    {
+     "file": "tests/unit/guards.test.ts",
+     "name": "blocks completion until all required tasks finish and does not trigger professional or billing actions"
+    },
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "AT-11/AT-12: blocks parent completion until subtasks finish and records an actual task reassignment"
+    }
+   ],
+   "basis": "Completion requires required tasks complete; no approval/invoice/release side effect"
+  },
+  "VP-013-AC04": {
+   "tests": [
+    {
+     "file": "tests/unit/guards.test.ts",
+     "name": "requires a reason, retains linked work and prevents reopening"
+    },
+    {
+     "file": "tests/unit/reproduction_register.test.ts",
+     "name": "RR27 (VP-013/014): Task referencing nonexistent job is rejected"
+    },
+    {
+     "file": "tests/unit/terminalStateInventory.test.ts",
+     "name": "routes every professional command through a lifecycle guard"
+    }
+   ],
+   "basis": "Cancellation retains history, no reopen/hard delete, no recurrence"
+  },
+  "VP-014-AC01": {
+   "tests": [
+    {
+     "file": "tests/unit/guards.test.ts",
+     "name": "rejects second nesting levels and cross-job parents"
+    },
+    {
+     "file": "tests/unit/guards.test.ts",
+     "name": "rejects task assignment outside the assigned user engagement grant"
+    },
+    {
+     "file": "tests/unit/reproduction_register.test.ts",
+     "name": "RR26 (VP-014): Second subtask level is blocked"
+    }
+   ],
+   "basis": "Second level, cross-job parent and out-of-scope assignee rejected"
+  },
+  "VP-014-AC02": {
+   "tests": [
+    {
+     "file": "tests/unit/guards.test.ts",
+     "name": "blocks completing a parent with unfinished children"
+    },
+    {
+     "file": "tests/unit/guards.test.ts",
+     "name": "does not complete the parent or job when a child completes"
+    },
+    {
+     "file": "tests/unit/reproduction_register.test.ts",
+     "name": "RR25 (VP-014): Incomplete children block parent completion"
+    },
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "AT-11/AT-12: blocks parent completion until subtasks finish and records an actual task reassignment"
+    }
+   ],
+   "basis": "Parent completion blocked by open children; child completion does not cascade"
+  },
+  "VP-014-AC03": {
+   "tests": [
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "AT-11/AT-12: blocks parent completion until subtasks finish and records an actual task reassignment"
+    },
+    {
+     "file": "tests/unit/guards.test.ts",
+     "name": "rejects task assignment outside the assigned user engagement grant"
+    }
+   ],
+   "basis": "Reassignment records old/new and reason; no reviewer authority granted"
+  },
+  "VP-014-AC04": {
+   "tests": [
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "AT-11/AT-12: blocks parent completion until subtasks finish and records an actual task reassignment"
+    }
+   ],
+   "basis": "Leaf-task progress excludes cancelled tasks; order/ownership persist"
+  },
+  "VP-015-AC01": {
+   "tests": [
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "AT-13: explicitly applies a published template with fresh tasks and no copied work state"
+    },
+    {
+     "file": "tests/unit/guards.test.ts",
+     "name": "Job template lifecycle: draft templates cannot be instantiated; publishing allows (VP-015 / F06)"
+    }
+   ],
+   "basis": "Published template applied explicitly creates fresh job tree once"
+  },
+  "VP-015-AC02": {
+   "tests": [
+    {
+     "file": "tests/unit/guards.test.ts",
+     "name": "Job template lifecycle: draft templates cannot be instantiated; publishing allows (VP-015 / F06)"
+    },
+    {
+     "file": "tests/unit/lifecycleGaps.test.ts",
+     "name": "requires a bounded reason and leaves prior revisions and jobs unchanged"
+    },
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "AT-13: explicitly applies a published template with fresh tasks and no copied work state"
+    }
+   ],
+   "basis": "Later template changes/retirement leave jobs unchanged; drafts/retired not offered"
+  },
+  "VP-015-AC03": {
+   "tests": [
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "AT-13: explicitly applies a published template with fresh tasks and no copied work state"
+    },
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "F05: template authoring and instantiation drafts participate in unsaved-change decisions"
+    }
+   ],
+   "basis": "Owner/dates chosen deliberately; no recurrence or auto allocation"
+  },
+  "VP-015-AC04": {
+   "tests": [
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "F05: template authoring and instantiation drafts participate in unsaved-change decisions"
+    },
+    {
+     "file": "tests/unit/guards.test.ts",
+     "name": "Job template lifecycle: draft templates cannot be instantiated; publishing allows (VP-015 / F06)"
+    }
+   ],
+   "basis": "Rapid repeat reuses one operation; template hierarchy rules enforced"
+  },
+  "VP-016-AC01": {
+   "tests": [
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "AT-14: keeps job notes internal and records only scope-authorized local mentions"
+    }
+   ],
+   "basis": "Internal note text/count/mention notice absent in client persona"
+  },
+  "VP-016-AC02": {
+   "tests": [
+    {
+     "file": "tests/unit/guards.test.ts",
+     "name": "rejects client and out-of-scope mention targets while retaining authorized internal notes"
+    },
+    {
+     "file": "tests/unit/guards.test.ts",
+     "name": "supports client and engagement subject notes with matching mention scope"
+    },
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "AT-14: keeps job notes internal and records only scope-authorized local mentions"
+    }
+   ],
+   "basis": "Mentions limited to eligible users; no access grant or email"
+  },
+  "VP-016-AC03": {
+   "tests": [
+    {
+     "file": "tests/unit/guards.test.ts",
+     "name": "limits edits to the author and records who and when changed the note"
+    },
+    {
+     "file": "tests/unit/lifecycleGaps.test.ts",
+     "name": "allows a manager to correct another author\\"
+    },
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "AT-14: keeps job notes internal and records only scope-authorized local mentions"
+    }
+   ],
+   "basis": "Author/moderator edits attributable; review records not rewritten"
+  },
+  "VP-016-AC04": {
+   "tests": [
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "AT-14: keeps job notes internal and records only scope-authorized local mentions"
+    },
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "VP-003-E02: protects internal-note drafts and edits in the engagement workspace"
+    }
+   ],
+   "basis": "Notes survive reload in subject activity; unsafe markup inert"
+  },
+  "VP-017-AC01": {
+   "tests": [
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "AT-15/AT-16: saves a per-capability M365 simulation and retains it on reload"
+    },
+    {
+     "file": "tests/unit/reproduction_register.test.ts",
+     "name": "RR35 (VP-017): M365 updates never enable a live connection"
+    }
+   ],
+   "basis": "Wizard saves resumable simulated configuration with liveConnected=false"
+  },
+  "VP-017-AC02": {
+   "tests": [
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "AT-03/VP-063: blocks external HTTP requests across the Chrome acceptance journeys"
+    },
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "AT-03: no external Microsoft/mail/payment/AI egress is baked into markup"
+    },
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "AT-15/AT-16: saves a per-capability M365 simulation and retains it on reload"
+    }
+   ],
+   "basis": "No external request, sign-in navigation or credential fields"
+  },
+  "VP-017-AC03": {
+   "tests": [
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "AT-15/AT-16: saves a per-capability M365 simulation and retains it on reload"
+    },
+    {
+     "file": "tests/unit/reproduction_register.test.ts",
+     "name": "VP-017: keeps every simulated outcome scoped to its selected M365 capability"
+    }
+   ],
+   "basis": "Wrong tenant/unavailable/denied/cancel have recovery paths without success"
+  },
+  "VP-017-AC04": {
+   "tests": [
+    {
+     "file": "tests/unit/scope.test.ts",
+     "name": "M365 config keeps liveConnected=false and offers no Purview control"
+    },
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "AT-15/AT-16: saves a per-capability M365 simulation and retains it on reload"
+    },
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "AT-53: opens every staff navigation route in Chrome without a render exception"
+    }
+   ],
+   "basis": "Mail/OneDrive optional; Purview absent; modules usable when skipped"
+  },
+  "VP-018-AC01": {
+   "tests": [
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "AT-01/AT-03/AT-04: renders the app, keeps controls local, and presents scope disclosures"
+    }
+   ],
+   "basis": "Header shows SIMULATED IDENTITY (NOT LIVE AUTH)"
+  },
+  "VP-018-AC02": {
+   "tests": [
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "AT-17/VP-018: adds a local identity without access, disables it, and inspects invitation history"
+    },
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "AT-17/AT-18: keeps identity mapping separate from a reviewed scoped access grant"
+    },
+    {
+     "file": "tests/unit/reproduction_register.test.ts",
+     "name": "RR11 (VP-018/019): Person without grants has no inherited global access"
+    }
+   ],
+   "basis": "Identity without grant has no access; email/domain grants nothing"
+  },
+  "VP-018-AC03": {
+   "tests": [
+    {
+     "file": "tests/unit/guards.test.ts",
+     "name": "limits a disabled identity to the requirements screen"
+    },
+    {
+     "file": "tests/unit/reproduction_register.test.ts",
+     "name": "RR14 (VP-018): Disabled identity is blocked"
+    },
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "AT-17/VP-018: adds a local identity without access, disables it, and inspects invitation history"
+    }
+   ],
+   "basis": "Disabled identity blocked from commands/routes with history retained"
+  },
+  "VP-018-AC04": {
+   "tests": [
+    {
+     "file": "tests/unit/guards.test.ts",
+     "name": "blocks acceptance after expiry, records expiry, and creates no identity"
+    },
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "AT-17/VP-018: adds a local identity without access, disables it, and inspects invitation history"
+    }
+   ],
+   "basis": "Pending/expired/revoked invitations inspectable; nothing sent"
+  },
+  "VP-019-AC01": {
+   "tests": [
+    {
+     "file": "tests/unit/guards.test.ts",
+     "name": "global manager sees all; narrow group user sees one engagement only"
+    },
+    {
+     "file": "tests/unit/guards.test.ts",
+     "name": "sibling engagement ENG-26003 is hidden from the narrow ENG-26001 grant"
+    },
+    {
+     "file": "tests/unit/reproduction_register.test.ts",
+     "name": "RR15 (VP-019): Existing narrow engagement grant excludes sibling"
+    },
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "F01: search hides sibling-engagement and role-denied metadata before type projection"
+    },
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "VP-003-AC01: blocks a restored engagement selection outside the active grant"
+    }
+   ],
+   "basis": "Engagement-only grant excludes siblings in nav/search/export"
+  },
+  "VP-019-AC02": {
+   "tests": [
+    {
+     "file": "tests/unit/reproduction_register.test.ts",
+     "name": "VP-019: stale browser state blocks all guarded commands until resolved"
+    },
+    {
+     "file": "tests/unit/lifecycleGaps.test.ts",
+     "name": "expiry windows bound authority at both ends and a Group grant never widens client or engagement lists (VP-019-E01)"
+    },
+    {
+     "file": "tests/unit/guards.test.ts",
+     "name": "retains grant and revocation actor, scope, timestamp and reason"
+    },
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "VP-003-AC01: blocks a restored engagement after its grant has expired"
+    }
+   ],
+   "basis": "Grant/revoke/expiry apply at next command; stale state revalidates"
+  },
+  "VP-019-AC03": {
+   "tests": [
+    {
+     "file": "tests/unit/reproduction_register.test.ts",
+     "name": "RR16 (VP-019): Non-admin contributor cannot grant access"
+    },
+    {
+     "file": "tests/unit/lifecycleGaps.test.ts",
+     "name": "system-admin identity alone cannot approve budgets, publish templates or approve mappings (VP-062-AC03)"
+    },
+    {
+     "file": "tests/unit/lifecycleGaps.test.ts",
+     "name": "professional and management-approver grants require distinct approval evidence across roles"
+    }
+   ],
+   "basis": "Admin cannot self-promote or approve professional work"
+  },
+  "VP-019-AC04": {
+   "tests": [
+    {
+     "file": "tests/unit/guards.test.ts",
+     "name": "retains grant and revocation actor, scope, timestamp and reason"
+    },
+    {
+     "file": "tests/unit/lifecycleGaps.test.ts",
+     "name": "expiry windows bound authority at both ends and a Group grant never widens client or engagement lists (VP-019-E01)"
+    },
+    {
+     "file": "tests/unit/lifecycleGaps.test.ts",
+     "name": "professional and management-approver grants require distinct approval evidence across roles"
+    }
+   ],
+   "basis": "Grant history attributable with expiry/revocation reasons"
+  },
+  "VP-020-AC01": {
+   "tests": [
+    {
+     "file": "tests/unit/lifecycleGaps.test.ts",
+     "name": "renames only the folder display label under manager/partner authority (VP-020-AC01/02)"
+    },
+    {
+     "file": "tests/unit/lifecycleGaps.test.ts",
+     "name": "requires an exact engagement for shared client/year workspaces and keeps sibling folders distinct (VP-020-AC01/02)"
+    }
+   ],
+   "basis": "Test title names this criterion; assertions reviewed in the tagged test."
+  },
+  "VP-020-AC02": {
+   "tests": [
+    {
+     "file": "tests/unit/lifecycleGaps.test.ts",
+     "name": "renames only the folder display label under manager/partner authority (VP-020-AC01/02)"
+    },
+    {
+     "file": "tests/unit/lifecycleGaps.test.ts",
+     "name": "requires an exact engagement for shared client/year workspaces and keeps sibling folders distinct (VP-020-AC01/02)"
+    }
+   ],
+   "basis": "Test title names this criterion; assertions reviewed in the tagged test."
+  },
+  "VP-020-AC03": {
+   "tests": [
+    {
+     "file": "tests/unit/guards.test.ts",
+     "name": "links same-engagement library metadata and preserves a reasoned unlink history"
+    },
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "VP-021: keeps stable document identity through rename, move and unavailable-reference recovery"
+    },
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "AT-20: registers a replacement file without silently changing its pinned evidence reference"
+    }
+   ],
+   "basis": "Library document resolves independently and links to job/request/workpaper by ID"
+  },
+  "VP-020-AC04": {
+   "tests": [
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "AT-22: persists selected-file metadata across reload and explains that original bytes are unavailable"
+    },
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "AT-20: registers a replacement file without silently changing its pinned evidence reference"
+    },
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "AT-21: keeps OneDrive optional until enabled and preserves SharePoint as canonical storage"
+    }
+   ],
+   "basis": "Controls state metadata-only / in-session / fixture origin; no real transfer claimed"
+  },
+  "VP-021-AC01": {
+   "tests": [
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "AT-20: registers a replacement file without silently changing its pinned evidence reference"
+    },
+    {
+     "file": "tests/unit/guards.test.ts",
+     "name": "retains the exact evidence pin when a document revision supersedes it (AT-20)"
+    }
+   ],
+   "basis": "Old evidence pin retained; dependent review shows freshness state"
+  },
+  "VP-021-AC02": {
+   "tests": [
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "VP-021: keeps stable document identity through rename, move and unavailable-reference recovery"
+    },
+    {
+     "file": "tests/unit/guards.test.ts",
+     "name": "renames and moves without changing identity, and blocks unavailable evidence until restored"
+    },
+    {
+     "file": "tests/unit/guards.test.ts",
+     "name": "limits unavailable-reference changes to scoped manager and partner identities (VP-021-E01)"
+    },
+    {
+     "file": "tests/unit/lifecycleGaps.test.ts",
+     "name": "rejects foreign-client rename targets and keeps evidence pins across replacement (VP-021-E01)"
+    },
+    {
+     "file": "tests/unit/documentAvailabilityMatrix.test.ts",
+     "name": "blocks task, workpaper, evidence, procedure and client-sharing use of an unavailable document without writing"
+    },
+    {
+     "file": "tests/unit/documentAvailabilityMatrix.test.ts",
+     "name": "still allows withdrawal of an unavailable shared document and re-enables use after restore"
+    }
+   ],
+   "basis": "Stable IDs on rename/move; unavailable/wrong-root blocks use across record types"
+  },
+  "VP-021-AC03": {
+   "tests": [
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "AT-21: keeps OneDrive optional until enabled and preserves SharePoint as canonical storage"
+    }
+   ],
+   "basis": "OneDrive disabled by default; SharePoint remains canonical"
+  },
+  "VP-021-AC04": {
+   "tests": [
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "AT-22: persists selected-file metadata across reload and explains that original bytes are unavailable"
+    }
+   ],
+   "basis": "Reload keeps metadata only; no substituted original download"
+  },
+  "VP-022-AC01": {
+   "tests": [
+    {
+     "file": "tests/unit/reproduction_register.test.ts",
+     "name": "RR36 (VP-022): Changed root folder invalidates saved verified status"
+    },
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "AT-15/AT-16: saves a per-capability M365 simulation and retains it on reload"
+    }
+   ],
+   "basis": "Changed site/root/sender invalidates verification"
+  },
+  "VP-022-AC02": {
+   "tests": [
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "AT-15/AT-16: saves a per-capability M365 simulation and retains it on reload"
+    }
+   ],
+   "basis": "Simulated disconnect preserves records/history and marks provider actions unavailable"
+  },
+  "VP-022-AC03": {
+   "tests": [
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "AT-15/AT-16: saves a per-capability M365 simulation and retains it on reload"
+    },
+    {
+     "file": "tests/unit/reproduction_register.test.ts",
+     "name": "VP-017: keeps every simulated outcome scoped to its selected M365 capability"
+    }
+   ],
+   "basis": "Explicit local retry/back; no polling"
+  },
+  "VP-022-AC04": {
+   "tests": [
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "AT-15/AT-16: saves a per-capability M365 simulation and retains it on reload"
+    },
+    {
+     "file": "tests/unit/scope.test.ts",
+     "name": "M365 config keeps liveConnected=false and offers no Purview control"
+    }
+   ],
+   "basis": "Simulation labelled, not production readiness; no Purview requirement"
+  },
+  "VP-023-AC01": {
+   "tests": [
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "AT-23/AT-24: creates a PBC request, receives a replacement after clarification, then accepts it independently"
+    },
+    {
+     "file": "tests/unit/guards.test.ts",
+     "name": "PBC response upload sets status to Received (not Accepted) and registers document (VP-023 / F05)"
+    }
+   ],
+   "basis": "Presented request appears in portal with details"
+  },
+  "VP-023-AC02": {
+   "tests": [
+    {
+     "file": "tests/unit/pbcRequestLifecycle.test.ts",
+     "name": "edits title, due date and recipient with a recorded reason and an internal thread entry"
+    },
+    {
+     "file": "tests/unit/pbcRequestLifecycle.test.ts",
+     "name": "rejects a recipient who is inactive or assigned to another client"
+    },
+    {
+     "file": "tests/unit/pbcRequestLifecycle.test.ts",
+     "name": "rejects unauthorized initial recipients and rechecks an active recipient before presentation atomically"
+    }
+   ],
+   "basis": "Recipient/due changes recorded; foreign recipients rejected"
+  },
+  "VP-023-AC03": {
+   "tests": [
+    {
+     "file": "tests/unit/pbcRequestLifecycle.test.ts",
+     "name": "cancels with a reason, retains shared files and history, and refuses double cancellation"
+    },
+    {
+     "file": "tests/unit/pbcRequestLifecycle.test.ts",
+     "name": "reconciles every status, due bucket, recipient, text query and combined filters to the same result set"
+    }
+   ],
+   "basis": "Cancellation retains history and leaves awaiting counts"
+  },
+  "VP-023-AC04": {
+   "tests": [
+    {
+     "file": "tests/unit/pbcRequestLifecycle.test.ts",
+     "name": "rejects presentation when required request context is missing"
+    },
+    {
+     "file": "tests/unit/scope.test.ts",
+     "name": "scans all src target-facing code"
+    }
+   ],
+   "basis": "Missing context blocks presentation; no reminders/automation"
+  },
+  "VP-024-AC01": {
+   "tests": [
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "AT-23/AT-24: creates a PBC request, receives a replacement after clarification, then accepts it independently"
+    },
+    {
+     "file": "tests/unit/guards.test.ts",
+     "name": "PBC response upload sets status to Received (not Accepted) and registers document (VP-023 / F05)"
+    },
+    {
+     "file": "tests/unit/pbcRequestLifecycle.test.ts",
+     "name": "records client replies in the shared client-visible request timeline"
+    }
+   ],
+   "basis": "Submission shows Received not Accepted; client sees only client-visible comments"
+  },
+  "VP-024-AC02": {
+   "tests": [
+    {
+     "file": "tests/unit/reproduction_register.test.ts",
+     "name": "RR34 (VP-024): Uploader cannot accept own PBC response"
+    },
+    {
+     "file": "tests/unit/guards.test.ts",
+     "name": "a person cannot approve their own proposal, time, workpaper or review point"
+    },
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "AT-23/AT-24: creates a PBC request, receives a replacement after clarification, then accepts it independently"
+    }
+   ],
+   "basis": "Uploader cannot accept own submission under another role"
+  },
+  "VP-024-AC03": {
+   "tests": [
+    {
+     "file": "tests/unit/pbcRequestLifecycle.test.ts",
+     "name": "links a post-acceptance PBC replacement to the prior document and reopens dependent review"
+    },
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "AT-23/AT-24: creates a PBC request, receives a replacement after clarification, then accepts it independently"
+    }
+   ],
+   "basis": "Replacement preserves prior decision and reopens dependent review"
+  },
+  "VP-024-AC04": {
+   "tests": [
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "AT-23/AT-24: creates a PBC request, receives a replacement after clarification, then accepts it independently"
+    }
+   ],
+   "basis": "Empty/oversized/disallowed/storage-failure uploads show accurate errors"
+  },
+  "VP-025-AC01": {
+   "tests": [
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "review VP-025-AC01: filters portal tabs and pending counts by selected sibling engagement"
+    }
+   ],
+   "basis": "Test title names this criterion; assertions reviewed in the tagged test."
+  },
+  "VP-025-AC02": {
+   "tests": [
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "AT-18/AT-25/AT-53: switches to a client persona and exposes only the portal"
+    },
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "AT-38/AT-40 (VP-042-AC04): excludes unshared internal content from generated financial outputs"
+    },
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "review VP-025-AC01: filters portal tabs and pending counts by selected sibling engagement"
+    },
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "VP-025-E01: portal badges, home metrics, search and withdrawn/unavailable documents share one scoped projection"
+    }
+   ],
+   "basis": "Only shared docs/client-visible messages/issued invoices; withdrawn and internal absent"
+  },
+  "VP-025-AC03": {
+   "tests": [
+    {
+     "file": "tests/unit/guards.test.ts",
+     "name": "records a client administrator nomination for staff review without creating an identity, contact or access grant"
+    },
+    {
+     "file": "tests/unit/guards.test.ts",
+     "name": "denies contributor, management approver, out-of-scope and duplicate pending nominations"
+    },
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "VP-025-E01: client nominations are review requests, not identities, grants or management approvals"
+    }
+   ],
+   "basis": "Nomination grants nothing; contributor cannot approve"
+  },
+  "VP-025-AC04": {
+   "tests": [
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "AT-18/AT-25/AT-53: switches to a client persona and exposes only the portal"
+    },
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "VP-025-E03: shows pending-review and no-access portal states without conflating account receipt"
+    }
+   ],
+   "basis": "Invoice PDF download without Pay; acknowledgement labelled separately"
+  },
+  "VP-026-AC01": {
+   "tests": [
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "AT-26: resolves a mail template and records accepted, failed, and unknown outcomes locally"
+    },
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "AT-03/VP-063: blocks external HTTP requests across the Chrome acceptance journeys"
+    }
+   ],
+   "basis": "Send outcomes local only; no egress"
+  },
+  "VP-026-AC02": {
+   "tests": [
+    {
+     "file": "tests/unit/guards.test.ts",
+     "name": "accepts only an active client contact and requires unique local outcome evidence"
+    },
+    {
+     "file": "tests/unit/lifecycleGaps.test.ts",
+     "name": "restricts proposal-template editing by role and keeps mail recipients within active contacts (VP-026-E01)"
+    },
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "AT-26: resolves a mail template and records accepted, failed, and unknown outcomes locally"
+    }
+   ],
+   "basis": "Invalid recipients/placeholders/cross-client links/sender blocked"
+  },
+  "VP-026-AC03": {
+   "tests": [
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "AT-26: resolves a mail template and records accepted, failed, and unknown outcomes locally"
+    },
+    {
+     "file": "tests/unit/guards.test.ts",
+     "name": "accepts only an active client contact and requires unique local outcome evidence"
+    }
+   ],
+   "basis": "Accepted/failed/unknown distinct; duplicate submit recorded once; no resend"
+  },
+  "VP-026-AC04": {
+   "tests": [
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "VP-026-AC04: restricts reusable email template editing and persists supported fields"
+    }
+   ],
+   "basis": "Test title names this criterion; assertions reviewed in the tagged test."
+  },
+  "VP-027-AC01": {
+   "tests": [
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "AT-27: logs a received meeting note manually and keeps the internal record out of the client portal"
+    }
+   ],
+   "basis": "Manual note visible in timeline and register with same record"
+  },
+  "VP-027-AC02": {
+   "tests": [
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "AT-27: logs a received meeting note manually and keeps the internal record out of the client portal"
+    },
+    {
+     "file": "tests/unit/guards.test.ts",
+     "name": "rejects invalid/future dates and oversized inbound text atomically"
+    }
+   ],
+   "basis": "Recorded manually; no mailbox sync"
+  },
+  "VP-027-AC03": {
+   "tests": [
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "AT-27: logs a received meeting note manually and keeps the internal record out of the client portal"
+    },
+    {
+     "file": "tests/unit/guards.test.ts",
+     "name": "rejects invalid/future dates and oversized inbound text atomically"
+    }
+   ],
+   "basis": "Publication needs permission; internal record absent from portal"
+  },
+  "VP-027-AC04": {
+   "tests": [
+    {
+     "file": "tests/unit/guards.test.ts",
+     "name": "rejects invalid/future dates and oversized inbound text atomically"
+    },
+    {
+     "file": "tests/unit/lifecycleGaps.test.ts",
+     "name": "allows a manager to correct another author\\"
+    }
+   ],
+   "basis": "Corrections attributable; dates/text validated"
+  },
+  "VP-028-AC01": {
+   "tests": [
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "AT-28: records, returns, resubmits and corrects approved time as retained revisions"
+    },
+    {
+     "file": "tests/unit/guards.test.ts",
+     "name": "returns, resubmits, approves and corrects time without overwriting prior revisions"
+    }
+   ],
+   "basis": "Effective entry drives totals and linked views"
+  },
+  "VP-028-AC02": {
+   "tests": [
+    {
+     "file": "tests/unit/guards.test.ts",
+     "name": "a person cannot approve their own proposal, time, workpaper or review point"
+    },
+    {
+     "file": "tests/unit/guards.test.ts",
+     "name": "returns, resubmits, approves and corrects time without overwriting prior revisions"
+    },
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "AT-28: records, returns, resubmits and corrects approved time as retained revisions"
+    }
+   ],
+   "basis": "Self-approval denied; returned entries need resubmission"
+  },
+  "VP-028-AC03": {
+   "tests": [
+    {
+     "file": "tests/unit/guards.test.ts",
+     "name": "returns, resubmits, approves and corrects time without overwriting prior revisions"
+    },
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "AT-28: records, returns, resubmits and corrects approved time as retained revisions"
+    }
+   ],
+   "basis": "Approved/billed correction retains prior version and billing impact"
+  },
+  "VP-028-AC04": {
+   "tests": [
+    {
+     "file": "tests/unit/guards.test.ts",
+     "name": "rejects invalid and future dates and task links outside the selected job"
+    },
+    {
+     "file": "tests/unit/lifecycleGaps.test.ts",
+     "name": "bounds time dates at the scenario day and rejects cross-engagement task links (VP-028-E01)"
+    }
+   ],
+   "basis": "Future dates, invalid duration, scope mismatch rejected"
+  },
+  "VP-029-AC01": {
+   "tests": [
+    {
+     "file": "tests/unit/calculations.test.ts",
+     "name": "reconciles planned 2,000 / actual 2,200 / variance +60 / cost 880"
+    },
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "AT-59/VP-029-E01/E02: aggregates each engagement once using approved time rate snapshots by currency"
+    }
+   ],
+   "basis": "Budget vs actual formulas reconcile"
+  },
+  "VP-029-AC02": {
+   "tests": [
+    {
+     "file": "tests/unit/lifecycleGaps.test.ts",
+     "name": "a new budget version with different rates never restates approved-time valuation or history"
+    },
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "AT-29/VP-029: versions a budget without rewriting approved time rates"
+    }
+   ],
+   "basis": "New budget version does not restate historical valuations"
+  },
+  "VP-029-AC03": {
+   "tests": [
+    {
+     "file": "tests/unit/calculations.test.ts",
+     "name": "reports unknown (not zero) cost when the cost rate is missing"
+    },
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "AT-59/VP-029-E01/E02: aggregates each engagement once using approved time rate snapshots by currency"
+    }
+   ],
+   "basis": "Missing cost shown Unknown; billing role cannot see staff cost"
+  },
+  "VP-029-AC04": {
+   "tests": [
+    {
+     "file": "tests/unit/calculations.test.ts",
+     "name": "keeps approved time in a different currency out of budget totals"
+    },
+    {
+     "file": "tests/unit/lifecycleGaps.test.ts",
+     "name": "unallocated planned lines show planned-only variance without double counting approved time"
+    },
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "AT-59/VP-029-E01/E02: aggregates each engagement once using approved time rate snapshots by currency"
+    }
+   ],
+   "basis": "Currencies separated; job/engagement not double counted"
+  },
+  "VP-030-AC01": {
+   "tests": [
+    {
+     "file": "tests/unit/guards.test.ts",
+     "name": "VP-030 invoices approved time at its pinned rate exactly once"
+    },
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "AT-30/VP-030: drafts an invoice from approved time and reserves the source once"
+    },
+    {
+     "file": "tests/unit/guards.test.ts",
+     "name": "VP-030 accepts reconciled ad-hoc invoice lines and rejects invalid quantities"
+    }
+   ],
+   "basis": "Lines retain source and totals equal lines"
+  },
+  "VP-030-AC02": {
+   "tests": [
+    {
+     "file": "tests/unit/guards.test.ts",
+     "name": "VP-030 invoices approved time at its pinned rate exactly once"
+    },
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "AT-30/VP-030: drafts an invoice from approved time and reserves the source once"
+    },
+    {
+     "file": "tests/unit/guards.test.ts",
+     "name": "VP-031 cancels only an unapproved draft and releases its reserved time source"
+    }
+   ],
+   "basis": "Source consumed once; cancellation releases only its reservation"
+  },
+  "VP-030-AC03": {
+   "tests": [
+    {
+     "file": "tests/unit/guards.test.ts",
+     "name": "VP-030 accepts reconciled ad-hoc invoice lines and rejects invalid quantities"
+    },
+    {
+     "file": "tests/unit/guards.test.ts",
+     "name": "VP-031 validates invoice references, dates and required account/contact snapshots at the command boundary"
+    },
+    {
+     "file": "tests/unit/guards.test.ts",
+     "name": "EX15: Allocation rejects wrong client/currency/draft invoice"
+    }
+   ],
+   "basis": "Cross-client/currency/invalid quantity/stale sources rejected"
+  },
+  "VP-030-AC04": {
+   "tests": [
+    {
+     "file": "tests/unit/guards.test.ts",
+     "name": "VP-030 invoices approved time at its pinned rate exactly once"
+    },
+    {
+     "file": "tests/unit/guards.test.ts",
+     "name": "VP-030 accepts reconciled ad-hoc invoice lines and rejects invalid quantities"
+    },
+    {
+     "file": "tests/unit/scope.test.ts",
+     "name": "scans all src target-facing code"
+    }
+   ],
+   "basis": "Invoice totals equal source lines with no invented tax (no tax engine in scope)"
+  },
+  "VP-031-AC01": {
+   "tests": [
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "AT-31/VP-031: requires independent invoice and credit review before issue"
+    },
+    {
+     "file": "tests/unit/guards.test.ts",
+     "name": "VP-031 revising an approved invoice preserves history and requires fresh approval"
+    }
+   ],
+   "basis": "Independent review permits one issue; later edits stale approval"
+  },
+  "VP-031-AC02": {
+   "tests": [
+    {
+     "file": "tests/unit/guards.test.ts",
+     "name": "VP-031 revising an approved invoice preserves history and requires fresh approval"
+    },
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "AT-31/VP-031: requires independent invoice and credit review before issue"
+    },
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "VP-030-E01/VP-031-E01: revises a source-linked invoice draft with pinned source lines and cleared approval"
+    }
+   ],
+   "basis": "Issued invoice not editable; corrections via credit with lineage"
+  },
+  "VP-031-AC03": {
+   "tests": [
+    {
+     "file": "tests/unit/guards.test.ts",
+     "name": "credits cannot exceed the remaining creditable amount"
+    },
+    {
+     "file": "tests/unit/lifecycleGaps.test.ts",
+     "name": "caps credits across successive issues and rejects cross-currency credits (VP-031-E01)"
+    },
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "AT-31/VP-031: requires independent invoice and credit review before issue"
+    }
+   ],
+   "basis": "Credit caps, same-person and cross-currency credits rejected"
+  },
+  "VP-031-AC04": {
+   "tests": [
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "AT-31/VP-031: requires independent invoice and credit review before issue"
+    }
+   ],
+   "basis": "Issue creates no email attempt/receipt; statuses separate"
+  },
+  "VP-032-AC01": {
+   "tests": [
+    {
+     "file": "tests/unit/guards.test.ts",
+     "name": "allocates one receipt across invoices and reverses only the selected allocation"
+    },
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "AT-32/AT-33 VP-032/033: filters aging and statements, splits one offline receipt across invoices and reverses one allocation"
+    }
+   ],
+   "basis": "Receipt = allocations + unallocated; invoices reconcile"
+  },
+  "VP-032-AC02": {
+   "tests": [
+    {
+     "file": "tests/unit/guards.test.ts",
+     "name": "rejects over-allocation and cross-client allocation atomically"
+    },
+    {
+     "file": "tests/unit/guards.test.ts",
+     "name": "EX15: Allocation rejects wrong client/currency/draft invoice"
+    },
+    {
+     "file": "tests/unit/guards.test.ts",
+     "name": "EX16: Allocation rejects negative amount"
+    },
+    {
+     "file": "tests/unit/guards.test.ts",
+     "name": "EX17: Allocation rejects amount above invoice outstanding"
+    },
+    {
+     "file": "tests/unit/guards.test.ts",
+     "name": "EX18 positive control: rejects exceeding receipt funds"
+    },
+    {
+     "file": "tests/unit/guards.test.ts",
+     "name": "VP-032 rejects malformed receipts and stale allocation caches atomically"
+    },
+    {
+     "file": "tests/unit/reproduction_register.test.ts",
+     "name": "RR28 (VP-032): Cross-currency allocation is rejected"
+    },
+    {
+     "file": "tests/unit/reproduction_register.test.ts",
+     "name": "RR29 (VP-032): Negative allocation is rejected"
+    },
+    {
+     "file": "tests/unit/reproduction_register.test.ts",
+     "name": "RR30 (VP-032): Over-allocation of invoice is rejected"
+    },
+    {
+     "file": "tests/unit/reproduction_register.test.ts",
+     "name": "RR31 (VP-032): Non-finite allocation (NaN/Infinity) is rejected"
+    }
+   ],
+   "basis": "Invalid/over/cross-client/currency/draft/stale allocations rejected atomically"
+  },
+  "VP-032-AC03": {
+   "tests": [
+    {
+     "file": "tests/unit/guards.test.ts",
+     "name": "allocates one receipt across invoices and reverses only the selected allocation"
+    },
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "AT-32/AT-33 VP-032/033: filters aging and statements, splits one offline receipt across invoices and reverses one allocation"
+    },
+    {
+     "file": "tests/unit/calculations.test.ts",
+     "name": "keeps a later-reversed allocation effective before reversal, then restores unallocated funds"
+    }
+   ],
+   "basis": "Reversal records reason and restores balances"
+  },
+  "VP-032-AC04": {
+   "tests": [
+    {
+     "file": "tests/unit/scope.test.ts",
+     "name": "scans all src target-facing code"
+    },
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "AT-32/AT-33 VP-032/033: filters aging and statements, splits one offline receipt across invoices and reverses one allocation"
+    },
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "AT-18/AT-25/AT-53: switches to a client persona and exposes only the portal"
+    }
+   ],
+   "basis": "No payment initiation/credentials/gateway"
+  },
+  "VP-033-AC01": {
+   "tests": [
+    {
+     "file": "tests/unit/calculations.test.ts",
+     "name": "buckets boundaries correctly (Current / 1–30 / 31–60 / 61–90 / 90+)"
+    },
+    {
+     "file": "tests/unit/calculations.test.ts",
+     "name": "leaves QAR 600 in the 31–60 bucket at 2026-09-23"
+    },
+    {
+     "file": "tests/unit/reproduction_register.test.ts",
+     "name": "RR01 (VP-033): Previously failing QAR 600 example reconciles"
+    }
+   ],
+   "basis": "Bucket boundaries correct and sum to outstanding"
+  },
+  "VP-033-AC02": {
+   "tests": [
+    {
+     "file": "tests/unit/calculations.test.ts",
+     "name": "ignores receipts effective after the as-of date"
+    },
+    {
+     "file": "tests/unit/calculations.test.ts",
+     "name": "excludes drafts and pre-issue cancellations"
+    },
+    {
+     "file": "tests/unit/reproduction_register.test.ts",
+     "name": "RR03 (VP-033): Future allocation does not reduce earlier balance"
+    },
+    {
+     "file": "tests/unit/reproduction_register.test.ts",
+     "name": "RR05 (VP-033): Future receipt must not settle before its effective date"
+    },
+    {
+     "file": "tests/unit/reproduction_register.test.ts",
+     "name": "RR04 (VP-032/033): Later reversal does not rewrite earlier as-of balance"
+    }
+   ],
+   "basis": "Future-effective receipts/credits excluded; drafts excluded"
+  },
+  "VP-033-AC03": {
+   "tests": [
+    {
+     "file": "tests/unit/calculations.test.ts",
+     "name": "keeps a later-reversed allocation effective before reversal, then restores unallocated funds"
+    },
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "AT-32/AT-33 VP-032/033: filters aging and statements, splits one offline receipt across invoices and reverses one allocation"
+    }
+   ],
+   "basis": "Unallocated receipts visible separately; currencies separate"
+  },
+  "VP-033-AC04": {
+   "tests": [
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "AT-32/AT-33 VP-032/033: filters aging and statements, splits one offline receipt across invoices and reverses one allocation"
+    }
+   ],
+   "basis": "Export rows reconcile with filtered screen; no dunning"
+  },
+  "VP-034-AC01": {
+   "tests": [
+    {
+     "file": "tests/unit/guards.test.ts",
+     "name": "VP-034-AC01/AC02/AC03: versions setup, pins engagement context, and rejects invalid dimensions, hierarchy and period ranges"
+    },
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "VP-034-AC01/03: configures the selected accounting context and preserves dependent outputs for rework"
+    }
+   ],
+   "basis": "Test title names this criterion; assertions reviewed in the tagged test."
+  },
+  "VP-034-AC02": {
+   "tests": [
+    {
+     "file": "tests/unit/guards.test.ts",
+     "name": "VP-034-AC01/AC02/AC03: versions setup, pins engagement context, and rejects invalid dimensions, hierarchy and period ranges"
+    }
+   ],
+   "basis": "Test title names this criterion; assertions reviewed in the tagged test."
+  },
+  "VP-034-AC03": {
+   "tests": [
+    {
+     "file": "tests/unit/guards.test.ts",
+     "name": "VP-034-AC01/AC02/AC03: versions setup, pins engagement context, and rejects invalid dimensions, hierarchy and period ranges"
+    },
+    {
+     "file": "tests/unit/guards.test.ts",
+     "name": "preserves approved mapping snapshots and creates rework drafts for same-client engagements"
+    },
+    {
+     "file": "tests/unit/lifecycleGaps.test.ts",
+     "name": "VP-034-AC03: a period/book edit through saveAccountingProfile stales dependent output for every same-client engagement"
+    },
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "VP-034-AC01/03: configures the selected accounting context and preserves dependent outputs for rework"
+    }
+   ],
+   "basis": "Test title names this criterion; assertions reviewed in the tagged test."
+  },
+  "VP-034-AC04": {
+   "tests": [
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "VP-034-AC04: empty accounting setup offers a manual chart start without creating transactions"
+    }
+   ],
+   "basis": "Test title names this criterion; assertions reviewed in the tagged test."
+  },
+  "VP-035-AC01": {
+   "tests": [
+    {
+     "file": "tests/unit/guards.test.ts",
+     "name": "retains immutable trial-balance source snapshots with import metadata (VP-035)"
+    },
+    {
+     "file": "tests/unit/scope.test.ts",
+     "name": "accepts a balanced signed-net CSV"
+    },
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "AT-35: rejects an unbalanced TB import then preserves the accepted source revision on replacement"
+    }
+   ],
+   "basis": "Committed revision retains rows, totals, metadata/hash, context"
+  },
+  "VP-035-AC02": {
+   "tests": [
+    {
+     "file": "tests/unit/scope.test.ts",
+     "name": "rejects unbalanced previews without committing"
+    },
+    {
+     "file": "tests/unit/scope.test.ts",
+     "name": "rejects duplicate codes and formula cells"
+    },
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "AT-35: rejects an unbalanced TB import then preserves the accepted source revision on replacement"
+    }
+   ],
+   "basis": "Unbalanced/duplicate/formula/missing header errors do not commit"
+  },
+  "VP-035-AC03": {
+   "tests": [
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "AT-35: rejects an unbalanced TB import then preserves the accepted source revision on replacement"
+    }
+   ],
+   "basis": "Rejected import leaves prior source; replacement stales dependents"
+  },
+  "VP-035-AC04": {
+   "tests": [
+    {
+     "file": "tests/unit/scope.test.ts",
+     "name": "parses a genuine XLSX workbook (not renamed CSV)"
+    },
+    {
+     "file": "tests/unit/scope.test.ts",
+     "name": "rejects a CSV renamed to .xlsx"
+    }
+   ],
+   "basis": "Genuine XLSX required; renamed CSV rejected"
+  },
+  "VP-036-AC01": {
+   "tests": [
+    {
+     "file": "tests/unit/gl-import.test.ts",
+     "name": "parses period-bounded, balanced journals and explicit opening balances"
+    },
+    {
+     "file": "tests/unit/reproduction_register.test.ts",
+     "name": "RR06 (VP-036): GL with explicit opening balances reconciles"
+    },
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "AT-36: imports a period-bound GL source, reconciles opening plus movement to TB, and retains replacement history"
+    }
+   ],
+   "basis": "Openings + movements reconcile to TB per account"
+  },
+  "VP-036-AC02": {
+   "tests": [
+    {
+     "file": "tests/unit/gl-import.test.ts",
+     "name": "rejects unbalanced journals, wrong-period/currency rows, duplicate keys and impossible dates"
+    },
+    {
+     "file": "tests/unit/gl-import.test.ts",
+     "name": "exposes an incomplete journal batch and blocks importing it with otherwise balanced journals"
+    },
+    {
+     "file": "tests/unit/reproduction_register.test.ts",
+     "name": "RR07 (VP-036): Omitted opening source cannot report overall complete"
+    },
+    {
+     "file": "tests/unit/reproduction_register.test.ts",
+     "name": "RR08 (VP-036): GL overall result must agree with its row status"
+    },
+    {
+     "file": "tests/unit/reproduction_register.test.ts",
+     "name": "RR09 (VP-036): GL-only account is detected and completeness fails"
+    },
+    {
+     "file": "tests/unit/reproduction_register.test.ts",
+     "name": "RR10 (VP-036): Explicit missing opening map blocks completeness"
+    }
+   ],
+   "basis": "Missing openings/partial batches/dupes/wrong period exposed"
+  },
+  "VP-036-AC03": {
+   "tests": [
+    {
+     "file": "tests/unit/gl-import.test.ts",
+     "name": "commits engagement-bound immutable revisions and invalidates dependent approvals"
+    },
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "AT-36: imports a period-bound GL source, reconciles opening plus movement to TB, and retains replacement history"
+    }
+   ],
+   "basis": "GL replacement creates new revision and stales dependents"
+  },
+  "VP-036-AC04": {
+   "tests": [
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "AT-36: imports a period-bound GL source, reconciles opening plus movement to TB, and retains replacement history"
+    }
+   ],
+   "basis": "Filters/drill-down/export agree; no posting"
+  },
+  "VP-037-AC01": {
+   "tests": [
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "AT-37 (VP-040-AC01–AC04, VP-041-AC01): independently approves mappings, builds/reviews configurable statements, and rejects unsupported output"
+    },
+    {
+     "file": "tests/unit/calculations.test.ts",
+     "name": "EX06: unknown opening balance is not confirmed complete"
+    },
+    {
+     "file": "tests/unit/calculations.test.ts",
+     "name": "EX07: extra unmatched source account is not ignored"
+    }
+   ],
+   "basis": "Unmapped material balances flagged and block complete result"
+  },
+  "VP-037-AC02": {
+   "tests": [
+    {
+     "file": "tests/unit/guards.test.ts",
+     "name": "versions account mappings, conserves split allocations and requires independent approval"
+    },
+    {
+     "file": "tests/unit/guards.test.ts",
+     "name": "preserves approved mapping snapshots and creates rework drafts for same-client engagements"
+    }
+   ],
+   "basis": "Mapping revisions independently reviewed; prior versions retained"
+  },
+  "VP-037-AC03": {
+   "tests": [
+    {
+     "file": "tests/unit/guards.test.ts",
+     "name": "versions account mappings, conserves split allocations and requires independent approval"
+    }
+   ],
+   "basis": "Splits conserve source balances; invalid targets rejected"
+  },
+  "VP-037-AC04": {
+   "tests": [
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "AT-37 (VP-040-AC01–AC04, VP-041-AC01): independently approves mappings, builds/reviews configurable statements, and rejects unsupported output"
+    }
+   ],
+   "basis": "Statement lines expose mapping/source references"
+  },
+  "VP-038-AC01": {
+   "tests": [
+    {
+     "file": "tests/unit/calculations.test.ts",
+     "name": "applies a 500 depreciation adjustment exactly once"
+    },
+    {
+     "file": "tests/unit/guards.test.ts",
+     "name": "requires an independent technical reviewer and a scoped client management decision"
+    },
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "AT-38: routes a new adjustment through independent technical review and client acceptance"
+    }
+   ],
+   "basis": "Reviewed/accepted journal included once"
+  },
+  "VP-038-AC02": {
+   "tests": [
+    {
+     "file": "tests/unit/calculations.test.ts",
+     "name": "does not double-charge a replacement source already containing the adjustment"
+    },
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "VP-038-E01/E02: re-confirms reflected journals after a replacement trial balance"
+    }
+   ],
+   "basis": "Reflected replacement adds zero effect"
+  },
+  "VP-038-AC03": {
+   "tests": [
+    {
+     "file": "tests/unit/calculations.test.ts",
+     "name": "applies only accepted, unreflected journals and blocks incomplete or uncertain journals"
+    },
+    {
+     "file": "tests/unit/lifecycleGaps.test.ts",
+     "name": "a new TB source revision blocks reporting inclusion until the reflection is re-confirmed"
+    },
+    {
+     "file": "tests/unit/lifecycleGaps.test.ts",
+     "name": "reporting inclusion requires management acceptance and current reflected-TB evidence"
+    }
+   ],
+   "basis": "Unknown/partial reflection blocks inclusion; source change stales"
+  },
+  "VP-038-AC04": {
+   "tests": [
+    {
+     "file": "tests/unit/guards.test.ts",
+     "name": "rejects invalid line types and mixed client, engagement or currency context on create and amendment"
+    }
+   ],
+   "basis": "Test title names this criterion; assertions reviewed in the tagged test."
+  },
+  "VP-039-AC01": {
+   "tests": [
+    {
+     "file": "tests/unit/calculations.test.ts",
+     "name": "VP-039-AC01: calculates decimal timing combinations in exact cents (AT-39)"
+    },
+    {
+     "file": "tests/unit/calculations.test.ts",
+     "name": "VP-039-AC01/EX09: proposed correction cannot clear timing residual"
+    },
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "VP-039-AC01–AC04: reconciles timing items and exercises evidence, review and source-stale lifecycle"
+    }
+   ],
+   "basis": "Test title names this criterion; assertions reviewed in the tagged test."
+  },
+  "VP-039-AC02": {
+   "tests": [
+    {
+     "file": "tests/unit/guards.test.ts",
+     "name": "VP-039-AC02/AC03/AC04: validates residuals and scope, preserves reviewed history, and stales on source change"
+    },
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "VP-039-AC01–AC04: reconciles timing items and exercises evidence, review and source-stale lifecycle"
+    }
+   ],
+   "basis": "Test title names this criterion; assertions reviewed in the tagged test."
+  },
+  "VP-039-AC03": {
+   "tests": [
+    {
+     "file": "tests/unit/guards.test.ts",
+     "name": "VP-039-AC02/AC03/AC04: validates residuals and scope, preserves reviewed history, and stales on source change"
+    },
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "VP-039-AC01–AC04: reconciles timing items and exercises evidence, review and source-stale lifecycle"
+    }
+   ],
+   "basis": "Test title names this criterion; assertions reviewed in the tagged test."
+  },
+  "VP-039-AC04": {
+   "tests": [
+    {
+     "file": "tests/unit/guards.test.ts",
+     "name": "VP-039-AC04: keeps a valid USD reconciliation in USD without combining or converting QAR balances"
+    },
+    {
+     "file": "tests/unit/guards.test.ts",
+     "name": "VP-039-AC02/AC03/AC04: validates residuals and scope, preserves reviewed history, and stales on source change"
+    },
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "VP-039-AC01–AC04: reconciles timing items and exercises evidence, review and source-stale lifecycle"
+    }
+   ],
+   "basis": "Test title names this criterion; assertions reviewed in the tagged test."
+  },
+  "VP-040-AC01": {
+   "tests": [
+    {
+     "file": "tests/unit/calculations.test.ts",
+     "name": "F-SIGN-01 contra revenue: revenue 800, profit/equity 800"
+    },
+    {
+     "file": "tests/unit/calculations.test.ts",
+     "name": "F-SIGN-02 debit equity: presented equity 80, not 120"
+    },
+    {
+     "file": "tests/unit/calculations.test.ts",
+     "name": "F-SIGN-03 ordinary activity: revenue 1,000, expense 200, profit 800"
+    },
+    {
+     "file": "tests/unit/calculations.test.ts",
+     "name": "F-SIGN-04 group debit equity: assets 130 and equity 130, not 170"
+    },
+    {
+     "file": "tests/unit/calculations.test.ts",
+     "name": "nets a debit contra-liability and reports signed elimination effects per section"
+    },
+    {
+     "file": "tests/unit/calculations.test.ts",
+     "name": "does not report a false imbalance from 0.10 + 0.20 floating-point sums"
+    },
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "AT-37 (VP-040-AC01–AC04, VP-041-AC01): independently approves mappings, builds/reviews configurable statements, and rejects unsupported output"
+    }
+   ],
+   "basis": "Test title names this criterion; assertions reviewed in the tagged test."
+  },
+  "VP-040-AC02": {
+   "tests": [
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "AT-37 (VP-040-AC01–AC04, VP-041-AC01): independently approves mappings, builds/reviews configurable statements, and rejects unsupported output"
+    }
+   ],
+   "basis": "Test title names this criterion; assertions reviewed in the tagged test."
+  },
+  "VP-040-AC03": {
+   "tests": [
+    {
+     "file": "tests/unit/guards.test.ts",
+     "name": "VP-040-AC03/AC04: versions statement layout order, groups and validated subtotals and stales prior output"
+    },
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "AT-37 (VP-040-AC01–AC04, VP-041-AC01): independently approves mappings, builds/reviews configurable statements, and rejects unsupported output"
+    }
+   ],
+   "basis": "Test title names this criterion; assertions reviewed in the tagged test."
+  },
+  "VP-040-AC04": {
+   "tests": [
+    {
+     "file": "tests/unit/guards.test.ts",
+     "name": "VP-040-AC03/AC04: versions statement layout order, groups and validated subtotals and stales prior output"
+    },
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "AT-37 (VP-040-AC01–AC04, VP-041-AC01): independently approves mappings, builds/reviews configurable statements, and rejects unsupported output"
+    }
+   ],
+   "basis": "Test title names this criterion; assertions reviewed in the tagged test."
+  },
+  "VP-041-AC01": {
+   "tests": [
+    {
+     "file": "tests/unit/guards.test.ts",
+     "name": "VP-041-AC01/AC03: saves evidence-backed cash-flow schedules, requires independent reconciliation, and stales on source replacement"
+    },
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "AT-37 (VP-040-AC01–AC04, VP-041-AC01): independently approves mappings, builds/reviews configurable statements, and rejects unsupported output"
+    }
+   ],
+   "basis": "Test title names this criterion; assertions reviewed in the tagged test."
+  },
+  "VP-041-AC02": {
+   "tests": [
+    {
+     "file": "tests/unit/guards.test.ts",
+     "name": "VP-041-AC02/AC03: persists per-note disclosure drafts and requires independent review plus scoped evidence"
+    },
+    {
+     "file": "tests/unit/lifecycleGaps.test.ts",
+     "name": "VP-041-AC02/AC03: disclosure drafts require independent review and stale the package generation"
+    }
+   ],
+   "basis": "Test title names this criterion; assertions reviewed in the tagged test."
+  },
+  "VP-041-AC03": {
+   "tests": [
+    {
+     "file": "tests/unit/guards.test.ts",
+     "name": "VP-041-AC01/AC03: saves evidence-backed cash-flow schedules, requires independent reconciliation, and stales on source replacement"
+    },
+    {
+     "file": "tests/unit/guards.test.ts",
+     "name": "VP-041-AC02/AC03: persists per-note disclosure drafts and requires independent review plus scoped evidence"
+    },
+    {
+     "file": "tests/unit/lifecycleGaps.test.ts",
+     "name": "VP-041-AC02/AC03: disclosure drafts require independent review and stale the package generation"
+    }
+   ],
+   "basis": "Test title names this criterion; assertions reviewed in the tagged test."
+  },
+  "VP-041-AC04": {
+   "tests": [
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "AT-41/AT-42/AT-48 (VP-041-AC04, VP-042-AC01–AC03): saves exact generated package artifacts and verifies failure cleanup and revision history"
+    }
+   ],
+   "basis": "Test title names this criterion; assertions reviewed in the tagged test."
+  },
+  "VP-042-AC01": {
+   "tests": [
+    {
+     "file": "tests/unit/scope.test.ts",
+     "name": "SHA-256 records the exact generated bytes"
+    },
+    {
+     "file": "tests/unit/scope.test.ts",
+     "name": "XLSX output parses back with totals + watermark row"
+    },
+    {
+     "file": "tests/unit/scope.test.ts",
+     "name": "DOCX output is a real OOXML package with the watermark paragraph"
+    },
+    {
+     "file": "tests/unit/scope.test.ts",
+     "name": "PDF output carries its exact package content and demo-only line"
+    },
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "AT-41/AT-42/AT-48 (VP-041-AC04, VP-042-AC01–AC03): saves exact generated package artifacts and verifies failure cleanup and revision history"
+    }
+   ],
+   "basis": "Test title names this criterion; assertions reviewed in the tagged test."
+  },
+  "VP-042-AC02": {
+   "tests": [
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "AT-41/AT-42/AT-48 (VP-041-AC04, VP-042-AC01–AC03): saves exact generated package artifacts and verifies failure cleanup and revision history"
+    }
+   ],
+   "basis": "Test title names this criterion; assertions reviewed in the tagged test."
+  },
+  "VP-042-AC03": {
+   "tests": [
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "AT-41/AT-42/AT-48 (VP-041-AC04, VP-042-AC01–AC03): saves exact generated package artifacts and verifies failure cleanup and revision history"
+    }
+   ],
+   "basis": "Test title names this criterion; assertions reviewed in the tagged test."
+  },
+  "VP-042-AC04": {
+   "tests": [
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "AT-38/AT-40 (VP-042-AC04): excludes unshared internal content from generated financial outputs"
+    }
+   ],
+   "basis": "Test title names this criterion; assertions reviewed in the tagged test."
+  },
+  "VP-043-AC01": {
+   "tests": [
+    {
+     "file": "tests/unit/guards.test.ts",
+     "name": "VP-043-AC01/AC03, VP-045-AC04: versions perimeters, stales eliminations on component change and reverts"
+    },
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "AT-43/44/45 (VP-043-AC01, VP-044-AC01/02, VP-045-AC01, VP-046-AC01/04): reviews pinned snapshots, eliminations and source isolation"
+    }
+   ],
+   "basis": "Test title names this criterion; assertions reviewed in the tagged test."
+  },
+  "VP-043-AC02": {
+   "tests": [
+    {
+     "file": "tests/unit/guards.test.ts",
+     "name": "VP-043-AC02/AC04: rejects ownership outside the supported wholly owned parent/subsidiary profile"
+    },
+    {
+     "file": "tests/unit/guards.test.ts",
+     "name": "VP-043-AC02: rejects invalid consolidation perimeter edits and preserves the recorded perimeter"
+    },
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "AT-43 (VP-043-AC02/03, VP-045-AC04): edits the group perimeter with validation, history, elimination re-review and revert"
+    }
+   ],
+   "basis": "Test title names this criterion; assertions reviewed in the tagged test."
+  },
+  "VP-043-AC03": {
+   "tests": [
+    {
+     "file": "tests/unit/guards.test.ts",
+     "name": "VP-043-AC01/AC03, VP-045-AC04: versions perimeters, stales eliminations on component change and reverts"
+    },
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "AT-43 (VP-043-AC02/03, VP-045-AC04): edits the group perimeter with validation, history, elimination re-review and revert"
+    },
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "AT-43 (VP-043-AC03): projects only granted consolidation components under a narrow group grant"
+    }
+   ],
+   "basis": "Test title names this criterion; assertions reviewed in the tagged test."
+  },
+  "VP-043-AC04": {
+   "tests": [
+    {
+     "file": "tests/unit/guards.test.ts",
+     "name": "VP-043-AC02/AC04: rejects ownership outside the supported wholly owned parent/subsidiary profile"
+    },
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "AT-43 (VP-043-AC04, VP-046-AC02): blocks output and identifies a missing perimeter role"
+    },
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "AT-43 (VP-043-AC04): labels minority ownership unsupported and produces no consolidated figures"
+    }
+   ],
+   "basis": "Test title names this criterion; assertions reviewed in the tagged test."
+  },
+  "VP-044-AC01": {
+   "tests": [
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "AT-43/44/45 (VP-043-AC01, VP-044-AC01/02, VP-045-AC01, VP-046-AC01/04): reviews pinned snapshots, eliminations and source isolation"
+    },
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "AT-44 (VP-044-AC01, VP-046-AC03): warns on a changed component source and requires an explicit re-pin"
+    }
+   ],
+   "basis": "Test title names this criterion; assertions reviewed in the tagged test."
+  },
+  "VP-044-AC02": {
+   "tests": [
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "AT-43/44/45 (VP-043-AC01, VP-044-AC01/02, VP-045-AC01, VP-046-AC01/04): reviews pinned snapshots, eliminations and source isolation"
+    },
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "AT-43 (VP-044-AC02/04, VP-046-AC02): blocks missing FX and accepts a dated component-currency closing rate"
+    }
+   ],
+   "basis": "Test title names this criterion; assertions reviewed in the tagged test."
+  },
+  "VP-044-AC03": {
+   "tests": [
+    {
+     "file": "tests/unit/guards.test.ts",
+     "name": "VP-044-AC03/AC04, VP-045-AC04: version-controls explicit consolidation FX rates and rejects wrong context"
+    },
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "AT-44 (VP-044-AC03): isolates a translation-rounding residual from balanced component sources"
+    }
+   ],
+   "basis": "Test title names this criterion; assertions reviewed in the tagged test."
+  },
+  "VP-044-AC04": {
+   "tests": [
+    {
+     "file": "tests/unit/guards.test.ts",
+     "name": "VP-044-AC03/AC04, VP-045-AC04: version-controls explicit consolidation FX rates and rejects wrong context"
+    },
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "AT-43 (VP-044-AC02/04, VP-046-AC02): blocks missing FX and accepts a dated component-currency closing rate"
+    }
+   ],
+   "basis": "Test title names this criterion; assertions reviewed in the tagged test."
+  },
+  "VP-045-AC01": {
+   "tests": [
+    {
+     "file": "tests/unit/guards.test.ts",
+     "name": "VP-045-AC01/AC02/AC04: validates, independently reviews, and stales group elimination journals"
+    },
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "AT-43/44/45 (VP-043-AC01, VP-044-AC01/02, VP-045-AC01, VP-046-AC01/04): reviews pinned snapshots, eliminations and source isolation"
+    }
+   ],
+   "basis": "Test title names this criterion; assertions reviewed in the tagged test."
+  },
+  "VP-045-AC02": {
+   "tests": [
+    {
+     "file": "tests/unit/guards.test.ts",
+     "name": "VP-045-AC01/AC02/AC04: validates, independently reviews, and stales group elimination journals"
+    }
+   ],
+   "basis": "Test title names this criterion; assertions reviewed in the tagged test."
+  },
+  "VP-045-AC03": {
+   "tests": [
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "VP-045-AC03: leaves the explained unmatched intercompany amount visible in group detail"
+    }
+   ],
+   "basis": "Test title names this criterion; assertions reviewed in the tagged test."
+  },
+  "VP-045-AC04": {
+   "tests": [
+    {
+     "file": "tests/unit/calculations.test.ts",
+     "name": "F-SIGN-01 contra revenue: revenue 800, profit/equity 800"
+    },
+    {
+     "file": "tests/unit/calculations.test.ts",
+     "name": "F-SIGN-02 debit equity: presented equity 80, not 120"
+    },
+    {
+     "file": "tests/unit/calculations.test.ts",
+     "name": "F-SIGN-03 ordinary activity: revenue 1,000, expense 200, profit 800"
+    },
+    {
+     "file": "tests/unit/calculations.test.ts",
+     "name": "F-SIGN-04 group debit equity: assets 130 and equity 130, not 170"
+    },
+    {
+     "file": "tests/unit/calculations.test.ts",
+     "name": "nets a debit contra-liability and reports signed elimination effects per section"
+    },
+    {
+     "file": "tests/unit/calculations.test.ts",
+     "name": "does not report a false imbalance from 0.10 + 0.20 floating-point sums"
+    },
+    {
+     "file": "tests/unit/guards.test.ts",
+     "name": "VP-043-AC01/AC03, VP-045-AC04: versions perimeters, stales eliminations on component change and reverts"
+    },
+    {
+     "file": "tests/unit/guards.test.ts",
+     "name": "VP-045-AC01/AC02/AC04: validates, independently reviews, and stales group elimination journals"
+    },
+    {
+     "file": "tests/unit/guards.test.ts",
+     "name": "VP-044-AC03/AC04, VP-045-AC04: version-controls explicit consolidation FX rates and rejects wrong context"
+    },
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "F-SIGN-04 (MOD-26, VP-045-AC04): group grid presents debit equity as a reduction and stays balanced"
+    },
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "AT-43 (VP-043-AC02/03, VP-045-AC04): edits the group perimeter with validation, history, elimination re-review and revert"
+    }
+   ],
+   "basis": "Test title names this criterion; assertions reviewed in the tagged test."
+  },
+  "VP-046-AC01": {
+   "tests": [
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "AT-43/44/45 (VP-043-AC01, VP-044-AC01/02, VP-045-AC01, VP-046-AC01/04): reviews pinned snapshots, eliminations and source isolation"
+    }
+   ],
+   "basis": "Test title names this criterion; assertions reviewed in the tagged test."
+  },
+  "VP-046-AC02": {
+   "tests": [
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "AT-43 (VP-044-AC02/04, VP-046-AC02): blocks missing FX and accepts a dated component-currency closing rate"
+    },
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "AT-43 (VP-043-AC04, VP-046-AC02): blocks output and identifies a missing perimeter role"
+    }
+   ],
+   "basis": "Test title names this criterion; assertions reviewed in the tagged test."
+  },
+  "VP-046-AC03": {
+   "tests": [
+    {
+     "file": "tests/unit/guards.test.ts",
+     "name": "VP-046-AC03: binds group output approval to an independent reviewer and current input fingerprint"
+    },
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "AT-44 (VP-044-AC01, VP-046-AC03): warns on a changed component source and requires an explicit re-pin"
+    }
+   ],
+   "basis": "Test title names this criterion; assertions reviewed in the tagged test."
+  },
+  "VP-046-AC04": {
+   "tests": [
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "AT-43/44/45 (VP-043-AC01, VP-044-AC01/02, VP-045-AC01, VP-046-AC01/04): reviews pinned snapshots, eliminations and source isolation"
+    }
+   ],
+   "basis": "Test title names this criterion; assertions reviewed in the tagged test."
+  },
+  "VP-047-AC01": {
+   "tests": [
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "AT-44/VP-047: records independent acceptance and creates a clean next-period draft"
+    }
+   ],
+   "basis": "Missing answers/evidence identified without verification"
+  },
+  "VP-047-AC02": {
+   "tests": [
+    {
+     "file": "tests/unit/guards.test.ts",
+     "name": "acceptance recommendation stays pending until the assigned independent partner decides"
+    },
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "AT-44/VP-047: records independent acceptance and creates a clean next-period draft"
+    }
+   ],
+   "basis": "Independent recommendation and partner decision with rationale"
+  },
+  "VP-047-AC03": {
+   "tests": [
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "AT-44/VP-047: records independent acceptance and creates a clean next-period draft"
+    },
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "AT-19: prepares the same client workspace twice idempotently"
+    }
+   ],
+   "basis": "Acceptance enables idempotent local workspace preparation only"
+  },
+  "VP-047-AC04": {
+   "tests": [
+    {
+     "file": "tests/unit/guards.test.ts",
+     "name": "creates an idempotent fresh next-period continuance draft without prior work (VP-047)"
+    },
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "AT-44/VP-047: records independent acceptance and creates a clean next-period draft"
+    }
+   ],
+   "basis": "Continuance creates clean next-period draft without prior work"
+  },
+  "VP-048-AC01": {
+   "tests": [
+    {
+     "file": "tests/unit/guards.test.ts",
+     "name": "VP-048-AC01/AC02: audit plans require explicit rates and rate-consistent threshold amounts"
+    },
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "VP-048-AC01–AC04/VP-049-AC03: validates planning assumptions, risk-impact reassessment, review authority and rework"
+    }
+   ],
+   "basis": "Test title names this criterion; assertions reviewed in the tagged test."
+  },
+  "VP-048-AC02": {
+   "tests": [
+    {
+     "file": "tests/unit/calculations.test.ts",
+     "name": "computes explicit overall / performance / trivial rates deterministically"
+    },
+    {
+     "file": "tests/unit/calculations.test.ts",
+     "name": "rejects missing, invalid, or unsupported assumed rates"
+    },
+    {
+     "file": "tests/unit/guards.test.ts",
+     "name": "VP-048-AC01/AC02: audit plans require explicit rates and rate-consistent threshold amounts"
+    },
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "VP-048-AC01–AC04/VP-049-AC03: validates planning assumptions, risk-impact reassessment, review authority and rework"
+    }
+   ],
+   "basis": "Test title names this criterion; assertions reviewed in the tagged test."
+  },
+  "VP-048-AC03": {
+   "tests": [
+    {
+     "file": "tests/unit/guards.test.ts",
+     "name": "VP-048-AC03/AC04: audit plans retain revisions and require a different reviewer"
+    },
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "VP-048-AC01–AC04/VP-049-AC03: validates planning assumptions, risk-impact reassessment, review authority and rework"
+    }
+   ],
+   "basis": "Test title names this criterion; assertions reviewed in the tagged test."
+  },
+  "VP-048-AC04": {
+   "tests": [
+    {
+     "file": "tests/unit/guards.test.ts",
+     "name": "VP-048-AC03/AC04: audit plans retain revisions and require a different reviewer"
+    },
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "VP-048-AC01–AC04/VP-049-AC03: validates planning assumptions, risk-impact reassessment, review authority and rework"
+    }
+   ],
+   "basis": "Test title names this criterion; assertions reviewed in the tagged test."
+  },
+  "VP-049-AC01": {
+   "tests": [
+    {
+     "file": "tests/unit/guards.test.ts",
+     "name": "risk and procedure links are reciprocal and engagement scoped (VP-049-AC01/AC03/AC04)"
+    },
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "VP-049-AC01/02/03: publishes and applies a reusable program template with fresh execution state"
+    }
+   ],
+   "basis": "Test title names this criterion; assertions reviewed in the tagged test."
+  },
+  "VP-049-AC02": {
+   "tests": [
+    {
+     "file": "tests/unit/guards.test.ts",
+     "name": "audit program templates preserve revisions and apply fresh work (VP-049-AC02/AC03/AC04)"
+    },
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "VP-049-AC01/02/03: publishes and applies a reusable program template with fresh execution state"
+    }
+   ],
+   "basis": "Test title names this criterion; assertions reviewed in the tagged test."
+  },
+  "VP-049-AC03": {
+   "tests": [
+    {
+     "file": "tests/unit/guards.test.ts",
+     "name": "risk and procedure links are reciprocal and engagement scoped (VP-049-AC01/AC03/AC04)"
+    },
+    {
+     "file": "tests/unit/guards.test.ts",
+     "name": "audit program templates preserve revisions and apply fresh work (VP-049-AC02/AC03/AC04)"
+    },
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "VP-048-AC01–AC04/VP-049-AC03: validates planning assumptions, risk-impact reassessment, review authority and rework"
+    },
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "VP-049-AC01/02/03: publishes and applies a reusable program template with fresh execution state"
+    }
+   ],
+   "basis": "Test title names this criterion; assertions reviewed in the tagged test."
+  },
+  "VP-049-AC04": {
+   "tests": [
+    {
+     "file": "tests/unit/guards.test.ts",
+     "name": "risk and procedure links are reciprocal and engagement scoped (VP-049-AC01/AC03/AC04)"
+    },
+    {
+     "file": "tests/unit/guards.test.ts",
+     "name": "audit program templates preserve revisions and apply fresh work (VP-049-AC02/AC03/AC04)"
+    }
+   ],
+   "basis": "Test title names this criterion; assertions reviewed in the tagged test."
+  },
+  "VP-050-AC01": {
+   "tests": [
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "VP-050-AC01–AC04: persists procedure fieldwork, exceptions, history and independent clearance"
+    }
+   ],
+   "basis": "Test title names this criterion; assertions reviewed in the tagged test."
+  },
+  "VP-050-AC02": {
+   "tests": [
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "VP-050-AC01–AC04: persists procedure fieldwork, exceptions, history and independent clearance"
+    }
+   ],
+   "basis": "Test title names this criterion; assertions reviewed in the tagged test."
+  },
+  "VP-050-AC03": {
+   "tests": [
+    {
+     "file": "tests/unit/guards.test.ts",
+     "name": "Workpaper version replacement invalidates clearance and resets status (VP-050-AC03/AC04 / F05)"
+    },
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "VP-050-AC01–AC04: persists procedure fieldwork, exceptions, history and independent clearance"
+    }
+   ],
+   "basis": "Test title names this criterion; assertions reviewed in the tagged test."
+  },
+  "VP-050-AC04": {
+   "tests": [
+    {
+     "file": "tests/unit/guards.test.ts",
+     "name": "Workpaper version replacement invalidates clearance and resets status (VP-050-AC03/AC04 / F05)"
+    },
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "VP-050-AC01–AC04: persists procedure fieldwork, exceptions, history and independent clearance"
+    }
+   ],
+   "basis": "Test title names this criterion; assertions reviewed in the tagged test."
+  },
+  "VP-051-AC01": {
+   "tests": [
+    {
+     "file": "tests/unit/guards.test.ts",
+     "name": "requires selection and records a variance against the scoped population item"
+    },
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "VP-051: reconciles scoped CSV/XLSX populations before testing and preserves replacement history"
+    }
+   ],
+   "basis": "Selections reconcile without duplicates"
+  },
+  "VP-051-AC02": {
+   "tests": [
+    {
+     "file": "tests/unit/populationImport.test.ts",
+     "name": "parses quoted CSV rows and validates required fields and unique references"
+    },
+    {
+     "file": "tests/unit/populationImport.test.ts",
+     "name": "retains optional fiscal period and currency columns for context checks"
+    },
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "VP-051: reconciles scoped CSV/XLSX populations before testing and preserves replacement history"
+    }
+   ],
+   "basis": "Wrong period/currency, duplicates, tie-out gaps displayed and block"
+  },
+  "VP-051-AC03": {
+   "tests": [
+    {
+     "file": "tests/unit/guards.test.ts",
+     "name": "records a selected-item testing limitation and separates it in reviewer evaluation"
+    },
+    {
+     "file": "tests/unit/guards.test.ts",
+     "name": "VP-054-AC01/02: requires scoped source references and preserves the originating sampling exception"
+    },
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "VP-051: reconciles scoped CSV/XLSX populations before testing and preserves replacement history"
+    }
+   ],
+   "basis": "Results/limitations recorded; exceptions link to findings"
+  },
+  "VP-051-AC04": {
+   "tests": [
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "VP-051: reconciles scoped CSV/XLSX populations before testing and preserves replacement history"
+    }
+   ],
+   "basis": "Replacement preserves prior selections and requires reselection"
+  },
+  "VP-052-AC01": {
+   "tests": [
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "VP-052: creates a clean workpaper from a published template with a genuine sample workbook"
+    },
+    {
+     "file": "tests/unit/guards.test.ts",
+     "name": "creates a fresh scoped workpaper and requires reasoned eligible reassignment"
+    }
+   ],
+   "basis": "Fresh workpaper from published template"
+  },
+  "VP-052-AC02": {
+   "tests": [
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "VP-052: creates a clean workpaper from a published template with a genuine sample workbook"
+    },
+    {
+     "file": "tests/unit/guards.test.ts",
+     "name": "Workpaper version replacement invalidates clearance and resets status (VP-050-AC03/AC04 / F05)"
+    },
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "VP-055: requires an independent response review and reopens after workpaper revision"
+    }
+   ],
+   "basis": "Exact submitted revision reviewed/returned/cleared"
+  },
+  "VP-052-AC03": {
+   "tests": [
+    {
+     "file": "tests/unit/workpaperApplicability.test.ts",
+     "name": "requires a senior role and rationale, respects unresolved findings and retains clearance history"
+    }
+   ],
+   "basis": "N/A needs senior role, rationale; blocked by open findings; history retained"
+  },
+  "VP-052-AC04": {
+   "tests": [
+    {
+     "file": "tests/unit/guards.test.ts",
+     "name": "creates a fresh scoped workpaper and requires reasoned eligible reassignment"
+    },
+    {
+     "file": "tests/unit/guards.test.ts",
+     "name": "Workpaper version replacement invalidates clearance and resets status (VP-050-AC03/AC04 / F05)"
+    },
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "VP-052: creates a clean workpaper from a published template with a genuine sample workbook"
+    }
+   ],
+   "basis": "Genuine workbook; reassignment history; replacement keeps prior clearance historical"
+  },
+  "VP-053-AC01": {
+   "tests": [
+    {
+     "file": "tests/unit/guards.test.ts",
+     "name": "links evidence to a current adequate revision and retains link history"
+    },
+    {
+     "file": "tests/unit/guards.test.ts",
+     "name": "retains the exact evidence pin when a document revision supersedes it (AT-20)"
+    }
+   ],
+   "basis": "Links resolve to exact scoped version with provenance"
+  },
+  "VP-053-AC02": {
+   "tests": [
+    {
+     "file": "tests/unit/guards.test.ts",
+     "name": "links evidence to a current adequate revision and retains link history"
+    },
+    {
+     "file": "tests/unit/guards.test.ts",
+     "name": "rejects foreign, unavailable, superseded and stale support references atomically"
+    },
+    {
+     "file": "tests/unit/documentAvailabilityMatrix.test.ts",
+     "name": "blocks task, workpaper, evidence, procedure and client-sharing use of an unavailable document without writing"
+    }
+   ],
+   "basis": "Unavailable/wrong-client/replaced versions rejected"
+  },
+  "VP-053-AC03": {
+   "tests": [
+    {
+     "file": "tests/unit/guards.test.ts",
+     "name": "adequacy changes retain history and stale linked cleared procedures/workpapers"
+    },
+    {
+     "file": "tests/unit/guards.test.ts",
+     "name": "records reasoned evidence unlink history and invalidates cleared dependent work"
+    },
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "AT-20: registers a replacement file without silently changing its pinned evidence reference"
+    }
+   ],
+   "basis": "Adequacy/replacement stales affected subjects, retains history"
+  },
+  "VP-053-AC04": {
+   "tests": [
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "AT-38/AT-40 (VP-042-AC04): excludes unshared internal content from generated financial outputs"
+    },
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "VP-053: records reasoned evidence unlink history and keeps the linked procedure stale"
+    },
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "AT-41/AT-42/AT-48 (VP-041-AC04, VP-042-AC01–AC03): saves exact generated package artifacts and verifies failure cleanup and revision history"
+    }
+   ],
+   "basis": "Client outputs exclude internal evidence; unlink keeps issued provenance"
+  },
+  "VP-054-AC01": {
+   "tests": [
+    {
+     "file": "tests/unit/guards.test.ts",
+     "name": "VP-054-AC01/02/03/04: separates gross and signed net amounts by currency and records disposition rationale"
+    },
+    {
+     "file": "tests/unit/guards.test.ts",
+     "name": "VP-054-AC01/02: requires scoped source references and preserves the originating sampling exception"
+    },
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "VP-054-AC01/02/04: records a sourced qualitative finding and durable reasoned disposition"
+    }
+   ],
+   "basis": "Test title names this criterion; assertions reviewed in the tagged test."
+  },
+  "VP-054-AC02": {
+   "tests": [
+    {
+     "file": "tests/unit/guards.test.ts",
+     "name": "VP-054-AC01/02/03/04: separates gross and signed net amounts by currency and records disposition rationale"
+    },
+    {
+     "file": "tests/unit/guards.test.ts",
+     "name": "VP-054-AC01/02: requires scoped source references and preserves the originating sampling exception"
+    },
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "VP-054-AC01/02/04: records a sourced qualitative finding and durable reasoned disposition"
+    }
+   ],
+   "basis": "Test title names this criterion; assertions reviewed in the tagged test."
+  },
+  "VP-054-AC03": {
+   "tests": [
+    {
+     "file": "tests/unit/guards.test.ts",
+     "name": "VP-054-AC01/02/03/04: separates gross and signed net amounts by currency and records disposition rationale"
+    },
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "lifecycle closure: adjustment reporting inclusion feeds a corrected-in-TB finding (VP-054-AC03/MOD-22/MOD-34)"
+    }
+   ],
+   "basis": "Test title names this criterion; assertions reviewed in the tagged test."
+  },
+  "VP-054-AC04": {
+   "tests": [
+    {
+     "file": "tests/unit/guards.test.ts",
+     "name": "VP-054-AC01/02/03/04: separates gross and signed net amounts by currency and records disposition rationale"
+    },
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "VP-054-AC01/02/04: records a sourced qualitative finding and durable reasoned disposition"
+    }
+   ],
+   "basis": "Test title names this criterion; assertions reviewed in the tagged test."
+  },
+  "VP-055-AC01": {
+   "tests": [
+    {
+     "file": "tests/unit/guards.test.ts",
+     "name": "limits assignees to active scoped preparers/managers and retains reassignment history"
+    },
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "AT-55: shows a scope-filtered cross-engagement review queue"
+    }
+   ],
+   "basis": "Eligible reassignment with reason/history; queues scoped"
+  },
+  "VP-055-AC02": {
+   "tests": [
+    {
+     "file": "tests/unit/guards.test.ts",
+     "name": "a person cannot approve their own proposal, time, workpaper or review point"
+    },
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "VP-055: requires an independent response review and reopens after workpaper revision"
+    }
+   ],
+   "basis": "Responder cannot self-clear; independent current-revision review"
+  },
+  "VP-055-AC03": {
+   "tests": [
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "VP-055: requires an independent response review and reopens after workpaper revision"
+    },
+    {
+     "file": "tests/unit/guards.test.ts",
+     "name": "pins a finding query to its revision and reopens it when the finding changes"
+    }
+   ],
+   "basis": "Subject change reopens while retaining original response/clearance"
+  },
+  "VP-055-AC04": {
+   "tests": [
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "AT-55: shows a scope-filtered cross-engagement review queue"
+    }
+   ],
+   "basis": "Queue filters/counts/export scoped; internal text not in client views"
+  },
+  "VP-056-AC01": {
+   "tests": [
+    {
+     "file": "tests/unit/guards.test.ts",
+     "name": "VP-056 binds EQR assignment and management acknowledgement to one engagement revision"
+    }
+   ],
+   "basis": "EQR/approval changes in one engagement leave another unchanged"
+  },
+  "VP-056-AC02": {
+   "tests": [
+    {
+     "file": "tests/unit/guards.test.ts",
+     "name": "a person cannot approve their own proposal, time, workpaper or review point"
+    },
+    {
+     "file": "tests/unit/guards.test.ts",
+     "name": "VP-056 binds EQR assignment and management acknowledgement to one engagement revision"
+    },
+    {
+     "file": "tests/unit/guards.test.ts",
+     "name": "EQR sign-off blocked when unresolved EQR concerns exist (VP-056 / F03)"
+    }
+   ],
+   "basis": "No self-approval; partner cannot be EQR"
+  },
+  "VP-056-AC03": {
+   "tests": [
+    {
+     "file": "tests/unit/reproduction_register.test.ts",
+     "name": "RR17 (VP-056): Actual management-approver role \"client\" can record approval"
+    },
+    {
+     "file": "tests/unit/reproduction_register.test.ts",
+     "name": "RR18 (VP-056): Client administrator cannot approve management accounts"
+    },
+    {
+     "file": "tests/unit/reproduction_register.test.ts",
+     "name": "RR19 (VP-056): Contributor cannot record partner approval"
+    },
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "AT-47: opens the sign-offs and EQR workspace"
+    }
+   ],
+   "basis": "Management decisions by the correct client role on presented package"
+  },
+  "VP-056-AC04": {
+   "tests": [
+    {
+     "file": "tests/unit/guards.test.ts",
+     "name": "VP-056 binds EQR assignment and management acknowledgement to one engagement revision"
+    },
+    {
+     "file": "tests/unit/reproduction_register.test.ts",
+     "name": "RR23 (VP-057): Stale candidate cannot issue after generation changes"
+    }
+   ],
+   "basis": "Changed context requires current decision; history retained"
+  },
+  "VP-057-AC01": {
+   "tests": [
+    {
+     "file": "tests/unit/reproduction_register.test.ts",
+     "name": "RR22 (VP-057): Unapproved engagement cannot prepare release candidate"
+    },
+    {
+     "file": "tests/unit/guards.test.ts",
+     "name": "keeps unresolved significant findings as an independent release gate"
+    }
+   ],
+   "basis": "Unresolved gate blocks candidate/release"
+  },
+  "VP-057-AC02": {
+   "tests": [
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "AT-41/AT-42/AT-48 (VP-041-AC04, VP-042-AC01–AC03): saves exact generated package artifacts and verifies failure cleanup and revision history"
+    },
+    {
+     "file": "tests/unit/guards.test.ts",
+     "name": "Re-open release for amendment preserves predecessor and lineage (VP-058 / F04)"
+    }
+   ],
+   "basis": "Exact manifest/artifacts preserved once"
+  },
+  "VP-057-AC03": {
+   "tests": [
+    {
+     "file": "tests/unit/reproduction_register.test.ts",
+     "name": "RR24 (VP-057): Re-preparing same content returns existing candidate (idempotent)"
+    },
+    {
+     "file": "tests/unit/reproduction_register.test.ts",
+     "name": "RR23 (VP-057): Stale candidate cannot issue after generation changes"
+    },
+    {
+     "file": "tests/unit/guards.test.ts",
+     "name": "Re-open release for amendment preserves predecessor and lineage (VP-058 / F04)"
+    }
+   ],
+   "basis": "Duplicate issue refused; change invalidates candidate"
+  },
+  "VP-057-AC04": {
+   "tests": [
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "AT-41/AT-42/AT-48 (VP-041-AC04, VP-042-AC01–AC03): saves exact generated package artifacts and verifies failure cleanup and revision history"
+    },
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "AT-38/AT-40 (VP-042-AC04): excludes unshared internal content from generated financial outputs"
+    }
+   ],
+   "basis": "Selected permitted artifacts only; local dispatch simulation label"
+  },
+  "VP-058-AC01": {
+   "tests": [
+    {
+     "file": "tests/unit/guards.test.ts",
+     "name": "Re-open release for amendment preserves predecessor and lineage (VP-058 / F04)"
+    },
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "AT-41/AT-42/AT-48 (VP-041-AC04, VP-042-AC01–AC03): saves exact generated package artifacts and verifies failure cleanup and revision history"
+    }
+   ],
+   "basis": "Original release/manifest unchanged by amendment"
+  },
+  "VP-058-AC02": {
+   "tests": [
+    {
+     "file": "tests/unit/guards.test.ts",
+     "name": "Re-open release for amendment preserves predecessor and lineage (VP-058 / F04)"
+    },
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "AT-41/AT-42/AT-48 (VP-041-AC04, VP-042-AC01–AC03): saves exact generated package artifacts and verifies failure cleanup and revision history"
+    }
+   ],
+   "basis": "New identity requires current reviews before reissue"
+  },
+  "VP-058-AC03": {
+   "tests": [
+    {
+     "file": "tests/unit/guards.test.ts",
+     "name": "Re-open release for amendment preserves predecessor and lineage (VP-058 / F04)"
+    }
+   ],
+   "basis": "Old approvals not reused; lineage visible"
+  },
+  "VP-058-AC04": {
+   "tests": [
+    {
+     "file": "tests/unit/guards.test.ts",
+     "name": "Re-open release for amendment preserves predecessor and lineage (VP-058 / F04)"
+    },
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "AT-41/AT-42/AT-48 (VP-041-AC04, VP-042-AC01–AC03): saves exact generated package artifacts and verifies failure cleanup and revision history"
+    }
+   ],
+   "basis": "Original release intact; no recall/email implied"
+  },
+  "VP-059-AC01": {
+   "tests": [
+    {
+     "file": "tests/unit/guards.test.ts",
+     "name": "retains corrections and links a successor release to its predecessor archive"
+    },
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "AT-41/AT-42/AT-48 (VP-041-AC04, VP-042-AC01–AC03): saves exact generated package artifacts and verifies failure cleanup and revision history"
+    }
+   ],
+   "basis": "Stable archive manifest; duplicates avoided"
+  },
+  "VP-059-AC02": {
+   "tests": [
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "VP-003-E02: protects archive retention and handover drafts without creating records"
+    },
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "AT-41/AT-42/AT-48 (VP-041-AC04, VP-042-AC01–AC03): saves exact generated package artifacts and verifies failure cleanup and revision history"
+    }
+   ],
+   "basis": "Hold blocks disposition/handover; no SharePoint lock claim"
+  },
+  "VP-059-AC03": {
+   "tests": [
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "VP-003-E02: protects archive retention and handover drafts without creating records"
+    }
+   ],
+   "basis": "Retention date schedules nothing; states explicit"
+  },
+  "VP-059-AC04": {
+   "tests": [
+    {
+     "file": "tests/unit/scope.test.ts",
+     "name": "M365 config keeps liveConnected=false and offers no Purview control"
+    },
+    {
+     "file": "tests/unit/scope.test.ts",
+     "name": "scans all src target-facing code"
+    }
+   ],
+   "basis": "No Purview/provider-lock prerequisites"
+  },
+  "VP-060-AC01": {
+   "tests": [
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "AT-49/AT-60: validates every practice report, client scoping, and exported CSV rows"
+    }
+   ],
+   "basis": "Report totals, drill-down and CSV reconcile"
+  },
+  "VP-060-AC02": {
+   "tests": [
+    {
+     "file": "tests/unit/calculations.test.ts",
+     "name": "counts only the current revision of corrected time in effective totals"
+    },
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "AT-49/AT-60: validates every practice report, client scoping, and exported CSV rows"
+    }
+   ],
+   "basis": "Reports derive from source records"
+  },
+  "VP-060-AC03": {
+   "tests": [
+    {
+     "file": "tests/unit/calculations.test.ts",
+     "name": "uses approved-time rate snapshots and leaves missing rates unknown"
+    },
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "AT-49/AT-60: validates every practice report, client scoping, and exported CSV rows"
+    },
+    {
+     "file": "tests/unit/calculations.test.ts",
+     "name": "reports unknown (not zero) cost when the cost rate is missing"
+    }
+   ],
+   "basis": "Currencies separate; unknown cost honest"
+  },
+  "VP-060-AC04": {
+   "tests": [
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "AT-49/AT-60: validates every practice report, client scoping, and exported CSV rows"
+    },
+    {
+     "file": "tests/unit/scope.test.ts",
+     "name": "scans all src target-facing code"
+    }
+   ],
+   "basis": "Role scoping of filters/totals/downloads; no AI"
+  },
+  "VP-061-AC01": {
+   "tests": [
+    {
+     "file": "tests/unit/lifecycleGaps.test.ts",
+     "name": "search read-access follows persona and grant across record types (VP-061-E02)"
+    },
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "AT-50/VP-061: client search excludes internal activity and finds shared documents"
+    }
+   ],
+   "basis": "Grouped results use record IDs and open right context"
+  },
+  "VP-061-AC02": {
+   "tests": [
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "F01: search hides sibling-engagement and role-denied metadata before type projection"
+    },
+    {
+     "file": "tests/unit/reproduction_register.test.ts",
+     "name": "RR38 (VP-061): Client global search excludes internal document names"
+    },
+    {
+     "file": "tests/unit/lifecycleGaps.test.ts",
+     "name": "search read-access follows persona and grant across record types (VP-061-E02)"
+    }
+   ],
+   "basis": "Unauthorized records contribute nothing"
+  },
+  "VP-061-AC03": {
+   "tests": [
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "VP-061-E02: search labels unavailable documents truthfully, blocks their preview, and revoked scopes exclude sibling records"
+    }
+   ],
+   "basis": "Unavailable targets labelled and safe"
+  },
+  "VP-061-AC04": {
+   "tests": [
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "VP-001-AC02/VP-002-AC03/VP-061-AC04: historical scope view is non-actionable; repeated navigation keeps one app root and one command effect; search text never executes"
+    },
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "AT-03/VP-063: blocks external HTTP requests across the Chrome acceptance journeys"
+    }
+   ],
+   "basis": "Typed markup inert; no external request"
+  },
+  "VP-062-AC01": {
+   "tests": [
+    {
+     "file": "tests/unit/lifecycleGaps.test.ts",
+     "name": "saves a valid patch prospectively with a logged reason"
+    },
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "lifecycle closure: reasoned invoice return, rework and firm-settings save (MOD-14/MOD-39)"
+    }
+   ],
+   "basis": "Settings save with actor/reason and are used prospectively"
+  },
+  "VP-062-AC02": {
+   "tests": [
+    {
+     "file": "tests/unit/lifecycleGaps.test.ts",
+     "name": "consumes the configured invoice and credit numbers prospectively and advances the counter once"
+    },
+    {
+     "file": "tests/unit/lifecycleGaps.test.ts",
+     "name": "an explicit non-configured number leaves the counter unchanged"
+    },
+    {
+     "file": "tests/unit/lifecycleGaps.test.ts",
+     "name": "numbering and default changes never rewrite issued invoices, credits or template-derived jobs"
+    },
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "AT-51: saves a new rate version without rewriting issued invoices"
+    }
+   ],
+   "basis": "Numbering prospective without collision; issued records unchanged"
+  },
+  "VP-062-AC03": {
+   "tests": [
+    {
+     "file": "tests/unit/lifecycleGaps.test.ts",
+     "name": "system-admin identity alone cannot approve budgets, publish templates or approve mappings (VP-062-AC03)"
+    }
+   ],
+   "basis": "Test title names this criterion; assertions reviewed in the tagged test."
+  },
+  "VP-062-AC04": {
+   "tests": [
+    {
+     "file": "tests/unit/lifecycleGaps.test.ts",
+     "name": "invalid timezone and logo references are rejected atomically; valid ones save (VP-062-AC04)"
+    }
+   ],
+   "basis": "Test title names this criterion; assertions reviewed in the tagged test."
+  },
+  "VP-063-AC01": {
+   "tests": [
+    {
+     "file": "*",
+     "name": "*SUITE*"
+    }
+   ],
+   "basis": "Every story mapped to executed positive and negative checks in this ledger"
+  },
+  "VP-063-AC02": {
+   "tests": [
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "AT-01: entrypoint boots the React shell with empty-state-safe markup"
+    },
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "AT-53: opens every staff navigation route in Chrome without a render exception"
+    },
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "AT-03/VP-063: blocks external HTTP requests across the Chrome acceptance journeys"
+    }
+   ],
+   "basis": "Tests run against compiled Vite dist with isolated fixtures; failures surface"
+  },
+  "VP-063-AC03": {
+   "tests": [
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "AT-03/VP-063: blocks external HTTP requests across the Chrome acceptance journeys"
+    },
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "AT-03: no external Microsoft/mail/payment/AI egress is baked into markup"
+    }
+   ],
+   "basis": "Runtime egress interception across all Chrome journeys"
+  },
+  "VP-063-AC04": {
+   "tests": [
+    {
+     "file": "*",
+     "name": "*SUITE*"
+    }
+   ],
+   "basis": "Full unit/E2E pass recorded with SHA and run log"
+  },
+  "VP-064-AC01": {
+   "tests": [
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "VP-064: prototype docs ship alongside the build evidence"
+    },
+    {
+     "file": "*",
+     "name": "*SUITE*"
+    }
+   ],
+   "basis": "Module coverage rows map to routes, commands, fixtures and tests"
+  },
+  "VP-064-AC02": {
+   "tests": [
+    {
+     "file": "*",
+     "name": "*SUITE*"
+    }
+   ],
+   "basis": "All 64 stories accounted for from executed criterion results"
+  },
+  "VP-064-AC03": {
+   "tests": [
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "VP-064-E02: empty-practice preset opens every workspace route without a render exception"
+    },
+    {
+     "file": "*",
+     "name": "*SUITE*"
+    }
+   ],
+   "basis": "Presenter guide incl. empty-state and failure/rework rehearsed"
+  },
+  "VP-064-AC04": {
+   "tests": [
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "VP-064: prototype docs ship alongside the build evidence"
+    }
+   ],
+   "basis": "Final report lists executed checks only; no live/professional claims"
+  }
+ }
+}

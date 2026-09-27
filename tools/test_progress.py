@@ -17,6 +17,17 @@ class ProgressTests(unittest.TestCase):
         self.root=Path(self.tmp.name)/'pack'
         shutil.copytree(ORIGINAL,self.root,ignore=shutil.ignore_patterns('__pycache__','*.pyc'))
         helper.ROOT=self.root
+        self.reset_to_initial_pack()
+    def reset_to_initial_pack(self):
+        # The live pack has since been completed; these state-machine tests exercise the
+        # initial NOT_STARTED pack they were written for, rebuilt inside the temporary copy.
+        import re
+        for task_id,(row,meta,body) in helper.cards().items():
+            meta.update(status='NOT_STARTED',owner='',reviewer='',evidence='')
+            meta.pop('blocked_reason',None)
+            body=re.sub(r'(<!-- TASK_ACCEPTANCE -->.*?<!-- END_TASK_ACCEPTANCE -->)',lambda m:m[1].replace('- [x]','- [ ]').replace('- [X]','- [ ]'),body,flags=re.S)
+            helper.write_card(self.root/row['file'],meta,body)
+        helper.refresh()
     def tearDown(self):
         helper.ROOT=ORIGINAL;self.tmp.cleanup()
     def test_initial_pack_is_valid(self):

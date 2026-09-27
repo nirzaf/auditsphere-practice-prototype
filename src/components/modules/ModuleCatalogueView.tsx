@@ -145,13 +145,13 @@ export const ModuleCatalogueView: React.FC<ModuleCatalogueViewProps> = ({ onNavi
             <p className="sub">{selected.failure}</p>
             {!clientMode && (
               <>
-                <h3 className="mt12">Residual acceptance work (engineering)</h3>
+                <h3 className="mt12">Intentional prototype limits</h3>
                 <p className="sub">{selected.limits}</p>
               </>
             )}
           </section>
         </div>
-        {!clientMode && <p className="caption mt8">Workspace component: <code>{selected.component}</code>. “Residual acceptance work” is engineering traceability for the demo team — it is hidden from client personas.</p>}
+        {!clientMode && <p className="caption mt8">Workspace component: <code>{selected.component}</code>. “Intentional prototype limits” are presenter notes on declared boundaries — they are hidden from client personas.</p>}
       </div>
 
       <div className="panel">

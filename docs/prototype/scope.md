@@ -64,6 +64,25 @@ arithmetic, content hashes, HTTPS hosting, escaping, access-view checks.
   event whenever it acts against its own work. It never relaxes validation, revision
   staleness or client-portal disclosure filters, and it is not an independent approval.
 
+## Amendment PROTOTYPE-AGENT-ACCEPTANCE-001 (recorded 2026-09-27)
+
+The repository owner authorized Claude Code to implement, review and approve this
+**synthetic browser-only prototype** for demonstration. This replaces the human-only
+software/product-owner acceptance and presenter-sign-off prerequisites for prototype
+delivery (including VP-063/VP-064 and the module rehearsal sheet). It does not claim
+that any earlier human review took place, and earlier wording above is kept as history.
+
+| Topic | Handling |
+|---|---|
+| Acceptance actor | Claude Code, after implementation, executed tests and a documented review pass. Provenance fields: `reviewer_kind=AI_AGENT`, `acceptance_scope=BROWSER_ONLY_PROTOTYPE`, `decision=APPROVED_FOR_DEMO` (or `CHANGES_REQUIRED`). |
+| Review honesty | A review in the same session is disclosed as AI self-review, not independent human assurance. |
+| Unchanged | Original MOD/VP/AC/AT identities and wording; tests; history; exclusions; simulated preparer, reviewer, manager, client signatory, partner and EQR separation. The superuser never counts as independence evidence. |
+| Not approved | Professional methodology or opinions, real postings, live providers, production security/retention, the separate AuditSphere repository, deployment. |
+| Still blocking | A failed or missing in-scope behaviour, an unexecuted required test, corrupt output or an unresolved regression — never the absence of a human demo signature. |
+
+Using Claude Code as a development/review tool is not an application AI feature; the
+product exclusions above are unchanged.
+
 ## Historical source
 
 Predecessor artefacts (`base-app.js`, `role-views.js`, `AuditSphere_All_Role_Portals_v2.html`,
