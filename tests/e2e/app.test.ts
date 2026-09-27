@@ -634,6 +634,60 @@ describe('actual Chrome browser acceptance', { concurrency: false }, () => {
     assert.ok(suspensionExplained, `the suspension must be explained as a blocker: ${JSON.stringify(suspended.blockedExplanations)}`);
     assert.ok(suspensionInAction, `the next action must reflect the suspension: ${suspended.nextAction}`);
 
+    // --- Keyboard and responsive behaviour of the tracker -------------------
+    await browserTab!.evaluate(`location.hash='#engagements'`);
+    assert.equal(await waitForBrowser(`document.querySelector('[data-workflow-progress="Engagement journey"]')!==null`), true);
+    const keyboard = await browserTab!.evaluate<any>(`(() => {
+      const el=document.querySelector('[data-workflow-progress="Engagement journey"]');
+      const buttons=[...el.querySelectorAll('.lifecycle-node button.life-action')];
+      const first=buttons[0];
+      first.focus();
+      const focusable=document.activeElement===first;
+      const name=first.getAttribute('aria-label')||'';
+      // A native button activates on Enter/Space; assert it is a real button and
+      // carries an accessible name describing the step and its state.
+      return { count: buttons.length, tag: first.tagName, focusable, name,
+        labelled: buttons.every(b=>Boolean(b.getAttribute('aria-label'))) };
+    })()`);
+    assert.equal(keyboard.tag, 'BUTTON', 'each tracker step must be a real button, so it is keyboard operable');
+    assert.equal(keyboard.focusable, true, 'a tracker step must accept keyboard focus');
+    assert.equal(keyboard.labelled, true, 'every tracker step must carry an accessible name');
+    assert.match(keyboard.name, /current|completed|pending|blocked|returned|stale|not applicable/, 'the accessible name must state the step state');
+
+    const barSemantics = await browserTab!.evaluate<any>(`(() => {
+      const bar=document.querySelector('[data-workflow-progress] [role="progressbar"]');
+      return { role: bar?.getAttribute('role'), now: bar?.getAttribute('aria-valuenow'),
+        min: bar?.getAttribute('aria-valuemin'), max: bar?.getAttribute('aria-valuemax'),
+        label: bar?.getAttribute('aria-label')||'' };
+    })()`);
+    assert.equal(barSemantics.role, 'progressbar', 'the progress bar must expose its role');
+    assert.equal(barSemantics.min, '0');
+    assert.equal(barSemantics.max, '100');
+    assert.match(barSemantics.label, /percent complete/, 'the bar must state what it measures');
+
+    for (const [width, height, mobile] of [[1440, 900, false], [1024, 768, false], [390, 844, true]] as const) {
+      await browserTab!.command('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor: 1, mobile });
+      await new Promise(resolve => setTimeout(resolve, 150));
+      const layout = await browserTab!.evaluate<any>(`(() => {
+        const el=document.querySelector('[data-workflow-progress]');
+        const rect=el.getBoundingClientRect();
+        const steps=[...el.querySelectorAll('.lifecycle-node')];
+        return {
+          overflow: document.documentElement.scrollWidth > window.innerWidth + 1,
+          withinViewport: rect.left >= -1 && rect.right <= window.innerWidth + 1,
+          stepCount: steps.length,
+          anyStepClipped: steps.some(node=>{const r=node.getBoundingClientRect();return r.width>0&&r.right>window.innerWidth+1;}),
+          nextActionVisible: Boolean(el.querySelector('[data-next-action]')?.getBoundingClientRect().width)
+        };
+      })()`);
+      assert.equal(layout.overflow, false, `the tracker must not cause page overflow at ${width}px`);
+      assert.equal(layout.withinViewport, true, `the tracker must stay inside the viewport at ${width}px`);
+      assert.equal(layout.anyStepClipped, false, `no tracker step may be clipped at ${width}px`);
+      assert.equal(layout.stepCount, 8, `the tracker must keep all its steps at ${width}px`);
+      assert.equal(layout.nextActionVisible, true, `the next action must stay visible at ${width}px`);
+    }
+    await browserTab!.command('Emulation.setDeviceMetricsOverride', { width: 1280, height: 800, deviceScaleFactor: 1, mobile: false });
+
     // --- Financial packages: the accounting journey -------------------------
     await browserTab!.evaluate(`localStorage.setItem('${key}',${JSON.stringify(JSON.stringify(createInitialState()))});location.hash='#financial-packages';`);
     await browserTab!.command('Page.reload');
