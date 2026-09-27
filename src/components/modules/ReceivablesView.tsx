@@ -3,6 +3,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { RouteKey, ReceiptRecord, InvoiceRecord } from '../../types';
 import { prototypeStore } from '../../store/prototypeStore';
 import { Icon } from '../common/Icons';
+import { Notice, EmptyTableRow } from '../common/Feedback';
 import { calculateReceivablesAging, formatCurrency } from '../../services/calculations';
 import { exportService } from '../../services/exportService';
 import { visibleClientIds } from '../../services/guards';
@@ -199,11 +200,7 @@ export const ReceivablesView: React.FC<ReceivablesViewProps> = ({ onNavigate, on
         </div>
       </div>
 
-      {notice && (
-        <div className={`badge ${notice.type === 'error' ? 'danger' : 'success'}`} style={{ padding: '8px 12px', display: 'block', fontSize: 13 }}>
-          {notice.text}
-        </div>
-      )}
+      {notice && <Notice tone={notice.type} onDismiss={() => setNotice(null)}>{notice.text}</Notice>}
 
       <div className="panel panel-pad receivables-statement">
         <div className="panel-head">
@@ -232,7 +229,7 @@ export const ReceivablesView: React.FC<ReceivablesViewProps> = ({ onNavigate, on
         <div className="panel-head between"><div><h3>{selectedAgingBucket ? `${selectedAgingBucket} invoice detail` : 'Outstanding invoice detail'}</h3><p className="sub">{agingDetails.length} issued invoice(s) · {currencyFilter} · as of {asOfDate}</p></div>{selectedAgingBucket && <button className="btn sm ghost" onClick={() => setSelectedAgingBucket('')}>Show all</button>}</div>
         <div className="tablewrap"><table><thead><tr><th>Invoice</th><th>Client</th><th>Due</th><th>Gross</th><th>Credits</th><th>Payments</th><th>Outstanding</th><th>Aging</th><th>Days overdue</th></tr></thead><tbody>
           {agingDetails.map(row => <tr key={row.invoice.id} data-outstanding={row.outstanding}><td><b>{row.invoice.invoiceNumber}</b></td><td>{scopedClients.find(c => c.id === row.invoice.clientId)?.name || row.invoice.clientId}</td><td>{row.invoice.due}</td><td>{formatCurrency(row.grossAmount, currencyFilter)}</td><td>{formatCurrency(row.effectiveCredits, currencyFilter)}</td><td>{formatCurrency(row.effectivePayments, currencyFilter)}</td><td><b>{formatCurrency(row.outstanding, currencyFilter)}</b></td><td>{row.bucket}</td><td>{row.daysOverdue}</td></tr>)}
-          {!agingDetails.length && <tr><td colSpan={9}>No outstanding invoices match this aging bucket.</td></tr>}
+          {!agingDetails.length && <EmptyTableRow colSpan={9} variant="filtered" title="No outstanding invoices match this aging bucket." />}
         </tbody></table></div>
       </div>
 

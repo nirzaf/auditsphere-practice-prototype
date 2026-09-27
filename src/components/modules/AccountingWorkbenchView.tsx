@@ -7,10 +7,14 @@ import { prototypeStore } from '../../store/prototypeStore';
 import { hasAnyRole } from '../../services/guards';
 import { UnsavedFormGuard } from '../../services/unsavedFormGuard';
 import { Icon } from '../common/Icons';
+import { StatusBadge } from '../common/StatusBadge';
 import { calculateTrialBalanceTotals, verifyGLCompleteness, calculateReconciliationVariance, formatCurrency } from '../../services/calculations';
 import { TBImportWizard } from './TBImportWizard';
 import { GL_FILE_BYTES_LIMIT, GL_IMPORT_COLUMNS, GLImportColumn, parseGLWorkbook, ParsedGLSource } from '../../services/glImport';
 import { exportService } from '../../services/exportService';
+import { StaleBanner } from '../common/Feedback';
+import { LifecycleStepper } from '../common/Lifecycle';
+import { lifecycleById } from '../../services/lifecycles';
 
 const AccountingSetup: React.FC<{ clientId: string; engagementId: string; profile?: ClientAccountingProfile; onRegisterUnsavedForm?: (guard: UnsavedFormGuard | null, key?: string) => void }> = ({ clientId, engagementId, profile, onRegisterUnsavedForm }) => {
   const seed: ClientAccountingProfile = profile || { legalEntityName: '', reportingBasis: 'Not selected', baseCurrency: 'QAR', accounts: [], periodBooks: [], dimensions: [], revision: 0, chartRevision: 0, history: [] };
@@ -105,6 +109,8 @@ export const AccountingWorkbenchView: React.FC<AccountingWorkbenchViewProps> = (
   const initialAdjustmentDraft = useRef({ title: 'Accrued audit fees and advisory expenses', debit: '5100', credit: '2100', amount: 35000, rationale: 'Record unbilled professional audit and consulting fees.' });
 
   const selectedEng = state.engagements.find(e => e.id === state.selectedEngagement) || state.engagements[0];
+  // Journals belong to one engagement; never list another engagement's journals under this context.
+  const engagementJournals = state.adjustmentJournals.filter(journal => journal.engagementId === selectedEng?.id);
   const client = state.clients.find(c => c.id === selectedEng?.client);
   const engagementEvidence = selectedEng ? state.evidenceCatalogue.flatMap(evidence => {
     const document = state.documents.find(item => item.id === evidence.documentId);
@@ -347,23 +353,23 @@ export const AccountingWorkbenchView: React.FC<AccountingWorkbenchViewProps> = (
 
       {/* Tabs */}
       <div className="tabs">
-        <button className={`tab-btn ${activeTab === 'tb' ? 'active' : ''}`} onClick={() => setActiveTab('tb')}>
+        <button className={`tab-btn ${activeTab === 'tb' ? 'active' : ''}`} aria-pressed={activeTab === 'tb'} onClick={() => setActiveTab('tb')}>
           Trial Balance & Intake
         </button>
-        <button className={`tab-btn ${activeTab === 'gl' ? 'active' : ''}`} onClick={() => setActiveTab('gl')}>
+        <button className={`tab-btn ${activeTab === 'gl' ? 'active' : ''}`} aria-pressed={activeTab === 'gl'} onClick={() => setActiveTab('gl')}>
           General Ledger & Completeness
           {!glVerify.isComplete && <span className="tag amber" style={{ marginLeft: 6 }}>Mismatch</span>}
         </button>
-        <button className={`tab-btn ${activeTab === 'mappings' ? 'active' : ''}`} onClick={() => setActiveTab('mappings')}>
+        <button className={`tab-btn ${activeTab === 'mappings' ? 'active' : ''}`} aria-pressed={activeTab === 'mappings'} onClick={() => setActiveTab('mappings')}>
           Statement Mappings
         </button>
-        <button className={`tab-btn ${activeTab === 'adjustments' ? 'active' : ''}`} onClick={() => setActiveTab('adjustments')}>
-          Adjustments ({state.adjustmentJournals.length})
+        <button className={`tab-btn ${activeTab === 'adjustments' ? 'active' : ''}`} aria-pressed={activeTab === 'adjustments'} onClick={() => setActiveTab('adjustments')}>
+          Adjustments ({engagementJournals.length})
         </button>
-        <button className={`tab-btn ${activeTab === 'reconciliations' ? 'active' : ''}`} onClick={() => setActiveTab('reconciliations')}>
+        <button className={`tab-btn ${activeTab === 'reconciliations' ? 'active' : ''}`} aria-pressed={activeTab === 'reconciliations'} onClick={() => setActiveTab('reconciliations')}>
           Reconciliations ({selectedEng.reconciliations.length})
         </button>
-        <button className={`tab-btn ${activeTab === 'setup' ? 'active' : ''}`} onClick={() => setActiveTab('setup')}>Accounting Setup</button>
+        <button className={`tab-btn ${activeTab === 'setup' ? 'active' : ''}`} aria-pressed={activeTab === 'setup'} onClick={() => setActiveTab('setup')}>Accounting Setup</button>
       </div>
 
       {activeTab === 'setup' && <AccountingSetup key={`${client?.id}-${selectedEng.id}`} clientId={selectedEng.client} engagementId={selectedEng.id} profile={client?.accountingProfile} onRegisterUnsavedForm={onRegisterUnsavedForm} />}
@@ -571,7 +577,7 @@ export const AccountingWorkbenchView: React.FC<AccountingWorkbenchViewProps> = (
               <div>
                 <h3>Account Mapping Revision {activeMapping?.revision ?? '1 (Seeded baseline)'}</h3>
                 <p className="sub">
-                  Chart version: Trial Balance v{selectedEng.sourceVersion} · Status: <span className={`badge ${activeMapping?.status === 'Approved' ? 'green' : 'amber'}`}>{activeMapping?.status || 'Draft'}</span>
+                  Chart version: Trial Balance v{selectedEng.sourceVersion} · Status: <StatusBadge status={activeMapping?.status || 'Draft'} />
                   {activeMapping?.preparedBy && ` · Prepared by: ${activeMapping.preparedBy}`}
                   {activeMapping?.reviewedBy && ` · Independently approved by: ${state.users.find(u => u.id === activeMapping.reviewedBy)?.name || activeMapping.reviewedBy}`}
                 </p>
@@ -753,7 +759,7 @@ export const AccountingWorkbenchView: React.FC<AccountingWorkbenchViewProps> = (
               <ul className="mt8" style={{ fontSize: 13, lineHeight: '1.8' }}>
                 {mappingHistory.map(rev => (
                   <li key={rev.revision}>
-                    <b>Revision {rev.revision}</b> — Status: <span className={`badge ${rev.status === 'Approved' ? 'green' : 'amber'}`}>{rev.status}</span>
+                    <b>Revision {rev.revision}</b> — Status: <StatusBadge status={rev.status} />
                     {rev.preparedBy && ` · Prepared by: ${rev.preparedBy}`}
                     {rev.reviewedBy && ` · Approved by: ${rev.reviewedBy}`}
                     {` · Mapped Accounts: ${rev.mappings.length}/${selectedEng.rows.length}`}
@@ -889,18 +895,19 @@ export const AccountingWorkbenchView: React.FC<AccountingWorkbenchViewProps> = (
           </div>
 
           <div className="stack" style={{ gap: 12 }}>
-            {state.adjustmentJournals.length === 0 && (
+            {engagementJournals.length === 0 && (
               <div className="panel panel-pad">
                 <b>No adjustment journals proposed</b>
                 <p className="sub">Use “Propose Adjustment Journal” to draft a balanced correcting journal. It then moves through independent technical review, a client management decision, reflection tracking, and reporting inclusion.</p>
               </div>
             )}
-            {state.adjustmentJournals.map(adj => (
+            {engagementJournals.map(adj => (
               <div key={adj.id} className="panel panel-pad">
                 <div className="between">
                   <div>
                     <b>{adj.title}</b>
                     <div className="cell-sub">{adj.id} · Proposed by {adj.preparedBy}</div>
+                    <LifecycleStepper definition={lifecycleById('adjustment')} status={adj.status} label={`${adj.id} lifecycle`} />
                   </div>
                   <div className="row" style={{ gap: 8 }}>
                     <span className={`badge ${adj.status === 'Management accepted' || adj.status === 'Reporting included' ? 'green' : adj.status === 'Rejected' ? 'red' : 'amber'}`}>
@@ -984,9 +991,16 @@ export const AccountingWorkbenchView: React.FC<AccountingWorkbenchViewProps> = (
                     <h3>{rec.title || rec.name}</h3>
                     <div className="cell-sub">Reconciliation Ref: {rec.id || rec.ref} · Account: {rec.accountCode || 'N/A'} · {rec.currency || selectedEng.currency} · As of {rec.asOfDate || selectedEng.period} · Source v{rec.sourceVersion ?? selectedEng.sourceVersion}</div>
                   </div>
-                  <div className="stack"><span className={`badge ${rec.status === 'Approved' || rec.status === 'Cleared' ? 'green' : rec.status === 'Stale' ? 'red' : 'amber'}`}>{rec.status}</span><span className={`badge ${variance.isReconciled ? 'green' : 'amber'}`}>{variance.isReconciled ? `Reconciled (Residual ${formatCurrency(0, rec.currency || selectedEng.currency)})` : `Unexplained Diff: ${formatCurrency(variance.unexplainedDifference, rec.currency || selectedEng.currency)}`}</span></div>
+                  <div className="stack"><StatusBadge status={rec.status} /><span className={`badge ${variance.isReconciled ? 'green' : 'amber'}`}>{variance.isReconciled ? `Reconciled (Residual ${formatCurrency(0, rec.currency || selectedEng.currency)})` : `Unexplained Diff: ${formatCurrency(variance.unexplainedDifference, rec.currency || selectedEng.currency)}`}</span></div>
                 </div>
 
+                {rec.status === 'Stale' && <div className="mt12"><StaleBanner
+                  subject={`Reconciliation ${rec.id || rec.ref}`}
+                  changes={[{ source: 'Trial balance source', from: `v${rec.sourceVersion ?? '—'}`, to: `v${selectedEng.sourceVersion}` }]}
+                  affected={['Reconciliation review', 'Statement lines using this account', 'Financial package validation']}
+                  preserved={rec.reviewedByUserId ? `The earlier review by ${state.users.find(user => user.id === rec.reviewedByUserId)?.name || rec.reviewedByUserId} stays in the revision history.` : 'Earlier revisions stay in the revision history.'}
+                  required="Update the schedule against the current source and resubmit it for independent review."
+                /></div>}
                 <div className="info-grid mt16">
                   <div><label>General Ledger Balance</label><b>{formatCurrency(rec.glBalance ?? rec.sourceBalance ?? 0, rec.currency || selectedEng.currency)}</b></div>
                   <div><label>External Statement Balance</label><b>{formatCurrency(rec.statementBalance ?? rec.supportingBalance ?? 0, rec.currency || selectedEng.currency)}</b></div>

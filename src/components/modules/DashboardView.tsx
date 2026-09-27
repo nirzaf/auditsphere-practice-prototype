@@ -2,9 +2,12 @@
 import React, { useState } from 'react';
 import { RouteKey, JobRecord, JobTaskItem, PbcRequestItem, ReviewNoteItem } from '../../types';
 import { prototypeStore } from '../../store/prototypeStore';
-import { canOpenRoute, visibleEngagementIds } from '../../services/guards';
+import { canOpenRoute, visibleEngagementIds, hasAnyRole } from '../../services/guards';
 import { calculateReceivablesAging, formatCurrency } from '../../services/calculations';
 import { Icon } from '../common/Icons';
+import { StatusBadge } from '../common/StatusBadge';
+import { EmptyTableRow } from '../common/Feedback';
+import { buildWorkQueues, QueueId, readyForReleaseEngagements } from '../../services/workQueues';
 
 type DashboardItem = { id: string; engagementId: string; label: string; status: string; due?: string; route: RouteKey; kind: string };
 
@@ -20,6 +23,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigate }) => {
   const [assigneeFilter, setAssigneeFilter] = useState('ALL');
   const [periodFilter, setPeriodFilter] = useState('ALL');
   const [activeList, setActiveList] = useState<'engagements' | 'reviews' | 'pbc' | 'ready' | 'tasks' | 'overdue' | ''>('');
+  const [activeQueue, setActiveQueue] = useState<QueueId | ''>('');
   const visibleIds = visibleEngagementIds(state);
   const permittedEngagements = visibleIds === 'ALL' ? state.engagements : state.engagements.filter(e => visibleIds.includes(e.id));
   const availableYears = [...new Set(permittedEngagements.map(e => String(e.year)))].sort().reverse();
@@ -38,7 +42,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigate }) => {
   const tasks: Array<DashboardItem & { record: JobTaskItem }> = state.jobTasks.filter(t => jobIds.has(t.jobId) && (assigneeFilter === 'ALL' || t.assignee === assigneeFilter)).map(t => ({ id: t.id, engagementId: state.jobs.find(j => j.id === t.jobId)!.engagementId, label: t.title, status: t.status, due: t.dueDate, route: 'jobs', kind: 'Task', record: t }));
   const myTasks = tasks.filter(t => t.record.assignee === state.currentPerson && !['Completed', 'Cancelled'].includes(t.status));
   const openPbc = pbc;
-  const readyEngagements = engagements.filter(e => !e.archive && e.workpapers.length > 0 && e.workpapers.every(w => w.status === 'Cleared') && e.reviews.every(r => r.status === 'Cleared'));
+  const readyEngagements = readyForReleaseEngagements(engagements);
   const ready = readyEngagements.length;
   const overdue: DashboardItem[] = [
     ...jobs.filter(j => j.due && j.due < asOfDate && !['Completed', 'Cancelled'].includes(j.status)),
@@ -70,7 +74,11 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigate }) => {
   const attention = [...overdue, ...reviews, ...pbc, ...tasks].filter(item => item.due).sort((a, b) => (a.due || '').localeCompare(b.due || ''))[0];
   const jobStatusCounts = ['Not started', 'In progress', 'Blocked', 'Completed', 'Cancelled'].map(status => ({ status, count: jobs.filter(job => job.status === status).length }));
   const maxJobCount = Math.max(1, ...jobStatusCounts.map(item => item.count));
-  const openItem = (item: DashboardItem) => { prototypeStore.setSelectedEngagement(item.engagementId); onNavigate(item.route); };
+  const openItem = (item: Pick<DashboardItem, 'engagementId' | 'route'>) => { if (item.engagementId) prototypeStore.setSelectedEngagement(item.engagementId); onNavigate(item.route); };
+  // Role work queues use the same client/engagement/period filters as the metrics above.
+  const queues = buildWorkQueues(state, { engagementIds: engagementSet });
+  const openQueue = queues.find(queue => queue.id === activeQueue);
+  const persona = state.users.find(user => user.id === state.currentUserId);
   const metric = (label: string, value: number, detail: string, tone: string, list: typeof activeList, icon: string) => (
     <button type="button" className={`metric ${tone}`} aria-label={`${label}: ${value}. ${detail}`} aria-pressed={activeList === list} onClick={() => setActiveList(activeList === list ? '' : list)} style={{ cursor: 'pointer', color: 'inherit', textAlign: 'left', width: '100%' }}>
       <div className="metric-top"><span>{label}</span><span className={`metric-icon ${tone}`}><Icon name={icon} /></span></div>
@@ -85,20 +93,21 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigate }) => {
         <div>
           <h1>A clear view of every engagement.</h1>
           <p>Your practice, in sync. Client work, reviews, and deadlines in one place.</p>
+          <div className="record-meta"><span>Simulated identity <b>{state.currentPerson}</b></span><span>Role <b>{persona?.label || state.currentRole}</b></span><span>Scope <b>{permittedEngagements.length} permitted {permittedEngagements.length === 1 ? 'engagement' : 'engagements'}</b></span></div>
         </div>
         <div className="row" style={{ gap: 10 }}>
           <span className="btn sm">
             <Icon name="calendar" />
             {new Date(`${state.asOfDate}T00:00:00Z`).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', timeZone: 'UTC' })} · As of date
           </span>
-          <button className="btn primary sm" onClick={() => onNavigate('engagements')}>
+          {hasAnyRole(state, ['manager', 'partner']) && <button className="btn primary sm" onClick={() => onNavigate('engagements')}>
             <Icon name="plus" />
             New Engagement
-          </button>
+          </button>}
         </div>
       </div>
 
-      <div className="panel panel-pad grid2" aria-label="Dashboard filters">
+      <div className="panel panel-pad filter-grid" aria-label="Dashboard filters">
         <label>Client
           <select className="input" aria-label="Dashboard client filter" value={clientFilter} onChange={e => { setClientFilter(e.target.value); setEngagementFilter('ALL'); }}>
             <option value="ALL">All permitted clients</option>{state.clients.filter(c => permittedEngagements.some(eng => eng.client === c.id)).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
@@ -124,6 +133,24 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigate }) => {
         </label>
       </div>
 
+      <section className="panel panel-pad" aria-labelledby="work-queues-title">
+        <div className="section-title"><div><h2 id="work-queues-title">My work queues</h2><p className="sub">What needs {state.currentPerson} now, projected from current records in your permitted scope and the filters above. No automation or scheduling.</p></div></div>
+        <div className="queue-grid mt12">
+          {queues.map(queue => <button key={queue.id} type="button" className={`queue-card tone-${queue.tone}${queue.items.length ? ' has-items' : ''}`} aria-pressed={activeQueue === queue.id} aria-label={`${queue.title}: ${queue.items.length}. ${queue.description}`} onClick={() => setActiveQueue(activeQueue === queue.id ? '' : queue.id)}>
+            <span className="queue-top"><span>{queue.title}</span><span className="queue-count">{queue.items.length}</span></span>
+            <span className="queue-desc">{queue.description}</span>
+          </button>)}
+        </div>
+      </section>
+
+      {openQueue && <div className="panel" data-testid="work-queue-list">
+        <div className="panel-head between"><div><h2>{openQueue.title}</h2><p className="sub">{openQueue.items.length} record(s) in this queue · {openQueue.description}</p></div><button className="btn sm ghost" onClick={() => setActiveQueue('')}>Close queue</button></div>
+        <div className="tablewrap"><table><thead><tr><th>Type</th><th>Record</th><th>Engagement</th><th>Status</th><th>Why it is here</th><th>Due</th><th /></tr></thead><tbody>
+          {openQueue.items.map(item => <tr key={`${item.kind}-${item.id}`}><td>{item.kind}</td><td><b>{item.label}</b><div className="cell-sub">{item.id}</div></td><td>{item.engagementId || '—'}</td><td><StatusBadge status={item.status} /></td><td className="small">{item.reason}</td><td className="nowrap">{item.due || '—'}</td><td><button className="btn sm" onClick={() => openItem(item)}>Open</button></td></tr>)}
+          {!openQueue.items.length && <EmptyTableRow colSpan={7} title="Nothing in this queue" description="Nothing needs your action here within the current scope and filters." />}
+        </tbody></table></div>
+      </div>}
+
       {/* Metrics Row */}
       <div className="metric-grid">
         {metric('Active Engagements', activeEngagements, `${clients.length} permitted ${clients.length === 1 ? 'client' : 'clients'}`, '', 'engagements', 'brief')}
@@ -137,8 +164,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigate }) => {
       {activeList && <div className="panel">
         <div className="panel-head between"><div><h2>Filtered work list</h2><p className="sub">{listItems.length} record(s) for the selected dashboard metric and filters · as of {asOfDate}</p></div><button className="btn sm ghost" onClick={() => setActiveList('')}>Close</button></div>
         <div className="tablewrap"><table><thead><tr><th>Type</th><th>Record</th><th>Engagement</th><th>Status</th><th>Due</th><th /></tr></thead><tbody>
-          {listItems.map(item => <tr key={`${item.kind}-${item.id}`}><td>{item.kind}</td><td><b>{item.label}</b><div className="cell-sub">{item.id}</div></td><td>{item.engagementId}</td><td>{item.status}</td><td>{item.due || '—'}</td><td><button className="btn sm" onClick={() => openItem(item)}>Open</button></td></tr>)}
-          {!listItems.length && <tr><td colSpan={6}>No matching records.</td></tr>}
+          {listItems.map(item => <tr key={`${item.kind}-${item.id}`}><td>{item.kind}</td><td><b>{item.label}</b><div className="cell-sub">{item.id}</div></td><td>{item.engagementId}</td><td><StatusBadge status={item.status} /></td><td className="nowrap">{item.due || '—'}</td><td><button className="btn sm" onClick={() => openItem(item)}>Open</button></td></tr>)}
+          {!listItems.length && <EmptyTableRow colSpan={6} variant="filtered" title="No matching records." description="Nothing in your permitted scope matches this metric and the current filters." />}
         </tbody></table></div>
       </div>}
 
@@ -185,11 +212,10 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigate }) => {
                         </td>
                         <td>{eng.service}</td>
                         <td>
-                          <span className={`badge ${eng.stage === 'Review' ? 'purple' : 'teal'}`}>
-                            {eng.stage}
-                          </span>
+                          <StatusBadge status={eng.stage} />
+                          {eng.lifecycleStatus && eng.lifecycleStatus !== 'Active' && <div className="mt4"><StatusBadge status={eng.lifecycleStatus} /></div>}
                         </td>
-                        <td>{eng.due}</td>
+                        <td className="nowrap">{eng.due}</td>
                         <td>{eng.manager}</td>
                         <td>
                           <button
@@ -205,6 +231,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigate }) => {
                       </tr>
                     );
                   })}
+                  {!engagements.some(eng => !eng.archive) && <EmptyTableRow colSpan={6} variant={permittedEngagements.length ? 'filtered' : 'scope'} title={permittedEngagements.length ? 'No engagements match these filters' : 'No engagements in your current scope'} description={permittedEngagements.length ? 'Clear the client, engagement or period filter to see the full portfolio.' : undefined} />}
                 </tbody>
               </table>
             </div>
@@ -215,7 +242,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigate }) => {
             <h3>Your Attention, Where It Matters</h3>
             <p className="sub" style={{ marginBottom: 16 }}>Current work for selected engagement ({currentEng?.id || 'none in scope'}).</p>
             <div className="stack" style={{ gap: 12 }}>
-              {myTasks.slice(0, 4).map(item => <div className="taskrow" key={item.id}><div className="taskcheck blue"><Icon name="checkcircle" /></div><div style={{ flex: 1 }}><h4>{item.label}</h4><p className="sub">{item.engagementId} · {item.status} · Due {item.due || 'not dated'}</p></div><button className="btn sm" onClick={() => openItem(item)}>Open task</button></div>)}
+              {myTasks.slice(0, 4).map(item => <div className="taskrow" key={item.id}><div className="taskcheck blue"><Icon name="checkcircle" /></div><div style={{ flex: 1 }}><h4>{item.label}</h4><p className="sub">{item.engagementId} · <StatusBadge status={item.status} /> · Due {item.due || 'not dated'}</p></div><button className="btn sm" onClick={() => openItem(item)}>Open task</button></div>)}
               {!myTasks.length && <p className="sub">No open tasks assigned to you in this scope.</p>}
             </div>
           </div>

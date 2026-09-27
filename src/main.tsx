@@ -4,6 +4,7 @@ import App from './App';
 import '../roles.css';
 import '../styles.css';
 import './host.css';
+import './enterprise.css';
 
 const rootElement = document.getElementById('root');
 if (!rootElement) {

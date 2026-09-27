@@ -6,6 +6,8 @@ import { RouteKey, AcceptanceCaseRecord } from '../../types';
 import { prototypeStore } from '../../store/prototypeStore';
 import { hasAnyRole, hasRole } from '../../services/guards';
 import { Icon } from '../common/Icons';
+import { StatusBadge } from '../common/StatusBadge';
+import { Notice } from '../common/Feedback';
 import { UnsavedFormGuard } from '../../services/unsavedFormGuard';
 
 interface AuditAcceptanceViewProps {
@@ -216,20 +218,7 @@ export const AuditAcceptanceView: React.FC<AuditAcceptanceViewProps> = ({ onNavi
         </div>
       )}
 
-      {notice && (
-        <div
-          className="panel panel-pad"
-          style={{
-            background: notice.type === 'success' ? '#f0fdf4' : '#fef2f2',
-            borderColor: notice.type === 'success' ? '#86efac' : '#fca5a5',
-            color: notice.type === 'success' ? '#166534' : '#991b1b',
-            padding: '10px 16px'
-          }}
-        >
-          <b>{notice.type === 'success' ? '✓ ' : '⚠ '}</b>
-          {notice.text}
-        </div>
-      )}
+      {notice && <Notice tone={notice.type} onDismiss={() => setNotice(null)}>{notice.text}</Notice>}
 
       <div className="panel panel-pad">
         <div className="between">
@@ -486,9 +475,7 @@ export const AuditAcceptanceView: React.FC<AuditAcceptanceViewProps> = ({ onNavi
                     <td>{c.recommendationBy}</td>
                     <td>{c.decisionBy || 'Pending'}</td>
                     <td>
-                      <span className={`badge ${c.decisionStatus === 'Accepted' ? 'green' : c.decisionStatus === 'Declined' ? 'red' : 'gray'}`}>
-                        {c.decisionStatus}
-                      </span>
+                      <StatusBadge status={c.decisionStatus} />
                     </td>
                   </tr>
                 ))}

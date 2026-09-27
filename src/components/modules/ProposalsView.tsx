@@ -3,6 +3,8 @@ import React, { useEffect, useRef, useState } from 'react';
 import { RouteKey, ProposalContentTemplate, ProposalItem, ProposalRecord, ProposalServiceDefinition } from '../../types';
 import { prototypeStore } from '../../store/prototypeStore';
 import { Icon } from '../common/Icons';
+import { Notice, EmptyTableRow } from '../common/Feedback';
+import { StatusBadge } from '../common/StatusBadge';
 import { formatCurrency } from '../../services/calculations';
 import { UnsavedFormGuard } from '../../services/unsavedFormGuard';
 import { visibleClientIds } from '../../services/guards';
@@ -241,11 +243,7 @@ export const ProposalsView: React.FC<ProposalsViewProps> = ({ onNavigate, onRegi
 
       {templateDraft && <div className="modal-backdrop" onClick={() => setTemplateDraft(null)}><form className="modal" style={{ maxWidth: 680 }} onClick={event => event.stopPropagation()} onSubmit={event => { event.preventDefault(); persistProposalTemplate(); }}><div className="modal-head"><h2>{editingTemplateId ? 'Edit Proposal Template' : 'Add Proposal Template'}</h2><button type="button" className="icon-btn" onClick={() => setTemplateDraft(null)}>✕</button></div><div className="modal-body stack"><label className="caption">Template name<input className="input" required value={templateDraft.name} onChange={event => setTemplateDraft({ ...templateDraft, name: event.target.value })}/></label><label className="caption">Description<textarea className="input" required value={templateDraft.description} onChange={event => setTemplateDraft({ ...templateDraft, description: event.target.value })}/></label><label className="caption">Supported service<select className="input" value={templateDraft.serviceId} onChange={event => setTemplateDraft({ ...templateDraft, serviceId: event.target.value, serviceRevision: proposalServices.find(service => service.id === event.target.value)?.revision })}>{proposalServices.map(service => <option key={service.id} value={service.id}>{service.name}</option>)}</select></label><label className="caption">Proposal title<input className="input" required value={templateDraft.title} onChange={event => setTemplateDraft({ ...templateDraft, title: event.target.value })}/></label><label className="caption">Scope<textarea className="input" required value={templateDraft.scope} onChange={event => setTemplateDraft({ ...templateDraft, scope: event.target.value })}/></label><label className="caption">Exclusions<textarea className="input" value={templateDraft.exclusions} onChange={event => setTemplateDraft({ ...templateDraft, exclusions: event.target.value })}/></label><label className="caption">Deliverables<textarea className="input" required value={templateDraft.deliverables} onChange={event => setTemplateDraft({ ...templateDraft, deliverables: event.target.value })}/></label><label className="caption">Client responsibilities<textarea className="input" value={templateDraft.clientResponsibilities} onChange={event => setTemplateDraft({ ...templateDraft, clientResponsibilities: event.target.value })}/></label><label className="caption">Dependencies<textarea className="input" value={templateDraft.dependencies} onChange={event => setTemplateDraft({ ...templateDraft, dependencies: event.target.value })}/></label><label className="caption">Period<input className="input" required value={templateDraft.period} onChange={event => setTemplateDraft({ ...templateDraft, period: event.target.value })}/></label><div className="grid2"><label className="caption">Period start<input className="input" type="date" required value={templateDraft.periodStart || ''} onChange={event => setTemplateDraft({ ...templateDraft, periodStart: event.target.value })}/></label><label className="caption">Period end<input className="input" type="date" required value={templateDraft.periodEnd || ''} onChange={event => setTemplateDraft({ ...templateDraft, periodEnd: event.target.value })}/></label></div><div className="grid2"><label className="caption">Fee model<select className="input" value={templateDraft.feeModel} onChange={event => setTemplateDraft({ ...templateDraft, feeModel: event.target.value as ProposalItem['feeModel'] })}><option>Fixed</option><option>Time & Materials</option><option>Retainer</option></select></label><label className="caption">Currency<select className="input" value={templateDraft.currency} onChange={event => setTemplateDraft({ ...templateDraft, currency: event.target.value })}><option>QAR</option><option>USD</option><option>EUR</option><option>GBP</option></select></label><label className="caption">Quantity<input className="input" type="number" min="0.01" step="0.01" required value={templateDraft.quantity} onChange={event => setTemplateDraft({ ...templateDraft, quantity: Number(event.target.value) })}/></label><label className="caption">Rate<input className="input" type="number" min="0" step="0.01" required value={templateDraft.rate} onChange={event => setTemplateDraft({ ...templateDraft, rate: Number(event.target.value) })}/></label></div><label className="caption">Terms<textarea className="input" required value={templateDraft.terms} onChange={event => setTemplateDraft({ ...templateDraft, terms: event.target.value })}/></label><label><input type="checkbox" checked={templateDraft.active} onChange={event => setTemplateDraft({ ...templateDraft, active: event.target.checked })}/> Active for new proposal drafts</label></div><div className="modal-foot"><button type="button" className="btn ghost sm" onClick={() => setTemplateDraft(null)}>Cancel</button><button className="btn primary sm" type="submit">Save Template</button></div></form></div>}
 
-      {notice && (
-        <div className={`badge ${notice.type === 'error' ? 'danger' : 'success'}`} style={{ padding: '8px 12px', display: 'block', fontSize: 13 }}>
-          {notice.text}
-        </div>
-      )}
+      {notice && <Notice tone={notice.type} onDismiss={() => setNotice(null)}>{notice.text}</Notice>}
 
       <div className="panel">
         <div className="panel-head">
@@ -267,12 +265,7 @@ export const ProposalsView: React.FC<ProposalsViewProps> = ({ onNavigate, onRegi
               </tr>
             </thead>
             <tbody>
-              {proposals.length === 0 && (
-                <tr><td colSpan={8} style={{ textAlign: 'center', padding: '24px 12px' }}>
-                  <b>No proposals drafted yet</b>
-                  <p className="sub mt8">Use “New Proposal” to draft service terms from the reusable catalogue. Drafts pass independent commercial review, are presented to the client, and — once accepted — unlock engagement creation.</p>
-                </td></tr>
-              )}
+              {proposals.length === 0 && <EmptyTableRow colSpan={8} title="No proposals drafted yet" description="Use “New Proposal” to draft service terms from the reusable catalogue. Drafts pass independent commercial review, are presented to the client, and — once accepted — unlock engagement creation." />}
               {proposals.map(p => (
                 <tr key={p.id}>
                   <td>
@@ -288,7 +281,7 @@ export const ProposalsView: React.FC<ProposalsViewProps> = ({ onNavigate, onRegi
                         {p.commercialReview.approved ? 'Approved' : 'Returned'} by {p.commercialReview.reviewedBy}
                       </span>
                     ) : (
-                      <span className="badge gray">Pending Review</span>
+                      <StatusBadge status="Pending Review" kind={p.state === 'Internal review' ? 'review' : 'draft'} />
                     )}
                   </td>
                   <td>
@@ -301,7 +294,8 @@ export const ProposalsView: React.FC<ProposalsViewProps> = ({ onNavigate, onRegi
                     )}
                   </td>
                   <td>
-                    <span className="badge blue">{p.state}</span>
+                    <StatusBadge status={p.state} />
+                    {p.state === 'Draft' && p.commercialReview && !p.commercialReview.approved && <div className="mt4"><StatusBadge status="Returned" title={p.commercialReview.notes || 'Returned by the commercial reviewer'} /></div>}
                   </td>
                   <td>
                     <div className="row" style={{ gap: 6 }}>

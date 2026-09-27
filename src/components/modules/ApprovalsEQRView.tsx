@@ -6,6 +6,9 @@ import { RouteKey } from '../../types';
 import { prototypeStore } from '../../store/prototypeStore';
 import { hasAnyRole, hasRole } from '../../services/guards';
 import { Icon } from '../common/Icons';
+import { Notice } from '../common/Feedback';
+import { LifecyclePanel } from '../common/Lifecycle';
+import { lifecycleById } from '../../services/lifecycles';
 import { UnsavedFormGuard } from '../../services/unsavedFormGuard';
 
 interface ApprovalsEQRViewProps {
@@ -169,20 +172,29 @@ export const ApprovalsEQRView: React.FC<ApprovalsEQRViewProps> = ({ onNavigate, 
         </button>
       </div>
 
-      {notice && (
-        <div
-          className="panel panel-pad"
-          style={{
-            background: notice.type === 'success' ? '#f0fdf4' : '#fef2f2',
-            borderColor: notice.type === 'success' ? '#86efac' : '#fca5a5',
-            color: notice.type === 'success' ? '#166534' : '#991b1b',
-            padding: '10px 16px'
-          }}
-        >
-          <b>{notice.type === 'success' ? '✓ ' : '⚠ '}</b>
-          {notice.text}
-        </div>
-      )}
+      {notice && <Notice tone={notice.type} onDismiss={() => setNotice(null)}>{notice.text}</Notice>}
+
+      {(() => {
+        const base = lifecycleById('approval');
+        const order = (['manager', 'client', 'partner', 'eqr'] as const).filter(role => role !== 'eqr' || selectedEng.eqrRequired);
+        const definition = { ...base, path: base.path.filter(step => order.includes(step.statuses[0] as typeof order[number])) };
+        const valid = (role: typeof order[number]) => approvals[role]?.generation === selectedEng.generation;
+        const pending = order.find(role => !valid(role));
+        const label: Record<string, string> = { manager: 'Manager', client: 'Client management', partner: 'Partner', eqr: 'EQR' };
+        const staleApprovals = order.filter(role => approvals[role] && approvals[role]!.generation !== selectedEng.generation);
+        return <LifecyclePanel
+          definition={definition}
+          subject={`${selectedEng.id} · Generation ${selectedEng.generation}`}
+          status={pending || order[order.length - 1]}
+          displayStatus={pending ? `Awaiting ${label[pending]}` : 'All sign-offs current'}
+          displayKind={pending ? 'waiting' : 'approved'}
+          headingLevel="h4"
+          facts={order.map(role => ({ label: label[role], value: valid(role) ? `${approvals[role]!.by} · ${new Date(approvals[role]!.at).toLocaleDateString('en-GB')}` : approvals[role] ? `Stale (generation ${approvals[role]!.generation}) — kept in history` : 'Pending' }))}
+          blockers={staleApprovals.length ? [`${staleApprovals.map(role => label[role]).join(', ')} approval(s) predate generation ${selectedEng.generation}; they remain in history but are not current`] : undefined}
+          nextAction={pending ? `${label[pending]} sign-off for generation ${selectedEng.generation}; each approver must be independent of the preparer.` : 'All required sign-offs are current. Prepare the release candidate in Release & Completion.'}
+          downstream="Approvals record human decisions for this exact generation only — they are not electronic signatures, and any later change leaves them in history but no longer current."
+        />;
+      })()}
 
       <div className="panel panel-pad">
         <div className="between">

@@ -8,6 +8,8 @@ import { RouteKey, PbcRequestItem } from '../../types';
 import { prototypeStore } from '../../store/prototypeStore';
 import { visibleClientIds, visibleEngagementIds } from '../../services/guards';
 import { Icon } from '../common/Icons';
+import { StatusBadge } from '../common/StatusBadge';
+import { Notice, EmptyTableRow } from '../common/Feedback';
 import { invoiceTaxLine, formatCurrency } from '../../services/calculations';
 import { exportService } from '../../services/exportService';
 import { sha256OfFile } from '../../services/fileMetadata';
@@ -26,7 +28,7 @@ export const ClientPortalView: React.FC<ClientPortalViewProps> = ({ onNavigate, 
   const [previewRole, setPreviewRole] = useState<'client_admin' | 'client_finance' | 'client'>('client_finance');
   const portalRole = state.currentRole === 'superuser' ? previewRole : state.currentRole;
   const [activeSub, setActiveSub] = useState<'home' | 'status' | 'pbc' | 'docs' | 'messages' | 'packages' | 'invoices' | 'approvals' | 'proposals' | 'nominations'>('home');
-  const [notice, setNotice] = useState<string | null>(null);
+  const [notice, setNotice] = useState<{ tone: 'success' | 'error'; text: string } | null>(null);
   const [uploadPbcModal, setUploadPbcModal] = useState<PbcRequestItem | null>(null);
   const [uploadFile, setUploadFile] = useState<File | null>(null);
   const uploadDraftBaseline = useRef<{ requestId: string; clientId: string; engagementId: string } | null>(null);
@@ -81,8 +83,8 @@ export const ClientPortalView: React.FC<ClientPortalViewProps> = ({ onNavigate, 
   const sharedDocs = client ? state.documents.filter(d => d.visibility === 'Client shared' && d.clientId === client.id && (!d.engagementId || d.engagementId === eng?.id)) : [];
   const messages = client ? state.communications.filter(c => c.visibility === 'Client visible' && c.clientId === client.id && (!c.engagementId || c.engagementId === eng?.id)) : [];
 
-  const triggerNotice = (msg: string) => {
-    setNotice(msg);
+  const triggerNotice = (msg: string, tone: 'success' | 'error' = 'success') => {
+    setNotice({ tone, text: msg });
     setTimeout(() => setNotice(null), 5000);
   };
 
@@ -156,7 +158,7 @@ export const ClientPortalView: React.FC<ClientPortalViewProps> = ({ onNavigate, 
       uploadDraftBaseline.current = null;
       return true;
     } catch (err: any) {
-      triggerNotice(`Upload error: ${err.message}`);
+      triggerNotice(`Upload error: ${err.message}`, 'error');
       return false;
     }
   };
@@ -189,7 +191,7 @@ export const ClientPortalView: React.FC<ClientPortalViewProps> = ({ onNavigate, 
       setPbcReplies(current => ({ ...current, [request.id]: '' }));
       triggerNotice(`Reply added to ${request.id}'s client-visible timeline.`);
     } catch (err) {
-      triggerNotice(err instanceof Error ? err.message : 'Reply could not be added.');
+      triggerNotice(err instanceof Error ? err.message : 'Reply could not be added.', 'error');
     }
   };
 
@@ -199,7 +201,7 @@ export const ClientPortalView: React.FC<ClientPortalViewProps> = ({ onNavigate, 
       prototypeStore.recordApproval(eng.id, 'client', 'Management representation receipt recorded in the local prototype; no signature was captured.');
       triggerNotice('Management representation receipt recorded locally. No signature was captured.');
     } catch (err) {
-      triggerNotice(err instanceof Error ? err.message : 'Management acknowledgement could not be recorded.');
+      triggerNotice(err instanceof Error ? err.message : 'Management acknowledgement could not be recorded.', 'error');
     }
   };
 
@@ -210,7 +212,7 @@ export const ClientPortalView: React.FC<ClientPortalViewProps> = ({ onNavigate, 
       setPackageRationale(''); setPackageEvidence('');
       triggerNotice(`Package ${decision.toLowerCase()} recorded with rationale and evidence.`);
     } catch (err) {
-      triggerNotice(err instanceof Error ? err.message : 'Management package decision could not be recorded.');
+      triggerNotice(err instanceof Error ? err.message : 'Management package decision could not be recorded.', 'error');
     }
   };
 
@@ -221,7 +223,7 @@ export const ClientPortalView: React.FC<ClientPortalViewProps> = ({ onNavigate, 
       setAdjustmentRejectNote('');
       triggerNotice(accepted ? 'Management accepted the adjustment for reporting.' : 'Management rejected the adjustment.');
     } catch (err) {
-      triggerNotice(err instanceof Error ? err.message : 'Adjustment decision could not be recorded.');
+      triggerNotice(err instanceof Error ? err.message : 'Adjustment decision could not be recorded.', 'error');
     }
   };
 
@@ -230,7 +232,7 @@ export const ClientPortalView: React.FC<ClientPortalViewProps> = ({ onNavigate, 
       prototypeStore.recordProposalResponse(proposalId, { responseType, contact: proposalContact.trim(), date: new Date().toISOString().slice(0, 10), method: proposalResponseMethod, notes: proposalResponseNotes.trim(), evidenceRef: proposalEvidenceRef.trim() });
       setProposalContact(''); setProposalEvidenceRef(''); setProposalResponseNotes(''); setProposalResponseMethod('Email');
       triggerNotice(`Proposal ${proposalId} ${responseType.toLowerCase()} response recorded with evidence reference.`);
-    } catch (err) { triggerNotice(err instanceof Error ? err.message : 'Proposal response could not be recorded.'); }
+    } catch (err) { triggerNotice(err instanceof Error ? err.message : 'Proposal response could not be recorded.', 'error'); }
   };
 
   const clearNominationDraft = () => {
@@ -247,7 +249,7 @@ export const ClientPortalView: React.FC<ClientPortalViewProps> = ({ onNavigate, 
       triggerNotice('Contact nomination submitted for staff review. No identity or access grant was created.');
       return true;
     } catch (err) {
-      triggerNotice(err instanceof Error ? err.message : 'Contact nomination could not be submitted.');
+      triggerNotice(err instanceof Error ? err.message : 'Contact nomination could not be submitted.', 'error');
       return false;
     }
   };
@@ -344,11 +346,7 @@ export const ClientPortalView: React.FC<ClientPortalViewProps> = ({ onNavigate, 
         </div>
 
         {/* Notice Banner */}
-        {notice && (
-          <div className="mt12" style={{ background: '#00c7a220', border: '1px solid #00c7a2', padding: '8px 14px', borderRadius: 4, color: '#00c7a2' }}>
-            {notice}
-          </div>
-        )}
+        {notice && <Notice className="mt12" tone={notice.tone} onDismiss={() => setNotice(null)}>{notice.text}</Notice>}
 
         {/* Portal Navigation Tabs */}
         <div className="tabs mt20" style={{ borderBottomColor: '#20454d' }}>
@@ -365,7 +363,7 @@ export const ClientPortalView: React.FC<ClientPortalViewProps> = ({ onNavigate, 
           ].map(t => (
             <button
               key={t.key}
-              className={`tab-btn ${activeSub === t.key ? 'active' : ''}`}
+              className={`tab-btn ${activeSub === t.key ? 'active' : ''}`} aria-pressed={activeSub === t.key}
               style={{ color: activeSub === t.key ? '#00c7a2' : '#9fc4c9' }}
               onClick={() => setActiveSub(t.key as any)}
             >
@@ -480,7 +478,7 @@ export const ClientPortalView: React.FC<ClientPortalViewProps> = ({ onNavigate, 
               </thead>
               <tbody>
                 {pbc.length === 0 ? (
-                  <tr><td colSpan={5} className="text-center sub" style={{ padding: 20 }}>No information requests active.</td></tr>
+                  <EmptyTableRow colSpan={5} variant="none" title="No information requests active." />
                 ) : (
                   pbc.map(p => (
                     <tr key={p.id}>
@@ -520,9 +518,7 @@ export const ClientPortalView: React.FC<ClientPortalViewProps> = ({ onNavigate, 
                       <td>{p.category}</td>
                       <td>{p.due}</td>
                       <td>
-                        <span className={`badge ${p.status === 'Accepted' ? 'green' : p.status === 'Received' ? 'blue' : 'amber'}`}>
-                          {p.status}
-                        </span>
+                        <StatusBadge status={p.status} />
                       </td>
                       <td>
                         {p.status === 'Accepted' ? (
@@ -569,7 +565,7 @@ export const ClientPortalView: React.FC<ClientPortalViewProps> = ({ onNavigate, 
               </thead>
               <tbody>
                 {sharedDocs.length === 0 ? (
-                  <tr><td colSpan={4} className="text-center sub" style={{ padding: 20 }}>No shared documents available for this entity.</td></tr>
+                  <EmptyTableRow colSpan={4} variant="none" title="No shared documents available for this entity." />
                 ) : (
                   sharedDocs.map(d => (
                     <tr key={d.id}>
@@ -663,7 +659,7 @@ export const ClientPortalView: React.FC<ClientPortalViewProps> = ({ onNavigate, 
               </thead>
               <tbody>
                 {invoices.length === 0 ? (
-                  <tr><td colSpan={7} className="text-center sub" style={{ padding: 20 }}>No issued invoices for this entity.</td></tr>
+                  <EmptyTableRow colSpan={7} variant="none" title="No issued invoices for this entity." />
                 ) : (
                   invoices.map(inv => (
                     <tr key={inv.id}>
@@ -672,9 +668,7 @@ export const ClientPortalView: React.FC<ClientPortalViewProps> = ({ onNavigate, 
                       <td><b>{formatCurrency(inv.amount, inv.currency)}</b></td>
                       <td>{formatCurrency(inv.paid, inv.currency)}</td>
                       <td>
-                        <span className={`badge ${inv.status === 'Paid' ? 'green' : 'amber'}`}>
-                          {inv.status}
-                        </span>
+                        <StatusBadge status={inv.status} />
                       </td>
                       <td>{inv.due}</td>
                       <td>

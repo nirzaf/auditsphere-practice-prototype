@@ -9,6 +9,7 @@ import { formatCurrency, formatMinutesToHours, getEffectiveTimeEntries } from '.
 import { canOpenRoute, visibleEngagementIds, hasAnyRole } from '../../services/guards';
 import { UnsavedFormGuard } from '../../services/unsavedFormGuard';
 import { Icon } from '../common/Icons';
+import { Notice } from '../common/Feedback';
 
 interface BudgetsViewProps {
   onNavigate: (route: RouteKey) => void;
@@ -225,30 +226,17 @@ export const BudgetsView: React.FC<BudgetsViewProps> = ({ onNavigate, onRegister
         </div>
       )}
 
-      {notice && (
-        <div
-          className="panel panel-pad"
-          style={{
-            background: notice.type === 'success' ? '#f0fdf4' : '#fef2f2',
-            borderColor: notice.type === 'success' ? '#86efac' : '#fca5a5',
-            color: notice.type === 'success' ? '#166534' : '#991b1b',
-            padding: '10px 16px'
-          }}
-        >
-          <b>{notice.type === 'success' ? '✓ ' : '⚠ '}</b>
-          {notice.text}
-        </div>
-      )}
+      {notice && <Notice tone={notice.type} onDismiss={() => setNotice(null)}>{notice.text}</Notice>}
 
       <div className="tabs">
         <button
-          className={`tab-btn ${activeTab === 'single' ? 'active' : ''}`}
+          className={`tab-btn ${activeTab === 'single' ? 'active' : ''}`} aria-pressed={activeTab === 'single'}
           onClick={() => setActiveTab('single')}
         >
           Selected Engagement ({selectedEng.id})
         </button>
         <button
-          className={`tab-btn ${activeTab === 'aggregation' ? 'active' : ''}`}
+          className={`tab-btn ${activeTab === 'aggregation' ? 'active' : ''}`} aria-pressed={activeTab === 'aggregation'}
           onClick={() => setActiveTab('aggregation')}
         >
           Practice-Wide Budget Aggregation ({scopedEngagements.length})

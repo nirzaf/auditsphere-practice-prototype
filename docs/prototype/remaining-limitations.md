@@ -563,6 +563,42 @@ A module-by-module lifecycle audit closed the following genuine gaps (unit + Chr
 - **Role-gating drift:** time review, job creation/reassignment, budget authoring, finding dispositions, document rename/move/availability and portal uploads now hide or disable controls the store would reject, with explanatory text instead of guaranteed-failure buttons.
 - **Rendered history and empty states:** invoice revision/approval history, contact revision history, reassignment history, PBC submitted-file versions and acceptance history, and scope-reassessment history now render; empty states were added for templates, leads, proposals, invoices, time, adjustments, reconciliations, documents, communications, PBC and findings; the '/' shortcut now actually opens Global Search; MOD-29 gained a create-risk affordance (`createAuditRisk`) with reciprocal links.
 
+## Enterprise UX layer delta (2026-09-27)
+
+A presentation-layer enhancement was applied across all 39 modules (details:
+[enterprise-ux-audit.md](enterprise-ux-audit.md), vocabulary: [design-system.md](design-system.md), lifecycles:
+[lifecycle-matrix.md](lifecycle-matrix.md)). No store command, guard, calculation, migration or scenario was
+removed or weakened. Two display-scope defects found during the audit were fixed and tested: the billing register
+listed invoices outside the persona's grant, and the accounting workbench listed every engagement's adjustment
+journals under the selected engagement.
+
+Remaining limitations of the UX layer (intentional or not yet done — not claimed as complete):
+
+- **Reason capture for destructive/terminal actions still uses the browser's native prompt.** Each prompt now
+  states impact, what is kept and reversibility (`src/services/terminalActions.ts`), but an in-app reason dialog
+  was not introduced because the existing Chrome suite drives these prompts in 39 places; replacing them is a
+  separate change that must migrate those interactions without weakening assertions.
+- **Lifecycle panels are shown where a record detail exists** (financial package, invoice, workpaper, audit plan,
+  release, sign-offs) and **steppers** on journals, eliminations and leads. Other stateful records use the
+  shared status badge plus the collapsed module lifecycle guide rather than a full panel.
+- **Work queues are projections, not a workflow engine**: no assignment rules, reminders, scheduling or
+  notifications. Sign-off items in "Waiting for my review" only indicate that the assigned approver's sign-off
+  for the current generation is outstanding; the store still decides whether it can be recorded.
+- **"What changed since last review" is implemented for workpapers only**, as deterministic field differences
+  against the last clearance or submission; other review-driven records show their revision history instead.
+- **SoD-protected actions stay clickable** and show an explanation beforehand; the enforced store denial remains
+  the authority (deliberately, so presenters can demonstrate it). Create actions are hidden only where the role
+  can never perform them (engagement creation, review-point raising, job creation).
+- **Scenario context in the context bar** is derived from the retained local event log ("Loaded scenario
+  preset"), not a stored field; after many later events it falls back to "Default baseline".
+- **Accessibility** is practical, not certified: status text + glyph (never colour alone), `aria-pressed` tabs,
+  `aria-current` lifecycle steps, keyboard-operable selectable rows and scenario presets, and the existing
+  dialog focus-trap contract. No automated WCAG scanner was run and screen-reader testing was not performed.
+- **Journeys A–F** (client-to-engagement, PBC, accounting, audit, billing, consolidation) are demonstrated by
+  executed test segments; no single automated test walks an entire journey end to end.
+- Headline copy on the dashboard ("A clear view of every engagement.") was kept because the existing suite
+  asserts it.
+
 ## Verification snapshot
 
 Latest local verification: 242/242 unit checks and full E2E 111/111 (5 static + 106 Chrome) passed. The earlier intermittent VP-003-E01 global-search focus assertion is fixed by focusing the input synchronously after modal mount; the focused case passed 3/3 and is also green in the full suite. VP-003 proposal-catalogue draft guards, F05 template lifecycle, and AT-35 route restoration are also green. VP-039 AT-36 known-opening and AT-39 missing-opening/display journeys, and PBC scenarios, are included in the full pass. On 2026-09-26 the then-current app bundle was deployed as Pages release `aa39d257` and verified at `https://prototype.steaudit.com`; this verification is against the current local worktree and is not evidence that these later changes are deployed. The built-in browser exercised PBC filters and submitted the synthetic fixture `synthetic_trial_balance.csv` to the seeded PBC-03 request; the request displayed Received/v1 and the timeline attributed the upload to Amal Nasser. This was a browser-local IndexedDB smoke, not external storage; demo state was reset afterward. MOD-17's Shell-search workspace now maps to `clients`; client-visible PBC conversation entries and replies display in a shared request timeline while staff-only entries remain hidden in the client projection. The review-guide findings F01–F05 (search authorization

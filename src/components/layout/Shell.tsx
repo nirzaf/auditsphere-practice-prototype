@@ -4,10 +4,11 @@
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { RouteKey, RoleKey } from '../../types';
 import { prototypeStore } from '../../store/prototypeStore';
-import { canOpenRoute, canReadSearchRecord, visibleClientIds, visibleEngagementIds, isClientRole } from '../../services/guards';
+import { canOpenRoute, canReadSearchRecord, visibleClientIds, visibleEngagementIds, isClientRole, scopedInvoices } from '../../services/guards';
 import { SCENARIO_DEFINITIONS, ScenarioName } from '../../store/scenarios';
 import { getPackageContextDisplay } from '../../services/calculations';
 import { Icon } from '../common/Icons';
+import { ROUTE_CATALOG, routeCode } from '../../services/routeCatalog';
 
 interface ShellProps {
   currentRoute: RouteKey;
@@ -177,13 +178,7 @@ export const Shell: React.FC<ShellProps> = ({ currentRoute, onRouteChange, onSel
       [
         { key: 'my-time', label: 'Time Tracking', icon: 'clock' },
         { key: 'budgets', label: 'Budgets & Variances', icon: 'calculator' },
-        { key: 'billing', label: 'Billing & Invoices', icon: 'receipt', count: state.invoices.filter(i => {
-          const engagementId = i.engagementId || i.eng;
-          const engagement = state.engagements.find(item => item.id === engagementId);
-          return i.status === 'Issued' && Boolean(engagement) && engagement?.client === i.clientId
-            && (allowedClientIds === 'ALL' || allowedClientIds.includes(i.clientId))
-            && (allowedEngagementIds === 'ALL' || allowedEngagementIds.includes(engagementId));
-        }).length },
+        { key: 'billing', label: 'Billing & Invoices', icon: 'receipt', count: scopedInvoices(state).filter(i => i.status === 'Issued').length },
         { key: 'receivables', label: 'Receivables & Receipts', icon: 'receipt' }
       ]
     ],
@@ -501,9 +496,12 @@ export const Shell: React.FC<ShellProps> = ({ currentRoute, onRouteChange, onSel
             >
               <Icon name="menu" />
             </button>
-            <div className="crumb">
-              Workspace &nbsp;/&nbsp; <b>{currentRoute.toUpperCase().replace('-', ' ')}</b>
-            </div>
+            <nav className="crumb" aria-label="Breadcrumb">
+              <span className="crumb-section">{ROUTE_CATALOG[currentRoute]?.section || 'Workspace'}</span>
+              <span className="crumb-sep" aria-hidden="true">/</span>
+              <span className="crumb-module" aria-current="page">{ROUTE_CATALOG[currentRoute]?.label || currentRoute}</span>
+              <span className="crumb-code" title="Module route code">{routeCode(currentRoute)}</span>
+            </nav>
             <button
               ref={searchTrigger}
               className="search-trigger"
@@ -584,6 +582,16 @@ export const Shell: React.FC<ShellProps> = ({ currentRoute, onRouteChange, onSel
             <span>{selectedEng ? `${selectedEng.mode} · ${selectedEng.currency}` : 'Unavailable'}</span>
           </div>
           <div className="context-item">
+            <label>Scenario</label>
+            {(() => {
+              // Presentation only: the last "Loaded scenario preset" event in the local log (not a stored field).
+              const loaded = state.events.find(event => event.text.startsWith('Loaded scenario preset: '));
+              const id = loaded?.text.replace('Loaded scenario preset: ', '');
+              const title = SCENARIO_DEFINITIONS.find(item => item.id === id)?.title;
+              return <span title={loaded ? 'Most recent preset loaded in this browser; later edits are local changes' : 'No preset loaded in the retained event log'}>{title || id || 'Default baseline'}</span>;
+            })()}
+          </div>
+          <div className="context-item">
             <label>Package Rev</label>
             {(() => {
               const display = getPackageContextDisplay(selectedEng);
@@ -616,18 +624,19 @@ export const Shell: React.FC<ShellProps> = ({ currentRoute, onRouteChange, onSel
               </p>
               <div className="stack" style={{ gap: 10 }}>
                 {SCENARIO_DEFINITIONS.map(scen => (
-                  <div
+                  <button
+                    type="button"
                     key={scen.id}
-                    className="borderbox"
-                    style={{ cursor: 'pointer', padding: '14px', borderRadius: 6 }}
+                    className="borderbox scenario-option"
+                    aria-label={`Load scenario preset: ${scen.title}`}
                     onClick={() => handleSelectScenario(scen.id)}
                   >
-                    <div className="between">
-                      <b style={{ color: 'var(--teal-dark)' }}>{scen.title}</b>
+                    <span className="between">
+                      <b>{scen.title}</b>
                       <span className="tag blue">Load Preset</span>
-                    </div>
-                    <p className="sub" style={{ marginTop: 6, fontSize: 12 }}>{scen.description}</p>
-                  </div>
+                    </span>
+                    <span className="sub block" style={{ marginTop: 6, fontSize: 12 }}>{scen.description}</span>
+                  </button>
                 ))}
               </div>
             </div>

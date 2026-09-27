@@ -7,6 +7,9 @@ import { prototypeStore } from '../../store/prototypeStore';
 import { visibleEngagementIds } from '../../services/guards';
 import { UnsavedFormGuard } from '../../services/unsavedFormGuard';
 import { Icon } from '../common/Icons';
+import { Notice } from '../common/Feedback';
+import { consequencePrompt } from '../../services/terminalActions';
+import { keyboardActivate } from '../common/keyboardActivate';
 
 interface JobTemplatesViewProps {
   onNavigate: (route: RouteKey) => void;
@@ -156,7 +159,7 @@ export const JobTemplatesView: React.FC<JobTemplatesViewProps> = ({ onNavigate, 
   };
 
   const handleRetireTemplate = (tplId: string) => {
-    const reason = window.prompt('Reason for retiring this template (existing jobs are unaffected):');
+    const reason = window.prompt(consequencePrompt('template-retired', tplId, 'Reason for retiring this template'));
     if (!reason?.trim()) return;
     try {
       prototypeStore.retireJobTemplate(tplId, reason);
@@ -258,20 +261,7 @@ export const JobTemplatesView: React.FC<JobTemplatesViewProps> = ({ onNavigate, 
         </div>
       </div>
 
-      {notice && (
-        <div
-          className="panel panel-pad"
-          style={{
-            background: notice.type === 'success' ? '#f0fdf4' : '#fef2f2',
-            borderColor: notice.type === 'success' ? '#86efac' : '#fca5a5',
-            color: notice.type === 'success' ? '#166534' : '#991b1b',
-            padding: '10px 16px'
-          }}
-        >
-          <b>{notice.type === 'success' ? '✓ ' : '⚠ '}</b>
-          {notice.text}
-        </div>
-      )}
+      {notice && <Notice tone={notice.type} onDismiss={() => setNotice(null)}>{notice.text}</Notice>}
 
       <div className="grid-main">
         {/* Template List */}
@@ -299,7 +289,7 @@ export const JobTemplatesView: React.FC<JobTemplatesViewProps> = ({ onNavigate, 
                     </td></tr>
                   )}
                   {templates.map(tpl => (
-                    <tr
+                    <tr {...keyboardActivate}
                       key={tpl.id}
                       className={tpl.id === selectedTemplate?.id ? 'selected-row' : ''}
                       style={{ cursor: 'pointer' }}

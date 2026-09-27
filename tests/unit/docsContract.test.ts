@@ -6,6 +6,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { renderLifecycleMatrix } from '../../tools/lifecycle-matrix.js';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const read = (path: string) => readFileSync(join(root, path), 'utf8');
@@ -30,6 +31,10 @@ describe('VP-064 documentation contract', () => {
     assert.match(scope, /Hard exclusions \(never offered, never gated\)/);
     assert.match(scope, /PROTOTYPE-AGENT-ACCEPTANCE-001/);
     assert.match(scope, /\| Not approved \| Professional methodology or opinions, real postings, live providers, production security\/retention/);
+  });
+
+  it('UX-LIFECYCLE: the generated lifecycle matrix matches src/services/lifecycles.ts', () => {
+    assert.equal(read('docs/prototype/lifecycle-matrix.md'), renderLifecycleMatrix(), 'regenerate with: npx tsx tools/lifecycle-matrix.ts');
   });
 
   it('VP-064-AC04: any recorded agent approval receipt disclaims production and deployment', () => {

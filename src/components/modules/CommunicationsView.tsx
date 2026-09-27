@@ -4,6 +4,7 @@ import { RouteKey, CommunicationItem, EmailTemplateItem } from '../../types';
 import { prototypeStore } from '../../store/prototypeStore';
 import { hasAnyRole } from '../../services/guards';
 import { Icon } from '../common/Icons';
+import { StatusBadge } from '../common/StatusBadge';
 import { UnsavedFormGuard } from '../../services/unsavedFormGuard';
 
 interface CommunicationsViewProps {
@@ -230,9 +231,7 @@ export const CommunicationsView: React.FC<CommunicationsViewProps> = ({ onNaviga
                   <span className={`tag ${comm.direction === 'Outbound' ? 'blue' : 'gray'}`}>
                     {comm.direction} · {comm.channel}
                   </span>
-                  <span className={`badge ${comm.status === 'Simulated accepted' ? 'green' : 'amber'}`}>
-                    {comm.status}
-                  </span>
+                  <StatusBadge status={comm.status} />
                 </div>
               </div>
               {comm.body && (
