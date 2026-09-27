@@ -94,7 +94,9 @@ export const App: React.FC = () => {
   }, []);
   const resolveTransition = async (choice: 'save' | 'discard') => {
     const pending = pendingTransition;
-    const dirty = [...unsavedForms.current.values()].filter(guard => guard.isDirty());
+    // The shared open-dialog guard runs last, after the owning form had its chance to save.
+    const dialogGuard = unsavedForms.current.get(ACTIVE_DIALOG_GUARD);
+    const dirty = [...unsavedForms.current.values()].filter(guard => guard.isDirty()).sort((a, b) => Number(a === dialogGuard) - Number(b === dialogGuard));
     if (!pending || !dirty.length) return;
     if (choice === 'save') {
       // A rejected save keeps the user, the remaining drafts and the context unchanged.
@@ -203,12 +205,22 @@ export const App: React.FC = () => {
     // guard: route, hash, back/forward and context switches ask first, and generic
     // "Save and continue" never submits the dialog's decision on the user's behalf.
     const dialogGuard: UnsavedFormGuard = {
-      label: 'The open dialog',
-      isDirty: () => dialogIsDirty(guardedDialog()) && ![...unsavedForms.current.entries()].some(([key, guard]) => key !== ACTIVE_DIALOG_GUARD && guard.isDirty()),
-      save: () => false,
+      label: 'the open dialog',
+      // Always reported when the open dialog is edited, even alongside a page draft, so
+      // navigation never drops dialog edits without naming them.
+      isDirty: () => dialogIsDirty(guardedDialog()),
+      // Generic navigation never submits the dialog. It succeeds only if an earlier guard's
+      // own save already closed or committed this dialog (checked after React re-renders).
+      save: async () => {
+        const dialog = guardedDialog();
+        await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+        return !dialog || !dialog.isConnected || !dialogIsDirty(dialog);
+      },
       discard: () => {
-        const backdrop = backdropOf(guardedDialog());
-        if (!backdrop) return;
+        const dialog = guardedDialog();
+        const backdrop = backdropOf(dialog);
+        // Explicit-only dialogs have no dismissal handler; they close when the route changes.
+        if (!backdrop || backdrop.dataset.dismissGuard === 'explicit') return;
         bypassDismissGuard = true;
         try { backdrop.dispatchEvent(new MouseEvent('click', { bubbles: true })); } finally { bypassDismissGuard = false; }
       }
@@ -217,7 +229,7 @@ export const App: React.FC = () => {
     const onDismissClick = (event: MouseEvent) => {
       const backdrop = backdropOf(activeDialog);
       if (bypassDismissGuard || !activeDialog || !backdrop || event.target !== backdrop) return;
-      if (!dialogIsDirty()) return;
+      if (backdrop.dataset.dismissGuard === 'explicit' || !dialogIsDirty()) return;
       event.preventDefault();
       event.stopImmediatePropagation();
       promptOpen = true;

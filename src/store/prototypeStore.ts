@@ -2754,7 +2754,7 @@ class PrototypeStore {
     const adjustedRows = applyReportingAdjustments(engagement.rows, this.state.adjustmentJournals.filter(item => item.engagementId === engagementId), engagement.sourceVersion, this.getAdjustmentSupportIssues(engagementId)).rows;
     const equityTarget = mapping.mappings.flatMap(item => {
       const row = adjustedRows.find(source => source.code === item.accountCode);
-      return item.targets.filter(target => target.statementLine === 'Share capital and reserves').map(target => Math.abs((row?.balance || 0) * target.percentage / 100));
+      return item.targets.filter(target => target.statementLine === 'Share capital and reserves').map(target => 0 - (row?.balance || 0) * target.percentage / 100); // signed: a debit (deficit) equity row reduces the tie
     }).reduce((sum, amount) => sum + amount, 0);
     const equityTies = revision.openingEquity === undefined || Math.abs(revision.openingEquity + equityMovements - equityTarget) <= 0.005;
     if (revision.movements.some(item => !hasScopedEvidence(item.evidenceRef)) || !engagement.rows.every(row => mapping.mappings.some(item => item.accountCode === row.code)) || Math.abs(revision.openingCash + netCashMovement - revision.closingCash) > 0.005 || Math.abs(cashTarget - revision.closingCash) > 0.005 || !equityTies) throw new GuardError('INVALID_STATE', 'Every movement needs in-scope document evidence; cash movements must reconcile to the approved mapped cash balance, and supplied opening equity plus evidenced contributions/distributions must reconcile to mapped equity excluding current-period result.');
@@ -2946,7 +2946,8 @@ class PrototypeStore {
     for (const component of group.components) {
       const engagement = this.state.engagements.find(e => e.id === component.componentId);
       if (!engagement || engagement.year !== Number(group.period.match(/\d{4}/)?.[0])) throw new GuardError('INVALID_STATE', `Component ${component.componentId} does not match the group period.`);
-      if (!existingGroup) requireEngagementScope(this.state, engagement.id);
+      // New components (including ones added to an existing group) need the actor's engagement grant.
+      if (!existingGroup || !existingGroup.components.some(item => item.componentId === component.componentId)) requireEngagementScope(this.state, engagement.id);
       else requireActiveEngagementLifecycle(this.state, engagement.id);
       const client = this.state.clients.find(item => item.id === engagement.client);
       const profile = client?.accountingProfile;

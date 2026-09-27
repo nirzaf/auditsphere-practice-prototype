@@ -435,7 +435,10 @@ export const ConsolidationView: React.FC<ConsolidationViewProps> = ({ onNavigate
         components: group.components.map(component => ({ entityId: component.componentId, role: component.role, ownershipPercent: component.ownershipPercent, packageRevision: component.packageRevisionPinned, sourceVersion: state.engagements.find(item => item.id === component.componentId)?.sourceVersion, functionalCurrency: component.currency, closingRate: fxRate(component), rateRevision: group.fxRateHistory?.[component.currency]?.length || 0, rows: component.packageRows })),
         eliminations: group.eliminations.map(item => ({ id: item.id, revision: item.revision || 1, status: item.status, includedInOutput: approvedEliminations.some(approved => approved.id === item.id), counterparties: [item.counterpartyA, item.counterpartyB], amount: item.amount, currency: item.currency, lines: item.lines, evidenceRef: item.evidenceRef, approvalEvidenceRef: item.approvalEvidenceRef, approvedPerimeterRevision: item.approvedPerimeterRevision, approvedComponentPins: item.approvedComponentPins, approvedFxRates: item.approvedFxRates, reviewHistory: item.reviewHistory })),
         totals: { assets: consolidated.totalAssets, liabilities: consolidated.totalLiabilities, equity: consolidated.totalEquity, balanced: consolidated.isBalanced },
-        lines: consolidated.lines,
+        // Balance-sheet lines carry the post-elimination current-period result; income-statement
+        // lines are listed separately so a consumer summing `lines` never counts the result twice.
+        lines: consolidated.lines.filter(line => line.category === 'asset' || line.category === 'liability' || line.category === 'equity'),
+        incomeStatementLines: consolidated.lines.filter(line => line.category === 'revenue' || line.category === 'expense'),
         fingerprint: outputFingerprint
       };
       const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });

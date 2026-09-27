@@ -425,7 +425,7 @@ export const RecordsArchiveView: React.FC<RecordsArchiveViewProps> = ({ onNaviga
 
       {/* Handover Request Modal */}
       {showHandoverModal && (
-        <div className="modal-overlay">
+        <div className="modal-overlay" data-dismiss-guard="explicit">
           <div className="modal-card" style={{ maxWidth: 540 }}>
             <div className="between">
               <h3>Process Handover Inspection Request</h3>

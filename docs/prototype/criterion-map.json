@@ -1,6 +1,6 @@
 {
  "schema": "criterion-map-v1",
- "note": "Reviewed criterion -> executed test mapping (VP-063-E01). Tests are matched by exact title; templated titles cover every expansion. *SUITE* means the whole recorded run.",
+ "note": "Reviewed criterion -> executed test mapping (VP-063-E01). Tests are matched by exact title within their file; templated titles cover every expansion. *SUITE* means the whole recorded run.",
  "criteria": {
   "VP-001-AC01": {
    "tests": [
@@ -140,7 +140,7 @@
      "name": "VP-002-AC04: redirects former hash routes and supports browser back navigation"
     }
    ],
-   "basis": "Test title names this criterion; assertions reviewed in the tagged test."
+   "basis": "Test title/suite names this criterion; its assertions were reviewed against the criterion text."
   },
   "VP-003-AC01": {
    "tests": [
@@ -173,7 +173,7 @@
      "name": "VP-003-AC01: keeps a consolidation-group grant out of engagement workspaces"
     }
    ],
-   "basis": "Test title names this criterion; assertions reviewed in the tagged test."
+   "basis": "Test title/suite names this criterion; its assertions were reviewed against the criterion text."
   },
   "VP-003-AC02": {
    "tests": [
@@ -206,7 +206,7 @@
      "name": "VP-003-AC02: guards proposal, invoice, cash-flow and package drafts across route changes"
     }
    ],
-   "basis": "Test title names this criterion; assertions reviewed in the tagged test."
+   "basis": "Test title/suite names this criterion; its assertions were reviewed against the criterion text."
   },
   "VP-003-AC03": {
    "tests": [
@@ -248,7 +248,7 @@
      "name": "VP-003-AC04: withholds whole-state recovery controls from client personas"
     }
    ],
-   "basis": "Test title names this criterion; assertions reviewed in the tagged test."
+   "basis": "Test title/suite names this criterion; its assertions were reviewed against the criterion text."
   },
   "VP-004-AC01": {
    "tests": [
@@ -1213,7 +1213,7 @@
      "name": "requires an exact engagement for shared client/year workspaces and keeps sibling folders distinct (VP-020-AC01/02)"
     }
    ],
-   "basis": "Test title names this criterion; assertions reviewed in the tagged test."
+   "basis": "Test title/suite names this criterion; its assertions were reviewed against the criterion text."
   },
   "VP-020-AC02": {
    "tests": [
@@ -1226,7 +1226,7 @@
      "name": "requires an exact engagement for shared client/year workspaces and keeps sibling folders distinct (VP-020-AC01/02)"
     }
    ],
-   "basis": "Test title names this criterion; assertions reviewed in the tagged test."
+   "basis": "Test title/suite names this criterion; its assertions were reviewed against the criterion text."
   },
   "VP-020-AC03": {
    "tests": [
@@ -1260,7 +1260,7 @@
      "name": "AT-21: keeps OneDrive optional until enabled and preserves SharePoint as canonical storage"
     }
    ],
-   "basis": "Controls state metadata-only / in-session / fixture origin; no real transfer claimed"
+   "basis": "AT-22 asserts in-session metadata with original bytes unavailable; AT-20 asserts the Local metadata preview / no original bytes stored label; AT-21 asserts the local OneDrive fixture list with no Microsoft connection"
   },
   "VP-021-AC01": {
    "tests": [
@@ -1489,7 +1489,7 @@
      "name": "review VP-025-AC01: filters portal tabs and pending counts by selected sibling engagement"
     }
    ],
-   "basis": "Test title names this criterion; assertions reviewed in the tagged test."
+   "basis": "Test title/suite names this criterion; its assertions were reviewed against the criterion text."
   },
   "VP-025-AC02": {
    "tests": [
@@ -1592,7 +1592,7 @@
      "name": "VP-026-AC04: restricts reusable email template editing and persists supported fields"
     }
    ],
-   "basis": "Test title names this criterion; assertions reviewed in the tagged test."
+   "basis": "Test title/suite names this criterion; its assertions were reviewed against the criterion text."
   },
   "VP-027-AC01": {
    "tests": [
@@ -1808,19 +1808,15 @@
   "VP-030-AC04": {
    "tests": [
     {
-     "file": "tests/unit/guards.test.ts",
-     "name": "VP-030 invoices approved time at its pinned rate exactly once"
+     "file": "tests/unit/reviewFindings.test.ts",
+     "name": "VP-030-AC04: fixture invoices use the no-tax profile and migration preserves a recorded historical tax total"
     },
     {
-     "file": "tests/unit/guards.test.ts",
-     "name": "VP-030 accepts reconciled ad-hoc invoice lines and rejects invalid quantities"
-    },
-    {
-     "file": "tests/unit/scope.test.ts",
-     "name": "scans all src target-facing code"
+     "file": "tests/e2e/app.test.ts",
+     "name": "AT-31/VP-031: requires independent invoice and credit review before issue"
     }
    ],
-   "basis": "Invoice totals equal source lines with no invented tax (no tax engine in scope)"
+   "basis": "Fixture invoices carry no tax field and equal their lines; migration keeps a recorded historical tax total; AT-31 PDF states the no-tax profile and no Tax Invoice label"
   },
   "VP-031-AC01": {
    "tests": [
@@ -2045,7 +2041,7 @@
      "name": "VP-034-AC01/03: configures the selected accounting context and preserves dependent outputs for rework"
     }
    ],
-   "basis": "Test title names this criterion; assertions reviewed in the tagged test."
+   "basis": "Test title/suite names this criterion; its assertions were reviewed against the criterion text."
   },
   "VP-034-AC02": {
    "tests": [
@@ -2054,7 +2050,7 @@
      "name": "VP-034-AC01/AC02/AC03: versions setup, pins engagement context, and rejects invalid dimensions, hierarchy and period ranges"
     }
    ],
-   "basis": "Test title names this criterion; assertions reviewed in the tagged test."
+   "basis": "Test title/suite names this criterion; its assertions were reviewed against the criterion text."
   },
   "VP-034-AC03": {
    "tests": [
@@ -2075,7 +2071,7 @@
      "name": "VP-034-AC01/03: configures the selected accounting context and preserves dependent outputs for rework"
     }
    ],
-   "basis": "Test title names this criterion; assertions reviewed in the tagged test."
+   "basis": "Test title/suite names this criterion; its assertions were reviewed against the criterion text."
   },
   "VP-034-AC04": {
    "tests": [
@@ -2084,7 +2080,7 @@
      "name": "VP-034-AC04: empty accounting setup offers a manual chart start without creating transactions"
     }
    ],
-   "basis": "Test title names this criterion; assertions reviewed in the tagged test."
+   "basis": "Test title/suite names this criterion; its assertions were reviewed against the criterion text."
   },
   "VP-035-AC01": {
    "tests": [
@@ -2312,7 +2308,7 @@
      "name": "rejects invalid line types and mixed client, engagement or currency context on create and amendment"
     }
    ],
-   "basis": "Test title names this criterion; assertions reviewed in the tagged test."
+   "basis": "Test title/suite names this criterion; its assertions were reviewed against the criterion text."
   },
   "VP-039-AC01": {
    "tests": [
@@ -2329,7 +2325,7 @@
      "name": "VP-039-AC01–AC04: reconciles timing items and exercises evidence, review and source-stale lifecycle"
     }
    ],
-   "basis": "Test title names this criterion; assertions reviewed in the tagged test."
+   "basis": "Test title/suite names this criterion; its assertions were reviewed against the criterion text."
   },
   "VP-039-AC02": {
    "tests": [
@@ -2342,7 +2338,7 @@
      "name": "VP-039-AC01–AC04: reconciles timing items and exercises evidence, review and source-stale lifecycle"
     }
    ],
-   "basis": "Test title names this criterion; assertions reviewed in the tagged test."
+   "basis": "Test title/suite names this criterion; its assertions were reviewed against the criterion text."
   },
   "VP-039-AC03": {
    "tests": [
@@ -2355,7 +2351,7 @@
      "name": "VP-039-AC01–AC04: reconciles timing items and exercises evidence, review and source-stale lifecycle"
     }
    ],
-   "basis": "Test title names this criterion; assertions reviewed in the tagged test."
+   "basis": "Test title/suite names this criterion; its assertions were reviewed against the criterion text."
   },
   "VP-039-AC04": {
    "tests": [
@@ -2372,7 +2368,7 @@
      "name": "VP-039-AC01–AC04: reconciles timing items and exercises evidence, review and source-stale lifecycle"
     }
    ],
-   "basis": "Test title names this criterion; assertions reviewed in the tagged test."
+   "basis": "Test title/suite names this criterion; its assertions were reviewed against the criterion text."
   },
   "VP-040-AC01": {
    "tests": [
@@ -2398,6 +2394,10 @@
     },
     {
      "file": "tests/unit/calculations.test.ts",
+     "name": "carries the current-period result into equity after eliminations that touch revenue or expense"
+    },
+    {
+     "file": "tests/unit/calculations.test.ts",
      "name": "does not report a false imbalance from 0.10 + 0.20 floating-point sums"
     },
     {
@@ -2405,7 +2405,7 @@
      "name": "AT-37 (VP-040-AC01–AC04, VP-041-AC01): independently approves mappings, builds/reviews configurable statements, and rejects unsupported output"
     }
    ],
-   "basis": "Test title names this criterion; assertions reviewed in the tagged test."
+   "basis": "Test title/suite names this criterion; its assertions were reviewed against the criterion text."
   },
   "VP-040-AC02": {
    "tests": [
@@ -2414,7 +2414,7 @@
      "name": "AT-37 (VP-040-AC01–AC04, VP-041-AC01): independently approves mappings, builds/reviews configurable statements, and rejects unsupported output"
     }
    ],
-   "basis": "Test title names this criterion; assertions reviewed in the tagged test."
+   "basis": "Test title/suite names this criterion; its assertions were reviewed against the criterion text."
   },
   "VP-040-AC03": {
    "tests": [
@@ -2427,7 +2427,7 @@
      "name": "AT-37 (VP-040-AC01–AC04, VP-041-AC01): independently approves mappings, builds/reviews configurable statements, and rejects unsupported output"
     }
    ],
-   "basis": "Test title names this criterion; assertions reviewed in the tagged test."
+   "basis": "Test title/suite names this criterion; its assertions were reviewed against the criterion text."
   },
   "VP-040-AC04": {
    "tests": [
@@ -2440,7 +2440,7 @@
      "name": "AT-37 (VP-040-AC01–AC04, VP-041-AC01): independently approves mappings, builds/reviews configurable statements, and rejects unsupported output"
     }
    ],
-   "basis": "Test title names this criterion; assertions reviewed in the tagged test."
+   "basis": "Test title/suite names this criterion; its assertions were reviewed against the criterion text."
   },
   "VP-041-AC01": {
    "tests": [
@@ -2453,7 +2453,7 @@
      "name": "AT-37 (VP-040-AC01–AC04, VP-041-AC01): independently approves mappings, builds/reviews configurable statements, and rejects unsupported output"
     }
    ],
-   "basis": "Test title names this criterion; assertions reviewed in the tagged test."
+   "basis": "Test title/suite names this criterion; its assertions were reviewed against the criterion text."
   },
   "VP-041-AC02": {
    "tests": [
@@ -2466,7 +2466,7 @@
      "name": "VP-041-AC02/AC03: disclosure drafts require independent review and stale the package generation"
     }
    ],
-   "basis": "Test title names this criterion; assertions reviewed in the tagged test."
+   "basis": "Test title/suite names this criterion; its assertions were reviewed against the criterion text."
   },
   "VP-041-AC03": {
    "tests": [
@@ -2483,7 +2483,7 @@
      "name": "VP-041-AC02/AC03: disclosure drafts require independent review and stale the package generation"
     }
    ],
-   "basis": "Test title names this criterion; assertions reviewed in the tagged test."
+   "basis": "Test title/suite names this criterion; its assertions were reviewed against the criterion text."
   },
   "VP-041-AC04": {
    "tests": [
@@ -2492,7 +2492,7 @@
      "name": "AT-41/AT-42/AT-48 (VP-041-AC04, VP-042-AC01–AC03): saves exact generated package artifacts and verifies failure cleanup and revision history"
     }
    ],
-   "basis": "Test title names this criterion; assertions reviewed in the tagged test."
+   "basis": "Test title/suite names this criterion; its assertions were reviewed against the criterion text."
   },
   "VP-042-AC01": {
    "tests": [
@@ -2517,7 +2517,7 @@
      "name": "AT-41/AT-42/AT-48 (VP-041-AC04, VP-042-AC01–AC03): saves exact generated package artifacts and verifies failure cleanup and revision history"
     }
    ],
-   "basis": "Test title names this criterion; assertions reviewed in the tagged test."
+   "basis": "Test title/suite names this criterion; its assertions were reviewed against the criterion text."
   },
   "VP-042-AC02": {
    "tests": [
@@ -2526,7 +2526,7 @@
      "name": "AT-41/AT-42/AT-48 (VP-041-AC04, VP-042-AC01–AC03): saves exact generated package artifacts and verifies failure cleanup and revision history"
     }
    ],
-   "basis": "Test title names this criterion; assertions reviewed in the tagged test."
+   "basis": "Test title/suite names this criterion; its assertions were reviewed against the criterion text."
   },
   "VP-042-AC03": {
    "tests": [
@@ -2535,7 +2535,7 @@
      "name": "AT-41/AT-42/AT-48 (VP-041-AC04, VP-042-AC01–AC03): saves exact generated package artifacts and verifies failure cleanup and revision history"
     }
    ],
-   "basis": "Test title names this criterion; assertions reviewed in the tagged test."
+   "basis": "Test title/suite names this criterion; its assertions were reviewed against the criterion text."
   },
   "VP-042-AC04": {
    "tests": [
@@ -2544,7 +2544,7 @@
      "name": "AT-38/AT-40 (VP-042-AC04): excludes unshared internal content from generated financial outputs"
     }
    ],
-   "basis": "Test title names this criterion; assertions reviewed in the tagged test."
+   "basis": "Test title/suite names this criterion; its assertions were reviewed against the criterion text."
   },
   "VP-043-AC01": {
    "tests": [
@@ -2557,7 +2557,7 @@
      "name": "AT-43/44/45 (VP-043-AC01, VP-044-AC01/02, VP-045-AC01, VP-046-AC01/04): reviews pinned snapshots, eliminations and source isolation"
     }
    ],
-   "basis": "Test title names this criterion; assertions reviewed in the tagged test."
+   "basis": "Test title/suite names this criterion; its assertions were reviewed against the criterion text."
   },
   "VP-043-AC02": {
    "tests": [
@@ -2574,7 +2574,7 @@
      "name": "AT-43 (VP-043-AC02/03, VP-045-AC04): edits the group perimeter with validation, history, elimination re-review and revert"
     }
    ],
-   "basis": "Test title names this criterion; assertions reviewed in the tagged test."
+   "basis": "Test title/suite names this criterion; its assertions were reviewed against the criterion text."
   },
   "VP-043-AC03": {
    "tests": [
@@ -2591,7 +2591,7 @@
      "name": "AT-43 (VP-043-AC03): projects only granted consolidation components under a narrow group grant"
     }
    ],
-   "basis": "Test title names this criterion; assertions reviewed in the tagged test."
+   "basis": "Test title/suite names this criterion; its assertions were reviewed against the criterion text."
   },
   "VP-043-AC04": {
    "tests": [
@@ -2608,7 +2608,7 @@
      "name": "AT-43 (VP-043-AC04): labels minority ownership unsupported and produces no consolidated figures"
     }
    ],
-   "basis": "Test title names this criterion; assertions reviewed in the tagged test."
+   "basis": "Test title/suite names this criterion; its assertions were reviewed against the criterion text."
   },
   "VP-044-AC01": {
    "tests": [
@@ -2621,7 +2621,7 @@
      "name": "AT-44 (VP-044-AC01, VP-046-AC03): warns on a changed component source and requires an explicit re-pin"
     }
    ],
-   "basis": "Test title names this criterion; assertions reviewed in the tagged test."
+   "basis": "Test title/suite names this criterion; its assertions were reviewed against the criterion text."
   },
   "VP-044-AC02": {
    "tests": [
@@ -2634,7 +2634,7 @@
      "name": "AT-43 (VP-044-AC02/04, VP-046-AC02): blocks missing FX and accepts a dated component-currency closing rate"
     }
    ],
-   "basis": "Test title names this criterion; assertions reviewed in the tagged test."
+   "basis": "Test title/suite names this criterion; its assertions were reviewed against the criterion text."
   },
   "VP-044-AC03": {
    "tests": [
@@ -2647,7 +2647,7 @@
      "name": "AT-44 (VP-044-AC03): isolates a translation-rounding residual from balanced component sources"
     }
    ],
-   "basis": "Test title names this criterion; assertions reviewed in the tagged test."
+   "basis": "Test title/suite names this criterion; its assertions were reviewed against the criterion text."
   },
   "VP-044-AC04": {
    "tests": [
@@ -2660,7 +2660,7 @@
      "name": "AT-43 (VP-044-AC02/04, VP-046-AC02): blocks missing FX and accepts a dated component-currency closing rate"
     }
    ],
-   "basis": "Test title names this criterion; assertions reviewed in the tagged test."
+   "basis": "Test title/suite names this criterion; its assertions were reviewed against the criterion text."
   },
   "VP-045-AC01": {
    "tests": [
@@ -2673,7 +2673,7 @@
      "name": "AT-43/44/45 (VP-043-AC01, VP-044-AC01/02, VP-045-AC01, VP-046-AC01/04): reviews pinned snapshots, eliminations and source isolation"
     }
    ],
-   "basis": "Test title names this criterion; assertions reviewed in the tagged test."
+   "basis": "Test title/suite names this criterion; its assertions were reviewed against the criterion text."
   },
   "VP-045-AC02": {
    "tests": [
@@ -2682,7 +2682,7 @@
      "name": "VP-045-AC01/AC02/AC04: validates, independently reviews, and stales group elimination journals"
     }
    ],
-   "basis": "Test title names this criterion; assertions reviewed in the tagged test."
+   "basis": "Test title/suite names this criterion; its assertions were reviewed against the criterion text."
   },
   "VP-045-AC03": {
    "tests": [
@@ -2691,7 +2691,7 @@
      "name": "VP-045-AC03: leaves the explained unmatched intercompany amount visible in group detail"
     }
    ],
-   "basis": "Test title names this criterion; assertions reviewed in the tagged test."
+   "basis": "Test title/suite names this criterion; its assertions were reviewed against the criterion text."
   },
   "VP-045-AC04": {
    "tests": [
@@ -2714,6 +2714,10 @@
     {
      "file": "tests/unit/calculations.test.ts",
      "name": "nets a debit contra-liability and reports signed elimination effects per section"
+    },
+    {
+     "file": "tests/unit/calculations.test.ts",
+     "name": "carries the current-period result into equity after eliminations that touch revenue or expense"
     },
     {
      "file": "tests/unit/calculations.test.ts",
@@ -2740,7 +2744,7 @@
      "name": "AT-43 (VP-043-AC02/03, VP-045-AC04): edits the group perimeter with validation, history, elimination re-review and revert"
     }
    ],
-   "basis": "Test title names this criterion; assertions reviewed in the tagged test."
+   "basis": "Test title/suite names this criterion; its assertions were reviewed against the criterion text."
   },
   "VP-046-AC01": {
    "tests": [
@@ -2749,7 +2753,7 @@
      "name": "AT-43/44/45 (VP-043-AC01, VP-044-AC01/02, VP-045-AC01, VP-046-AC01/04): reviews pinned snapshots, eliminations and source isolation"
     }
    ],
-   "basis": "Test title names this criterion; assertions reviewed in the tagged test."
+   "basis": "Test title/suite names this criterion; its assertions were reviewed against the criterion text."
   },
   "VP-046-AC02": {
    "tests": [
@@ -2762,7 +2766,7 @@
      "name": "AT-43 (VP-043-AC04, VP-046-AC02): blocks output and identifies a missing perimeter role"
     }
    ],
-   "basis": "Test title names this criterion; assertions reviewed in the tagged test."
+   "basis": "Test title/suite names this criterion; its assertions were reviewed against the criterion text."
   },
   "VP-046-AC03": {
    "tests": [
@@ -2775,7 +2779,7 @@
      "name": "AT-44 (VP-044-AC01, VP-046-AC03): warns on a changed component source and requires an explicit re-pin"
     }
    ],
-   "basis": "Test title names this criterion; assertions reviewed in the tagged test."
+   "basis": "Test title/suite names this criterion; its assertions were reviewed against the criterion text."
   },
   "VP-046-AC04": {
    "tests": [
@@ -2784,7 +2788,7 @@
      "name": "AT-43/44/45 (VP-043-AC01, VP-044-AC01/02, VP-045-AC01, VP-046-AC01/04): reviews pinned snapshots, eliminations and source isolation"
     }
    ],
-   "basis": "Test title names this criterion; assertions reviewed in the tagged test."
+   "basis": "Test title/suite names this criterion; its assertions were reviewed against the criterion text."
   },
   "VP-047-AC01": {
    "tests": [
@@ -2845,7 +2849,7 @@
      "name": "VP-048-AC01–AC04/VP-049-AC03: validates planning assumptions, risk-impact reassessment, review authority and rework"
     }
    ],
-   "basis": "Test title names this criterion; assertions reviewed in the tagged test."
+   "basis": "Test title/suite names this criterion; its assertions were reviewed against the criterion text."
   },
   "VP-048-AC02": {
    "tests": [
@@ -2866,7 +2870,7 @@
      "name": "VP-048-AC01–AC04/VP-049-AC03: validates planning assumptions, risk-impact reassessment, review authority and rework"
     }
    ],
-   "basis": "Test title names this criterion; assertions reviewed in the tagged test."
+   "basis": "Test title/suite names this criterion; its assertions were reviewed against the criterion text."
   },
   "VP-048-AC03": {
    "tests": [
@@ -2879,7 +2883,7 @@
      "name": "VP-048-AC01–AC04/VP-049-AC03: validates planning assumptions, risk-impact reassessment, review authority and rework"
     }
    ],
-   "basis": "Test title names this criterion; assertions reviewed in the tagged test."
+   "basis": "Test title/suite names this criterion; its assertions were reviewed against the criterion text."
   },
   "VP-048-AC04": {
    "tests": [
@@ -2892,7 +2896,7 @@
      "name": "VP-048-AC01–AC04/VP-049-AC03: validates planning assumptions, risk-impact reassessment, review authority and rework"
     }
    ],
-   "basis": "Test title names this criterion; assertions reviewed in the tagged test."
+   "basis": "Test title/suite names this criterion; its assertions were reviewed against the criterion text."
   },
   "VP-049-AC01": {
    "tests": [
@@ -2905,7 +2909,7 @@
      "name": "VP-049-AC01/02/03: publishes and applies a reusable program template with fresh execution state"
     }
    ],
-   "basis": "Test title names this criterion; assertions reviewed in the tagged test."
+   "basis": "Test title/suite names this criterion; its assertions were reviewed against the criterion text."
   },
   "VP-049-AC02": {
    "tests": [
@@ -2918,7 +2922,7 @@
      "name": "VP-049-AC01/02/03: publishes and applies a reusable program template with fresh execution state"
     }
    ],
-   "basis": "Test title names this criterion; assertions reviewed in the tagged test."
+   "basis": "Test title/suite names this criterion; its assertions were reviewed against the criterion text."
   },
   "VP-049-AC03": {
    "tests": [
@@ -2939,7 +2943,7 @@
      "name": "VP-049-AC01/02/03: publishes and applies a reusable program template with fresh execution state"
     }
    ],
-   "basis": "Test title names this criterion; assertions reviewed in the tagged test."
+   "basis": "Test title/suite names this criterion; its assertions were reviewed against the criterion text."
   },
   "VP-049-AC04": {
    "tests": [
@@ -2952,7 +2956,7 @@
      "name": "audit program templates preserve revisions and apply fresh work (VP-049-AC02/AC03/AC04)"
     }
    ],
-   "basis": "Test title names this criterion; assertions reviewed in the tagged test."
+   "basis": "Test title/suite names this criterion; its assertions were reviewed against the criterion text."
   },
   "VP-050-AC01": {
    "tests": [
@@ -2961,7 +2965,7 @@
      "name": "VP-050-AC01–AC04: persists procedure fieldwork, exceptions, history and independent clearance"
     }
    ],
-   "basis": "Test title names this criterion; assertions reviewed in the tagged test."
+   "basis": "Test title/suite names this criterion; its assertions were reviewed against the criterion text."
   },
   "VP-050-AC02": {
    "tests": [
@@ -2970,7 +2974,7 @@
      "name": "VP-050-AC01–AC04: persists procedure fieldwork, exceptions, history and independent clearance"
     }
    ],
-   "basis": "Test title names this criterion; assertions reviewed in the tagged test."
+   "basis": "Test title/suite names this criterion; its assertions were reviewed against the criterion text."
   },
   "VP-050-AC03": {
    "tests": [
@@ -2983,7 +2987,7 @@
      "name": "VP-050-AC01–AC04: persists procedure fieldwork, exceptions, history and independent clearance"
     }
    ],
-   "basis": "Test title names this criterion; assertions reviewed in the tagged test."
+   "basis": "Test title/suite names this criterion; its assertions were reviewed against the criterion text."
   },
   "VP-050-AC04": {
    "tests": [
@@ -2996,7 +3000,7 @@
      "name": "VP-050-AC01–AC04: persists procedure fieldwork, exceptions, history and independent clearance"
     }
    ],
-   "basis": "Test title names this criterion; assertions reviewed in the tagged test."
+   "basis": "Test title/suite names this criterion; its assertions were reviewed against the criterion text."
   },
   "VP-051-AC01": {
    "tests": [
@@ -3087,11 +3091,15 @@
   "VP-052-AC03": {
    "tests": [
     {
+     "file": "tests/unit/reviewFindings.test.ts",
+     "name": "VP-052-AC03: a reasoned N/A decision leaves the release progress denominator (workpaper gate)"
+    },
+    {
      "file": "tests/unit/workpaperApplicability.test.ts",
      "name": "requires a senior role and rationale, respects unresolved findings and retains clearance history"
     }
    ],
-   "basis": "N/A needs senior role, rationale; blocked by open findings; history retained"
+   "basis": "N/A needs senior role and rationale, blocked by open findings, keeps history, and leaves the release workpaper gate"
   },
   "VP-052-AC04": {
    "tests": [
@@ -3189,7 +3197,7 @@
      "name": "VP-054-AC01/02/04: records a sourced qualitative finding and durable reasoned disposition"
     }
    ],
-   "basis": "Test title names this criterion; assertions reviewed in the tagged test."
+   "basis": "Test title/suite names this criterion; its assertions were reviewed against the criterion text."
   },
   "VP-054-AC02": {
    "tests": [
@@ -3206,7 +3214,7 @@
      "name": "VP-054-AC01/02/04: records a sourced qualitative finding and durable reasoned disposition"
     }
    ],
-   "basis": "Test title names this criterion; assertions reviewed in the tagged test."
+   "basis": "Test title/suite names this criterion; its assertions were reviewed against the criterion text."
   },
   "VP-054-AC03": {
    "tests": [
@@ -3219,7 +3227,7 @@
      "name": "lifecycle closure: adjustment reporting inclusion feeds a corrected-in-TB finding (VP-054-AC03/MOD-22/MOD-34)"
     }
    ],
-   "basis": "Test title names this criterion; assertions reviewed in the tagged test."
+   "basis": "Test title/suite names this criterion; its assertions were reviewed against the criterion text."
   },
   "VP-054-AC04": {
    "tests": [
@@ -3232,7 +3240,7 @@
      "name": "VP-054-AC01/02/04: records a sourced qualitative finding and durable reasoned disposition"
     }
    ],
-   "basis": "Test title names this criterion; assertions reviewed in the tagged test."
+   "basis": "Test title/suite names this criterion; its assertions were reviewed against the criterion text."
   },
   "VP-055-AC01": {
    "tests": [
@@ -3285,11 +3293,15 @@
   "VP-056-AC01": {
    "tests": [
     {
+     "file": "tests/unit/reviewFindings.test.ts",
+     "name": "VP-056-AC01: EQR concerns and their resolution in one engagement leave another engagement unchanged"
+    },
+    {
      "file": "tests/unit/guards.test.ts",
      "name": "VP-056 binds EQR assignment and management acknowledgement to one engagement revision"
     }
    ],
-   "basis": "EQR/approval changes in one engagement leave another unchanged"
+   "basis": "EQR assignment, concern, response and resolution in ENG-26001 leave ENG-26002 unchanged"
   },
   "VP-056-AC02": {
    "tests": [
@@ -3345,6 +3357,14 @@
   "VP-057-AC01": {
    "tests": [
     {
+     "file": "tests/unit/reviewFindings.test.ts",
+     "name": "VP-057-AC01: a failed release gate names the missing record and creates no candidate, release or event"
+    },
+    {
+     "file": "tests/e2e/app.test.ts",
+     "name": "VP-057-AC01: an unmet release gate disables freezing, links to the missing records and creates no release"
+    },
+    {
      "file": "tests/unit/reproduction_register.test.ts",
      "name": "RR22 (VP-057): Unapproved engagement cannot prepare release candidate"
     },
@@ -3353,7 +3373,7 @@
      "name": "keeps unresolved significant findings as an independent release gate"
     }
    ],
-   "basis": "Unresolved gate blocks candidate/release"
+   "basis": "Gate names the missing record, Freeze disabled with Inspect link to it, and no candidate/release/event is created"
   },
   "VP-057-AC02": {
    "tests": [
@@ -3396,7 +3416,7 @@
      "name": "AT-38/AT-40 (VP-042-AC04): excludes unshared internal content from generated financial outputs"
     }
    ],
-   "basis": "Selected permitted artifacts only; local dispatch simulation label"
+   "basis": "AT-41 asserts the local-record caption, Recorded locally · not delivered status and a manifest of only XLSX/DOCX/PDF package artifacts; AT-38/40 excludes internal material"
   },
   "VP-058-AC01": {
    "tests": [
@@ -3463,23 +3483,27 @@
    "tests": [
     {
      "file": "tests/e2e/app.test.ts",
-     "name": "VP-003-E02: protects archive retention and handover drafts without creating records"
+     "name": "AT-41/AT-42/AT-48 (VP-041-AC04, VP-042-AC01–AC03): saves exact generated package artifacts and verifies failure cleanup and revision history"
     },
     {
      "file": "tests/e2e/app.test.ts",
-     "name": "AT-41/AT-42/AT-48 (VP-041-AC04, VP-042-AC01–AC03): saves exact generated package artifacts and verifies failure cleanup and revision history"
+     "name": "VP-003-E02: protects archive retention and handover drafts without creating records"
     }
    ],
-   "basis": "Hold blocks disposition/handover; no SharePoint lock claim"
+   "basis": "AT-41 asserts hold blocks handover and the disclaimer that the hold does not prevent direct SharePoint modification or deletion"
   },
   "VP-059-AC03": {
    "tests": [
     {
      "file": "tests/e2e/app.test.ts",
+     "name": "AT-41/AT-42/AT-48 (VP-041-AC04, VP-042-AC01–AC03): saves exact generated package artifacts and verifies failure cleanup and revision history"
+    },
+    {
+     "file": "tests/e2e/app.test.ts",
      "name": "VP-003-E02: protects archive retention and handover drafts without creating records"
     }
    ],
-   "basis": "Retention date schedules nothing; states explicit"
+   "basis": "AT-41 asserts the retention date creates no deletion/disposition schedule and no retention enforcement is claimed"
   },
   "VP-059-AC04": {
    "tests": [
@@ -3639,7 +3663,7 @@
      "name": "system-admin identity alone cannot approve budgets, publish templates or approve mappings (VP-062-AC03)"
     }
    ],
-   "basis": "Test title names this criterion; assertions reviewed in the tagged test."
+   "basis": "Test title/suite names this criterion; its assertions were reviewed against the criterion text."
   },
   "VP-062-AC04": {
    "tests": [
@@ -3648,7 +3672,7 @@
      "name": "invalid timezone and logo references are rejected atomically; valid ones save (VP-062-AC04)"
     }
    ],
-   "basis": "Test title names this criterion; assertions reviewed in the tagged test."
+   "basis": "Test title/suite names this criterion; its assertions were reviewed against the criterion text."
   },
   "VP-063-AC01": {
    "tests": [
@@ -3657,7 +3681,7 @@
      "name": "*SUITE*"
     }
    ],
-   "basis": "Every story mapped to executed positive and negative checks in this ledger"
+   "basis": "Computed by the generator: every story (VP-001–062) needs a passing mapped positive journey and a passing mapped negative check"
   },
   "VP-063-AC02": {
    "tests": [
@@ -3701,6 +3725,10 @@
   "VP-064-AC01": {
    "tests": [
     {
+     "file": "tests/unit/docsContract.test.ts",
+     "name": "VP-064-AC01: module coverage lists all 39 modules with route, command, fixture and positive/negative assertions"
+    },
+    {
      "file": "tests/e2e/app.test.ts",
      "name": "VP-064: prototype docs ship alongside the build evidence"
     },
@@ -3709,7 +3737,7 @@
      "name": "*SUITE*"
     }
    ],
-   "basis": "Module coverage rows map to routes, commands, fixtures and tests"
+   "basis": "All 39 coverage rows carry route/command/fixture/positive/negative entries; docs ship with the build"
   },
   "VP-064-AC02": {
    "tests": [
@@ -3736,11 +3764,19 @@
   "VP-064-AC04": {
    "tests": [
     {
+     "file": "tests/unit/docsContract.test.ts",
+     "name": "VP-064-AC04: canonical records make no live, production or professional-assurance claim"
+    },
+    {
+     "file": "tests/unit/docsContract.test.ts",
+     "name": "VP-064-AC04: any recorded agent approval receipt disclaims production and deployment"
+    },
+    {
      "file": "tests/e2e/app.test.ts",
      "name": "VP-064: prototype docs ship alongside the build evidence"
     }
    ],
-   "basis": "Final report lists executed checks only; no live/professional claims"
+   "basis": "Canonical records contain no affirmative live/production/professional claim; receipt disclaims production and deployment"
   }
  }
 }

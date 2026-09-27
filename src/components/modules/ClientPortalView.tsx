@@ -75,7 +75,9 @@ export const ClientPortalView: React.FC<ClientPortalViewProps> = ({ onNavigate, 
   const pendingRequestCount = getOutstandingPbcRequestCount(pbc);
   // Issued credit notes reduce what the client still owes (MOD-08-CL01 / MOD-15).
   const issuedCreditsFor = (invoiceId: string) => (state.creditNotes || []).filter(credit => credit.invoiceId === invoiceId && credit.status === 'Issued').reduce((sum, credit) => sum + credit.amount, 0);
-  const outstandingInvoiceCount = invoices.filter(inv => Math.round((inv.amount - (inv.paid || 0) - issuedCreditsFor(inv.id)) * 100) > 0).length;
+  // Settled amount mirrors allocateReceipt: the larger of the paid cache and active (unreversed) allocations.
+  const settledFor = (invoiceId: string, paid = 0) => Math.max(paid, (state.receipts || []).flatMap(receipt => receipt.allocations || []).filter(allocation => allocation.invoiceId === invoiceId && !allocation.reversed).reduce((sum, allocation) => sum + allocation.amount, 0));
+  const outstandingInvoiceCount = invoices.filter(inv => Math.round((inv.amount - settledFor(inv.id, inv.paid || 0) - issuedCreditsFor(inv.id)) * 100) > 0).length;
   const sharedDocs = client ? state.documents.filter(d => d.visibility === 'Client shared' && d.clientId === client.id && (!d.engagementId || d.engagementId === eng?.id)) : [];
   const messages = client ? state.communications.filter(c => c.visibility === 'Client visible' && c.clientId === client.id && (!c.engagementId || c.engagementId === eng?.id)) : [];
 
@@ -87,11 +89,12 @@ export const ClientPortalView: React.FC<ClientPortalViewProps> = ({ onNavigate, 
   const handleDownloadInvoice = (inv: typeof invoices[0]) => {
     exportService.exportPDF(
       `${inv.invoiceNumber}_Client_Copy`,
-      `Tax Invoice: ${inv.invoiceNumber}`,
+      `Invoice: ${inv.invoiceNumber}`,
       [
         `Customer: ${client?.name}`,
         `Service: ${eng?.service || 'Statutory Audit'}`,
         `Amount Billed: ${formatCurrency(inv.amount, inv.currency)}`,
+        'Tax: not calculated (approved no-tax demo profile; historical tax totals are shown only where recorded)',
         `Amount Paid: ${formatCurrency(inv.paid, inv.currency)}`,
         `Due Date: ${inv.due}`,
         `Status: ${inv.status}`
@@ -384,7 +387,7 @@ export const ClientPortalView: React.FC<ClientPortalViewProps> = ({ onNavigate, 
             <div className="metric blue">
               <span className="metric-label">Pending Client Requests</span>
               <div className="metric-val">{pendingRequestCount}</div>
-              <span className="metric-sub">Action required from finance team</span>
+              <span className="metric-sub">Open requests — awaiting your response or firm review</span>
             </div>
             <div className="metric green">
               <span className="metric-label">Outstanding Invoices</span>
