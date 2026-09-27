@@ -9,3 +9,11 @@ legacy/
 *.log
 __pycache__/
 *.pyc
+.claude/
+.tmp-build/
+.wrangler/
+
+# Generated test output (root only; evidence under docs/ stays tracked)
+/test-results.json
+/test_results.json
+/test_workpaper_workspace_results.json
