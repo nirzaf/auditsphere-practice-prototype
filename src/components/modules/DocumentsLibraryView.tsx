@@ -117,12 +117,15 @@ export const DocumentsLibraryView: React.FC<DocumentsLibraryViewProps> = ({ onNa
 
   const handleReplacementSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    // Captured before the await: the recorded file must not linger in the form as an unsaved draft.
+    const form = e.currentTarget as HTMLFormElement;
     if (!previewDoc || !replacementFile) return;
     try {
       const sha = await sha256OfFile(replacementFile);
       const revision = prototypeStore.replaceDocumentRevision(previewDoc.id, { name: replacementFile.name, size: replacementFile.size, sha256: sha });
       setNotice(`Replacement v${revision.version} recorded. ${previewDoc.name} v${previewDoc.version} remains pinned for existing evidence; file bytes are not uploaded.`);
       setReplacementFile(null);
+      form.reset();
     } catch (err) { setNotice(err instanceof Error ? err.message : 'Document replacement could not be recorded.'); }
   };
 
