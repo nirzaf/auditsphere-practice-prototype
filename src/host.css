@@ -3,8 +3,8 @@
   display: grid;
   place-items: center;
   padding: 32px;
-  background: #f3f6f6;
-  color: #182e34;
+  background: var(--color-site-bg);
+  color: var(--ink);
   font: 500 14px/1.5 Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   text-align: center;
 }

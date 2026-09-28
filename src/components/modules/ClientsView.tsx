@@ -138,7 +138,7 @@ export const ClientsView: React.FC<ClientsViewProps> = ({ onNavigate, onSelectCl
             <div key={client.id} className="client-card">
               <div className="between">
                 <div className="row" style={{ gap: 10 }}>
-                  <div className="firmavatar" style={{ background: 'var(--teal-light)', color: 'var(--teal)' }}>
+                  <div className="firmavatar" style={{ background: 'var(--tealsoft)', color: 'var(--teal)' }}>
                     {client.initials}
                   </div>
                   <div>

@@ -280,24 +280,24 @@ export const ClientPortalView: React.FC<ClientPortalViewProps> = ({ onNavigate, 
   return (
     <div className="stack" style={{ gap: 20 }}>
       {/* Portal Top Bar */}
-      <div className="panel panel-pad" style={{ background: '#0e2f38', color: '#fff' }}>
+      <div className="panel panel-pad chrome-dark" style={{ background: 'var(--nav)', color: '#fff' }}>
         <div className="between">
           <div className="row" style={{ gap: 12, alignItems: 'center' }}>
-            <div className="firmavatar" style={{ background: '#00c7a2', color: '#092128' }}>
+            <div className="firmavatar" style={{ background: 'var(--color-brand-accent)', color: 'var(--color-brand-primary)' }}>
               {client.initials || 'ET'}
             </div>
             <div>
-              <span className="caption" style={{ color: '#00c7a2' }}>CLIENT SECURE PORTAL</span>
+              <span className="caption" style={{ color: 'var(--color-brand-accent-alt)' }}>CLIENT SECURE PORTAL</span>
               <h2 style={{ color: '#fff', margin: 0 }}>{client.name}</h2>
-              <div className="cell-sub" style={{ color: '#9fc4c9' }}>
+              <div className="cell-sub" style={{ color: 'var(--chrome-text)' }}>
                 {state.currentRole === 'superuser' ? `SUPERUSER PORTAL PREVIEW · Previewing as ${portalRole.replace('_', ' ')}` : `Logged in as: ${state.currentPerson} (${state.currentRole})`}
               </div>
             </div>
           </div>
 
           <div className="row" style={{ gap: 10, alignItems: 'center' }}>
-            {state.currentRole === 'superuser' && <label className="caption" style={{ color: '#9fc4c9' }}>Preview client role
-              <select className="input sm" aria-label="Preview client portal role" style={{ background: '#193f49', color: '#fff', borderColor: '#2e5661', marginLeft: 6 }} value={previewRole} onChange={event => setPreviewRole(event.target.value as typeof previewRole)}>
+            {state.currentRole === 'superuser' && <label className="caption" style={{ color: 'var(--chrome-text)' }}>Preview client role
+              <select className="input sm" aria-label="Preview client portal role" style={{ background: 'var(--chrome-raised)', color: '#fff', borderColor: '#64748B', marginLeft: 6 }} value={previewRole} onChange={event => setPreviewRole(event.target.value as typeof previewRole)}>
                 <option value="client_admin" style={{ color: '#000' }}>Client administrator</option>
                 <option value="client_finance" style={{ color: '#000' }}>Finance contributor</option>
                 <option value="client" style={{ color: '#000' }}>Management approver</option>
@@ -305,11 +305,11 @@ export const ClientPortalView: React.FC<ClientPortalViewProps> = ({ onNavigate, 
             </label>}
             {availableClients.length > 1 && (
               <div className="row" style={{ gap: 6, alignItems: 'center' }}>
-                <span className="caption" style={{ color: '#9fc4c9' }}>Switch Entity:</span>
+                <span className="caption" style={{ color: 'var(--chrome-text)' }}>Switch Entity:</span>
                 <select
                   className="input sm"
                   aria-label="Switch client entity"
-                  style={{ background: '#193f49', color: '#fff', borderColor: '#2e5661' }}
+                  style={{ background: 'var(--chrome-raised)', color: '#fff', borderColor: '#64748B' }}
                   value={resolvedClientId}
                   onChange={e => {
                     const nextClientId = e.target.value;
@@ -329,13 +329,13 @@ export const ClientPortalView: React.FC<ClientPortalViewProps> = ({ onNavigate, 
             )}
             {availableEngagements.length > 1 && (
               <div className="row" style={{ gap: 6, alignItems: 'center' }}>
-                <span className="caption" style={{ color: '#9fc4c9' }}>Engagement:</span>
-                <select className="input sm" aria-label="Switch engagement" style={{ background: '#193f49', color: '#fff', borderColor: '#2e5661' }} value={resolvedEngagementId} onChange={e => { const nextEngagementId = e.target.value; onBeforeContextChange(() => setSelectedEngagementId(nextEngagementId)); }}>
+                <span className="caption" style={{ color: 'var(--chrome-text)' }}>Engagement:</span>
+                <select className="input sm" aria-label="Switch engagement" style={{ background: 'var(--chrome-raised)', color: '#fff', borderColor: '#64748B' }} value={resolvedEngagementId} onChange={e => { const nextEngagementId = e.target.value; onBeforeContextChange(() => setSelectedEngagementId(nextEngagementId)); }}>
                   {availableEngagements.map(item => <option key={item.id} value={item.id} style={{ color: '#000' }}>{item.id} · {item.service} · FY{item.year}</option>)}
                 </select>
               </div>
             )}
-            <button className="btn sm ghost" style={{ color: '#fff', borderColor: '#406368' }} onClick={() => onNavigate('overview')}>
+            <button className="btn sm ghost" style={{ color: '#fff', borderColor: '#64748B' }} onClick={() => onNavigate('overview')}>
               Exit Portal Preview
             </button>
           </div>
@@ -345,7 +345,7 @@ export const ClientPortalView: React.FC<ClientPortalViewProps> = ({ onNavigate, 
         {notice && <Notice className="mt12" tone={notice.tone} onDismiss={() => setNotice(null)}>{notice.text}</Notice>}
 
         {/* Portal Navigation Tabs */}
-        <div className="tabs mt20" style={{ borderBottomColor: '#20454d' }}>
+        <div className="tabs mt20" style={{ borderBottomColor: 'var(--chrome-raised)' }}>
           {[
             { key: 'home', label: 'Home Dashboard' },
             { key: 'status', label: 'Audit Engagement Status' },
@@ -360,7 +360,7 @@ export const ClientPortalView: React.FC<ClientPortalViewProps> = ({ onNavigate, 
             <button
               key={t.key}
               className={`tab-btn ${activeSub === t.key ? 'active' : ''}`} aria-pressed={activeSub === t.key}
-              style={{ color: activeSub === t.key ? '#00c7a2' : '#9fc4c9' }}
+              style={{ color: activeSub === t.key ? 'var(--color-brand-accent-alt)' : 'var(--chrome-text)' }}
               onClick={() => setActiveSub(t.key as any)}
             >
               {t.label}

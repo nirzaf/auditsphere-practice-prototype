@@ -5,7 +5,8 @@ defined in [`scope.md`](scope.md). This is a vocabulary for consistent screens, 
 framework: every primitive below is a small React component or CSS rule that already exists in the
 repository and is reused by modules. Direction: *minimal Swiss / dense-but-readable professional
 workflow* (UI/UX Pro Max `--design-system` for "enterprise audit accounting SaaS", density 8, motion 2),
-keeping the existing AuditSphere teal brand and system font stack (the CSP allows no web-font hosts).
+using the steaudit.com colour palette (navy/blue/teal, see *Colour* below) and the existing system font stack
+(the CSP allows no web-font hosts).
 
 ## 1. Foundations
 
@@ -15,7 +16,8 @@ keeping the existing AuditSphere teal brand and system font stack (the CSP allow
 | Radius | 6 px controls/badges, 10 px cards/notices, 15 px dialogs | `--radius-sm`, `--radius-md`, `.modal` |
 | Type scale | h1 24 px · h2 18 px · h3 15 px · h4 13 px · body 15 px (16 px ≤760 px) · caption 11–12 px | `styles.css` + `enterprise.css` |
 | Numbers | `font-variant-numeric: tabular-nums` in every table cell; amounts `nowrap` (`td.num`) | `enterprise.css` |
-| Focus | 3 px `#075f57` outline, 3 px offset, on every interactive element | `styles.css` |
+| Colour | Source palette defined once in the first `:root` of `styles.css` (exact steaudit.com `app/globals.css` values): `--color-brand-primary` #0F172A navy (sidebar/dark chrome, headings, body text), `--color-brand-primary-dark` #0B1220, `--color-brand-secondary` #2B6CB0 blue (primary actions with white labels, links, active tabs, current workflow step), `--color-brand-accent` #38B2AC / `--color-brand-accent-alt` #6EE7E0 teal (accents on dark chrome only; teal fills carry navy labels), `--color-brand-neutral` #E2E8F0 (subtle dividers), `--color-site-bg` #F8FAFC (app background), `--color-white`, `--color-black`. Derived UI adaptations (not steaudit.com colours): `--action-hover` navy / `--action-active` deeper navy, `--action-tint` #EEF3F9 and `--action-tint-strong` #BFD3E7 (selection/hover tints), `--muted` #526176, `--ui-control-border` #7E8A9C (≥3:1 input/select boundary), `--ui-border` #CBD5E1, `--ui-subtle` #F1F5F9, `--chrome-text` #CBD5E1 / `--chrome-text-strong` #F1F5F9 (sidebar menu items, weight 600; active item white, 700) / `--chrome-muted` #94A3B8 / `--chrome-raised` #1E293B on dark chrome. `--teal`, `--teal2`, `--tealsoft` are brand-action compatibility aliases (blue, navy, blue tint); success uses the semantic `--st-green-*` tokens | `styles.css` |
+| Focus | 3 px `--focus-ring` (#2B6CB0) outline, 3 px offset, on every interactive element; on dark chrome (sidebar, portal/role banners, `.chrome-dark`) the ring is `--focus-ring-dark` (#6EE7E0) | `styles.css` |
 | Motion | 150–200 ms colour/border transitions only; `prefers-reduced-motion` disables them | `styles.css`, `enterprise.css` |
 
 ## 2. Status semantics (single source: `src/services/statusSemantics.ts`)
@@ -78,7 +80,7 @@ document layout, and client-portal personas do not see presenter guidance.
 
 * Header row with muted uppercase labels; tabular numbers; amounts and dates never wrap.
 * Status column always uses `StatusBadge`; rework flags (Returned, Overdue) stack under the status.
-* Selected master/detail row: tinted background + 3 px teal left rule (`tr.selected-row`, `tr.row-selected`).
+* Selected master/detail row: `--action-tint` background + 3 px brand-blue left rule (`tr.selected-row`, `tr.row-selected`).
 * Record identifiers that open a detail view are `tablelink` buttons with an explicit `aria-label`.
 * Empty rows use `EmptyTableRow` so the header context stays visible.
 * Wide registers scroll inside `.tablewrap`; the page body never scrolls horizontally (390/1024/1440 px tested).

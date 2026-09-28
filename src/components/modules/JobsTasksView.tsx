@@ -435,7 +435,7 @@ export const JobsTasksView: React.FC<JobsTasksViewProps> = ({ onNavigate, search
                     parentTasks.map(parent => {
                       const subtasks = jobTasks.filter(t => t.parentTaskId === parent.id).sort((a, b) => a.order - b.order);
                       return (
-                        <div key={parent.id} data-search-target={searchTargetId === parent.id ? 'true' : undefined} className="borderbox" style={{ padding: 12, outline: searchTargetId === parent.id ? '2px solid #0f766e' : undefined }}>
+                        <div key={parent.id} data-search-target={searchTargetId === parent.id ? 'true' : undefined} className="borderbox" style={{ padding: 12, outline: searchTargetId === parent.id ? '2px solid var(--focus-ring)' : undefined }}>
                           <div className="between">
                             <div className="row" style={{ gap: 10, alignItems: 'center' }}>
                               <input

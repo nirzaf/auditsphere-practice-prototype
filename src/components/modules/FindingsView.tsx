@@ -179,7 +179,7 @@ export const FindingsView: React.FC<FindingsViewProps> = ({ onNavigate, searchTa
           </div>
         )}
         {findings.map(f => (
-          <div key={f.id} data-search-target={f.id === searchTargetId ? 'true' : undefined} className="panel panel-pad" style={f.id === searchTargetId ? { outline: '2px solid #0f766e' } : undefined}>
+          <div key={f.id} data-search-target={f.id === searchTargetId ? 'true' : undefined} className="panel panel-pad" style={f.id === searchTargetId ? { outline: '2px solid var(--focus-ring)' } : undefined}>
             <div className="between">
               <div className="row" style={{ gap: 10 }}>
                 <span className={`badge ${f.severity === 'Material' ? 'red' : f.severity === 'Significant' ? 'amber' : f.severity ? 'blue' : 'gray'}`}>

@@ -188,7 +188,7 @@ export const AdministrationView: React.FC<AdministrationViewProps> = ({ onNaviga
                     <tr {...keyboardActivate}
                       key={u.id}
                       style={{
-                        background: u.id === state.currentUserId ? '#f0fdf4' : 'inherit',
+                        background: u.id === state.currentUserId ? 'var(--action-tint)' : 'inherit',
                         cursor: 'pointer'
                       }}
                       onClick={() => setSelectedUser(u)}

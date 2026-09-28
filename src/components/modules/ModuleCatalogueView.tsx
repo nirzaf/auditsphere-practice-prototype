@@ -80,7 +80,7 @@ export const ModuleCatalogueView: React.FC<ModuleCatalogueViewProps> = ({ onNavi
       </div>
 
       {originRoute && originRoute !== 'module-guide' && (
-        <div className="panel panel-pad" role="status" style={{ background: '#eff6ff', borderLeft: '4px solid #2563eb' }}>
+        <div className="panel panel-pad" role="status" style={{ background: 'var(--action-tint)', borderLeft: '4px solid var(--action)' }}>
           <b>Context-sensitive guidance.</b>
           {originGuide ? <span> Opened from <b>{originGuide.id} — {originGuide.name}</b>; its entry is highlighted below.</span> : <span> Opened from your previous workspace.</span>}
           <span> Your selected client and engagement stay unchanged.</span>
@@ -166,7 +166,7 @@ export const ModuleCatalogueView: React.FC<ModuleCatalogueViewProps> = ({ onNavi
             </thead>
             <tbody>
               {MODULE_GUIDES.map(guide => (
-                <tr key={guide.id} style={guide.id === selected.id ? { background: '#eff6ff' } : undefined}>
+                <tr key={guide.id} style={guide.id === selected.id ? { background: 'var(--action-tint)' } : undefined}>
                   <td><b>{guide.id}</b> · {guide.name}</td>
                   <td><code>{guide.route.replace(/`/g, '')}</code></td>
                   <td className="sub">{guide.personas}</td>

@@ -398,7 +398,7 @@ export const JobTemplatesView: React.FC<JobTemplatesViewProps> = ({ onNavigate, 
                       (Suggested: {task.roleSuggestion})
                     </span>
                     {task.subtasks && task.subtasks.length > 0 && (
-                      <ul style={{ margin: '8px 0 0 20px', fontSize: 13, color: '#4a6265' }}>
+                      <ul style={{ margin: '8px 0 0 20px', fontSize: 13, color: 'var(--muted)' }}>
                         {task.subtasks.map((sub, sIdx) => (
                           <li key={sIdx}>{sub}</li>
                         ))}

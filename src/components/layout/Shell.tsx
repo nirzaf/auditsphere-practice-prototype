@@ -414,7 +414,7 @@ export const Shell: React.FC<ShellProps> = ({ currentRoute, onRouteChange, onSel
           <span className="firmavatar">STE</span>
           <span>
             <b>STE Audit & Accounting</b>
-            <div style={{ fontSize: '10.5px', color: '#5d7175', marginTop: '1px' }}>
+            <div style={{ fontSize: '10.5px', color: 'var(--chrome-muted)', marginTop: '1px' }}>
               Practice Workspace · Doha, Qatar
             </div>
           </span>
@@ -711,7 +711,7 @@ export const Shell: React.FC<ShellProps> = ({ currentRoute, onRouteChange, onSel
                 </select>
               </div>
               {filteredSearchResults.length === 0 ? (
-                <div style={{ textAlign: 'center', padding: '30px 10px', color: '#798e91' }}>
+                <div style={{ textAlign: 'center', padding: '30px 10px', color: 'var(--muted)' }}>
                   {searchQuery ? 'No matching records found in demo state.' : 'Type a query to search all practice records.'}
                 </div>
               ) : (
