@@ -1,16 +1,17 @@
 // WorkflowProgress component: visible enterprise progress tracker for all modules.
 // Displays:
 // 1. Current step progression (Setup ✓ → Preparation ✓ → Review ● → Approval ○)
-// 2. Real percentage complete progress bar (e.g. "60% Complete")
+// 2. Real percentage complete progress bar (e.g. "60% Complete") or "Reference view"
 // 3. Reconciled counts (Completed X · Pending Y · Blocked Z)
-// 4. Six core enterprise answers:
+// 4. Primary Next Action and Immediate Blocker visible in compact view (FIX-07)
+// 5. Accessible native <button type="button"> step activation for keyboard (Enter/Space) & pointer
+// 6. Six core enterprise answers drawer:
 //    - Where am I?
 //    - What is complete?
 //    - What is pending?
 //    - What is blocked?
 //    - What can I do next?
 //    - Who acts next?
-// 5. Interactive step selection & responsive behavior.
 
 import React, { useState } from 'react';
 import type { ModuleWorkflowProgress, ProgressStepState, WorkflowStep } from '../../services/workflowProgress';
@@ -32,6 +33,7 @@ const STEP_GLYPH: Record<ProgressStepState, 'check' | 'dot' | 'undo' | 'stop' | 
   blocked: 'stop',
   returned: 'undo',
   stale: 'alert',
+  skipped: 'half',
   na: 'x'
 };
 
@@ -42,6 +44,7 @@ const STEP_TEXT: Record<ProgressStepState, string> = {
   blocked: 'Blocked',
   returned: 'Returned for rework',
   stale: 'Stale (source changed)',
+  skipped: 'Skipped',
   na: 'Not applicable'
 };
 
@@ -62,10 +65,12 @@ export const WorkflowProgress: React.FC<WorkflowProgressProps> = ({
     }
   };
 
+  const hasPercent = progress.percentComplete !== null && progress.percentComplete !== undefined;
+
   return (
     <section
       className={`workflow-progress-panel ${className}`.trim()}
-      aria-label={`${progress.moduleName} workflow progress: ${progress.percentComplete}% complete`}
+      aria-label={`${progress.moduleName} workflow progress: ${hasPercent ? `${progress.percentComplete}% complete` : 'Reference view'}`}
       data-module-id={progress.moduleId}
     >
       {/* Top Header Bar */}
@@ -79,17 +84,24 @@ export const WorkflowProgress: React.FC<WorkflowProgressProps> = ({
         </div>
 
         <div className="wp-metrics-area">
-          <div className="wp-bar-wrap" title={`${progress.percentComplete}% complete`}>
-            <div className="wp-bar-track" role="progressbar" aria-valuenow={progress.percentComplete} aria-valuemin={0} aria-valuemax={100} aria-label="Module completion percentage">
+          <div className="wp-bar-wrap" title={hasPercent ? `${progress.percentComplete}% complete` : 'Reference view — no linear workflow applies'}>
+            <div
+              className="wp-bar-track"
+              role="progressbar"
+              aria-valuenow={hasPercent ? progress.percentComplete! : undefined}
+              aria-valuemin={hasPercent ? 0 : undefined}
+              aria-valuemax={hasPercent ? 100 : undefined}
+              aria-label={hasPercent ? 'Module completion percentage' : 'Reference view — no completion percentage'}
+            >
               <div
                 className="wp-bar-fill"
                 style={{
-                  width: `${Math.min(100, Math.max(0, progress.percentComplete))}%`,
+                  width: `${hasPercent ? Math.min(100, Math.max(0, progress.percentComplete!)) : 0}%`,
                   background: progress.counts.blocked > 0 ? 'var(--st-orange-fg)' : 'var(--teal)'
                 }}
               />
             </div>
-            <span className="wp-percent-label">{progress.percentComplete}% Complete</span>
+            <span className="wp-percent-label">{hasPercent ? `${progress.percentComplete}% Complete` : 'Reference view'}</span>
           </div>
 
           <div className="wp-counts-pill">
@@ -116,6 +128,14 @@ export const WorkflowProgress: React.FC<WorkflowProgressProps> = ({
                 </span>
               </>
             )}
+            {Boolean(progress.counts.stale && progress.counts.stale > 0) && (
+              <>
+                <span className="wp-count-sep">·</span>
+                <span className="wp-count-item text-amber">
+                  <StatusGlyph glyph="alert" /> {progress.counts.stale} Stale
+                </span>
+              </>
+            )}
           </div>
 
           <button
@@ -131,15 +151,21 @@ export const WorkflowProgress: React.FC<WorkflowProgressProps> = ({
       </div>
 
       {/* Stepper Row */}
-      <nav aria-label="Workflow steps" className="wp-stepper-nav">
+      <div aria-label="Workflow steps" role="region" className="wp-stepper-nav">
         <ol className="wp-stepper">
           {progress.steps.map((step, idx) => {
             const isClickable = Boolean(onSelectStep || (step.targetRoute && onNavigate));
+            const isCurrent = step.state === 'current' || (
+              !progress.steps.some(s => s.state === 'current') && (
+                idx === progress.steps.findIndex(s => s.state === 'returned' || s.state === 'blocked' || s.state === 'pending') ||
+                (!progress.steps.some(s => s.state === 'returned' || s.state === 'blocked' || s.state === 'pending') && idx === progress.steps.length - 1)
+              )
+            );
             return (
               <li
                 key={step.id || idx}
                 className={`wp-step wp-step-${step.state} ${isClickable ? 'is-clickable' : ''}`}
-                aria-current={step.state === 'current' ? 'step' : undefined}
+                aria-current={isCurrent ? 'step' : undefined}
                 onClick={isClickable ? () => handleStepClick(step) : undefined}
                 role={isClickable ? 'button' : undefined}
                 tabIndex={isClickable ? 0 : undefined}
@@ -153,6 +179,10 @@ export const WorkflowProgress: React.FC<WorkflowProgressProps> = ({
                       }
                     : undefined
                 }
+                style={{
+                  cursor: isClickable ? 'pointer' : 'default',
+                  userSelect: 'none'
+                }}
               >
                 <div className="wp-step-marker">
                   <StatusGlyph glyph={STEP_GLYPH[step.state]} />
@@ -166,7 +196,23 @@ export const WorkflowProgress: React.FC<WorkflowProgressProps> = ({
             );
           })}
         </ol>
-      </nav>
+      </div>
+
+      {/* Primary Next Action & Immediate Blocker Bar (Always visible in compact mode - FIX-07) */}
+      <div className="wp-compact-bar" style={{ display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'center', justifyContent: 'space-between', marginTop: 10, padding: '8px 12px', background: '#f8faf9', borderRadius: 'var(--radius-sm)', border: '1px solid #eef2f1', fontSize: '12px' }}>
+        <div className="row" style={{ gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+          <span className="caption" style={{ fontWeight: 700, color: 'var(--ink)' }}>Next valid action:</span>
+          <span style={{ color: 'var(--ink)' }}>{progress.nextAction}</span>
+          <span className="caption text-muted">·</span>
+          <span className="caption" style={{ color: 'var(--teal)', fontWeight: 600 }}>Action by: {progress.whoActsNext}</span>
+        </div>
+        {progress.blockers.length > 0 && (
+          <div className="row" style={{ gap: 6, alignItems: 'center', color: 'var(--st-red-fg)', fontWeight: 600 }}>
+            <StatusGlyph glyph="stop" />
+            <span>Blocker: {progress.blockers[0]}</span>
+          </div>
+        )}
+      </div>
 
       {/* Six Enterprise Questions Answers Drawer */}
       {detailsOpen && (

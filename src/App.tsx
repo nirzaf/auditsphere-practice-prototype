@@ -530,13 +530,19 @@ export const App: React.FC = () => {
     }
   };
 
+  const isEngagementContextUnavailable = ENGAGEMENT_CONTEXT_ROUTES.has(effectiveRoute) && !hasSelectedEngagementScope(state);
+
   return (
     <Shell currentRoute={effectiveRoute} onRouteChange={navigate} onSelectClient={(clientId) => requestContextChange(() => setSelectedClientId(clientId))} onBeforeContextChange={requestContextChange}>
-      {!isClient && !['module-guide', 'requirements', 'role-guide'].includes(effectiveRoute) && <ModuleGuideStrip key={effectiveRoute} route={effectiveRoute} />}
-      {!['module-guide', 'requirements', 'role-guide'].includes(effectiveRoute) && (
+      {!isEngagementContextUnavailable && !isClient && !['module-guide', 'requirements', 'role-guide'].includes(effectiveRoute) && <ModuleGuideStrip key={effectiveRoute} route={effectiveRoute} />}
+      {!isEngagementContextUnavailable && !['module-guide', 'requirements', 'role-guide'].includes(effectiveRoute) && (
         <WorkflowProgress
-          key={`wp-${effectiveRoute}-${state.selectedEngagement || ''}`}
-          progress={computeModuleWorkflowProgress(effectiveRoute, state)}
+          key={`wp-${effectiveRoute}-${effectiveRoute === 'client-detail' ? selectedClientId : (state.selectedEngagement || '')}`}
+          progress={computeModuleWorkflowProgress(effectiveRoute, state, {
+            clientId: effectiveRoute === 'client-detail' ? selectedClientId : undefined,
+            engagementId: state.selectedEngagement || undefined,
+            recordId: searchTargetId || undefined
+          })}
           onNavigate={navigate}
         />
       )}

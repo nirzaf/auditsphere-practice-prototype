@@ -78,22 +78,25 @@ export const BillingInvoicingView: React.FC<BillingInvoicingViewProps> = ({ onNa
   const saveInvoiceDraft = () => {
     if (!showDraftModal) return true;
     const previousRevision = editingInvoiceId ? state.invoices.find(item => item.id === editingInvoiceId)?.revision || 1 : undefined;
+    const previousTotalInvoices = state.invoices.length;
+    const previousIds = new Set(state.invoices.map(item => item.id));
     handleCreateDraft(new Event('submit') as unknown as React.FormEvent);
     const latest = prototypeStore.getSnapshot();
     const saved = editingInvoiceId
       ? (latest.invoices.find(item => item.id === editingInvoiceId)?.revision || 1) > (previousRevision || 1)
-      : latest.invoices.length > invoices.length;
+      : latest.invoices.length > previousTotalInvoices && latest.invoices.some(item => !previousIds.has(item.id));
     if (saved) initialInvoiceDraft.current = JSON.stringify(invoiceDraft);
     return saved;
   };
   const saveCreditDraft = () => {
     if (!showCreditModal || !selectedInvoice) return true;
     const previousCreditCount = state.creditNotes.length;
+    const previousCreditIds = new Set(state.creditNotes.map(item => item.id));
     handleCreateCredit(new Event('submit') as unknown as React.FormEvent);
     const latestCredits = prototypeStore.getSnapshot().creditNotes;
     const saved = editingCreditId
       ? latestCredits.some(credit => credit.id === editingCreditId && credit.amount === creditAmount && credit.reason === creditReason.trim() && !credit.reviewedBy && !credit.reviewedRevision)
-      : latestCredits.length > previousCreditCount;
+      : latestCredits.length > previousCreditCount && latestCredits.some(item => !previousCreditIds.has(item.id));
     if (saved) initialCreditDraft.current = JSON.stringify(creditDraft);
     return saved;
   };
