@@ -17,6 +17,7 @@ import { Notice, StaleBanner, GateList, EmptyState, ActionReason } from '../comm
 import { LifecyclePanel } from '../common/Lifecycle';
 import { StatusBadge } from '../common/StatusBadge';
 import { lifecycleById } from '../../services/lifecycles';
+import { releaseForPackage } from '../../services/packageLineage';
 
 const DEFAULT_SECTIONS = [
   { id: 'rpt', title: 'Independent Auditor Report', desc: 'Standard unmodified opinion under ISA 700 with key audit matters.', enabled: true },
@@ -122,7 +123,7 @@ export const FinancialPackagesView: React.FC<FinancialPackagesViewProps> = ({ on
   const packageStale = staleChanges.length > 0;
   const presentation = selectedEng.managementPresentation?.packageRevision === savedPackage?.revision ? selectedEng.managementPresentation : undefined;
   const decision = selectedEng.managementPackageDecision?.packageRevision === savedPackage?.revision ? selectedEng.managementPackageDecision : undefined;
-  const released = Boolean(savedPackage && selectedEng.releases.some(release => release.generation === savedPackage.generation));
+  const released = Boolean(savedPackage && releaseForPackage(selectedEng, savedPackage));
   const packageStatus = !savedPackage ? 'Not assembled'
     : packageStale ? 'Stale'
     : !savedPackage.validation.passed ? 'Validation blocked'

@@ -12,15 +12,19 @@ interface SamplingViewProps {
   onNavigate: (route: RouteKey) => void;
   onBeforeContextChange: (run: () => void) => void;
   onRegisterUnsavedForm: (guard: UnsavedFormGuard | null, key?: string) => void;
+  onWorkflowContextChange?: (context: { engagementId?: string; recordId?: string }) => void;
 }
 
-export const SamplingView: React.FC<SamplingViewProps> = ({ onNavigate, onBeforeContextChange, onRegisterUnsavedForm }) => {
+export const SamplingView: React.FC<SamplingViewProps> = ({ onNavigate, onBeforeContextChange, onRegisterUnsavedForm, onWorkflowContextChange }) => {
   const state = prototypeStore.getSnapshot();
   const visible = visibleEngagementIds(state);
   const populations = state.samplePopulations.filter(item => item.engagementId &&
     (visible === 'ALL' || visible.includes(item.engagementId)));
   const [populationId, setPopulationId] = useState(populations[0]?.id || '');
   const population = populations.find(item => item.id === populationId) || populations[0];
+  useLayoutEffect(() => {
+    onWorkflowContextChange?.({ engagementId: population?.engagementId || '', recordId: population?.id || '' });
+  }, [population?.id, population?.engagementId, onWorkflowContextChange]);
   const [revision, refresh] = useState(0);
   const [notice, setNotice] = useState('');
   const editorRef = useRef<HTMLDivElement>(null);

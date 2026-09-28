@@ -10,7 +10,7 @@ import { StatusBadge } from '../common/StatusBadge';
 import { formatCurrency, formatMinutesToHours, getEffectiveTimeEntries } from '../../services/calculations';
 import { UnsavedFormGuard } from '../../services/unsavedFormGuard';
 import { InternalNotesPanel } from '../common/InternalNotesPanel';
-import { visibleEngagementIds } from '../../services/guards';
+import { visibleClientIds, visibleEngagementIds } from '../../services/guards';
 import { filterPbcRequests, getOutstandingPbcRequestCount, getPbcRequestRecipient, PbcRequestDueFilter, PbcRequestStatusFilter } from '../../services/pbcRequestFilters';
 import { consequencePrompt } from '../../services/terminalActions';
 
@@ -28,7 +28,10 @@ interface ClientDetailViewProps {
 // An empty practice (e.g. the `empty-practice` preset) has no client to fall back to; render an
 // honest empty state instead of letting the workspace dereference a missing client.
 export const ClientDetailView: React.FC<ClientDetailViewProps> = props => {
-  if (!prototypeStore.getSnapshot().clients.length) {
+  const state = prototypeStore.getSnapshot();
+  const clientScope = visibleClientIds(state);
+  const selectedClientPermitted = state.clients.some(client => client.id === props.clientId && (clientScope === 'ALL' || clientScope.includes(client.id)));
+  if (!state.clients.length || !selectedClientPermitted) {
     return (
       <div className="stack" style={{ gap: 16 }}>
         <div className="between">
@@ -37,8 +40,8 @@ export const ClientDetailView: React.FC<ClientDetailViewProps> = props => {
           </button>
         </div>
         <div role="status" className="panel panel-pad">
-          <h2>No client selected</h2>
-          <p className="sub">There are no clients in this practice yet. Create a client from the Client Portfolio to open its workspace.</p>
+          <h2>{state.clients.length ? 'Client selection unavailable' : 'No client selected'}</h2>
+          <p className="sub">{state.clients.length ? 'This client is missing or outside your current access scope. Return to Client Portfolio and select a permitted client.' : 'There are no clients in this practice yet. Create a client from the Client Portfolio to open its workspace.'}</p>
         </div>
       </div>
     );
@@ -84,7 +87,7 @@ const ClientDetailWorkspace: React.FC<ClientDetailViewProps> = ({ clientId, sear
   const [newFieldLabel, setNewFieldLabel] = useState('');
   const [newFieldType, setNewFieldType] = useState<CustomFieldDefinition['type']>('text');
   const [newFieldOptions, setNewFieldOptions] = useState('');
-  const client = state.clients.find(c => c.id === clientId) || state.clients[0];
+  const client = state.clients.find(c => c.id === clientId)!;
   const contacts = state.contacts.filter(c => c.clientId === client.id);
   const engagements = state.engagements.filter(e => e.client === client.id && canViewEngagement(e.id));
   const scopedEngagementIds = new Set(engagements.map(engagement => engagement.id));

@@ -6,6 +6,7 @@ import { hasAnyRole } from '../../services/guards';
 import { Icon } from '../common/Icons';
 import { StatusBadge } from '../common/StatusBadge';
 import { UnsavedFormGuard } from '../../services/unsavedFormGuard';
+import { visibleEngagementIds } from '../../services/guards';
 
 interface CommunicationsViewProps {
   onNavigate: (route: RouteKey) => void;
@@ -50,12 +51,13 @@ export const CommunicationsView: React.FC<CommunicationsViewProps> = ({ onNaviga
   const [editingCommunicationId, setEditingCommunicationId] = useState<string | null>(null);
   const [correctionReason, setCorrectionReason] = useState('');
 
-  const communications = state.communications;
-  const selectedEngagement = state.engagements.find(engagement => engagement.id === state.selectedEngagement);
-  const client = state.clients.find(item => item.id === selectedEngagement?.client) || state.clients[0];
-  const clientJobs = state.jobs.filter(job => job.clientId === client?.id);
+  const allowedEngagementIds = visibleEngagementIds(state);
+  const selectedEngagement = state.engagements.find(engagement => engagement.id === state.selectedEngagement && (allowedEngagementIds === 'ALL' || allowedEngagementIds.includes(engagement.id)));
+  const client = selectedEngagement && state.clients.find(item => item.id === selectedEngagement.client);
+  const communications = selectedEngagement ? state.communications.filter(item => item.clientId === selectedEngagement.client && (item.engagementId ? item.engagementId === selectedEngagement.id : item.scopeKind === 'Client')) : [];
+  const clientJobs = state.jobs.filter(job => job.clientId === client?.id && job.engagementId === selectedEngagement?.id);
   const clientRequests = selectedEngagement?.pbc.filter(request => !['Draft', 'Cancelled'].includes(request.status)) || [];
-  const communicationDocuments = state.documents.filter(item => item.clientId === client?.id && (!item.engagementId || item.engagementId === state.selectedEngagement));
+  const communicationDocuments = state.documents.filter(item => item.clientId === client?.id && (!item.engagementId || item.engagementId === selectedEngagement?.id));
   const relatedJob = clientJobs.find(job => job.id === relatedJobId);
 
   const saveEmailDraft = (submissionId = emailSubmissionId.current) => {
@@ -65,7 +67,8 @@ export const CommunicationsView: React.FC<CommunicationsViewProps> = ({ onNaviga
     emailAttemptRecorded.current = true;
     try {
       const ccEmails = ccEmailsText.split(/[;,\n]/).map(email => email.trim()).filter(Boolean);
-      prototypeStore.addCommunication({ id: `COMM-${crypto.randomUUID()}`, clientId: client?.id || 'CL-001', engagementId: state.selectedEngagement, direction: 'Outbound', channel: 'Email', participants: `${state.currentPerson} -> ${recipientEmail.trim().toLowerCase()}${ccEmails.length ? ` (CC: ${ccEmails.join(', ')})` : ''}`, recipientEmail: recipientEmail.trim().toLowerCase(), ccEmails, summary: subject, body: emailBody, author: state.currentPerson, date: new Date().toISOString(), visibility: 'Client visible', status: simulationOutcome, simulationReference: `MAIL-SIM-${crypto.randomUUID()}`, simulationEvidence: `Local simulation recorded ${simulationOutcome}; no provider receipt or external delivery confirmation exists.`, simulationSubmissionId: submissionId, ...(emailDocumentId ? { linkedDocumentId: emailDocumentId } : {}), ...(relatedRequestId ? { relatedRequestId } : {}) });
+      if (!client || !selectedEngagement) throw new Error('Select an authorized client engagement before recording communication.');
+      prototypeStore.addCommunication({ id: `COMM-${crypto.randomUUID()}`, clientId: client.id, engagementId: selectedEngagement.id, direction: 'Outbound', channel: 'Email', participants: `${state.currentPerson} -> ${recipientEmail.trim().toLowerCase()}${ccEmails.length ? ` (CC: ${ccEmails.join(', ')})` : ''}`, recipientEmail: recipientEmail.trim().toLowerCase(), ccEmails, summary: subject, body: emailBody, author: state.currentPerson, date: new Date().toISOString(), visibility: 'Client visible', status: simulationOutcome, simulationReference: `MAIL-SIM-${crypto.randomUUID()}`, simulationEvidence: `Local simulation recorded ${simulationOutcome}; no provider receipt or external delivery confirmation exists.`, simulationSubmissionId: submissionId, ...(emailDocumentId ? { linkedDocumentId: emailDocumentId } : {}), ...(relatedRequestId ? { relatedRequestId } : {}) });
       emailBaseline.current = { recipientEmail, ccEmailsText, relatedRequestId, emailDocumentId, selectedTemplateId, subject, emailBody, simulationOutcome };
       setEmailError(''); setShowComposeModal(false); return true;
     } catch (error) { emailAttemptRecorded.current = false; setEmailError(error instanceof Error ? error.message : 'Simulated email could not be recorded.'); return false; }
@@ -76,7 +79,10 @@ export const CommunicationsView: React.FC<CommunicationsViewProps> = ({ onNaviga
     try {
       const fields = { channel, participants, summary: noteSummary, body: noteBody, date: `${noteDate}T12:00:00.000Z`, visibility: noteVisibility, linkedDocumentId: noteDocumentId || undefined, jobId: relatedJob?.id };
       if (editingCommunicationId) prototypeStore.correctCommunication(editingCommunicationId, fields, correctionReason);
-      else prototypeStore.addCommunication({ id: `COMM-${Date.now().toString().slice(-4)}`, clientId: client?.id || 'CL-001', engagementId: relatedJob?.engagementId || state.selectedEngagement, direction: 'Inbound', ...fields, author: state.currentPerson, status: 'Recorded manually' });
+      else {
+        if (!client || !selectedEngagement) throw new Error('Select an authorized client engagement before recording communication.');
+        prototypeStore.addCommunication({ id: `COMM-${Date.now().toString().slice(-4)}`, clientId: client.id, engagementId: relatedJob?.engagementId || selectedEngagement.id, direction: 'Inbound', ...fields, author: state.currentPerson, status: 'Recorded manually' });
+      }
       const clean = { channel: 'Phone' as CommunicationItem['channel'], participants: 'Omar Nasser (CFO), Layla Rahman (Manager)', noteSummary: '', noteBody: '', noteDate: state.asOfDate, noteVisibility: 'Internal' as CommunicationItem['visibility'], noteDocumentId: '', relatedJobId: '', correctionReason: '' };
       noteBaseline.current = clean;
       setNoteError(''); setShowLogNoteModal(false); setEditingCommunicationId(null); setCorrectionReason(''); setChannel(clean.channel); setParticipants(clean.participants); setNoteSummary(''); setNoteBody(''); setNoteDate(state.asOfDate); setNoteVisibility('Internal'); setNoteDocumentId(''); setRelatedJobId(''); return true;
@@ -240,8 +246,8 @@ export const CommunicationsView: React.FC<CommunicationsViewProps> = ({ onNaviga
                 </div>
               )}
               {comm.simulationReference && <div className="cell-sub mt8">Simulation evidence · {comm.simulationReference} · {comm.simulationEvidence}</div>}
-              {comm.jobId && <div className="cell-sub mt8">Linked job · {state.jobs.find(job => job.id === comm.jobId)?.title || comm.jobId}</div>}
-              {comm.linkedDocumentId && <div className="cell-sub mt8">Linked document · {state.documents.find(document => document.id === comm.linkedDocumentId)?.name || 'Reference unavailable'}</div>}
+              {comm.jobId && <div className="cell-sub mt8">Linked job · {clientJobs.find(job => job.id === comm.jobId)?.title || 'Reference unavailable'}</div>}
+              {comm.linkedDocumentId && <div className="cell-sub mt8">Linked document · {communicationDocuments.find(document => document.id === comm.linkedDocumentId)?.name || 'Reference unavailable'}</div>}
               <div className="cell-sub mt8">
                 Recorded by {comm.author} · {new Date(comm.date).toLocaleDateString('en-GB')} · Revision {comm.revision || 1}
               </div>

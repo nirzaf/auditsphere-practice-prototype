@@ -78,22 +78,26 @@ export const BillingInvoicingView: React.FC<BillingInvoicingViewProps> = ({ onNa
   const saveInvoiceDraft = () => {
     if (!showDraftModal) return true;
     const previousRevision = editingInvoiceId ? state.invoices.find(item => item.id === editingInvoiceId)?.revision || 1 : undefined;
-    handleCreateDraft(new Event('submit') as unknown as React.FormEvent);
+    const savedInvoiceId = handleCreateDraft(new Event('submit') as unknown as React.FormEvent);
     const latest = prototypeStore.getSnapshot();
-    const saved = editingInvoiceId
-      ? (latest.invoices.find(item => item.id === editingInvoiceId)?.revision || 1) > (previousRevision || 1)
-      : latest.invoices.length > invoices.length;
+    const persisted = savedInvoiceId ? latest.invoices.find(item => item.id === savedInvoiceId) : undefined;
+    const stillInScope = Boolean(persisted && scopedInvoices(latest).some(item => item.id === persisted.id));
+    const saved = Boolean(stillInScope && (editingInvoiceId
+      ? persisted?.id === editingInvoiceId && (persisted.revision || 1) > (previousRevision || 1)
+      : !state.invoices.some(item => item.id === savedInvoiceId)));
     if (saved) initialInvoiceDraft.current = JSON.stringify(invoiceDraft);
     return saved;
   };
   const saveCreditDraft = () => {
     if (!showCreditModal || !selectedInvoice) return true;
-    const previousCreditCount = state.creditNotes.length;
-    handleCreateCredit(new Event('submit') as unknown as React.FormEvent);
-    const latestCredits = prototypeStore.getSnapshot().creditNotes;
-    const saved = editingCreditId
-      ? latestCredits.some(credit => credit.id === editingCreditId && credit.amount === creditAmount && credit.reason === creditReason.trim() && !credit.reviewedBy && !credit.reviewedRevision)
-      : latestCredits.length > previousCreditCount;
+    const previousRevision = editingCreditId ? state.creditNotes.find(item => item.id === editingCreditId)?.revision || 1 : undefined;
+    const savedCreditId = handleCreateCredit(new Event('submit') as unknown as React.FormEvent);
+    const latest = prototypeStore.getSnapshot();
+    const visibleInvoiceIds = new Set(scopedInvoices(latest).map(item => item.id));
+    const persisted = savedCreditId ? latest.creditNotes.find(credit => credit.id === savedCreditId && visibleInvoiceIds.has(credit.invoiceId)) : undefined;
+    const saved = Boolean(persisted && persisted.invoiceId === selectedInvoice.id && (editingCreditId
+      ? persisted.id === editingCreditId && (persisted.revision || 1) > (previousRevision || 1) && persisted.amount === creditAmount && persisted.reason === creditReason.trim() && !persisted.reviewedBy && !persisted.reviewedRevision
+      : !state.creditNotes.some(credit => credit.id === savedCreditId)));
     if (saved) initialCreditDraft.current = JSON.stringify(creditDraft);
     return saved;
   };
@@ -108,8 +112,9 @@ export const BillingInvoicingView: React.FC<BillingInvoicingViewProps> = ({ onNa
     return () => { onRegisterUnsavedForm(null, 'billing-invoice-draft'); onRegisterUnsavedForm(null, 'billing-credit-draft'); };
   }, [showDraftModal, showCreditModal, selectedInvoice, invoiceDraft, creditDraft, onRegisterUnsavedForm]);
 
-  const handleCreateDraft = (e: React.FormEvent) => {
+  const handleCreateDraft = (e: React.FormEvent): string | undefined => {
     e.preventDefault();
+    if (!showDraftModal) return undefined;
 
     const lines: InvoiceLineItem[] = selectedTimeSources.length
       ? selectedTimeSources.map(time => ({
@@ -198,8 +203,10 @@ export const BillingInvoicingView: React.FC<BillingInvoicingViewProps> = ({ onNa
       setShowDraftModal(false);
       setEditingInvoiceId(null);
       setInvoiceEditReason('');
+      return newInv.id;
     } catch (err: any) {
       setNotice({ type: 'error', text: err.message });
+      return undefined;
     }
   };
 
@@ -266,9 +273,9 @@ export const BillingInvoicingView: React.FC<BillingInvoicingViewProps> = ({ onNa
     }
   };
 
-  const handleCreateCredit = (e: React.FormEvent) => {
+  const handleCreateCredit = (e: React.FormEvent): string | undefined => {
     e.preventDefault();
-    if (!selectedInvoice) return;
+    if (!selectedInvoice) return undefined;
 
     const existingCredit = editingCreditId ? state.creditNotes.find(item => item.id === editingCreditId) : undefined;
     if (existingCredit) {
@@ -276,8 +283,8 @@ export const BillingInvoicingView: React.FC<BillingInvoicingViewProps> = ({ onNa
         prototypeStore.reviseCreditNote(existingCredit.id, { amount: creditAmount, reason: creditReason });
         setNotice({ type: 'success', text: `Credit note ${existingCredit.creditNumber} revised and returned for independent review.` });
         setShowCreditModal(false); setSelectedInvoice(null); setEditingCreditId(null);
-      } catch (err: any) { setNotice({ type: 'error', text: err.message }); }
-      return;
+        return existingCredit.id;
+      } catch (err: any) { setNotice({ type: 'error', text: err.message }); return undefined; }
     }
     const newCredit: CreditNoteRecord = {
       id: `CN-${Date.now().toString().slice(-4)}`,
@@ -300,8 +307,10 @@ export const BillingInvoicingView: React.FC<BillingInvoicingViewProps> = ({ onNa
       setShowCreditModal(false);
       setSelectedInvoice(null);
       setEditingCreditId(null);
+      return newCredit.id;
     } catch (err: any) {
       setNotice({ type: 'error', text: err.message });
+      return undefined;
     }
   };
 

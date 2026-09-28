@@ -13,6 +13,8 @@ import { lifecycleById } from '../../services/lifecycles';
 import { loadVerifiedArtifact } from '../../services/artifactStore';
 import { UnsavedFormGuard } from '../../services/unsavedFormGuard';
 import { isReleaseBlockingFinding } from '../../services/findings';
+import { evaluateReleaseReadiness } from '../../services/releaseReadiness';
+import { archiveForRelease, releaseForPackage } from '../../services/packageLineage';
 
 interface ReleaseCompletionViewProps {
   onNavigate: (route: RouteKey) => void;
@@ -54,7 +56,13 @@ export const ReleaseCompletionView: React.FC<ReleaseCompletionViewProps> = ({ on
   const client = state.clients.find(c => c.id === selectedEng.client);
 
   // Comprehensive 4-part release gate checklist (VP-057)
-  const allWpCleared = selectedEng.workpapers.every(w => !w.applicable || w.status === 'Cleared' || w.status === 'Not applicable');
+  const readiness = evaluateReleaseReadiness(selectedEng, state);
+  const allWpCleared = !readiness.blockers.includes('One or more workpapers are not cleared or marked N/A');
+  const currentClearedWorkpapers = selectedEng.workpapers.filter(workpaper =>
+    !workpaper.applicable || workpaper.status === 'Not applicable' || (
+      workpaper.status === 'Cleared' && workpaper.clearance?.version === workpaper.version && workpaper.clearance.sourceVersion === selectedEng.sourceVersion
+    )
+  ).length;
   const noOpenReviews = selectedEng.reviews.every(r => r.status === 'Cleared');
 
   // Gate 3: Findings resolution (no unresolved material misstatements)
@@ -62,16 +70,13 @@ export const ReleaseCompletionView: React.FC<ReleaseCompletionViewProps> = ({ on
   const noMaterialFindings = openBlockingFindings.length === 0;
 
   // Gate 4: Multi-stage sign-offs recorded and valid for current generation
-  const approvalsValid = Boolean(
-    selectedEng.approvals.manager?.generation === selectedEng.generation &&
-    selectedEng.approvals.client?.generation === selectedEng.generation &&
-    selectedEng.approvals.partner?.generation === selectedEng.generation &&
-    (!selectedEng.eqrRequired || selectedEng.approvals.eqr?.generation === selectedEng.generation)
-  );
+  const approvalsValid = readiness.approvals.manager && readiness.approvals.client && readiness.approvals.partner && (!selectedEng.eqrRequired || readiness.approvals.eqr) && readiness.approvals.managementAcknowledgement;
+  const commercialReady = selectedEng.acceptance && selectedEng.terms;
+  const planningReady = selectedEng.planning && selectedEng.sourceAccepted && selectedEng.mappingApproved;
 
-  const gatesPass = allWpCleared && noOpenReviews && noMaterialFindings && approvalsValid;
   const packageDefinition = selectedEng.packageHistory?.find(p => p.revision === selectedEng.packageRevision);
-  const packageArtifactsReady = Boolean(packageDefinition?.validation.passed && packageDefinition.sourceVersion === selectedEng.sourceVersion && packageDefinition.artifacts.length === 3);
+  const packageArtifactsReady = !readiness.blockers.includes('Assemble a valid current package revision with current TB/GL source, mapping and XLSX, DOCX and PDF artifacts first');
+  const gatesPass = readiness.ready;
 
   const handleFreezeCandidate = async () => {
     if (!gatesPass) {
@@ -145,15 +150,13 @@ export const ReleaseCompletionView: React.FC<ReleaseCompletionViewProps> = ({ on
       {notice && <Notice tone={notice.type} onDismiss={() => setNotice(null)}>{notice.text}</Notice>}
 
       {(() => {
-        const archived = Boolean(selectedEng.archive);
+        const currentRelease = releaseForPackage(selectedEng, packageDefinition);
+        const currentArchive = archiveForRelease(selectedEng, currentRelease?.id);
+        const archived = Boolean(currentArchive);
         const latestRelease = selectedEng.releases.at(-1);
-        const releaseStatus = archived ? 'Archived' : latestRelease ? 'Released' : selectedEng.candidate ? 'Candidate' : gatesPass ? 'Ready' : 'Blocked';
-        const blockers = [
-          ...(!allWpCleared ? ['Applicable workpapers not all cleared'] : []),
-          ...(!noOpenReviews ? ['Open review points'] : []),
-          ...(!noMaterialFindings ? [`${openBlockingFindings.length} unresolved significant/material finding(s)`] : []),
-          ...(!approvalsValid ? [`Sign-offs are not all valid for generation ${selectedEng.generation}`] : [])
-        ];
+        const candidateCurrent = Boolean(selectedEng.candidate && selectedEng.candidate.generation === selectedEng.generation && selectedEng.candidate.sourceVersion === selectedEng.sourceVersion && selectedEng.candidate.packageRevision === selectedEng.packageRevision && selectedEng.candidate.packageDefinitionId === packageDefinition?.id);
+        const releaseStatus = archived ? 'Archived' : currentRelease ? 'Released' : candidateCurrent ? 'Candidate' : gatesPass ? 'Ready' : 'Blocked';
+        const blockers = readiness.blockers;
         const next = releaseStatus === 'Blocked' ? 'Clear the blocked gates below; each links to its module.'
           : releaseStatus === 'Ready' ? `Freeze the release candidate for generation ${selectedEng.generation}.`
           : releaseStatus === 'Candidate' ? 'Issue the release (dispatch is simulated — no email is sent).'
@@ -165,8 +168,8 @@ export const ReleaseCompletionView: React.FC<ReleaseCompletionViewProps> = ({ on
           status={releaseStatus}
           headingLevel="h4"
           facts={[
-            { label: 'Latest release', value: latestRelease ? `v${latestRelease.version} · ${latestRelease.releasedBy}${latestRelease.isAmended ? ' · amended' : ''}` : 'None' },
-            { label: 'Candidate', value: selectedEng.candidate ? `Generation ${selectedEng.candidate.generation} · ${selectedEng.candidate.preparedBy}` : 'Not frozen' },
+          { label: 'Latest release', value: latestRelease ? `v${latestRelease.version} · ${latestRelease.releasedBy}${currentRelease?.id === latestRelease.id ? '' : ' · historical for this source'}` : 'None' },
+          { label: 'Candidate', value: candidateCurrent ? `Generation ${selectedEng.candidate!.generation} · ${selectedEng.candidate!.preparedBy}` : selectedEng.candidate ? 'Stale candidate' : 'Not frozen' },
             { label: 'Signing partner', value: selectedEng.partner },
             { label: 'EQR', value: selectedEng.eqrRequired ? 'Required' : 'Not required' }
           ]}
@@ -190,6 +193,16 @@ export const ReleaseCompletionView: React.FC<ReleaseCompletionViewProps> = ({ on
         </div>
 
         <div className="stack mt20" style={{ gap: 10 }}>
+          <div className="between borderbox" style={{ padding: 12 }}>
+            <div className="row" style={{ gap: 10, alignItems: 'center' }}>
+              <Icon name={commercialReady && planningReady ? 'checkcircle' : 'target'} className={commercialReady && planningReady ? 'text-green' : 'text-amber'} />
+              <div>
+                <b>0. Acceptance, terms, planning, source and mapping</b> <StatusBadge status={commercialReady && planningReady ? 'Passed' : 'Blocked'} kind={commercialReady && planningReady ? 'approved' : 'blocked'} />
+                <div className="cell-sub">{commercialReady ? 'Professional acceptance and terms recorded' : 'Professional acceptance or agreed terms are missing'} · {planningReady ? 'Planning, accepted source and approved mapping are current' : 'Planning, accepted source or approved mapping is missing'}</div>
+              </div>
+            </div>
+            <button type="button" className="btn sm ghost" onClick={() => onNavigate(commercialReady ? 'account-mappings' : 'onboarding')}>Inspect prerequisites</button>
+          </div>
           {/* Gate 1: Workpapers */}
           <div className="between borderbox" style={{ padding: 12 }}>
             <div className="row" style={{ gap: 10, alignItems: 'center' }}>
@@ -197,7 +210,7 @@ export const ReleaseCompletionView: React.FC<ReleaseCompletionViewProps> = ({ on
               <div>
                 <b>1. All Audit Workpapers Cleared</b> <StatusBadge status={allWpCleared ? 'Passed' : 'Blocked'} kind={allWpCleared ? 'approved' : 'blocked'} />
                 <div className="cell-sub">
-                  {selectedEng.workpapers.filter(w => w.status === 'Cleared' || w.status === 'Not applicable').length} of {selectedEng.workpapers.length} cleared / N/A
+                  {currentClearedWorkpapers} of {selectedEng.workpapers.length} cleared / N/A at the current workpaper and source revisions
                 </div>
               </div>
             </div>
@@ -239,12 +252,13 @@ export const ReleaseCompletionView: React.FC<ReleaseCompletionViewProps> = ({ on
             <div className="row" style={{ gap: 10, alignItems: 'center' }}>
               <Icon name={approvalsValid ? 'checkcircle' : 'shield'} className={approvalsValid ? 'text-green' : 'text-amber'} />
               <div>
-                <b>4. Multi-Stage Sign-offs Valid for Generation {selectedEng.generation}</b> <StatusBadge status={approvalsValid ? 'Passed' : 'Blocked'} kind={approvalsValid ? 'approved' : 'blocked'} />
+                <b>4. Current approvals and management package acknowledgement for Generation {selectedEng.generation}</b> <StatusBadge status={approvalsValid ? 'Passed' : 'Blocked'} kind={approvalsValid ? 'approved' : 'blocked'} />
                 <div className="cell-sub">
-                  Manager: {selectedEng.approvals.manager?.generation === selectedEng.generation ? '✓' : '✗'} ·
-                  Client Rep: {selectedEng.approvals.client?.generation === selectedEng.generation ? '✓' : '✗'} ·
-                  Partner: {selectedEng.approvals.partner?.generation === selectedEng.generation ? '✓' : '✗'} ·
-                  EQR: {!selectedEng.eqrRequired ? 'N/A' : selectedEng.approvals.eqr?.generation === selectedEng.generation ? '✓' : '✗'}
+                  Manager: {readiness.approvals.manager ? '✓' : '✗'} ·
+                  Client Rep: {readiness.approvals.client ? '✓' : '✗'} ·
+                  Partner: {readiness.approvals.partner ? '✓' : '✗'} ·
+                  Management package: {readiness.approvals.managementAcknowledgement ? '✓' : '✗'} ·
+                  EQR: {!selectedEng.eqrRequired ? 'N/A' : readiness.approvals.eqr ? '✓' : '✗'}
                 </div>
               </div>
             </div>

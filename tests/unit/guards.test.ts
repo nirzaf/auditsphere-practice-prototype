@@ -2499,11 +2499,11 @@ describe('money guards (AT-30/AT-31/AT-32)', () => {
     assert.equal(credit.returnReason, 'Provide supporting commercial calculation.');
     setPersona(isolated, 'Leila Hassan');
     prototypeStore.reviseCreditNote(credit.id, { amount: 1200, reason: 'Revised adjustment with calculation' });
-    assert.equal(credit.revision, 2);
+    assert.equal(credit.revision, 3, 'a returned revision advances its persisted credit-note revision');
     assert.equal(credit.reviewedBy, undefined);
     setPersona(isolated, 'Layla Rahman');
     prototypeStore.reviewCreditNote(credit.id, true);
-    assert.equal(credit.reviewedRevision, 2);
+    assert.equal(credit.reviewedRevision, 3, 'independent review pins the revised credit-note revision');
     assert.throws(() => prototypeStore.reviseCreditNote(credit.id, { amount: 1300, reason: 'Attempt after approval' }), /Only a returned draft/);
     assert.equal(invoice.creditsApplied || 0, 0, 'approval and revision do not move or settle money');
   });

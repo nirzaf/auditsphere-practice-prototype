@@ -70,11 +70,13 @@ const ENGAGEMENT_CONTEXT_ROUTES = new Set<string>([
 ]);
 
 const ACTIVE_DIALOG_GUARD = '__active-dialog__';
+type WorkflowSelection = { route: RouteKey; context: { clientId?: string; engagementId?: string; recordId?: string } };
 
 export const App: React.FC = () => {
   const [currentRoute, setCurrentRoute] = useState<RouteKey>(() => resolveRouteHash(window.location.hash)?.route || 'overview');
-  const [selectedClientId, setSelectedClientId] = useState<string>('CLI-001');
+  const [selectedClientId, setSelectedClientId] = useState<string>('CL-001');
   const [searchTargetId, setSearchTargetId] = useState<string | undefined>();
+  const [workflowSelection, setWorkflowSelection] = useState<WorkflowSelection | null>(null);
   const [, setTick] = useState(0);
   const [guideOrigin, setGuideOrigin] = useState<RouteKey>('overview');
   const unsavedForms = useRef<Map<string, UnsavedFormGuard>>(new Map());
@@ -89,6 +91,13 @@ export const App: React.FC = () => {
     if (guard) unsavedForms.current.set(key, guard);
     else unsavedForms.current.delete(key);
   }, []);
+  const reportWorkflowSelection = useCallback((route: RouteKey, context: WorkflowSelection['context']) => {
+    setWorkflowSelection(previous => previous?.route === route && previous.context.clientId === context.clientId && previous.context.engagementId === context.engagementId && previous.context.recordId === context.recordId
+      ? previous
+      : { route, context });
+  }, []);
+  const reportJobsWorkflowContext = useCallback((context: WorkflowSelection['context']) => reportWorkflowSelection('jobs', context), [reportWorkflowSelection]);
+  const reportSamplingWorkflowContext = useCallback((context: WorkflowSelection['context']) => reportWorkflowSelection('sampling', context), [reportWorkflowSelection]);
   const requestContextChange = useCallback((run: () => void) => {
     const dirtyGuards = () => [...unsavedForms.current.values()].filter(guard => guard.isDirty());
     const decide = (dirty: UnsavedFormGuard[]) => {
@@ -370,6 +379,7 @@ export const App: React.FC = () => {
       const current = prototypeStore.getSnapshot();
       const active = current.users.find(user => user.id === current.currentUserId)?.status === 'Active';
       setSearchTargetId(targetId);
+      setWorkflowSelection(null);
       const nextRoute = canOpenRoute(current.currentRole, route, active) ? route : active && isClientRole(current.currentRole) ? 'portal' : active ? 'overview' : 'requirements';
       setCurrentRoute(nextRoute);
       acceptedRouteHash.current = `#${nextRoute}`;
@@ -383,6 +393,7 @@ export const App: React.FC = () => {
       const route: RouteKey = canOpenRoute(current.currentRole, 'client-detail', active) ? 'client-detail' : active && isClientRole(current.currentRole) ? 'portal' : 'overview';
       setSelectedClientId(clientId);
       setSearchTargetId(requestId);
+      setWorkflowSelection(null);
       setCurrentRoute(route);
       acceptedRouteHash.current = `#${route}`;
       if (window.location.hash !== `#${route}`) window.history.pushState(null, '', `#${route}`);
@@ -448,7 +459,7 @@ export const App: React.FC = () => {
 
       // Work & Collaboration
       case 'jobs':
-        return <JobsTasksView key={`${state.selectedEngagement}:${searchTargetId || ''}`} searchTargetId={searchTargetId} onNavigate={navigate} onRegisterUnsavedForm={registerUnsavedForm} />;
+        return <JobsTasksView key={`${state.selectedEngagement}:${searchTargetId || ''}`} searchTargetId={searchTargetId} onNavigate={navigate} onWorkflowContextChange={reportJobsWorkflowContext} onRegisterUnsavedForm={registerUnsavedForm} />;
       case 'job-templates':
         return <JobTemplatesView onNavigate={navigate} onRegisterUnsavedForm={registerUnsavedForm} />;
       case 'documents':
@@ -474,7 +485,7 @@ export const App: React.FC = () => {
       case 'account-mappings':
       case 'adjustments':
       case 'reconciliations':
-        return <AccountingWorkbenchView onNavigate={navigate} onRegisterUnsavedForm={registerUnsavedForm} />;
+        return <AccountingWorkbenchView route={effectiveRoute} onNavigate={navigate} onRegisterUnsavedForm={registerUnsavedForm} />;
       case 'financial-statements':
         return <FinancialStatementsView key={state.selectedEngagement} onNavigate={navigate} onRegisterUnsavedForm={registerUnsavedForm} />;
       case 'financial-packages':
@@ -490,7 +501,7 @@ export const App: React.FC = () => {
       case 'audit-fieldwork':
         return <AuditRisksProgramsView onNavigate={navigate} onRegisterUnsavedForm={registerUnsavedForm} />;
       case 'sampling':
-        return <SamplingView onNavigate={navigate} onBeforeContextChange={requestContextChange} onRegisterUnsavedForm={registerUnsavedForm} />;
+        return <SamplingView onNavigate={navigate} onBeforeContextChange={requestContextChange} onRegisterUnsavedForm={registerUnsavedForm} onWorkflowContextChange={reportSamplingWorkflowContext} />;
       case 'audit':
         return <WorkpapersView key={`${state.selectedEngagement}:${searchTargetId || ''}`} searchTargetId={searchTargetId} onNavigate={navigate} onRegisterUnsavedForm={registerUnsavedForm} />;
       case 'evidence':
@@ -510,7 +521,7 @@ export const App: React.FC = () => {
       // Client Services & Admin
       case 'portal':
       case 'client-portal' as any:
-        return <ClientPortalView onNavigate={navigate} onBeforeContextChange={requestContextChange} onRegisterUnsavedForm={registerUnsavedForm} />;
+        return <ClientPortalView key={`${state.currentUserId}:${state.currentRole}`} onNavigate={navigate} onBeforeContextChange={requestContextChange} onRegisterUnsavedForm={registerUnsavedForm} />;
       case 'reports':
       case 'reporting-centre' as any:
         return <ReportingCentreView onNavigate={navigate} />;
@@ -531,13 +542,25 @@ export const App: React.FC = () => {
   };
 
   return (
-    <Shell currentRoute={effectiveRoute} onRouteChange={navigate} onSelectClient={(clientId) => requestContextChange(() => setSelectedClientId(clientId))} onBeforeContextChange={requestContextChange}>
+    <Shell currentRoute={effectiveRoute} onRouteChange={navigate} onSelectClient={(clientId) => requestContextChange(() => { setSelectedClientId(clientId); setWorkflowSelection(null); })} onBeforeContextChange={requestContextChange}>
       {!isClient && !['module-guide', 'requirements', 'role-guide'].includes(effectiveRoute) && <ModuleGuideStrip key={effectiveRoute} route={effectiveRoute} />}
-      {!['module-guide', 'requirements', 'role-guide'].includes(effectiveRoute) && (
+      {!['module-guide', 'requirements', 'role-guide', 'portal'].includes(effectiveRoute) && (
         <WorkflowProgress
-          key={`wp-${effectiveRoute}-${state.selectedEngagement || ''}`}
-          progress={computeModuleWorkflowProgress(effectiveRoute, state)}
+          key={`wp-${effectiveRoute}-${state.selectedEngagement || ''}-${selectedClientId}-${searchTargetId || ''}`}
+          progress={computeModuleWorkflowProgress(effectiveRoute, state, {
+            engagementId: workflowSelection?.route === effectiveRoute ? workflowSelection.context.engagementId ?? state.selectedEngagement : state.selectedEngagement,
+            clientId: workflowSelection?.route === effectiveRoute ? workflowSelection.context.clientId ?? selectedClientId : selectedClientId,
+            recordId: workflowSelection?.route === effectiveRoute ? workflowSelection.context.recordId ?? searchTargetId : searchTargetId
+          })}
           onNavigate={navigate}
+          onSelectStep={step => {
+            if (step.targetRoute) navigate(step.targetRoute, step.targetRecordId);
+            else if (step.targetSection) {
+              const target = document.getElementById(step.targetSection);
+              target?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+              target?.focus({ preventScroll: true });
+            }
+          }}
         />
       )}
       {renderModule()}

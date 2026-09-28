@@ -10,6 +10,8 @@ import { applyReportingAdjustments, calculateReconciliationVariance } from '../s
 import { validatePbcUpload } from '../services/pbcUpload';
 import { consolidationOutputFingerprint } from '../services/consolidationOutput';
 import { isReleaseBlockingFinding } from '../services/findings';
+import { evaluateReleaseReadiness as evaluateReleaseReadinessSnapshot } from '../services/releaseReadiness';
+import { isSampleFrameReconciled } from '../services/samplingReadiness';
 
 const STORAGE_KEY = 'ste-auditsphere-role-portals-v2';
 const STORAGE_BACKUP_KEY = 'ste-auditsphere-role-portals-v2.backup';
@@ -34,12 +36,6 @@ const isValidAdjustmentJournalLines = (lines: unknown, engagement: EngagementRec
       && (line.currency === undefined || line.currency === engagement.currency)));
 const isActiveClientContact = (state: PrototypeState, clientId: string, name: string) =>
   state.contacts.some(contact => contact.clientId === clientId && contact.active && contact.name.trim().toLocaleLowerCase() === name.trim().toLocaleLowerCase());
-
-const isSampleFrameReconciled = (state: PrototypeState, population: PrototypeState['samplePopulations'][number]) => {
-  const engagement = state.engagements.find(item => item.id === population.engagementId);
-  const glRow = engagement?.rows.find(row => row.code === population.accountCode);
-  return Boolean(population.sourceComplete && engagement && glRow && population.period === engagement.year && population.currency === engagement.currency && population.items.every(item => (!item.period || item.period === population.period) && (!item.currency || item.currency === population.currency)) && Math.abs(glRow.balance - population.totalPopulationValue) < 0.01);
-};
 
 const requireRole = (state: PrototypeState, allowed: RoleKey[], action: string) => {
   if (!isSuperuserRole(state.currentRole) && !allowed.includes(state.currentRole)) {
@@ -2222,6 +2218,7 @@ class PrototypeStore {
     if (changes.amount > (invoice?.amount || 0) - otherReservedCredits) throw new GuardError('INVALID_STATE', 'Credit note exceeds the remaining creditable invoice balance.');
     credit.amount = changes.amount;
     credit.reason = changes.reason.trim();
+    credit.revision = Math.max(1, credit.revision || 1) + 1;
     credit.reviewedBy = undefined;
     credit.reviewedRevision = undefined;
     this.logEvent(`Credit note ${credit.creditNumber} revised to revision ${credit.revision}`, credit.id);
@@ -4683,49 +4680,8 @@ class PrototypeStore {
   // --- Release & Archive (VP-057, VP-058, VP-059) ---
   public evaluateReleaseReadiness(engId: string): { ready: boolean; reason?: string } {
     const eng = this.state.engagements.find(e => e.id === engId);
-    if (!eng) return { ready: false, reason: 'Engagement not found' };
-
-    if (!eng.acceptance || !eng.terms) return { ready: false, reason: 'Commercial acceptance or agreed terms are missing' };
-    if (!eng.planning || !eng.sourceAccepted || !eng.mappingApproved) return { ready: false, reason: 'Planning, accepted source, or approved mapping is missing' };
-
-    const allWpCleared = (eng.workpapers || []).every(w => !w.applicable || w.status === 'Not applicable' || (
-      w.status === 'Cleared' && !!w.clearance && w.clearance.version === w.version && w.clearance.sourceVersion === eng.sourceVersion
-    ));
-    if (!allWpCleared) return { ready: false, reason: 'One or more workpapers are not cleared or marked N/A' };
-
-    const allReviewsCleared = eng.reviews.every(r => r.status === 'Cleared');
-    if (!allReviewsCleared) return { ready: false, reason: 'One or more review notes remain open' };
-
-    const openMaterialFindings = this.state.findings.filter(f => f.engagementId === eng.id && isReleaseBlockingFinding(f));
-    if (openMaterialFindings.length > 0) return { ready: false, reason: 'Unresolved material findings exist' };
-
-    const gen = eng.generation;
-    const naturalPersonId = (id: string | undefined, name: string | undefined) => {
-      const user = this.state.users.find(u => u.id === id) || this.state.users.find(u => u.name === name);
-      return user?.personId || user?.id || name;
-    };
-    if (!eng.approvals.manager || eng.approvals.manager.generation !== gen || naturalPersonId(eng.approvals.manager.byUserId, eng.approvals.manager.by) === naturalPersonId(eng.approvals.partner?.byUserId, eng.approvals.partner?.by)) {
-      return { ready: false, reason: `Manager clearance missing or invalid for generation ${gen}` };
-    }
-    if (!eng.approvals.client || eng.approvals.client.generation !== gen || (eng.approvals.client.byUserId && this.state.users.find(u => u.id === eng.approvals.client!.byUserId)?.role !== 'client')) {
-      return { ready: false, reason: `Client management representation missing or invalid for generation ${gen}` };
-    }
-    const presentation = eng.managementPresentation;
-    const decision = eng.managementPackageDecision;
-    if (!presentation || presentation.generation !== gen || presentation.sourceVersion !== eng.sourceVersion || presentation.packageRevision !== eng.packageRevision || !decision || decision.decision !== 'Acknowledged' || decision.generation !== gen || decision.sourceVersion !== eng.sourceVersion || decision.packageRevision !== eng.packageRevision) return { ready: false, reason: `Current management package acknowledgement missing for generation ${gen}` };
-    if (!eng.approvals.partner || eng.approvals.partner.generation !== gen || (eng.approvals.partner.byUserId && this.state.users.find(u => u.id === eng.approvals.partner!.byUserId)?.role !== 'partner')) {
-      return { ready: false, reason: `Partner sign-off missing or invalid for generation ${gen}` };
-    }
-    if (eng.eqrRequired) {
-      if (!eng.approvals.eqr || eng.approvals.eqr.generation !== gen || (eng.approvals.eqr.byUserId && this.state.users.find(u => u.id === eng.approvals.eqr!.byUserId)?.role !== 'eqr')) {
-        return { ready: false, reason: `EQR concurrence missing or invalid for generation ${gen}` };
-      }
-      if (eng.eqrConcerns?.some(c => !c.resolved)) {
-        return { ready: false, reason: 'Unresolved EQR concerns remain' };
-      }
-    }
-
-    return { ready: true };
+    const readiness = evaluateReleaseReadinessSnapshot(eng, this.state);
+    return readiness.ready ? { ready: true } : { ready: false, reason: readiness.reason };
   }
 
   public prepareReleaseCandidate(engId: string) {

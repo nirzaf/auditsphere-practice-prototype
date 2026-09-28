@@ -6,10 +6,12 @@ import React, { useEffect, useRef, useState } from 'react';
 import { getOutstandingPbcRequestCount } from '../../services/pbcRequestFilters';
 import { RouteKey, PbcRequestItem } from '../../types';
 import { prototypeStore } from '../../store/prototypeStore';
-import { visibleClientIds, visibleEngagementIds } from '../../services/guards';
+import { selectClientPortalProjection } from '../../services/clientPortalSelectors';
+import { computeModuleWorkflowProgress } from '../../services/workflowProgress';
 import { Icon } from '../common/Icons';
 import { StatusBadge } from '../common/StatusBadge';
 import { Notice, EmptyTableRow } from '../common/Feedback';
+import { WorkflowProgress } from '../common/WorkflowProgress';
 import { invoiceTaxLine, formatCurrency } from '../../services/calculations';
 import { exportService } from '../../services/exportService';
 import { sha256OfFile } from '../../services/fileMetadata';
@@ -45,34 +47,19 @@ export const ClientPortalView: React.FC<ClientPortalViewProps> = ({ onNavigate, 
   const [nomineeEmail, setNomineeEmail] = useState('');
   const [nominationReason, setNominationReason] = useState('');
 
-  // Client resolution supporting multi-entity grants (VP-025)
-  const allowedClientIds = visibleClientIds(state);
-  const availableClients = allowedClientIds === 'ALL'
-    ? state.clients
-    : state.clients.filter(c => (allowedClientIds as string[]).includes(c.id));
-
-  const [selectedClientId, setSelectedClientId] = useState<string>(
-    availableClients[0]?.id || ''
-  );
-
-  // Keep portal context valid when the simulated identity changes without unmounting this view.
-  const resolvedClientId = availableClients.some(c => c.id === selectedClientId)
-    ? selectedClientId
-    : availableClients[0]?.id || '';
-  const client = availableClients.find(c => c.id === resolvedClientId) || null;
-  const allowedEngIds = visibleEngagementIds(state);
-  const availableEngagements = client ? state.engagements.filter(e => e.client === client.id && (allowedEngIds === 'ALL' || (allowedEngIds as string[]).includes(e.id))) : [];
-  const [selectedEngagementId, setSelectedEngagementId] = useState<string>(
-    availableEngagements.find(e => e.id === state.selectedEngagement)?.id || availableEngagements[0]?.id || ''
-  );
-  const resolvedEngagementId = availableEngagements.some(e => e.id === selectedEngagementId)
-    ? selectedEngagementId
-    : availableEngagements[0]?.id || '';
-  const eng = availableEngagements.find(e => e.id === resolvedEngagementId) || null;
-
-  // Strictly filter by client grant and exclude unissued/drafts from client visibility (VP-025, VP-033)
-  const invoices = client && eng ? state.invoices.filter(i => i.clientId === client.id && (i.engagementId || i.eng) === eng.id && (i.status === 'Issued' || i.status === 'Paid')) : [];
-  const pbc = eng?.pbc.filter(request => request.status !== 'Draft' && request.status !== 'Cancelled') || [];
+  const initialPortalProjection = selectClientPortalProjection(state);
+  const [selectedClientId, setSelectedClientId] = useState<string>(initialPortalProjection.client?.id || '');
+  const clientProjection = selectClientPortalProjection(state, selectedClientId);
+  const [selectedEngagementId, setSelectedEngagementId] = useState<string>(clientProjection.engagement?.id || '');
+  const portalProjection = selectClientPortalProjection(state, selectedClientId, selectedEngagementId);
+  const availableClients = portalProjection.clients;
+  const availableEngagements = portalProjection.engagements;
+  const client = portalProjection.client || null;
+  const eng = portalProjection.engagement || null;
+  const resolvedClientId = client?.id || '';
+  const resolvedEngagementId = eng?.id || '';
+  const invoices = portalProjection.invoices;
+  const pbc = portalProjection.pbc;
   // Same actionable-state filter as the staff request register (MOD-09-CL01).
   const pendingRequestCount = getOutstandingPbcRequestCount(pbc);
   // Issued credit notes reduce what the client still owes (MOD-08-CL01 / MOD-15).
@@ -80,8 +67,8 @@ export const ClientPortalView: React.FC<ClientPortalViewProps> = ({ onNavigate, 
   // Settled amount mirrors allocateReceipt: the larger of the paid cache and active (unreversed) allocations.
   const settledFor = (invoiceId: string, paid = 0) => Math.max(paid, (state.receipts || []).flatMap(receipt => receipt.allocations || []).filter(allocation => allocation.invoiceId === invoiceId && !allocation.reversed).reduce((sum, allocation) => sum + allocation.amount, 0));
   const outstandingInvoiceCount = invoices.filter(inv => Math.round((inv.amount - settledFor(inv.id, inv.paid || 0) - issuedCreditsFor(inv.id)) * 100) > 0).length;
-  const sharedDocs = client ? state.documents.filter(d => d.visibility === 'Client shared' && d.clientId === client.id && (!d.engagementId || d.engagementId === eng?.id)) : [];
-  const messages = client ? state.communications.filter(c => c.visibility === 'Client visible' && c.clientId === client.id && (!c.engagementId || c.engagementId === eng?.id)) : [];
+  const sharedDocs = portalProjection.documents;
+  const messages = portalProjection.messages;
 
   const triggerNotice = (msg: string, tone: 'success' | 'error' = 'success') => {
     setNotice({ tone, text: msg });
@@ -269,15 +256,24 @@ export const ClientPortalView: React.FC<ClientPortalViewProps> = ({ onNavigate, 
     return () => onRegisterUnsavedForm(null, 'portal-contact-nomination');
   }, [portalRole, activeSub, nomineeName, nomineeEmail, nominationReason, client?.id, onRegisterUnsavedForm]);
 
+  const portalProgress = computeModuleWorkflowProgress('portal', state, {
+    clientId: client?.id,
+    engagementId: eng?.id,
+    portalResolved: true
+  });
+
   if (!client) {
     return (
-      <div className="panel panel-pad text-center" style={{ padding: '60px 20px' }}>
-        <Icon name="globe" size="xl" className="text-muted mb16" />
-        <h3>Client Portal Unavailable</h3>
-        <p className="sub max-w-md mx-auto mt8">
-          No client entity is currently mapped or permitted for your active identity.
-        </p>
-      </div>
+      <>
+        <WorkflowProgress progress={portalProgress} onNavigate={onNavigate} />
+        <div className="panel panel-pad text-center" style={{ padding: '60px 20px' }}>
+          <Icon name="globe" size="xl" className="text-muted mb16" />
+          <h3>Client Portal Unavailable</h3>
+          <p className="sub max-w-md mx-auto mt8">
+            No client entity is currently mapped or permitted for your active identity.
+          </p>
+        </div>
+      </>
     );
   }
 
@@ -319,7 +315,7 @@ export const ClientPortalView: React.FC<ClientPortalViewProps> = ({ onNavigate, 
                     const nextClientId = e.target.value;
                     onBeforeContextChange(() => {
                       setSelectedClientId(nextClientId);
-                      setSelectedEngagementId(state.engagements.find(item => item.client === nextClientId && (allowedEngIds === 'ALL' || (allowedEngIds as string[]).includes(item.id)))?.id || '');
+                      setSelectedEngagementId(selectClientPortalProjection(state, nextClientId).engagement?.id || '');
                     });
                   }}
                 >
@@ -372,6 +368,8 @@ export const ClientPortalView: React.FC<ClientPortalViewProps> = ({ onNavigate, 
           ))}
         </div>
       </div>
+
+      <WorkflowProgress progress={portalProgress} onNavigate={onNavigate} />
 
       {/* Subview 1: Home */}
       {activeSub === 'home' && (

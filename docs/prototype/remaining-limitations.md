@@ -1,8 +1,8 @@
 # AuditSphere Visual Prototype — Remaining Limitations
 
-**Current (measured at `b988be1edf010f3f47c3aea646b5ad6a99f3dffe`):** 256/256 original criteria, 64/64 stories and 39/39 modules pass with executed
-evidence ([ledger](criterion-evidence-ledger.md)); 0 open action rows; decision **APPROVED_FOR_DEMO** under PROTOTYPE-AGENT-ACCEPTANCE-001
-(AI-agent acceptance of a browser-only demo). What remains are **intentional boundaries**, not open work:
+**Current Codex candidate (2026-09-28):** base `0c030e4ac653f661bfafbfc84104565d4c0c9fa4`; source identity `base=0c030e4ac653f661bfafbfc84104565d4c0c9fa4; working-tree-overlay-sha256=36990019db1ea125b0c790fe661d25caf7b91df8a5a35775b3b672786f9acf83`. The overlay digest hashes sorted changed/untracked paths and file contents, excluding `verification.md`, this summary, and the generated criterion ledger to avoid self-reference. The `dist/` manifest SHA-256 is `d1ca4f8baa0687fe25a23ba5cd5e379b7833942e168654d5cf4f2d98760158ae`. The full unit suite passed 336/336 and the serialized Chrome suite passed 152/152 with no skips; the generated ledger records all 256 mapped criteria and 64 story test groups passing. Build, lint, progress validation, criterion-map check, and tool self-tests passed. See the current run in [verification.md](verification.md) and generated [criterion-evidence-ledger.md](criterion-evidence-ledger.md). Recommendation: **READY_FOR_DEMO_REVIEW** for this exact local candidate. No independent reviewer or human acceptance is recorded. The older Claude-specific approval below applies only to its historical source and does not transfer to this candidate.
+
+The implementation is complete for the attached progress/lifecycle scope. Existing prototype and demo boundaries remain:
 
 - Microsoft 365 is simulated (`liveConnected` stays false): no OAuth, credentials, tenant provisioning, mail sending or Purview.
 - Browser storage is not a security boundary; the superuser is a presenter tool; approvals are recorded decisions, not signatures.
@@ -10,9 +10,10 @@ evidence ([ledger](criterion-evidence-ledger.md)); 0 open action rows; decision 
 - Group reporting supports one parent + one 100%-owned subsidiary with closing-rate translation and manual eliminations; other methods are refused.
 - No payments, tax/payroll engines, eSignature, recurrence/automation, AI features or non-Microsoft integrations.
 - Not production, not professional methodology or opinion, not legal retention; no deployment was part of this acceptance.
-- Review basis: separate fresh-context Claude review subagent (two rounds) and disclosed same-session AI self-review — not independent human assurance.
+- `npm ci` reported one high-severity direct dependency advisory for `xlsx` 0.18.5 ([prototype pollution](https://github.com/advisories/GHSA-4r6h-8v6p-xvw6) and [ReDoS](https://github.com/advisories/GHSA-5pgg-2g8v-p4x9); the configured registry reports no available fix). The dependency was outside this UI/lifecycle scope and was not changed; review this risk before handling untrusted workbooks.
+- The recommendation is a candidate handoff for demo review, not human assurance or product acceptance.
 
-## Baseline (2026-09-27, before closure — historical)
+## Baseline (2026-09-27, historical)
 
 Updated 2026-09-27. Selected R01–R14 defects received code and regression
 coverage, but that does not constitute full acceptance. The canonical tracker
@@ -595,14 +596,18 @@ Remaining limitations of the UX layer (intentional or not yet done — not claim
 - **Form validation** remains store-authored: guard/validation errors are shown as notices beside the failed action, and the finding form adds submit-attempt inline field errors (`.field-error`, `role=alert`, `aria-invalid`) for its required title. Field-by-field inline validation is not yet wired into every remaining dialog form.
 - **Accessibility** is practical, not certified: status text + glyph (never colour alone), `aria-pressed` tabs,
   `aria-current` lifecycle steps, keyboard-operable selectable rows, scenario presets and workflow steps
-  (UIX-06 exercises 390/1024/1440 responsiveness plus Enter-to-navigate on stepper steps), and the existing
+  (UIX-06 exercises 390/1024/1440 responsiveness plus Enter and Space on exact stepper destinations), and the existing
   dialog focus-trap contract. No automated WCAG scanner was run and screen-reader testing was not performed.
-- **Journeys A–F** (client-to-engagement, PBC, accounting, audit, billing, consolidation) are demonstrated by
-  executed test segments; no single automated test walks an entire journey end to end.
+- **Journeys A and B** have a continuous happy-path browser test (AT-52 and AT-23/AT-24); denial and rework
+  branches are separately covered. **Journeys C–F** are demonstrated by executed segments, not one continuous
+  test each. See the journey matrix in `enterprise-ux-audit.md`.
+- **Next actor guidance** identifies the current role or a recorded task owner. It does not authorize a store
+  transition; each write still goes through its existing role, scope, lifecycle and independence guards. The
+  tracker does not claim a workflow engine or persist assignments.
 - Headline copy on the dashboard ("A clear view of every engagement.") was kept because the existing suite
   asserts it.
 
-## Verification snapshot
+## Prior verification snapshot (2026-09-27 — historical)
 
 Latest local verification: 242/242 unit checks and full E2E 111/111 (5 static + 106 Chrome) passed. The earlier intermittent VP-003-E01 global-search focus assertion is fixed by focusing the input synchronously after modal mount; the focused case passed 3/3 and is also green in the full suite. VP-003 proposal-catalogue draft guards, F05 template lifecycle, and AT-35 route restoration are also green. VP-039 AT-36 known-opening and AT-39 missing-opening/display journeys, and PBC scenarios, are included in the full pass. On 2026-09-26 the then-current app bundle was deployed as Pages release `aa39d257` and verified at `https://prototype.steaudit.com`; this verification is against the current local worktree and is not evidence that these later changes are deployed. The built-in browser exercised PBC filters and submitted the synthetic fixture `synthetic_trial_balance.csv` to the seeded PBC-03 request; the request displayed Received/v1 and the timeline attributed the upload to Amal Nasser. This was a browser-local IndexedDB smoke, not external storage; demo state was reset afterward. MOD-17's Shell-search workspace now maps to `clients`; client-visible PBC conversation entries and replies display in a shared request timeline while staff-only entries remain hidden in the client projection. The review-guide findings F01–F05 (search authorization
 before projection, draft-safe destructive reset, truthful context header, unique

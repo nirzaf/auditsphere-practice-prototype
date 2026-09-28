@@ -1,12 +1,12 @@
 # AuditSphere Visual Prototype — Enterprise UX Audit (39 modules)
 
-`docs/prototype/enterprise-ux-audit.md` · recorded 2026-09-27 · companion documents:
+`docs/prototype/enterprise-ux-audit.md` · recorded 2026-09-28 · companion documents:
 [design-system.md](design-system.md) (vocabulary), [lifecycle-matrix.md](lifecycle-matrix.md) (generated
 lifecycles plus the 39-row `Module | Steps | Current State | Completed | Pending | Blocked | Review/Rework | Role/Scope | Dependencies | Next Action` matrix), [remaining-limitations.md](remaining-limitations.md) (canonical limits — not duplicated here).
 
-Scope and honesty: this is an enhancement of the accepted browser-only prototype, not a rewrite. No store
-command, guard, calculation, migration or scenario was removed or weakened; two display-scope defects were
-fixed (§3). Status words below follow the repository's evidence discipline: **Verified** = covered by an
+Scope and honesty: this is an enhancement of the browser-only prototype, not a rewrite. No store
+command, guard, calculation, migration or scenario was removed or weakened; the scoped defects described in
+§3 were fixed. Status words below follow the repository's evidence discipline: **Verified** = covered by an
 executed automated test in this change; **Regression** = behaviour unchanged and still covered by the existing
 suite; **Partial** = improved but not every item in the spec's module acceptance standard is demonstrated;
 **Outside scope** = excluded by [`scope.md`](scope.md). Executed results are recorded in
@@ -16,7 +16,7 @@ suite; **Partial** = improved but not every item in the spec's module acceptance
 
 | Area | Before | After | Evidence |
 |---|---|---|---|
-| Progress & Six Questions | No screen-level progress or remaining work visible | Visible `WorkflowProgress` stepper, real-state percent complete bar, counts pill (Done · Pending · Blocked · Rework), and drawer answering: Where am I? What is complete? What is pending? What is blocked? What can I do next? Who acts next? | `workflowProgress.test.ts` unit suite; E2E `UX-ENT-05` |
+| Progress & Six Questions | Fixed percentages, fabricated completion, mixed collection and milestone counts, and no operational guidance | One classified set of applicable milestones drives exact counts, percentage and summary; terminal/rework/stale states remain distinct; primary next action, blocker and next eligible role are visible; drawer answers all six questions; summary/reference screens do not claim workflow completion | `workflowProgress.test.ts` (T01–T09, T13, T17, T19); E2E `UX-ENT-05`, `UIX-06` |
 | Status presentation | `.badge` used at 136 call sites was never defined in CSS — statuses rendered as plain text; each module picked its own colours | Shared `statusSemantics.ts` (every status literal in `src/types` mapped, unit-tested) + `StatusBadge` (text + glyph + tone); legacy `.badge` defined with the same tones | `enterpriseUx.test.ts` “maps every declared status…” |
 | Breadcrumb / context | `Workspace / ROUTE-KEY` | `Section / Module [ROUTE CODE]`; context bar adds the last loaded scenario | E2E crumb assertions (unchanged) |
 | Undefined CSS | `.tab-btn` (12 modules, 36 tabs), `.modal-overlay/.modal-card` (4 dialogs), `.modal-foot` (all dialog footers incl. “Unsaved changes”), `metric-label/val/sub` (10 modules), `.grid4`, `.text-danger`, spacing utilities | All defined; tabs expose `aria-pressed`; dialogs render as proper overlays | Visual review 1440 px; CLOSE-J12 overflow test |
@@ -25,7 +25,23 @@ suite; **Partial** = improved but not every item in the spec's module acceptance
 | Destructive / terminal actions | Bare “Reason?” prompts; `window.alert` errors in Engagements | Every reason prompt states impact, what is kept, and reversibility (`terminalActions.ts`); Engagements shows errors inline (page or dialog) | Regression (prompt stubs unchanged) |
 | Lifecycle guidance | Separate Module Guide route only | Collapsed “How this module works” strip on every staff route from `moduleGuideContent.ts` + lifecycle paths | `enterpriseUx.test.ts` guide coverage; UX-ENT-04 |
 | Dashboard work queues | Portfolio metrics only | Six role queues (My work, Waiting for my review, Returned to me, Waiting on client, Blocked or stale, Ready for release) — scoped projections, counts equal lists | `enterpriseUx.test.ts` queues; UX-ENT-01 |
-| Responsive | Detail panes squeezed into the narrow column (Jobs, Workpapers); bare selects | `master-detail` layout, compact filter grid, unclassed-control styling; block-level badges wrap | CLOSE-J12 (1440/1024/390 px, every staff route) |
+| Responsive | Detail panes squeezed into the narrow column (Jobs, Workpapers); bare selects | `master-detail` layout, compact filter grid, unclassed-control styling; block-level badges wrap | `UIX-06` checks the tracker at 390/1024/1440; `CLOSE-J12` checks every staff route for page-level overflow at those widths |
+
+## 1.1 Progress lifecycle hardening (FIX-01–07, T01–T20)
+
+| Repair | Outcome | Evidence |
+|---|---|---|
+| FIX-01 — Honest arithmetic | Removed fixed percentage and default-completion paths. A single set of unique milestones determines applicable denominator, state counts, summaries and percentage; all-N/A and no-work cases have no numeric bar, and unresolved steps cannot round to 100%. | Unit T01/T02/T04/T13; E2E `UX-ENT-05` |
+| FIX-02 — Context and scope | Progress receives selected engagement, client, record and portal-resolved context. It fails closed on missing or unauthorized selections, uses the same scoped invoice and portal selectors as content, and removes stale portal projection on persona changes. | Unit T02/T07–T09/T17; E2E `AT-18`, `VP-025-AC01`, `UX-ENT-02/03`, `T10/T11` |
+| FIX-03 — Readiness and applicability | Release guidance uses the read-only readiness evaluator for current-generation approvals, natural-person independence, package acknowledgement, and EQR applicability; it does not invoke write commands. | Unit T03/T05; release and approval journeys in the full E2E run |
+| FIX-04 — Exact package and terminal outcomes | Release/archive completion follows the exact package revision and artifact manifest. Cancellation stays a skipped terminal outcome with its history; an older release cannot complete a newer package. | Unit T04/T06; E2E `VP-012-E02`, package/release journeys |
+| FIX-05 — Save result and invoice scope | “Save and continue” checks the committed record and revision in the scoped invoice collection. Failed validation retains the draft and route; a valid correction creates one record and navigates once. Credit-note revision increments now match the persisted rework history. | E2E `T10/T11`, `AT-31`; unit guard tests |
+| FIX-06 — Route and module coverage | The runtime route catalog explicitly classifies workflow, summary and reference surfaces. Accounting selectors distinguish setup, TB, GL, mappings, journals, reconciliations, statements, packages and consolidation; module IDs and aliases are checked against the canonical catalog. | Unit T13; `npx tsx tools/lifecycle-matrix.ts --check`; full route E2E |
+| FIX-07 — Next action and navigation | The compact panel keeps next action, immediate blocker and next role visible. Steps use native buttons and navigate to their declared route/record; the app’s existing unsaved-form and route guards still own the transition. Assigned task owners are shown only when the record supplies one; otherwise a role is shown. | Unit route/owner projections; E2E `UIX-06`, `T10/T11`, dialog and route-guard regressions |
+
+The focused matrix is covered as follows: T01 arithmetic, T02 missing context, T03 applicability, T04 terminal outcome, T05 stale approvals, T06 package lineage, T07 context switch, T08 non-disclosure, T09 revocation, T10/T11 failed and successful invoice save, T12 rework/currentness (`AT-31`), T13 catalog coverage, T14 exact Enter/Space targets (`UIX-06`), T15 unsaved transition retention (`T10/T11` through the shared route guard), T16 role/owner guidance (route projections and selected-job owner), T17 queue/scope agreement, T18 responsive/progressbar semantics (`UIX-06` and `CLOSE-J12`), T19 read-only calculation, and T20 prior UX regression coverage (`UX-ENT-02–05`, `UIX-06`).
+
+T15 is verified through the shared route transition guard and the invoice continuation scenario; there is no separate browser case that clicks a workflow step while that same invoice draft is dirty. T16 reports a workflow role or a recorded task owner; it does not imply that the current persona can bypass the owning store command’s permission or independence checks.
 
 ## 2. Module audit
 
@@ -88,12 +104,13 @@ Legend for the “States verified” column: **R** role/SoD, **F** failure/denia
 
 | Journey | Path | Demonstrated by (executed) | Handoffs added | Status |
 |---|---|---|---|---|
-| A. Client → Engagement | Lead → Client → Proposal → Review → Client response → Engagement → Activation → Job | AT-07/AT-08, AT-58, AT-09, AT-10, AT-52 | Lead stage stepper; proposal Returned flag; engagement consequence prompts | Demonstrated in segments (existing tests); denial/rework: AT-58 return + revise |
-| B. PBC / Evidence | Request → Present → Upload → Review → Clarification → Replacement → Acceptance → Evidence | AT-23/AT-24, VP-061-E02, AT-46 | Overdue flag; none/filtered empty states | Demonstrated (AT-23/AT-24 end to end) |
+| A. Client → Engagement | Lead → Client → Proposal → Review → Client response → Engagement → Activation → Job → mapped statements → package | AT-52 is a continuous manually entered happy path; AT-07/AT-08, AT-58 and AT-09/AT-10 add separate conversion, denial/rework and response cases | Lead stage stepper; proposal Returned flag; engagement consequence prompts | Continuous happy path: AT-52; denial/rework: segmented AT-58 and related acceptance tests |
+| B. PBC / Evidence | Request → Present → Upload → Review → Clarification → Replacement → Acceptance → Evidence | AT-23/AT-24 walks draft, presentation, response, clarification, replacement and independent acceptance; VP-061-E02/AT-46 add separate linkage/view cases | Overdue flag; none/filtered empty states | Continuous request/rework/acceptance path: AT-23/AT-24; linkage and view coverage has separate segments |
 | C. Accounting | TB import → Validation → Mapping → Adjustments → Statements → Package → Review → Release | AT-35, AT-36, AT-37, AT-38, VP-039, AT-41/42/48, AT-52, VP-057 | Package → TB / mappings / statements / review / sign-offs / release links; stale banners | Demonstrated in segments; rework: AT-38, VP-038, stale package (AT-41) |
 | D. Audit | Acceptance → Planning → Risk → Program → Population → Sampling → Workpaper → Finding → Review → Completion | AT-44/VP-047, VP-048/049, VP-051, VP-052, VP-054, VP-055, AT-55, AT-47, VP-057 | Review point → exact workpaper; finding → workpaper/journal/evidence/procedure/sample; workpaper → reviews/evidence/findings/program | Demonstrated in segments; rework: VP-055 reopen, UX-ENT-04 |
 | E. Billing | Approved time → Draft invoice → Review → Return → Revision → Approval → Issue → Receipt → Allocation → Aging | AT-28, AT-30, AT-31, lifecycle closure (reasoned return), AT-32/AT-33 | Invoice detail → receivables / source time / proposal; SoD reasons | Demonstrated in segments; denial: AT-31 self-approval |
 | F. Consolidation | Perimeter → Components → FX → Intercompany → Eliminations → Run → Review → Output | AT-43 (4 tests), AT-44, AT-45, VP-045-AC03, VP-003-E02 | Elimination stepper + rework note | Demonstrated in segments; rework: AT-45 return + approve |
 
-No single automated test walks an entire journey A–F from first to last step; each is covered by the listed
-executed segments. This is recorded as a limitation, not claimed as full end-to-end automation.
+Only journeys A and B have a continuous happy-path test across their principal listed transitions. Journeys C–F
+are evidenced by the listed segments. Denial, stale and rework branches remain separate tests where shown; the
+suite does not claim six continuous end-to-end journeys.

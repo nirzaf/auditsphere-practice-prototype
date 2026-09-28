@@ -4,6 +4,7 @@ import { prototypeStore } from '../../store/prototypeStore';
 import { Icon } from '../common/Icons';
 import { Notice } from '../common/Feedback';
 import { UnsavedFormGuard } from '../../services/unsavedFormGuard';
+import { visibleEngagementIds } from '../../services/guards';
 
 interface EvidenceCatalogueViewProps {
   onNavigate: (route: RouteKey) => void;
@@ -12,7 +13,11 @@ interface EvidenceCatalogueViewProps {
 
 export const EvidenceCatalogueView: React.FC<EvidenceCatalogueViewProps> = ({ onNavigate, onRegisterUnsavedForm }) => {
   const state = prototypeStore.getSnapshot();
-  const evidenceList = state.evidenceCatalogue;
+  const allowedEngagementIds = visibleEngagementIds(state);
+  const selectedEngagement = state.engagements.find(engagement => engagement.id === state.selectedEngagement && (allowedEngagementIds === 'ALL' || allowedEngagementIds.includes(engagement.id)));
+  const scopedDocuments = selectedEngagement ? state.documents.filter(document => document.clientId === selectedEngagement.client && document.engagementId === selectedEngagement.id) : [];
+  const scopedDocumentIds = new Set(scopedDocuments.map(document => document.id));
+  const evidenceList = state.evidenceCatalogue.filter(item => scopedDocumentIds.has(item.documentId));
   const [notice, setNotice] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [linkSelections, setLinkSelections] = useState<Record<string, string>>({});
   const linkSelectionBaseline = useRef<Record<string, string>>({});
@@ -27,25 +32,22 @@ export const EvidenceCatalogueView: React.FC<EvidenceCatalogueViewProps> = ({ on
     return () => onRegisterUnsavedForm(null, 'evidence-procedure-links');
   }, [linkSelections, onRegisterUnsavedForm]);
   const latestDocument = (documentId: string) => {
-    let latest = state.documents.find(doc => doc.id === documentId);
+    let latest = scopedDocuments.find(doc => doc.id === documentId);
     while (latest) {
-      const replacement = state.documents.find(doc => doc.supersedesDocumentId === latest!.id);
+      const replacement = scopedDocuments.find(doc => doc.supersedesDocumentId === latest!.id);
       if (!replacement) return latest;
       latest = replacement;
     }
     return undefined;
   };
-  const pinnedDocument = (documentId: string) => state.documents.find(doc => doc.id === documentId);
+  const pinnedDocument = (documentId: string) => scopedDocuments.find(doc => doc.id === documentId);
   const linkableProcedures = (item: EvidenceItem): AuditProcedureItem[] => {
-    const document = state.documents.find(doc => doc.id === item.documentId);
+    const document = scopedDocuments.find(doc => doc.id === item.documentId);
     if (!document || document.version !== item.version || item.adequacyStatus !== 'Adequate') return [];
-    return state.auditPrograms.flatMap(program => program.procedures.filter(procedure => {
-      const engagementId = procedure.engagementId || program.engagementId || document.engagementId;
-      const engagement = state.engagements.find(candidate => candidate.id === engagementId);
-      return !!engagement && engagement.client === document.clientId &&
-        (!document.engagementId || document.engagementId === engagement.id) &&
-        !item.linkedProcedures.includes(procedure.id);
-    }));
+    if (!selectedEngagement || document.engagementId !== selectedEngagement.id || document.clientId !== selectedEngagement.client) return [];
+    return state.auditPrograms.filter(program => program.engagementId === selectedEngagement.id).flatMap(program => program.procedures.filter(procedure =>
+      (procedure.engagementId || program.engagementId) === selectedEngagement.id && !item.linkedProcedures.includes(procedure.id)
+    ));
   };
 
   const handleToggleAdequacy = (id: string, current: EvidenceItem['adequacyStatus']) => {

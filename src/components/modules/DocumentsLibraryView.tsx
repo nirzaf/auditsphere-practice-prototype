@@ -8,6 +8,7 @@ import { Notice } from '../common/Feedback';
 import { sha256OfFile } from '../../services/fileMetadata';
 import { UnsavedFormGuard } from '../../services/unsavedFormGuard';
 import { consequencePrompt } from '../../services/terminalActions';
+import { visibleEngagementIds } from '../../services/guards';
 
 interface DocumentsLibraryViewProps {
   onNavigate: (route: RouteKey, targetId?: string) => void;
@@ -18,7 +19,10 @@ interface DocumentsLibraryViewProps {
 
 export const DocumentsLibraryView: React.FC<DocumentsLibraryViewProps> = ({ onNavigate, onNavigateToPbc, searchTargetId, onRegisterUnsavedForm }) => {
   const state = prototypeStore.getSnapshot();
-  const [selectedFolder, setSelectedFolder] = useState<string>(() => state.documents.find(document => document.id === searchTargetId)?.folderPath || '/Engagements/2026/');
+  const allowedEngagementIds = visibleEngagementIds(state);
+  const selectedEngagement = state.engagements.find(engagement => engagement.id === state.selectedEngagement && (allowedEngagementIds === 'ALL' || allowedEngagementIds.includes(engagement.id)));
+  const visibleDocuments = selectedEngagement ? state.documents.filter(document => document.clientId === selectedEngagement.client && (!document.engagementId || document.engagementId === selectedEngagement.id)) : [];
+  const [selectedFolder, setSelectedFolder] = useState<string>(() => visibleDocuments.find(document => document.id === searchTargetId)?.folderPath || '/');
   const [previewDoc, setPreviewDoc] = useState<DocumentItem | null>(null);
   const [showUploadModal, setShowUploadModal] = useState(false);
   const [showOneDriveModal, setShowOneDriveModal] = useState(false);
@@ -33,7 +37,7 @@ export const DocumentsLibraryView: React.FC<DocumentsLibraryViewProps> = ({ onNa
   const [folderPath, setFolderPath] = useState('/Engagements/2026/Audit/');
   const uploadBaseline = useRef({ uploadFile, classification, folderPath });
 
-  const documents = state.documents;
+  const documents = visibleDocuments;
   const filteredDocs = selectedFolder === '/'
     ? documents
     : documents.filter(d => d.folderPath.startsWith(selectedFolder));
@@ -219,7 +223,7 @@ export const DocumentsLibraryView: React.FC<DocumentsLibraryViewProps> = ({ onNa
               className="btn sm"
               style={{ width: '100%' }}
               onClick={() => {
-                const engagement = state.engagements.find(item => item.id === state.selectedEngagement);
+                const engagement = selectedEngagement;
                 if (!engagement) { setNotice({ tone: 'warning', text: 'Select an engagement before preparing its client workspace.' }); return; }
                 try {
                   prototypeStore.prepareClientWorkspace(engagement.client, engagement.year, engagement.id);

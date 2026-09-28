@@ -12,10 +12,22 @@ import type {
   EvidenceItem,
   ArchiveRecord
 } from '../types';
-import { visibleEngagementIds, visibleClientIds, scopedInvoices } from './guards';
-import { isReleaseBlockingFinding } from './findings';
+import { visibleEngagementIds, visibleClientIds, scopedInvoices, hasConsolidationGroupScope } from './guards';
+import { consolidationOutputFingerprint } from './consolidationOutput';
+import { isSampleFrameReconciled } from './samplingReadiness';
+import { evaluateReleaseReadiness } from './releaseReadiness';
+import { archiveForRelease, releaseForPackage } from './packageLineage';
+import { ROUTE_CATALOG } from './routeCatalog';
 
-export type ProgressStepState = 'completed' | 'current' | 'pending' | 'blocked' | 'returned' | 'stale' | 'na';
+export type ProgressStepState = 'completed' | 'current' | 'pending' | 'blocked' | 'returned' | 'stale' | 'skipped' | 'na';
+export type ProgressApplicability = 'workflow' | 'summary' | 'reference' | 'unavailable';
+
+export interface WorkflowProgressContext {
+  engagementId?: string;
+  clientId?: string;
+  recordId?: string;
+  portalResolved?: boolean;
+}
 
 export interface WorkflowStep {
   id: string;
@@ -24,12 +36,16 @@ export interface WorkflowStep {
   detail?: string;
   targetRoute?: RouteKey;
   targetSection?: string;
+  targetRecordId?: string;
 }
 
 export interface WorkflowCounts {
   completed: number;
+  current?: number;
   pending: number;
   blocked: number;
+  skipped?: number;
+  notApplicable?: number;
   total: number;
   returned?: number;
   stale?: number;
@@ -41,7 +57,14 @@ export interface ModuleWorkflowProgress {
   route: RouteKey;
   currentSection: string; // "Where am I?"
   steps: WorkflowStep[];
-  percentComplete: number; // 0 to 100
+  percentComplete: number | null; // null means no applicable workflow measure
+  applicability?: ProgressApplicability;
+  metricLabel?: string;
+  scopeLabel?: string;
+  selectedRecordId?: string;
+  recordSummary?: string;
+  actorEligible?: boolean;
+  actorEligibilityReason?: string;
   counts: WorkflowCounts;
   completedSummary: string; // "What is complete?"
   pendingSummary: string; // "What is pending?"
@@ -53,31 +76,184 @@ export interface ModuleWorkflowProgress {
   isStale?: boolean;
 }
 
-export function isEngagementReleaseReady(e: EngagementRecord, state: PrototypeState): boolean {
-  if (!e) return false;
-  const allWpCleared = (e.workpapers || []).every(w => !w.applicable || w.status === 'Cleared' || w.status === 'Not applicable');
-  const noOpenReviews = (e.reviews || []).every(r => r.status === 'Cleared');
-  const openBlockingFindings = (state.findings || []).filter(f => f.engagementId === e.id && isReleaseBlockingFinding(f));
-  const noMaterialFindings = openBlockingFindings.length === 0;
-  const approvalsValid = Boolean(
-    e.approvals?.manager?.generation === e.generation &&
-    e.approvals?.client?.generation === e.generation &&
-    e.approvals?.partner?.generation === e.generation &&
-    (!e.eqrRequired || e.approvals?.eqr?.generation === e.generation)
-  );
-  return allWpCleared && noOpenReviews && noMaterialFindings && approvalsValid;
+export interface WorkflowStepAggregate {
+  valid: boolean;
+  counts: WorkflowCounts;
+  percentComplete: number | null;
 }
+
+/** Deterministic equal-weight aggregation for a single set of lifecycle milestones. */
+export function aggregateWorkflowSteps(steps: WorkflowStep[]): WorkflowStepAggregate {
+  const seenIds = new Set<string>();
+  const allowedStates: ProgressStepState[] = ['completed', 'current', 'pending', 'blocked', 'returned', 'stale', 'skipped', 'na'];
+  const valid = !steps.some(step => !step.id || seenIds.has(step.id) || !seenIds.add(step.id) || !allowedStates.includes(step.state));
+  if (!valid) {
+    return {
+      valid: false,
+      counts: { completed: 0, current: 0, pending: 0, blocked: 0, returned: 0, stale: 0, skipped: 0, notApplicable: 0, total: 0 },
+      percentComplete: null
+    };
+  }
+  const count = (state: ProgressStepState) => steps.filter(step => step.state === state).length;
+  const total = steps.filter(step => step.state !== 'na').length;
+  const completed = count('completed');
+  const counts: WorkflowCounts = {
+    completed,
+    current: count('current'),
+    pending: count('pending'),
+    blocked: count('blocked'),
+    returned: count('returned'),
+    stale: count('stale'),
+    skipped: count('skipped'),
+    notApplicable: count('na'),
+    total
+  };
+  const percentComplete = total === 0 ? null : completed === total ? 100 : Math.min(99.9, Math.floor((completed / total) * 1000) / 10);
+  return { valid: true, counts, percentComplete };
+}
+
+export function isEngagementReleaseReady(e: EngagementRecord, state: PrototypeState): boolean {
+  return evaluateReleaseReadiness(e, state).ready;
+}
+
+const ENGAGEMENT_CONTEXT_ROUTES = new Set<RouteKey>([
+  'onboarding', 'jobs', 'documents', 'communications', 'my-time', 'budgets', 'billing', 'receivables',
+  'accounting-setup', 'trial-balance', 'gl-transactions', 'account-mappings', 'adjustments', 'reconciliations',
+  'financial-statements', 'financial-packages', 'audit-planning', 'audit-risks', 'audit-fieldwork', 'sampling',
+  'audit', 'evidence', 'findings', 'reviews', 'approvals', 'quality', 'delivery', 'records', 'm365-setup'
+]);
 
 export function computeModuleWorkflowProgress(
   route: RouteKey,
   state: PrototypeState,
-  contextId?: string
+  context?: string | WorkflowProgressContext
+): ModuleWorkflowProgress {
+  const selection = typeof context === 'string' ? { engagementId: context } : context || {};
+  const routeInfo = ROUTE_CATALOG[route];
+  const emptyCounts: WorkflowCounts = { completed: 0, current: 0, pending: 0, blocked: 0, returned: 0, stale: 0, skipped: 0, notApplicable: 0, total: 0 };
+  if (routeInfo.progressMode !== 'workflow') {
+    const isReference = routeInfo.progressMode === 'reference';
+    return {
+      moduleId: routeInfo.moduleId,
+      moduleName: routeInfo.label,
+      route,
+      currentSection: isReference ? 'Reference material' : 'Read-only portfolio summary',
+      steps: [],
+      percentComplete: null,
+      applicability: isReference ? 'reference' : 'summary',
+      metricLabel: 'No workflow completion applies',
+      scopeLabel: 'Current permitted view',
+      counts: emptyCounts,
+      completedSummary: isReference ? 'This screen provides reference material.' : 'This screen summarizes permitted records across workflows.',
+      pendingSummary: isReference ? 'No workflow actions are tracked from reference material.' : 'Open a stateful module to work on its current records.',
+      blockers: [],
+      nextAction: isReference ? 'Use the reference content or return to a workspace.' : 'Open a relevant work queue or select a client and engagement.',
+      whoActsNext: 'No workflow actor applies'
+    };
+  }
+
+  const allowedEngagementIds = visibleEngagementIds(state);
+  const requestedEngagementId = selection.engagementId ?? state.selectedEngagement;
+  const activeEngagement = state.engagements.find(engagement => engagement.id === requestedEngagementId && (allowedEngagementIds === 'ALL' || allowedEngagementIds.includes(engagement.id)));
+  const allowedClientIds = visibleClientIds(state);
+  const selectedClient = route === 'client-detail' || route === 'portal'
+    ? state.clients.find(client => client.id === selection.clientId && (allowedClientIds === 'ALL' || allowedClientIds.includes(client.id)))
+    : undefined;
+  const explicitEngagementUnavailable = Boolean(selection.engagementId && !activeEngagement);
+  const portalContextUnavailable = route === 'portal' && selection.portalResolved && (!selectedClient || !activeEngagement || activeEngagement.client !== selectedClient.id);
+  if (explicitEngagementUnavailable || ENGAGEMENT_CONTEXT_ROUTES.has(route) && !activeEngagement || route === 'client-detail' && !selectedClient || portalContextUnavailable) {
+    const scope = route === 'client-detail' ? 'the selected client' : 'the selected engagement';
+    return {
+      moduleId: routeInfo.moduleId, moduleName: routeInfo.label, route, currentSection: routeInfo.label,
+      steps: [], percentComplete: null, applicability: 'unavailable', metricLabel: 'Unavailable',
+      scopeLabel: 'Selection is missing or outside your permitted scope', selectedRecordId: selection.recordId,
+      counts: emptyCounts,
+      completedSummary: 'No records or scope details were loaded.',
+      pendingSummary: `Select an authorized record for ${scope} to calculate progress.`, blockers: [],
+      nextAction: route === 'client-detail' ? 'Return to Client Portfolio and select an accessible client.' : 'Select an authorized engagement in the workspace.',
+      whoActsNext: 'A permitted user must select the context'
+    };
+  }
+
+  const raw = computeLegacyModuleWorkflowProgress(route, state, { ...selection, engagementId: activeEngagement?.id });
+  return reconcileProgress(raw, routeInfo, selection, activeEngagement?.id, selectedClient?.id);
+}
+
+function reconcileProgress(
+  raw: ModuleWorkflowProgress,
+  routeInfo: (typeof ROUTE_CATALOG)[RouteKey],
+  selection: WorkflowProgressContext,
+  engagementId?: string,
+  clientId?: string
+): ModuleWorkflowProgress {
+  const aggregate = aggregateWorkflowSteps(raw.steps);
+  if (!aggregate.valid) {
+    return {
+      moduleId: routeInfo.moduleId, moduleName: routeInfo.label, route: raw.route, currentSection: raw.currentSection,
+      steps: [], percentComplete: null, applicability: 'unavailable', metricLabel: 'Unavailable', scopeLabel: 'Progress data is inconsistent',
+      selectedRecordId: selection.recordId,
+      counts: { completed: 0, current: 0, pending: 0, blocked: 0, returned: 0, stale: 0, skipped: 0, notApplicable: 0, total: 0 },
+      completedSummary: 'No completion value was calculated because progress data failed validation.',
+      pendingSummary: 'Refresh the workspace and inspect the current record state.', blockers: [],
+      nextAction: 'Refresh the current workspace before taking a workflow action.', whoActsNext: 'Workspace user'
+    };
+  }
+
+  if (raw.applicability === 'unavailable') {
+    return {
+      ...raw,
+      moduleId: routeInfo.moduleId,
+      moduleName: routeInfo.label,
+      percentComplete: null,
+      applicability: 'unavailable',
+      metricLabel: 'Unavailable',
+      counts: { completed: 0, current: 0, pending: 0, blocked: 0, returned: 0, stale: 0, skipped: 0, notApplicable: 0, total: 0 },
+      selectedRecordId: selection.recordId
+    };
+  }
+
+  const { completed, current = 0, pending, blocked, returned = 0, stale = 0, skipped = 0, notApplicable = 0, total } = aggregate.counts;
+  const { percentComplete } = aggregate;
+  const blockers = blocked || returned || stale
+    ? (raw.blockers.length ? raw.blockers : raw.steps.filter(step => ['blocked', 'returned', 'stale'].includes(step.state)).map(step => `${step.label}: ${step.detail || step.state}.`))
+    : [];
+  const unresolved = [
+    current ? `${current} current` : '', pending ? `${pending} pending` : '', blocked ? `${blocked} blocked` : '',
+    returned ? `${returned} returned for rework` : '', stale ? `${stale} stale` : '', skipped ? `${skipped} skipped` : ''
+  ].filter(Boolean);
+  const recordSummary = raw.recordSummary || [raw.completedSummary, raw.pendingSummary, raw.blockedSummary]
+    .filter((summary): summary is string => Boolean(summary?.trim())).join(' ');
+
+  return {
+    ...raw,
+    moduleId: routeInfo.moduleId,
+    moduleName: routeInfo.label,
+    percentComplete,
+    applicability: 'workflow',
+    metricLabel: total ? 'lifecycle steps' : 'No applicable steps',
+    scopeLabel: selection.portalResolved ? `Client ${clientId || 'unavailable'} · Engagement ${engagementId || 'unavailable'}`
+      : clientId ? `Client ${clientId}` : engagementId ? `Engagement ${engagementId}` : 'Permitted records in the current view',
+    selectedRecordId: selection.recordId,
+    counts: { completed, current, pending, blocked, returned, stale, skipped, notApplicable, total },
+    completedSummary: total ? `${completed} of ${total} applicable lifecycle steps complete.` : 'No applicable lifecycle steps are currently recorded.',
+    pendingSummary: unresolved.length ? `${unresolved.join(' · ')}.` : total ? 'No current, pending, blocked or rework steps.' : 'There is no applicable workflow for the current record.',
+    blockedSummary: blocked ? `${blocked} lifecycle step(s) blocked.` : undefined,
+    blockers,
+    recordSummary: recordSummary || undefined,
+    isStale: stale > 0
+  };
+}
+
+function computeLegacyModuleWorkflowProgress(
+  route: RouteKey,
+  state: PrototypeState,
+  context: WorkflowProgressContext
 ): ModuleWorkflowProgress {
   const allowedEngIds = visibleEngagementIds(state);
   const scopedEngagements: EngagementRecord[] = state.engagements.filter(
     e => allowedEngIds === 'ALL' || allowedEngIds.includes(e.id)
   );
-  const activeEng = scopedEngagements.find(e => e.id === (contextId || state.selectedEngagement)) || scopedEngagements[0];
+  const activeEng = scopedEngagements.find(e => e.id === (context.engagementId || state.selectedEngagement));
   const allowedClientIds = visibleClientIds(state);
   const scopedClients = state.clients.filter(
     c => allowedClientIds === 'ALL' || allowedClientIds.includes(c.id)
@@ -124,16 +300,22 @@ export function computeModuleWorkflowProgress(
 
     case 'clients':
     case 'client-detail': {
-      const activeClients = scopedClients.filter(c => c.status === 'Active');
-      const prospectClients = scopedClients.filter(c => c.status === 'Prospect');
-      const suspendedClients = scopedClients.filter(c => c.status === 'Suspended');
+      const viewClients = route === 'client-detail' ? scopedClients.filter(client => client.id === context.clientId) : scopedClients;
+      const viewClientIds = new Set(viewClients.map(client => client.id));
+      const viewEngagements = scopedEngagements.filter(engagement => viewClientIds.has(engagement.client));
+      const activeClients = viewClients.filter(c => c.status === 'Active');
+      const prospectClients = viewClients.filter(c => c.status === 'Prospect');
+      const suspendedClients = viewClients.filter(c => c.status === 'Suspended');
+      const acceptanceCases = (state.acceptanceCases || []).filter(item => viewClientIds.has(item.clientId));
+      const acceptedCases = acceptanceCases.filter(item => item.decisionStatus === 'Accepted' && item.independenceConfirmed && item.amlKycCompleted && item.conflictsCleared && item.prohibitionsChecked && item.competenceConfirmed);
+      const contacts = state.contacts.filter(contact => viewClientIds.has(contact.clientId) && contact.active);
 
       const steps: WorkflowStep[] = [
-        { id: 'intake', label: 'Intake / Prospect', state: prospectClients.length > 0 ? 'current' : 'completed', detail: `${prospectClients.length} prospects` },
-        { id: 'onboarding-kyc', label: 'Acceptance & KYC', state: 'completed', detail: 'Screening and background evidence', targetRoute: 'onboarding' },
-        { id: 'profile-contacts', label: 'Profile & Contacts', state: activeClients.length > 0 ? 'completed' : 'pending', detail: `${scopedClients.length} clients registered` },
-        { id: 'engagements', label: 'Active Engagements', state: scopedEngagements.length > 0 ? 'current' : 'pending', detail: `${scopedEngagements.length} engagements linked`, targetRoute: 'engagements' },
-        { id: 'ongoing-service', label: 'Service & Portfolio', state: activeClients.length > 0 ? 'completed' : 'pending', detail: `${activeClients.length} active clients` }
+        { id: 'intake', label: 'Intake / Prospect', state: viewClients.length ? 'completed' : 'pending', detail: `${prospectClients.length} prospect(s)` },
+        { id: 'onboarding-kyc', label: 'Acceptance & KYC', state: acceptedCases.length ? 'completed' : acceptanceCases.some(item => item.decisionStatus === 'Declined') ? 'blocked' : 'pending', detail: `${acceptedCases.length} accepted case(s) with completed screening checks`, targetRoute: 'onboarding' },
+        { id: 'profile-contacts', label: 'Profile & Active Contacts', state: contacts.length && activeClients.length ? 'completed' : viewClients.length ? 'current' : 'pending', detail: `${contacts.length} active contact(s)` },
+        { id: 'engagements', label: 'Linked Engagements', state: viewEngagements.length ? 'completed' : viewClients.length ? 'current' : 'pending', detail: `${viewEngagements.length} permitted engagement(s) linked`, targetRoute: 'engagements' },
+        { id: 'ongoing-service', label: 'Active Client Relationships', state: activeClients.length ? 'completed' : prospectClients.length ? 'current' : suspendedClients.length ? 'blocked' : 'pending', detail: `${activeClients.length} active client(s)` }
       ];
 
       return {
@@ -142,15 +324,15 @@ export function computeModuleWorkflowProgress(
         route: 'clients',
         currentSection: route === 'client-detail' ? 'Client 360 & Relationship Profile' : 'Client Portfolio Directory',
         steps,
-        percentComplete: activeClients.length > 0 ? 80 : 40,
+        percentComplete: 0,
         counts: {
           completed: activeClients.length,
           pending: prospectClients.length,
           blocked: suspendedClients.length,
-          total: scopedClients.length
+          total: viewClients.length
         },
-        completedSummary: `${activeClients.length} active client portfolio record(s) verified.`,
-        pendingSummary: `${prospectClients.length} prospect client(s) awaiting engagement terms and full onboarding.`,
+        completedSummary: `${acceptedCases.length} visible client(s) have accepted cases with required screening evidence; ${activeClients.length} client(s) are active.`,
+        pendingSummary: `${prospectClients.length} prospect client(s); ${viewEngagements.length} engagement(s) linked.`,
         blockedSummary: suspendedClients.length > 0 ? `${suspendedClients.length} suspended client(s) blocked from new operations.` : undefined,
         blockers: suspendedClients.map(c => `Client ${c.id} (${c.name}) is suspended.`),
         nextAction: prospectClients.length > 0 ? 'Complete professional acceptance and create engagement proposal' : 'Manage client profile, contacts, and relationship groups',
@@ -165,7 +347,7 @@ export function computeModuleWorkflowProgress(
       const open = leads.filter(l => l.stage !== 'Won' && l.stage !== 'Lost' && l.stage !== 'Unqualified');
 
       const steps: WorkflowStep[] = [
-        { id: 'inquiry', label: 'Inquiry', state: leads.some(l => l.stage === 'Inquiry') ? 'current' : 'completed' },
+        { id: 'inquiry', label: 'Inquiry', state: leads.length ? 'completed' : 'pending' },
         { id: 'discovery', label: 'Discovery', state: leads.some(l => l.stage === 'Discovery') ? 'current' : open.length ? 'completed' : 'pending' },
         { id: 'evaluation', label: 'Evaluation', state: leads.some(l => l.stage === 'Evaluation') ? 'current' : 'pending' },
         { id: 'proposal', label: 'Proposal Terms', state: leads.some(l => l.stage === 'Proposal') ? 'current' : won.length ? 'completed' : 'pending', targetRoute: 'proposals' },
@@ -207,8 +389,8 @@ export function computeModuleWorkflowProgress(
       const declined = proposals.filter(p => p.state === 'Declined' || p.state === 'Withdrawn');
 
       const steps: WorkflowStep[] = [
-        { id: 'prop-draft', label: 'Draft Scope', state: draft.length ? 'current' : 'completed' },
-        { id: 'prop-review', label: 'Independent Review', state: inReview.length ? 'current' : returned.length ? 'returned' : 'pending' },
+        { id: 'prop-draft', label: 'Draft Scope', state: draft.length ? 'current' : proposals.length ? 'completed' : 'pending' },
+        { id: 'prop-review', label: 'Independent Review', state: inReview.length ? 'current' : returned.length ? 'returned' : approvedToSend.length || presented.length || accepted.length ? 'completed' : 'pending' },
         { id: 'prop-approved', label: 'Approved to Send', state: approvedToSend.length ? 'completed' : 'pending' },
         { id: 'prop-presented', label: 'Presented', state: presented.length ? 'current' : accepted.length ? 'completed' : 'pending' },
         { id: 'prop-accepted', label: 'Accepted Terms', state: accepted.length ? 'completed' : 'pending' }
@@ -242,13 +424,16 @@ export function computeModuleWorkflowProgress(
       const active = scopedEngagements.filter(e => (e.lifecycleStatus || 'Active') === 'Active');
       const suspended = scopedEngagements.filter(e => e.lifecycleStatus === 'Suspended');
       const closed = scopedEngagements.filter(e => e.lifecycleStatus === 'Closed' || e.lifecycleStatus === 'Cancelled');
+      const selectedProposal = activeEng?.proposalId ? state.proposals.find(proposal => proposal.id === activeEng.proposalId && (!proposal.clientId || scopedClients.some(client => client.id === proposal.clientId))) : undefined;
+      const acceptance = activeEng ? (state.acceptanceCases || []).find(item => item.clientId === activeEng.client && item.year === activeEng.year && item.decisionStatus === 'Accepted' && item.independenceConfirmed && item.amlKycCompleted && item.conflictsCleared && item.prohibitionsChecked && item.competenceConfirmed) : undefined;
+      const selectedJobs = activeEng ? state.jobs.filter(job => job.engagementId === activeEng.id) : [];
 
       const steps: WorkflowStep[] = [
-        { id: 'terms', label: 'Agreed Terms', state: 'completed', targetRoute: 'proposals' },
-        { id: 'kyc', label: 'Acceptance & KYC', state: 'completed', targetRoute: 'onboarding' },
-        { id: 'active', label: 'Active Engagement', state: active.length ? 'completed' : 'current' },
-        { id: 'delivery', label: 'Service Delivery', state: state.jobs.length ? 'current' : 'pending', targetRoute: 'jobs' },
-        { id: 'completion', label: 'Completion & Release', state: activeEng?.releases?.length ? 'completed' : 'pending', targetRoute: 'delivery' }
+        { id: 'terms', label: 'Agreed Proposal Terms', state: selectedProposal?.state === 'Accepted' && activeEng?.terms ? 'completed' : activeEng ? 'pending' : 'current', targetRoute: 'proposals' },
+        { id: 'kyc', label: 'Professional Acceptance & KYC', state: acceptance && activeEng?.acceptance ? 'completed' : activeEng ? 'pending' : 'current', targetRoute: 'onboarding' },
+        { id: 'active', label: 'Engagement Status', state: activeEng?.lifecycleStatus === 'Suspended' ? 'blocked' : activeEng?.lifecycleStatus === 'Cancelled' ? 'skipped' : activeEng?.lifecycleStatus === 'Closed' ? 'completed' : activeEng?.acceptance && activeEng?.terms ? 'completed' : activeEng ? 'current' : 'pending' },
+        { id: 'delivery', label: 'Job Delivery', state: selectedJobs.some(job => job.status === 'Blocked') ? 'blocked' : selectedJobs.some(job => job.status === 'In progress' || job.status === 'Not started') ? 'current' : selectedJobs.length && selectedJobs.every(job => job.status === 'Completed') ? 'completed' : selectedJobs.length && selectedJobs.every(job => job.status === 'Cancelled') ? 'skipped' : 'pending', targetRoute: 'jobs' },
+        { id: 'completion', label: 'Release Readiness', state: activeEng ? isEngagementReleaseReady(activeEng, state) ? 'completed' : activeEng.lifecycleStatus === 'Cancelled' ? 'skipped' : 'pending' : 'pending', targetRoute: 'delivery' }
       ];
 
       return {
@@ -257,7 +442,7 @@ export function computeModuleWorkflowProgress(
         route: 'engagements',
         currentSection: 'Professional Engagements Workspace',
         steps,
-        percentComplete: active.length ? 60 : 20,
+        percentComplete: 0,
         counts: {
           completed: active.length,
           pending: scopedEngagements.length - active.length - suspended.length - closed.length,
@@ -274,14 +459,14 @@ export function computeModuleWorkflowProgress(
     }
 
     case 'onboarding': {
-      const cases = state.acceptanceCases || [];
+      const cases = (state.acceptanceCases || []).filter(item => allowedClientIds === 'ALL' || allowedClientIds.includes(item.clientId));
       const accepted = cases.filter(c => c.decisionStatus === 'Accepted');
       const pending = cases.filter(c => c.decisionStatus === 'Pending');
       const declined = cases.filter(c => c.decisionStatus === 'Declined');
 
       const steps: WorkflowStep[] = [
-        { id: 'screening', label: 'Screening Checks', state: cases.length ? 'completed' : 'current' },
-        { id: 'evidence', label: 'Evidence Collection', state: cases.some(c => c.screeningEvidence) ? 'completed' : 'pending' },
+        { id: 'screening', label: 'Screening Checks', state: cases.length ? cases.some(c => c.riskRating === 'Prohibited' || !c.independenceConfirmed || !c.conflictsCleared || !c.prohibitionsChecked) ? 'blocked' : 'completed' : 'pending' },
+        { id: 'evidence', label: 'Evidence Collection', state: cases.length && cases.every(c => c.screeningEvidence && Object.keys(c.screeningEvidence).length >= 3) ? 'completed' : cases.length ? 'current' : 'pending' },
         { id: 'recommendation', label: 'Manager Review', state: pending.length ? 'current' : accepted.length ? 'completed' : 'pending' },
         { id: 'partner-decision', label: 'Partner Acceptance', state: accepted.length ? 'completed' : 'pending' },
         { id: 'continuance', label: 'Continuance Rollforward', state: 'na' }
@@ -293,12 +478,12 @@ export function computeModuleWorkflowProgress(
         route: 'onboarding',
         currentSection: 'Client Acceptance & Continuance Review',
         steps,
-        percentComplete: cases.length ? Math.round((accepted.length / cases.length) * 100) : 50,
+        percentComplete: 0,
         counts: {
           completed: accepted.length,
           pending: pending.length,
           blocked: declined.length,
-          total: cases.length || 1
+          total: cases.length
         },
         completedSummary: `${accepted.length} acceptance case(s) verified and approved by the engagement partner.`,
         pendingSummary: `${pending.length} acceptance case(s) pending partner decision.`,
@@ -310,19 +495,33 @@ export function computeModuleWorkflowProgress(
     }
 
     case 'jobs': {
-      const engJobs = state.jobs.filter(j => !activeEng || j.engagementId === activeEng.id);
+      const requestedJobId = context.recordId && state.jobs.some(job => job.id === context.recordId)
+        ? context.recordId
+        : context.recordId ? state.jobTasks.find(task => task.id === context.recordId)?.jobId : undefined;
+      const selectedJob = requestedJobId ? state.jobs.find(job => job.id === requestedJobId && scopedEngagements.some(engagement => engagement.id === job.engagementId && engagement.client === job.clientId)) : undefined;
+      if (context.recordId && !selectedJob) return {
+        moduleId: 'MOD-05', moduleName: 'Jobs & Tasks', route, currentSection: 'Selected Job', steps: [], percentComplete: null,
+        applicability: 'unavailable', metricLabel: 'Unavailable', scopeLabel: 'The selected job is missing or outside the current permitted scope.', selectedRecordId: context.recordId,
+        counts: { completed: 0, current: 0, pending: 0, blocked: 0, returned: 0, stale: 0, skipped: 0, notApplicable: 0, total: 0 },
+        completedSummary: 'No job record was loaded.', pendingSummary: 'Select a job that is visible in the current job register.', blockers: [],
+        nextAction: 'Choose a permitted job from the register.', whoActsNext: 'Workspace user'
+      };
+      const engJobs = selectedJob ? [selectedJob] : state.jobs.filter(job => job.engagementId === activeEng?.id && scopedEngagements.some(engagement => engagement.id === job.engagementId && engagement.client === job.clientId));
       const jobIds = new Set(engJobs.map(j => j.id));
       const tasks = state.jobTasks.filter(t => jobIds.has(t.jobId));
-      const completedTasks = tasks.filter(t => t.status === 'Completed');
-      const blockedTasks = tasks.filter(t => t.status === 'Blocked');
-      const openTasks = tasks.filter(t => t.status === 'Not started' || t.status === 'In progress');
+      const activeTasks = tasks.filter(task => task.status !== 'Cancelled');
+      const completedTasks = activeTasks.filter(t => t.status === 'Completed');
+      const blockedTasks = activeTasks.filter(t => t.status === 'Blocked');
+      const openTasks = activeTasks.filter(t => t.status === 'Not started' || t.status === 'In progress');
+      const cancelledTasks = tasks.filter(task => task.status === 'Cancelled');
+      const selectedJobCancelled = selectedJob?.status === 'Cancelled';
 
       const steps: WorkflowStep[] = [
-        { id: 'jobs-init', label: 'Job Creation', state: engJobs.length ? 'completed' : 'current' },
-        { id: 'task-decomposition', label: 'Task Breakdown', state: tasks.length ? 'completed' : 'pending' },
-        { id: 'staff-assignment', label: 'Staff Assignment', state: tasks.every(t => t.assignee) ? 'completed' : 'current' },
-        { id: 'execution', label: 'Task Execution', state: blockedTasks.length ? 'blocked' : openTasks.length ? 'current' : 'completed' },
-        { id: 'sign-off', label: 'Job Completion', state: engJobs.every(j => j.status === 'Completed') && engJobs.length > 0 ? 'completed' : 'pending' }
+        { id: 'jobs-init', label: 'Job Record', state: selectedJob ? selectedJob.status === 'Cancelled' ? 'skipped' : 'completed' : engJobs.length ? 'completed' : 'pending', detail: selectedJob ? `${selectedJob.title} · ${selectedJob.id}` : `${engJobs.length} job(s) in the selected engagement` },
+        { id: 'task-decomposition', label: 'Task Breakdown', state: activeTasks.length ? 'completed' : selectedJobCancelled || cancelledTasks.length ? 'skipped' : engJobs.length ? 'current' : 'pending' },
+        { id: 'staff-assignment', label: 'Staff Assignment', state: activeTasks.length && activeTasks.every(task => task.assignee.trim()) ? 'completed' : activeTasks.length ? 'current' : 'pending' },
+        { id: 'execution', label: 'Task Execution', state: blockedTasks.length ? 'blocked' : openTasks.length ? 'current' : completedTasks.length && completedTasks.length === activeTasks.length ? 'completed' : cancelledTasks.length && activeTasks.length === 0 ? 'skipped' : 'pending' },
+        { id: 'sign-off', label: 'Job Completion', state: selectedJob?.status === 'Completed' ? 'completed' : selectedJob?.status === 'Blocked' ? 'blocked' : selectedJobCancelled ? 'skipped' : selectedJob ? 'current' : engJobs.length && engJobs.every(job => job.status === 'Completed') ? 'completed' : 'pending' }
       ];
 
       const percent = tasks.length ? Math.round((completedTasks.length / tasks.length) * 100) : 0;
@@ -340,12 +539,14 @@ export function computeModuleWorkflowProgress(
           blocked: blockedTasks.length,
           total: tasks.length
         },
-        completedSummary: `${completedTasks.length} of ${tasks.length} task(s) completed across ${engJobs.length} job(s).`,
+        completedSummary: `${completedTasks.length} of ${activeTasks.length} active task(s) completed across ${engJobs.length} selected job(s); ${cancelledTasks.length} cancelled task(s) remain terminal history.`,
         pendingSummary: `${openTasks.length} task(s) in progress or awaiting start.`,
         blockedSummary: blockedTasks.length ? `${blockedTasks.length} task(s) marked as Blocked.` : undefined,
         blockers: blockedTasks.map(t => `Task ${t.id} (${t.title}): ${t.blockedReason || 'Blocked waiting on input'}`),
-        nextAction: blockedTasks.length ? `Resolve blocker on task ${blockedTasks[0].id}` : openTasks.length ? `Progress task ${openTasks[0].id}` : 'All scoped tasks completed',
-        whoActsNext: blockedTasks.length ? 'Manager / Task Owner' : 'Assigned Preparer'
+        nextAction: blockedTasks.length ? `Resolve blocker on task ${blockedTasks[0].id}` : openTasks.length ? `Progress task ${openTasks[0].id}` : selectedJobCancelled ? 'Review the cancelled job history' : selectedJob?.status === 'Completed' ? 'Review the completed job history' : selectedJob ? 'Add or assign a task to this job' : 'Select a permitted job to review its lifecycle',
+        whoActsNext: blockedTasks[0]?.assignee || openTasks[0]?.assignee || selectedJob?.owner || 'Task Owner / Engagement Manager',
+        selectedRecordId: selectedJob?.id || undefined,
+        recordSummary: selectedJob ? `${selectedJob.title} · ${selectedJob.id} · ${selectedJob.status}; ${activeTasks.length} active task(s), ${completedTasks.length} complete, ${openTasks.length} open, ${blockedTasks.length} blocked, ${cancelledTasks.length} cancelled.` : `${engJobs.length} permitted job(s) for the selected engagement.`
       };
     }
 
@@ -354,13 +555,15 @@ export function computeModuleWorkflowProgress(
       const published = templates.filter(t => t.status === 'Published');
       const drafts = templates.filter(t => t.status === 'Draft');
       const retired = templates.filter(t => t.status === 'Retired');
+      const instantiatedTemplateIds = new Set(state.jobs.filter(job => job.engagementId && (allowedEngIds === 'ALL' || allowedEngIds.includes(job.engagementId))).map(job => job.fromTemplateId).filter((id): id is string => Boolean(id)));
+      const validPublished = published.filter(template => template.tasks.length > 0 && template.tasks.every(task => task.title.trim()));
 
       const steps: WorkflowStep[] = [
-        { id: 'authoring', label: 'Draft Authoring', state: drafts.length ? 'current' : 'completed' },
-        { id: 'structure', label: 'Task Hierarchy', state: 'completed' },
-        { id: 'publishing', label: 'Published Templates', state: published.length ? 'completed' : 'pending' },
-        { id: 'instantiation', label: 'Engagement Application', state: 'current' },
-        { id: 'versioning', label: 'Revision & Retire', state: retired.length ? 'completed' : 'pending' }
+        { id: 'authoring', label: 'Draft Authoring', state: drafts.length ? 'current' : templates.length ? 'completed' : 'pending' },
+        { id: 'structure', label: 'Task Hierarchy', state: templates.some(template => template.tasks.length && template.tasks.every(task => task.title.trim())) ? 'completed' : templates.length ? 'current' : 'pending' },
+        { id: 'publishing', label: 'Published Templates', state: validPublished.length ? 'completed' : drafts.length ? 'current' : 'pending' },
+        { id: 'instantiation', label: 'Engagement Application', state: instantiatedTemplateIds.size ? 'completed' : validPublished.length ? 'current' : 'pending' },
+        { id: 'versioning', label: 'Revision & Retirement History', state: retired.length ? 'completed' : templates.some(template => template.revision > 1) ? 'completed' : 'pending' }
       ];
 
       return {
@@ -385,13 +588,17 @@ export function computeModuleWorkflowProgress(
     }
 
     case 'communications': {
-      const comms = state.communications || [];
+      const comms = activeEng ? (state.communications || []).filter(item =>
+        item.clientId === activeEng.client && (item.engagementId ? item.engagementId === activeEng.id : item.scopeKind === 'Client')
+      ) : [];
+      const linked = comms.filter(item => item.engagementId === activeEng?.id || item.scopeKind === 'Client' || Boolean(item.jobId && state.jobs.some(job => job.id === item.jobId && job.clientId === activeEng?.client && job.engagementId === activeEng?.id)));
+      const outcomesRecorded = comms.filter(item => item.status).length;
       const steps: WorkflowStep[] = [
-        { id: 'recipient', label: 'Contact Selection', state: 'completed' },
-        { id: 'template', label: 'Channel & Template', state: 'completed' },
-        { id: 'drafting', label: 'Message Composition', state: 'current' },
-        { id: 'logging', label: 'Audit Trail & Outcome', state: comms.length ? 'completed' : 'pending' },
-        { id: 'linked-records', label: 'Job / Engagement Link', state: 'current' }
+        { id: 'recipient', label: 'Contact & Participants', state: comms.length ? 'completed' : 'pending' },
+        { id: 'channel', label: 'Communication Channel', state: comms.length ? 'completed' : 'pending' },
+        { id: 'logging', label: 'Communication Record', state: comms.length ? 'completed' : 'current' },
+        { id: 'outcome', label: 'Recorded Local Outcome', state: outcomesRecorded === comms.length && comms.length > 0 ? 'completed' : comms.length ? 'current' : 'pending' },
+        { id: 'linked-records', label: 'Permitted Client / Engagement Link', state: linked.length === comms.length && comms.length > 0 ? 'completed' : comms.length ? 'current' : 'pending' }
       ];
 
       return {
@@ -400,7 +607,7 @@ export function computeModuleWorkflowProgress(
         route: 'communications',
         currentSection: 'Inter-Team & Client Communication Trail',
         steps,
-        percentComplete: 75,
+        percentComplete: 0,
         counts: {
           completed: comms.length,
           pending: 0,
@@ -408,7 +615,7 @@ export function computeModuleWorkflowProgress(
           total: comms.length
         },
         completedSummary: `${comms.length} communication log(s) and simulated messages preserved with full attribution.`,
-        pendingSummary: 'No pending outgoing message drafts.',
+        pendingSummary: `${comms.length - outcomesRecorded} communication(s) have no recorded simulation or manual outcome.`,
         blockers: [],
         nextAction: 'Log communication note, client meeting record, or internal team collaboration',
         whoActsNext: 'Team Member / Preparer'
@@ -416,21 +623,25 @@ export function computeModuleWorkflowProgress(
     }
 
     case 'portal': {
-      const pbc = activeEng?.pbc || [];
+      const portalClient = scopedClients.find(client => client.id === context.clientId);
+      const portalEngagement = activeEng?.client === portalClient?.id ? activeEng : undefined;
+      const pbc = portalEngagement?.pbc.filter(request => request.status !== 'Draft' && request.status !== 'Cancelled') || [];
       const returnedPbc = pbc.filter(p => p.status === 'Needs clarification');
       const pendingPbc = pbc.filter(p => p.status === 'Requested');
-      const receivedPbc = pbc.filter(p => p.status === 'Received');
+      const receivedPbc = pbc.filter(p => p.status === 'Received' || p.status === 'Under review');
       const acceptedPbc = pbc.filter(p => p.status === 'Accepted');
-      const sharedDocs = state.documents.filter(d => d.visibility === 'Client shared');
-      const issuedInvoices = state.invoices.filter(i => i.status === 'Issued');
+      const sharedDocs = portalClient && portalEngagement ? state.documents.filter(d => d.visibility === 'Client shared' && d.clientId === portalClient.id && (!d.engagementId || d.engagementId === portalEngagement.id)) : [];
+      const issuedInvoices = portalClient && portalEngagement ? state.invoices.filter(i => i.clientId === portalClient.id && (i.engagementId || i.eng) === portalEngagement.id && (i.status === 'Issued' || i.status === 'Paid')) : [];
+      const managementDecisionApplicable = Boolean(portalEngagement?.managementPresentation && portalEngagement.managementPresentation.generation === portalEngagement.generation && portalEngagement.managementPresentation.sourceVersion === portalEngagement.sourceVersion && portalEngagement.managementPresentation.packageRevision === portalEngagement.packageRevision);
+      const managementDecisionCurrent = Boolean(managementDecisionApplicable && portalEngagement?.managementPackageDecision?.decision === 'Acknowledged' && portalEngagement.managementPackageDecision.generation === portalEngagement.generation && portalEngagement.managementPackageDecision.sourceVersion === portalEngagement.sourceVersion && portalEngagement.managementPackageDecision.packageRevision === portalEngagement.packageRevision);
 
       const steps: WorkflowStep[] = [
-        { id: 'portal-access', label: 'Secure Session', state: 'completed' },
-        { id: 'pbc-requests', label: 'Information Requests', state: pendingPbc.length ? 'current' : 'completed', detail: `${pendingPbc.length} outstanding` },
-        { id: 'clarifications', label: 'Clarifications', state: returnedPbc.length ? 'returned' : 'pending' },
-        { id: 'documents', label: 'Shared Documents', state: sharedDocs.length ? 'completed' : 'pending' },
-        { id: 'invoices', label: 'Invoices & Statements', state: issuedInvoices.length ? 'completed' : 'pending' },
-        { id: 'management-decision', label: 'Management Sign-off', state: 'current' }
+        { id: 'portal-context', label: 'Authorized Client Context', state: portalClient && portalEngagement ? 'completed' : 'pending', detail: `${portalClient?.id || 'No client'} · ${portalEngagement?.id || 'No engagement'}` },
+        { id: 'pbc-requests', label: 'Information Requests', state: !pbc.length ? 'na' : returnedPbc.length ? 'returned' : pendingPbc.length || receivedPbc.length ? 'current' : acceptedPbc.length === pbc.length ? 'completed' : 'pending', detail: `${acceptedPbc.length} accepted of ${pbc.length} visible requests` },
+        { id: 'clarifications', label: 'Clarifications', state: returnedPbc.length ? 'returned' : pbc.some(p => p.status === 'Received' || p.status === 'Under review') ? 'current' : pbc.length ? 'completed' : 'na', detail: returnedPbc.map(item => `${item.id}: ${item.clarificationNote || 'Replacement required'}`).join('; ') || 'No clarification is currently requested' },
+        { id: 'documents', label: 'Shared Documents', state: sharedDocs.length ? 'completed' : 'na', detail: `${sharedDocs.length} documents visible to this client and engagement` },
+        { id: 'invoices', label: 'Issued Invoices', state: issuedInvoices.length ? 'completed' : 'na', detail: `${issuedInvoices.length} issued or paid invoices visible to this client and engagement` },
+        { id: 'management-decision', label: 'Management Package Decision', state: !managementDecisionApplicable ? 'na' : managementDecisionCurrent ? 'completed' : portalEngagement?.managementPackageDecision?.decision === 'Rejected' ? 'returned' : 'current', detail: managementDecisionApplicable ? `Package revision ${portalEngagement?.managementPresentation?.packageRevision}` : 'No current package is presented for decision' }
       ];
 
       const percent = pbc.length ? Math.round((acceptedPbc.length / pbc.length) * 100) : 100;
@@ -454,7 +665,7 @@ export function computeModuleWorkflowProgress(
         blockedSummary: returnedPbc.length > 0 ? `${returnedPbc.length} request(s) require clarification or re-upload.` : undefined,
         reworkNotes: returnedPbc.map(p => `${p.id}: Returned for clarification`),
         blockers: [],
-        nextAction: returnedPbc.length ? 'Respond to staff clarification note and upload revised PBC document' : pendingPbc.length ? 'Upload requested file for outstanding PBC items' : 'Review shared documents or issued invoices',
+        nextAction: returnedPbc.length ? 'Respond to staff clarification note and upload revised PBC document' : pendingPbc.length ? 'Upload requested file for outstanding PBC items' : !portalEngagement ? 'Select an engagement assigned to this client' : managementDecisionApplicable && !managementDecisionCurrent ? 'Review the current package and record the management decision' : 'Review shared documents or issued invoices',
         whoActsNext: returnedPbc.length || pendingPbc.length ? 'Client Finance Contributor' : 'Client Administrator'
       };
     }
@@ -466,12 +677,13 @@ export function computeModuleWorkflowProgress(
       const acceptedPbc = pbc.filter(p => p.status === 'Accepted');
       const draftPbc = pbc.filter(p => p.status === 'Draft');
 
+      const inScopeDocs = state.documents.filter(document => document.clientId === activeEng?.client && (!document.engagementId || document.engagementId === activeEng?.id));
       const steps: WorkflowStep[] = [
         { id: 'draft-pbc', label: 'Draft Request', state: draftPbc.length ? 'current' : 'completed' },
-        { id: 'requested-pbc', label: 'Requested from Client', state: pbc.some(p => p.status === 'Requested') ? 'current' : 'completed' },
+        { id: 'requested-pbc', label: 'Requested from Client', state: pbc.some(p => p.status === 'Requested') ? 'current' : pbc.some(p => !['Draft', 'Cancelled'].includes(p.status)) ? 'completed' : 'pending' },
         { id: 'received-review', label: 'Received & Review', state: returnedPbc.length ? 'returned' : underReviewPbc.length ? 'current' : 'pending' },
         { id: 'evidence-acceptance', label: 'Accepted as Evidence', state: acceptedPbc.length ? 'completed' : 'pending' },
-        { id: 'canonical-storage', label: 'Canonical Archive', state: 'completed' }
+        { id: 'browser-storage', label: 'Browser-Local Record', state: inScopeDocs.length || acceptedPbc.some(request => request.file) ? 'completed' : 'pending', detail: 'Document originals and request records remain in local prototype storage.' }
       ];
 
       return {
@@ -480,7 +692,7 @@ export function computeModuleWorkflowProgress(
         route: 'documents',
         currentSection: 'Document Management & Client PBC Requests',
         steps,
-        percentComplete: pbc.length ? Math.round((acceptedPbc.length / pbc.length) * 100) : 50,
+        percentComplete: 0,
         counts: {
           completed: acceptedPbc.length,
           pending: underReviewPbc.length + draftPbc.length,
@@ -498,16 +710,20 @@ export function computeModuleWorkflowProgress(
     }
 
     case 'my-time': {
-      const timeEntries = state.times || [];
-      const userEntries = timeEntries.filter(t => !state.currentUserId || t.person === state.currentPerson);
+      const timeEntries = (state.times || []).filter(t => t.engagementId === activeEng?.id && (allowedClientIds === 'ALL' || allowedClientIds.includes(t.clientId)));
+      const userEntries = timeEntries.filter(t => t.person === state.currentPerson && t.status !== 'Superseded');
       const approved = userEntries.filter(t => t.status === 'Approved');
       const submitted = userEntries.filter(t => t.status === 'Submitted');
       const returned = userEntries.filter(t => t.status === 'Returned');
       const drafts = userEntries.filter(t => t.status === 'Draft');
+      const jobs = state.jobs.filter(job => job.engagementId === activeEng?.id);
+      const visibleJobIds = new Set(jobs.map(job => job.id));
+      const taskIds = new Set(state.jobTasks.filter(task => visibleJobIds.has(task.jobId)).map(task => task.id));
+      const codedEntries = userEntries.filter(entry => Boolean(entry.jobId && entry.taskId && visibleJobIds.has(entry.jobId) && taskIds.has(entry.taskId)));
 
       const steps: WorkflowStep[] = [
-        { id: 'entry', label: 'Draft Time Entry', state: drafts.length ? 'current' : 'completed' },
-        { id: 'job-coding', label: 'Job & Task Coding', state: 'completed' },
+        { id: 'entry', label: 'Time Entry', state: drafts.length ? 'current' : userEntries.length ? 'completed' : 'pending' },
+        { id: 'job-coding', label: 'Job & Task Coding', state: codedEntries.length === userEntries.length && userEntries.length > 0 ? 'completed' : userEntries.length ? 'current' : 'pending' },
         { id: 'submission', label: 'Submitted for Review', state: returned.length ? 'returned' : submitted.length ? 'current' : 'pending' },
         { id: 'manager-approval', label: 'Manager Approved', state: approved.length ? 'completed' : 'pending' },
         { id: 'billing-allocation', label: 'Available for Billing', state: approved.length ? 'completed' : 'pending', targetRoute: 'billing' }
@@ -519,7 +735,7 @@ export function computeModuleWorkflowProgress(
         route: 'my-time',
         currentSection: 'Staff Time Registration & Timesheet Review',
         steps,
-        percentComplete: userEntries.length ? Math.round((approved.length / userEntries.length) * 100) : 0,
+        percentComplete: 0,
         counts: {
           completed: approved.length,
           pending: submitted.length + drafts.length,
@@ -537,13 +753,17 @@ export function computeModuleWorkflowProgress(
     }
 
     case 'budgets': {
-      const budget = (state.budgets || []).find(b => b.engagementId === activeEng?.id);
+      const budget = (state.budgets || []).filter(b => b.engagementId === activeEng?.id).sort((a, b) => b.version - a.version)[0];
+      const actualEntries = (state.times || []).filter(entry => entry.engagementId === activeEng?.id && entry.status === 'Approved');
+      const plannedMinutes = budget?.lines.reduce((total, line) => total + line.plannedMinutes, 0) || 0;
+      const actualMinutes = actualEntries.reduce((total, entry) => total + entry.durationMinutes, 0);
+      const hasActuals = actualEntries.length > 0;
       const steps: WorkflowStep[] = [
-        { id: 'hours-budget', label: 'Hours & Rates Plan', state: budget ? 'completed' : 'current' },
-        { id: 'actual-capture', label: 'Actual Time Tracking', state: 'current', targetRoute: 'my-time' },
-        { id: 'variance-analysis', label: 'Variance Calculation', state: 'current' },
-        { id: 'margin-review', label: 'Realized Margin', state: 'current' },
-        { id: 'revision', label: 'Budget Versioning', state: budget && budget.version > 1 ? 'completed' : 'pending' }
+        { id: 'hours-budget', label: 'Approved Hours & Rates Plan', state: budget?.status === 'Approved' && plannedMinutes > 0 ? 'completed' : budget ? 'current' : 'pending' },
+        { id: 'actual-capture', label: 'Approved Actual Time', state: hasActuals ? 'completed' : 'pending', targetRoute: 'my-time', detail: `${actualEntries.length} approved time entries` },
+        { id: 'variance-analysis', label: 'Planned vs Actual Hours', state: budget && hasActuals ? 'completed' : 'pending', detail: `${plannedMinutes} planned minutes · ${actualMinutes} approved actual minutes` },
+        { id: 'margin-review', label: 'Fee Recovery Inputs', state: budget && hasActuals && activeEng && activeEng.agreedFee > 0 ? 'completed' : 'pending' },
+        { id: 'revision', label: 'Budget Revision History', state: budget && (budget.history?.length || 0) > 0 ? 'completed' : 'pending' }
       ];
 
       return {
@@ -552,9 +772,9 @@ export function computeModuleWorkflowProgress(
         route: 'budgets',
         currentSection: 'Engagement Budget & Recovery Analysis',
         steps,
-        percentComplete: budget ? 70 : 30,
+        percentComplete: 0,
         counts: {
-          completed: 1,
+          completed: 0,
           pending: 0,
           blocked: 0,
           total: 1
@@ -573,17 +793,21 @@ export function computeModuleWorkflowProgress(
       const issued = invoices.filter(i => i.status === 'Issued');
       const approved = invoices.filter(i => i.status === 'Approved');
       const draft = invoices.filter(i => i.status === 'Draft');
+      const inReview = invoices.filter(i => i.status === 'In review');
       const cancelled = invoices.filter(i => i.status === 'Cancelled');
+      const approvedTime = (state.times || []).filter(entry => (allowedClientIds === 'ALL' || allowedClientIds.includes(entry.clientId)) && (allowedEngIds === 'ALL' || allowedEngIds.includes(entry.engagementId)) && entry.status === 'Approved' && !entry.billedInvoiceId);
+      const sourceAvailable = approvedTime.length > 0 || invoices.some(invoice => invoice.lines.some(line => line.sourceType === 'Fixed service' || line.sourceType === 'Time entry'));
+      const activeInvoices = invoices.filter(invoice => invoice.status !== 'Cancelled');
 
       const steps: WorkflowStep[] = [
-        { id: 'time-billing-source', label: 'Source Time & Fees', state: 'completed', targetRoute: 'my-time' },
-        { id: 'invoice-draft', label: 'Draft Invoice', state: draft.length ? 'current' : 'completed' },
-        { id: 'independent-review', label: 'Independent Review', state: approved.length ? 'completed' : draft.length ? 'current' : 'pending' },
-        { id: 'issue-record', label: 'Issued Invoice', state: issued.length ? 'completed' : 'pending' },
-        { id: 'receipt-settlement', label: 'Settlement & Receipts', state: paid.length ? 'completed' : 'pending', targetRoute: 'receivables' }
+        { id: 'time-billing-source', label: 'Approved Time or Fee Source', state: sourceAvailable ? 'completed' : 'pending', targetRoute: 'my-time' },
+        { id: 'invoice-draft', label: 'Invoice Draft', state: draft.length ? 'current' : activeInvoices.length ? 'completed' : 'pending' },
+        { id: 'independent-review', label: 'Independent Review', state: inReview.length ? 'current' : approved.length || issued.length || paid.length ? 'completed' : draft.length ? 'pending' : 'pending' },
+        { id: 'issue-record', label: 'Invoice Issue', state: issued.length || paid.length ? 'completed' : approved.length ? 'current' : 'pending' },
+        { id: 'receipt-settlement', label: 'Settlement & Receipts', state: paid.length ? 'completed' : issued.length ? 'current' : 'pending', targetRoute: 'receivables' }
       ];
 
-      const percent = invoices.length ? Math.round(((paid.length + issued.length) / invoices.length) * 100) : 0;
+        const percent = 0;
 
       return {
         moduleId: 'MOD-14',
@@ -594,12 +818,12 @@ export function computeModuleWorkflowProgress(
         percentComplete: percent,
         counts: {
           completed: paid.length + issued.length,
-          pending: approved.length + draft.length,
+          pending: approved.length + draft.length + inReview.length,
           blocked: cancelled.length,
           total: invoices.length
         },
         completedSummary: `${issued.length} invoice(s) issued; ${paid.length} fully settled.`,
-        pendingSummary: `${draft.length} draft invoice(s); ${approved.length} approved awaiting issue.`,
+        pendingSummary: `${draft.length} draft, ${inReview.length} in review, and ${approved.length} approved invoice(s) awaiting issue.`,
         blockedSummary: cancelled.length ? `${cancelled.length} invoice(s) cancelled with unreserved time.` : undefined,
         blockers: cancelled.map(i => `Invoice ${i.invoiceNumber || i.id} was cancelled.`),
         nextAction: approved.length ? `Issue approved invoice ${approved[0].invoiceNumber || approved[0].id}` : draft.length ? 'Submit or approve draft invoice (SoD required)' : 'Draft invoice from approved time',
@@ -610,13 +834,21 @@ export function computeModuleWorkflowProgress(
     case 'receivables': {
       const invoices = scopedInvoices(state).filter(i => i.status === 'Issued' || i.status === 'Paid');
       const outstanding = invoices.filter(i => i.status === 'Issued');
-      const receipts = state.receipts || [];
+      const invoiceIds = new Set(invoices.map(invoice => invoice.id));
+      const receipts = (state.receipts || []).filter(receipt =>
+        (allowedClientIds === 'ALL' || allowedClientIds.includes(receipt.clientId)) &&
+        (activeEng ? invoices.some(invoice => invoice.clientId === receipt.clientId && (invoice.engagementId || invoice.eng) === activeEng.id) : true) &&
+        receipt.allocations.some(allocation => invoiceIds.has(allocation.invoiceId))
+      );
+      const allocationsComplete = receipts.length > 0 && receipts.every(receipt => receipt.allocations.filter(allocation => !allocation.reversed && invoiceIds.has(allocation.invoiceId)).reduce((sum, allocation) => sum + allocation.amount, 0) >= receipt.allocatedAmount);
+      const scenarioDate = new Date(`${state.asOfDate}T00:00:00`);
+      const overdue = outstanding.filter(invoice => new Date(`${invoice.due}T00:00:00`) < scenarioDate);
 
       const steps: WorkflowStep[] = [
         { id: 'receivable-ledger', label: 'Issued Invoices', state: invoices.length ? 'completed' : 'pending', targetRoute: 'billing' },
-        { id: 'aging-categorization', label: 'Aging Buckets', state: 'completed' },
-        { id: 'receipt-intake', label: 'Offline Receipts', state: receipts.length ? 'completed' : 'current' },
-        { id: 'split-allocation', label: 'Line Allocations', state: receipts.some(r => r.allocations?.length) ? 'completed' : 'current' },
+        { id: 'aging-categorization', label: 'Scenario-Date Aging', state: invoices.length ? 'completed' : 'pending', detail: `${overdue.length} issued invoice(s) overdue as of ${state.asOfDate}` },
+        { id: 'receipt-intake', label: 'Offline Receipt Records', state: receipts.length ? 'completed' : outstanding.length ? 'current' : 'pending' },
+        { id: 'split-allocation', label: 'Invoice Allocations', state: allocationsComplete ? 'completed' : receipts.length ? 'current' : outstanding.length ? 'pending' : 'pending' },
         { id: 'reconciliation', label: 'Settled Accounts', state: outstanding.length === 0 && invoices.length > 0 ? 'completed' : 'current' }
       ];
 
@@ -626,7 +858,7 @@ export function computeModuleWorkflowProgress(
         route: 'receivables',
         currentSection: 'Accounts Receivable & Cash Allocation',
         steps,
-        percentComplete: invoices.length ? Math.round(((invoices.length - outstanding.length) / invoices.length) * 100) : 100,
+        percentComplete: 0,
         counts: {
           completed: invoices.length - outstanding.length,
           pending: outstanding.length,
@@ -715,13 +947,17 @@ export function computeModuleWorkflowProgress(
       const invites = state.simulatedInvitations || [];
       const pendingInvites = invites.filter(i => i.status === 'Pending');
       const activeUsers = users.filter(u => u.status === 'Active');
+      const currentGrants = state.roleGrants.filter(grant => (!grant.effectiveFrom || grant.effectiveFrom <= state.asOfDate) && (!grant.expiresAt || grant.expiresAt >= state.asOfDate));
+      const settings = state.firmSettings;
+      const firmSettingsComplete = Boolean(settings.firmName.trim() && settings.firmLegalName.trim() && settings.jurisdiction.trim() && settings.currency.trim() && settings.timezone.trim() && settings.invoiceNumberPrefix.trim() && settings.creditNumberPrefix.trim() && settings.locale.trim());
+      const accessEvents = state.roleGrantHistory || [];
 
       const steps: WorkflowStep[] = [
-        { id: 'user-dir', label: 'User Directory', state: 'completed' },
-        { id: 'role-grants', label: 'Role & Scope Grants', state: 'completed' },
-        { id: 'invitations', label: 'Simulated Invitations', state: pendingInvites.length ? 'current' : 'completed' },
-        { id: 'firm-settings', label: 'Firm Parameters', state: 'completed' },
-        { id: 'access-audit', label: 'Authorization Audit', state: 'current' }
+        { id: 'user-dir', label: 'Active User Directory', state: activeUsers.length ? 'completed' : 'pending', detail: `${activeUsers.length} active of ${users.length} identities` },
+        { id: 'role-grants', label: 'Current Role & Scope Grants', state: currentGrants.length ? 'completed' : 'pending', detail: `${currentGrants.length} effective grant(s) as of ${state.asOfDate}` },
+        { id: 'invitations', label: 'Simulated Invitations', state: pendingInvites.length ? 'current' : invites.length ? 'completed' : 'pending' },
+        { id: 'firm-settings', label: 'Firm Parameters', state: firmSettingsComplete ? 'completed' : 'current' },
+        { id: 'access-audit', label: 'Grant Change History', state: accessEvents.length ? 'completed' : 'pending', detail: `${accessEvents.length} attributable grant history event(s)` }
       ];
 
       return {
@@ -730,76 +966,171 @@ export function computeModuleWorkflowProgress(
         route: 'administration',
         currentSection: 'User Directory, Role Grants & Firm Settings',
         steps,
-        percentComplete: 90,
+        percentComplete: 0,
         counts: {
           completed: activeUsers.length,
           pending: pendingInvites.length,
           blocked: 0,
           total: users.length
         },
-        completedSummary: `${activeUsers.length} synthetic user identity(ies) active with explicit role and scope grants.`,
-        pendingSummary: `${pendingInvites.length} simulated invitation(s) pending acceptance.`,
+        completedSummary: `${activeUsers.length} active user identity(ies), ${currentGrants.length} effective role grants, and ${accessEvents.length} grant history event(s).`,
+        pendingSummary: `${pendingInvites.length} simulated invitation(s) pending acceptance; firm parameters ${firmSettingsComplete ? 'saved' : 'need completion'}.`,
         blockers: [],
         nextAction: 'Manage user roles, grant engagement scopes, or configure practice defaults',
         whoActsNext: 'Firm Administrator'
       };
     }
 
-    case 'accounting-setup':
-    case 'trial-balance':
-    case 'gl-transactions':
-    case 'account-mappings':
-    case 'adjustments':
-    case 'reconciliations': {
-      const adjustments: AdjustmentJournalItem[] = state.adjustmentJournals || [];
-      const engAdjs = adjustments.filter(a => !activeEng || a.engagementId === activeEng.id);
-      const acceptedAdjs = engAdjs.filter(a => a.status === 'Management accepted' || a.status === 'Reporting included');
-      const techReviewAdjs = engAdjs.filter(a => a.status === 'Technical review');
-      const draftAdjs = engAdjs.filter(a => a.status === 'Draft');
-      const rejectedAdjs = engAdjs.filter(a => a.status === 'Rejected');
-
+    case 'accounting-setup': {
+      const client = scopedClients.find(item => item.id === activeEng?.client);
+      const profile = client?.accountingProfile;
+      const profileSaved = Boolean(profile?.revision && profile.legalEntityName.trim() && profile.reportingBasis !== 'Not selected' && /^[A-Z]{3}$/.test(profile.baseCurrency));
+      const periodBook = profile?.periodBooks.find(book => book.id === activeEng?.accountingPeriodBookId && book.ownerEngagementId === activeEng?.id);
+      const activeAccounts = profile?.accounts.filter(account => account.active && account.posting) || [];
       const steps: WorkflowStep[] = [
-        { id: 'tb-source', label: 'TB & GL Intake', state: activeEng?.sourceVersion ? 'completed' : 'current' },
-        { id: 'account-mapping', label: 'Account Mapping', state: activeEng?.mappingApproved ? 'completed' : 'current' },
-        { id: 'adjustments-step', label: 'Adjustment Journals', state: techReviewAdjs.length ? 'current' : acceptedAdjs.length ? 'completed' : 'pending' },
-        { id: 'reconciliations-step', label: 'Reconciliations', state: 'current' },
-        { id: 'financial-statements-step', label: 'Statements Ready', state: acceptedAdjs.length > 0 || (engAdjs.length === 0 && Boolean(activeEng?.mappingApproved)) ? 'completed' : 'pending', targetRoute: 'financial-statements' }
+        { id: 'accounting-profile', label: 'Entity & Reporting Profile', state: profileSaved ? 'completed' : 'current', detail: profileSaved ? `Profile revision ${profile?.revision}` : 'Save a legal entity, reporting basis and currency.' },
+        { id: 'period-book', label: 'Engagement Period & Book', state: periodBook ? 'completed' : profileSaved ? 'current' : 'pending', detail: periodBook?.name || 'Select a period book owned by this engagement.' },
+        { id: 'chart-of-accounts', label: 'Active Posting Accounts', state: activeAccounts.length ? 'completed' : profileSaved ? 'current' : 'pending', detail: `${activeAccounts.length} active posting account(s)` }
       ];
-
       return {
-        moduleId: 'MOD-20',
-        moduleName: 'Accounting Workbench',
-        route: 'accounting-setup',
-        currentSection: 'Trial Balance, Mappings, Adjustments & Reconciliations',
-        steps,
-        percentComplete: activeEng?.mappingApproved ? 75 : 40,
-        counts: {
-          completed: acceptedAdjs.length,
-          pending: techReviewAdjs.length + draftAdjs.length,
-          blocked: rejectedAdjs.length,
-          total: engAdjs.length || 1
-        },
-        completedSummary: `${acceptedAdjs.length} adjustment journal(s) accepted by client management; mapping approved.`,
-        pendingSummary: `${techReviewAdjs.length} journal(s) in technical review, ${draftAdjs.length} in draft.`,
-        blockedSummary: rejectedAdjs.length ? `${rejectedAdjs.length} journal(s) rejected during review.` : undefined,
-        blockers: rejectedAdjs.map((a: AdjustmentJournalItem) => `Journal ${a.id}: Rejected in review - ${a.reviewNote || 'Correction required'}`),
-        nextAction: techReviewAdjs.length
-          ? 'Conduct independent technical review on proposed adjustment'
-          : draftAdjs.length
-            ? 'Submit draft adjustment journal for technical review'
-            : 'Verify trial balance mappings and review timing reconciliations',
-        whoActsNext: techReviewAdjs.length ? 'Independent Accounting Reviewer' : draftAdjs.length ? 'Preparer' : 'Preparer / Manager'
+        moduleId: 'MOD-20', moduleName: 'Accounting Workbench', route, currentSection: 'Client Accounting Setup', steps, percentComplete: 0,
+        counts: { completed: 0, pending: 0, blocked: 0, total: steps.length },
+        completedSummary: profileSaved ? `Saved accounting profile revision ${profile?.revision}.` : 'Accounting setup has not been saved with a complete reporting profile.',
+        pendingSummary: !periodBook ? 'Choose and save the period book for this engagement.' : !activeAccounts.length ? 'Add and save active posting accounts before importing a trial balance.' : 'Accounting context is available for this engagement.',
+        blockers: [], nextAction: !profileSaved ? 'Complete and save the entity reporting profile' : !periodBook ? 'Select this engagement’s period book' : !activeAccounts.length ? 'Add active chart of accounts' : 'Continue to Trial Balance',
+        whoActsNext: 'Accounting Preparer'
+      };
+    }
+
+    case 'trial-balance': {
+      const sourceExists = Boolean(activeEng?.sourceVersion && activeEng.rows.length);
+      const accepted = Boolean(activeEng?.sourceAccepted && sourceExists);
+      const steps: WorkflowStep[] = [
+        { id: 'tb-import', label: 'Trial Balance Source', state: sourceExists ? 'completed' : 'current', detail: sourceExists ? `Source v${activeEng?.sourceVersion} · ${activeEng?.rows.length} account rows` : 'Import or enter a source for the selected engagement.' },
+        { id: 'tb-acceptance', label: 'Source Review & Acceptance', state: accepted ? 'completed' : sourceExists ? 'current' : 'pending', detail: accepted ? 'Current source accepted.' : 'Review and accept the current source before downstream work.' },
+        { id: 'tb-mapping', label: 'Statement Mapping', state: activeEng?.mappingApproved ? 'completed' : sourceExists ? 'current' : 'pending', targetRoute: 'account-mappings' }
+      ];
+      return {
+        moduleId: 'MOD-20', moduleName: 'Accounting Workbench', route, currentSection: 'Trial Balance', steps, percentComplete: 0,
+        counts: { completed: 0, pending: 0, blocked: 0, total: steps.length },
+        completedSummary: sourceExists ? `Current trial-balance source v${activeEng?.sourceVersion} contains ${activeEng?.rows.length} row(s).` : 'No trial-balance source is recorded for this engagement.',
+        pendingSummary: !sourceExists ? 'Import or enter a trial balance.' : !accepted ? 'Review and accept the current trial-balance source.' : !activeEng?.mappingApproved ? 'Complete current account mappings.' : 'Current trial balance and mapping are accepted.',
+        blockers: [], nextAction: !sourceExists ? 'Import trial balance' : !accepted ? 'Review and accept source' : !activeEng?.mappingApproved ? 'Review account mappings' : 'Open General Ledger',
+        whoActsNext: !accepted ? 'Engagement Preparer / Manager' : 'Accounting Preparer'
+      };
+    }
+
+    case 'gl-transactions': {
+      const latestGL = activeEng?.glSourceHistory?.at(-1);
+      const transactions = (state.glTransactions || []).filter(item => item.engagementId === activeEng?.id);
+      const sourceCurrent = Boolean(latestGL && activeEng?.sourceVersion && latestGL.transactions.length >= 0);
+      const transactionCount = latestGL?.transactions.length ?? transactions.length;
+      const hasIntegrityDigest = Boolean(latestGL?.sha256 && /^[0-9a-f]{64}$/i.test(latestGL.sha256));
+      const steps: WorkflowStep[] = [
+        { id: 'gl-source', label: 'GL Source Revision', state: sourceCurrent ? 'completed' : 'current', detail: latestGL ? `${latestGL.fileName} · revision ${latestGL.revision}` : 'No GL import revision is recorded.' },
+        { id: 'gl-transactions', label: 'Imported Transactions', state: transactionCount > 0 ? 'completed' : latestGL ? 'blocked' : 'pending', detail: `${transactionCount} transaction(s) in the selected engagement source` },
+        { id: 'gl-integrity', label: 'Source Integrity Digest', state: hasIntegrityDigest ? 'completed' : latestGL ? 'pending' : 'pending', detail: hasIntegrityDigest ? 'SHA-256 digest recorded.' : 'A source digest is not recorded for this revision.' }
+      ];
+      return {
+        moduleId: 'MOD-20', moduleName: 'Accounting Workbench', route, currentSection: 'General Ledger Transactions', steps, percentComplete: 0,
+        counts: { completed: 0, pending: 0, blocked: 0, total: steps.length },
+        completedSummary: latestGL ? `GL source revision ${latestGL.revision} is recorded for this engagement.` : 'No GL source revision is recorded.',
+        pendingSummary: transactionCount ? (hasIntegrityDigest ? 'Imported transaction source is available for review.' : 'Review the source integrity details before relying on this import.') : 'Import a GL source containing transactions.',
+        blockers: transactionCount === 0 && latestGL ? ['The current GL revision contains no transactions. Re-import or correct the source file.'] : [],
+        nextAction: !latestGL ? 'Import a GL source' : !transactionCount ? 'Correct or replace the empty GL source' : 'Review transaction completeness and account mapping',
+        whoActsNext: 'Accounting Preparer'
+      };
+    }
+
+    case 'account-mappings': {
+      const mappingHistory = (state.accountMappingRevisions || []).filter(item => item.engagementId === activeEng?.id).sort((a, b) => b.revision - a.revision);
+      const latestMapping = mappingHistory[0];
+      const accountCodes = new Set(activeEng?.rows.map(row => row.code) || []);
+      const mappedCodes = new Set(latestMapping?.mappings.filter(mapping => mapping.targets.length > 0 && mapping.targets.reduce((total, target) => total + target.percentage, 0) === 100).map(mapping => mapping.accountCode) || []);
+      const unmapped = [...accountCodes].filter(code => !mappedCodes.has(code));
+      const approvedCurrent = Boolean(activeEng?.mappingApproved && latestMapping?.status === 'Approved' && unmapped.length === 0);
+      const steps: WorkflowStep[] = [
+        { id: 'mapping-coverage', label: 'Current Account Coverage', state: accountCodes.size === 0 ? 'pending' : unmapped.length ? 'current' : 'completed', detail: `${mappedCodes.size} of ${accountCodes.size} trial-balance accounts mapped` },
+        { id: 'mapping-review', label: 'Independent Mapping Approval', state: approvedCurrent ? 'completed' : latestMapping?.status === 'Draft' ? 'current' : 'pending', detail: latestMapping ? `Mapping revision ${latestMapping.revision} · ${latestMapping.status}` : 'No mapping revision is recorded.' },
+        { id: 'mapping-statements', label: 'Statement Preparation', state: approvedCurrent ? 'current' : 'pending', targetRoute: 'financial-statements' }
+      ];
+      return {
+        moduleId: 'MOD-20', moduleName: 'Accounting Workbench', route, currentSection: 'Account Mapping', steps, percentComplete: 0,
+        counts: { completed: 0, pending: 0, blocked: 0, total: steps.length },
+        completedSummary: approvedCurrent ? `Mapping revision ${latestMapping?.revision} is approved across all ${accountCodes.size} current TB accounts.` : `${mappedCodes.size} current TB account(s) have complete mapping targets.`,
+        pendingSummary: accountCodes.size === 0 ? 'Load the current trial balance before preparing mappings.' : unmapped.length ? `${unmapped.length} account(s) need complete 100% statement-line allocations.` : 'Submit the current mapping revision for independent approval.',
+        blockers: [], nextAction: accountCodes.size === 0 ? 'Open Trial Balance and load source rows' : unmapped.length ? 'Complete unmapped or incomplete account allocations' : !approvedCurrent ? 'Submit current mapping for independent approval' : 'Prepare financial statements',
+        whoActsNext: approvedCurrent ? 'Accounting Preparer' : 'Independent Accounting Reviewer'
+      };
+    }
+
+    case 'adjustments': {
+      const journals: AdjustmentJournalItem[] = (state.adjustmentJournals || []).filter(item => item.engagementId === activeEng?.id);
+      const rejected = journals.filter(item => item.status === 'Rejected');
+      const drafts = journals.filter(item => item.status === 'Draft');
+      const technical = journals.filter(item => item.status === 'Technical review');
+      const accepted = journals.filter(item => item.status === 'Management accepted' || item.status === 'Reporting included');
+      const staleReflection = accepted.filter(item => item.reflectionStatus !== 'Reflected in TB' || item.reflectionSourceVersion !== activeEng?.sourceVersion);
+      const steps: WorkflowStep[] = [
+        { id: 'journal-draft', label: 'Adjustment Journal Drafts', state: drafts.length ? 'current' : journals.length ? 'completed' : 'pending', detail: `${journals.length} journal(s), ${drafts.length} draft(s)` },
+        { id: 'journal-review', label: 'Technical Review', state: rejected.length ? 'returned' : technical.length ? 'current' : journals.length ? 'completed' : 'pending', detail: `${technical.length} awaiting independent review` },
+        { id: 'journal-acceptance', label: 'Management Decision', state: rejected.length ? 'returned' : accepted.length ? 'completed' : 'pending', detail: `${accepted.length} accepted or included` },
+        { id: 'journal-reflection', label: 'Current TB Reflection', state: staleReflection.length ? 'stale' : accepted.length ? 'completed' : 'pending', detail: `${staleReflection.length} accepted journal(s) need current source reflection` }
+      ];
+      return {
+        moduleId: 'MOD-20', moduleName: 'Accounting Workbench', route, currentSection: 'Adjustment Journals', steps, percentComplete: 0,
+        counts: { completed: 0, pending: 0, blocked: 0, total: steps.length },
+        completedSummary: `${accepted.length} journal(s) have reached management acceptance or reporting inclusion.`,
+        pendingSummary: `${drafts.length} draft(s), ${technical.length} in technical review, ${staleReflection.length} reflection(s) needing current-source confirmation.`,
+        blockers: rejected.map(item => `Journal ${item.id} was rejected: ${item.reviewNote || 'reviewer correction is required.'}`),
+        nextAction: rejected.length ? `Amend rejected journal ${rejected[0].id}` : drafts.length ? `Submit draft journal ${drafts[0].id} for technical review` : technical.length ? `Complete independent review of journal ${technical[0].id}` : staleReflection.length ? `Confirm journal reflection against TB v${activeEng?.sourceVersion}` : 'Create a supported adjustment if required, or continue to Reconciliations',
+        whoActsNext: rejected.length || staleReflection.length ? 'Assigned Preparer' : technical.length ? 'Independent Accounting Reviewer' : 'Accounting Preparer'
+      };
+    }
+
+    case 'reconciliations': {
+      const schedules = (activeEng?.reconciliations || []).filter(item => item.engagementId === activeEng?.id || !item.engagementId);
+      const stale = schedules.filter(item => item.status === 'Stale' || item.sourceVersion !== undefined && item.sourceVersion !== activeEng?.sourceVersion);
+      const returned = schedules.filter(item => item.status === 'Returned');
+      const inReview = schedules.filter(item => item.status === 'In Review');
+      const drafts = schedules.filter(item => item.status === 'Draft' || item.status === 'In progress' || item.status === 'Differences noted');
+      const cleared = schedules.filter(item => item.status === 'Approved' || item.status === 'Cleared');
+      const steps: WorkflowStep[] = [
+        { id: 'rec-schedule', label: 'Reconciliation Schedules', state: schedules.length ? 'completed' : 'current', detail: `${schedules.length} schedule(s) in the selected engagement` },
+        { id: 'rec-current-source', label: 'Current TB Source', state: stale.length ? 'stale' : schedules.length && activeEng?.sourceVersion ? 'completed' : 'pending', detail: stale.length ? `${stale.length} schedule(s) reference an older TB source.` : `TB source v${activeEng?.sourceVersion || 0}` },
+        { id: 'rec-review', label: 'Independent Review', state: returned.length ? 'returned' : inReview.length ? 'current' : drafts.length ? 'pending' : cleared.length ? 'completed' : 'pending', detail: `${cleared.length} approved or cleared` }
+      ];
+      return {
+        moduleId: 'MOD-20', moduleName: 'Accounting Workbench', route, currentSection: 'Reconciliations', steps, percentComplete: 0,
+        counts: { completed: 0, pending: 0, blocked: 0, total: steps.length },
+        completedSummary: `${cleared.length} schedule(s) approved or cleared against the current engagement source.`,
+        pendingSummary: `${drafts.length} draft/in-progress, ${inReview.length} awaiting independent review, ${stale.length} stale.`,
+        blockers: [...stale.map(item => `Reconciliation ${item.ref} uses an older trial-balance source; reload and resubmit.`), ...returned.map(item => `Reconciliation ${item.ref} returned: ${item.reviewNote || 'address reviewer notes.'}`)],
+        nextAction: stale.length ? `Refresh reconciliation ${stale[0].ref} against TB v${activeEng?.sourceVersion}` : returned.length ? `Revise returned reconciliation ${returned[0].ref}` : drafts.length ? `Submit reconciliation ${drafts[0].ref} for review` : inReview.length ? `Review reconciliation ${inReview[0].ref}` : schedules.length ? 'Review reconciliations or continue to financial statements' : 'Create a reconciliation for an account requiring support',
+        whoActsNext: returned.length || stale.length || drafts.length ? 'Accounting Preparer' : inReview.length ? 'Independent Accounting Reviewer' : 'Accounting Preparer / Manager'
       };
     }
 
     case 'financial-statements': {
-      const isApproved = Boolean(activeEng?.mappingApproved);
+      const mappingRevision = Math.max(0, ...(state.accountMappingRevisions || []).filter(item => item.engagementId === activeEng?.id).map(item => item.revision));
+      const mapping = (state.accountMappingRevisions || []).filter(item => item.engagementId === activeEng?.id).sort((a, b) => b.revision - a.revision)[0];
+      const latestLayout = (state.statementLayoutRevisions || []).filter(item => item.engagementId === activeEng?.id).sort((a, b) => b.revision - a.revision)[0];
+      const latestStatement = (state.statementSetRevisions || []).filter(item => item.engagementId === activeEng?.id).sort((a, b) => b.revision - a.revision)[0];
+      const latestCashFlow = (activeEng?.cashFlowScheduleHistory || []).slice().sort((a, b) => b.revision - a.revision)[0];
+      const sourceAndMappingReady = Boolean(activeEng?.sourceAccepted && activeEng.mappingApproved && mapping?.status === 'Approved' && mapping.revision === mappingRevision);
+      const layoutCurrent = Boolean(sourceAndMappingReady && latestLayout && latestLayout.sourceVersion === activeEng?.sourceVersion && latestLayout.mappingRevision === mappingRevision);
+      const statementCurrent = Boolean(sourceAndMappingReady && latestStatement && latestStatement.sourceVersion === activeEng?.sourceVersion && latestStatement.mappingRevision === mappingRevision && latestStatement.status !== 'Stale');
+      const cashFlowCurrent = Boolean(latestCashFlow && latestCashFlow.sourceVersion === activeEng?.sourceVersion && latestCashFlow.mappingRevision === mappingRevision && latestCashFlow.status !== 'Stale');
+      const disclosureHistory = activeEng?.disclosureHistory || [];
+      const disclosureReviewComplete = disclosureHistory.length > 0 && disclosureHistory.every(record => record.status === 'Reviewed' && (record.applicability === 'Not applicable' ? Boolean(record.rationale?.trim()) : Boolean(record.text.trim())));
+      const packageCurrent = (activeEng?.packageHistory || []).some(pkg => pkg.sourceVersion === activeEng?.sourceVersion && pkg.mappingRevision === mappingRevision && pkg.validation.passed);
       const steps: WorkflowStep[] = [
-        { id: 'mapping-source', label: 'Approved Mappings', state: isApproved ? 'completed' : 'blocked', targetRoute: 'accounting-setup' },
-        { id: 'bs-pl', label: 'Balance Sheet & P&L', state: isApproved ? 'completed' : 'pending' },
-        { id: 'schedules', label: 'Cash Flow & Equity', state: isApproved ? 'current' : 'pending' },
-        { id: 'notes', label: 'Notes to Accounts', state: isApproved ? 'current' : 'pending' },
-        { id: 'package-ready', label: 'Package Assembly', state: isApproved ? 'completed' : 'pending', targetRoute: 'financial-packages' }
+        { id: 'mapping-source', label: 'Accepted Source & Current Mapping', state: sourceAndMappingReady ? 'completed' : activeEng?.sourceVersion ? 'current' : 'blocked', detail: `TB source v${activeEng?.sourceVersion || 0} · mapping revision ${mappingRevision}`, targetRoute: 'account-mappings' },
+        { id: 'statement-layout', label: 'Current Statement Layout', state: layoutCurrent ? 'completed' : latestLayout && latestLayout.sourceVersion !== activeEng?.sourceVersion ? 'stale' : sourceAndMappingReady ? 'current' : 'pending' },
+        { id: 'statement-set', label: 'Statement Set Review', state: statementCurrent ? latestStatement?.status === 'Reviewed' ? 'completed' : 'current' : latestStatement?.status === 'Stale' ? 'stale' : sourceAndMappingReady ? 'current' : 'pending' },
+        { id: 'schedules', label: 'Current Cash Flow Schedule', state: cashFlowCurrent ? latestCashFlow?.status === 'Reviewed' ? 'completed' : 'current' : latestCashFlow?.status === 'Stale' ? 'stale' : 'pending' },
+        { id: 'notes', label: 'Disclosure Review', state: disclosureReviewComplete ? 'completed' : disclosureHistory.length ? 'current' : 'pending' },
+        { id: 'package-ready', label: 'Current Validated Package', state: packageCurrent ? 'completed' : 'pending', targetRoute: 'financial-packages' }
       ];
 
       return {
@@ -808,37 +1139,41 @@ export function computeModuleWorkflowProgress(
         route: 'financial-statements',
         currentSection: 'Statement Set & Supporting Schedules',
         steps,
-        percentComplete: isApproved ? 80 : 20,
+        percentComplete: 0,
         counts: {
-          completed: isApproved ? 3 : 0,
-          pending: isApproved ? 2 : 5,
-          blocked: isApproved ? 0 : 1,
-          total: 5
+          completed: 0,
+          pending: 0,
+          blocked: 0,
+          total: steps.length
         },
-        completedSummary: isApproved ? 'Financial statements reconciled to accepted trial balance and mapped lines.' : 'Awaiting approved account mappings.',
-        pendingSummary: isApproved ? 'Cash flow and statement note disclosures ready for review.' : 'Mapping approval prerequisite not met.',
-        blockedSummary: !isApproved ? 'Statement generation blocked until account mappings are independently approved.' : undefined,
-        blockers: !isApproved ? ['Account mappings must be approved in Accounting Workbench before statements can be verified.'] : [],
-        nextAction: isApproved ? 'Review statement notes and proceed to Financial Packages assembly' : 'Approve account mappings in Accounting Workbench',
-        whoActsNext: isApproved ? 'Financial Reviewer / Manager' : 'Independent Reviewer'
+        completedSummary: `Current evidence: layout ${layoutCurrent ? 'available' : 'missing or stale'}, statement set ${statementCurrent ? 'available' : 'missing or stale'}, cash flow ${cashFlowCurrent ? 'available' : 'missing or stale'}.`,
+        pendingSummary: !sourceAndMappingReady ? 'Accept the current trial-balance source and independently approve its mapping.' : !statementCurrent ? 'Generate or review a statement set pinned to the current source and mapping revisions.' : !cashFlowCurrent ? 'Prepare and review the cash flow schedule against current revisions.' : !disclosureReviewComplete ? 'Complete the applicable disclosure review.' : 'Continue to financial package validation.',
+        blockedSummary: !sourceAndMappingReady ? 'Statement preparation is blocked until current source acceptance and mapping approval are recorded.' : undefined,
+        blockers: !sourceAndMappingReady ? ['Current source acceptance and independent mapping approval are required before statement preparation.'] : latestStatement?.status === 'Stale' ? ['The latest statement set is stale; regenerate it against the current trial-balance and mapping revisions.'] : [],
+        nextAction: !sourceAndMappingReady ? 'Accept source and approve current account mappings' : !statementCurrent || !layoutCurrent ? 'Generate or refresh the statement layout and set' : !cashFlowCurrent ? 'Prepare a current cash flow schedule' : !disclosureReviewComplete ? 'Review applicable disclosures' : 'Open Financial Packages',
+        whoActsNext: sourceAndMappingReady ? 'Financial Preparer / Reviewer' : 'Independent Accounting Reviewer'
       };
     }
 
     case 'financial-packages': {
-      const latestPackage = (activeEng?.packageHistory || [])[activeEng?.packageHistory?.length ? activeEng.packageHistory.length - 1 : 0];
-      const isAssembled = Boolean(latestPackage);
-      const isPresented = Boolean(activeEng?.managementPresentation);
-      const isAck = activeEng?.managementPackageDecision?.decision === 'Acknowledged';
+      const latestPackage = (activeEng?.packageHistory || []).slice().sort((a, b) => b.revision - a.revision)[0];
+      const mappingRevision = Math.max(0, ...(state.accountMappingRevisions || []).filter(item => item.engagementId === activeEng?.id).map(item => item.revision));
+      const latestGL = activeEng?.glSourceHistory?.at(-1);
+      const isCurrentPackage = Boolean(latestPackage && latestPackage.revision === activeEng?.packageRevision && latestPackage.sourceVersion === activeEng?.sourceVersion && latestPackage.mappingRevision === mappingRevision && latestPackage.glSourceRevision === latestGL?.revision && latestPackage.glSourceSha256 === latestGL?.sha256);
+      const isAssembled = Boolean(isCurrentPackage);
+      const artifactsValid = Boolean(latestPackage && latestPackage.artifacts.length === 3 && latestPackage.artifacts.every(artifact => artifact.id && artifact.name && artifact.mimeType && artifact.size > 0 && /^[0-9a-f]{64}$/i.test(artifact.sha256)));
+      const isPresented = Boolean(isCurrentPackage && activeEng?.managementPresentation && activeEng.managementPresentation.generation === activeEng.generation && activeEng.managementPresentation.sourceVersion === activeEng.sourceVersion && activeEng.managementPresentation.packageRevision === activeEng.packageRevision);
+      const isAck = Boolean(isPresented && activeEng?.managementPackageDecision?.decision === 'Acknowledged' && activeEng.managementPackageDecision.generation === activeEng.generation && activeEng.managementPackageDecision.sourceVersion === activeEng.sourceVersion && activeEng.managementPackageDecision.packageRevision === activeEng.packageRevision);
 
       const steps: WorkflowStep[] = [
         { id: 'assembly', label: 'Package Assembly', state: isAssembled ? 'completed' : 'current' },
-        { id: 'format-gen', label: 'Artifact Generation', state: isAssembled ? 'completed' : 'pending' },
-        { id: 'validation', label: 'Technical Validation', state: latestPackage?.validation?.passed ? 'completed' : isAssembled ? 'current' : 'pending' },
+        { id: 'format-gen', label: 'Artifact Generation', state: isAssembled && artifactsValid ? 'completed' : isAssembled ? 'blocked' : 'pending' },
+        { id: 'validation', label: 'Technical Validation', state: latestPackage?.validation?.passed && isCurrentPackage ? 'completed' : latestPackage && !isCurrentPackage ? 'stale' : isAssembled ? 'current' : 'pending' },
         { id: 'presentation', label: 'Management Presentation', state: isPresented ? 'completed' : latestPackage?.validation?.passed ? 'current' : 'pending' },
         { id: 'management-decision', label: 'Management Sign-off', state: isAck ? 'completed' : isPresented ? 'current' : 'pending' }
       ];
 
-      const percent = isAck ? 100 : isPresented ? 80 : latestPackage?.validation?.passed ? 60 : isAssembled ? 40 : 10;
+      const percent = 0;
 
       return {
         moduleId: 'MOD-25',
@@ -848,34 +1183,55 @@ export function computeModuleWorkflowProgress(
         steps,
         percentComplete: percent,
         counts: {
-          completed: isAck ? 1 : 0,
-          pending: isAck ? 0 : 1,
-          blocked: latestPackage && !latestPackage.validation.passed ? 1 : 0,
-          total: 1
+          completed: 0,
+          pending: 0,
+          blocked: 0,
+          total: steps.length
         },
-        completedSummary: isAck ? 'Financial package formally acknowledged by client management.' : isAssembled ? 'Financial package artifacts (XLSX, DOCX, PDF) assembled.' : 'Package ready for assembly.',
+        completedSummary: isAck ? `Current package revision ${latestPackage?.revision} was acknowledged by management.` : isAssembled ? `Current package revision ${latestPackage?.revision} is assembled.` : latestPackage ? 'A package exists, but it does not match the current source, mapping or revision.' : 'No package revision is assembled for this engagement.',
         pendingSummary: !isAck && isPresented ? 'Awaiting client management acknowledgement.' : !isPresented && latestPackage?.validation?.passed ? 'Awaiting presentation to client management.' : 'Package generation pending.',
-        blockedSummary: latestPackage && !latestPackage.validation.passed ? 'Package validation blocked due to unmapped or pending balances.' : undefined,
-        blockers: latestPackage && !latestPackage.validation.passed ? ['Balance sheet does not balance or unresolved validation errors.'] : [],
-        nextAction: isPresented && !isAck ? 'Record client management decision' : latestPackage?.validation?.passed ? 'Present validated package to client management' : 'Assemble package artifacts',
+        blockedSummary: latestPackage && !latestPackage.validation.passed ? 'Package validation reports unresolved balances or other validation errors.' : !isCurrentPackage && latestPackage ? 'The latest package is stale against current source or mapping revisions.' : undefined,
+        blockers: latestPackage && !latestPackage.validation.passed ? ['Resolve package validation errors before presenting it.'] : !isCurrentPackage && latestPackage ? ['Regenerate the package against the current trial-balance and mapping revisions.'] : [],
+        nextAction: isPresented && !isAck ? 'Record the management decision for this exact package revision' : latestPackage?.validation?.passed && isCurrentPackage ? 'Present this validated package revision to management' : 'Assemble and validate a current package revision',
         whoActsNext: isPresented ? 'Client Management' : 'Engagement Manager'
       };
     }
 
     case 'consolidation': {
       const groups = state.consolidationGroups || [];
-      const group = groups[0];
+      const group = groups.find(item => item.id === context.recordId) || groups[0];
+      if (group && !hasConsolidationGroupScope(state, group.id)) {
+        return {
+          moduleId: 'MOD-26', moduleName: 'Group Consolidation', route, currentSection: 'Consolidation Group', steps: [], percentComplete: null,
+          applicability: 'unavailable', metricLabel: 'Unavailable', scopeLabel: 'The selected group is outside the current permitted scope.',
+          counts: { completed: 0, current: 0, pending: 0, blocked: 0, returned: 0, stale: 0, skipped: 0, notApplicable: 0, total: 0 },
+          completedSummary: 'No group progress was loaded.', pendingSummary: 'Select an authorized consolidation group.', blockers: [],
+          nextAction: 'Return to an authorized group workspace.', whoActsNext: 'A permitted user'
+        };
+      }
       const elims = group?.eliminations || [];
       const approvedElims = elims.filter(e => e.status === 'Approved');
       const pendingElims = elims.filter(e => e.status === 'Submitted' || e.status === 'Draft');
-      const outputPkg = (group?.outputPackages || [])[(group?.outputPackages || []).length - 1];
+      const returnedElims = elims.filter(e => e.status === 'Returned');
+      const outputPkg = (group?.outputPackages || []).slice().sort((a, b) => b.revision - a.revision)[0];
+      const groupCurrency = group?.presentationCurrency || group?.currency;
+      const foreignCurrencies = [...new Set((group?.components || []).map(component => component.currency).filter(currency => currency !== groupCurrency))];
+      const fxCurrent = foreignCurrencies.every(currency => Number.isFinite(group?.fxRates[currency]) && (group?.fxRates[currency] || 0) > 0);
+      const componentPinsCurrent = Boolean(group?.components.length && group.components.every(component => {
+        const source = state.engagements.find(item => item.id === component.componentId);
+        const packageRevision = source?.packageHistory?.find(item => item.revision === component.packageRevisionPinned);
+        return component.status === 'Ready' && packageRevision && component.packageReview?.packageRevision === packageRevision.revision && component.packageReview.sourceVersion === source?.sourceVersion;
+      }));
+      const outputFingerprint = group ? consolidationOutputFingerprint(group, state) : undefined;
+      const outputCurrent = Boolean(outputPkg && outputFingerprint && outputPkg.fingerprint === outputFingerprint && outputPkg.status === 'Approved' && outputPkg.approvedFingerprint === outputFingerprint && outputPkg.artifact.size > 0 && /^[0-9a-f]{64}$/i.test(outputPkg.artifact.sha256));
+      const allEliminationsCurrent = Boolean(elims.length && approvedElims.length === elims.length && approvedElims.every(item => item.approvedPerimeterRevision === (group?.perimeterRevision || 1)));
 
       const steps: WorkflowStep[] = [
-        { id: 'perimeter', label: 'Group Perimeter', state: group ? 'completed' : 'current' },
-        { id: 'component-sources', label: 'Pinned Component Sources', state: group?.components?.length ? 'completed' : 'pending' },
-        { id: 'fx-rates', label: 'FX Translation Rates', state: Object.keys(group?.fxRates || {}).length ? 'completed' : 'current' },
-        { id: 'eliminations', label: 'Eliminations', state: pendingElims.length ? 'current' : approvedElims.length ? 'completed' : 'pending' },
-        { id: 'output', label: 'Group Output Package', state: outputPkg?.status === 'Approved' ? 'completed' : 'pending' }
+        { id: 'perimeter', label: 'Current Group Perimeter', state: group?.status === 'Draft' ? 'current' : group ? 'completed' : 'pending', detail: group ? `Perimeter revision ${group.perimeterRevision || 1}` : 'No group is configured.' },
+        { id: 'component-sources', label: 'Pinned Current Component Packages', state: componentPinsCurrent ? 'completed' : group?.components.length ? group.components.some(component => component.status === 'Stale') ? 'stale' : 'current' : 'pending' },
+        { id: 'fx-rates', label: 'Applicable FX Rates', state: foreignCurrencies.length === 0 ? 'na' : fxCurrent ? 'completed' : 'current', detail: foreignCurrencies.length ? `${foreignCurrencies.length} foreign component currency(ies)` : 'All components use the presentation currency.' },
+        { id: 'eliminations', label: 'Current Intercompany Eliminations', state: returnedElims.length ? 'returned' : pendingElims.length ? 'current' : allEliminationsCurrent ? 'completed' : 'pending' },
+        { id: 'output', label: 'Current Reviewed Group Output', state: outputCurrent ? 'completed' : outputPkg && outputPkg.status === 'Approved' ? 'stale' : outputPkg?.status === 'Returned' ? 'returned' : 'pending' }
       ];
 
       return {
@@ -884,18 +1240,18 @@ export function computeModuleWorkflowProgress(
         route: 'consolidation',
         currentSection: 'Multi-Entity Group Consolidation & Elimination',
         steps,
-        percentComplete: outputPkg?.status === 'Approved' ? 100 : 70,
+        percentComplete: 0,
         counts: {
           completed: approvedElims.length,
           pending: pendingElims.length,
           blocked: 0,
           total: elims.length || 1
         },
-        completedSummary: `${approvedElims.length} balanced intercompany elimination(s) independently approved.`,
-        pendingSummary: `${pendingElims.length} elimination(s) awaiting review; translation balanced.`,
-        blockers: [],
-        nextAction: pendingElims.length ? 'Review and approve pending elimination entries' : 'Prepare and download consolidated output package',
-        whoActsNext: 'Group Reviewer / Partner'
+        completedSummary: `${approvedElims.length} of ${elims.length} elimination(s) approved; component pins ${componentPinsCurrent ? 'current' : 'incomplete or stale'}; output ${outputCurrent ? 'current' : 'not current'}.`,
+        pendingSummary: `${pendingElims.length} draft/submitted and ${returnedElims.length} returned elimination(s); ${foreignCurrencies.length} applicable FX currency(ies).`,
+        blockers: [...returnedElims.map(item => `Elimination ${item.id} was returned; revise it against the current group inputs.`), ...(group?.components.some(component => component.status === 'Stale') ? ['A component package pin is stale; refresh the perimeter source and reviews.'] : [])],
+        nextAction: returnedElims.length ? `Revise returned elimination ${returnedElims[0].id}` : !componentPinsCurrent ? 'Refresh and review component package pins' : !fxCurrent ? 'Record the required current FX translation rates' : pendingElims.length ? 'Submit or review pending elimination entries' : !allEliminationsCurrent ? 'Assess whether intercompany eliminations are required and record supported entries' : 'Prepare or review the current group output package',
+        whoActsNext: returnedElims.length || pendingElims.some(item => item.status === 'Draft') ? 'Group Preparer' : pendingElims.length ? 'Group Reviewer' : 'Group Reviewer / Partner'
       };
     }
 
@@ -903,13 +1259,17 @@ export function computeModuleWorkflowProgress(
       const plan = (state.auditPlans || []).find(p => p.engagementId === activeEng?.id);
       const isApproved = plan?.status === 'Approved';
       const isUnderReview = plan?.status === 'Under review';
+      const risks = (state.auditRisks || []).filter(item => item.engagementId === activeEng?.id);
+      const hasMateriality = Boolean(plan?.overallMateriality && Number.isFinite(plan.overallMateriality) && plan.overallMateriality > 0);
+      const hasEngagementAcceptance = Boolean(activeEng?.acceptance && activeEng.terms);
+      const hasAssignedTeam = Boolean(activeEng?.team.length && activeEng.manager && activeEng.partner);
 
       const steps: WorkflowStep[] = [
-        { id: 'context', label: 'Engagement Benchmark', state: 'completed' },
-        { id: 'materiality', label: 'Materiality Calculation', state: plan?.overallMateriality ? 'completed' : 'current' },
-        { id: 'risks-scope', label: 'Risk Scoping', state: 'completed', targetRoute: 'audit-risks' },
-        { id: 'milestones', label: 'Team & Milestones', state: 'completed' },
-        { id: 'plan-approval', label: 'Plan Approval', state: isApproved ? 'completed' : isUnderReview ? 'current' : 'pending' }
+        { id: 'context', label: 'Accepted Engagement Context', state: hasEngagementAcceptance ? 'completed' : 'blocked' },
+        { id: 'materiality', label: 'Materiality Calculation', state: hasMateriality ? 'completed' : plan ? 'current' : 'pending' },
+        { id: 'risks-scope', label: 'Engagement Risk Scoping', state: risks.length ? 'completed' : plan ? 'current' : 'pending', targetRoute: 'audit-risks' },
+        { id: 'milestones', label: 'Assigned Team', state: hasAssignedTeam ? 'completed' : 'pending' },
+        { id: 'plan-approval', label: 'Independent Plan Approval', state: isApproved ? 'completed' : isUnderReview ? 'current' : plan ? 'pending' : 'pending' }
       ];
 
       return {
@@ -918,14 +1278,14 @@ export function computeModuleWorkflowProgress(
         route: 'audit-planning',
         currentSection: 'Materiality, Audit Strategy & Milestones',
         steps,
-        percentComplete: isApproved ? 100 : isUnderReview ? 80 : 50,
+        percentComplete: 0,
         counts: {
           completed: isApproved ? 1 : 0,
           pending: isApproved ? 0 : 1,
           blocked: 0,
           total: 1
         },
-        completedSummary: isApproved ? `Audit plan v${plan?.version || 1} approved with overall materiality recorded.` : 'Planning benchmarks calculated.',
+        completedSummary: isApproved ? `Audit plan v${plan?.version || 1} approved with overall materiality recorded.` : plan ? `Audit plan v${plan.version} is ${plan.status.toLowerCase()}.` : 'No audit plan is recorded for this engagement.',
         pendingSummary: isUnderReview ? 'Audit plan submitted for independent review.' : 'Plan drafting in progress.',
         blockers: [],
         nextAction: isUnderReview ? 'Perform independent review on audit plan' : !isApproved ? 'Submit audit plan for review' : 'Proceed to risk assessment and audit programs',
@@ -935,7 +1295,7 @@ export function computeModuleWorkflowProgress(
 
     case 'audit-risks':
     case 'audit-fieldwork': {
-      const risks = (state.auditRisks || []).filter(r => !activeEng || r.engagementId === activeEng.id);
+      const risks = (state.auditRisks || []).filter(r => r.engagementId === activeEng?.id);
       const programs = (state.auditPrograms || []).filter(p => !activeEng || p.engagementId === activeEng.id);
       const procs: AuditProcedureItem[] = programs.flatMap(pr => pr.procedures || []);
       const cleared = procs.filter((p: AuditProcedureItem) => p.status === 'Cleared' || p.status === 'Completed');
@@ -943,12 +1303,16 @@ export function computeModuleWorkflowProgress(
       const inProgress = procs.filter((p: AuditProcedureItem) => p.status === 'In progress');
       const exceptions = procs.filter((p: AuditProcedureItem) => p.status === 'Exceptions noted' || p.status === 'Exception noted');
 
-      const steps: WorkflowStep[] = [
-        { id: 'risk-assessment', label: 'Risk Assessment', state: risks.length ? 'completed' : 'current' },
-        { id: 'program-design', label: 'Program Design', state: procs.length ? 'completed' : 'pending' },
-        { id: 'fieldwork', label: 'Procedure Execution', state: inProgress.length ? 'current' : 'completed' },
-        { id: 'review-clearance', label: 'Procedure Clearance', state: exceptions.length ? 'returned' : submitted.length ? 'current' : 'completed' },
-        { id: 'exceptions-findings', label: 'Findings Linkage', state: exceptions.length ? 'blocked' : 'completed', targetRoute: 'findings' }
+      const isRiskRoute = route === 'audit-risks';
+      const steps: WorkflowStep[] = isRiskRoute ? [
+        { id: 'risk-register', label: 'Scoped Risk Register', state: risks.length ? 'completed' : 'current', detail: `${risks.length} risk(s) recorded` },
+        { id: 'risk-response', label: 'Risk Response', state: risks.length && risks.every(item => item.response.trim()) ? 'completed' : risks.length ? 'current' : 'pending' },
+        { id: 'audit-programs', label: 'Linked Audit Programs', state: programs.length ? 'completed' : risks.length ? 'current' : 'pending', targetRoute: 'audit-fieldwork' }
+      ] : [
+        { id: 'program-design', label: 'Scoped Audit Procedures', state: procs.length ? 'completed' : 'pending', detail: `${procs.length} procedure(s) in the selected engagement` },
+        { id: 'fieldwork', label: 'Procedure Execution', state: exceptions.length ? 'returned' : inProgress.length ? 'current' : procs.length && (submitted.length + cleared.length) === procs.length ? 'completed' : procs.length ? 'pending' : 'pending' },
+        { id: 'review-clearance', label: 'Independent Procedure Clearance', state: exceptions.length ? 'returned' : submitted.length ? 'current' : procs.length && cleared.length === procs.length ? 'completed' : 'pending' },
+        { id: 'exceptions-findings', label: 'Finding Linkage', state: exceptions.length ? 'current' : procs.length && cleared.length === procs.length ? 'completed' : 'pending', targetRoute: 'findings' }
       ];
 
       const percent = procs.length ? Math.round((cleared.length / procs.length) * 100) : 0;
@@ -956,8 +1320,8 @@ export function computeModuleWorkflowProgress(
       return {
         moduleId: 'MOD-29',
         moduleName: 'Risks & Audit Programs',
-        route: 'audit-risks',
-        currentSection: 'Audit Programs & Procedure Execution',
+        route,
+        currentSection: isRiskRoute ? 'Engagement Risk Register' : 'Audit Program & Fieldwork Execution',
         steps,
         percentComplete: percent,
         counts: {
@@ -971,24 +1335,39 @@ export function computeModuleWorkflowProgress(
         pendingSummary: `${submitted.length} submitted awaiting clearance; ${inProgress.length} in progress.`,
         blockedSummary: exceptions.length ? `${exceptions.length} procedure(s) with exceptions noted.` : undefined,
         blockers: exceptions.map((p: AuditProcedureItem) => `Procedure ${p.id}: Exceptions noted - link to finding or obtain additional audit evidence`),
-        nextAction: exceptions.length ? `Link exceptions in ${exceptions[0].id} to findings register` : submitted.length ? `Clear submitted procedure ${submitted[0].id}` : 'Execute assigned audit procedures',
+        nextAction: isRiskRoute ? risks.length ? programs.length ? 'Execute linked procedures in Audit Fieldwork' : 'Design audit programs for the scoped risks' : 'Record an engagement risk assessment' : exceptions.length ? `Link exceptions in ${exceptions[0].id} to findings register` : submitted.length ? `Clear submitted procedure ${submitted[0].id}` : 'Execute assigned audit procedures',
         whoActsNext: submitted.length ? 'Assigned Reviewer' : 'Audit Senior / Preparer'
       };
     }
 
     case 'sampling': {
-      const populations = (state.samplePopulations || []).filter(p => !activeEng || p.engagementId === activeEng.id);
-      const pop = populations[0];
+      const populations = (state.samplePopulations || []).filter(population => population.engagementId === activeEng?.id);
+      const explicitPopulationUnavailable = Boolean(context.recordId && !populations.some(population => population.id === context.recordId));
+      if (explicitPopulationUnavailable) {
+        return {
+          moduleId: 'MOD-31', moduleName: 'Sampling & Populations', route: 'sampling', currentSection: 'Audit Sampling & Substantive Testing',
+          steps: [], percentComplete: null, applicability: 'unavailable', metricLabel: 'Unavailable',
+          scopeLabel: 'Selected population is missing or outside the engagement', selectedRecordId: context.recordId,
+          counts: { completed: 0, current: 0, pending: 0, blocked: 0, returned: 0, stale: 0, skipped: 0, notApplicable: 0, total: 0 },
+          completedSummary: 'No sample progress was calculated for the missing population.',
+          pendingSummary: 'Select a population from the current engagement.', blockers: [],
+          nextAction: 'Choose an authorized population in Sampling & Populations.', whoActsNext: 'Workspace user'
+        };
+      }
+      const pop = context.recordId ? populations.find(population => population.id === context.recordId) : populations[0];
       const items: SamplePopulationRow[] = pop?.items || [];
-      const tested = items.filter((i: SamplePopulationRow) => i.tested);
       const selected = items.filter((i: SamplePopulationRow) => i.selected);
+      const tested = selected.filter((i: SamplePopulationRow) => i.tested);
+      const frameCurrent = Boolean(pop && isSampleFrameReconciled(state, pop));
+      const latestReview = pop?.selectionReviews?.slice().sort((a, b) => b.version - a.version)[0];
+      const reviewCurrent = Boolean(latestReview && pop && latestReview.version === (pop.selectionVersion || 0) && latestReview.sourceRevision === (pop.sourceRevision || 1) && latestReview.selectedCount === selected.length && latestReview.testedCount === tested.length);
 
       const steps: WorkflowStep[] = [
-        { id: 'population-intake', label: 'Population Intake', state: pop ? 'completed' : 'current' },
-        { id: 'gl-reconciliation', label: 'GL Reconciliation', state: pop?.sourceComplete ? 'completed' : 'current' },
-        { id: 'selection', label: 'Sample Selection', state: selected.length ? 'completed' : 'current' },
+        { id: 'population-intake', label: 'Population Source', state: pop ? 'completed' : 'pending', detail: pop ? `${pop.totalPopulationCount} population row(s) · source revision ${pop.sourceRevision || 1}` : 'No population is registered for this engagement.' },
+        { id: 'gl-reconciliation', label: 'Mapped GL Reconciliation', state: frameCurrent ? 'completed' : pop?.sourceComplete ? 'blocked' : 'pending' },
+        { id: 'selection', label: 'Current Sample Selection', state: selected.length ? 'completed' : pop && frameCurrent ? 'current' : 'pending' },
         { id: 'testing', label: 'Substantive Testing', state: tested.length === selected.length && selected.length > 0 ? 'completed' : tested.length > 0 ? 'current' : 'pending' },
-        { id: 'evaluation', label: 'Review & Exceptions', state: pop?.selectionReviews?.length ? 'completed' : 'pending' }
+        { id: 'evaluation', label: 'Current Sample Evaluation', state: reviewCurrent ? 'completed' : latestReview ? 'stale' : selected.length ? 'current' : 'pending' }
       ];
 
       return {
@@ -997,17 +1376,17 @@ export function computeModuleWorkflowProgress(
         route: 'sampling',
         currentSection: 'Audit Sampling & Substantive Testing',
         steps,
-        percentComplete: selected.length ? Math.round((tested.length / selected.length) * 100) : 50,
+        percentComplete: 0,
         counts: {
           completed: tested.length,
           pending: selected.length - tested.length,
           blocked: 0,
           total: selected.length || items.length
         },
-        completedSummary: `${tested.length} sample item(s) tested against primary documentation.`,
+        completedSummary: `${tested.length} of ${selected.length} selected sample item(s) tested; current frame reconciliation ${frameCurrent ? 'passed' : 'not established'}.`,
         pendingSummary: `${selected.length - tested.length} selected item(s) awaiting testing.`,
-        blockers: [],
-        nextAction: tested.length < selected.length ? 'Complete substantive testing for selected items' : 'Review sampling results and evaluate population error',
+        blockers: pop && !frameCurrent ? ['Population source does not reconcile to the mapped GL balance, engagement period and currency. Refresh or correct the source before selection/review.'] : [],
+        nextAction: !pop ? 'Import a population for this engagement' : !frameCurrent ? 'Reconcile the population source to the current mapped GL' : !selected.length ? 'Select a supported sample from the reconciled population' : tested.length < selected.length ? 'Complete substantive testing for selected items' : 'Evaluate and independently review current sample results',
         whoActsNext: tested.length < selected.length ? 'Assigned Preparer' : 'Audit Reviewer'
       };
     }
@@ -1015,19 +1394,21 @@ export function computeModuleWorkflowProgress(
     case 'audit': {
       const wps = activeEng?.workpapers || [];
       const cleared = wps.filter(w => w.status === 'Cleared');
+      const currentCleared = cleared.filter(w => w.clearance?.version === w.version && w.clearance.sourceVersion === activeEng?.sourceVersion && w.clearance.generation === activeEng?.generation);
       const submitted = wps.filter(w => w.status === 'Submitted');
       const rework = wps.filter(w => w.status === 'Changes required');
       const inProgress = wps.filter(w => w.status === 'In progress');
       const planned = wps.filter(w => w.status === 'Planned');
       const na = wps.filter(w => w.status === 'Not applicable');
-      const applicable = wps.filter(w => w.status !== 'Not applicable');
+      const applicable = wps.filter(w => w.applicable && w.status !== 'Not applicable');
+      const allNotApplicable = wps.length > 0 && applicable.length === 0;
 
       const steps: WorkflowStep[] = [
-        { id: 'wp-setup', label: 'Template Setup', state: 'completed' },
-        { id: 'wp-execution', label: 'Preparation', state: rework.length ? 'returned' : inProgress.length ? 'current' : 'completed' },
-        { id: 'wp-evidence', label: 'Evidence Attached', state: 'completed', targetRoute: 'evidence' },
-        { id: 'wp-submitted', label: 'Independent Review', state: submitted.length ? 'current' : 'completed' },
-        { id: 'wp-cleared', label: 'Cleared Workpapers', state: cleared.length === applicable.length && applicable.length > 0 ? 'completed' : 'current' }
+        { id: 'wp-setup', label: 'Workpaper Scope & Template', state: wps.length && wps.every(w => Boolean(w.template?.name && w.template?.ref)) ? 'completed' : wps.length ? 'current' : 'pending' },
+        { id: 'wp-execution', label: 'Preparation', state: allNotApplicable ? 'na' : rework.length ? 'returned' : inProgress.length ? 'current' : planned.length ? 'pending' : currentCleared.length ? 'completed' : 'pending' },
+        { id: 'wp-evidence', label: 'Supporting Evidence', state: allNotApplicable ? 'na' : wps.length && applicable.length > 0 && applicable.every(w => w.supportingEvidence.length > 0) ? 'completed' : wps.length ? 'current' : 'pending', targetRoute: 'evidence' },
+        { id: 'wp-submitted', label: 'Independent Review', state: allNotApplicable ? 'na' : submitted.length ? 'current' : rework.length ? 'returned' : currentCleared.length ? 'completed' : 'pending' },
+        { id: 'wp-cleared', label: 'Current Workpaper Clearances', state: allNotApplicable ? 'na' : currentCleared.length === applicable.length && applicable.length > 0 ? 'completed' : cleared.length > currentCleared.length ? 'stale' : rework.length ? 'returned' : applicable.length ? 'current' : 'pending' }
       ];
 
       const percent = applicable.length ? Math.round((cleared.length / applicable.length) * 100) : 0;
@@ -1040,13 +1421,13 @@ export function computeModuleWorkflowProgress(
         steps,
         percentComplete: percent,
         counts: {
-          completed: cleared.length + na.length,
+          completed: currentCleared.length,
           pending: submitted.length + inProgress.length + planned.length,
           blocked: rework.length,
           total: wps.length,
           returned: rework.length
         },
-        completedSummary: `${cleared.length} of ${applicable.length} applicable workpaper(s) independently cleared.`,
+        completedSummary: `${currentCleared.length} of ${applicable.length} applicable workpaper(s) have current independent clearance; ${na.length} marked not applicable with separate rationale.`,
         pendingSummary: `${submitted.length} submitted awaiting review; ${inProgress.length} in progress.`,
         blockedSummary: rework.length ? `${rework.length} workpaper(s) marked 'Changes required' due to evidence/source updates.` : undefined,
         blockers: rework.map(w => `${w.id} (${w.title}): Rework required - review note or evidence revision invalidated submission`),
@@ -1056,18 +1437,21 @@ export function computeModuleWorkflowProgress(
     }
 
     case 'evidence': {
-      const docs = state.documents || [];
-      const evidence = state.evidenceCatalogue || [];
-      const adequate = evidence.filter(e => e.adequacyStatus === 'Adequate');
-      const deficient = evidence.filter(e => e.adequacyStatus === 'Deficient');
-      const pending = evidence.filter(e => e.adequacyStatus === 'Pending verification');
+      const docs = (state.documents || []).filter(document => document.clientId === activeEng?.client && document.engagementId === activeEng?.id);
+      const docById = new Map(docs.map(document => [document.id, document]));
+      const evidence = (state.evidenceCatalogue || []).filter(item => docById.has(item.documentId));
+      const adequate = evidence.filter(item => item.adequacyStatus === 'Adequate' && docById.get(item.documentId)?.version === item.version && !docById.get(item.documentId)?.brokenLink);
+      const deficient = evidence.filter(item => item.adequacyStatus === 'Deficient');
+      const pending = evidence.filter(item => item.adequacyStatus === 'Pending verification' || item.adequacyStatus === 'Adequate' && docById.get(item.documentId)?.version !== item.version);
+      const hashRecorded = docs.filter(document => Boolean(document.sha && /^[0-9a-f]{64}$/i.test(document.sha)));
+      const linkedEvidence = adequate.filter(item => item.linkedProcedures.length > 0);
 
       const steps: WorkflowStep[] = [
-        { id: 'intake', label: 'Document Intake', state: docs.length ? 'completed' : 'current' },
-        { id: 'hash', label: 'Integrity & Hashing', state: 'completed' },
-        { id: 'adequacy', label: 'Adequacy Assessment', state: deficient.length ? 'blocked' : pending.length ? 'current' : 'completed' },
-        { id: 'linkage', label: 'Workpaper Linkage', state: adequate.length ? 'completed' : 'pending', targetRoute: 'audit' },
-        { id: 'retention', label: 'Release Preservation', state: 'completed' }
+        { id: 'intake', label: 'In-Scope Evidence Documents', state: docs.length ? 'completed' : 'pending', detail: `${docs.length} document(s) for the selected engagement` },
+        { id: 'hash', label: 'Recorded Source Digests', state: hashRecorded.length === docs.length && docs.length > 0 ? 'completed' : docs.length ? 'current' : 'pending', detail: `${hashRecorded.length} of ${docs.length} documents have a SHA-256 digest` },
+        { id: 'adequacy', label: 'Current Adequacy Assessment', state: deficient.length ? 'blocked' : pending.length ? 'current' : adequate.length ? 'completed' : 'pending' },
+        { id: 'linkage', label: 'Procedure Linkage', state: linkedEvidence.length === adequate.length && adequate.length > 0 ? 'completed' : adequate.length ? 'current' : 'pending', targetRoute: 'audit' },
+        { id: 'retention', label: 'Release Preservation', state: activeEng?.releases?.length ? 'completed' : 'na', detail: activeEng?.releases?.length ? 'Released evidence follows the engagement archive lineage.' : 'Applicable only after an exact engagement release.' }
       ];
 
       return {
@@ -1076,7 +1460,7 @@ export function computeModuleWorkflowProgress(
         route: 'evidence',
         currentSection: 'Audit Evidence & Corroborating Documentation',
         steps,
-        percentComplete: evidence.length ? Math.round((adequate.length / evidence.length) * 100) : 80,
+        percentComplete: 0,
         counts: {
           completed: adequate.length,
           pending: pending.length,
@@ -1096,13 +1480,14 @@ export function computeModuleWorkflowProgress(
       const findings = (state.findings || []).filter(f => !activeEng || f.engagementId === activeEng.id);
       const resolved = findings.filter(f => f.disposition === 'Corrected in TB' || f.disposition === 'Corrected by client' || f.disposition === 'Waived as immaterial');
       const open = findings.filter(f => f.disposition === 'Uncorrected' || f.disposition === 'Proposed for correction' || f.disposition === 'Management agreed');
+      const quantified = findings.filter(f => Number.isFinite(f.amount) && f.amount !== undefined && f.amount >= 0);
 
       const steps: WorkflowStep[] = [
-        { id: 'id', label: 'Difference Identification', state: findings.length ? 'completed' : 'current' },
-        { id: 'quant', label: 'Quantification', state: 'completed' },
-        { id: 'discussion', label: 'Management Discussion', state: open.length ? 'current' : 'completed' },
+        { id: 'id', label: 'Difference Identification', state: findings.length ? 'completed' : 'pending' },
+        { id: 'quant', label: 'Quantification', state: quantified.length === findings.length && findings.length > 0 ? 'completed' : findings.length ? 'current' : 'pending' },
+        { id: 'discussion', label: 'Management Discussion', state: open.length ? 'current' : findings.length ? 'completed' : 'pending' },
         { id: 'disposition', label: 'Disposition Recorded', state: resolved.length ? 'completed' : 'pending' },
-        { id: 'tb-reflection', label: 'TB Reflection / Waiver', state: resolved.length === findings.length && findings.length > 0 ? 'completed' : 'current' }
+        { id: 'tb-reflection', label: 'TB Reflection / Waiver', state: resolved.length === findings.length && findings.length > 0 ? 'completed' : findings.length ? 'current' : 'pending' }
       ];
 
       return {
@@ -1111,7 +1496,7 @@ export function computeModuleWorkflowProgress(
         route: 'findings',
         currentSection: 'Audit Differences & Findings Register',
         steps,
-        percentComplete: findings.length ? Math.round((resolved.length / findings.length) * 100) : 100,
+        percentComplete: 0,
         counts: {
           completed: resolved.length,
           pending: open.length,
@@ -1133,15 +1518,21 @@ export function computeModuleWorkflowProgress(
       const responded = notes.filter(n => n.status === 'Responded');
       const reopened = notes.filter(n => n.status === 'Reopened');
 
+      const assigned = notes.filter(note => {
+        const user = state.users.find(person => person.id === note.assignedUserId) || state.users.find(person => person.name === (note.assignee || note.assigned));
+        if (!user || user.status !== 'Active') return false;
+        const visible = visibleEngagementIds(state, user.id);
+        return visible === 'ALL' || Boolean(activeEng && visible.includes(activeEng.id));
+      });
       const steps: WorkflowStep[] = [
         { id: 'query', label: 'Review Query Raised', state: notes.length ? 'completed' : 'current' },
-        { id: 'assignment', label: 'Assignee Notified', state: 'completed' },
-        { id: 'response', label: 'Preparer Response', state: reopened.length ? 'returned' : responded.length ? 'completed' : open.length ? 'current' : 'completed' },
+        { id: 'assignment', label: 'Active Scoped Reviewer Assignment', state: notes.length && assigned.length === notes.length ? 'completed' : notes.length ? 'current' : 'pending' },
+        { id: 'response', label: 'Preparer Response', state: reopened.length ? 'returned' : responded.length ? 'completed' : open.length ? 'current' : cleared.length ? 'completed' : 'pending' },
         { id: 'clearance', label: 'Reviewer Clearance', state: cleared.length === notes.length && notes.length > 0 ? 'completed' : responded.length ? 'current' : 'pending' },
         { id: 'resolution', label: 'Engagement Sign-off', state: cleared.length === notes.length && notes.length > 0 ? 'completed' : 'pending' }
       ];
 
-      const percent = notes.length ? Math.round((cleared.length / notes.length) * 100) : 100;
+      const percent = 0;
 
       return {
         moduleId: 'MOD-35',
@@ -1169,23 +1560,22 @@ export function computeModuleWorkflowProgress(
     case 'approvals':
     case 'quality': {
       const apprs = activeEng?.approvals || { manager: null, client: null, partner: null, eqr: null };
-      const mgr = Boolean(apprs.manager);
-      const client = Boolean(apprs.client);
-      const partner = Boolean(apprs.partner);
-      const eqr = Boolean(apprs.eqr);
+      const readiness = evaluateReleaseReadiness(activeEng, state);
+      const mgr = readiness.approvals.manager;
+      const client = readiness.approvals.client;
+      const partner = readiness.approvals.partner;
+      const eqr = readiness.approvals.eqr;
+      const managementAck = readiness.approvals.managementAcknowledgement;
       const eqrRequired = Boolean(activeEng?.eqrRequired);
 
       const steps: WorkflowStep[] = [
-        { id: 'mgr-approval', label: 'Manager Sign-off', state: mgr ? 'completed' : 'current' },
-        { id: 'client-approval', label: 'Client Management', state: client ? 'completed' : mgr ? 'current' : 'pending' },
-        { id: 'partner-approval', label: 'Partner Sign-off', state: partner ? 'completed' : client ? 'current' : 'pending' },
-        { id: 'eqr-approval', label: eqrRequired ? 'EQR Sign-off' : 'EQR (Not Required)', state: !eqrRequired ? 'na' : eqr ? 'completed' : partner ? 'current' : 'pending' },
-        { id: 'release-auth', label: 'Release Authorization', state: partner && (!eqrRequired || eqr) ? 'completed' : 'pending', targetRoute: 'delivery' }
+        { id: 'mgr-approval', label: 'Current Independent Manager Sign-off', state: mgr ? 'completed' : apprs.manager ? 'stale' : 'current', detail: mgr ? `Generation ${activeEng?.generation}` : 'Requires current generation and separation from partner.' },
+        { id: 'client-approval', label: 'Client Management Representation', state: client ? 'completed' : apprs.client ? 'stale' : mgr ? 'current' : 'pending', detail: 'Client representation is separate from package acknowledgement.' },
+        { id: 'management-package-ack', label: 'Current Package Acknowledgement', state: managementAck ? 'completed' : activeEng?.managementPackageDecision ? 'stale' : 'pending', detail: managementAck ? `Package revision ${activeEng?.packageRevision}` : 'Requires a presentation and acknowledgement for the current package.' },
+        { id: 'partner-approval', label: 'Current Partner Sign-off', state: partner ? 'completed' : apprs.partner ? 'stale' : client && managementAck ? 'current' : 'pending' },
+        { id: 'eqr-approval', label: eqrRequired ? 'Applicable EQR Concurrence' : 'EQR Concurrence (Not Required)', state: !eqrRequired ? 'na' : eqr ? 'completed' : apprs.eqr ? 'stale' : partner ? 'current' : 'pending' },
+        { id: 'release-auth', label: 'Authoritative Release Readiness', state: readiness.ready ? 'completed' : 'blocked', targetRoute: 'delivery', detail: readiness.ready ? 'Readiness helper agrees all store release preconditions are satisfied.' : readiness.reason }
       ];
-
-      const requiredCount = 3 + (eqrRequired ? 1 : 0);
-      const doneCount = (mgr ? 1 : 0) + (client ? 1 : 0) + (partner ? 1 : 0) + (eqrRequired && eqr ? 1 : 0);
-      const percent = Math.round((doneCount / requiredCount) * 100);
 
       return {
         moduleId: 'MOD-36',
@@ -1193,50 +1583,38 @@ export function computeModuleWorkflowProgress(
         route: 'approvals',
         currentSection: 'Engagement Final Approvals & Quality Review',
         steps,
-        percentComplete: percent,
+        percentComplete: 0,
         counts: {
-          completed: doneCount,
-          pending: requiredCount - doneCount,
+          completed: 0,
+          pending: 0,
           blocked: 0,
-          total: requiredCount
+          total: steps.length
         },
-        completedSummary: `${doneCount} of ${requiredCount} required sign-offs recorded for current generation.`,
-        pendingSummary: `${requiredCount - doneCount} approval(s) outstanding.`,
-        blockers: [],
-        nextAction: !mgr ? 'Record Manager technical approval' : !client ? 'Record Client Management approval' : !partner ? 'Record Partner engagement sign-off' : eqrRequired && !eqr ? 'Record EQR concurrence' : 'All approvals cleared for release',
-        whoActsNext: !mgr ? 'Engagement Manager' : !client ? 'Client Management' : !partner ? 'Engagement Partner' : eqrRequired && !eqr ? 'Independent EQR Partner' : 'Partner'
+        completedSummary: `${[mgr, client, managementAck, partner, !eqrRequired || eqr, readiness.ready].filter(Boolean).length} approval and release conditions currently satisfied.`,
+        pendingSummary: readiness.ready ? 'Current approvals and release preconditions agree.' : `${readiness.blockers.length} authoritative release precondition(s) remain.`,
+        blockers: readiness.blockers,
+        nextAction: !mgr ? 'Record a current manager approval by a person independent from the partner' : !client ? 'Record current client management representation' : !managementAck ? 'Present the current package and record management acknowledgement' : !partner ? 'Record current partner sign-off' : eqrRequired && !eqr ? 'Record current independent EQR concurrence' : !readiness.ready ? readiness.reason || 'Resolve the first outstanding release precondition' : 'Proceed to Release & Completion',
+        whoActsNext: !mgr ? 'Engagement Manager' : !client || !managementAck ? 'Client Management' : !partner ? 'Engagement Partner' : eqrRequired && !eqr ? 'Independent EQR Partner' : readiness.ready ? 'Engagement Partner' : 'Engagement Team'
       };
     }
 
     case 'delivery': {
-      const allWpCleared = activeEng ? activeEng.workpapers.every(w => !w.applicable || w.status === 'Cleared' || w.status === 'Not applicable') : false;
-      const noOpenReviews = activeEng ? activeEng.reviews.every(r => r.status === 'Cleared') : false;
-      const openBlockingFindings = (activeEng && state.findings) ? state.findings.filter(f => f.engagementId === activeEng.id && isReleaseBlockingFinding(f)) : [];
-      const noMaterialFindings = openBlockingFindings.length === 0;
-      const approvalsValid = Boolean(
-        activeEng &&
-        activeEng.approvals.manager?.generation === activeEng.generation &&
-        activeEng.approvals.client?.generation === activeEng.generation &&
-        activeEng.approvals.partner?.generation === activeEng.generation &&
-        (!activeEng.eqrRequired || activeEng.approvals.eqr?.generation === activeEng.generation)
-      );
-      const blockers: string[] = [];
-      if (!allWpCleared) blockers.push('Workpapers not all cleared');
-      if (!noOpenReviews) blockers.push('Outstanding open review notes');
-      if (!noMaterialFindings) blockers.push(`${openBlockingFindings.length} material findings open`);
-      if (!approvalsValid) blockers.push('Multi-stage approvals incomplete or invalidated');
-
-      const isReady = activeEng ? blockers.length === 0 : false;
-      const isCandidate = Boolean(activeEng?.candidate);
-      const isReleased = Boolean(activeEng?.releases?.length);
-      const isArchived = Boolean(activeEng?.archive);
+      const readiness = evaluateReleaseReadiness(activeEng, state);
+      const currentPackage = activeEng?.packageHistory?.find(item => item.revision === activeEng.packageRevision);
+      const currentRelease = currentPackage ? releaseForPackage(activeEng!, currentPackage) : undefined;
+      const candidateCurrent = Boolean(activeEng?.candidate && activeEng.candidate.generation === activeEng.generation && activeEng.candidate.sourceVersion === activeEng.sourceVersion && activeEng.candidate.packageRevision === activeEng.packageRevision && currentPackage && activeEng.candidate.packageDefinitionId === currentPackage.id);
+      const isReady = readiness.ready;
+      const isCandidate = candidateCurrent;
+      const isReleased = Boolean(currentRelease);
+      const isArchived = Boolean(currentRelease && archiveForRelease(activeEng!, currentRelease.id));
+      const blockers = readiness.blockers;
 
       const steps: WorkflowStep[] = [
-        { id: 'readiness-gates', label: 'Readiness Gates', state: isReady ? 'completed' : 'blocked' },
+        { id: 'readiness-gates', label: 'Store-Equivalent Readiness', state: isReady ? 'completed' : 'blocked', detail: readiness.reason },
         { id: 'candidate-prep', label: 'Candidate Preparation', state: isCandidate || isReleased ? 'completed' : isReady ? 'current' : 'pending' },
         { id: 'partner-issue', label: 'Partner Release', state: isReleased ? 'completed' : isCandidate ? 'current' : 'pending' },
         { id: 'post-release', label: 'Archival & Handover', state: isArchived ? 'completed' : isReleased ? 'current' : 'pending', targetRoute: 'records' },
-        { id: 'lineage', label: 'Immutable Lineage', state: isReleased ? 'completed' : 'pending' }
+        { id: 'lineage', label: 'Exact Package Release Lineage', state: isReleased ? 'completed' : 'pending', detail: currentRelease ? `Release ${currentRelease.id} for package ${currentPackage?.id}` : 'No release matches the current package revision.' }
       ];
 
       return {
@@ -1245,14 +1623,14 @@ export function computeModuleWorkflowProgress(
         route: 'delivery',
         currentSection: 'Final Release Gates & Artifact Packaging',
         steps,
-        percentComplete: isArchived ? 100 : isReleased ? 80 : isCandidate ? 60 : isReady ? 40 : 20,
+        percentComplete: 0,
         counts: {
-          completed: isReady ? 1 : 0,
-          pending: isReleased ? 0 : 1,
-          blocked: isReady ? 0 : blockers.length,
-          total: 1
+          completed: 0,
+          pending: 0,
+          blocked: 0,
+          total: steps.length
         },
-        completedSummary: isReleased ? 'Engagement release candidate formally issued with immutable manifest.' : isReady ? 'All readiness gates evaluated and cleared.' : 'Evaluating release gates.',
+        completedSummary: isReleased ? `Current package ${currentPackage?.id} has exact release manifest ${currentRelease?.id}.` : isReady ? 'Store release preconditions are currently satisfied.' : 'Authoritative release preconditions are not all satisfied.',
         pendingSummary: isReleased ? 'Release issued.' : isCandidate ? 'Release candidate frozen; awaiting partner issue.' : 'Readiness gates have outstanding requirements.',
         blockedSummary: !isReady ? `${blockers.length} gate blocker(s) prevent release candidate preparation.` : undefined,
         blockers: isReady ? [] : blockers,
@@ -1262,13 +1640,15 @@ export function computeModuleWorkflowProgress(
     }
 
     case 'records': {
-      const isArchived = Boolean(activeEng?.archive);
-      const isReleased = Boolean(activeEng?.releases?.length);
+      const currentPackage = activeEng?.packageHistory?.find(item => item.revision === activeEng.packageRevision);
+      const currentRelease = currentPackage ? releaseForPackage(activeEng!, currentPackage) : undefined;
+      const isArchived = Boolean(currentRelease && archiveForRelease(activeEng!, currentRelease.id));
+      const isReleased = Boolean(currentRelease);
       const onHold = Boolean(activeEng?.archive?.onApplicationHold);
 
       const steps: WorkflowStep[] = [
-        { id: 'ingestion', label: 'Release Ingestion', state: isReleased ? 'completed' : 'pending', targetRoute: 'delivery' },
-        { id: 'archive-record', label: 'Archived Lineage', state: isArchived ? 'completed' : 'current' },
+        { id: 'ingestion', label: 'Current Package Release Ingestion', state: isReleased ? 'completed' : activeEng?.releases?.length ? 'stale' : 'pending', targetRoute: 'delivery', detail: isReleased ? `Exact current release ${currentRelease?.id}` : 'A historic release does not close the current package.' },
+        { id: 'archive-record', label: 'Archive for Current Release', state: isArchived ? 'completed' : activeEng?.archive ? 'stale' : isReleased ? 'current' : 'pending' },
         { id: 'retention-policy', label: 'Retention Hold', state: onHold ? 'blocked' : isArchived ? 'completed' : 'pending' },
         { id: 'handover', label: 'Handover Log', state: isArchived ? 'current' : 'pending' },
         { id: 'custody', label: 'Permanent Record', state: isArchived ? 'completed' : 'pending' }
@@ -1280,42 +1660,38 @@ export function computeModuleWorkflowProgress(
         route: 'records',
         currentSection: 'Logical Archive, Lineage & Handover',
         steps,
-        percentComplete: isArchived ? 90 : 20,
+        percentComplete: 0,
         counts: {
-          completed: isArchived ? 1 : 0,
-          pending: isArchived ? 0 : 1,
+          completed: 0,
+          pending: 0,
           blocked: onHold ? 1 : 0,
-          total: 1
+          total: steps.length
         },
-        completedSummary: isArchived ? 'Engagement records logically archived in browser custody.' : 'Awaiting engagement release before archival.',
+        completedSummary: isArchived ? `Archive ${activeEng?.archive?.releaseId} matches current release ${currentRelease?.id}.` : activeEng?.archive ? `Historical archive ${activeEng.archive.releaseId} is retained; it does not match the current package release.` : 'No archive record matches the current package release.',
         pendingSummary: !isArchived ? 'Engagement must be Released before it can be archived.' : 'Archive record complete.',
-        blockers: !isArchived && !isReleased ? ['Engagement has not been released.'] : onHold ? [`Retention application hold in place: ${activeEng?.archive?.holdReason || 'Hold active'}`] : [],
+        blockers: !isArchived && !isReleased ? ['The current package has not been released.'] : onHold ? [`Retention application hold in place: ${activeEng?.archive?.holdReason || 'Hold active'}`] : [],
         nextAction: !isArchived ? 'Release engagement in Release & Completion' : 'Manage archive retention hold or record handover',
         whoActsNext: 'Records Manager / Archivist'
       };
     }
 
     default: {
-      const steps: WorkflowStep[] = [
-        { id: 'step-1', label: 'Setup', state: 'completed' },
-        { id: 'step-2', label: 'Execution', state: 'current' },
-        { id: 'step-3', label: 'Verification', state: 'pending' },
-        { id: 'step-4', label: 'Completion', state: 'pending' }
-      ];
-
       return {
-        moduleId: 'MOD-SPEC',
-        moduleName: 'System Specifications',
+        moduleId: ROUTE_CATALOG[route].moduleId,
+        moduleName: ROUTE_CATALOG[route].label,
         route,
-        currentSection: 'Specification & Reference',
-        steps,
-        percentComplete: 75,
-        counts: { completed: 1, pending: 0, blocked: 0, total: 1 },
-        completedSummary: 'Specifications verified against repository architecture.',
-        pendingSummary: 'All sections available.',
+        currentSection: ROUTE_CATALOG[route].label,
+        steps: [],
+        percentComplete: null,
+        applicability: 'unavailable',
+        metricLabel: 'Unavailable',
+        scopeLabel: 'No progress selector is registered for this workflow route.',
+        counts: { completed: 0, current: 0, pending: 0, blocked: 0, returned: 0, stale: 0, skipped: 0, notApplicable: 0, total: 0 },
+        completedSummary: 'No workflow progress was calculated.',
+        pendingSummary: 'The route needs an explicit, record-backed progress selector.',
         blockers: [],
-        nextAction: 'Navigate to target workspace',
-        whoActsNext: 'User'
+        nextAction: 'Open the module workspace and select a permitted record.',
+        whoActsNext: 'Workspace user'
       };
     }
   }

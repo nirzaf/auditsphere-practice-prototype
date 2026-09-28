@@ -1,7 +1,7 @@
 // Module 05: Jobs & Tasks Management (VP-013, VP-014)
 // Delivery containers with strictly 1 level of subtasks, leaf-task progress, reassignment governance, and job creation.
 
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { RouteKey, JobRecord, JobTaskItem, CommentItem } from '../../types';
 import { prototypeStore } from '../../store/prototypeStore';
 import { getEffectiveTimeEntries } from '../../services/calculations';
@@ -16,10 +16,11 @@ import { keyboardActivate } from '../common/keyboardActivate';
 interface JobsTasksViewProps {
   onNavigate: (route: RouteKey) => void;
   searchTargetId?: string;
+  onWorkflowContextChange?: (context: { clientId?: string; engagementId?: string; recordId?: string }) => void;
   onRegisterUnsavedForm?: (guard: UnsavedFormGuard | null, key?: string) => void;
 }
 
-export const JobsTasksView: React.FC<JobsTasksViewProps> = ({ onNavigate, searchTargetId, onRegisterUnsavedForm }) => {
+export const JobsTasksView: React.FC<JobsTasksViewProps> = ({ onNavigate, searchTargetId, onWorkflowContextChange, onRegisterUnsavedForm }) => {
   const state = prototypeStore.getSnapshot();
   const allowedEngagementIds = visibleEngagementIds(state);
   const scopedEngagements = state.engagements.filter(e => allowedEngagementIds === 'ALL' || allowedEngagementIds.includes(e.id));
@@ -105,6 +106,21 @@ export const JobsTasksView: React.FC<JobsTasksViewProps> = ({ onNavigate, search
   );
   const selectedJob = filteredJobs.find(j => j.id === selectedJobId) || filteredJobs[0];
   const client = scopedClients.find(c => c.id === selectedJob?.clientId);
+  const selectJob = (job: JobRecord | undefined) => {
+    setSelectedJobId(job?.id || '');
+    onWorkflowContextChange?.({ clientId: job?.clientId, engagementId: job?.engagementId || '', recordId: job?.id || '' });
+  };
+  const openLocalNoticeJob = (job: JobRecord) => {
+    setClientFilter(job.clientId);
+    setEngagementFilter(job.engagementId);
+    setOwnerFilter('ALL');
+    setStatusFilter('ALL');
+    setOverdueOnly(false);
+    selectJob(job);
+  };
+  useLayoutEffect(() => {
+    onWorkflowContextChange?.({ clientId: selectedJob?.clientId, engagementId: selectedJob?.engagementId || '', recordId: selectedJob?.id || '' });
+  }, [selectedJob?.id, selectedJob?.clientId, selectedJob?.engagementId, onWorkflowContextChange]);
 
   // Filter tasks for selected job
   const jobTasks = state.jobTasks.filter(t => scopedJobIds.has(t.jobId) && t.jobId === selectedJob?.id);
@@ -131,7 +147,7 @@ export const JobsTasksView: React.FC<JobsTasksViewProps> = ({ onNavigate, search
     if (!newJobTitle.trim()) return false;
     const newJobId = `JOB-260${prototypeStore.getSnapshot().jobs.length + 1}`;
     const newJob: JobRecord = { id: newJobId, clientId: newJobClientId, engagementId: newJobEngId, title: newJobTitle.trim(), description: newJobDescription.trim(), owner: newJobOwner, startDate: new Date().toISOString().split('T')[0], dueDate: newJobDueDate, status: 'Not started', createdAt: new Date().toISOString() };
-    try { prototypeStore.addJob(newJob); prototypeStore.addTask({ id: `TSK-${newJobId}-1`, jobId: newJobId, title: 'Initial Scoping & Team Briefing', assignee: newJobOwner, status: 'Not started', order: 1 }); setSelectedJobId(newJobId); closeAddJobModal(); triggerNotice('success', `Job "${newJob.title}" scheduled (${newJob.id}).`); return true; }
+    try { prototypeStore.addJob(newJob); prototypeStore.addTask({ id: `TSK-${newJobId}-1`, jobId: newJobId, title: 'Initial Scoping & Team Briefing', assignee: newJobOwner, status: 'Not started', order: 1 }); selectJob(newJob); closeAddJobModal(); triggerNotice('success', `Job "${newJob.title}" scheduled (${newJob.id}).`); return true; }
     catch (error) { triggerNotice('error', error instanceof Error ? error.message : 'Could not create job.'); return false; }
   };
   const saveAddTaskDraft = () => {
@@ -303,7 +319,7 @@ export const JobsTasksView: React.FC<JobsTasksViewProps> = ({ onNavigate, search
         </div>
       </div>
 
-      {myLocalNotices.length > 0 && <section className="panel panel-pad" aria-label="My local notices"><div className="between"><div><h3>My Local Notices</h3><p className="caption">Only notices addressed to this identity in jobs it can currently access.</p></div><span className="badge blue">{myLocalNotices.filter(item => !item.readAt).length} unread</span></div><div className="stack mt8">{myLocalNotices.map(item => {const comment = state.comments.find(record => record.id === item.commentId)!;const job = comment.subjectType === 'task' ? state.jobs.find(record => record.id === state.jobTasks.find(task => task.id === comment.subjectId)?.jobId)! : state.jobs.find(record => record.id === comment.subjectId)!;return <div className="borderbox panel-pad" key={item.id}><div className="between"><span><b>{comment.author}</b> mentioned you on {comment.subjectType} · {job.title}{!item.readAt && <span className="tag blue ml8">Unread</span>}</span><div className="row"><button className="btn sm ghost" onClick={() => setSelectedJobId(job.id)}>Open job</button>{!item.readAt && <button className="btn sm" onClick={() => { try { prototypeStore.markLocalNoticeRead(item.id); } catch (err: any) { triggerNotice('error', err.message); } }}>Mark read</button>}</div></div></div>;})}</div></section>}
+      {myLocalNotices.length > 0 && <section className="panel panel-pad" aria-label="My local notices"><div className="between"><div><h3>My Local Notices</h3><p className="caption">Only notices addressed to this identity in jobs it can currently access.</p></div><span className="badge blue">{myLocalNotices.filter(item => !item.readAt).length} unread</span></div><div className="stack mt8">{myLocalNotices.map(item => {const comment = state.comments.find(record => record.id === item.commentId)!;const job = comment.subjectType === 'task' ? state.jobs.find(record => record.id === state.jobTasks.find(task => task.id === comment.subjectId)?.jobId)! : state.jobs.find(record => record.id === comment.subjectId)!;return <div className="borderbox panel-pad" key={item.id}><div className="between"><span><b>{comment.author}</b> mentioned you on {comment.subjectType} · {job.title}{!item.readAt && <span className="tag blue ml8">Unread</span>}</span><div className="row"><button className="btn sm ghost" onClick={() => openLocalNoticeJob(job)}>Open job</button>{!item.readAt && <button className="btn sm" onClick={() => { try { prototypeStore.markLocalNoticeRead(item.id); } catch (err: any) { triggerNotice('error', err.message); } }}>Mark read</button>}</div></div></div>;})}</div></section>}
 
       {notice && <Notice tone={notice.type} onDismiss={() => setNotice(null)}>{notice.text}</Notice>}
 
@@ -355,7 +371,7 @@ export const JobsTasksView: React.FC<JobsTasksViewProps> = ({ onNavigate, search
                         key={job.id}
                         className={job.id === selectedJob?.id ? 'selected-row' : ''}
                         style={{ cursor: 'pointer' }}
-                        onClick={() => setSelectedJobId(job.id)}
+                        onClick={() => selectJob(job)}
                       >
                         <td>
                           <b>{job.title}</b>

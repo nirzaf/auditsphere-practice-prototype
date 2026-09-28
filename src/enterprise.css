@@ -323,12 +323,14 @@ tr[tabindex] { cursor: pointer; }
   align-items: center;
   gap: 10px;
 }
+.wp-heading-copy { min-width: 0; }
 .wp-title {
   font-size: 15px;
   font-weight: 650;
   color: var(--ink);
   margin: 0;
 }
+.wp-subtitle { margin: 3px 0 0; color: var(--muted); font-size: 12px; line-height: 1.45; overflow-wrap: anywhere; }
 .wp-metrics-area {
   display: flex;
   align-items: center;
@@ -358,8 +360,11 @@ tr[tabindex] { cursor: pointer; }
   color: var(--ink);
   font-variant-numeric: tabular-nums;
 }
+.wp-no-progress { color: var(--muted); font-size: 12px; font-weight: 650; line-height: 1.4; }
+.wp-no-progress-unavailable { color: var(--st-orange-fg); }
 .wp-counts-pill {
   display: inline-flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 6px;
   background: #f7faf9;
@@ -503,11 +508,42 @@ tr[tabindex] { cursor: pointer; }
   transform: scale(1.08);
   transition: transform 0.15s ease;
 }
-.wp-step.is-clickable:focus-visible {
+.wp-step-button, .wp-step-static {
+  display: flex;
+  width: 100%;
+  min-height: 64px;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  padding: 0 2px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: center;
+}
+.wp-step-button { cursor: pointer; }
+.wp-step-button:focus-visible {
   outline: 2px solid var(--teal);
   outline-offset: 2px;
   border-radius: var(--radius-sm);
 }
+.wp-step-state { color: var(--muted); font-size: 10px; line-height: 1.35; }
+.wp-step-current .wp-step-state { color: var(--teal); font-weight: 700; }
+.wp-step-blocked .wp-step-state { color: var(--st-red-fg); }
+.wp-step-returned .wp-step-state, .wp-step-stale .wp-step-state { color: var(--st-orange-fg); }
+.wp-action-strip { display: grid; grid-template-columns: minmax(0, 1fr) minmax(220px, 1.25fr); gap: 8px 18px; padding-top: 10px; }
+.wp-immediate-blocker, .wp-next-action { display: flex; align-items: baseline; gap: 7px; min-width: 0; line-height: 1.45; font-size: 12px; }
+.wp-immediate-blocker { color: var(--st-red-fg); }
+.wp-immediate-blocker .status-glyph { flex: 0 0 14px; align-self: flex-start; margin-top: 2px; }
+.wp-next-action { flex-wrap: wrap; color: var(--ink); }
+.wp-next-action > b { flex: 0 0 auto; }
+.wp-next-action > span:first-of-type { min-width: 0; overflow-wrap: anywhere; }
+.wp-actor { flex-basis: 100%; color: var(--muted); font-size: 11px; }
+.wp-primary-answer { display: flex; align-items: baseline; gap: 8px; border-top: 1px solid #f0f4f4; margin-top: 10px; padding-top: 8px; color: var(--muted); font-size: 12px; }
+.wp-primary-answer b { color: var(--ink); }
+.wp-record-summary { grid-column: 1 / -1; }
 
 /* ---- Six Core Questions Answers Drawer ---- */
 .wp-answers-drawer {
@@ -615,6 +651,7 @@ tr[tabindex] { cursor: pointer; }
 }
 
 @media (max-width: 760px) {
+  .workflow-progress-panel { padding: 12px; }
   .wp-header {
     flex-direction: column;
     align-items: flex-start;
@@ -630,6 +667,13 @@ tr[tabindex] { cursor: pointer; }
   .wp-bar-track {
     flex: 1;
   }
+  .wp-action-strip { grid-template-columns: 1fr; }
+  .wp-step { min-width: 124px; padding: 0 8px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .wp-bar-fill, .wp-step.is-clickable:hover .wp-step-marker { transition: none; }
+  .wp-step.is-clickable:hover .wp-step-marker { transform: none; }
 }
 
 

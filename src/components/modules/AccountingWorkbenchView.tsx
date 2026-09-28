@@ -65,13 +65,19 @@ const AccountingSetup: React.FC<{ clientId: string; engagementId: string; profil
 };
 
 interface AccountingWorkbenchViewProps {
+  route: RouteKey;
   onNavigate: (route: RouteKey) => void;
   onRegisterUnsavedForm?: (guard: UnsavedFormGuard | null, key?: string) => void;
 }
 
-export const AccountingWorkbenchView: React.FC<AccountingWorkbenchViewProps> = ({ onNavigate, onRegisterUnsavedForm }) => {
+export const AccountingWorkbenchView: React.FC<AccountingWorkbenchViewProps> = ({ route, onNavigate, onRegisterUnsavedForm }) => {
   const state = prototypeStore.getSnapshot();
-  const [activeTab, setActiveTab] = useState<'tb' | 'gl' | 'mappings' | 'adjustments' | 'reconciliations' | 'setup'>('tb');
+  const routeTabs: Partial<Record<RouteKey, 'tb' | 'gl' | 'mappings' | 'adjustments' | 'reconciliations' | 'setup'>> = {
+    'accounting-setup': 'setup', 'trial-balance': 'tb', 'gl-transactions': 'gl',
+    'account-mappings': 'mappings', adjustments: 'adjustments', reconciliations: 'reconciliations'
+  };
+  const [activeTab, setActiveTab] = useState<'tb' | 'gl' | 'mappings' | 'adjustments' | 'reconciliations' | 'setup'>(routeTabs[route] || 'tb');
+  useEffect(() => { setActiveTab(routeTabs[route] || 'tb'); }, [route]);
   const [reflectionEvidenceDrafts, setReflectionEvidenceDrafts] = useState<Record<string, string>>({});
   const [adjustmentNotice, setAdjustmentNotice] = useState('');
   const [mappingTargets, setMappingTargets] = useState<Record<string, string>>({});

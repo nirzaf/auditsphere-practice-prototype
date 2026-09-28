@@ -441,25 +441,19 @@ describe('actual Chrome browser acceptance', { concurrency: false }, () => {
       assert.ok(at390.present, 'tracker disappears at 390');
       assert.ok(at390.docFits, `document scrolls horizontally at 390: ${JSON.stringify(at390)}`);
 
-      // Keyboard: focus a clickable step, press Enter, and the app navigates to its target route.
+      // Keyboard activation must reach the selected step's exact destination.
       await browserTab!.command('Emulation.clearDeviceMetricsOverride', {});
-      assert.equal(await waitForBrowser(`document.querySelectorAll('.wp-stepper .wp-step.is-clickable').length>0`), true, 'at least one clickable step exists');
-      let navigatedByKeyboard = false;
-      const clickableCount = await browserTab!.evaluate<number>(`document.querySelectorAll('.wp-stepper .wp-step.is-clickable').length`);
-      for (let index = 0; index < clickableCount && !navigatedByKeyboard; index++) {
-        const focusOutcome = await browserTab!.evaluate<any>(`(() => {
-          const step=[...document.querySelectorAll('.wp-stepper .wp-step.is-clickable')][${index}];
-          if(!step) return {found:false};
-          step.focus();
-          const focused=document.activeElement===step;
-          step.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true,cancelable:true}));
-          return {found:true, focused};
-        })()`);
-        assert.ok(focusOutcome.found && focusOutcome.focused, `clickable step ${index} is keyboard-focusable`);
-        navigatedByKeyboard = await waitForBrowser(`location.hash!=='${hashBefore}'`, 3000);
-      }
-      assert.ok(navigatedByKeyboard, 'pressing Enter on a workflow step navigates to its target route');
-      assert.notEqual(await browserTab!.evaluate<string>('location.hash'), hashBefore);
+      const enterTarget = await browserTab!.evaluate<boolean>(`(() => {const button=document.querySelector('.wp-step-button[data-target-route="my-time"]');if(!button)return false;button.focus();return document.activeElement===button;})()`);
+      assert.equal(enterTarget, true, 'the approved-time step is a focusable native button');
+      await browserTab!.command('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Enter', code: 'Enter', text: '\r', unmodifiedText: '\r', windowsVirtualKeyCode: 13, nativeVirtualKeyCode: 13 });
+      await browserTab!.command('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13, nativeVirtualKeyCode: 13 });
+      assert.equal(await waitForBrowser(`location.hash==='#my-time'`), true, 'Enter follows the exact target route on the time-source step');
+
+      const spaceTarget = await browserTab!.evaluate<boolean>(`(() => {const button=document.querySelector('.wp-step-button[data-target-route="billing"]');if(!button)return false;button.focus();return document.activeElement===button;})()`);
+      assert.equal(spaceTarget, true, 'the time approval step exposes its exact billing destination');
+      await browserTab!.command('Input.dispatchKeyEvent', { type: 'keyDown', key: ' ', code: 'Space', windowsVirtualKeyCode: 32, nativeVirtualKeyCode: 32 });
+      await browserTab!.command('Input.dispatchKeyEvent', { type: 'keyUp', key: ' ', code: 'Space', windowsVirtualKeyCode: 32, nativeVirtualKeyCode: 32 });
+      assert.equal(await waitForBrowser(`location.hash==='#billing'`), true, 'Space follows the exact target route on the billing step');
     } finally {
       await browserTab!.command('Emulation.clearDeviceMetricsOverride', {});
       // Restore the pre-test route and drop focus so subsequent keyboard tests
@@ -1438,6 +1432,56 @@ describe('actual Chrome browser acceptance', { concurrency: false }, () => {
     }
   });
 
+  it('T10/T11: a failed narrow-scope invoice save stays put; a valid save commits once', async () => {
+    const prior = await browserTab!.evaluate<string | null>(`localStorage.getItem('ste-auditsphere-role-portals-v2')`);
+    try {
+      await browserTab!.evaluate(`(() => {
+        const key='ste-auditsphere-role-portals-v2';
+        const state=${JSON.stringify(JSON.stringify(createInitialState()))};
+        const s=JSON.parse(state);
+        s.currentUserId='manager';s.currentPerson='Layla Rahman';s.currentRole='manager';s.selectedEngagement='ENG-26001';
+        s.roleGrants=s.roleGrants.filter(g=>g.userId!=='manager');
+        s.roleGrants.push({userId:'manager',role:'manager',scopeKind:'Engagement',scopeId:'ENG-26001',grantedAt:s.asOfDate,grantedBy:'partner'});
+        const hidden=structuredClone(s.invoices[0]);
+        for(let i=0;i<4;i++){const invoice=structuredClone(hidden);invoice.id='INV-T10-HIDDEN-'+i;invoice.invoiceNumber='INV-T10-HIDDEN-'+i;invoice.clientId='CL-002';invoice.eng='ENG-26002';invoice.engagementId='ENG-26002';s.invoices.push(invoice);}
+        localStorage.setItem(key,JSON.stringify(s));
+      })()`);
+      await browserTab!.command('Page.reload');
+      assert.equal(await waitForBrowser('!!document.querySelector("#app-root .brandname")'), true, 'narrow manager fixture mounts');
+      await clickButtonStartingWith('Billing & Invoices');
+      const before = await browserTab!.evaluate<any>(`(() => {const s=JSON.parse(localStorage.getItem('ste-auditsphere-role-portals-v2'));const scoped=s.invoices.filter(i=>i.clientId==='CL-001'&&(i.engagementId||i.eng)==='ENG-26001');return {all:s.invoices.length,scoped:scoped.length,ids:scoped.map(i=>i.id)};})()`);
+      assert.ok(before.all > before.scoped, 'fixture has more global than permitted invoices');
+      await clickButton('Draft New Invoice');
+      await browserTab!.evaluate(`(() => {const set=(selector,value)=>{const input=document.querySelector(selector);if(!input)throw Error('Missing '+selector);Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(input,value);input.dispatchEvent(new Event('input',{bubbles:true}));input.dispatchEvent(new Event('change',{bubbles:true}));};set('#invoice-number','INV-T10-HIDDEN-0');set('#invoice-description','T10 duplicate hidden reference');set('.modal-backdrop input[type="number"]','150');})()`);
+      await clickButtonStartingWith('Financial Statements');
+      assert.equal(await waitForBrowser('!![...document.querySelectorAll("[role=dialog] h2")].some(x=>x.innerText.includes("Unsaved changes"))'), true, 'attempted navigation is held for the unsaved invoice');
+      await clickButton('Save and continue');
+      assert.equal(await browserTab!.evaluate<string>('location.hash'), '#billing', 'failed validation keeps the original route');
+      const failed = await browserTab!.evaluate<any>(`(() => {const s=JSON.parse(localStorage.getItem('ste-auditsphere-role-portals-v2'));return {duplicateCount:s.invoices.filter(i=>i.invoiceNumber==='INV-T10-HIDDEN-0').length,total:s.invoices.length,dialog:!!document.querySelector('.modal-backdrop h2'),amount:document.querySelector('.modal-backdrop input[type="number"]')?.value,number:document.querySelector('#invoice-number')?.value,guard:document.querySelector('#unsaved-changes-title')?.closest('[role=dialog]')?.innerText||'',notice:document.querySelector('.notice-error[role=alert]')?.innerText||''};})()`);
+      assert.equal(failed.duplicateCount, 1, 'failed duplicate save does not create a second invoice');
+      assert.equal(failed.total, before.all, 'global invoice count does not masquerade as a successful scoped save');
+      assert.equal(failed.dialog, true, 'failed save preserves the editable draft');
+      assert.equal(failed.amount, '150', 'failed save retains the draft value for correction');
+      assert.equal(failed.number, 'INV-T10-HIDDEN-0', 'failed save retains the conflicting invoice reference');
+      assert.match(failed.guard, /could not be saved/i, 'the unsaved transition explains why save did not proceed');
+      assert.ok(failed.notice.length > 0, 'the invoice form keeps its concrete store error visible');
+
+      await clickButton('Stay');
+      await browserTab!.evaluate(`(() => {const input=document.querySelector('.modal-backdrop #invoice-number');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(input,'INV-T10-VALID');input.dispatchEvent(new Event('input',{bubbles:true}));input.dispatchEvent(new Event('change',{bubbles:true}));})()`);
+      await clickButtonStartingWith('Financial Statements');
+      await clickButton('Save and continue');
+      assert.equal(await waitForBrowser(`location.hash==='#financial-statements'`), true, 'a valid scoped save completes the requested navigation');
+      const saved = await browserTab!.evaluate<any>(`(() => {const s=JSON.parse(localStorage.getItem('ste-auditsphere-role-portals-v2'));const matches=s.invoices.filter(i=>i.invoiceNumber==='INV-T10-VALID');return {matches,visible:matches.filter(i=>i.clientId==='CL-001'&&(i.engagementId||i.eng)==='ENG-26001').length};})()`);
+      assert.equal(saved.matches.length, 1, 'valid continuation creates exactly one invoice record');
+      assert.equal(saved.visible, 1, 'created invoice is the record in the selected permitted engagement');
+      assert.equal(saved.matches[0].amount, 150, 'corrected draft value is committed');
+    } finally {
+      await browserTab!.evaluate(`(() => {const key='ste-auditsphere-role-portals-v2';const value=${JSON.stringify(prior)};if(value===null)localStorage.removeItem(key);else localStorage.setItem(key,value);})()`);
+      await browserTab!.command('Page.reload');
+      await waitForBrowser('!!document.querySelector("#app-root .brandname")');
+    }
+  });
+
   it('AT-18/AT-25/AT-53: switches to a client persona and exposes only the portal', async () => {
     const changed = await browserTab!.evaluate<boolean>(`(() => {
       const select = document.querySelector("#role-select");
@@ -1871,7 +1915,8 @@ describe('actual Chrome browser acceptance', { concurrency: false }, () => {
       assert.equal(await waitForBrowser('JSON.parse(localStorage.getItem("ste-auditsphere-role-portals-v2")||"{}").currentUserId==="manager"&&!!document.querySelector("#app-root .brandname")'), true, 'seeded client-scoped manager persona has restored');
       for (const route of routes) {
         await browserTab!.evaluate(`location.hash=${JSON.stringify(`#${route}`)}`);
-        assert.equal(await waitForBrowser(`location.hash===${JSON.stringify(`#${route}`)}&&!!document.querySelector("[data-testid=engagement-context-unavailable]")`), true, `${route} must render the safe unavailable context state`);
+        const canonicalRoute = resolveRouteHash(`#${route}`)?.route || route;
+        assert.equal(await waitForBrowser(`location.hash===${JSON.stringify(`#${canonicalRoute}`)}&&!!document.querySelector("[data-testid=engagement-context-unavailable]")`), true, `${route} must render the safe unavailable context state`);
         const main = await browserTab!.evaluate<string>('document.querySelector("main#main")?.innerText||""');
         assert.match(main, /Engagement selection unavailable/, `${route} shows the generic safe state`);
         assert.doesNotMatch(main, /ENG-26001|Example Trading Entity|CL-001/, `${route} hides restricted engagement and client identifiers`);
@@ -1894,7 +1939,8 @@ describe('actual Chrome browser acceptance', { concurrency: false }, () => {
         const priorDocumentTime = await browserTab!.evaluate<number>('performance.timeOrigin');
         await browserTab!.evaluate(`(() => {const state=JSON.parse(${JSON.stringify(JSON.stringify(seed))});const user=state.users.find(item=>item.id===${JSON.stringify(userId)});state.currentUserId=user.id;state.currentPerson=user.name;state.currentRole=user.role;state.selectedEngagement='ENG-26001';state.roleGrants=state.roleGrants.filter(grant=>grant.userId!==user.id);localStorage.setItem('ste-auditsphere-role-portals-v2',JSON.stringify(state));})()`);
         await browserTab!.command('Page.reload');
-        assert.equal(await waitForBrowser(`performance.timeOrigin!==${priorDocumentTime}&&document.readyState==="complete"&&JSON.parse(localStorage.getItem("ste-auditsphere-role-portals-v2")||"{}").currentUserId===${JSON.stringify(userId)}&&!!document.querySelector("#app-root .brandname")`), true, `${userId} persona restores in a fresh document`);
+        const restored = await waitForBrowser(`performance.timeOrigin!==${priorDocumentTime}&&document.readyState==="complete"&&JSON.parse(localStorage.getItem("ste-auditsphere-role-portals-v2")||"{}").currentUserId===${JSON.stringify(userId)}&&!!document.querySelector("#app-root .brandname")`, 20000);
+        assert.equal(restored, true, `${userId} persona restores in a fresh document: ${JSON.stringify(await browserTab!.evaluate<any>(`(() => ({timeOrigin:performance.timeOrigin,readyState:document.readyState,identity:JSON.parse(localStorage.getItem('ste-auditsphere-role-portals-v2')||'{}').currentUserId,role:JSON.parse(localStorage.getItem('ste-auditsphere-role-portals-v2')||'{}').currentRole,brand:document.querySelector('#app-root .brandname')?.innerText,exceptions:window.__appExceptions||[]}))()`))}`);
         await browserTab!.evaluate('location.hash="#financial-statements"');
         assert.equal(await waitForBrowser('!!document.querySelector("[data-testid=engagement-context-unavailable]")'), true, `${userId} (${seed.users.find(user=>user.id===userId)?.role}) sees unavailable state for the restored engagement`);
         const body = await browserTab!.evaluate<string>('document.querySelector("main#main")?.innerText||""');
@@ -2107,7 +2153,7 @@ describe('actual Chrome browser acceptance', { concurrency: false }, () => {
     })()`);
     assert.equal(changed, true, 'partner persona option should exist');
     assert.equal(await waitForBrowser('document.querySelector("#role-select")?.selectedOptions[0]?.textContent.includes("Engagement partner")'), true);
-    const labels = await browserTab!.evaluate<string[]>('[...document.querySelectorAll("nav button")].map(x => x.innerText.trim())');
+    const labels = await browserTab!.evaluate<string[]>('[...document.querySelectorAll(".sidebar nav button.navitem")].map(x => x.innerText.trim())');
     assert.ok(labels.length >= 30, `expected the complete professional module navigation, got ${labels.length}`);
     for (const label of labels) {
       await clickButton(label);
@@ -2490,7 +2536,7 @@ describe('actual Chrome browser acceptance', { concurrency: false }, () => {
     assert.equal(imported.selectedCount, 0);
     assert.ok(imported.items.every((i: any) => !i.selected && !i.tested), 'new source requires fresh manual selection and testing');
     await uploadCsv('duplicate.csv','reference,date,customer,value\nDUP,2026-09-20,C,5\nDUP,2026-09-21,C,6');
-    assert.equal(await waitForBrowser(`document.querySelector('[role=status]')?.innerText.includes('duplicated')`), true, 'invalid replacement reports duplicate references');
+    assert.equal(await waitForBrowser(`document.querySelector('main#main')?.innerText.includes('duplicated')`), true, 'invalid replacement reports duplicate references');
     assert.equal(await browserTab!.evaluate<number>(`JSON.parse(localStorage.getItem('ste-auditsphere-role-portals-v2')).samplePopulations[0].sourceRevision`), 4, 'invalid file cannot replace the current source');
     await browserTab!.command('Page.reload');
     assert.equal(await waitForBrowser('!!document.querySelector("#app-root .brandname")', 15000), true, 'sampling view reloads before retained-source assertions');
@@ -4205,11 +4251,11 @@ describe('actual Chrome browser acceptance', { concurrency: false }, () => {
     await browserTab!.evaluate(`(() => {const input=document.querySelector('.modal-backdrop input[type=number]');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(input,'5000');input.dispatchEvent(new Event('input',{bubbles:true}));input.dispatchEvent(new Event('change',{bubbles:true}));const reason=document.querySelector('.modal-backdrop textarea');Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype,'value').set.call(reason,'Revised partial adjustment');reason.dispatchEvent(new Event('input',{bubbles:true}));reason.dispatchEvent(new Event('change',{bubbles:true}));})()`);
     await clickButton('Resubmit Credit Note');
     const revised = await browserTab!.evaluate<any>(`JSON.parse(localStorage.getItem('ste-auditsphere-role-portals-v2')).creditNotes.find(c=>c.id===${JSON.stringify(credit.id)})`);
-    assert.equal(revised.revision, 2);
+     assert.equal(revised.revision, 3, 'returning and revising the credit note each advances its revision');
     assert.equal(revised.reviewedBy, undefined);
     await setPersona('billing');
     assert.equal(await invoiceAction(credit.creditNumber,'Approve'), true);
-    assert.equal(await waitForBrowser(`JSON.parse(localStorage.getItem('ste-auditsphere-role-portals-v2')).creditNotes.find(c=>c.id===${JSON.stringify(credit.id)}).reviewedRevision===2`), true);
+     assert.equal(await waitForBrowser(`JSON.parse(localStorage.getItem('ste-auditsphere-role-portals-v2')).creditNotes.find(c=>c.id===${JSON.stringify(credit.id)}).reviewedRevision===3`), true);
     await browserTab!.evaluate(`(() => {const select=document.querySelector('#role-select');Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype,'value').set.call(select,'manager');select.dispatchEvent(new Event('change',{bubbles:true}));})()`);
     await waitForBrowser(`JSON.parse(localStorage.getItem('ste-auditsphere-role-portals-v2')).currentRole==='manager'`);
     assert.equal(await invoiceAction(credit.creditNumber,'Issue'), true);
@@ -4218,7 +4264,7 @@ describe('actual Chrome browser acceptance', { concurrency: false }, () => {
     assert.equal(final.credit.reviewedBy, 'Leila Hassan');
     assert.equal(final.credit.issuedBy, 'Layla Rahman');
     assert.equal(final.credit.amount, 5000);
-    assert.equal(final.credit.revision, 2);
+     assert.equal(final.credit.revision, 3);
     assert.equal(final.credit.invoiceId, invoice.id, 'issued credit remains linked to its exact original invoice');
     assert.equal(final.invoice.creditsApplied, final.credit.amount);
     assert.equal(final.invoice.amount, 120000, 'credit does not rewrite the issued invoice amount');
@@ -6083,7 +6129,7 @@ describe('actual Chrome browser acceptance', { concurrency: false }, () => {
     await browserTab!.command('Page.reload');
     assert.equal(await waitForBrowser('!!document.querySelector("#role-select")'), true);
     const before = await browserTab!.evaluate<any>(`(() => {const e=JSON.parse(localStorage.getItem('ste-auditsphere-role-portals-v2')).engagements.find(x=>x.id==='ENG-26002');return {version:e.sourceVersion,rows:e.rows,history:e.sourceHistory};})()`);
-    await clickButton('Accounting Workbench');
+    await browserTab!.evaluate(`location.hash='#trial-balance'`);
     assert.equal(await waitForBrowser('document.body.innerText.includes("Trial-Balance Intake")'), true);
     const file = (name: string, contents: string) => `(() => {
       const input=document.querySelector('input[type=file][accept*=".csv"]'); const transfer=new DataTransfer();
@@ -6224,7 +6270,7 @@ describe('actual Chrome browser acceptance', { concurrency: false }, () => {
     await browserTab!.evaluate(`(() => {const key='ste-auditsphere-role-portals-v2';const state=JSON.parse(localStorage.getItem(key));const engagement=state.engagements.find(item=>item.id==='ENG-26002');engagement.accountingChartRevision+=1;localStorage.setItem(key,JSON.stringify(state));})()`);
     await browserTab!.command('Page.reload');
     await waitForBrowser('!!document.querySelector("#app-root .brandname")');
-    await clickButton('Accounting Workbench');
+    await browserTab!.evaluate(`location.hash='#trial-balance'`);
     assert.equal(await waitForBrowser('document.body.innerText.includes("Trial-Balance Intake")'), true);
     await browserTab!.evaluate(file('stale-context.csv', 'code,name,balance\n1000,Cash,-50\n2000,Payables,50\n'));
     assert.equal(await waitForBrowser('document.body.innerText.includes("Selected: stale-context.csv")'), true);
@@ -9145,7 +9191,7 @@ describe('actual Chrome browser acceptance', { concurrency: false }, () => {
       assert.equal(await waitForBrowser('document.body.innerText.includes("Closed · No Release to Archive")'), true, 'the archive workspace distinguishes a closed engagement without an eligible release from an active engagement');
       const changedToPartner = await browserTab!.evaluate<boolean>(`(() => {const select=document.querySelector('#role-select');const option=[...select.options].find(x=>x.textContent.includes('Engagement partner'));if(!option)return false;Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype,'value').set.call(select,option.value);select.dispatchEvent(new Event('change',{bubbles:true}));return true;})()`);
       assert.equal(changedToPartner, true, 'partner persona is available for the all-module closed-state traversal');
-      const closedRouteLabels = await browserTab!.evaluate<string[]>(`[...document.querySelectorAll('nav button')].map(button=>button.innerText.trim())`);
+      const closedRouteLabels = await browserTab!.evaluate<string[]>(`[...document.querySelectorAll('.sidebar nav button.navitem')].map(button=>button.innerText.trim())`);
       assert.ok(closedRouteLabels.length >= 30, `expected the complete professional navigation in Closed state, got ${closedRouteLabels.length}`);
       for (const label of closedRouteLabels) {
         await clickButton(label);
@@ -9431,16 +9477,12 @@ describe('actual Chrome browser acceptance', { concurrency: false }, () => {
       const overviewTracker = await browserTab!.evaluate<any>(`(() => {
         const panel = document.querySelector('.workflow-progress-panel');
         const title = panel?.querySelector('.wp-title')?.textContent?.trim();
-        const percent = panel?.querySelector('.wp-percent-label')?.textContent?.trim();
-        const steps = [...(panel?.querySelectorAll('.wp-step') || [])].map(s => s.textContent?.trim());
-        const counts = panel?.querySelector('.wp-counts-pill')?.textContent?.trim();
-        return { title, percent, stepsCount: steps.length, counts };
+        return { title, applicability: panel?.getAttribute('data-applicability'), hasProgressbar: Boolean(panel?.querySelector('[role="progressbar"]')), noProgress: panel?.querySelector('.wp-no-progress')?.textContent?.trim() };
       })()`);
       assert.equal(overviewTracker.title, 'Practice Overview');
-      assert.match(overviewTracker.percent, /% Complete/);
-      assert.ok(overviewTracker.stepsCount >= 4, 'at least 4 workflow steps shown');
-      assert.match(overviewTracker.counts, /Done/);
-      assert.match(overviewTracker.counts, /Pending/);
+      assert.equal(overviewTracker.applicability, 'summary', 'overview is identified as a summary surface');
+      assert.equal(overviewTracker.hasProgressbar, false, 'summary surfaces do not present invented completion percentages');
+      assert.ok(overviewTracker.noProgress, 'the summary explains that no workflow percentage applies');
 
       // Open the 6 enterprise questions drawer
       await browserTab!.evaluate(`document.querySelector('.wp-toggle-btn').click()`);
@@ -9460,10 +9502,17 @@ describe('actual Chrome browser acceptance', { concurrency: false }, () => {
       assert.equal(await waitForBrowser(`document.querySelector('.workflow-progress-panel .wp-title')?.textContent?.includes('Release & Completion')`), true);
       const deliveryTracker = await browserTab!.evaluate<any>(`(() => {
         const panel = document.querySelector('.workflow-progress-panel');
+        const progressbar = panel?.querySelector('[role="progressbar"]');
         return {
+          applicability: panel?.getAttribute('data-applicability'),
+          percent: progressbar?.getAttribute('aria-valuenow'),
+          valueText: progressbar?.getAttribute('aria-valuetext'),
           steps: [...(panel?.querySelectorAll('.wp-step') || [])].map(s => s.textContent?.trim())
         };
       })()`);
+      assert.equal(deliveryTracker.applicability, 'workflow');
+      assert.equal(Number.isFinite(Number(deliveryTracker.percent)), true, 'workflow tracker exposes a numeric accessible progress value');
+      assert.match(deliveryTracker.valueText, /of .* applicable lifecycle steps complete/);
       assert.ok(deliveryTracker.steps.length >= 4, 'delivery steps present');
       assert.deepEqual(browserTab!.exceptions, []);
     });

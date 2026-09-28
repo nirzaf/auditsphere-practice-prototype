@@ -1,4 +1,5 @@
 import type { RouteKey } from '../types';
+import { ROUTE_CATALOG } from './routeCatalog';
 
 /**
  * Route IDs used by the former role-portal entrypoint. Keep explicit redirects
@@ -32,6 +33,12 @@ export const LEGACY_ROUTE_REDIRECTS: Readonly<Record<string, RouteKey>> = {
   renewal: 'engagements',
   'commercial-review': 'proposals',
   'commercial-requests': 'proposals',
+  crm: 'acquisition',
+  'audit-acceptance': 'onboarding',
+  'time-tracking': 'my-time',
+  packages: 'financial-packages',
+  'client-portal': 'portal',
+  'reporting-centre': 'reports',
   records: 'records',
   handover: 'records',
   administration: 'administration',
@@ -46,22 +53,11 @@ export const LEGACY_ROUTE_REDIRECTS: Readonly<Record<string, RouteKey>> = {
   search: 'overview',
 };
 
-const ACTIVE_ROUTES = new Set<RouteKey>([
-  'overview', 'clients', 'client-detail', 'acquisition', 'proposals', 'engagements',
-  'jobs', 'job-templates', 'documents', 'communications', 'my-time', 'budgets',
-  'billing', 'receivables', 'accounting-setup', 'trial-balance', 'gl-transactions',
-  'account-mappings', 'adjustments', 'reconciliations', 'financial-statements',
-  'financial-packages', 'consolidation', 'onboarding', 'audit-planning', 'audit-risks',
-  'audit-fieldwork', 'sampling', 'audit', 'evidence', 'findings', 'reviews', 'approvals',
-  'quality', 'delivery', 'records', 'reports', 'administration', 'm365-setup',
-  'portal', 'services', 'role-guide', 'module-guide', 'requirements',
-]);
-
 export function resolveRouteHash(hash: string): { route: RouteKey; redirected: boolean } | null {
   const key = hash.replace(/^#/, '').trim();
   if (!key) return null;
   const legacyTarget = LEGACY_ROUTE_REDIRECTS[key];
   if (legacyTarget) return { route: legacyTarget, redirected: legacyTarget !== key };
-  if (ACTIVE_ROUTES.has(key as RouteKey)) return { route: key as RouteKey, redirected: false };
+  if (key in ROUTE_CATALOG) return { route: key as RouteKey, redirected: false };
   return null;
 }
