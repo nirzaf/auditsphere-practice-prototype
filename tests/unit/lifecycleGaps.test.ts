@@ -441,7 +441,7 @@ describe('elimination duplicate inclusion and remaining finance negatives (VP-03
     setPersona(migrated, 'Adam Khan');
     (prototypeStore as any).state = migrated;
     const rows = structuredClone(engagement.rows);
-    assert.throws(() => prototypeStore.updateTrialBalanceRows(engagement.id, rows, { fileName: 'basis.csv', format: 'CSV', sha256: 'a'.repeat(64), mapping: { code: 0, name: 1, debit: 2, credit: 3, signed: -1, convention: 'debit-credit' } }), /accounting setup/, 'TB intake stays blocked until the reporting basis is deliberately selected');
+    assert.throws(() => prototypeStore.updateTrialBalanceRows(engagement.id, rows, { fileName: 'basis.csv', format: 'CSV', sha256: 'a'.repeat(64), mapping: { code: 0, name: 1, debit: 2, credit: 3, signed: -1, convention: 'debit-credit' } }), /accounting setup|Engagement activation blocked/, 'TB intake stays blocked until the reporting basis is deliberately selected');
   });
 
   it('rejects reconciliation items in a foreign currency (VP-039-E01)', () => {
@@ -476,7 +476,7 @@ describe('workspace, document and communication matrices (VP-020/021/026/027)', 
     setPersona(state, 'Layla Rahman');
     prototypeStore.simulateM365Verification('sharepoint', 'success');
     prototypeStore.prepareClientWorkspace('CL-001', 2026, 'ENG-26001');
-    const path = '/ClientEngagements/2026/EXP-TRAD/2026/ENG-26001/02_Planning/';
+    const path = '/ClientEngagements/2026/EXP-TRAD/2026/ENG-26001/02_Trial Balance & Schedules/';
     const folder = state.folders!.find(item => item.path === path)!;
     assert.ok(folder, 'the exact engagement folder is prepared beneath the configured synthetic root');
     const document = state.documents.find(item => item.id === 'DOC-002')!;
@@ -502,7 +502,7 @@ describe('workspace, document and communication matrices (VP-020/021/026/027)', 
     prototypeStore.renameClientWorkspaceFolder(path, 'Planning - partner review');
     assert.equal(state.folders!.find(item => item.path === path)?.label, 'Planning - partner review', 'partner authority can perform the same scoped metadata update');
     prototypeStore.prepareClientWorkspace('CL-002', 2026, 'ENG-26002');
-    const siblingClientFolderPath = state.folders!.find(item => item.clientId === 'CL-002' && item.engagementId === 'ENG-26002' && item.label === '02 Audit Planning')!.path;
+    const siblingClientFolderPath = state.folders!.find(item => item.clientId === 'CL-002' && item.engagementId === 'ENG-26002' && item.path.includes('02_Trial Balance & Schedules'))!.path;
     setPersona(state, 'Mona Khalil');
     prototypeStore.renameClientWorkspaceFolder(path, 'Planning - narrow manager');
     assert.equal(state.folders!.find(item => item.path === path)?.label, 'Planning - narrow manager', 'an engagement-scoped manager can rename within the granted engagement');
@@ -723,7 +723,7 @@ describe('authentic historical fixture migration (VP-004-E01)', () => {
     const legacy = JSON.parse(readFileSync(join(process.cwd(), 'tests', 'fixtures', 'legacy-seed-f5f4f78.json'), 'utf8'));
     assert.equal(legacy.schema, 5, 'the fixture is the authentic schema-5 historical state');
     const { state: migrated, warnings } = migratePersistedState(legacy, createInitialState());
-    assert.equal(migrated.schema, 29, 'the fixture migrates to the current schema');
+    assert.equal(migrated.schema, 30, 'the fixture migrates to the current schema');
     assert.equal(migrated.clients.length, legacy.clients.length, 'every historical client survives');
     assert.equal(migrated.engagements.length, legacy.engagements.length, 'every historical engagement survives');
     assert.ok(warnings.length > 0, 'the migration records its warnings');

@@ -6,6 +6,9 @@ export type RouteProgressMode = 'workflow' | 'summary' | 'reference';
 export interface RouteInfo { section: string; label: string; moduleId: string; progressMode: RouteProgressMode }
 
 export const ROUTE_CATALOG: Record<RouteKey, RouteInfo> = {
+  'confirmations': { section: 'Audit', label: 'Confirmations', moduleId: 'AUD-CONF', progressMode: 'workflow' },
+  'practice-ledger': { section: 'Firm', label: 'Practice Ledger', moduleId: 'FIRM-LEDGER', progressMode: 'summary' },
+  'scheduling': { section: 'Practice', label: 'Staff Scheduling & Economics', moduleId: 'STAFF', progressMode: 'workflow' },
   'overview': { section: 'Practice', label: 'Practice Overview', moduleId: 'MOD-01', progressMode: 'summary' },
   'clients': { section: 'Practice', label: 'Client Portfolio', moduleId: 'MOD-02', progressMode: 'workflow' },
   'client-detail': { section: 'Practice', label: 'Client 360', moduleId: 'MOD-02', progressMode: 'workflow' },

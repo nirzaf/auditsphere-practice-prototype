@@ -1,3 +1,9 @@
+# Current scenario
+
+**Canonical Audit Lifecycle** starts a clean synthetic audit. The UI offers it and Empty Practice; old broad presets remain only for historical regression fixtures. [Current rehearsal](target-lifecycle-demo.md). The arithmetic examples below describe historical fixtures, not completed target work.
+
+---
+
 # AuditSphere Visual Prototype — Demo Scenarios & Fixed Arithmetic (VP-004)
 
 `docs/prototype/demo-scenarios.md` · demo clock `asOfDate = 2026-09-23`

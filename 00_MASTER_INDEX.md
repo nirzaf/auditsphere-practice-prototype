@@ -1,3 +1,9 @@
+# Current target lifecycle
+
+The current product follows the canonical audit flow. [Implementation report](docs/prototype/target-lifecycle-report.md) · [Rehearsal](docs/prototype/target-lifecycle-demo.md). The closure counts and 39-module inventory below describe the historical baseline; they are not current target acceptance.
+
+---
+
 # AuditSphere prototype — master implementation progress
 
 [Start here](PACK_README.md) · [39 module guides](01_MODULE_INDEX.md) · [Client playbook](02_CLIENT_DEMO_PLAYBOOK.md) · [Execution rules](03_EXECUTION_RULES.md)

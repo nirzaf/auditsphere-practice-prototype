@@ -4,7 +4,7 @@
 // Deliberately no headings, tables or .panel: it must not change the page's own structure.
 import React from 'react';
 import type { RouteKey } from '../../types';
-import { MODULE_GUIDES } from '../../services/moduleGuideContent';
+import { MODULE_GUIDES, TARGET_GUIDES } from '../../services/moduleGuideContent';
 import { LIFECYCLES } from '../../services/lifecycles';
 
 const ROUTE_ALIASES: Partial<Record<RouteKey, RouteKey>> = {
@@ -25,7 +25,7 @@ export function guidesForRoute(route: RouteKey) {
   const key = ROUTE_ALIASES[route] || route;
   // Exact-route guides first (e.g. `approvals`), then guides that merely pass through the route.
   const exact = (guide: typeof MODULE_GUIDES[number]) => plain(guide.route).trim() === key ? 0 : routeTokens(guide.route)[0] === key ? 1 : 2;
-  return MODULE_GUIDES.filter(guide => routeTokens(guide.route).includes(key)).sort((a, b) => exact(a) - exact(b));
+  return [...MODULE_GUIDES,...TARGET_GUIDES].filter(guide => routeTokens(guide.route).includes(key)).sort((a, b) => exact(a) - exact(b));
 }
 
 export function lifecyclesForRoute(route: RouteKey) {

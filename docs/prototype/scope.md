@@ -1,3 +1,9 @@
+# Current target scope
+
+The target lifecycle supersedes the old 39-module demo surfaces. [Current plan](target-lifecycle-plan.md) · [Rehearsal](target-lifecycle-demo.md) · [Executed report](target-lifecycle-report.md). Browser-only storage and simulation boundaries remain in force. Historical scope records below are retained for traceability.
+
+---
+
 # AuditSphere Visual Prototype — Current Supported Scope (VP-001)
 
 Version 1.1 · recorded 2026-09-23 · revised 2026-09-26 for GL intake fields, the

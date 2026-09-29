@@ -553,3 +553,5 @@ export const MODULE_GUIDES: ModuleGuideEntry[] = [
     failure: "Invalid numbering/defaults and excluded-feature toggles must not be accepted; settings cannot rewrite historic artifacts.",
   },
 ];
+
+export const TARGET_GUIDES:ModuleGuideEntry[] = ['confirmations','scheduling','practice-ledger'].map((route,index)=>({id:`TARGET-${index+1}`,name:route,route:`\`${route}\``,component:'Target lifecycle view',personas:'Scoped target lifecycle actor',scenario:'target-lifecycle',exists:'Browser-local records and source-pinned commands.',limits:'Synthetic local state; no external transmission.',steps:['Select an authorized engagement or firm scope.','Record the explicit action and inspect its history.','Try an invalid prerequisite and confirm it is blocked.'],outcome:'A valid local record with actor and history.',failure:'Invalid scope or missing predecessor rejects the write.'}));

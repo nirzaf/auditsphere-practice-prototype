@@ -1,5 +1,6 @@
 // AuditSphere Visual Prototype — Shared Types & Domain Models
 // Covers all 39 functional modules (VP-001 through VP-064)
+import type { TargetEngagementLifecycle, ExternalConfirmation, FirmLedgerEntry, PortalPasswordSimulation, PortalDelegation, PhysicalEvidenceReference } from './targetLifecycle';
 
 export type RoleKey =
   | 'relationship'
@@ -61,6 +62,9 @@ export interface IdentityStatusEvent {
 
 
 export type RouteKey =
+  | 'confirmations'
+  | 'practice-ledger'
+  | 'scheduling'
   | 'overview'
   | 'clients'
   | 'client-detail'
@@ -506,6 +510,7 @@ export interface GLSourceRevision {
 
 export interface EngagementRecord {
   id: string;
+  auditLifecycle?: TargetEngagementLifecycle;
   continuanceFromEngagementId?: string;
   continuanceCaseId?: string;
   continuanceNotes?: string;
@@ -1009,6 +1014,8 @@ export interface TrialBalanceRow {
 }
 
 export interface AccountMappingRevision {
+  sourceVersion?: number;
+  preparedByUserId?: string; preparedAt?: string; approvedByUserId?: string; approvedAt?: string;
   engagementId: string;
   revision: number;
   mappings: Array<{ accountCode: string; targets: Array<{ statementLine: string; percentage: number }> }>;
@@ -1323,6 +1330,7 @@ export interface AuditProcedureHistoryEntry {
 }
 
 export interface AuditProgramItem {
+  financialStatementLines?: string[];
   id: string;
   engagementId?: string;
   sourceTemplateId?: string;
@@ -1336,6 +1344,7 @@ export interface AuditProgramItem {
 
 export interface SamplePopulationRow {
   id: string;
+  physicalReference?: PhysicalEvidenceReference;
   itemRef: string;
   identifier?: string;
   date: string;
@@ -1359,6 +1368,8 @@ export interface SamplePopulationRow {
 
 export interface SamplePopulationItem {
   id: string;
+  tbSourceVersion?: number;
+  planVersion?: number;
   engagementId?: string;
   sourceRevision?: number;
   sourceFileName?: string;
@@ -1400,6 +1411,9 @@ export interface EvidenceItem {
 
 export interface WorkpaperItem {
   id: string;
+  physicalReference?: PhysicalEvidenceReference;
+  generatedArtifact?: GeneratedArtifactRecord;
+  generatedArtifactHistory?: GeneratedArtifactRecord[];
   title: string;
   objective: string;
   assertion: string;
@@ -1610,6 +1624,8 @@ export interface AcceptanceCaseRecord {
 
 export interface AuditPlanRecord {
   id: string;
+  sourceVersion?: number;
+  benchmarkSource?: 'TB' | 'Manual';
   engagementId: string;
   version: number;
   status: 'Draft' | 'Under review' | 'Approved' | 'Superseded';
@@ -1671,6 +1687,10 @@ export interface ArchiveHistoryEntry {
 // Whole Prototype State
 export interface PrototypeState {
   schema: number;
+  confirmations?: ExternalConfirmation[];
+  firmLedger?: FirmLedgerEntry[];
+  portalPasswordChanges?: PortalPasswordSimulation[];
+  portalDelegations?: PortalDelegation[];
   asOfDate: string;
   selectedEngagement: string;
   currentRole: RoleKey;

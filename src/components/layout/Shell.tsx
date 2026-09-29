@@ -152,73 +152,7 @@ export const Shell: React.FC<ShellProps> = ({ currentRoute, onRouteChange, onSel
 
   const clientMode = isClientRole(state.currentRole);
 
-  const staffNavGroups: Array<[string, Array<{ key: RouteKey; label: string; icon: string; count?: number }>]> = [
-    [
-      'PRACTICE',
-      [
-        { key: 'overview', label: 'Practice Overview', icon: 'grid' },
-        { key: 'clients', label: 'Client Portfolio', icon: 'users', count: scopedClients.length },
-        { key: 'acquisition', label: 'Acquisition & Pipeline', icon: 'target', count: state.leads.filter(l => l.stage !== 'Won').length },
-        { key: 'proposals', label: 'Proposals & Terms', icon: 'receipt' },
-        { key: 'engagements', label: 'Engagements', icon: 'brief', count: scopedEngagements.length },
-        { key: 'onboarding', label: 'Acceptance & KYC', icon: 'shield' }
-      ]
-    ],
-    [
-      'WORK & COLLABORATION',
-      [
-        { key: 'jobs', label: 'Jobs & Tasks', icon: 'checkboard', count: state.jobs.filter(j => allowedEngagementIds === 'ALL' || allowedEngagementIds.includes(j.engagementId)).length },
-        { key: 'job-templates', label: 'Job Templates', icon: 'layers' },
-        { key: 'communications', label: 'Team & Client Comms', icon: 'message' },
-        { key: 'documents', label: 'Documents & SharePoint', icon: 'folder', count: state.documents.filter(d => d.clientId && (allowedClientIds === 'ALL' || allowedClientIds.includes(d.clientId))).length }
-      ]
-    ],
-    [
-      'ECONOMICS & BILLING',
-      [
-        { key: 'my-time', label: 'Time Tracking', icon: 'clock' },
-        { key: 'budgets', label: 'Budgets & Variances', icon: 'calculator' },
-        { key: 'billing', label: 'Billing & Invoices', icon: 'receipt', count: scopedInvoices(state).filter(i => i.status === 'Issued').length },
-        { key: 'receivables', label: 'Receivables & Receipts', icon: 'receipt' }
-      ]
-    ],
-    [
-      'ACCOUNTING WORKBENCH',
-      [
-        { key: 'accounting-setup', label: 'Accounting Workbench', icon: 'calculator' },
-        { key: 'financial-statements', label: 'Financial Statements', icon: 'file' },
-        { key: 'financial-packages', label: 'Financial Packages', icon: 'archive' },
-        { key: 'consolidation', label: 'Group Consolidation', icon: 'layers' }
-      ]
-    ],
-    [
-      'AUDIT & ASSURANCE',
-      [
-        { key: 'audit-planning', label: 'Audit Planning & Materiality', icon: 'target' },
-        { key: 'audit-risks', label: 'Risks & Audit Programs', icon: 'shield' },
-        { key: 'sampling', label: 'Sampling & Populations', icon: 'checkboard' },
-        { key: 'audit', label: 'Audit Workpapers', icon: 'checkboard', count: selectedEng?.workpapers?.length },
-        { key: 'evidence', label: 'Evidence Catalogue', icon: 'folder' },
-        { key: 'findings', label: 'Findings & Differences', icon: 'target', count: state.findings.filter(f => allowedEngagementIds === 'ALL' || allowedEngagementIds.includes(f.engagementId)).length },
-        { key: 'reviews', label: 'Review Desk', icon: 'message', count: selectedEng?.reviews?.filter(r => r.status !== 'Cleared').length },
-        { key: 'approvals', label: 'Sign-offs & EQR', icon: 'shield' },
-        { key: 'delivery', label: 'Release & Completion', icon: 'archive' },
-        { key: 'records', label: 'Records & Archive', icon: 'archive' }
-      ]
-    ],
-    [
-      'CLIENT SERVICES & ADMIN',
-      [
-        { key: 'portal', label: 'Client Portal Preview', icon: 'globe' },
-        { key: 'reports', label: 'Report Centre', icon: 'calculator' },
-        { key: 'administration', label: 'Firm Administration', icon: 'settings' },
-        { key: 'm365-setup', label: 'Microsoft 365 Setup', icon: 'settings' },
-        { key: 'requirements', label: 'Requirements & PRD', icon: 'book' },
-        { key: 'client-requirements', label: 'Client Requirements', icon: 'book' },
-        { key: 'module-guide', label: 'Module Guide & Tour', icon: 'layers' }
-      ]
-    ]
-  ];
+  const staffNavGroups: Array<[string, Array<{ key: RouteKey; label: string; icon: string; count?: number }>]> = [["COMMERCIAL", [{"key": "overview", "label": "Lifecycle overview", "icon": "grid"}, {"key": "acquisition", "label": "Leads", "icon": "target"}, {"key": "clients", "label": "Clients", "icon": "users"}, {"key": "proposals", "label": "Proposal & engagement letter", "icon": "receipt"}, {"key": "engagements", "label": "Engagement register", "icon": "brief"}, {"key": "billing", "label": "Advance & balance billing", "icon": "receipt"}, {"key": "onboarding", "label": "Acceptance / continuance", "icon": "shield"}]], ["AUDIT", [{"key": "documents", "label": "Workspace & PBC", "icon": "folder"}, {"key": "audit-planning", "label": "Planning & materiality", "icon": "target"}, {"key": "scheduling", "label": "Staffing, rates & time", "icon": "clock"}, {"key": "trial-balance", "label": "TB upload & mapping", "icon": "calculator"}, {"key": "financial-statements", "label": "P&L / balance sheet", "icon": "file"}, {"key": "audit-risks", "label": "Risks & fieldwork programs", "icon": "shield"}, {"key": "sampling", "label": "Sampling & X-1 evidence", "icon": "checkboard"}, {"key": "evidence", "label": "Evidence catalogue", "icon": "folder"}, {"key": "findings", "label": "Findings & differences", "icon": "target"}, {"key": "confirmations", "label": "External confirmations", "icon": "message"}, {"key": "reviews", "label": "Review & SRM", "icon": "message"}, {"key": "delivery", "label": "Opinion & deliverables", "icon": "archive"}, {"key": "records", "label": "Freeze & read-only archive", "icon": "archive"}]], ["PRACTICE", [{"key": "reports", "label": "Practice analytics", "icon": "calculator"}, {"key": "practice-ledger", "label": "Firm expenses & ledger", "icon": "calculator"}, {"key": "administration", "label": "Firm administration", "icon": "settings"}, {"key": "m365-setup", "label": "M365 configuration", "icon": "settings"}, {"key": "requirements", "label": "Scope & simulation limits", "icon": "book"}]]];
 
   const clientNavGroups: Array<[string, Array<{ key: RouteKey; label: string; icon: string; count?: number }>]> = [
     [
@@ -511,7 +445,7 @@ export const Shell: React.FC<ShellProps> = ({ currentRoute, onRouteChange, onSel
               onClick={openSearch}
             >
               <Icon name="search" />
-              <span>Search clients, jobs, workpapers, invoices…</span>
+              <span>Search clients, engagements, evidence, invoices…</span>
               <kbd>/</kbd>
             </button>
           </div>
@@ -590,12 +524,13 @@ export const Shell: React.FC<ShellProps> = ({ currentRoute, onRouteChange, onSel
               const loaded = state.events.find(event => event.text.startsWith('Loaded scenario preset: '));
               const id = loaded?.text.replace('Loaded scenario preset: ', '');
               const title = SCENARIO_DEFINITIONS.find(item => item.id === id)?.title;
-              return <span title={loaded ? 'Most recent preset loaded in this browser; later edits are local changes' : 'No preset loaded in the retained event log'}>{title || id || 'Default baseline'}</span>;
+              return <span title={loaded ? 'Most recent preset loaded in this browser; later edits are local changes' : 'No preset loaded in the retained event log'}>{title || id || 'Local audit lifecycle'}</span>;
             })()}
           </div>
           <div className="context-item">
-            <label>Package Rev</label>
+            <label>Report set</label>
             {(() => {
+              if (selectedEng?.auditLifecycle) { const set=selectedEng.auditLifecycle.deliverables.at(-1); return <span>{set ? `v${set.revision} · ${selectedEng.auditLifecycle.archiveControl.freezeStatus==='Frozen'?'Frozen':set.deliveredAt?'Delivered':'Generated'}` : 'Not generated'}</span>; }
               const display = getPackageContextDisplay(selectedEng);
               if (!display.revision) return <span>{display.status}</span>;
               return <>
@@ -622,10 +557,10 @@ export const Shell: React.FC<ShellProps> = ({ currentRoute, onRouteChange, onSel
             </div>
             <div className="modal-body">
               <p className="sub" style={{ marginBottom: 16 }}>
-                Switch between fully-realized synthetic scenarios to demonstrate different phases of the practice, accounting, audit, and consolidation lifecycles.
+                Start a fresh synthetic audit lifecycle. Existing local records are replaced only after confirming the scenario change.
               </p>
               <div className="stack" style={{ gap: 10 }}>
-                {SCENARIO_DEFINITIONS.map(scen => (
+                {SCENARIO_DEFINITIONS.filter(s => s.id === 'target-lifecycle' || s.id === 'empty-practice').map(scen => (
                   <button
                     type="button"
                     key={scen.id}
@@ -690,7 +625,7 @@ export const Shell: React.FC<ShellProps> = ({ currentRoute, onRouteChange, onSel
                   className="input"
                   aria-label="Search practice records"
                   style={{ flex: 1 }}
-                  placeholder="Type to search clients, engagements, jobs, documents..."
+                  placeholder="Search clients, engagements, documents..."
                   value={searchQuery}
                   onChange={e => setSearchQuery(e.target.value)}
                   autoFocus

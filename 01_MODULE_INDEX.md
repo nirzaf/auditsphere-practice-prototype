@@ -1,3 +1,9 @@
+# Current navigation
+
+Use the [target lifecycle rehearsal](docs/prototype/target-lifecycle-demo.md) and [implementation map](docs/prototype/target-lifecycle-plan.md). Standalone jobs/templates, GL, consolidation, generic financial packages, receivables and mandatory EQR routes are retired or redirected. The 39-module index below is retained as historical implementation reference.
+
+---
+
 # All 39 modules — usage and pending-work index
 
 [Master implementation progress](00_MASTER_INDEX.md) · [Client playbook](02_CLIENT_DEMO_PLAYBOOK.md) · [Role handoffs](reference/ROLE_HANDOFF_GUIDE.md)

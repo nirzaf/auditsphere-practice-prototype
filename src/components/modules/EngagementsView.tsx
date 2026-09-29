@@ -155,23 +155,18 @@ export const EngagementsView: React.FC<EngagementsViewProps> = ({ onNavigate, on
       proposalId: proposal?.id,
       acceptance: !proposal,
       terms: !proposal,
-      planning: true,
+      planning: false,
       sourceAccepted: false,
       mappingApproved: false,
       generation: 1,
       packageRevision: 1,
       builtGeneration: 1,
-      sourceVersion: 1,
-      eqrRequired: service === 'External audit',
-      opinion: 'Standard unmodified',
+      sourceVersion: 0,
+      eqrRequired: false,
+      opinion: 'Not selected',
       releases: [],
       approvals: { manager: null, client: null, partner: null, eqr: null },
-      rows: [
-        { code: '1000', name: 'Cash and bank balances', type: 'asset', balance: 500000 },
-        { code: '1100', name: 'Trade receivables', type: 'asset', balance: 300000 },
-        { code: '2000', name: 'Trade payables', type: 'liability', balance: -200000 },
-        { code: '3000', name: 'Share capital', type: 'equity', balance: -600000 }
-      ],
+      rows: [],
       adjustment: 0,
       journalState: 'Applied',
       sourceReflection: true,
@@ -181,7 +176,7 @@ export const EngagementsView: React.FC<EngagementsViewProps> = ({ onNavigate, on
       reviews: [],
       pbc: [],
       annual: { confirmed: [], decision: null, nextId: null },
-      questionnaire: { answers: { 0: true, 1: true, 2: true, 3: true }, status: 'Completed' },
+      questionnaire: { answers: {}, status: 'Draft' },
       events: []
     };
 
@@ -240,11 +235,11 @@ export const EngagementsView: React.FC<EngagementsViewProps> = ({ onNavigate, on
 
           <div className="row mt20 wrap" style={{ gap: 10 }}>
             {!['Cancelled', 'Closed'].includes(lifecycleStatus) && <button className="btn sm" onClick={openAdminEditor}>Edit Engagement Details</button>}
-            {selectedEng.stage === 'Draft' && <button className="btn primary sm" onClick={() => { const evidence = window.prompt('Professional acceptance evidence reference:'); if (evidence?.trim()) { setActionError(''); try { prototypeStore.activateEngagement(selectedEng.id, evidence); } catch (error: any) { setActionError(error.message); } } }}>Activate Engagement</button>}
+            {selectedEng.stage === 'Draft' && !selectedEng.auditLifecycle && <button className="btn primary sm" onClick={() => { const evidence = window.prompt('Professional acceptance evidence reference:'); if (evidence?.trim()) { setActionError(''); try { prototypeStore.activateEngagement(selectedEng.id, evidence); } catch (error: any) { setActionError(error.message); } } }}>Activate Engagement</button>}
             {lifecycleStatus === 'Active' && <><button className="btn sm" onClick={() => updateLifecycle('Suspended')}>Suspend Engagement</button><button className="btn sm danger" onClick={() => updateLifecycle('Cancelled')}>Cancel Engagement</button><button className="btn sm ghost" onClick={() => updateLifecycle('Closed')}>Close Engagement</button></>}
             {lifecycleStatus === 'Suspended' && <><button className="btn sm primary" onClick={() => updateLifecycle('Active')}>Resume Engagement</button><button className="btn sm danger" onClick={() => updateLifecycle('Cancelled')}>Cancel Engagement</button><button className="btn sm ghost" onClick={() => updateLifecycle('Closed')}>Close Engagement</button></>}
-            <button className="btn sm" onClick={() => onNavigate('accounting-setup')}>
-              <Icon name="calculator" /> Accounting Workbench
+            <button className="btn sm" onClick={() => onNavigate('trial-balance')}>
+              <Icon name="calculator" /> Trial balance & mapping
             </button>
             <button className="btn sm" onClick={() => onNavigate('audit')}>
               <Icon name="checkboard" /> Audit Workpapers
@@ -273,7 +268,7 @@ export const EngagementsView: React.FC<EngagementsViewProps> = ({ onNavigate, on
                 <label>Engagement manager<select aria-label="Engagement manager" className="input" value={editManager} onChange={event => setEditManager(event.target.value)}>{assignedPeople.filter(user => user.role === 'manager').map(user => <option key={user.id}>{user.name}</option>)}</select></label>
                 <label>Signing partner<select aria-label="Signing partner" className="input" value={editPartner} onChange={event => setEditPartner(event.target.value)}>{assignedPeople.filter(user => user.role === 'partner').map(user => <option key={user.id}>{user.name}</option>)}</select></label>
               </div>
-              <fieldset className="stack"><legend>Assigned professional team</legend>{assignedPeople.filter(user => ['manager', 'partner', 'preparer', 'reviewer', 'eqr'].includes(user.role)).map(user => <label key={user.id}><input type="checkbox" checked={editTeam.includes(user.name)} onChange={event => setEditTeam(current => event.target.checked ? [...new Set([...current, user.name])] : current.filter(name => name !== user.name))} /> {user.label} — {user.name}</label>)}</fieldset>
+              <fieldset className="stack"><legend>Assigned professional team</legend>{assignedPeople.filter(user => ['manager', 'partner', 'preparer', 'reviewer'].includes(user.role)).map(user => <label key={user.id}><input type="checkbox" checked={editTeam.includes(user.name)} onChange={event => setEditTeam(current => event.target.checked ? [...new Set([...current, user.name])] : current.filter(name => name !== user.name))} /> {user.label} — {user.name}</label>)}</fieldset>
                <p className="sub">Agreed fee and currency remain pinned to the accepted commercial proposal; this administrative edit does not amend them. Team members need active access to this engagement.</p>
                {engagementScopeChanged && <div className="borderbox mt8" role="status" style={{ borderColor: '#d97706', background: '#fffbeb' }}><b>Scope or period change impact</b><p>Saving will clear planning, source acceptance and mapping approval; mark statement, reconciliation and cash-flow reviews stale; supersede the active audit plan; require reassessment of performed procedures; and invalidate release approvals.</p></div>}
                {engagementTeamChanged && <div className="borderbox mt8" role="status" style={{ borderColor: '#d97706', background: '#fffbeb' }}><b>Team change impact</b><p>Saving will supersede the active audit-plan review and require reassessment of performed procedures. Existing records stay linked to this engagement; access is still checked for every assigned person.</p></div>}

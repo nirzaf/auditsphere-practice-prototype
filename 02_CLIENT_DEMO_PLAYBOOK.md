@@ -1,3 +1,9 @@
+# Current demo playbook
+
+Use [Canonical audit lifecycle rehearsal](docs/prototype/target-lifecycle-demo.md). It supersedes the historical presets and 39-module chapters below. [Executed evidence and limits](docs/prototype/target-lifecycle-report.md).
+
+---
+
 # Client demonstration playbook
 
 [Master index](00_MASTER_INDEX.md) · [39 module guides](01_MODULE_INDEX.md) · [Role reference](reference/ROLE_HANDOFF_GUIDE.md)

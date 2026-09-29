@@ -1,6 +1,12 @@
-# AuditSphere · All-role portals v2
+# AuditSphere · Target audit lifecycle
 
 AuditSphere is a source-grounded, browser-only visualization of the 14 roles in STE-PRD-001, plus one reserved synthetic testing identity (`Superuser · Full Prototype Access`) that exists only to exercise every module from a single tab. It uses synthetic data only; there is no backend, live provider connection, authentication, or production authorization boundary.
+
+## Current lifecycle
+
+Lead → Proposal/EL → 50% advance/receipt → Partner acceptance → M365/PBC → Planning/Staffing → TB/P&L/BS → Fieldwork/Sampling/Confirmations → Preparer/Manager review → SRM/Partner → Opinion/ML/LOR/Report → Balance invoice → 60-day freeze/archive → Practice analytics/firm ledger.
+
+[Implementation report](docs/prototype/target-lifecycle-report.md) · [Rehearsal and evidence](docs/prototype/target-lifecycle-demo.md). Standalone overlapping 39-module surfaces are retired; historical primitive source and contracts remain for regression coverage.
 
 ## React + TypeScript + Vite
 
@@ -30,7 +36,7 @@ The app is a native React + TypeScript single-page application; there is no lega
 - `src/services/guards.ts`: the shared role, scope and segregation-of-duties policy used by store commands and UI affordances alike (`canOpenRoute`, `visibleClientIds`, `visibleEngagementIds`, `requireIndependentActor`, `hasAnyRole`). Reserved-testing overrides are recorded here, never applied silently.
 - `src/services/legacyRoutes.ts`: redirects historical hash links to current React routes; role checks still apply and denied destinations resolve to an allowed workspace.
 - `src/components/layout/Shell.tsx`: navigation shell, search and scenario controls.
-- `src/components/modules/*.tsx`: the 39-module route views.
+- `src/components/modules/*.tsx`: retained reusable modules; current lifecycle views are in `src/components/target`.
 - `src/components/common/*.tsx`: shared presentational pieces — icon set, internal-notes panel, `StatusBadge`, `Feedback` (notices, empty/no-result/out-of-scope states, stale banners, gate lists, action reasons), `Lifecycle` (stepper and panel), `ActivityTimeline` and the collapsed module lifecycle guide.
 - `src/services/statusSemantics.ts`, `lifecycles.ts`, `workQueues.ts`, `reviewDiff.ts`, `terminalActions.ts`, `routeCatalog.ts`: presentation-layer projections of existing state (status vocabulary, lifecycle definitions grounded in store commands, scoped role queues, deterministic "changed since last review", terminal-action consequences, breadcrumb catalogue). They never decide eligibility — guards and store commands remain the authority.
 - `src/enterprise.css`: the enterprise UX layer stylesheet (loaded after `styles.css`, `roles.css`, `host.css`).
@@ -81,7 +87,7 @@ npm ci
 npm run build
 npm run legacy:check
 npm run test:unit   # deterministic calculations, guards, migrations, scope scan, TB parsing, export formats
-npm run test:e2e    # serves dist/ on loopback; asserts shell boot, no provider egress, simulated surfaces
+npm run test:e2e    # builds production output, runs Chrome command journey and rendered checkpoints
 # macOS: Google Chrome in /Applications is detected automatically; elsewhere set CHROME_PATH.
 # The harness pins a 1440x1000 window so every platform starts in the desktop layout.
 ```

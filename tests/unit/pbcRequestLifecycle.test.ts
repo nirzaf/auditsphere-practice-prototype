@@ -37,7 +37,7 @@ describe('PBC request filters (VP-023-E02)', () => {
 
 describe('PBC request lifecycle (VP-023)', () => {
   beforeEach(() => {
-    prototypeStore.importStateJSON(JSON.stringify(createInitialState()));
+    (prototypeStore as any).state = createInitialState(); // Isolated legacy PBC record contract; target activation is tested separately.
     prototypeStore.setPersona('manager');
     prototypeStore.setSelectedEngagement('ENG-26001');
   });
@@ -89,7 +89,7 @@ describe('PBC request lifecycle (VP-023)', () => {
     const state = createInitialState();
     state.currentRole = 'manager'; state.currentUserId = 'manager'; state.currentPerson = 'Layla Rahman'; state.selectedEngagement = 'ENG-26001';
     state.engagements.find(engagement => engagement.id === 'ENG-26001')!.pbc.unshift({ id: 'PBC-TEST-06', title: 'Context check', category: 'Bank evidence', status: 'Draft', due: '2026-09-30', owner: '', contributor: 'Rami Nasser', version: 1 });
-    prototypeStore.importStateJSON(JSON.stringify(state));
+    (prototypeStore as any).state = state; // Historical record contract.
     const engagement = prototypeStore.getSnapshot().engagements.find(item => item.id === 'ENG-26001')!;
     const requestBefore = structuredClone(engagement.pbc.find(item => item.id === 'PBC-TEST-06'));
     const eventsBefore = prototypeStore.getSnapshot().events.length;

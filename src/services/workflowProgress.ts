@@ -1,3 +1,4 @@
+import { engagementProgress } from './targetLifecycle';
 // Workflow progress engine: derives real-state progress, steps, counts, and answers
 // to the 6 enterprise questions for every screen and stateful record across AuditSphere.
 // Rule: Derived strictly from current store state and scoped permissions. Never hardcoded.
@@ -175,6 +176,11 @@ export function computeModuleWorkflowProgress(
     };
   }
 
+  if (['confirmations','scheduling'].includes(route) && activeEngagement) {
+    const stages=engagementProgress(state,activeEngagement).filter(stage=>stage.route===route);
+    const steps:WorkflowStep[]=stages.map(stage=>({id:stage.id,label:stage.label,state:stage.status==='Completed'?'completed':stage.status==='Current'?'current':stage.status==='Needs Rework'?'stale':stage.status==='Blocked'?'blocked':'pending',detail:stage.blockers.join(' '),targetRoute:stage.route}));
+    return reconcileProgress({moduleId:routeInfo.moduleId,moduleName:routeInfo.label,route,currentSection:routeInfo.label,steps,percentComplete:null,applicability:'workflow',counts:emptyCounts,completedSummary:'Recorded milestones',pendingSummary:'Current predecessor gates',blockers:stages.flatMap(s=>s.blockers),nextAction:'Record the next eligible action.',whoActsNext:stages[0]?.owner||'Scoped staff'},routeInfo,selection,activeEngagement.id,activeEngagement.client);
+  }
   const raw = computeLegacyModuleWorkflowProgress(route, state, { ...selection, engagementId: activeEngagement?.id });
   return reconcileProgress(raw, routeInfo, selection, activeEngagement?.id, selectedClient?.id);
 }

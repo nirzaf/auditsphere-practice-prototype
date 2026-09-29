@@ -33,7 +33,7 @@ const INVENTORY: Record<Family, string[]> = {
   'firm-library': ['addJobTemplate', 'createJobTemplateRevision', 'publishJobTemplate', 'retireJobTemplate', 'saveEmailTemplate', 'createAuditProgramTemplate', 'reviseAuditProgramTemplate', 'publishAuditProgramTemplate', 'retireAuditProgramTemplate', 'updateFirmSettings'],
   billing: ['addInvoice', 'cancelInvoiceDraft', 'reviseInvoiceDraft', 'reviewInvoice', 'issueInvoice', 'addCreditNote', 'reviewCreditNote', 'reviseCreditNote', 'issueCreditNote', 'addReceipt', 'allocateReceipt', 'reverseAllocation'],
   records: ['linkDocumentToTask', 'unlinkDocumentFromTask', 'setDocumentClientSharing', 'archiveEngagement', 'recordArchiveHandover'],
-  setup: ['updateM365Config', 'simulateM365Verification', 'simulateM365Disconnect', 'prepareClientWorkspace', 'saveAcceptanceCase'],
+  setup: ['updateM365Config', 'simulateM365Verification', 'simulateM365Disconnect', 'prepareClientWorkspace', 'saveAcceptanceCase', 'decideAcceptanceCase'],
   recovery: ['loadScenario', 'resetState', 'exportStateJSON', 'importStateJSON', 'checkIntegrity'],
   professional: [
     'addJob', 'updateJob', 'addTask', 'updateTask', 'reassignTask', 'applyJobTemplate',
@@ -57,7 +57,7 @@ const INVENTORY: Record<Family, string[]> = {
     'addFinding', 'setFindingDisposition',
     'prepareReleaseCandidate', 'prepareAmendedRelease', 'issueRelease', 'reopenReleaseForAmendment',
     'saveDisclosureReview', 'reviewDisclosure', 'saveFinancialPackageRevision',
-    'decideAcceptanceCase', 'saveAuditPlan', 'reviewAuditPlan'
+ 'saveAuditPlan', 'reviewAuditPlan'
   ]
 };
 

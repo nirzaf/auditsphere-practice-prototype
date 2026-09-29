@@ -1,8 +1,11 @@
+import { canonicalRoute } from '../services/legacyRoutes';
 // AuditSphere Single Typed Store & Command Boundary
 // VP-002, VP-004, VP-019, VP-056: Single state, guarded actions, reactive subscriptions
 
 import { PrototypeState, RoleKey, ClientRecord, EngagementRecord, JobRecord, JobTaskItem, JobTemplateItem, TimeEntryItem, InvoiceRecord, InvoiceLineItem, ReceiptRecord, CreditNoteRecord, PbcRequestItem, WorkpaperItem, WorkpaperTemplateItem, ReviewNoteItem, AdjustmentJournalItem, AdjustmentJournalSupportLinks, ConsolidationGroupRecord, DocumentItem, CommunicationItem, EmailTemplateItem, AcceptanceCaseRecord, AuditPlanRecord, ArchiveRecord, ArchiveHistoryEntry, ArchivedArtifactRecord, SimulatedInvitation, IdentityStatusEvent, StatementSetRevision, StatementLayoutRevision, CashFlowScheduleRevision, ReconciliationSchedule, ClientAccountingProfile, GLSourceRevision, ProposalServiceDefinition, ProposalContentTemplate } from '../types';
 import { createInitialState } from './initialState';
+import { TargetLifecycleCommands } from './targetLifecycleCommands';
+import { activationBlockers, billingSummary, fieldworkBlockers, normalizeTargetState, emptyAuditLifecycle } from '../services/targetLifecycle';
 import { ScenarioName, loadScenarioState } from './scenarios';
 import { CURRENT_SCHEMA, migratePersistedState, validateFixtures } from '../services/migrations';
 import { requireActiveIdentity, requireIndependentActor, requireEngagementScope, requireClientScope, visibleClientIds, visibleEngagementIds, eligibleReviewAssignees, eligibleAuditRiskOwners, isClientRole, canOpenRoute, GuardError, markStateStale, roleRequiresApprovalEvidence, requireConsolidationGroupScope, isSuperuserRole, hasAnyRole, recordPrototypeSuperuserOverride, requireActiveEngagementLifecycle, requireActiveConsolidationComponents } from '../services/guards';
@@ -59,6 +62,7 @@ const hasValidProposalPeriod = (start?: string, end?: string) => Boolean(isPropo
 
 class PrototypeStore {
   private state: PrototypeState;
+  public readonly lifecycle = new TargetLifecycleCommands(() => this.state, () => this.notify());
   private listeners: Set<() => void> = new Set();
   private isSessionOnly = false;
   private loadError: string | null = null;
@@ -152,7 +156,7 @@ class PrototypeStore {
   private loadInitialState(): PrototypeState {
     if (typeof localStorage === 'undefined') {
       this.isSessionOnly = true;
-      return createInitialState();
+      return typeof window === 'undefined' ? createInitialState() : loadScenarioState('target-lifecycle');
     }
     try {
       const raw = localStorage.getItem(STORAGE_KEY);
@@ -163,13 +167,13 @@ class PrototypeStore {
         } catch {
           this.loadError = 'Saved demo state could not be parsed. Recovery: keep the preserved payload, reset, or import a validated file. Nothing was silently deleted.';
           try { localStorage.setItem(STORAGE_BACKUP_KEY, raw); } catch { /* quota */ }
-          return createInitialState();
+          return typeof window === 'undefined' ? createInitialState() : loadScenarioState('target-lifecycle');
         }
         const schema = (parsed as { schema?: unknown }).schema;
         if (typeof schema === 'number' && schema > CURRENT_SCHEMA) {
           this.loadError = `Saved demo state uses schema v${schema}, newer than supported v${CURRENT_SCHEMA}. Recovery: export/preserve the payload, then reset or import a compatible file.`;
           try { localStorage.setItem(STORAGE_BACKUP_KEY, raw); } catch { /* quota */ }
-          return createInitialState();
+          return typeof window === 'undefined' ? createInitialState() : loadScenarioState('target-lifecycle');
         }
         if (parsed && typeof schema === 'number' && Array.isArray((parsed as { engagements?: unknown }).engagements)) {
           try { localStorage.setItem(STORAGE_BACKUP_KEY, raw); } catch { /* quota */ }
@@ -177,7 +181,7 @@ class PrototypeStore {
           const issues = validateFixtures(state);
           if (issues.length === 0) return state;
           this.loadError = `Saved demo state failed integrity validation (${issues[0].message}). The original payload was preserved; reset or import a validated file.`;
-          return createInitialState();
+          return typeof window === 'undefined' ? createInitialState() : loadScenarioState('target-lifecycle');
         }
         this.loadError = 'Saved demo state was ambiguous or incomplete. Recovery: the prior payload was preserved; reset or import a validated file.';
         try { localStorage.setItem(STORAGE_BACKUP_KEY, raw); } catch { /* quota */ }
@@ -186,7 +190,7 @@ class PrototypeStore {
       console.warn('Storage read error, starting with default session state', e);
       this.isSessionOnly = true;
     }
-    return createInitialState();
+    return typeof window === 'undefined' ? createInitialState() : loadScenarioState('target-lifecycle');
   }
 
   private persist() {
@@ -1104,6 +1108,8 @@ class PrototypeStore {
     }
     if (this.state.engagements.some(e => e.id === eng.id)) throw new GuardError('INVALID_STATE', `Engagement "${eng.id}" already exists.`);
     this.assignAccountingPeriod(eng);
+    eng.auditLifecycle ||= emptyAuditLifecycle();
+    eng.eqrRequired = false;
     this.state.engagements.push(eng);
     this.state.selectedEngagement = eng.id;
     this.logEvent(`New engagement created: ${eng.service} FY${eng.year}`, eng.id);
@@ -1326,7 +1332,7 @@ class PrototypeStore {
   }
 
   private assertScopedJobStaff(name: string, engagementId: string, label: string) {
-    const user = this.state.users.find(item => item.status === 'Active' && item.name === name && !isClientRole(item.role) && canOpenRoute(item.role, 'jobs'));
+    const user = this.state.users.find(item => item.status === 'Active' && item.name === name && !isClientRole(item.role) && canOpenRoute(item.role, canonicalRoute('jobs')));
     if (!user) throw new GuardError('INVALID_STATE', `${label} must be an active staff user with job access.`);
     const visible = visibleEngagementIds(this.state, user.id);
     if (visible !== 'ALL' && !visible.includes(engagementId)) throw new GuardError('FORBIDDEN_SCOPE', `${label} must have access to this engagement.`);
@@ -1501,7 +1507,7 @@ class PrototypeStore {
     const task = comment.subjectType === 'task' ? this.state.jobTasks.find(item => item.id === comment.subjectId) : undefined;
     const job = comment.subjectType === 'job' ? this.state.jobs.find(item => item.id === comment.subjectId) : task ? this.state.jobs.find(item => item.id === task.jobId) : undefined;
     const eligibleIds = this.state.users.filter(user => {
-      if (user.status !== 'Active' || isClientRole(user.role) || !canOpenRoute(user.role, 'jobs')) return false;
+      if (user.status !== 'Active' || isClientRole(user.role) || !canOpenRoute(user.role, canonicalRoute('jobs'))) return false;
       if (comment.subjectType === 'client') {
         const visible = visibleClientIds(this.state, user.id);
         return visible === 'ALL' || visible.includes(comment.subjectId);
@@ -1928,6 +1934,9 @@ class PrototypeStore {
       entry.billingRatePerHour = line?.billingRatePerHour;
       entry.costRatePerHour = line?.costRatePerHour;
       entry.currency = budget?.currency;
+      const engagement = this.state.engagements.find(e=>e.id===entry.engagementId);
+      const allocation = engagement?.auditLifecycle?.staffing.at(-1)?.allocations.find(a=>this.state.users.find(u=>u.id===a.userId)?.name===entry.person);
+      if (engagement?.auditLifecycle) { entry.budgetVersion=engagement.auditLifecycle.staffing.at(-1)?.revision; entry.billingRatePerHour=allocation?.chargeRate??undefined; entry.costRatePerHour=allocation?.costRate??undefined; entry.currency=engagement.currency; }
     }
     entry.status = status;
     entry.reviewedBy = this.state.currentPerson;
@@ -3350,6 +3359,8 @@ class PrototypeStore {
     requireActiveIdentity(this.state);
     requireRole(this.state, ['preparer', 'manager', 'partner'], 'submit workpapers');
     requireEngagementScope(this.state, engId);
+    const targetEngagement = this.state.engagements.find(e => e.id === engId);
+    if (targetEngagement?.auditLifecycle) { const blockers = fieldworkBlockers(this.state, targetEngagement); if (blockers.length) throw new GuardError('INVALID_STATE', blockers.join(' ')); }
     const engagement = this.state.engagements.find(item => item.id === engId);
     const workpaper = engagement?.workpapers.find(item => item.id === wpId);
     if (!engagement || !workpaper || !workpaper.applicable || workpaper.status === 'Not applicable') throw new GuardError('INVALID_STATE', 'Only an applicable workpaper can be submitted.');
@@ -3374,13 +3385,15 @@ class PrototypeStore {
     requireActiveIdentity(this.state);
     requireRole(this.state, ['manager', 'reviewer', 'partner'], 'clear workpapers');
     requireEngagementScope(this.state, engId);
+    const targetEngagement = this.state.engagements.find(e => e.id === engId);
+    if (targetEngagement?.auditLifecycle) { const blockers = fieldworkBlockers(this.state, targetEngagement); if (blockers.length) throw new GuardError('INVALID_STATE', blockers.join(' ')); }
     const eng = this.state.engagements.find(e => e.id === engId);
     if (!eng) return;
     const wp = eng.workpapers.find(w => w.id === wpId);
     if (!wp) return;
     if (!wp.applicable || !notes.trim()) throw new GuardError('INVALID_STATE', 'Only applicable workpapers with a clearance rationale can be cleared.');
     if (wp.status !== 'Submitted' || wp.submittedVersion !== wp.version || !wp.submittedBy) throw new GuardError('INVALID_STATE', 'Only the exact current submitted revision can be cleared.');
-    if (wp.reviewer !== this.state.currentPerson && !recordPrototypeSuperuserOverride(this.state, 'clear a workpaper as a non-assigned reviewer')) throw new GuardError('FORBIDDEN_SCOPE', 'Only the assigned reviewer may clear this workpaper.');
+    if (wp.reviewer !== this.state.currentPerson && !(eng.auditLifecycle && this.state.currentRole === 'manager' && eng.manager === this.state.currentPerson) && !recordPrototypeSuperuserOverride(this.state, 'clear a workpaper as a non-assigned reviewer')) throw new GuardError('FORBIDDEN_SCOPE', 'Only the assigned reviewer may clear this workpaper.');
 
     // Check separation of duties: preparer cannot clear own workpaper!
     requireIndependentActor(wp.preparer, this.state.currentPerson, 'independently clear this workpaper', this.state);
@@ -3420,6 +3433,7 @@ class PrototypeStore {
     note.assignmentHistory.push({ assignedUserId: assignee.id, assignedTo: assignee.name, actorUserId: this.state.currentUserId, at: new Date().toISOString(), reason: 'Initial assignment' });
     note.subjectVersion = subjectVersion;
     eng.reviews.unshift(note);
+    if (eng.auditLifecycle && subjectType === 'workpaper') { const wp = eng.workpapers.find(w => w.id === note.wp); if (wp) { wp.status = 'Changes required'; wp.clearance = null; } }
     this.invalidateReleaseBasis(eng);
     this.logEvent(`Review note ${note.id} raised on ${note.wp}`, note.id);
     this.notify();
@@ -3481,6 +3495,7 @@ class PrototypeStore {
     if (!eng) return;
     const note = eng.reviews.find(r => r.id === noteId);
     if (!note) return;
+    if (eng.auditLifecycle && note.status !== 'Responded') throw new GuardError('INVALID_STATE', 'A current preparer response is required before clearance.');
     const subjectVersion = this.reviewSubjectRevision(eng, note);
     const subjectName = note.subjectType === 'finding' ? 'finding' : 'workpaper';
     if (note.status === 'Reopened' || (note.subjectVersion !== undefined && note.subjectVersion !== subjectVersion)) {
@@ -3511,6 +3526,7 @@ class PrototypeStore {
     requireEngagementScope(this.state, engId);
     const eng = this.state.engagements.find(e => e.id === engId);
     if (!eng) return;
+    if (eng.auditLifecycle) throw new GuardError('INVALID_STATE', 'Use target Manager → SRM → Partner clearance in Review & SRM.');
     const testOverride = recordPrototypeSuperuserOverride(this.state, `record ${roleKey} approval as the prototype superuser`);
     const latestGLSource = eng.glSourceHistory?.at(-1);
     const currentPackage = eng.packageHistory?.find(item => item.revision === eng.packageRevision);
@@ -3742,6 +3758,8 @@ class PrototypeStore {
     requireEngagementScope(this.state, engId);
     const eng = this.state.engagements.find(e => e.id === engId);
     if (!eng) return;
+    if (eng.auditLifecycle && !eng.auditLifecycle.workspace?.accessVerifiedAt) throw new GuardError('INVALID_STATE', 'Verify the simulated engagement workspace before PBC access.');
+    if (eng.auditLifecycle && isClientRole(this.state.currentRole) && !this.state.portalPasswordChanges?.some(p => p.userId === this.state.currentUserId)) throw new GuardError('INVALID_STATE', 'Complete the simulated mandatory password change before uploading.');
     const req = eng.pbc.find(r => r.id === requestId);
     if (!req) throw new GuardError('INVALID_STATE', 'PBC request not found.');
     const uploadError = validatePbcUpload({ name: file.name, size: file.size || 0, type: file.type });
@@ -3849,6 +3867,7 @@ class PrototypeStore {
     if (!request.id?.trim() || this.state.engagements.some(e => e.pbc.some(p => p.id === request.id))) throw new GuardError('INVALID_STATE', 'PBC request ID must be unique.');
     if (!request.title || !request.title.trim() || !request.category.trim() || !request.owner.trim() || !request.contributor?.trim()) throw new GuardError('INVALID_STATE', 'Request title, category, owner and client recipient are required.');
     if (!isActiveClientContact(this.state, eng.client, request.contributor)) throw new GuardError('FORBIDDEN_SCOPE', 'Client recipient must be an active contact assigned to this client.');
+    if (eng.auditLifecycle && !eng.auditLifecycle.workspace?.accessVerifiedAt) throw new GuardError('INVALID_STATE', 'Prepare and verify workspace access before drafting PBC requests.');
     eng.pbc.unshift({ ...request, status: 'Draft', version: 1 });
     this.invalidateReleaseBasis(eng);
     this.logEvent(`PBC request drafted: ${request.title}`, request.id);
@@ -3886,6 +3905,7 @@ class PrototypeStore {
     if (!req.title.trim() || !req.owner.trim() || !req.contributor?.trim()) throw new GuardError('INVALID_STATE', 'A title, owner, and client recipient are required before presentation.');
     if (!isActiveClientContact(this.state, eng.client, req.contributor)) throw new GuardError('FORBIDDEN_SCOPE', 'Client recipient must be an active contact assigned to this client before presentation.');
     if (req.status !== 'Draft') throw new GuardError('INVALID_STATE', 'Only draft requests can be presented.');
+    if (eng.auditLifecycle && !eng.auditLifecycle.workspace?.accessVerifiedAt) throw new GuardError('INVALID_STATE', 'Verify the engagement workspace before sending PBC requests.');
     req.status = 'Requested';
     req.requestedBy = this.state.currentPerson;
     req.requestedAt = new Date().toISOString();
@@ -3912,6 +3932,7 @@ class PrototypeStore {
     req.acceptedBy = this.state.currentPerson;
     req.acceptedAt = new Date().toISOString();
     req.acceptedVersion = req.version;
+    if (eng.auditLifecycle) { for (const file of req.sharedFiles || []) { if (!this.state.evidenceCatalogue.some(item => item.documentId === file.id && item.version === file.version)) this.state.evidenceCatalogue.push({id:`EVID-${crypto.randomUUID()}`,title:file.name,documentId:file.id,version:file.version,adequacyStatus:'Adequate',receivedDate:req.acceptedAt.slice(0,10),owner:this.state.currentPerson,linkedProcedures:[]}); } }
     req.acceptanceHistory ||= [];
     req.acceptanceHistory.push({ version: req.version, acceptedBy: this.state.currentPerson, acceptedByUserId: this.state.currentUserId, acceptedAt: req.acceptedAt });
     this.invalidateReleaseBasis(eng);
@@ -4148,6 +4169,8 @@ class PrototypeStore {
     requireActiveIdentity(this.state);
     requireRole(this.state, ['preparer', 'manager'], 'record procedure fieldwork');
     requireEngagementScope(this.state, engId);
+    const targetEngagement = this.state.engagements.find(e => e.id === engId);
+    if (targetEngagement?.auditLifecycle) { const blockers = fieldworkBlockers(this.state, targetEngagement); if (blockers.length) throw new GuardError('INVALID_STATE', blockers.join(' ')); }
     const procedure = this.state.auditPrograms.find(p => (p.engagementId === engId || (!p.engagementId && engId === this.state.engagements[0]?.id)) && p.procedures.some(item => item.id === procedureId))?.procedures.find(p => p.id === procedureId);
     if (!procedure) throw new GuardError('INVALID_STATE', 'Procedure was not found in the selected engagement.');
     if (!workPerformed.trim() || !conclusion.trim()) throw new GuardError('INVALID_STATE', 'Record work performed and a conclusion.');
@@ -4171,6 +4194,8 @@ class PrototypeStore {
     requireActiveIdentity(this.state);
     requireRole(this.state, ['preparer', 'manager', 'reviewer', 'partner', 'eqr'], 'update procedure fieldwork status');
     requireEngagementScope(this.state, engId);
+    const targetEngagement = this.state.engagements.find(e => e.id === engId);
+    if (targetEngagement?.auditLifecycle) { const blockers = fieldworkBlockers(this.state, targetEngagement); if (blockers.length) throw new GuardError('INVALID_STATE', blockers.join(' ')); }
     const procedure = this.state.auditPrograms.find(p => (p.engagementId === engId || (!p.engagementId && engId === this.state.engagements[0]?.id)) && p.procedures.some(item => item.id === procedureId))?.procedures.find(p => p.id === procedureId);
     if (!procedure) throw new GuardError('INVALID_STATE', 'Procedure was not found in the selected engagement.');
     const previous = { status: procedure.status, workPerformed: procedure.workPerformed, conclusion: procedure.conclusion, evidenceLimitation: procedure.evidenceLimitation };
@@ -4865,13 +4890,15 @@ class PrototypeStore {
     const client = this.state.clients.find(c => c.id === clientId);
     if (!client) throw new GuardError('INVALID_STATE', `Client "${clientId}" not found.`);
     requireClientScope(this.state, clientId);
-    if (client.status !== 'Active') throw new GuardError('INVALID_STATE', 'Only an active accepted client can have a workspace prepared.');
     const matchingEngagements = this.state.engagements.filter(e => e.client === clientId && e.year === year);
     const engagement = engagementId
       ? matchingEngagements.find(e => e.id === engagementId)
       : matchingEngagements.length === 1 ? matchingEngagements[0] : undefined;
     if (engagementId && !engagement) throw new GuardError('INVALID_STATE', `Engagement "${engagementId}" does not match this client and year.`);
     if (!engagementId && matchingEngagements.length > 1) throw new GuardError('INVALID_STATE', 'Choose the exact engagement before preparing a year workspace.');
+    if (engagement) requireEngagementScope(this.state, engagement.id, 'administrative');
+    if (engagement?.auditLifecycle) { const blockers = activationBlockers(this.state, engagement); if (blockers.length) throw new GuardError('INVALID_STATE', blockers.join(' ')); }
+    if (client.status !== 'Active') throw new GuardError('INVALID_STATE', 'Only an active accepted client can have a workspace prepared.');
     const binding = this.state.m365Config;
     const bindingRevision = binding.configRevision || 1;
     const sharePointResult = binding.verificationResults?.sharepoint;
@@ -4888,13 +4915,14 @@ class PrototypeStore {
       { path: `${clientRoot}${year}/`, label: `FY ${year} Records`, clientId, engagementId: engagement?.id },
       ...(engagement ? [{ path: `${clientRoot}${year}/${engagement.id}/`, label: `${engagement.id} Records`, clientId, engagementId: engagement.id }] : []),
       ...(engagement ? [
-        { path: `${clientRoot}${year}/${engagement.id}/01_Acceptance/`, label: '01 Acceptance & KYC', clientId, engagementId: engagement.id },
-        { path: `${clientRoot}${year}/${engagement.id}/02_Planning/`, label: '02 Audit Planning', clientId, engagementId: engagement.id },
-        { path: `${clientRoot}${year}/${engagement.id}/03_Fieldwork/`, label: '03 Fieldwork', clientId, engagementId: engagement.id },
-        { path: `${clientRoot}${year}/${engagement.id}/04_Deliverables/`, label: '04 Deliverables', clientId, engagementId: engagement.id },
-        { path: `${clientRoot}${year}/${engagement.id}/05_Correspondence/`, label: '05 Correspondence', clientId, engagementId: engagement.id }
+        { path: `${clientRoot}${year}/${engagement.id}/01_Administration & Planning/`, label: '01 Administration & Planning', clientId, engagementId: engagement.id },
+        { path: `${clientRoot}${year}/${engagement.id}/02_Trial Balance & Schedules/`, label: '02 Trial Balance & Schedules', clientId, engagementId: engagement.id },
+        { path: `${clientRoot}${year}/${engagement.id}/03_Fieldwork & Testing/`, label: '03 Fieldwork & Testing', clientId, engagementId: engagement.id },
+        { path: `${clientRoot}${year}/${engagement.id}/04_Drafts & Deliverables/`, label: '04 Drafts & Deliverables', clientId, engagementId: engagement.id },
+        { path: `${clientRoot}${year}/${engagement.id}/05_Final Signed Archive/`, label: '05 Final Signed Archive', clientId, engagementId: engagement.id }
       ] : [])
     ];
+    if (engagement?.auditLifecycle) engagement.auditLifecycle.workspace ||= { path: `${clientRoot}${year}/${engagement.id}/`, preparedAt: new Date().toISOString(), preparedByUserId: this.state.currentUserId };
     canonical.forEach(folder => {
       if (!this.state.folders!.some(f => f.path === folder.path)) {
         this.state.folders!.push(folder);
@@ -5022,6 +5050,10 @@ class PrototypeStore {
     if (!this.state.clients.some(c => c.id === accCase.clientId) || !Number.isInteger(accCase.year) || !accCase.recommendationNotes.trim()) throw new GuardError('INVALID_STATE', 'Acceptance case needs an existing client, reporting year, and recommendation rationale.');
     const requiredEvidence = { amlKyc: accCase.amlKycCompleted, independence: accCase.independenceConfirmed, conflicts: accCase.conflictsCleared, prohibitions: accCase.prohibitionsChecked, competence: accCase.competenceConfirmed };
     if (Object.entries(requiredEvidence).some(([key, checked]) => checked && !accCase.screeningEvidence?.[key as keyof typeof requiredEvidence]?.trim())) throw new GuardError('INVALID_STATE', 'Every completed acceptance screening check needs an evidence reference.');
+    const eng = this.state.engagements.find(e => e.id === accCase.engagementId) || this.state.engagements.find(e => e.client === accCase.clientId && e.year === accCase.year && e.service === accCase.service);
+    if (eng && (eng.client !== accCase.clientId || eng.year !== accCase.year || eng.service !== accCase.service)) throw new GuardError('FORBIDDEN_SCOPE', 'Acceptance must match the exact engagement, client, service and year.');
+    if (accCase.engagementId && !eng) throw new GuardError('FORBIDDEN_SCOPE', 'Acceptance engagement was not found.');
+    if (eng) requireEngagementScope(this.state, eng.id, 'administrative');
     if (!this.state.acceptanceCases) this.state.acceptanceCases = [];
     const idx = this.state.acceptanceCases.findIndex(c => c.id === accCase.id);
     const previous = idx >= 0 ? this.state.acceptanceCases[idx] : undefined;
@@ -5029,7 +5061,7 @@ class PrototypeStore {
     const at = new Date().toISOString();
     const saved: AcceptanceCaseRecord = {
       ...accCase,
-      engagementId: accCase.engagementId || linkedEngagement?.id,
+      engagementId: eng?.id || accCase.engagementId || linkedEngagement?.id,
       decisionStatus: 'Pending',
       decisionBy: undefined,
       decisionByUserId: undefined,
@@ -5042,7 +5074,6 @@ class PrototypeStore {
     };
     if (idx >= 0) this.state.acceptanceCases[idx] = saved;
     else this.state.acceptanceCases.push(saved);
-    const eng = this.state.engagements.find(e => e.client === accCase.clientId && e.year === accCase.year);
     if (eng) {
       eng.acceptance = false;
       this.invalidateReleaseBasis(eng);
@@ -5059,11 +5090,14 @@ class PrototypeStore {
     requireClientScope(this.state, record.clientId);
     const eng = this.state.engagements.find(e => e.id === record.engagementId) || this.state.engagements.find(e => e.client === record.clientId && e.year === record.year);
     if (!eng) throw new GuardError('INVALID_STATE', 'Acceptance decision must be bound to an engagement.');
-    requireEngagementScope(this.state, eng.id);
+    if (eng.client !== record.clientId || eng.year !== record.year || eng.service !== record.service) throw new GuardError('FORBIDDEN_SCOPE', 'Acceptance case is not bound to the exact engagement period.');
+    requireEngagementScope(this.state, eng.id, 'administrative');
     const assignedPartner = this.state.users.find(u => u.name === eng.partner && u.role === 'partner');
     const actor = this.state.users.find(u => u.id === this.state.currentUserId);
     if ((!assignedPartner || !actor || (assignedPartner.personId || assignedPartner.id) !== (actor.personId || actor.id)) && !recordPrototypeSuperuserOverride(this.state, 'decide an acceptance case as a non-assigned partner')) throw new GuardError('FORBIDDEN_SCOPE', 'Only the assigned engagement partner can decide this case.');
     if (!rationale.trim()) throw new GuardError('INVALID_STATE', 'Partner decision requires a rationale.');
+    if (decision === 'Accepted' && record.conditions.length) throw new GuardError('INVALID_STATE', 'Resolve every acceptance condition before Partner approval.');
+    if (decision === 'Accepted' && eng.auditLifecycle && !billingSummary(this.state, eng).complete) throw new GuardError('INVALID_STATE', 'Pin the accepted fee, record the required 50% advance and generate its current receipt before Partner acceptance.');
     if (decision === 'Accepted' && (record.riskRating === 'Prohibited' || !record.independenceConfirmed || !record.amlKycCompleted || !record.conflictsCleared || !record.prohibitionsChecked || !record.competenceConfirmed || ['amlKyc', 'independence', 'conflicts', 'prohibitions', 'competence'].some(key => !record.screeningEvidence?.[key as keyof NonNullable<AcceptanceCaseRecord['screeningEvidence']>]?.trim()))) throw new GuardError('INVALID_STATE', 'Acceptance is blocked until all required checks have evidence references and the mandate is not prohibited.');
     requireIndependentActor(record.recommendationByUserId || record.recommendationBy, this.state.currentUserId, 'decide a case they recommended', this.state);
     const at = new Date().toISOString();
@@ -5075,6 +5109,8 @@ class PrototypeStore {
     record.history ||= [];
     record.history.push({ action: 'decision', by: this.state.currentPerson, byUserId: this.state.currentUserId, at, notes: rationale.trim(), status: decision });
     eng.acceptance = decision === 'Accepted';
+    const acceptedClient = this.state.clients.find(client=>client.id===eng.client);
+    if (eng.auditLifecycle && decision === 'Accepted' && acceptedClient?.status === 'Prospect') { acceptedClient.status = 'Active'; acceptedClient.profileRevision = (acceptedClient.profileRevision || 0) + 1; }
     this.invalidateReleaseBasis(eng);
     this.logEvent(`Partner ${decision.toLowerCase()} client acceptance case ${caseId}`, eng.id);
     this.notify();
@@ -5194,6 +5230,8 @@ class PrototypeStore {
       latest.status = 'Superseded';
       if (reviewImpact) latest.supersededReason = reviewImpact;
     }
+    const basisEngagement = this.state.engagements.find(e => e.id === plan.engagementId);
+    if (basisEngagement?.auditLifecycle) plan.sourceVersion = basisEngagement.sourceVersion;
     plan.preparedBy = this.state.currentPerson;
     plan.preparedByUserId = this.state.currentUserId;
     plan.preparedAt = new Date().toISOString();
@@ -5231,6 +5269,8 @@ class PrototypeStore {
     if (plan.status !== 'Under review') throw new GuardError('STALE_REVISION', 'Only the current under-review plan can be reviewed.');
     if (!notes.trim()) throw new GuardError('INVALID_STATE', 'Plan review requires recorded notes.');
     requireIndependentActor(plan.preparedByUserId || plan.preparedBy || '', this.state.currentUserId, 'review this audit plan', this.state);
+    const basisEngagement = this.state.engagements.find(e => e.id === plan.engagementId);
+    if (basisEngagement?.auditLifecycle && plan.sourceVersion !== basisEngagement.sourceVersion) throw new GuardError('STALE_REVISION', 'TB changed after this plan was prepared; prepare a fresh materiality revision.');
     plan.status = approved ? 'Approved' : 'Draft';
     plan.reviewedBy = this.state.currentPerson;
     plan.reviewedByUserId = this.state.currentUserId;
@@ -5321,7 +5361,7 @@ class PrototypeStore {
   }
 
   public resetState() {
-    this.state = createInitialState();
+    this.state = loadScenarioState('target-lifecycle');
     this.loadError = null;
     this.storageConflict = false;
     markStateStale(this.state, false);

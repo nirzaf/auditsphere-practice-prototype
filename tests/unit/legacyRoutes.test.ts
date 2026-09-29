@@ -1,13 +1,13 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { LEGACY_ROUTE_REDIRECTS, resolveRouteHash } from '../../src/services/legacyRoutes.js';
+import { LEGACY_ROUTE_REDIRECTS, resolveRouteHash, canonicalRoute } from '../../src/services/legacyRoutes.js';
 
 describe('legacy hash routes (VP-002)', () => {
   it('resolves every route from the former React migration baseline', () => {
     for (const [legacy, route] of Object.entries(LEGACY_ROUTE_REDIRECTS)) {
       assert.deepEqual(resolveRouteHash(`#${legacy}`), {
-        route,
-        redirected: route !== legacy,
+        route: canonicalRoute(route),
+        redirected: canonicalRoute(route) !== legacy,
       }, `legacy route #${legacy}`);
     }
   });

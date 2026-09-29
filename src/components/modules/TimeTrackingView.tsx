@@ -10,11 +10,12 @@ import { formatCurrency, formatMinutesToHours, getEffectiveTimeEntries } from '.
 import { UnsavedFormGuard } from '../../services/unsavedFormGuard';
 
 interface TimeTrackingViewProps {
+  engagementId?:string;
   onNavigate: (route: RouteKey) => void;
   onRegisterUnsavedForm?: (guard: UnsavedFormGuard | null, key?: string) => void;
 }
 
-export const TimeTrackingView: React.FC<TimeTrackingViewProps> = ({ onNavigate, onRegisterUnsavedForm }) => {
+export const TimeTrackingView: React.FC<TimeTrackingViewProps> = ({ onNavigate, onRegisterUnsavedForm, engagementId }) => {
   const state = prototypeStore.getSnapshot();
   const isSuperuser = isSuperuserRole(state.currentRole);
   const [showAddModal, setShowAddModal] = useState(false);
@@ -34,7 +35,7 @@ export const TimeTrackingView: React.FC<TimeTrackingViewProps> = ({ onNavigate, 
   const timeBaseline = useRef({ person, taskTitle, minutes, activity, narrative, billable });
   const returnBaseline = useRef('');
 
-  const times = state.times;
+  const times = state.times.filter(t=>!engagementId||t.engagementId===engagementId);
   const effectiveTimes = getEffectiveTimeEntries(times);
   const billingImpactInvoices = entryToRevise?.mode === 'approved'
     ? state.invoices.filter(invoice => invoice.id === entryToRevise.entry.billedInvoiceId || invoice.lines.some(line => line.sourceType === 'Time entry' && line.sourceId === entryToRevise.entry.id))

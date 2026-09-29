@@ -1,3 +1,4 @@
+import { RETIRED_ROUTE_REDIRECTS, canonicalRoute } from './legacyRoutes';
 // AuditSphere shared command guards — VP-002/VP-003/VP-019/VP-056
 // Single place for demo person, active status, role grant, scope, revision and
 // separation-of-duties checks. UI actions AND programmatic command calls must use
@@ -6,6 +7,7 @@
 // remains inspectable by the browser owner.
 
 import type { PrototypeState, RoleKey, RouteKey } from '../types';
+import { activationBlockers, isFrozen } from './targetLifecycle';
 
 export interface CommandContext {
   person: string;
@@ -147,7 +149,9 @@ export function requireConsolidationGroupScope(state: PrototypeState, groupId: s
  * Suspended, Closed and Cancelled engagements accept no new professional work.
  */
 export function requireActiveEngagementLifecycle(state: PrototypeState, engagementId: string): void {
-  const status = state.engagements.find(item => item.id === engagementId)?.lifecycleStatus || 'Active';
+  const engagement = state.engagements.find(item => item.id === engagementId);
+  if (engagement && isFrozen(engagement)) throw new GuardError('INVALID_STATE', 'Frozen engagement is read-only.');
+  const status = engagement?.lifecycleStatus || 'Active';
   if (status !== 'Active') throw new GuardError('INVALID_STATE', `Engagement ${engagementId} is ${status.toLowerCase()}; professional work is blocked.`);
 }
 
@@ -187,11 +191,17 @@ export function requireEngagementScope(state: PrototypeState, engagementId: stri
   if (visible !== 'ALL' && !visible.includes(engagementId)) {
     throw new GuardError('FORBIDDEN_SCOPE', `Engagement "${engagementId}" is outside the current scoped grant.`);
   }
+  const targetEngagement = state.engagements.find(item => item.id === engagementId);
+  if (targetEngagement && isFrozen(targetEngagement)) throw new GuardError('INVALID_STATE', 'The engagement archive is frozen and read-only; mutation is blocked.');
+  if (targetEngagement?.auditLifecycle && action === 'professional') {
+    const blockers = activationBlockers(state, targetEngagement);
+    if (blockers.length) throw new GuardError('INVALID_STATE', `Engagement activation blocked: ${blockers.join(' ')}`);
+  }
   if (action !== 'administrative' && action !== 'billing' && action !== 'records') {
     const engagement = state.engagements.find(item => item.id === engagementId);
     const status = engagement?.lifecycleStatus || 'Active';
     if (status !== 'Active') throw new GuardError('INVALID_STATE', `Engagement ${engagementId} is ${status.toLowerCase()}; professional work is blocked.`);
-    if (action === 'professional' && ['Draft', 'Acceptance'].includes(engagement?.stage || '') && engagement?.proposalId && !engagement.professionalAcceptance) throw new GuardError('INVALID_STATE', `Engagement ${engagementId} is pending professional acceptance; work is blocked.`);
+    if (!targetEngagement?.auditLifecycle && action === 'professional' && ['Draft', 'Acceptance'].includes(engagement?.stage || '') && engagement?.proposalId && !engagement.professionalAcceptance) throw new GuardError('INVALID_STATE', `Engagement ${engagementId} is pending professional acceptance; work is blocked.`);
   }
 }
 
@@ -242,7 +252,7 @@ export function isClientRole(role: RoleKey): boolean {
 }
 
 const PROFESSIONAL_ROUTES: RouteKey[] = [
-  'overview', 'clients', 'client-detail', 'proposals', 'engagements', 'jobs', 'job-templates',
+  'scheduling', 'confirmations', 'practice-ledger', 'overview', 'clients', 'client-detail', 'proposals', 'engagements', 'jobs', 'job-templates',
   'documents', 'communications', 'my-time', 'budgets', 'billing', 'receivables',
   'accounting-setup', 'trial-balance', 'gl-transactions', 'account-mappings', 'adjustments',
   'reconciliations', 'financial-statements', 'financial-packages', 'consolidation', 'onboarding',
@@ -252,6 +262,7 @@ const PROFESSIONAL_ROUTES: RouteKey[] = [
 
 /** Shared UI route policy; App checks it again so direct navigation cannot bypass the sidebar. */
 export function canOpenRoute(role: RoleKey, route: RouteKey, active = true): boolean {
+  if (RETIRED_ROUTE_REDIRECTS[route]) return false;
   if (!active) return route === 'requirements' || route === 'client-requirements';
   if (isSuperuserRole(role)) return true;
   if (route === 'requirements' || route === 'client-requirements') return true;
@@ -260,13 +271,13 @@ export function canOpenRoute(role: RoleKey, route: RouteKey, active = true): boo
   if (isClientRole(role)) return route === 'portal';
   if (role === 'partner') return PROFESSIONAL_ROUTES.includes(route);
   if (role === 'manager') return PROFESSIONAL_ROUTES.includes(route) && route !== 'administration';
-  if (role === 'reviewer') return ['overview', 'engagements', 'jobs', 'documents', 'communications', 'my-time', 'budgets', 'accounting-setup', 'trial-balance', 'gl-transactions', 'account-mappings', 'adjustments', 'reconciliations', 'financial-statements', 'financial-packages', 'audit-planning', 'audit-risks', 'audit-fieldwork', 'sampling', 'audit', 'evidence', 'findings', 'reviews', 'approvals', 'quality', 'requirements'].includes(route);
-  if (role === 'preparer') return ['overview', 'engagements', 'jobs', 'documents', 'communications', 'my-time', 'budgets', 'accounting-setup', 'trial-balance', 'gl-transactions', 'account-mappings', 'adjustments', 'reconciliations', 'financial-statements', 'financial-packages', 'audit-planning', 'audit-risks', 'audit-fieldwork', 'sampling', 'audit', 'evidence', 'findings', 'reviews', 'requirements'].includes(route);
+  if (role === 'reviewer') return ['scheduling', 'confirmations', 'overview', 'engagements', 'jobs', 'documents', 'communications', 'my-time', 'budgets', 'accounting-setup', 'trial-balance', 'gl-transactions', 'account-mappings', 'adjustments', 'reconciliations', 'financial-statements', 'financial-packages', 'audit-planning', 'audit-risks', 'audit-fieldwork', 'sampling', 'audit', 'evidence', 'findings', 'reviews', 'approvals', 'quality', 'requirements'].includes(route);
+  if (role === 'preparer') return ['scheduling', 'confirmations', 'overview', 'engagements', 'jobs', 'documents', 'communications', 'my-time', 'budgets', 'accounting-setup', 'trial-balance', 'gl-transactions', 'account-mappings', 'adjustments', 'reconciliations', 'financial-statements', 'financial-packages', 'audit-planning', 'audit-risks', 'audit-fieldwork', 'sampling', 'audit', 'evidence', 'findings', 'reviews', 'requirements'].includes(route);
   if (role === 'eqr') return ['overview', 'engagements', 'documents', 'accounting-setup', 'trial-balance', 'financial-statements', 'financial-packages', 'audit-planning', 'audit-risks', 'audit', 'evidence', 'findings', 'reviews', 'approvals', 'quality', 'delivery', 'records', 'requirements'].includes(route);
   if (role === 'relationship') return ['overview', 'clients', 'client-detail', 'acquisition', 'proposals', 'engagements', 'communications', 'requirements'].includes(route);
   if (role === 'onboarding') return ['overview', 'clients', 'client-detail', 'engagements', 'documents', 'communications', 'onboarding', 'portal', 'requirements'].includes(route);
   if (role === 'compliance') return ['overview', 'clients', 'client-detail', 'engagements', 'documents', 'onboarding', 'approvals', 'requirements'].includes(route);
-  if (role === 'billing') return ['overview', 'clients', 'my-time', 'budgets', 'billing', 'receivables', 'reports', 'requirements'].includes(route);
+  if (role === 'billing') return ['scheduling', 'practice-ledger', 'overview', 'clients', 'my-time', 'budgets', 'billing', 'receivables', 'reports', 'requirements'].includes(route);
   if (role === 'records') return ['overview', 'clients', 'documents', 'records', 'reports', 'requirements'].includes(route);
   if (role === 'admin') return ['overview', 'administration', 'm365-setup', 'requirements'].includes(route);
   return false;
@@ -282,7 +293,7 @@ export function canReadSearchRecord(
   record: { route: RouteKey; clientId?: string; engagementId?: string; requiresEngagement?: boolean; clientWide?: boolean }
 ): boolean {
   const persona = activePersona(state);
-  if (!persona.active || !canOpenRoute(state.currentRole, record.route, persona.active)) return false;
+  if (!persona.active || !canOpenRoute(state.currentRole, canonicalRoute(record.route), persona.active)) return false;
 
   const clients = visibleClientIds(state);
   const engagements = visibleEngagementIds(state);

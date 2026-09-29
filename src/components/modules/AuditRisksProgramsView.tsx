@@ -8,14 +8,15 @@ import { Icon } from '../common/Icons';
 import { consequencePrompt } from '../../services/terminalActions';
 
 interface AuditRisksProgramsViewProps {
+  initialProgramId?: string;
   onNavigate: (route: RouteKey) => void;
   onRegisterUnsavedForm?: (guard: UnsavedFormGuard | null, key?: string) => void;
 }
 
-export const AuditRisksProgramsView: React.FC<AuditRisksProgramsViewProps> = ({ onNavigate, onRegisterUnsavedForm }) => {
+export const AuditRisksProgramsView: React.FC<AuditRisksProgramsViewProps> = ({ onNavigate, onRegisterUnsavedForm, initialProgramId }) => {
   const state = prototypeStore.getSnapshot();
   const [activeTab, setActiveTab] = useState<'risks' | 'programs' | 'templates'>('programs');
-  const [selectedProgramId, setSelectedProgramId] = useState<string>('PRG-01');
+  const [selectedProgramId, setSelectedProgramId] = useState<string>(initialProgramId || 'PRG-01');
   const [notice, setNotice] = useState<string | null>(null);
   const [editingProcedureId, setEditingProcedureId] = useState<string | null>(null);
   const [workPerformed, setWorkPerformed] = useState('');

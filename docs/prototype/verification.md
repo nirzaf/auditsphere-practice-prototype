@@ -1093,3 +1093,7 @@ For each stateful workflow, the denominator is the count of unique applicable mi
 ### Checks not claimed
 
 The installed Python runtime has no `pytest` module, so the attempted `py -3 -m pytest` command could not run. The repository’s native `unittest` tool suites ran instead and both passed. The first ledger capture placed the reporter option after the test files, so its logs were not TAP and the generator rejected them; both suites were recaptured with reporter options before the file lists, then the ledger passed. No screenshot-based review, screen-reader session, automated WCAG scan, independent human review or external-provider test is claimed. `READY_FOR_DEMO_REVIEW` remains a recommendation; deployment does not constitute human acceptance.
+
+## Canonical lifecycle refactor — 2026-09-30
+
+Current checks: dependency install, lint, 353/353 unit tests, 2/2 target Chrome tests including production build, legacy syntax check and diff check passed. The former 39-module browser suite is preserved under `tests/historical`; its retired UI contracts are not included in current acceptance. [Detailed report and evidence limits](target-lifecycle-report.md). Chrome executes a command-level lifecycle with rendered checkpoints and genuine artifacts, not a click-by-click professional acceptance.

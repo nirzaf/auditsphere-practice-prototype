@@ -1,0 +1,169 @@
+{
+  "mode": "Chrome command-level lifecycle with rendered checkpoints; not a click-by-click user acceptance",
+  "checkpoints": [
+    "Lead created and won; client prospect created",
+    "Proposal / EL accepted with current revision and evidence",
+    "50% advance recorded and genuine receipt PDF persisted",
+    "Declined gate exercised, then Partner accepted independent recommendation",
+    "M365 five-folder workspace prepared and simulated access verified",
+    "PBC requested; scoped client uploads bytes; Manager accepts evidence",
+    "Planning PM/TE/SAD and four-role staffing/rates completed",
+    "TB uploaded / mapped; preliminary planning explicitly reconfirmed",
+    "P&L / BS generated with reconciled totals and FSLI drill-down rendered",
+    "Six fieldwork programs completed and independently cleared",
+    "Reproducible sample generated, tested and linked to X-1 / BOX-01",
+    "Critical bank confirmation tracked through independent clearance",
+    "Preparer ready → Manager return → revision → Manager clearance → genuine SRM",
+    "Partner clearance, explicit Clean opinion and genuine ML/LOR/Audit Report PDFs",
+    "Final 50% invoice generated from accepted fee less recognized advance",
+    "59-day negative and 60-day freeze, actual archive copies retained",
+    "Practice analytics and separate balanced firm ledger rendered"
+  ],
+  "engagementId": "ENG-TARGET",
+  "archive": {
+    "archivedAt": "2026-09-29T23:17:46.962Z",
+    "archivedBy": "Farooq Mansour",
+    "releaseId": "FINAL-ENG-TARGET-fea6900b-5367-48f4-b9ae-5bfb55601872",
+    "manifest": [
+      "Management Letter: FINAL-ENG-TARGET-fea6900b-5367-48f4-b9ae-5bfb55601872-1 / SHA-256 ff0ddf066a32bdb7374708c27374e4323d2f9caa96d6e4cb982487814a4c04e1",
+      "Letter of Representation: FINAL-ENG-TARGET-fea6900b-5367-48f4-b9ae-5bfb55601872-2 / SHA-256 61a67656a18b4d35f95ff26994bcfc7d8d6323d921c80502c04a06ff06ad5ef6",
+      "Audit Report: FINAL-ENG-TARGET-fea6900b-5367-48f4-b9ae-5bfb55601872-3 / SHA-256 dca2e110e5954e75ab838addd67a7973eb7c222ebb9832dd39bed2bb1d7e515b"
+    ],
+    "artifacts": [
+      {
+        "id": "archive:ENG-TARGET:FINAL-ENG-TARGET-fea6900b-5367-48f4-b9ae-5bfb55601872:FINAL-ENG-TARGET-fea6900b-5367-48f4-b9ae-5bfb55601872-1",
+        "name": "FINAL-ENG-TARGET-fea6900b-5367-48f4-b9ae-5bfb55601872-1.pdf",
+        "kind": "PDF",
+        "mimeType": "application/pdf",
+        "size": 4909,
+        "sha256": "ff0ddf066a32bdb7374708c27374e4323d2f9caa96d6e4cb982487814a4c04e1",
+        "deliverable": "Management Letter",
+        "sourceArtifactId": "FINAL-ENG-TARGET-fea6900b-5367-48f4-b9ae-5bfb55601872-1"
+      },
+      {
+        "id": "archive:ENG-TARGET:FINAL-ENG-TARGET-fea6900b-5367-48f4-b9ae-5bfb55601872:FINAL-ENG-TARGET-fea6900b-5367-48f4-b9ae-5bfb55601872-2",
+        "name": "FINAL-ENG-TARGET-fea6900b-5367-48f4-b9ae-5bfb55601872-2.pdf",
+        "kind": "PDF",
+        "mimeType": "application/pdf",
+        "size": 5394,
+        "sha256": "61a67656a18b4d35f95ff26994bcfc7d8d6323d921c80502c04a06ff06ad5ef6",
+        "deliverable": "Letter of Representation",
+        "sourceArtifactId": "FINAL-ENG-TARGET-fea6900b-5367-48f4-b9ae-5bfb55601872-2"
+      },
+      {
+        "id": "archive:ENG-TARGET:FINAL-ENG-TARGET-fea6900b-5367-48f4-b9ae-5bfb55601872:FINAL-ENG-TARGET-fea6900b-5367-48f4-b9ae-5bfb55601872-3",
+        "name": "FINAL-ENG-TARGET-fea6900b-5367-48f4-b9ae-5bfb55601872-3.pdf",
+        "kind": "PDF",
+        "mimeType": "application/pdf",
+        "size": 5325,
+        "sha256": "dca2e110e5954e75ab838addd67a7973eb7c222ebb9832dd39bed2bb1d7e515b",
+        "deliverable": "Audit Report",
+        "sourceArtifactId": "FINAL-ENG-TARGET-fea6900b-5367-48f4-b9ae-5bfb55601872-3"
+      }
+    ]
+  },
+  "progress": [
+    {
+      "id": "lead",
+      "status": "Completed"
+    },
+    {
+      "id": "proposal",
+      "status": "Completed"
+    },
+    {
+      "id": "advance",
+      "status": "Completed"
+    },
+    {
+      "id": "acceptance",
+      "status": "Completed"
+    },
+    {
+      "id": "workspace",
+      "status": "Completed"
+    },
+    {
+      "id": "pbc",
+      "status": "Completed"
+    },
+    {
+      "id": "planning",
+      "status": "Completed"
+    },
+    {
+      "id": "staffing",
+      "status": "Completed"
+    },
+    {
+      "id": "tb",
+      "status": "Completed"
+    },
+    {
+      "id": "financials",
+      "status": "Completed"
+    },
+    {
+      "id": "fieldwork",
+      "status": "Completed"
+    },
+    {
+      "id": "sampling",
+      "status": "Completed"
+    },
+    {
+      "id": "confirmations",
+      "status": "Completed"
+    },
+    {
+      "id": "review",
+      "status": "Completed"
+    },
+    {
+      "id": "srm",
+      "status": "Completed"
+    },
+    {
+      "id": "opinion",
+      "status": "Completed"
+    },
+    {
+      "id": "balance",
+      "status": "Completed"
+    },
+    {
+      "id": "archive",
+      "status": "Frozen"
+    },
+    {
+      "id": "analytics",
+      "status": "Completed"
+    }
+  ],
+  "artifacts": [
+    {
+      "id": "FINAL-ENG-TARGET-fea6900b-5367-48f4-b9ae-5bfb55601872-1",
+      "name": "FINAL-ENG-TARGET-fea6900b-5367-48f4-b9ae-5bfb55601872-1.pdf",
+      "size": 4909,
+      "sha256": "ff0ddf066a32bdb7374708c27374e4323d2f9caa96d6e4cb982487814a4c04e1"
+    },
+    {
+      "id": "FINAL-ENG-TARGET-fea6900b-5367-48f4-b9ae-5bfb55601872-2",
+      "name": "FINAL-ENG-TARGET-fea6900b-5367-48f4-b9ae-5bfb55601872-2.pdf",
+      "size": 5394,
+      "sha256": "61a67656a18b4d35f95ff26994bcfc7d8d6323d921c80502c04a06ff06ad5ef6"
+    },
+    {
+      "id": "FINAL-ENG-TARGET-fea6900b-5367-48f4-b9ae-5bfb55601872-3",
+      "name": "FINAL-ENG-TARGET-fea6900b-5367-48f4-b9ae-5bfb55601872-3.pdf",
+      "size": 5325,
+      "sha256": "dca2e110e5954e75ab838addd67a7973eb7c222ebb9832dd39bed2bb1d7e515b"
+    }
+  ],
+  "review": {
+    "manager": true,
+    "srm": true,
+    "partner": true
+  },
+  "blockers": []
+}

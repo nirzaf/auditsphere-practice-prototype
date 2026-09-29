@@ -228,9 +228,9 @@ export const TBImportWizard: React.FC<TBImportWizardProps> = ({ engagementId, on
     const selectedDimension = mapping.dimension && activeDimensions.find(item => item.id === mapping.dimension!.id);
     const result = parseTBWorkbook(fileName, bytes, mapping, convention, selectedDimension);
     if (result.errors.length === 0) {
-      if (!currentEngagement || !accountingProfile || accountingProfile.reportingBasis === 'Not selected' || !accountingBook || currentEngagement.accountingProfileRevision !== accountingProfile.revision || currentEngagement.accountingChartRevision !== accountingProfile.chartRevision) {
+      if (!currentEngagement?.auditLifecycle && (!currentEngagement || !accountingProfile || accountingProfile.reportingBasis === 'Not selected' || !accountingBook || currentEngagement.accountingProfileRevision !== accountingProfile.revision || currentEngagement.accountingChartRevision !== accountingProfile.chartRevision)) {
         result.errors.push('Complete or reload the client accounting setup and select this engagement’s period book before importing.');
-      } else if (result.rows.some(row => !accountingProfile.accounts.some(account => account.code === row.code && account.active && account.posting))) {
+      } else if (!currentEngagement?.auditLifecycle && result.rows.some(row => !accountingProfile?.accounts.some(account => account.code === row.code && account.active && account.posting))) {
         result.errors.push('Imported accounts must exist as active posting accounts in the selected chart.');
       }
     }
@@ -245,9 +245,11 @@ export const TBImportWizard: React.FC<TBImportWizardProps> = ({ engagementId, on
       setFileError('This browser cannot calculate the source SHA-256 digest. Nothing was committed.');
       return;
     }
+    try {
     const digest = await crypto.subtle.digest('SHA-256', bytes);
     const sha256 = Array.from(new Uint8Array(digest), b => b.toString(16).padStart(2, '0')).join('');
-    prototypeStore.updateTrialBalanceRows(engagementId, preview, {
+    const importRows = currentEngagement?.auditLifecycle ? prototypeStore.lifecycle.importMappedTB.bind(prototypeStore.lifecycle) : prototypeStore.updateTrialBalanceRows.bind(prototypeStore);
+    importRows(engagementId, preview, {
       fileName,
       format: format || 'CSV',
       sha256,
@@ -257,6 +259,7 @@ export const TBImportWizard: React.FC<TBImportWizardProps> = ({ engagementId, on
     setBytes(null);
     setFileName('');
     onCommitted();
+    } catch(error) { setFileError(error instanceof Error ? error.message : String(error)); }
   };
 
   return (
@@ -268,7 +271,8 @@ export const TBImportWizard: React.FC<TBImportWizardProps> = ({ engagementId, on
         </div>
         {format && <span className="tag blue">Detected format: {format}</span>}
       </div>
-      <p className="caption" aria-label="Active accounting context">Import context: {accountingProfile?.legalEntityName || 'Setup required'} · {accountingProfile?.reportingBasis || 'No basis'} · {accountingProfile?.baseCurrency || currentEngagement?.currency || 'No currency'} · {accountingBook ? `${accountingBook.name} / ${accountingBook.bookName}` : 'No period book'} · Profile Rev {currentEngagement?.accountingProfileRevision || 0} / Chart Rev {currentEngagement?.accountingChartRevision || 0}</p>
+      {currentEngagement?.auditLifecycle ? <p className="caption">Audit source: {currentEngagement.id} · {currentEngagement.year} · {currentEngagement.currency} · mapped source ingestion only</p> : <p className="caption" aria-label="Active accounting context">Import context: {accountingProfile?.legalEntityName || 'Setup required'} · {accountingProfile?.reportingBasis || 'No basis'} · {accountingProfile?.baseCurrency || currentEngagement?.currency || 'No currency'} · {accountingBook ? `${accountingBook.name} / ${accountingBook.bookName}` : 'No period book'} · Profile Rev {currentEngagement?.accountingProfileRevision || 0} / Chart Rev {currentEngagement?.accountingChartRevision || 0}</p>}
+
 
       <details>
         <summary className="caption">Trial-balance source history ({sourceHistory.length} revisions)</summary>

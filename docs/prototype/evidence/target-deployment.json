@@ -1,0 +1,15 @@
+{
+  "deploymentUrl": "https://94bfad5e.steaudit-prototype.pages.dev",
+  "customUrl": "https://prototype.steaudit.com",
+  "projectUrl": "https://steaudit-prototype.pages.dev",
+  "httpStatuses": [
+    200,
+    200,
+    200
+  ],
+  "htmlMatchesBuild": true,
+  "entryMatchesBuild": true,
+  "entrySha256": "11bfe8446abaab821e63feb01e123ab5ff371964146296453cc24e09c106fa5b",
+  "workingTree": "uncommitted",
+  "baselineHead": "716cacf20debb33a64314ffd174f784fe5ade1c9"
+}

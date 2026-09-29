@@ -1,5 +1,20 @@
+import { TargetScopeView } from './components/target/TargetScopeView';
+import { TargetSamplingView } from './components/target/TargetSamplingView';
+import { PbcWorkspaceView } from './components/target/PbcWorkspaceView';
+import { FieldworkView } from './components/target/FieldworkView';
+import { PracticeView } from './components/target/PracticeView';
+import { LifecycleOverviewView } from './components/target/LifecycleOverviewView';
+import { EngagementBillingView } from './components/target/EngagementBillingView';
+import { SchedulingView } from './components/target/SchedulingView';
+import { TrialBalanceView } from './components/target/TrialBalanceView';
+import { AuditFinancialView } from './components/target/AuditFinancialView';
+import { ConfirmationsView } from './components/target/ConfirmationsView';
+import { ReviewSRMView } from './components/target/ReviewSRMView';
+import { OpinionDeliverablesView } from './components/target/OpinionDeliverablesView';
+import { FreezeArchiveView } from './components/target/FreezeArchiveView';
+import { TargetLifecycleHeader } from './components/target/TargetCommon';
 // AuditSphere Main Application Component
-// Subscribes to prototypeStore and renders modern UI Shell with all 39 functional modules
+// Subscribes to the shared store and renders the target audit lifecycle.
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { createPortal } from 'react-dom';
@@ -9,7 +24,6 @@ import { canOpenRoute, isClientRole, hasSelectedEngagementScope } from './servic
 import { Shell } from './components/layout/Shell';
 
 // Practice & CRM Modules
-import { DashboardView } from './components/modules/DashboardView';
 import { ClientsView } from './components/modules/ClientsView';
 import { ClientDetailView } from './components/modules/ClientDetailView';
 import { LeadsPipelineView } from './components/modules/LeadsPipelineView';
@@ -17,50 +31,23 @@ import { ProposalsView } from './components/modules/ProposalsView';
 import { EngagementsView } from './components/modules/EngagementsView';
 
 // Work & Collaboration Modules
-import { JobsTasksView } from './components/modules/JobsTasksView';
-import { JobTemplatesView } from './components/modules/JobTemplatesView';
-import { DocumentsLibraryView } from './components/modules/DocumentsLibraryView';
-import { CommunicationsView } from './components/modules/CommunicationsView';
 
 // Economics & Billing Modules
-import { TimeTrackingView } from './components/modules/TimeTrackingView';
-import { BudgetsView } from './components/modules/BudgetsView';
-import { BillingInvoicingView } from './components/modules/BillingInvoicingView';
-import { ReceivablesView } from './components/modules/ReceivablesView';
 
 // Accounting Workbench & Reporting
-import { AccountingWorkbenchView } from './components/modules/AccountingWorkbenchView';
-import { FinancialStatementsView } from './components/modules/FinancialStatementsView';
-import { FinancialPackagesView } from './components/modules/FinancialPackagesView';
-import { ConsolidationView } from './components/modules/ConsolidationView';
 
 // Audit & Assurance Modules
 import { AuditAcceptanceView } from './components/modules/AuditAcceptanceView';
 import { AuditPlanningView } from './components/modules/AuditPlanningView';
 import { AuditRisksProgramsView } from './components/modules/AuditRisksProgramsView';
-import { SamplingView } from './components/modules/SamplingView';
-import { WorkpapersView } from './components/modules/WorkpapersView';
 import { EvidenceCatalogueView } from './components/modules/EvidenceCatalogueView';
 import { FindingsView } from './components/modules/FindingsView';
-import { ReviewDeskView } from './components/modules/ReviewDeskView';
-import { ApprovalsEQRView } from './components/modules/ApprovalsEQRView';
-import { ReleaseCompletionView } from './components/modules/ReleaseCompletionView';
-import { RecordsArchiveView } from './components/modules/RecordsArchiveView';
 
 // Client Services, Admin & Specifications
-import { ClientPortalView } from './components/modules/ClientPortalView';
-import { ReportingCentreView } from './components/modules/ReportingCentreView';
 import { AdministrationView } from './components/modules/AdministrationView';
 import { M365SetupView } from './components/modules/M365SetupView';
-import { RequirementsView } from './components/modules/RequirementsView';
-import { WalkthroughDock } from './components/walkthrough/WalkthroughDock';
-import { ClientRequirementsView } from './components/modules/ClientRequirementsView';
-import { ModuleCatalogueView } from './components/modules/ModuleCatalogueView';
 import { UnsavedFormGuard } from './services/unsavedFormGuard';
-import { resolveRouteHash } from './services/legacyRoutes';
-import { ModuleGuideStrip } from './components/common/ModuleGuideStrip';
-import { WorkflowProgress } from './components/common/WorkflowProgress';
-import { computeModuleWorkflowProgress } from './services/workflowProgress';
+import { resolveRouteHash, canonicalRoute } from './services/legacyRoutes';
 
 const ENGAGEMENT_CONTEXT_ROUTES = new Set<string>([
   'onboarding', 'audit-acceptance', 'jobs', 'job-templates', 'documents', 'communications',
@@ -68,7 +55,7 @@ const ENGAGEMENT_CONTEXT_ROUTES = new Set<string>([
   'trial-balance', 'gl-transactions', 'account-mappings', 'adjustments', 'reconciliations',
   'financial-statements', 'financial-packages', 'audit-planning', 'audit-risks',
   'audit-fieldwork', 'sampling', 'audit', 'evidence', 'findings', 'reviews', 'approvals',
-  'quality', 'delivery', 'records', 'm365-setup'
+  'quality', 'delivery', 'records', 'm365-setup', 'scheduling', 'confirmations'
 ]);
 
 const ACTIVE_DIALOG_GUARD = '__active-dialog__';
@@ -376,6 +363,7 @@ export const App: React.FC = () => {
   const isClient = isClientRole(state.currentRole);
   const activeIdentity = state.users.find(user => user.id === state.currentUserId)?.status === 'Active';
   const navigate = (route: RouteKey, targetId?: string) => {
+    route = canonicalRoute(route);
     if (route === 'module-guide' && effectiveRoute !== 'module-guide') setGuideOrigin(effectiveRoute);
     requestContextChange(() => {
       const current = prototypeStore.getSnapshot();
@@ -423,7 +411,7 @@ export const App: React.FC = () => {
     switch (effectiveRoute) {
       // Practice & CRM
       case 'overview':
-        return <DashboardView onNavigate={navigate} />;
+        return <LifecycleOverviewView onNavigate={navigate} />;
       case 'clients':
         return (
           <ClientsView
@@ -460,73 +448,54 @@ export const App: React.FC = () => {
         return <AuditAcceptanceView key={state.selectedEngagement} onNavigate={navigate} onRegisterUnsavedForm={registerUnsavedForm} />;
 
       // Work & Collaboration
-      case 'jobs':
-        return <JobsTasksView key={`${state.selectedEngagement}:${searchTargetId || ''}`} searchTargetId={searchTargetId} onNavigate={navigate} onWorkflowContextChange={reportJobsWorkflowContext} onRegisterUnsavedForm={registerUnsavedForm} />;
-      case 'job-templates':
-        return <JobTemplatesView onNavigate={navigate} onRegisterUnsavedForm={registerUnsavedForm} />;
       case 'documents':
-        return <DocumentsLibraryView key={`${state.selectedEngagement}:${searchTargetId || ''}`} searchTargetId={searchTargetId} onNavigate={navigate} onNavigateToPbc={navigateToPbcRequest} onRegisterUnsavedForm={registerUnsavedForm} />;
-      case 'communications':
-        return <CommunicationsView onNavigate={navigate} onRegisterUnsavedForm={registerUnsavedForm} />;
+        return <PbcWorkspaceView onNavigate={navigate} onRegisterUnsavedForm={registerUnsavedForm} />;
 
       // Economics & Billing
-      case 'my-time':
-      case 'time-tracking' as any:
-        return <TimeTrackingView onNavigate={navigate} onRegisterUnsavedForm={registerUnsavedForm} />;
-      case 'budgets':
-        return <BudgetsView onNavigate={navigate} onRegisterUnsavedForm={registerUnsavedForm} onBeforeContextChange={requestContextChange} />;
       case 'billing':
-        return <BillingInvoicingView onNavigate={navigate} onRegisterUnsavedForm={registerUnsavedForm} />;
-      case 'receivables':
-        return <ReceivablesView onNavigate={navigate} onRegisterUnsavedForm={registerUnsavedForm} onBeforeContextChange={requestContextChange} />;
+        return <EngagementBillingView onNavigate={navigate} onRegisterUnsavedForm={registerUnsavedForm} />;
 
       // Accounting Workbench
-      case 'accounting-setup':
       case 'trial-balance':
-      case 'gl-transactions':
-      case 'account-mappings':
-      case 'adjustments':
-      case 'reconciliations':
-        return <AccountingWorkbenchView route={effectiveRoute} onNavigate={navigate} onRegisterUnsavedForm={registerUnsavedForm} />;
+        return <TrialBalanceView onNavigate={navigate} onRegisterUnsavedForm={registerUnsavedForm} />;
+      case 'scheduling':
+        return <SchedulingView onNavigate={navigate} onRegisterUnsavedForm={registerUnsavedForm} />;
+      case 'confirmations':
+        return <ConfirmationsView onNavigate={navigate} onRegisterUnsavedForm={registerUnsavedForm} />;
       case 'financial-statements':
-        return <FinancialStatementsView key={state.selectedEngagement} onNavigate={navigate} onRegisterUnsavedForm={registerUnsavedForm} />;
-      case 'financial-packages':
-      case 'packages' as any:
-        return <FinancialPackagesView key={state.selectedEngagement} onNavigate={navigate} onRegisterUnsavedForm={registerUnsavedForm} />;
-      case 'consolidation':
-        return <ConsolidationView onNavigate={navigate} onRegisterUnsavedForm={registerUnsavedForm} />;
+        return <AuditFinancialView onNavigate={navigate} onRegisterUnsavedForm={registerUnsavedForm} />;
 
       // Audit & Assurance
       case 'audit-planning':
         return <AuditPlanningView key={state.selectedEngagement} onNavigate={navigate} onRegisterUnsavedForm={registerUnsavedForm} />;
       case 'audit-risks':
       case 'audit-fieldwork':
-        return <AuditRisksProgramsView onNavigate={navigate} onRegisterUnsavedForm={registerUnsavedForm} />;
+        return <FieldworkView programId={searchTargetId} onNavigate={navigate} onRegisterUnsavedForm={registerUnsavedForm} />;
       case 'sampling':
-        return <SamplingView onNavigate={navigate} onBeforeContextChange={requestContextChange} onRegisterUnsavedForm={registerUnsavedForm} onWorkflowContextChange={reportSamplingWorkflowContext} />;
-      case 'audit':
-        return <WorkpapersView key={`${state.selectedEngagement}:${searchTargetId || ''}`} searchTargetId={searchTargetId} onNavigate={navigate} onRegisterUnsavedForm={registerUnsavedForm} />;
+        return <TargetSamplingView onNavigate={navigate} onRegisterUnsavedForm={registerUnsavedForm} />;
       case 'evidence':
         return <EvidenceCatalogueView onNavigate={navigate} onRegisterUnsavedForm={registerUnsavedForm} />;
       case 'findings':
         return <FindingsView key={`${state.selectedEngagement}:${searchTargetId || ''}`} searchTargetId={searchTargetId} onNavigate={navigate} onRegisterUnsavedForm={registerUnsavedForm} onBeforeContextChange={requestContextChange} />;
       case 'reviews':
-        return <ReviewDeskView onNavigate={navigate} onRegisterUnsavedForm={registerUnsavedForm} />;
+        return <ReviewSRMView onNavigate={navigate} onRegisterUnsavedForm={registerUnsavedForm} />;
       case 'approvals':
       case 'quality':
-        return <ApprovalsEQRView onNavigate={navigate} onRegisterUnsavedForm={registerUnsavedForm} />;
+        return <ReviewSRMView onNavigate={navigate} onRegisterUnsavedForm={registerUnsavedForm} />;
       case 'delivery':
-        return <ReleaseCompletionView onNavigate={navigate} onRegisterUnsavedForm={registerUnsavedForm} />;
+        return <OpinionDeliverablesView onNavigate={navigate} onRegisterUnsavedForm={registerUnsavedForm} />;
       case 'records':
-        return <RecordsArchiveView onNavigate={navigate} onBeforeContextChange={requestContextChange} onRegisterUnsavedForm={registerUnsavedForm} />;
+        return <FreezeArchiveView onNavigate={navigate} onRegisterUnsavedForm={registerUnsavedForm} />;
 
       // Client Services & Admin
       case 'portal':
       case 'client-portal' as any:
-        return <ClientPortalView key={`${state.currentUserId}:${state.currentRole}`} onNavigate={navigate} onBeforeContextChange={requestContextChange} onRegisterUnsavedForm={registerUnsavedForm} />;
+        return <PbcWorkspaceView client onNavigate={navigate} onRegisterUnsavedForm={registerUnsavedForm} />;
+      case 'practice-ledger':
+        return <PracticeView ledger onNavigate={navigate} onRegisterUnsavedForm={registerUnsavedForm} />;
       case 'reports':
       case 'reporting-centre' as any:
-        return <ReportingCentreView onNavigate={navigate} />;
+        return <PracticeView onNavigate={navigate} onRegisterUnsavedForm={registerUnsavedForm} />;
       case 'administration':
       case 'services':
         return <AdministrationView onNavigate={navigate} onRegisterUnsavedForm={registerUnsavedForm} onBeforeContextChange={requestContextChange} />;
@@ -534,41 +503,22 @@ export const App: React.FC = () => {
         return <M365SetupView onNavigate={navigate} onRegisterUnsavedForm={registerUnsavedForm} onBeforeContextChange={requestContextChange} />;
       case 'requirements':
       case 'role-guide':
-        return <RequirementsView onNavigate={navigate} />;
+        return <TargetScopeView onNavigate={navigate} />;
       case 'client-requirements':
-        return <ClientRequirementsView onNavigate={navigate} targetId={searchTargetId} />;
+        return <TargetScopeView onNavigate={navigate} />;
       case 'module-guide':
-        return <ModuleCatalogueView onNavigate={navigate} originRoute={guideOrigin} />;
+        return <TargetScopeView onNavigate={navigate} />;
 
       default:
-        return <DashboardView onNavigate={navigate} />;
+        return <LifecycleOverviewView onNavigate={navigate} />;
     }
   };
 
   return (
     <Shell currentRoute={effectiveRoute} onRouteChange={navigate} onSelectClient={(clientId) => requestContextChange(() => { setSelectedClientId(clientId); setWorkflowSelection(null); })} onBeforeContextChange={requestContextChange}>
-      {!isClient && !['module-guide', 'requirements', 'client-requirements', 'role-guide'].includes(effectiveRoute) && <ModuleGuideStrip key={effectiveRoute} route={effectiveRoute} />}
-      {!['module-guide', 'requirements', 'client-requirements', 'role-guide', 'portal'].includes(effectiveRoute) && (
-        <WorkflowProgress
-          key={`wp-${effectiveRoute}-${state.selectedEngagement || ''}-${selectedClientId}-${searchTargetId || ''}`}
-          progress={computeModuleWorkflowProgress(effectiveRoute, state, {
-            engagementId: workflowSelection?.route === effectiveRoute ? workflowSelection.context.engagementId ?? state.selectedEngagement : state.selectedEngagement,
-            clientId: workflowSelection?.route === effectiveRoute ? workflowSelection.context.clientId ?? selectedClientId : selectedClientId,
-            recordId: workflowSelection?.route === effectiveRoute ? workflowSelection.context.recordId ?? searchTargetId : searchTargetId
-          })}
-          onNavigate={navigate}
-          onSelectStep={step => {
-            if (step.targetRoute) navigate(step.targetRoute, step.targetRecordId);
-            else if (step.targetSection) {
-              const target = document.getElementById(step.targetSection);
-              target?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-              target?.focus({ preventScroll: true });
-            }
-          }}
-        />
-      )}
+      {!isClient && ENGAGEMENT_CONTEXT_ROUTES.has(effectiveRoute) && <TargetLifecycleHeader route={effectiveRoute} onNavigate={navigate} />}
       {renderModule()}
-      <WalkthroughDock route={effectiveRoute} clientMode={isClient} onNavigate={navigate} />
+
       {dismissPrompt && createPortal(<div data-dismiss-prompt="" role="alert" className="banner amber mt12" style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center', justifyContent: 'space-between' }}>
         <span>This dialog has unsaved changes. Nothing has been saved.</span>
         <span className="row" style={{ gap: 8 }}><button type="button" className="btn sm" onClick={() => dismissActions.current.keep()}>Keep editing</button><button type="button" className="btn ghost sm" onClick={() => dismissActions.current.discard()}>Discard changes</button></span>

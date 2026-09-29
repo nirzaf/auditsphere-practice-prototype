@@ -53,11 +53,17 @@ export const LEGACY_ROUTE_REDIRECTS: Readonly<Record<string, RouteKey>> = {
   search: 'overview',
 };
 
+
+export const RETIRED_ROUTE_REDIRECTS: Partial<Record<RouteKey,RouteKey>> = {
+  jobs:'scheduling', 'job-templates':'audit-risks', communications:'documents', 'my-time':'scheduling', budgets:'scheduling', receivables:'billing', 'accounting-setup':'trial-balance', 'gl-transactions':'trial-balance', 'account-mappings':'trial-balance', adjustments:'findings', reconciliations:'trial-balance', 'financial-packages':'delivery', consolidation:'overview', quality:'reviews', audit:'reviews', approvals:'reviews', services:'administration'
+};
+export function canonicalRoute(route:RouteKey):RouteKey { return RETIRED_ROUTE_REDIRECTS[route] || route; }
+
 export function resolveRouteHash(hash: string): { route: RouteKey; redirected: boolean } | null {
   const key = hash.replace(/^#/, '').trim();
   if (!key) return null;
   const legacyTarget = LEGACY_ROUTE_REDIRECTS[key];
-  if (legacyTarget) return { route: legacyTarget, redirected: legacyTarget !== key };
-  if (key in ROUTE_CATALOG) return { route: key as RouteKey, redirected: false };
+  if (legacyTarget) return { route: canonicalRoute(legacyTarget), redirected: canonicalRoute(legacyTarget) !== key };
+  if (key in ROUTE_CATALOG) return { route: canonicalRoute(key as RouteKey), redirected: canonicalRoute(key as RouteKey) !== key };
   return null;
 }
