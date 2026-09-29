@@ -252,9 +252,9 @@ const PROFESSIONAL_ROUTES: RouteKey[] = [
 
 /** Shared UI route policy; App checks it again so direct navigation cannot bypass the sidebar. */
 export function canOpenRoute(role: RoleKey, route: RouteKey, active = true): boolean {
-  if (!active) return route === 'requirements';
+  if (!active) return route === 'requirements' || route === 'client-requirements';
   if (isSuperuserRole(role)) return true;
-  if (route === 'requirements') return true;
+  if (route === 'requirements' || route === 'client-requirements') return true;
   // The module guide is read-only client-demo guidance available to every active persona.
   if (route === 'module-guide') return true;
   if (isClientRole(role)) return route === 'portal';

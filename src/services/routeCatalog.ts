@@ -48,6 +48,7 @@ export const ROUTE_CATALOG: Record<RouteKey, RouteInfo> = {
   'services': { section: 'Client Services & Admin', label: 'Firm Administration', moduleId: 'MOD-39', progressMode: 'workflow' },
   'm365-setup': { section: 'Client Services & Admin', label: 'Microsoft 365 Setup', moduleId: 'MOD-18', progressMode: 'workflow' },
   'requirements': { section: 'Reference', label: 'Requirements & PRD', moduleId: 'REF', progressMode: 'reference' },
+  'client-requirements': { section: 'Reference', label: 'Client Requirements', moduleId: 'REF', progressMode: 'reference' },
   'role-guide': { section: 'Reference', label: 'Role Guide', moduleId: 'REF', progressMode: 'reference' },
   'module-guide': { section: 'Reference', label: 'Module Guide & Tour', moduleId: 'REF', progressMode: 'reference' }
 };

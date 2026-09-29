@@ -104,7 +104,8 @@ export type RouteKey =
   | 'services'
   | 'role-guide'
   | 'module-guide'
-  | 'requirements';
+  | 'requirements'
+  | 'client-requirements';
 
 // Module 02: Clients & CRM
 export interface ClientContactSnapshot {

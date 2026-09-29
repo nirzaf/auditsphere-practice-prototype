@@ -53,6 +53,7 @@ import { ReportingCentreView } from './components/modules/ReportingCentreView';
 import { AdministrationView } from './components/modules/AdministrationView';
 import { M365SetupView } from './components/modules/M365SetupView';
 import { RequirementsView } from './components/modules/RequirementsView';
+import { ClientRequirementsView } from './components/modules/ClientRequirementsView';
 import { ModuleCatalogueView } from './components/modules/ModuleCatalogueView';
 import { UnsavedFormGuard } from './services/unsavedFormGuard';
 import { resolveRouteHash } from './services/legacyRoutes';
@@ -402,7 +403,7 @@ export const App: React.FC = () => {
   const effectiveRoute: RouteKey = !activeIdentity
     ? 'requirements'
     : isClient
-    ? currentRoute === 'requirements' || currentRoute === 'module-guide' ? currentRoute : 'portal'
+    ? currentRoute === 'requirements' || currentRoute === 'client-requirements' || currentRoute === 'module-guide' ? currentRoute : 'portal'
     : canOpenRoute(state.currentRole, currentRoute, activeIdentity) ? currentRoute : 'overview';
 
   const stayOnCurrentRoute = () => {
@@ -533,6 +534,8 @@ export const App: React.FC = () => {
       case 'requirements':
       case 'role-guide':
         return <RequirementsView onNavigate={navigate} />;
+      case 'client-requirements':
+        return <ClientRequirementsView onNavigate={navigate} targetId={searchTargetId} />;
       case 'module-guide':
         return <ModuleCatalogueView onNavigate={navigate} originRoute={guideOrigin} />;
 
@@ -543,8 +546,8 @@ export const App: React.FC = () => {
 
   return (
     <Shell currentRoute={effectiveRoute} onRouteChange={navigate} onSelectClient={(clientId) => requestContextChange(() => { setSelectedClientId(clientId); setWorkflowSelection(null); })} onBeforeContextChange={requestContextChange}>
-      {!isClient && !['module-guide', 'requirements', 'role-guide'].includes(effectiveRoute) && <ModuleGuideStrip key={effectiveRoute} route={effectiveRoute} />}
-      {!['module-guide', 'requirements', 'role-guide', 'portal'].includes(effectiveRoute) && (
+      {!isClient && !['module-guide', 'requirements', 'client-requirements', 'role-guide'].includes(effectiveRoute) && <ModuleGuideStrip key={effectiveRoute} route={effectiveRoute} />}
+      {!['module-guide', 'requirements', 'client-requirements', 'role-guide', 'portal'].includes(effectiveRoute) && (
         <WorkflowProgress
           key={`wp-${effectiveRoute}-${state.selectedEngagement || ''}-${selectedClientId}-${searchTargetId || ''}`}
           progress={computeModuleWorkflowProgress(effectiveRoute, state, {
