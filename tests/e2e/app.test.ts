@@ -1493,12 +1493,12 @@ describe('actual Chrome browser acceptance', { concurrency: false }, () => {
     assert.equal(changed, true, 'client persona option should exist');
     assert.equal(await waitForBrowser('document.querySelector("nav button")?.innerText.includes("Client Experience Portal")'), true);
     const nav = await browserTab!.evaluate<string[]>('[...document.querySelectorAll("nav button")].map(x => x.innerText.trim())');
-    // DEMO-001: the read-only Module Guide is client-visible; it holds no business records.
-    assert.deepEqual(nav, ['Client Experience Portal', 'Module Guide', 'Specifications & PRD']);
+    // DEMO-001: the read-only Module Guide and Client Requirements deck are client-visible; they hold no business records.
+    assert.deepEqual(nav, ['Client Experience Portal', 'Module Guide', 'Client Requirements', 'Specifications & PRD']);
     for (const deniedRoute of ['billing', 'budgets', 'my-time', 'administration', 'reports']) {
       await browserTab!.evaluate(`location.hash=${JSON.stringify(`#${deniedRoute}`)}`);
       assert.equal(await waitForBrowser(`location.hash==='#portal'`), true, `client direct-link to #${deniedRoute} is returned to the portal`);
-      assert.equal(await browserTab!.evaluate<boolean>(`document.querySelectorAll('nav button').length===3 && ![...document.querySelectorAll('nav button')].some(button=>/billing|budget|time tracking|administration|report centre/i.test(button.innerText))`), true, `client navigation does not expose staff economics/admin/report route labels after #${deniedRoute}`);
+      assert.equal(await browserTab!.evaluate<boolean>(`document.querySelectorAll('nav button').length===4 && ![...document.querySelectorAll('nav button')].some(button=>/billing|budget|time tracking|administration|report centre/i.test(button.innerText))`), true, `client navigation does not expose staff economics/admin/report route labels after #${deniedRoute}`);
     }
     await clickButton('Client Experience Portal');
     const entityContext = await browserTab!.evaluate<any>(`(() => {const select=[...document.querySelectorAll('select')].find(s=>[...s.options].some(o=>o.value==='CL-003'));return select&&{values:[...select.options].map(o=>o.value)};})()`);
@@ -1723,7 +1723,7 @@ describe('actual Chrome browser acceptance', { concurrency: false }, () => {
       assert.equal(await waitForBrowser(`document.querySelector('#role-select')?.selectedOptions[0]?.textContent.includes('Client administrator')&&!!document.querySelector('.recovery-banner')`), true, 'quota failure reaches the client persona and recovery banner');
       const recovery = await browserTab!.evaluate<{ controls: number; nav: string[]; notice: string }>(`(() => ({controls:document.querySelectorAll('.recovery-banner button').length,nav:[...document.querySelectorAll('#primary-navigation button')].map(button=>button.innerText.trim()),notice:document.querySelector('.recovery-banner')?.innerText||''}))()`);
       assert.equal(recovery.controls, 0, `client recovery status exposes no whole-state export/import/reset controls: ${JSON.stringify(recovery)}`);
-      assert.deepEqual(recovery.nav, ['Client Experience Portal', 'Module Guide', 'Specifications & PRD']);
+      assert.deepEqual(recovery.nav, ['Client Experience Portal', 'Module Guide', 'Client Requirements', 'Specifications & PRD']);
       assert.match(recovery.notice, /contact your accountant/i);
       assert.doesNotMatch(recovery.notice, /export current state|export preserved payload|import validated|reset to default/i);
       assert.deepEqual(browserTab!.exceptions, []);
