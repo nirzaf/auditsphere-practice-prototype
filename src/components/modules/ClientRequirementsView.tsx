@@ -1,7 +1,7 @@
 // Client-facing business requirements presentation, built from typed slide data. Every slide can
 // be explored: its discussion notes, the modules behind it (from the module guide) and a route
 // into the real workspace. No second content store — module detail is read from moduleGuideContent.
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { RouteKey } from '../../types';
 import { prototypeStore } from '../../store/prototypeStore';
 import { isClientRole } from '../../services/guards';
@@ -49,6 +49,8 @@ export const ClientRequirementsView: React.FC<ClientRequirementsViewProps> = ({ 
   const [followStep, setFollowStep] = useState(0);
   const [drawerOpen, setDrawerOpen] = useState(initial.moduleId !== null);
   const [focusModuleId, setFocusModuleId] = useState<string | null>(initial.moduleId);
+  const deckRef = useRef<HTMLDivElement>(null);
+  const [presenting, setPresenting] = useState(false);
   const clientMode = isClientRole(prototypeStore.getSnapshot().currentRole);
   const slide = DECK_SLIDES[index];
   const total = stepsOf(index);
@@ -83,15 +85,32 @@ export const ClientRequirementsView: React.FC<ClientRequirementsViewProps> = ({ 
     setFollow(enabled);
     setFollowStep(enabled ? Math.min(1, total) : total);
   };
+  // Presentation mode: real browser full screen when available, otherwise a fixed full-window layout.
+  const startPresenting = useCallback(() => {
+    setPresenting(true);
+    try { void deckRef.current?.requestFullscreen?.().catch(() => undefined); } catch { /* fixed layout still applies */ }
+  }, []);
+  const stopPresenting = useCallback(() => {
+    setPresenting(false);
+    try { if (document.fullscreenElement) void document.exitFullscreen().catch(() => undefined); } catch { /* ignore */ }
+  }, []);
+  useEffect(() => {
+    const onFullscreenChange = () => { if (!document.fullscreenElement) setPresenting(false); };
+    document.addEventListener('fullscreenchange', onFullscreenChange);
+    return () => {
+      document.removeEventListener('fullscreenchange', onFullscreenChange);
+      try { if (document.fullscreenElement) void document.exitFullscreen().catch(() => undefined); } catch { /* ignore */ }
+    };
+  }, []);
   const openDetail = (moduleId: string | null = null) => { setFocusModuleId(moduleId); setDrawerOpen(true); };
   const closeDetail = () => { setDrawerOpen(false); setFocusModuleId(null); };
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.ctrlKey || event.metaKey || event.altKey || event.defaultPrevented) return;
-      const target = event.target as HTMLElement | null;
+      const target = event.target instanceof HTMLElement ? event.target : null;
       if (target && (['INPUT', 'SELECT', 'TEXTAREA'].includes(target.tagName) || target.isContentEditable || target.closest('[role="dialog"]'))) return;
-      if (event.key === 'Escape' && drawerOpen) { closeDetail(); return; }
+      if (event.key === 'Escape') { if (drawerOpen) closeDetail(); else if (presenting) stopPresenting(); return; }
       if (target?.tagName === 'BUTTON' && (event.key === ' ' || event.key === 'Enter')) return;
       if (event.key === 'ArrowRight' || event.key === 'ArrowDown') { event.preventDefault(); next(); }
       else if (event.key === 'ArrowLeft' || event.key === 'ArrowUp') { event.preventDefault(); prev(); }
@@ -100,6 +119,7 @@ export const ClientRequirementsView: React.FC<ClientRequirementsViewProps> = ({ 
       else if (event.key === 'Home') { event.preventDefault(); goTo(0); }
       else if (event.key === 'End') { event.preventDefault(); goTo(lastIndex); }
       else if (event.key.toLowerCase() === 's') toggleFollow();
+      else if (event.key.toLowerCase() === 'f') (presenting ? stopPresenting() : startPresenting());
       else if (event.key.toLowerCase() === 'd') (drawerOpen ? closeDetail() : openDetail());
     };
     document.addEventListener('keydown', onKeyDown);
@@ -110,7 +130,7 @@ export const ClientRequirementsView: React.FC<ClientRequirementsViewProps> = ({ 
   const coverageIndex = DECK_SLIDES.findIndex(entry => entry.kind === 'coverage');
 
   return (
-    <div className="cr-deck">
+    <div className={`cr-deck${presenting ? ' cr-present' : ''}`} ref={deckRef}>
       <div className="pagehead">
         <div>
           <span className="eyebrow">CLIENT REVIEW</span>
@@ -146,9 +166,10 @@ export const ClientRequirementsView: React.FC<ClientRequirementsViewProps> = ({ 
             <button type="button" className="btn ghost sm" aria-pressed={follow} onClick={toggleFollow} disabled={total === 0}>{follow ? 'Show full view' : 'Follow steps'}</button>
             <span className="caption">{stepLabel}</span>
             <span className="cr-spacer" />
+            <button type="button" className="btn ghost sm" aria-pressed={presenting} onClick={presenting ? stopPresenting : startPresenting}>{presenting ? 'Exit presentation' : 'Present full screen'}</button>
             <button type="button" className="btn primary sm" aria-expanded={drawerOpen} onClick={() => (drawerOpen ? closeDetail() : openDetail())}>{drawerOpen ? 'Hide detail' : 'Explore detail'}</button>
           </div>
-          <p className="caption">Keys: ← → navigate · Page Up/Down slides · S follow steps · D detail · Esc close detail</p>
+          <p className="caption">Keys: ← → navigate · Page Up/Down slides · S follow steps · D detail · F full screen · Esc close</p>
         </section>
         {drawerOpen && (
           <DetailDrawer

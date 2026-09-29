@@ -21,7 +21,8 @@
 .cr-flow { list-style: none; margin: 0; padding: 0; display: grid; gap: 22px 40px; grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .cr-flow.cols-1 { grid-template-columns: minmax(0, 1fr); }
 .cr-flow.cols-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-.cr-flow:has(> li:nth-child(4):last-child) { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 22px 36px; }
+.cr-flow.cols-4 { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 22px 36px; }
+.cr-flow.cols-5, .cr-flow.cols-6 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .cr-cardwrap { position: relative; display: flex; transition: opacity .25s; }
 .cr-cardwrap.outcome { grid-column: 1 / -1; }
 .cr-cardwrap.future { opacity: .14; }
@@ -76,6 +77,31 @@
 }
 @media (max-width: 760px) {
   .cr-stage { padding: 18px 16px; }
-  .cr-flow, .cr-flow:has(> li:nth-child(4):last-child), .cr-pillars { grid-template-columns: minmax(0, 1fr); gap: 26px; }
+  .cr-flow, .cr-flow.cols-2, .cr-flow.cols-3, .cr-flow.cols-4, .cr-pillars { grid-template-columns: minmax(0, 1fr); gap: 26px; }
   .cr-arrow { left: 50%; top: -24px; transform: translateX(-50%) rotate(90deg); }
 }
+
+/* Presentation mode: full window, contents and page header hidden, larger type. */
+.cr-deck.cr-present { position: fixed; inset: 0; z-index: 200; background: #102e38; padding: 16px 28px 12px; overflow: auto; display: flex; flex-direction: column; }
+.cr-present .pagehead, .cr-present .cr-contents, .cr-present .cr-main > .caption { display: none; }
+.cr-present .cr-layout, .cr-present .cr-layout:has(.cr-drawer) { display: block; flex: 1; min-height: 0; position: relative; }
+.cr-present .cr-main { height: 100%; }
+.cr-present .cr-progress { background: #234851; } .cr-present .cr-progress span { background: #72c7b4; }
+.cr-present .cr-stage { flex: 1; display: flex; flex-direction: column; justify-content: center; padding: clamp(24px, 4vh, 56px) clamp(28px, 5vw, 80px); min-height: 0; overflow: auto; }
+.cr-present .cr-tag { font-size: clamp(12px, 1.1vw, 16px); }
+.cr-present .cr-title { font-size: clamp(30px, 4.2vw, 64px); margin-bottom: 8px; }
+.cr-present .cr-subtitle { font-size: clamp(16px, 1.8vw, 28px); margin-bottom: clamp(20px, 4vh, 44px); }
+.cr-present .cr-card { padding: clamp(16px, 2.2vh, 28px) clamp(18px, 1.8vw, 30px); gap: 14px; }
+.cr-present .cr-card-tag { font-size: clamp(12px, 1vw, 16px); }
+.cr-present .cr-card-head { font-size: clamp(20px, 2vw, 32px); }
+.cr-present .cr-card-body { font-size: clamp(15px, 1.5vw, 24px); gap: 5px; }
+.cr-present .cr-icon { width: clamp(36px, 3.4vw, 56px); height: clamp(36px, 3.4vw, 56px); }
+.cr-present .cr-band-label { font-size: clamp(12px, 1vw, 16px); }
+.cr-present .cr-band-text { font-size: clamp(16px, 1.6vw, 26px); }
+.cr-present .cr-cover-title { font-size: clamp(48px, 8vw, 120px); }
+.cr-present .cr-cover-sub { font-size: clamp(20px, 2.4vw, 36px); }
+.cr-present .cr-pillars strong { font-size: clamp(22px, 2.4vw, 38px); } .cr-present .cr-pillars span { font-size: clamp(14px, 1.4vw, 22px); }
+.cr-present .cr-toolbar { color: #d7e8e3; padding-top: 8px; } .cr-present .cr-toolbar .caption { color: #cae5dd; }
+.cr-present .cr-toolbar .btn.ghost { background: #204650; color: #fff; border: 1px solid #759a98; }
+.cr-present .cr-toolbar .btn.ghost:disabled { opacity: .4; }
+.cr-present .cr-drawer { position: absolute; right: 0; top: 0; bottom: 56px; width: min(440px, 92vw); max-height: none; z-index: 5; box-shadow: -10px 0 40px #0006; }

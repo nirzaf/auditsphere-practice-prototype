@@ -12,7 +12,7 @@ interface SlideFlowProps {
 export const SlideFlow: React.FC<SlideFlowProps> = ({ slide, followStep, onExplore }) => {
   const groups = slide.groups || [{ label: '', steps: slide.steps || [] }];
   const renderCards = (cards: DeckCard[]) => (
-    <ol className={`cr-flow cols-${Math.min(cards.filter(c => !c.outcome).length, 3)}`}>
+    <ol className={`cr-flow cols-${Math.min(cards.filter(c => !c.outcome).length, 4)}`}>
       {cards.map((card, index) => (
         <StepCard key={index} card={card} index={index} total={cards.length} future={followStep !== null && card.step > followStep} onExplore={onExplore} />
       ))}
