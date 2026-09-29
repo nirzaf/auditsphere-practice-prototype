@@ -12,6 +12,7 @@ __pycache__/
 .claude/
 .tmp-build/
 .wrangler/
+.DS_Store
 
 # Generated test output (root only; evidence under docs/ stays tracked)
 /test-results.json
