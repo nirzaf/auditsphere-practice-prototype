@@ -3,6 +3,7 @@ import { ModuleGuideEntry } from '../../services/moduleGuideContent';
 import { RouteKey } from '../../types';
 import { canOpenRoute } from '../../services/guards';
 import { prototypeStore } from '../../store/prototypeStore';
+import { requestWalkthrough } from '../walkthrough/walkthroughModel';
 import { guideVisibleToClient, MODULE_SLIDES, primaryRouteFor, slideNumber } from './moduleMap';
 
 interface ModuleDetailProps {
@@ -51,6 +52,7 @@ export const ModuleDetail: React.FC<ModuleDetailProps> = ({ guide, clientMode, d
             </>
           )}
           <div className="row mt12" style={{ gap: 8, flexWrap: 'wrap' }}>
+            <button type="button" className="btn ghost sm" disabled={!canOpen} onClick={() => { onNavigate(route); requestWalkthrough(guide.id); }}>Start guided walkthrough</button>
             <button type="button" className="btn primary sm" disabled={!canOpen} onClick={() => onNavigate(route)} title={canOpen ? undefined : 'Your current role cannot open this workspace'}>Open this workspace</button>
             {(MODULE_SLIDES[guide.id] || []).map(slideId => (
               <button key={slideId} type="button" className="btn ghost sm" onClick={() => onGoToSlide(slideId)}>Requirement slide {String(slideNumber(slideId)).padStart(2, '0')}</button>

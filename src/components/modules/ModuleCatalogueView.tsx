@@ -9,6 +9,7 @@ import { MODULE_GUIDES, ModuleGuideEntry } from '../../services/moduleGuideConte
 import { prototypeStore } from '../../store/prototypeStore';
 import { isClientRole } from '../../services/guards';
 import { Icon } from '../common/Icons';
+import { requestWalkthrough } from '../walkthrough/walkthroughModel';
 
 interface ModuleCatalogueViewProps {
   onNavigate: (route: RouteKey, targetId?: string) => void;
@@ -124,7 +125,10 @@ export const ModuleCatalogueView: React.FC<ModuleCatalogueViewProps> = ({ onNavi
             <h2 style={{ marginTop: 8 }}>{selected.id} — {selected.name}</h2>
             <p className="sub mt4">Workspace: <code>{selected.route.replace(/`/g, '')}</code> · Typical order of people: {selected.personas} · Suggested starting preset: <code>{selected.scenario}</code></p>
           </div>
-          <button className="btn primary sm" onClick={() => onNavigate(primaryRouteFor(selected))}>Open this workspace</button>
+          <div className="row" style={{ gap: 8 }}>
+            <button className="btn ghost sm" onClick={() => { onNavigate(primaryRouteFor(selected)); requestWalkthrough(selected.id); }}>Start guided walkthrough</button>
+            <button className="btn primary sm" onClick={() => onNavigate(primaryRouteFor(selected))}>Open this workspace</button>
+          </div>
         </div>
 
         <div className="grid2 mt16">

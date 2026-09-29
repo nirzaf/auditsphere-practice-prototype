@@ -53,6 +53,7 @@ import { ReportingCentreView } from './components/modules/ReportingCentreView';
 import { AdministrationView } from './components/modules/AdministrationView';
 import { M365SetupView } from './components/modules/M365SetupView';
 import { RequirementsView } from './components/modules/RequirementsView';
+import { WalkthroughDock } from './components/walkthrough/WalkthroughDock';
 import { ClientRequirementsView } from './components/modules/ClientRequirementsView';
 import { ModuleCatalogueView } from './components/modules/ModuleCatalogueView';
 import { UnsavedFormGuard } from './services/unsavedFormGuard';
@@ -567,6 +568,7 @@ export const App: React.FC = () => {
         />
       )}
       {renderModule()}
+      <WalkthroughDock route={effectiveRoute} clientMode={isClient} onNavigate={navigate} />
       {dismissPrompt && createPortal(<div data-dismiss-prompt="" role="alert" className="banner amber mt12" style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center', justifyContent: 'space-between' }}>
         <span>This dialog has unsaved changes. Nothing has been saved.</span>
         <span className="row" style={{ gap: 8 }}><button type="button" className="btn sm" onClick={() => dismissActions.current.keep()}>Keep editing</button><button type="button" className="btn ghost sm" onClick={() => dismissActions.current.discard()}>Discard changes</button></span>
