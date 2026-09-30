@@ -3365,6 +3365,7 @@ describe('prototype workflow guards & lifecycle (F03, F04, F05, F06, F13)', () =
     (prototypeStore as any).state = current;
     const eng = current.engagements[0];
     eng.acceptance = false;
+    current.acceptanceCases = [];
     setPersona(current, 'Hana Ali');
     assert.throws(() => prototypeStore.saveAcceptanceCase({
       id: `ACC-${eng.client}-${eng.year}`, clientId: eng.client, year: eng.year, service: eng.service,

@@ -23,18 +23,18 @@ export const TARGET_STAGES: TargetStageDefinition[] = [
     roles: ['relationship', 'manager', 'partner']
   },
   {
-    id: 'advance',
-    label: '50% advance & receipt',
-    route: 'billing',
-    owner: 'Billing officer',
-    roles: ['billing', 'manager', 'partner']
-  },
-  {
     id: 'acceptance',
     label: 'Acceptance / continuance',
     route: 'onboarding',
     owner: 'Compliance → Engagement Partner',
     roles: ['onboarding', 'compliance', 'manager', 'partner']
+  },
+  {
+    id: 'advance',
+    label: 'EL pin, 50% advance & receipt',
+    route: 'billing',
+    owner: 'Billing officer (after Dual-Key clearance + EL)',
+    roles: ['billing', 'manager', 'partner']
   },
   {
     id: 'workspace',
@@ -51,13 +51,6 @@ export const TARGET_STAGES: TargetStageDefinition[] = [
     roles: ['manager', 'preparer', 'reviewer']
   },
   {
-    id: 'planning',
-    label: 'Planning & PM / TE / SAD',
-    route: 'audit-planning',
-    owner: 'Audit Manager',
-    roles: ['manager', 'preparer', 'partner']
-  },
-  {
     id: 'staffing',
     label: 'Staff scheduling & economics',
     route: 'scheduling',
@@ -72,6 +65,13 @@ export const TARGET_STAGES: TargetStageDefinition[] = [
     roles: ['preparer', 'manager', 'reviewer']
   },
   {
+    id: 'planning',
+    label: 'Planning & PM / TE / SAD',
+    route: 'audit-planning',
+    owner: 'Audit Manager',
+    roles: ['manager', 'preparer', 'partner']
+  },
+  {
     id: 'financials',
     label: 'P&L / balance sheet drill-down',
     route: 'financial-statements',
@@ -81,7 +81,7 @@ export const TARGET_STAGES: TargetStageDefinition[] = [
   {
     id: 'fieldwork',
     label: 'Fieldwork programs',
-    route: 'audit-risks',
+    route: 'audit-fieldwork',
     owner: 'Preparer / reviewer',
     roles: ['preparer', 'manager', 'reviewer']
   },
@@ -842,6 +842,8 @@ export interface TargetStageProgress extends TargetStageDefinition {
   predecessor?: string;
   successor?: string;
 }
+const tbIngested = (engagement: EngagementRecord): boolean =>
+  engagement.sourceAccepted && engagement.mappingApproved && engagement.rows.length > 0;
 export function engagementProgress(
   state: PrototypeState,
   engagement: EngagementRecord
@@ -851,19 +853,28 @@ export function engagementProgress(
     plan = currentPlan(state, engagement),
     set = currentDeliverables(state, engagement);
   const proposal = acceptedProposal(state, engagement),
+    acceptanceRecord = professionalCase(state, engagement),
+    // Dual-Key Gate (Flow 1 / store generateEngagementLetter): Key 1 = current accepted
+    // proposal/EL revision; Key 2 = independent Partner acceptance with zero professional
+    // blockers. The stepper must mirror the store so it cannot show "complete" while EL
+    // generation is still refused.
+    dualKeyClear =
+      !!proposal &&
+      acceptanceRecord?.decisionStatus === 'Accepted' &&
+      professionalBlockers(state, engagement).length === 0,
     samples = state.samplePopulations.filter((p) => p.engagementId === engagement.id);
   const done: Record<string, boolean> = {
     lead: state.leads.some((l) => l.convertedClientId === engagement.client && l.stage === 'Won'),
     proposal: Boolean(proposal && engagement.auditLifecycle?.commercialBasis),
     advance: bill.complete,
-    acceptance: professionalBlockers(state, engagement).length === 0,
+    acceptance: dualKeyClear,
     workspace: Boolean(engagement.auditLifecycle?.workspace?.accessVerifiedAt),
     pbc: engagement.pbc.some((p) => p.status === 'Accepted'),
+    staffing: Boolean(engagement.auditLifecycle?.staffing.length),
+    tb: engagement.sourceAccepted && engagement.mappingApproved && engagement.rows.length > 0,
     planning: Boolean(
       plan?.status === 'Approved' && plan.sourceVersion === engagement.sourceVersion
     ),
-    staffing: Boolean(engagement.auditLifecycle?.staffing.length),
-    tb: engagement.sourceAccepted && engagement.mappingApproved && engagement.rows.length > 0,
     financials:
       state.statementSetRevisions?.some(
         (r) =>
@@ -903,17 +914,28 @@ export function engagementProgress(
   };
   const blockers: Record<string, string[]> = {
     proposal: proposal ? [] : ['Prepare, present and manually record acceptance of a proposal.'],
-    advance: proposal ? [] : ['Accept and pin the proposal fee first.'],
+    advance: [
+      ...(proposal ? [] : ['Accept and pin the proposal fee first.']),
+      ...professionalBlockers(state, engagement)
+    ],
     acceptance: professionalBlockers(state, engagement),
     workspace: activationBlockers(state, engagement),
     pbc: [
       ...activationBlockers(state, engagement),
       ...(!done.workspace ? ['Verify the workspace.'] : [])
     ],
-    planning: activationBlockers(state, engagement),
     staffing: activationBlockers(state, engagement),
     tb: activationBlockers(state, engagement),
-    financials: done.tb ? [] : ['Upload and map the TB.'],
+    planning: [
+      ...activationBlockers(state, engagement),
+      ...(!tbIngested(engagement)
+        ? ['Ingest and map the trial balance before calculating materiality.']
+        : [])
+    ],
+    financials: [
+      ...(done.tb ? [] : ['Upload and map the TB.']),
+      ...(done.planning ? [] : ['Approve PM / TE / SAD against the current TB revision.'])
+    ],
     fieldwork: fieldworkBlockers(state, engagement),
     sampling: fieldworkBlockers(state, engagement),
     confirmations: activationBlockers(state, engagement),
@@ -1090,8 +1112,14 @@ export function computeSystemState(
     return SYSTEM_LIFECYCLE_STATES[4]; // PORTAL_ACTIVE_PLANNING
   }
   const acceptanceRecord = professionalCase(state, engagement);
-  const dualKeyPassed = acceptanceRecord?.decisionStatus === 'Accepted' && professionalBlockers(state, engagement).length === 0;
-  if (dualKeyPassed && acceptedProposal(state, engagement)) {
+  // Dual-Key Gate (Flow 1 / state machine DUAL_KEY_PENDING): Key 1 = current accepted
+  // proposal/EL revision with evidence; Key 2 = independent Partner acceptance with zero
+  // professional blockers. Both must hold before EL generation and 50% advance billing.
+  const dualKeyPassed =
+    !!acceptedProposal(state, engagement) &&
+    acceptanceRecord?.decisionStatus === 'Accepted' &&
+    professionalBlockers(state, engagement).length === 0;
+  if (dualKeyPassed) {
     return SYSTEM_LIFECYCLE_STATES[3]; // ADVANCE_BILLING
   }
   if (state.proposals.some(p => p.clientId === engagement.client)) {

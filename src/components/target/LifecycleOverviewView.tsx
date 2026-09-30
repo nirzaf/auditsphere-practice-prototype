@@ -50,7 +50,7 @@ export function LifecycleOverviewView({ onNavigate }: TargetViewProps) {
           <div className="borderbox p12 bg-white" style={{ borderRadius: 6, borderTop: '4px solid #0284c7' }}>
             <span className="caption" style={{ color: '#0284c7', fontWeight: 700 }}>MODULE 1</span>
             <h4 style={{ margin: '4px 0 6px 0', fontSize: '13px' }}>Commercial &amp; CRM Pipeline</h4>
-            <div className="caption text-muted mb8">Lead Ingestion → Proposals → Dual-Key Gate → 50% Advance</div>
+            <div className="caption text-muted mb8">Lead Ingestion → Quote / Proposal → Dual-Key Gate → EL Issued → 50% Advance</div>
             <button className="btn sm ghost w-full" onClick={() => onNavigate('acquisition')}>
               Open Commercial CRM
             </button>
@@ -60,7 +60,7 @@ export function LifecycleOverviewView({ onNavigate }: TargetViewProps) {
           <div className="borderbox p12 bg-white" style={{ borderRadius: 6, borderTop: '4px solid #8b5cf6' }}>
             <span className="caption" style={{ color: '#8b5cf6', fontWeight: 700 }}>MODULE 2</span>
             <h4 style={{ margin: '4px 0 6px 0', fontSize: '13px' }}>Governance &amp; Planning</h4>
-            <div className="caption text-muted mb8">Acceptance Gate → 5-Folder Directory → Scheduling → 3-Tier Materiality</div>
+            <div className="caption text-muted mb8">Acceptance Gate → 5-Folder Taxonomy → Scheduling → TB Ingest → 3-Tier Materiality</div>
             <button className="btn sm ghost w-full" onClick={() => onNavigate('audit-planning')}>
               Open Governance &amp; Planning
             </button>
@@ -70,7 +70,7 @@ export function LifecycleOverviewView({ onNavigate }: TargetViewProps) {
           <div className="borderbox p12 bg-white" style={{ borderRadius: 6, borderTop: '4px solid #10b981' }}>
             <span className="caption" style={{ color: '#10b981', fontWeight: 700 }}>MODULE 3</span>
             <h4 style={{ margin: '4px 0 6px 0', fontSize: '13px' }}>Technical Fieldwork</h4>
-            <div className="caption text-muted mb8">Split Dashboard (P/L &amp; B/S) → Workprograms → Confirmations → SRM</div>
+            <div className="caption text-muted mb8">TB Auto-Mapping → Split Dashboard (P/L &amp; B/S) → Workprograms → Confirmations → Review / SRM</div>
             <button className="btn sm ghost w-full" onClick={() => onNavigate('financial-statements')}>
               Open Split Dashboard
             </button>
@@ -254,10 +254,10 @@ export function LifecycleOverviewView({ onNavigate }: TargetViewProps) {
             <div>
               <h3 style={{ margin: 0 }}>Detailed Operational Stages (ISA Execution Track)</h3>
               <p className="caption">
-                19 sequential operational stages from inquiry to post-signature archive:
+                {stages.length} sequential operational stages from inquiry to post-signature archive:
               </p>
             </div>
-            <span className="caption mono font-medium">19 Tracked Steps</span>
+            <span className="caption mono font-medium">{stages.length} Tracked Steps</span>
           </div>
           <ol
             className="target-stage-grid"

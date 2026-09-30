@@ -14,7 +14,7 @@ const ROUTE_ALIASES: Partial<Record<RouteKey, RouteKey>> = {
 };
 const LIFECYCLE_ROUTE_GROUP: Partial<Record<RouteKey, RouteKey[]>> = {
   'accounting-setup': ['accounting-setup', 'trial-balance', 'gl-transactions', 'account-mappings', 'adjustments', 'reconciliations'],
-  'clients': ['clients', 'client-detail', 'documents'], 'approvals': ['approvals', 'quality'], 'audit-risks': ['audit-risks', 'audit-fieldwork'],
+  'clients': ['clients', 'client-detail', 'documents'], 'approvals': ['approvals', 'quality'], 'audit-risks': ['audit-risks', 'audit-fieldwork'], 'audit-fieldwork': ['audit-risks', 'audit-fieldwork'],
   'billing': ['billing'], 'delivery': ['delivery', 'records']
 };
 

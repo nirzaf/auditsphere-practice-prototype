@@ -114,8 +114,8 @@ export function TargetScopeView({ onNavigate }: TargetViewProps) {
           <div className="borderbox p12">
             <strong>Module 2: Administration, Governance &amp; Planning</strong>
             <p className="caption">
-              [Acceptance / Continuance] → [Taxonomy Provisioning] → [Scheduling] → [3-Tier Materiality]<br />
-              <em>Handshake: Planning Signed Off &amp; TB Ingested</em>
+              [Acceptance / Continuance] → [Taxonomy Provisioning] → [Scheduling] → [TB Ingest] → [3-Tier Materiality]<br />
+              <em>Handshake: TB Ingested &amp; Planning Signed Off</em>
             </p>
           </div>
           <div className="borderbox p12">

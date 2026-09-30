@@ -119,6 +119,46 @@ export interface DeliverableSet {
   deliveredByUserId?: string;
   deliveryNote?: string;
 }
+export interface HoldingLetterRecord {
+  id: string;
+  revision: number;
+  engagementId: string;
+  generatedAt: string;
+  generatedByUserId: string;
+  recipientContactId?: string;
+  recipientName: string;
+  sourceBlockers: string[];
+  artifactId: string;
+  simulatedDispatchStatus: 'Issued (simulated)' | 'Pending';
+}
+
+export interface AnalyticalReviewRecord {
+  id: string;
+  engagementId: string;
+  fsli: string;
+  tbSourceVersion: number;
+  mappingRevision?: number;
+  planVersion?: number;
+  comparativeEngagementId?: string;
+  currentBalance: number;
+  priorBalance: number;
+  varianceAmount: number;
+  variancePct: number | null;
+  analysis: string;
+  isa570Checklist: {
+    operatingCashFlows: boolean | null;
+    debtCovenantsCompliant: boolean | null;
+    workingCapitalAdequate: boolean | null;
+    noMaterialDisruptions: boolean | null;
+    conclusion: string;
+  };
+  evidenceRef?: string;
+  signedOffBy: string;
+  signedOffByUserId: string;
+  signedOffAt: string;
+  procedureId?: string;
+}
+
 export interface TargetEngagementLifecycle {
   commercialBasis?: SourcePin;
   advancePayments: Array<{
@@ -154,6 +194,8 @@ export interface TargetEngagementLifecycle {
   partnerClearances: ReviewBasisRecord[];
   opinions: OpinionRecord[];
   deliverables: DeliverableSet[];
+  holdingLetters?: HoldingLetterRecord[];
+  analyticalReviews?: AnalyticalReviewRecord[];
   balanceInvoices: Array<{
     invoiceId: string;
     deliverableId: string;

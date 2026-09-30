@@ -346,6 +346,15 @@ export interface ProposalContentTemplate {
   active: boolean;
 }
 
+export interface ProposalDispatchRecord {
+  recipientContactId?: string;
+  recipientName: string;
+  channel: 'Email' | 'WhatsApp' | 'Letter';
+  revision: number;
+  dispatchedAt: string;
+  simulatedOutcome: 'Delivered (simulated)' | 'Failed (simulated)';
+}
+
 export interface ProposalRecord {
   id: string;
   leadId?: string;
@@ -361,7 +370,7 @@ export interface ProposalRecord {
   proposalMode?: 'Brief Quotation' | 'Comprehensive Technical Proposal';
   firmProfile?: string;
   regulatoryRegistrations?: string[];
-  teamCredentials?: Array<{ name: string; role: string; qualification: string; experience: string }>;
+  teamCredentials?: Array<{ name: string; role: string; qualification: string; experience: string }> | string;
   industryExperience?: string;
   auditMethodology?: string;
   period?: string;
@@ -370,7 +379,26 @@ export interface ProposalRecord {
   templateId?: string;
   templateRevision?: number;
   predecessorId?: string;
-  presentedSnapshot?: { revision: number; title: string; currency: string; totalAmount: number; items: ProposalItem[]; terms: string; presentedBy: string; presentedAt: string };
+  presentedSnapshot?: {
+    revision: number;
+    title: string;
+    currency: string;
+    totalAmount: number;
+    items: ProposalItem[];
+    terms: string;
+    presentedBy: string;
+    presentedAt: string;
+    proposalMode?: 'Brief Quotation' | 'Comprehensive Technical Proposal';
+    firmProfile?: string;
+    regulatoryRegistrations?: string[];
+    teamCredentials?: any;
+    industryExperience?: string;
+    auditMethodology?: string;
+    period?: string;
+    periodStart?: string;
+    periodEnd?: string;
+  };
+  dispatchHistory?: ProposalDispatchRecord[];
   state:
     | 'Draft'
     | 'Internal review'
@@ -544,6 +572,7 @@ export interface EngagementRecord {
   currency: string;
   proposalId?: string;
   engagementLetter?: {
+    revision?: number;
     template: 'ISA 210 External Statutory Audit' | 'ISRS 4400 Agreed-Upon Procedures';
     framework: string;
     generatedAt: string;
@@ -892,6 +921,7 @@ export interface TimeEntryItem {
   currency?: string;
   billable: boolean;
   activity: string;
+  fsli?: string;
   narrative?: string;
   status: 'Draft' | 'Submitted' | 'Approved' | 'Returned' | 'Superseded';
   reviewedBy?: string;
@@ -979,6 +1009,8 @@ export interface InvoiceRecord {
   }>;
   commercialApprovalHistory?: Array<{ revision: number; by: string; at: string; basis?: string }>;
   creditsApplied?: number;
+  /** Flag for 50% advance invoices generated alongside Engagement Letters per spec §4.1.5 */
+  isAdvanceInvoice?: boolean;
 }
 
 export interface CreditNoteRecord {
@@ -1622,6 +1654,8 @@ export interface AcceptanceCaseRecord {
   engagementId?: string;
   changedFacts?: string;
   continuedToEngagementId?: string;
+  priorPeriodEngagementId?: string;
+  assessmentType?: 'Track A (Initial)' | 'Track B (Continuance)' | 'Continuance';
   clientId: string;
   year: number;
   service: string;
@@ -1634,13 +1668,26 @@ export interface AcceptanceCaseRecord {
   managementIntegrityConfirmed?: boolean;
   financialViabilityConfirmed?: boolean;
   continuanceDeltaChecklist?: {
-    priorFeesSettled: boolean;
-    managementShareholdingUnchanged: boolean;
-    noNewLoansCovenants: boolean;
-    noPendingLitigation: boolean;
-    noFraudInvestigations: boolean;
-    noRegulatoryInquiries: boolean;
+    priorFeesSettled?: boolean | null;
+    /** @deprecated Use priorFeesSettled */
+    priorYearFeesSettled?: boolean | null;
+    managementShareholdingUnchanged?: boolean | null;
+    /** @deprecated Use managementShareholdingUnchanged */
+    managementChanges?: boolean;
+    noNewLoansCovenants?: boolean | null;
+    /** @deprecated Use noNewLoansCovenants */
+    newLoanCovenants?: boolean;
+    noPendingLitigation?: boolean | null;
+    /** @deprecated Use noPendingLitigation */
+    pendingLitigation?: boolean;
+    noFraudInvestigations?: boolean | null;
+    /** @deprecated Use noFraudInvestigations */
+    fraudOrInvestigations?: boolean;
+    noRegulatoryInquiries?: boolean | null;
+    /** @deprecated Use noRegulatoryInquiries */
+    regulatoryInquiries?: boolean;
     deltaExplanations?: string;
+    notes?: string;
   };
   screeningEvidence?: Partial<Record<'amlKyc' | 'independence' | 'conflicts' | 'prohibitions' | 'competence' | 'managementIntegrity' | 'financialViability', string>>;
   conditions: string[];
@@ -1671,6 +1718,9 @@ export interface AuditPlanRecord {
   /** Omitted only on historical revisions that predate explicit rate capture. */
   clearlyTrivialRate?: number;
   overallMateriality: number;
+  rawOverallMateriality?: number;
+  managerRoundedPM?: number;
+  normalizedPbtAdjustments?: string;
   performanceMateriality: number;
   clearlyTrivialThreshold: number;
   rationales: string[];

@@ -732,18 +732,102 @@ export function calculateConsolidatedBalanceSheet(
   };
 }
 
-// Module 28: ISA 320 Materiality Calculation (VP-048 / F16)
+// Module 28: ISA 320 Materiality Calculation (VP-048 / F16 / STE v2.1)
+export type BenchmarkType = 'profit' | 'revenue' | 'assets' | 'equity';
+
+export interface BenchmarkBand {
+  minRate: number;
+  maxRate: number;
+  label: string;
+}
+
+export const MATERIALITY_BENCHMARK_BANDS: Record<BenchmarkType, BenchmarkBand> = {
+  profit: { minRate: 5.0, maxRate: 10.0, label: 'Profit Before Tax (5.0% - 10.0%)' },
+  revenue: { minRate: 0.5, maxRate: 2.0, label: 'Gross Revenue (0.5% - 2.0%)' },
+  assets: { minRate: 0.5, maxRate: 1.0, label: 'Total Assets (0.5% - 1.0%)' },
+  equity: { minRate: 1.0, maxRate: 2.0, label: 'Net Equity / Net Assets (1.0% - 2.0%)' }
+};
+
+export const TE_RATE_BAND = { minRate: 50.0, maxRate: 75.0, label: 'Tolerable Error / TE (50.0% - 75.0% of PM)' };
+export const SAD_RATE_BAND = { minRate: 3.0, maxRate: 5.0, label: 'Summary of Audit Differences / SAD (3.0% - 5.0% of PM)' };
+export const MAX_ROUNDING_TOLERANCE_PCT = 5.0;
+
+export function validateMaterialityRates(
+  benchmark: string,
+  materialityRate: number,
+  performanceRate?: number,
+  clearlyTrivialRate?: number
+) {
+  const normBench = benchmark.toLowerCase();
+  const band = MATERIALITY_BENCHMARK_BANDS[normBench as BenchmarkType];
+  if (band) {
+    if (materialityRate < band.minRate || materialityRate > band.maxRate) {
+      throw new RangeError(`${band.label} rate must be between ${band.minRate}% and ${band.maxRate}% under STE v2.1 business rules.`);
+    }
+  } else {
+    if (materialityRate <= 0 || materialityRate > 100) {
+      throw new RangeError('Benchmark rate must be between 0% and 100%.');
+    }
+  }
+
+  if (performanceRate !== undefined) {
+    if (performanceRate < TE_RATE_BAND.minRate || performanceRate > TE_RATE_BAND.maxRate) {
+      throw new RangeError(`Performance materiality (TE) rate must be between ${TE_RATE_BAND.minRate}% and ${TE_RATE_BAND.maxRate}% of PM under STE v2.1 business rules.`);
+    }
+  }
+
+  if (clearlyTrivialRate !== undefined) {
+    if (clearlyTrivialRate < SAD_RATE_BAND.minRate || clearlyTrivialRate > SAD_RATE_BAND.maxRate) {
+      throw new RangeError(`Clearly trivial threshold (SAD) rate must be between ${SAD_RATE_BAND.minRate}% and ${SAD_RATE_BAND.maxRate}% of PM under STE v2.1 business rules.`);
+    }
+  }
+}
+
+export function validateMaterialityThresholds(
+  benchmarkValue: number,
+  materialityRate: number,
+  overallMateriality: number,
+  performanceRate: number,
+  performanceMateriality: number,
+  clearlyTrivialRate: number,
+  clearlyTrivialThreshold: number
+) {
+  const rawPM = Math.round(benchmarkValue * (materialityRate / 100));
+  const tolerance = Math.abs(rawPM * (MAX_ROUNDING_TOLERANCE_PCT / 100));
+  const minAllowedPM = Math.round(rawPM - tolerance);
+  const maxAllowedPM = Math.round(rawPM + tolerance);
+
+  if (overallMateriality < minAllowedPM || overallMateriality > maxAllowedPM) {
+    throw new RangeError(`Manager rounded PM (${overallMateriality}) exceeds the ±5% permitted rounding band [${minAllowedPM}, ${maxAllowedPM}] from calculated PM (${rawPM}) under STE v2.1 rules.`);
+  }
+
+  const expectedTE = Math.round(overallMateriality * (performanceRate / 100));
+  const expectedSAD = Math.round(overallMateriality * (clearlyTrivialRate / 100));
+
+  if (Math.abs(performanceMateriality - expectedTE) > 1) {
+    throw new RangeError(`Performance materiality (${performanceMateriality}) must derive from selected PM (${overallMateriality}) at ${performanceRate}% (expected ${expectedTE}).`);
+  }
+  if (Math.abs(clearlyTrivialThreshold - expectedSAD) > 1) {
+    throw new RangeError(`Clearly trivial threshold (${clearlyTrivialThreshold}) must derive from selected PM (${overallMateriality}) at ${clearlyTrivialRate}% (expected ${expectedSAD}).`);
+  }
+}
+
 export function calculateMateriality(
   benchmarkValue: number,
   percentage: number,
   performancePct: number,
   trivialPct: number,
-  rationale: string
+  rationale: string,
+  benchmarkType?: string
 ) {
   if (!Number.isFinite(benchmarkValue) || benchmarkValue <= 0) throw new RangeError('Benchmark value must be a positive finite amount.');
-  if (!Number.isFinite(percentage) || percentage <= 0 || percentage > 100) throw new RangeError('Applied benchmark rate must be greater than 0 and no more than 100 percent.');
-  if (!Number.isFinite(performancePct) || performancePct <= 0 || performancePct > 100) throw new RangeError('Performance materiality rate must be greater than 0 and no more than 100 percent.');
-  if (!Number.isFinite(trivialPct) || trivialPct < 0 || trivialPct > 100) throw new RangeError('Clearly trivial rate must be from 0 through 100 percent.');
+  if (benchmarkType) {
+    validateMaterialityRates(benchmarkType, percentage, performancePct, trivialPct);
+  } else {
+    if (!Number.isFinite(percentage) || percentage <= 0 || percentage > 100) throw new RangeError('Applied benchmark rate must be greater than 0 and no more than 100 percent.');
+    if (!Number.isFinite(performancePct) || performancePct <= 0 || performancePct > 100) throw new RangeError('Performance materiality rate must be greater than 0 and no more than 100 percent.');
+    if (!Number.isFinite(trivialPct) || trivialPct < 0 || trivialPct > 100) throw new RangeError('Clearly trivial rate must be from 0 through 100 percent.');
+  }
   if (!rationale.trim()) throw new RangeError('A planning rationale is required to calculate materiality.');
   const overallMateriality = Math.round(benchmarkValue * (percentage / 100));
   const performanceMateriality = Math.round(overallMateriality * (performancePct / 100));
@@ -760,3 +844,4 @@ export function calculateMateriality(
     rationale
   };
 }
+

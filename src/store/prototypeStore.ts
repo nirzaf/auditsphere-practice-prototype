@@ -1,15 +1,16 @@
 import { canonicalRoute } from '../services/legacyRoutes';
+import { TargetLifecycleCommands } from './targetLifecycleCommands';
 // AuditSphere Single Typed Store & Command Boundary
 // VP-002, VP-004, VP-019, VP-056: Single state, guarded actions, reactive subscriptions
 
 import { PrototypeState, RoleKey, ClientRecord, EngagementRecord, JobRecord, JobTaskItem, JobTemplateItem, TimeEntryItem, InvoiceRecord, InvoiceLineItem, ReceiptRecord, CreditNoteRecord, PbcRequestItem, WorkpaperItem, WorkpaperTemplateItem, ReviewNoteItem, AdjustmentJournalItem, AdjustmentJournalSupportLinks, ConsolidationGroupRecord, DocumentItem, CommunicationItem, EmailTemplateItem, AcceptanceCaseRecord, AuditPlanRecord, ArchiveRecord, ArchiveHistoryEntry, ArchivedArtifactRecord, SimulatedInvitation, IdentityStatusEvent, StatementSetRevision, StatementLayoutRevision, CashFlowScheduleRevision, ReconciliationSchedule, ClientAccountingProfile, GLSourceRevision, ProposalServiceDefinition, ProposalContentTemplate } from '../types';
+import type { AnalyticalReviewRecord } from '../types/targetLifecycle';
 import { createInitialState } from './initialState';
-import { TargetLifecycleCommands } from './targetLifecycleCommands';
-import { activationBlockers, billingSummary, fieldworkBlockers, normalizeTargetState, emptyAuditLifecycle } from '../services/targetLifecycle';
+import { activationBlockers, billingSummary, fieldworkBlockers, normalizeTargetState, emptyAuditLifecycle, acceptedProposal, professionalCase, professionalBlockers, isFrozen } from '../services/targetLifecycle';
 import { ScenarioName, loadScenarioState } from './scenarios';
 import { CURRENT_SCHEMA, migratePersistedState, validateFixtures } from '../services/migrations';
 import { requireActiveIdentity, requireIndependentActor, requireEngagementScope, requireClientScope, visibleClientIds, visibleEngagementIds, eligibleReviewAssignees, eligibleAuditRiskOwners, isClientRole, canOpenRoute, GuardError, markStateStale, roleRequiresApprovalEvidence, requireConsolidationGroupScope, isSuperuserRole, hasAnyRole, recordPrototypeSuperuserOverride, requireActiveEngagementLifecycle, requireActiveConsolidationComponents } from '../services/guards';
-import { applyReportingAdjustments, calculateReconciliationVariance } from '../services/calculations';
+import { applyReportingAdjustments, calculateReconciliationVariance, validateMaterialityRates, validateMaterialityThresholds } from '../services/calculations';
 import { validatePbcUpload } from '../services/pbcUpload';
 import { consolidationOutputFingerprint } from '../services/consolidationOutput';
 import { isReleaseBlockingFinding } from '../services/findings';
@@ -1029,7 +1030,25 @@ class PrototypeStore {
     if (!prop) throw new GuardError('INVALID_STATE', `Proposal "${propId}" was not found.`);
     if (prop.state !== 'Approved to send' || !prop.commercialReview?.approved) throw new GuardError('INVALID_STATE', 'Only an approved proposal can be presented.');
     if (prop.clientId) requireClientScope(this.state, prop.clientId);
-    prop.presentedSnapshot = { revision: prop.revision, title: prop.title, currency: prop.currency, totalAmount: prop.totalAmount, items: structuredClone(prop.items), terms: prop.terms, presentedBy: this.state.currentPerson, presentedAt: new Date().toISOString() };
+    prop.presentedSnapshot = {
+      revision: prop.revision,
+      title: prop.title,
+      currency: prop.currency,
+      totalAmount: prop.totalAmount,
+      items: structuredClone(prop.items),
+      terms: prop.terms,
+      presentedBy: this.state.currentPerson,
+      presentedAt: new Date().toISOString(),
+      proposalMode: prop.proposalMode,
+      firmProfile: prop.firmProfile,
+      regulatoryRegistrations: prop.regulatoryRegistrations ? [...prop.regulatoryRegistrations] : undefined,
+      teamCredentials: prop.teamCredentials ? structuredClone(prop.teamCredentials) : undefined,
+      industryExperience: prop.industryExperience,
+      auditMethodology: prop.auditMethodology,
+      period: prop.period,
+      periodStart: prop.periodStart,
+      periodEnd: prop.periodEnd
+    };
     prop.state = 'Presented';
     this.logEvent(`Proposal ${prop.id} Rev ${prop.revision} presented`, prop.id);
     this.notify();
@@ -1082,10 +1101,10 @@ class PrototypeStore {
     requireClientScope(this.state, prop.clientId);
     if (prop.state !== 'Presented' || !prop.commercialReview?.approved) throw new GuardError('INVALID_STATE', 'Only an approved, presented proposal can receive a client response.');
     const authorizedContact = this.state.contacts.find(contact => contact.clientId === prop.clientId && contact.active && contact.name.trim().toLocaleLowerCase() === response.contact?.trim().toLocaleLowerCase());
-    if (!prop.presentedSnapshot || prop.presentedSnapshot.revision !== prop.revision || !['Accepted', 'Declined', 'Withdrawn'].includes(response.responseType) || !authorizedContact || !['Email', 'Meeting', 'Letter'].includes(response.method) || !isProposalDate(response.date) || !response.evidenceRef?.trim() || !response.notes.trim()) throw new GuardError('INVALID_STATE', 'Response requires the current presented revision, an active client contact, allowed method and allowed response type, valid date, notes, and an evidence reference.');
+    if (!prop.presentedSnapshot || prop.presentedSnapshot.revision !== prop.revision || !['Accepted', 'Declined', 'Withdrawn'].includes(response.responseType) || !authorizedContact || !['Email', 'WhatsApp', 'Meeting', 'Letter'].includes(response.method) || !isProposalDate(response.date) || !response.evidenceRef?.trim() || !response.notes.trim()) throw new GuardError('INVALID_STATE', 'Response requires the current presented revision, an active client contact, allowed method and allowed response type, valid date, notes, and an evidence reference.');
     prop.clientResponse = { ...response, contact: response.contact.trim(), recordedBy: this.state.currentPerson, recordedRole: this.state.currentRole, contactId: authorizedContact.id, revision: prop.presentedSnapshot.revision };
     prop.state = response.responseType;
-    this.logEvent(`Proposal ${prop.id} client response: ${response.responseType} by ${response.contact}`, prop.id);
+    this.logEvent(`Proposal ${prop.id} client response: ${response.responseType} by ${response.contact} via ${response.method}`, prop.id);
     this.notify();
   }
 
@@ -1148,10 +1167,44 @@ class PrototypeStore {
   ) {
     requireActiveIdentity(this.state);
     requireRole(this.state, ['manager', 'partner'], 'generate engagement letters');
+    requireEngagementScope(this.state, engagementId, 'administrative');
     const eng = this.state.engagements.find((item) => item.id === engagementId);
     if (!eng) throw new GuardError('INVALID_STATE', `Engagement "${engagementId}" was not found.`);
+    if (['Cancelled', 'Closed'].includes(eng.lifecycleStatus || 'Active')) throw new GuardError('INVALID_STATE', 'Cancelled or closed engagements are immutable.');
+    if (isFrozen(eng)) throw new GuardError('INVALID_STATE', 'Cannot generate engagement letter for a frozen/archived engagement.');
     const client = this.state.clients.find((item) => item.id === eng.client);
     if (!client) throw new GuardError('INVALID_STATE', `Client "${eng.client}" was not found.`);
+
+    // Dual-Key Gate Enforcement:
+    // Key 1: Client commercial acceptance of current proposal revision with evidence
+    const prop = acceptedProposal(this.state, eng) || this.state.proposals.find(p => (p.id === eng.proposalId || p.clientId === eng.client) && p.state === 'Accepted');
+    if (!prop || !prop.clientResponse || prop.clientResponse.responseType !== 'Accepted' || !prop.clientResponse.evidenceRef?.trim()) {
+      throw new GuardError('INVALID_STATE', 'Key 1 missing: Engagement letter requires a current accepted client proposal revision with recorded evidence.');
+    }
+
+    // Key 2: Independent assigned-Partner risk clearance (acceptance/continuance case approved)
+    const accCase = professionalCase(this.state, eng) || (this.state.acceptanceCases || []).find(c => c.clientId === eng.client && c.year === eng.year && c.service === eng.service && c.decisionStatus === 'Accepted') || (this.state.acceptanceCases || []).find(c => c.clientId === eng.client && c.year === eng.year && c.decisionStatus === 'Accepted');
+    if (!accCase || accCase.decisionStatus !== 'Accepted') {
+      throw new GuardError('INVALID_STATE', 'Key 2 missing: Engagement letter requires an independent assigned-Partner risk clearance (acceptance case approved).');
+    }
+    const profBlockers = professionalBlockers(this.state, eng);
+    if (profBlockers.length > 0) {
+      throw new GuardError('INVALID_STATE', `Key 2 blocked: ${profBlockers.join(' ')}`);
+    }
+
+    // Signing authority: separate Manager preparation from Partner signature/issuance authorization
+    const assignedPartner = this.state.users.find(u => u.name === eng.partner && u.role === 'partner');
+    const actor = this.state.users.find(u => u.id === this.state.currentUserId);
+    const isAssignedPartner = Boolean(
+      actor && (actor.role === 'superuser' || (actor.role === 'partner' && assignedPartner && (actor.personId || actor.id) === (assignedPartner.personId || assignedPartner.id)))
+    );
+
+    if (partnerSignature && !isAssignedPartner && !recordPrototypeSuperuserOverride(this.state, 'authorize engagement letter signature as non-assigned partner')) {
+      throw new GuardError('FORBIDDEN_SCOPE', 'Only the assigned engagement partner can authorize and apply the digital partner signature.');
+    }
+
+    const partnerSigValue = isAssignedPartner && partnerSignature ? partnerSignature : (eng.partner || 'Daniel James');
+    const isFirmStampApplied = isAssignedPartner && firmStamp;
 
     const letterContent = [
       `ENGAGEMENT LETTER — ${template.toUpperCase()}`,
@@ -1177,18 +1230,53 @@ class PrototypeStore {
       `• Final balance: 50% (${(eng.agreedFee * 0.5).toLocaleString()} ${eng.currency}) payable upon issuance and delivery of the certified audit deliverables bundle.`,
       '',
       '5. SIGNATORIES AND CREDENTIALS:',
-      `Engagement Partner: ${partnerSignature || eng.partner}`,
-      `Firm Seal / Stamp: ${firmStamp ? 'STE Audit & Accounting LLC [State of Qatar - QFC Registration QFC-00892] — VERIFIED' : 'Pending'}`,
+      `Engagement Partner: ${partnerSigValue}`,
+      `Firm Seal / Stamp: ${isFirmStampApplied ? 'STE Audit & Accounting LLC [State of Qatar - QFC Registration QFC-00892] — VERIFIED' : 'Pending'}`,
       `Issued at: ${new Date().toISOString()}`
     ].join('\n');
 
+    // Create real persisted 50% advance invoice linked to accepted fee and EL
+    const advanceAmount = Math.round(eng.agreedFee * 0.5);
+    const invId = `INV-ADV-${eng.id}`;
+    let advanceInvoice = this.state.invoices.find(i => i.id === invId);
+    if (!advanceInvoice) {
+      const invNumber = `${this.state.firmSettings.invoiceNumberPrefix}${this.state.firmSettings.invoiceNextNumber}`;
+      advanceInvoice = {
+        id: invId,
+        invoiceNumber: invNumber,
+        clientId: eng.client,
+        engagementId: eng.id,
+        eng: eng.service,
+        amount: advanceAmount,
+        paid: 0,
+        due: this.state.asOfDate,
+        issueDate: this.state.asOfDate,
+        status: 'Approved',
+        isAdvanceInvoice: true,
+        currency: eng.currency,
+        preparedBy: this.state.currentPerson,
+        description: `50% Advance Professional Fee Deposit for ${eng.service} (Year: ${eng.year})`,
+        lines: [{
+          id: '1',
+          description: `50% advance deposit payable upon contract signing / EL execution`,
+          quantity: 1,
+          rate: advanceAmount,
+          amount: advanceAmount,
+          sourceType: 'Fixed service'
+        }]
+      };
+      this.state.invoices.push(advanceInvoice);
+      this.state.firmSettings.invoiceNextNumber++;
+    }
+
     eng.engagementLetter = {
+      revision: (eng.engagementLetter?.revision || 0) + 1,
       template,
       framework,
       generatedAt: new Date().toISOString(),
       generatedBy: this.state.currentPerson,
-      partnerSignature: partnerSignature || eng.partner,
-      firmStamp,
+      partnerSignature: partnerSigValue,
+      firmStamp: isFirmStampApplied,
       content: letterContent
     };
 
@@ -1200,8 +1288,11 @@ class PrototypeStore {
   public recordSignedEngagementLetter(engagementId: string, evidenceRef: string) {
     requireActiveIdentity(this.state);
     requireRole(this.state, ['manager', 'partner'], 'record signed engagement letters');
+    requireEngagementScope(this.state, engagementId, 'administrative');
     const eng = this.state.engagements.find((item) => item.id === engagementId);
     if (!eng) throw new GuardError('INVALID_STATE', `Engagement "${engagementId}" was not found.`);
+    if (['Cancelled', 'Closed'].includes(eng.lifecycleStatus || 'Active')) throw new GuardError('INVALID_STATE', 'Cancelled or closed engagements are immutable.');
+    if (isFrozen(eng)) throw new GuardError('INVALID_STATE', 'Cannot record signed engagement letter for a frozen/archived engagement.');
     if (!evidenceRef.trim()) throw new GuardError('INVALID_STATE', 'Recording signed engagement letter requires an evidence reference.');
     if (!eng.engagementLetter) throw new GuardError('INVALID_STATE', 'Generate an engagement letter before recording the signed copy.');
 
@@ -2537,6 +2628,22 @@ class PrototypeStore {
       this.staleReconciliation(rec);
     }
     this.staleStatementSetRevisions(engId);
+    eng.planning = false;
+    for (const plan of this.state.auditPlans?.filter(p => p.engagementId === engId) || []) {
+      if (plan.status === 'Approved') {
+        plan.status = 'Superseded';
+        plan.supersededReason = `TB updated to Source v${eng.sourceVersion}; recalculate and reapprove materiality.`;
+      }
+    }
+    for (const program of this.state.auditPrograms?.filter(p => p.engagementId === engId) || []) {
+      for (const proc of program.procedures) {
+        proc.scopeReassessmentRequired = true;
+        proc.scopeReassessmentReason = `TB updated to Source v${eng.sourceVersion}; reassess planned procedure scope and conclusions.`;
+        if (proc.status === 'Cleared' || proc.status === 'Submitted') proc.status = 'In progress';
+        proc.reviewedByUserId = undefined;
+        proc.reviewedAt = undefined;
+      }
+    }
     this.invalidateReleaseBasis(eng);
     this.logEvent(`Trial balance updated for ${eng.id} (Source v${eng.sourceVersion})`, eng.id);
     this.notify();
@@ -5121,8 +5228,18 @@ class PrototypeStore {
     requireRole(this.state, ['onboarding', 'compliance', 'manager', 'reviewer'], 'record an acceptance recommendation');
     requireClientScope(this.state, accCase.clientId);
     if (!this.state.clients.some(c => c.id === accCase.clientId) || !Number.isInteger(accCase.year) || !accCase.recommendationNotes.trim()) throw new GuardError('INVALID_STATE', 'Acceptance case needs an existing client, reporting year, and recommendation rationale.');
-    const requiredEvidence = { amlKyc: accCase.amlKycCompleted, independence: accCase.independenceConfirmed, conflicts: accCase.conflictsCleared, prohibitions: accCase.prohibitionsChecked, competence: accCase.competenceConfirmed };
-    if (Object.entries(requiredEvidence).some(([key, checked]) => checked && !accCase.screeningEvidence?.[key as keyof typeof requiredEvidence]?.trim())) throw new GuardError('INVALID_STATE', 'Every completed acceptance screening check needs an evidence reference.');
+    const requiredEvidence: Record<string, boolean | undefined> = {
+      amlKyc: accCase.amlKycCompleted,
+      independence: accCase.independenceConfirmed,
+      conflicts: accCase.conflictsCleared,
+      prohibitions: accCase.prohibitionsChecked,
+      competence: accCase.competenceConfirmed,
+      managementIntegrity: accCase.managementIntegrityConfirmed,
+      financialViability: accCase.financialViabilityConfirmed
+    };
+    if (Object.entries(requiredEvidence).some(([key, checked]) => checked && !accCase.screeningEvidence?.[key as keyof typeof requiredEvidence]?.trim())) {
+      throw new GuardError('INVALID_STATE', 'Every completed acceptance screening check needs an evidence reference.');
+    }
     const eng = this.state.engagements.find(e => e.id === accCase.engagementId) || this.state.engagements.find(e => e.client === accCase.clientId && e.year === accCase.year && e.service === accCase.service);
     if (eng && (eng.client !== accCase.clientId || eng.year !== accCase.year || eng.service !== accCase.service)) throw new GuardError('FORBIDDEN_SCOPE', 'Acceptance must match the exact engagement, client, service and year.');
     if (accCase.engagementId && !eng) throw new GuardError('FORBIDDEN_SCOPE', 'Acceptance engagement was not found.');
@@ -5130,7 +5247,7 @@ class PrototypeStore {
     if (!this.state.acceptanceCases) this.state.acceptanceCases = [];
     const idx = this.state.acceptanceCases.findIndex(c => c.id === accCase.id);
     const previous = idx >= 0 ? this.state.acceptanceCases[idx] : undefined;
-    const linkedEngagement = this.state.engagements.find(e => e.client === accCase.clientId && e.year === accCase.year);
+    const linkedEngagement = this.state.engagements.find(e => e.client === accCase.clientId && e.year === accCase.year && e.service === accCase.service) || this.state.engagements.find(e => e.client === accCase.clientId && e.year === accCase.year);
     const at = new Date().toISOString();
     const saved: AcceptanceCaseRecord = {
       ...accCase,
@@ -5161,7 +5278,7 @@ class PrototypeStore {
     const record = this.state.acceptanceCases?.find(c => c.id === caseId);
     if (!record) throw new GuardError('INVALID_STATE', 'Acceptance case was not found.');
     requireClientScope(this.state, record.clientId);
-    const eng = this.state.engagements.find(e => e.id === record.engagementId) || this.state.engagements.find(e => e.client === record.clientId && e.year === record.year);
+    const eng = this.state.engagements.find(e => e.id === record.engagementId) || this.state.engagements.find(e => e.client === record.clientId && e.year === record.year && e.service === record.service) || this.state.engagements.find(e => e.client === record.clientId && e.year === record.year);
     if (!eng) throw new GuardError('INVALID_STATE', 'Acceptance decision must be bound to an engagement.');
     if (eng.client !== record.clientId || eng.year !== record.year || eng.service !== record.service) throw new GuardError('FORBIDDEN_SCOPE', 'Acceptance case is not bound to the exact engagement period.');
     requireEngagementScope(this.state, eng.id, 'administrative');
@@ -5170,8 +5287,38 @@ class PrototypeStore {
     if ((!assignedPartner || !actor || (assignedPartner.personId || assignedPartner.id) !== (actor.personId || actor.id)) && !recordPrototypeSuperuserOverride(this.state, 'decide an acceptance case as a non-assigned partner')) throw new GuardError('FORBIDDEN_SCOPE', 'Only the assigned engagement partner can decide this case.');
     if (!rationale.trim()) throw new GuardError('INVALID_STATE', 'Partner decision requires a rationale.');
     if (decision === 'Accepted' && record.conditions.length) throw new GuardError('INVALID_STATE', 'Resolve every acceptance condition before Partner approval.');
-    if (decision === 'Accepted' && eng.auditLifecycle && !billingSummary(this.state, eng).complete) throw new GuardError('INVALID_STATE', 'Pin the accepted fee, record the required 50% advance and generate its current receipt before Partner acceptance.');
-    if (decision === 'Accepted' && (record.riskRating === 'Prohibited' || !record.independenceConfirmed || !record.amlKycCompleted || !record.conflictsCleared || !record.prohibitionsChecked || !record.competenceConfirmed || ['amlKyc', 'independence', 'conflicts', 'prohibitions', 'competence'].some(key => !record.screeningEvidence?.[key as keyof NonNullable<AcceptanceCaseRecord['screeningEvidence']>]?.trim()))) throw new GuardError('INVALID_STATE', 'Acceptance is blocked until all required checks have evidence references and the mandate is not prohibited.');
+    if (decision === 'Accepted') {
+      if (record.riskRating === 'Prohibited') throw new GuardError('INVALID_STATE', 'Acceptance is blocked: the mandate is not prohibited-eligible. A Prohibited risk mandate cannot be accepted.');
+      if (!record.independenceConfirmed || !record.amlKycCompleted || !record.conflictsCleared || !record.prohibitionsChecked || !record.competenceConfirmed) {
+        throw new GuardError('INVALID_STATE', 'Acceptance is blocked until all required screening checks are confirmed.');
+      }
+      if (record.managementIntegrityConfirmed === false || record.financialViabilityConfirmed === false) {
+        throw new GuardError('INVALID_STATE', 'Acceptance is blocked: management integrity and financial viability must be confirmed.');
+      }
+      const requiredEvidenceKeys: Array<keyof NonNullable<AcceptanceCaseRecord['screeningEvidence']>> = ['amlKyc', 'independence', 'conflicts', 'prohibitions', 'competence'];
+      if (record.managementIntegrityConfirmed) requiredEvidenceKeys.push('managementIntegrity');
+      if (record.financialViabilityConfirmed) requiredEvidenceKeys.push('financialViability');
+      if (requiredEvidenceKeys.some(key => !record.screeningEvidence?.[key]?.trim())) {
+        throw new GuardError('INVALID_STATE', 'Acceptance is blocked until all completed checks have evidence references.');
+      }
+      // Track B Continuance check
+      if (record.assessmentType === 'Continuance' || record.continuanceDeltaChecklist) {
+        const delta = record.continuanceDeltaChecklist;
+        const settled = delta?.priorFeesSettled ?? delta?.priorYearFeesSettled;
+        const mgtUnchanged = delta?.managementShareholdingUnchanged ?? (delta?.managementChanges !== undefined ? !delta.managementChanges : undefined);
+        const loansOk = delta?.noNewLoansCovenants ?? (delta?.newLoanCovenants !== undefined ? !delta.newLoanCovenants : undefined);
+        const litigationOk = delta?.noPendingLitigation ?? (delta?.pendingLitigation !== undefined ? !delta.pendingLitigation : undefined);
+        const fraudOk = delta?.noFraudInvestigations ?? (delta?.fraudOrInvestigations !== undefined ? !delta.fraudOrInvestigations : undefined);
+        const regOk = delta?.noRegulatoryInquiries ?? (delta?.regulatoryInquiries !== undefined ? !delta.regulatoryInquiries : undefined);
+        if ([settled, mgtUnchanged, loansOk, litigationOk, fraudOk, regOk].some(v => v === undefined || v === null)) {
+          throw new GuardError('INVALID_STATE', 'Continuance requires assessment of all six delta items.');
+        }
+        const hasChangedFact = [settled, mgtUnchanged, loansOk, litigationOk, fraudOk, regOk].some(v => v === false);
+        if (hasChangedFact && !delta?.deltaExplanations?.trim() && !delta?.notes?.trim() && !record.changedFacts?.trim()) {
+          throw new GuardError('INVALID_STATE', 'Continuance with changed facts requires documented evaluation and rationale.');
+        }
+      }
+    }
     requireIndependentActor(record.recommendationByUserId || record.recommendationBy, this.state.currentUserId, 'decide a case they recommended', this.state);
     const at = new Date().toISOString();
     record.decisionStatus = decision;

@@ -79,12 +79,16 @@ export function acceptance(state: PrototypeState) {
     riskRating: 'Low' as const,
     conditions: [],
     recommendationNotes: 'Evidence for all five professional screening areas assessed.',
+    managementIntegrityConfirmed: true,
+    financialViabilityConfirmed: true,
     screeningEvidence: {
       amlKyc: 'KYC-01',
       independence: 'IND-01',
       conflicts: 'CONFLICT-01',
       prohibitions: 'PROHIB-01',
-      competence: 'COMP-01'
+      competence: 'COMP-01',
+      managementIntegrity: 'INTEG-01',
+      financialViability: 'VIAB-01'
     },
     decisionStatus: 'Pending' as const
   };

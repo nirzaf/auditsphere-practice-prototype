@@ -168,17 +168,19 @@ export const Shell: React.FC<ShellProps> = ({ currentRoute, onRouteChange, onSel
       "MODULE 2: GOVERNANCE & PLANNING",
       [
         { key: "onboarding", label: "Dual-Key Gate & Acceptance", icon: "shield" },
-        { key: "documents", label: "5-Folder Taxonomy Workspace", icon: "folder" },
-        { key: "scheduling", label: "Resource Scheduling & Milestones", icon: "clock" },
-        { key: "audit-planning", label: "3-Tier Materiality (ISA 320)", icon: "target" }
+        { key: "m365-setup", label: "5-Folder Taxonomy Workspace", icon: "folder" },
+        { key: "documents", label: "Client PBC Portal Handoff", icon: "folder" },
+        { key: "trial-balance", label: "Trial Balance (TB)", icon: "calculator" },
+        { key: "audit-planning", label: "3-Tier Materiality (ISA 320)", icon: "target" },
+        { key: "scheduling", label: "Resource Scheduling & Milestones", icon: "clock" }
       ]
     ],
     [
       "MODULE 3: TECHNICAL FIELDWORK",
       [
         { key: "financial-statements", label: "Split Dashboard (P/L & B/S)", icon: "file" },
-        { key: "trial-balance", label: "TB Upload & Auto-Mapping", icon: "calculator" },
-        { key: "audit-risks", label: "Workprograms & Going Concern", icon: "shield" },
+        { key: "audit-fieldwork", label: "Workprograms & Going Concern", icon: "shield" },
+        { key: "audit", label: "Workpapers & Evidence", icon: "checkboard" },
         { key: "sampling", label: "Sampling & Physical Index (X-1)", icon: "checkboard" },
         { key: "confirmations", label: "External Confirmations (ISA 505)", icon: "message" },
         { key: "reviews", label: "Three-Tier Review & SRM", icon: "message" }
