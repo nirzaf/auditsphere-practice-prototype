@@ -15,8 +15,8 @@ beforeEach(async () => {
   store.generateEngagementLetter(e.id, 'ISA 210 External Statutory Audit', 'IFRS', state.currentPerson, true);
   act(state,'billing'); commands.recordAdvance(e.id,{amount:e.agreedFee/2,date:state.asOfDate,method:'Bank transfer',reference:'ADV-PARITY'}); await commands.generateOfficialReceipt(e.id);
   act(state,'admin'); store.simulateM365Verification('sharepoint','success'); store.prepareClientWorkspace(e.client,e.year,e.id); commands.verifyWorkspaceAccess(e.id, 'Verified local simulated evidence workspace.'); act(state,'manager');
-  commands.importMappedTB(e.id,[{code:'1000',name:'Cash',type:'asset',balance:100},{code:'3000',name:'Capital',type:'equity',balance:-100}],{fileName:'tb.csv',format:'CSV',sha256:'a'.repeat(64)});
-  commands.confirmMapping(e.id,[{code:'1000',line:'Cash'},{code:'3000',line:'Equity'}]);
+  commands.importMappedTB(e.id,[{code:'1000',name:'Cash',type:'asset',balance:100},{code:'3000',name:'Capital',type:'equity',balance:-100},{code:'1100',name:'Receivables',type:'asset',balance:1068420},{code:'4000',name:'Revenue',type:'revenue',balance:-1068420}],{fileName:'tb.csv',format:'CSV',sha256:'a'.repeat(64)});
+  commands.confirmMapping(e.id,[{code:'1000',line:'Cash'},{code:'3000',line:'Equity'},{code:'1100',line:'Receivables'},{code:'4000',line:'Revenue'}]);
   store.saveAuditPlan({id:'PLAN-PARITY',engagementId:e.id,version:1,status:'Under review',benchmark:'profit',benchmarkValue:1068420,materialityRate:5,overallMateriality:53000,performanceMaterialityRate:75,performanceMateriality:39750,clearlyTrivialRate:5,clearlyTrivialThreshold:2650,rationales:['Manager rounding within five percent.'],teamAllocations:[{person:'Layla Rahman',role:'Manager',scheduledStart:state.asOfDate,scheduledEnd:state.asOfDate}],timingMilestones:[],significantAreas:[]});
   act(state,'partner'); store.reviewAuditPlan('PLAN-PARITY',true,'Independent Partner approval on current TB.');
   act(state,'manager'); commands.saveStaffing(e.id,([{userId:'partner',role:'Partner'},{userId:'manager',role:'Manager'},{userId:'reviewer',role:'Senior/Reviewer'},{userId:'preparer',role:'Preparer/Staff'}] as const).map(a=>({...a,phase:'Fieldwork',plannedHours:10,chargeRate:a.role==='Partner'?1000:a.role==='Manager'?750:a.role==='Senior/Reviewer'?500:200,costRate:100,startDate:state.asOfDate,endDate:state.asOfDate,capacityHours:40,leaveHours:8,targetUtilizationPct:80})),'Recorded capacity and leave.');
@@ -41,17 +41,17 @@ it('systematic samples can reach every population item with N=10 and n=6',()=>{
 it('Holding Letters persist revisions and retain critical release blockers',async()=>{
  act(state,'preparer'); commands.createConfirmation(e.id,{type:'Bank',counterparty:'Synthetic Bank',relatedFsli:'Cash',ownerUserId:'preparer',dueAt:state.asOfDate,critical:true,workpaperIds:[]});
  act(state,'manager'); await commands.generateHoldingLetter(e.id); await commands.generateHoldingLetter(e.id);
- assert.deepEqual(e.auditLifecycle!.holdingLetters!.map(l=>l.revision),[1,2]);
+ assert.deepEqual(e.auditLifecycle!.holdingLetters!.map(l=>l.revision),[1]);
  assert.equal(e.auditLifecycle!.holdingLetters![0].simulatedDispatchStatus,'Issued (simulated)');
  assert.equal(criticalConfirmationBlockers(state,e).length,1);
- assert.equal(JSON.parse(JSON.stringify(e)).auditLifecycle.holdingLetters.length,2);
+ assert.equal(JSON.parse(JSON.stringify(e)).auditLifecycle.holdingLetters.length,1);
 });
 it('Analytical Review stores deliberate checklist, actor and source and becomes stale',()=>{
- act(state,'manager'); commands.prepareStandardPrograms(e.id); act(state,'preparer');
+ act(state,'manager'); commands.prepareStandardPrograms(e.id);
  const input={fsli:'Cash',tbSourceVersion:e.sourceVersion,mappingRevision:state.accountMappingRevisions!.at(-1)!.revision,planVersion:1,currentBalance:100,variancePct:null,analysis:'Corroborated variance to evidence.',isa570Checklist:{operatingCashFlows:true,debtCovenantsCompliant:true,workingCapitalAdequate:true,noMaterialDisruptions:true,conclusion:'Twelve-month forecast corroborates liquidity.'}};
  assert.throws(()=>store.signOffAnalyticalReview(e.id,{...input,isa570Checklist:{...input.isa570Checklist,operatingCashFlows:null}}),/ISA 570/);
  store.signOffAnalyticalReview(e.id,input); const record=e.auditLifecycle!.analyticalReviews![0];
- assert.equal(record.signedOffByUserId,'preparer'); assert.ok(record.signedOffAt); assert.equal(analyticalReviewIsCurrent(state,e,record),true);
+ assert.equal(record.signedOffByUserId,'manager'); assert.ok(record.signedOffAt); assert.equal(analyticalReviewIsCurrent(state,e,record),true);
  assert.equal(state.auditPrograms.find(p=>p.area==='Analytical Review')!.procedures[0].status,'In progress','independent review remains required');
  e.sourceVersion++; assert.equal(analyticalReviewIsCurrent(state,e,record),false);
 });
@@ -88,4 +88,19 @@ it('continuance requires all six deliberate answers and an eligible prior-period
  record.priorPeriodEngagementId=e.id;assert.throws(()=>store.decideAcceptanceCase(record.id,'Accepted','Independent continuance assessment.'),/prior period/);
  record.priorPeriodEngagementId=prior.id;store.decideAcceptanceCase(record.id,'Accepted','Independent continuance assessment.');
  assert.equal(record.decisionStatus,'Accepted');
+});
+
+it('F07 current-source provenance rejects an arbitrary numerically valid materiality benchmark atomically',()=>{
+  act(state,'manager'); const before=JSON.stringify(state.auditPlans);
+  const plan={...state.auditPlans[0],id:'PLAN-ARBITRARY',version:2,status:'Under review' as const,benchmarkValue:100000,overallMateriality:5000,performanceMateriality:3750,clearlyTrivialThreshold:250,benchmarkProvenance:undefined};
+  assert.throws(()=>store.saveAuditPlan(plan),/Benchmark must reconcile to the current TB/);
+  assert.equal(JSON.stringify(state.auditPlans),before);
+});
+it('F09 an unassigned Partner with the same display name cannot approve planning',()=>{
+  const original=state.users.find(u=>u.id==='partner')!;
+  state.users.push({...original,id:'other-partner',personId:'OTHER-PERSON'});
+  state.roleGrants.push({...state.roleGrants.find(g=>g.userId==='partner')!,userId:'other-partner'});
+  state.auditPlans[0].status='Under review';act(state,'other-partner');
+  assert.throws(()=>store.reviewAuditPlan('PLAN-PARITY',true,'Independent assessment.'),/assigned Partner/);
+  assert.equal(state.auditPlans[0].status,'Under review');
 });

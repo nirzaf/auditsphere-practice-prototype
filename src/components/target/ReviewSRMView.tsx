@@ -49,7 +49,7 @@ export function ReviewSRMView(props: TargetViewProps) {
           </details>
         )}
       </section>
-      {eng.workpapers.map((w) => (
+      {eng.workpapers.filter(w => w.applicable).map((w) => (
         <section className="panel panel-pad" key={w.id}>
           <div className="flex-between">
             <h3>{w.title}</h3>
@@ -232,9 +232,13 @@ export function ReviewSRMView(props: TargetViewProps) {
         button="Clear current Manager review"
         disabled={!hasAnyRole(state, ['manager']) || frozen}
         onRegisterUnsavedForm={props.onRegisterUnsavedForm}
-        onCommit={(data) =>
-          prototypeStore.lifecycle.recordManagerClearance(eng.id, value(data, 'notes'))
-        }
+        onCommit={async (data) => {
+          const notes = value(data, 'notes');
+          if (notes.trim().length < 20) throw new Error('Record a meaningful Manager recommendation of at least 20 characters.');
+          if (!current.manager) prototypeStore.lifecycle.recordManagerClearance(eng.id, notes);
+          try { await prototypeStore.lifecycle.generateSRM(eng.id, notes); }
+          catch (error) { throw new Error(`Manager clearance saved; SRM pending. Retry Generate SRM. ${error instanceof Error ? error.message : ''}`); }
+        }}
       >
         <Field label="Manager conclusion" name="notes" type="textarea" />
       </TargetForm>

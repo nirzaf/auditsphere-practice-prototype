@@ -2,7 +2,9 @@ import React from 'react';
 import { prototypeStore } from '../../store/prototypeStore';
 import { hasAnyRole } from '../../services/guards';
 import { isFrozen } from '../../services/targetLifecycle';
-import { ArtifactLink, Field, TargetForm, value, type TargetViewProps } from './TargetCommon';
+import { ActionButton, ArtifactLink, Field, TargetForm, value, type TargetViewProps } from './TargetCommon';
+import { inspectionRecords, createInspectionZip } from '../../services/archivePackage';
+import { downloadBlob } from '../../services/exportService';
 
 export function FreezeArchiveView(props: TargetViewProps) {
   const state = prototypeStore.getSnapshot(),
@@ -62,18 +64,20 @@ export function FreezeArchiveView(props: TargetViewProps) {
           <p className="caption mt4">
             Under ISA 230 / STE policy, the Lead Audit Partner may execute an immediate manual freeze prior to the 60-day statutory expiry.
           </p>
-          <button
-            type="button"
-            className="btn sm danger mt12"
-            onClick={() => prototypeStore.lifecycle.simulateFreeze(eng.id, state.asOfDate, true)}
-          >
+          <ActionButton action={() => prototypeStore.lifecycle.simulateFreeze(eng.id, state.asOfDate, true)}>
             Execute Partner Early Archival Lock Now
-          </button>
+          </ActionButton>
         </section>
       )}
       {frozen && (
         <section className="panel panel-pad" data-testid="frozen-archive">
           <h3>Frozen archive manifest</h3>
+          <p role="status">Packaging: {eng.archive?.packagingStatus || 'Historical metadata only'} · effective closure {control.frozenAt} · processed {eng.archive?.processedAt || 'Pending'}. Cloud demo retains metadata for seven days; original bytes remain in this browser.</p>
+          {eng.archive?.unavailable?.map(message => <p key={message} role="alert">{message}</p>)}
+          <ActionButton disabled={!hasAnyRole(state,['records','manager','partner'])} action={() => prototypeStore.lifecycle.retryArchivePackaging(eng.id)}>Retry archive byte verification and packaging</ActionButton>
+          {eng.archive?.inspection && <ArtifactLink artifact={eng.archive.inspection} />}
+          <ActionButton action={async () => downloadBlob(await createInspectionZip(state,eng),`${eng.id}-complete-audit-file.zip`)}>Download complete inspection ZIP · records and verified originals</ActionButton>
+          <ActionButton action={() => downloadBlob(new Blob([JSON.stringify(inspectionRecords(state, eng), null, 2)], { type: 'application/json' }), `${eng.id}-inspection-records.json`)}>Export complete scoped audit records and history</ActionButton>
           <p>
             Frozen {control.frozenAt} by{' '}
             {state.users.find((u) => u.id === control.frozenByUserId)?.name}. Amendments require an

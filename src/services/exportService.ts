@@ -134,6 +134,15 @@ export function createPDFBlob(
   });
 
   // Footer
+  if (lines.some(line => /SYNTHETIC DEMO SEAL|SIGNATORIES AND CREDENTIALS/.test(line))) {
+    if (y > 220) { doc.addPage(); y = 30; }
+    doc.setDrawColor(43, 108, 176); doc.setTextColor(43, 108, 176); doc.setLineWidth(0.6);
+    doc.circle(160, y + 20, 17); doc.circle(160, y + 20, 14);
+    doc.setFontSize(8); doc.text('STE AUDIT', 160, y + 17, { align: 'center' }); doc.text('DEMO SEAL', 160, y + 23, { align: 'center' });
+    doc.setFont('helvetica', 'italic'); doc.setFontSize(17); doc.text('Demo Partner', 24, y + 20);
+    doc.line(24, y + 24, 88, y + 24); doc.setFont('helvetica', 'normal'); doc.setFontSize(8);
+    doc.text('Synthetic visual signature and seal — no legal certification', 24, y + 45);
+  }
   doc.setFontSize(8);
   doc.setTextColor(170, 170, 170);
   doc.text('AuditSphere Prototype v2.0 · Qatar Synthetic Accounting & Audit Scenario', 20, 285);

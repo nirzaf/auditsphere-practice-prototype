@@ -50,7 +50,7 @@ export function getRoutedContact(
 
   // 2. Fall back to title matching
   if (category === 'proposals_reports') {
-    const titleMatch = contacts.find(c => c.active && /(managing director|general manager|\bmd\b|\bgm\b|ceo|partner|owner)/i.test(c.title || ''));
+    const titleMatch = contacts.find(c => c.active && /(managing director|general manager|\bmd\b|\bgm\b)/i.test(c.title || ''));
     if (titleMatch) return titleMatch;
   } else if (category === 'invoices_receipts') {
     const titleMatch = contacts.find(c => c.active && /(\bcfo\b|chief financial officer|finance director)/i.test(c.title || ''));
@@ -77,6 +77,10 @@ export function formatContactRoleBadge(contactRole?: ClientContact['contactRole'
 }
 
 export function requireRoutedContact(contacts: ClientContact[], category: CommunicationCategory): ClientContact {
+  const role = ROUTE_RULES.find(r => r.category === category)?.targetRole;
+  const explicit = contacts.filter(c => c.active && c.contactRole === role);
+  const candidates = explicit.length ? explicit : contacts.filter(c => Boolean(getRoutedContact([c], category)));
+  if (candidates.length > 1) throw new Error(`Ambiguous ${role} routing: designate one active recipient for ${category}.`);
   const contact = getRoutedContact(contacts, category);
   if (!contact) throw new GuardError('INVALID_STATE', `Assign an active ${ROUTE_RULES.find(rule => rule.category === category)!.targetRole} contact before ${category.replaceAll('_', ' ')} dispatch.`);
   return contact;

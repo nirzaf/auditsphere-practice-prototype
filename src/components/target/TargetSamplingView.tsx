@@ -2,6 +2,7 @@ import React from 'react';
 import { prototypeStore } from '../../store/prototypeStore';
 import { parsePopulation } from '../../services/populationImport';
 import { sha256OfFile } from '../../services/fileMetadata';
+import { captureSourceOriginal } from '../../services/artifactStore';
 import { Field, TargetForm, value, amount, type TargetViewProps } from './TargetCommon';
 export function TargetSamplingView(props: TargetViewProps) {
   const s = prototypeStore.getSnapshot(),
@@ -18,14 +19,16 @@ export function TargetSamplingView(props: TargetViewProps) {
         onCommit={async (d) => {
           const file = d.get('source') as File;
           if (!file?.size) throw Error('Choose a CSV or XLSX population.');
-          const parsed = parsePopulation(await file.arrayBuffer(), file.name);
+          const bytes = await file.arrayBuffer();
+          const parsed = parsePopulation(bytes, file.name);
           if (parsed.errors.length) throw Error(parsed.errors.join(' '));
           return prototypeStore.lifecycle.importPopulation(
             e.id,
             value(d, 'account'),
             file.name,
             await sha256OfFile(file),
-            parsed.rows
+            parsed.rows,
+            await captureSourceOriginal(file.name, bytes, /\.xlsx$/i.test(file.name) ? 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' : 'text/csv')
           );
         }}
       >
@@ -146,6 +149,10 @@ export function TargetSamplingView(props: TargetViewProps) {
                   <Field label="Box reference (optional)" name="box" required={false} />
                   <Field label="Evidence description" name="description" />
                   <Field label="Location note (optional)" name="location" required={false} />
+                </TargetForm>
+                <TargetForm title={`Digital evidence for ${i.itemRef}`} button="Link digital sample evidence" onRegisterUnsavedForm={props.onRegisterUnsavedForm} onCommit={d => prototypeStore.lifecycle.attachDigitalSampleEvidence(e.id, p.id, i.id, value(d,'document'), value(d,'mode') as 'Digital' | 'Hybrid')}>
+                  <Field label="Evidence mode" name="mode"><option value="Digital">Digital only</option><option value="Hybrid">Hybrid · digital and physical</option></Field>
+                  <Field label="Accepted evidence document" name="document">{s.documents.filter(d => d.engagementId === e.id).map(d => <option key={d.id} value={d.id}>{d.name} · v{d.version}</option>)}</Field>
                 </TargetForm>
               </div>
             ))}

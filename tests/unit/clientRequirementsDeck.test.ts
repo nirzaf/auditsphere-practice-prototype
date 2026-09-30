@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { DECK_SLIDES } from '../../src/components/clientRequirements/deckData';
 import { DECK_ICONS } from '../../src/components/clientRequirements/deckIcons';
 import { MODULE_SLIDES } from '../../src/components/clientRequirements/moduleMap';
-import { TARGET_GUIDES } from '../../src/services/moduleGuideContent';
+import { TARGET_GUIDES } from '../../src/services/currentWorkflowGuides';
 
 test('every module guide is covered by at least one valid slide', () => {
   const ids = new Set(DECK_SLIDES.map(slide => slide.id));

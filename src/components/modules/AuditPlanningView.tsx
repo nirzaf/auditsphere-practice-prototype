@@ -13,6 +13,7 @@ import { Notice, EmptyTableRow, EmptyState } from '../common/Feedback';
 import { validateMaterialityRates, calculateMateriality, calculateBalanceSheet, calculateIncomeStatement, formatCurrency } from '../../services/calculations';
 import { LifecyclePanel } from '../common/Lifecycle';
 import { lifecycleById } from '../../services/lifecycles';
+import { materialityBenchmark, fsliRiskLevel } from '../../services/targetLifecycle';
 
 interface AuditPlanningViewProps {
   onNavigate: (route: RouteKey) => void;
@@ -38,6 +39,9 @@ export const AuditPlanningView: React.FC<AuditPlanningViewProps> = ({ onNavigate
     (existingPlan?.benchmark as any) || 'revenue'
   );
   const [benchmarkValue, setBenchmarkValue] = useState<number | ''>(existingPlan?.benchmarkValue ?? '');
+  const [normalizationAmount, setNormalizationAmount] = useState(existingPlan?.benchmarkProvenance?.normalizations[0]?.amount || 0);
+  const [normalizationAccount, setNormalizationAccount] = useState(existingPlan?.benchmarkProvenance?.normalizations[0]?.accountCode || '');
+  const [normalizationRationale, setNormalizationRationale] = useState(existingPlan?.benchmarkProvenance?.normalizations[0]?.rationale || '');
   const [percentage, setPercentage] = useState<number | ''>(existingPlan?.materialityRate ?? '');
   const [performanceRate, setPerformanceRate] = useState<number | ''>(existingPlan?.performanceMaterialityRate ?? '');
   const [trivialRate, setTrivialRate] = useState<number | ''>(existingPlan?.clearlyTrivialRate ?? '');
@@ -112,14 +116,14 @@ export const AuditPlanningView: React.FC<AuditPlanningViewProps> = ({ onNavigate
     let redCount = 0;
     let redTotal = 0;
 
-    for (const r of tbRows) {
-      const bal = Math.abs(r.balance);
-      const isCritical = /estimate|provision|fair value|impairment|ecl|expected credit loss|allowance|obsolesc|warranty|goodwill|contingenc|going concern/i.test(r.name) ||
-        Boolean(r.mappedStatementLine && /estimate|provision|fair value|impairment|ecl|expected credit loss|allowance|obsolesc|warranty|goodwill|contingenc|going concern/i.test(r.mappedStatementLine));
-      if (isCritical || bal > effectivePM) {
+    const lines = [...new Set(tbRows.map(r => r.mappedStatementLine || r.name))];
+    for (const line of lines) {
+      const bal = Math.abs(tbRows.filter(r => (r.mappedStatementLine || r.name) === line).reduce((sum,r) => sum + r.balance,0));
+      const level = fsliRiskLevel({ ...state, auditPlans: [...(state.auditPlans || []).filter(p => p.engagementId !== selectedEng.id), { ...existingPlan, engagementId: selectedEng.id, version: 9999, overallMateriality: effectivePM, performanceMateriality: effectiveTE, status: 'Approved' } as AuditPlanRecord] }, selectedEng, line);
+      if (level === 'RED') {
         redCount++;
         redTotal += bal;
-      } else if (bal >= effectiveTE) {
+      } else if (level === 'AMBER') {
         amberCount++;
         amberTotal += bal;
       } else {
@@ -132,14 +136,14 @@ export const AuditPlanningView: React.FC<AuditPlanningViewProps> = ({ onNavigate
       greenCount, greenTotal,
       amberCount, amberTotal,
       redCount, redTotal,
-      totalCount: tbRows.length
+      totalCount: lines.length
     };
-  }, [effectiveTE, effectivePM, tbRows]);
+  }, [effectiveTE, effectivePM, tbRows, state.auditRisks, existingPlan]);
 
   // VP-003: register the planning draft so route/persona/engagement changes cannot
   // silently drop deliberately entered work.
-  const initialDraft = useRef(JSON.stringify({ benchmarkType, benchmarkValue, percentage, performanceRate, trivialRate, scopeNotes, teamAllocations, milestones, significantAreas, reviewNotes, managerRoundedPM }));
-  const draftSnapshot = () => JSON.stringify({ benchmarkType, benchmarkValue, percentage, performanceRate, trivialRate, scopeNotes, teamAllocations, milestones, significantAreas, reviewNotes, managerRoundedPM });
+  const initialDraft = useRef(JSON.stringify({ benchmarkType, benchmarkValue, percentage, performanceRate, trivialRate, scopeNotes, teamAllocations, milestones, significantAreas, reviewNotes, managerRoundedPM, normalizationAmount, normalizationAccount, normalizationRationale }));
+  const draftSnapshot = () => JSON.stringify({ benchmarkType, benchmarkValue, percentage, performanceRate, trivialRate, scopeNotes, teamAllocations, milestones, significantAreas, reviewNotes, managerRoundedPM, normalizationAmount, normalizationAccount, normalizationRationale });
   const resetDraft = () => {
     const initial = JSON.parse(initialDraft.current);
     setBenchmarkType(initial.benchmarkType);
@@ -153,6 +157,9 @@ export const AuditPlanningView: React.FC<AuditPlanningViewProps> = ({ onNavigate
     setMilestones(initial.milestones);
     setSignificantAreas(initial.significantAreas);
     setReviewNotes(initial.reviewNotes);
+    setNormalizationAmount(initial.normalizationAmount);
+    setNormalizationAccount(initial.normalizationAccount);
+    setNormalizationRationale(initial.normalizationRationale);
   };
   useEffect(() => {
     if (!onRegisterUnsavedForm) return;
@@ -165,7 +172,7 @@ export const AuditPlanningView: React.FC<AuditPlanningViewProps> = ({ onNavigate
     onRegisterUnsavedForm(guard, 'audit-planning');
     return () => onRegisterUnsavedForm(null, 'audit-planning');
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [benchmarkType, benchmarkValue, percentage, performanceRate, trivialRate, managerRoundedPM, scopeNotes, teamAllocations, milestones, significantAreas, reviewNotes, onRegisterUnsavedForm]);
+  }, [benchmarkType, benchmarkValue, percentage, performanceRate, trivialRate, managerRoundedPM, scopeNotes, teamAllocations, milestones, significantAreas, reviewNotes, normalizationAmount, normalizationAccount, normalizationRationale, onRegisterUnsavedForm]);
 
   if (!selectedEng) {
     return (
@@ -212,6 +219,7 @@ export const AuditPlanningView: React.FC<AuditPlanningViewProps> = ({ onNavigate
         status: 'Under review',
         benchmark: benchmarkType,
         benchmarkValue: Number(benchmarkValue),
+        benchmarkProvenance: {sourceVersion:selectedEng.sourceVersion,accounts:[],rawValue:0,normalizations: normalizationAmount ? [{amount:normalizationAmount,accountCode:normalizationAccount,rationale:normalizationRationale}] : []},
         materialityRate: Number(percentage),
         performanceMaterialityRate: Number(performanceRate),
         clearlyTrivialRate: Number(trivialRate),
@@ -370,6 +378,8 @@ export const AuditPlanningView: React.FC<AuditPlanningViewProps> = ({ onNavigate
                 value={benchmarkValue}
                 onChange={e => setBenchmarkValue(e.target.value === '' ? '' : Number(e.target.value))}
               />
+              <button type="button" className="btn sm ghost" onClick={() => setBenchmarkValue(materialityBenchmark(selectedEng, benchmarkType).value)}>Use current TB benchmark</button>
+              <span className="caption">Must reconcile to current TB v{selectedEng.sourceVersion}; normalized PBT adjustments require account-linked rationale.</span>
               {client?.revenue != null && (
                 <span className="caption">Client master-data reference: {formatCurrency(client.revenue, selectedEng.currency)} — confirm or replace with the filed figure.</span>
               )}
@@ -390,6 +400,11 @@ export const AuditPlanningView: React.FC<AuditPlanningViewProps> = ({ onNavigate
             </div>
           </div>
 
+          {benchmarkType === 'profit' && <div className="grid3 mt12">
+            <label>Normalization amount<input aria-label="PBT normalization amount" type="number" step="0.01" value={normalizationAmount} onChange={e => setNormalizationAmount(Number(e.target.value))} /></label>
+            <label>Contributing TB account<select aria-label="Normalization source account" value={normalizationAccount} onChange={e => setNormalizationAccount(e.target.value)}><option value="">Choose current account</option>{selectedEng.rows.map(r => <option key={r.code} value={r.code}>{r.code} · {r.name}</option>)}</select></label>
+            <label>Normalization rationale<textarea aria-label="Normalization rationale" value={normalizationRationale} onChange={e => setNormalizationRationale(e.target.value)} /></label>
+          </div>}
           <div className="grid3 mt12">
             <div>
               <label className="caption">Performance Materiality / Tolerable Error (TE % of PM) *</label>
@@ -514,14 +529,14 @@ export const AuditPlanningView: React.FC<AuditPlanningViewProps> = ({ onNavigate
                   <div>
                     <h4 style={{ margin: 0, fontSize: '13px' }}>Account Risk Stratification (Trial Balance Mapping)</h4>
                     <p className="caption mt4" style={{ margin: 0 }}>
-                      Dynamic classification of {riskStratification.totalCount} Trial Balance accounts against Tolerable Error ({formatCurrency(effectiveTE, selectedEng.currency)}) and Planning Materiality ({formatCurrency(effectivePM, selectedEng.currency)}).
+                      Dynamic classification of {riskStratification.totalCount} mapped FSLIs against Tolerable Error ({formatCurrency(effectiveTE, selectedEng.currency)}) and Planning Materiality ({formatCurrency(effectivePM, selectedEng.currency)}).
                     </p>
                   </div>
                   <div className="grid3 mt12" style={{ gap: '12px' }}>
                     <div className="panel panel-pad" style={{ background: '#f0fdf4', border: '1px solid #bbf7d0' }}>
                       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                         <span style={{ color: '#166534', fontWeight: 700, fontSize: '12px' }}>GREEN · LOW RISK</span>
-                        <span className="badge green">{riskStratification.greenCount} Accounts</span>
+                        <span className="badge green">{riskStratification.greenCount} FSLIs</span>
                       </div>
                       <div style={{ fontSize: '16px', fontWeight: 700, color: '#14532d', marginTop: '6px' }}>
                         {formatCurrency(riskStratification.greenTotal, selectedEng.currency)}
@@ -534,7 +549,7 @@ export const AuditPlanningView: React.FC<AuditPlanningViewProps> = ({ onNavigate
                     <div className="panel panel-pad" style={{ background: '#fffbeb', border: '1px solid #fde68a' }}>
                       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                         <span style={{ color: '#92400e', fontWeight: 700, fontSize: '12px' }}>AMBER · MODERATE RISK</span>
-                        <span className="badge amber">{riskStratification.amberCount} Accounts</span>
+                        <span className="badge amber">{riskStratification.amberCount} FSLIs</span>
                       </div>
                       <div style={{ fontSize: '16px', fontWeight: 700, color: '#78350f', marginTop: '6px' }}>
                         {formatCurrency(riskStratification.amberTotal, selectedEng.currency)}
@@ -547,7 +562,7 @@ export const AuditPlanningView: React.FC<AuditPlanningViewProps> = ({ onNavigate
                     <div className="panel panel-pad" style={{ background: '#fef2f2', border: '1px solid #fecaca' }}>
                       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                         <span style={{ color: '#991b1b', fontWeight: 700, fontSize: '12px' }}>RED · CRITICAL RISK</span>
-                        <span className="badge red">{riskStratification.redCount} Accounts</span>
+                        <span className="badge red">{riskStratification.redCount} FSLIs</span>
                       </div>
                       <div style={{ fontSize: '16px', fontWeight: 700, color: '#7f1d1d', marginTop: '6px' }}>
                         {formatCurrency(riskStratification.redTotal, selectedEng.currency)}

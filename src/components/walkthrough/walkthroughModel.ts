@@ -1,7 +1,7 @@
 // Turns a module guide (moduleGuideContent.ts) into a short, one-step-at-a-time walkthrough.
 // Pure and content-free: every sentence shown comes from the existing guide, so there is no second
 // source of truth to keep in sync.
-import { MODULE_GUIDES, ModuleGuideEntry } from '../../services/moduleGuideContent';
+import { MODULE_GUIDES, ModuleGuideEntry } from '../../../historical/moduleGuideContent';
 import { guideVisibleToClient } from '../clientRequirements/moduleMap';
 
 export interface Walkthrough {

@@ -2,7 +2,7 @@
   {
     "id": "s01",
     "title": "STE Audit Management Tool v2.1",
-    "subtitle": "STE Audit Management Tool \u00b7 Functional Requirements v2.1",
+    "subtitle": "STE Audit Management Tool · Functional Requirements v2.1",
     "kind": "cover",
     "tag": "STE v2.1",
     "section": "Requirements",
@@ -23,14 +23,14 @@
         ]
       }
     ],
-    "note": "Verify persisted behavior and independent approval before client sign-off.",
+    "note": "Five connected business modules and eleven canonical states govern one engagement. Professional approvals remain human decisions. Synthetic personas and the reserved Superuser are demonstration tools; use ordinary actors to demonstrate independence and scope.",
     "review": "Confirm this flow against executed evidence.",
     "boundary": "Local prototype: email, WhatsApp, M365 provisioning, authentication, signature, payment and immutable storage are simulations."
   },
   {
     "id": "s02",
     "title": "Business objectives and ISA context",
-    "subtitle": "STE Audit Management Tool \u00b7 Functional Requirements v2.1",
+    "subtitle": "STE Audit Management Tool · Functional Requirements v2.1",
     "kind": "flow",
     "tag": "STE v2.1",
     "section": "Requirements",
@@ -51,14 +51,14 @@
         ]
       }
     ],
-    "note": "Verify persisted behavior and independent approval before client sign-off.",
+    "note": "ISA 210 engagement terms; ISA 220 independent review; ISA 230 file completion; ISA 320 materiality; ISA 505 confirmations; ISA 570 going concern; ISA 700/705 opinions. Audit and ISRS 4400 Agreed-Upon Procedures use the accepted service basis. Browser output is not professional certification.",
     "review": "Confirm this flow against executed evidence.",
     "boundary": "Local prototype: email, WhatsApp, M365 provisioning, authentication, signature, payment and immutable storage are simulations."
   },
   {
     "id": "s03",
     "title": "Four personas",
-    "subtitle": "STE Audit Management Tool \u00b7 Functional Requirements v2.1",
+    "subtitle": "STE Audit Management Tool · Functional Requirements v2.1",
     "kind": "flow",
     "tag": "STE v2.1",
     "section": "Requirements",
@@ -93,14 +93,14 @@
         ]
       }
     ],
-    "note": "Verify persisted behavior and independent approval before client sign-off.",
+    "note": "Preparer/Staff executes Green work, Senior/Reviewer executes Amber work and independently reviews eligible preparation, Manager executes Red/high-risk work and clears the current engagement review, and the assigned Partner approves planning, SRM and final release. Client finance uploads evidence; authorized management decides AJEs and supplies the signed LOR. User switching does not authenticate a person.",
     "review": "Confirm this flow against executed evidence.",
     "boundary": "Local prototype: email, WhatsApp, M365 provisioning, authentication, signature, payment and immutable storage are simulations."
   },
   {
     "id": "s04",
     "title": "Five-module connectivity",
-    "subtitle": "STE Audit Management Tool \u00b7 Functional Requirements v2.1",
+    "subtitle": "STE Audit Management Tool · Functional Requirements v2.1",
     "kind": "flow",
     "tag": "STE v2.1",
     "section": "Requirements",
@@ -142,14 +142,14 @@
         ]
       }
     ],
-    "note": "Verify persisted behavior and independent approval before client sign-off.",
+    "note": "Module 1 captures the exact accepted proposal and dual keys. Module 2 derives planning from accepted and mapped TB data. Module 3 preserves per-FSLI procedures and evidence. Module 4 releases the exact five semantic deliverables and completes the file. Module 5 uses approved time, captured charge rates and a shared financial ledger projection.",
     "review": "Confirm this flow against executed evidence.",
     "boundary": "Local prototype: email, WhatsApp, M365 provisioning, authentication, signature, payment and immutable storage are simulations."
   },
   {
     "id": "s05",
     "title": "Exact eleven-state lifecycle",
-    "subtitle": "STE Audit Management Tool \u00b7 Functional Requirements v2.1",
+    "subtitle": "STE Audit Management Tool · Functional Requirements v2.1",
     "kind": "flow",
     "tag": "11 CANONICAL STATES",
     "section": "Requirements",
@@ -233,14 +233,14 @@
         ]
       }
     ],
-    "note": "Verify persisted behavior and independent approval before client sign-off.",
+    "note": "Lead requires an entity and active reachable contact. Proposal requires a draft commercial record. Dual-Key Pending requires the current presented revision and successful simulated dispatch; both acceptance keys precede EL issuance. Advance Billing exposes the issued unpaid 50% invoice. Planning follows effective settlement and receipt/onboarding. Fieldwork needs current approved planning and mapped TB. Submitted procedures enter Managerial Review; current Manager clearance and SRM enter Partner Approval. Assigned Partner approval precedes exact five-part compilation and release. Release starts the 60-day countdown; expiry closes mutations even if file packaging needs retry.",
     "review": "Confirm this flow against executed evidence.",
     "boundary": "Local prototype: email, WhatsApp, M365 provisioning, authentication, signature, payment and immutable storage are simulations."
   },
   {
     "id": "s06",
-    "title": "Flow 1 \u2014 Commercial to activation",
-    "subtitle": "STE Audit Management Tool \u00b7 Functional Requirements v2.1",
+    "title": "Flow 1 — Commercial to activation",
+    "subtitle": "STE Audit Management Tool · Functional Requirements v2.1",
     "kind": "flow",
     "tag": "STE v2.1",
     "section": "Requirements",
@@ -268,14 +268,14 @@
         ]
       }
     ],
-    "note": "Verify persisted behavior and independent approval before client sign-off.",
+    "note": "Capture a valid entity and MD/CFO/liaison responsibilities. Present and dispatch the exact proposal revision; record client acceptance and independent assigned-Partner risk approval. Manager prepares a draft EL; assigned Partner signs and issues it with the actual reporting period and submission deadline. Record 50% advance once; receipt generation and simulated onboarding follow automatically. If file storage fails, show payment saved / receipt pending and retry without another payment.",
     "review": "Confirm this flow against executed evidence.",
     "boundary": "Local prototype: email, WhatsApp, M365 provisioning, authentication, signature, payment and immutable storage are simulations."
   },
   {
     "id": "s07",
-    "title": "Module 1 \u2014 Commercial & CRM",
-    "subtitle": "STE Audit Management Tool \u00b7 Functional Requirements v2.1",
+    "title": "Module 1 — Commercial & CRM",
+    "subtitle": "STE Audit Management Tool · Functional Requirements v2.1",
     "kind": "flow",
     "tag": "STE v2.1",
     "section": "Requirements",
@@ -303,14 +303,14 @@
         ]
       }
     ],
-    "note": "Verify persisted behavior and independent approval before client sign-off.",
+    "note": "Phone, WhatsApp, Email, Web Form and Referral intake are supported. Brief quotation and comprehensive technical proposal retain firm profile, history, commercial registrations, team credentials, industry portfolio, methodology, fees and delivery timeline. Pin proposal ID, revision, client, service, period, currency and fee. Wrong-period, stale, withdrawn or foreign proposals must not issue an EL. MD receives proposals/reports, CFO receives invoices/receipts, and liaison receives PBC requests; missing or ambiguous routing blocks the handover.",
     "review": "Confirm this flow against executed evidence.",
     "boundary": "Local prototype: email, WhatsApp, M365 provisioning, authentication, signature, payment and immutable storage are simulations."
   },
   {
     "id": "s08",
-    "title": "Flow 2 \u2014 Governance to approved planning",
-    "subtitle": "STE Audit Management Tool \u00b7 Functional Requirements v2.1",
+    "title": "Flow 2 — Governance to approved planning",
+    "subtitle": "STE Audit Management Tool · Functional Requirements v2.1",
     "kind": "flow",
     "tag": "STE v2.1",
     "section": "Requirements",
@@ -334,18 +334,18 @@
         "step": 3,
         "heading": "Partner planning",
         "body": [
-          "PM benchmark bands, TE 50\u201375%, SAD 3\u20135%, \u00b15% manager rounding; Partner approval pinned to current TB."
+          "PM benchmark bands, TE 50–75%, SAD 3–5%, ±5% manager rounding; Partner approval pinned to current TB."
         ]
       }
     ],
-    "note": "Verify persisted behavior and independent approval before client sign-off.",
+    "note": "Independent acceptance/continuance approval and 50% advance activation create the exact five-folder workspace. Import the TB, validate balance and source digest, approve mapping and record staffing/milestones. Select a current TB-derived benchmark and document any PBT normalization against a contributing account. Assigned Partner approval binds the plan to the source revision; replacement TB requires reconfirmation.",
     "review": "Confirm this flow against executed evidence.",
     "boundary": "Local prototype: email, WhatsApp, M365 provisioning, authentication, signature, payment and immutable storage are simulations."
   },
   {
     "id": "s09",
-    "title": "Module 2 \u2014 Governance & Planning",
-    "subtitle": "STE Audit Management Tool \u00b7 Functional Requirements v2.1",
+    "title": "Module 2 — Governance & Planning",
+    "subtitle": "STE Audit Management Tool · Functional Requirements v2.1",
     "kind": "flow",
     "tag": "STE v2.1",
     "section": "Requirements",
@@ -373,14 +373,14 @@
         ]
       }
     ],
-    "note": "Verify persisted behavior and independent approval before client sign-off.",
+    "note": "Exact directory: 01_Administration & Planning; 02_Trial Balance & Schedules; 03_Fieldwork & Testing; 04_Drafts & Deliverables; 05_Final Signed Archive. Staffing captures Planning, Fieldwork, Review and Reporting, capacity, leave and dates; overlapping allocations cannot exceed capacity. Normalized PBT rate 5.0%–10.0%; revenue 0.5%–2.0%; assets 0.5%–1.0%; equity/net assets 1.0%–2.0%. TE is 50%–75% of PM; SAD is 3%–5%; Manager rounding stays within ±5%. Example PBT 1,068,420 at 5% gives PM 53,421 before optional rounding. Significant risks and critical estimates remain Red even at low balances.",
     "review": "Confirm this flow against executed evidence.",
     "boundary": "Local prototype: email, WhatsApp, M365 provisioning, authentication, signature, payment and immutable storage are simulations."
   },
   {
     "id": "s10",
-    "title": "Flow 3 \u2014 Fieldwork to SRM",
-    "subtitle": "STE Audit Management Tool \u00b7 Functional Requirements v2.1",
+    "title": "Flow 3 — Fieldwork to SRM",
+    "subtitle": "STE Audit Management Tool · Functional Requirements v2.1",
     "kind": "flow",
     "tag": "STE v2.1",
     "section": "Requirements",
@@ -408,14 +408,14 @@
         ]
       }
     ],
-    "note": "Verify persisted behavior and independent approval before client sign-off.",
+    "note": "Each applicable mapped FSLI opens its substantive program, independently from broad Analytical Review and Going Concern. Assertions are Ownership, Valuation, Completeness, Existence and Cut-off. Separate workpapers preserve distinct Sales/PPE preparation and review. Independent row edits merge across tabs; same-procedure conflicts demand explicit resolution. Current digital or physical evidence supports tested samples; Hybrid requires both. Rework invalidates stale clearance. Manager clearance generates a current SRM, with a visible retry if artifact generation fails.",
     "review": "Confirm this flow against executed evidence.",
     "boundary": "Local prototype: email, WhatsApp, M365 provisioning, authentication, signature, payment and immutable storage are simulations."
   },
   {
     "id": "s11",
-    "title": "Module 3 \u2014 Technical Fieldwork",
-    "subtitle": "STE Audit Management Tool \u00b7 Functional Requirements v2.1",
+    "title": "Module 3 — Technical Fieldwork",
+    "subtitle": "STE Audit Management Tool · Functional Requirements v2.1",
     "kind": "flow",
     "tag": "STE v2.1",
     "section": "Requirements",
@@ -443,14 +443,14 @@
         ]
       }
     ],
-    "note": "Verify persisted behavior and independent approval before client sign-off.",
+    "note": "Sampling methods: Systematic Random with reproducible fractional interval/start; Stratified by monetary rank; Stratified Attribute by transaction direction. Populations reconcile to current TB control accounts. Confirmations: Bank, Accounts Receivable, Accounts Payable, Inventory and Legal, with engagement/FSLI, status, owner and evidence. Outstanding critical confirmation triggers a Pending Confirmation / Holding Letter simulation. Analytical Review records comparative source versions, analysis, conclusion and ISA 570 checklist. Findings expose balanced AJE authoring, independent technical review, management decision and current-TB reflection; SRM shows journal revisions, adjusted/unadjusted differences, SAD/PM comparison and significant estimates without double counting.",
     "review": "Confirm this flow against executed evidence.",
     "boundary": "Local prototype: email, WhatsApp, M365 provisioning, authentication, signature, payment and immutable storage are simulations."
   },
   {
     "id": "s12",
-    "title": "Flow 4 \u2014 Opinion to archive",
-    "subtitle": "STE Audit Management Tool \u00b7 Functional Requirements v2.1",
+    "title": "Flow 4 — Opinion to archive",
+    "subtitle": "STE Audit Management Tool · Functional Requirements v2.1",
     "kind": "flow",
     "tag": "STE v2.1",
     "section": "Requirements",
@@ -478,14 +478,14 @@
         ]
       }
     ],
-    "note": "Verify persisted behavior and independent approval before client sign-off.",
+    "note": "Assigned Partner approves the current Manager/SRM basis and selects a justified opinion. Compile exactly five final components; retain the unsigned LOR working copy separately until client management supplies the signed version. Final invoice is 50% of the pinned fee with one commercial obligation across reissued artifact revisions. Release locks uploads immediately. At report date plus 60 days, all mutations close; assigned Partner can lock early with recorded authority. Packaging verifies bytes independently and reports missing originals.",
     "review": "Confirm this flow against executed evidence.",
     "boundary": "Local prototype: email, WhatsApp, M365 provisioning, authentication, signature, payment and immutable storage are simulations."
   },
   {
     "id": "s13",
-    "title": "Module 4 \u2014 Reporting & Final Deliverables",
-    "subtitle": "STE Audit Management Tool \u00b7 Functional Requirements v2.1",
+    "title": "Module 4 — Reporting & Final Deliverables",
+    "subtitle": "STE Audit Management Tool · Functional Requirements v2.1",
     "kind": "flow",
     "tag": "STE v2.1",
     "section": "Requirements",
@@ -513,14 +513,14 @@
         ]
       }
     ],
-    "note": "Verify persisted behavior and independent approval before client sign-off.",
+    "note": "Opinions: Unqualified, Qualified, Adverse and Disclaimer with recorded rationale. Exactly five semantic deliverables: Independent Auditor Report & Audited Financial Statements; Management Letter; Letter of Representation; Management Correspondences Audit Trail; Final Balance Fee Note. Released bundle requires signed-LOR linkage and current source/review basis. Synthetic graphic seal/signature must be visibly labeled; no invented registration or verified legal stamp. Full inspection retains TB source history, workpapers, evidence, samples, review notes, decisions, AJEs, billing and timestamped system history. Original file bytes are digest-verified when available; unavailable originals remain explicit exceptions.",
     "review": "Confirm this flow against executed evidence.",
     "boundary": "Local prototype: email, WhatsApp, M365 provisioning, authentication, signature, payment and immutable storage are simulations."
   },
   {
     "id": "s14",
-    "title": "Flow 5 \u2014 Time to practice analytics",
-    "subtitle": "STE Audit Management Tool \u00b7 Functional Requirements v2.1",
+    "title": "Flow 5 — Time to practice analytics",
+    "subtitle": "STE Audit Management Tool · Functional Requirements v2.1",
     "kind": "flow",
     "tag": "STE v2.1",
     "section": "Requirements",
@@ -537,7 +537,7 @@
         "step": 2,
         "heading": "Exact profitability",
         "body": [
-          "Total Engagement Cost = \u03a3(Logged Hours \u00d7 Role Charge-Out Rate). Profitability = Contracted Audit Fee \u2212 Total Engagement Cost."
+          "Total Engagement Cost = Σ(Logged Hours × Role Charge-Out Rate). Profitability = Contracted Audit Fee − Total Engagement Cost."
         ]
       },
       {
@@ -548,14 +548,14 @@
         ]
       }
     ],
-    "note": "Verify persisted behavior and independent approval before client sign-off.",
+    "note": "Daily time captures engagement, phase, hours, activity and effective charge rate; approval preserves the historical rate. Budget versus actual and utilization share staffing assumptions. Example fee 20,000 / WIP 25,000 gives 80% realization and 5,000 write-off; missing rate/cost/capacity shows Unknown. Scheduling changes must not silently reprice recorded WIP.",
     "review": "Confirm this flow against executed evidence.",
     "boundary": "Local prototype: email, WhatsApp, M365 provisioning, authentication, signature, payment and immutable storage are simulations."
   },
   {
     "id": "s15",
-    "title": "Module 5 \u2014 Practice Management",
-    "subtitle": "STE Audit Management Tool \u00b7 Functional Requirements v2.1",
+    "title": "Module 5 — Practice Management",
+    "subtitle": "STE Audit Management Tool · Functional Requirements v2.1",
     "kind": "flow",
     "tag": "STE v2.1",
     "section": "Requirements",
@@ -583,14 +583,14 @@
         ]
       }
     ],
-    "note": "Verify persisted behavior and independent approval before client sign-off.",
+    "note": "Standard QAR/hour rates: Engagement Partner 1,000; Audit Manager 750; Senior/Reviewer 500; Preparer/Staff 200. Capacity is counted once per person across phases, reduced by leave and checked for overlapping assignments. Issued/Paid invoices, effective receipt allocations and firm expense/withdrawal postings feed one balanced internal ledger projection for monthly TB, P&L and receivables; Draft invoices are excluded. Receipt reversals restore AR. Office rent, staff salaries, petty cash, other expenses and Partner withdrawals retain dated entries.",
     "review": "Confirm this flow against executed evidence.",
     "boundary": "Local prototype: email, WhatsApp, M365 provisioning, authentication, signature, payment and immutable storage are simulations."
   },
   {
     "id": "s16",
     "title": "Client PBC experience",
-    "subtitle": "STE Audit Management Tool \u00b7 Functional Requirements v2.1",
+    "subtitle": "STE Audit Management Tool · Functional Requirements v2.1",
     "kind": "flow",
     "tag": "STE v2.1",
     "section": "Requirements",
@@ -618,14 +618,14 @@
         ]
       }
     ],
-    "note": "Verify persisted behavior and independent approval before client sign-off.",
+    "note": "PBC statuses: Pending Upload; Under Review; Approved; Rejected / Re-upload Required. Invitation records the liaison and mandatory first-login password-reset simulation. Rejection requires a reason; replacement uploads retain prior version/digest and require review. Client finance sees only authorized engagement invoices/receipts, issued Holding Letters and released bundles. Unpaid advance invoice is visible after issuance. Reversed receipts are labeled historical with effective allocation amount. Draft/unreleased files and internal working papers remain hidden; release and archive lock uploads.",
     "review": "Confirm this flow against executed evidence.",
     "boundary": "Local prototype: email, WhatsApp, M365 provisioning, authentication, signature, payment and immutable storage are simulations."
   },
   {
     "id": "s17",
     "title": "Traceability and client sign-off",
-    "subtitle": "STE Audit Management Tool \u00b7 Functional Requirements v2.1",
+    "subtitle": "STE Audit Management Tool · Functional Requirements v2.1",
     "kind": "coverage",
     "tag": "STE v2.1",
     "section": "Requirements",
@@ -653,7 +653,7 @@
         ]
       }
     ],
-    "note": "Verify persisted behavior and independent approval before client sign-off.",
+    "note": "Trace each finding F01–F22 to changed source and executed regression evidence. React presentation and standalone Client_Requirements.html use the same 17-slide source and detailed notes. Browser checks verify operational forms and responsive widths, with unit checks for negative gates and stale references. Completion of local prototype behavior does not certify client acceptance, audit methodology or production security. Optional Cloudflare Worker/D1 saves isolated seven-day metadata snapshots; original bytes remain local, and mail, M365, password, signatures and payments are explicitly simulated.",
     "review": "Confirm this flow against executed evidence.",
     "boundary": "Local prototype: email, WhatsApp, M365 provisioning, authentication, signature, payment and immutable storage are simulations."
   }

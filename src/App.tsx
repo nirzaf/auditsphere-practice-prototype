@@ -41,14 +41,11 @@ import { EngagementsView } from './components/modules/EngagementsView';
 // Audit & Assurance Modules
 import { AuditAcceptanceView } from './components/modules/AuditAcceptanceView';
 import { AuditPlanningView } from './components/modules/AuditPlanningView';
-import { AuditRisksProgramsView } from './components/modules/AuditRisksProgramsView';
 import { EvidenceCatalogueView } from './components/modules/EvidenceCatalogueView';
 import { FindingsView } from './components/modules/FindingsView';
 
 // Client Services, Admin & Specifications
 import { TimeTrackingView } from './components/modules/TimeTrackingView';
-import { AdministrationView } from './components/modules/AdministrationView';
-import { M365SetupView } from './components/modules/M365SetupView';
 import { UnsavedFormGuard } from './services/unsavedFormGuard';
 import { resolveRouteHash, canonicalRoute } from './services/legacyRoutes';
 
@@ -70,7 +67,6 @@ export const App: React.FC = () => {
   const [searchTargetId, setSearchTargetId] = useState<string | undefined>();
   const [workflowSelection, setWorkflowSelection] = useState<WorkflowSelection | null>(null);
   const [, setTick] = useState(0);
-  const [guideOrigin, setGuideOrigin] = useState<RouteKey>('overview');
   const unsavedForms = useRef<Map<string, UnsavedFormGuard>>(new Map());
   const acceptedRouteHash = useRef(`#${resolveRouteHash(window.location.hash)?.route || 'overview'}`);
   const [pendingTransition, setPendingTransition] = useState<{ run: () => void; label: string } | null>(null);
@@ -88,7 +84,6 @@ export const App: React.FC = () => {
       ? previous
       : { route, context });
   }, []);
-  const reportJobsWorkflowContext = useCallback((context: WorkflowSelection['context']) => reportWorkflowSelection('jobs', context), [reportWorkflowSelection]);
   const reportSamplingWorkflowContext = useCallback((context: WorkflowSelection['context']) => reportWorkflowSelection('sampling', context), [reportWorkflowSelection]);
   const requestContextChange = useCallback((run: () => void) => {
     const dirtyGuards = () => [...unsavedForms.current.values()].filter(guard => guard.isDirty());
@@ -367,7 +362,6 @@ export const App: React.FC = () => {
   const activeIdentity = state.users.find(user => user.id === state.currentUserId)?.status === 'Active';
   const navigate = (route: RouteKey, targetId?: string) => {
     route = canonicalRoute(route);
-    if (route === 'module-guide' && effectiveRoute !== 'module-guide') setGuideOrigin(effectiveRoute);
     requestContextChange(() => {
       const current = prototypeStore.getSnapshot();
       const active = current.users.find(user => user.id === current.currentUserId)?.status === 'Active';
@@ -484,9 +478,6 @@ export const App: React.FC = () => {
         return <FindingsView key={`${state.selectedEngagement}:${searchTargetId || ''}`} searchTargetId={searchTargetId} onNavigate={navigate} onRegisterUnsavedForm={registerUnsavedForm} onBeforeContextChange={requestContextChange} />;
       case 'reviews':
         return <ReviewSRMView onNavigate={navigate} onRegisterUnsavedForm={registerUnsavedForm} />;
-      case 'approvals':
-      case 'quality':
-        return <ReviewSRMView onNavigate={navigate} onRegisterUnsavedForm={registerUnsavedForm} />;
       case 'delivery':
         return <OpinionDeliverablesView onNavigate={navigate} onRegisterUnsavedForm={registerUnsavedForm} />;
       case 'records':
@@ -494,18 +485,11 @@ export const App: React.FC = () => {
 
       // Client Services & Admin
       case 'portal':
-      case 'client-portal' as any:
         return <PbcWorkspaceView client onNavigate={navigate} onRegisterUnsavedForm={registerUnsavedForm} />;
       case 'practice-ledger':
         return <PracticeView ledger onNavigate={navigate} onRegisterUnsavedForm={registerUnsavedForm} />;
       case 'reports':
-      case 'reporting-centre' as any:
         return <PracticeView onNavigate={navigate} onRegisterUnsavedForm={registerUnsavedForm} />;
-      case 'administration':
-      case 'services':
-        return <AdministrationView onNavigate={navigate} onRegisterUnsavedForm={registerUnsavedForm} onBeforeContextChange={requestContextChange} />;
-      case 'm365-setup':
-        return <M365SetupView onNavigate={navigate} onRegisterUnsavedForm={registerUnsavedForm} onBeforeContextChange={requestContextChange} />;
       case 'requirements':
       case 'role-guide':
         return <TargetScopeView onNavigate={navigate} />;

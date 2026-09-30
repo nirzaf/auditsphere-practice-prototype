@@ -575,6 +575,7 @@ export interface EngagementRecord {
   agreedFee: number;
   currency: string;
   proposalId?: string;
+  engagementLetterHistory?: NonNullable<EngagementRecord['engagementLetter']>[];
   engagementLetter?: {
     revision?: number;
     template: 'ISA 210 External Statutory Audit' | 'ISRS 4400 Agreed-Upon Procedures';
@@ -604,6 +605,7 @@ export interface EngagementRecord {
     importedAt: string;
     importedBy: string;
     fileName?: string;
+    originalArtifact?: GeneratedArtifactRecord;
     format?: 'CSV' | 'XLSX' | 'Legacy' | 'Manual';
     sha256?: string;
     mapping?: { code: number; name: number; debit: number; credit: number; signed: number; convention: 'signed-net' | 'debit-credit'; dimension?: { id: string; index: number } };
@@ -646,6 +648,10 @@ export interface EngagementRecord {
     manifest: Array<{ id: string; artifactId?: string; name: string; type: string; mimeType?: string; size?: number; sha?: string; sourceId?: string; sourceRevision?: number }>;
   }>;
   archive?: null | {
+    packagingStatus?: 'Pending' | 'Verified' | 'Incomplete — originals unavailable';
+    processedAt?: string;
+    unavailable?: string[];
+    inspection?: GeneratedArtifactRecord;
     archivedAt: string;
     archivedBy: string;
     releaseId: string;
@@ -829,6 +835,7 @@ export interface PbcRequestItem {
 
 // Module 10 & 18: Documents & SharePoint
 export interface DocumentItem {
+  mimeType?: string;
   id: string;
   clientId: string;
   engagementId?: string;
@@ -1406,6 +1413,7 @@ export interface AuditProgramItem {
 }
 
 export interface SamplePopulationRow {
+  evidenceMode?: 'Digital' | 'Physical' | 'Hybrid';
   id: string;
   physicalReference?: PhysicalEvidenceReference;
   itemRef: string;
@@ -1437,6 +1445,7 @@ export interface SamplePopulationItem {
   sourceRevision?: number;
   sourceFileName?: string;
   sourceSha256?: string;
+  sourceArtifact?: GeneratedArtifactRecord;
   sourceComplete?: boolean;
   sourceHistory?: Array<{ revision: number; fileName: string; sha256: string; importedAt: string; importedBy: string; totalPopulationCount: number; totalPopulationValue: number; items: SamplePopulationRow[] }>;
   area: string;
@@ -1712,6 +1721,7 @@ export interface AcceptanceCaseRecord {
 }
 
 export interface AuditPlanRecord {
+  benchmarkProvenance?: { sourceVersion: number; accounts: Array<{ code: string; balance: number }>; rawValue: number; normalizations: Array<{ amount: number; rationale: string; accountCode: string }> };
   id: string;
   sourceVersion?: number;
   benchmarkSource?: 'TB' | 'Manual';

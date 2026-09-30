@@ -9,6 +9,12 @@ export interface LifecycleHistory {
 export interface SourcePin {
   proposalId: string;
   revision: number;
+  engagementService?: string;
+  engagementPeriod?: string;
+  proposalPeriodEnd?: string;
+  proposalPeriodStart?: string;
+  currency?: string;
+  acceptedFee?: number;
 }
 export interface PhysicalEvidenceReference {
   indexCode: string;
@@ -168,6 +174,7 @@ export interface AnalyticalReviewRecord {
 }
 
 export interface TargetEngagementLifecycle {
+  onboarding?: { liaisonContactId: string; recipient: string; at: string; status: 'Invitation issued (simulated)'; requiresFirstLoginReset: boolean };
   rowLocks?: Record<string, { actorUserId: string; revision: number; acquiredAt: string; expiresAt: string; releasedAt?: string }>;
   commercialBasis?: SourcePin;
   advancePayments: Array<{

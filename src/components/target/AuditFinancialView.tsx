@@ -152,6 +152,7 @@ export function AuditFinancialView({ onNavigate }: TargetViewProps) {
     const program = state.auditPrograms.find(
       (p) =>
         p.engagementId === eng.id &&
+        !['Analytical Review', 'Going Concern'].includes(p.area) &&
         (p.financialStatementLines?.includes(lineName) || match(p.area))
     );
     onNavigate('audit-risks', program?.id);

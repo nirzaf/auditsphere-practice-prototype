@@ -231,7 +231,7 @@ describe('what changed since last review (deterministic workpaper diff)', () => 
 
 describe('module lifecycle guide coverage', () => {
   it('gives every operational route its own rehearsal guide, exact route first', async () => {
-    const { guidesForRoute } = await import('../../src/components/common/ModuleGuideStrip.js');
+    const { guidesForRoute } = await import('../../historical/guideProjections.js');
     const reference = new Set(['requirements', 'client-requirements', 'role-guide', 'module-guide']);
     const missing = Object.keys(ROUTE_CATALOG).filter(route => !reference.has(route) && guidesForRoute(route as any).length === 0);
     assert.deepEqual(missing, []);

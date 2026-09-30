@@ -21,68 +21,230 @@
   ],
   "engagementId": "ENG-TARGET",
   "archive": {
-    "archivedAt": "2026-09-30T18:13:35.856Z",
+    "archivedAt": "2026-09-30T20:44:20.608Z",
     "archivedBy": "Farooq Mansour",
-    "releaseId": "FINAL-ENG-TARGET-81627294-1269-439b-8723-2a9848b8610a",
+    "releaseId": "FINAL-ENG-TARGET-73ecf73d-ad55-413d-ae45-f874d9586c04",
     "manifest": [
-      "Audit Report: FINAL-ENG-TARGET-81627294-1269-439b-8723-2a9848b8610a-1 / SHA-256 d12030c69fe2f4be7821ac28d91b6d1d325f6b6affb1c3081b0507c2bf0e2c54",
-      "Management Letter: FINAL-ENG-TARGET-81627294-1269-439b-8723-2a9848b8610a-2 / SHA-256 a533567cfb71f1309074df2db9e5d2a2b22300537ff91b6ce969d17c15554dac",
-      "Letter of Representation: SIGNED-FINAL-ENG-TARGET-81627294-1269-439b-8723-2a9848b8610a / SHA-256 73f36bb6a00bf516ea610293db68e6c7c5927dc69ae8d654869715bced74b3d4",
-      "Management Correspondences Audit Trail: FINAL-ENG-TARGET-81627294-1269-439b-8723-2a9848b8610a-4 / SHA-256 6b5232cf0332c377fd5bc8bd0ea21c744ac62bfcde9ca8b8d47e27103ecf7773",
-      "Final Balance Fee Note: FINAL-ENG-TARGET-81627294-1269-439b-8723-2a9848b8610a-5 / SHA-256 d299ae27b993ad70fac7124a2eca127659c024e94d54a99d8515f31d6ba324c0"
+      "FINAL-ENG-TARGET-73ecf73d-ad55-413d-ae45-f874d9586c04-1.pdf: archive:ENG-TARGET:FINAL-ENG-TARGET-73ecf73d-ad55-413d-ae45-f874d9586c04:FINAL-ENG-TARGET-73ecf73d-ad55-413d-ae45-f874d9586c04-1 / SHA-256 5f048ad7e8d39b9dc120295f5af1cf036f5bd04b128058550e17f58a7a9c1a25",
+      "FINAL-ENG-TARGET-73ecf73d-ad55-413d-ae45-f874d9586c04-2.pdf: archive:ENG-TARGET:FINAL-ENG-TARGET-73ecf73d-ad55-413d-ae45-f874d9586c04:FINAL-ENG-TARGET-73ecf73d-ad55-413d-ae45-f874d9586c04-2 / SHA-256 761b119517745c8aa87f7dcc25aa98a1571c9b2d8f6dde146e722f0f9e760b04",
+      "Synthetic_signed_LOR.pdf: archive:ENG-TARGET:FINAL-ENG-TARGET-73ecf73d-ad55-413d-ae45-f874d9586c04:SIGNED-FINAL-ENG-TARGET-73ecf73d-ad55-413d-ae45-f874d9586c04 / SHA-256 690c1bcb54fe53535e791cb6d7dbe6947f5deb227e052b0fef2999c5b9fc651d",
+      "FINAL-ENG-TARGET-73ecf73d-ad55-413d-ae45-f874d9586c04-4.pdf: archive:ENG-TARGET:FINAL-ENG-TARGET-73ecf73d-ad55-413d-ae45-f874d9586c04:FINAL-ENG-TARGET-73ecf73d-ad55-413d-ae45-f874d9586c04-4 / SHA-256 ff1f7559c7824ac1aa6258e36ca881c12da86e021de8692f841786e521f7f767",
+      "FINAL-ENG-TARGET-73ecf73d-ad55-413d-ae45-f874d9586c04-5.pdf: archive:ENG-TARGET:FINAL-ENG-TARGET-73ecf73d-ad55-413d-ae45-f874d9586c04:FINAL-ENG-TARGET-73ecf73d-ad55-413d-ae45-f874d9586c04-5 / SHA-256 b61fceaf93fa469f8690c9d01e8cdc6e5a5c115eb8c9d56d5b6a6e7ce47c5c75",
+      "FINAL-ENG-TARGET-73ecf73d-ad55-413d-ae45-f874d9586c04-3.docx: archive:ENG-TARGET:FINAL-ENG-TARGET-73ecf73d-ad55-413d-ae45-f874d9586c04:FINAL-ENG-TARGET-73ecf73d-ad55-413d-ae45-f874d9586c04-3 / SHA-256 d3c697d38f9ac50afdba48781f20cfa96fc75774f899e2e4491f4c30896bb8e5",
+      "WORK-WP-ENG-TARGET-AUDIT-AP-ENG-TARGET-1-v3-a4984657-773f-4691-9401-a01c3f30e604.xlsx: archive:ENG-TARGET:FINAL-ENG-TARGET-73ecf73d-ad55-413d-ae45-f874d9586c04:WORK-WP-ENG-TARGET-AUDIT-AP-ENG-TARGET-1-v3-a4984657-773f-4691-9401-a01c3f30e604 / SHA-256 5637ade82b1729949b04cdb23426bf5ffd0d49712f3f58591316670a1e4c0f49",
+      "WORK-WP-ENG-TARGET-AUDIT-AP-ENG-TARGET-1-v2-f314cabe-5e2d-4372-840f-8c726584da12.xlsx: archive:ENG-TARGET:FINAL-ENG-TARGET-73ecf73d-ad55-413d-ae45-f874d9586c04:WORK-WP-ENG-TARGET-AUDIT-AP-ENG-TARGET-1-v2-f314cabe-5e2d-4372-840f-8c726584da12 / SHA-256 6b26f49743bc895ba6f00f6b37d91a5121696da15a2184dc3847aade45f04972",
+      "WORK-WP-ENG-TARGET-AUDIT-AP-ENG-TARGET-2-v2-e2f6d41d-38a5-4cf9-b7c2-98e3a76bab2b.xlsx: archive:ENG-TARGET:FINAL-ENG-TARGET-73ecf73d-ad55-413d-ae45-f874d9586c04:WORK-WP-ENG-TARGET-AUDIT-AP-ENG-TARGET-2-v2-e2f6d41d-38a5-4cf9-b7c2-98e3a76bab2b / SHA-256 cd4cfd3efbe57c20de5becb4f11733025d088526a33edbe09d378e0792e54748",
+      "WORK-WP-ENG-TARGET-AUDIT-AP-ENG-TARGET-3-v2-9a36ec24-4155-4e3f-b9a6-f159541033ad.xlsx: archive:ENG-TARGET:FINAL-ENG-TARGET-73ecf73d-ad55-413d-ae45-f874d9586c04:WORK-WP-ENG-TARGET-AUDIT-AP-ENG-TARGET-3-v2-9a36ec24-4155-4e3f-b9a6-f159541033ad / SHA-256 c8d24947ad98b5f66d49470ecf09cf4f7d84a31b1bc35e3062194358dcc3d8d9",
+      "WORK-WP-ENG-TARGET-AUDIT-AP-ENG-TARGET-4-v2-e0530a0b-2afb-41b9-aadf-92f5caa1cd0b.xlsx: archive:ENG-TARGET:FINAL-ENG-TARGET-73ecf73d-ad55-413d-ae45-f874d9586c04:WORK-WP-ENG-TARGET-AUDIT-AP-ENG-TARGET-4-v2-e0530a0b-2afb-41b9-aadf-92f5caa1cd0b / SHA-256 2fb2d779aae3fb53380a1fe8978113654cdb49ef4adc6ba8dca2a5e91426475f",
+      "WORK-WP-ENG-TARGET-AUDIT-AP-ENG-TARGET-5-v2-82649a65-3d30-47a3-99af-3a31fa73cf08.xlsx: archive:ENG-TARGET:FINAL-ENG-TARGET-73ecf73d-ad55-413d-ae45-f874d9586c04:WORK-WP-ENG-TARGET-AUDIT-AP-ENG-TARGET-5-v2-82649a65-3d30-47a3-99af-3a31fa73cf08 / SHA-256 b235ebe4181498af3b5ce1f3af019dafce74b723d8f3699b03c3b285a59617db",
+      "WORK-WP-ENG-TARGET-AUDIT-AP-ENG-TARGET-6-v2-c5883963-7308-4389-8284-2574a6ab2427.xlsx: archive:ENG-TARGET:FINAL-ENG-TARGET-73ecf73d-ad55-413d-ae45-f874d9586c04:WORK-WP-ENG-TARGET-AUDIT-AP-ENG-TARGET-6-v2-c5883963-7308-4389-8284-2574a6ab2427 / SHA-256 b1521bf330fd238cc749c5bebbdcf053912d522d46f317ae4eb4b3f8e6804ca4",
+      "WORK-WP-ENG-TARGET-AUDIT-AP-ENG-TARGET-7-v2-504a6ada-1cde-4638-befa-6499c7808f18.xlsx: archive:ENG-TARGET:FINAL-ENG-TARGET-73ecf73d-ad55-413d-ae45-f874d9586c04:WORK-WP-ENG-TARGET-AUDIT-AP-ENG-TARGET-7-v2-504a6ada-1cde-4638-befa-6499c7808f18 / SHA-256 6bc4b4e42fe149cdde7ff16477961c7ba6f1f06e164d5c674453d1561e2f5a83",
+      "SRM-ENG-TARGET-19033e94-cd10-424c-83e5-262ebf30a75b.pdf: archive:ENG-TARGET:FINAL-ENG-TARGET-73ecf73d-ad55-413d-ae45-f874d9586c04:SRM-ENG-TARGET-19033e94-cd10-424c-83e5-262ebf30a75b / SHA-256 d419fe8b3ef358bcd8d1b70d4aa5604d14ab8738ef5fe1e273fe636977affdba",
+      "RECEIPT-ENG-TARGET-ed3c9b66-f078-4318-ab00-707e308731ed.pdf: archive:ENG-TARGET:FINAL-ENG-TARGET-73ecf73d-ad55-413d-ae45-f874d9586c04:RECEIPT-ENG-TARGET-ed3c9b66-f078-4318-ab00-707e308731ed / SHA-256 d12bc534ff214202156dc81f9fcef65d1219aee661a2f50f89f80e4c71adbdba",
+      "planning-tb.csv: archive:ENG-TARGET:FINAL-ENG-TARGET-73ecf73d-ad55-413d-ae45-f874d9586c04:source:9ba3d49e-ccf7-4664-bd5a-c015f8b8dc1a / SHA-256 55e4651ccce92613a3424496eb02be38bbf5c2e337206d847dfea21a96427c88",
+      "target-tb.csv: archive:ENG-TARGET:FINAL-ENG-TARGET-73ecf73d-ad55-413d-ae45-f874d9586c04:source:f3636e8a-62ea-4a8f-9e38-a761e88bd161 / SHA-256 55e4651ccce92613a3424496eb02be38bbf5c2e337206d847dfea21a96427c88",
+      "population.csv: archive:ENG-TARGET:FINAL-ENG-TARGET-73ecf73d-ad55-413d-ae45-f874d9586c04:source:88390233-c2d4-4c61-9ecb-a5a9cedaa8a2 / SHA-256 440fb16753961090494192aa1df798c4076072db0c7012d9f6763e0a1d3677f1",
+      "audit-evidence.txt: archive:ENG-TARGET:FINAL-ENG-TARGET-73ecf73d-ad55-413d-ae45-f874d9586c04:DOC-PBC-TARGET / SHA-256 c84146a00f47e896bf8dd1e64c62c26ca0f062211cbf0d68ed7d1e7a3ce6fc8c",
+      "Complete scoped records/history: ENG-TARGET-full-audit-file.json / SHA-256 32033bedcce58b3fe44180a00102126ecdb9b1709cbc3410afa3b8b158ce958a"
     ],
     "artifacts": [
       {
-        "id": "archive:ENG-TARGET:FINAL-ENG-TARGET-81627294-1269-439b-8723-2a9848b8610a:FINAL-ENG-TARGET-81627294-1269-439b-8723-2a9848b8610a-1",
-        "name": "FINAL-ENG-TARGET-81627294-1269-439b-8723-2a9848b8610a-1.pdf",
+        "id": "archive:ENG-TARGET:FINAL-ENG-TARGET-73ecf73d-ad55-413d-ae45-f874d9586c04:FINAL-ENG-TARGET-73ecf73d-ad55-413d-ae45-f874d9586c04-1",
+        "name": "FINAL-ENG-TARGET-73ecf73d-ad55-413d-ae45-f874d9586c04-1.pdf",
         "kind": "PDF",
         "mimeType": "application/pdf",
-        "size": 6747,
-        "sha256": "d12030c69fe2f4be7821ac28d91b6d1d325f6b6affb1c3081b0507c2bf0e2c54",
+        "size": 8485,
+        "sha256": "5f048ad7e8d39b9dc120295f5af1cf036f5bd04b128058550e17f58a7a9c1a25",
         "deliverable": "Audit Report",
-        "sourceArtifactId": "FINAL-ENG-TARGET-81627294-1269-439b-8723-2a9848b8610a-1"
+        "sourceArtifactId": "FINAL-ENG-TARGET-73ecf73d-ad55-413d-ae45-f874d9586c04-1"
       },
       {
-        "id": "archive:ENG-TARGET:FINAL-ENG-TARGET-81627294-1269-439b-8723-2a9848b8610a:FINAL-ENG-TARGET-81627294-1269-439b-8723-2a9848b8610a-2",
-        "name": "FINAL-ENG-TARGET-81627294-1269-439b-8723-2a9848b8610a-2.pdf",
+        "id": "archive:ENG-TARGET:FINAL-ENG-TARGET-73ecf73d-ad55-413d-ae45-f874d9586c04:FINAL-ENG-TARGET-73ecf73d-ad55-413d-ae45-f874d9586c04-2",
+        "name": "FINAL-ENG-TARGET-73ecf73d-ad55-413d-ae45-f874d9586c04-2.pdf",
         "kind": "PDF",
         "mimeType": "application/pdf",
         "size": 5088,
-        "sha256": "a533567cfb71f1309074df2db9e5d2a2b22300537ff91b6ce969d17c15554dac",
+        "sha256": "761b119517745c8aa87f7dcc25aa98a1571c9b2d8f6dde146e722f0f9e760b04",
         "deliverable": "Management Letter",
-        "sourceArtifactId": "FINAL-ENG-TARGET-81627294-1269-439b-8723-2a9848b8610a-2"
+        "sourceArtifactId": "FINAL-ENG-TARGET-73ecf73d-ad55-413d-ae45-f874d9586c04-2"
       },
       {
-        "id": "archive:ENG-TARGET:FINAL-ENG-TARGET-81627294-1269-439b-8723-2a9848b8610a:SIGNED-FINAL-ENG-TARGET-81627294-1269-439b-8723-2a9848b8610a",
+        "id": "archive:ENG-TARGET:FINAL-ENG-TARGET-73ecf73d-ad55-413d-ae45-f874d9586c04:SIGNED-FINAL-ENG-TARGET-73ecf73d-ad55-413d-ae45-f874d9586c04",
         "name": "Synthetic_signed_LOR.pdf",
         "kind": "PDF",
         "mimeType": "application/pdf",
         "size": 4221,
-        "sha256": "73f36bb6a00bf516ea610293db68e6c7c5927dc69ae8d654869715bced74b3d4",
-        "deliverable": "Letter of Representation",
-        "sourceArtifactId": "SIGNED-FINAL-ENG-TARGET-81627294-1269-439b-8723-2a9848b8610a"
+        "sha256": "690c1bcb54fe53535e791cb6d7dbe6947f5deb227e052b0fef2999c5b9fc651d",
+        "sourceArtifactId": "SIGNED-FINAL-ENG-TARGET-73ecf73d-ad55-413d-ae45-f874d9586c04"
       },
       {
-        "id": "archive:ENG-TARGET:FINAL-ENG-TARGET-81627294-1269-439b-8723-2a9848b8610a:FINAL-ENG-TARGET-81627294-1269-439b-8723-2a9848b8610a-4",
-        "name": "FINAL-ENG-TARGET-81627294-1269-439b-8723-2a9848b8610a-4.pdf",
+        "id": "archive:ENG-TARGET:FINAL-ENG-TARGET-73ecf73d-ad55-413d-ae45-f874d9586c04:FINAL-ENG-TARGET-73ecf73d-ad55-413d-ae45-f874d9586c04-4",
+        "name": "FINAL-ENG-TARGET-73ecf73d-ad55-413d-ae45-f874d9586c04-4.pdf",
         "kind": "PDF",
         "mimeType": "application/pdf",
-        "size": 5437,
-        "sha256": "6b5232cf0332c377fd5bc8bd0ea21c744ac62bfcde9ca8b8d47e27103ecf7773",
+        "size": 5757,
+        "sha256": "ff1f7559c7824ac1aa6258e36ca881c12da86e021de8692f841786e521f7f767",
         "deliverable": "Management Correspondences Audit Trail",
-        "sourceArtifactId": "FINAL-ENG-TARGET-81627294-1269-439b-8723-2a9848b8610a-4"
+        "sourceArtifactId": "FINAL-ENG-TARGET-73ecf73d-ad55-413d-ae45-f874d9586c04-4"
       },
       {
-        "id": "archive:ENG-TARGET:FINAL-ENG-TARGET-81627294-1269-439b-8723-2a9848b8610a:FINAL-ENG-TARGET-81627294-1269-439b-8723-2a9848b8610a-5",
-        "name": "FINAL-ENG-TARGET-81627294-1269-439b-8723-2a9848b8610a-5.pdf",
+        "id": "archive:ENG-TARGET:FINAL-ENG-TARGET-73ecf73d-ad55-413d-ae45-f874d9586c04:FINAL-ENG-TARGET-73ecf73d-ad55-413d-ae45-f874d9586c04-5",
+        "name": "FINAL-ENG-TARGET-73ecf73d-ad55-413d-ae45-f874d9586c04-5.pdf",
         "kind": "PDF",
         "mimeType": "application/pdf",
         "size": 5737,
-        "sha256": "d299ae27b993ad70fac7124a2eca127659c024e94d54a99d8515f31d6ba324c0",
+        "sha256": "b61fceaf93fa469f8690c9d01e8cdc6e5a5c115eb8c9d56d5b6a6e7ce47c5c75",
         "deliverable": "Final Balance Fee Note",
-        "sourceArtifactId": "FINAL-ENG-TARGET-81627294-1269-439b-8723-2a9848b8610a-5"
+        "sourceArtifactId": "FINAL-ENG-TARGET-73ecf73d-ad55-413d-ae45-f874d9586c04-5"
+      },
+      {
+        "id": "archive:ENG-TARGET:FINAL-ENG-TARGET-73ecf73d-ad55-413d-ae45-f874d9586c04:FINAL-ENG-TARGET-73ecf73d-ad55-413d-ae45-f874d9586c04-3",
+        "name": "FINAL-ENG-TARGET-73ecf73d-ad55-413d-ae45-f874d9586c04-3.docx",
+        "kind": "DOCX",
+        "mimeType": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "size": 9448,
+        "sha256": "d3c697d38f9ac50afdba48781f20cfa96fc75774f899e2e4491f4c30896bb8e5",
+        "deliverable": "Letter of Representation",
+        "sourceArtifactId": "FINAL-ENG-TARGET-73ecf73d-ad55-413d-ae45-f874d9586c04-3"
+      },
+      {
+        "id": "archive:ENG-TARGET:FINAL-ENG-TARGET-73ecf73d-ad55-413d-ae45-f874d9586c04:WORK-WP-ENG-TARGET-AUDIT-AP-ENG-TARGET-1-v3-a4984657-773f-4691-9401-a01c3f30e604",
+        "name": "WORK-WP-ENG-TARGET-AUDIT-AP-ENG-TARGET-1-v3-a4984657-773f-4691-9401-a01c3f30e604.xlsx",
+        "kind": "XLSX",
+        "mimeType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "size": 18920,
+        "sha256": "5637ade82b1729949b04cdb23426bf5ffd0d49712f3f58591316670a1e4c0f49",
+        "sourceArtifactId": "WORK-WP-ENG-TARGET-AUDIT-AP-ENG-TARGET-1-v3-a4984657-773f-4691-9401-a01c3f30e604"
+      },
+      {
+        "id": "archive:ENG-TARGET:FINAL-ENG-TARGET-73ecf73d-ad55-413d-ae45-f874d9586c04:WORK-WP-ENG-TARGET-AUDIT-AP-ENG-TARGET-1-v2-f314cabe-5e2d-4372-840f-8c726584da12",
+        "name": "WORK-WP-ENG-TARGET-AUDIT-AP-ENG-TARGET-1-v2-f314cabe-5e2d-4372-840f-8c726584da12.xlsx",
+        "kind": "XLSX",
+        "mimeType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "size": 18913,
+        "sha256": "6b26f49743bc895ba6f00f6b37d91a5121696da15a2184dc3847aade45f04972",
+        "sourceArtifactId": "WORK-WP-ENG-TARGET-AUDIT-AP-ENG-TARGET-1-v2-f314cabe-5e2d-4372-840f-8c726584da12"
+      },
+      {
+        "id": "archive:ENG-TARGET:FINAL-ENG-TARGET-73ecf73d-ad55-413d-ae45-f874d9586c04:WORK-WP-ENG-TARGET-AUDIT-AP-ENG-TARGET-2-v2-e2f6d41d-38a5-4cf9-b7c2-98e3a76bab2b",
+        "name": "WORK-WP-ENG-TARGET-AUDIT-AP-ENG-TARGET-2-v2-e2f6d41d-38a5-4cf9-b7c2-98e3a76bab2b.xlsx",
+        "kind": "XLSX",
+        "mimeType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "size": 18961,
+        "sha256": "cd4cfd3efbe57c20de5becb4f11733025d088526a33edbe09d378e0792e54748",
+        "sourceArtifactId": "WORK-WP-ENG-TARGET-AUDIT-AP-ENG-TARGET-2-v2-e2f6d41d-38a5-4cf9-b7c2-98e3a76bab2b"
+      },
+      {
+        "id": "archive:ENG-TARGET:FINAL-ENG-TARGET-73ecf73d-ad55-413d-ae45-f874d9586c04:WORK-WP-ENG-TARGET-AUDIT-AP-ENG-TARGET-3-v2-9a36ec24-4155-4e3f-b9a6-f159541033ad",
+        "name": "WORK-WP-ENG-TARGET-AUDIT-AP-ENG-TARGET-3-v2-9a36ec24-4155-4e3f-b9a6-f159541033ad.xlsx",
+        "kind": "XLSX",
+        "mimeType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "size": 19001,
+        "sha256": "c8d24947ad98b5f66d49470ecf09cf4f7d84a31b1bc35e3062194358dcc3d8d9",
+        "sourceArtifactId": "WORK-WP-ENG-TARGET-AUDIT-AP-ENG-TARGET-3-v2-9a36ec24-4155-4e3f-b9a6-f159541033ad"
+      },
+      {
+        "id": "archive:ENG-TARGET:FINAL-ENG-TARGET-73ecf73d-ad55-413d-ae45-f874d9586c04:WORK-WP-ENG-TARGET-AUDIT-AP-ENG-TARGET-4-v2-e0530a0b-2afb-41b9-aadf-92f5caa1cd0b",
+        "name": "WORK-WP-ENG-TARGET-AUDIT-AP-ENG-TARGET-4-v2-e0530a0b-2afb-41b9-aadf-92f5caa1cd0b.xlsx",
+        "kind": "XLSX",
+        "mimeType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "size": 18921,
+        "sha256": "2fb2d779aae3fb53380a1fe8978113654cdb49ef4adc6ba8dca2a5e91426475f",
+        "sourceArtifactId": "WORK-WP-ENG-TARGET-AUDIT-AP-ENG-TARGET-4-v2-e0530a0b-2afb-41b9-aadf-92f5caa1cd0b"
+      },
+      {
+        "id": "archive:ENG-TARGET:FINAL-ENG-TARGET-73ecf73d-ad55-413d-ae45-f874d9586c04:WORK-WP-ENG-TARGET-AUDIT-AP-ENG-TARGET-5-v2-82649a65-3d30-47a3-99af-3a31fa73cf08",
+        "name": "WORK-WP-ENG-TARGET-AUDIT-AP-ENG-TARGET-5-v2-82649a65-3d30-47a3-99af-3a31fa73cf08.xlsx",
+        "kind": "XLSX",
+        "mimeType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "size": 17455,
+        "sha256": "b235ebe4181498af3b5ce1f3af019dafce74b723d8f3699b03c3b285a59617db",
+        "sourceArtifactId": "WORK-WP-ENG-TARGET-AUDIT-AP-ENG-TARGET-5-v2-82649a65-3d30-47a3-99af-3a31fa73cf08"
+      },
+      {
+        "id": "archive:ENG-TARGET:FINAL-ENG-TARGET-73ecf73d-ad55-413d-ae45-f874d9586c04:WORK-WP-ENG-TARGET-AUDIT-AP-ENG-TARGET-6-v2-c5883963-7308-4389-8284-2574a6ab2427",
+        "name": "WORK-WP-ENG-TARGET-AUDIT-AP-ENG-TARGET-6-v2-c5883963-7308-4389-8284-2574a6ab2427.xlsx",
+        "kind": "XLSX",
+        "mimeType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "size": 17445,
+        "sha256": "b1521bf330fd238cc749c5bebbdcf053912d522d46f317ae4eb4b3f8e6804ca4",
+        "sourceArtifactId": "WORK-WP-ENG-TARGET-AUDIT-AP-ENG-TARGET-6-v2-c5883963-7308-4389-8284-2574a6ab2427"
+      },
+      {
+        "id": "archive:ENG-TARGET:FINAL-ENG-TARGET-73ecf73d-ad55-413d-ae45-f874d9586c04:WORK-WP-ENG-TARGET-AUDIT-AP-ENG-TARGET-7-v2-504a6ada-1cde-4638-befa-6499c7808f18",
+        "name": "WORK-WP-ENG-TARGET-AUDIT-AP-ENG-TARGET-7-v2-504a6ada-1cde-4638-befa-6499c7808f18.xlsx",
+        "kind": "XLSX",
+        "mimeType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "size": 19021,
+        "sha256": "6bc4b4e42fe149cdde7ff16477961c7ba6f1f06e164d5c674453d1561e2f5a83",
+        "sourceArtifactId": "WORK-WP-ENG-TARGET-AUDIT-AP-ENG-TARGET-7-v2-504a6ada-1cde-4638-befa-6499c7808f18"
+      },
+      {
+        "id": "archive:ENG-TARGET:FINAL-ENG-TARGET-73ecf73d-ad55-413d-ae45-f874d9586c04:SRM-ENG-TARGET-19033e94-cd10-424c-83e5-262ebf30a75b",
+        "name": "SRM-ENG-TARGET-19033e94-cd10-424c-83e5-262ebf30a75b.pdf",
+        "kind": "PDF",
+        "mimeType": "application/pdf",
+        "size": 66908,
+        "sha256": "d419fe8b3ef358bcd8d1b70d4aa5604d14ab8738ef5fe1e273fe636977affdba",
+        "sourceArtifactId": "SRM-ENG-TARGET-19033e94-cd10-424c-83e5-262ebf30a75b"
+      },
+      {
+        "id": "archive:ENG-TARGET:FINAL-ENG-TARGET-73ecf73d-ad55-413d-ae45-f874d9586c04:RECEIPT-ENG-TARGET-ed3c9b66-f078-4318-ab00-707e308731ed",
+        "name": "RECEIPT-ENG-TARGET-ed3c9b66-f078-4318-ab00-707e308731ed.pdf",
+        "kind": "PDF",
+        "mimeType": "application/pdf",
+        "size": 5038,
+        "sha256": "d12bc534ff214202156dc81f9fcef65d1219aee661a2f50f89f80e4c71adbdba",
+        "sourceArtifactId": "RECEIPT-ENG-TARGET-ed3c9b66-f078-4318-ab00-707e308731ed"
+      },
+      {
+        "id": "archive:ENG-TARGET:FINAL-ENG-TARGET-73ecf73d-ad55-413d-ae45-f874d9586c04:source:9ba3d49e-ccf7-4664-bd5a-c015f8b8dc1a",
+        "name": "planning-tb.csv",
+        "kind": "PBC",
+        "mimeType": "text/csv",
+        "size": 123,
+        "sha256": "55e4651ccce92613a3424496eb02be38bbf5c2e337206d847dfea21a96427c88",
+        "sourceArtifactId": "source:9ba3d49e-ccf7-4664-bd5a-c015f8b8dc1a"
+      },
+      {
+        "id": "archive:ENG-TARGET:FINAL-ENG-TARGET-73ecf73d-ad55-413d-ae45-f874d9586c04:source:f3636e8a-62ea-4a8f-9e38-a761e88bd161",
+        "name": "target-tb.csv",
+        "kind": "PBC",
+        "mimeType": "text/csv",
+        "size": 123,
+        "sha256": "55e4651ccce92613a3424496eb02be38bbf5c2e337206d847dfea21a96427c88",
+        "sourceArtifactId": "source:f3636e8a-62ea-4a8f-9e38-a761e88bd161"
+      },
+      {
+        "id": "archive:ENG-TARGET:FINAL-ENG-TARGET-73ecf73d-ad55-413d-ae45-f874d9586c04:source:88390233-c2d4-4c61-9ecb-a5a9cedaa8a2",
+        "name": "population.csv",
+        "kind": "PBC",
+        "mimeType": "text/csv",
+        "size": 182,
+        "sha256": "440fb16753961090494192aa1df798c4076072db0c7012d9f6763e0a1d3677f1",
+        "sourceArtifactId": "source:88390233-c2d4-4c61-9ecb-a5a9cedaa8a2"
+      },
+      {
+        "id": "archive:ENG-TARGET:FINAL-ENG-TARGET-73ecf73d-ad55-413d-ae45-f874d9586c04:DOC-PBC-TARGET",
+        "name": "audit-evidence.txt",
+        "kind": "PBC",
+        "mimeType": "text/plain",
+        "size": 96,
+        "sha256": "c84146a00f47e896bf8dd1e64c62c26ca0f062211cbf0d68ed7d1e7a3ce6fc8c",
+        "sourceArtifactId": "DOC-PBC-TARGET"
       }
-    ]
+    ],
+    "packagingStatus": "Verified",
+    "inspection": {
+      "id": "archive:ENG-TARGET:FINAL-ENG-TARGET-73ecf73d-ad55-413d-ae45-f874d9586c04:inspection",
+      "name": "ENG-TARGET-full-audit-file.json",
+      "kind": "GROUP_JSON",
+      "mimeType": "application/json",
+      "size": 501849,
+      "sha256": "32033bedcce58b3fe44180a00102126ecdb9b1709cbc3410afa3b8b158ce958a"
+    },
+    "unavailable": [],
+    "processedAt": "2026-09-30T20:44:20.742Z"
   },
   "progress": [
     {
@@ -164,34 +326,34 @@
   ],
   "artifacts": [
     {
-      "id": "FINAL-ENG-TARGET-81627294-1269-439b-8723-2a9848b8610a-1",
-      "name": "FINAL-ENG-TARGET-81627294-1269-439b-8723-2a9848b8610a-1.pdf",
-      "size": 6747,
-      "sha256": "d12030c69fe2f4be7821ac28d91b6d1d325f6b6affb1c3081b0507c2bf0e2c54"
+      "id": "FINAL-ENG-TARGET-73ecf73d-ad55-413d-ae45-f874d9586c04-1",
+      "name": "FINAL-ENG-TARGET-73ecf73d-ad55-413d-ae45-f874d9586c04-1.pdf",
+      "size": 8485,
+      "sha256": "5f048ad7e8d39b9dc120295f5af1cf036f5bd04b128058550e17f58a7a9c1a25"
     },
     {
-      "id": "FINAL-ENG-TARGET-81627294-1269-439b-8723-2a9848b8610a-2",
-      "name": "FINAL-ENG-TARGET-81627294-1269-439b-8723-2a9848b8610a-2.pdf",
+      "id": "FINAL-ENG-TARGET-73ecf73d-ad55-413d-ae45-f874d9586c04-2",
+      "name": "FINAL-ENG-TARGET-73ecf73d-ad55-413d-ae45-f874d9586c04-2.pdf",
       "size": 5088,
-      "sha256": "a533567cfb71f1309074df2db9e5d2a2b22300537ff91b6ce969d17c15554dac"
+      "sha256": "761b119517745c8aa87f7dcc25aa98a1571c9b2d8f6dde146e722f0f9e760b04"
     },
     {
-      "id": "SIGNED-FINAL-ENG-TARGET-81627294-1269-439b-8723-2a9848b8610a",
+      "id": "SIGNED-FINAL-ENG-TARGET-73ecf73d-ad55-413d-ae45-f874d9586c04",
       "name": "Synthetic_signed_LOR.pdf",
       "size": 4221,
-      "sha256": "73f36bb6a00bf516ea610293db68e6c7c5927dc69ae8d654869715bced74b3d4"
+      "sha256": "690c1bcb54fe53535e791cb6d7dbe6947f5deb227e052b0fef2999c5b9fc651d"
     },
     {
-      "id": "FINAL-ENG-TARGET-81627294-1269-439b-8723-2a9848b8610a-4",
-      "name": "FINAL-ENG-TARGET-81627294-1269-439b-8723-2a9848b8610a-4.pdf",
-      "size": 5437,
-      "sha256": "6b5232cf0332c377fd5bc8bd0ea21c744ac62bfcde9ca8b8d47e27103ecf7773"
+      "id": "FINAL-ENG-TARGET-73ecf73d-ad55-413d-ae45-f874d9586c04-4",
+      "name": "FINAL-ENG-TARGET-73ecf73d-ad55-413d-ae45-f874d9586c04-4.pdf",
+      "size": 5757,
+      "sha256": "ff1f7559c7824ac1aa6258e36ca881c12da86e021de8692f841786e521f7f767"
     },
     {
-      "id": "FINAL-ENG-TARGET-81627294-1269-439b-8723-2a9848b8610a-5",
-      "name": "FINAL-ENG-TARGET-81627294-1269-439b-8723-2a9848b8610a-5.pdf",
+      "id": "FINAL-ENG-TARGET-73ecf73d-ad55-413d-ae45-f874d9586c04-5",
+      "name": "FINAL-ENG-TARGET-73ecf73d-ad55-413d-ae45-f874d9586c04-5.pdf",
       "size": 5737,
-      "sha256": "d299ae27b993ad70fac7124a2eca127659c024e94d54a99d8515f31d6ba324c0"
+      "sha256": "b61fceaf93fa469f8690c9d01e8cdc6e5a5c115eb8c9d56d5b6a6e7ce47c5c75"
     }
   ],
   "review": {

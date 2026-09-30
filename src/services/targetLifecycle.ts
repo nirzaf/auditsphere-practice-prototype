@@ -6,6 +6,39 @@ import type {
   TargetLifecycleState
 } from '../types/targetLifecycle';
 import { isReleaseBlockingFinding } from './findings';
+import { calculateBalanceSheet, calculateIncomeStatement, applyReportingAdjustments } from './calculations';
+import { adjustmentSupportIssues } from './adjustmentSupport';
+
+export function hasValidLeadProfile(state: PrototypeState, clientId: string) {
+  const client = state.clients.find(c => c.id === clientId);
+  return Boolean(client?.name.trim() && state.contacts.some(c => c.clientId === clientId && c.active && c.name.trim() && (c.email || c.phone)));
+}
+export const FINAL_DELIVERABLE_TYPES = ['Independent Auditor Report & Audited Financial Statements', 'Management Letter', 'Letter of Representation', 'Management Correspondences Audit Trail', 'Final Balance Fee Note'];
+export function hasExactFivePartBundle(set: import('../types/targetLifecycle').DeliverableSet) {
+  return set.artifacts.length === 5 && new Set(set.artifacts.map(a => a.id)).size === 5 && FINAL_DELIVERABLE_TYPES.every(type => set.artifacts.filter(a => (a.deliverable === type || (type === FINAL_DELIVERABLE_TYPES[0] && a.deliverable === 'Audit Report')) && a.id && /^[a-f0-9]{64}$/i.test(a.sha256) && a.size > 0).length === 1);
+}
+export function hasAllApplicableProceduresSubmitted(state: PrototypeState, engagement: EngagementRecord) {
+  const programs = scopedPrograms(state, engagement);
+  return !fieldworkBlockers(state, engagement).length && !engagement.workpapers.some(w => w.applicable && w.status === 'Changes required') && programs.length > 0 && programs.every(p => p.procedures.length > 0 && p.procedures.every(s => ['Submitted', 'Cleared'].includes(s.status) && !s.scopeReassessmentRequired && !s.evidenceReassessmentRequired));
+}
+export function sampleEvidenceReady(state: PrototypeState, engagement: EngagementRecord, item: import('../types').SamplePopulationRow) {
+  if (!item.tested) return false;
+  const physical = Boolean(item.physicalReference?.indexCode.trim() && item.physicalReference.description.trim());
+  const document = state.documents.find(d => d.id === item.evidenceDoc && d.engagementId === engagement.id && d.clientId === engagement.client && !d.brokenLink && !state.documents.some(next => next.supersedesDocumentId === d.id));
+  const digital = Boolean(document && state.evidenceCatalogue.some(e => e.documentId === document.id && e.adequacyStatus === 'Adequate' && e.version === document.version));
+  return item.evidenceMode === 'Physical' ? physical : item.evidenceMode === 'Hybrid' ? physical && digital : item.evidenceMode === 'Digital' ? digital : physical || digital;
+}
+export function substantiveProgramFor(state: PrototypeState, engagementId: string, line: string) {
+  return state.auditPrograms.find(p => p.engagementId === engagementId && !['Analytical Review', 'Going Concern'].includes(p.area) && p.financialStatementLines?.includes(line));
+}
+export function materialityBenchmark(engagement: EngagementRecord, benchmark: string) {
+  benchmark = benchmark.toLowerCase();
+  const bs = calculateBalanceSheet(engagement.rows), pl = calculateIncomeStatement(engagement.rows);
+  const tax = engagement.rows.filter(r => r.type === 'expense' && /income tax|tax expense/i.test(r.name)).reduce((n,r) => n + r.balance,0);
+  const value = benchmark === 'assets' ? bs.totalAssets : benchmark === 'equity' ? bs.totalEquity : benchmark === 'profit' ? pl.netProfit + tax : pl.revenue;
+  const accounts = engagement.rows.filter(r => benchmark === 'assets' ? r.type === 'asset' : benchmark === 'equity' ? ['equity', 'revenue', 'expense'].includes(r.type) : benchmark === 'profit' ? ['revenue', 'expense'].includes(r.type) : r.type === 'revenue').map(r => ({ code: r.code, balance: r.balance }));
+  return { value: money(value), accounts };
+}
 export const STANDARD_CHARGE_OUT_RATES = { Partner: 1000, Manager: 750, 'Senior/Reviewer': 500, 'Preparer/Staff': 200 } as const;
 
 export const TARGET_STAGES: TargetStageDefinition[] = [
@@ -261,6 +294,26 @@ export function plusDays(value: string, days: number): string {
   return date.toISOString().slice(0, 10);
 }
 export const money = (value: number) => Math.round((value + Number.EPSILON) * 100) / 100;
+export function serviceKey(service: string) {
+  const normalized = service.trim().toLowerCase().replace(/[^a-z0-9]+/g,' ');
+  if (/agreed|aup|4400/.test(normalized)) return 'agreed-upon-procedures';
+  if (/internal.*audit/.test(normalized)) return 'internal-audit';
+  if (/audit/.test(normalized)) return 'external-financial-statement-audit';
+  return normalized;
+}
+export function engagementPeriodEnd(engagement: EngagementRecord) {
+  const iso = engagement.period.match(/\b\d{4}-\d{2}-\d{2}\b/)?.[0];
+  if (iso) return iso;
+  const explicit = engagement.period.match(/\b(\d{1,2})\s+(January|February|March|April|May|June|July|August|September|October|November|December)\s+(\d{4})\b/i);
+  if (!explicit) return undefined;
+  const month = ['january','february','march','april','may','june','july','august','september','october','november','december'].indexOf(explicit[2].toLowerCase()) + 1;
+  return `${explicit[3]}-${String(month).padStart(2,'0')}-${explicit[1].padStart(2,'0')}`;
+}
+export function proposalMatchesEngagement(proposal: ProposalRecord, engagement: EngagementRecord) {
+  const end = engagementPeriodEnd(engagement);
+  const snapshot = proposal.presentedSnapshot;
+  return proposal.clientId === engagement.client && proposal.periodEnd?.slice(0,4) === String(engagement.year) && (!end || proposal.periodEnd === end) && proposal.items.some(item => serviceKey(item.serviceName) === serviceKey(engagement.service)) && (!snapshot || (snapshot.currency === proposal.currency && snapshot.totalAmount === proposal.totalAmount && JSON.stringify(snapshot.items) === JSON.stringify(proposal.items) && (!snapshot.periodEnd || snapshot.periodEnd === proposal.periodEnd) && (!snapshot.periodStart || snapshot.periodStart === proposal.periodStart)));
+}
 export function acceptedProposal(
   state: PrototypeState,
   engagement: EngagementRecord
@@ -268,13 +321,13 @@ export function acceptedProposal(
   const pin = engagement.auditLifecycle?.commercialBasis;
   const proposal = state.proposals.find((p) => p.id === (pin?.proposalId || engagement.proposalId));
   return proposal &&
-    proposal.clientId === engagement.client &&
+    proposalMatchesEngagement(proposal,engagement) &&
     proposal.state === 'Accepted' &&
     proposal.revision === proposal.presentedSnapshot?.revision &&
     proposal.revision === proposal.clientResponse?.revision &&
     proposal.clientResponse.responseType === 'Accepted' &&
     proposal.clientResponse.evidenceRef &&
-    (!pin || proposal.revision === pin.revision)
+    (!pin || (proposal.revision === pin.revision && (!pin.engagementService || pin.engagementService === engagement.service) && (!pin.engagementPeriod || pin.engagementPeriod === engagement.period) && (!pin.proposalPeriodEnd || pin.proposalPeriodEnd === proposal.periodEnd) && (!pin.proposalPeriodStart || pin.proposalPeriodStart === proposal.periodStart) && (!pin.currency || pin.currency === engagement.currency) && (pin.acceptedFee === undefined || pin.acceptedFee === proposal.presentedSnapshot.totalAmount)))
     ? proposal
     : undefined;
 }
@@ -294,7 +347,10 @@ export function advanceReceipts(state: PrototypeState, engagement: EngagementRec
           r.clientId === engagement.client &&
           r.currency === engagement.currency
       );
-      return receipt ? [receipt] : [];
+      if (!receipt) return [];
+      const allocations = receipt.allocations.filter(a => !a.reversed && state.invoices.some(i => i.id === a.invoiceId && (i.engagementId || i.eng) === engagement.id && i.isAdvanceInvoice));
+      const amount = money(allocations.reduce((sum,a) => sum + a.amount,0));
+      return amount > 0 ? [{ ...receipt, allocations, amount }] : [];
     });
 }
 export function advanceBasis(state: PrototypeState, engagement: EngagementRecord): string {
@@ -623,6 +679,7 @@ export function reviewBasis(state: PrototypeState, engagement: EngagementRecord)
         }))
       })),
     confirmations: (state.confirmations || []).filter((c) => c.engagementId === engagement.id),
+    adjustments: state.adjustmentJournals.filter(j => j.engagementId === engagement.id),
     findings: state.findings
       .filter((f) => f.engagementId === engagement.id)
       .map((f) => ({
@@ -630,6 +687,10 @@ export function reviewBasis(state: PrototypeState, engagement: EngagementRecord)
         title: f.title,
         revision: f.revision || 1,
         amount: f.amount,
+        category: f.category,
+        gross: f.grossMisstatement,
+        net: f.netMisstatement,
+        journal: f.linkedJournalId,
         disposition: f.disposition,
         account: f.affectedAccount,
         line: f.financialStatementLine,
@@ -701,6 +762,10 @@ export function managerReviewBlockers(
   engagement: EngagementRecord
 ): string[] {
   const blockers = fieldworkBlockers(state, engagement);
+  const journals = state.adjustmentJournals.filter(j => j.engagementId === engagement.id);
+  if (journals.some(j => ['Draft','Technical review'].includes(j.status))) blockers.push('Complete independent technical review and management decisions for proposed AJEs.');
+  const supportIssues = adjustmentSupportIssues(state,engagement.id);
+  if (journals.some(j => ['Management accepted','Reporting included'].includes(j.status) && (supportIssues[j.id] || j.reflectionSourceVersion !== engagement.sourceVersion)) || applyReportingAdjustments(engagement.rows,journals,engagement.sourceVersion,supportIssues).unapplied.length) blockers.push('Reconfirm accepted AJE reflection and account support against the current TB.');
   if (
     !(state.statementSetRevisions || []).some(
       (r) =>
@@ -736,10 +801,10 @@ export function managerReviewBlockers(
         s.tbSourceVersion !== engagement.sourceVersion ||
         s.planVersion !== currentPlan(state, engagement)?.version ||
         !s.items.some((i) => i.selected) ||
-        s.items.some((i) => i.selected && (!i.tested || !i.physicalReference))
+        s.items.some((i) => i.selected && !sampleEvidenceReady(state, engagement, i))
     )
   )
-    blockers.push('Test current selected samples and link their structured physical references.');
+    blockers.push('Test current selected samples and link applicable digital or physical evidence.');
   if (
     !engagement.workpapers.some((w) => w.applicable) ||
     engagement.workpapers.some(
@@ -832,20 +897,27 @@ export function closeExpiredArchives(state: PrototypeState): boolean {
     const set = engagement.auditLifecycle!.deliverables.find(record => record.id === control.reportSetId);
     if (set) {
       const manifest = set.artifacts.map(artifact => `${artifact.deliverable}: ${artifact.id} / SHA-256 ${artifact.sha256}`);
-      engagement.archive = { archivedAt: control.frozenAt, archivedBy: 'Automatic compliance clock', releaseId: set.id, manifest, artifacts: set.artifacts.map(artifact => ({ ...structuredClone(artifact), sourceArtifactId: artifact.id })) };
-      (state.archives ||= []).push({ id: `ARCH-${set.id}`, engagementId: engagement.id, releaseId: set.id, clientName: state.clients.find(client => client.id === engagement.client)?.name || engagement.client, service: engagement.service, year: engagement.year, archivedAt: control.frozenAt, archivedBy: 'Automatic compliance clock', onHold: false, manifestCount: manifest.length, manifest, artifacts: set.artifacts.map(artifact => ({ ...structuredClone(artifact), sourceArtifactId: artifact.id })) });
-    }
+      engagement.archive = { archivedAt: control.frozenAt, archivedBy: 'Automatic compliance clock', releaseId: set.id, manifest, packagingStatus: 'Pending', artifacts: [] };
+      (state.archives ||= []).push({ id: `ARCH-${set.id}`, engagementId: engagement.id, releaseId: set.id, clientName: state.clients.find(client => client.id === engagement.client)?.name || engagement.client, service: engagement.service, year: engagement.year, archivedAt: control.frozenAt, archivedBy: 'Automatic compliance clock', onHold: false, manifestCount: manifest.length, manifest, artifacts: [] });
+    } else engagement.archive = { archivedAt: control.frozenAt, archivedBy: 'Automatic compliance clock', releaseId: control.reportSetId || `EXPIRY-${engagement.id}`, manifest: ['Report set unavailable; closure remains read-only.'], packagingStatus: 'Pending', artifacts: [] };
     changed = true;
   }
   return changed;
 }
-export function firmTrialBalance(state: PrototypeState) {
+export function firmTrialBalance(state: PrototypeState, month?: string, currency = state.firmSettings.currency) {
   const accounts = new Map<
     string,
     { account: string; debit: number; credit: number; balance: number }
   >();
-  for (const entry of state.firmLedger || [])
-    for (const line of entry.lines) {
+  const projection = (state.firmLedger || []).filter(e => e.currency === currency && (!month || e.date.startsWith(month))).map(e => e.lines);
+  const invoices = state.invoices.filter(i => ['Issued','Paid'].includes(i.status) && i.currency === currency);
+  for (const invoice of invoices.filter(i => !month || i.issueDate?.startsWith(month))) projection.push([{ account: 'Accounts receivable', debit: invoice.amount, credit: 0 }, { account: 'Audit fee revenue', debit: 0, credit: invoice.amount }] as any);
+  for (const receipt of state.receipts.filter(r => r.currency === currency)) for (const allocation of receipt.allocations.filter(a => invoices.some(i => i.id === a.invoiceId))) {
+    if (!month || (allocation.date || receipt.date).startsWith(month)) projection.push([{ account: 'Cash', debit: allocation.amount, credit: 0 }, { account: 'Accounts receivable', debit: 0, credit: allocation.amount }] as any);
+    if (allocation.reversed && (!month || (allocation.reversalDate || allocation.date || receipt.date).startsWith(month))) projection.push([{ account: 'Cash', debit: 0, credit: allocation.amount }, { account: 'Accounts receivable', debit: allocation.amount, credit: 0 }] as any);
+  }
+  for (const lines of projection)
+    for (const line of lines) {
       const account = accounts.get(line.account) || {
         account: line.account,
         debit: 0,
@@ -858,6 +930,9 @@ export function firmTrialBalance(state: PrototypeState) {
       accounts.set(line.account, account);
     }
   return [...accounts.values()];
+}
+export function allocatedSettlementAt(state: PrototypeState, invoiceId: string, asOf: string) {
+  return money(state.receipts.reduce((sum,r) => sum + r.allocations.filter(a => a.invoiceId === invoiceId && (a.date || r.date) <= asOf && (!a.reversed || Boolean(a.reversalDate && a.reversalDate > asOf))).reduce((n,a) => n + a.amount,0),0));
 }
 export function practiceEconomics(state: PrototypeState, engagement: EngagementRecord) {
   const allocations = engagement.auditLifecycle?.staffing.at(-1)?.allocations || [];
@@ -873,11 +948,12 @@ export function practiceEconomics(state: PrototypeState, engagement: EngagementR
   const actualCost = times.every((t) => t.costRatePerHour !== undefined)
     ? money(times.reduce((n, t) => n + (t.durationMinutes / 60) * t.costRatePerHour!, 0))
     : null;
-  const rateFor = (t: typeof times[number]) => t.billingRatePerHour ?? allocations.find(a => state.users.find(u => u.id === a.userId)?.name === t.person)?.chargeRate;
+  const rateFor = (t: typeof times[number]) => t.billingRatePerHour;
   const wip = (times.length > 0 || (allocations.length > 0 && allocations.every(a => a.chargeRate !== null))) && times.every(t => rateFor(t) != null && Number.isFinite(rateFor(t)))
     ? money(times.reduce((n,t) => n + t.durationMinutes / 60 * rateFor(t)!, 0)) : null;
-  const availableHours = allocations.length && allocations.every(a => a.capacityHours !== undefined)
-    ? allocations.reduce((n,a) => n + a.capacityHours! - (a.leaveHours || 0),0) : null;
+  const people = [...new Map(allocations.map(a => [a.userId, a])).values()];
+  const availableHours = people.length && people.every(a => a.capacityHours !== undefined)
+    ? people.reduce((n,a) => n + a.capacityHours! - (a.leaveHours || 0),0) : null;
   const fee = billingSummary(state, engagement).fee;
   return {
     budgetHours,
@@ -958,7 +1034,7 @@ export function engagementProgress(
           p.tbSourceVersion === engagement.sourceVersion &&
           p.planVersion === plan?.version &&
           p.items.some((i) => i.selected) &&
-          p.items.every((i) => !i.selected || (i.tested && !!i.physicalReference))
+          p.items.every((i) => !i.selected || sampleEvidenceReady(state, engagement, i))
       ),
     confirmations:
       (state.confirmations || []).some((c) => c.engagementId === engagement.id) &&
@@ -1148,21 +1224,24 @@ export function computeSystemState(
   }
   const set = currentDeliverables(state, engagement);
   const control = engagement.auditLifecycle?.archiveControl;
-  if (set?.deliveredAt || (control?.freezeStatus === 'Counting Down' && !set)) {
+  if (set?.deliveredAt && hasExactFivePartBundle(set)) {
     return SYSTEM_LIFECYCLE_STATES[9]; // COMPLIANCE_COUNTDOWN
   }
-  if (set && set.artifacts.length >= 3) {
+  if (set && hasExactFivePartBundle(set)) {
     return SYSTEM_LIFECYCLE_STATES[8]; // DELIVERABLE_RELEASE
   }
   const review = currentReview(state, engagement);
   if (review.partner) {
-    return SYSTEM_LIFECYCLE_STATES[7]; // PARTNER_APPROVAL
+    return SYSTEM_LIFECYCLE_STATES[8]; // Await compilation/release
   }
-  if (review.manager || engagement.auditLifecycle?.srms.length) {
+  if (review.srm && !criticalConfirmationBlockers(state, engagement).length) {
+    return SYSTEM_LIFECYCLE_STATES[7]; // Await assigned Partner
+  }
+  if (review.manager || hasAllApplicableProceduresSubmitted(state, engagement)) {
     return SYSTEM_LIFECYCLE_STATES[6]; // MANAGERIAL_REVIEW
   }
   const plan = currentPlan(state, engagement);
-  const tbReady = engagement.sourceAccepted && engagement.mappingApproved && engagement.rows.length > 0;
+  const tbReady = !fieldworkBlockers(state, engagement).length;
   if (plan?.status === 'Approved' && tbReady) {
     return SYSTEM_LIFECYCLE_STATES[5]; // FIELDWORK_EXECUTION
   }
@@ -1181,10 +1260,11 @@ export function computeSystemState(
   if (dualKeyPassed) {
     return SYSTEM_LIFECYCLE_STATES[3]; // ADVANCE_BILLING
   }
-  if (state.proposals.some(p => p.clientId === engagement.client)) {
+  const proposal = state.proposals.find(p => p.id === engagement.proposalId && p.clientId === engagement.client);
+  if (proposal?.presentedSnapshot?.revision === proposal?.revision && proposal?.dispatchHistory?.some(d => d.revision === proposal.revision && d.recipientName.trim() && d.simulatedOutcome === 'Delivered (simulated)')) {
     return SYSTEM_LIFECYCLE_STATES[2]; // DUAL_KEY_PENDING
   }
-  if (state.leads.some(l => l.convertedClientId === engagement.client)) {
+  if (proposal || hasValidLeadProfile(state, engagement.client)) {
     return SYSTEM_LIFECYCLE_STATES[1]; // PROPOSAL_GENERATION
   }
   return SYSTEM_LIFECYCLE_STATES[0]; // LEAD_INGESTION

@@ -7,6 +7,7 @@ import { Icon } from '../common/Icons';
 import { StatusBadge } from '../common/StatusBadge';
 import { formatCurrency } from '../../services/calculations';
 import { UnsavedFormGuard } from '../../services/unsavedFormGuard';
+import { AdjustmentPanel } from '../target/AdjustmentPanel';
 
 interface FindingsViewProps {
   onNavigate: (route: RouteKey, targetId?: string) => void;
@@ -140,7 +141,7 @@ export const FindingsView: React.FC<FindingsViewProps> = ({ onNavigate, searchTa
           <p>ISA 450 evaluation of misstatements, control deficiencies, and management correction tracking.</p>
         </div>
         <div className="row" style={{ gap: 10 }}>
-          <button className="btn sm ghost" onClick={() => onNavigate('accounting-setup')}>
+          <button className="btn sm ghost" onClick={() => document.querySelector('[data-testid="adjustment-panel"]')?.scrollIntoView({ behavior: 'smooth' })}>
             <Icon name="calculator" /> Propose Journal
           </button>
           <button className="btn primary sm" onClick={() => { findingDraftBaseline.current = findingDraft(); setShowAddModal(true); }}>
@@ -150,6 +151,7 @@ export const FindingsView: React.FC<FindingsViewProps> = ({ onNavigate, searchTa
       </div>
 
       {notice && <div role="status" className="panel panel-pad">{notice}</div>}
+      <AdjustmentPanel onRegisterUnsavedForm={onRegisterUnsavedForm} />
 
       <div className="metric-grid">
         <div className="metric">

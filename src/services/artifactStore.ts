@@ -24,6 +24,13 @@ export async function persistArtifact(record: GeneratedArtifactRecord, blob: Blo
   return persistArtifacts([{ record, blob }]);
 }
 
+export async function captureSourceOriginal(name: string, bytes: ArrayBuffer, mimeType: string): Promise<GeneratedArtifactRecord> {
+  const blob = new Blob([bytes], { type: mimeType });
+  const record: GeneratedArtifactRecord = { id: `source:${crypto.randomUUID()}`, name, kind: 'PBC', mimeType, size: blob.size, sha256: await artifactSha256(blob) };
+  await persistArtifact(record, blob);
+  return record;
+}
+
 export async function persistArtifacts(items: Array<{ record: GeneratedArtifactRecord; blob: Blob }>): Promise<void> {
   for (const { record, blob } of items) {
     if (blob.size !== record.size || blob.type !== record.mimeType || await artifactSha256(blob) !== record.sha256) throw new Error(`Generated artifact ${record.name} does not match its declared size, type or digest.`);

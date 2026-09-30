@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { AdjustmentPanel } from './AdjustmentPanel';
 import { prototypeStore } from '../../store/prototypeStore';
 import { isClientRole, visibleEngagementIds } from '../../services/guards';
 import { persistArtifact } from '../../services/artifactStore';
@@ -71,6 +72,7 @@ export function PbcWorkspaceView(props: TargetViewProps & { client?: boolean }) 
 
   return (
     <div className="target-stack">
+      {client && <AdjustmentPanel onRegisterUnsavedForm={props.onRegisterUnsavedForm} />}
       {/* Top Banner */}
       <section className="panel panel-pad">
         <div className="flex-between">
@@ -423,6 +425,7 @@ export function PbcWorkspaceView(props: TargetViewProps & { client?: boolean }) 
                 <div>
                   <strong style={{ color: '#047857' }}>Official Receipt: {rec.receiptNumber}</strong>
                   <div className="caption text-muted">Payment Date: {rec.date} · Ref: {rec.externalRef} ({rec.method})</div>
+                  <strong>{rec.allocations.every(a => a.reversed) ? 'Reversed — historical receipt, no current settlement' : `Effective settlement: ${rec.allocations.filter(a => !a.reversed).reduce((sum,a) => sum+a.amount,0)} ${rec.currency}${rec.allocations.some(a => a.reversed) ? ' · partially reversed historical receipt' : ''}`}</strong>
                   {e.auditLifecycle?.receiptDocuments.filter(document => document.receiptIds.includes(rec.id)).map(document => <ArtifactLink key={document.artifact.id} artifact={document.artifact} />)}
                 </div>
                 <div className="mono font-medium" style={{ color: '#047857' }}>

@@ -5,7 +5,8 @@ import { acceptance } from './targetFixture';
 import {
   artifactSha256,
   loadVerifiedArtifact,
-  persistArtifact
+  persistArtifact,
+  captureSourceOriginal
 } from '../../src/services/artifactStore';
 import {
   currentReview,
@@ -266,6 +267,10 @@ export async function runTargetJourney(options: { stopAtFieldwork?: boolean } = 
       preparedBy: s.currentPerson
     }) as any;
   act('preparer');
+  const preliminaryRows = [{code:'1000',name:'Cash',type:'asset',balance:1500},{code:'3000',name:'Capital',type:'equity',balance:-1000},{code:'4000',name:'Revenue',type:'revenue',balance:-1000},{code:'5000',name:'Purchases',type:'expense',balance:500}] as any;
+  const preliminarySource = await captureSourceOriginal('planning-tb.csv', new TextEncoder().encode('Code,Name,Type,Balance\n1000,Cash,asset,1500\n3000,Capital,equity,-1000\n4000,Revenue,revenue,-1000\n5000,Purchases,expense,500').buffer, 'text/csv');
+  store.lifecycle.importMappedTB(e.id, preliminaryRows, {fileName:'planning-tb.csv',format:'CSV',sha256:preliminarySource.sha256,originalArtifact:preliminarySource});
+  store.lifecycle.confirmMapping(e.id, preliminaryRows.map((r:any) => ({code:r.code,line:r.name})));
   store.saveAuditPlan(plan(1));
   act('partner');
   store.reviewAuditPlan('PLAN-TARGET-1', true, 'Independent initial planning review.');
@@ -302,7 +307,8 @@ export async function runTargetJourney(options: { stopAtFieldwork?: boolean } = 
   store.lifecycle.importMappedTB(e.id, rows, {
     fileName: 'target-tb.csv',
     format: 'CSV',
-    sha256: await artifactSha256(source)
+    sha256: await artifactSha256(source),
+    originalArtifact: await captureSourceOriginal('target-tb.csv',await source.arrayBuffer(),'text/csv')
   });
   store.lifecycle.confirmMapping(
     e.id,
@@ -334,7 +340,7 @@ export async function runTargetJourney(options: { stopAtFieldwork?: boolean } = 
   store.lifecycle.prepareStandardPrograms(e.id);
   act('manager');
   if (options.stopAtFieldwork) return { engagementId: e.id, checkpoints };
-  const wp = e.workpapers[0],
+  const wp = e.workpapers.find(w => w.applicable)!,
     evidence = s.evidenceCatalogue.find((i) => i.documentId === doc.id)!;
   store.linkWorkpaperEvidence(e.id, wp.id, doc.id);
   store.signOffAnalyticalReview(e.id, { fsli: 'Revenue', tbSourceVersion: e.sourceVersion,
@@ -384,12 +390,14 @@ export async function runTargetJourney(options: { stopAtFieldwork?: boolean } = 
         result: 'Untested'
       }) as any
   );
+  const populationSource = await captureSourceOriginal('population.csv',new TextEncoder().encode('itemRef,date,counterparty,amount\n'+populationRows.map((r:any)=>`${r.itemRef},${r.date},${r.counterparty},${r.amount}`).join('\n')).buffer,'text/csv');
   const pop = store.lifecycle.importPopulation(
     e.id,
     '1000',
     'population.csv',
-    'a'.repeat(64),
-    populationRows
+    populationSource.sha256,
+    populationRows,
+    populationSource
   );
   store.lifecycle.generateSample(e.id, pop, 'Random', 2, 260930);
   const population = s.samplePopulations.find((p) => p.id === pop)!;
@@ -490,6 +498,11 @@ export async function runTargetJourney(options: { stopAtFieldwork?: boolean } = 
     wp.id,
     'Current revised workbook and point response independently assessed.'
   );
+  for (const other of e.workpapers.filter(w => w.applicable && w.id !== wp.id)) {
+    act('preparer'); store.linkWorkpaperEvidence(e.id, other.id, doc.id);
+    await store.lifecycle.saveFieldworkWorkbook(e.id, other.id, e.period, 'Performed all current program tests with accepted evidence.', 'Current scoped conclusion independently supported by evidence.');
+    store.submitWorkpaper(e.id, other.id); act('manager'); store.clearWorkpaper(e.id, other.id, 'Independent review of current program workbook and evidence.');
+  }
   store.lifecycle.recordManagerClearance(
     e.id,
     'All workpapers, procedures and review points cleared for SRM.'

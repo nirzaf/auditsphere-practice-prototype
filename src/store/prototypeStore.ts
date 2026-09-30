@@ -1,6 +1,9 @@
+import { assertAdjustmentSupport } from '../services/adjustmentSupport';
 import { canonicalRoute } from '../services/legacyRoutes';
+import { mergeIndependentEdits } from '../services/rowMerge';
+import { sealEngagementArchive } from '../services/archivePackage';
 import { closeExpiredArchives } from '../services/targetLifecycle';
-import { fsliRiskLevel } from '../services/targetLifecycle';
+import { fsliRiskLevel, materialityBenchmark } from '../services/targetLifecycle';
 import { requireRoutedContact } from '../services/contactRouting';
 import { TargetLifecycleCommands } from './targetLifecycleCommands';
 // AuditSphere Single Typed Store & Command Boundary
@@ -71,17 +74,37 @@ class PrototypeStore {
   private isSessionOnly = false;
   private loadError: string | null = null;
   private storageConflict = false;
+  private persistedBase: PrototypeState;
+  private packaging = new Set<string>();
+  private packageExpiredArchives() {
+    if (typeof indexedDB === 'undefined') return;
+    for (const eng of this.state.engagements.filter(e => e.archive?.packagingStatus === 'Pending')) {
+      if (this.packaging.has(eng.id)) continue;
+      this.packaging.add(eng.id);
+      void sealEngagementArchive(this.state, eng).catch(error => {
+        if (eng.archive) { eng.archive.packagingStatus = 'Incomplete — originals unavailable'; eng.archive.unavailable = [error instanceof Error ? error.message : 'Artifact storage unavailable']; }
+      }).finally(() => { this.packaging.delete(eng.id); this.persist(); this.listeners.forEach(fn => fn()); });
+    }
+  }
 
   constructor() {
     this.state = this.loadInitialState();
-    // VP-004: one active editing tab. A storage event from another tab surfaces
+    this.persistedBase = structuredClone(this.state);
+    // VP-004: distinct record/procedure edits merge; same-row conflicts surface. A storage event surfaces
     // reload/conflict guidance instead of silently overwriting.
     if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
       window.setInterval(() => { if (closeExpiredArchives(this.state)) this.notify(); }, 60000);
       window.addEventListener('storage', (e) => {
         if (e.key === STORAGE_KEY) {
-          this.storageConflict = true;
-          markStateStale(this.state, true);
+          try {
+            if (!e.newValue) throw new Error('Remote workspace was reset.');
+            const remote = normalizeTargetState(JSON.parse(e.newValue));
+            this.state = mergeIndependentEdits(this.persistedBase, this.state, remote);
+            this.persistedBase = structuredClone(remote);
+          } catch {
+            this.storageConflict = true;
+            markStateStale(this.state, true);
+          }
           this.listeners.forEach(fn => fn());
         }
       });
@@ -105,6 +128,7 @@ class PrototypeStore {
       localStorage.setItem(STORAGE_BACKUP_KEY, latest);
     }
     this.storageConflict = false;
+    this.persistedBase = structuredClone(this.state);
     markStateStale(this.state, false);
     if (choice === 'keep-local') this.persist();
     this.listeners.forEach(fn => fn());
@@ -113,31 +137,7 @@ class PrototypeStore {
   public getLoadError(): string | null { return this.loadError; }
 
   private assertCurrentAdjustmentSupport(engagementId: string, links?: AdjustmentJournalSupportLinks) {
-    if (!links || (!links.evidence && !links.workpaper && !links.finding)) return;
-    const engagement = this.state.engagements.find(item => item.id === engagementId);
-    if (!engagement) throw new GuardError('FORBIDDEN_SCOPE', 'Journal support must belong to an available engagement.');
-    if (links.evidence) {
-      const pin = links.evidence;
-      const evidence = this.state.evidenceCatalogue.find(item => item.id === pin.id);
-      const document = evidence && this.state.documents.find(item => item.id === evidence.documentId);
-      if (!evidence || !document || document.id !== pin.documentId || document.clientId !== engagement.client || document.engagementId !== engagementId || document.brokenLink) {
-        throw new GuardError('FORBIDDEN_SCOPE', 'Linked evidence must resolve to an available document within this engagement and client.');
-      }
-      if (this.state.documents.some(item => item.supersedesDocumentId === document.id)) throw new GuardError('STALE_REVISION', 'Linked evidence points to a superseded document. Select evidence for the current document revision.');
-      if (evidence.adequacyStatus !== 'Adequate' || evidence.version !== pin.evidenceVersion || document.version !== pin.documentVersion || evidence.version !== document.version) {
-        throw new GuardError('STALE_REVISION', 'Linked evidence is not adequate at the pinned current evidence and document revisions. Select a current adequate evidence record.');
-      }
-    }
-    if (links.workpaper) {
-      const workpaper = engagement.workpapers.find(item => item.id === links.workpaper!.id);
-      if (!workpaper || !workpaper.applicable || workpaper.status === 'Not applicable') throw new GuardError('FORBIDDEN_SCOPE', 'Linked workpaper must be available and applicable within this engagement.');
-      if (workpaper.version !== links.workpaper.version) throw new GuardError('STALE_REVISION', 'Linked workpaper revision is stale. Select its current revision.');
-    }
-    if (links.finding) {
-      const finding = this.state.findings.find(item => item.id === links.finding!.id && item.engagementId === engagementId);
-      if (!finding) throw new GuardError('FORBIDDEN_SCOPE', 'Linked finding must belong to this engagement.');
-      if ((finding.revision || 1) !== links.finding.revision) throw new GuardError('STALE_REVISION', 'Linked finding revision is stale. Select its current revision.');
-    }
+    assertAdjustmentSupport(this.state,engagementId,links);
   }
 
   public getAdjustmentSupportIssue(engagementId: string, links?: AdjustmentJournalSupportLinks): string | null {
@@ -201,7 +201,13 @@ class PrototypeStore {
   private persist() {
     if (this.isSessionOnly || this.storageConflict) return;
     try {
+      const latest = localStorage.getItem(STORAGE_KEY);
+      if (latest && latest !== JSON.stringify(this.persistedBase)) {
+        try { this.state = mergeIndependentEdits(this.persistedBase, this.state, JSON.parse(latest)); }
+        catch { this.storageConflict = true; markStateStale(this.state, true); return; }
+      }
       localStorage.setItem(STORAGE_KEY, JSON.stringify(this.state));
+      this.persistedBase = structuredClone(this.state);
     } catch (e) {
       console.warn('Storage quota exceeded, switching to session-only mode', e);
       this.isSessionOnly = true;
@@ -210,6 +216,7 @@ class PrototypeStore {
 
   private notify() {
     closeExpiredArchives(this.state);
+    this.packageExpiredArchives();
     this.persist();
     this.listeners.forEach(fn => fn());
   }
@@ -221,6 +228,7 @@ class PrototypeStore {
 
   public getSnapshot = (): PrototypeState => {
     if (closeExpiredArchives(this.state)) this.persist();
+    this.packageExpiredArchives();
     return structuredClone(this.state);
   };
 
@@ -1193,13 +1201,13 @@ class PrototypeStore {
 
     // Dual-Key Gate Enforcement:
     // Key 1: Client commercial acceptance of current proposal revision with evidence
-    const prop = acceptedProposal(this.state, eng) || this.state.proposals.find(p => (p.id === eng.proposalId || p.clientId === eng.client) && p.state === 'Accepted');
+    const prop = acceptedProposal(this.state, eng);
     if (!prop || !prop.clientResponse || prop.clientResponse.responseType !== 'Accepted' || !prop.clientResponse.evidenceRef?.trim()) {
       throw new GuardError('INVALID_STATE', 'Key 1 missing: Engagement letter requires a current accepted client proposal revision with recorded evidence.');
     }
 
     // Key 2: Independent assigned-Partner risk clearance (acceptance/continuance case approved)
-    const accCase = professionalCase(this.state, eng) || (this.state.acceptanceCases || []).find(c => c.clientId === eng.client && c.year === eng.year && c.service === eng.service && c.decisionStatus === 'Accepted') || (this.state.acceptanceCases || []).find(c => c.clientId === eng.client && c.year === eng.year && c.decisionStatus === 'Accepted');
+    const accCase = professionalCase(this.state, eng);
     if (!accCase || accCase.decisionStatus !== 'Accepted') {
       throw new GuardError('INVALID_STATE', 'Key 2 missing: Engagement letter requires an independent assigned-Partner risk clearance (acceptance case approved).');
     }
@@ -1231,10 +1239,11 @@ class PrototypeStore {
       `Attention: ${reportRecipient.name} (${reportRecipient.title || reportRecipient.contactRole})`,
       `Jurisdiction: ${client.jurisdiction || 'State of Qatar'} · Entity Structure: ${client.entityRole || 'Commercial Entity'}`,
       `Financial Reporting Period: ${eng.period} (Year: ${eng.year})`,
+      `Submission deadline: ${eng.auditLifecycle?.milestones?.at(-1)?.final || eng.due}`,
       `Applicable Financial Reporting Framework: ${framework}`,
       '',
       template === 'ISA 210 External Statutory Audit'
-        ? `1. OBJECTIVE AND SCOPE OF THE AUDIT (ISA 210):\nYou have requested that we audit the financial statements of ${client.name}, which comprise the statement of financial position as at December 31, ${eng.year}, and the statement of comprehensive income, statement of changes in equity and statement of cash flows for the year then ended, and notes to the financial statements, including a summary of significant accounting policies.\nWe are pleased to confirm our acceptance and our understanding of this audit engagement by means of this letter. Our audit will be conducted with the objective of expressing an opinion on the financial statements in accordance with International Standards on Auditing (ISA).`
+        ? `1. OBJECTIVE AND SCOPE OF THE AUDIT (ISA 210):\nYou have requested that we audit the financial statements of ${client.name} for ${eng.period}, including the statement of financial position at the reporting cutoff ${eng.auditLifecycle?.milestones?.at(-1)?.cutoff || prop.periodEnd}, income, equity, cash flows and notes. Our objective is to express an opinion under International Standards on Auditing (ISA).`
         : `1. OBJECTIVE AND SCOPE OF AGREED-UPON PROCEDURES (ISRS 4400):\nThis engagement will be conducted in accordance with the International Standard on Related Services (ISRS) 4400 (Revised), Engagements to Perform Agreed-Upon Procedures Regarding Financial Information.\nThe procedures performed will be strictly those agreed upon with you, and our report is intended solely for your information and is not to be distributed to third parties.`,
       '',
       '2. AUDITOR RESPONSIBILITIES:',
@@ -1250,7 +1259,7 @@ class PrototypeStore {
       '',
       '5. SIGNATORIES AND CREDENTIALS:',
       `Engagement Partner: ${partnerSigValue}`,
-      `Firm Seal / Stamp: ${isFirmStampApplied ? 'STE Audit & Accounting LLC [State of Qatar - QFC Registration QFC-00892] — VERIFIED' : 'Pending'}`,
+      `Firm Seal / Stamp: ${isFirmStampApplied ? 'STE Audit — SYNTHETIC DEMO SEAL; no legal signature or registration claim' : 'Pending Partner issuance'}`,
       `Issued at: ${new Date().toISOString()}`
     ].join('\n');
 
@@ -1271,7 +1280,7 @@ class PrototypeStore {
         paid: 0,
         due: this.state.asOfDate,
         issueDate: this.state.asOfDate,
-        status: 'Approved',
+        status: isFirmStampApplied && partnerSignature ? 'Issued' : 'Draft',
         isAdvanceInvoice: true,
         currency: eng.currency,
         preparedBy: this.state.currentPerson,
@@ -1289,13 +1298,16 @@ class PrototypeStore {
       this.state.firmSettings.invoiceNextNumber++;
     }
 
+    if (advanceInvoice.amount !== advanceAmount || advanceInvoice.currency !== eng.currency) throw new GuardError('STALE_REVISION', 'Existing advance invoice differs from the exact accepted fee; reconcile it before reissuing.');
+    if (isFirmStampApplied && partnerSignature && advanceInvoice.status === 'Draft') advanceInvoice.status = 'Issued';
+    if (eng.engagementLetter) (eng.engagementLetterHistory ||= []).push(structuredClone(eng.engagementLetter));
     eng.engagementLetter = {
       revision: (eng.engagementLetter?.revision || 0) + 1,
       template,
       framework,
       generatedAt: new Date().toISOString(),
       generatedBy: this.state.currentPerson,
-      partnerSignature: partnerSigValue,
+      partnerSignature: isAssignedPartner && partnerSignature ? partnerSigValue : '',
       firmStamp: isFirmStampApplied,
       content: letterContent
     };
@@ -2125,7 +2137,7 @@ class PrototypeStore {
     if (status === 'Approved') requireIndependentActor(entry.person, this.state.currentPerson, 'approve their own time entry', this.state);
     requireRole(this.state, ['manager', 'reviewer', 'partner'], 'review time');
     if (status === 'Returned' && !returnReason?.trim()) throw new GuardError('INVALID_STATE', 'Returning time requires a reason.');
-    if (status === 'Approved') {
+    if (status === 'Approved' && !(entry.recordedAt && this.state.engagements.find(e => e.id === entry.engagementId)?.auditLifecycle)) {
       const budget = this.state.budgets.find(b => b.engagementId === entry.engagementId);
       const line = budget?.lines.find(l => l.roleOrActivity.trim().toLowerCase() === entry.activity.trim().toLowerCase());
       entry.budgetVersion = budget?.version;
@@ -3998,6 +4010,7 @@ class PrototypeStore {
         engagementId: eng.id,
         name: file.name,
         folderPath: `/PBC/`,
+        mimeType: file.type,
         version: uploadVersion,
         size: file.size!,
         sha: file.sha256,
@@ -4454,6 +4467,7 @@ class PrototypeStore {
     if (!procedure) throw new GuardError('INVALID_STATE', 'Procedure was not found in the selected engagement.');
     const executionProgram = this.state.auditPrograms.find(program => program.engagementId === engId && program.procedures.some(item => item.id === procedureId));
     if (status === 'Submitted' && targetEngagement?.auditLifecycle && executionProgram?.financialStatementLines?.some(line => fsliRiskLevel(this.state, targetEngagement, line) === 'RED') && !hasAnyRole(this.state, ['manager'])) throw new GuardError('FORBIDDEN_SCOPE', 'Red FSLI procedures require Manager-level execution and subsequent Partner review.');
+    if (status === 'Submitted' && targetEngagement?.auditLifecycle && executionProgram?.financialStatementLines?.some(line => fsliRiskLevel(this.state, targetEngagement, line) === 'AMBER') && !hasAnyRole(this.state, ['reviewer','manager'])) throw new GuardError('FORBIDDEN_SCOPE', 'Amber FSLI procedures require Senior or Manager execution.');
     const previous = { status: procedure.status, workPerformed: procedure.workPerformed, conclusion: procedure.conclusion, evidenceLimitation: procedure.evidenceLimitation };
     const isReturn = (procedure.status === 'Submitted' || procedure.status === 'Cleared') && ['Not started', 'In progress', 'Blocked'].includes(status);
     if (isReturn) {
@@ -5507,6 +5521,16 @@ class PrototypeStore {
     }
     validateMaterialityRates(plan.benchmark, plan.materialityRate, plan.performanceMaterialityRate, plan.clearlyTrivialRate);
     validateMaterialityThresholds(plan.benchmarkValue, plan.materialityRate, plan.overallMateriality, plan.performanceMaterialityRate!, plan.performanceMateriality, plan.clearlyTrivialRate!, plan.clearlyTrivialThreshold);
+    const source = this.state.engagements.find(e => e.id === plan.engagementId)!;
+    if (source.auditLifecycle) {
+      if (!source.sourceAccepted || !source.mappingApproved || !source.rows.length) throw new GuardError('INVALID_STATE', 'Materiality requires the accepted mapped TB.');
+      const derived = materialityBenchmark(source, plan.benchmark);
+      const adjustments = plan.benchmarkProvenance?.normalizations || [];
+      if (adjustments.some(a => !Number.isFinite(a.amount) || !a.rationale.trim() || !source.rows.some(r => r.code === a.accountCode)) || (adjustments.length && plan.benchmark !== 'profit')) throw new GuardError('INVALID_STATE', 'Normalized PBT requires source accounts, amounts and rationale.');
+      if (Math.abs(plan.benchmarkValue - derived.value - adjustments.reduce((n,a) => n + a.amount, 0)) > 0.005) throw new GuardError('INVALID_STATE', 'Benchmark must reconcile to the current TB and explicit normalization adjustments.');
+      plan.benchmarkSource = 'TB';
+      plan.benchmarkProvenance = { sourceVersion: source.sourceVersion, accounts: derived.accounts, rawValue: derived.value, normalizations: structuredClone(adjustments) };
+    }
     if (!Array.isArray(plan.teamAllocations) || plan.teamAllocations.length === 0) {
       throw new GuardError('INVALID_STATE', 'Assign at least one in-scope staff member with a role and scheduled dates before submitting the audit plan.');
     }
@@ -5566,6 +5590,11 @@ class PrototypeStore {
     requireIndependentActor(plan.preparedByUserId || plan.preparedBy || '', this.state.currentUserId, 'review this audit plan', this.state);
     const basisEngagement = this.state.engagements.find(e => e.id === plan.engagementId);
     if (basisEngagement?.auditLifecycle && plan.sourceVersion !== basisEngagement.sourceVersion) throw new GuardError('STALE_REVISION', 'TB changed after this plan was prepared; prepare a fresh materiality revision.');
+    if (approved && basisEngagement) {
+      const assigned = this.state.users.find(u => u.name === basisEngagement.partner && u.role === 'partner');
+      const actor = this.state.users.find(u => u.id === this.state.currentUserId);
+      if ((!assigned || !actor || (assigned.personId || assigned.id) !== (actor.personId || actor.id)) && !recordPrototypeSuperuserOverride(this.state,'approve planning as a non-assigned Partner')) throw new GuardError('FORBIDDEN_SCOPE','Only the assigned Partner can approve this plan.');
+    }
     plan.status = approved ? 'Approved' : 'Draft';
     plan.reviewedBy = this.state.currentPerson;
     plan.reviewedByUserId = this.state.currentUserId;

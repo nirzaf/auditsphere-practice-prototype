@@ -1,6 +1,6 @@
 import React from 'react';
 import { prototypeStore } from '../../store/prototypeStore';
-import { canOpenRoute, visibleEngagementIds } from '../../services/guards';
+import { canOpenRoute, visibleEngagementIds, visibleClientIds } from '../../services/guards';
 import {
   TARGET_STAGES,
   engagementProgress,
@@ -14,6 +14,8 @@ export function LifecycleOverviewView({ onNavigate }: TargetViewProps) {
     visible = visibleEngagementIds(state),
     engagements = state.engagements.filter((e) => visible === 'ALL' || visible.includes(e.id));
   const selected = engagements.find((e) => e.id === state.selectedEngagement);
+  const clients = visibleClientIds(state);
+  const commercialVisible = (clientId?: string) => clients === 'ALL' || Boolean(clientId && clients.includes(clientId));
 
   const activeSystemState = selected ? computeSystemState(state, selected) : SYSTEM_LIFECYCLE_STATES[0];
   const clientEntity = selected ? state.clients.find((c) => c.id === selected.client) : null;
@@ -23,6 +25,7 @@ export function LifecycleOverviewView({ onNavigate }: TargetViewProps) {
 
   return (
     <div className="target-overview stack" style={{ gap: 24 }}>
+      <section className="panel panel-pad"><h3>Pre-engagement commercial queue</h3>{state.leads.filter(l => commercialVisible(l.convertedClientId) && (!l.convertedClientId || !engagements.some(e => e.client === l.convertedClientId))).map(l => <p key={l.id}>{l.name || l.id} · Lead Ingestion · validate entity/contact before proposal.</p>)}{state.proposals.filter(p => commercialVisible(p.clientId) && !engagements.some(e => e.proposalId === p.id)).map(p => <p key={p.id}>{p.title} · {p.dispatchHistory?.some(d => d.revision === p.revision && d.simulatedOutcome === 'Delivered (simulated)') ? 'Dual-Key Pending' : 'Proposal Generation'} · revision {p.revision}</p>)}</section>
       {/* Title & System Purpose */}
       <div className="page-title">
         <div>

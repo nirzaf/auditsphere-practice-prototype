@@ -93,7 +93,8 @@ export function EngagementBillingView({ onNavigate, onRegisterUnsavedForm }: Tar
             reference: value(data, 'reference'),
             method: value(data, 'method') as 'Bank transfer'
           });
-          await prototypeStore.lifecycle.generateOfficialReceipt(engagement.id);
+          try { await prototypeStore.lifecycle.generateOfficialReceipt(engagement.id); }
+          catch (error) { throw new Error(`Payment recorded once; receipt/onboarding pending. Use Generate official receipt to retry. ${error instanceof Error ? error.message : ''}`); }
         }}
       >
         <Field
@@ -117,6 +118,8 @@ export function EngagementBillingView({ onNavigate, onRegisterUnsavedForm }: Tar
       </TargetForm>
       <section className="panel panel-pad">
         <h3>Official receipt & payment history</h3>
+        {summary.advance > 0 && !summary.receipt && <p role="status">Payment recorded; receipt pending. Retry receipt generation without recording the payment again.</p>}
+        {lifecycle.onboarding && <p>Invitation issued (simulated) to {lifecycle.onboarding.recipient}; first-login reset required.</p>}
         <ActionButton
           disabled={!canBill || summary.advance <= 0}
           action={() => prototypeStore.lifecycle.generateOfficialReceipt(engagement.id)}

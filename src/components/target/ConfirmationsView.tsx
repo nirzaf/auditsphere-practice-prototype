@@ -130,7 +130,7 @@ export function ConfirmationsView(props: TargetViewProps) {
             disabled={isFrozen(eng)}
             onRegisterUnsavedForm={props.onRegisterUnsavedForm}
             onCommit={(data) =>
-              prototypeStore.lifecycle.transitionConfirmation(
+              prototypeStore.lifecycle.transitionConfirmationWithHandover(
                 eng.id,
                 c.id,
                 value(data, 'status') as ConfirmationStatus,

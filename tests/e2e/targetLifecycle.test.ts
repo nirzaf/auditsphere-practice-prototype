@@ -6,6 +6,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { CdpTab } from '../helpers/cdp';
 import { PROJECT_TEMPLATES, templateUrl } from '../../src/services/projectTemplates';
+import { DECK_SLIDES } from '../../src/components/clientRequirements/deckData';
+import { unzipSync } from 'fflate';
 let vite: ChildProcess, chrome: ChildProcess, tab: CdpTab, profile: string;
 const origin = 'http://127.0.0.1:3007',
   sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -23,7 +25,7 @@ before(
     vite = spawn(
       process.execPath,
       ['node_modules/vite/bin/vite.js', '--host', '127.0.0.1', '--port', '3007', '--strictPort'],
-      { stdio: 'ignore' }
+      { stdio: 'ignore', env: { ...process.env, VITE_DEMO_API_URL: process.env.TEST_CLOUD_API_URL || '' } }
     );
     for (let n = 0; n < 100; n++) {
       if (
@@ -101,10 +103,19 @@ it(
     );
     assert.equal(result.checkpoints.length, 17);
     assert.equal(result.artifacts.length, 5);
-    assert.equal(result.archive.artifacts.length, 5);
+    assert.ok(result.archive.artifacts.length > 5, 'archive includes workpapers, receipt, SRM and final documents');
     assert.equal(result.review.partner, true);
     assert.deepEqual(result.blockers, []);
     mkdirSync('docs/prototype/evidence', { recursive: true });
+    const reportBytes = await tab.evaluate<string>(`import('/src/services/artifactStore.ts').then(async m => {const s = (await import('/src/store/prototypeStore.ts')).prototypeStore.getSnapshot();const a = s.engagements.find(e=>e.id===${JSON.stringify(result.engagementId)}).auditLifecycle.deliverables[0].artifacts[0];const bytes = new Uint8Array(await (await m.loadVerifiedArtifact(a)).arrayBuffer());return btoa(Array.from(bytes,b=>String.fromCharCode(b)).join(''))})`);
+    await saveEvidence('docs/prototype/evidence/review-final-report.pdf',Buffer.from(reportBytes,'base64'));
+    const zipBytes = await tab.evaluate<string>(`import('/src/services/archivePackage.ts').then(async m => {const s=(await import('/src/store/prototypeStore.ts')).prototypeStore.getSnapshot();const bytes=new Uint8Array(await (await m.createInspectionZip(s,s.engagements.find(e=>e.id===${JSON.stringify(result.engagementId)}))).arrayBuffer());return btoa(Array.from(bytes,b=>String.fromCharCode(b)).join(''))})`);
+    const zip = unzipSync(Buffer.from(zipBytes,'base64'));
+    const inspection = JSON.parse(new TextDecoder().decode(zip['audit-file-manifest.json']));
+    assert.equal(inspection.exportStatus,'Verified');
+    assert.ok(Object.keys(zip).some(name=>name.endsWith('target-tb.csv')));
+    assert.ok(Object.keys(zip).some(name=>name.endsWith('population.csv')));
+    assert.ok(Object.keys(zip).length>10);
     writeFileSync(
       'docs/prototype/evidence/target-browser-journey.json',
       JSON.stringify(
@@ -234,7 +245,7 @@ it('checks US-UIUX-001 responsive scope and captures twelve required surfaces', 
   const results: any[] = [];
   const folder = 'docs/prototype/evidence/visual-parity';
   mkdirSync(folder, { recursive: true });
-  for (const width of [320,390,760,1024,1440,1920]) {
+  for (const width of [320,390,760,960,1000,1024,1440,1920]) {
     await tab.command('Emulation.setDeviceMetricsOverride', { width, height: 1000, deviceScaleFactor: 1, mobile: false });
     for (const route of routes) {
       await tab.evaluate(`import('/src/store/prototypeStore.ts').then(({prototypeStore:s})=>{s.setPersona(${JSON.stringify(route==='portal'?'client_finance':'superuser')});location.hash=${JSON.stringify(route)}})`);
@@ -245,6 +256,7 @@ it('checks US-UIUX-001 responsive scope and captures twelve required surfaces', 
       results.push(result);
       assert.ok(result.main && result.title, `${route} renders at ${width}`);
       assert.ok(result.documentWidth <= width + 1, `${route} at ${width}: ${JSON.stringify(result)}`);
+      if (width >= 960) assert.equal(await tab.evaluate<boolean>(`document.querySelector('.sidebar').getBoundingClientRect().right <= document.querySelector('.shell').getBoundingClientRect().left + 1`),true,`sidebar must not overlap ${route} at ${width}`);
       assert.equal(result.hiddenIdentity,true,'normal experience hides identity utility');
       assert.equal(result.hiddenSearch,true,'normal experience hides global search utility');
       if ([390,1440].includes(width)) {
@@ -319,3 +331,47 @@ it('creates a cloud demo from Presenter controls, autosaves a guarded change and
   } finally { await fetch(process.env.TEST_CLOUD_API_URL+`/workspaces/${id}`, {method:'DELETE',headers:{Authorization:`Bearer ${token}`}}); }
   assert.deepEqual(tab.exceptions, []);
 });
+
+it('F14 visible AJE authoring hands off through independent review, client decision and TB reflection', async () => {
+  await tab.evaluate(`import('/tests/helpers/targetJourney.ts').then(m=>m.runTargetJourney({stopAtFieldwork:true}))`);
+  await tab.evaluate(`import('/src/store/prototypeStore.ts').then(({prototypeStore:s})=>{s.setPersona('admin');s.grantAccess('client','client','Engagement',s.getSnapshot().selectedEngagement,'Authorized synthetic management approver',{requestRef:'REQ-AJE-APPROVER',approvalEvidenceRef:'APPROVAL-AJE-APPROVER'})})`);
+  await tab.evaluate(`import('/src/store/prototypeStore.ts').then(({prototypeStore:s})=>{s.setPersona('preparer');location.hash='findings'})`);
+  await sleep(150);
+  const fill = async (heading: string, fields: Record<string,string>) => {
+    await tab.evaluate(`{
+      const form=[...document.querySelectorAll('[data-testid="adjustment-panel"] form')].find(f=>f.querySelector('h3').textContent.startsWith(${JSON.stringify(heading)}));
+      if(!form) throw Error('Visible AJE form missing: '+${JSON.stringify(heading)});
+      for(const [name,value] of Object.entries(${JSON.stringify(fields)})){const input=form.elements.namedItem(name);input.value=value;input.dispatchEvent(new Event('input',{bubbles:true}));input.dispatchEvent(new Event('change',{bubbles:true}));}
+      form.requestSubmit();
+    }`);
+    await sleep(180);
+  };
+  const accounts=await tab.evaluate<string[]>(`[...document.querySelectorAll('[data-testid="adjustment-panel"] select[name="debit"] option')].map(o=>o.value)`);
+  await fill('Propose balanced AJE',{title:'Browser verified AJE',debit:accounts[0],credit:accounts[1],amount:'10',rationale:'Current ledger and invoice support this balanced reclassification.'});
+  const status = () => tab.evaluate<string>(`import('/src/store/prototypeStore.ts').then(({prototypeStore:s})=>s.getSnapshot().adjustmentJournals.find(j=>j.title==='Browser verified AJE')?.status || '')`);
+  assert.equal(await status(),'Draft');
+  await tab.evaluate(`import('/src/store/prototypeStore.ts').then(({prototypeStore:s})=>s.setPersona('manager'))`);await sleep(150);
+  await fill('Independent review',{decision:'approve',note:'Independent review of ledger and invoice completed.'});assert.equal(await status(),'Technical review');
+  await tab.evaluate(`import('/src/store/prototypeStore.ts').then(({prototypeStore:s})=>{s.setPersona('client');location.hash='portal'})`);await sleep(150);
+  await fill('Management decision',{decision:'accept',note:'Management accepts the supported correction.'});assert.equal(await status(),'Management accepted');
+  await tab.evaluate(`import('/src/store/prototypeStore.ts').then(({prototypeStore:s})=>{s.setPersona('manager');location.hash='findings'})`);await sleep(150);
+  await fill('Current TB reflection',{reflection:'reflected',evidence:'Client revised ledger and current TB reviewed.'});assert.equal(await status(),'Reporting included');
+  assert.deepEqual(tab.exceptions,[]);
+},{timeout:30000});
+
+it('F22 renders all detailed notes equally in React and the standalone presentation', async () => {
+  await tab.evaluate(`import('/src/store/prototypeStore.ts').then(({prototypeStore:s})=>{s.setPersona('superuser');location.hash='client-requirements'})`);await sleep(150);
+  await tab.evaluate(`document.querySelector('button[title="Toggle CPA Discussion Notes (N)"]').click()`);await sleep(80);
+  for(let i=0;i<DECK_SLIDES.length;i++) {
+    const slide=DECK_SLIDES[i];
+    const text=await tab.evaluate<string>(`document.querySelector('aside[role="dialog"]').textContent`);
+    assert.ok(text.includes(slide.title),slide.id+' title');
+    assert.ok(text.includes(slide.note || ''),slide.id+' detailed notes');
+    if(i<DECK_SLIDES.length-1){await tab.evaluate(`[...document.querySelectorAll('button')].find(b=>b.textContent.trim()==='Next →').click()`);await sleep(80);}
+  }
+  await tab.command('Page.navigate',{url:origin+'/Client_Requirements.html'});await sleep(250);
+  assert.equal(await tab.evaluate<number>(`document.querySelectorAll('main section').length`),17);
+  for(const slide of DECK_SLIDES) assert.equal(await tab.evaluate<boolean>(`document.getElementById(${JSON.stringify(slide.id)}).textContent.includes(${JSON.stringify(slide.note)})`),true,slide.id+' standalone detail');
+  await tab.command('Page.navigate',{url:origin+'/#overview'});await sleep(300);
+  assert.deepEqual(tab.exceptions,[]);
+},{timeout:15000});

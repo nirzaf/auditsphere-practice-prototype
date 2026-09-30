@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { MODULE_GUIDES } from '../../src/services/moduleGuideContent.js';
+import { MODULE_GUIDES } from '../../historical/moduleGuideContent.js';
 import { buildWalkthrough, clampPosition, lastPosition } from '../../src/components/walkthrough/walkthroughModel.js';
 
 describe('guided walkthrough model', () => {

@@ -1,4 +1,5 @@
-import { TARGET_GUIDES, ModuleGuideEntry } from '../../services/moduleGuideContent';
+import { TARGET_GUIDES } from '../../services/currentWorkflowGuides';
+type ModuleGuideEntry = typeof TARGET_GUIDES[number];
 import { RouteKey } from '../../types';
 import { DECK_SLIDES } from './deckData';
 
@@ -13,12 +14,12 @@ export const modulesForSlide = (slideId: string): ModuleGuideEntry[] =>
 export const slideNumber = (slideId: string) => DECK_SLIDES.findIndex(slide => slide.id === slideId) + 1;
 
 /** First workspace named by a module guide's route, mapped to an app route. */
-export const primaryRouteFor = (guide: ModuleGuideEntry): RouteKey => {
+export const primaryRouteFor = (guide: Pick<ModuleGuideEntry,'route'>): RouteKey => {
   const first = guide.route.replace(/`/g, '').split('→')[0].trim().split(' ')[0];
-  const mapped: Record<string, RouteKey> = { 'client-detail': 'clients', crm: 'clients', Shell: 'clients', 'trial-balance': 'accounting-setup', requirements: 'requirements' };
+  const mapped: Record<string, RouteKey> = { 'client-detail': 'clients', crm: 'clients', Shell: 'clients', 'trial-balance': 'trial-balance', requirements: 'requirements' };
   return mapped[first] || (first as RouteKey) || 'overview';
 };
 
 /** Same client-visibility rule the Module Guide uses: only portal/client-facing workspaces show full steps. */
-export const guideVisibleToClient = (guide: ModuleGuideEntry) =>
+export const guideVisibleToClient = (guide: Pick<ModuleGuideEntry,'route'>) =>
   ['portal', 'client-detail', 'requirements', 'clients'].some(route => guide.route.replace(/`/g, '').includes(route));

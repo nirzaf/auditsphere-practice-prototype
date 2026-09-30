@@ -1,7 +1,7 @@
 import { exportToCSV } from '../../services/exportService';
 import React, { useState } from 'react';
 import { prototypeStore } from '../../store/prototypeStore';
-import { firmTrialBalance, practiceEconomics } from '../../services/targetLifecycle';
+import { firmTrialBalance, practiceEconomics, allocatedSettlementAt } from '../../services/targetLifecycle';
 import { visibleEngagementIds } from '../../services/guards';
 import { formatCurrency } from '../../services/calculations';
 import {
@@ -22,18 +22,16 @@ export function PracticeView(props: TargetViewProps & { ledger?: boolean }) {
   const [reportMonth, setReportMonth] = useState(s.asOfDate.slice(0, 7));
 
   // Compute Practice Trial Balance
-  const tbRows = firmTrialBalance(s);
+  const tbRows = firmTrialBalance(s, reportMonth);
   const totalDebit = tbRows.reduce((sum, r) => sum + r.debit, 0);
   const totalCredit = tbRows.reduce((sum, r) => sum + r.credit, 0);
 
   // Compute Firm Monthly Profit & Loss
   // Revenue = Billed engagement fees
   // Expenses = Office Rent, Staff Salaries, Petty Cash, Other expenses
-  const billedRevenue = s.invoices
-    .filter(inv => ['Issued', 'Paid'].includes(inv.status) && inv.issueDate?.startsWith(reportMonth) && inv.currency === s.firmSettings.currency)
-    .reduce((sum, inv) => sum + inv.amount, 0);
+  const billedRevenue = -(tbRows.find(r => r.account === 'Audit fee revenue')?.balance || 0);
 
-  const monthRows = firmTrialBalance({ ...s, firmLedger: s.firmLedger?.filter(entry => entry.date.startsWith(reportMonth) && entry.currency === s.firmSettings.currency) });
+  const monthRows = tbRows;
   const monthlyBalance = (account: string) => monthRows.find(row => row.account === account)?.balance || 0;
   const rentExpense = monthlyBalance('Office rent');
   const salaryExpense = monthlyBalance('Staff salaries');
@@ -44,7 +42,8 @@ export function PracticeView(props: TargetViewProps & { ledger?: boolean }) {
   const netFirmProfit = billedRevenue - totalExpenses;
 
   // Compute Client Accounts Receivable Aging Schedule (50% Advance & 50% Final Fee)
-  const invoicesWithAging = s.invoices.filter(inv => ['Issued', 'Paid'].includes(inv.status)).map((inv) => {
+  const monthEnd = new Date(Date.UTC(Number(reportMonth.slice(0,4)),Number(reportMonth.slice(5,7)),0)).toISOString().slice(0,10);
+  const invoicesWithAging = s.invoices.filter(inv => ['Issued', 'Paid'].includes(inv.status) && inv.currency === s.firmSettings.currency && Boolean(inv.issueDate && inv.issueDate <= monthEnd)).map((inv) => {
     const desc = inv.description?.toLowerCase() || '';
     const isAdvance = desc.includes('advance') || inv.invoiceNumber.includes('ADV');
     const isFinal = desc.includes('final') || inv.invoiceNumber.includes('FINAL') || inv.invoiceNumber.includes('BAL');
@@ -52,7 +51,7 @@ export function PracticeView(props: TargetViewProps & { ledger?: boolean }) {
 
     // Simulated aging based on invoice date
     const issueDateStr = inv.due;
-    const daysOld = Math.max(0, Math.floor((Date.parse(s.asOfDate) - Date.parse(issueDateStr)) / (1000 * 60 * 60 * 24)));
+    const daysOld = Math.max(0, Math.floor((Date.parse(monthEnd) - Date.parse(issueDateStr)) / (1000 * 60 * 60 * 24)));
     let agingBucket: 'Current' | '1–30 Days' | '31–60 Days' | '61–90 Days' | '90+ Days' = 'Current';
     if (daysOld > 90) agingBucket = '90+ Days';
     else if (daysOld > 60) agingBucket = '61–90 Days';
@@ -63,6 +62,7 @@ export function PracticeView(props: TargetViewProps & { ledger?: boolean }) {
 
     return {
       ...inv,
+      paid: allocatedSettlementAt(s,inv.id,monthEnd),
       invoiceType,
       daysOld,
       agingBucket,
@@ -72,6 +72,7 @@ export function PracticeView(props: TargetViewProps & { ledger?: boolean }) {
 
   return (
     <div className="target-stack">
+      <section className="panel panel-pad"><label>Reporting month <input aria-label="Reporting month" type="month" value={reportMonth} onChange={e => setReportMonth(e.target.value)} /></label><p>Currency: {s.firmSettings.currency}. Prototype accrual projection: issued fees credit revenue/debit receivables; effective allocated receipts debit cash/credit receivables; reversals post on their recorded reversal date. Drafts excluded. Monthly TB shows movements; aging shows balances at month end; withdrawals remain separate.</p></section>
       {/* Module Header */}
       <section className="panel panel-pad">
         <div className="flex-between">
