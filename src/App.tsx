@@ -58,6 +58,7 @@ import { ModuleCatalogueView } from './components/modules/ModuleCatalogueView';
 import { UnsavedFormGuard } from './services/unsavedFormGuard';
 import { resolveRouteHash } from './services/legacyRoutes';
 import { ModuleGuideStrip } from './components/common/ModuleGuideStrip';
+import { ModuleWalkthroughCard } from './components/common/ModuleWalkthroughCard';
 import { WorkflowProgress } from './components/common/WorkflowProgress';
 import { computeModuleWorkflowProgress } from './services/workflowProgress';
 
@@ -547,6 +548,7 @@ export const App: React.FC = () => {
   return (
     <Shell currentRoute={effectiveRoute} onRouteChange={navigate} onSelectClient={(clientId) => requestContextChange(() => { setSelectedClientId(clientId); setWorkflowSelection(null); })} onBeforeContextChange={requestContextChange}>
       {!isClient && !['module-guide', 'requirements', 'client-requirements', 'role-guide'].includes(effectiveRoute) && <ModuleGuideStrip key={effectiveRoute} route={effectiveRoute} />}
+      {!['module-guide', 'requirements', 'client-requirements', 'role-guide'].includes(effectiveRoute) && <ModuleWalkthroughCard key={`wt-${effectiveRoute}`} route={effectiveRoute} />}
       {!['module-guide', 'requirements', 'client-requirements', 'role-guide', 'portal'].includes(effectiveRoute) && (
         <WorkflowProgress
           key={`wp-${effectiveRoute}-${state.selectedEngagement || ''}-${selectedClientId}-${searchTargetId || ''}`}
