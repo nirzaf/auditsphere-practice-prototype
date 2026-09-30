@@ -116,6 +116,27 @@ it('visible Partner reporting flow retains signed LOR and releases the exact fiv
   await tab.evaluate(`location.hash='portal'`);await sleep(150);
   await tab.evaluate(`Array.from(document.querySelectorAll('button')).find(b=>b.textContent.includes('4. Final Certified Deliverables')).click()`);await sleep(100);
   assert.equal(await tab.evaluate<number>(`document.querySelectorAll('[data-testid="client-release-set"]').length`),1);
+  await tab.evaluate(`import('/src/store/prototypeStore.ts').then(({prototypeStore:s})=>s.setPersona('records'))`);
+  await tab.evaluate(`location.hash='records'`);await sleep(150);
+  await tab.evaluate(`document.querySelector('[data-target-form="freeze"]').requestSubmit()`);
+  const archiveInspect=`import('/src/store/prototypeStore.ts').then(({prototypeStore:s})=>{const e=s.getSnapshot().engagements.find(e=>e.id===${JSON.stringify(result.engagementId)});return {archive:e.archive,control:e.auditLifecycle.archiveControl}})`;
+  let sealed:any;
+  for(let n=0;n<100;n++){sealed=await tab.evaluate(archiveInspect);if(sealed.archive?.packagingStatus==='Verified')break;await sleep(100);}
+  assert.equal(sealed.control.freezeStatus,'Frozen');assert.equal(sealed.archive.packagingStatus,'Verified');
+  assert.equal(await tab.evaluate<boolean>(`!!document.querySelector('[data-testid="frozen-archive"]') && !document.querySelector('[data-target-form="freeze"]')`),true);
+  await tab.evaluate(`window.__originalObjectURL=URL.createObjectURL;URL.createObjectURL=function(blob){if(blob.type.includes('zip'))window.__inspectionDownload=blob;return window.__originalObjectURL.call(URL,blob)};Array.from(document.querySelectorAll('button')).find(b=>b.textContent.includes('Download complete inspection ZIP')).click()`);
+  let zipBytes='';
+  try {
+    for(let n=0;n<100;n++){zipBytes=await tab.evaluate<string>(`window.__inspectionDownload?window.__inspectionDownload.arrayBuffer().then(buffer=>btoa(Array.from(new Uint8Array(buffer),b=>String.fromCharCode(b)).join(''))):''`);if(zipBytes)break;await sleep(100);}
+  } finally {await tab.evaluate(`URL.createObjectURL=window.__originalObjectURL`);}
+  const zip=unzipSync(Buffer.from(zipBytes,'base64'));
+  const manifest=JSON.parse(new TextDecoder().decode(zip['audit-file-manifest.json']));
+  assert.equal(manifest.exportStatus,'Verified');
+  assert.ok(Object.keys(zip).some(name=>name.endsWith('signed-lor.pdf')));
+  assert.ok(Object.keys(zip).some(name=>name.endsWith('target-tb.csv')));
+  assert.ok(Object.keys(zip).some(name=>name.endsWith('population.csv')));
+  const mutation=await tab.evaluate<string>(`import('/src/store/prototypeStore.ts').then(({prototypeStore:s})=>{s.setPersona('superuser');try{s.lifecycle.confirmMapping(${JSON.stringify(result.engagementId)},[]);return 'ALLOWED'}catch(error){return String(error)}})`);
+  assert.match(mutation,/frozen|read-only/i);
 }, {timeout:60000});
 it('critical confirmation transitions through visible forms automatically issue one verified Holding Letter', async () => {
   const result=await tab.evaluate<any>(`import('/tests/helpers/targetJourney.ts').then(m=>m.runTargetJourney({stopAtFieldwork:true}))`);
