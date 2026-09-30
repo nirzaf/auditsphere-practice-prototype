@@ -34,8 +34,17 @@ async function ready() {
     () => {},
     writer
   );
+  // Spec Flow 1 order: Key 1 (accepted proposal/EL) + Key 2 (Partner risk clearance)
+  // must BOTH precede EL pin and 50% advance recording.
   act(state, 'manager');
   commands.pinAcceptedProposal(e.id, e.proposalId!);
+  prototypeStore.saveAcceptanceCase(acceptance(state));
+  act(state, 'partner');
+  prototypeStore.decideAcceptanceCase(
+    'ACC-TARGET',
+    'Accepted',
+    'Independent Partner assessment of all five screening areas.'
+  );
   act(state, 'billing');
   commands.recordAdvance(e.id, {
     amount: e.agreedFee / 2,
@@ -44,14 +53,6 @@ async function ready() {
     reference: 'ADV-TARGET'
   });
   await commands.generateOfficialReceipt(e.id);
-  act(state, 'manager');
-  prototypeStore.saveAcceptanceCase(acceptance(state));
-  act(state, 'partner');
-  prototypeStore.decideAcceptanceCase(
-    'ACC-TARGET',
-    'Accepted',
-    'Independent Partner assessment of all five screening areas.'
-  );
   return { state, e, commands };
 }
 describe('canonical target lifecycle', () => {
@@ -86,6 +87,26 @@ describe('canonical target lifecycle', () => {
     state.acceptanceCases![0].conditions = [];
     state.acceptanceCases![0].screeningEvidence!.competence = '';
     assert.ok(activationBlockers(state, e).some((b) => b.includes('evidence')));
+  });
+  it('refuses advance recording while Partner risk clearance (Key 2) is incomplete', async () => {
+    const state = targetFixture(),
+      e = state.engagements[0];
+    (prototypeStore as any).state = state;
+    const commands = new TargetLifecycleCommands(() => state, () => {}, writer);
+    act(state, 'manager');
+    commands.pinAcceptedProposal(e.id, e.proposalId!);
+    act(state, 'billing');
+    assert.throws(
+      () =>
+        commands.recordAdvance(e.id, {
+          amount: e.agreedFee / 2,
+          date: state.asOfDate,
+          method: 'Bank transfer',
+          reference: 'ADV-NO-KEY2'
+        }),
+      /Dual-Key Gate: Partner risk clearance is incomplete/
+    );
+    assert.equal(billingSummary(state, e).complete, false);
   });
   it('rejects incomplete, duplicate, unbalanced and out-of-scope TB sources atomically', async () => {
     const { state, e, commands } = await ready();

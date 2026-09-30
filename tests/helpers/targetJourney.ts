@@ -127,15 +127,9 @@ export async function runTargetJourney() {
     professionalAcceptance: undefined
   });
   store.lifecycle.pinAcceptedProposal(e.id, proposal.id);
-  act('billing');
-  store.lifecycle.recordAdvance(e.id, {
-    amount: 500,
-    date: s.asOfDate,
-    method: 'Bank transfer',
-    reference: 'ADV-TARGET'
-  });
-  await store.lifecycle.generateOfficialReceipt(e.id);
-  mark('50% advance recorded and genuine receipt PDF persisted');
+  // Spec Flow 1 order: Dual-Key Gate (Key 1 accepted proposal + Key 2 Partner clearance)
+  // precedes EL pin and 50% advance. Record the acceptance decision first so the
+  // advance command's Key-2 check passes; the Declined negative path is exercised right after.
   act('manager');
   store.saveAcceptanceCase({
     ...acceptance(s),
@@ -145,6 +139,22 @@ export async function runTargetJourney() {
     service: e.service,
     year: e.year
   } as any);
+  act('partner');
+  store.decideAcceptanceCase(
+    'ACC-TARGET',
+    'Accepted',
+    'Independent Partner acceptance based on complete screening evidence.'
+  );
+  act('billing');
+  store.lifecycle.recordAdvance(e.id, {
+    amount: 500,
+    date: s.asOfDate,
+    method: 'Bank transfer',
+    reference: 'ADV-TARGET'
+  });
+  await store.lifecycle.generateOfficialReceipt(e.id);
+  mark('Dual-Key cleared, then 50% advance recorded and genuine receipt PDF persisted');
+  // Negative path: a declined mandate blocks workspace provisioning even with an advance on file.
   act('partner');
   store.decideAcceptanceCase(
     'ACC-TARGET',

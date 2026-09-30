@@ -5237,7 +5237,7 @@ class PrototypeStore {
       managementIntegrity: accCase.managementIntegrityConfirmed,
       financialViability: accCase.financialViabilityConfirmed
     };
-    if (Object.entries(requiredEvidence).some(([key, checked]) => checked && !accCase.screeningEvidence?.[key as keyof typeof requiredEvidence]?.trim())) {
+    if (Object.entries(requiredEvidence).some(([key, checked]) => checked && !accCase.screeningEvidence?.[key as keyof typeof accCase.screeningEvidence]?.trim())) {
       throw new GuardError('INVALID_STATE', 'Every completed acceptance screening check needs an evidence reference.');
     }
     const eng = this.state.engagements.find(e => e.id === accCase.engagementId) || this.state.engagements.find(e => e.client === accCase.clientId && e.year === accCase.year && e.service === accCase.service);

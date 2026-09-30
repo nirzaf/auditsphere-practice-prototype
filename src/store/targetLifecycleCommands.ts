@@ -44,6 +44,7 @@ import {
   money,
   opinionValidation,
   plusDays,
+  professionalBlockers,
   reportBasis,
   reviewBasis,
   targetReleaseBlockers
@@ -233,6 +234,15 @@ export class TargetLifecycleCommands {
       throw new GuardError(
         'INVALID_STATE',
         'Pin the accepted Proposal / EL fee before recording the advance.'
+      );
+    // Dual-Key Gate, Key 2 (spec Flow 1 + §5): no advance receipt may be recorded while
+    // Partner risk clearance is missing, declined, conditional, or missing evidence.
+    // Key 1 is the accepted proposal/EL revision checked above.
+    const key2 = professionalBlockers(this.state, engagement);
+    if (key2.length)
+      throw new GuardError(
+        'INVALID_STATE',
+        `Dual-Key Gate: Partner risk clearance is incomplete — ${key2.join(' ')}`
       );
     const summary = billingSummary(this.state, engagement);
     if (summary.advance + input.amount > summary.fee!)
