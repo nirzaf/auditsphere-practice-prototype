@@ -35,41 +35,11 @@ export function lifecyclesForRoute(route: RouteKey) {
 }
 
 export const ModuleGuideStrip: React.FC<{ route: RouteKey }> = ({ route }) => {
-  const guides = guidesForRoute(route);
-  const lifecycles = lifecyclesForRoute(route);
-  if (!guides.length && !lifecycles.length) return null;
-  const primary = guides[0];
-  return (
-    <details className="module-guide" data-testid="module-guide-strip">
-      <summary>
-        <span className="module-guide-label">How this module works</span>
-        {primary && <span className="caption">{primary.id} · {primary.name} · {primary.steps.length} steps</span>}
-        {lifecycles.length > 0 && <span className="caption">{lifecycles.length} record {lifecycles.length === 1 ? 'lifecycle' : 'lifecycles'}</span>}
-      </summary>
-      <div className="module-guide-body">
-        {guides.map(guide => (
-          <div key={guide.id} className="module-guide-section">
-            <b>{guide.id} · {guide.name}</b>
-            <ol>{guide.steps.map((step, index) => <li key={index}>{step}</li>)}</ol>
-            <p className="small"><b>Expected outcome:</b> {guide.outcome}</p>
-            <p className="small"><b>Failure / denial path to try:</b> {guide.failure}</p>
-            <p className="caption"><b>Prototype limits:</b> {guide.limits}</p>
-          </div>
-        ))}
-        {lifecycles.length > 0 && <div className="module-guide-section">
-          <b>Record lifecycles</b>
-          <ul className="module-guide-lifecycles">
-            {lifecycles.map(def => (
-              <li key={def.id}>
-                <span className="small bold">{def.record}</span>
-                <span className="lc-path">{def.path.map(step => step.step).join(' → ')}</span>
-                {def.rework && <span className="caption">Rework: {def.rework.note}</span>}
-                {def.terminal?.length ? <span className="caption">Terminal: {def.terminal.join(', ')}</span> : null}
-              </li>
-            ))}
-          </ul>
-        </div>}
-      </div>
-    </details>
-  );
+  const guide = TARGET_GUIDES.find(g => routeTokens(g.route).includes(route));
+  if (!guide) return null;
+  return <details className="module-guide" data-testid="module-guide-strip">
+    <summary>Workflow guidance · {guide.name}</summary>
+    <ol>{guide.steps.map((step, i) => <li key={i}>{plain(step)}</li>)}</ol>
+    <p>{guide.outcome}</p><p className="caption">{guide.limits}</p>
+  </details>;
 };

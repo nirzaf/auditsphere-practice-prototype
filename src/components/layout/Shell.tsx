@@ -22,6 +22,7 @@ export const Shell: React.FC<ShellProps> = ({ currentRoute, onRouteChange, onSel
   const state = prototypeStore.getSnapshot();
   const [showScenarioModal, setShowScenarioModal] = useState(false);
   const [showSearchModal, setShowSearchModal] = useState(false);
+  const [presenterMode, setPresenterMode] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [searchRecordType, setSearchRecordType] = useState('all');
   const [searchContext, setSearchContext] = useState('all');
@@ -45,7 +46,7 @@ export const Shell: React.FC<ShellProps> = ({ currentRoute, onRouteChange, onSel
   };
   const closeMobileMenu = () => {
     setMobileMenuOpen(false);
-    if (window.matchMedia?.('(max-width: 760px)').matches) mobileMenuTrigger.current?.focus();
+    if (window.matchMedia?.('(max-width: 959px)').matches) mobileMenuTrigger.current?.focus();
   };
   useEffect(() => {
     if (!mobileMenuOpen) return;
@@ -53,7 +54,7 @@ export const Shell: React.FC<ShellProps> = ({ currentRoute, onRouteChange, onSel
     const focusable = () => Array.from(drawer?.querySelectorAll<HTMLElement>('a[href], button:not([disabled]), select:not([disabled]), input:not([disabled]), [tabindex]:not([tabindex="-1"])') ?? []);
     window.requestAnimationFrame(() => focusable()[0]?.focus());
     const onKeyDown = (event: KeyboardEvent) => {
-      if (!window.matchMedia?.('(max-width: 760px)').matches) return;
+      if (!window.matchMedia?.('(max-width: 959px)').matches) return;
       if (event.key === 'Escape') {
         event.preventDefault();
         closeMobileMenu();
@@ -107,11 +108,11 @@ export const Shell: React.FC<ShellProps> = ({ currentRoute, onRouteChange, onSel
       if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT' || target.isContentEditable)) return;
       if (document.querySelector('.modal-backdrop, .modal-overlay, .modal')) return;
       event.preventDefault();
-      openSearch();
+      if (presenterMode) openSearch();
     };
     document.addEventListener('keydown', onKeyDown);
     return () => document.removeEventListener('keydown', onKeyDown);
-  }, []);
+  }, [presenterMode]);
   // Desktop sidebar collapse is a presenter preference, persisted separately from
   // the validated business state.
   const [sidebarCollapsed, setSidebarCollapsed] = useState<boolean>(() => {    try { return localStorage.getItem('ste-auditsphere-sidebar-collapsed') === '1'; } catch { return false; }
@@ -168,7 +169,7 @@ export const Shell: React.FC<ShellProps> = ({ currentRoute, onRouteChange, onSel
       "MODULE 2: GOVERNANCE & PLANNING",
       [
         { key: "onboarding", label: "Dual-Key Gate & Acceptance", icon: "shield" },
-        { key: "m365-setup", label: "5-Folder Taxonomy Workspace", icon: "folder" },
+
         { key: "documents", label: "Client PBC Portal Handoff", icon: "folder" },
         { key: "trial-balance", label: "Trial Balance (TB)", icon: "calculator" },
         { key: "audit-planning", label: "3-Tier Materiality (ISA 320)", icon: "target" },
@@ -196,13 +197,18 @@ export const Shell: React.FC<ShellProps> = ({ currentRoute, onRouteChange, onSel
     [
       "MODULE 5: PRACTICE MANAGEMENT",
       [
+        { key: "my-time", label: "Daily Engagement / FSLI Time", icon: "clock" },
         { key: "reports", label: "Real-Time Profitability & Rates", icon: "calculator" },
         { key: "practice-ledger", label: "Firm Ledger, Monthly TB & AR Aging", icon: "calculator" },
-        { key: "requirements", label: "Standards & Specifications", icon: "book" }
+
       ]
     ]
   ];
 
+  staffNavGroups.push(['REFERENCE / SPECIFICATION', [
+    { key: 'client-requirements', label: 'Requirements Presentation', icon: 'book' },
+    { key: 'requirements', label: 'Functional Requirements', icon: 'book' }
+  ]]);
   const clientNavGroups: Array<[string, Array<{ key: RouteKey; label: string; icon: string; count?: number }>]> = [
     [
       'CLIENT SECURE PORTAL (PBC)',
@@ -403,7 +409,7 @@ export const Shell: React.FC<ShellProps> = ({ currentRoute, onRouteChange, onSel
           </span>
         </div>
 
-        {state.currentRole === 'superuser' && <div className="banner amber" role="status" aria-label="Superuser full prototype access">
+        {presenterMode && state.currentRole === 'superuser' && <div className="banner amber" role="status" aria-label="Superuser full prototype access">
           <b>SUPERUSER · FULL PROTOTYPE ACCESS</b>
           <div className="caption mt4">Synthetic testing identity · overrides are logged</div>
         </div>}
@@ -416,6 +422,7 @@ export const Shell: React.FC<ShellProps> = ({ currentRoute, onRouteChange, onSel
                 <button
                   key={item.key}
                   className={`navitem ${currentRoute === item.key ? 'active' : ''}`}
+                  aria-current={currentRoute === item.key ? 'page' : undefined}
                   title={item.label}
                   aria-label={sidebarCollapsed ? item.label : undefined}
                   onClick={() => {
@@ -447,6 +454,7 @@ export const Shell: React.FC<ShellProps> = ({ currentRoute, onRouteChange, onSel
             className="navitem"
             aria-label={sidebarCollapsed ? 'Reset Demo State' : undefined}
             title="Reset Demo State"
+            hidden={!presenterMode}
             onClick={requestDemoReset}
           >
             <Icon name="refresh" />
@@ -483,11 +491,12 @@ export const Shell: React.FC<ShellProps> = ({ currentRoute, onRouteChange, onSel
               <span className="crumb-section">{ROUTE_CATALOG[currentRoute]?.section || 'Workspace'}</span>
               <span className="crumb-sep" aria-hidden="true">/</span>
               <span className="crumb-module" aria-current="page">{ROUTE_CATALOG[currentRoute]?.label || currentRoute}</span>
-              <span className="crumb-code" title="Module route code">{routeCode(currentRoute)}</span>
+
             </nav>
             <button
               ref={searchTrigger}
               className="search-trigger"
+              hidden={!presenterMode}
               aria-label="Open global search"
               onClick={openSearch}
             >
@@ -498,18 +507,20 @@ export const Shell: React.FC<ShellProps> = ({ currentRoute, onRouteChange, onSel
           </div>
 
           <div className="topbar-right">
+            <button className="btn sm" aria-pressed={presenterMode} onClick={() => setPresenterMode(v => !v)}>Presenter / Demo Controls</button>
             <span className="demo-pill">
               <span className="demo-dot" />
               LOCAL DEMO
             </span>
             <button
               className="btn sm tour-header"
+              hidden={!presenterMode}
               onClick={() => setShowScenarioModal(true)}
             >
               <Icon name="layers" />
               Explore Scenarios
             </button>
-            <div className="persona">
+            <div className="persona" hidden={!presenterMode}>
               <div className="firmavatar" style={{ width: 28, height: 28, fontSize: 11 }}>
                 {currentPersona.initials}
               </div>
@@ -579,8 +590,8 @@ export const Shell: React.FC<ShellProps> = ({ currentRoute, onRouteChange, onSel
             <label>Mode / Currency</label>
             <span>{selectedEng ? `${selectedEng.mode} · ${selectedEng.currency}` : 'Unavailable'}</span>
           </div>
-          <div className="context-item">
-            <label>Scenario</label>
+          <div className="context-item" hidden={!presenterMode}>
+            <label hidden={!presenterMode}>Scenario</label>
             {(() => {
               // Presentation only: the last "Loaded scenario preset" event in the local log (not a stored field).
               const loaded = state.events.find(event => event.text.startsWith('Loaded scenario preset: '));

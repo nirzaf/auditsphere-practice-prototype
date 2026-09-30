@@ -1,11 +1,11 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { prototypeStore } from '../../store/prototypeStore';
 import {
   calculateBalanceSheet,
   calculateIncomeStatement,
   formatCurrency
 } from '../../services/calculations';
-import { isFrozen, currentPlan } from '../../services/targetLifecycle';
+import { analyticalReviewIsCurrent, isFrozen, currentPlan } from '../../services/targetLifecycle';
 import { hasAnyRole, visibleEngagementIds } from '../../services/guards';
 import { ActionButton, type TargetViewProps } from './TargetCommon';
 
@@ -23,18 +23,22 @@ export function AuditFinancialView({ onNavigate }: TargetViewProps) {
     eng = state.engagements.find((e) => e.id === state.selectedEngagement),
     [comparisonId, setComparisonId] = useState(''),
     [arModal, setArModal] = useState<ARModalState | null>(null),
-    [goingConcernChecklist, setGoingConcernChecklist] = useState({
-      operatingCashFlows: true,
-      debtCovenantsCompliant: true,
-      workingCapitalAdequate: true,
-      noMaterialDisruptions: true
+    [goingConcernChecklist, setGoingConcernChecklist] = useState<Record<'operatingCashFlows' | 'debtCovenantsCompliant' | 'workingCapitalAdequate' | 'noMaterialDisruptions', boolean | null>>({
+      operatingCashFlows: null,
+      debtCovenantsCompliant: null,
+      workingCapitalAdequate: null,
+      noMaterialDisruptions: null
     }),
     [arNotes, setArNotes] = useState(''),
-    [activeRowLock, setActiveRowLock] = useState<Record<string, string>>({
-      'Revenue / Sales': 'Adam Khan (Preparer)',
-      'Accounts Receivable': 'Sara Malik (Reviewer)'
-    });
+    [arConclusion, setArConclusion] = useState(''),
+    [arError, setArError] = useState(''),
+    [lockError, setLockError] = useState('');
 
+  useEffect(() => {
+    const prior = eng?.auditLifecycle?.analyticalReviews?.filter(r => r.fsli === arModal?.line).at(-1);
+    setArNotes(prior?.analysis || ''); setArConclusion(prior?.isa570Checklist.conclusion || ''); setArError('');
+    setGoingConcernChecklist(prior ? { operatingCashFlows: prior.isa570Checklist.operatingCashFlows, debtCovenantsCompliant: prior.isa570Checklist.debtCovenantsCompliant, workingCapitalAdequate: prior.isa570Checklist.workingCapitalAdequate, noMaterialDisruptions: prior.isa570Checklist.noMaterialDisruptions } : { operatingCashFlows: null, debtCovenantsCompliant: null, workingCapitalAdequate: null, noMaterialDisruptions: null });
+  }, [eng?.id, arModal?.line]);
   if (!eng) return null;
 
   const visible = visibleEngagementIds(state),
@@ -183,20 +187,15 @@ export function AuditFinancialView({ onNavigate }: TargetViewProps) {
     });
   };
 
+  const activeRowLock = Object.fromEntries(Object.entries(eng.auditLifecycle?.rowLocks || {}).filter(([, lock]) => !lock.releasedAt && Date.parse(lock.expiresAt) > Date.now()).map(([line, lock]) => [line, state.users.find(u => u.id === lock.actorUserId)?.name || lock.actorUserId]));
   const toggleRowLock = (line: string) => {
-    setActiveRowLock((prev) => {
-      const next = { ...prev };
-      if (next[line]) {
-        delete next[line];
-      } else {
-        next[line] = `${state.currentPerson} (${state.currentRole})`;
-      }
-      return next;
-    });
+    try { prototypeStore.lifecycle.toggleRowLock(eng.id, line, eng.auditLifecycle?.rowLocks?.[line]?.revision || 0); setLockError(''); }
+    catch (error) { setLockError(error instanceof Error ? error.message : 'Row lock failed'); }
   };
 
   return (
     <div className="target-stack">
+      {lockError && <p role="alert">{lockError}</p>}
       {/* Top Banner & Control */}
       <section className="panel panel-pad">
         <div className="flex-between">
@@ -238,6 +237,7 @@ export function AuditFinancialView({ onNavigate }: TargetViewProps) {
         </div>
       </section>
 
+      {(eng.auditLifecycle?.analyticalReviews || []).length > 0 && <section className="panel panel-pad"><h3>Persisted Analytical Reviews</h3><ul>{eng.auditLifecycle!.analyticalReviews!.map(r => <li key={r.id}>{r.fsli} · {r.signedOffBy} · {r.signedOffAt} · {analyticalReviewIsCurrent(state, eng, r) ? 'Current — independent procedure review required' : 'Stale — re-sign against current TB / mapping / plan'}</li>)}</ul></section>}
       {/* UPPER HALF: PROFIT & LOSS (P/L) STATEMENT */}
       <section className="panel panel-pad" data-testid="pl-statement-section">
         <div className="flex-between mb12">
@@ -567,43 +567,27 @@ export function AuditFinancialView({ onNavigate }: TargetViewProps) {
                 <strong style={{ color: '#86198f' }}>ISA 570 Going Concern Evaluation Checklist:</strong>
                 <div className="stack mt8" style={{ gap: 8 }}>
                   <label className="row" style={{ gap: 8, alignItems: 'center' }}>
-                    <input
-                      type="checkbox"
-                      checked={goingConcernChecklist.operatingCashFlows}
-                      onChange={(e) =>
-                        setGoingConcernChecklist((p) => ({ ...p, operatingCashFlows: e.target.checked }))
-                      }
-                    />
+                    <select aria-label="operatingCashFlows" value={goingConcernChecklist.operatingCashFlows === null ? '' : String(goingConcernChecklist.operatingCashFlows)} onChange={e => setGoingConcernChecklist(p => ({ ...p, operatingCashFlows: e.target.value === '' ? null : e.target.value === 'true' }))}>
+                      <option value="">Not assessed</option><option value="true">Yes</option><option value="false">No — explain in conclusion</option>
+                    </select>
                     <span className="caption">Operating cash flows remain positive or supported by confirmed financing lines.</span>
                   </label>
                   <label className="row" style={{ gap: 8, alignItems: 'center' }}>
-                    <input
-                      type="checkbox"
-                      checked={goingConcernChecklist.debtCovenantsCompliant}
-                      onChange={(e) =>
-                        setGoingConcernChecklist((p) => ({ ...p, debtCovenantsCompliant: e.target.checked }))
-                      }
-                    />
+                    <select aria-label="debtCovenantsCompliant" value={goingConcernChecklist.debtCovenantsCompliant === null ? '' : String(goingConcernChecklist.debtCovenantsCompliant)} onChange={e => setGoingConcernChecklist(p => ({ ...p, debtCovenantsCompliant: e.target.value === '' ? null : e.target.value === 'true' }))}>
+                      <option value="">Not assessed</option><option value="true">Yes</option><option value="false">No — explain in conclusion</option>
+                    </select>
                     <span className="caption">Debt covenants and repayment obligations are fully compliant without default risk.</span>
                   </label>
                   <label className="row" style={{ gap: 8, alignItems: 'center' }}>
-                    <input
-                      type="checkbox"
-                      checked={goingConcernChecklist.workingCapitalAdequate}
-                      onChange={(e) =>
-                        setGoingConcernChecklist((p) => ({ ...p, workingCapitalAdequate: e.target.checked }))
-                      }
-                    />
+                    <select aria-label="workingCapitalAdequate" value={goingConcernChecklist.workingCapitalAdequate === null ? '' : String(goingConcernChecklist.workingCapitalAdequate)} onChange={e => setGoingConcernChecklist(p => ({ ...p, workingCapitalAdequate: e.target.value === '' ? null : e.target.value === 'true' }))}>
+                      <option value="">Not assessed</option><option value="true">Yes</option><option value="false">No — explain in conclusion</option>
+                    </select>
                     <span className="caption">Working capital ratios indicate sufficiency for at least 12 months from report date.</span>
                   </label>
                   <label className="row" style={{ gap: 8, alignItems: 'center' }}>
-                    <input
-                      type="checkbox"
-                      checked={goingConcernChecklist.noMaterialDisruptions}
-                      onChange={(e) =>
-                        setGoingConcernChecklist((p) => ({ ...p, noMaterialDisruptions: e.target.checked }))
-                      }
-                    />
+                    <select aria-label="noMaterialDisruptions" value={goingConcernChecklist.noMaterialDisruptions === null ? '' : String(goingConcernChecklist.noMaterialDisruptions)} onChange={e => setGoingConcernChecklist(p => ({ ...p, noMaterialDisruptions: e.target.value === '' ? null : e.target.value === 'true' }))}>
+                      <option value="">Not assessed</option><option value="true">Yes</option><option value="false">No — explain in conclusion</option>
+                    </select>
                     <span className="caption">No loss of major customer, supplier contract, or regulatory operating license.</span>
                   </label>
                 </div>
@@ -613,8 +597,16 @@ export function AuditFinancialView({ onNavigate }: TargetViewProps) {
               <button className="btn sm ghost" onClick={() => setArModal(null)}>Cancel</button>
               <button
                 className="btn sm primary"
+                disabled={!hasAnyRole(state, ['preparer', 'manager']) || isFrozen(eng)}
                 onClick={() => {
-                  setArModal(null);
+                  try {
+                    prototypeStore.signOffAnalyticalReview(eng.id, { fsli: arModal.line, tbSourceVersion: eng.sourceVersion,
+                      mappingRevision: mapping?.revision, planVersion: plan?.version, comparativeEngagementId: comparison?.id,
+                      currentBalance: arModal.current, priorBalance: arModal.comparative || 0,
+                      varianceAmount: arModal.variance, variancePct: arModal.variancePercent,
+                      analysis: arNotes, isa570Checklist: { ...goingConcernChecklist, conclusion: arConclusion } });
+                    setArModal(null); setArError('');
+                  } catch (error) { setArError(error instanceof Error ? error.message : 'Sign-off failed'); }
                 }}
               >
                 Sign Off Analytical Review Procedure

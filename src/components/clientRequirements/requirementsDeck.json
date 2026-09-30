@@ -1,0 +1,660 @@
+[
+  {
+    "id": "s01",
+    "title": "STE Audit Management Tool v2.1",
+    "subtitle": "STE Audit Management Tool \u00b7 Functional Requirements v2.1",
+    "kind": "cover",
+    "tag": "STE v2.1",
+    "section": "Requirements",
+    "chapter": "01",
+    "steps": [
+      {
+        "step": 1,
+        "heading": "Five modules",
+        "body": [
+          "One connected audit lifecycle, eleven canonical states, one client PBC portal."
+        ]
+      },
+      {
+        "step": 2,
+        "heading": "Connected audit workflow",
+        "body": [
+          "Follow commercial acceptance, governance, fieldwork, reporting and practice management through one engagement."
+        ]
+      }
+    ],
+    "note": "Verify persisted behavior and independent approval before client sign-off.",
+    "review": "Confirm this flow against executed evidence.",
+    "boundary": "Local prototype: email, WhatsApp, M365 provisioning, authentication, signature, payment and immutable storage are simulations."
+  },
+  {
+    "id": "s02",
+    "title": "Business objectives and ISA context",
+    "subtitle": "STE Audit Management Tool \u00b7 Functional Requirements v2.1",
+    "kind": "flow",
+    "tag": "STE v2.1",
+    "section": "Requirements",
+    "chapter": "02",
+    "steps": [
+      {
+        "step": 1,
+        "heading": "Consistent execution",
+        "body": [
+          "ISA 210, 220, 230, 320, 505, 570, 700 and 705; IFRS reporting."
+        ]
+      },
+      {
+        "step": 2,
+        "heading": "Bounded capabilities",
+        "body": [
+          "Audit and ISRS 4400 Agreed-Upon Procedures; evidence-backed gates and read-only archive."
+        ]
+      }
+    ],
+    "note": "Verify persisted behavior and independent approval before client sign-off.",
+    "review": "Confirm this flow against executed evidence.",
+    "boundary": "Local prototype: email, WhatsApp, M365 provisioning, authentication, signature, payment and immutable storage are simulations."
+  },
+  {
+    "id": "s03",
+    "title": "Four personas",
+    "subtitle": "STE Audit Management Tool \u00b7 Functional Requirements v2.1",
+    "kind": "flow",
+    "tag": "STE v2.1",
+    "section": "Requirements",
+    "chapter": "03",
+    "steps": [
+      {
+        "step": 1,
+        "heading": "Preparer",
+        "body": [
+          "Associate prepares work and evidence."
+        ]
+      },
+      {
+        "step": 2,
+        "heading": "Reviewer",
+        "body": [
+          "Senior / Manager independently reviews and resolves exceptions."
+        ]
+      },
+      {
+        "step": 3,
+        "heading": "Approver",
+        "body": [
+          "Partner authorizes acceptance, planning and final opinion."
+        ]
+      },
+      {
+        "step": 4,
+        "heading": "Client",
+        "body": [
+          "Coordinator / CFO submits PBC and receives released documents."
+        ]
+      }
+    ],
+    "note": "Verify persisted behavior and independent approval before client sign-off.",
+    "review": "Confirm this flow against executed evidence.",
+    "boundary": "Local prototype: email, WhatsApp, M365 provisioning, authentication, signature, payment and immutable storage are simulations."
+  },
+  {
+    "id": "s04",
+    "title": "Five-module connectivity",
+    "subtitle": "STE Audit Management Tool \u00b7 Functional Requirements v2.1",
+    "kind": "flow",
+    "tag": "STE v2.1",
+    "section": "Requirements",
+    "chapter": "04",
+    "steps": [
+      {
+        "step": 1,
+        "heading": "Module 1",
+        "body": [
+          "Commercial & CRM Pipeline"
+        ]
+      },
+      {
+        "step": 2,
+        "heading": "Module 2",
+        "body": [
+          "Administration, Governance & Planning"
+        ]
+      },
+      {
+        "step": 3,
+        "heading": "Module 3",
+        "body": [
+          "Technical Execution & Audit Fieldwork"
+        ]
+      },
+      {
+        "step": 4,
+        "heading": "Module 4",
+        "body": [
+          "Reporting & Final Deliverables"
+        ]
+      },
+      {
+        "step": 5,
+        "heading": "Module 5",
+        "body": [
+          "Practice Analytics & Internal Bookkeeping"
+        ]
+      }
+    ],
+    "note": "Verify persisted behavior and independent approval before client sign-off.",
+    "review": "Confirm this flow against executed evidence.",
+    "boundary": "Local prototype: email, WhatsApp, M365 provisioning, authentication, signature, payment and immutable storage are simulations."
+  },
+  {
+    "id": "s05",
+    "title": "Exact eleven-state lifecycle",
+    "subtitle": "STE Audit Management Tool \u00b7 Functional Requirements v2.1",
+    "kind": "flow",
+    "tag": "11 CANONICAL STATES",
+    "section": "Requirements",
+    "chapter": "05",
+    "steps": [
+      {
+        "step": 1,
+        "heading": "LEAD INGESTION",
+        "body": [
+          "LEAD_INGESTION"
+        ]
+      },
+      {
+        "step": 2,
+        "heading": "PROPOSAL GENERATION",
+        "body": [
+          "PROPOSAL_GENERATION"
+        ]
+      },
+      {
+        "step": 3,
+        "heading": "DUAL KEY PENDING",
+        "body": [
+          "DUAL_KEY_PENDING"
+        ]
+      },
+      {
+        "step": 4,
+        "heading": "ADVANCE BILLING",
+        "body": [
+          "ADVANCE_BILLING"
+        ]
+      },
+      {
+        "step": 5,
+        "heading": "PORTAL ACTIVE PLANNING",
+        "body": [
+          "PORTAL_ACTIVE_PLANNING"
+        ]
+      },
+      {
+        "step": 6,
+        "heading": "FIELDWORK EXECUTION",
+        "body": [
+          "FIELDWORK_EXECUTION"
+        ]
+      },
+      {
+        "step": 7,
+        "heading": "MANAGERIAL REVIEW",
+        "body": [
+          "MANAGERIAL_REVIEW"
+        ]
+      },
+      {
+        "step": 8,
+        "heading": "PARTNER APPROVAL",
+        "body": [
+          "PARTNER_APPROVAL"
+        ]
+      },
+      {
+        "step": 9,
+        "heading": "DELIVERABLE RELEASE",
+        "body": [
+          "DELIVERABLE_RELEASE"
+        ]
+      },
+      {
+        "step": 10,
+        "heading": "COMPLIANCE COUNTDOWN",
+        "body": [
+          "COMPLIANCE_COUNTDOWN"
+        ]
+      },
+      {
+        "step": 11,
+        "heading": "ARCHIVED READ ONLY",
+        "body": [
+          "ARCHIVED_READ_ONLY"
+        ]
+      }
+    ],
+    "note": "Verify persisted behavior and independent approval before client sign-off.",
+    "review": "Confirm this flow against executed evidence.",
+    "boundary": "Local prototype: email, WhatsApp, M365 provisioning, authentication, signature, payment and immutable storage are simulations."
+  },
+  {
+    "id": "s06",
+    "title": "Flow 1 \u2014 Commercial to activation",
+    "subtitle": "STE Audit Management Tool \u00b7 Functional Requirements v2.1",
+    "kind": "flow",
+    "tag": "STE v2.1",
+    "section": "Requirements",
+    "chapter": "06",
+    "steps": [
+      {
+        "step": 1,
+        "heading": "Lead and proposal",
+        "body": [
+          "Record intake, scope, team credentials and fee; dispatch by Email / WhatsApp (simulated)."
+        ]
+      },
+      {
+        "step": 2,
+        "heading": "Dual-Key gate",
+        "body": [
+          "Commercial acceptance plus independent Partner professional clearance precede ISA 210 Engagement Letter and 50% advance invoice."
+        ]
+      },
+      {
+        "step": 3,
+        "heading": "Settlement",
+        "body": [
+          "Receipt and settlement activate the PBC portal."
+        ]
+      }
+    ],
+    "note": "Verify persisted behavior and independent approval before client sign-off.",
+    "review": "Confirm this flow against executed evidence.",
+    "boundary": "Local prototype: email, WhatsApp, M365 provisioning, authentication, signature, payment and immutable storage are simulations."
+  },
+  {
+    "id": "s07",
+    "title": "Module 1 \u2014 Commercial & CRM",
+    "subtitle": "STE Audit Management Tool \u00b7 Functional Requirements v2.1",
+    "kind": "flow",
+    "tag": "STE v2.1",
+    "section": "Requirements",
+    "chapter": "07",
+    "steps": [
+      {
+        "step": 1,
+        "heading": "Intake and profiles",
+        "body": [
+          "Lead channels and client holding / subsidiary / affiliate profiles."
+        ]
+      },
+      {
+        "step": 2,
+        "heading": "Proposal and letter",
+        "body": [
+          "Terms, team credentials, dispatch and revision-bound acceptance."
+        ]
+      },
+      {
+        "step": 3,
+        "heading": "Advance",
+        "body": [
+          "50% advance invoice, receipt and portal activation."
+        ]
+      }
+    ],
+    "note": "Verify persisted behavior and independent approval before client sign-off.",
+    "review": "Confirm this flow against executed evidence.",
+    "boundary": "Local prototype: email, WhatsApp, M365 provisioning, authentication, signature, payment and immutable storage are simulations."
+  },
+  {
+    "id": "s08",
+    "title": "Flow 2 \u2014 Governance to approved planning",
+    "subtitle": "STE Audit Management Tool \u00b7 Functional Requirements v2.1",
+    "kind": "flow",
+    "tag": "STE v2.1",
+    "section": "Requirements",
+    "chapter": "08",
+    "steps": [
+      {
+        "step": 1,
+        "heading": "Acceptance / Continuance",
+        "body": [
+          "Track A mandatory controls; Track B six explicit answers with prior-period reference."
+        ]
+      },
+      {
+        "step": 2,
+        "heading": "Ingest and schedule",
+        "body": [
+          "PBC workspace, actual availability, leave and target utilization; import and map TB."
+        ]
+      },
+      {
+        "step": 3,
+        "heading": "Partner planning",
+        "body": [
+          "PM benchmark bands, TE 50\u201375%, SAD 3\u20135%, \u00b15% manager rounding; Partner approval pinned to current TB."
+        ]
+      }
+    ],
+    "note": "Verify persisted behavior and independent approval before client sign-off.",
+    "review": "Confirm this flow against executed evidence.",
+    "boundary": "Local prototype: email, WhatsApp, M365 provisioning, authentication, signature, payment and immutable storage are simulations."
+  },
+  {
+    "id": "s09",
+    "title": "Module 2 \u2014 Governance & Planning",
+    "subtitle": "STE Audit Management Tool \u00b7 Functional Requirements v2.1",
+    "kind": "flow",
+    "tag": "STE v2.1",
+    "section": "Requirements",
+    "chapter": "09",
+    "steps": [
+      {
+        "step": 1,
+        "heading": "Directory and workspace",
+        "body": [
+          "Engagement-scoped five-folder taxonomy; M365 provisioning simulated."
+        ]
+      },
+      {
+        "step": 2,
+        "heading": "Resources and mapping",
+        "body": [
+          "Resource scheduling and same-client eligible prior-period mapping memory."
+        ]
+      },
+      {
+        "step": 3,
+        "heading": "Materiality",
+        "body": [
+          "Shared UI/store validation and stale approval after TB changes."
+        ]
+      }
+    ],
+    "note": "Verify persisted behavior and independent approval before client sign-off.",
+    "review": "Confirm this flow against executed evidence.",
+    "boundary": "Local prototype: email, WhatsApp, M365 provisioning, authentication, signature, payment and immutable storage are simulations."
+  },
+  {
+    "id": "s10",
+    "title": "Flow 3 \u2014 Fieldwork to SRM",
+    "subtitle": "STE Audit Management Tool \u00b7 Functional Requirements v2.1",
+    "kind": "flow",
+    "tag": "STE v2.1",
+    "section": "Requirements",
+    "chapter": "10",
+    "steps": [
+      {
+        "step": 1,
+        "heading": "Prepare",
+        "body": [
+          "Split P&L / Balance Sheet dashboard and workprograms."
+        ]
+      },
+      {
+        "step": 2,
+        "heading": "Execute",
+        "body": [
+          "Sampling, evidence, Analytical Review and mandatory ISA 570 assessment."
+        ]
+      },
+      {
+        "step": 3,
+        "heading": "Review",
+        "body": [
+          "Independent Manager review; SRM summarizes AJEs, unadjusted differences and critical estimates."
+        ]
+      }
+    ],
+    "note": "Verify persisted behavior and independent approval before client sign-off.",
+    "review": "Confirm this flow against executed evidence.",
+    "boundary": "Local prototype: email, WhatsApp, M365 provisioning, authentication, signature, payment and immutable storage are simulations."
+  },
+  {
+    "id": "s11",
+    "title": "Module 3 \u2014 Technical Fieldwork",
+    "subtitle": "STE Audit Management Tool \u00b7 Functional Requirements v2.1",
+    "kind": "flow",
+    "tag": "STE v2.1",
+    "section": "Requirements",
+    "chapter": "11",
+    "steps": [
+      {
+        "step": 1,
+        "heading": "Sampling",
+        "body": [
+          "Random, Monetary Unit, Systematic Random and distinct Stratified Attribute methods; persisted reproducibility."
+        ]
+      },
+      {
+        "step": 2,
+        "heading": "Confirmations",
+        "body": [
+          "Critical confirmations block release; persisted Holding Letter never clears the blocker."
+        ]
+      },
+      {
+        "step": 3,
+        "heading": "Evidence and SRM",
+        "body": [
+          "Workpapers, findings, review notes and source revisions remain engagement scoped."
+        ]
+      }
+    ],
+    "note": "Verify persisted behavior and independent approval before client sign-off.",
+    "review": "Confirm this flow against executed evidence.",
+    "boundary": "Local prototype: email, WhatsApp, M365 provisioning, authentication, signature, payment and immutable storage are simulations."
+  },
+  {
+    "id": "s12",
+    "title": "Flow 4 \u2014 Opinion to archive",
+    "subtitle": "STE Audit Management Tool \u00b7 Functional Requirements v2.1",
+    "kind": "flow",
+    "tag": "STE v2.1",
+    "section": "Requirements",
+    "chapter": "12",
+    "steps": [
+      {
+        "step": 1,
+        "heading": "Partner approval",
+        "body": [
+          "Approve current SRM and opinion basis after Manager clearance."
+        ]
+      },
+      {
+        "step": 2,
+        "heading": "Release",
+        "body": [
+          "Final 50% fee and exact five-part deliverable bundle."
+        ]
+      },
+      {
+        "step": 3,
+        "heading": "Compliance",
+        "body": [
+          "60 calendar days file completion countdown, then ARCHIVED_READ_ONLY."
+        ]
+      }
+    ],
+    "note": "Verify persisted behavior and independent approval before client sign-off.",
+    "review": "Confirm this flow against executed evidence.",
+    "boundary": "Local prototype: email, WhatsApp, M365 provisioning, authentication, signature, payment and immutable storage are simulations."
+  },
+  {
+    "id": "s13",
+    "title": "Module 4 \u2014 Reporting & Final Deliverables",
+    "subtitle": "STE Audit Management Tool \u00b7 Functional Requirements v2.1",
+    "kind": "flow",
+    "tag": "STE v2.1",
+    "section": "Requirements",
+    "chapter": "13",
+    "steps": [
+      {
+        "step": 1,
+        "heading": "Four opinions",
+        "body": [
+          "Unmodified, Qualified, Adverse, Disclaimer."
+        ]
+      },
+      {
+        "step": 2,
+        "heading": "Five-part bundle",
+        "body": [
+          "Audit Report; Management Letter; Letter of Representation; Management Correspondences Audit Trail; Final Balance Fee Note."
+        ]
+      },
+      {
+        "step": 3,
+        "heading": "Final fee and lock",
+        "body": [
+          "Final 50% fee; ISA 230 60-day completion and frozen archive."
+        ]
+      }
+    ],
+    "note": "Verify persisted behavior and independent approval before client sign-off.",
+    "review": "Confirm this flow against executed evidence.",
+    "boundary": "Local prototype: email, WhatsApp, M365 provisioning, authentication, signature, payment and immutable storage are simulations."
+  },
+  {
+    "id": "s14",
+    "title": "Flow 5 \u2014 Time to practice analytics",
+    "subtitle": "STE Audit Management Tool \u00b7 Functional Requirements v2.1",
+    "kind": "flow",
+    "tag": "STE v2.1",
+    "section": "Requirements",
+    "chapter": "14",
+    "steps": [
+      {
+        "step": 1,
+        "heading": "Daily time",
+        "body": [
+          "Record Engagement / FSLI hours with role charge-out rates."
+        ]
+      },
+      {
+        "step": 2,
+        "heading": "Exact profitability",
+        "body": [
+          "Total Engagement Cost = \u03a3(Logged Hours \u00d7 Role Charge-Out Rate). Profitability = Contracted Audit Fee \u2212 Total Engagement Cost."
+        ]
+      },
+      {
+        "step": 3,
+        "heading": "Missing inputs",
+        "body": [
+          "Unknown rates produce Unknown profitability."
+        ]
+      }
+    ],
+    "note": "Verify persisted behavior and independent approval before client sign-off.",
+    "review": "Confirm this flow against executed evidence.",
+    "boundary": "Local prototype: email, WhatsApp, M365 provisioning, authentication, signature, payment and immutable storage are simulations."
+  },
+  {
+    "id": "s15",
+    "title": "Module 5 \u2014 Practice Management",
+    "subtitle": "STE Audit Management Tool \u00b7 Functional Requirements v2.1",
+    "kind": "flow",
+    "tag": "STE v2.1",
+    "section": "Requirements",
+    "chapter": "15",
+    "steps": [
+      {
+        "step": 1,
+        "heading": "Charge-out rates",
+        "body": [
+          "QAR Partner 1,000; Manager 750; Senior 500; Associate 200."
+        ]
+      },
+      {
+        "step": 2,
+        "heading": "Utilization",
+        "body": [
+          "Actual logged hours and scheduled availability inform practice analytics."
+        ]
+      },
+      {
+        "step": 3,
+        "heading": "Bookkeeping",
+        "body": [
+          "Internal firm ledger, monthly TB, P&L, AR aging and Partner Withdrawals."
+        ]
+      }
+    ],
+    "note": "Verify persisted behavior and independent approval before client sign-off.",
+    "review": "Confirm this flow against executed evidence.",
+    "boundary": "Local prototype: email, WhatsApp, M365 provisioning, authentication, signature, payment and immutable storage are simulations."
+  },
+  {
+    "id": "s16",
+    "title": "Client PBC experience",
+    "subtitle": "STE Audit Management Tool \u00b7 Functional Requirements v2.1",
+    "kind": "flow",
+    "tag": "STE v2.1",
+    "section": "Requirements",
+    "chapter": "16",
+    "steps": [
+      {
+        "step": 1,
+        "heading": "Requests",
+        "body": [
+          "Client receives scoped PBC requests and uploads evidence."
+        ]
+      },
+      {
+        "step": 2,
+        "heading": "Billing and Holding Letters",
+        "body": [
+          "Invoices and receipts; only issued Holding Letters are visible."
+        ]
+      },
+      {
+        "step": 3,
+        "heading": "Released deliverables",
+        "body": [
+          "Only current released final deliverables; archive prevents uploads."
+        ]
+      }
+    ],
+    "note": "Verify persisted behavior and independent approval before client sign-off.",
+    "review": "Confirm this flow against executed evidence.",
+    "boundary": "Local prototype: email, WhatsApp, M365 provisioning, authentication, signature, payment and immutable storage are simulations."
+  },
+  {
+    "id": "s17",
+    "title": "Traceability and client sign-off",
+    "subtitle": "STE Audit Management Tool \u00b7 Functional Requirements v2.1",
+    "kind": "coverage",
+    "tag": "STE v2.1",
+    "section": "Requirements",
+    "chapter": "17",
+    "steps": [
+      {
+        "step": 1,
+        "heading": "Evidence",
+        "body": [
+          "Execute five end-to-end flows and PBC client flow; responsive screenshots and focused rule tests."
+        ]
+      },
+      {
+        "step": 2,
+        "heading": "Acceptance",
+        "body": [
+          "Match persisted behavior, command guards, downstream outputs and this presentation."
+        ]
+      },
+      {
+        "step": 3,
+        "heading": "Production boundary",
+        "body": [
+          "Human sign-off and production integrations require separate evidence; no blanket compliance claim."
+        ]
+      }
+    ],
+    "note": "Verify persisted behavior and independent approval before client sign-off.",
+    "review": "Confirm this flow against executed evidence.",
+    "boundary": "Local prototype: email, WhatsApp, M365 provisioning, authentication, signature, payment and immutable storage are simulations."
+  }
+]

@@ -244,12 +244,12 @@ export async function runTargetJourney() {
       status: 'Under review',
       benchmark: 'Revenue',
       benchmarkValue: 1000,
-      materialityRate: 5,
+      materialityRate: 2,
       performanceMaterialityRate: 75,
       clearlyTrivialRate: 5,
-      overallMateriality: 50,
-      performanceMateriality: 38,
-      clearlyTrivialThreshold: 3,
+      overallMateriality: 20,
+      performanceMateriality: 15,
+      clearlyTrivialThreshold: 1,
       rationales: ['Synthetic revenue benchmark rationale'],
       teamAllocations: [
         {
@@ -263,8 +263,9 @@ export async function runTargetJourney() {
     }) as any;
   act('preparer');
   store.saveAuditPlan(plan(1));
-  act('manager');
+  act('partner');
   store.reviewAuditPlan('PLAN-TARGET-1', true, 'Independent initial planning review.');
+  act('manager');
   store.lifecycle.saveStaffing(
     e.id,
     [
@@ -307,7 +308,7 @@ export async function runTargetJourney() {
   expectBlocked(() => store.lifecycle.prepareStandardPrograms(e.id), /PM|planning|Approve/);
   act('preparer');
   store.saveAuditPlan(plan(2));
-  act('manager');
+  act('partner');
   store.reviewAuditPlan('PLAN-TARGET-2', true, 'Fresh PM/TE/SAD review against uploaded TB.');
   mark('TB uploaded / mapped; preliminary planning explicitly reconfirmed');
   const income = calculateIncomeStatement(e.rows),
@@ -331,6 +332,12 @@ export async function runTargetJourney() {
   const wp = e.workpapers[0],
     evidence = s.evidenceCatalogue.find((i) => i.documentId === doc.id)!;
   store.linkWorkpaperEvidence(e.id, wp.id, doc.id);
+  store.signOffAnalyticalReview(e.id, { fsli: 'Revenue', tbSourceVersion: e.sourceVersion,
+    mappingRevision: s.accountMappingRevisions?.filter(m => m.engagementId === e.id).at(-1)?.revision,
+    planVersion: 2, currentBalance: 1000, priorBalance: 900, varianceAmount: 100, variancePct: 100/900*100,
+    analysis: 'Corroborated revenue fluctuation against client evidence and current-period activity.',
+    isa570Checklist: { operatingCashFlows: true, debtCovenantsCompliant: true, workingCapitalAdequate: true, noMaterialDisruptions: true, conclusion: 'Twelve-month cash forecast and financing corroborated with the current evidence.' } });
+
   for (const program of s.auditPrograms.filter((p) => p.engagementId === e.id)) {
     for (const procedure of program.procedures) {
       store.linkEvidenceProcedure(evidence.id, procedure.id);

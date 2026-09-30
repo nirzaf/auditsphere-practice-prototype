@@ -1,0 +1,428 @@
+[
+  {
+    "id": "source-1",
+    "file": "Audit Initial Requirements Checklist.docx",
+    "title": "Audit Initial Requirements Checklist",
+    "format": "DOCX",
+    "category": "PBC checklist",
+    "routes": [
+      "documents"
+    ],
+    "qfcOnly": false,
+    "instructions": "Adapt client, dates and requested items, then create engagement-scoped PBC requests. This source contains historical client details."
+  },
+  {
+    "id": "source-2",
+    "file": "Audit working papers/D - Property, Plant and Equipments/PPE.xlsx",
+    "title": "PPE",
+    "format": "XLSX",
+    "category": "Workpaper",
+    "routes": [
+      "audit-fieldwork",
+      "financial-statements",
+      "reviews"
+    ],
+    "qfcOnly": false,
+    "instructions": "Complete the relevant account schedule, reconcile to the current TB, then upload the completed workbook as engagement evidence."
+  },
+  {
+    "id": "source-3",
+    "file": "Audit working papers/E - Inventory/G - Inventory.xlsx",
+    "title": "G - Inventory",
+    "format": "XLSX",
+    "category": "Workpaper",
+    "routes": [
+      "audit-fieldwork",
+      "financial-statements",
+      "reviews"
+    ],
+    "qfcOnly": false,
+    "instructions": "Complete the relevant account schedule, reconcile to the current TB, then upload the completed workbook as engagement evidence."
+  },
+  {
+    "id": "source-4",
+    "file": "Audit working papers/F - Trade and Other receivables/H - Trade or Accounts and Other Receivables.xlsx",
+    "title": "H - Trade or Accounts and Other Receivables",
+    "format": "XLSX",
+    "category": "Workpaper",
+    "routes": [
+      "audit-fieldwork",
+      "financial-statements",
+      "reviews"
+    ],
+    "qfcOnly": false,
+    "instructions": "Complete the relevant account schedule, reconcile to the current TB, then upload the completed workbook as engagement evidence."
+  },
+  {
+    "id": "source-5",
+    "file": "Audit working papers/G - Cash & Cash Equivalents/J - Cash & Cash Equivalents.xlsx",
+    "title": "J - Cash & Cash Equivalents",
+    "format": "XLSX",
+    "category": "Workpaper",
+    "routes": [
+      "audit-fieldwork",
+      "financial-statements",
+      "reviews"
+    ],
+    "qfcOnly": false,
+    "instructions": "Complete the relevant account schedule, reconcile to the current TB, then upload the completed workbook as engagement evidence."
+  },
+  {
+    "id": "source-6",
+    "file": "Audit working papers/H - Share Capital/K - Share Capital.xlsx",
+    "title": "K - Share Capital",
+    "format": "XLSX",
+    "category": "Workpaper",
+    "routes": [
+      "audit-fieldwork",
+      "financial-statements",
+      "reviews"
+    ],
+    "qfcOnly": false,
+    "instructions": "Complete the relevant account schedule, reconcile to the current TB, then upload the completed workbook as engagement evidence."
+  },
+  {
+    "id": "source-7",
+    "file": "Audit working papers/I - Lease (IFRS 16)/IFRS 16 - 2022.xlsx",
+    "title": "IFRS 16 - 2022",
+    "format": "XLSX",
+    "category": "Workpaper",
+    "routes": [
+      "audit-fieldwork",
+      "financial-statements",
+      "reviews"
+    ],
+    "qfcOnly": false,
+    "instructions": "Complete the relevant account schedule, reconcile to the current TB, then upload the completed workbook as engagement evidence."
+  },
+  {
+    "id": "source-8",
+    "file": "Audit working papers/J - Revenue/P - Revenue.xlsx",
+    "title": "P - Revenue",
+    "format": "XLSX",
+    "category": "Workpaper",
+    "routes": [
+      "audit-fieldwork",
+      "financial-statements",
+      "reviews"
+    ],
+    "qfcOnly": false,
+    "instructions": "Complete the relevant account schedule, reconcile to the current TB, then upload the completed workbook as engagement evidence."
+  },
+  {
+    "id": "source-9",
+    "file": "Audit working papers/K - Trade and Other payables/O - Trade or Accounts and Other Payables.xlsx",
+    "title": "O - Trade or Accounts and Other Payables",
+    "format": "XLSX",
+    "category": "Workpaper",
+    "routes": [
+      "audit-fieldwork",
+      "financial-statements",
+      "reviews"
+    ],
+    "qfcOnly": false,
+    "instructions": "Complete the relevant account schedule, reconcile to the current TB, then upload the completed workbook as engagement evidence."
+  },
+  {
+    "id": "source-10",
+    "file": "Audit working papers/L - Cost of revenue/Q- Cost of revenue.xlsx",
+    "title": "Q- Cost of revenue",
+    "format": "XLSX",
+    "category": "Workpaper",
+    "routes": [
+      "audit-fieldwork",
+      "financial-statements",
+      "reviews"
+    ],
+    "qfcOnly": false,
+    "instructions": "Complete the relevant account schedule, reconcile to the current TB, then upload the completed workbook as engagement evidence."
+  },
+  {
+    "id": "source-11",
+    "file": "Audit working papers/M - General and Admin Expense/S - General and Admin Cost.xlsx",
+    "title": "S - General and Admin Cost",
+    "format": "XLSX",
+    "category": "Workpaper",
+    "routes": [
+      "audit-fieldwork",
+      "financial-statements",
+      "reviews"
+    ],
+    "qfcOnly": false,
+    "instructions": "Complete the relevant account schedule, reconcile to the current TB, then upload the completed workbook as engagement evidence."
+  },
+  {
+    "id": "source-12",
+    "file": "Audit working papers/M - General and Admin Expense/S1 - Salary working.xlsx",
+    "title": "S1 - Salary working",
+    "format": "XLSX",
+    "category": "Workpaper",
+    "routes": [
+      "audit-fieldwork",
+      "financial-statements",
+      "reviews"
+    ],
+    "qfcOnly": false,
+    "instructions": "Complete the relevant account schedule, reconcile to the current TB, then upload the completed workbook as engagement evidence."
+  },
+  {
+    "id": "source-13",
+    "file": "Audit working papers/Section Divider.xlsx",
+    "title": "Section Divider",
+    "format": "XLSX",
+    "category": "Workpaper",
+    "routes": [
+      "audit-fieldwork",
+      "financial-statements",
+      "reviews"
+    ],
+    "qfcOnly": false,
+    "instructions": "Complete the relevant account schedule, reconcile to the current TB, then upload the completed workbook as engagement evidence."
+  },
+  {
+    "id": "source-14",
+    "file": "Client's Acceptance and Continuation Procedure.docx",
+    "title": "Client's Acceptance and Continuation Procedure",
+    "format": "DOCX",
+    "category": "Acceptance / independence",
+    "routes": [
+      "onboarding"
+    ],
+    "qfcOnly": false,
+    "instructions": "Complete the assessment or declaration and upload supporting evidence. A downloaded form does not approve acceptance or replace the two-key gate."
+  },
+  {
+    "id": "source-15",
+    "file": "Confirmation letter/Form A - Lawyer Confirmation.doc",
+    "title": "Form A - Lawyer Confirmation",
+    "format": "DOC",
+    "category": "Confirmation request",
+    "routes": [
+      "confirmations"
+    ],
+    "qfcOnly": false,
+    "instructions": "Adapt the addressee, balances, reporting date and return instructions; attach the response to the tracked confirmation."
+  },
+  {
+    "id": "source-16",
+    "file": "Confirmation letter/Form B - Bank Confirmation.doc",
+    "title": "Form B - Bank Confirmation",
+    "format": "DOC",
+    "category": "Confirmation request",
+    "routes": [
+      "confirmations"
+    ],
+    "qfcOnly": false,
+    "instructions": "Adapt the addressee, balances, reporting date and return instructions; attach the response to the tracked confirmation."
+  },
+  {
+    "id": "source-17",
+    "file": "Confirmation letter/Form C - Cash Confirmation Format.docx",
+    "title": "Form C - Cash Confirmation Format",
+    "format": "DOCX",
+    "category": "Confirmation request",
+    "routes": [
+      "confirmations"
+    ],
+    "qfcOnly": false,
+    "instructions": "Adapt the addressee, balances, reporting date and return instructions; attach the response to the tracked confirmation."
+  },
+  {
+    "id": "source-18",
+    "file": "Confirmation letter/Form D - Vendor Confirmation.doc",
+    "title": "Form D - Vendor Confirmation",
+    "format": "DOC",
+    "category": "Confirmation request",
+    "routes": [
+      "confirmations"
+    ],
+    "qfcOnly": false,
+    "instructions": "Adapt the addressee, balances, reporting date and return instructions; attach the response to the tracked confirmation."
+  },
+  {
+    "id": "source-19",
+    "file": "Confirmation letter/Form E - Customers Confirmation.doc",
+    "title": "Form E - Customers Confirmation",
+    "format": "DOC",
+    "category": "Confirmation request",
+    "routes": [
+      "confirmations"
+    ],
+    "qfcOnly": false,
+    "instructions": "Adapt the addressee, balances, reporting date and return instructions; attach the response to the tracked confirmation."
+  },
+  {
+    "id": "source-20",
+    "file": "Confirmation letter/Form F - Partners Confirmation.doc",
+    "title": "Form F - Partners Confirmation",
+    "format": "DOC",
+    "category": "Confirmation request",
+    "routes": [
+      "confirmations"
+    ],
+    "qfcOnly": false,
+    "instructions": "Adapt the addressee, balances, reporting date and return instructions; attach the response to the tracked confirmation."
+  },
+  {
+    "id": "source-21",
+    "file": "Confirmation letter/Form G - Related Party Confirmation - 1.doc",
+    "title": "Form G - Related Party Confirmation - 1",
+    "format": "DOC",
+    "category": "Confirmation request",
+    "routes": [
+      "confirmations"
+    ],
+    "qfcOnly": false,
+    "instructions": "Adapt the addressee, balances, reporting date and return instructions; attach the response to the tracked confirmation."
+  },
+  {
+    "id": "source-22",
+    "file": "Confirmation letter/Form G - Related Party Confirmation - 2.doc",
+    "title": "Form G - Related Party Confirmation - 2",
+    "format": "DOC",
+    "category": "Confirmation request",
+    "routes": [
+      "confirmations"
+    ],
+    "qfcOnly": false,
+    "instructions": "Adapt the addressee, balances, reporting date and return instructions; attach the response to the tracked confirmation."
+  },
+  {
+    "id": "source-23",
+    "file": "Confirmation letter/Form H - Partners Loan Confirmation.doc",
+    "title": "Form H - Partners Loan Confirmation",
+    "format": "DOC",
+    "category": "Confirmation request",
+    "routes": [
+      "confirmations"
+    ],
+    "qfcOnly": false,
+    "instructions": "Adapt the addressee, balances, reporting date and return instructions; attach the response to the tracked confirmation."
+  },
+  {
+    "id": "source-24",
+    "file": "Engagement Letter - External Audit.docx",
+    "title": "Engagement Letter - External Audit",
+    "format": "DOCX",
+    "category": "Engagement letter",
+    "routes": [
+      "engagements"
+    ],
+    "qfcOnly": false,
+    "instructions": "Review and adapt terms to the selected client and service. The general external-audit source includes tax services; remove clauses outside the agreed scope before use."
+  },
+  {
+    "id": "source-25",
+    "file": "Independence Declaration 2023.doc",
+    "title": "Independence Declaration 2023",
+    "format": "DOC",
+    "category": "Acceptance / independence",
+    "routes": [
+      "onboarding"
+    ],
+    "qfcOnly": false,
+    "instructions": "Complete the assessment or declaration and upload supporting evidence. A downloaded form does not approve acceptance or replace the two-key gate."
+  },
+  {
+    "id": "source-26",
+    "file": "LOR 2024.docx",
+    "title": "LOR 2024",
+    "format": "DOCX",
+    "category": "Representation letter",
+    "routes": [
+      "delivery"
+    ],
+    "qfcOnly": false,
+    "instructions": "Adapt client, reporting period and representations, obtain management approval, and upload the signed letter before release."
+  },
+  {
+    "id": "source-27",
+    "file": "Other Documents/Cash count form.xlsx",
+    "title": "Cash count form",
+    "format": "XLSX",
+    "category": "Workpaper",
+    "routes": [
+      "audit-fieldwork",
+      "financial-statements",
+      "reviews"
+    ],
+    "qfcOnly": false,
+    "instructions": "Complete the relevant account schedule, reconcile to the current TB, then upload the completed workbook as engagement evidence."
+  },
+  {
+    "id": "source-28",
+    "file": "Proposal for External Financial Audit Services.docx",
+    "title": "Proposal for External Financial Audit Services",
+    "format": "DOCX",
+    "category": "Proposal",
+    "routes": [
+      "proposals"
+    ],
+    "qfcOnly": false,
+    "instructions": "Adapt client, period, fee, scope and team details. Keep the saved proposal and approval workflow authoritative."
+  },
+  {
+    "id": "source-29",
+    "file": "QFC Documents/Engagement Letter - QFC Audit.docx",
+    "title": "Engagement Letter - QFC Audit",
+    "format": "DOCX",
+    "category": "Engagement letter",
+    "routes": [
+      "engagements"
+    ],
+    "qfcOnly": true,
+    "instructions": "Review and adapt terms to the selected client and service. The general external-audit source includes tax services; remove clauses outside the agreed scope before use."
+  },
+  {
+    "id": "source-30",
+    "file": "QFC Documents/Resolution for Appointment of the Auditor of ABC LLC.docx",
+    "title": "Resolution for Appointment of the Auditor of ABC LLC",
+    "format": "DOCX",
+    "category": "QFC resolution",
+    "routes": [
+      "engagements",
+      "documents"
+    ],
+    "qfcOnly": true,
+    "instructions": "Use only for the applicable QFC corporate action after professional review; update names, dates and signing authority."
+  },
+  {
+    "id": "source-31",
+    "file": "QFC Documents/Resolution for Appointment of the First Auditor of ABC LLC.docx",
+    "title": "Resolution for Appointment of the First Auditor of ABC LLC",
+    "format": "DOCX",
+    "category": "QFC resolution",
+    "routes": [
+      "engagements",
+      "documents"
+    ],
+    "qfcOnly": true,
+    "instructions": "Use only for the applicable QFC corporate action after professional review; update names, dates and signing authority."
+  },
+  {
+    "id": "source-32",
+    "file": "QFC Documents/Resolution for Cessation of the Auditor of ABC LLC.docx",
+    "title": "Resolution for Cessation of the Auditor of ABC LLC",
+    "format": "DOCX",
+    "category": "QFC resolution",
+    "routes": [
+      "engagements",
+      "documents"
+    ],
+    "qfcOnly": true,
+    "instructions": "Use only for the applicable QFC corporate action after professional review; update names, dates and signing authority."
+  },
+  {
+    "id": "source-33",
+    "file": "QFC Documents/Resolution of the Member in Relation to the Annual Accounts of ABC LLC.docx",
+    "title": "Resolution of the Member in Relation to the Annual Accounts of ABC LLC",
+    "format": "DOCX",
+    "category": "QFC resolution",
+    "routes": [
+      "engagements",
+      "documents"
+    ],
+    "qfcOnly": true,
+    "instructions": "Use only for the applicable QFC corporate action after professional review; update names, dates and signing authority."
+  }
+]

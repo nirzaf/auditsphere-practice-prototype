@@ -54,6 +54,10 @@ export interface ExternalConfirmation {
   history: LifecycleHistory[];
 }
 export interface StaffAllocation {
+  capacityHours?: number;
+  leaveHours?: number;
+  leaveNote?: string;
+  targetUtilizationPct?: number;
   userId: string;
   role: 'Partner' | 'Manager' | 'Senior/Reviewer' | 'Preparer/Staff';
   phase: 'Planning' | 'Fieldwork' | 'Review' | 'Reporting';
@@ -129,6 +133,7 @@ export interface HoldingLetterRecord {
   recipientName: string;
   sourceBlockers: string[];
   artifactId: string;
+  artifact?: import('./index').GeneratedArtifactRecord;
   simulatedDispatchStatus: 'Issued (simulated)' | 'Pending';
 }
 
@@ -160,6 +165,7 @@ export interface AnalyticalReviewRecord {
 }
 
 export interface TargetEngagementLifecycle {
+  rowLocks?: Record<string, { actorUserId: string; revision: number; acquiredAt: string; expiresAt: string; releasedAt?: string }>;
   commercialBasis?: SourcePin;
   advancePayments: Array<{
     receiptId: string;

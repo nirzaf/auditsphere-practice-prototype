@@ -82,7 +82,7 @@ describe('workflow progress contracts', () => {
       ['MOD-20', 'MOD-21', 'MOD-21', 'MOD-20', 'MOD-22', 'MOD-23', 'MOD-24', 'MOD-25', 'MOD-26']
     );
     assert.deepEqual(resolveRouteHash('#packages'), { route: 'delivery', redirected: true });
-    assert.deepEqual(resolveRouteHash('#time-tracking'), { route: 'scheduling', redirected: true });
+    assert.deepEqual(resolveRouteHash('#time-tracking'), { route: 'my-time', redirected: true });
     assert.equal(resolveRouteHash('#made-up-route'), null);
   });
 

@@ -185,14 +185,15 @@ describe('STE Audit Management Tool v2.1 Requirements Conformance (All 17 Gaps)'
   // Gap 9: Capacity scheduling
   it('Gap 9: scheduling view supports capacity allocation against 80-85% target utilization', () => {
     const schedulingTsx = readFileSync(join(process.cwd(), 'src/components/target/SchedulingView.tsx'), 'utf-8');
-    assert.match(schedulingTsx, /80[–-]85%\s*Target/i, 'Visual capacity calendar must reflect 80-85% target benchmark');
+    assert.match(schedulingTsx, /targetUtilizationPct/, 'Visual capacity calendar must use saved utilization targets');
+    assert.match(schedulingTsx, /capacityHours.*leaveHours/, 'Availability uses saved capacity less leave');
     assert.match(schedulingTsx, /Scheduled Leave \/ Out-of-Office/i, 'Visual capacity calendar must display leave schedule');
   });
 
   // Gap 10: Materiality enforcement and Partner planning sign-off
   it('Gap 10: materiality boundaries and Lead Audit Partner sign-off are required in planning', () => {
     const planningTsx = readFileSync(join(process.cwd(), 'src/components/modules/AuditPlanningView.tsx'), 'utf-8');
-    assert.match(planningTsx, /Profit Before Tax benchmark rate must be between 5\.0% and 10\.0%/i, 'Planning view must perform strict materiality range validation');
+    assert.match(planningTsx, /validateMaterialityRates\(benchmarkType, pct, perf, triv\)/, 'Planning view uses the shared store validator');
     assert.match(planningTsx, /strictly by the lead statutory audit partner/i, 'Planning sign-off must require Lead Audit Partner authority');
   });
 

@@ -3165,7 +3165,7 @@ describe('prototype workflow guards & lifecycle (F03, F04, F05, F06, F13)', () =
     const templateSnapshots = structuredClone(current.auditProgramTemplates || []);
     const engagement = current.engagements.find((item: any) => item.id === 'ENG-26001');
     prototypeStore.saveAuditPlan({ id: 'PLAN-ENG-26001-V1', engagementId: engagement.id, version: 1, status: 'Under review', benchmark: 'revenue', benchmarkValue: 2_000_000, materialityRate: 1.5, performanceMaterialityRate: 75, clearlyTrivialRate: 5, overallMateriality: 30_000, performanceMateriality: 22_500, clearlyTrivialThreshold: 1_500, rationales: ['Initial plan basis.'], teamAllocations: [{ person: 'Layla Rahman', role: 'Engagement Manager', scheduledStart: '2026-09-25', scheduledEnd: '2026-10-31' }], timingMilestones: [], significantAreas: ['Revenue & Receivables'] });
-    prototypeStore.setPersona('reviewer');
+    prototypeStore.setPersona('partner');
     prototypeStore.reviewAuditPlan('PLAN-ENG-26001-V1', true, 'Approved initial risk response.');
     prototypeStore.setPersona('manager');
     procedure.status = 'Cleared'; procedure.workPerformed = 'Prior approved testing'; procedure.conclusion = 'No exception'; procedure.evidenceLimitation = 'Current evidence requires reassessment.'; procedure.reviewedByUserId = 'reviewer'; procedure.reviewedAt = '2026-09-23T00:00:00.000Z';
@@ -3187,7 +3187,7 @@ describe('prototype workflow guards & lifecycle (F03, F04, F05, F06, F13)', () =
     assert.equal(procedure.reviewedByUserId, undefined);
     assert.equal(procedure.scopeReassessmentHistory[0].previousStatus, 'Cleared');
     assert.throws(() => prototypeStore.updateAuditProcedureStatus(engagement.id, procedure.id, 'Submitted'), /re-record this procedure/);
-    prototypeStore.setPersona('reviewer');
+    prototypeStore.setPersona('partner');
     prototypeStore.reviewAuditPlan('PLAN-ENG-26001-V2', true, 'Reviewed risk-driven plan revision.');
     assert.equal(current.auditPlans[1].status, 'Approved');
     assert.equal(engagement.planning, true);
@@ -3376,7 +3376,7 @@ describe('prototype workflow guards & lifecycle (F03, F04, F05, F06, F13)', () =
     prototypeStore.saveAcceptanceCase({
       id: `ACC-${eng.client}-${eng.year}`, clientId: eng.client, year: eng.year, service: eng.service,
       riskRating: 'Low', independenceConfirmed: true, amlKycCompleted: true, conflictsCleared: true,
-      prohibitionsChecked: true, competenceConfirmed: true, screeningEvidence: { amlKyc: 'KYC-101', independence: 'IND-101', conflicts: 'COI-101', prohibitions: 'ROT-101', competence: 'COMP-101' }, conditions: [], recommendationBy: '',
+      prohibitionsChecked: true, competenceConfirmed: true, managementIntegrityConfirmed: true, financialViabilityConfirmed: true, screeningEvidence: { managementIntegrity: 'INT-101', financialViability: 'FIN-101', amlKyc: 'KYC-101', independence: 'IND-101', conflicts: 'COI-101', prohibitions: 'ROT-101', competence: 'COMP-101' }, conditions: [], recommendationBy: '',
       recommendationDate: '', recommendationNotes: 'Checks reviewed; recommend acceptance.', decisionStatus: 'Accepted'
     });
     assert.equal(prototypeStore.getSnapshot().acceptanceCases?.[0].decisionStatus, 'Pending');
@@ -3481,7 +3481,7 @@ describe('prototype workflow guards & lifecycle (F03, F04, F05, F06, F13)', () =
 
     assert.throws(() => prototypeStore.saveAuditPlan({ ...plan, performanceMaterialityRate: undefined }), /explicit valid materiality rates/);
     assert.throws(() => prototypeStore.saveAuditPlan({ ...plan, clearlyTrivialRate: 101 }), /explicit valid materiality rates/);
-    assert.throws(() => prototypeStore.saveAuditPlan({ ...plan, clearlyTrivialThreshold: 1_499 }), /must match its saved benchmark and explicit rates/);
+    assert.throws(() => prototypeStore.saveAuditPlan({ ...plan, clearlyTrivialThreshold: 1_490 }), /must derive from selected PM/);
     assert.throws(() => prototypeStore.saveAuditPlan({ ...plan, teamAllocations: [] }), /Assign at least one in-scope staff member/);
     assert.throws(() => prototypeStore.saveAuditPlan({ ...plan, teamAllocations: [{ ...plan.teamAllocations[0], person: 'Unknown Person' }] }), /active staff user/);
     assert.throws(() => prototypeStore.saveAuditPlan({ ...plan, teamAllocations: [{ ...plan.teamAllocations[0], scheduledStart: '2026-02-30' }] }), /valid scheduled date range/);
@@ -3508,8 +3508,8 @@ describe('prototype workflow guards & lifecycle (F03, F04, F05, F06, F13)', () =
     setPersona(current, 'Layla Rahman');
     prototypeStore.saveAuditPlan(plan(1));
     assert.equal(eng.planning, false);
-    assert.throws(() => prototypeStore.reviewAuditPlan(`PLAN-${eng.id}-V1`, true, 'Reviewed.'), /same person/);
-    setPersona(current, 'Sara Malik');
+    assert.throws(() => prototypeStore.reviewAuditPlan(`PLAN-${eng.id}-V1`, true, 'Reviewed.'), /cannot review audit plans/);
+    setPersona(current, 'Daniel James');
     prototypeStore.reviewAuditPlan(`PLAN-${eng.id}-V1`, true, 'Reviewed and approved.');
     assert.equal(eng.planning, true);
     setPersona(current, 'Layla Rahman');

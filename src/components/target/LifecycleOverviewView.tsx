@@ -247,46 +247,6 @@ export function LifecycleOverviewView({ onNavigate }: TargetViewProps) {
         </div>
       </section>
 
-      {/* 19 OPERATIONAL LIFECYCLE STAGES */}
-      {stages.length > 0 && (
-        <section className="panel panel-pad">
-          <div className="flex-between mb12">
-            <div>
-              <h3 style={{ margin: 0 }}>Detailed Operational Stages (ISA Execution Track)</h3>
-              <p className="caption">
-                {stages.length} sequential operational stages from inquiry to post-signature archive:
-              </p>
-            </div>
-            <span className="caption mono font-medium">{stages.length} Tracked Steps</span>
-          </div>
-          <ol
-            className="target-stage-grid"
-            aria-label="Canonical engagement lifecycle"
-            data-testid="target-lifecycle-stages"
-          >
-            {stages.map((stage, index) => (
-              <li
-                key={stage.id}
-                className={`target-stage ${stage.status.toLowerCase().replaceAll(' ', '-')}`}
-              >
-                <button
-                  onClick={() => onNavigate(stage.route)}
-                  disabled={!canOpenRoute(state.currentRole, stage.route)}
-                  aria-label={`${index + 1}. ${stage.label} — ${stage.status}`}
-                >
-                  <span className="target-stage-number">{String(index + 1).padStart(2, '0')}</span>
-                  <span>
-                    <strong>{stage.label}</strong>
-                    <small>{stage.owner}</small>
-                  </span>
-                  <span className="target-stage-state">{stage.status}</span>
-                </button>
-              </li>
-            ))}
-          </ol>
-        </section>
-      )}
-
       {/* Engagements Scope Switcher */}
       {engagements.length > 0 && (
         <section className="panel panel-pad">

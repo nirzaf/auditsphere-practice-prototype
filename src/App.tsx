@@ -14,6 +14,7 @@ import { OpinionDeliverablesView } from './components/target/OpinionDeliverables
 import { FreezeArchiveView } from './components/target/FreezeArchiveView';
 import { ClientRequirementsPresentationView } from './components/target/ClientRequirementsPresentationView';
 import { TargetLifecycleHeader } from './components/target/TargetCommon';
+import { ProjectTemplates } from './components/common/ProjectTemplates';
 // AuditSphere Main Application Component
 // Subscribes to the shared store and renders the target audit lifecycle.
 
@@ -45,6 +46,7 @@ import { EvidenceCatalogueView } from './components/modules/EvidenceCatalogueVie
 import { FindingsView } from './components/modules/FindingsView';
 
 // Client Services, Admin & Specifications
+import { TimeTrackingView } from './components/modules/TimeTrackingView';
 import { AdministrationView } from './components/modules/AdministrationView';
 import { M365SetupView } from './components/modules/M365SetupView';
 import { UnsavedFormGuard } from './services/unsavedFormGuard';
@@ -459,6 +461,8 @@ export const App: React.FC = () => {
       // Accounting Workbench
       case 'trial-balance':
         return <TrialBalanceView onNavigate={navigate} onRegisterUnsavedForm={registerUnsavedForm} />;
+      case 'my-time':
+        return <TimeTrackingView engagementId={state.selectedEngagement} onNavigate={navigate} onRegisterUnsavedForm={registerUnsavedForm} />;
       case 'scheduling':
         return <SchedulingView onNavigate={navigate} onRegisterUnsavedForm={registerUnsavedForm} />;
       case 'confirmations':
@@ -519,6 +523,7 @@ export const App: React.FC = () => {
     <Shell currentRoute={effectiveRoute} onRouteChange={navigate} onSelectClient={(clientId) => requestContextChange(() => { setSelectedClientId(clientId); setWorkflowSelection(null); })} onBeforeContextChange={requestContextChange}>
       {!isClient && ENGAGEMENT_CONTEXT_ROUTES.has(effectiveRoute) && <TargetLifecycleHeader route={effectiveRoute} onNavigate={navigate} />}
       {renderModule()}
+      {!isClient && <ProjectTemplates key={`${effectiveRoute}:${state.selectedEngagement}`} route={effectiveRoute} jurisdiction={state.clients.find(client => client.id === state.engagements.find(engagement => engagement.id === state.selectedEngagement)?.client)?.jurisdiction} />}
 
       {dismissPrompt && createPortal(<div data-dismiss-prompt="" role="alert" className="banner amber mt12" style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center', justifyContent: 'space-between' }}>
         <span>This dialog has unsaved changes. Nothing has been saved.</span>

@@ -10,7 +10,7 @@ import { UnsavedFormGuard } from '../../services/unsavedFormGuard';
 import { Icon } from '../common/Icons';
 import { StatusBadge } from '../common/StatusBadge';
 import { Notice, EmptyTableRow, EmptyState } from '../common/Feedback';
-import { calculateMateriality, calculateBalanceSheet, calculateIncomeStatement, formatCurrency } from '../../services/calculations';
+import { validateMaterialityRates, calculateMateriality, calculateBalanceSheet, calculateIncomeStatement, formatCurrency } from '../../services/calculations';
 import { LifecyclePanel } from '../common/Lifecycle';
 import { lifecycleById } from '../../services/lifecycles';
 
@@ -193,24 +193,8 @@ export const AuditPlanningView: React.FC<AuditPlanningViewProps> = ({ onNavigate
       if (percentage === '' || !Number.isFinite(pct) || pct <= 0) {
         throw new Error('Enter an applied benchmark rate.');
       }
-      if (benchmarkType === 'profit' && (pct < 5.0 || pct > 10.0)) {
-        throw new Error('Profit Before Tax benchmark rate must be between 5.0% and 10.0% under ISA 320.');
-      }
-      if (benchmarkType === 'revenue' && (pct < 0.5 || pct > 2.0)) {
-        throw new Error('Gross Revenue benchmark rate must be between 0.5% and 2.0% under ISA 320.');
-      }
-      if (benchmarkType === 'assets' && (pct < 0.5 || pct > 1.0)) {
-        throw new Error('Total Assets benchmark rate must be between 0.5% and 1.0% under ISA 320.');
-      }
-      if (benchmarkType === 'equity' && (pct < 1.0 || pct > 2.0)) {
-        throw new Error('Net Equity benchmark rate must be between 1.0% and 2.0% under ISA 320.');
-      }
-      if (performanceRate === '' || !Number.isFinite(perf) || perf < 50.0 || perf > 75.0) {
-        throw new Error('Performance materiality (Tolerable Error / TE) rate must be between 50.0% and 75.0% under ISA 320.');
-      }
-      if (trivialRate === '' || !Number.isFinite(triv) || triv < 3.0 || triv > 5.0) {
-        throw new Error('Clearly trivial threshold (SAD) rate must be between 3.0% and 5.0% under ISA 320.');
-      }
+      if (performanceRate === '' || trivialRate === '') throw new Error('Enter explicit TE and SAD rates.');
+      validateMaterialityRates(benchmarkType, pct, perf, triv);
       if (isRoundingExceeded) {
         throw new Error(`Manager practical rounding exceeds the ±5.0% maximum limit (current: ${roundingTolerancePct > 0 ? '+' : ''}${roundingTolerancePct.toFixed(1)}%). Adjust rounding to within ±5% of ${formatCurrency(materiality?.overallMateriality || 0, selectedEng.currency)}.`);
       }

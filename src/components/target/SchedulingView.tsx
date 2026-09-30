@@ -77,9 +77,9 @@ export function SchedulingView(props: TargetViewProps) {
           <div className="flex-between mb12">
             <div>
               <h3 style={{ margin: 0 }}>Visual Capacity &amp; Resource Availability Calendar</h3>
-              <p className="caption">Standard weekly benchmark: 40 hours · Target Utilization: <strong>80% – 85%</strong></p>
+              <p className="caption">Recorded interval capacity less leave · saved target utilization</p>
             </div>
-            <span className="tag green">BENCHMARK 80–85% TARGET</span>
+            <span className="tag green">RECORDED AVAILABILITY</span>
           </div>
 
           <div className="tablewrap">
@@ -96,15 +96,14 @@ export function SchedulingView(props: TargetViewProps) {
                 </tr>
               </thead>
               <tbody>
-                {[
-                  { name: eng.partner || 'Daniel James', role: 'Engagement Partner', rate: '1,000 QAR/h', capacity: 40, allocated: 32, leave: 'None scheduled', status: 'Optimal' },
-                  { name: eng.manager || 'Layla Rahman', role: 'Audit Manager', rate: '750 QAR/h', capacity: 40, allocated: 34, leave: 'None scheduled', status: 'Optimal' },
-                  { name: 'Sara Malik', role: 'Senior / Reviewer', rate: '500 QAR/h', capacity: 40, allocated: 35, leave: 'None scheduled', status: 'Target Met' },
-                  { name: 'Adam Khan', role: 'Associate / Preparer', rate: '200 QAR/h', capacity: 40, allocated: 32, leave: 'Jan 18–19 (Annual Leave, 16h)', status: 'Optimal' },
-                ].map((member) => {
-                  const util = Math.round((member.allocated / member.capacity) * 100);
-                  const isOptimal = util >= 80 && util <= 85;
-                  const isHigh = util > 85;
+                {allocations.map(a => ({ name: state.users.find(u => u.id === a.userId)?.name || a.userId, role: a.role,
+                  rate: a.chargeRate === null ? 'Unknown rate' : `${a.chargeRate} ${eng.currency}/h`,
+                  capacity: a.capacityHours, allocated: a.plannedHours, leave: a.leaveNote || `${a.leaveHours || 0} hours`,
+                  target: a.targetUtilizationPct, available: a.capacityHours === undefined ? undefined : a.capacityHours - (a.leaveHours || 0)
+                })).map((member) => {
+                  const util = member.available && member.available > 0 ? Math.round((member.allocated / member.available) * 100) : null;
+                  const isOptimal = util !== null && member.target !== undefined && util >= member.target && util <= member.target + 5;
+                  const isHigh = util !== null && member.target !== undefined && util > member.target + 5;
                   return (
                     <tr key={member.name} className="hover-row">
                       <td><strong>{member.name}</strong></td>
@@ -112,10 +111,10 @@ export function SchedulingView(props: TargetViewProps) {
                         <span>{member.role}</span>
                         <div className="caption text-muted">{member.rate}</div>
                       </td>
-                      <td className="text-right mono">{member.capacity} hrs</td>
+                      <td className="text-right mono">{member.capacity === undefined ? 'Unknown' : `${member.capacity} hrs`}</td>
                       <td className="text-right mono">{member.allocated} hrs</td>
                       <td className="text-right mono font-medium" style={{ color: isOptimal ? '#15803d' : isHigh ? '#7c3aed' : '#b45309' }}>
-                        {util}%
+                        {util === null ? 'Unknown' : `${util}%`}
                       </td>
                       <td>
                         <span className="caption" style={{ color: member.leave === 'None scheduled' ? '#64748b' : '#0284c7' }}>
@@ -134,32 +133,7 @@ export function SchedulingView(props: TargetViewProps) {
             </table>
           </div>
 
-          {/* 4-Week Visual Timeline Heatmap */}
-          <div className="mt16 pt12 border-top">
-            <span className="caption font-medium">4-Week Engagement Phase Distribution:</span>
-            <div className="grid4 mt8" style={{ gap: 8 }}>
-              <div className="p8 borderbox" style={{ background: '#f8fafc', borderRadius: 4 }}>
-                <strong style={{ fontSize: '12px' }}>W1: Planning &amp; Intake</strong>
-                <div className="caption text-muted mt4">Partner 2h · Mgr 4h · Staff 8h</div>
-                <div style={{ height: 6, background: '#10b981', borderRadius: 3, marginTop: 6 }} />
-              </div>
-              <div className="p8 borderbox" style={{ background: '#f8fafc', borderRadius: 4 }}>
-                <strong style={{ fontSize: '12px' }}>W2: Substantive Testing</strong>
-                <div className="caption text-muted mt4">Mgr 4h · Senior 8h · Staff 16h</div>
-                <div style={{ height: 6, background: '#0ea5e9', borderRadius: 3, marginTop: 6 }} />
-              </div>
-              <div className="p8 borderbox" style={{ background: '#f8fafc', borderRadius: 4 }}>
-                <strong style={{ fontSize: '12px' }}>W3: Fieldwork &amp; Findings</strong>
-                <div className="caption text-muted mt4">Mgr 2h · Senior 4h · Staff 12h</div>
-                <div style={{ height: 6, background: '#6366f1', borderRadius: 3, marginTop: 6 }} />
-              </div>
-              <div className="p8 borderbox" style={{ background: '#f8fafc', borderRadius: 4 }}>
-                <strong style={{ fontSize: '12px' }}>W4: SRM &amp; Reporting Release</strong>
-                <div className="caption text-muted mt4">Partner 2h · Mgr 2h · Senior 4h</div>
-                <div style={{ height: 6, background: '#8b5cf6', borderRadius: 3, marginTop: 6 }} />
-              </div>
-            </div>
-          </div>
+          <div className="grid4 mt16">{allocations.map((a,i) => <div className="borderbox p12" key={i}><strong>{a.phase}</strong><p>{a.startDate} → {a.endDate}</p><p>{a.plannedHours} hours · {state.users.find(u => u.id === a.userId)?.name}</p></div>)}</div>
         </div>
       </section>
       <TargetForm
@@ -174,6 +148,7 @@ export function SchedulingView(props: TargetViewProps) {
             rows.map((row, index) => ({
               userId: value(data, `user${index}`),
               role: row.role,
+              capacityHours: amount(data, `capacity${index}`), leaveHours: amount(data, `leave${index}`), leaveNote: value(data, `leaveNote${index}`), targetUtilizationPct: amount(data, `target${index}`),
               phase: value(data, `phase${index}`) as StaffAllocation['phase'],
               plannedHours: amount(data, `hours${index}`),
               chargeRate:
@@ -216,6 +191,10 @@ export function SchedulingView(props: TargetViewProps) {
                   <option key={p}>{p}</option>
                 ))}
               </Field>
+              <Field label="Capacity hours for scheduled interval" name={`capacity${index}`} type="number" min={1} defaultValue={allocation?.capacityHours ?? ''} />
+              <Field label="Leave hours in interval" name={`leave${index}`} type="number" min={0} defaultValue={allocation?.leaveHours ?? 0} />
+              <Field label="Leave dates / note" name={`leaveNote${index}`} required={false} defaultValue={allocation?.leaveNote || ''} />
+              <Field label="Target utilization %" name={`target${index}`} type="number" min={0} max={100} defaultValue={allocation?.targetUtilizationPct ?? 80} />
               <Field
                 label="Planned hours"
                 name={`hours${index}`}

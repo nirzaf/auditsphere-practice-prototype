@@ -357,6 +357,7 @@ export function professionalBlockers(
     blockers.push(
       'Resolve independence, KYC/AML, competence and prohibited or conditional matters.'
     );
+  if (!['Track B (Continuance)', 'Continuance'].includes(record.assessmentType || '') && (record.managementIntegrityConfirmed !== true || record.financialViabilityConfirmed !== true || !record.screeningEvidence?.managementIntegrity?.trim() || !record.screeningEvidence?.financialViability?.trim())) blockers.push('Track A requires management integrity and financial viability confirmations with evidence.');
   if (
     ['amlKyc', 'independence', 'conflicts', 'prohibitions', 'competence'].some(
       (k) =>
@@ -427,6 +428,10 @@ export function scopedPrograms(state: PrototypeState, engagement: EngagementReco
   return state.auditPrograms.filter((p) => p.engagementId === engagement.id);
 }
 /** Canonical material projection: migration-added empty histories must not stale a review. */
+export function analyticalReviewIsCurrent(state: PrototypeState, engagement: EngagementRecord, record: import('../types/targetLifecycle').AnalyticalReviewRecord) {
+  const mapping = state.accountMappingRevisions?.filter(m => m.engagementId === engagement.id).at(-1);
+  return record.tbSourceVersion === engagement.sourceVersion && record.mappingRevision === mapping?.revision && record.planVersion === currentPlan(state, engagement)?.version;
+}
 export function reviewBasis(state: PrototypeState, engagement: EngagementRecord): string {
   const plan = currentPlan(state, engagement),
     record = professionalCase(state, engagement),
@@ -455,6 +460,7 @@ export function reviewBasis(state: PrototypeState, engagement: EngagementRecord)
       risk: record.riskRating,
       conditions: record.conditions || []
     },
+    analyticalReviews: engagement.auditLifecycle?.analyticalReviews || [],
     source: engagement.sourceVersion,
     rows: engagement.rows.map((r) => ({
       code: r.code,
@@ -689,6 +695,7 @@ export function managerReviewBlockers(
     )
   )
     blockers.push('Generate the current mapped P&L / BS snapshot.');
+  if ([...new Map((engagement.auditLifecycle?.analyticalReviews || []).map(r => [r.fsli, r])).values()].some(r => !analyticalReviewIsCurrent(state, engagement, r))) blockers.push('Analytical Review sign-off is stale after TB, mapping or plan changes; re-sign on the current basis.');
   const programs = scopedPrograms(state, engagement);
   if (
     !['Analytical Review', 'Going Concern'].every((area) =>
@@ -811,7 +818,7 @@ export function firmTrialBalance(state: PrototypeState) {
 export function practiceEconomics(state: PrototypeState, engagement: EngagementRecord) {
   const allocations = engagement.auditLifecycle?.staffing.at(-1)?.allocations || [];
   const times = state.times.filter(
-    (t) => t.engagementId === engagement.id && t.status === 'Approved'
+    (t) => t.engagementId === engagement.id && !['Returned', 'Superseded'].includes(t.status)
   );
   const budgetHours = allocations.reduce((n, a) => n + a.plannedHours, 0),
     actualHours = times.reduce((n, t) => n + t.durationMinutes / 60, 0);
@@ -822,9 +829,11 @@ export function practiceEconomics(state: PrototypeState, engagement: EngagementR
   const actualCost = times.every((t) => t.costRatePerHour !== undefined)
     ? money(times.reduce((n, t) => n + (t.durationMinutes / 60) * t.costRatePerHour!, 0))
     : null;
-  const wip = times.every((t) => t.billingRatePerHour !== undefined)
-    ? money(times.reduce((n, t) => n + (t.durationMinutes / 60) * t.billingRatePerHour!, 0))
-    : null;
+  const rateFor = (t: typeof times[number]) => t.billingRatePerHour ?? allocations.find(a => state.users.find(u => u.id === a.userId)?.name === t.person)?.chargeRate;
+  const wip = (times.length > 0 || (allocations.length > 0 && allocations.every(a => a.chargeRate !== null))) && times.every(t => rateFor(t) != null && Number.isFinite(rateFor(t)))
+    ? money(times.reduce((n,t) => n + t.durationMinutes / 60 * rateFor(t)!, 0)) : null;
+  const availableHours = allocations.length && allocations.every(a => a.capacityHours !== undefined)
+    ? allocations.reduce((n,a) => n + a.capacityHours! - (a.leaveHours || 0),0) : null;
   const fee = billingSummary(state, engagement).fee;
   return {
     budgetHours,
@@ -832,9 +841,9 @@ export function practiceEconomics(state: PrototypeState, engagement: EngagementR
     budgetValue,
     actualCost,
     wip,
-    profit: fee !== null && actualCost !== null ? money(fee - actualCost) : null,
+    profit: fee !== null && wip !== null ? money(fee - wip) : null,
     realization: fee !== null && wip && wip > 0 ? (fee / wip) * 100 : null,
-    utilization: budgetHours > 0 ? (actualHours / budgetHours) * 100 : null
+    utilization: availableHours && availableHours > 0 ? actualHours / availableHours * 100 : null
   };
 }
 export interface TargetStageProgress extends TargetStageDefinition {

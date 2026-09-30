@@ -1023,11 +1023,12 @@ class PrototypeStore {
     this.notify();
   }
 
-  public presentProposal(propId: string) {
+  public presentProposal(propId: string, channel: 'Email' | 'WhatsApp' = 'Email') {
     requireActiveIdentity(this.state);
     requireRole(this.state, ['relationship', 'manager', 'partner'], 'present proposals');
     const prop = this.state.proposals.find(p => p.id === propId);
     if (!prop) throw new GuardError('INVALID_STATE', `Proposal "${propId}" was not found.`);
+    if (!['Email', 'WhatsApp'].includes(channel)) throw new GuardError('INVALID_STATE', 'Proposal dispatch requires Email or WhatsApp.');
     if (prop.state !== 'Approved to send' || !prop.commercialReview?.approved) throw new GuardError('INVALID_STATE', 'Only an approved proposal can be presented.');
     if (prop.clientId) requireClientScope(this.state, prop.clientId);
     prop.presentedSnapshot = {
@@ -1049,6 +1050,8 @@ class PrototypeStore {
       periodStart: prop.periodStart,
       periodEnd: prop.periodEnd
     };
+    const recipient = this.state.contacts.find(c => c.clientId === prop.clientId && c.active);
+    (prop.dispatchHistory ||= []).push({ recipientContactId: recipient?.id, recipientName: recipient?.name || this.state.leads.find(l => l.id === prop.leadId)?.contact || 'Proposal recipient', channel, revision: prop.revision, dispatchedAt: new Date().toISOString(), simulatedOutcome: 'Delivered (simulated)' });
     prop.state = 'Presented';
     this.logEvent(`Proposal ${prop.id} Rev ${prop.revision} presented`, prop.id);
     this.notify();
@@ -4345,6 +4348,27 @@ class PrototypeStore {
     });
   }
 
+  public signOffAnalyticalReview(engId: string, input: Omit<import('../types/targetLifecycle').AnalyticalReviewRecord, 'id' | 'engagementId' | 'signedOffBy' | 'signedOffByUserId' | 'signedOffAt'>) {
+    requireRole(this.state, ['preparer', 'manager'], 'sign off analytical review');
+    requireActiveIdentity(this.state);
+    requireEngagementScope(this.state, engId);
+    const eng = this.state.engagements.find(e => e.id === engId);
+    requireActiveEngagementLifecycle(this.state, engId);
+    if (!eng?.auditLifecycle || eng.auditLifecycle.archiveControl.freezeStatus === 'Frozen') throw new GuardError('INVALID_STATE', 'An active audit lifecycle is required.');
+    const plan = this.state.auditPlans?.filter(p => p.engagementId === engId).at(-1);
+    const mapping = this.state.accountMappingRevisions?.filter(m => m.engagementId === engId).at(-1);
+    if (input.tbSourceVersion !== eng.sourceVersion || input.planVersion !== plan?.version || input.mappingRevision !== mapping?.revision) throw new GuardError('STALE_REVISION', 'Analytical Review basis changed; reopen the current statements.');
+    if (!input.analysis.trim() || !input.isa570Checklist.conclusion.trim() || ['operatingCashFlows', 'debtCovenantsCompliant', 'workingCapitalAdequate', 'noMaterialDisruptions'].some(key => typeof input.isa570Checklist[key as keyof typeof input.isa570Checklist] !== 'boolean')) throw new GuardError('INVALID_STATE', 'Record analysis, all ISA 570 answers and a going concern conclusion.');
+    const procedure = this.state.auditPrograms.filter(p => p.engagementId === engId && p.area === 'Analytical Review').flatMap(p => p.procedures).find(p => p.status !== 'Cleared');
+    if (!procedure) throw new GuardError('INVALID_STATE', 'Prepare an open Analytical Review procedure before signing off.');
+    this.updateAuditProcedureExecution(engId, procedure.id, input.analysis, input.isa570Checklist.conclusion, '');
+    const records = eng.auditLifecycle.analyticalReviews ||= [];
+    records.push({ ...structuredClone(input), id: `AR-${crypto.randomUUID()}`, engagementId: engId, procedureId: procedure.id,
+      signedOffBy: this.state.currentPerson, signedOffByUserId: this.state.currentUserId, signedOffAt: new Date().toISOString() });
+    this.logEvent(`Analytical Review signed off for ${input.fsli}; independent review pending`, engId);
+    this.notify();
+  }
+
   public updateAuditProcedureExecution(engId: string, procedureId: string, workPerformed: string, conclusion: string, evidenceLimitation: string) {
     requireActiveIdentity(this.state);
     requireRole(this.state, ['preparer', 'manager'], 'record procedure fieldwork');
@@ -5292,7 +5316,7 @@ class PrototypeStore {
       if (!record.independenceConfirmed || !record.amlKycCompleted || !record.conflictsCleared || !record.prohibitionsChecked || !record.competenceConfirmed) {
         throw new GuardError('INVALID_STATE', 'Acceptance is blocked until all required screening checks are confirmed.');
       }
-      if (record.managementIntegrityConfirmed === false || record.financialViabilityConfirmed === false) {
+      if (!['Track B (Continuance)', 'Continuance'].includes(record.assessmentType || '') && (record.managementIntegrityConfirmed !== true || record.financialViabilityConfirmed !== true)) {
         throw new GuardError('INVALID_STATE', 'Acceptance is blocked: management integrity and financial viability must be confirmed.');
       }
       const requiredEvidenceKeys: Array<keyof NonNullable<AcceptanceCaseRecord['screeningEvidence']>> = ['amlKyc', 'independence', 'conflicts', 'prohibitions', 'competence'];
@@ -5302,7 +5326,9 @@ class PrototypeStore {
         throw new GuardError('INVALID_STATE', 'Acceptance is blocked until all completed checks have evidence references.');
       }
       // Track B Continuance check
-      if (record.assessmentType === 'Continuance' || record.continuanceDeltaChecklist) {
+      if (record.assessmentType === 'Continuance' || record.assessmentType === 'Track B (Continuance)' || record.continuanceDeltaChecklist) {
+        const prior = this.state.engagements.find(e => e.id === record.priorPeriodEngagementId);
+        if (!prior || prior.client !== record.clientId || prior.service !== record.service || prior.year >= record.year || !prior.acceptance) throw new GuardError('INVALID_STATE', 'Continuance requires an accepted same-client, same-service prior period.');
         const delta = record.continuanceDeltaChecklist;
         const settled = delta?.priorFeesSettled ?? delta?.priorYearFeesSettled;
         const mgtUnchanged = delta?.managementShareholdingUnchanged ?? (delta?.managementChanges !== undefined ? !delta.managementChanges : undefined);
@@ -5427,12 +5453,8 @@ class PrototypeStore {
         !plan.rationales.some(r => r.trim())) {
       throw new GuardError('INVALID_STATE', 'Audit plan needs a positive benchmark, explicit valid materiality rates, and a rationale.');
     }
-    const expectedOverall = Math.round(plan.benchmarkValue * plan.materialityRate / 100);
-    const expectedPerformance = Math.round(expectedOverall * plan.performanceMaterialityRate! / 100);
-    const expectedTrivial = Math.round(expectedOverall * plan.clearlyTrivialRate! / 100);
-    if (plan.overallMateriality !== expectedOverall || plan.performanceMateriality !== expectedPerformance || plan.clearlyTrivialThreshold !== expectedTrivial) {
-      throw new GuardError('INVALID_STATE', 'Audit plan threshold amounts must match its saved benchmark and explicit rates.');
-    }
+    validateMaterialityRates(plan.benchmark, plan.materialityRate, plan.performanceMaterialityRate, plan.clearlyTrivialRate);
+    validateMaterialityThresholds(plan.benchmarkValue, plan.materialityRate, plan.overallMateriality, plan.performanceMaterialityRate!, plan.performanceMateriality, plan.clearlyTrivialRate!, plan.clearlyTrivialThreshold);
     if (!Array.isArray(plan.teamAllocations) || plan.teamAllocations.length === 0) {
       throw new GuardError('INVALID_STATE', 'Assign at least one in-scope staff member with a role and scheduled dates before submitting the audit plan.');
     }
@@ -5484,7 +5506,8 @@ class PrototypeStore {
     if (!this.state.auditPlans) return;
     const plan = this.state.auditPlans.find(p => p.id === planId);
     if (!plan) return;
-    requireRole(this.state, ['manager', 'reviewer', 'partner'], 'review audit plans');
+    requireActiveEngagementLifecycle(this.state, plan.engagementId);
+    requireRole(this.state, approved ? ['partner'] : ['manager', 'reviewer', 'partner'], 'review audit plans');
     requireEngagementScope(this.state, plan.engagementId);
     if (plan.status !== 'Under review') throw new GuardError('STALE_REVISION', 'Only the current under-review plan can be reviewed.');
     if (!notes.trim()) throw new GuardError('INVALID_STATE', 'Plan review requires recorded notes.');

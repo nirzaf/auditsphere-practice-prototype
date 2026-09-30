@@ -163,13 +163,13 @@ export function PracticeView(props: TargetViewProps & { ledger?: boolean }) {
                         {formatCurrency(fee, e.currency)}
                       </td>
                       <td className="text-right mono text-muted">
-                        {m.actualCost !== null ? formatCurrency(m.actualCost, e.currency) : 'Calculating…'}
+                        {m.wip !== null ? formatCurrency(m.wip, e.currency) : 'Unknown'}
                       </td>
                       <td className="text-right mono font-medium" style={{ color: m.profit !== null && m.profit >= 0 ? '#15803d' : '#b91c1c' }}>
-                        {m.profit !== null ? formatCurrency(m.profit, e.currency) : formatCurrency(fee - (m.actualCost || 0), e.currency)}
+                        {m.profit !== null ? formatCurrency(m.profit, e.currency) : 'Unknown'}
                       </td>
                       <td className="text-right mono">
-                        {m.realization !== null ? `${m.realization.toFixed(1)}%` : '100.0%'}
+                        {m.realization !== null ? `${m.realization.toFixed(1)}%` : 'Unknown'}
                       </td>
                       <td className="text-right mono">
                         {m.utilization !== null ? `${m.utilization.toFixed(1)}%` : '—'}

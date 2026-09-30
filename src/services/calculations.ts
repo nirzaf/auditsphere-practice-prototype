@@ -758,6 +758,7 @@ export function validateMaterialityRates(
   performanceRate?: number,
   clearlyTrivialRate?: number
 ) {
+  if (![materialityRate, performanceRate, clearlyTrivialRate].filter(v => v !== undefined).every(Number.isFinite)) throw new RangeError('Materiality rates must be finite numbers.');
   const normBench = benchmark.toLowerCase();
   const band = MATERIALITY_BENCHMARK_BANDS[normBench as BenchmarkType];
   if (band) {
@@ -765,9 +766,7 @@ export function validateMaterialityRates(
       throw new RangeError(`${band.label} rate must be between ${band.minRate}% and ${band.maxRate}% under STE v2.1 business rules.`);
     }
   } else {
-    if (materialityRate <= 0 || materialityRate > 100) {
-      throw new RangeError('Benchmark rate must be between 0% and 100%.');
-    }
+    throw new RangeError('Choose Profit Before Tax, Revenue, Assets or Equity as the materiality benchmark.');
   }
 
   if (performanceRate !== undefined) {
@@ -792,6 +791,7 @@ export function validateMaterialityThresholds(
   clearlyTrivialRate: number,
   clearlyTrivialThreshold: number
 ) {
+  if (![benchmarkValue, materialityRate, overallMateriality, performanceRate, performanceMateriality, clearlyTrivialRate, clearlyTrivialThreshold].every(Number.isFinite) || benchmarkValue <= 0 || overallMateriality <= 0) throw new RangeError('Materiality thresholds need finite positive benchmark and PM amounts.');
   const rawPM = Math.round(benchmarkValue * (materialityRate / 100));
   const tolerance = Math.abs(rawPM * (MAX_ROUNDING_TOLERANCE_PCT / 100));
   const minAllowedPM = Math.round(rawPM - tolerance);

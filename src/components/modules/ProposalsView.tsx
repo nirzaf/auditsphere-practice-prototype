@@ -81,7 +81,7 @@ export const ProposalsView: React.FC<ProposalsViewProps> = ({ onNavigate, onRegi
       const item: ProposalItem = { id: `${id}-1`, serviceId: service?.id, serviceRevision: proposalServiceRevision ?? service?.revision, serviceName: service?.name || lead?.service || editing?.items[0]?.serviceName || 'Professional services', description: proposalScope, scope: proposalScope, exclusions: proposalExclusions, deliverables: proposalDeliverables, clientResponsibilities: proposalResponsibilities, dependencies: proposalDependencies, period: proposalPeriod.trim(), periodStart: proposalPeriodStart, periodEnd: proposalPeriodEnd, feeModel: proposalFeeModel, quantity: proposalQuantity, rate: proposalFeeModel === 'Fixed' ? proposalAmount : proposalRate, amount: lineAmount };
       const items = [item, ...additionalProposalLines.map((line, index) => ({ ...line, id: `${id}-${index + 2}` }))];
       const totalAmount = items.reduce((sum, line) => sum + line.amount, 0);
-      const prop: ProposalRecord = { id, leadId: editing?.leadId || lead?.id, clientId: editing?.clientId || lead?.convertedClientId || proposalClientId || undefined, title: proposalTitle.trim(), revision: editing?.revision || 1, predecessorId: editing?.predecessorId, preparedBy: editing?.preparedBy || state.currentPerson, preparedAt: editing?.preparedAt || new Date().toISOString().slice(0, 10), currency: proposalCurrency, totalAmount, items, terms: proposalTerms, proposalMode, firmProfile: proposalMode === 'Comprehensive Technical Proposal' ? firmProfile : undefined, regulatoryRegistrations: proposalMode === 'Comprehensive Technical Proposal' ? regulatoryRegistrations.split(',').map(s=>s.trim()).filter(Boolean) : undefined, industryExperience: proposalMode === 'Comprehensive Technical Proposal' ? industryExperience : undefined, auditMethodology: proposalMode === 'Comprehensive Technical Proposal' ? auditMethodology : undefined, period: proposalPeriod.trim(), periodStart: proposalPeriodStart, periodEnd: proposalPeriodEnd, templateId: proposalTemplateId || undefined, templateRevision: proposalTemplateRevision, state: 'Draft' };
+      const prop: ProposalRecord = { id, leadId: editing?.leadId || lead?.id, clientId: editing?.clientId || lead?.convertedClientId || proposalClientId || undefined, title: proposalTitle.trim(), revision: editing?.revision || 1, predecessorId: editing?.predecessorId, preparedBy: editing?.preparedBy || state.currentPerson, preparedAt: editing?.preparedAt || new Date().toISOString().slice(0, 10), currency: proposalCurrency, totalAmount, items, terms: proposalTerms, teamCredentials, proposalMode, firmProfile: proposalMode === 'Comprehensive Technical Proposal' ? firmProfile : undefined, regulatoryRegistrations: proposalMode === 'Comprehensive Technical Proposal' ? regulatoryRegistrations.split(',').map(s=>s.trim()).filter(Boolean) : undefined, industryExperience: proposalMode === 'Comprehensive Technical Proposal' ? industryExperience : undefined, auditMethodology: proposalMode === 'Comprehensive Technical Proposal' ? auditMethodology : undefined, period: proposalPeriod.trim(), periodStart: proposalPeriodStart, periodEnd: proposalPeriodEnd, templateId: proposalTemplateId || undefined, templateRevision: proposalTemplateRevision, state: 'Draft' };
       editing ? prototypeStore.updateProposal(prop) : prototypeStore.addProposal(prop);
       setShowNewModal(false);
       setSelectedProposal(prototypeStore.getSnapshot().proposals.find(item => item.id === prop.id) || null);
@@ -100,6 +100,7 @@ export const ProposalsView: React.FC<ProposalsViewProps> = ({ onNavigate, onRegi
   const loadProposalDraft = (proposal: ProposalRecord) => {
     const primary = proposal.items[0];
     if (!primary) return;
+    setTeamCredentials(typeof proposal.teamCredentials === 'string' ? proposal.teamCredentials : (proposal.teamCredentials || []).map(t => `${t.name} · ${t.role} · ${t.qualification} · ${t.experience}`).join('; '));
     setProposalTitle(proposal.title); setProposalLead(proposal.leadId || ''); setProposalClientId(proposal.clientId || ''); setProposalTemplateId(proposal.templateId || ''); setProposalTemplateRevision(proposal.templateRevision); setProposalServiceId(primary.serviceId || proposalServices.find(service => service.name === primary.serviceName)?.id || ''); setProposalServiceRevision(primary.serviceRevision); setProposalScope(primary.scope); setProposalExclusions(primary.exclusions || ''); setProposalDeliverables(primary.deliverables); setProposalResponsibilities(primary.clientResponsibilities || ''); setProposalDependencies(primary.dependencies || ''); setProposalPeriod(primary.period || proposal.period || ''); setProposalPeriodStart(primary.periodStart || proposal.periodStart || ''); setProposalPeriodEnd(primary.periodEnd || proposal.periodEnd || ''); setProposalFeeModel(primary.feeModel); setProposalQuantity(primary.quantity || 1); setProposalRate(primary.rate ?? primary.amount); setProposalAmount(primary.amount); setProposalCurrency(proposal.currency); setProposalTerms(proposal.terms); setProposalMode(proposal.proposalMode || 'Brief Quotation'); if (proposal.firmProfile) setFirmProfile(proposal.firmProfile); if (proposal.regulatoryRegistrations) setRegulatoryRegistrations(proposal.regulatoryRegistrations.join(', ')); if (proposal.industryExperience) setIndustryExperience(proposal.industryExperience); if (proposal.auditMethodology) setAuditMethodology(proposal.auditMethodology); setAdditionalProposalLines(proposal.items.slice(1).map(item=>structuredClone(item))); setShowNewModal(true);
   };
 
@@ -323,14 +324,17 @@ export const ProposalsView: React.FC<ProposalsViewProps> = ({ onNavigate, onRegi
                         </button>
                       )}
                       {p.state === 'Approved to send' && (
+                        <>
                         <button
                           className="btn sm ghost"
                           onClick={() => {
                             try { prototypeStore.presentProposal(p.id); } catch (error: any) { setNotice({ type: 'error', text: error.message }); }
                           }}
                         >
-                          Mark Presented
+                          Dispatch by Email (simulated)
                         </button>
+                        <button className="btn sm ghost" onClick={() => { try { prototypeStore.presentProposal(p.id, 'WhatsApp'); } catch (error: any) { setNotice({ type: 'error', text: error.message }); } }}>Dispatch by WhatsApp (simulated)</button>
+                        </>
                       )}
                       {['Draft', 'Approved to send', 'Presented', 'Declined', 'Withdrawn'].includes(p.state) && <button className="btn sm ghost" onClick={() => { try { const next = prototypeStore.createProposalRevision(p.id); setSelectedProposal(next); } catch (error: any) { setNotice({ type: 'error', text: error.message }); } }}>New Revision</button>}
                       {p.state === 'Presented' && <button className="btn sm ghost" onClick={() => openResponseForm(p)}>Record Client Response</button>}

@@ -608,7 +608,7 @@ describe('proposal response methods and search person/grant matrix (VP-010/011/0
     setPersona(state, 'Layla Rahman');
     prototypeStore.reviewProposal(proposal.id, true, 'Rehearsal approval');
     setPersona(state, 'Amira Qasim');
-    prototypeStore.presentProposal(proposal.id, 'Email presentation to the CFO', 'DOC-PROP-PRES');
+    prototypeStore.presentProposal(proposal.id, 'Email');
     setPersona(state, 'Omar Nasser');
     let active = proposal;
     for (const method of ['Email', 'Meeting', 'Letter'] as const) {
@@ -623,7 +623,7 @@ describe('proposal response methods and search person/grant matrix (VP-010/011/0
         setPersona(state, 'Layla Rahman');
         prototypeStore.reviewProposal(active.id, true, `Rehearsal approval after the ${method} withdrawal`);
         setPersona(state, 'Amira Qasim');
-        prototypeStore.presentProposal(active.id, `Re-presented after the ${method} withdrawal`, `DOC-PROP-PRES-${method}`);
+        prototypeStore.presentProposal(active.id, 'Email');
         setPersona(state, 'Omar Nasser');
       }
     }
@@ -647,7 +647,7 @@ describe('proposal response methods and search person/grant matrix (VP-010/011/0
     setPersona(state, 'Layla Rahman');
     prototypeStore.reviewProposal(draft.id, true, 'Rehearsal approval');
     setPersona(state, 'Amira Qasim');
-    prototypeStore.presentProposal(draft.id, 'Presented at the board meeting', 'DOC-PROP-PRES-2');
+    prototypeStore.presentProposal(draft.id, 'Email');
     const presented = state.proposals.find(p => p.id === draft.id)!;
     assert.ok(presented.presentedSnapshot, 'presentation pins a snapshot');
     const snapshotBefore = JSON.stringify(presented.presentedSnapshot);

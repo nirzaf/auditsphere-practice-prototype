@@ -414,6 +414,19 @@ export class TargetLifecycleCommands {
     });
     this.event(engagement, 'PBC task delegated', user.name);
   }
+  public toggleRowLock(engagementId: string, fsli: string, expectedRevision: number) {
+    const eng = this.engagement(engagementId, ['preparer', 'reviewer', 'manager', 'partner'], true);
+    if (!eng.rows.some(r => r.mappedStatementLine === fsli)) throw new GuardError('INVALID_STATE', 'Choose a current mapped FSLI row.');
+    const locks = eng.auditLifecycle!.rowLocks ||= {};
+    const previous = locks[fsli];
+    if ((previous?.revision || 0) !== expectedRevision) throw new GuardError('STALE_REVISION', 'The row lock changed; reload its current revision.');
+    const active = previous && !previous.releasedAt && Date.parse(previous.expiresAt) > Date.now();
+    if (active && previous.actorUserId !== this.state.currentUserId) throw new GuardError('INVALID_STATE', 'Another auditor holds this row; wait for release or expiry.');
+    const now = new Date().toISOString();
+    locks[fsli] = { actorUserId: this.state.currentUserId, revision: expectedRevision + 1, acquiredAt: now,
+      expiresAt: new Date(Date.now() + 5 * 60 * 1000).toISOString(), ...(active ? { releasedAt: now } : {}) };
+    this.event(eng, 'FSLI row lock revised (local simulation)', `${fsli}: v${expectedRevision + 1}; five-minute bounded lease.`);
+  }
   public saveStaffing(engagementId: string, allocations: StaffAllocation[], reason: string) {
     const engagement = this.engagement(engagementId, ['manager', 'partner'], true);
     requireText(reason, 'Staffing revision reason');
@@ -454,6 +467,7 @@ export class TargetLifecycleCommands {
           'INVALID_STATE',
           'Use positive hours, an audit phase and a valid scheduled date range.'
         );
+      if ([a.capacityHours, a.leaveHours, a.targetUtilizationPct].some(v => v !== undefined && (!Number.isFinite(v) || v < 0)) || (a.capacityHours !== undefined && a.capacityHours <= 0) || (a.targetUtilizationPct !== undefined && a.targetUtilizationPct > 100) || (a.capacityHours !== undefined && (a.leaveHours || 0) > a.capacityHours)) throw new GuardError('INVALID_STATE', 'Availability needs positive capacity, bounded leave and a 0–100% utilization target.');
       if (a.chargeRate !== null) requireMoney(a.chargeRate, true);
       if (a.costRate !== null) requireMoney(a.costRate, true);
     }
@@ -684,7 +698,7 @@ export class TargetLifecycleCommands {
     };
     const items = [...population.items];
     const selected = new Set<string>();
-    if (method === 'Stratified' || method === 'Stratified Attribute Sampling') {
+    if (method === 'Stratified') {
       const ranked = items.sort((a, b) => Math.abs(a.amount) - Math.abs(b.amount));
       for (let n = 0; n < count; n++) {
         const start = Math.floor((n * ranked.length) / count),
@@ -692,13 +706,30 @@ export class TargetLifecycleCommands {
         const idx = start + Math.floor(random() * Math.max(1, end - start));
         const item = ranked[Math.min(idx, ranked.length - 1)];
         selected.add(item.id);
-        item.selectionRationale = `Stratified Attribute Sampling: stratum ${n + 1} of ${count}; rank ${idx + 1}; amount ${item.amount}.`;
+        item.selectionRationale = `Value-stratified sampling: stratum ${n + 1} of ${count}; rank ${idx + 1}; amount ${item.amount}.`;
+      }
+    } else if (method === 'Stratified Attribute Sampling') {
+      // Attribute = transaction direction (credit, zero, debit), not monetary rank.
+      const strata = [...new Set(items.map(i => Math.sign(i.amount)))];
+      if (count < strata.length) throw new GuardError('INVALID_STATE', 'Attribute sampling needs at least one item per transaction-direction stratum.');
+      for (const attribute of strata) {
+        const group = items.filter(i => Math.sign(i.amount) === attribute);
+        const item = group[Math.floor(random() * group.length)];
+        selected.add(item.id);
+        item.selectionRationale = `Stratified Attribute Sampling: transaction-direction attribute ${attribute}; one random item per nonempty stratum.`;
+      }
+      const remaining = items.filter(i => !selected.has(i.id));
+      while (selected.size < count) {
+        const index = Math.floor(random() * remaining.length);
+        const [item] = remaining.splice(index, 1);
+        selected.add(item.id);
+        item.selectionRationale = `Stratified Attribute Sampling: random remainder after credit/zero/debit coverage; attribute ${Math.sign(item.amount)}.`;
       }
     } else if (method === 'Systematic Random Sampling') {
-      const interval = Math.max(1, Math.floor(items.length / count));
-      const start = Math.floor(random() * interval);
+      const interval = items.length / count;
+      const start = random() * interval;
       for (let n = 0; n < count; n++) {
-        const idx = (start + n * interval) % items.length;
+        const idx = Math.floor(start + n * interval) % items.length;
         const item = items[idx];
         selected.add(item.id);
         item.selectionRationale = `Systematic Random Sampling: draw ${n + 1} of ${count}; interval ${interval}; random start ${start}; index ${idx}.`;
@@ -1307,17 +1338,24 @@ export class TargetLifecycleCommands {
         'INVALID_STATE',
         'A holding letter requires a critical outstanding confirmation.'
       );
-    return this.artifactWriter(
-      uniqueId(`HOLD-${engagementId}`),
-      'Pending Confirmation / Holding Letter — Prototype',
-      [
-        `Engagement: ${engagementId} / ${engagement.period}`,
-        ...blockers,
-        'Final report remains blocked. This artifact does not dispose of outstanding confirmations.',
-        'Local prototype letter; no email or external dispatch.'
-      ]
-    );
+    const actor = this.state.currentUserId, sourceVersion = engagement.sourceVersion;
+    const id = uniqueId(`HOLD-${engagementId}`);
+    const artifact = await this.artifactWriter(id, 'Pending Confirmation / Holding Letter — Prototype', [
+      `Engagement: ${engagementId} / ${engagement.period}`, ...blockers,
+      'Final report remains blocked. Issued locally (simulated); no external dispatch.'
+    ]);
+    const current = this.engagement(engagementId, ['manager', 'partner'], true);
+    if (actor !== this.state.currentUserId || sourceVersion !== current.sourceVersion || JSON.stringify(blockers) !== JSON.stringify(criticalConfirmationBlockers(this.state, current))) throw new GuardError('STALE_REVISION', 'Holding Letter source or actor changed during generation.');
+    const letters = current.auditLifecycle!.holdingLetters ||= [];
+    const recipient = this.state.contacts.find(c => c.clientId === current.client && c.active);
+    letters.push({ id, revision: letters.length + 1, engagementId, generatedAt: new Date().toISOString(),
+      generatedByUserId: this.state.currentUserId, recipientContactId: recipient?.id,
+      recipientName: recipient?.name || this.state.clients.find(c => c.id === current.client)?.name || current.client,
+      sourceBlockers: [...blockers], artifactId: artifact.id, artifact, simulatedDispatchStatus: 'Issued (simulated)' });
+    this.event(current, 'Holding Letter issued (simulated)', id);
+    return artifact;
   }
+
   public recordManagerClearance(engagementId: string, notes: string) {
     const engagement = this.engagement(engagementId, ['manager'], true);
     requireText(notes, 'Manager conclusion');

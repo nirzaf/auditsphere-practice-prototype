@@ -2,7 +2,7 @@ import React from 'react';
 import { prototypeStore } from '../../store/prototypeStore';
 import { TBImportWizard } from '../modules/TBImportWizard';
 import { Field, TargetForm, value, type TargetViewProps } from './TargetCommon';
-import { hasAnyRole } from '../../services/guards';
+import { visibleEngagementIds, hasAnyRole } from '../../services/guards';
 import { isFrozen } from '../../services/targetLifecycle';
 
 export function TrialBalanceView(props: TargetViewProps) {
@@ -14,8 +14,11 @@ export function TrialBalanceView(props: TargetViewProps) {
   const memoryDict = React.useMemo(() => {
     const dict = new Map<string, { line: string; source: string; confidence: number }>();
     
-    // 1. Scan historical approved mappings across all revisions
-    (state.accountMappingRevisions || []).forEach((rev) => {
+    const visible = visibleEngagementIds(state);
+    const eligible = state.engagements.filter(e => e.client === eng.client && e.service === eng.service && e.currency === eng.currency && e.year < eng.year && e.mappingApproved && (visible === 'ALL' || visible.includes(e.id)));
+    const priorIds = new Set(eligible.map(e => e.id));
+    // Only approved same-client eligible prior-period revisions inform memory.
+    (state.accountMappingRevisions || []).filter(r => priorIds.has(r.engagementId)).sort((a,b) => b.revision-a.revision).forEach((rev) => {
       rev.mappings.forEach((m) => {
         const target = m.targets?.[0]?.statementLine;
         if (target && !dict.has(m.accountCode)) {
@@ -25,7 +28,7 @@ export function TrialBalanceView(props: TargetViewProps) {
     });
 
     // 2. Scan historical engagements
-    state.engagements.forEach((otherEng) => {
+    eligible.sort((a,b) => b.year-a.year).forEach((otherEng) => {
       otherEng.rows.forEach((r) => {
         if (r.mappedStatementLine && !dict.has(r.code)) {
           dict.set(r.code, { line: r.mappedStatementLine, source: `Historical Engagement ${otherEng.id}`, confidence: 95 });

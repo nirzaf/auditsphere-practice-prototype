@@ -37,9 +37,7 @@ export function PbcWorkspaceView(props: TargetViewProps & { client?: boolean }) 
     );
 
   const clientEntity = s.clients.find((c) => c.id === e.client);
-  const holdingLetterBlockers = (s.confirmations || []).filter(
-    (c) => c.engagementId === e.id && c.critical && c.status !== 'Cleared'
-  );
+  const holdingLetters = (e.auditLifecycle?.holdingLetters || []).filter(l => l.simulatedDispatchStatus === 'Issued (simulated)');
 
   const invoices = s.invoices.filter((inv) => inv.clientId === e.client);
   const receipts = s.receipts.filter((r) => r.clientId === e.client);
@@ -83,7 +81,7 @@ export function PbcWorkspaceView(props: TargetViewProps & { client?: boolean }) 
             </span>
             <h2>{client ? 'Client Information & PBC Workspace' : '5-Folder Engagement Taxonomy & PBC Workspace'}</h2>
             <p className="caption">
-              Client Entity: <strong>{clientEntity?.name}</strong> · Engagement: <strong>{e.id}</strong> ({e.period}) · 
+              Client Entity: <strong>{clientEntity?.name}</strong> · Engagement: <strong>{e.id}</strong> ({e.period}) ·
               Auditing Standards: <strong>ISA &amp; IFRS Governance</strong>
             </p>
           </div>
@@ -197,7 +195,7 @@ export function PbcWorkspaceView(props: TargetViewProps & { client?: boolean }) 
             className={`tab-btn ${activeClientTab === 'holding_letters' ? 'active' : ''}`}
             onClick={() => setActiveClientTab('holding_letters')}
           >
-            3. Formal Holding Letters ({holdingLetterBlockers.length})
+            3. Formal Holding Letters ({holdingLetters.length})
           </button>
           <button
             className={`tab-btn ${activeClientTab === 'deliverables' ? 'active' : ''}`}
@@ -444,7 +442,7 @@ export function PbcWorkspaceView(props: TargetViewProps & { client?: boolean }) 
             Formal notices issued when critical third-party audit confirmations remain pending.
           </p>
 
-          {holdingLetterBlockers.length > 0 ? (
+          {holdingLetters.length > 0 ? (
             <div className="borderbox p16" style={{ background: '#fffbeb', border: '1px solid #f59e0b', borderRadius: 6 }}>
               <div className="flex-between">
                 <div>
@@ -456,15 +454,15 @@ export function PbcWorkspaceView(props: TargetViewProps & { client?: boolean }) 
                 <span className="tag amber">ACTION REQUIRED</span>
               </div>
               <ul className="mt8 caption" style={{ paddingLeft: 20 }}>
-                {holdingLetterBlockers.map((c) => (
-                  <li key={c.id}>
-                    <strong>{c.type} Confirmation:</strong> {c.counterparty} ({c.relatedFsli}) — Status: {c.status}
-                  </li>
-                ))}
+                {holdingLetters.map(letter => <li key={letter.id}>
+                  <strong>{letter.id} · v{letter.revision}</strong> · {letter.generatedAt} · {letter.recipientName} · {letter.simulatedDispatchStatus}
+                  <ul>{letter.sourceBlockers.map((blocker, i) => <li key={i}>{blocker}</li>)}</ul>
+                  {letter.artifact && <ArtifactLink artifact={letter.artifact} />}
+                </li>)}
               </ul>
             </div>
           ) : (
-            <p className="caption text-muted">No active holding letters. All critical confirmations have been cleared.</p>
+            <p className="caption text-muted">No Holding Letters have been issued for this engagement.</p>
           )}
         </section>
       )}

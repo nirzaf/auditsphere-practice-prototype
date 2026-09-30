@@ -3,16 +3,16 @@ import assert from 'node:assert/strict';
 import { DECK_SLIDES } from '../../src/components/clientRequirements/deckData';
 import { DECK_ICONS } from '../../src/components/clientRequirements/deckIcons';
 import { MODULE_SLIDES } from '../../src/components/clientRequirements/moduleMap';
-import { MODULE_GUIDES } from '../../src/services/moduleGuideContent';
+import { TARGET_GUIDES } from '../../src/services/moduleGuideContent';
 
 test('every module guide is covered by at least one valid slide', () => {
   const ids = new Set(DECK_SLIDES.map(slide => slide.id));
-  for (const guide of MODULE_GUIDES) {
+  for (const guide of TARGET_GUIDES) {
     const slides = MODULE_SLIDES[guide.id];
     assert.ok(slides?.length, `${guide.id} has no requirement slide`);
     for (const slideId of slides) assert.ok(ids.has(slideId), `${guide.id} maps to unknown slide ${slideId}`);
   }
-  assert.equal(Object.keys(MODULE_SLIDES).length, MODULE_GUIDES.length);
+  assert.equal(Object.keys(MODULE_SLIDES).length, TARGET_GUIDES.length);
 });
 
 test('slide ids are unique and cards reference known icons with ascending steps', () => {

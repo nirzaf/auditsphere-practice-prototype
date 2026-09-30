@@ -35,7 +35,7 @@ const INVENTORY: Record<Family, string[]> = {
   records: ['linkDocumentToTask', 'unlinkDocumentFromTask', 'setDocumentClientSharing', 'archiveEngagement', 'recordArchiveHandover'],
   setup: ['updateM365Config', 'simulateM365Verification', 'simulateM365Disconnect', 'prepareClientWorkspace', 'saveAcceptanceCase', 'decideAcceptanceCase'],
   recovery: ['loadScenario', 'resetState', 'exportStateJSON', 'importStateJSON', 'checkIntegrity'],
-  professional: [
+  professional: ['signOffAnalyticalReview',
     'addJob', 'updateJob', 'addTask', 'updateTask', 'reassignTask', 'applyJobTemplate',
     'addComment', 'moderateComment', 'editComment',
     'addDocument', 'replaceDocumentRevision', 'updateDocumentReference', 'setDocumentAvailability', 'renameClientWorkspaceFolder',

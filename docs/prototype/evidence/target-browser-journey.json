@@ -3,7 +3,7 @@
   "checkpoints": [
     "Lead created and won; client prospect created",
     "Proposal / EL accepted with current revision and evidence",
-    "50% advance recorded and genuine receipt PDF persisted",
+    "Dual-Key cleared, then 50% advance recorded and genuine receipt PDF persisted",
     "Declined gate exercised, then Partner accepted independent recommendation",
     "M365 five-folder workspace prepared and simulated access verified",
     "PBC requested; scoped client uploads bytes; Manager accepts evidence",
@@ -21,66 +21,66 @@
   ],
   "engagementId": "ENG-TARGET",
   "archive": {
-    "archivedAt": "2026-09-30T11:28:12.733Z",
+    "archivedAt": "2026-09-30T15:16:32.768Z",
     "archivedBy": "Farooq Mansour",
-    "releaseId": "FINAL-ENG-TARGET-6f84b264-cf94-4b2a-8eef-822a589f8f2b",
+    "releaseId": "FINAL-ENG-TARGET-826ef168-3ed0-4e86-88e7-70673f333e3d",
     "manifest": [
-      "Audit Report: FINAL-ENG-TARGET-6f84b264-cf94-4b2a-8eef-822a589f8f2b-1 / SHA-256 6a4cd15583f17ce14aa50011fa05a27bf9ff3c2c7a95f8fb100a8c23bb172f8b",
-      "Management Letter: FINAL-ENG-TARGET-6f84b264-cf94-4b2a-8eef-822a589f8f2b-2 / SHA-256 9b46ad0bbe3079f5eb122082045a8a1d15d6759462f6ef94c8baed12fe5cd7bd",
-      "Letter of Representation: FINAL-ENG-TARGET-6f84b264-cf94-4b2a-8eef-822a589f8f2b-3 / SHA-256 2f551f437717cea4599d7b10dee4a14f2fde1f5540695373dcd2fc244ca97009",
-      "Management Correspondences Audit Trail: FINAL-ENG-TARGET-6f84b264-cf94-4b2a-8eef-822a589f8f2b-4 / SHA-256 6990d3055e216c92670acbca3de9dd2e5b072674356fdaf763dbb4e7ec99d43c",
-      "Final Balance Fee Note: FINAL-ENG-TARGET-6f84b264-cf94-4b2a-8eef-822a589f8f2b-5 / SHA-256 e362422b463e564fb924458e0038baae5b387b2e0b2cab1deaec3b1bb020419e"
+      "Audit Report: FINAL-ENG-TARGET-826ef168-3ed0-4e86-88e7-70673f333e3d-1 / SHA-256 e8e8e2178c02e58868f6c826815d2de3db0f8d9eefa43f5d34141e5147c7c512",
+      "Management Letter: FINAL-ENG-TARGET-826ef168-3ed0-4e86-88e7-70673f333e3d-2 / SHA-256 d3bd6f35e2aeedc74c27f72db11aad91c3d1a84853545595aae83f7096efd160",
+      "Letter of Representation: FINAL-ENG-TARGET-826ef168-3ed0-4e86-88e7-70673f333e3d-3 / SHA-256 c9447d372c84c15dd140ab61b544dfcf59ef2fe122a0f359b3bed343477b2b33",
+      "Management Correspondences Audit Trail: FINAL-ENG-TARGET-826ef168-3ed0-4e86-88e7-70673f333e3d-4 / SHA-256 b914fbea9adc7ab414906520dbe4b67d80c333f7aeaf1a3f4b163c0633a1ce4d",
+      "Final Balance Fee Note: FINAL-ENG-TARGET-826ef168-3ed0-4e86-88e7-70673f333e3d-5 / SHA-256 49767a9cdaabc3174288f156ee2105e03eaade6cc0a1903ea313961f8982f02b"
     ],
     "artifacts": [
       {
-        "id": "archive:ENG-TARGET:FINAL-ENG-TARGET-6f84b264-cf94-4b2a-8eef-822a589f8f2b:FINAL-ENG-TARGET-6f84b264-cf94-4b2a-8eef-822a589f8f2b-1",
-        "name": "FINAL-ENG-TARGET-6f84b264-cf94-4b2a-8eef-822a589f8f2b-1.pdf",
+        "id": "archive:ENG-TARGET:FINAL-ENG-TARGET-826ef168-3ed0-4e86-88e7-70673f333e3d:FINAL-ENG-TARGET-826ef168-3ed0-4e86-88e7-70673f333e3d-1",
+        "name": "FINAL-ENG-TARGET-826ef168-3ed0-4e86-88e7-70673f333e3d-1.pdf",
         "kind": "PDF",
         "mimeType": "application/pdf",
         "size": 5942,
-        "sha256": "6a4cd15583f17ce14aa50011fa05a27bf9ff3c2c7a95f8fb100a8c23bb172f8b",
+        "sha256": "e8e8e2178c02e58868f6c826815d2de3db0f8d9eefa43f5d34141e5147c7c512",
         "deliverable": "Audit Report",
-        "sourceArtifactId": "FINAL-ENG-TARGET-6f84b264-cf94-4b2a-8eef-822a589f8f2b-1"
+        "sourceArtifactId": "FINAL-ENG-TARGET-826ef168-3ed0-4e86-88e7-70673f333e3d-1"
       },
       {
-        "id": "archive:ENG-TARGET:FINAL-ENG-TARGET-6f84b264-cf94-4b2a-8eef-822a589f8f2b:FINAL-ENG-TARGET-6f84b264-cf94-4b2a-8eef-822a589f8f2b-2",
-        "name": "FINAL-ENG-TARGET-6f84b264-cf94-4b2a-8eef-822a589f8f2b-2.pdf",
+        "id": "archive:ENG-TARGET:FINAL-ENG-TARGET-826ef168-3ed0-4e86-88e7-70673f333e3d:FINAL-ENG-TARGET-826ef168-3ed0-4e86-88e7-70673f333e3d-2",
+        "name": "FINAL-ENG-TARGET-826ef168-3ed0-4e86-88e7-70673f333e3d-2.pdf",
         "kind": "PDF",
         "mimeType": "application/pdf",
         "size": 5088,
-        "sha256": "9b46ad0bbe3079f5eb122082045a8a1d15d6759462f6ef94c8baed12fe5cd7bd",
+        "sha256": "d3bd6f35e2aeedc74c27f72db11aad91c3d1a84853545595aae83f7096efd160",
         "deliverable": "Management Letter",
-        "sourceArtifactId": "FINAL-ENG-TARGET-6f84b264-cf94-4b2a-8eef-822a589f8f2b-2"
+        "sourceArtifactId": "FINAL-ENG-TARGET-826ef168-3ed0-4e86-88e7-70673f333e3d-2"
       },
       {
-        "id": "archive:ENG-TARGET:FINAL-ENG-TARGET-6f84b264-cf94-4b2a-8eef-822a589f8f2b:FINAL-ENG-TARGET-6f84b264-cf94-4b2a-8eef-822a589f8f2b-3",
-        "name": "FINAL-ENG-TARGET-6f84b264-cf94-4b2a-8eef-822a589f8f2b-3.pdf",
+        "id": "archive:ENG-TARGET:FINAL-ENG-TARGET-826ef168-3ed0-4e86-88e7-70673f333e3d:FINAL-ENG-TARGET-826ef168-3ed0-4e86-88e7-70673f333e3d-3",
+        "name": "FINAL-ENG-TARGET-826ef168-3ed0-4e86-88e7-70673f333e3d-3.pdf",
         "kind": "PDF",
         "mimeType": "application/pdf",
         "size": 6100,
-        "sha256": "2f551f437717cea4599d7b10dee4a14f2fde1f5540695373dcd2fc244ca97009",
+        "sha256": "c9447d372c84c15dd140ab61b544dfcf59ef2fe122a0f359b3bed343477b2b33",
         "deliverable": "Letter of Representation",
-        "sourceArtifactId": "FINAL-ENG-TARGET-6f84b264-cf94-4b2a-8eef-822a589f8f2b-3"
+        "sourceArtifactId": "FINAL-ENG-TARGET-826ef168-3ed0-4e86-88e7-70673f333e3d-3"
       },
       {
-        "id": "archive:ENG-TARGET:FINAL-ENG-TARGET-6f84b264-cf94-4b2a-8eef-822a589f8f2b:FINAL-ENG-TARGET-6f84b264-cf94-4b2a-8eef-822a589f8f2b-4",
-        "name": "FINAL-ENG-TARGET-6f84b264-cf94-4b2a-8eef-822a589f8f2b-4.pdf",
+        "id": "archive:ENG-TARGET:FINAL-ENG-TARGET-826ef168-3ed0-4e86-88e7-70673f333e3d:FINAL-ENG-TARGET-826ef168-3ed0-4e86-88e7-70673f333e3d-4",
+        "name": "FINAL-ENG-TARGET-826ef168-3ed0-4e86-88e7-70673f333e3d-4.pdf",
         "kind": "PDF",
         "mimeType": "application/pdf",
         "size": 5437,
-        "sha256": "6990d3055e216c92670acbca3de9dd2e5b072674356fdaf763dbb4e7ec99d43c",
+        "sha256": "b914fbea9adc7ab414906520dbe4b67d80c333f7aeaf1a3f4b163c0633a1ce4d",
         "deliverable": "Management Correspondences Audit Trail",
-        "sourceArtifactId": "FINAL-ENG-TARGET-6f84b264-cf94-4b2a-8eef-822a589f8f2b-4"
+        "sourceArtifactId": "FINAL-ENG-TARGET-826ef168-3ed0-4e86-88e7-70673f333e3d-4"
       },
       {
-        "id": "archive:ENG-TARGET:FINAL-ENG-TARGET-6f84b264-cf94-4b2a-8eef-822a589f8f2b:FINAL-ENG-TARGET-6f84b264-cf94-4b2a-8eef-822a589f8f2b-5",
-        "name": "FINAL-ENG-TARGET-6f84b264-cf94-4b2a-8eef-822a589f8f2b-5.pdf",
+        "id": "archive:ENG-TARGET:FINAL-ENG-TARGET-826ef168-3ed0-4e86-88e7-70673f333e3d:FINAL-ENG-TARGET-826ef168-3ed0-4e86-88e7-70673f333e3d-5",
+        "name": "FINAL-ENG-TARGET-826ef168-3ed0-4e86-88e7-70673f333e3d-5.pdf",
         "kind": "PDF",
         "mimeType": "application/pdf",
         "size": 5595,
-        "sha256": "e362422b463e564fb924458e0038baae5b387b2e0b2cab1deaec3b1bb020419e",
+        "sha256": "49767a9cdaabc3174288f156ee2105e03eaade6cc0a1903ea313961f8982f02b",
         "deliverable": "Final Balance Fee Note",
-        "sourceArtifactId": "FINAL-ENG-TARGET-6f84b264-cf94-4b2a-8eef-822a589f8f2b-5"
+        "sourceArtifactId": "FINAL-ENG-TARGET-826ef168-3ed0-4e86-88e7-70673f333e3d-5"
       }
     ]
   },
@@ -94,11 +94,11 @@
       "status": "Completed"
     },
     {
-      "id": "advance",
+      "id": "acceptance",
       "status": "Completed"
     },
     {
-      "id": "acceptance",
+      "id": "advance",
       "status": "Completed"
     },
     {
@@ -110,15 +110,15 @@
       "status": "Completed"
     },
     {
-      "id": "planning",
-      "status": "Completed"
-    },
-    {
       "id": "staffing",
       "status": "Completed"
     },
     {
       "id": "tb",
+      "status": "Completed"
+    },
+    {
+      "id": "planning",
       "status": "Completed"
     },
     {
@@ -164,34 +164,34 @@
   ],
   "artifacts": [
     {
-      "id": "FINAL-ENG-TARGET-6f84b264-cf94-4b2a-8eef-822a589f8f2b-1",
-      "name": "FINAL-ENG-TARGET-6f84b264-cf94-4b2a-8eef-822a589f8f2b-1.pdf",
+      "id": "FINAL-ENG-TARGET-826ef168-3ed0-4e86-88e7-70673f333e3d-1",
+      "name": "FINAL-ENG-TARGET-826ef168-3ed0-4e86-88e7-70673f333e3d-1.pdf",
       "size": 5942,
-      "sha256": "6a4cd15583f17ce14aa50011fa05a27bf9ff3c2c7a95f8fb100a8c23bb172f8b"
+      "sha256": "e8e8e2178c02e58868f6c826815d2de3db0f8d9eefa43f5d34141e5147c7c512"
     },
     {
-      "id": "FINAL-ENG-TARGET-6f84b264-cf94-4b2a-8eef-822a589f8f2b-2",
-      "name": "FINAL-ENG-TARGET-6f84b264-cf94-4b2a-8eef-822a589f8f2b-2.pdf",
+      "id": "FINAL-ENG-TARGET-826ef168-3ed0-4e86-88e7-70673f333e3d-2",
+      "name": "FINAL-ENG-TARGET-826ef168-3ed0-4e86-88e7-70673f333e3d-2.pdf",
       "size": 5088,
-      "sha256": "9b46ad0bbe3079f5eb122082045a8a1d15d6759462f6ef94c8baed12fe5cd7bd"
+      "sha256": "d3bd6f35e2aeedc74c27f72db11aad91c3d1a84853545595aae83f7096efd160"
     },
     {
-      "id": "FINAL-ENG-TARGET-6f84b264-cf94-4b2a-8eef-822a589f8f2b-3",
-      "name": "FINAL-ENG-TARGET-6f84b264-cf94-4b2a-8eef-822a589f8f2b-3.pdf",
+      "id": "FINAL-ENG-TARGET-826ef168-3ed0-4e86-88e7-70673f333e3d-3",
+      "name": "FINAL-ENG-TARGET-826ef168-3ed0-4e86-88e7-70673f333e3d-3.pdf",
       "size": 6100,
-      "sha256": "2f551f437717cea4599d7b10dee4a14f2fde1f5540695373dcd2fc244ca97009"
+      "sha256": "c9447d372c84c15dd140ab61b544dfcf59ef2fe122a0f359b3bed343477b2b33"
     },
     {
-      "id": "FINAL-ENG-TARGET-6f84b264-cf94-4b2a-8eef-822a589f8f2b-4",
-      "name": "FINAL-ENG-TARGET-6f84b264-cf94-4b2a-8eef-822a589f8f2b-4.pdf",
+      "id": "FINAL-ENG-TARGET-826ef168-3ed0-4e86-88e7-70673f333e3d-4",
+      "name": "FINAL-ENG-TARGET-826ef168-3ed0-4e86-88e7-70673f333e3d-4.pdf",
       "size": 5437,
-      "sha256": "6990d3055e216c92670acbca3de9dd2e5b072674356fdaf763dbb4e7ec99d43c"
+      "sha256": "b914fbea9adc7ab414906520dbe4b67d80c333f7aeaf1a3f4b163c0633a1ce4d"
     },
     {
-      "id": "FINAL-ENG-TARGET-6f84b264-cf94-4b2a-8eef-822a589f8f2b-5",
-      "name": "FINAL-ENG-TARGET-6f84b264-cf94-4b2a-8eef-822a589f8f2b-5.pdf",
+      "id": "FINAL-ENG-TARGET-826ef168-3ed0-4e86-88e7-70673f333e3d-5",
+      "name": "FINAL-ENG-TARGET-826ef168-3ed0-4e86-88e7-70673f333e3d-5.pdf",
       "size": 5595,
-      "sha256": "e362422b463e564fb924458e0038baae5b387b2e0b2cab1deaec3b1bb020419e"
+      "sha256": "49767a9cdaabc3174288f156ee2105e03eaade6cc0a1903ea313961f8982f02b"
     }
   ],
   "review": {

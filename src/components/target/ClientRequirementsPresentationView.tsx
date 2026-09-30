@@ -187,11 +187,11 @@ export function ClientRequirementsPresentationView({ onNavigate }: TargetViewPro
         style={{
           width: '100%',
           minHeight: '560px',
-          background: slide.kind === 'cover' ? 'linear-gradient(135deg, #091e24 0%, #102e38 100%)' : '#ffffff',
-          color: slide.kind === 'cover' ? '#ffffff' : '#1e293b',
-          borderRadius: 12,
-          boxShadow: '0 10px 30px rgba(0,0,0,0.12)',
-          border: '1px solid var(--stroke)',
+          background: '#FFFFFF',
+          color: '#17212B',
+          borderRadius: 10,
+          boxShadow: '0 2px 8px #0F172A08',
+          border: '1px solid #E2E8F0',
           display: 'flex',
           flexDirection: 'column',
           justifyContent: 'space-between',
@@ -216,27 +216,27 @@ export function ClientRequirementsPresentationView({ onNavigate }: TargetViewPro
               >
                 {slide.tag || 'STE SPECIFICATION V2.1'}
               </span>
-              <span className="caption" style={{ color: slide.kind === 'cover' ? '#94a3b8' : '#64748b' }}>
+              <span className="caption" style={{ color: '#526176' }}>
                 {slide.chapter} · {slide.section}
               </span>
             </div>
-            <span className="mono font-bold" style={{ color: slide.kind === 'cover' ? '#94a3b8' : '#64748b', fontSize: '13px' }}>
+            <span className="mono font-bold" style={{ color: '#526176', fontSize: '13px' }}>
               {String(slideIndex + 1).padStart(2, '0')} / {String(DECK_SLIDES.length).padStart(2, '0')}
             </span>
           </div>
 
           <h1 style={{
-            fontSize: slide.kind === 'cover' ? '42px' : '28px',
+            fontSize: 'clamp(1.5rem, 2.2vw, 1.9rem)',
             lineHeight: 1.2,
             margin: '8px 0 6px 0',
-            color: slide.kind === 'cover' ? '#ffffff' : '#0f172a'
+            color: '#17212B'
           }}>
             {slide.title}
           </h1>
 
           <p style={{
             fontSize: slide.kind === 'cover' ? '20px' : '16px',
-            color: slide.kind === 'cover' ? '#94a3b8' : '#475569',
+            color: '#526176',
             margin: '0 0 24px 0'
           }}>
             {slide.subtitle}
@@ -303,8 +303,8 @@ export function ClientRequirementsPresentationView({ onNavigate }: TargetViewPro
                     className="borderbox p14"
                     style={{
                       borderRadius: 10,
-                      background: slide.kind === 'cover' ? '#163842' : '#f8fafc',
-                      border: c.dashed ? '2px dashed #94a3b8' : slide.kind === 'cover' ? '1px solid #285461' : '1px solid #e2e8f0',
+                      background: '#F8FAFC',
+                      border: c.dashed ? '2px dashed #94a3b8' : '1px solid #E2E8F0',
                       opacity: visible ? 1 : 0.2,
                       transition: 'all 0.25s ease',
                       boxShadow: visible ? '0 4px 12px rgba(0,0,0,0.04)' : 'none',
@@ -318,16 +318,16 @@ export function ClientRequirementsPresentationView({ onNavigate }: TargetViewPro
                         <span className="caption mono font-bold" style={{ color: '#00796d' }}>
                           {c.tag || `STEP ${c.step}`}
                         </span>
-                        <div style={{ color: slide.kind === 'cover' ? '#9bdbcc' : '#00796d' }}>
+                        <div style={{ color: '#0B6B65' }}>
                           {renderIcon(c.icon)}
                         </div>
                       </div>
 
-                      <strong style={{ fontSize: '14px', display: 'block', marginBottom: 8, color: slide.kind === 'cover' ? '#ffffff' : '#0f172a' }}>
+                      <strong style={{ fontSize: '14px', display: 'block', marginBottom: 8, color: '#17212B' }}>
                         {c.heading}
                       </strong>
 
-                      <ul style={{ margin: '0 0 0 16px', padding: 0, fontSize: '12px', color: slide.kind === 'cover' ? '#cbd5e1' : '#475569', lineHeight: 1.5 }}>
+                      <ul style={{ margin: '0 0 0 16px', padding: 0, fontSize: '12px', color: '#526176', lineHeight: 1.5 }}>
                         {c.body.map((b, bIdx) => (
                           <li key={bIdx} style={{ marginBottom: 4 }}>{b}</li>
                         ))}
@@ -355,7 +355,7 @@ export function ClientRequirementsPresentationView({ onNavigate }: TargetViewPro
           <div
             className="row p12"
             style={{
-              background: slide.kind === 'cover' ? '#163842' : '#e0f2fe',
+              background: '#EEF3F9',
               borderRadius: 8,
               borderLeft: '4px solid #0284c7',
               gap: 12,
@@ -366,7 +366,7 @@ export function ClientRequirementsPresentationView({ onNavigate }: TargetViewPro
             <span style={{ fontWeight: 700, fontSize: '11px', color: '#0284c7', textTransform: 'uppercase' }}>
               {slide.band[0]}
             </span>
-            <span style={{ fontSize: '13px', color: slide.kind === 'cover' ? '#e2e8f0' : '#0369a1' }}>
+            <span style={{ fontSize: '13px', color: '#2B6CB0' }}>
               {slide.band[1]}
             </span>
           </div>
@@ -434,17 +434,7 @@ export function ClientRequirementsPresentationView({ onNavigate }: TargetViewPro
       <div className="panel panel-pad" style={{ background: '#f8fafc', borderRadius: 8 }}>
         <span className="caption font-bold mb8" style={{ display: 'block' }}>Quick Jump to v2.1 Functional Modules in Deck:</span>
         <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
-          <button type="button" className="btn sm ghost" onClick={() => setSlideIndex(0)}>01. Overview</button>
-          <button type="button" className="btn sm ghost" onClick={() => setSlideIndex(2)}>03. End-to-End Lifecycle</button>
-          <button type="button" className="btn sm ghost" onClick={() => setSlideIndex(6)}>07. Flow 1: Lead to Dual-Key</button>
-          <button type="button" className="btn sm ghost" onClick={() => setSlideIndex(10)}>11. Client Portal &amp; PBC</button>
-          <button type="button" className="btn sm ghost" onClick={() => setSlideIndex(14)}>15. Financial Statements &amp; Split Dashboard</button>
-          <button type="button" className="btn sm ghost" onClick={() => setSlideIndex(16)}>17. Flow 2: 3-Tier Materiality</button>
-          <button type="button" className="btn sm ghost" onClick={() => setSlideIndex(19)}>20. Flow 3: Confirmations &amp; SRM</button>
-          <button type="button" className="btn sm ghost" onClick={() => setSlideIndex(20)}>21. Flow 4: Opinion Selection (ISA 700/705)</button>
-          <button type="button" className="btn sm ghost" onClick={() => setSlideIndex(21)}>22. 5-Part Deliverables Bundle</button>
-          <button type="button" className="btn sm ghost" onClick={() => setSlideIndex(22)}>23. ISA 230 60-Day Regulatory Lock</button>
-          <button type="button" className="btn sm ghost" onClick={() => setSlideIndex(24)}>25. Flow 5: Practice Ledger &amp; Tiered Rates</button>
+          {DECK_SLIDES.map((s,i) => <button key={s.id} type="button" className="btn sm ghost" aria-current={i === slideIndex ? 'step' : undefined} onClick={() => setSlideIndex(i)}>{String(i+1).padStart(2,'0')}. {s.title}</button>)}
         </div>
       </div>
     </div>

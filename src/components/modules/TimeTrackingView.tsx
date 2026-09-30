@@ -148,7 +148,7 @@ export const TimeTrackingView: React.FC<TimeTrackingViewProps> = ({ onNavigate, 
     <div className="stack" style={{ gap: 20 }}>
       <div className="pagehead">
         <div>
-          <h1>Time Tracking & Attendance</h1>
+          <h1>Daily Engagement / FSLI Time</h1>
           <p>Record minute-level activity, enforce separation of duties, and manage timesheet approval.</p>
         </div>
         <button className="btn primary sm" onClick={openNewTimeModal}>
@@ -197,7 +197,7 @@ export const TimeTrackingView: React.FC<TimeTrackingViewProps> = ({ onNavigate, 
               </tr>
             </thead>
             <tbody>
-              {times.length === 0 && <EmptyTableRow colSpan={9} title="No time entries yet" description="Use “Record Time Entry” to log work against a job. Entries are submitted for independent review, can be returned with a reason, corrected, and resubmitted; approved billable time becomes eligible for invoicing." />}
+              {times.length === 0 && <EmptyTableRow colSpan={9} title="No time entries yet" description="Use “Record Time Entry” to log work against an engagement and FSLI. Entries are submitted for independent review, can be returned with a reason, corrected, and resubmitted; approved time retains its role charge-out rate for practice analytics." />}
               {times.map(t => (
                 <tr key={t.id}>
                   <td><b>{t.id}</b></td>

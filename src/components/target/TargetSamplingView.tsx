@@ -10,6 +10,7 @@ export function TargetSamplingView(props: TargetViewProps) {
   const populations = s.samplePopulations.filter((p) => p.engagementId === e.id);
   return (
     <div className="target-stack">
+      <p className="caption">Systematic Random uses fractional N/n intervals and a reproducible random start. Stratified uses monetary ranks; Stratified Attribute uses credit / zero / debit transaction-direction strata, one random item per stratum followed by a random remainder. These prototype methods require professional methodology review.</p>
       <TargetForm
         title="Import a complete sampling population"
         button="Validate & import source"
