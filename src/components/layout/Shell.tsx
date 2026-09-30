@@ -9,6 +9,7 @@ import { SCENARIO_DEFINITIONS, ScenarioName } from '../../store/scenarios';
 import { getPackageContextDisplay } from '../../services/calculations';
 import { Icon } from '../common/Icons';
 import { ROUTE_CATALOG, routeCode } from '../../services/routeCatalog';
+import { CloudDemoControls, CloudDemoLabel } from '../common/CloudDemoControls';
 
 interface ShellProps {
   currentRoute: RouteKey;
@@ -448,7 +449,7 @@ export const Shell: React.FC<ShellProps> = ({ currentRoute, onRouteChange, onSel
               Interactive Prototype
             </strong>
             <br />
-            Synthetic records. No live external integrations. Changes saved in this browser.
+            Synthetic records. Business services are simulated. Local or cloud demo storage.
           </div>
           <button
             className="navitem"
@@ -465,7 +466,7 @@ export const Shell: React.FC<ShellProps> = ({ currentRoute, onRouteChange, onSel
 
       {/* Main Shell Content */}
       <div className="shell">
-        <header className="topbar">
+        <header className={presenterMode ? 'topbar presenter-topbar' : 'topbar'}>
           <div className="topbar-left">
             <button
               className="icon-btn sidebar-toggle"
@@ -510,7 +511,7 @@ export const Shell: React.FC<ShellProps> = ({ currentRoute, onRouteChange, onSel
             <button className="btn sm" aria-pressed={presenterMode} onClick={() => setPresenterMode(v => !v)}>Presenter / Demo Controls</button>
             <span className="demo-pill">
               <span className="demo-dot" />
-              LOCAL DEMO
+              <CloudDemoLabel />
             </span>
             <button
               className="btn sm tour-header"
@@ -616,6 +617,7 @@ export const Shell: React.FC<ShellProps> = ({ currentRoute, onRouteChange, onSel
 
         {/* Main Content Area */}
         <main className="main" id="main" tabIndex={-1}>
+          <CloudDemoControls visible={presenterMode} onBeforeContextChange={onBeforeContextChange} />
           {children}
         </main>
       </div>

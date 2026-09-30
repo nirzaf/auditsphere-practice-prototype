@@ -92,4 +92,8 @@ npm run test:e2e    # builds production output, runs Chrome command journey and 
 # The harness pins a 1440x1000 window so every platform starts in the desktop layout.
 ```
 
+## Optional cloud demo persistence
+
+Presenter / Demo Controls now offers isolated, seeded D1 workspaces backed by a Cloudflare Worker. Start a synthetic commercial pipeline, autosave record changes, and resume with an access code. Workspaces expire after seven days; uploaded/generated file bytes remain browser-local. This is demo snapshot persistence, not production authentication or server-side professional workflow enforcement. Setup, resources and executed evidence: [cloud demo](docs/prototype/cloud-demo.md).
+
 Microsoft 365 screens are local simulations (`liveConnected: false`); SharePoint is the canonical demo library, OneDrive import is optional and disabled by default, mail outcomes are simulated accepted/failed/unknown, and Microsoft Purview is not part of this product. Issued invoices, approvals and releases change local demo records only — no payment demand, signature, email delivery or external retention is performed.

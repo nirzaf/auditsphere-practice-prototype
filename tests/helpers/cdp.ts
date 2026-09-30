@@ -5,20 +5,23 @@ export class CdpTab {
   readonly requests: string[] = [];
   readonly blockedExternalRequests: string[] = [];
   readonly exceptions: string[] = [];
+  readonly networkFailures: string[] = [];
 
   constructor(
     private ws: WebSocket,
-    private allowedOrigin: string
+    private allowedOrigin: string,
+    private additionalOrigins: string[] = []
   ) {
     ws.addEventListener('message', (event) => {
       const message = JSON.parse(String(event.data));
+      if (message.method === 'Network.loadingFailed') this.networkFailures.push(message.params.errorText);
       if (message.method === 'Network.requestWillBeSent')
         this.requests.push(message.params.request.url);
       if (message.method === 'Fetch.requestPaused') {
         const url = message.params.request.url as string;
         let sameOrigin = false;
         try {
-          sameOrigin = new URL(url).origin === this.allowedOrigin;
+          sameOrigin = new URL(url).origin === this.allowedOrigin || this.additionalOrigins.includes(new URL(url).origin);
         } catch {}
         if (!sameOrigin) this.blockedExternalRequests.push(url);
         void this.command(

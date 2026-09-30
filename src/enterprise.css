@@ -692,6 +692,8 @@ h1 { font-size:clamp(1.5rem,2.2vw,1.9rem); line-height:1.2; letter-spacing:-.025
 h2 { font-size:1.25rem; font-weight:700; } h3 { font-size:1.15rem; font-weight:700; }
 .btn { font-weight:700; text-transform:none; border-radius:6px; }
 .topbar { min-height:73px; background:#FFFFFF; color:#17212B; border-bottom:1px solid #E2E8F0; box-shadow:none; backdrop-filter:none; }
+.presenter-topbar { height:auto; flex-wrap:wrap; padding-top:12px; padding-bottom:12px; }
+@media(max-width:959px) { .presenter-topbar .topbar-right { width:100%; justify-content:flex-start; gap:8px; } }
 .sidebar { width:232px; background:#0F172A; color:#DCE7F4; border-right:1px solid #0B1220; }
 .side-scroll { padding:16px 12px 24px; }
 .nav-label { margin:20px 12px 7px; color:#9AAEC6; font-size:11px; font-weight:700; letter-spacing:.09em; text-transform:uppercase; }

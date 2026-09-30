@@ -11,6 +11,9 @@
     "legacy:build": "py -3 build.py",
     "legacy:check": "node --check app.bundle.js",
     "test:unit": "tsx --test --test-concurrency=1 tests/unit/*.test.ts",
+    "demo:seed": "tsx tools/seed-cloud-demo.ts",
+    "demo:typecheck": "tsc --noEmit -p worker/tsconfig.json",
+    "test:cloud": "tsx --test tests/cloud/*.test.ts",
     "test:e2e": "npm run build && tsx --test --test-concurrency=1 tests/e2e/*.test.ts"
   },
   "dependencies": {

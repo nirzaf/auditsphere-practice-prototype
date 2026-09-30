@@ -9,6 +9,15 @@ import { PROJECT_TEMPLATES, templateUrl } from '../../src/services/projectTempla
 let vite: ChildProcess, chrome: ChildProcess, tab: CdpTab, profile: string;
 const origin = 'http://127.0.0.1:3007',
   sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+async function saveEvidence(path: string, data: string | Buffer) {
+  for (let attempt = 0; ; attempt++) {
+    try { writeFileSync(path, data); return; }
+    catch (error) {
+      if (attempt >= 7 || !['UNKNOWN','EBUSY','EPERM'].includes((error as NodeJS.ErrnoException).code || '')) throw error;
+      await sleep(150);
+    }
+  }
+}
 before(
   async () => {
     vite = spawn(
@@ -61,7 +70,7 @@ before(
       ws.addEventListener('open', () => resolve(), { once: true });
       ws.addEventListener('error', () => reject(Error('CDP failed')), { once: true });
     });
-    tab = new CdpTab(ws, origin);
+    tab = new CdpTab(ws, origin, process.env.TEST_CLOUD_API_URL ? [new URL(process.env.TEST_CLOUD_API_URL).origin] : []);
     await tab.command('Runtime.enable');
     await tab.command('Page.enable');
     await tab.command('Network.enable');
@@ -209,17 +218,17 @@ it('checks US-UIUX-001 responsive scope and captures twelve required surfaces', 
       assert.equal(await tab.evaluate<boolean>(`!!document.querySelector('[role=alertdialog]')`), false, 'navigation must not silently stall at an unsaved dialog');
       assert.equal(result.route, `#${route}`, 'the requested surface must be active');
       results.push(result);
-      writeFileSync(`${folder}/responsive-results.json`,JSON.stringify(results,null,2));
       assert.ok(result.main && result.title, `${route} renders at ${width}`);
       assert.ok(result.documentWidth <= width + 1, `${route} at ${width}: ${JSON.stringify(result)}`);
       assert.equal(result.hiddenIdentity,true,'normal experience hides identity utility');
       assert.equal(result.hiddenSearch,true,'normal experience hides global search utility');
       if ([390,1440].includes(width)) {
         const screenshot = await tab.command('Page.captureScreenshot',{format:'png',captureBeyondViewport:true});
-        writeFileSync(`${folder}/${route}-${width}.png`,Buffer.from(screenshot.data,'base64'));
+        await saveEvidence(`${folder}/${route}-${width}.png`,Buffer.from(screenshot.data,'base64'));
       }
     }
   }
+  await saveEvidence(`${folder}/responsive-results.json`,JSON.stringify(results,null,2));
   assert.deepEqual(tab.exceptions,[]);
 }, { timeout: 120000 });
 
@@ -246,3 +255,42 @@ it('offers native workflow templates with working downloads and keeps source exa
   assert.equal(await tab.evaluate<boolean>(`!!document.querySelector('[data-testid=project-templates]')`), false);
   assert.deepEqual(tab.exceptions, []);
 }, { timeout: 10000 });
+
+it('creates a cloud demo from Presenter controls, autosaves a guarded change and resumes it', { skip: !process.env.TEST_CLOUD_API_URL, timeout: 30000 }, async () => {
+  await tab.evaluate(`import('/src/store/prototypeStore.ts').then(({prototypeStore:s})=>{s.setPersona('superuser');location.hash='proposals'})`);
+  await sleep(150);
+  await tab.evaluate(`[...document.querySelectorAll('button')].find(button=>button.textContent==='Presenter / Demo Controls').click()`);
+  for (let n=0;n<50;n++) { if (await tab.evaluate<boolean>(`!!document.querySelector('[data-testid=cloud-demo-controls] option')`)) break; await sleep(100); }
+  assert.ok(await tab.evaluate<boolean>(`!!document.querySelector('[data-testid=cloud-demo-controls] option')`), JSON.stringify({ blocked: tab.blockedExternalRequests, failures: tab.networkFailures, requests: tab.requests.slice(-10) }));
+  await tab.evaluate(`[...document.querySelectorAll('[data-testid=cloud-demo-controls] button')].find(button=>button.textContent==='Start new cloud demo').click()`);
+  for (let n=0;n<70;n++) { if (await tab.evaluate<boolean>(`import('/src/services/cloudDemo.ts').then(m=>m.cloudDemoSnapshot().mode==='saved')`)) break; await sleep(100); }
+  assert.equal(await tab.evaluate<string>(`import('/src/store/prototypeStore.ts').then(({prototypeStore:s})=>s.getSnapshot().clients[0]?.name)`), 'Synthetic Demo Trading LLC', await tab.evaluate<string>(`document.querySelector('[data-testid=cloud-demo-controls]').textContent+'; unsaved dialog: '+!!document.querySelector('[role=dialog]')`));
+  const code = await tab.evaluate<string>(`import('/src/services/cloudDemo.ts').then(m=>m.cloudDemoAccessCode())`);
+  const [id, token] = code.split('.');
+  try {
+    await tab.evaluate(`import('/src/store/prototypeStore.ts').then(({prototypeStore:s})=>{const client=s.getSnapshot().clients[0];s.updateClient({...client,notes:'Browser cloud save verified.'},client.profileRevision||0)})`);
+    for (let n=0;n<70;n++) { if (await tab.evaluate<boolean>(`import('/src/services/cloudDemo.ts').then(m=>m.cloudDemoSnapshot().mode==='saved'&&m.cloudDemoSnapshot().revision>=2)`)) break; await sleep(100); }
+    const remote = await (await fetch(process.env.TEST_CLOUD_API_URL+`/workspaces/${id}`, {headers:{Authorization:`Bearer ${token}`}})).json() as any;
+    assert.equal(remote.state.clients[0].notes, 'Browser cloud save verified.');
+    await tab.evaluate(`import('/src/services/cloudDemo.ts').then(m=>m.disconnectCloudDemo())`);
+    await tab.evaluate(`import('/src/store/prototypeStore.ts').then(({prototypeStore:s})=>s.loadScenario('target-lifecycle'))`);
+    await tab.evaluate(`import('/src/services/cloudDemo.ts').then(m=>m.resumeCloudDemo(${JSON.stringify(code)}))`);
+    assert.equal(await tab.evaluate<string>(`import('/src/store/prototypeStore.ts').then(({prototypeStore:s})=>s.getSnapshot().clients[0].notes)`), 'Browser cloud save verified.');
+    const remoteChange = await fetch(process.env.TEST_CLOUD_API_URL+`/workspaces/${id}`, {method:'PUT',headers:{Authorization:`Bearer ${token}`,'Content-Type':'application/json'},body:JSON.stringify({revision:remote.revision,state:remote.state})});
+    assert.equal(remoteChange.status,200);
+    await tab.evaluate(`import('/src/store/prototypeStore.ts').then(({prototypeStore:s})=>{const client=s.getSnapshot().clients[0];s.updateClient({...client,notes:'Local edit must survive a cloud conflict.'},client.profileRevision||0)})`);
+    for (let n=0;n<70;n++) { if (await tab.evaluate<boolean>(`import('/src/services/cloudDemo.ts').then(m=>m.cloudDemoSnapshot().mode==='conflict')`)) break; await sleep(100); }
+    assert.equal(await tab.evaluate<string>(`import('/src/services/cloudDemo.ts').then(m=>m.cloudDemoSnapshot().mode)`),'conflict');
+    assert.equal(await tab.evaluate<string>(`import('/src/store/prototypeStore.ts').then(({prototypeStore:s})=>s.getSnapshot().clients[0].notes)`),'Local edit must survive a cloud conflict.');
+    await tab.evaluate(`import('/src/services/cloudDemo.ts').then(m=>m.reloadCloudDemo())`);
+    assert.equal(await tab.evaluate<string>(`import('/src/store/prototypeStore.ts').then(({prototypeStore:s})=>s.getSnapshot().clients[0].notes)`),'Browser cloud save verified.');
+    await tab.command('Emulation.setDeviceMetricsOverride',{width:390,height:1000,deviceScaleFactor:1,mobile:false});
+    await sleep(100);
+    assert.equal(await tab.evaluate<boolean>(`document.querySelector('.topbar').getBoundingClientRect().bottom<=document.querySelector('.contextbar').getBoundingClientRect().top+1`),true,'mobile presenter header must not overlap context');
+    assert.equal(await tab.evaluate<boolean>(`document.documentElement.scrollWidth<=innerWidth+1`), true);
+    const capture=await tab.command('Page.captureScreenshot',{format:'png',captureBeyondViewport:true});
+    writeFileSync('docs/prototype/evidence/visual-parity/cloud-demo-390.png',Buffer.from(capture.data,'base64'));
+    await tab.evaluate(`import('/src/services/cloudDemo.ts').then(m=>m.disconnectCloudDemo())`);
+  } finally { await fetch(process.env.TEST_CLOUD_API_URL+`/workspaces/${id}`, {method:'DELETE',headers:{Authorization:`Bearer ${token}`}}); }
+  assert.deepEqual(tab.exceptions, []);
+});

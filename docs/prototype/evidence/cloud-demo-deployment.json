@@ -1,0 +1,223 @@
+{
+  "verifiedAt": "2026-09-30T16:48:58.994Z",
+  "baselineHead": "b25e89c474e6d8257612f4099fd2fe055a018162",
+  "workingTree": "uncommitted",
+  "deploymentUrl": "https://474126da.steaudit-prototype.pages.dev",
+  "apiUrl": "https://steaudit-prototype-demo-api.quadrate-lk.workers.dev",
+  "d1": {
+    "name": "steaudit-prototype-demo",
+    "id": "3562b9c7-742b-4a64-b250-64e1987f9b4b"
+  },
+  "workerVersion": "b2237bcc-c551-4caa-ad49-dd8ae4e75813",
+  "hosts": [
+    {
+      "host": "https://474126da.steaudit-prototype.pages.dev",
+      "status": 200,
+      "htmlMatchesBuild": true,
+      "entryMatchesBuild": true
+    },
+    {
+      "host": "https://prototype.steaudit.com",
+      "status": 200,
+      "htmlMatchesBuild": true,
+      "entryMatchesBuild": true
+    },
+    {
+      "host": "https://steaudit-prototype.pages.dev",
+      "status": 200,
+      "htmlMatchesBuild": true,
+      "entryMatchesBuild": true
+    }
+  ],
+  "tests": {
+    "unit": 380,
+    "browser": 5,
+    "liveAPI": 1
+  },
+  "templates": [
+    {
+      "file": "Audit Initial Requirements Checklist.docx",
+      "status": 200,
+      "matchesSource": true
+    },
+    {
+      "file": "Audit working papers/L - Cost of revenue/Q- Cost of revenue.xlsx",
+      "status": 200,
+      "matchesSource": true
+    },
+    {
+      "file": "Audit working papers/M - General and Admin Expense/S - General and Admin Cost.xlsx",
+      "status": 200,
+      "matchesSource": true
+    },
+    {
+      "file": "Audit working papers/J - Revenue/P - Revenue.xlsx",
+      "status": 200,
+      "matchesSource": true
+    },
+    {
+      "file": "QFC Documents/Resolution for Appointment of the Auditor of ABC LLC.docx",
+      "status": 200,
+      "matchesSource": true
+    },
+    {
+      "file": "Other Documents/Cash count form.xlsx",
+      "status": 200,
+      "matchesSource": true
+    },
+    {
+      "file": "QFC Documents/Resolution for Appointment of the First Auditor of ABC LLC.docx",
+      "status": 200,
+      "matchesSource": true
+    },
+    {
+      "file": "QFC Documents/Resolution for Cessation of the Auditor of ABC LLC.docx",
+      "status": 200,
+      "matchesSource": true
+    },
+    {
+      "file": "QFC Documents/Resolution of the Member in Relation to the Annual Accounts of ABC LLC.docx",
+      "status": 200,
+      "matchesSource": true
+    },
+    {
+      "file": "Independence Declaration 2023.doc",
+      "status": 200,
+      "matchesSource": true
+    },
+    {
+      "file": "Confirmation letter/Form A - Lawyer Confirmation.doc",
+      "status": 200,
+      "matchesSource": true
+    },
+    {
+      "file": "Audit working papers/D - Property, Plant and Equipments/PPE.xlsx",
+      "status": 200,
+      "matchesSource": true
+    },
+    {
+      "file": "Confirmation letter/Form B - Bank Confirmation.doc",
+      "status": 200,
+      "matchesSource": true
+    },
+    {
+      "file": "LOR 2024.docx",
+      "status": 200,
+      "matchesSource": true
+    },
+    {
+      "file": "Confirmation letter/Form E - Customers Confirmation.doc",
+      "status": 200,
+      "matchesSource": true
+    },
+    {
+      "file": "Confirmation letter/Form F - Partners Confirmation.doc",
+      "status": 200,
+      "matchesSource": true
+    },
+    {
+      "file": "QFC Documents/Engagement Letter - QFC Audit.docx",
+      "status": 200,
+      "matchesSource": true
+    },
+    {
+      "file": "Client's Acceptance and Continuation Procedure.docx",
+      "status": 200,
+      "matchesSource": true
+    },
+    {
+      "file": "Confirmation letter/Form G - Related Party Confirmation - 2.doc",
+      "status": 200,
+      "matchesSource": true
+    },
+    {
+      "file": "Audit working papers/M - General and Admin Expense/S1 - Salary working.xlsx",
+      "status": 200,
+      "matchesSource": true
+    },
+    {
+      "file": "Confirmation letter/Form G - Related Party Confirmation - 1.doc",
+      "status": 200,
+      "matchesSource": true
+    },
+    {
+      "file": "Audit working papers/K - Trade and Other payables/O - Trade or Accounts and Other Payables.xlsx",
+      "status": 200,
+      "matchesSource": true
+    },
+    {
+      "file": "Audit working papers/I - Lease (IFRS 16)/IFRS 16 - 2022.xlsx",
+      "status": 200,
+      "matchesSource": true
+    },
+    {
+      "file": "Confirmation letter/Form D - Vendor Confirmation.doc",
+      "status": 200,
+      "matchesSource": true
+    },
+    {
+      "file": "Audit working papers/F - Trade and Other receivables/H - Trade or Accounts and Other Receivables.xlsx",
+      "status": 200,
+      "matchesSource": true
+    },
+    {
+      "file": "Audit working papers/Section Divider.xlsx",
+      "status": 200,
+      "matchesSource": true
+    },
+    {
+      "file": "Engagement Letter - External Audit.docx",
+      "status": 200,
+      "matchesSource": true
+    },
+    {
+      "file": "Confirmation letter/Form C - Cash Confirmation Format.docx",
+      "status": 200,
+      "matchesSource": true
+    },
+    {
+      "file": "Audit working papers/E - Inventory/G - Inventory.xlsx",
+      "status": 200,
+      "matchesSource": true
+    },
+    {
+      "file": "Audit working papers/H - Share Capital/K - Share Capital.xlsx",
+      "status": 200,
+      "matchesSource": true
+    },
+    {
+      "file": "Audit working papers/G - Cash & Cash Equivalents/J - Cash & Cash Equivalents.xlsx",
+      "status": 200,
+      "matchesSource": true
+    },
+    {
+      "file": "Confirmation letter/Form H - Partners Loan Confirmation.doc",
+      "status": 200,
+      "matchesSource": true
+    },
+    {
+      "file": "Proposal for External Financial Audit Services.docx",
+      "status": 200,
+      "matchesSource": true
+    }
+  ],
+  "health": {
+    "ok": true,
+    "storage": "D1",
+    "mode": "synthetic-demo",
+    "retentionDays": 7
+  },
+  "corsOrigin": "https://prototype.steaudit.com",
+  "seeds": [
+    {
+      "id": "blank",
+      "title": "Clean audit lifecycle",
+      "description": "Start with an empty practice and create your own synthetic client and engagement."
+    },
+    {
+      "id": "commercial",
+      "title": "Commercial pipeline",
+      "description": "Fictional client, routed contacts and draft audit proposal. Continue the five-module workflow without fabricated approvals."
+    }
+  ]
+}
