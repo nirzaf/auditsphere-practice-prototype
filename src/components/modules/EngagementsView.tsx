@@ -247,8 +247,8 @@ export const EngagementsView: React.FC<EngagementsViewProps> = ({ onNavigate, on
             <button className="btn sm" onClick={() => onNavigate('trial-balance')}>
               <Icon name="calculator" /> Trial balance & mapping
             </button>
-            <button className="btn sm" onClick={() => onNavigate('audit')}>
-              <Icon name="checkboard" /> Audit Workpapers
+            <button className="btn sm" onClick={() => onNavigate('reviews')}>
+              <Icon name="checkboard" /> Workpaper Preparation & Review
             </button>
             <button className="btn sm" onClick={() => onNavigate('delivery')}>
               <Icon name="archive" /> Release Gates

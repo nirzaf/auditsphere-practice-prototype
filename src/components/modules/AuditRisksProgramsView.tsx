@@ -173,8 +173,8 @@ export const AuditRisksProgramsView: React.FC<AuditRisksProgramsViewProps> = ({ 
           <button className="btn sm ghost" onClick={() => onNavigate('sampling')}>
             <Icon name="checkboard" /> Sampling Desk
           </button>
-          <button className="btn primary sm" onClick={() => onNavigate('audit')}>
-            <Icon name="checkboard" /> Workpaper Workspace
+          <button className="btn primary sm" onClick={() => onNavigate('reviews')}>
+            <Icon name="checkboard" /> Workpaper Preparation & Review
           </button>
         </div>
       </div>
@@ -248,7 +248,7 @@ export const AuditRisksProgramsView: React.FC<AuditRisksProgramsViewProps> = ({ 
                 </div>
                 <button
                   className="btn sm"
-                  onClick={() => onNavigate('audit')}
+                  onClick={() => onNavigate('reviews')}
                 >
                   Open Lead Workpaper ({activeProgram.leadWorkpaperRef})
                 </button>

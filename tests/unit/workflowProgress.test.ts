@@ -77,9 +77,11 @@ describe('workflow progress contracts', () => {
       assert.ok(progress.nextAction.trim() && progress.whoActsNext.trim(), `${route} states an action and eligible role`);
     }
 
+    // Retired routes carry redirect-only metadata (LEGACY), current routes keep their
+    // five-module identity — historical modules must not present as current scope.
     assert.deepEqual(
       ['accounting-setup', 'trial-balance', 'gl-transactions', 'account-mappings', 'adjustments', 'reconciliations', 'financial-statements', 'financial-packages', 'consolidation'].map(route => ROUTE_CATALOG[route as RouteKey].moduleId),
-      ['MOD-20', 'M2-TB', 'MOD-21', 'MOD-20', 'MOD-22', 'MOD-23', 'M3-FS', 'MOD-25', 'MOD-26']
+      ['LEGACY', 'M2-TB', 'LEGACY', 'LEGACY', 'LEGACY', 'LEGACY', 'M3-FS', 'LEGACY', 'LEGACY']
     );
     assert.deepEqual(resolveRouteHash('#packages'), { route: 'delivery', redirected: true });
     assert.deepEqual(resolveRouteHash('#time-tracking'), { route: 'my-time', redirected: true });

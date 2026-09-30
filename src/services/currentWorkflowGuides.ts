@@ -1,4 +1,4 @@
-import { TARGET_STAGES } from './targetLifecycle';
+import { ENGAGEMENT_WORKFLOW_SUBSTEPS } from './targetLifecycle';
 
 const steps: Record<string,string[]> = {
   acquisition: ['Validate the legal entity and a reachable contact.', 'Record intake, owner and next action; convert the opportunity with traceable references.'],
@@ -13,7 +13,7 @@ const steps: Record<string,string[]> = {
   'audit-risks': ['Execute the assigned Green, Amber or Red procedures in the FSLI workpaper.', 'Link current adequate evidence and submit; resolve returned rows before independent clearance.'],
   sampling: ['Reconcile the complete source population to the current TB control account.', 'Select reproducible samples; record tests and current Digital, Physical or Hybrid evidence.'],
   confirmations: ['Create scoped Bank, AR, AP, Inventory or Legal confirmations.', 'Record outcomes/evidence; unresolved critical items generate a Holding Letter and block release.'],
-  findings: ['Quantify differences and propose balanced AJEs using current TB accounts.', 'Obtain independent review and management decision; record current-source reflection without double adjustment.'],
+  findings: ['Quantify differences and propose balanced AJEs using current TB accounts.', 'Obtain independent review; record evidenced management correspondence and current-source reflection without double adjustment.'],
   reviews: ['Clear applicable workpapers independently and resolve blocking findings.', 'Record meaningful Manager clearance; inspect or retry the current SRM and obtain assigned-Partner approval.'],
   delivery: ['Choose a justified Partner opinion and compile the current exact five-part bundle.', 'Attach management-signed LOR; release the current bundle and inspect its linked final invoice.'],
   records: ['Inspect effective report-date plus 60-day closure or assigned-Partner early lock.', 'Download scoped records and verified archived originals; inspect missing-byte exceptions separately.'],
@@ -23,7 +23,7 @@ const steps: Record<string,string[]> = {
 };
 
 export const TARGET_GUIDES = Object.entries(steps).map(([route,actions]) => ({
-  id: `WORKFLOW-${route}`, route, name: TARGET_STAGES.find(s => s.route === route)?.label || route.replaceAll('-',' '),
+  id: `WORKFLOW-${route}`, route, name: ENGAGEMENT_WORKFLOW_SUBSTEPS.find(s => s.route === route)?.label || route.replaceAll('-',' '),
   steps: actions, outcome: 'Inspect the saved source revision, actor and history before the next handover.',
   limits: 'Synthetic prototype: professional decisions are explicit; external delivery, provisioning and authentication are simulations.'
 }));

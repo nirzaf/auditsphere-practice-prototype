@@ -220,8 +220,8 @@ export const FindingsView: React.FC<FindingsViewProps> = ({ onNavigate, searchTa
               {f.managementResponse && <p className="cell-sub">Management response: {f.managementResponse}</p>}
               {f.proposedCorrection && <p className="cell-sub">Proposed correction: {f.proposedCorrection}</p>}
               {(f.linkedWorkpaperId || f.linkedJournalId || f.linkedEvidenceId || f.linkedProcedureId || f.linkedSamplePopulationId) && <div className="handoff-bar mt8" aria-label={`Records linked to ${f.id}`}><span className="eyebrow">Linked records</span>
-                {f.linkedWorkpaperId && <a className="btn sm" href="#audit" onClick={event => { event.preventDefault(); onNavigate('audit', f.linkedWorkpaperId); }}>Open workpaper {f.linkedWorkpaperId}</a>}
-                {f.linkedJournalId && <a className="btn sm" href="#adjustments" onClick={event => { event.preventDefault(); onNavigate('adjustments'); }}>Open related journal {f.linkedJournalId}</a>}
+                {f.linkedWorkpaperId && <a className="btn sm" href="#reviews" onClick={event => { event.preventDefault(); onNavigate('reviews', f.linkedWorkpaperId); }}>Open workpaper {f.linkedWorkpaperId}</a>}
+                {f.linkedJournalId && <a className="btn sm" href="#findings" onClick={event => { event.preventDefault(); onNavigate('findings'); }}>Open related journal {f.linkedJournalId}</a>}
                 {f.linkedEvidenceId && <a className="btn sm" href="#evidence" onClick={event => { event.preventDefault(); onNavigate('evidence'); }}>View supporting evidence</a>}
                 {f.linkedProcedureId && <a className="btn sm" href="#audit-risks" onClick={event => { event.preventDefault(); onNavigate('audit-risks'); }}>Open procedure {f.linkedProcedureId}</a>}
                 {f.linkedSamplePopulationId && <a className="btn sm" href="#sampling" onClick={event => { event.preventDefault(); onNavigate('sampling'); }}>Open sample population</a>}

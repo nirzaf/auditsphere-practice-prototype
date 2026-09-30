@@ -1,5 +1,6 @@
-// AuditSphere Comprehensive Initial State & Seed Data
-// Covers all 39 functional modules with realistic synthetic data
+// STE Audit Management Tool v2.1 prototype — initial state & seed data.
+// Five required business modules with realistic synthetic data, plus migration-compatible
+// historical records (read-only) so older saved sessions keep opening.
 
 import { PrototypeState, UserPersona, RoleKey } from '../types';
 import { CURRENT_SCHEMA } from '../services/migrations';
@@ -1194,7 +1195,7 @@ export function createInitialState(): PrototypeState {
       }
     ],
 
-    // Module 18: Microsoft 365 Setup (NO Purview!)
+    // Legacy mail/workspace simulation configuration retained for saved-state migration compatibility; not a current product module.
     m365Config: {
       tenantName: 'ste-audit-demo.onmicrosoft.com',
       tenantId: 'd48e8912-3211-4091-a1b2-9901882299aa',

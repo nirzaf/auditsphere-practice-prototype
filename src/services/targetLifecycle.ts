@@ -42,7 +42,8 @@ export function materialityBenchmark(engagement: EngagementRecord, benchmark: st
 }
 export const STANDARD_CHARGE_OUT_RATES = { Partner: 1000, Manager: 750, 'Senior/Reviewer': 500, 'Preparer/Staff': 200 } as const;
 
-export const TARGET_STAGES: TargetStageDefinition[] = [
+// Operational route substeps do not replace or extend the canonical eleven states.
+export const ENGAGEMENT_WORKFLOW_SUBSTEPS: TargetStageDefinition[] = [
   {
     id: 'lead',
     label: 'Lead & CRM',
@@ -73,10 +74,10 @@ export const TARGET_STAGES: TargetStageDefinition[] = [
   },
   {
     id: 'workspace',
-    label: 'M365 workspace',
-    route: 'm365-setup',
-    owner: 'System administrator',
-    roles: ['admin', 'manager', 'partner']
+    label: 'Engagement Directory & Client Workspace',
+    route: 'documents',
+    owner: 'System / Engagement Administration',
+    roles: ['manager', 'partner']
   },
   {
     id: 'pbc',
@@ -853,6 +854,20 @@ export function targetReleaseBlockers(
     blockers.push('Dispose of unresolved material findings and SAD items.');
   return [...new Set(blockers)];
 }
+export function partnerReportingBasis(state: PrototypeState, engagement: EngagementRecord): string {
+  return JSON.stringify({ review: reviewBasis(state, engagement), srm: engagement.auditLifecycle?.srms.at(-1), clearance: engagement.auditLifecycle?.partnerClearances.at(-1) });
+}
+export function currentPartnerOpinion(state: PrototypeState, engagement: EngagementRecord) {
+  const opinion = engagement.auditLifecycle?.opinions.at(-1);
+  const actor = state.users.find(u => u.id === opinion?.selectedByUserId);
+  const assigned = state.users.find(u => u.name === engagement.partner && u.role === 'partner');
+  const authorized = actor?.status === 'Active' && (actor.role === 'superuser' || (actor.role === 'partner' && assigned && (actor.personId || actor.id) === (assigned.personId || assigned.id))) && state.roleGrants.some(g => g.userId === actor.id && (!g.effectiveFrom || g.effectiveFrom <= state.asOfDate) && (!g.expiresAt || g.expiresAt >= state.asOfDate) && (g.scopeKind === 'Global' || (g.scopeKind === 'Engagement' && g.scopeId === engagement.id) || (g.scopeKind === 'Client' && g.scopeId === engagement.client)));
+  const validFocus = opinion?.value === 'Clean' || engagement.rows.some(r => r.mappedStatementLine === opinion?.focusArea);
+  return opinion && authorized && validFocus && opinion.reportingBasis === partnerReportingBasis(state, engagement) && !opinionValidation(opinion.value, opinion.focusArea, opinion.basis).length ? opinion : undefined;
+}
+export function partnerApprovalComplete(state: PrototypeState, engagement: EngagementRecord): boolean {
+  return !targetReleaseBlockers(state, engagement).length && Boolean(currentPartnerOpinion(state, engagement));
+}
 export function reportBasis(state: PrototypeState, engagement: EngagementRecord): string {
   return JSON.stringify({
     review: reviewBasis(state, engagement),
@@ -869,7 +884,7 @@ export function currentDeliverables(state: PrototypeState, engagement: Engagemen
     return engagement.auditLifecycle?.deliverables.find(
       (item) => item.id === engagement.archive!.releaseId
     );
-  return set?.basis === reportBasis(state, engagement) &&
+  return currentPartnerOpinion(state, engagement) && set?.basis === reportBasis(state, engagement) &&
     targetReleaseBlockers(state, engagement).length === 0
     ? set
     : undefined;
@@ -1082,7 +1097,7 @@ export function engagementProgress(
     archive: done.balance ? [] : ['Generate the final balance invoice after delivery.']
   };
   let current = false;
-  return TARGET_STAGES.map((stage, index) => {
+  return ENGAGEMENT_WORKFLOW_SUBSTEPS.map((stage, index) => {
     const stale =
       (stage.id === 'srm' && !!engagement.auditLifecycle?.srms.length && !review.srm) ||
       (stage.id === 'review' &&
@@ -1110,8 +1125,8 @@ export function engagementProgress(
       ...stage,
       status,
       blockers: ['Completed', 'Frozen'].includes(status) ? [] : reasons,
-      predecessor: TARGET_STAGES[index - 1]?.label,
-      successor: TARGET_STAGES[index + 1]?.label
+      predecessor: ENGAGEMENT_WORKFLOW_SUBSTEPS[index - 1]?.label,
+      successor: ENGAGEMENT_WORKFLOW_SUBSTEPS[index + 1]?.label
     };
   });
 }
@@ -1187,7 +1202,7 @@ export const SYSTEM_LIFECYCLE_STATES: SystemLifecycleStateDefinition[] = [
     label: 'Partner Approval & Opinion',
     module: 'Module 4: Reporting & Deliverables',
     allowedActions: 'Partner inspects SRM, reviews Red-risk areas, selects Audit Opinion (ISA 700/705)',
-    gateToAdvance: 'Partner applies digital signature and firm seal',
+    gateToAdvance: 'Assigned Partner selects and validates the current audit opinion, including affected FSLI and rationale for a modified opinion, and authorizes the reporting basis.',
     nextState: 'DELIVERABLE_RELEASE'
   },
   {
@@ -1232,9 +1247,10 @@ export function computeSystemState(
     return SYSTEM_LIFECYCLE_STATES[8]; // DELIVERABLE_RELEASE
   }
   const review = currentReview(state, engagement);
-  if (review.partner) {
+  if (partnerApprovalComplete(state, engagement)) {
     return SYSTEM_LIFECYCLE_STATES[8]; // Await compilation/release
   }
+  if (review.partner) return SYSTEM_LIFECYCLE_STATES[7]; // Current opinion still required
   if (review.srm && !criticalConfirmationBlockers(state, engagement).length) {
     return SYSTEM_LIFECYCLE_STATES[7]; // Await assigned Partner
   }

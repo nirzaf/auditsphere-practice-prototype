@@ -1,5 +1,4 @@
 import React, { useState } from 'react';
-import { AdjustmentPanel } from './AdjustmentPanel';
 import { prototypeStore } from '../../store/prototypeStore';
 import { isClientRole, visibleEngagementIds } from '../../services/guards';
 import { persistArtifact } from '../../services/artifactStore';
@@ -72,7 +71,6 @@ export function PbcWorkspaceView(props: TargetViewProps & { client?: boolean }) 
 
   return (
     <div className="target-stack">
-      {client && <AdjustmentPanel onRegisterUnsavedForm={props.onRegisterUnsavedForm} />}
       {/* Top Banner */}
       <section className="panel panel-pad">
         <div className="flex-between">

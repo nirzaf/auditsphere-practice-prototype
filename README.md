@@ -36,7 +36,7 @@ Local PBC uploads, new TB/population source uploads and generated artifacts reta
 
 ## Historical compatibility
 
-`historical/legacy-runtime/` preserves the former JavaScript/Python application as provenance. Its root entrypoints and npm build/check scripts are retired and it is not deployed. `historical/components/` preserves removed Administration/M365 screens as inert text. The former 39-module guides and test projections live under `historical/`; historical documentation, regression contracts and persisted-state migration remain available.
+`historical/legacy-runtime/` preserves the former JavaScript/Python application as provenance. Its root entrypoints and npm build/check scripts are retired and it is not deployed. `historical/components/` preserves removed Administration/M365 screens as inert text. The former 39-module guides live under `historical/legacy-product-spec/` and the test projections under `historical/`; historical documentation, regression contracts and persisted-state migration remain available.
 
 TB import, calculations, document/evidence storage, adjustment review, billing and migration helpers remain because current business workflows use them. Generic historical package, reconciliation and group state are retained for migration/regression compatibility, not as separate reachable business modules. Do not remove them before separating their active consumers and preserving old snapshots.
 

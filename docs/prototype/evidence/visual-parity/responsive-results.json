@@ -851,7 +851,7 @@
   {
     "route": "#portal",
     "width": 960,
-    "documentWidth": 945,
+    "documentWidth": 960,
     "main": true,
     "hiddenIdentity": true,
     "hiddenSearch": true,
@@ -1045,7 +1045,7 @@
   {
     "route": "#portal",
     "width": 1000,
-    "documentWidth": 985,
+    "documentWidth": 1000,
     "main": true,
     "hiddenIdentity": true,
     "hiddenSearch": true,
@@ -1239,7 +1239,7 @@
   {
     "route": "#portal",
     "width": 1024,
-    "documentWidth": 1009,
+    "documentWidth": 1024,
     "main": true,
     "hiddenIdentity": true,
     "hiddenSearch": true,

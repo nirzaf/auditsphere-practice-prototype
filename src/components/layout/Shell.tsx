@@ -181,10 +181,10 @@ export const Shell: React.FC<ShellProps> = ({ currentRoute, onRouteChange, onSel
       "MODULE 3: TECHNICAL FIELDWORK",
       [
         { key: "financial-statements", label: "Split Dashboard (P/L & B/S)", icon: "file" },
-        { key: "audit-fieldwork", label: "Workprograms & Going Concern", icon: "shield" },
-        { key: "audit", label: "Workpapers & Evidence", icon: "checkboard" },
+        { key: "audit-fieldwork", label: "Workprograms & Evidence", icon: "checkboard" },
         { key: "sampling", label: "Sampling & Physical Index (X-1)", icon: "checkboard" },
         { key: "confirmations", label: "External Confirmations (ISA 505)", icon: "message" },
+        { key: "findings", label: "Findings & Differences", icon: "file" },
         { key: "reviews", label: "Three-Tier Review & SRM", icon: "message" }
       ]
     ],
@@ -302,7 +302,7 @@ export const Shell: React.FC<ShellProps> = ({ currentRoute, onRouteChange, onSel
       state.engagements.filter(e => matches(e.service, e.id))
         .forEach(e => add({ title: `${e.id} · ${e.service}`, sub: `Engagement · FY ${e.year}`, route: 'engagements', objectId: e.id, clientId: e.client, engagementId: e.id, requiresEngagement: true }));
       state.jobs.filter(j => matches(j.title, j.id))
-        .forEach(j => add({ title: j.title, sub: `Job · ${j.id}`, route: 'jobs', objectId: j.id, clientId: j.clientId, engagementId: j.engagementId, requiresEngagement: true }));
+        .forEach(j => add({ title: j.title, sub: `Job · ${j.id}`, route: 'scheduling', objectId: j.id, clientId: j.clientId, engagementId: j.engagementId, requiresEngagement: true }));
     }
     if (!clientRole) {
       state.documents.filter(d => matches(d.name, d.id))
@@ -310,17 +310,17 @@ export const Shell: React.FC<ShellProps> = ({ currentRoute, onRouteChange, onSel
       state.jobTasks.filter(t => {
         const job = state.jobs.find(j => j.id === t.jobId);
         return job && matches(t.title, t.id);
-      }).forEach(t => { const j = state.jobs.find(x => x.id === t.jobId)!; add({ title: t.title, sub: `Task · ${t.id}`, route: 'jobs', objectId: t.id, clientId: j.clientId, engagementId: j.engagementId, requiresEngagement: true }); });
+      }).forEach(t => { const j = state.jobs.find(x => x.id === t.jobId)!; add({ title: t.title, sub: `Task · ${t.id}`, route: 'scheduling', objectId: t.id, clientId: j.clientId, engagementId: j.engagementId, requiresEngagement: true }); });
       state.invoices.filter(i => matches(i.invoiceNumber, i.id))
         .forEach(i => add({ title: i.invoiceNumber, sub: `Invoice · ${i.amount} ${i.currency}`, route: 'billing', objectId: i.id, clientId: i.clientId, engagementId: i.engagementId || i.eng, requiresEngagement: true }));
       state.communications.filter(c => matches(c.summary, c.participants, c.id))
-        .forEach(c => add({ title: c.summary, sub: `Communication · ${c.channel}`, route: 'communications', objectId: c.id, clientId: c.clientId, engagementId: c.engagementId, requiresEngagement: c.engagementId ? true : c.scopeKind !== 'Client', clientWide: !c.engagementId && c.scopeKind === 'Client' }));
+        .forEach(c => add({ title: c.summary, sub: `Communication · ${c.channel}`, route: 'documents', objectId: c.id, clientId: c.clientId, engagementId: c.engagementId, requiresEngagement: c.engagementId ? true : c.scopeKind !== 'Client', clientWide: !c.engagementId && c.scopeKind === 'Client' }));
       state.findings.filter(f => {
         return matches(f.title, f.id);
       }).forEach(f => add({ title: f.title, sub: `Finding · ${f.id}`, route: 'findings', objectId: f.id, engagementId: f.engagementId, requiresEngagement: true }));
       state.engagements.forEach(e => {
         e.workpapers.filter(w => matches(w.title, w.id))
-          .forEach(w => add({ title: w.title, sub: `Workpaper · ${w.id}`, route: 'audit', objectId: w.id, clientId: e.client, engagementId: e.id, requiresEngagement: true }));
+          .forEach(w => add({ title: w.title, sub: `Workpaper · ${w.id}`, route: 'audit-fieldwork', objectId: w.id, clientId: e.client, engagementId: e.id, requiresEngagement: true }));
         e.pbc.filter(p => matches(p.title, p.id))
           .forEach(p => add({ title: p.title, sub: `PBC · ${p.id}`, route: 'client-detail', objectId: p.id, clientId: e.client, engagementId: e.id, requiresEngagement: true }));
       });

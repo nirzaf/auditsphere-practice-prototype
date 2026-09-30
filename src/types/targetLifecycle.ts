@@ -33,18 +33,14 @@ export type ConfirmationStatus =
   | 'No Response'
   | 'Exception'
   | 'Cancelled';
+export const REQUIRED_CONFIRMATION_TYPES = ['Bank', 'Accounts Receivable', 'Accounts Payable', 'Inventory', 'Legal'] as const;
+export type RequiredConfirmationType = typeof REQUIRED_CONFIRMATION_TYPES[number];
+export type LegacyConfirmationType = 'Debtor' | 'Other';
 export interface ExternalConfirmation {
   id: string;
   clientId: string;
   engagementId: string;
-  type:
-    | 'Bank'
-    | 'Accounts Receivable'
-    | 'Accounts Payable'
-    | 'Inventory'
-    | 'Legal'
-    | 'Debtor'
-    | 'Other';
+  type: RequiredConfirmationType | LegacyConfirmationType;
   counterparty: string;
   relatedFsli: string;
   ownerUserId: string;
@@ -85,6 +81,7 @@ export interface SRMRecord extends ReviewBasisRecord {
   summary: string[];
 }
 export interface OpinionRecord {
+  reportingBasis?: string;
   revision: number;
   value: AuditOpinion;
   focusArea: string;

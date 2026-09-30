@@ -1,3 +1,4 @@
+import { REQUIRED_CONFIRMATION_TYPES, type RequiredConfirmationType } from '../types/targetLifecycle';
 import type {
   EngagementRecord,
   GeneratedArtifactRecord,
@@ -44,6 +45,8 @@ import {
   managerReviewBlockers,
   money,
   opinionValidation,
+  partnerReportingBasis,
+  currentPartnerOpinion,
   plusDays,
   professionalBlockers,
   reportBasis,
@@ -1249,7 +1252,7 @@ export class TargetLifecycleCommands {
       | 'dueAt'
       | 'critical'
       | 'workpaperIds'
-    >
+    > & { type: RequiredConfirmationType }
   ) {
     const engagement = this.engagement(engagementId, ['preparer', 'manager', 'partner'], true);
     requireText(input.counterparty, 'Counterparty');
@@ -1265,7 +1268,7 @@ export class TargetLifecycleCommands {
       !owner ||
       (visible !== 'ALL' && !visible.includes(engagementId)) ||
       !isIsoDate(input.dueAt) ||
-      !['Bank', 'Debtor', 'Inventory', 'Other'].includes(input.type) ||
+      !(REQUIRED_CONFIRMATION_TYPES as readonly string[]).includes(input.type) ||
       typeof input.critical !== 'boolean' ||
       input.workpaperIds.some((id) => !engagement.workpapers.some((w) => w.id === id))
     )
@@ -1322,6 +1325,7 @@ export class TargetLifecycleCommands {
     );
     if (!confirmation)
       throw new GuardError('FORBIDDEN_SCOPE', 'Confirmation is outside this engagement.');
+    if (!(REQUIRED_CONFIRMATION_TYPES as readonly string[]).includes(confirmation.type)) throw new GuardError('INVALID_STATE', 'Historical confirmation types are read-only.');
     const allowed: Record<ConfirmationStatus, ConfirmationStatus[]> = {
       Draft: ['Requested', 'Cancelled'],
       Requested: ['Awaiting', 'Received', 'Cancelled'],
@@ -1575,7 +1579,9 @@ export class TargetLifecycleCommands {
     this.assignedPartner(engagement);
     fail(targetReleaseBlockers(this.state, engagement));
     fail(opinionValidation(value, focusArea, basis));
+    if (value !== 'Clean' && !engagement.rows.some(row => row.mappedStatementLine === focusArea.trim())) throw new GuardError('INVALID_STATE', 'Select an affected FSLI from the current mapped trial balance.');
     engagement.auditLifecycle!.opinions.push({
+      reportingBasis: partnerReportingBasis(this.state, engagement),
       revision: engagement.auditLifecycle!.opinions.length + 1,
       value,
       focusArea: focusArea.trim(),
@@ -1594,7 +1600,7 @@ export class TargetLifecycleCommands {
     let engagement = this.engagement(engagementId, ['partner'], true);
     this.assignedPartner(engagement);
     fail(targetReleaseBlockers(this.state, engagement));
-    const opinion = engagement.auditLifecycle!.opinions.at(-1);
+    const opinion = currentPartnerOpinion(this.state, engagement);
     if (!opinion)
       throw new GuardError('INVALID_STATE', 'The assigned Partner must select an opinion first.');
     fail(opinionValidation(opinion.value, opinion.focusArea, opinion.basis));

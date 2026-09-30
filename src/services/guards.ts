@@ -6,7 +6,7 @@ import { RETIRED_ROUTE_REDIRECTS, canonicalRoute } from './legacyRoutes';
 // Browser-local only: these illustrate intended production behaviour; browser data
 // remains inspectable by the browser owner.
 
-import type { PrototypeState, RoleKey, RouteKey } from '../types';
+import type { PrototypeState, RoleKey, RouteKey, CurrentRouteKey, LegacyRouteId } from '../types';
 import { activationBlockers, isFrozen, closeExpiredArchives } from './targetLifecycle';
 
 export interface CommandContext {
@@ -253,35 +253,41 @@ export function isClientRole(role: RoleKey): boolean {
   return (CLIENT_ROLES as string[]).includes(role);
 }
 
-const PROFESSIONAL_ROUTES: RouteKey[] = [
-  'scheduling', 'confirmations', 'practice-ledger', 'overview', 'clients', 'client-detail', 'proposals', 'engagements', 'jobs', 'job-templates',
-  'documents', 'communications', 'my-time', 'budgets', 'billing', 'receivables',
-  'accounting-setup', 'trial-balance', 'gl-transactions', 'account-mappings', 'adjustments',
-  'reconciliations', 'financial-statements', 'financial-packages', 'consolidation', 'onboarding',
-  'audit-planning', 'audit-risks', 'audit-fieldwork', 'sampling', 'audit', 'evidence', 'findings',
-  'reviews', 'approvals', 'quality', 'delivery', 'records', 'reports', 'portal', 'm365-setup', 'requirements'
+/**
+ * Current-route authorization pipeline: raw URL/hash → resolve legacy redirect
+ * (services/legacyRoutes.ts) → CurrentRouteKey → canOpenRoute. Retired routes are
+ * rejected outright; the role lists below therefore contain only current routes.
+ */
+const PROFESSIONAL_ROUTES: CurrentRouteKey[] = [
+  'scheduling', 'confirmations', 'practice-ledger', 'overview', 'clients', 'client-detail', 'proposals', 'engagements',
+  'documents', 'my-time', 'billing', 'trial-balance', 'financial-statements', 'onboarding',
+  'audit-planning', 'audit-risks', 'audit-fieldwork', 'sampling', 'evidence', 'findings',
+  'reviews', 'delivery', 'records', 'reports', 'portal', 'requirements'
 ];
 
 /** Shared UI route policy; App checks it again so direct navigation cannot bypass the sidebar. */
 export function canOpenRoute(role: RoleKey, route: RouteKey, active = true): boolean {
-  if (RETIRED_ROUTE_REDIRECTS[route]) return false;
+  if (RETIRED_ROUTE_REDIRECTS[route as LegacyRouteId]) return false;
   if (!active) return route === 'requirements' || route === 'client-requirements';
   if (isSuperuserRole(role)) return true;
   if (route === 'requirements' || route === 'client-requirements') return true;
   // The module guide is read-only client-demo guidance available to every active persona.
   if (route === 'module-guide') return true;
   if (isClientRole(role)) return route === 'portal';
-  if (role === 'partner') return PROFESSIONAL_ROUTES.includes(route);
-  if (role === 'manager') return PROFESSIONAL_ROUTES.includes(route) && route !== 'administration';
-  if (role === 'reviewer') return ['scheduling', 'confirmations', 'overview', 'engagements', 'jobs', 'documents', 'communications', 'my-time', 'budgets', 'accounting-setup', 'trial-balance', 'gl-transactions', 'account-mappings', 'adjustments', 'reconciliations', 'financial-statements', 'financial-packages', 'audit-planning', 'audit-risks', 'audit-fieldwork', 'sampling', 'audit', 'evidence', 'findings', 'reviews', 'approvals', 'quality', 'requirements'].includes(route);
-  if (role === 'preparer') return ['scheduling', 'confirmations', 'overview', 'engagements', 'jobs', 'documents', 'communications', 'my-time', 'budgets', 'accounting-setup', 'trial-balance', 'gl-transactions', 'account-mappings', 'adjustments', 'reconciliations', 'financial-statements', 'financial-packages', 'audit-planning', 'audit-risks', 'audit-fieldwork', 'sampling', 'audit', 'evidence', 'findings', 'reviews', 'requirements'].includes(route);
-  if (role === 'eqr') return ['overview', 'engagements', 'documents', 'accounting-setup', 'trial-balance', 'financial-statements', 'financial-packages', 'audit-planning', 'audit-risks', 'audit', 'evidence', 'findings', 'reviews', 'approvals', 'quality', 'delivery', 'records', 'requirements'].includes(route);
-  if (role === 'relationship') return ['overview', 'clients', 'client-detail', 'acquisition', 'proposals', 'engagements', 'communications', 'requirements'].includes(route);
-  if (role === 'onboarding') return ['overview', 'clients', 'client-detail', 'engagements', 'documents', 'communications', 'onboarding', 'portal', 'requirements'].includes(route);
-  if (role === 'compliance') return ['overview', 'clients', 'client-detail', 'engagements', 'documents', 'onboarding', 'approvals', 'requirements'].includes(route);
-  if (role === 'billing') return ['scheduling', 'practice-ledger', 'overview', 'clients', 'my-time', 'budgets', 'billing', 'receivables', 'reports', 'requirements'].includes(route);
-  if (role === 'records') return ['overview', 'clients', 'documents', 'records', 'reports', 'requirements'].includes(route);
-  if (role === 'admin') return ['overview', 'administration', 'm365-setup', 'requirements'].includes(route);
+  // Retired routes never reach the role lists (rejected above), so casting to the
+  // current-route vocabulary is safe for the checks below.
+  const current = route as CurrentRouteKey;
+  if (role === 'partner') return PROFESSIONAL_ROUTES.includes(current);
+  if (role === 'manager') return PROFESSIONAL_ROUTES.includes(current);
+  if (role === 'reviewer') return ['scheduling', 'confirmations', 'overview', 'engagements', 'documents', 'my-time', 'trial-balance', 'financial-statements', 'audit-planning', 'audit-risks', 'audit-fieldwork', 'sampling', 'evidence', 'findings', 'reviews', 'requirements'].includes(current);
+  if (role === 'preparer') return ['scheduling', 'confirmations', 'overview', 'engagements', 'documents', 'my-time', 'trial-balance', 'financial-statements', 'audit-planning', 'audit-risks', 'audit-fieldwork', 'sampling', 'evidence', 'findings', 'reviews', 'requirements'].includes(current);
+  if (role === 'eqr') return ['overview', 'engagements', 'documents', 'trial-balance', 'financial-statements', 'audit-planning', 'audit-risks', 'evidence', 'findings', 'reviews', 'delivery', 'records', 'requirements'].includes(current);
+  if (role === 'relationship') return ['overview', 'clients', 'client-detail', 'acquisition', 'proposals', 'engagements', 'requirements'].includes(current);
+  if (role === 'onboarding') return ['overview', 'clients', 'client-detail', 'engagements', 'documents', 'onboarding', 'portal', 'requirements'].includes(current);
+  if (role === 'compliance') return ['overview', 'clients', 'client-detail', 'engagements', 'documents', 'onboarding', 'requirements'].includes(current);
+  if (role === 'billing') return ['scheduling', 'practice-ledger', 'overview', 'clients', 'my-time', 'billing', 'reports', 'requirements'].includes(current);
+  if (role === 'records') return ['overview', 'clients', 'documents', 'records', 'reports', 'requirements'].includes(current);
+  if (role === 'admin') return ['overview', 'requirements'].includes(current);
   return false;
 }
 

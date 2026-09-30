@@ -44,7 +44,7 @@ const INVENTORY: Record<Family, string[]> = {
     'saveAccountingProfile', 'updateTrialBalanceRows', 'importGeneralLedgerSource', 'saveReconciliationSchedule', 'reviewReconciliationSchedule',
     'saveAccountMappings', 'approveAccountMappings', 'saveStatementLayoutRevision', 'saveStatementSetRevision', 'staleStatementRevisionsForComparativeChange',
     'reviewStatementSetRevision', 'saveCashFlowSchedule', 'reviewCashFlowSchedule',
-    'addAdjustmentJournal', 'amendAdjustmentJournal', 'reviewAdjustmentJournal', 'markAdjustmentJournalReportingIncluded', 'recordAdjustmentManagementDecision', 'updateAdjustmentJournal',
+    'addAdjustmentJournal', 'amendAdjustmentJournal', 'reviewAdjustmentJournal', 'markAdjustmentJournalReportingIncluded', 'recordAdjustmentManagementDecision', 'recordAdjustmentManagementResponse', 'updateAdjustmentJournal',
     'updateConsolidationGroup', 'revertConsolidationPerimeter', 'saveConsolidationElimination', 'submitConsolidationElimination', 'reviewConsolidationElimination',
     'saveConsolidationOutputPackage', 'reviewConsolidationOutputPackage', 'updateConsolidationFxRate',
     'createWorkpaperFromTemplate', 'reassignWorkpaper', 'updateWorkpaper', 'linkWorkpaperEvidence', 'unlinkWorkpaperEvidence', 'submitWorkpaper', 'clearWorkpaper', 'replaceWorkpaperRevision',

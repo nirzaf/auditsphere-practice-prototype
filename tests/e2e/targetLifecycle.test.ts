@@ -99,7 +99,9 @@ it('visible Partner reporting flow retains signed LOR and releases the exact fiv
   const result=await tab.evaluate<any>(`import('/tests/helpers/targetJourney.ts').then(m=>m.runTargetJourney({stopBeforePartner:true}))`);
   await tab.evaluate(`(()=>{const f=document.querySelector('[data-target-form="partner-clearance"]');f.querySelector('[name="notes"]').value='Current SRM and audited evidence independently evaluated for final reporting.';f.requestSubmit()})()`);await sleep(150);
   await tab.evaluate(`location.hash='delivery'`);await sleep(150);
+  assert.equal(await tab.evaluate(`import('/src/store/prototypeStore.ts').then(async({prototypeStore:s})=>{const state=s.getSnapshot();return (await import('/src/services/targetLifecycle.ts')).computeSystemState(state,state.engagements.find(e=>e.id===${JSON.stringify(result.engagementId)})).state})`),'PARTNER_APPROVAL');
   await tab.evaluate(`document.querySelector('[data-target-form="opinion"]').requestSubmit()`);await sleep(150);
+  assert.equal(await tab.evaluate(`import('/src/store/prototypeStore.ts').then(async({prototypeStore:s})=>{const state=s.getSnapshot();return (await import('/src/services/targetLifecycle.ts')).computeSystemState(state,state.engagements.find(e=>e.id===${JSON.stringify(result.engagementId)})).state})`),'DELIVERABLE_RELEASE');
   assert.equal(await tab.evaluate<boolean>(`document.body.innerText.includes('Synthetic Partner signature') && !document.body.innerText.includes('QFC-AUD-SIG-9281')`),true);
   await tab.evaluate(`document.querySelector('[data-target-form="deliverables"]').requestSubmit()`);
   const inspect=`import('/src/store/prototypeStore.ts').then(({prototypeStore:s})=>s.getSnapshot().engagements.find(e=>e.id===${JSON.stringify(result.engagementId)}).auditLifecycle)`;
@@ -141,6 +143,7 @@ it('visible Partner reporting flow retains signed LOR and releases the exact fiv
 it('critical confirmation transitions through visible forms automatically issue one verified Holding Letter', async () => {
   const result=await tab.evaluate<any>(`import('/tests/helpers/targetJourney.ts').then(m=>m.runTargetJourney({stopAtFieldwork:true}))`);
   await tab.evaluate(`location.hash='confirmations'`);await sleep(150);
+  assert.deepEqual(await tab.evaluate(`[...document.querySelector('[data-target-form="confirmation"] select[name="type"]').options].map(option=>option.value)`),['Bank','Accounts Receivable','Accounts Payable','Inventory','Legal']);
   await tab.evaluate(`(()=>{const f=document.querySelector('[data-target-form="confirmation"]');f.querySelector('[name="counterparty"]').value='Synthetic Confirmation Bank';f.requestSubmit()})()`);
   await sleep(150);
   for(const status of ['Requested','Awaiting']){
@@ -152,11 +155,21 @@ it('critical confirmation transitions through visible forms automatically issue 
   for(let n=0;n<100;n++){completed=await tab.evaluate(inspect);if(completed.letters.length===1)break;await sleep(100);}
   assert.equal(completed.letters.length,1);assert.ok(completed.blockers.length>0);
   assert.equal(await tab.evaluate<boolean>(`import('/src/services/artifactStore.ts').then(async m=>(await (await m.loadVerifiedArtifact(${JSON.stringify(completed.letters[0].artifact)})).text()).startsWith('%PDF-'))`),true);
+  await tab.evaluate(`import('/src/store/prototypeStore.ts').then(({prototypeStore:s})=>{const state=s.getSnapshot();const original=state.confirmations.find(c=>c.counterparty==='Synthetic Confirmation Bank');state.confirmations.push({...original,id:'LEGACY-DEBTOR',type:'Debtor',counterparty:'Historical Debtor',critical:false});s.importStateJSON(JSON.stringify(state))})`);await sleep(150);
+  assert.equal(await tab.evaluate<boolean>(`[...document.querySelectorAll('section')].some(section=>section.querySelector('h3')?.textContent.includes('Historical Debtor') && section.querySelector('h3').textContent.includes('Historical type') && [...section.querySelectorAll('button')].some(button=>button.textContent==='Record transition' && button.matches(':disabled')))`),true);
   await tab.command('Page.reload');
   for(let n=0;n<100;n++){if(await tab.evaluate<boolean>('!!document.querySelector(".sidebar")'))break;await sleep(100);}
   assert.equal((await tab.evaluate<any>(inspect)).letters.length,1);
   assert.equal(await tab.evaluate(`import('/src/store/prototypeStore.ts').then(({prototypeStore:s})=>s.loadError)`),null);
 }, {timeout:60000});
+it('D5 Workprograms & Evidence opens current FSLI fieldwork rather than the retired audit redirect', async () => {
+  await tab.evaluate(`import('/tests/helpers/targetJourney.ts').then(m=>m.runTargetJourney({stopAtFieldwork:true}))`);
+  await tab.evaluate(`location.hash='overview'`);await sleep(150);
+  await tab.evaluate(`Array.from(document.querySelectorAll('.sidebar button')).find(button=>button.textContent.includes('Workprograms & Evidence')).click()`);await sleep(150);
+  assert.equal(await tab.evaluate('location.hash'),'#audit-fieldwork');
+  assert.equal(await tab.evaluate<boolean>(`document.querySelector('main').innerText.includes('Audit programs & fieldwork') && !document.querySelector('main').innerText.includes('Preparer → Manager → SRM → Partner')`),true);
+  assert.ok(await tab.evaluate<number>(`document.querySelectorAll('select[name="program"] option').length`)>0);
+}, {timeout:30000});
 it('two real browser tabs preserve independent procedure edits after reload', async () => {
   const result=await tab.evaluate<any>(`import('/tests/helpers/targetJourney.ts').then(m=>m.runTargetJourney({stopAtFieldwork:true}))`);
   const port=readFileSync(join(profile,'DevToolsActivePort'),'utf8').split('\n')[0];
@@ -247,12 +260,11 @@ it(
       ),
       true
     );
-    assert.equal(
-      await tab.evaluate<boolean>(
-        `document.querySelector('main')?.textContent.includes('Firm expenses')`
-      ),
-      true
-    );
+    for (let attempt=0;attempt<100;attempt++) {
+      if(await tab.evaluate<boolean>(`document.querySelector('main')?.textContent.includes('Firm expenses')`))break;
+      await sleep(100);
+    }
+    assert.equal(await tab.evaluate<boolean>(`document.querySelector('main')?.textContent.includes('Firm expenses')`),true);
     assert.deepEqual(tab.exceptions, []);
     await tab.evaluate(
       `import('/src/store/prototypeStore.ts').then(({prototypeStore:s})=>{s.setPersona('records');location.hash='records'})`
@@ -439,9 +451,8 @@ it('creates a cloud demo from Presenter controls, autosaves a guarded change and
   assert.deepEqual(tab.exceptions, []);
 });
 
-it('F14 visible AJE authoring hands off through independent review, client decision and TB reflection', async () => {
+it('B5 visible internal AJE authoring retains evidenced management response and TB reflection without client approval UI', async () => {
   await tab.evaluate(`import('/tests/helpers/targetJourney.ts').then(m=>m.runTargetJourney({stopAtFieldwork:true}))`);
-  await tab.evaluate(`import('/src/store/prototypeStore.ts').then(({prototypeStore:s})=>{s.setPersona('admin');s.grantAccess('client','client','Engagement',s.getSnapshot().selectedEngagement,'Authorized synthetic management approver',{requestRef:'REQ-AJE-APPROVER',approvalEvidenceRef:'APPROVAL-AJE-APPROVER'})})`);
   await tab.evaluate(`import('/src/store/prototypeStore.ts').then(({prototypeStore:s})=>{s.setPersona('preparer');location.hash='findings'})`);
   await sleep(150);
   const fill = async (heading: string, fields: Record<string,string>) => {
@@ -459,8 +470,10 @@ it('F14 visible AJE authoring hands off through independent review, client decis
   assert.equal(await status(),'Draft');
   await tab.evaluate(`import('/src/store/prototypeStore.ts').then(({prototypeStore:s})=>s.setPersona('manager'))`);await sleep(150);
   await fill('Independent review',{decision:'approve',note:'Independent review of ledger and invoice completed.'});assert.equal(await status(),'Technical review');
-  await tab.evaluate(`import('/src/store/prototypeStore.ts').then(({prototypeStore:s})=>{s.setPersona('client');location.hash='portal'})`);await sleep(150);
-  await fill('Management decision',{decision:'accept',note:'Management accepts the supported correction.'});assert.equal(await status(),'Management accepted');
+  await fill('Management response',{decision:'accept',note:'Management accepts the supported correction.',respondent:'Synthetic Finance Executive',reference:'CORRESPONDENCE-AJE-001'});assert.equal(await status(),'Management accepted');
+  await tab.evaluate(`import('/src/store/prototypeStore.ts').then(({prototypeStore:s})=>{s.setPersona('client_finance');location.hash='portal'})`);await sleep(150);
+  assert.equal(await tab.evaluate<boolean>(`!!document.querySelector('[data-testid="adjustment-panel"]')`),false);
+  assert.equal(await tab.evaluate<boolean>(`/Adjusting journals|Propose balanced AJE|Management decision|Accept correction|Reject correction/.test(document.body.innerText)`),false);
   await tab.evaluate(`import('/src/store/prototypeStore.ts').then(({prototypeStore:s})=>{s.setPersona('manager');location.hash='findings'})`);await sleep(150);
   await fill('Current TB reflection',{reflection:'reflected',evidence:'Client revised ledger and current TB reviewed.'});assert.equal(await status(),'Reporting included');
   assert.deepEqual(tab.exceptions,[]);

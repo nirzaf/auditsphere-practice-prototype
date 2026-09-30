@@ -2031,9 +2031,9 @@ class PrototypeStore {
     if (comm.direction === 'Outbound' && comm.channel === 'Email') {
       const mailConfig = this.state.m365Config;
       const sender = mailConfig?.mailSenderAccount?.trim() || '';
-      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(sender)) throw new GuardError('INVALID_STATE', 'The configured simulated mail sender is unavailable. Correct the sender in Microsoft 365 Setup before recording this attempt.');
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(sender)) throw new GuardError('INVALID_STATE', 'The configured simulated mail sender is unavailable. Correct the configured simulated mail sender in engagement administration before recording this attempt.');
       const mailVerification = mailConfig.verificationResults?.mail;
-      if (mailVerification && (mailVerification.configRevision !== (mailConfig.configRevision || 1) || mailVerification.outcome !== 'success')) throw new GuardError('INVALID_STATE', 'The simulated mail sender is unavailable or has not been verified for the current configuration. Reverify mail in Microsoft 365 Setup before recording this attempt.');
+      if (mailVerification && (mailVerification.configRevision !== (mailConfig.configRevision || 1) || mailVerification.outcome !== 'success')) throw new GuardError('INVALID_STATE', 'The simulated mail sender is unavailable or has not been verified for the current configuration. Reverify the simulated mail sender in engagement administration before recording this attempt.');
       const recipient = comm.recipientEmail?.trim().toLowerCase() || '';
       if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(recipient) || !comm.body?.trim()) throw new GuardError('INVALID_STATE', 'A valid recipient email and message body are required.');
       if (/\{[^{}]+\}/.test(`${comm.summary}\n${comm.body}`)) throw new GuardError('INVALID_STATE', 'Resolve all template placeholders in the subject and message body before recording this attempt.');
@@ -3127,6 +3127,26 @@ class PrototypeStore {
     this.notify();
   }
 
+  public recordAdjustmentManagementResponse(journalId: string, accepted: boolean, note: string, reference: string, respondent: string) {
+    requireActiveIdentity(this.state);
+    requireRole(this.state, ['manager', 'reviewer', 'partner'], 'record evidenced management correspondence');
+    const journal = this.state.adjustmentJournals.find(item => item.id === journalId);
+    if (!journal) throw new GuardError('INVALID_STATE', 'Adjustment journal was not found.');
+    requireEngagementScope(this.state, journal.engagementId);
+    const engagement = this.state.engagements.find(e => e.id === journal.engagementId)!;
+    if (journal.status !== 'Technical review' || !journal.reviewedBy) throw new GuardError('INVALID_STATE', 'Only technically reviewed adjustments can receive a management response.');
+    if (!note.trim() || !reference.trim() || !respondent.trim() || reference.length > 160) throw new GuardError('INVALID_STATE', 'Record the management respondent, meaningful response and correspondence/evidence reference (160 characters or fewer).');
+    if (accepted) this.assertCurrentAdjustmentSupport(journal.engagementId, journal.supportLinks);
+    (journal.managementResponses ||= []).push({ journalRevision: journal.revision || 1, accepted, respondent: respondent.trim(), reference: reference.trim(), note: note.trim(), recordedByUserId: this.state.currentUserId, at: new Date().toISOString() });
+    journal.status = accepted ? 'Management accepted' : 'Rejected';
+    journal.managementAcceptedBy = accepted ? respondent.trim() : undefined;
+    journal.managementDecisionNote = `${note.trim()} [${reference.trim()}]`;
+    this.invalidateReleaseBasis(engagement);
+    this.logEvent(`Management response for adjustment ${journal.id} recorded from ${reference.trim()}`, journal.id);
+    this.notify();
+  }
+
+  // Historical client-decision compatibility; not a current Client Portal workflow.
   public recordAdjustmentManagementDecision(journalId: string, accepted: boolean, note = '') {
     requireActiveIdentity(this.state);
     requireRole(this.state, ['client'], 'record a management adjustment decision');
@@ -3156,6 +3176,7 @@ class PrototypeStore {
     const index = this.state.adjustmentJournals.findIndex(j => j.id === journal.id);
     if (index >= 0) {
       const current = this.state.adjustmentJournals[index];
+      if (JSON.stringify(journal.managementResponses) !== JSON.stringify(current.managementResponses)) throw new GuardError('INVALID_STATE', 'Management correspondence history is immutable; use the recorded-response action.');
       requireEngagementScope(this.state, current.engagementId);
       if (journal.engagementId !== current.engagementId || journal.preparedBy !== current.preparedBy || journal.title !== current.title || journal.status !== current.status || journal.reviewedBy !== current.reviewedBy || journal.managementAcceptedBy !== current.managementAcceptedBy || journal.managementDecisionNote !== current.managementDecisionNote || JSON.stringify(journal.lines) !== JSON.stringify(current.lines) || JSON.stringify(journal.supportLinks) !== JSON.stringify(current.supportLinks)) throw new GuardError('INVALID_STATE', 'Journal content, ownership, supporting references and approval state are immutable after proposal. Use the guarded review, management-decision and amendment actions.');
       const engagement = this.state.engagements.find(e => e.id === journal.engagementId);

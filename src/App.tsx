@@ -25,37 +25,34 @@ import { prototypeStore } from './store/prototypeStore';
 import { canOpenRoute, isClientRole, hasSelectedEngagementScope } from './services/guards';
 import { Shell } from './components/layout/Shell';
 
-// Practice & CRM Modules
+// Module 1 — Commercial & CRM
 import { ClientsView } from './components/modules/ClientsView';
 import { ClientDetailView } from './components/modules/ClientDetailView';
 import { LeadsPipelineView } from './components/modules/LeadsPipelineView';
 import { ProposalsView } from './components/modules/ProposalsView';
 import { EngagementsView } from './components/modules/EngagementsView';
 
-// Work & Collaboration Modules
 
-// Economics & Billing Modules
 
-// Accounting Workbench & Reporting
 
-// Audit & Assurance Modules
+
+
+
+// Modules 2–4 — Governance, Fieldwork & Reporting
 import { AuditAcceptanceView } from './components/modules/AuditAcceptanceView';
 import { AuditPlanningView } from './components/modules/AuditPlanningView';
 import { EvidenceCatalogueView } from './components/modules/EvidenceCatalogueView';
 import { FindingsView } from './components/modules/FindingsView';
 
-// Client Services, Admin & Specifications
+// Module 5 & reference views
 import { TimeTrackingView } from './components/modules/TimeTrackingView';
 import { UnsavedFormGuard } from './services/unsavedFormGuard';
 import { resolveRouteHash, canonicalRoute } from './services/legacyRoutes';
 
 const ENGAGEMENT_CONTEXT_ROUTES = new Set<string>([
-  'onboarding', 'audit-acceptance', 'jobs', 'job-templates', 'documents', 'communications',
-  'my-time', 'time-tracking', 'budgets', 'billing', 'receivables', 'accounting-setup',
-  'trial-balance', 'gl-transactions', 'account-mappings', 'adjustments', 'reconciliations',
-  'financial-statements', 'financial-packages', 'audit-planning', 'audit-risks',
-  'audit-fieldwork', 'sampling', 'audit', 'evidence', 'findings', 'reviews', 'approvals',
-  'quality', 'delivery', 'records', 'm365-setup', 'scheduling', 'confirmations'
+  'onboarding', 'documents', 'my-time', 'billing', 'trial-balance',
+  'financial-statements', 'audit-planning', 'audit-risks', 'audit-fieldwork',
+  'sampling', 'evidence', 'findings', 'reviews', 'delivery', 'records', 'scheduling', 'confirmations'
 ]);
 
 const ACTIVE_DIALOG_GUARD = '__active-dialog__';
@@ -406,7 +403,7 @@ export const App: React.FC = () => {
       </div>;
     }
     switch (effectiveRoute) {
-      // Practice & CRM
+      // Module 1 — Commercial & CRM
       case 'overview':
         return <LifecycleOverviewView onNavigate={navigate} />;
       case 'clients':
@@ -444,15 +441,15 @@ export const App: React.FC = () => {
       case 'audit-acceptance' as any:
         return <AuditAcceptanceView key={state.selectedEngagement} onNavigate={navigate} onRegisterUnsavedForm={registerUnsavedForm} />;
 
-      // Work & Collaboration
+      // Module 2 — Governance & Planning
       case 'documents':
         return <PbcWorkspaceView onNavigate={navigate} onRegisterUnsavedForm={registerUnsavedForm} />;
 
-      // Economics & Billing
+      // Module 1 — Commercial & CRM
       case 'billing':
         return <EngagementBillingView onNavigate={navigate} onRegisterUnsavedForm={registerUnsavedForm} />;
 
-      // Accounting Workbench
+      // Modules 2–3 — Planning, Scheduling & Fieldwork
       case 'trial-balance':
         return <TrialBalanceView onNavigate={navigate} onRegisterUnsavedForm={registerUnsavedForm} />;
       case 'my-time':
@@ -464,7 +461,7 @@ export const App: React.FC = () => {
       case 'financial-statements':
         return <AuditFinancialView onNavigate={navigate} onRegisterUnsavedForm={registerUnsavedForm} />;
 
-      // Audit & Assurance
+      // Modules 2–4 — Planning, Fieldwork & Reporting
       case 'audit-planning':
         return <AuditPlanningView key={state.selectedEngagement} onNavigate={navigate} onRegisterUnsavedForm={registerUnsavedForm} />;
       case 'audit-risks':
@@ -483,7 +480,7 @@ export const App: React.FC = () => {
       case 'records':
         return <FreezeArchiveView onNavigate={navigate} onRegisterUnsavedForm={registerUnsavedForm} />;
 
-      // Client Services & Admin
+      // Client Portal, Module 5 & Reference
       case 'portal':
         return <PbcWorkspaceView client onNavigate={navigate} onRegisterUnsavedForm={registerUnsavedForm} />;
       case 'practice-ledger':

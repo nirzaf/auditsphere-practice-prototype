@@ -1,5 +1,5 @@
-// AuditSphere Visual Prototype — Shared Types & Domain Models
-// Covers all 39 functional modules (VP-001 through VP-064)
+// STE Audit Management Tool v2.1 prototype — shared types & domain models.
+// Five required business modules plus supporting lifecycle records and migration compatibility.
 import type { TargetEngagementLifecycle, ExternalConfirmation, FirmLedgerEntry, PortalPasswordSimulation, PortalDelegation, PhysicalEvidenceReference } from './targetLifecycle';
 
 export type RoleKey =
@@ -110,6 +110,62 @@ export type RouteKey =
   | 'module-guide'
   | 'requirements'
   | 'client-requirements';
+
+/** Routes that are part of the current STE Audit Management Tool v2.1 product surface:
+ * the five business modules, the client PBC portal and reference routes. */
+export type CurrentRouteKey =
+  | 'overview'
+  | 'acquisition'
+  | 'clients'
+  | 'client-detail'
+  | 'proposals'
+  | 'engagements'
+  | 'billing'
+  | 'onboarding'
+  | 'documents'
+  | 'trial-balance'
+  | 'audit-planning'
+  | 'scheduling'
+  | 'financial-statements'
+  | 'audit-risks'
+  | 'audit-fieldwork'
+  | 'sampling'
+  | 'confirmations'
+  | 'evidence'
+  | 'findings'
+  | 'reviews'
+  | 'delivery'
+  | 'records'
+  | 'my-time'
+  | 'reports'
+  | 'practice-ledger'
+  | 'portal'
+  | 'requirements'
+  | 'client-requirements'
+  | 'role-guide'
+  | 'module-guide';
+
+/** Retired historical route ids. They survive only as bookmark/persisted-hash redirects
+ * (see services/legacyRoutes.ts) and are not current product surfaces or navigation. */
+export type LegacyRouteId =
+  | 'jobs'
+  | 'job-templates'
+  | 'communications'
+  | 'budgets'
+  | 'receivables'
+  | 'accounting-setup'
+  | 'gl-transactions'
+  | 'account-mappings'
+  | 'adjustments'
+  | 'reconciliations'
+  | 'financial-packages'
+  | 'consolidation'
+  | 'audit'
+  | 'approvals'
+  | 'quality'
+  | 'administration'
+  | 'm365-setup'
+  | 'services';
 
 // Module 02: Clients & CRM
 export interface ClientContactSnapshot {
@@ -1113,6 +1169,7 @@ export interface GLTransactionItem {
 }
 
 export interface AdjustmentJournalItem {
+  managementResponses?: Array<{ journalRevision: number; accepted: boolean; respondent: string; reference: string; note: string; recordedByUserId: string; at: string }>;
   id: string;
   engagementId: string;
   revision?: number;
@@ -1624,7 +1681,7 @@ export interface ReviewNoteItem {
   history: Array<{ actor: string; action: string; time: string; text?: string }>;
 }
 
-// Module 18: Microsoft 365 Setup Simulation
+// Legacy Microsoft 365 simulation configuration retained for saved-state migration compatibility; not a current product module.
 export interface M365SimulationConfig {
   tenantName: string;
   tenantId: string;

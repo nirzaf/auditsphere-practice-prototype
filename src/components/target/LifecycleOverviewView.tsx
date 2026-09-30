@@ -2,7 +2,7 @@ import React from 'react';
 import { prototypeStore } from '../../store/prototypeStore';
 import { canOpenRoute, visibleEngagementIds, visibleClientIds } from '../../services/guards';
 import {
-  TARGET_STAGES,
+  ENGAGEMENT_WORKFLOW_SUBSTEPS,
   engagementProgress,
   SYSTEM_LIFECYCLE_STATES,
   computeSystemState
@@ -21,7 +21,7 @@ export function LifecycleOverviewView({ onNavigate }: TargetViewProps) {
   const clientEntity = selected ? state.clients.find((c) => c.id === selected.client) : null;
   const stages = selected
     ? engagementProgress(state, selected)
-    : TARGET_STAGES.map((s) => ({ ...s, status: 'Not Started' as const, blockers: [] as string[] }));
+    : ENGAGEMENT_WORKFLOW_SUBSTEPS.map((s) => ({ ...s, status: 'Not Started' as const, blockers: [] as string[] }));
 
   return (
     <div className="target-overview stack" style={{ gap: 24 }}>

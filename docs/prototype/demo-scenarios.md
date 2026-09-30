@@ -68,4 +68,4 @@ visible, never plugged (unit-tested).
    trial-balance revisions, the PBC request/clarification/replacement/acceptance
    cycle, and browser storage recovery.
    It does not establish completion of the remaining journeys in §8 of
-   `Gap_Closure_User_Stories.md`.
+   `historical/legacy-product-spec/Gap_Closure_User_Stories.md`.

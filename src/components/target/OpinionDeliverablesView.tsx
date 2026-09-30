@@ -5,6 +5,7 @@ import type { AuditOpinion } from '../../types/targetLifecycle';
 import { hasAnyRole } from '../../services/guards';
 import {
   currentDeliverables,
+  currentPartnerOpinion,
   isFrozen,
   reportBasis,
   targetReleaseBlockers,
@@ -22,7 +23,7 @@ import {
 export function OpinionDeliverablesView(props: TargetViewProps) {
   const state = prototypeStore.getSnapshot(),
     eng = state.engagements.find((e) => e.id === state.selectedEngagement);
-  const opinion = eng?.auditLifecycle?.opinions.at(-1);
+  const opinion = eng ? currentPartnerOpinion(state, eng) : undefined;
 
   // Local state for interactive conditional qualification builder
   const [selectedOpinionType, setSelectedOpinionType] = useState<AuditOpinion>(
@@ -201,6 +202,7 @@ export function OpinionDeliverablesView(props: TargetViewProps) {
         </section>
       )}
 
+      {eng.auditLifecycle!.opinions.filter(record => record !== opinion).map(record => <details className="panel panel-pad" key={record.revision}><summary>Historical opinion revision {record.revision} · {record.value}</summary><p>{record.focusArea} · {record.basis}</p><p>Selected {record.selectedAt} by {state.users.find(u => u.id === record.selectedByUserId)?.name || record.selectedByUserId}. This decision does not authorize the current reporting basis.</p></details>)}
       {/* Compile Mandatory 5-Part Deliverables Package */}
       <TargetForm
         title="Compile Mandatory 5-Part Commercial Deliverables Bundle"
