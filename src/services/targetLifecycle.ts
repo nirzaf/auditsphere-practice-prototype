@@ -83,7 +83,8 @@ export const TARGET_STAGES: TargetStageDefinition[] = [
     label: 'Fieldwork programs',
     route: 'audit-fieldwork',
     owner: 'Preparer / reviewer',
-    roles: ['preparer', 'manager', 'reviewer']
+    roles: ['preparer', 'manager', 'reviewer'],
+    aliases: ['audit-risks']
   },
   {
     id: 'sampling',

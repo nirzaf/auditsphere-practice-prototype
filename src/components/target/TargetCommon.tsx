@@ -219,7 +219,7 @@ export function TargetLifecycleHeader({
     );
   if (!engagement) return null;
   const progress = engagementProgress(state, engagement),
-    matches = progress.filter((s) => s.route === route),
+    matches = progress.filter((s) => s.route === route || s.aliases?.includes(route)),
     stage =
       matches.find((s) => !['Completed', 'Frozen'].includes(s.status)) ||
       matches.at(-1) ||

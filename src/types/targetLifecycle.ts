@@ -256,4 +256,6 @@ export interface TargetStageDefinition {
   route: import('./index').RouteKey;
   owner: string;
   roles: RoleKey[];
+  /** Legacy/shared routes that render the same operational step (e.g. audit-risks hosts fieldwork programs). */
+  aliases?: import('./index').RouteKey[];
 }
