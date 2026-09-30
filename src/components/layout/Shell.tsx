@@ -152,16 +152,61 @@ export const Shell: React.FC<ShellProps> = ({ currentRoute, onRouteChange, onSel
 
   const clientMode = isClientRole(state.currentRole);
 
-  const staffNavGroups: Array<[string, Array<{ key: RouteKey; label: string; icon: string; count?: number }>]> = [["COMMERCIAL", [{"key": "overview", "label": "Lifecycle overview", "icon": "grid"}, {"key": "acquisition", "label": "Leads", "icon": "target"}, {"key": "clients", "label": "Clients", "icon": "users"}, {"key": "proposals", "label": "Proposal & engagement letter", "icon": "receipt"}, {"key": "engagements", "label": "Engagement register", "icon": "brief"}, {"key": "billing", "label": "Advance & balance billing", "icon": "receipt"}, {"key": "onboarding", "label": "Acceptance / continuance", "icon": "shield"}]], ["AUDIT", [{"key": "documents", "label": "Workspace & PBC", "icon": "folder"}, {"key": "audit-planning", "label": "Planning & materiality", "icon": "target"}, {"key": "scheduling", "label": "Staffing, rates & time", "icon": "clock"}, {"key": "trial-balance", "label": "TB upload & mapping", "icon": "calculator"}, {"key": "financial-statements", "label": "P&L / balance sheet", "icon": "file"}, {"key": "audit-risks", "label": "Risks & fieldwork programs", "icon": "shield"}, {"key": "sampling", "label": "Sampling & X-1 evidence", "icon": "checkboard"}, {"key": "evidence", "label": "Evidence catalogue", "icon": "folder"}, {"key": "findings", "label": "Findings & differences", "icon": "target"}, {"key": "confirmations", "label": "External confirmations", "icon": "message"}, {"key": "reviews", "label": "Review & SRM", "icon": "message"}, {"key": "delivery", "label": "Opinion & deliverables", "icon": "archive"}, {"key": "records", "label": "Freeze & read-only archive", "icon": "archive"}]], ["PRACTICE", [{"key": "reports", "label": "Practice analytics", "icon": "calculator"}, {"key": "practice-ledger", "label": "Firm expenses & ledger", "icon": "calculator"}, {"key": "administration", "label": "Firm administration", "icon": "settings"}, {"key": "m365-setup", "label": "M365 configuration", "icon": "settings"}, {"key": "requirements", "label": "Scope & simulation limits", "icon": "book"}]]];
+  const staffNavGroups: Array<[string, Array<{ key: RouteKey; label: string; icon: string; count?: number }>]> = [
+    [
+      "MODULE 1: COMMERCIAL & CRM",
+      [
+        { key: "overview", label: "Lifecycle Overview", icon: "grid" },
+        { key: "acquisition", label: "Lead Ingestion", icon: "target" },
+        { key: "clients", label: "Client Profiles", icon: "users" },
+        { key: "proposals", label: "Quotes & Proposals", icon: "receipt" },
+        { key: "engagements", label: "Engagement Letter (ISA 210)", icon: "brief" },
+        { key: "billing", label: "50% Advance & Receipts", icon: "receipt" }
+      ]
+    ],
+    [
+      "MODULE 2: GOVERNANCE & PLANNING",
+      [
+        { key: "onboarding", label: "Dual-Key Gate & Acceptance", icon: "shield" },
+        { key: "documents", label: "5-Folder Taxonomy Workspace", icon: "folder" },
+        { key: "scheduling", label: "Resource Scheduling & Milestones", icon: "clock" },
+        { key: "audit-planning", label: "3-Tier Materiality (ISA 320)", icon: "target" }
+      ]
+    ],
+    [
+      "MODULE 3: TECHNICAL FIELDWORK",
+      [
+        { key: "financial-statements", label: "Split Dashboard (P/L & B/S)", icon: "file" },
+        { key: "trial-balance", label: "TB Upload & Auto-Mapping", icon: "calculator" },
+        { key: "audit-risks", label: "Workprograms & Going Concern", icon: "shield" },
+        { key: "sampling", label: "Sampling & Physical Index (X-1)", icon: "checkboard" },
+        { key: "confirmations", label: "External Confirmations (ISA 505)", icon: "message" },
+        { key: "reviews", label: "Three-Tier Review & SRM", icon: "message" }
+      ]
+    ],
+    [
+      "MODULE 4: REPORTING & ARCHIVE",
+      [
+        { key: "delivery", label: "Audit Opinion & 5-Part Bundle", icon: "archive" },
+        { key: "records", label: "60-Day Compliance Lock (ISA 230)", icon: "archive" }
+      ]
+    ],
+    [
+      "MODULE 5: PRACTICE MANAGEMENT",
+      [
+        { key: "reports", label: "Real-Time Profitability & Rates", icon: "calculator" },
+        { key: "practice-ledger", label: "Firm Ledger, Monthly TB & AR Aging", icon: "calculator" },
+        { key: "requirements", label: "Standards & Specifications", icon: "book" }
+      ]
+    ]
+  ];
 
   const clientNavGroups: Array<[string, Array<{ key: RouteKey; label: string; icon: string; count?: number }>]> = [
     [
-      'CLIENT SECURE PORTAL',
+      'CLIENT SECURE PORTAL (PBC)',
       [
-        { key: 'portal', label: 'Client Experience Portal', icon: 'globe' },
-        { key: 'module-guide', label: 'Module Guide', icon: 'layers' },
-        { key: 'client-requirements', label: 'Client Requirements', icon: 'book' },
-        { key: 'requirements', label: 'Specifications & PRD', icon: 'book' }
+        { key: 'portal', label: 'Client PBC Portal & Evidence', icon: 'globe' },
+        { key: 'requirements', label: 'Functional Requirements', icon: 'book' }
       ]
     ]
   ];
@@ -342,7 +387,7 @@ export const Shell: React.FC<ShellProps> = ({ currentRoute, onRouteChange, onSel
             <Icon name="layers" />
           </div>
           <div className="brandname">
-            Audit<span>Sphere</span>
+            STE <span>Audit Tool</span>
           </div>
         </div>
 
@@ -351,7 +396,7 @@ export const Shell: React.FC<ShellProps> = ({ currentRoute, onRouteChange, onSel
           <span>
             <b>STE Audit & Accounting</b>
             <div style={{ fontSize: '10.5px', color: 'var(--chrome-muted)', marginTop: '1px' }}>
-              Practice Workspace · Doha, Qatar
+              STE Audit Management Tool v2.1 · Doha, Qatar
             </div>
           </span>
         </div>
@@ -473,11 +518,26 @@ export const Shell: React.FC<ShellProps> = ({ currentRoute, onRouteChange, onSel
                   value={state.currentUserId}
                   onChange={e => handleRoleChange(e.target.value)}
                 >
-                  {state.users.map(u => (
-                    <option key={u.id} value={u.id}>
-                      {u.label} — {u.name}{u.status !== 'Active' ? ' (disabled)' : ''}
-                    </option>
-                  ))}
+                  <optgroup label="Core User Personas (STE Specification 1.2)">
+                    {state.users.filter(u => ['preparer', 'reviewer', 'partner', 'client'].includes(u.id)).map(u => {
+                      const specLabel = u.id === 'preparer' ? 'PREPARER (Associate)' :
+                                        u.id === 'reviewer' ? 'REVIEWER (Senior / Manager)' :
+                                        u.id === 'partner' ? 'APPROVER (Partner)' :
+                                        'CLIENT (Coordinator / CFO)';
+                      return (
+                        <option key={u.id} value={u.id}>
+                          {specLabel} — {u.name}
+                        </option>
+                      );
+                    })}
+                  </optgroup>
+                  <optgroup label="Other Internal / Simulated Identities">
+                    {state.users.filter(u => !['preparer', 'reviewer', 'partner', 'client'].includes(u.id)).map(u => (
+                      <option key={u.id} value={u.id}>
+                        {u.label} — {u.name}{u.status !== 'Active' ? ' (disabled)' : ''}
+                      </option>
+                    ))}
+                  </optgroup>
                 </select>
               </div>
             </div>

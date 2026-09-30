@@ -2,7 +2,8 @@ import type { EngagementRecord, PrototypeState, ProposalRecord } from '../types'
 import type {
   AuditOpinion,
   TargetEngagementLifecycle,
-  TargetStageDefinition
+  TargetStageDefinition,
+  TargetLifecycleState
 } from '../types/targetLifecycle';
 import { isReleaseBlockingFinding } from './findings';
 
@@ -956,3 +957,149 @@ export function engagementProgress(
     };
   });
 }
+
+export interface SystemLifecycleStateDefinition {
+  state: TargetLifecycleState;
+  label: string;
+  module: string;
+  allowedActions: string;
+  gateToAdvance: string;
+  nextState: TargetLifecycleState | 'TERMINAL';
+}
+
+export const SYSTEM_LIFECYCLE_STATES: SystemLifecycleStateDefinition[] = [
+  {
+    state: 'LEAD_INGESTION',
+    label: 'Lead Ingestion',
+    module: 'Module 1: Commercial & CRM',
+    allowedActions: 'Log inquiry, capture company and contact data',
+    gateToAdvance: 'Minimum entity and primary contact data validated',
+    nextState: 'PROPOSAL_GENERATION'
+  },
+  {
+    state: 'PROPOSAL_GENERATION',
+    label: 'Proposal Generation',
+    module: 'Module 1: Commercial & CRM',
+    allowedActions: 'Build Brief Quote or Comprehensive Proposal, dispatch to client',
+    gateToAdvance: 'Proposal dispatched via Email / WhatsApp link',
+    nextState: 'DUAL_KEY_PENDING'
+  },
+  {
+    state: 'DUAL_KEY_PENDING',
+    label: 'Dual-Key Clearance Gate',
+    module: 'Module 1 & 2: Governance Gate',
+    allowedActions: 'Complete Client Acceptance Checklist (AML/KYC), record client commercial approval',
+    gateToAdvance: 'Dual-Key Clearance: Both Client Acceptance AND Partner AML/KYC Approval confirmed',
+    nextState: 'ADVANCE_BILLING'
+  },
+  {
+    state: 'ADVANCE_BILLING',
+    label: 'Advance Billing & Receipt',
+    module: 'Module 1: Commercial & CRM',
+    allowedActions: 'Generate Engagement Letter (ISA 210) & 50% Advance Invoice',
+    gateToAdvance: '50% advance payment confirmed and recorded with receipt voucher',
+    nextState: 'PORTAL_ACTIVE_PLANNING'
+  },
+  {
+    state: 'PORTAL_ACTIVE_PLANNING',
+    label: 'Portal Active & Planning',
+    module: 'Module 2: Governance & Planning',
+    allowedActions: 'Provision Client Portal, schedule team, ingest Trial Balance, calculate materiality',
+    gateToAdvance: 'Planning signed off by Partner, TB mapped to FSLIs',
+    nextState: 'FIELDWORK_EXECUTION'
+  },
+  {
+    state: 'FIELDWORK_EXECUTION',
+    label: 'Fieldwork Execution',
+    module: 'Module 3: Technical Execution',
+    allowedActions: 'Execute workprograms, attach digital/physical evidence, log confirmation requests',
+    gateToAdvance: 'All assigned FSLI procedures submitted by Preparers',
+    nextState: 'MANAGERIAL_REVIEW'
+  },
+  {
+    state: 'MANAGERIAL_REVIEW',
+    label: 'Managerial Review & SRM',
+    module: 'Module 3: Technical Execution',
+    allowedActions: 'Review workpapers, issue review notes/rework, compile SRM',
+    gateToAdvance: 'Zero open review notes, SRM compiled, critical confirmations returned',
+    nextState: 'PARTNER_APPROVAL'
+  },
+  {
+    state: 'PARTNER_APPROVAL',
+    label: 'Partner Approval & Opinion',
+    module: 'Module 4: Reporting & Deliverables',
+    allowedActions: 'Partner inspects SRM, reviews Red-risk areas, selects Audit Opinion (ISA 700/705)',
+    gateToAdvance: 'Partner applies digital signature and firm seal',
+    nextState: 'DELIVERABLE_RELEASE'
+  },
+  {
+    state: 'DELIVERABLE_RELEASE',
+    label: 'Deliverable Release',
+    module: 'Module 4: Reporting & Deliverables',
+    allowedActions: 'Generate 5-part deliverables package, issue 50% balance invoice, freeze client portal uploads',
+    gateToAdvance: 'Final package generated and delivered to client',
+    nextState: 'COMPLIANCE_COUNTDOWN'
+  },
+  {
+    state: 'COMPLIANCE_COUNTDOWN',
+    label: 'Compliance Countdown (ISA 230)',
+    module: 'Module 4: Reporting & Deliverables',
+    allowedActions: 'Review final archive; Partner may trigger early lock',
+    gateToAdvance: '60 calendar days elapsed since signature date OR manual lock triggered',
+    nextState: 'ARCHIVED_READ_ONLY'
+  },
+  {
+    state: 'ARCHIVED_READ_ONLY',
+    label: 'Archived (Read-Only)',
+    module: 'Module 4: Reporting & Deliverables',
+    allowedActions: 'Read-only viewing and regulator inspection export',
+    gateToAdvance: 'File is permanently locked; modifications strictly disallowed',
+    nextState: 'TERMINAL'
+  }
+];
+
+export function computeSystemState(
+  state: PrototypeState,
+  engagement: EngagementRecord
+): SystemLifecycleStateDefinition {
+  if (isFrozen(engagement)) {
+    return SYSTEM_LIFECYCLE_STATES[10]; // ARCHIVED_READ_ONLY
+  }
+  const set = currentDeliverables(state, engagement);
+  const control = engagement.auditLifecycle?.archiveControl;
+  if (control?.freezeStatus === 'Counting Down' || (set && set.deliveredAt)) {
+    return SYSTEM_LIFECYCLE_STATES[9]; // COMPLIANCE_COUNTDOWN
+  }
+  if (set && set.artifacts.length >= 3) {
+    return SYSTEM_LIFECYCLE_STATES[8]; // DELIVERABLE_RELEASE
+  }
+  const review = currentReview(state, engagement);
+  if (review.partner) {
+    return SYSTEM_LIFECYCLE_STATES[7]; // PARTNER_APPROVAL
+  }
+  if (review.manager || engagement.auditLifecycle?.srms.length) {
+    return SYSTEM_LIFECYCLE_STATES[6]; // MANAGERIAL_REVIEW
+  }
+  const plan = currentPlan(state, engagement);
+  const tbReady = engagement.sourceAccepted && engagement.mappingApproved && engagement.rows.length > 0;
+  if (plan?.status === 'Approved' && tbReady) {
+    return SYSTEM_LIFECYCLE_STATES[5]; // FIELDWORK_EXECUTION
+  }
+  const bill = billingSummary(state, engagement);
+  if (bill.complete) {
+    return SYSTEM_LIFECYCLE_STATES[4]; // PORTAL_ACTIVE_PLANNING
+  }
+  const acceptanceRecord = professionalCase(state, engagement);
+  const dualKeyPassed = acceptanceRecord?.decisionStatus === 'Accepted' && professionalBlockers(state, engagement).length === 0;
+  if (dualKeyPassed && acceptedProposal(state, engagement)) {
+    return SYSTEM_LIFECYCLE_STATES[3]; // ADVANCE_BILLING
+  }
+  if (state.proposals.some(p => p.clientId === engagement.client)) {
+    return SYSTEM_LIFECYCLE_STATES[2]; // DUAL_KEY_PENDING
+  }
+  if (state.leads.some(l => l.convertedClientId === engagement.client)) {
+    return SYSTEM_LIFECYCLE_STATES[1]; // PROPOSAL_GENERATION
+  }
+  return SYSTEM_LIFECYCLE_STATES[0]; // LEAD_INGESTION
+}
+

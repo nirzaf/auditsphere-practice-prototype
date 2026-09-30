@@ -21,44 +21,66 @@
   ],
   "engagementId": "ENG-TARGET",
   "archive": {
-    "archivedAt": "2026-09-29T23:17:46.962Z",
+    "archivedAt": "2026-09-30T10:22:03.132Z",
     "archivedBy": "Farooq Mansour",
-    "releaseId": "FINAL-ENG-TARGET-fea6900b-5367-48f4-b9ae-5bfb55601872",
+    "releaseId": "FINAL-ENG-TARGET-43cb0c32-bcbd-470d-a2b4-1c27deb96784",
     "manifest": [
-      "Management Letter: FINAL-ENG-TARGET-fea6900b-5367-48f4-b9ae-5bfb55601872-1 / SHA-256 ff0ddf066a32bdb7374708c27374e4323d2f9caa96d6e4cb982487814a4c04e1",
-      "Letter of Representation: FINAL-ENG-TARGET-fea6900b-5367-48f4-b9ae-5bfb55601872-2 / SHA-256 61a67656a18b4d35f95ff26994bcfc7d8d6323d921c80502c04a06ff06ad5ef6",
-      "Audit Report: FINAL-ENG-TARGET-fea6900b-5367-48f4-b9ae-5bfb55601872-3 / SHA-256 dca2e110e5954e75ab838addd67a7973eb7c222ebb9832dd39bed2bb1d7e515b"
+      "Audit Report: FINAL-ENG-TARGET-43cb0c32-bcbd-470d-a2b4-1c27deb96784-1 / SHA-256 5d13609df7a29ef5136b245c223cee274cdd7b937adfc0d26680add68d7bc1f3",
+      "Management Letter: FINAL-ENG-TARGET-43cb0c32-bcbd-470d-a2b4-1c27deb96784-2 / SHA-256 626c61b6e1a368cff17762bb76f221c5a60df6f387f6215b5113281c834c2e43",
+      "Letter of Representation: FINAL-ENG-TARGET-43cb0c32-bcbd-470d-a2b4-1c27deb96784-3 / SHA-256 499ad7985045f40029a1a7d2b027674019ba5b6d6d7797030a0c6c395cb6a194",
+      "Management Correspondences Audit Trail: FINAL-ENG-TARGET-43cb0c32-bcbd-470d-a2b4-1c27deb96784-4 / SHA-256 51096b4d5e2451dd0c7ea0a19d76e1cd265f27b40dec3166ad5dcff444dfca8c",
+      "Final Balance Fee Note: FINAL-ENG-TARGET-43cb0c32-bcbd-470d-a2b4-1c27deb96784-5 / SHA-256 5c8e369f89bb5e14aa1ce58fb54985703d594fa886663b09d13ad20bc217f191"
     ],
     "artifacts": [
       {
-        "id": "archive:ENG-TARGET:FINAL-ENG-TARGET-fea6900b-5367-48f4-b9ae-5bfb55601872:FINAL-ENG-TARGET-fea6900b-5367-48f4-b9ae-5bfb55601872-1",
-        "name": "FINAL-ENG-TARGET-fea6900b-5367-48f4-b9ae-5bfb55601872-1.pdf",
+        "id": "archive:ENG-TARGET:FINAL-ENG-TARGET-43cb0c32-bcbd-470d-a2b4-1c27deb96784:FINAL-ENG-TARGET-43cb0c32-bcbd-470d-a2b4-1c27deb96784-1",
+        "name": "FINAL-ENG-TARGET-43cb0c32-bcbd-470d-a2b4-1c27deb96784-1.pdf",
         "kind": "PDF",
         "mimeType": "application/pdf",
-        "size": 4909,
-        "sha256": "ff0ddf066a32bdb7374708c27374e4323d2f9caa96d6e4cb982487814a4c04e1",
-        "deliverable": "Management Letter",
-        "sourceArtifactId": "FINAL-ENG-TARGET-fea6900b-5367-48f4-b9ae-5bfb55601872-1"
-      },
-      {
-        "id": "archive:ENG-TARGET:FINAL-ENG-TARGET-fea6900b-5367-48f4-b9ae-5bfb55601872:FINAL-ENG-TARGET-fea6900b-5367-48f4-b9ae-5bfb55601872-2",
-        "name": "FINAL-ENG-TARGET-fea6900b-5367-48f4-b9ae-5bfb55601872-2.pdf",
-        "kind": "PDF",
-        "mimeType": "application/pdf",
-        "size": 5394,
-        "sha256": "61a67656a18b4d35f95ff26994bcfc7d8d6323d921c80502c04a06ff06ad5ef6",
-        "deliverable": "Letter of Representation",
-        "sourceArtifactId": "FINAL-ENG-TARGET-fea6900b-5367-48f4-b9ae-5bfb55601872-2"
-      },
-      {
-        "id": "archive:ENG-TARGET:FINAL-ENG-TARGET-fea6900b-5367-48f4-b9ae-5bfb55601872:FINAL-ENG-TARGET-fea6900b-5367-48f4-b9ae-5bfb55601872-3",
-        "name": "FINAL-ENG-TARGET-fea6900b-5367-48f4-b9ae-5bfb55601872-3.pdf",
-        "kind": "PDF",
-        "mimeType": "application/pdf",
-        "size": 5325,
-        "sha256": "dca2e110e5954e75ab838addd67a7973eb7c222ebb9832dd39bed2bb1d7e515b",
+        "size": 5942,
+        "sha256": "5d13609df7a29ef5136b245c223cee274cdd7b937adfc0d26680add68d7bc1f3",
         "deliverable": "Audit Report",
-        "sourceArtifactId": "FINAL-ENG-TARGET-fea6900b-5367-48f4-b9ae-5bfb55601872-3"
+        "sourceArtifactId": "FINAL-ENG-TARGET-43cb0c32-bcbd-470d-a2b4-1c27deb96784-1"
+      },
+      {
+        "id": "archive:ENG-TARGET:FINAL-ENG-TARGET-43cb0c32-bcbd-470d-a2b4-1c27deb96784:FINAL-ENG-TARGET-43cb0c32-bcbd-470d-a2b4-1c27deb96784-2",
+        "name": "FINAL-ENG-TARGET-43cb0c32-bcbd-470d-a2b4-1c27deb96784-2.pdf",
+        "kind": "PDF",
+        "mimeType": "application/pdf",
+        "size": 5088,
+        "sha256": "626c61b6e1a368cff17762bb76f221c5a60df6f387f6215b5113281c834c2e43",
+        "deliverable": "Management Letter",
+        "sourceArtifactId": "FINAL-ENG-TARGET-43cb0c32-bcbd-470d-a2b4-1c27deb96784-2"
+      },
+      {
+        "id": "archive:ENG-TARGET:FINAL-ENG-TARGET-43cb0c32-bcbd-470d-a2b4-1c27deb96784:FINAL-ENG-TARGET-43cb0c32-bcbd-470d-a2b4-1c27deb96784-3",
+        "name": "FINAL-ENG-TARGET-43cb0c32-bcbd-470d-a2b4-1c27deb96784-3.pdf",
+        "kind": "PDF",
+        "mimeType": "application/pdf",
+        "size": 6100,
+        "sha256": "499ad7985045f40029a1a7d2b027674019ba5b6d6d7797030a0c6c395cb6a194",
+        "deliverable": "Letter of Representation",
+        "sourceArtifactId": "FINAL-ENG-TARGET-43cb0c32-bcbd-470d-a2b4-1c27deb96784-3"
+      },
+      {
+        "id": "archive:ENG-TARGET:FINAL-ENG-TARGET-43cb0c32-bcbd-470d-a2b4-1c27deb96784:FINAL-ENG-TARGET-43cb0c32-bcbd-470d-a2b4-1c27deb96784-4",
+        "name": "FINAL-ENG-TARGET-43cb0c32-bcbd-470d-a2b4-1c27deb96784-4.pdf",
+        "kind": "PDF",
+        "mimeType": "application/pdf",
+        "size": 5437,
+        "sha256": "51096b4d5e2451dd0c7ea0a19d76e1cd265f27b40dec3166ad5dcff444dfca8c",
+        "deliverable": "Management Correspondences Audit Trail",
+        "sourceArtifactId": "FINAL-ENG-TARGET-43cb0c32-bcbd-470d-a2b4-1c27deb96784-4"
+      },
+      {
+        "id": "archive:ENG-TARGET:FINAL-ENG-TARGET-43cb0c32-bcbd-470d-a2b4-1c27deb96784:FINAL-ENG-TARGET-43cb0c32-bcbd-470d-a2b4-1c27deb96784-5",
+        "name": "FINAL-ENG-TARGET-43cb0c32-bcbd-470d-a2b4-1c27deb96784-5.pdf",
+        "kind": "PDF",
+        "mimeType": "application/pdf",
+        "size": 5595,
+        "sha256": "5c8e369f89bb5e14aa1ce58fb54985703d594fa886663b09d13ad20bc217f191",
+        "deliverable": "Final Balance Fee Note",
+        "sourceArtifactId": "FINAL-ENG-TARGET-43cb0c32-bcbd-470d-a2b4-1c27deb96784-5"
       }
     ]
   },
@@ -142,22 +164,34 @@
   ],
   "artifacts": [
     {
-      "id": "FINAL-ENG-TARGET-fea6900b-5367-48f4-b9ae-5bfb55601872-1",
-      "name": "FINAL-ENG-TARGET-fea6900b-5367-48f4-b9ae-5bfb55601872-1.pdf",
-      "size": 4909,
-      "sha256": "ff0ddf066a32bdb7374708c27374e4323d2f9caa96d6e4cb982487814a4c04e1"
+      "id": "FINAL-ENG-TARGET-43cb0c32-bcbd-470d-a2b4-1c27deb96784-1",
+      "name": "FINAL-ENG-TARGET-43cb0c32-bcbd-470d-a2b4-1c27deb96784-1.pdf",
+      "size": 5942,
+      "sha256": "5d13609df7a29ef5136b245c223cee274cdd7b937adfc0d26680add68d7bc1f3"
     },
     {
-      "id": "FINAL-ENG-TARGET-fea6900b-5367-48f4-b9ae-5bfb55601872-2",
-      "name": "FINAL-ENG-TARGET-fea6900b-5367-48f4-b9ae-5bfb55601872-2.pdf",
-      "size": 5394,
-      "sha256": "61a67656a18b4d35f95ff26994bcfc7d8d6323d921c80502c04a06ff06ad5ef6"
+      "id": "FINAL-ENG-TARGET-43cb0c32-bcbd-470d-a2b4-1c27deb96784-2",
+      "name": "FINAL-ENG-TARGET-43cb0c32-bcbd-470d-a2b4-1c27deb96784-2.pdf",
+      "size": 5088,
+      "sha256": "626c61b6e1a368cff17762bb76f221c5a60df6f387f6215b5113281c834c2e43"
     },
     {
-      "id": "FINAL-ENG-TARGET-fea6900b-5367-48f4-b9ae-5bfb55601872-3",
-      "name": "FINAL-ENG-TARGET-fea6900b-5367-48f4-b9ae-5bfb55601872-3.pdf",
-      "size": 5325,
-      "sha256": "dca2e110e5954e75ab838addd67a7973eb7c222ebb9832dd39bed2bb1d7e515b"
+      "id": "FINAL-ENG-TARGET-43cb0c32-bcbd-470d-a2b4-1c27deb96784-3",
+      "name": "FINAL-ENG-TARGET-43cb0c32-bcbd-470d-a2b4-1c27deb96784-3.pdf",
+      "size": 6100,
+      "sha256": "499ad7985045f40029a1a7d2b027674019ba5b6d6d7797030a0c6c395cb6a194"
+    },
+    {
+      "id": "FINAL-ENG-TARGET-43cb0c32-bcbd-470d-a2b4-1c27deb96784-4",
+      "name": "FINAL-ENG-TARGET-43cb0c32-bcbd-470d-a2b4-1c27deb96784-4.pdf",
+      "size": 5437,
+      "sha256": "51096b4d5e2451dd0c7ea0a19d76e1cd265f27b40dec3166ad5dcff444dfca8c"
+    },
+    {
+      "id": "FINAL-ENG-TARGET-43cb0c32-bcbd-470d-a2b4-1c27deb96784-5",
+      "name": "FINAL-ENG-TARGET-43cb0c32-bcbd-470d-a2b4-1c27deb96784-5.pdf",
+      "size": 5595,
+      "sha256": "5c8e369f89bb5e14aa1ce58fb54985703d594fa886663b09d13ad20bc217f191"
     }
   ],
   "review": {

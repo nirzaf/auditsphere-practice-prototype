@@ -10,7 +10,7 @@ import { UnsavedFormGuard } from '../../services/unsavedFormGuard';
 import { Icon } from '../common/Icons';
 import { StatusBadge } from '../common/StatusBadge';
 import { Notice, EmptyTableRow, EmptyState } from '../common/Feedback';
-import { calculateMateriality, formatCurrency } from '../../services/calculations';
+import { calculateMateriality, calculateBalanceSheet, calculateIncomeStatement, formatCurrency } from '../../services/calculations';
 import { LifecyclePanel } from '../common/Lifecycle';
 import { lifecycleById } from '../../services/lifecycles';
 
@@ -41,6 +41,7 @@ export const AuditPlanningView: React.FC<AuditPlanningViewProps> = ({ onNavigate
   const [percentage, setPercentage] = useState<number | ''>(existingPlan?.materialityRate ?? '');
   const [performanceRate, setPerformanceRate] = useState<number | ''>(existingPlan?.performanceMaterialityRate ?? '');
   const [trivialRate, setTrivialRate] = useState<number | ''>(existingPlan?.clearlyTrivialRate ?? '');
+  const [managerRoundedPM, setManagerRoundedPM] = useState<number | ''>(existingPlan?.overallMateriality ?? '');
   const [scopeNotes, setScopeNotes] = useState(
     existingPlan?.rationales?.[0] || ''
   );
@@ -79,10 +80,64 @@ export const AuditPlanningView: React.FC<AuditPlanningViewProps> = ({ onNavigate
         scopeNotes.trim()
       );
 
+  // Practical rounding & risk stratification calculations per STE v2.1 spec
+  const effectivePM = managerRoundedPM !== '' && Number.isFinite(Number(managerRoundedPM))
+    ? Number(managerRoundedPM)
+    : (materiality?.overallMateriality ?? 0);
+
+  const roundingTolerancePct = materiality && materiality.overallMateriality > 0 && effectivePM > 0
+    ? ((effectivePM - materiality.overallMateriality) / materiality.overallMateriality) * 100
+    : 0;
+
+  const isRoundingExceeded = Math.abs(roundingTolerancePct) > 5.0001;
+
+  const effectiveTE = materiality && effectivePM > 0
+    ? Math.round((Number(performanceRate) / 100) * effectivePM)
+    : (materiality?.performanceMateriality ?? 0);
+
+  const effectiveSAD = materiality && effectivePM > 0
+    ? Math.round((Number(trivialRate) / 100) * effectivePM)
+    : (materiality?.clearlyTrivialThreshold ?? 0);
+
+  const tbRows = selectedEng?.rows || [];
+  const bsCalc = React.useMemo(() => calculateBalanceSheet(tbRows), [tbRows]);
+  const isCalc = React.useMemo(() => calculateIncomeStatement(tbRows), [tbRows]);
+
+  const riskStratification = React.useMemo(() => {
+    if (!effectiveTE || !effectivePM || !tbRows.length) return null;
+    let greenCount = 0;
+    let greenTotal = 0;
+    let amberCount = 0;
+    let amberTotal = 0;
+    let redCount = 0;
+    let redTotal = 0;
+
+    for (const r of tbRows) {
+      const bal = Math.abs(r.balance);
+      if (bal < effectiveTE) {
+        greenCount++;
+        greenTotal += bal;
+      } else if (bal <= effectivePM) {
+        amberCount++;
+        amberTotal += bal;
+      } else {
+        redCount++;
+        redTotal += bal;
+      }
+    }
+
+    return {
+      greenCount, greenTotal,
+      amberCount, amberTotal,
+      redCount, redTotal,
+      totalCount: tbRows.length
+    };
+  }, [effectiveTE, effectivePM, tbRows]);
+
   // VP-003: register the planning draft so route/persona/engagement changes cannot
   // silently drop deliberately entered work.
-  const initialDraft = useRef(JSON.stringify({ benchmarkType, benchmarkValue, percentage, performanceRate, trivialRate, scopeNotes, teamAllocations, milestones, significantAreas, reviewNotes }));
-  const draftSnapshot = () => JSON.stringify({ benchmarkType, benchmarkValue, percentage, performanceRate, trivialRate, scopeNotes, teamAllocations, milestones, significantAreas, reviewNotes });
+  const initialDraft = useRef(JSON.stringify({ benchmarkType, benchmarkValue, percentage, performanceRate, trivialRate, scopeNotes, teamAllocations, milestones, significantAreas, reviewNotes, managerRoundedPM }));
+  const draftSnapshot = () => JSON.stringify({ benchmarkType, benchmarkValue, percentage, performanceRate, trivialRate, scopeNotes, teamAllocations, milestones, significantAreas, reviewNotes, managerRoundedPM });
   const resetDraft = () => {
     const initial = JSON.parse(initialDraft.current);
     setBenchmarkType(initial.benchmarkType);
@@ -90,6 +145,7 @@ export const AuditPlanningView: React.FC<AuditPlanningViewProps> = ({ onNavigate
     setPercentage(initial.percentage);
     setPerformanceRate(initial.performanceRate);
     setTrivialRate(initial.trivialRate);
+    setManagerRoundedPM(initial.managerRoundedPM ?? '');
     setScopeNotes(initial.scopeNotes);
     setTeamAllocations(initial.teamAllocations);
     setMilestones(initial.milestones);
@@ -107,7 +163,7 @@ export const AuditPlanningView: React.FC<AuditPlanningViewProps> = ({ onNavigate
     onRegisterUnsavedForm(guard, 'audit-planning');
     return () => onRegisterUnsavedForm(null, 'audit-planning');
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [benchmarkType, benchmarkValue, percentage, performanceRate, trivialRate, scopeNotes, teamAllocations, milestones, significantAreas, reviewNotes, onRegisterUnsavedForm]);
+  }, [benchmarkType, benchmarkValue, percentage, performanceRate, trivialRate, managerRoundedPM, scopeNotes, teamAllocations, milestones, significantAreas, reviewNotes, onRegisterUnsavedForm]);
 
   if (!selectedEng) {
     return (
@@ -138,6 +194,9 @@ export const AuditPlanningView: React.FC<AuditPlanningViewProps> = ({ onNavigate
       if (trivialRate === '' || !Number.isFinite(Number(trivialRate)) || Number(trivialRate) < 0 || Number(trivialRate) > 100) {
         throw new Error('Enter a clearly trivial rate from 0 through 100 percent.');
       }
+      if (isRoundingExceeded) {
+        throw new Error(`Manager practical rounding exceeds the ±5.0% maximum limit (current: ${roundingTolerancePct > 0 ? '+' : ''}${roundingTolerancePct.toFixed(1)}%). Adjust rounding to within ±5% of ${formatCurrency(materiality?.overallMateriality || 0, selectedEng.currency)}.`);
+      }
       if (!scopeNotes.trim()) {
         throw new Error('Record the planning rationale (ISA 320 basis) before saving; the form does not prefill one.');
       }
@@ -155,9 +214,9 @@ export const AuditPlanningView: React.FC<AuditPlanningViewProps> = ({ onNavigate
         materialityRate: Number(percentage),
         performanceMaterialityRate: Number(performanceRate),
         clearlyTrivialRate: Number(trivialRate),
-        overallMateriality: materiality.overallMateriality,
-        performanceMateriality: materiality.performanceMateriality,
-        clearlyTrivialThreshold: materiality.clearlyTrivialThreshold,
+        overallMateriality: effectivePM,
+        performanceMateriality: effectiveTE,
+        clearlyTrivialThreshold: effectiveSAD,
         rationales: scopeNotes.trim() ? [scopeNotes.trim()] : [],
         teamAllocations,
         timingMilestones: milestones,
@@ -254,6 +313,34 @@ export const AuditPlanningView: React.FC<AuditPlanningViewProps> = ({ onNavigate
             <StatusBadge status={existingPlan?.status || 'Draft Plan'} />
           </div>
 
+          <div className="banner info mt12" style={{ display: 'flex', gap: '16px', flexWrap: 'wrap', fontSize: '12px', padding: '10px 14px' }}>
+            <span><strong>ISA 320 Benchmark Standards:</strong></span>
+            <span>Profit Before Tax: <strong>5.0% – 10.0%</strong></span>
+            <span>Total Revenue: <strong>0.5% – 2.0%</strong></span>
+            <span>Total Assets: <strong>0.5% – 1.0%</strong></span>
+            <span>Net Equity: <strong>1.0% – 2.0%</strong></span>
+            <span>Tolerable Error (TE): <strong>50% – 75%</strong></span>
+            <span>SAD Threshold: <strong>3% – 5%</strong></span>
+          </div>
+
+          {tbRows.length > 0 && (
+            <div className="row mt12" style={{ gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+              <span className="caption" style={{ fontWeight: 600 }}>Pull Ingested Trial Balance Base:</span>
+              <button type="button" className="btn sm ghost" onClick={() => { setBenchmarkType('revenue'); setBenchmarkValue(Math.abs(isCalc.revenue)); if (!percentage) setPercentage(1.0); }}>
+                Revenue: {formatCurrency(Math.abs(isCalc.revenue), selectedEng.currency)}
+              </button>
+              <button type="button" className="btn sm ghost" onClick={() => { setBenchmarkType('profit'); setBenchmarkValue(Math.max(0, isCalc.netProfit)); if (!percentage) setPercentage(5.0); }}>
+                Profit: {formatCurrency(Math.max(0, isCalc.netProfit), selectedEng.currency)}
+              </button>
+              <button type="button" className="btn sm ghost" onClick={() => { setBenchmarkType('assets'); setBenchmarkValue(Math.abs(bsCalc.totalAssets)); if (!percentage) setPercentage(1.0); }}>
+                Assets: {formatCurrency(Math.abs(bsCalc.totalAssets), selectedEng.currency)}
+              </button>
+              <button type="button" className="btn sm ghost" onClick={() => { setBenchmarkType('equity'); setBenchmarkValue(Math.abs(bsCalc.totalEquity)); if (!percentage) setPercentage(1.5); }}>
+                Equity: {formatCurrency(Math.abs(bsCalc.totalEquity), selectedEng.currency)}
+              </button>
+            </div>
+          )}
+
           <div className="grid3 mt20">
             <div>
               <label className="caption">Financial Benchmark Basis</label>
@@ -263,10 +350,10 @@ export const AuditPlanningView: React.FC<AuditPlanningViewProps> = ({ onNavigate
                 value={benchmarkType}
                 onChange={e => setBenchmarkType(e.target.value as any)}
               >
-                <option value="revenue">Annual Gross Revenue</option>
-                <option value="profit">Profit Before Tax</option>
-                <option value="assets">Total Balance Sheet Assets</option>
-                <option value="equity">Net Equity</option>
+                <option value="revenue">Annual Gross Revenue (0.5% – 2.0%)</option>
+                <option value="profit">Profit Before Tax (5.0% – 10.0%)</option>
+                <option value="assets">Total Balance Sheet Assets (0.5% – 1.0%)</option>
+                <option value="equity">Net Equity (1.0% – 2.0%)</option>
               </select>
             </div>
             <div>
@@ -301,7 +388,7 @@ export const AuditPlanningView: React.FC<AuditPlanningViewProps> = ({ onNavigate
 
           <div className="grid3 mt12">
             <div>
-              <label className="caption">Performance Materiality (% of Overall Materiality) *</label>
+              <label className="caption">Performance Materiality / Tolerable Error (TE % of PM) *</label>
               <input
                 type="number"
                 step={1}
@@ -309,13 +396,13 @@ export const AuditPlanningView: React.FC<AuditPlanningViewProps> = ({ onNavigate
                 max={100}
                 className="input"
                 aria-label="Performance materiality rate percentage"
-                placeholder="Enter deliberately"
+                placeholder="Standard: 50% to 75%"
                 value={performanceRate}
                 onChange={e => setPerformanceRate(e.target.value === '' ? '' : Number(e.target.value))}
               />
             </div>
             <div>
-              <label className="caption">Clearly Trivial Threshold (% of Overall Materiality) *</label>
+              <label className="caption">Clearly Trivial Threshold / SAD (% of PM) *</label>
               <input
                 type="number"
                 step={0.5}
@@ -323,7 +410,7 @@ export const AuditPlanningView: React.FC<AuditPlanningViewProps> = ({ onNavigate
                 max={100}
                 className="input"
                 aria-label="Clearly trivial threshold percentage"
-                placeholder="Enter deliberately"
+                placeholder="Standard: 3% to 5%"
                 value={trivialRate}
                 onChange={e => setTrivialRate(e.target.value === '' ? '' : Number(e.target.value))}
               />
@@ -348,25 +435,127 @@ export const AuditPlanningView: React.FC<AuditPlanningViewProps> = ({ onNavigate
 
           {/* Calculated Thresholds */}
           {materiality ? (
-            <div className="metric-grid mt20">
-              <div className="metric purple">
-                <span className="metric-label">Overall Planning Materiality (PM)</span>
-                <div className="metric-val">{formatCurrency(materiality.overallMateriality, selectedEng.currency)}</div>
-                <span className="metric-sub">{percentage}% of {formatCurrency(Number(benchmarkValue), selectedEng.currency)}</span>
+            <>
+              <div className="metric-grid mt20">
+                <div className="metric purple">
+                  <span className="metric-label">Overall Planning Materiality (PM)</span>
+                  <div className="metric-val">{formatCurrency(effectivePM, selectedEng.currency)}</div>
+                  <span className="metric-sub">{percentage}% of {formatCurrency(Number(benchmarkValue), selectedEng.currency)}</span>
+                </div>
+
+                <div className="metric blue">
+                  <span className="metric-label">Tolerable Error (TE: {materiality.performancePct}%)</span>
+                  <div className="metric-val">{formatCurrency(effectiveTE, selectedEng.currency)}</div>
+                  <span className="metric-sub">Substantive testing threshold</span>
+                </div>
+
+                <div className="metric amber">
+                  <span className="metric-label">SAD / Trivial Threshold ({materiality.trivialPct}%)</span>
+                  <div className="metric-val">{formatCurrency(effectiveSAD, selectedEng.currency)}</div>
+                  <span className="metric-sub">Differences below this are not accumulated</span>
+                </div>
               </div>
 
-              <div className="metric blue">
-                <span className="metric-label">Performance Materiality (Haircut {materiality.performancePct}%)</span>
-                <div className="metric-val">{formatCurrency(materiality.performanceMateriality, selectedEng.currency)}</div>
-                <span className="metric-sub">Substantive testing threshold</span>
+              {/* Practical Rounding Tolerance */}
+              <div className="panel panel-pad mt16" style={{ background: 'var(--surface-sunken)', border: '1px solid var(--stroke)' }}>
+                <div className="between" style={{ alignItems: 'flex-start' }}>
+                  <div>
+                    <h4 style={{ margin: 0, fontSize: '13px' }}>Manager Practical Rounding Tolerance (Strict ±5.0% Limit)</h4>
+                    <p className="caption mt4" style={{ margin: 0 }}>
+                      Auditing standards permit managers to round raw computed materiality to practical figures (e.g., 53,421 &rarr; 53,000) within a strict ±5% boundary before Partner approval.
+                    </p>
+                  </div>
+                  {managerRoundedPM !== '' && (
+                    <span className={`tag ${isRoundingExceeded ? 'red' : 'green'}`} style={{ fontWeight: 600 }}>
+                      {isRoundingExceeded
+                        ? `Exceeds Limit: ${roundingTolerancePct > 0 ? '+' : ''}${roundingTolerancePct.toFixed(1)}%`
+                        : `Within Tolerance: ${roundingTolerancePct > 0 ? '+' : ''}${roundingTolerancePct.toFixed(1)}%`}
+                    </span>
+                  )}
+                </div>
+                <div className="row mt12" style={{ gap: '12px', alignItems: 'center', flexWrap: 'wrap' }}>
+                  <div style={{ flex: 1, minWidth: '220px' }}>
+                    <label className="caption">Manager Rounded Planning Materiality ({selectedEng.currency})</label>
+                    <input
+                      type="number"
+                      className="input"
+                      aria-label="Manager rounded planning materiality"
+                      placeholder={`Computed: ${materiality.overallMateriality.toLocaleString()}`}
+                      value={managerRoundedPM}
+                      onChange={e => setManagerRoundedPM(e.target.value === '' ? '' : Number(e.target.value))}
+                    />
+                  </div>
+                  <div style={{ minWidth: '220px' }}>
+                    <span className="caption">Allowable ±5% Band:</span>
+                    <div style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-muted)' }}>
+                      {formatCurrency(Math.round(materiality.overallMateriality * 0.95), selectedEng.currency)} &mdash; {formatCurrency(Math.round(materiality.overallMateriality * 1.05), selectedEng.currency)}
+                    </div>
+                  </div>
+                  <div>
+                    <button
+                      type="button"
+                      className="btn sm ghost mt16"
+                      onClick={() => setManagerRoundedPM(Math.round(materiality.overallMateriality / 1000) * 1000)}
+                      title="Round computed PM to nearest 1,000 QAR"
+                    >
+                      Auto-Round (1k)
+                    </button>
+                  </div>
+                </div>
               </div>
 
-              <div className="metric amber">
-                <span className="metric-label">Clearly Trivial Threshold ({materiality.trivialPct}%)</span>
-                <div className="metric-val">{formatCurrency(materiality.clearlyTrivialThreshold, selectedEng.currency)}</div>
-                <span className="metric-sub">Differences below this are not accumulated</span>
-              </div>
-            </div>
+              {/* Account Risk Stratification */}
+              {riskStratification && (
+                <div className="panel panel-pad mt16" style={{ border: '1px solid var(--stroke)' }}>
+                  <div>
+                    <h4 style={{ margin: 0, fontSize: '13px' }}>Account Risk Stratification (Trial Balance Mapping)</h4>
+                    <p className="caption mt4" style={{ margin: 0 }}>
+                      Dynamic classification of {riskStratification.totalCount} Trial Balance accounts against Tolerable Error ({formatCurrency(effectiveTE, selectedEng.currency)}) and Planning Materiality ({formatCurrency(effectivePM, selectedEng.currency)}).
+                    </p>
+                  </div>
+                  <div className="grid3 mt12" style={{ gap: '12px' }}>
+                    <div className="panel panel-pad" style={{ background: '#f0fdf4', border: '1px solid #bbf7d0' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                        <span style={{ color: '#166534', fontWeight: 700, fontSize: '12px' }}>GREEN · LOW RISK</span>
+                        <span className="badge green">{riskStratification.greenCount} Accounts</span>
+                      </div>
+                      <div style={{ fontSize: '16px', fontWeight: 700, color: '#14532d', marginTop: '6px' }}>
+                        {formatCurrency(riskStratification.greenTotal, selectedEng.currency)}
+                      </div>
+                      <div className="caption mt4" style={{ color: '#166534' }}>
+                        Balance &lt; TE. Standard automated audit programs; assignable to junior staff (Preparers).
+                      </div>
+                    </div>
+
+                    <div className="panel panel-pad" style={{ background: '#fffbeb', border: '1px solid #fde68a' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                        <span style={{ color: '#92400e', fontWeight: 700, fontSize: '12px' }}>AMBER · MODERATE RISK</span>
+                        <span className="badge amber">{riskStratification.amberCount} Accounts</span>
+                      </div>
+                      <div style={{ fontSize: '16px', fontWeight: 700, color: '#78350f', marginTop: '6px' }}>
+                        {formatCurrency(riskStratification.amberTotal, selectedEng.currency)}
+                      </div>
+                      <div className="caption mt4" style={{ color: '#92400e' }}>
+                        Balance between TE and PM. Requires senior substantive testing and sampling.
+                      </div>
+                    </div>
+
+                    <div className="panel panel-pad" style={{ background: '#fef2f2', border: '1px solid #fecaca' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                        <span style={{ color: '#991b1b', fontWeight: 700, fontSize: '12px' }}>RED · CRITICAL RISK</span>
+                        <span className="badge red">{riskStratification.redCount} Accounts</span>
+                      </div>
+                      <div style={{ fontSize: '16px', fontWeight: 700, color: '#7f1d1d', marginTop: '6px' }}>
+                        {formatCurrency(riskStratification.redTotal, selectedEng.currency)}
+                      </div>
+                      <div className="caption mt4" style={{ color: '#991b1b' }}>
+                        Balance &gt; PM or High Inherent Risk. Mandatory Manager execution and Partner direct review.
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </>
           ) : (
             <div className="panel panel-pad mt20" role="status" style={{ background: '#fffbeb', borderLeft: '4px solid #d97706' }}>
               <b>Enter the benchmark, applied rate, performance rate, clearly trivial rate and rationale.</b>

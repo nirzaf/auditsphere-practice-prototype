@@ -75,6 +75,19 @@ export interface OpinionRecord {
   selectedByUserId: string;
   selectedAt: string;
 }
+export type TargetLifecycleState =
+  | 'LEAD_INGESTION'
+  | 'PROPOSAL_GENERATION'
+  | 'DUAL_KEY_PENDING'
+  | 'ADVANCE_BILLING'
+  | 'PORTAL_ACTIVE_PLANNING'
+  | 'FIELDWORK_EXECUTION'
+  | 'MANAGERIAL_REVIEW'
+  | 'PARTNER_APPROVAL'
+  | 'DELIVERABLE_RELEASE'
+  | 'COMPLIANCE_COUNTDOWN'
+  | 'ARCHIVED_READ_ONLY';
+
 export interface DeliverableSet {
   id: string;
   revision: number;
@@ -85,7 +98,14 @@ export interface DeliverableSet {
   reportDate: string;
   artifacts: Array<
     GeneratedArtifactRecord & {
-      deliverable: 'Management Letter' | 'Letter of Representation' | 'Audit Report';
+      deliverable:
+        | 'Management Letter'
+        | 'Letter of Representation'
+        | 'Audit Report'
+        | 'Independent Auditor Report & Audited Financial Statements'
+        | 'Management Correspondences Audit Trail'
+        | 'Final Balance Fee Note'
+        | string;
     }
   >;
   deliveredAt?: string;

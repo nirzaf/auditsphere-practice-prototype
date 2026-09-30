@@ -20,27 +20,58 @@ export function SchedulingView(props: TargetViewProps) {
     rate: number;
     cost: number;
   }> = [
-    { role: 'Partner', roles: ['partner'], defaultId: 'partner', hours: 4, rate: 900, cost: 450 },
-    { role: 'Manager', roles: ['manager'], defaultId: 'manager', hours: 12, rate: 600, cost: 300 },
+    { role: 'Partner', roles: ['partner'], defaultId: 'partner', hours: 4, rate: 1000, cost: 500 },
+    { role: 'Manager', roles: ['manager'], defaultId: 'manager', hours: 12, rate: 750, cost: 375 },
     {
       role: 'Senior/Reviewer',
       roles: ['reviewer', 'manager'],
       defaultId: 'reviewer',
       hours: 16,
-      rate: 400,
-      cost: 200
+      rate: 500,
+      cost: 250
     },
     {
       role: 'Preparer/Staff',
       roles: ['preparer'],
       defaultId: 'preparer',
       hours: 40,
-      rate: 250,
-      cost: 125
+      rate: 200,
+      cost: 100
     }
   ];
   return (
     <div className="target-stack">
+      {/* Statutory Reporting Milestones */}
+      <section className="panel panel-pad">
+        <span className="tag blue mb8">MODULE 2: RESOURCE ALLOCATION &amp; STATUTORY SCHEDULING</span>
+        <h2>Resource Allocation &amp; Operational Milestones</h2>
+        <p className="caption">
+          Tiered Charge-Out Rates Engine: Partner (1,000 QAR/h), Manager (750 QAR/h), Senior (500 QAR/h), Associate (200 QAR/h).
+        </p>
+
+        <div className="row mt12" style={{ gap: 12, flexWrap: 'wrap' }}>
+          <div className="panel panel-pad" style={{ flex: '1 1 180px', background: '#f8fafc' }}>
+            <span className="caption">1. Period Cutoff</span>
+            <strong>December 31, {eng.year}</strong>
+            <div className="caption text-muted">Statutory year-end cutoff</div>
+          </div>
+          <div className="panel panel-pad" style={{ flex: '1 1 180px', background: '#f8fafc' }}>
+            <span className="caption">2. Fieldwork Commencement</span>
+            <strong>January Week 1, {eng.year + 1}</strong>
+            <div className="caption text-muted">Onsite testing begins</div>
+          </div>
+          <div className="panel panel-pad" style={{ flex: '1 1 180px', background: '#f8fafc' }}>
+            <span className="caption">3. Draft Report Target</span>
+            <strong>February 15, {eng.year + 1}</strong>
+            <div className="caption text-muted">SRM &amp; manager review</div>
+          </div>
+          <div className="panel panel-pad" style={{ flex: '1 1 180px', background: '#f8fafc' }}>
+            <span className="caption">4. Final Signed Report</span>
+            <strong>March 15, {eng.year + 1}</strong>
+            <div className="caption text-muted">Partner opinion &amp; bundle</div>
+          </div>
+        </div>
+      </section>
       <TargetForm
         title="Engagement staffing, hours & rates"
         button="Save scheduling revision"

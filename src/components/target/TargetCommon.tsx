@@ -17,6 +17,7 @@ export function Field({
   type = 'text',
   required = true,
   children,
+  placeholder,
   ...rest
 }: {
   label: string;
@@ -28,6 +29,7 @@ export function Field({
   min?: number;
   max?: number;
   step?: string;
+  placeholder?: string;
 }) {
   const id = useId();
   return (
@@ -38,7 +40,7 @@ export function Field({
           {children}
         </select>
       ) : type === 'textarea' ? (
-        <textarea id={id} name={name} defaultValue={defaultValue} required={required} rows={3} />
+        <textarea id={id} name={name} defaultValue={defaultValue} required={required} rows={3} placeholder={placeholder} />
       ) : (
         <input
           id={id}

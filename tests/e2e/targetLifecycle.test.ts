@@ -90,8 +90,8 @@ it(
       `import('/tests/helpers/targetJourney.ts').then(m=>m.runTargetJourney())`
     );
     assert.equal(result.checkpoints.length, 17);
-    assert.equal(result.artifacts.length, 3);
-    assert.equal(result.archive.artifacts.length, 3);
+    assert.equal(result.artifacts.length, 5);
+    assert.equal(result.archive.artifacts.length, 5);
     assert.equal(result.review.partner, true);
     assert.deepEqual(result.blockers, []);
     mkdirSync('docs/prototype/evidence', { recursive: true });

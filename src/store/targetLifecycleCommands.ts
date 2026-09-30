@@ -1435,20 +1435,52 @@ export class TargetLifecycleCommands {
       `Generated at: ${new Date().toISOString()}`,
       'PROTOTYPE DOCUMENT — no legal signature or external delivery.'
     ];
+    const summary = billingSummary(this.state, engagement);
+    const acceptedFee = summary.fee ?? engagement.agreedFee;
+    const advancePaid = summary.advance;
+    const balanceRemaining = money(acceptedFee - advancePaid);
     const definitions: Array<{
-      deliverable: 'Management Letter' | 'Letter of Representation' | 'Audit Report';
+      deliverable:
+        | 'Independent Auditor Report & Audited Financial Statements'
+        | 'Management Letter'
+        | 'Letter of Representation'
+        | 'Management Correspondences Audit Trail'
+        | 'Final Balance Fee Note'
+        | 'Audit Report';
       lines: string[];
     }> = [
+      {
+        deliverable: 'Audit Report',
+        lines: [
+          ...header,
+          'Deliverable 1: Independent Auditor’s Report & Certified Financial Statements (ISA 700 / 705)',
+          opinion.value === 'Clean'
+            ? 'Clean / Unqualified Opinion — Financial statements give a true and fair view in accordance with IFRS'
+            : `${opinion.value} Opinion — ISA 705 Modified Auditor Report`,
+          ...(opinion.value !== 'Clean'
+            ? [
+                `Basis for ${opinion.value} Opinion (ISA 705):`,
+                ...(opinion.focusArea ? [`Affected FSLI / Focus Area: ${opinion.focusArea}`] : []),
+                opinion.basis
+              ]
+            : []),
+          'Financial Statements: Statement of Financial Position, Statement of Profit or Loss and Other Comprehensive Income, Statement of Changes in Equity, Statement of Cash Flows, and Notes.',
+          'Digital Credentials Embedded:',
+          `• Engagement Partner Signature: [Signed Digitally by Daniel James, Engagement Partner]`,
+          `• Official Firm Stamp & Seal: STE Audit & Accounting LLC [State of Qatar - QFC Registration QFC-00892]`
+        ]
+      },
       {
         deliverable: 'Management Letter',
         lines: [
           ...header,
-          'Management observations and recommendations',
+          'Deliverable 2: Management Letter on Internal Control Observations',
+          'Structured Observations (Deficiency -> Impact -> Auditor Recommendation):',
           ...this.state.findings
             .filter((f) => f.engagementId === engagementId)
             .map(
               (f) =>
-                `${f.title}: ${f.recommendation || f.condition || f.description || ''} (${f.disposition})`
+                `• Deficiency: ${f.title}\n  Impact: ${f.severity} severity on ${f.financialStatementLine || 'financial reporting'}\n  Auditor Recommendation: ${f.recommendation || f.condition || f.description || ''} (${f.disposition})`
             )
         ]
       },
@@ -1456,27 +1488,36 @@ export class TargetLifecycleCommands {
         deliverable: 'Letter of Representation',
         lines: [
           ...header,
-          'Illustrative management representations',
-          'Management acknowledges responsibility for the financial statements, completeness of records and disclosure of fraud, litigation and subsequent events.',
-          'Management signature: prototype review placeholder; no electronic signature is applied.'
+          'Deliverable 3: Letter of Representation (LOR formatted for client letterhead)',
+          'To: STE Audit & Accounting LLC',
+          'This representation letter is provided in connection with your audit of the financial statements of the entity for the statutory reporting period for the purpose of expressing an opinion on whether the financial statements give a true and fair view in accordance with IFRS.',
+          'Management acknowledges its responsibility for the preparation of financial statements, internal control systems, and complete disclosure of fraud, litigation and subsequent events (ISA 580).',
+          'Signed by Executive Management: Managing Director / CEO and Chief Financial Officer.'
         ]
       },
       {
-        deliverable: 'Audit Report',
+        deliverable: 'Management Correspondences Audit Trail',
         lines: [
           ...header,
-          'Independent Auditor’s Report',
-          opinion.value === 'Clean'
-            ? 'Unmodified Opinion — illustrative prototype wording'
-            : `${opinion.value} Opinion — illustrative prototype wording`,
-          ...(opinion.value !== 'Clean'
-            ? [
-                `Basis for ${opinion.value} Opinion`,
-                ...(opinion.focusArea ? [`Focus area: ${opinion.focusArea}`] : []),
-                opinion.basis
-              ]
-            : []),
-          'Scope, responsibilities and audit conclusion reflect the current cleared engagement. This demonstration does not constitute an audit opinion.'
+          'Deliverable 4: Management Correspondences Audit Trail',
+          'Summary of Formal Audit Inquiries, Confirmation Results & Cleared Inquiries:',
+          ...(this.state.confirmations || [])
+            .filter((c) => c.engagementId === engagementId)
+            .map((c) => `• [Confirmation ${c.type}] ${c.counterparty} (${c.relatedFsli}): Status ${c.status} (Critical: ${c.critical ? 'Yes' : 'No'})`),
+          ...(engagement.reviews || [])
+            .map((r) => `• [Review Inquiry] ${r.title} (${r.status}): ${r.body}`)
+        ]
+      },
+      {
+        deliverable: 'Final Balance Fee Note',
+        lines: [
+          ...header,
+          'Deliverable 5: Final Balance Fee Note (Remaining 50% Professional Fee Balance)',
+          `Invoice Number: INV-2026-FINAL-${engagementId}`,
+          `Contracted Professional Fee: ${acceptedFee.toLocaleString()} ${engagement.currency}`,
+          `Recognized 50% Advance Settlement: ${advancePaid.toLocaleString()} ${engagement.currency}`,
+          `Net Balance Professional Fee Due: ${balanceRemaining.toLocaleString()} ${engagement.currency}`,
+          'Payment Terms: Due upon delivery of certified audit deliverables package.'
         ]
       }
     ];
