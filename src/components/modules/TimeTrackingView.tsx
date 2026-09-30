@@ -27,6 +27,9 @@ export const TimeTrackingView: React.FC<TimeTrackingViewProps> = ({ onNavigate, 
 
   // New time entry form
   const [person, setPerson] = useState(state.currentPerson);
+  const [entryDate, setEntryDate] = useState(state.asOfDate);
+  const [selectedEngId, setSelectedEngId] = useState(engagementId || state.selectedEngagement);
+  const [fsli, setFsli] = useState('Cash and cash equivalents');
   const [taskTitle, setTaskTitle] = useState('Substantive testing of cash and bank');
   const [minutes, setMinutes] = useState(120);
   const [activity, setActivity] = useState('Audit fieldwork');
@@ -48,17 +51,18 @@ export const TimeTrackingView: React.FC<TimeTrackingViewProps> = ({ onNavigate, 
       } else if (entryToRevise?.mode === 'approved') {
         prototypeStore.correctApprovedTime(entryToRevise.entry.id, minutes, narrative);
       } else {
+        const engObj = state.engagements.find(e => e.id === selectedEngId);
         const newEntry: TimeEntryItem = {
           id: `TIME-00${times.length + 1}`,
           person,
-          clientId: state.engagements[0]?.client || 'CL-001',
-          engagementId: state.selectedEngagement,
-          taskTitle,
-          date: state.asOfDate,
+          clientId: engObj?.client || 'CL-001',
+          engagementId: selectedEngId,
+          taskTitle: `[${fsli}] ${taskTitle}`,
+          date: entryDate,
           durationMinutes: minutes,
           billable,
           activity,
-          narrative,
+          narrative: narrative ? `[FSLI: ${fsli}] ${narrative}` : `[FSLI: ${fsli}]`,
           status: 'Submitted'
         };
         prototypeStore.addTimeEntry(newEntry);
@@ -275,6 +279,70 @@ export const TimeTrackingView: React.FC<TimeTrackingViewProps> = ({ onNavigate, 
               <div className="modal-body stack" style={{ gap: 12 }}>
                 <div className="grid2">
                   <div>
+                    <label className="caption">Entry Date</label>
+                    <input
+                      type="date"
+                      className="input"
+                      value={entryDate}
+                      onChange={e => setEntryDate(e.target.value)}
+                      required
+                    />
+                  </div>
+                  <div>
+                    <label className="caption">Engagement</label>
+                    <select
+                      className="input"
+                      value={selectedEngId}
+                      onChange={e => setSelectedEngId(e.target.value)}
+                      disabled={!!entryToRevise}
+                    >
+                      {state.engagements.map(eng => {
+                        const cl = state.clients.find(c => c.id === eng.client);
+                        return (
+                          <option key={eng.id} value={eng.id}>{eng.id} · {cl?.name || eng.client}</option>
+                        );
+                      })}
+                    </select>
+                  </div>
+                </div>
+
+                <div className="grid2">
+                  <div>
+                    <label className="caption">Target FSLI / Financial Statement Area</label>
+                    <select
+                      className="input"
+                      value={fsli}
+                      onChange={e => setFsli(e.target.value)}
+                    >
+                      <option value="Cash and cash equivalents">Cash and cash equivalents</option>
+                      <option value="Trade and other receivables">Trade and other receivables</option>
+                      <option value="Property, plant and equipment">Property, plant and equipment</option>
+                      <option value="Inventories">Inventories</option>
+                      <option value="Trade and other payables">Trade and other payables</option>
+                      <option value="Revenue from contracts">Revenue from contracts</option>
+                      <option value="Operating and administrative expenses">Operating expenses</option>
+                      <option value="Borrowings & debt">Borrowings & debt</option>
+                      <option value="Equity & reserves">Equity & reserves</option>
+                      <option value="Analytical review & going concern">Analytical review & going concern</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="caption">Activity Type</label>
+                    <select
+                      className="input"
+                      value={activity}
+                      onChange={e => setActivity(e.target.value)}
+                    >
+                      <option value="Audit fieldwork">Audit fieldwork</option>
+                      <option value="Quality review">Quality review</option>
+                      <option value="Management">Management & Supervision</option>
+                      <option value="Client liaison">Client liaison</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div className="grid2">
+                  <div>
                     <label className="caption">Staff Member</label>
                     <select
                       className="input"
@@ -299,19 +367,6 @@ export const TimeTrackingView: React.FC<TimeTrackingViewProps> = ({ onNavigate, 
                       required
                     />
                   </div>
-                </div>
-                <div>
-                  <label className="caption">Activity Type</label>
-                  <select
-                    className="input"
-                    value={activity}
-                    onChange={e => setActivity(e.target.value)}
-                  >
-                    <option value="Audit fieldwork">Audit fieldwork</option>
-                    <option value="Quality review">Quality review</option>
-                    <option value="Management">Management & Supervision</option>
-                    <option value="Client liaison">Client liaison</option>
-                  </select>
                 </div>
                 <div>
                   <label className="caption">Task Title</label>

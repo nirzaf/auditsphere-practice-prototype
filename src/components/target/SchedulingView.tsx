@@ -71,6 +71,96 @@ export function SchedulingView(props: TargetViewProps) {
             <div className="caption text-muted">Partner opinion &amp; bundle</div>
           </div>
         </div>
+
+        {/* Visual Capacity Calendar & Team Availability Schedule */}
+        <div className="mt20 borderbox p16" style={{ background: '#fff', borderRadius: 8, border: '1px solid #e2e8f0' }}>
+          <div className="flex-between mb12">
+            <div>
+              <h3 style={{ margin: 0 }}>Visual Capacity &amp; Resource Availability Calendar</h3>
+              <p className="caption">Standard weekly benchmark: 40 hours · Target Utilization: <strong>80% – 85%</strong></p>
+            </div>
+            <span className="tag green">BENCHMARK 80–85% TARGET</span>
+          </div>
+
+          <div className="tablewrap">
+            <table className="target-table">
+              <thead>
+                <tr>
+                  <th>Assigned Professional</th>
+                  <th>Practice Role</th>
+                  <th className="text-right">Weekly Capacity</th>
+                  <th className="text-right">Allocated Hours</th>
+                  <th className="text-right">Projected Utilization</th>
+                  <th>Scheduled Leave / Out-of-Office</th>
+                  <th>Capacity Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {[
+                  { name: eng.partner || 'Daniel James', role: 'Engagement Partner', rate: '1,000 QAR/h', capacity: 40, allocated: 32, leave: 'None scheduled', status: 'Optimal' },
+                  { name: eng.manager || 'Layla Rahman', role: 'Audit Manager', rate: '750 QAR/h', capacity: 40, allocated: 34, leave: 'None scheduled', status: 'Optimal' },
+                  { name: 'Sara Malik', role: 'Senior / Reviewer', rate: '500 QAR/h', capacity: 40, allocated: 35, leave: 'None scheduled', status: 'Target Met' },
+                  { name: 'Adam Khan', role: 'Associate / Preparer', rate: '200 QAR/h', capacity: 40, allocated: 32, leave: 'Jan 18–19 (Annual Leave, 16h)', status: 'Optimal' },
+                ].map((member) => {
+                  const util = Math.round((member.allocated / member.capacity) * 100);
+                  const isOptimal = util >= 80 && util <= 85;
+                  const isHigh = util > 85;
+                  return (
+                    <tr key={member.name} className="hover-row">
+                      <td><strong>{member.name}</strong></td>
+                      <td>
+                        <span>{member.role}</span>
+                        <div className="caption text-muted">{member.rate}</div>
+                      </td>
+                      <td className="text-right mono">{member.capacity} hrs</td>
+                      <td className="text-right mono">{member.allocated} hrs</td>
+                      <td className="text-right mono font-medium" style={{ color: isOptimal ? '#15803d' : isHigh ? '#7c3aed' : '#b45309' }}>
+                        {util}%
+                      </td>
+                      <td>
+                        <span className="caption" style={{ color: member.leave === 'None scheduled' ? '#64748b' : '#0284c7' }}>
+                          {member.leave}
+                        </span>
+                      </td>
+                      <td>
+                        <span className={`tag ${isOptimal ? 'green' : isHigh ? 'purple' : 'amber'}`}>
+                          {isOptimal ? 'Optimal (80–85%)' : isHigh ? 'High Demand' : 'Available Capacity'}
+                        </span>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+
+          {/* 4-Week Visual Timeline Heatmap */}
+          <div className="mt16 pt12 border-top">
+            <span className="caption font-medium">4-Week Engagement Phase Distribution:</span>
+            <div className="grid4 mt8" style={{ gap: 8 }}>
+              <div className="p8 borderbox" style={{ background: '#f8fafc', borderRadius: 4 }}>
+                <strong style={{ fontSize: '12px' }}>W1: Planning &amp; Intake</strong>
+                <div className="caption text-muted mt4">Partner 2h · Mgr 4h · Staff 8h</div>
+                <div style={{ height: 6, background: '#10b981', borderRadius: 3, marginTop: 6 }} />
+              </div>
+              <div className="p8 borderbox" style={{ background: '#f8fafc', borderRadius: 4 }}>
+                <strong style={{ fontSize: '12px' }}>W2: Substantive Testing</strong>
+                <div className="caption text-muted mt4">Mgr 4h · Senior 8h · Staff 16h</div>
+                <div style={{ height: 6, background: '#0ea5e9', borderRadius: 3, marginTop: 6 }} />
+              </div>
+              <div className="p8 borderbox" style={{ background: '#f8fafc', borderRadius: 4 }}>
+                <strong style={{ fontSize: '12px' }}>W3: Fieldwork &amp; Findings</strong>
+                <div className="caption text-muted mt4">Mgr 2h · Senior 4h · Staff 12h</div>
+                <div style={{ height: 6, background: '#6366f1', borderRadius: 3, marginTop: 6 }} />
+              </div>
+              <div className="p8 borderbox" style={{ background: '#f8fafc', borderRadius: 4 }}>
+                <strong style={{ fontSize: '12px' }}>W4: SRM &amp; Reporting Release</strong>
+                <div className="caption text-muted mt4">Partner 2h · Mgr 2h · Senior 4h</div>
+                <div style={{ height: 6, background: '#8b5cf6', borderRadius: 3, marginTop: 6 }} />
+              </div>
+            </div>
+          </div>
+        </div>
       </section>
       <TargetForm
         title="Engagement staffing, hours & rates"

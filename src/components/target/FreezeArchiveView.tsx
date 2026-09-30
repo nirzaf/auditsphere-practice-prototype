@@ -56,6 +56,21 @@ export function FreezeArchiveView(props: TargetViewProps) {
           </p>
         </TargetForm>
       )}
+      {!frozen && hasAnyRole(state, ['partner']) && (
+        <section className="panel panel-pad borderbox" style={{ background: '#f8fafc', border: '1px solid #cbd5e1' }}>
+          <h4>Lead Partner Immediate Archival Seal (Early Lock Command)</h4>
+          <p className="caption mt4">
+            Under ISA 230 / STE policy, the Lead Audit Partner may execute an immediate manual freeze prior to the 60-day statutory expiry.
+          </p>
+          <button
+            type="button"
+            className="btn sm danger mt12"
+            onClick={() => prototypeStore.lifecycle.simulateFreeze(eng.id, state.asOfDate, true)}
+          >
+            Execute Partner Early Archival Lock Now
+          </button>
+        </section>
+      )}
       {frozen && (
         <section className="panel panel-pad" data-testid="frozen-archive">
           <h3>Frozen archive manifest</h3>

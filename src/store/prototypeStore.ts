@@ -438,7 +438,7 @@ class PrototypeStore {
   }
 
   /** Contacts never create portal logins, management authority or staff roles (VP-007). */
-  public updateClientContact(clientId: string, contactId: string, changes: Partial<Pick<PrototypeState['contacts'][number], 'name' | 'email' | 'phone' | 'title' | 'responsibility' | 'effectiveFrom' | 'effectiveTo' | 'active'>>) {
+  public updateClientContact(clientId: string, contactId: string, changes: Partial<Pick<PrototypeState['contacts'][number], 'name' | 'email' | 'phone' | 'title' | 'responsibility' | 'effectiveFrom' | 'effectiveTo' | 'active' | 'contactRole'>>) {
     requireActiveIdentity(this.state);
     requireRole(this.state, ['relationship', 'manager', 'partner', 'admin', 'onboarding'], 'edit client contacts');
     requireClientScope(this.state, clientId);
@@ -451,7 +451,7 @@ class PrototypeStore {
     if (next.isPrimary && !next.active) throw new GuardError('INVALID_STATE', 'An inactive contact cannot be primary.');
     const validDate = (value?: string) => !value || /^\d{4}-\d{2}-\d{2}$/.test(value) && Number.isFinite(Date.parse(value)) && new Date(`${value}T00:00:00Z`).toISOString().slice(0, 10) === value;
     if (!validDate(next.effectiveFrom) || !validDate(next.effectiveTo) || next.effectiveFrom && next.effectiveTo && next.effectiveTo < next.effectiveFrom) throw new GuardError('INVALID_STATE', 'Contact responsibility dates must be real calendar dates and the end date cannot precede the start date.');
-    const snapshot = (contact: typeof current) => ({ name: contact.name, email: contact.email, phone: contact.phone, title: contact.title, responsibility: contact.responsibility, effectiveFrom: contact.effectiveFrom, effectiveTo: contact.effectiveTo, isPrimary: contact.isPrimary, active: contact.active });
+    const snapshot = (contact: typeof current) => ({ name: contact.name, email: contact.email, phone: contact.phone, title: contact.title, responsibility: contact.responsibility, effectiveFrom: contact.effectiveFrom, effectiveTo: contact.effectiveTo, isPrimary: contact.isPrimary, active: contact.active, contactRole: contact.contactRole });
     const before = snapshot(current);
     const revision = (current.revision || 1) + 1;
     if (next.isPrimary) this.state.contacts.forEach(contact => { if (contact.clientId === clientId) contact.isPrimary = contact.id === contactId; });
@@ -1136,6 +1136,79 @@ class PrototypeStore {
     eng.terms = true;
     eng.stage = 'Planning';
     this.logEvent(`Engagement ${eng.id} professionally accepted against ${proposal.id} Rev ${proposal.revision}`, eng.id);
+    this.notify();
+  }
+
+  public generateEngagementLetter(
+    engagementId: string,
+    template: 'ISA 210 External Statutory Audit' | 'ISRS 4400 Agreed-Upon Procedures',
+    framework: string,
+    partnerSignature: string,
+    firmStamp: boolean
+  ) {
+    requireActiveIdentity(this.state);
+    requireRole(this.state, ['manager', 'partner'], 'generate engagement letters');
+    const eng = this.state.engagements.find((item) => item.id === engagementId);
+    if (!eng) throw new GuardError('INVALID_STATE', `Engagement "${engagementId}" was not found.`);
+    const client = this.state.clients.find((item) => item.id === eng.client);
+    if (!client) throw new GuardError('INVALID_STATE', `Client "${eng.client}" was not found.`);
+
+    const letterContent = [
+      `ENGAGEMENT LETTER — ${template.toUpperCase()}`,
+      `Date: ${this.state.asOfDate}`,
+      `To: The Board of Directors / Executive Management of ${client.name}`,
+      `Jurisdiction: ${client.jurisdiction || 'State of Qatar'} · Entity Structure: ${client.entityRole || 'Commercial Entity'}`,
+      `Financial Reporting Period: ${eng.period} (Year: ${eng.year})`,
+      `Applicable Financial Reporting Framework: ${framework}`,
+      '',
+      template === 'ISA 210 External Statutory Audit'
+        ? `1. OBJECTIVE AND SCOPE OF THE AUDIT (ISA 210):\nYou have requested that we audit the financial statements of ${client.name}, which comprise the statement of financial position as at December 31, ${eng.year}, and the statement of comprehensive income, statement of changes in equity and statement of cash flows for the year then ended, and notes to the financial statements, including a summary of significant accounting policies.\nWe are pleased to confirm our acceptance and our understanding of this audit engagement by means of this letter. Our audit will be conducted with the objective of expressing an opinion on the financial statements in accordance with International Standards on Auditing (ISA).`
+        : `1. OBJECTIVE AND SCOPE OF AGREED-UPON PROCEDURES (ISRS 4400):\nThis engagement will be conducted in accordance with the International Standard on Related Services (ISRS) 4400 (Revised), Engagements to Perform Agreed-Upon Procedures Regarding Financial Information.\nThe procedures performed will be strictly those agreed upon with you, and our report is intended solely for your information and is not to be distributed to third parties.`,
+      '',
+      '2. AUDITOR RESPONSIBILITIES:',
+      `We will conduct our engagement in accordance with applicable professional standards (${template.startsWith('ISA') ? 'ISA' : 'ISRS 4400'}). Those standards require that we comply with ethical requirements and plan and perform procedures to obtain appropriate evidence.`,
+      '',
+      '3. MANAGEMENT RESPONSIBILITIES:',
+      `Management acknowledges and understands that it has responsibility for: (a) The preparation and fair presentation of the financial statements in accordance with ${framework}; (b) Such internal control as management determines is necessary; and (c) Providing us with access to all relevant information, documentation, and personnel.`,
+      '',
+      '4. FEES AND COMMERCIAL BILLING TERMS (50/50 STRUCTURE):',
+      `Our agreed professional fee for this engagement is ${eng.agreedFee.toLocaleString()} ${eng.currency}.`,
+      `• Initial advance deposit: 50% (${(eng.agreedFee * 0.5).toLocaleString()} ${eng.currency}) payable upon signing this Engagement Letter.`,
+      `• Final balance: 50% (${(eng.agreedFee * 0.5).toLocaleString()} ${eng.currency}) payable upon issuance and delivery of the certified audit deliverables bundle.`,
+      '',
+      '5. SIGNATORIES AND CREDENTIALS:',
+      `Engagement Partner: ${partnerSignature || eng.partner}`,
+      `Firm Seal / Stamp: ${firmStamp ? 'STE Audit & Accounting LLC [State of Qatar - QFC Registration QFC-00892] — VERIFIED' : 'Pending'}`,
+      `Issued at: ${new Date().toISOString()}`
+    ].join('\n');
+
+    eng.engagementLetter = {
+      template,
+      framework,
+      generatedAt: new Date().toISOString(),
+      generatedBy: this.state.currentPerson,
+      partnerSignature: partnerSignature || eng.partner,
+      firmStamp,
+      content: letterContent
+    };
+
+    this.logEvent(`Engagement Letter generated for ${eng.id} using ${template}`, eng.id);
+    this.notify();
+    return eng.engagementLetter;
+  }
+
+  public recordSignedEngagementLetter(engagementId: string, evidenceRef: string) {
+    requireActiveIdentity(this.state);
+    requireRole(this.state, ['manager', 'partner'], 'record signed engagement letters');
+    const eng = this.state.engagements.find((item) => item.id === engagementId);
+    if (!eng) throw new GuardError('INVALID_STATE', `Engagement "${engagementId}" was not found.`);
+    if (!evidenceRef.trim()) throw new GuardError('INVALID_STATE', 'Recording signed engagement letter requires an evidence reference.');
+    if (!eng.engagementLetter) throw new GuardError('INVALID_STATE', 'Generate an engagement letter before recording the signed copy.');
+
+    eng.engagementLetter.signedCopyReceived = true;
+    eng.engagementLetter.signedCopyRef = evidenceRef.trim();
+    eng.terms = true;
+    this.logEvent(`Signed engagement letter recorded for ${eng.id}: ${evidenceRef}`, eng.id);
     this.notify();
   }
 

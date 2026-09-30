@@ -68,7 +68,7 @@ export function TargetSamplingView(props: TargetViewProps) {
             }
           >
             <Field label="Method" name="method">
-              {['Random', 'Monetary Unit Sampling', 'Stratified'].map((m) => (
+              {['Monetary Unit Sampling', 'Systematic Random Sampling', 'Stratified Attribute Sampling', 'Random'].map((m) => (
                 <option key={m}>{m}</option>
               ))}
             </Field>

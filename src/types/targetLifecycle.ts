@@ -31,7 +31,14 @@ export interface ExternalConfirmation {
   id: string;
   clientId: string;
   engagementId: string;
-  type: 'Bank' | 'Debtor' | 'Inventory' | 'Other';
+  type:
+    | 'Bank'
+    | 'Accounts Receivable'
+    | 'Accounts Payable'
+    | 'Inventory'
+    | 'Legal'
+    | 'Debtor'
+    | 'Other';
   counterparty: string;
   relatedFsli: string;
   ownerUserId: string;
@@ -176,7 +183,13 @@ export interface FirmLedgerEntry {
   createdAt: string;
   lines: Array<{
     account:
-      'Cash' | 'Office rent' | 'Staff salaries' | 'Petty cash' | 'Other expenses' | 'Capital';
+      | 'Cash'
+      | 'Office rent'
+      | 'Staff salaries'
+      | 'Petty cash'
+      | 'Other expenses'
+      | 'Partner withdrawals'
+      | 'Capital';
     debit: number;
     credit: number;
   }>;

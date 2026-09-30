@@ -12,6 +12,7 @@ import { ConfirmationsView } from './components/target/ConfirmationsView';
 import { ReviewSRMView } from './components/target/ReviewSRMView';
 import { OpinionDeliverablesView } from './components/target/OpinionDeliverablesView';
 import { FreezeArchiveView } from './components/target/FreezeArchiveView';
+import { ClientRequirementsPresentationView } from './components/target/ClientRequirementsPresentationView';
 import { TargetLifecycleHeader } from './components/target/TargetCommon';
 // AuditSphere Main Application Component
 // Subscribes to the shared store and renders the target audit lifecycle.
@@ -505,7 +506,7 @@ export const App: React.FC = () => {
       case 'role-guide':
         return <TargetScopeView onNavigate={navigate} />;
       case 'client-requirements':
-        return <TargetScopeView onNavigate={navigate} />;
+        return <ClientRequirementsPresentationView onNavigate={navigate} />;
       case 'module-guide':
         return <TargetScopeView onNavigate={navigate} />;
 

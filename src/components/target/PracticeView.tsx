@@ -36,7 +36,8 @@ export function PracticeView(props: TargetViewProps & { ledger?: boolean }) {
   const salaryExpense = tbRows.find((r) => r.account === 'Staff salaries')?.debit || 0;
   const pettyCashExpense = tbRows.find((r) => r.account === 'Petty cash')?.debit || 0;
   const otherExpenses = tbRows.find((r) => r.account === 'Other expenses')?.debit || 0;
-  const totalExpenses = rentExpense + salaryExpense + pettyCashExpense + otherExpenses;
+  const partnerWithdrawals = tbRows.find((r) => r.account === 'Partner withdrawals')?.debit || 0;
+  const totalExpenses = rentExpense + salaryExpense + pettyCashExpense + otherExpenses + partnerWithdrawals;
   const netFirmProfit = billedRevenue - totalExpenses;
 
   // Compute Client Accounts Receivable Aging Schedule (50% Advance & 50% Final Fee)
@@ -204,6 +205,7 @@ export function PracticeView(props: TargetViewProps & { ledger?: boolean }) {
             <Field label="Firm Operational Account" name="category">
               <option value="Office rent">Office Rent &amp; Facility Costs</option>
               <option value="Staff salaries">Staff Salaries, End of Service, &amp; Benefits</option>
+              <option value="Partner withdrawals">Partner Drawings &amp; Profit Withdrawals</option>
               <option value="Other expenses">Operational Overhead &amp; Administrative Expenses</option>
               <option value="Petty cash">Petty Cash Disbursals</option>
             </Field>
@@ -328,6 +330,10 @@ export function PracticeView(props: TargetViewProps & { ledger?: boolean }) {
                     <div className="flex-between pl12">
                       <span>• Staff Salaries, End of Service &amp; Benefits:</span>
                       <span className="mono text-muted">({formatCurrency(salaryExpense, 'QAR')})</span>
+                    </div>
+                    <div className="flex-between pl12">
+                      <span>• Partner Drawings &amp; Profit Withdrawals:</span>
+                      <span className="mono text-muted">({formatCurrency(partnerWithdrawals, 'QAR')})</span>
                     </div>
                     <div className="flex-between pl12">
                       <span>• Operational Overhead &amp; Administrative Expenses:</span>

@@ -4,134 +4,136 @@ import type { DeckSlide } from './deckTypes';
 export const DECK_SLIDES: DeckSlide[] = [
   {
     "id": "s01",
-    "title": "AuditSphere — business requirements",
-    "section": "Client review",
+    "title": "STE Audit Management Tool v2.1 — Functional Requirements",
+    "section": "System Architecture",
     "chapter": "Overview",
-    "note": "This presentation explains the business requirements in the existing AuditSphere discovery using accounting and engagement language. It focuses on what staff and clients need to do, what should be checked, and what may move to the next stage.",
-    "review": "Confirm that the workflows match the practice’s intended services and the client’s reporting needs.",
-    "boundary": "A business requirement is not proof of completed live delivery. The final review page identifies handovers that still need confirmation.",
-    "tag": "BUSINESS REQUIREMENTS",
-    "subtitle": "Accounting, audit and practice workflows",
+    "note": "Standardized firm-wide execution in strict alignment with International Standards on Auditing (ISA 210, 220, 230, 320, 505, 570, 700 & 705) and IFRS. Primary currency: Qatari Riyal (QAR). Supports unlimited client entities, historical engagements, and working papers with zero subscription penalties.",
+    "review": "Confirm compliance with ISA standards, unlimited entity scaling, and elimination of per-file commercial licensing penalties.",
+    "boundary": "The visual prototype simulates full end-to-end data models, calculations, and regulatory gates in this browser workspace.",
+    "tag": "STE SPECIFICATION V2.1",
+    "subtitle": "ISA & IFRS Workflow Platform · Primary Currency: QAR · Unlimited Scale",
     "kind": "cover"
   },
   {
     "id": "s02",
-    "title": "Connected work. Separate financial responsibilities.",
-    "section": "Purpose & scope",
+    "title": "Five Core Functional Modules & Operational Handshakes",
+    "section": "Core Architecture",
     "chapter": "Overview",
-    "note": "The practice’s own billing and accounting must remain separate from client financial information. Group consolidation uses approved component information without changing each component’s books. AuditSphere is an import-first preparation and assurance workspace rather than a day-to-day client payroll, inventory or payment system.",
-    "review": "Confirm the accounting services and group reporting work that belong in scope.",
-    "tag": "PURPOSE & SCOPE",
-    "subtitle": "Keep practice finances, client accounts and group reporting distinct.",
+    "note": "The platform centralizes commercial sales, administrative governance, compliance clearance, audit fieldwork execution, multi-tier quality reviews, client deliverable generation, and internal firm practice management into a single, cohesive workflow across 5 strict functional modules.",
+    "review": "Verify that data boundaries and handshakes between Module 1 (Commercial), Module 2 (Planning), Module 3 (Fieldwork), Module 4 (Reporting), and Module 5 (Practice) prevent premature execution.",
+    "tag": "5 CONNECTED MODULES",
+    "subtitle": "Strict handshakes ensure compliance and administrative gates are satisfied before testing begins.",
     "kind": "flow",
     "band": [
-      "SCOPE BOUNDARY",
-      "Client payroll, stock operations and bank-payment initiation remain outside the scope."
+      "MODULE HANDSHAKES",
+      "Commercial Dual-Key → Planning Signed Off & TB Ingested → SRM Cleared → 5-Part Bundle & 60-Day Lock."
     ],
     "steps": [
       {
-        "tag": "FIRM",
-        "heading": "Firm’s own books",
+        "tag": "MODULE 1",
+        "heading": "Commercial & CRM Pipeline",
         "body": [
-          "Time and fees",
-          "Invoices and receipts",
-          "Practice accounts"
-        ],
-        "icon": "i01",
-        "step": 1
-      },
-      {
-        "tag": "CLIENT",
-        "heading": "Client accounting",
-        "body": [
-          "Trial balance and ledger",
-          "Reporting adjustments",
-          "Entity financial statements"
-        ],
-        "icon": "i02",
-        "step": 2
-      },
-      {
-        "tag": "GROUP",
-        "heading": "Group reporting",
-        "body": [
-          "Approved component packs",
-          "Currency translation",
-          "Consolidated results"
-        ],
-        "icon": "i03",
-        "step": 3
-      }
-    ]
-  },
-  {
-    "id": "s03",
-    "title": "The engagement journey, end to end",
-    "section": "Business lifecycle",
-    "chapter": "Overview",
-    "note": "The lifecycle connects commercial work, professional acceptance, accounts preparation, audit evidence, review, release and records. Accounting-only work and audit work follow their own agreed service scopes. A later stage must not be treated as complete merely because the earlier stage is complete.",
-    "review": "Confirm the start and finish of each service, and who is responsible for every handover.",
-    "boundary": "Delivery and archive creation need separate confirmation; the existing review did not establish that every handover happens automatically.",
-    "tag": "BUSINESS LIFECYCLE",
-    "subtitle": "Start with a client need; finish with controlled reporting and retained evidence.",
-    "kind": "flow",
-    "band": [
-      "BUSINESS SEQUENCE",
-      "Each handover has its own checks; the journey is not an automatic chain."
-    ],
-    "steps": [
-      {
-        "tag": "01",
-        "heading": "Acquire & accept",
-        "body": [
-          "Proposal and professional acceptance"
+          "Lead Ingestion across 5 channels",
+          "Brief Quote vs Comprehensive Proposal",
+          "Dual-Key Gate & 50% Advance"
         ],
         "icon": "i04",
         "step": 1
       },
       {
-        "tag": "02",
-        "heading": "Set the engagement",
+        "tag": "MODULE 2",
+        "heading": "Governance & Planning",
         "body": [
-          "Service, period, team and conditions"
+          "Acceptance & Continuance Checklists",
+          "5-Folder Taxonomy Provisioning",
+          "Capacity Scheduling & 3-Tier Materiality"
         ],
         "icon": "i05",
         "step": 2
       },
       {
-        "tag": "03",
-        "heading": "Prepare & investigate",
+        "tag": "MODULE 3",
+        "heading": "Technical Fieldwork",
         "body": [
-          "Accounts, evidence and audit work"
+          "TB Auto-Mapping & Split Dashboard",
+          "FSLI Assertion Programs & Ad-Hoc Steps",
+          "Confirmations & Summary Review Memo"
         ],
         "icon": "i01",
         "step": 3
       },
       {
-        "tag": "04",
-        "heading": "Review & approve",
+        "tag": "MODULE 4 & 5",
+        "heading": "Reporting, Lock & Practice",
         "body": [
-          "Current reports and supporting evidence"
+          "ISA 700/705 4-Way Opinion Dropdown",
+          "5-Part Deliverables & 60-Day Lock",
+          "Tiered Rates & Internal Practice Ledger"
         ],
         "icon": "i06",
         "step": 4
-      },
+      }
+    ]
+  },
+  {
+    "id": "s03",
+    "title": "11-Stage End-to-End System State Machine",
+    "section": "System Lifecycle",
+    "chapter": "Overview",
+    "note": "The onboarding and audit execution path enforces an automated state machine across 11 discrete states: LEAD_INGESTION → PROPOSAL_GENERATION → DUAL_KEY_PENDING → ADVANCE_BILLING → PORTAL_ACTIVE_PLANNING → FIELDWORK_EXECUTION → MANAGERIAL_REVIEW → PARTNER_APPROVAL → DELIVERABLE_RELEASE → COMPLIANCE_COUNTDOWN → ARCHIVED_READ_ONLY.",
+    "review": "Confirm that each lifecycle state transition enforces its mandatory gate conditions before advancing.",
+    "boundary": "Locked terminal state (ARCHIVED_READ_ONLY) enforces permanent read-only status and blocks any modification.",
+    "tag": "11-STATE MACHINE",
+    "subtitle": "Sequential state transitions with strict gate conditions governing engagement progression.",
+    "kind": "flow",
+    "band": [
+      "STATE MACHINE GOVERNANCE",
+      "Lead Ingestion → Dual-Key Clearance → 50% Deposit → Fieldwork → SRM → 5-Part Release → 60-Day Archive."
+    ],
+    "steps": [
       {
-        "heading": "Release the approved report",
+        "tag": "STATES 01–03",
+        "heading": "Onboarding & Dual-Key",
         "body": [
-          "Confirm the delivery arrangements."
+          "LEAD_INGESTION (Contact data)",
+          "PROPOSAL_GENERATION (Quote/Proposal)",
+          "DUAL_KEY_PENDING (Client + Partner)"
         ],
-        "icon": "i07",
-        "step": 5
+        "icon": "i04",
+        "step": 1
       },
       {
-        "heading": "Assemble the engagement record",
+        "tag": "STATES 04–06",
+        "heading": "Billing & Fieldwork",
         "body": [
-          "Confirm archiving and retention arrangements."
+          "ADVANCE_BILLING (50% deposit paid)",
+          "PORTAL_ACTIVE_PLANNING (TB & Materiality)",
+          "FIELDWORK_EXECUTION (Testing & Evidence)"
+        ],
+        "icon": "i05",
+        "step": 2
+      },
+      {
+        "tag": "STATES 07–09",
+        "heading": "Review & Deliverables",
+        "body": [
+          "MANAGERIAL_REVIEW (Zero open notes & SRM)",
+          "PARTNER_APPROVAL (Opinion & Signature)",
+          "DELIVERABLE_RELEASE (5-Part Bundle)"
+        ],
+        "icon": "i06",
+        "step": 3
+      },
+      {
+        "tag": "STATES 10–11",
+        "heading": "Compliance & Archive",
+        "body": [
+          "COMPLIANCE_COUNTDOWN (60-day timer)",
+          "ARCHIVED_READ_ONLY (Permanent lock)",
+          "Immutable regulatory audit trail"
         ],
         "icon": "i08",
-        "dashed": true,
-        "step": 6
+        "step": 4
       }
     ]
   },
@@ -238,117 +240,136 @@ export const DECK_SLIDES: DeckSlide[] = [
   },
   {
     "id": "s06",
-    "title": "Make responsibilities clear",
-    "section": "People & access",
+    "title": "User Personas & Operational Responsibility Matrix",
+    "section": "Governance & Roles",
     "chapter": "Acceptance & setup",
-    "note": "Clients use a restricted workspace for their assigned requests and permitted information. Staff need access appropriate to their client and engagement responsibilities. Required independence and approval authority must not be replaced by a broad administrator label or by having prepared the work.",
-    "review": "Agree the client contacts, preparers, reviewers and final approvers for the engagement.",
-    "tag": "PEOPLE & ACCESS",
-    "subtitle": "Separate client participation, preparation and review responsibilities.",
+    "note": "Strict Separation of Duties (SoD) across four primary personas: PREPARER (Junior Auditor), REVIEWER (Audit Senior / Manager), APPROVER (Engagement Partner), and CLIENT (Client Coordinator / CFO). Each persona possesses explicit functional scopes and authority boundaries.",
+    "review": "Confirm that permission enforcement prevents preparers from approving their own work and restricts opinion authorization to the Partner.",
+    "tag": "USER PERSONAS (SEC 1.2)",
+    "subtitle": "Strict Separation of Duties across Preparer, Reviewer, Approver, and Client workspaces.",
     "kind": "flow",
     "band": [
-      "CONFIDENTIALITY",
-      "People should see only the clients, engagements and actions they are authorized to access."
+      "AUTHORITY SEPARATION",
+      "Preparer executes → Reviewer verifies & challenges → Approver signs & authorizes → Client interacts in portal."
     ],
     "steps": [
       {
-        "tag": "CLIENT ROLE",
-        "heading": "Client contact",
+        "tag": "PREPARER",
+        "heading": "Associate / Junior Auditor",
         "body": [
-          "Provide requested records",
-          "Answer queries",
-          "Respond to management requests"
+          "Executes assigned FSLI audit procedures",
+          "Uploads digital files & inputs index [X-1, Box 3]",
+          "Submits packages for managerial review"
         ],
-        "icon": "i04",
+        "icon": "i12",
         "step": 1
       },
       {
-        "tag": "PREPARATION",
-        "heading": "Preparer / auditor",
+        "tag": "REVIEWER",
+        "heading": "Senior / Audit Manager",
         "body": [
-          "Prepare accounts or audit work",
-          "Explain changes",
-          "Submit supporting evidence"
+          "Verifies substantive tests & recalculated schedules",
+          "Issues inline review notes & rework loops",
+          "Calculates materiality & compiles SRM memo"
         ],
-        "icon": "i12",
+        "icon": "i06",
         "step": 2
       },
       {
-        "tag": "REVIEW ROLE",
-        "heading": "Reviewer / partner",
+        "tag": "APPROVER",
+        "heading": "Engagement Partner",
         "body": [
-          "Challenge the work",
-          "Resolve review matters",
-          "Approve within authority"
+          "Signs off Dual-Key Gate (AML/KYC)",
+          "Executes Engagement Letter & signs SRM",
+          "Authorizes final opinion, seal & 60-day lock"
         ],
-        "icon": "i06",
+        "icon": "i15",
         "step": 3
+      },
+      {
+        "tag": "CLIENT",
+        "heading": "Client Coordinator / CFO",
+        "body": [
+          "Accesses isolated tokenized workspace",
+          "Uploads schedules & voucher evidence",
+          "Access freezes upon report release"
+        ],
+        "icon": "i04",
+        "step": 4
       }
     ]
   },
   {
     "id": "s07",
-    "title": "Win the work. Then authorize the work.",
-    "section": "Client acquisition & acceptance",
+    "title": "Flow 1: Lead Ingestion to Dual-Key Client Onboarding",
+    "section": "Commercial & CRM Pipeline",
     "chapter": "Acceptance & setup",
-    "note": "A proposal covers the commercial scope, deliverables, period and fee. Professional acceptance considers the required evaluation responses and clearances, with the decision made by the appropriate partner. Conditional acceptance must retain its conditions rather than being treated as unrestricted permission to begin.",
-    "review": "Agree the acceptance criteria, required clearances and conditions that must be resolved before work starts.",
-    "boundary": "Automatic activation of an engagement after acceptance was not established. Keep the start-work decision explicit.",
-    "tag": "CLIENT ACQUISITION & ACCEPTANCE",
-    "subtitle": "Commercial agreement and professional acceptance are separate decisions.",
+    "note": "Leads ingested across 5 channels (Phone, WhatsApp, Email, Web Forms, Referral). Commercial scope offers Brief Quotation (1-2 pages) or Comprehensive Technical Proposal. The Dual-Key Gate strictly blocks Engagement Letter generation until Key 1 (Commercial Approval) AND Key 2 (Partner AML/KYC Clearance) are confirmed active.",
+    "review": "Verify that Key 1 and Key 2 are independent and that missing either key halts the onboarding pipeline.",
+    "boundary": "Engagement Letter cannot be generated until commercial terms are accepted AND partner risk clearance is signed.",
+    "tag": "DUAL-KEY GATEKEEPER",
+    "subtitle": "Commercial fee acceptance and partner AML/KYC clearance are mandatory prerequisites.",
     "kind": "flow",
     "band": [
-      "KEY DISTINCTION",
-      "An accepted proposal does not, by itself, authorize professional work."
+      "DUAL-KEY HANDSHAKE",
+      "Key 1 (Commercial quote acceptance) + Key 2 (Partner AML/KYC clearance) = Pipeline Cleared."
     ],
     "groups": [
       {
-        "label": "COMMERCIAL AGREEMENT",
+        "label": "KEY 1: COMMERCIAL APPROVAL",
         "steps": [
           {
-            "heading": "Client need",
+            "heading": "Lead Ingestion (5 Channels)",
             "body": [
-              "Lead and service enquiry"
+              "Phone, WhatsApp, Email, Web, Referral",
+              "Holding → Subsidiary → Affiliate tree",
+              "Multi-contact directory with role routing"
             ],
             "step": 1
           },
           {
-            "heading": "Proposal",
+            "heading": "Commercial Proposal Engine",
             "body": [
-              "Scope, deliverables and fee"
+              "Brief Quotation (1–2 pages, 50/50 terms)",
+              "Comprehensive Technical Proposal (CVs & ISA)",
+              "Dispatched via Email / WhatsApp link"
             ],
             "step": 2
           },
           {
-            "heading": "Client response",
+            "heading": "Client Commercial Sign-Off",
             "body": [
-              "Commercial outcome"
+              "Digital confirmation of scope and quote fee",
+              "Activates Key 1 in state machine"
             ],
             "step": 3
           }
         ]
       },
       {
-        "label": "PROFESSIONAL ACCEPTANCE",
+        "label": "KEY 2: PARTNER RISK CLEARANCE",
         "steps": [
           {
-            "heading": "Evaluation",
+            "heading": "Acceptance & Continuance Risk",
             "body": [
-              "Answers and required clearances"
+              "New Client: AML/KYC, UBO, Integrity & Viability",
+              "Continuance: 5-point delta checklist & prior fees"
             ],
             "step": 4
           },
           {
-            "heading": "Partner decision",
+            "heading": "Partner Risk Sign-Off",
             "body": [
-              "Accept, set conditions or decline"
+              "Partner executes digital acceptance gate",
+              "Activates Key 2 in state machine"
             ],
             "step": 5
           },
           {
-            "heading": "Work permission",
+            "heading": "Dual-Key Handshake Cleared",
             "body": [
-              "Check engagement conditions"
+              "Auto-generates ISA 210 Engagement Letter",
+              "Issues 50% advance invoice immediately"
             ],
             "step": 6
           }
@@ -358,50 +379,50 @@ export const DECK_SLIDES: DeckSlide[] = [
   },
   {
     "id": "s08",
-    "title": "Agree the engagement before preparing the accounts",
-    "section": "Engagement & reporting setup",
+    "title": "Engagement Letter Engine (ISA 210) & 50% Advance Billing",
+    "section": "Engagement Setup & Invoicing",
     "chapter": "Acceptance & setup",
-    "note": "The client, legal entity, service, period, reporting basis and currency provide the accounting context. The team must resolve the applicable start-work conditions and confirm its authority. Accounts preparation should not mix periods, currencies or entities unintentionally.",
-    "review": "Confirm the reporting period, basis, currency, account structure and team responsibilities.",
-    "tag": "ENGAGEMENT & REPORTING SETUP",
-    "subtitle": "Identify whose information is being used, for which service and period.",
+    "note": "Automatically pulls standardized templates based on engagement type: External Statutory Audit (ISA 210) or Internal Audit / Agreed-Upon Procedures (ISRS 4400). Applies Partner digital stamp and signature upon generation. Recording client settlement of 50% advance automatically issues official receipt voucher and provisions isolated client portal.",
+    "review": "Confirm support for ISA 210 and ISRS 4400 templates, automated receipt vouchers, and mandatory password reset on portal provisioning.",
+    "tag": "ISA 210 & ADVANCE BILLING",
+    "subtitle": "Contractual agreement, partner credentials, advance settlement, and portal provisioning.",
     "kind": "flow",
     "band": [
-      "REQUIRED OUTCOME",
-      "The engagement, imported records and financial statements must use the same reporting context."
+      "BILLING & PORTAL TRIGGER",
+      "50% Advance settled → Official receipt voucher generated → Client portal workspace provisioned."
     ],
     "steps": [
       {
-        "tag": "ENGAGEMENT",
-        "heading": "Define the work",
+        "tag": "TEMPLATES",
+        "heading": "ISA 210 / ISRS 4400 Letter",
         "body": [
-          "Client and legal entity",
-          "Service and reporting period",
-          "Assigned team"
+          "External Statutory Audit template",
+          "Agreed-Upon Procedures template (ISRS 4400)",
+          "Applies Partner digital signature & seal"
         ],
-        "icon": "i05",
+        "icon": "i02",
         "step": 1
       },
       {
-        "tag": "ACCOUNTING",
-        "heading": "Define the accounts",
+        "tag": "ADVANCE INVOICE",
+        "heading": "50% Commercial Deposit",
         "body": [
-          "Reporting basis and currency",
-          "Chart of accounts",
-          "Statement classifications"
+          "50% Advance commercial invoice issued",
+          "Recorded with cheque / bank transfer reference",
+          "Payment receipts dispatched automatically"
         ],
         "icon": "i01",
         "step": 2
       },
       {
-        "tag": "START-WORK REVIEW",
-        "heading": "Clear the start conditions",
+        "tag": "CLIENT PORTAL",
+        "heading": "Workspace Provisioned",
         "body": [
-          "Acceptance and terms",
-          "Required independence checks",
-          "Unresolved holds"
+          "Isolated external workspace created",
+          "Credentials emailed with mandatory password reset",
+          "Document upload window activates"
         ],
-        "icon": "i11",
+        "icon": "i04",
         "step": 3
       }
     ]
@@ -509,51 +530,51 @@ export const DECK_SLIDES: DeckSlide[] = [
   },
   {
     "id": "s11",
-    "title": "Request the right evidence from the right person",
+    "title": "PBC Portal: 5-Folder Taxonomy & Real-Time Upload Lifecycle",
     "section": "Client evidence requests",
     "chapter": "Client information",
-    "note": "A provided-by-client request should state the objective, entity, period, expected format, control totals and acceptance criteria. The named client contact supplies documents and responds to follow-up questions. Receiving a file is distinct from deciding that its contents are adequate for accounting or audit work.",
-    "review": "Agree the evidence requested, the client owner, the due date and who accepts the response.",
-    "boundary": "Confirm the live document exchange and receipt arrangements before relying on them for an engagement.",
-    "tag": "CLIENT EVIDENCE REQUESTS",
-    "subtitle": "A clear request links the purpose, required information, owner and due date.",
+    "note": "PBC requests are structured under a strict 5-folder taxonomy: Legal, Finance & Accounting, Operations, Tax & Statutory, and HR & Payroll. Real-time status badges reflect Pending Upload, Under Review, Approved, or Rejected / Re-upload Required. When an item is rejected, a specific rejection reason is mandatory. Automatic upload freeze locks submissions once all items are approved.",
+    "review": "Confirm 5-folder taxonomy, first-login password change simulation, mandatory rejection reason, and automated upload freeze.",
+    "boundary": "PBC requests isolate client upload access and prevent deletion of already approved audit evidence.",
+    "tag": "PBC WORKSPACE & WORKFLOW",
+    "subtitle": "5-Folder taxonomy, 4 user-facing statuses, rejection audit trail, and automatic freeze.",
     "kind": "flow",
     "band": [
-      "PBC REQUIREMENTS",
-      "Provided-by-client information needs both a receipt check and an evidence-quality review."
+      "PBC GOVERNANCE",
+      "5 Folders → Pending / Under Review / Approved / Rejected → Mandatory Rejection Reason → Upload Freeze on completion."
     ],
     "steps": [
       {
-        "tag": "REQUEST",
-        "heading": "Request records",
+        "tag": "TAXONOMY",
+        "heading": "5-Folder Taxonomy",
         "body": [
-          "Purpose and period",
-          "Due date and format",
-          "Named client owner"
+          "Legal (Constitutive & Contracts)",
+          "Finance & Accounting (TB, GL, Schedules)",
+          "Operations, Tax & Statutory, HR & Payroll"
         ],
-        "icon": "i02",
+        "icon": "i08",
         "step": 1
       },
       {
-        "tag": "RESPONSE",
-        "heading": "Client responds",
+        "tag": "STATUS BADGES",
+        "heading": "Real-Time Upload States",
         "body": [
-          "Upload the requested files",
-          "Explain the information",
-          "Answer follow-up queries"
+          "Pending Upload & Under Review",
+          "Approved (Locks item permanently)",
+          "Rejected / Re-upload Required with reason"
         ],
-        "icon": "i04",
+        "icon": "i06",
         "step": 2
       },
       {
-        "tag": "REVIEW",
-        "heading": "Review the evidence",
+        "tag": "SECURITY & FREEZE",
+        "heading": "Access & Upload Freeze",
         "body": [
-          "Confirm what was received",
-          "Assess suitability",
-          "Request clarification if needed"
+          "First-login simulated password reset",
+          "Automatic upload freeze upon 100% approval",
+          "Maintains immutable evidence custody"
         ],
-        "icon": "i06",
+        "icon": "i20",
         "step": 3
       }
     ]
@@ -719,50 +740,51 @@ export const DECK_SLIDES: DeckSlide[] = [
   },
   {
     "id": "s15",
-    "title": "Turn account balances into financial statements",
+    "title": "Financial Statement Split Dashboard & Analytical Drill-Down",
     "section": "Account classification & mapping",
     "chapter": "Accounts preparation",
-    "note": "Mapping determines where an adjusted account balance appears in the financial statements. Where a balance is allocated across presentation lines, the allocation and rationale must be complete and approved. The resulting statement amounts should remain traceable to the adjusted accounts.",
-    "review": "Agree the statement classifications and how any account splits are reviewed.",
-    "tag": "ACCOUNT CLASSIFICATION & MAPPING",
-    "subtitle": "Connect adjusted account balances to the appropriate statement line items.",
+    "note": "Interactive dual-pane financial statement engine: Upper P&L (Revenue to Net Profit) and Lower Balance Sheet (Assets, Liabilities, Equity). Dynamically computes Current Year (CY) vs Prior Year (PY) variances, provides row-level concurrency guards, and direct [AR Test] and [Audit Workprogram] drill-down actions.",
+    "review": "Verify split P&L and Balance Sheet presentation, CY/PY variance thresholds, and direct links to substantive fieldwork.",
+    "boundary": "Financial statement figures reflect adjusted trial balance postings and must preserve the immutable audit trail.",
+    "tag": "FINANCIAL STATEMENT DRILL-DOWN",
+    "subtitle": "Upper P&L / Lower Balance Sheet layout with CY/PY variance and audit program linkage.",
     "kind": "flow",
     "band": [
-      "COMPLETENESS",
-      "Every relevant balance needs an approved classification; do not hide unexplained amounts."
+      "FINANCIAL STATEMENT ARCHITECTURE",
+      "Upper P&L + Lower Balance Sheet → CY/PY Variance % → Direct [AR Test] & [Workprogram] Drill-Down."
     ],
     "steps": [
       {
-        "tag": "INPUT",
-        "heading": "Adjusted accounts",
+        "tag": "LAYOUT",
+        "heading": "Split Dashboard Engine",
         "body": [
-          "Account descriptions",
-          "Adjusted amounts",
-          "Reporting currency"
+          "Upper pane: Income Statement (P&L)",
+          "Lower pane: Balance Sheet (BS)",
+          "Integrated CY and PY comparatives"
         ],
-        "icon": "i01",
+        "icon": "i16",
         "step": 1
       },
       {
-        "tag": "ACCOUNTING DECISION",
-        "heading": "Approve the classification",
+        "tag": "ANALYTICS",
+        "heading": "Variance & Risk Scans",
         "body": [
-          "Statement destination",
-          "Any allocation or split",
-          "Rationale for the treatment"
+          "Automatic CY vs PY variance calculation",
+          "Highlights significant fluctuations",
+          "Row concurrency conflict detection"
         ],
-        "icon": "i17",
+        "icon": "i14",
         "step": 2
       },
       {
-        "tag": "OUTPUT",
-        "heading": "Financial-statement lines",
+        "tag": "DRILL-DOWN",
+        "heading": "Direct Fieldwork Links",
         "body": [
-          "Presentation line items",
-          "Section totals",
-          "Reconciled amounts"
+          "Direct [AR Test] substantive execution",
+          "Direct [Audit Workprogram] navigation",
+          "Connected Preparer → Manager review loop"
         ],
-        "icon": "i16",
+        "icon": "i10",
         "step": 3
       }
     ]
@@ -819,102 +841,102 @@ export const DECK_SLIDES: DeckSlide[] = [
   },
   {
     "id": "s17",
-    "title": "Plan audit work around risk and materiality",
+    "title": "Flow 2: 3-Tier Materiality Calculation & Account Risk Stratification",
     "section": "Audit planning",
     "chapter": "Audit & assurance",
-    "note": "The engagement records the benchmark, materiality decisions and rationale. Risks are linked to account or disclosure areas, assertions and the proposed response. The audit program organizes the procedures that will be performed, while professional decisions remain with the practitioner.",
-    "review": "Confirm the audit methodology, materiality approach, risk assessment and required procedures.",
-    "boundary": "Accounts preparation and audit are separate service responsibilities; completing accounts does not automatically complete an audit.",
-    "tag": "AUDIT PLANNING",
-    "subtitle": "Audit work has its own scope, judgments and evidence requirements.",
+    "note": "Computes Overall Materiality (OM) using strict ISA benchmarks: PBT (5–10%), Revenue (0.5–2%), Assets (0.5–1%), or Equity (1–2%). Tolerable Error / Performance Materiality (TE: 50–75% of OM), Summary of Audit Differences (SAD: 3–5% of OM). Rounding rule within ±5% of exact calculation. Account Risk Stratification: Green (<TE), Amber (TE..PM), Red (>PM), with mandatory override forcing critical accounting estimates and high inherent-risk accounts to RED. Requires formal Partner sign-off.",
+    "review": "Confirm benchmark range validation, TE 50-75%, SAD 3-5%, rounding constraint, Red override for critical estimates, and partner-only planning approval.",
+    "boundary": "Audit planning and materiality parameters cannot be locked without formal Engagement Partner digital sign-off.",
+    "tag": "MATERIALITY & RISK ENGINE (FLOW 2)",
+    "subtitle": "OM benchmarks, TE (50–75%), SAD (3–5%), Green/Amber/Red logic with high-risk override.",
     "kind": "flow",
     "band": [
-      "PRACTITIONER’S ROLE",
-      "Audit planning supports the practitioner’s decisions; it does not form an audit opinion."
+      "ISA PLANNING BENCHMARKS",
+      "Benchmark (PBT/Rev/Assets/Eq) → OM → TE (50-75%) → SAD (3-5%) → High-Risk RED Override → Partner Sign-off."
     ],
     "steps": [
       {
-        "tag": "PROFESSIONAL JUDGMENT",
-        "heading": "Set materiality",
+        "tag": "BENCHMARKS",
+        "heading": "Overall Materiality (OM)",
         "body": [
-          "Benchmark and rationale",
-          "Overall and performance materiality",
-          "Clearly trivial threshold"
+          "PBT (5–10%), Revenue (0.5–2%)",
+          "Assets (0.5–1%), Equity (1–2%)",
+          "Hard range enforcement & ±5% rounding"
         ],
         "icon": "i14",
         "step": 1
       },
       {
-        "tag": "RISK ASSESSMENT",
-        "heading": "Assess risks",
+        "tag": "TE & SAD",
+        "heading": "Performance & Trivial Thresholds",
         "body": [
-          "Account or disclosure area",
-          "Relevant assertions",
-          "Planned audit response"
+          "Tolerable Error (TE): 50%–75% of OM",
+          "Summary of Audit Differences (SAD): 3%–5%",
+          "Clearly trivial posting boundary"
         ],
-        "icon": "i18",
+        "icon": "i01",
         "step": 2
       },
       {
-        "tag": "FIELDWORK PLAN",
-        "heading": "Select the procedures",
+        "tag": "STRATIFICATION",
+        "heading": "Account Risk & Partner Sign-Off",
         "body": [
-          "Agreed audit program",
-          "Engagement-specific procedures",
-          "Workpapers to support the work"
+          "Green (<TE), Amber (TE..PM), Red (>PM)",
+          "Mandatory RED override for critical estimates",
+          "Formal Engagement Partner digital sign-off"
         ],
-        "icon": "i02",
+        "icon": "i18",
         "step": 3
       }
     ]
   },
   {
     "id": "s18",
-    "title": "Connect each audit test to its evidence",
+    "title": "Flow 3: FSLI Workprograms & 3-Engine Sampling Methodology",
     "section": "Audit populations, sampling & fieldwork",
     "chapter": "Audit & assurance",
-    "note": "A population identifies its source, extraction context, purpose, control total and exclusions. Selections, item testing, confirmations and area assessments build on that context. The reviewer needs a clear connection from the planned procedure to evidence and the recorded results.",
-    "review": "Agree how completeness, selection methods, exceptions and conclusions will be documented.",
-    "boundary": "An imported general ledger is not automatically an accepted audit population. Confirmation dispatch and response arrangements should also be confirmed.",
-    "tag": "AUDIT POPULATIONS, SAMPLING & FIELDWORK",
-    "subtitle": "Make it clear what was tested, why it was selected and what was found.",
+    "note": "Standardized FSLI audit programs preloaded with the 5 core ISA assertions: Ownership, Valuation, Completeness, Existence, and Cut-off, with support for ad-hoc procedures. Integrated sampling engine provides Monetary Unit Sampling (MUS), Systematic Random Sampling, and Stratified Attribute Sampling. Workpapers enforce structured referencing format (e.g. X-1, Box 3).",
+    "review": "Verify 5 assertion procedures per FSLI, ad-hoc procedural expansion, 3 sampling engines, and workpaper box-reference indexing.",
+    "boundary": "Sample selections and test findings are permanently linked to the underlying general ledger population.",
+    "tag": "FSLI PROGRAMS & SAMPLING (FLOW 3)",
+    "subtitle": "5 ISA assertions (Ownership, Valuation, Completeness, Existence, Cut-off) & 3 sampling algorithms.",
     "kind": "flow",
     "band": [
-      "EVIDENCE CHAIN",
-      "Population → selected item → procedure → evidence → exception or conclusion."
+      "FIELDWORK WORKPROGRAMS & SAMPLING",
+      "5 Assertions → MUS / Systematic Random / Stratified Attribute → Structured WP References."
     ],
     "steps": [
       {
-        "tag": "POPULATION",
-        "heading": "Establish the population",
+        "tag": "ASSERTIONS",
+        "heading": "5 Core ISA Assertions",
         "body": [
-          "Source and extraction basis",
-          "Control totals and exclusions",
-          "Purpose and assertion"
+          "Ownership & Rights/Obligations",
+          "Valuation & Allocation, Completeness",
+          "Existence and Cut-off procedures"
         ],
-        "icon": "i01",
+        "icon": "i02",
         "step": 1
       },
       {
-        "tag": "TESTING",
-        "heading": "Perform the work",
+        "tag": "SAMPLING",
+        "heading": "3 Sampling Algorithms",
         "body": [
-          "Select items for testing",
-          "Record tests and confirmations",
-          "Link supporting evidence"
+          "Monetary Unit Sampling (MUS)",
+          "Systematic Random Sampling (interval)",
+          "Stratified Attribute Sampling"
         ],
-        "icon": "i06",
+        "icon": "i14",
         "step": 2
       },
       {
-        "tag": "EVALUATION",
-        "heading": "Assess the results",
+        "tag": "EVIDENCE",
+        "heading": "Workpaper Referencing",
         "body": [
-          "Investigate exceptions",
-          "Assess differences",
-          "Document the area conclusion"
+          "Structured references (e.g., X-1, Box 3)",
+          "Ad-hoc custom audit procedures",
+          "Preparer execution & Senior review stamps"
         ],
-        "icon": "i02",
+        "icon": "i06",
         "step": 3
       }
     ]
@@ -972,201 +994,204 @@ export const DECK_SLIDES: DeckSlide[] = [
   },
   {
     "id": "s20",
-    "title": "Bring significant completion matters into the review",
+    "title": "Confirmation Controls (5 Types), Holding Letter Blocker & SRM",
     "section": "Audit completion",
     "chapter": "Audit & assurance",
-    "note": "Completion work records analytical review, going-concern assessment and subsequent-event considerations. Significant variances require investigation and support; the practitioner records the judgments about uncertainty, disclosure and reporting. A change in an assessment should prompt consideration of renewed review.",
-    "review": "Agree the completion evidence and any additional final-review or engagement-quality-review requirements.",
-    "boundary": "The complete final-opinion, signing and engagement-quality-review process was not established in the earlier review; confirm the required route.",
-    "tag": "AUDIT COMPLETION",
-    "subtitle": "The final review needs supported assessments, not only completed task labels.",
+    "note": "Independent confirmations tracked across 5 mandatory categories: Bank, Accounts Receivable (AR), Accounts Payable (AP), Inventory, and Legal. Outstanding critical confirmations automatically trigger the Holding Letter generation and block release. Summary of Review Matters (SRM) aggregates PM/TE/SAD, risks, findings, AJEs, and critical confirmations for Partner clearance.",
+    "review": "Confirm tracking for Bank, AR, AP, Inventory, Legal; Holding Letter generation; and comprehensive SRM synthesis.",
+    "boundary": "Audit report release cannot proceed if critical confirmations remain outstanding without an authorized Holding Letter rationale.",
+    "tag": "CONFIRMATIONS & SRM SYNTHESIS",
+    "subtitle": "5 confirmation classes, Holding Letter blocker, and Summary of Review Matters (SRM).",
     "kind": "flow",
     "band": [
-      "DECISION OWNERSHIP",
-      "Professional conclusions and the final opinion remain the practitioner’s responsibility."
+      "COMPLETENESS & CLEARANCE",
+      "Bank / AR / AP / Inventory / Legal → Outstanding Blocker → Holding Letter → SRM Synthesis."
     ],
     "steps": [
       {
-        "heading": "Analytical review",
+        "tag": "CONFIRMATIONS",
+        "heading": "5 Confirmation Categories",
         "body": [
-          "Investigate significant variances.",
-          "Retain explanations and evidence."
+          "Bank, Accounts Receivable (AR)",
+          "Accounts Payable (AP), Inventory",
+          "Legal representation letters"
         ],
-        "icon": "i16",
+        "icon": "i10",
         "step": 1
       },
       {
-        "heading": "Going concern",
+        "tag": "BLOCKER",
+        "heading": "Holding Letter Gatekeeper",
         "body": [
-          "Record the practitioner’s assessment.",
-          "Support the disclosure decision."
+          "Critical confirmations flagged in system",
+          "Unreceived letters block report release",
+          "Generates ISA Holding Letter to management"
         ],
-        "icon": "i06",
+        "icon": "i18",
         "step": 2
       },
       {
-        "heading": "Subsequent events",
+        "tag": "SRM SUMMARY",
+        "heading": "Summary of Review Matters",
         "body": [
-          "Assess identified events.",
-          "Document the reporting consequences."
+          "Synthesizes OM/TE/SAD & risks",
+          "Aggregates AJEs & unadjusted differences",
+          "Senior/Manager review before Partner sign-off"
         ],
-        "icon": "i05",
+        "icon": "i06",
         "step": 3
-      },
-      {
-        "heading": "Completion evidence → practitioner assessment → required final review",
-        "body": [],
-        "step": 4,
-        "outcome": true
       }
     ]
   },
   {
     "id": "s21",
-    "title": "Approval belongs to the version that was reviewed",
+    "title": "Flow 4: ISA 700/705 4-Way Opinion Engine & Partner Authorization",
     "section": "Review & approval",
     "chapter": "Review & release",
-    "note": "Approval identifies the report or workpaper and the information considered at the time. When the target or relevant information changes, the earlier approval can remain part of the history while no longer authorizing the current version. Release must rely on a current, applicable approval.",
-    "review": "Agree which changes require renewed review and who may grant final approval.",
-    "tag": "REVIEW & APPROVAL",
-    "subtitle": "Do not use yesterday’s approval for a changed financial report.",
+    "note": "Audit Opinion selection dropdown enforcing the 4 ISA standards: Unmodified (Clean), Qualified, Disclaimer, or Adverse. For Qualified, Disclaimer, or Adverse opinions, the engine strictly enforces the selection of affected FSLI account areas and mandatory minimum 20-character rationale. Review loop allows Preparer → Reviewer return/rework, with final opinion authorization strictly restricted to the Engagement Partner.",
+    "review": "Confirm 4-way opinion dropdown, mandatory FSLI and rationale for Qualified/Disclaimer/Adverse, and partner-only sign-off.",
+    "boundary": "Only an authorized Engagement Partner can digitally sign and lock the statutory audit opinion.",
+    "tag": "OPINION SELECTION (FLOW 4)",
+    "subtitle": "Unmodified, Qualified, Disclaimer, Adverse with mandatory FSLI rationale and Partner sign-off.",
     "kind": "flow",
     "band": [
-      "CORE CONTROL",
-      "The approval history stays visible even when a changed report requires a fresh review."
+      "ISA 700 / 705 OPINION LOGIC",
+      "4-Way Dropdown → FSLI & Rationale for Qualified/Disclaimer/Adverse → Partner-Exclusive Sign-Off."
     ],
     "steps": [
       {
-        "tag": "APPROVED VERSION",
-        "heading": "What was approved?",
+        "tag": "4 OPINIONS",
+        "heading": "ISA 700 / 705 Opinions",
         "body": [
-          "The exact report or workpaper",
-          "Its supporting information",
-          "The reviewer’s decision"
+          "Unmodified (Clean Opinion)",
+          "Qualified (Material not Pervasive)",
+          "Disclaimer (Lack of Evidence) & Adverse (Pervasive)"
         ],
-        "icon": "i02",
+        "icon": "i15",
         "step": 1
       },
       {
-        "tag": "CHANGE CHECK",
-        "heading": "Has anything changed?",
+        "tag": "RATIONALE",
+        "heading": "Mandatory FSLI & Rationale",
         "body": [
-          "Figures or source information",
-          "The report or workpaper",
-          "Applicable review conditions"
+          "Target FSLI selection required for non-clean",
+          "Min 20-character professional justification",
+          "Enforced before report generation"
         ],
-        "icon": "i19",
+        "icon": "i12",
         "step": 2
       },
       {
-        "tag": "OUTCOME",
-        "heading": "Is approval still valid?",
+        "tag": "PARTNER GATE",
+        "heading": "Partner Sign-Off & Rework",
         "body": [
-          "Use the current approval",
-          "Or request review again",
-          "Preserve the earlier decision"
+          "Preparer → Senior → Manager rework loop",
+          "Partner-exclusive digital signature authority",
+          "Locks final opinion and deliverables"
         ],
-        "icon": "i15",
+        "icon": "i04",
         "step": 3
       }
     ]
   },
   {
     "id": "s22",
-    "title": "Release only the current approved report",
+    "title": "Mandatory 5-Part Deliverables Release Bundle & Settlement",
     "section": "Controlled issue & delivery",
     "chapter": "Review & release",
-    "note": "Before issue, the reporting package must match the current approval and required release evidence. The issue record should identify the package and the person authorizing release. Actual delivery and acknowledgement are separate business matters that must be established before reliance.",
-    "review": "Agree the final approver, release conditions, delivery channel and evidence of receipt.",
-    "boundary": "The previous review established an issue record and a planned delivery, not a completed client delivery.",
-    "tag": "CONTROLLED ISSUE & DELIVERY",
-    "subtitle": "Keep the approval, issue decision and actual delivery distinct.",
+    "note": "Final audit release generates the mandatory 5-part commercial and technical bundle: 1. Independent Auditor's Report (signed & stamped with dynamic Partner credentials), 2. Audited Financial Statements, 3. Management Letter (Internal Control Deficiencies), 4. Communication with TCWG, and 5. Final 50% Balance Settlement Commercial Invoice. Final release authorization strictly belongs to the Engagement Partner.",
+    "review": "Verify exact 5-part bundle generation, dynamic partner signature credentials, and partner-only release authorization.",
+    "boundary": "Deliverables cannot be dispatched or client portal access granted to final reports without partner digital authorization.",
+    "tag": "5-PART DELIVERABLES BUNDLE",
+    "subtitle": "Audit report, audited FS, management letter, TCWG letter, and final 50% billing invoice.",
     "kind": "flow",
     "band": [
-      "DO NOT CONFLATE",
-      "An issue record or planned delivery is not proof that the client received the report."
+      "COMMERCIAL & AUDIT RELEASE",
+      "5 Deliverables Generated → Dynamic Partner Credentials → Final 50% Invoice Issued."
     ],
     "steps": [
       {
-        "tag": "READY",
-        "heading": "Confirm readiness",
+        "tag": "BUNDLE",
+        "heading": "5 Mandatory Deliverables",
         "body": [
-          "Current approved package",
-          "Required release evidence",
-          "Authorized release decision"
+          "1. Independent Auditor's Report",
+          "2. Audited Financial Statements",
+          "3. Management Letter & 4. TCWG Letter"
         ],
-        "icon": "i06",
+        "icon": "i02",
         "step": 1
       },
       {
-        "tag": "ISSUED",
-        "heading": "Record the issue",
+        "tag": "CREDENTIALS",
+        "heading": "Dynamic Partner Credentials",
         "body": [
-          "Identify the approved version",
-          "Record who authorized it",
-          "Preserve the release record"
+          "Assigned Engagement Partner name & title",
+          "Digital firm seal and stamp application",
+          "Partner-exclusive authorization control"
         ],
         "icon": "i15",
         "step": 2
       },
       {
-        "tag": "DELIVERY TO CONFIRM",
-        "heading": "Confirm how the recipient receives the final report.",
-        "body": [],
-        "icon": "i07",
-        "dashed": true,
-        "step": 3,
-        "outcome": true
+        "tag": "SETTLEMENT",
+        "heading": "Final 50% Commercial Balance",
+        "body": [
+          "Final 50% invoice generated automatically",
+          "Tied to engagement commercial fee total",
+          "Official receipt voucher upon clearance"
+        ],
+        "icon": "i01",
+        "step": 3
       }
     ]
   },
   {
     "id": "s23",
-    "title": "Retain a complete and reviewable engagement record",
+    "title": "ISA 230 Electronic File Freeze: 60-Day Lock & Partner Early Lock",
     "section": "File assembly & records",
     "chapter": "Review & release",
-    "note": "Records assembly brings the engagement documents and supporting information into a reviewable file inventory. The current complete assembly should be reviewed under an approved records profile. Retention, protection, holds and eventual disposition require agreed responsibilities and evidence beyond a file-complete label.",
-    "review": "Agree the record contents, custodian, retention policy and any legal-hold responsibilities.",
-    "boundary": "Automatic archive creation after issue and external retention protection were not established. Do not imply a retention period or legal conclusion from this presentation.",
-    "tag": "FILE ASSEMBLY & RECORDS",
-    "subtitle": "Keep the record of what supported the reporting and review decisions.",
+    "note": "Conforms strictly to ISA 230 audit documentation assembly: 60-calendar-day countdown begins immediately upon audit report sign-off date. Once expired, the engagement file permanently freezes into immutable read-only state. In addition, the Engagement Partner possesses a manual early freeze command to lock the working papers at any point prior to the 60-day limit.",
+    "review": "Confirm 60-day countdown timer from report date, Partner manual early lock capability, and immutable read-only enforcement.",
+    "boundary": "Once frozen, working papers, trial balances, and audit conclusions become strictly read-only.",
+    "tag": "ISA 230 FILE ASSEMBLY & FREEZE",
+    "subtitle": "60-Calendar-day countdown lock + Engagement Partner manual early lock command.",
     "kind": "flow",
     "band": [
-      "CONFIRMATION NEEDED",
-      "A complete engagement file does not, by itself, prove that retention protection is in place."
+      "RETENTION & ARCHIVE GATE",
+      "Report Date → 60-Day Countdown OR Partner Manual Early Lock → Immutable Read-Only Freeze."
     ],
     "steps": [
       {
-        "tag": "COLLECT",
-        "heading": "Assemble the file",
+        "tag": "COUNTDOWN",
+        "heading": "60-Day Countdown Timer",
         "body": [
-          "Engagement documents",
-          "Submitted work and decisions",
-          "Structured supporting records"
+          "Begins on audit report sign-off date",
+          "Displays days remaining until automatic freeze",
+          "Conforms to ISA 230 retention rules"
         ],
-        "icon": "i08",
+        "icon": "i05",
         "step": 1
       },
       {
-        "tag": "CHECK",
-        "heading": "Review completeness",
+        "tag": "EARLY LOCK",
+        "heading": "Partner Early Lock",
         "body": [
-          "Required references present",
-          "Current assembly version",
-          "Explain anything missing"
+          "Engagement Partner manual freeze command",
+          "Bypasses remaining countdown on demand",
+          "Applies instantaneous immutable lock"
         ],
-        "icon": "i06",
+        "icon": "i20",
         "step": 2
       },
       {
-        "tag": "GOVERN",
-        "heading": "Apply the records policy",
+        "tag": "IMMUTABLE",
+        "heading": "Read-Only Archive State",
         "body": [
-          "Approved retention profile",
-          "Custodian responsibilities",
-          "Agreed protection and hold process"
+          "All working papers & schedules frozen",
+          "Modifications and uploads blocked",
+          "Browser-local prototype disclosure visible"
         ],
-        "icon": "i20",
+        "icon": "i08",
         "step": 3
       }
     ]
@@ -1224,59 +1249,52 @@ export const DECK_SLIDES: DeckSlide[] = [
   },
   {
     "id": "s25",
-    "title": "Manage the practice’s time, billing and receivables",
+    "title": "Flow 5: Practice Management, Tiered Charge-Out Rates & Profitability",
     "section": "Practice finance",
     "chapter": "Group & practice",
-    "note": "Budgets set expected effort and fees and are compared with recorded time; practice time and agreed fee information support billing. Invoice preparation, approval, issue and receipt allocation are separate actions, with checks for duplicated billing sources and over-allocation. The firm’s financial responsibilities remain separate from client accounts and consolidation.",
-    "review": "Agree fee sources, finance review responsibilities, receipt allocation and the expected receivables reports.",
-    "boundary": "Recording a receipt is not initiating a bank payment. The exact automatic posting to the firm’s ledger was not established in the earlier review.",
-    "tag": "PRACTICE FINANCE",
-    "subtitle": "The firm’s commercial cycle runs alongside the client engagement.",
+    "note": "Operational practice management engine operating in Qatari Riyal (QAR). Standard charge-out rates: Partner 1,000 QAR/hr, Senior Manager/Manager 750 QAR/hr, Senior Auditor 500 QAR/hr, Junior Auditor 200 QAR/hr. Computes gross engagement margin, internal firm P&L, firm trial balance including operational expenses and Partner Withdrawals, AR aging buckets (Current, 30, 60, 90+ days), and daily engagement/FSLI staff time entry.",
+    "review": "Confirm 1,000/750/500/200 QAR rate structure, Partner Withdrawals equity/expense line, and daily FSLI time tracking.",
+    "boundary": "Firm operational finances and partner equity withdrawals are strictly isolated from client engagement trust ledgers.",
+    "tag": "PRACTICE FINANCE (FLOW 5)",
+    "subtitle": "1,000/750/500/200 QAR rates, Partner Withdrawals, Firm P&L/TB, AR aging & daily FSLI time entry.",
     "kind": "flow",
     "band": [
-      "BILLING CONTROL",
-      "Do not bill the same source twice or allocate more than the receipt or invoice balance."
+      "PRACTICE MANAGEMENT & PROFITABILITY",
+      "Standard Rates → Daily FSLI Time → Firm P&L & Partner Withdrawals → AR Aging."
     ],
     "steps": [
       {
-        "tag": "CAPTURE",
-        "heading": "Record work & fees",
+        "tag": "RATES",
+        "heading": "Tiered Charge-Out Rates (QAR)",
         "body": [
-          "Time and approved fee sources",
-          "Client billing account"
+          "Partner: 1,000 QAR / hr",
+          "Manager: 750 QAR / hr, Senior: 500 QAR / hr",
+          "Junior Auditor: 200 QAR / hr"
         ],
         "icon": "i21",
         "step": 1
       },
       {
-        "tag": "BILL",
-        "heading": "Prepare & review invoice",
+        "tag": "TIME & EXPENSES",
+        "heading": "Daily FSLI Time & Expenses",
         "body": [
-          "Quantity, rate and tax",
-          "Required finance approval"
+          "Daily time entry per engagement & FSLI",
+          "Operational expense ledger & postings",
+          "Dedicated Partner Withdrawals account"
         ],
-        "icon": "i02",
+        "icon": "i01",
         "step": 2
       },
       {
-        "tag": "COLLECT",
-        "heading": "Record & allocate receipts",
+        "tag": "PROFITABILITY",
+        "heading": "Firm P&L, TB & AR Aging",
         "body": [
-          "Match receipts to invoices",
-          "Apply relevant credit notes"
-        ],
-        "icon": "i01",
-        "step": 3
-      },
-      {
-        "tag": "MONITOR",
-        "heading": "Review the balance",
-        "body": [
-          "Remaining receivable",
-          "Firm’s own accounting records"
+          "Real-time engagement margin & realization",
+          "Firm Trial Balance & internal P&L",
+          "AR aging buckets (Current, 30, 60, 90+)"
         ],
         "icon": "i16",
-        "step": 4
+        "step": 3
       }
     ]
   },

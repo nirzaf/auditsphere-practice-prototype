@@ -68,7 +68,7 @@ export function ConfirmationsView(props: TargetViewProps) {
         }
       >
         <Field label="Type" name="type" defaultValue="Bank">
-          {['Bank', 'Debtor', 'Inventory', 'Other'].map((type) => (
+          {['Bank', 'Accounts Receivable', 'Accounts Payable', 'Inventory', 'Legal', 'Debtor', 'Other'].map((type) => (
             <option key={type}>{type}</option>
           ))}
         </Field>

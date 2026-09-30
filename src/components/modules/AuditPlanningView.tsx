@@ -114,15 +114,17 @@ export const AuditPlanningView: React.FC<AuditPlanningViewProps> = ({ onNavigate
 
     for (const r of tbRows) {
       const bal = Math.abs(r.balance);
-      if (bal < effectiveTE) {
-        greenCount++;
-        greenTotal += bal;
-      } else if (bal <= effectivePM) {
+      const isCritical = /estimate|provision|fair value|impairment|ecl|expected credit loss|allowance|obsolesc|warranty|goodwill|contingenc|going concern/i.test(r.name) ||
+        Boolean(r.mappedStatementLine && /estimate|provision|fair value|impairment|ecl|expected credit loss|allowance|obsolesc|warranty|goodwill|contingenc|going concern/i.test(r.mappedStatementLine));
+      if (isCritical || bal > effectivePM) {
+        redCount++;
+        redTotal += bal;
+      } else if (bal >= effectiveTE) {
         amberCount++;
         amberTotal += bal;
       } else {
-        redCount++;
-        redTotal += bal;
+        greenCount++;
+        greenTotal += bal;
       }
     }
 
@@ -185,14 +187,29 @@ export const AuditPlanningView: React.FC<AuditPlanningViewProps> = ({ onNavigate
       if (benchmarkValue === '' || !Number.isFinite(Number(benchmarkValue)) || Number(benchmarkValue) <= 0) {
         throw new Error('Enter the benchmark value deliberately before saving; the form does not assume one.');
       }
-      if (percentage === '' || !Number.isFinite(Number(percentage)) || Number(percentage) <= 0 || Number(percentage) > 100) {
-        throw new Error('Enter an applied benchmark rate greater than 0 and no more than 100 percent.');
+      const pct = Number(percentage);
+      const perf = Number(performanceRate);
+      const triv = Number(trivialRate);
+      if (percentage === '' || !Number.isFinite(pct) || pct <= 0) {
+        throw new Error('Enter an applied benchmark rate.');
       }
-      if (performanceRate === '' || !Number.isFinite(Number(performanceRate)) || Number(performanceRate) <= 0 || Number(performanceRate) > 100) {
-        throw new Error('Enter a performance materiality rate greater than 0 and no more than 100 percent.');
+      if (benchmarkType === 'profit' && (pct < 5.0 || pct > 10.0)) {
+        throw new Error('Profit Before Tax benchmark rate must be between 5.0% and 10.0% under ISA 320.');
       }
-      if (trivialRate === '' || !Number.isFinite(Number(trivialRate)) || Number(trivialRate) < 0 || Number(trivialRate) > 100) {
-        throw new Error('Enter a clearly trivial rate from 0 through 100 percent.');
+      if (benchmarkType === 'revenue' && (pct < 0.5 || pct > 2.0)) {
+        throw new Error('Gross Revenue benchmark rate must be between 0.5% and 2.0% under ISA 320.');
+      }
+      if (benchmarkType === 'assets' && (pct < 0.5 || pct > 1.0)) {
+        throw new Error('Total Assets benchmark rate must be between 0.5% and 1.0% under ISA 320.');
+      }
+      if (benchmarkType === 'equity' && (pct < 1.0 || pct > 2.0)) {
+        throw new Error('Net Equity benchmark rate must be between 1.0% and 2.0% under ISA 320.');
+      }
+      if (performanceRate === '' || !Number.isFinite(perf) || perf < 50.0 || perf > 75.0) {
+        throw new Error('Performance materiality (Tolerable Error / TE) rate must be between 50.0% and 75.0% under ISA 320.');
+      }
+      if (trivialRate === '' || !Number.isFinite(triv) || triv < 3.0 || triv > 5.0) {
+        throw new Error('Clearly trivial threshold (SAD) rate must be between 3.0% and 5.0% under ISA 320.');
       }
       if (isRoundingExceeded) {
         throw new Error(`Manager practical rounding exceeds the ±5.0% maximum limit (current: ${roundingTolerancePct > 0 ? '+' : ''}${roundingTolerancePct.toFixed(1)}%). Adjust rounding to within ±5% of ${formatCurrency(materiality?.overallMateriality || 0, selectedEng.currency)}.`);
@@ -238,12 +255,15 @@ export const AuditPlanningView: React.FC<AuditPlanningViewProps> = ({ onNavigate
   const handleReviewPlan = (approved: boolean) => {
     if (!existingPlan) return;
     try {
+      if (approved && !hasAnyRole(state, ['partner'])) {
+        throw new Error('Formal sign-off of the ISA 320 audit plan is retained strictly by the lead statutory audit partner.');
+      }
       if (!approved && !reviewNotes.trim()) {
         throw new Error('Record the rework reasons in the review notes before returning the plan.');
       }
       prototypeStore.reviewAuditPlan(existingPlan.id, approved, reviewNotes);
       triggerNotice('success', approved
-        ? `Audit Plan ${existingPlan.id} approved by ${state.currentPerson}. The engagement planning gate is cleared for this version.`
+        ? `Audit Plan ${existingPlan.id} approved by Partner ${state.currentPerson}. The engagement planning gate is cleared for this version.`
         : `Audit Plan ${existingPlan.id} returned by ${state.currentPerson}. The planning gate remains open — address the recorded notes and resubmit a new version.`);
       initialDraft.current = draftSnapshot();
     } catch (err: any) {
@@ -717,9 +737,9 @@ export const AuditPlanningView: React.FC<AuditPlanningViewProps> = ({ onNavigate
                 <button
                   className="btn primary sm"
                   onClick={() => handleReviewPlan(true)}
-                  disabled={!existingPlan || existingPlan.status !== 'Under review' || !hasAnyRole(state, ['manager', 'reviewer', 'partner'])}
+                  disabled={!existingPlan || existingPlan.status !== 'Under review' || !hasAnyRole(state, ['partner'])}
                 >
-                  Approve Audit Plan Strategy
+                  Lead Partner Sign-off (Approve Plan Strategy)
                 </button>
                 <button
                   className="btn sm ghost"

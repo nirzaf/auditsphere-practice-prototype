@@ -80,11 +80,22 @@ export function AuditFinancialView({ onNavigate }: TargetViewProps) {
           : 0;
 
       // Risk Stratification according to Section 4.2 Module 2
-      // Green = Balance < TE (Low Risk)
-      // Amber = Balance > TE, Low Inherent Risk (Moderate Risk)
-      // Red = Balance > PM or High Inherent Risk (Critical Risk)
+      // Green = Balance < TE and Low Inherent Risk (Low Risk)
+      // Amber = Balance >= TE, Low Inherent Risk (Moderate Risk)
+      // Red = Balance >= PM OR High Inherent Risk OR Critical Accounting Estimate (Critical Risk)
+      const isCriticalEstimate = /estimate|provision|fair value|impairment|ecl|expected credit loss|allowance|obsolesc|warranty|goodwill|contingenc|going concern/i.test(line) ||
+        accounts.some(a => /estimate|provision|fair value|impairment|ecl|expected credit loss|allowance|obsolesc|warranty|goodwill|contingenc|going concern/i.test(a.name));
+
+      const isHighInherentRisk = (state.auditRisks || []).some(
+        (risk) =>
+          risk.engagementId === eng.id &&
+          risk.rating === 'Significant' &&
+          (risk.area?.toLowerCase() === line.toLowerCase() ||
+           accounts.some(a => risk.area?.toLowerCase().includes(a.name.toLowerCase())))
+      );
+
       let riskLevel: 'GREEN' | 'AMBER' | 'RED' = 'GREEN';
-      if (pm && Math.abs(current) >= pm) {
+      if (isCriticalEstimate || isHighInherentRisk || (pm && Math.abs(current) >= pm)) {
         riskLevel = 'RED';
       } else if (te && Math.abs(current) >= te) {
         riskLevel = 'AMBER';

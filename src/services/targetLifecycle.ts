@@ -738,8 +738,8 @@ export function opinionValidation(value: AuditOpinion, focusArea: string, basis:
     return ['Select one of the four supported opinions.'];
   if (value === 'Clean') return [];
   return [
-    ...(value === 'Qualified' && !focusArea.trim()
-      ? ['Qualified opinion requires a focus area.']
+    ...(['Qualified', 'Disclaimer', 'Adverse'].includes(value) && !focusArea.trim()
+      ? [`${value === 'Qualified' ? 'Qualified' : 'Modified'} opinion requires an impacted focus area / FSLI.`]
       : []),
     ...(basis.trim().length < 20
       ? ['Modified opinion requires a meaningful basis of at least 20 characters.']

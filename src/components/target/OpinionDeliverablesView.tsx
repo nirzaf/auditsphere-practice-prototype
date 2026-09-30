@@ -158,11 +158,11 @@ export function OpinionDeliverablesView(props: TargetViewProps) {
           <div className="row mt8" style={{ gap: 20, alignItems: 'center' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
               <div className="firmavatar" style={{ background: '#0284c7', color: '#fff', width: 36, height: 36, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold' }}>
-                DJ
+                {eng.partner ? eng.partner.split(' ').map(n => n[0]).join('') : 'LP'}
               </div>
               <div>
-                <strong>Daniel James, Engagement Partner</strong>
-                <p className="caption">Digital Signature Key: QFC-AUD-SIG-9281 · Active Signatory</p>
+                <strong>{eng.partner || 'Daniel James'}, Engagement Partner</strong>
+                <p className="caption">Digital Signature Key: QFC-AUD-SIG-9281 · Licensed Signatory</p>
               </div>
             </div>
             <div style={{ padding: '6px 12px', background: '#ecfdf5', border: '1px solid #10b981', borderRadius: 4, color: '#047857', fontWeight: 600, fontSize: '12px' }}>
@@ -271,7 +271,7 @@ export function OpinionDeliverablesView(props: TargetViewProps) {
             </span>
             {!d.deliveredAt && (
               <ActionButton
-                disabled={frozen || !hasAnyRole(state, ['manager', 'partner'])}
+                disabled={frozen || !hasAnyRole(state, ['partner'])}
                 action={() =>
                   prototypeStore.lifecycle.markDeliverablesDelivered(
                     eng.id,
@@ -279,7 +279,7 @@ export function OpinionDeliverablesView(props: TargetViewProps) {
                   )
                 }
               >
-                Release Bundle to Client Portal (Freezes Uploads)
+                Lead Partner Authorization: Release Bundle to Client Portal (Freezes Uploads)
               </ActionButton>
             )}
           </div>

@@ -33,6 +33,12 @@ export const EngagementsView: React.FC<EngagementsViewProps> = ({ onNavigate, on
   const [editManager, setEditManager] = useState('');
   const [editPartner, setEditPartner] = useState('');
   const [editTeam, setEditTeam] = useState<string[]>([]);
+  const [showElModal, setShowElModal] = useState(false);
+  const [elTemplate, setElTemplate] = useState<'ISA 210 External Statutory Audit' | 'ISRS 4400 Agreed-Upon Procedures'>('ISA 210 External Statutory Audit');
+  const [elFramework, setElFramework] = useState('IFRS (International Financial Reporting Standards)');
+  const [elPartnerSignature, setElPartnerSignature] = useState('');
+  const [elFirmStamp, setElFirmStamp] = useState(true);
+  const [elEvidenceRef, setElEvidenceRef] = useState('');
 
   // New engagement form
   const [clientId, setClientId] = useState(scopedClients[0]?.id || '');
@@ -247,6 +253,21 @@ export const EngagementsView: React.FC<EngagementsViewProps> = ({ onNavigate, on
             <button className="btn sm" onClick={() => onNavigate('delivery')}>
               <Icon name="archive" /> Release Gates
             </button>
+            <button className="btn sm primary" onClick={() => {
+              if (selectedEng.engagementLetter) {
+                setElTemplate(selectedEng.engagementLetter.template);
+                setElFramework(selectedEng.engagementLetter.framework);
+                setElPartnerSignature(selectedEng.engagementLetter.partnerSignature);
+                setElFirmStamp(selectedEng.engagementLetter.firmStamp);
+              } else {
+                setElTemplate(selectedEng.service.toLowerCase().includes('internal') || selectedEng.service.toLowerCase().includes('procedure') ? 'ISRS 4400 Agreed-Upon Procedures' : 'ISA 210 External Statutory Audit');
+                setElPartnerSignature(selectedEng.partner);
+                setElFirmStamp(true);
+              }
+              setShowElModal(true);
+            }}>
+              <Icon name="file-text" /> Engagement Letter (ISA 210 / ISRS 4400)
+            </button>
             <button className="btn sm ghost" onClick={() => setShowScopeModal(true)}>
               <Icon name="layers" /> View Scope & Duties
             </button>
@@ -356,6 +377,143 @@ export const EngagementsView: React.FC<EngagementsViewProps> = ({ onNavigate, on
             </div>
             <div className="modal-foot">
               <button className="btn sm ghost" onClick={() => setShowScopeModal(false)}>Close</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Engagement Letter (ISA 210 / ISRS 4400) Modal */}
+      {showElModal && selectedEng && (
+        <div className="modal-backdrop" onClick={() => setShowElModal(false)}>
+          <div className="modal" style={{ maxWidth: 760 }} onClick={e => e.stopPropagation()}>
+            <div className="modal-head">
+              <h2>Engagement Letter Generator &amp; Repository</h2>
+              <button className="icon-btn" onClick={() => setShowElModal(false)}>✕</button>
+            </div>
+            <div className="modal-body stack" style={{ gap: 16 }}>
+              <div className="banner info">
+                <strong>Auditing Standards Compliance:</strong> Standardized engagement contracts governed by <strong>ISA 210</strong> (Agreeing the Terms of Audit Engagements) or <strong>ISRS 4400</strong> (Agreed-Upon Procedures).
+              </div>
+
+              <div className="grid2">
+                <label>
+                  Engagement Letter Template
+                  <select
+                    className="input"
+                    value={elTemplate}
+                    onChange={e => setElTemplate(e.target.value as any)}
+                  >
+                    <option value="ISA 210 External Statutory Audit">ISA 210 External Statutory Audit</option>
+                    <option value="ISRS 4400 Agreed-Upon Procedures">ISRS 4400 Agreed-Upon Procedures / Internal Audit</option>
+                  </select>
+                </label>
+                <label>
+                  Reporting Framework
+                  <select
+                    className="input"
+                    value={elFramework}
+                    onChange={e => setElFramework(e.target.value)}
+                  >
+                    <option value="IFRS (International Financial Reporting Standards)">IFRS (International Financial Reporting Standards)</option>
+                    <option value="IFRS for SMEs">IFRS for SMEs</option>
+                    <option value="Local Commercial Companies Law / Qatar GAAP">Local Commercial Companies Law / Qatar GAAP</option>
+                  </select>
+                </label>
+              </div>
+
+              <div className="grid2">
+                <label>
+                  Signing Partner Name &amp; Title
+                  <input
+                    className="input"
+                    value={elPartnerSignature}
+                    onChange={e => setElPartnerSignature(e.target.value)}
+                    placeholder="e.g. Daniel James, Licensed Partner"
+                  />
+                </label>
+                <div style={{ display: 'flex', alignItems: 'center', paddingTop: 20 }}>
+                  <label className="row" style={{ gap: 8, cursor: 'pointer' }}>
+                    <input
+                      type="checkbox"
+                      checked={elFirmStamp}
+                      onChange={e => setElFirmStamp(e.target.checked)}
+                    />
+                    <span>Affix STE Audit &amp; Accounting Firm Seal / Stamp</span>
+                  </label>
+                </div>
+              </div>
+
+              <div className="row" style={{ gap: 10 }}>
+                <button
+                  type="button"
+                  className="btn sm primary"
+                  onClick={() => {
+                    try {
+                      prototypeStore.generateEngagementLetter(
+                        selectedEng.id,
+                        elTemplate,
+                        elFramework,
+                        elPartnerSignature,
+                        elFirmStamp
+                      );
+                      setActionError('');
+                    } catch (err: any) {
+                      setActionError(err.message);
+                    }
+                  }}
+                >
+                  Generate &amp; Compile Engagement Letter
+                </button>
+              </div>
+
+              {selectedEng.engagementLetter && (
+                <div className="borderbox p12 stack" style={{ background: '#f8fafc', gap: 8 }}>
+                  <div className="between">
+                    <strong>Generated Document: {selectedEng.engagementLetter.template}</strong>
+                    <span className="caption">Generated on {new Date(selectedEng.engagementLetter.generatedAt).toLocaleString()} by {selectedEng.engagementLetter.generatedBy}</span>
+                  </div>
+                  <pre style={{ maxHeight: 220, overflowY: 'auto', background: '#fff', padding: 12, borderRadius: 4, fontSize: '12px', whiteSpace: 'pre-wrap', border: '1px solid #cbd5e1' }}>
+                    {selectedEng.engagementLetter.content}
+                  </pre>
+                  
+                  <div className="border-top pt12 mt8">
+                    <h4>Client Countersignature &amp; Terms Recording</h4>
+                    {selectedEng.engagementLetter.signedCopyReceived ? (
+                      <div className="badge green mt4">
+                        ✓ Signed Engagement Letter on file: Ref {selectedEng.engagementLetter.signedCopyRef}
+                      </div>
+                    ) : (
+                      <div className="row mt8" style={{ gap: 8 }}>
+                        <input
+                          className="input"
+                          placeholder="Countersigned EL Evidence Reference (e.g. EL-SIGNED-2026-001.pdf)"
+                          value={elEvidenceRef}
+                          onChange={e => setElEvidenceRef(e.target.value)}
+                        />
+                        <button
+                          type="button"
+                          className="btn sm primary"
+                          disabled={!elEvidenceRef.trim()}
+                          onClick={() => {
+                            try {
+                              prototypeStore.recordSignedEngagementLetter(selectedEng.id, elEvidenceRef);
+                              setElEvidenceRef('');
+                              setActionError('');
+                            } catch (err: any) {
+                              setActionError(err.message);
+                            }
+                          }}
+                        >
+                          Record Signed Copy
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+            <div className="modal-foot">
+              <button className="btn sm ghost" onClick={() => setShowElModal(false)}>Close</button>
             </div>
           </div>
         </div>

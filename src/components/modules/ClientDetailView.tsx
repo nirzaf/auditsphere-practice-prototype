@@ -78,6 +78,7 @@ const ClientDetailWorkspace: React.FC<ClientDetailViewProps> = ({ clientId, sear
   const [contactResponsibility, setContactResponsibility] = useState('');
   const [contactEffectiveFrom, setContactEffectiveFrom] = useState('');
   const [contactEffectiveTo, setContactEffectiveTo] = useState('');
+  const [contactRole, setContactRole] = useState<ClientContact['contactRole']>('Other');
   const [contactActive, setContactActive] = useState(true);
   const contactForm = useRef<HTMLFormElement>(null);
   const [customFieldId, setCustomFieldId] = useState(state.customFields.find(f => f.enabled !== false)?.id || '');
@@ -171,7 +172,7 @@ const ClientDetailWorkspace: React.FC<ClientDetailViewProps> = ({ clientId, sear
     if (!showAddContact || !contactForm.current?.reportValidity() || !contactName.trim()) return false;
     try {
       if (editingContactId) {
-        prototypeStore.updateClientContact(client.id, editingContactId, { name: contactName, email: contactEmail, phone: contactPhone, title: contactTitle, responsibility: contactResponsibility, effectiveFrom: contactEffectiveFrom || undefined, effectiveTo: contactEffectiveTo || undefined, active: contactActive });
+        prototypeStore.updateClientContact(client.id, editingContactId, { name: contactName, email: contactEmail, phone: contactPhone, title: contactTitle, responsibility: contactResponsibility, effectiveFrom: contactEffectiveFrom || undefined, effectiveTo: contactEffectiveTo || undefined, active: contactActive, contactRole: contactRole || 'Other' });
       } else {
         const newContact: ClientContact = {
           id: `CNT-${crypto.randomUUID()}`,
@@ -185,7 +186,8 @@ const ClientDetailWorkspace: React.FC<ClientDetailViewProps> = ({ clientId, sear
           effectiveTo: contactEffectiveTo || undefined,
           isPrimary: contacts.length === 0,
           active: true,
-          portalAccessRequested: false
+          portalAccessRequested: false,
+          contactRole: contactRole || 'Other'
         };
         prototypeStore.addContact(newContact);
       }
@@ -200,14 +202,15 @@ const ClientDetailWorkspace: React.FC<ClientDetailViewProps> = ({ clientId, sear
     setContactResponsibility('');
     setContactEffectiveFrom('');
     setContactEffectiveTo('');
+    setContactRole('Other');
     setContactActive(true);
     return true;
-  }, [showAddContact, editingContactId, contactName, contactEmail, contactPhone, contactTitle, contactResponsibility, contactEffectiveFrom, contactEffectiveTo, contactActive, contacts.length, client.id]);
+  }, [showAddContact, editingContactId, contactName, contactEmail, contactPhone, contactTitle, contactResponsibility, contactEffectiveFrom, contactEffectiveTo, contactRole, contactActive, contacts.length, client.id]);
   const discardContact = useCallback(() => {
     setShowAddContact(false);
     setEditingContactId(null);
     setContactName(''); setContactEmail(''); setContactTitle(''); setContactResponsibility('');
-    setContactPhone(''); setContactActive(true);
+    setContactPhone(''); setContactRole('Other'); setContactActive(true);
     setContactEffectiveFrom(''); setContactEffectiveTo('');
   }, []);
   useEffect(() => {
@@ -220,7 +223,7 @@ const ClientDetailWorkspace: React.FC<ClientDetailViewProps> = ({ clientId, sear
     return () => onRegisterUnsavedForm(null, 'client-contact');
   }, [onRegisterUnsavedForm, showAddContact, editingContactId, contactName, contactEmail, contactPhone, contactTitle, contactResponsibility, contactEffectiveFrom, contactEffectiveTo, saveContact, discardContact]);
   const editContact = (contact: ClientContact) => {
-    setEditingContactId(contact.id); setContactName(contact.name); setContactEmail(contact.email); setContactPhone(contact.phone || ''); setContactTitle(contact.title || ''); setContactResponsibility(contact.responsibility || ''); setContactEffectiveFrom(contact.effectiveFrom || ''); setContactEffectiveTo(contact.effectiveTo || ''); setContactActive(contact.active); setShowAddContact(true);
+    setEditingContactId(contact.id); setContactName(contact.name); setContactEmail(contact.email); setContactPhone(contact.phone || ''); setContactTitle(contact.title || ''); setContactResponsibility(contact.responsibility || ''); setContactEffectiveFrom(contact.effectiveFrom || ''); setContactEffectiveTo(contact.effectiveTo || ''); setContactRole(contact.contactRole || 'Other'); setContactActive(contact.active); setShowAddContact(true);
   };
   const openAddContact = () => { discardContact(); setShowAddContact(true); };
   const handleAddContact = (e: React.FormEvent) => { e.preventDefault(); saveContact(); };
@@ -390,6 +393,7 @@ const ClientDetailWorkspace: React.FC<ClientDetailViewProps> = ({ clientId, sear
                 <div><label>Registration Number</label><span>{client.registrationNumber || 'N/A'}</span></div>
                 <div><label>Jurisdiction</label><span>{client.jurisdiction}</span></div>
                 <div><label>Industry</label><span>{client.industry}</span></div>
+                <div><label>Corporate Hierarchy</label><span><span className="badge blue">{client.entityRole || 'Standalone'}</span>{client.parentClientId && ` · Sub of ${state.clients.find(c => c.id === client.parentClientId)?.name || client.parentClientId}`}</span></div>
                 <div><label>Annual Revenue</label><span>{formatCurrency(client.revenue)}</span></div>
                 <div><label>Relationship Owner</label><span>{client.relationshipOwner}</span></div>
                 <div><label>Engagement Partner</label><span>{client.partner || 'Daniel James'}</span></div>
@@ -538,7 +542,12 @@ const ClientDetailWorkspace: React.FC<ClientDetailViewProps> = ({ clientId, sear
                     <td>{c.title || 'Finance'}</td>
                     <td>{c.email}</td>
                     <td>{c.phone || '—'}</td>
-                    <td>{c.responsibility || 'Management Contact'}</td>
+                    <td>
+                      {c.responsibility || 'Management Contact'}
+                      {c.contactRole && c.contactRole !== 'Other' && (
+                        <div className="mt4"><span className="badge blue" title="Firm communication routing rule">{c.contactRole}</span></div>
+                      )}
+                    </td>
                     <td>{c.effectiveFrom || 'No start'} – {c.effectiveTo || 'Open ended'}</td>
                     <td>
                       <span className={`badge ${c.portalAccessRequested ? 'amber' : 'gray'}`}>
@@ -943,6 +952,15 @@ const ClientDetailWorkspace: React.FC<ClientDetailViewProps> = ({ clientId, sear
                   />
                 </div>
                 <label className="caption">Phone<input type="tel" className="input" aria-label="Contact phone" value={contactPhone} onChange={e => setContactPhone(e.target.value)} /></label>
+                <div>
+                  <label className="caption">Communication Routing Role</label>
+                  <select className="input" aria-label="Communication Routing Role" value={contactRole || 'Other'} onChange={e => setContactRole(e.target.value as any)}>
+                    <option value="Other">Standard Contact</option>
+                    <option value="MD/GM">MD / GM (Firm rule: Routes Proposals & Formal Audit Reports)</option>
+                    <option value="CFO/Finance Director">CFO / Finance Director (Firm rule: Routes Invoices & Receipts)</option>
+                    <option value="Chief Accountant/Audit Liaison">Chief Accountant / Liaison (Firm rule: Routes PBC Requests)</option>
+                  </select>
+                </div>
                 <div>
                   <label className="caption">Responsibility</label>
                   <input type="text" className="input" aria-label="Contact responsibility" placeholder="e.g. Financial reporting" value={contactResponsibility} onChange={e => setContactResponsibility(e.target.value)} />

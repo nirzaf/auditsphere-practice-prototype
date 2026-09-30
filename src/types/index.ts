@@ -147,6 +147,7 @@ export interface ClientContact {
   portalAccessRequested?: boolean;
   revision?: number;
   history?: ClientContactHistoryEntry[];
+  contactRole?: 'MD/GM' | 'CFO/Finance Director' | 'Chief Accountant/Audit Liaison' | 'Other';
 }
 
 export interface ClientContactNomination {
@@ -208,6 +209,8 @@ export interface ClientRecord {
   customFields?: Record<string, string | number>;
   relationshipGroupId?: string;
   accountingProfile?: ClientAccountingProfile;
+  entityRole?: 'Holding' | 'Subsidiary' | 'Affiliate' | 'Standalone';
+  parentClientId?: string;
 }
 
 export interface AccountingChartAccount {
@@ -263,6 +266,9 @@ export interface LeadOpportunity {
   stage: 'Inquiry' | 'Discovery' | 'Evaluation' | 'Proposal' | 'Won' | 'Lost' | 'Unqualified';
   owner: string;
   source?: string;
+  intakeChannel?: 'Phone' | 'WhatsApp' | 'Email' | 'Web Form' | 'Referral';
+  entityStructure?: 'Holding' | 'Subsidiary' | 'Affiliate' | 'Standalone';
+  parentEntity?: string;
   targetDate?: string;
   nextAction?: string;
   discoveryNotes?: string;
@@ -352,6 +358,12 @@ export interface ProposalRecord {
   totalAmount: number;
   items: ProposalItem[];
   terms: string;
+  proposalMode?: 'Brief Quotation' | 'Comprehensive Technical Proposal';
+  firmProfile?: string;
+  regulatoryRegistrations?: string[];
+  teamCredentials?: Array<{ name: string; role: string; qualification: string; experience: string }>;
+  industryExperience?: string;
+  auditMethodology?: string;
   period?: string;
   periodStart?: string;
   periodEnd?: string;
@@ -378,7 +390,7 @@ export interface ProposalRecord {
     responseType: 'Accepted' | 'Declined' | 'Withdrawn';
     contact: string;
     date: string;
-    method: 'Email' | 'Meeting' | 'Letter';
+    method: 'Email' | 'WhatsApp' | 'Meeting' | 'Letter';
     notes: string;
     evidenceRef?: string;
     /** Actor and proposal revision captured when the client response was recorded. */
@@ -531,6 +543,17 @@ export interface EngagementRecord {
   agreedFee: number;
   currency: string;
   proposalId?: string;
+  engagementLetter?: {
+    template: 'ISA 210 External Statutory Audit' | 'ISRS 4400 Agreed-Upon Procedures';
+    framework: string;
+    generatedAt: string;
+    generatedBy: string;
+    partnerSignature: string;
+    firmStamp: boolean;
+    signedCopyReceived?: boolean;
+    signedCopyRef?: string;
+    content: string;
+  };
   professionalAcceptance?: { by: string; at: string; evidenceRef: string; proposalRevision: number };
   acceptance: boolean;
   terms: boolean;
@@ -1608,7 +1631,18 @@ export interface AcceptanceCaseRecord {
   conflictsCleared: boolean;
   prohibitionsChecked: boolean;
   competenceConfirmed: boolean;
-  screeningEvidence?: Partial<Record<'amlKyc' | 'independence' | 'conflicts' | 'prohibitions' | 'competence', string>>;
+  managementIntegrityConfirmed?: boolean;
+  financialViabilityConfirmed?: boolean;
+  continuanceDeltaChecklist?: {
+    priorFeesSettled: boolean;
+    managementShareholdingUnchanged: boolean;
+    noNewLoansCovenants: boolean;
+    noPendingLitigation: boolean;
+    noFraudInvestigations: boolean;
+    noRegulatoryInquiries: boolean;
+    deltaExplanations?: string;
+  };
+  screeningEvidence?: Partial<Record<'amlKyc' | 'independence' | 'conflicts' | 'prohibitions' | 'competence' | 'managementIntegrity' | 'financialViability', string>>;
   conditions: string[];
   recommendationBy: string;
   recommendationDate: string;

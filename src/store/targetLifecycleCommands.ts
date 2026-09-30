@@ -638,7 +638,7 @@ export class TargetLifecycleCommands {
   public generateSample(
     engagementId: string,
     populationId: string,
-    method: 'Random' | 'Monetary Unit Sampling' | 'Stratified',
+    method: 'Random' | 'Monetary Unit Sampling' | 'Stratified' | 'Systematic Random Sampling' | 'Stratified Attribute Sampling',
     count: number,
     seed: number
   ) {
@@ -661,7 +661,7 @@ export class TargetLifecycleCommands {
       count < 1 ||
       count > population.items.length ||
       !Number.isInteger(seed) ||
-      !['Random', 'Monetary Unit Sampling', 'Stratified'].includes(method)
+      !['Random', 'Monetary Unit Sampling', 'Stratified', 'Systematic Random Sampling', 'Stratified Attribute Sampling'].includes(method)
     )
       throw new GuardError(
         'INVALID_STATE',
@@ -674,12 +674,24 @@ export class TargetLifecycleCommands {
     };
     const items = [...population.items];
     const selected = new Set<string>();
-    if (method === 'Stratified') {
+    if (method === 'Stratified' || method === 'Stratified Attribute Sampling') {
       const ranked = items.sort((a, b) => Math.abs(a.amount) - Math.abs(b.amount));
       for (let n = 0; n < count; n++) {
         const start = Math.floor((n * ranked.length) / count),
           end = Math.floor(((n + 1) * ranked.length) / count);
-        selected.add(ranked[start + Math.floor(random() * (end - start))].id);
+        const idx = start + Math.floor(random() * Math.max(1, end - start));
+        const item = ranked[Math.min(idx, ranked.length - 1)];
+        selected.add(item.id);
+        item.selectionRationale = `Stratified Attribute Sampling: stratum ${n + 1} of ${count}; rank ${idx + 1}; amount ${item.amount}.`;
+      }
+    } else if (method === 'Systematic Random Sampling') {
+      const interval = Math.max(1, Math.floor(items.length / count));
+      const start = Math.floor(random() * interval);
+      for (let n = 0; n < count; n++) {
+        const idx = (start + n * interval) % items.length;
+        const item = items[idx];
+        selected.add(item.id);
+        item.selectionRationale = `Systematic Random Sampling: draw ${n + 1} of ${count}; interval ${interval}; random start ${start}; index ${idx}.`;
       }
     } else if (method === 'Monetary Unit Sampling') {
       if (items.some((i) => i.amount <= 0))
@@ -712,7 +724,10 @@ export class TargetLifecycleCommands {
         const k = Math.floor(random() * (n + 1));
         [items[n], items[k]] = [items[k], items[n]];
       }
-      items.slice(0, count).forEach((i) => selected.add(i.id));
+      items.slice(0, count).forEach((i) => {
+        selected.add(i.id);
+        i.selectionRationale = `Simple Random Sampling: reproducible seed ${seed}.`;
+      });
     }
     for (const item of population.items) {
       item.selected = selected.has(item.id);
@@ -765,47 +780,87 @@ export class TargetLifecycleCommands {
       'Analytical Review',
       'Going Concern'
     ];
-    const programs = areas.map((area, index) => ({
-      id: `AP-${engagementId}-${index + 1}`,
-      engagementId,
-      area,
-      financialStatementLines: [
-        ...new Set(
-          engagement.rows
-            .filter((r) =>
-              area === 'Revenue'
-                ? r.type === 'revenue'
-                : area === 'Purchasing'
-                  ? r.type === 'expense' || /payable|inventory|purchas/i.test(r.name)
-                  : area === 'Fixed Assets'
-                    ? /fixed|plant|equipment|ppe|depreciation/i.test(r.name)
-                    : area === 'Treasury'
-                      ? /cash|bank|loan|borrow/i.test(r.name)
-                      : true
-            )
-            .map((r) => r.mappedStatementLine!)
-        )
-      ],
-      title: `${area} audit program`,
-      leadWorkpaperRef: workpaperId,
-      objective: `Document ${area.toLowerCase()} work, evidence and conclusion.`,
-      procedures: [
-        {
-          id: `PROC-${engagementId}-${index + 1}`,
+    const programs = areas.map((area, index) => {
+      let procedures: Array<{
+        id: string;
+        engagementId: string;
+        title: string;
+        instructions: string;
+        assignee: string;
+        status: 'Not started';
+        linkedWorkpaperId: string;
+      }> = [];
+
+      if (['Revenue', 'Purchasing', 'Fixed Assets', 'Treasury'].includes(area)) {
+        const assertions = [
+          { name: 'Ownership', title: `[Ownership / Rights] Verify legal title, contracts and obligations for ${area.toLowerCase()}`, desc: `Inspect title deeds, agreements, contracts, and registers to verify ownership rights and absence of encumbrances.` },
+          { name: 'Valuation', title: `[Valuation & Allocation] Test measurement, impairment and allocation for ${area.toLowerCase()}`, desc: `Assess accounting estimates, net realizable values, depreciation models, and expected credit loss (ECL) provisions.` },
+          { name: 'Completeness', title: `[Completeness] Reconcile sub-ledgers and test unrecorded items in ${area.toLowerCase()}`, desc: `Reconcile sub-ledgers to GL, test unrecorded liabilities / omitted revenues, and test sequential document matching.` },
+          { name: 'Existence', title: `[Existence] Verify physical existence and independent confirmations for ${area.toLowerCase()}`, desc: `Conduct physical verification, inspect supporting delivery/acceptance records, or obtain independent third-party confirmation.` },
+          { name: 'Cut-off', title: `[Cut-off] Test pre- and post-closing transaction allocation for ${area.toLowerCase()}`, desc: `Sample transactions recorded immediately before and after reporting period-end to ensure correct period accounting.` }
+        ];
+        procedures = assertions.map((a, pIdx) => ({
+          id: `PROC-${engagementId}-${index + 1}-${pIdx + 1}`,
           engagementId,
-          title:
-            area === 'Going Concern'
-              ? 'Evaluate going concern and management assessment'
-              : area === 'Analytical Review'
-                ? 'Perform substantive analytical review'
-                : `Test ${area.toLowerCase()} balances`,
-          instructions: `Record work, evidence, exceptions and conclusion for ${area.toLowerCase()}.`,
+          title: a.title,
+          instructions: a.desc,
           assignee: preparer.name,
           status: 'Not started' as const,
           linkedWorkpaperId: workpaperId
-        }
-      ]
-    }));
+        }));
+      } else if (area === 'Analytical Review') {
+        procedures = [
+          {
+            id: `PROC-${engagementId}-${index + 1}-1`,
+            engagementId,
+            title: '[Analytical Review] Substantive ratio analysis and fluctuation review',
+            instructions: 'Evaluate gross margin, operating ratios, and material budget/comparative variances against audit materiality.',
+            assignee: preparer.name,
+            status: 'Not started' as const,
+            linkedWorkpaperId: workpaperId
+          }
+        ];
+      } else {
+        procedures = [
+          {
+            id: `PROC-${engagementId}-${index + 1}-1`,
+            engagementId,
+            title: '[Going Concern] Evaluate 12-month cash forecast and covenant compliance',
+            instructions: 'Evaluate management going concern assessment, forward liquidity forecast, debt covenants, and operational solvency indicators (ISA 570).',
+            assignee: preparer.name,
+            status: 'Not started' as const,
+            linkedWorkpaperId: workpaperId
+          }
+        ];
+      }
+
+      return {
+        id: `AP-${engagementId}-${index + 1}`,
+        engagementId,
+        area,
+        financialStatementLines: [
+          ...new Set(
+            engagement.rows
+              .filter((r) =>
+                area === 'Revenue'
+                  ? r.type === 'revenue'
+                  : area === 'Purchasing'
+                    ? r.type === 'expense' || /payable|inventory|purchas/i.test(r.name)
+                    : area === 'Fixed Assets'
+                      ? /fixed|plant|equipment|ppe|depreciation/i.test(r.name)
+                      : area === 'Treasury'
+                        ? /cash|bank|loan|borrow/i.test(r.name)
+                        : true
+              )
+              .map((r) => r.mappedStatementLine!)
+          )
+        ],
+        title: `${area} audit program`,
+        leadWorkpaperRef: workpaperId,
+        objective: `Document ${area.toLowerCase()} work, evidence and conclusion.`,
+        procedures
+      };
+    });
     this.state.auditPrograms.push(...programs);
     engagement.workpapers.push({
       id: workpaperId,
@@ -1466,7 +1521,7 @@ export class TargetLifecycleCommands {
             : []),
           'Financial Statements: Statement of Financial Position, Statement of Profit or Loss and Other Comprehensive Income, Statement of Changes in Equity, Statement of Cash Flows, and Notes.',
           'Digital Credentials Embedded:',
-          `• Engagement Partner Signature: [Signed Digitally by Daniel James, Engagement Partner]`,
+          `• Engagement Partner Signature: [Signed Digitally by ${engagement.partner || 'Engagement Partner'}, Engagement Partner]`,
           `• Official Firm Stamp & Seal: STE Audit & Accounting LLC [State of Qatar - QFC Registration QFC-00892]`
         ]
       },
@@ -1698,8 +1753,12 @@ export class TargetLifecycleCommands {
     );
     return artifact;
   }
-  public async simulateFreeze(engagementId: string, asOfDate: string) {
-    let engagement = this.engagement(engagementId, ['records', 'manager', 'partner'], true);
+  public async simulateFreeze(engagementId: string, asOfDate: string, partnerEarlyLock = false) {
+    let engagement = this.engagement(
+      engagementId,
+      partnerEarlyLock ? ['partner'] : ['records', 'manager', 'partner'],
+      true
+    );
     if (!isIsoDate(asOfDate))
       throw new GuardError('INVALID_STATE', 'Choose a valid simulation as-of date.');
     const control = engagement.auditLifecycle!.archiveControl,
@@ -1721,7 +1780,7 @@ export class TargetLifecycleCommands {
         'INVALID_STATE',
         'Archive simulation is forward-only; use a reset scenario for another rehearsal.'
       );
-    if (asOfDate < control.freezeDueDate) {
+    if (!partnerEarlyLock && asOfDate < control.freezeDueDate) {
       control.asOfDate = asOfDate;
       this.event(
         engagement,
@@ -1743,7 +1802,11 @@ export class TargetLifecycleCommands {
       artifacts.push({ record, blob });
     }
     await persistArtifacts(artifacts);
-    engagement = this.engagement(engagementId, ['records', 'manager', 'partner'], true);
+    engagement = this.engagement(
+      engagementId,
+      partnerEarlyLock ? ['partner'] : ['records', 'manager', 'partner'],
+      true
+    );
     if (actor !== this.state.currentUserId || basis !== reportBasis(this.state, engagement))
       throw new GuardError(
         'STALE_REVISION',
@@ -1758,8 +1821,10 @@ export class TargetLifecycleCommands {
     currentControl.history.push({
       at,
       actorUserId: actor,
-      action: 'Simulated 60-day freeze',
-      reason: `Report ${set.id}; report date ${set.reportDate}; due ${currentControl.freezeDueDate}; simulation as-of ${asOfDate}. Browser-local read-only enforcement only.`
+      action: partnerEarlyLock ? 'Partner manual early lock' : 'Simulated 60-day freeze',
+      reason: partnerEarlyLock
+        ? `Report ${set.id}; partner manual early lock executed ahead of 60-day deadline ${currentControl.freezeDueDate}.`
+        : `Report ${set.id}; report date ${set.reportDate}; due ${currentControl.freezeDueDate}; simulation as-of ${asOfDate}. Browser-local read-only enforcement only.`
     });
     const manifest = set.artifacts.map((a) => `${a.deliverable}: ${a.id} / SHA-256 ${a.sha256}`),
       copies = artifacts.map((a) => a.record);
@@ -1786,13 +1851,13 @@ export class TargetLifecycleCommands {
     });
     this.event(
       engagement,
-      'Archive frozen read-only',
+      partnerEarlyLock ? 'Partner manual early archive lock executed' : 'Archive frozen read-only',
       `Simulation as-of ${asOfDate}. No live SharePoint lock or legal compliance verification.`
     );
   }
   public postFirmExpense(input: {
     date: string;
-    category: 'Office rent' | 'Staff salaries' | 'Petty cash' | 'Other expenses';
+    category: 'Office rent' | 'Staff salaries' | 'Petty cash' | 'Other expenses' | 'Partner withdrawals';
     amount: number;
     description: string;
     reference: string;
@@ -1823,7 +1888,7 @@ export class TargetLifecycleCommands {
     requireText(input.reference, 'Expense reference');
     if (
       !isIsoDate(input.date) ||
-      !['Office rent', 'Staff salaries', 'Petty cash', 'Other expenses'].includes(input.category)
+      !['Office rent', 'Staff salaries', 'Petty cash', 'Other expenses', 'Partner withdrawals'].includes(input.category)
     )
       throw new GuardError('INVALID_STATE', 'Use a valid firm expense category and date.');
     if (this.state.firmLedger?.some((e) => e.reference === input.reference.trim()))
