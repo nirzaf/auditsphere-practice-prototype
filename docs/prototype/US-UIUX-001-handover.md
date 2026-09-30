@@ -1,6 +1,6 @@
 # US-UIUX-001 implementation handover
 
-Verified 2026-09-30. Local implementation of the supplied user story; no deployment, push, commit, or human client acceptance is claimed.
+Verified 2026-09-30. Implementation of the supplied user story, published to Cloudflare Pages at the subsequent user request. No push, commit, or human client acceptance is claimed.
 
 ## Revision and authority
 
@@ -50,13 +50,12 @@ Retained target surfaces: overview, acquisition, clients/client-detail, proposal
 
 Email/WhatsApp dispatch, Microsoft 365 provisioning, authentication/personas, signatures, payment and immutable storage remain clearly identified simulations. Local row leases protect the shared browser-store revision; they are not distributed multi-user server locks. Availability is recorded capacity/leave, not an HR integration. There is no live email/payment/storage service or professional audit certification. Browser checks exercise store commands and rendered checkpoints; they do not prove every form interaction or establish a human sign-off.
 
-The subsequent user request integrates suitable files from public/templates as native working references. See [template mapping](project-templates.md). Originals remain unchanged. No production migration or release was performed.
+The subsequent user request integrates suitable files from public/templates as native working references. See [template mapping](project-templates.md). Originals remain unchanged. No production data migration was performed. The prototype Pages release is recorded below.
 
 ## Changed files
 
 Tracked implementation/evidence changes:
 
-- `Client_Requirements.html`
 - `debug_acceptance.ts`
 - `docs/prototype/evidence/target-browser-journey.json`
 - `docs/prototype/evidence/target-frozen-archive.png`
@@ -99,3 +98,7 @@ Tracked implementation/evidence changes:
 - `tests/unit/workflowProgress.test.ts`
 
 New implementation artifacts: `src/components/clientRequirements/requirementsDeck.json`, `tools/generate-requirements-deck.mjs`, `tests/unit/visualParity.test.ts`, `public/Client_Requirements.html`, this handover, supplied-story copy, pinned reference sources and visual evidence folder.
+
+## Pages deployment — 2026-09-30
+
+Published working-tree build to `steaudit-prototype`, production branch, at https://3a787bdb.steaudit-prototype.pages.dev. Live at https://prototype.steaudit.com and https://steaudit-prototype.pages.dev. All three hosts returned HTTP 200 and matched the built HTML and JavaScript entry byte-for-byte. All 33 selected native templates and the standalone deck matched the original build bytes on the custom domain. Staging excluded Office lock files, the unrelated amortization schedule and invalid workbook; original project files were preserved. See [deployment evidence](evidence/target-deployment.json). Changes remain uncommitted.
