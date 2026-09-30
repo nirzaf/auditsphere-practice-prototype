@@ -12,13 +12,14 @@ beforeEach(async () => {
   commands = new TargetLifecycleCommands(() => state, () => {}, writer);
   act(state,'manager'); commands.pinAcceptedProposal(e.id,e.proposalId!); store.saveAcceptanceCase(acceptance(state));
   act(state,'partner'); store.decideAcceptanceCase('ACC-TARGET','Accepted','Independent assessment of all required checks.');
+  store.generateEngagementLetter(e.id, 'ISA 210 External Statutory Audit', 'IFRS', state.currentPerson, true);
   act(state,'billing'); commands.recordAdvance(e.id,{amount:e.agreedFee/2,date:state.asOfDate,method:'Bank transfer',reference:'ADV-PARITY'}); await commands.generateOfficialReceipt(e.id);
   act(state,'admin'); store.simulateM365Verification('sharepoint','success'); store.prepareClientWorkspace(e.client,e.year,e.id); commands.verifyWorkspaceAccess(e.id, 'Verified local simulated evidence workspace.'); act(state,'manager');
   commands.importMappedTB(e.id,[{code:'1000',name:'Cash',type:'asset',balance:100},{code:'3000',name:'Capital',type:'equity',balance:-100}],{fileName:'tb.csv',format:'CSV',sha256:'a'.repeat(64)});
   commands.confirmMapping(e.id,[{code:'1000',line:'Cash'},{code:'3000',line:'Equity'}]);
   store.saveAuditPlan({id:'PLAN-PARITY',engagementId:e.id,version:1,status:'Under review',benchmark:'profit',benchmarkValue:1068420,materialityRate:5,overallMateriality:53000,performanceMaterialityRate:75,performanceMateriality:39750,clearlyTrivialRate:5,clearlyTrivialThreshold:2650,rationales:['Manager rounding within five percent.'],teamAllocations:[{person:'Layla Rahman',role:'Manager',scheduledStart:state.asOfDate,scheduledEnd:state.asOfDate}],timingMilestones:[],significantAreas:[]});
   act(state,'partner'); store.reviewAuditPlan('PLAN-PARITY',true,'Independent Partner approval on current TB.');
-  act(state,'manager'); commands.saveStaffing(e.id,([{userId:'partner',role:'Partner'},{userId:'manager',role:'Manager'},{userId:'reviewer',role:'Senior/Reviewer'},{userId:'preparer',role:'Preparer/Staff'}] as const).map(a=>({...a,phase:'Fieldwork',plannedHours:10,chargeRate:200,costRate:100,startDate:state.asOfDate,endDate:state.asOfDate,capacityHours:40,leaveHours:8,targetUtilizationPct:80})),'Recorded capacity and leave.');
+  act(state,'manager'); commands.saveStaffing(e.id,([{userId:'partner',role:'Partner'},{userId:'manager',role:'Manager'},{userId:'reviewer',role:'Senior/Reviewer'},{userId:'preparer',role:'Preparer/Staff'}] as const).map(a=>({...a,phase:'Fieldwork',plannedHours:10,chargeRate:a.role==='Partner'?1000:a.role==='Manager'?750:a.role==='Senior/Reviewer'?500:200,costRate:100,startDate:state.asOfDate,endDate:state.asOfDate,capacityHours:40,leaveHours:8,targetUtilizationPct:80})),'Recorded capacity and leave.');
 });
 it('persists permitted 53421 to 53000 rounding and rejects invalid bands / nonfinite values',()=>{
  assert.equal(state.auditPlans![0].overallMateriality,53000);
@@ -47,12 +48,25 @@ it('Holding Letters persist revisions and retain critical release blockers',asyn
 });
 it('Analytical Review stores deliberate checklist, actor and source and becomes stale',()=>{
  act(state,'manager'); commands.prepareStandardPrograms(e.id); act(state,'preparer');
- const input={fsli:'Cash',tbSourceVersion:e.sourceVersion,mappingRevision:state.accountMappingRevisions!.at(-1)!.revision,planVersion:1,currentBalance:100,priorBalance:90,varianceAmount:10,variancePct:11.11,analysis:'Corroborated variance to evidence.',isa570Checklist:{operatingCashFlows:true,debtCovenantsCompliant:true,workingCapitalAdequate:true,noMaterialDisruptions:true,conclusion:'Twelve-month forecast corroborates liquidity.'}};
+ const input={fsli:'Cash',tbSourceVersion:e.sourceVersion,mappingRevision:state.accountMappingRevisions!.at(-1)!.revision,planVersion:1,currentBalance:100,variancePct:null,analysis:'Corroborated variance to evidence.',isa570Checklist:{operatingCashFlows:true,debtCovenantsCompliant:true,workingCapitalAdequate:true,noMaterialDisruptions:true,conclusion:'Twelve-month forecast corroborates liquidity.'}};
  assert.throws(()=>store.signOffAnalyticalReview(e.id,{...input,isa570Checklist:{...input.isa570Checklist,operatingCashFlows:null}}),/ISA 570/);
  store.signOffAnalyticalReview(e.id,input); const record=e.auditLifecycle!.analyticalReviews![0];
  assert.equal(record.signedOffByUserId,'preparer'); assert.ok(record.signedOffAt); assert.equal(analyticalReviewIsCurrent(state,e,record),true);
  assert.equal(state.auditPrograms.find(p=>p.area==='Analytical Review')!.procedures[0].status,'In progress','independent review remains required');
  e.sourceVersion++; assert.equal(analyticalReviewIsCurrent(state,e,record),false);
+});
+it('Red estimate requires Manager execution even below materiality; all mapped FSLIs receive assertion coverage', () => {
+  act(state, 'manager'); commands.prepareStandardPrograms(e.id);
+  const equity = state.auditPrograms.find(program => program.financialStatementLines?.includes('Equity') && program.procedures.length === 5)!;
+  assert.ok(equity, 'Uncovered equity FSLI has five assertion procedures');
+  e.rows.find(row => row.mappedStatementLine === 'Cash')!.name = 'Cash impairment estimate';
+  const procedure = state.auditPrograms.find(program => program.area === 'Treasury')!.procedures[0];
+  act(state, 'preparer');
+  assert.throws(() => store.updateAuditProcedureExecution(e.id, procedure.id, 'Estimate assessment performed.', 'Estimate assessment conclusion.', ''), /Manager-level/);
+  assert.equal(procedure.workPerformed, undefined);
+  act(state, 'manager');
+  store.updateAuditProcedureExecution(e.id, procedure.id, 'Estimate assessed with supporting forecast.', 'Estimate assessment conclusion.', '');
+  assert.equal(procedure.workPerformed, 'Estimate assessed with supporting forecast.');
 });
 it('local row leases reject competing actors and stale revisions, and allow expiry/release',()=>{
  act(state,'preparer');commands.toggleRowLock(e.id,'Cash',0); act(state,'reviewer');assert.throws(()=>commands.toggleRowLock(e.id,'Cash',1),/Another auditor/);

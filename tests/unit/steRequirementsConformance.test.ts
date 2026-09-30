@@ -6,7 +6,7 @@ import { createInitialState } from '../../src/store/initialState.js';
 import { prototypeStore } from '../../src/store/prototypeStore.js';
 import { TargetLifecycleCommands } from '../../src/store/targetLifecycleCommands.js';
 import { getRoutedContact } from '../../src/services/contactRouting.js';
-import { opinionValidation } from '../../src/services/targetLifecycle.js';
+import { opinionValidation, fsliRiskLevel } from '../../src/services/targetLifecycle.js';
 import { DECK_SLIDES } from '../../src/components/clientRequirements/deckData.js';
 import type { PrototypeState, LeadOpportunity, ClientRecord, ClientContact, AcceptanceCaseRecord } from '../../src/types/index.js';
 
@@ -199,8 +199,12 @@ describe('STE Audit Management Tool v2.1 Requirements Conformance (All 17 Gaps)'
 
   // Gap 11: Green / Amber / Red algorithm forces critical accounting estimates and high risks to RED
   it('Gap 11: critical accounting estimates and high inherent risks are forced to RED', () => {
-    const financialTsx = readFileSync(join(process.cwd(), 'src/components/target/AuditFinancialView.tsx'), 'utf-8');
-    assert.match(financialTsx, /isCriticalEstimate\s*\|\|\s*isHighInherentRisk/, 'Critical estimates and high inherent risks must trigger RED riskLevel');
+    const engagement = state.engagements[0];
+    engagement.rows = [{ code: 'TEST-ECL', name: 'Expected credit loss estimate', type: 'asset', balance: 1, mappedStatementLine: 'Receivables' }];
+    assert.equal(fsliRiskLevel(state, engagement, 'Receivables'), 'RED');
+    engagement.rows[0].name = 'Trade receivables';
+    state.auditRisks.push({ ...state.auditRisks[0], id: 'RISK-TEST', engagementId: engagement.id, area: 'Receivables', rating: 'Significant' });
+    assert.equal(fsliRiskLevel(state, engagement, 'Receivables'), 'RED');
   });
 
   // Gap 12: TB automated mapping memory

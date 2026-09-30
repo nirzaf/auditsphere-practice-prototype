@@ -7,7 +7,7 @@ import { RETIRED_ROUTE_REDIRECTS, canonicalRoute } from './legacyRoutes';
 // remains inspectable by the browser owner.
 
 import type { PrototypeState, RoleKey, RouteKey } from '../types';
-import { activationBlockers, isFrozen } from './targetLifecycle';
+import { activationBlockers, isFrozen, closeExpiredArchives } from './targetLifecycle';
 
 export interface CommandContext {
   person: string;
@@ -149,8 +149,9 @@ export function requireConsolidationGroupScope(state: PrototypeState, groupId: s
  * Suspended, Closed and Cancelled engagements accept no new professional work.
  */
 export function requireActiveEngagementLifecycle(state: PrototypeState, engagementId: string): void {
+  closeExpiredArchives(state);
   const engagement = state.engagements.find(item => item.id === engagementId);
-  if (engagement && isFrozen(engagement)) throw new GuardError('INVALID_STATE', 'Frozen engagement is read-only.');
+  if (engagement && isFrozen(engagement, state.asOfDate)) throw new GuardError('INVALID_STATE', 'Frozen engagement is read-only.');
   const status = engagement?.lifecycleStatus || 'Active';
   if (status !== 'Active') throw new GuardError('INVALID_STATE', `Engagement ${engagementId} is ${status.toLowerCase()}; professional work is blocked.`);
 }
@@ -187,12 +188,13 @@ export function requireClientScope(state: PrototypeState, clientId: string): voi
 }
 
 export function requireEngagementScope(state: PrototypeState, engagementId: string, action: 'professional' | 'activation' | 'billing' | 'records' | 'administrative' = 'professional'): void {
+  closeExpiredArchives(state);
   const visible = visibleEngagementIds(state);
   if (visible !== 'ALL' && !visible.includes(engagementId)) {
     throw new GuardError('FORBIDDEN_SCOPE', `Engagement "${engagementId}" is outside the current scoped grant.`);
   }
   const targetEngagement = state.engagements.find(item => item.id === engagementId);
-  if (targetEngagement && isFrozen(targetEngagement)) throw new GuardError('INVALID_STATE', 'The engagement archive is frozen and read-only; mutation is blocked.');
+  if (targetEngagement && isFrozen(targetEngagement, state.asOfDate)) throw new GuardError('INVALID_STATE', 'The engagement archive is frozen and read-only; mutation is blocked.');
   if (targetEngagement?.auditLifecycle && action === 'professional') {
     const blockers = activationBlockers(state, targetEngagement);
     if (blockers.length) throw new GuardError('INVALID_STATE', `Engagement activation blocked: ${blockers.join(' ')}`);

@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
+import { persistArtifact, artifactSha256 } from '../../services/artifactStore';
 import { prototypeStore } from '../../store/prototypeStore';
 import type { AuditOpinion } from '../../types/targetLifecycle';
 import { hasAnyRole } from '../../services/guards';
@@ -21,13 +22,7 @@ import {
 export function OpinionDeliverablesView(props: TargetViewProps) {
   const state = prototypeStore.getSnapshot(),
     eng = state.engagements.find((e) => e.id === state.selectedEngagement);
-  if (!eng) return null;
-
-  const opinion = eng.auditLifecycle!.opinions.at(-1),
-    set = currentDeliverables(state, eng),
-    blockers = targetReleaseBlockers(state, eng),
-    frozen = isFrozen(eng),
-    archiveControl = eng.auditLifecycle!.archiveControl;
+  const opinion = eng?.auditLifecycle?.opinions.at(-1);
 
   // Local state for interactive conditional qualification builder
   const [selectedOpinionType, setSelectedOpinionType] = useState<AuditOpinion>(
@@ -35,6 +30,13 @@ export function OpinionDeliverablesView(props: TargetViewProps) {
   );
   const [selectedFsli, setSelectedFsli] = useState<string>(opinion?.focusArea || '');
   const [opinionRationale, setOpinionRationale] = useState<string>(opinion?.basis || '');
+  useEffect(() => {
+    setSelectedOpinionType(opinion?.value || 'Clean');
+    setSelectedFsli(opinion?.focusArea || '');
+    setOpinionRationale(opinion?.basis || '');
+  }, [eng?.id, opinion?.revision]);
+  if (!eng) return null;
+  const set = currentDeliverables(state, eng), blockers = targetReleaseBlockers(state, eng), frozen = isFrozen(eng), archiveControl = eng.auditLifecycle!.archiveControl;
 
   const availableFslis = [
     ...new Set(
@@ -204,7 +206,7 @@ export function OpinionDeliverablesView(props: TargetViewProps) {
         title="Compile Mandatory 5-Part Commercial Deliverables Bundle"
         formId="deliverables"
         button="Authorize & Compile 5-Part Deliverables Bundle"
-        disabled={!hasAnyRole(state, ['manager', 'partner']) || frozen || !opinion || blockers.length > 0}
+        disabled={!hasAnyRole(state, ['partner']) || frozen || !opinion || blockers.length > 0}
         onRegisterUnsavedForm={props.onRegisterUnsavedForm}
         onCommit={(data) =>
           prototypeStore.lifecycle.generateDeliverables(eng.id, value(data, 'reportDate'))
@@ -232,7 +234,7 @@ export function OpinionDeliverablesView(props: TargetViewProps) {
                 {d.basis === reportBasis(state, eng) && set ? 'Current & Certified' : 'Historical Revision'}
               </h3>
               <p className="caption">
-                Report Date: {d.reportDate} · Opinion: {opinion?.value} · Compiled: {d.generatedAt}
+                Report Date: {d.reportDate} · Opinion: {eng.auditLifecycle!.opinions.find(item => item.revision === d.opinionRevision)?.value} · Compiled: {d.generatedAt}
               </p>
             </div>
             <span className="tag green">5-PART CERTIFIED BUNDLE</span>
@@ -286,6 +288,22 @@ export function OpinionDeliverablesView(props: TargetViewProps) {
         </section>
       ))}
 
+      {set && !set.deliveredAt && <TargetForm title="Retain executive-signed representation letter" formId="signed-lor" button="Verify and retain signed LOR" disabled={frozen || !hasAnyRole(state, ['manager', 'partner'])} onRegisterUnsavedForm={props.onRegisterUnsavedForm}
+        onCommit={async data => {
+          const file = data.get('signedLor');
+          if (!(file instanceof File) || !file.size) throw new Error('Select the signed representation file.');
+          if (!['application/pdf', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'].includes(file.type)) throw new Error('Use a PDF or Word representation letter.');
+          const artifact: import('../../types').GeneratedArtifactRecord = { id: `SIGNED-LOR-${crypto.randomUUID()}`, name: file.name, kind: file.type === 'application/pdf' ? 'PDF' : 'DOCX', mimeType: file.type, size: file.size, sha256: await artifactSha256(file) };
+          await persistArtifact(artifact, file);
+          await prototypeStore.lifecycle.recordSignedRepresentation(eng.id, set.id, artifact, value(data, 'executive'), value(data, 'financeExecutive'), value(data, 'inspection'));
+        }}>
+        <p>Export the Word draft onto client letterhead, obtain executive management signatures, then retain the signed copy against this bundle revision.</p>
+        <label className="target-field">Signed PDF or Word letter<input type="file" name="signedLor" accept=".pdf,.docx" required /></label>
+        <Field label="Executive management signatory" name="executive" />
+        <Field label="Finance executive signatory" name="financeExecutive" />
+        <Field label="Signature inspection and source reference" name="inspection" type="textarea" />
+        {eng.auditLifecycle!.signedRepresentations?.filter(record => record.deliverableSetId === set.id).map(record => <p key={record.revision}>v{record.revision} · {record.executive} / {record.financeExecutive} · {record.at} <ArtifactLink artifact={record.artifact} /></p>)}
+      </TargetForm>}
       {/* 60-Day Compliance Archival Timer (ISA 230) */}
       <section className="panel panel-pad" style={{ background: frozen ? '#fef2f2' : '#f0fdf4', border: frozen ? '1px solid #f87171' : '1px solid #86efac' }}>
         <div className="flex-between">

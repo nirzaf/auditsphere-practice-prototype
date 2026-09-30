@@ -54,7 +54,7 @@ export function ReviewSRMView(props: TargetViewProps) {
           <div className="flex-between">
             <h3>{w.title}</h3>
             <strong>
-              v{w.version} · {w.status}
+              v{w.version} · {w.status === 'Changes required' ? 'Under Rework' : w.status}
             </strong>
           </div>
           <p className="caption">

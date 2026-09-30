@@ -45,6 +45,7 @@ async function ready() {
     'Accepted',
     'Independent Partner assessment of all five screening areas.'
   );
+  prototypeStore.generateEngagementLetter(e.id, 'ISA 210 External Statutory Audit', 'IFRS', state.currentPerson, true);
   act(state, 'billing');
   commands.recordAdvance(e.id, {
     amount: e.agreedFee / 2,

@@ -5,7 +5,7 @@ import {
   calculateIncomeStatement,
   formatCurrency
 } from '../../services/calculations';
-import { analyticalReviewIsCurrent, isFrozen, currentPlan } from '../../services/targetLifecycle';
+import { analyticalReviewIsCurrent, isFrozen, currentPlan, fsliRiskLevel } from '../../services/targetLifecycle';
 import { hasAnyRole, visibleEngagementIds } from '../../services/guards';
 import { ActionButton, type TargetViewProps } from './TargetCommon';
 
@@ -45,6 +45,7 @@ export function AuditFinancialView({ onNavigate }: TargetViewProps) {
     comparisons = state.engagements.filter(
       (e) =>
         e.client === eng.client &&
+        e.service === eng.service &&
         e.year < eng.year &&
         e.currency === eng.currency &&
         (visible === 'ALL' || visible.includes(e.id)) &&
@@ -83,27 +84,7 @@ export function AuditFinancialView({ onNavigate }: TargetViewProps) {
           ? ((current - comparative) / Math.abs(comparative)) * 100
           : 0;
 
-      // Risk Stratification according to Section 4.2 Module 2
-      // Green = Balance < TE and Low Inherent Risk (Low Risk)
-      // Amber = Balance >= TE, Low Inherent Risk (Moderate Risk)
-      // Red = Balance >= PM OR High Inherent Risk OR Critical Accounting Estimate (Critical Risk)
-      const isCriticalEstimate = /estimate|provision|fair value|impairment|ecl|expected credit loss|allowance|obsolesc|warranty|goodwill|contingenc|going concern/i.test(line) ||
-        accounts.some(a => /estimate|provision|fair value|impairment|ecl|expected credit loss|allowance|obsolesc|warranty|goodwill|contingenc|going concern/i.test(a.name));
-
-      const isHighInherentRisk = (state.auditRisks || []).some(
-        (risk) =>
-          risk.engagementId === eng.id &&
-          risk.rating === 'Significant' &&
-          (risk.area?.toLowerCase() === line.toLowerCase() ||
-           accounts.some(a => risk.area?.toLowerCase().includes(a.name.toLowerCase())))
-      );
-
-      let riskLevel: 'GREEN' | 'AMBER' | 'RED' = 'GREEN';
-      if (isCriticalEstimate || isHighInherentRisk || (pm && Math.abs(current) >= pm)) {
-        riskLevel = 'RED';
-      } else if (te && Math.abs(current) >= te) {
-        riskLevel = 'AMBER';
-      }
+      const riskLevel = fsliRiskLevel(state, eng, line);
 
       return {
         line,
@@ -538,7 +519,7 @@ export function AuditFinancialView({ onNavigate }: TargetViewProps) {
                   <div>
                     <span className="caption">Variance:</span>
                     <div className="mono font-medium">
-                      {arModal.variancePercent.toFixed(1)}% ({formatCurrency(arModal.variance, eng.currency)})
+                      {arModal.comparative === undefined ? 'Unknown — no prior-period source selected' : `${arModal.comparative === 0 ? 'Percentage undefined (zero prior balance)' : `${arModal.variancePercent.toFixed(1)}%`} (${formatCurrency(arModal.variance, eng.currency)})`}
                     </div>
                   </div>
                 </div>
@@ -593,6 +574,11 @@ export function AuditFinancialView({ onNavigate }: TargetViewProps) {
                 </div>
               </div>
             </div>
+            <div className="p12">
+              <label htmlFor="ar-conclusion">Going concern conclusion and source references</label>
+              <textarea id="ar-conclusion" className="w-full mt4" rows={3} value={arConclusion} onChange={event => setArConclusion(event.target.value)} placeholder="Record the conclusion, explain adverse answers, and identify supporting sources." />
+              {arError && <p role="alert" className="tag red">{arError}</p>}
+            </div>
             <div className="modal-foot">
               <button className="btn sm ghost" onClick={() => setArModal(null)}>Cancel</button>
               <button
@@ -602,8 +588,9 @@ export function AuditFinancialView({ onNavigate }: TargetViewProps) {
                   try {
                     prototypeStore.signOffAnalyticalReview(eng.id, { fsli: arModal.line, tbSourceVersion: eng.sourceVersion,
                       mappingRevision: mapping?.revision, planVersion: plan?.version, comparativeEngagementId: comparison?.id,
-                      currentBalance: arModal.current, priorBalance: arModal.comparative || 0,
-                      varianceAmount: arModal.variance, variancePct: arModal.variancePercent,
+                      comparativeSourceVersion: comparison?.sourceVersion, comparativeMappingRevision: state.accountMappingRevisions?.filter(item => item.engagementId === comparison?.id).at(-1)?.revision,
+                      currentBalance: arModal.current, priorBalance: arModal.comparative,
+                      varianceAmount: comparison ? arModal.variance : undefined, variancePct: comparison && arModal.comparative !== 0 ? arModal.variancePercent : null,
                       analysis: arNotes, isa570Checklist: { ...goingConcernChecklist, conclusion: arConclusion } });
                     setArModal(null); setArError('');
                   } catch (error) { setArError(error instanceof Error ? error.message : 'Sign-off failed'); }

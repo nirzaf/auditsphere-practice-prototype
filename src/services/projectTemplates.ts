@@ -22,5 +22,7 @@ export function templateUrl(template: ProjectTemplate): string {
 
 export function templatesForRoute(route: RouteKey, jurisdiction = ''): readonly ProjectTemplate[] {
   const qfc = /\bQFC\b|Qatar Financial Cent(?:re|er)/i.test(jurisdiction);
-  return PROJECT_TEMPLATES.filter(template => template.routes.includes(route) && (!template.qfcOnly || qfc));
+  return PROJECT_TEMPLATES.filter(template => template.routes.includes(route) && (!template.qfcOnly || qfc)
+    && template.category !== 'QFC resolution'
+    && !(template.category === 'Confirmation request' && /Cash Confirmation|Partners|Related Party/i.test(template.title)));
 }

@@ -627,7 +627,7 @@
   {
     "route": "#reports",
     "width": 760,
-    "documentWidth": 760,
+    "documentWidth": 745,
     "main": true,
     "hiddenIdentity": true,
     "hiddenSearch": true,
@@ -821,7 +821,7 @@
   {
     "route": "#reports",
     "width": 1024,
-    "documentWidth": 1024,
+    "documentWidth": 1009,
     "main": true,
     "hiddenIdentity": true,
     "hiddenSearch": true,
@@ -997,7 +997,7 @@
   {
     "route": "#reports",
     "width": 1440,
-    "documentWidth": 1440,
+    "documentWidth": 1425,
     "main": true,
     "hiddenIdentity": true,
     "hiddenSearch": true,
@@ -1170,7 +1170,7 @@
   {
     "route": "#reports",
     "width": 1920,
-    "documentWidth": 1920,
+    "documentWidth": 1905,
     "main": true,
     "hiddenIdentity": true,
     "hiddenSearch": true,

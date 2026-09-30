@@ -86,14 +86,15 @@ export function EngagementBillingView({ onNavigate, onRegisterUnsavedForm }: Tar
         button="Record payment"
         disabled={!canBill || summary.fee === null}
         onRegisterUnsavedForm={onRegisterUnsavedForm}
-        onCommit={(data) =>
+        onCommit={async (data) => {
           prototypeStore.lifecycle.recordAdvance(engagement.id, {
             amount: amount(data, 'amount'),
             date: value(data, 'date'),
             reference: value(data, 'reference'),
             method: value(data, 'method') as 'Bank transfer'
-          })
-        }
+          });
+          await prototypeStore.lifecycle.generateOfficialReceipt(engagement.id);
+        }}
       >
         <Field
           label="Recorded amount"

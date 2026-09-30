@@ -100,6 +100,7 @@ export type TargetLifecycleState =
   | 'ARCHIVED_READ_ONLY';
 
 export interface DeliverableSet {
+  draftRepresentationArtifact?: GeneratedArtifactRecord;
   id: string;
   revision: number;
   basis: string;
@@ -145,9 +146,11 @@ export interface AnalyticalReviewRecord {
   mappingRevision?: number;
   planVersion?: number;
   comparativeEngagementId?: string;
+  comparativeSourceVersion?: number;
+  comparativeMappingRevision?: number;
   currentBalance: number;
-  priorBalance: number;
-  varianceAmount: number;
+  priorBalance?: number;
+  varianceAmount?: number;
   variancePct: number | null;
   analysis: string;
   isa570Checklist: {
@@ -195,11 +198,13 @@ export interface TargetEngagementLifecycle {
     at: string;
     reason: string;
   }>;
+  milestones?: Array<{ revision: number; cutoff: string; fieldwork: string; draft: string; final: string; reason: string; actorUserId: string; at: string }>;
   managerReviews: ReviewBasisRecord[];
   srms: SRMRecord[];
   partnerClearances: ReviewBasisRecord[];
   opinions: OpinionRecord[];
   deliverables: DeliverableSet[];
+  signedRepresentations?: Array<{ revision: number; deliverableSetId: string; basis: string; artifact: GeneratedArtifactRecord; executive: string; financeExecutive: string; note: string; actorUserId: string; at: string }>;
   holdingLetters?: HoldingLetterRecord[];
   analyticalReviews?: AnalyticalReviewRecord[];
   balanceInvoices: Array<{

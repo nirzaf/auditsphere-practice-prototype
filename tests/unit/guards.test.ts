@@ -1353,7 +1353,7 @@ describe('opportunity and proposal lifecycle (AT-07/AT-08)', () => {
     target.state = createInitialState();
     addAmiraManagerPersona(target.state);
     const id = 'PROP-AT07';
-    const validProposal = { id, title: 'Test proposal', revision: 1, preparedBy: 'Amira Qasim', preparedAt: '2026-09-23', currency: 'QAR', period: 'FY2026', periodStart: '2026-01-01', periodEnd: '2026-12-31', totalAmount: 100, items: [{ id: `${id}-1`, serviceName: 'Audit', description: 'Annual audit', scope: 'Audit of FY2026 statements', exclusions: 'Tax services', deliverables: 'Audit opinion', clientResponsibilities: 'Provide records', dependencies: 'Access to books', period: 'FY2026', periodStart: '2026-01-01', periodEnd: '2026-12-31', feeModel: 'Fixed', quantity: 1, rate: 100, amount: 100 }], terms: 'Payment within 30 days.', state: 'Draft' };
+    const validProposal = { id, deliveryTimeline: 'Draft within 30 days of complete records.', clientId: 'CL-001', title: 'Test proposal', revision: 1, preparedBy: 'Amira Qasim', preparedAt: '2026-09-23', currency: 'QAR', period: 'FY2026', periodStart: '2026-01-01', periodEnd: '2026-12-31', totalAmount: 100, items: [{ id: `${id}-1`, serviceName: 'Audit', description: 'Annual audit', scope: 'Audit of FY2026 statements', exclusions: 'Tax services', deliverables: 'Audit opinion', clientResponsibilities: 'Provide records', dependencies: 'Access to books', period: 'FY2026', periodStart: '2026-01-01', periodEnd: '2026-12-31', feeModel: 'Fixed', quantity: 1, rate: 100, amount: 100 }], terms: 'Payment within 30 days.', state: 'Draft' };
     assert.throws(() => target.addProposal({ ...validProposal, periodEnd: '2025-12-31' }), /period/i, 'reversed proposal dates are rejected');
     assert.throws(() => target.addProposal({ ...validProposal, items: [{ ...validProposal.items[0], periodEnd: '2025-12-31' }] }), /period/i, 'reversed service-line dates are rejected');
     target.addProposal(validProposal);
@@ -1363,6 +1363,7 @@ describe('opportunity and proposal lifecycle (AT-07/AT-08)', () => {
     target.reviewProposal(id, false, '  Clarify the period and deliverables.  ');
     assert.equal(target.state.proposals.find((item: any) => item.id === id).commercialReview.notes, 'Clarify the period and deliverables.');
     assert.equal(target.state.proposals.find((item: any) => item.id === id).commercialReview.approved, false);
+    setPersona(target.state, 'Daniel James');
     target.reviewProposal(id, true);
     target.presentProposal(id);
     const old = structuredClone(target.state.proposals.find((item: any) => item.id === id));

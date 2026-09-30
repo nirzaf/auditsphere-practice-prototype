@@ -12,6 +12,7 @@ export function SchedulingView(props: TargetViewProps) {
   if (!eng) return null;
   const allocations = eng.auditLifecycle!.staffing.at(-1)?.allocations || [],
     metrics = practiceEconomics(state, eng);
+  const milestones = eng.auditLifecycle!.milestones?.at(-1);
   const rows: Array<{
     role: StaffAllocation['role'];
     roles: string[];
@@ -49,29 +50,17 @@ export function SchedulingView(props: TargetViewProps) {
           Tiered Charge-Out Rates Engine: Partner (1,000 QAR/h), Manager (750 QAR/h), Senior (500 QAR/h), Associate (200 QAR/h).
         </p>
 
-        <div className="row mt12" style={{ gap: 12, flexWrap: 'wrap' }}>
-          <div className="panel panel-pad" style={{ flex: '1 1 180px', background: '#f8fafc' }}>
-            <span className="caption">1. Period Cutoff</span>
-            <strong>December 31, {eng.year}</strong>
-            <div className="caption text-muted">Statutory year-end cutoff</div>
-          </div>
-          <div className="panel panel-pad" style={{ flex: '1 1 180px', background: '#f8fafc' }}>
-            <span className="caption">2. Fieldwork Commencement</span>
-            <strong>January Week 1, {eng.year + 1}</strong>
-            <div className="caption text-muted">Onsite testing begins</div>
-          </div>
-          <div className="panel panel-pad" style={{ flex: '1 1 180px', background: '#f8fafc' }}>
-            <span className="caption">3. Draft Report Target</span>
-            <strong>February 15, {eng.year + 1}</strong>
-            <div className="caption text-muted">SRM &amp; manager review</div>
-          </div>
-          <div className="panel panel-pad" style={{ flex: '1 1 180px', background: '#f8fafc' }}>
-            <span className="caption">4. Final Signed Report</span>
-            <strong>March 15, {eng.year + 1}</strong>
-            <div className="caption text-muted">Partner opinion &amp; bundle</div>
-          </div>
+        <div className="grid4 mt12">
+          {(['cutoff', 'fieldwork', 'draft', 'final'] as const).map((key, index) => <div className="panel panel-pad" key={key}>
+            <span className="caption">{['Period cutoff', 'Fieldwork commencement', 'Draft report target', 'Final report target'][index]}</span>
+            <strong>{milestones?.[key] || 'Not scheduled'}</strong>
+          </div>)}
         </div>
-
+        <TargetForm title="Engagement statutory milestones" formId="milestones" button="Save milestone revision" disabled={!hasAnyRole(state, ['manager', 'partner']) || isFrozen(eng, state.asOfDate)} onRegisterUnsavedForm={props.onRegisterUnsavedForm}
+          onCommit={data => prototypeStore.lifecycle.saveMilestones(eng.id, { cutoff: value(data, 'cutoff'), fieldwork: value(data, 'fieldwork'), draft: value(data, 'draft'), final: value(data, 'final') }, value(data, 'reason'))}>
+          {(['cutoff', 'fieldwork', 'draft', 'final'] as const).map(key => <Field key={key} label={key} name={key} type="date" defaultValue={milestones?.[key] || ''} />)}
+          <Field label="Milestone revision reason" name="reason" />
+        </TargetForm>
         {/* Visual Capacity Calendar & Team Availability Schedule */}
         <div className="mt20 borderbox p16" style={{ background: '#fff', borderRadius: 8, border: '1px solid #e2e8f0' }}>
           <div className="flex-between mb12">
@@ -88,7 +77,7 @@ export function SchedulingView(props: TargetViewProps) {
                 <tr>
                   <th>Assigned Professional</th>
                   <th>Practice Role</th>
-                  <th className="text-right">Weekly Capacity</th>
+                  <th className="text-right">Interval Capacity</th>
                   <th className="text-right">Allocated Hours</th>
                   <th className="text-right">Projected Utilization</th>
                   <th>Scheduled Leave / Out-of-Office</th>
@@ -260,7 +249,7 @@ export function SchedulingView(props: TargetViewProps) {
           </strong>
         </div>
         <div className="panel panel-pad">
-          <small>Hours utilization against budget</small>
+          <small>Hours utilization against available capacity</small>
           <strong>
             {metrics.utilization === null ? 'Unknown' : `${metrics.utilization.toFixed(1)}%`}
           </strong>

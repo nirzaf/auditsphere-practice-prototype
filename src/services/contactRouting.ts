@@ -5,6 +5,7 @@
 // - PBC Requests & Evidence -> Chief Accountant / Audit Liaison
 
 import { ClientContact, ClientRecord } from '../types';
+import { GuardError } from './guards';
 
 export type CommunicationCategory = 'proposals_reports' | 'invoices_receipts' | 'pbc_requests';
 
@@ -52,15 +53,15 @@ export function getRoutedContact(
     const titleMatch = contacts.find(c => c.active && /(managing director|general manager|\bmd\b|\bgm\b|ceo|partner|owner)/i.test(c.title || ''));
     if (titleMatch) return titleMatch;
   } else if (category === 'invoices_receipts') {
-    const titleMatch = contacts.find(c => c.active && /(cfo|finance director|finance manager|financial controller|treasurer)/i.test(c.title || ''));
+    const titleMatch = contacts.find(c => c.active && /(\bcfo\b|chief financial officer|finance director)/i.test(c.title || ''));
     if (titleMatch) return titleMatch;
   } else if (category === 'pbc_requests') {
-    const titleMatch = contacts.find(c => c.active && /(chief accountant|senior accountant|accountant|liaison|controller)/i.test(c.title || ''));
+    const titleMatch = contacts.find(c => c.active && /(chief accountant|audit liaison)/i.test(c.title || ''));
     if (titleMatch) return titleMatch;
   }
 
-  // 3. Fall back to primary contact
-  return contacts.find(c => c.active && c.isPrimary) || contacts.find(c => c.active) || contacts[0];
+  // Missing responsibility must be resolved explicitly; never silently route to another role.
+  return undefined;
 }
 
 export function formatContactRoleBadge(contactRole?: ClientContact['contactRole']): { label: string; routing: string } | null {
@@ -73,4 +74,10 @@ export function formatContactRoleBadge(contactRole?: ClientContact['contactRole'
     case 'Chief Accountant/Audit Liaison':
       return { label: 'Chief Accountant', routing: 'PBC Requests & Audit Liaison' };
   }
+}
+
+export function requireRoutedContact(contacts: ClientContact[], category: CommunicationCategory): ClientContact {
+  const contact = getRoutedContact(contacts, category);
+  if (!contact) throw new GuardError('INVALID_STATE', `Assign an active ${ROUTE_RULES.find(rule => rule.category === category)!.targetRole} contact before ${category.replaceAll('_', ' ')} dispatch.`);
+  return contact;
 }

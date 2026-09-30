@@ -21,7 +21,8 @@ it('templates stay in owning audit workflows and QFC forms require the matching 
   assert.equal(templatesForRoute('overview').length, 0);
   assert.equal(templatesForRoute('practice-ledger').length, 0);
   assert.equal(templatesForRoute('engagements', 'Qatar').some(template => template.qfcOnly), false);
-  assert.equal(templatesForRoute('engagements', 'Qatar Financial Centre').filter(template => template.qfcOnly).length, 5);
+  assert.equal(templatesForRoute('engagements', 'Qatar Financial Centre').filter(template => template.qfcOnly).length, 1);
+  assert.equal(templatesForRoute('confirmations').length, 4);
   assert.ok(templatesForRoute('proposals').some(template => template.category === 'Proposal'));
   assert.ok(templatesForRoute('delivery').some(template => template.category === 'Representation letter'));
   assert.ok(templatesForRoute('audit-fieldwork').some(template => /Revenue/.test(template.title)));

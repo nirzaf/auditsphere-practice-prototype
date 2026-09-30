@@ -19,6 +19,7 @@ export function PracticeView(props: TargetViewProps & { ledger?: boolean }) {
     engagements = s.engagements.filter((e) => visible === 'ALL' || visible.includes(e.id));
 
   const [activeLedgerTab, setActiveLedgerTab] = useState<'tb' | 'pl' | 'ar_aging'>('tb');
+  const [reportMonth, setReportMonth] = useState(s.asOfDate.slice(0, 7));
 
   // Compute Practice Trial Balance
   const tbRows = firmTrialBalance(s);
@@ -29,26 +30,28 @@ export function PracticeView(props: TargetViewProps & { ledger?: boolean }) {
   // Revenue = Billed engagement fees
   // Expenses = Office Rent, Staff Salaries, Petty Cash, Other expenses
   const billedRevenue = s.invoices
-    .filter((inv) => inv.status !== 'Draft' && inv.status !== 'Cancelled')
+    .filter(inv => ['Issued', 'Paid'].includes(inv.status) && inv.issueDate?.startsWith(reportMonth) && inv.currency === s.firmSettings.currency)
     .reduce((sum, inv) => sum + inv.amount, 0);
 
-  const rentExpense = tbRows.find((r) => r.account === 'Office rent')?.debit || 0;
-  const salaryExpense = tbRows.find((r) => r.account === 'Staff salaries')?.debit || 0;
-  const pettyCashExpense = tbRows.find((r) => r.account === 'Petty cash')?.debit || 0;
-  const otherExpenses = tbRows.find((r) => r.account === 'Other expenses')?.debit || 0;
-  const partnerWithdrawals = tbRows.find((r) => r.account === 'Partner withdrawals')?.debit || 0;
-  const totalExpenses = rentExpense + salaryExpense + pettyCashExpense + otherExpenses + partnerWithdrawals;
+  const monthRows = firmTrialBalance({ ...s, firmLedger: s.firmLedger?.filter(entry => entry.date.startsWith(reportMonth) && entry.currency === s.firmSettings.currency) });
+  const monthlyBalance = (account: string) => monthRows.find(row => row.account === account)?.balance || 0;
+  const rentExpense = monthlyBalance('Office rent');
+  const salaryExpense = monthlyBalance('Staff salaries');
+  const pettyCashExpense = monthlyBalance('Petty cash');
+  const otherExpenses = monthlyBalance('Other expenses');
+  const partnerWithdrawals = monthlyBalance('Partner withdrawals');
+  const totalExpenses = rentExpense + salaryExpense + pettyCashExpense + otherExpenses;
   const netFirmProfit = billedRevenue - totalExpenses;
 
   // Compute Client Accounts Receivable Aging Schedule (50% Advance & 50% Final Fee)
-  const invoicesWithAging = s.invoices.map((inv) => {
+  const invoicesWithAging = s.invoices.filter(inv => ['Issued', 'Paid'].includes(inv.status)).map((inv) => {
     const desc = inv.description?.toLowerCase() || '';
     const isAdvance = desc.includes('advance') || inv.invoiceNumber.includes('ADV');
     const isFinal = desc.includes('final') || inv.invoiceNumber.includes('FINAL') || inv.invoiceNumber.includes('BAL');
     const invoiceType = isAdvance ? '50% Advance Invoice' : isFinal ? '50% Final Fee Note' : 'Audit Service Invoice';
 
     // Simulated aging based on invoice date
-    const issueDateStr = inv.issueDate || s.asOfDate;
+    const issueDateStr = inv.due;
     const daysOld = Math.max(0, Math.floor((Date.parse(s.asOfDate) - Date.parse(issueDateStr)) / (1000 * 60 * 60 * 24)));
     let agingBucket: 'Current' | '1–30 Days' | '31–60 Days' | '61–90 Days' | '90+ Days' = 'Current';
     if (daysOld > 90) agingBucket = '90+ Days';
@@ -147,7 +150,7 @@ export function PracticeView(props: TargetViewProps & { ledger?: boolean }) {
                   const m = practiceEconomics(s, e);
                   const client = s.clients.find((c) => c.id === e.client);
                   const fee = e.agreedFee;
-                  const varianceHours = m.budgetHours - m.actualHours;
+                  const varianceHours = m.actualHours - m.budgetHours;
                   return (
                     <tr key={e.id} className="hover-row">
                       <td>
@@ -156,7 +159,7 @@ export function PracticeView(props: TargetViewProps & { ledger?: boolean }) {
                       </td>
                       <td className="text-right mono">{m.budgetHours} hrs</td>
                       <td className="text-right mono">{m.actualHours} hrs</td>
-                      <td className="text-right mono" style={{ color: varianceHours >= 0 ? '#15803d' : '#b91c1c' }}>
+                      <td className="text-right mono" style={{ color: varianceHours <= 0 ? '#15803d' : '#b91c1c' }}>
                         {varianceHours > 0 ? `+${varianceHours}` : varianceHours} hrs
                       </td>
                       <td className="text-right mono font-medium">
@@ -183,6 +186,12 @@ export function PracticeView(props: TargetViewProps & { ledger?: boolean }) {
         </section>
       )}
 
+      {!props.ledger && engagements.map(engagement => <section className="panel panel-pad" key={engagement.id}>
+        <h3>{engagement.id} — phase hours (actual minus budget)</h3>
+        <div className="tablewrap"><table><thead><tr><th>Phase</th><th>Budget hours</th><th>Logged hours</th><th>Variance hours</th></tr></thead><tbody>
+          {practiceEconomics(s, engagement).phases.map(row => <tr key={row.phase}><td>{row.phase}</td><td>{row.budget}</td><td>{row.actual}</td><td>{row.variance}</td></tr>)}
+        </tbody></table></div>
+      </section>)}
       {/* VIEW 2: PRACTICE LEDGER & INTERNAL BOOKKEEPING */}
       {props.ledger && (
         <>
@@ -303,7 +312,8 @@ export function PracticeView(props: TargetViewProps & { ledger?: boolean }) {
                 <div className="flex-between mb12">
                   <div>
                     <h4>Internal Firm Profit &amp; Loss Statement ({s.firmSettings.currency})</h4>
-                    <p className="caption">Practice billing revenue vs operational overhead.</p>
+                    <label>Reporting month <input type="month" value={reportMonth} onChange={event => setReportMonth(event.target.value)} required /></label>
+                    <p className="caption">Issued fees and recorded overhead for {reportMonth}. Partner withdrawals require an agreed accounting policy and are disclosed separately.</p>
                   </div>
                   <div className="text-right">
                     <span className="caption">Net Firm Margin:</span>
@@ -332,10 +342,6 @@ export function PracticeView(props: TargetViewProps & { ledger?: boolean }) {
                       <span className="mono text-muted">({formatCurrency(salaryExpense, 'QAR')})</span>
                     </div>
                     <div className="flex-between pl12">
-                      <span>• Partner Drawings &amp; Profit Withdrawals:</span>
-                      <span className="mono text-muted">({formatCurrency(partnerWithdrawals, 'QAR')})</span>
-                    </div>
-                    <div className="flex-between pl12">
                       <span>• Operational Overhead &amp; Administrative Expenses:</span>
                       <span className="mono text-muted">({formatCurrency(otherExpenses, 'QAR')})</span>
                     </div>
@@ -356,6 +362,10 @@ export function PracticeView(props: TargetViewProps & { ledger?: boolean }) {
                     <strong className="mono" style={{ color: netFirmProfit >= 0 ? '#15803d' : '#b91c1c' }}>
                       {formatCurrency(netFirmProfit, 'QAR')}
                     </strong>
+                  </div>
+                  <div className="pt12 border-top flex-between">
+                    <span>Separate disclosure: Partner withdrawals (accounting policy pending):</span>
+                    <span className="mono">{formatCurrency(partnerWithdrawals, 'QAR')}</span>
                   </div>
                 </div>
               </div>

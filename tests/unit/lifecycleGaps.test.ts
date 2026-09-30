@@ -605,7 +605,7 @@ describe('proposal response methods and search person/grant matrix (VP-010/011/0
     const seedClone = structuredClone(state.proposals.find(p => p.state === 'Accepted')!);
     const proposal = { ...seedClone, id: 'PROP-REHEARSAL', revision: 1, state: 'Draft' as any, predecessorId: undefined, presentedBy: undefined, presentedAt: undefined, presentedSnapshot: undefined, clientResponse: undefined, responseHistory: [] as any[] };
     state.proposals.unshift(proposal);
-    setPersona(state, 'Layla Rahman');
+    setPersona(state, 'Daniel James');
     prototypeStore.reviewProposal(proposal.id, true, 'Rehearsal approval');
     setPersona(state, 'Amira Qasim');
     prototypeStore.presentProposal(proposal.id, 'Email');
@@ -620,7 +620,7 @@ describe('proposal response methods and search person/grant matrix (VP-010/011/0
         setPersona(state, 'Amira Qasim');
         prototypeStore.createProposalRevision(active.id, `Re-present after the ${method} withdrawal with corrected fee wording`);
         active = state.proposals.find(p => p.predecessorId === active.id)!;
-        setPersona(state, 'Layla Rahman');
+        setPersona(state, 'Daniel James');
         prototypeStore.reviewProposal(active.id, true, `Rehearsal approval after the ${method} withdrawal`);
         setPersona(state, 'Amira Qasim');
         prototypeStore.presentProposal(active.id, 'Email');
@@ -644,7 +644,7 @@ describe('proposal response methods and search person/grant matrix (VP-010/011/0
     const seedClone = structuredClone(state.proposals.find(p => p.state === 'Accepted')!);
     const draft = { ...seedClone, id: 'PROP-SNAPSHOT', revision: 1, state: 'Draft' as any, predecessorId: undefined, presentedBy: undefined, presentedAt: undefined, presentedSnapshot: undefined, clientResponse: undefined, responseHistory: [] as any[] };
     state.proposals.unshift(draft);
-    setPersona(state, 'Layla Rahman');
+    setPersona(state, 'Daniel James');
     prototypeStore.reviewProposal(draft.id, true, 'Rehearsal approval');
     setPersona(state, 'Amira Qasim');
     prototypeStore.presentProposal(draft.id, 'Email');

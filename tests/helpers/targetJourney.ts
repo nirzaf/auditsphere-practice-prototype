@@ -14,7 +14,7 @@ import {
   targetReleaseBlockers
 } from '../../src/services/targetLifecycle';
 import { calculateBalanceSheet, calculateIncomeStatement } from '../../src/services/calculations';
-export async function runTargetJourney() {
+export async function runTargetJourney(options: { stopAtFieldwork?: boolean } = {}) {
   const baseline = createInitialState();
   store.loadScenario('target-lifecycle');
   let s = (store as any).state as ReturnType<typeof store.getSnapshot>; // Read current records; all journey writes use store commands.
@@ -60,6 +60,8 @@ export async function runTargetJourney() {
     name: 'Rami Nasser',
     active: true
   });
+  store.addContact({ ...baseline.contacts.find(contact => contact.contactRole === 'MD/GM')!, id: 'CONTACT-TARGET-MD', clientId: client.id });
+  store.addContact({ ...baseline.contacts.find(contact => contact.title === 'Chief Financial Officer')!, id: 'CONTACT-TARGET-CFO', clientId: client.id });
   const item = {
     ...baseline.proposals[0].items[0],
     id: 'ITEM-TARGET',
@@ -83,7 +85,7 @@ export async function runTargetJourney() {
     presentedSnapshot: undefined
   };
   store.addProposal(proposal);
-  act('manager');
+  act('partner');
   store.reviewProposal(proposal.id, true, 'Scope and fee reviewed independently.');
   act('relationship');
   store.presentProposal(proposal.id);
@@ -145,6 +147,8 @@ export async function runTargetJourney() {
     'Accepted',
     'Independent Partner acceptance based on complete screening evidence.'
   );
+  store.generateEngagementLetter(e.id, 'ISA 210 External Statutory Audit', 'IFRS', s.currentPerson, true);
+  store.recordSignedEngagementLetter(e.id, 'Synthetic executive-signed engagement letter evidence');
   act('billing');
   store.lifecycle.recordAdvance(e.id, {
     amount: 500,
@@ -277,7 +281,7 @@ export async function runTargetJourney() {
       ...a,
       phase: 'Fieldwork',
       plannedHours: 10,
-      chargeRate: 100,
+      chargeRate: a.role === 'Partner' ? 1000 : a.role === 'Manager' ? 750 : a.role === 'Senior/Reviewer' ? 500 : 200,
       costRate: 50,
       startDate: s.asOfDate,
       endDate: s.asOfDate
@@ -328,13 +332,14 @@ export async function runTargetJourney() {
   if (!s.statementSetRevisions?.length) throw Error('Statement snapshot was not generated.');
   mark('P&L / BS generated with reconciled totals and FSLI drill-down rendered');
   store.lifecycle.prepareStandardPrograms(e.id);
-  act('preparer');
+  act('manager');
+  if (options.stopAtFieldwork) return { engagementId: e.id, checkpoints };
   const wp = e.workpapers[0],
     evidence = s.evidenceCatalogue.find((i) => i.documentId === doc.id)!;
   store.linkWorkpaperEvidence(e.id, wp.id, doc.id);
   store.signOffAnalyticalReview(e.id, { fsli: 'Revenue', tbSourceVersion: e.sourceVersion,
     mappingRevision: s.accountMappingRevisions?.filter(m => m.engagementId === e.id).at(-1)?.revision,
-    planVersion: 2, currentBalance: 1000, priorBalance: 900, varianceAmount: 100, variancePct: 100/900*100,
+    planVersion: 2, currentBalance: 1000, variancePct: null,
     analysis: 'Corroborated revenue fluctuation against client evidence and current-period activity.',
     isa570Checklist: { operatingCashFlows: true, debtCovenantsCompliant: true, workingCapitalAdequate: true, noMaterialDisruptions: true, conclusion: 'Twelve-month cash forecast and financing corroborated with the current evidence.' } });
 
@@ -356,7 +361,7 @@ export async function runTargetJourney() {
       );
     }
   }
-  act('manager');
+  act('reviewer');
   for (const program of s.auditPrograms.filter((p) => p.engagementId === e.id))
     for (const proc of program.procedures)
       store.updateAuditProcedureStatus(
@@ -505,10 +510,34 @@ export async function runTargetJourney() {
   expectBlocked(() => store.lifecycle.selectOpinion(e.id, 'Qualified', '', 'short'), /focus|basis/);
   store.lifecycle.selectOpinion(e.id, 'Clean', '', '');
   await store.lifecycle.generateDeliverables(e.id, s.asOfDate);
+  const compiled = e.auditLifecycle!.deliverables.at(-1)!;
+  const invoice = s.invoices.find(item => item.id === e.auditLifecycle!.balanceInvoices[0].invoiceId)!;
+  if (invoice.status !== 'Draft' || compiled.artifacts.length !== 5) throw Error('Final invoice must remain internal until Partner release.');
+  const reportBlob = await loadVerifiedArtifact(compiled.artifacts[0]);
+  if (!(await reportBlob.text()).includes('Revenue:')) throw Error('Certified report has no audited figures.');
+  const invoiceBlob = await loadVerifiedArtifact(compiled.artifacts[4]);
+  if (!(await invoiceBlob.text()).includes(invoice.invoiceNumber)) throw Error('Bundle uses a different invoice identity.');
+  act('client_finance');
+  await route('portal');
+  [...document.querySelectorAll('button')].find(button => button.textContent?.includes('4. Final Certified Deliverables'))?.click();
+  await new Promise(resolve => setTimeout(resolve, 50));
+  if (document.querySelector('[data-testid="client-release-set"]')) throw Error('Unreleased bundle leaked into the client portal.');
+  act('partner');
+  expectBlocked(() => store.lifecycle.markDeliverablesDelivered(e.id, 'Cannot release without executive signatures.'), /executive-signed/);
+  const signedBlob = (await import('../../src/services/exportService')).createPDFBlob('Synthetic executive-signed LOR', ['Synthetic test fixture: executive management signatures inspected.', 'Demo Managing Director / Omar Nasser', `Engagement ${e.id}; bundle ${compiled.id}`]);
+  const signedArtifact = { id: `SIGNED-${compiled.id}`, name: 'Synthetic_signed_LOR.pdf', kind: 'PDF' as const, mimeType: signedBlob.type, size: signedBlob.size, sha256: await artifactSha256(signedBlob) };
+  await persistArtifact(signedArtifact, signedBlob);
+  await store.lifecycle.recordSignedRepresentation(e.id, compiled.id, signedArtifact, 'Demo Managing Director', 'Omar Nasser', 'Synthetic executive signature inspection for this exact bundle.');
   store.lifecycle.markDeliverablesDelivered(
     e.id,
     'Synthetic delivery to client recorded; no transmission.'
   );
+  act('client_finance');
+  expectBlocked(() => store.uploadPbcResponse(e.id, 'PBC-TARGET', { name: 'after-release.pdf', size: 10, sha256: 'a'.repeat(64) }), /freezes client uploads/);
+  await route('portal');
+  [...document.querySelectorAll('button')].find(button => button.textContent?.includes('4. Final Certified Deliverables'))?.click();
+  await new Promise(resolve => setTimeout(resolve, 50));
+  if (document.querySelectorAll('[data-testid="client-release-set"]').length !== 1) throw Error('Released bundle is missing from the client portal.');
   mark('Partner clearance, explicit Clean opinion and genuine ML/LOR/Audit Report PDFs');
   act('billing');
   await store.lifecycle.generateBalanceInvoice(e.id);

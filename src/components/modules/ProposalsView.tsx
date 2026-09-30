@@ -7,7 +7,7 @@ import { Notice, EmptyTableRow } from '../common/Feedback';
 import { StatusBadge } from '../common/StatusBadge';
 import { formatCurrency } from '../../services/calculations';
 import { UnsavedFormGuard } from '../../services/unsavedFormGuard';
-import { visibleClientIds } from '../../services/guards';
+import { visibleClientIds, hasAnyRole } from '../../services/guards';
 
 interface ProposalsViewProps {
   onNavigate: (route: RouteKey) => void;
@@ -42,6 +42,8 @@ export const ProposalsView: React.FC<ProposalsViewProps> = ({ onNavigate, onRegi
   const [proposalResponsibilities, setProposalResponsibilities] = useState('');
   const [proposalTerms, setProposalTerms] = useState('50% advance deposit payable upon contract signing / EL execution; 50% final balance payable upon issuance of draft audit deliverables bundle.');
   const [proposalMode, setProposalMode] = useState<'Brief Quotation' | 'Comprehensive Technical Proposal'>('Brief Quotation');
+  const [firmHistory, setFirmHistory] = useState('');
+  const [deliveryTimeline, setDeliveryTimeline] = useState('');
   const [firmProfile, setFirmProfile] = useState('Established licensed audit firm authorized under QFC / MOCI / QCB regulations with dedicated audit, assurance and financial advisory practice.');
   const [regulatoryRegistrations, setRegulatoryRegistrations] = useState('QFC Regulatory Authority, Qatar Ministry of Commerce & Industry (MOCI), Qatar Central Bank (QCB) Approved Auditor');
   const [teamCredentials, setTeamCredentials] = useState('Engagement Partner: Daniel James (FCA, 18 yrs exp); Audit Manager: Layla Rahman (CPA, 10 yrs exp); Senior Auditor: Associate (ACCA, 5 yrs exp)');
@@ -68,7 +70,7 @@ export const ProposalsView: React.FC<ProposalsViewProps> = ({ onNavigate, onRegi
   const [templateDraft, setTemplateDraft] = useState<ProposalContentTemplate | null>(null);
   const proposalServices = state.proposalServices || [];
   const proposalTemplates = state.proposalTemplates || [];
-  const proposalDraft = { proposalTitle, proposalLead, proposalScope, proposalExclusions, proposalDeliverables, proposalResponsibilities, proposalTerms, proposalMode, firmProfile, regulatoryRegistrations, teamCredentials, industryExperience, auditMethodology, proposalAmount, proposalCurrency, proposalPeriod, proposalDependencies, proposalFeeModel, proposalQuantity, proposalRate, additionalProposalLines };
+  const proposalDraft = { proposalTitle, proposalLead, proposalScope, proposalExclusions, proposalDeliverables, proposalResponsibilities, proposalTerms, proposalMode, firmProfile, firmHistory, deliveryTimeline, regulatoryRegistrations, teamCredentials, industryExperience, auditMethodology, proposalAmount, proposalCurrency, proposalPeriod, proposalDependencies, proposalFeeModel, proposalQuantity, proposalRate, additionalProposalLines };
   const initialProposalDraft = useRef(JSON.stringify(proposalDraft));
   const saveProposalDraft = () => {
     if (!showNewModal) return true;
@@ -81,7 +83,7 @@ export const ProposalsView: React.FC<ProposalsViewProps> = ({ onNavigate, onRegi
       const item: ProposalItem = { id: `${id}-1`, serviceId: service?.id, serviceRevision: proposalServiceRevision ?? service?.revision, serviceName: service?.name || lead?.service || editing?.items[0]?.serviceName || 'Professional services', description: proposalScope, scope: proposalScope, exclusions: proposalExclusions, deliverables: proposalDeliverables, clientResponsibilities: proposalResponsibilities, dependencies: proposalDependencies, period: proposalPeriod.trim(), periodStart: proposalPeriodStart, periodEnd: proposalPeriodEnd, feeModel: proposalFeeModel, quantity: proposalQuantity, rate: proposalFeeModel === 'Fixed' ? proposalAmount : proposalRate, amount: lineAmount };
       const items = [item, ...additionalProposalLines.map((line, index) => ({ ...line, id: `${id}-${index + 2}` }))];
       const totalAmount = items.reduce((sum, line) => sum + line.amount, 0);
-      const prop: ProposalRecord = { id, leadId: editing?.leadId || lead?.id, clientId: editing?.clientId || lead?.convertedClientId || proposalClientId || undefined, title: proposalTitle.trim(), revision: editing?.revision || 1, predecessorId: editing?.predecessorId, preparedBy: editing?.preparedBy || state.currentPerson, preparedAt: editing?.preparedAt || new Date().toISOString().slice(0, 10), currency: proposalCurrency, totalAmount, items, terms: proposalTerms, teamCredentials, proposalMode, firmProfile: proposalMode === 'Comprehensive Technical Proposal' ? firmProfile : undefined, regulatoryRegistrations: proposalMode === 'Comprehensive Technical Proposal' ? regulatoryRegistrations.split(',').map(s=>s.trim()).filter(Boolean) : undefined, industryExperience: proposalMode === 'Comprehensive Technical Proposal' ? industryExperience : undefined, auditMethodology: proposalMode === 'Comprehensive Technical Proposal' ? auditMethodology : undefined, period: proposalPeriod.trim(), periodStart: proposalPeriodStart, periodEnd: proposalPeriodEnd, templateId: proposalTemplateId || undefined, templateRevision: proposalTemplateRevision, state: 'Draft' };
+      const prop: ProposalRecord = { id, leadId: editing?.leadId || lead?.id, clientId: editing?.clientId || lead?.convertedClientId || proposalClientId || undefined, title: proposalTitle.trim(), revision: editing?.revision || 1, predecessorId: editing?.predecessorId, preparedBy: editing?.preparedBy || state.currentPerson, preparedAt: editing?.preparedAt || new Date().toISOString().slice(0, 10), currency: proposalCurrency, totalAmount, items, terms: proposalTerms, teamCredentials, proposalMode, firmHistory, deliveryTimeline, firmProfile: proposalMode === 'Comprehensive Technical Proposal' ? firmProfile : undefined, regulatoryRegistrations: proposalMode === 'Comprehensive Technical Proposal' ? regulatoryRegistrations.split(',').map(s=>s.trim()).filter(Boolean) : undefined, industryExperience: proposalMode === 'Comprehensive Technical Proposal' ? industryExperience : undefined, auditMethodology: proposalMode === 'Comprehensive Technical Proposal' ? auditMethodology : undefined, period: proposalPeriod.trim(), periodStart: proposalPeriodStart, periodEnd: proposalPeriodEnd, templateId: proposalTemplateId || undefined, templateRevision: proposalTemplateRevision, state: 'Draft' };
       editing ? prototypeStore.updateProposal(prop) : prototypeStore.addProposal(prop);
       setShowNewModal(false);
       setSelectedProposal(prototypeStore.getSnapshot().proposals.find(item => item.id === prop.id) || null);
@@ -101,7 +103,7 @@ export const ProposalsView: React.FC<ProposalsViewProps> = ({ onNavigate, onRegi
     const primary = proposal.items[0];
     if (!primary) return;
     setTeamCredentials(typeof proposal.teamCredentials === 'string' ? proposal.teamCredentials : (proposal.teamCredentials || []).map(t => `${t.name} · ${t.role} · ${t.qualification} · ${t.experience}`).join('; '));
-    setProposalTitle(proposal.title); setProposalLead(proposal.leadId || ''); setProposalClientId(proposal.clientId || ''); setProposalTemplateId(proposal.templateId || ''); setProposalTemplateRevision(proposal.templateRevision); setProposalServiceId(primary.serviceId || proposalServices.find(service => service.name === primary.serviceName)?.id || ''); setProposalServiceRevision(primary.serviceRevision); setProposalScope(primary.scope); setProposalExclusions(primary.exclusions || ''); setProposalDeliverables(primary.deliverables); setProposalResponsibilities(primary.clientResponsibilities || ''); setProposalDependencies(primary.dependencies || ''); setProposalPeriod(primary.period || proposal.period || ''); setProposalPeriodStart(primary.periodStart || proposal.periodStart || ''); setProposalPeriodEnd(primary.periodEnd || proposal.periodEnd || ''); setProposalFeeModel(primary.feeModel); setProposalQuantity(primary.quantity || 1); setProposalRate(primary.rate ?? primary.amount); setProposalAmount(primary.amount); setProposalCurrency(proposal.currency); setProposalTerms(proposal.terms); setProposalMode(proposal.proposalMode || 'Brief Quotation'); if (proposal.firmProfile) setFirmProfile(proposal.firmProfile); if (proposal.regulatoryRegistrations) setRegulatoryRegistrations(proposal.regulatoryRegistrations.join(', ')); if (proposal.industryExperience) setIndustryExperience(proposal.industryExperience); if (proposal.auditMethodology) setAuditMethodology(proposal.auditMethodology); setAdditionalProposalLines(proposal.items.slice(1).map(item=>structuredClone(item))); setShowNewModal(true);
+    setFirmHistory(proposal.firmHistory || ''); setDeliveryTimeline(proposal.deliveryTimeline || ''); setProposalTitle(proposal.title); setProposalLead(proposal.leadId || ''); setProposalClientId(proposal.clientId || ''); setProposalTemplateId(proposal.templateId || ''); setProposalTemplateRevision(proposal.templateRevision); setProposalServiceId(primary.serviceId || proposalServices.find(service => service.name === primary.serviceName)?.id || ''); setProposalServiceRevision(primary.serviceRevision); setProposalScope(primary.scope); setProposalExclusions(primary.exclusions || ''); setProposalDeliverables(primary.deliverables); setProposalResponsibilities(primary.clientResponsibilities || ''); setProposalDependencies(primary.dependencies || ''); setProposalPeriod(primary.period || proposal.period || ''); setProposalPeriodStart(primary.periodStart || proposal.periodStart || ''); setProposalPeriodEnd(primary.periodEnd || proposal.periodEnd || ''); setProposalFeeModel(primary.feeModel); setProposalQuantity(primary.quantity || 1); setProposalRate(primary.rate ?? primary.amount); setProposalAmount(primary.amount); setProposalCurrency(proposal.currency); setProposalTerms(proposal.terms); setProposalMode(proposal.proposalMode || 'Brief Quotation'); if (proposal.firmProfile) setFirmProfile(proposal.firmProfile); if (proposal.regulatoryRegistrations) setRegulatoryRegistrations(proposal.regulatoryRegistrations.join(', ')); if (proposal.industryExperience) setIndustryExperience(proposal.industryExperience); if (proposal.auditMethodology) setAuditMethodology(proposal.auditMethodology); setAdditionalProposalLines(proposal.items.slice(1).map(item=>structuredClone(item))); setShowNewModal(true);
   };
 
   const addProposalServiceLine = () => {
@@ -317,6 +319,7 @@ export const ProposalsView: React.FC<ProposalsViewProps> = ({ onNavigate, onRegi
                           className="btn sm ghost"
                           onClick={() => {
                             setSelectedProposal(p);
+                            setReviewApproved(hasAnyRole(state, ['partner']));
                             setShowReviewModal(true);
                           }}
                         >
@@ -368,7 +371,17 @@ export const ProposalsView: React.FC<ProposalsViewProps> = ({ onNavigate, onRegi
                 <div><label>Total Fee</label><span>{formatCurrency(selectedProposal.presentedSnapshot?.totalAmount ?? selectedProposal.totalAmount, selectedProposal.presentedSnapshot?.currency || selectedProposal.currency)}</span></div>
               </div>
 
-              <h4>Scope, Deliverables &amp; Fees</h4>
+              {(() => {
+                const presented = selectedProposal.presentedSnapshot || selectedProposal;
+                if (presented.proposalMode !== 'Comprehensive Technical Proposal') return null;
+                const team = typeof presented.teamCredentials === 'string' ? presented.teamCredentials : presented.teamCredentials?.map((person: { name: string; role: string; qualification: string; experience: string }) => `${person.name} · ${person.role} · ${person.qualification} · ${person.experience}`).join('\n');
+                return <>{[
+                  ['Firm Profile', presented.firmProfile], ['Firm History', presented.firmHistory],
+                  ['Commercial Registrations', presented.regulatoryRegistrations?.join('\n')], ['Partner / Team CVs', team],
+                  ['Industry Credentials / Portfolio', presented.industryExperience], ['ISA Audit Methodology', presented.auditMethodology]
+                ].map(([heading, content]) => <section key={heading}><h4>{heading}</h4><p style={{whiteSpace:'pre-line'}}>{content || 'Not recorded in this revision'}</p></section>)}</>;
+              })()}
+              <h4>Fee Schedule, Scope &amp; Deliverables</h4>
               <div className="stack" style={{ gap: 10 }}>
                 {(selectedProposal.presentedSnapshot?.items || selectedProposal.items).map(item => (
                   <div key={item.id} className="borderbox" style={{ padding: 12 }}>
@@ -382,6 +395,8 @@ export const ProposalsView: React.FC<ProposalsViewProps> = ({ onNavigate, onRegi
                 ))}
               </div>
 
+              <h4>Deliverables Timeline</h4>
+              <p>{(selectedProposal.presentedSnapshot || selectedProposal).deliveryTimeline || 'Not recorded in this revision'}</p>
               <h4>Standard Terms</h4>
               <p className="sub" style={{ fontSize: 12 }}>{selectedProposal.presentedSnapshot?.terms || selectedProposal.terms}</p>
               <p className="caption">This preview is illustrative. It is not a signed engagement letter, tax/payroll service, recurring-work authorization, payment request or provider-generated document.</p>
@@ -420,7 +435,7 @@ export const ProposalsView: React.FC<ProposalsViewProps> = ({ onNavigate, onRegi
                     value={reviewApproved ? 'approve' : 'return'}
                     onChange={e => setReviewApproved(e.target.value === 'approve')}
                   >
-                    <option value="approve">Approve Proposal for Client Presentation</option>
+                    <option value="approve" disabled={!hasAnyRole(state, ['partner'])}>Partner Authorization for Client Presentation</option>
                     <option value="return">Return for Amendments</option>
                   </select>
                 </div>
@@ -525,10 +540,11 @@ export const ProposalsView: React.FC<ProposalsViewProps> = ({ onNavigate, onRegi
           <label className="caption">Client (optional when an opportunity is not yet converted)<select className="input" value={proposalClientId} onChange={event=>setProposalClientId(event.target.value)}><option value="">No client linked</option>{state.clients.filter(client=>{const visible=visibleClientIds(state);return visible==='ALL'||visible.includes(client.id)}).map(client=><option key={client.id} value={client.id}>{client.name} · {client.id}</option>)}</select></label>
         </div>
 
+        <label className="caption">Deliverables timeline<textarea className="input" rows={2} value={deliveryTimeline} onChange={event => setDeliveryTimeline(event.target.value)} required /></label>
         {proposalMode === 'Comprehensive Technical Proposal' && (
           <div className="panel panel-pad stack" style={{ gap: 8, background: 'var(--surface-sunken)', border: '1px solid var(--border)' }}>
             <h4>Comprehensive Technical Proposal Modules</h4>
-            <label className="caption">Firm Profile &amp; Practice History
+            <label className="caption">Firm History<textarea className="input" rows={2} value={firmHistory} onChange={event => setFirmHistory(event.target.value)} required /></label><label className="caption">Firm Profile
               <textarea className="input" rows={2} value={firmProfile} onChange={e => setFirmProfile(e.target.value)} />
             </label>
             <label className="caption">Regulatory Registrations &amp; Licenses

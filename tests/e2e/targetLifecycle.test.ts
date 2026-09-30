@@ -203,6 +203,31 @@ it(
   },
   { timeout: 10000 }
 );
+it('US-M3-002/003 analytical review form validates, saves and restores deliberate going concern assessment', async () => {
+  await tab.evaluate(`import('/tests/helpers/targetJourney.ts').then(module => module.runTargetJourney({stopAtFieldwork:true}))`);
+  await tab.evaluate(`Array.from(document.querySelectorAll('button')).find(button => button.textContent.includes('[AR Test]')).click()`);
+  await sleep(100);
+  await tab.evaluate(`Array.from(document.querySelectorAll('.modal-foot button')).find(button => button.textContent.includes('Sign Off')).click()`);
+  await sleep(100);
+  assert.match(await tab.evaluate<string>(`document.querySelector('.modal [role="alert"]')?.textContent || ''`), /analysis|ISA 570|conclusion/i);
+  await tab.evaluate(`{
+    const textareas=document.querySelectorAll('.modal textarea');
+    const setter=Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype,'value').set;
+    setter.call(textareas[0],'Revenue supported by current sales ledger and documented management inquiry. Prior-period source is unavailable.');textareas[0].dispatchEvent(new Event('input',{bubbles:true}));
+    setter.call(textareas[1],'Twelve-month forecast and committed financing support going concern; sources: accepted TB and management forecast.');textareas[1].dispatchEvent(new Event('input',{bubbles:true}));
+    for (const select of document.querySelectorAll('.modal select')) { Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype,'value').set.call(select,'true');select.dispatchEvent(new Event('change',{bubbles:true})); }
+  }`);
+  await sleep(100);
+  await tab.evaluate(`Array.from(document.querySelectorAll('.modal-foot button')).find(button => button.textContent.includes('Sign Off')).click()`);
+  await sleep(150);
+  assert.equal(await tab.evaluate<boolean>(`!document.querySelector('.modal #ar-conclusion')`), true);
+  await tab.evaluate(`Array.from(document.querySelectorAll('button')).find(button => button.textContent.includes('[AR Test]')).click()`);
+  await sleep(100);
+  assert.match(await tab.evaluate<string>(`document.querySelector('#ar-conclusion').value`), /Twelve-month forecast/);
+  assert.equal(await tab.evaluate<boolean>(`Array.from(document.querySelectorAll('.modal select')).every(select => select.value === 'true')`), true);
+  await tab.evaluate(`document.querySelector('.modal .icon-btn').click()`);
+}, {timeout: 30000});
+
 it('checks US-UIUX-001 responsive scope and captures twelve required surfaces', async () => {
   await tab.evaluate(`import('/tests/helpers/targetJourney.ts').then(m=>m.runTargetJourney())`);
   const routes = ['overview','proposals','onboarding','audit-planning','financial-statements','audit-fieldwork','reviews','delivery','records','reports','portal','client-requirements'];
@@ -235,14 +260,14 @@ it('checks US-UIUX-001 responsive scope and captures twelve required surfaces', 
 it('offers native workflow templates with working downloads and keeps source examples off the client portal', async () => {
   await tab.evaluate(`import('/src/store/prototypeStore.ts').then(({prototypeStore:s})=>{s.setPersona('superuser');location.hash='confirmations'})`);
   await sleep(150);
-  assert.equal(await tab.evaluate<number>(`document.querySelectorAll('[data-testid=project-templates] a[download]').length`), 9);
+  assert.equal(await tab.evaluate<number>(`document.querySelectorAll('[data-testid=project-templates] a[download]').length`), 4);
   await tab.command('Emulation.setDeviceMetricsOverride', { width: 390, height: 1000, deviceScaleFactor: 1, mobile: false });
   await tab.evaluate(`document.querySelector('[data-testid=project-templates]').open=true`);
   await sleep(100);
   assert.equal(await tab.evaluate<boolean>(`document.documentElement.scrollWidth<=innerWidth+1`), true, 'expanded native template panel fits mobile');
   const templateCapture = await tab.command('Page.captureScreenshot', { format: 'png', captureBeyondViewport: true });
   writeFileSync('docs/prototype/evidence/visual-parity/confirmation-templates-390.png', Buffer.from(templateCapture.data, 'base64'));
-  await tab.evaluate(`document.querySelector('[data-testid=project-templates]').open=true; const search=document.querySelector('[data-testid=project-templates] input'); const setter=Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set;setter.call(search,'Cash');search.dispatchEvent(new Event('input',{bubbles:true}));`);
+  await tab.evaluate(`document.querySelector('[data-testid=project-templates]').open=true; const search=document.querySelector('[data-testid=project-templates] input'); const setter=Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set;setter.call(search,'Bank');search.dispatchEvent(new Event('input',{bubbles:true}));`);
   await sleep(100);
   assert.equal(await tab.evaluate<number>(`document.querySelectorAll('[data-testid=project-templates] a[download]').length`), 1);
   for (const template of PROJECT_TEMPLATES) {

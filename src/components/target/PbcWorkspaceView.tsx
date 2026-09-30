@@ -6,6 +6,7 @@ import { sha256OfFile } from '../../services/fileMetadata';
 import { validatePbcUpload } from '../../services/pbcUpload';
 import { currentDeliverables, isFrozen } from '../../services/targetLifecycle';
 import { formatCurrency } from '../../services/calculations';
+import { getRoutedContact } from '../../services/contactRouting';
 import { ActionButton, ArtifactLink, Field, TargetForm, value, type TargetViewProps } from './TargetCommon';
 
 export function PbcWorkspaceView(props: TargetViewProps & { client?: boolean }) {
@@ -16,15 +17,14 @@ export function PbcWorkspaceView(props: TargetViewProps & { client?: boolean }) 
     );
 
   const client = isClientRole(s.currentRole) || props.client;
-  const contacts = e ? s.contacts.filter((c) => c.clientId === e.client && c.active) : [];
+  const contacts = e ? s.contacts.filter(c => c.clientId === e.client && Boolean(getRoutedContact([c], 'pbc_requests'))) : [];
   const set = e ? currentDeliverables(s, e) : undefined;
   const frozen = e ? isFrozen(e) : false;
-  const isUploadLocked = frozen || Boolean(set?.deliveredAt);
+  const releasedSets = (e?.auditLifecycle?.deliverables || []).filter(d => Boolean(d.deliveredAt));
+  const isUploadLocked = frozen || releasedSets.length > 0;
 
   const [activeClientTab, setActiveClientTab] = useState<'requests' | 'invoices' | 'holding_letters' | 'deliverables'>('requests');
-  const [passwordResetCompleted, setPasswordResetCompleted] = useState<boolean>(() => {
-    return Boolean(s.portalPasswordChanges?.some((p) => p.userId === s.currentUserId));
-  });
+  const passwordResetCompleted = Boolean(s.portalPasswordChanges?.some(p => p.userId === s.currentUserId));
   const [newPassword, setNewPassword] = useState('');
   const [passwordNotice, setPasswordNotice] = useState('');
 
@@ -39,8 +39,8 @@ export function PbcWorkspaceView(props: TargetViewProps & { client?: boolean }) 
   const clientEntity = s.clients.find((c) => c.id === e.client);
   const holdingLetters = (e.auditLifecycle?.holdingLetters || []).filter(l => l.simulatedDispatchStatus === 'Issued (simulated)');
 
-  const invoices = s.invoices.filter((inv) => inv.clientId === e.client);
-  const receipts = s.receipts.filter((r) => r.clientId === e.client);
+  const invoices = s.invoices.filter(inv => inv.clientId === e.client && (inv.engagementId || inv.eng) === e.id && ['Issued', 'Paid'].includes(inv.status));
+  const receipts = s.receipts.filter(r => r.clientId === e.client && r.allocations.length > 0 && r.allocations.every(allocation => invoices.some(inv => inv.id === allocation.invoiceId)));
 
   const handlePasswordReset = (ev: React.FormEvent) => {
     ev.preventDefault();
@@ -49,7 +49,6 @@ export function PbcWorkspaceView(props: TargetViewProps & { client?: boolean }) 
       return;
     }
     prototypeStore.lifecycle.simulatePasswordChange();
-    setPasswordResetCompleted(true);
     setPasswordNotice('Password successfully updated. Document submission access unlocked.');
   };
 
@@ -201,7 +200,7 @@ export function PbcWorkspaceView(props: TargetViewProps & { client?: boolean }) 
             className={`tab-btn ${activeClientTab === 'deliverables' ? 'active' : ''}`}
             onClick={() => setActiveClientTab('deliverables')}
           >
-            4. Final Certified Deliverables ({e.auditLifecycle?.deliverables.length || 0})
+            4. Final Certified Deliverables ({releasedSets.length})
           </button>
         </div>
       )}
@@ -259,7 +258,7 @@ export function PbcWorkspaceView(props: TargetViewProps & { client?: boolean }) 
 
             <div className="stack" style={{ gap: 12 }}>
               {e.pbc
-                .filter((p) => !client || p.status !== 'Draft')
+                .filter(p => !client || !['Draft', 'Cancelled'].includes(p.status))
                 .map((p) => {
                   const badge = getPbcStatusBadge(p);
                   return (
@@ -301,7 +300,7 @@ export function PbcWorkspaceView(props: TargetViewProps & { client?: boolean }) 
                         <div className="mt12 p12 borderbox" style={{ background: '#fef2f2', border: '1px solid #f87171', borderRadius: 4 }}>
                           <strong style={{ color: '#991b1b' }}>⚠️ Auditor Rejection Reason / Clarification Required:</strong>
                           <p className="sub mt4" style={{ color: '#7f1d1d' }}>
-                            {p.thread[p.thread.length - 1]?.text || 'Document incomplete or unreconciled to trial balance. Please re-upload corrected file.'}
+                            {p.clarificationNote || p.thread.filter(item => item.clientVisible && item.kind === 'clarification').at(-1)?.text || 'Ask the audit liaison for the recorded clarification reason.'}
                           </p>
                         </div>
                       )}
@@ -424,6 +423,7 @@ export function PbcWorkspaceView(props: TargetViewProps & { client?: boolean }) 
                 <div>
                   <strong style={{ color: '#047857' }}>Official Receipt: {rec.receiptNumber}</strong>
                   <div className="caption text-muted">Payment Date: {rec.date} · Ref: {rec.externalRef} ({rec.method})</div>
+                  {e.auditLifecycle?.receiptDocuments.filter(document => document.receiptIds.includes(rec.id)).map(document => <ArtifactLink key={document.artifact.id} artifact={document.artifact} />)}
                 </div>
                 <div className="mono font-medium" style={{ color: '#047857' }}>
                   {formatCurrency(rec.amount, rec.currency)}
@@ -475,14 +475,14 @@ export function PbcWorkspaceView(props: TargetViewProps & { client?: boolean }) 
             Certified, sealed, and digitally signed audit reports, management letters, and representation letters.
           </p>
 
-          {e.auditLifecycle?.deliverables && e.auditLifecycle.deliverables.length > 0 ? (
+          {releasedSets.length > 0 ? (
             <div className="stack" style={{ gap: 12 }}>
-              {e.auditLifecycle.deliverables.map((d) => (
-                <div key={d.id} className="borderbox p16" style={{ background: '#f8fafc', borderRadius: 6 }}>
+              {releasedSets.map((d) => (
+                <div key={d.id} data-testid="client-release-set" className="borderbox p16" style={{ background: '#f8fafc', borderRadius: 6 }}>
                   <div className="flex-between">
                     <div>
                       <strong>Final Audit Deliverables Package (Revision v{d.revision})</strong>
-                      <div className="caption text-muted">Certified on {d.reportDate} · Opinion: {e.auditLifecycle?.opinions.at(-1)?.value || 'Clean'}</div>
+                      <div className="caption text-muted">Released on {d.deliveredAt} · Report date: {d.reportDate} · Opinion: {e.auditLifecycle?.opinions.find(o => o.revision === d.opinionRevision)?.value || 'Unavailable'}</div>
                     </div>
                     <span className="tag green">CERTIFIED &amp; SEALED</span>
                   </div>

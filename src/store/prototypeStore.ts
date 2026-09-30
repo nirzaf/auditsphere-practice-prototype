@@ -1,4 +1,7 @@
 import { canonicalRoute } from '../services/legacyRoutes';
+import { closeExpiredArchives } from '../services/targetLifecycle';
+import { fsliRiskLevel } from '../services/targetLifecycle';
+import { requireRoutedContact } from '../services/contactRouting';
 import { TargetLifecycleCommands } from './targetLifecycleCommands';
 // AuditSphere Single Typed Store & Command Boundary
 // VP-002, VP-004, VP-019, VP-056: Single state, guarded actions, reactive subscriptions
@@ -74,6 +77,7 @@ class PrototypeStore {
     // VP-004: one active editing tab. A storage event from another tab surfaces
     // reload/conflict guidance instead of silently overwriting.
     if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
+      window.setInterval(() => { if (closeExpiredArchives(this.state)) this.notify(); }, 60000);
       window.addEventListener('storage', (e) => {
         if (e.key === STORAGE_KEY) {
           this.storageConflict = true;
@@ -205,6 +209,7 @@ class PrototypeStore {
   }
 
   private notify() {
+    closeExpiredArchives(this.state);
     this.persist();
     this.listeners.forEach(fn => fn());
   }
@@ -215,6 +220,7 @@ class PrototypeStore {
   };
 
   public getSnapshot = (): PrototypeState => {
+    if (closeExpiredArchives(this.state)) this.persist();
     return structuredClone(this.state);
   };
 
@@ -1007,7 +1013,8 @@ class PrototypeStore {
     if (prop.leadId && prop.clientId && this.state.leads.find(l => l.id === prop.leadId)?.convertedClientId !== prop.clientId) throw new GuardError('INVALID_STATE', 'Proposal opportunity and client do not match.');
     if (this.state.proposals.some(p => p.id === prop.id)) throw new GuardError('INVALID_STATE', `Proposal "${prop.id}" already exists.`);
     if (!prop.title.trim() || !prop.period?.trim() || !hasValidProposalPeriod(prop.periodStart, prop.periodEnd) || !isProposalCurrency(prop.currency) || (prop.templateId && !Boolean(this.state.proposalTemplates?.some(template => template.id === prop.templateId && template.revision === prop.templateRevision) || this.state.proposalTemplateHistory?.some(template => template.id === prop.templateId && template.revision === prop.templateRevision))) || !prop.items.length || !prop.items.every(item => item.serviceName.trim() && ['Fixed', 'Time & Materials', 'Retainer'].includes(item.feeModel) && item.scope.trim() && item.description.trim() && item.exclusions?.trim() && item.deliverables.trim() && item.clientResponsibilities?.trim() && item.dependencies?.trim() && item.period?.trim() && hasValidProposalPeriod(item.periodStart, item.periodEnd) && isValidMoney(item.amount, true) && Number.isFinite(item.quantity) && (item.quantity || 0) > 0 && isValidMoney(item.rate ?? item.amount, true) && Math.abs(item.amount - (item.feeModel === 'Fixed' ? item.rate ?? item.amount : (item.quantity || 0) * (item.rate || 0))) <= 0.005 && (!item.serviceId || Boolean(this.state.proposalServices?.some(service => service.id === item.serviceId && (!item.serviceRevision || service.revision === item.serviceRevision)) || this.state.proposalServiceHistory?.some(service => service.id === item.serviceId && service.revision === item.serviceRevision)))) || !prop.terms.trim() || !isValidMoney(prop.totalAmount, true) || Math.abs(prop.items.reduce((sum, item) => sum + item.amount, 0) - prop.totalAmount) > 0.005) throw new GuardError('INVALID_STATE', 'Proposal requires a period, supported currency, complete line scope, valid service and reconciled fee calculations.');
-    this.state.proposals.push(prop);
+    if (prop.state !== 'Draft' || prop.presentedSnapshot || prop.clientResponse || prop.commercialReview?.approved || prop.dispatchHistory?.length) throw new GuardError('INVALID_STATE', 'New proposals start as drafts; authorization, dispatch and acceptance require their separate commands.');
+    this.state.proposals.push(structuredClone(prop));
     this.logEvent(`Proposal ${prop.title} drafted (Rev ${prop.revision})`, prop.id);
     this.notify();
   }
@@ -1018,7 +1025,8 @@ class PrototypeStore {
     const index = this.state.proposals.findIndex(item => item.id === prop.id);
     if (index < 0 || this.state.proposals[index].state !== 'Draft') throw new GuardError('INVALID_STATE', 'Only an existing draft proposal can be edited.');
     if (!prop.period?.trim() || !hasValidProposalPeriod(prop.periodStart, prop.periodEnd) || !isProposalCurrency(prop.currency) || (prop.templateId && !Boolean(this.state.proposalTemplates?.some(template => template.id === prop.templateId && template.revision === prop.templateRevision) || this.state.proposalTemplateHistory?.some(template => template.id === prop.templateId && template.revision === prop.templateRevision))) || !prop.items.length || !prop.items.every(item => ['Fixed', 'Time & Materials', 'Retainer'].includes(item.feeModel) && item.scope.trim() && item.exclusions?.trim() && item.deliverables.trim() && item.clientResponsibilities?.trim() && item.dependencies?.trim() && item.period?.trim() && hasValidProposalPeriod(item.periodStart, item.periodEnd) && isValidMoney(item.amount, true) && Number.isFinite(item.quantity) && (item.quantity || 0) > 0 && isValidMoney(item.rate ?? item.amount, true) && Math.abs(item.amount - (item.feeModel === 'Fixed' ? item.rate ?? item.amount : (item.quantity || 0) * (item.rate || 0))) <= 0.005) || !prop.terms.trim() || Math.abs(prop.items.reduce((sum, item) => sum + item.amount, 0) - prop.totalAmount) > 0.005) throw new GuardError('INVALID_STATE', 'Proposal scope, fee calculations, period, currency and terms are required.');
-    this.state.proposals[index] = prop;
+    if (prop.state !== 'Draft' || prop.presentedSnapshot || prop.clientResponse || prop.commercialReview?.approved || prop.dispatchHistory?.some(dispatch => dispatch.revision === prop.revision)) throw new GuardError('INVALID_STATE', 'Draft editing cannot manufacture authorization, dispatch or acceptance.');
+    this.state.proposals[index] = structuredClone(prop);
     this.logEvent(`Proposal ${prop.id} draft updated`, prop.id);
     this.notify();
   }
@@ -1030,7 +1038,10 @@ class PrototypeStore {
     if (!prop) throw new GuardError('INVALID_STATE', `Proposal "${propId}" was not found.`);
     if (!['Email', 'WhatsApp'].includes(channel)) throw new GuardError('INVALID_STATE', 'Proposal dispatch requires Email or WhatsApp.');
     if (prop.state !== 'Approved to send' || !prop.commercialReview?.approved) throw new GuardError('INVALID_STATE', 'Only an approved proposal can be presented.');
+    if (!prop.deliveryTimeline?.trim()) throw new GuardError('INVALID_STATE', 'Record the proposal delivery timeline before dispatch.');
+    if (prop.proposalMode === 'Comprehensive Technical Proposal' && (!prop.firmProfile?.trim() || !prop.firmHistory?.trim() || !prop.regulatoryRegistrations?.length || prop.regulatoryRegistrations.some(value => !value.trim()) || !(typeof prop.teamCredentials === 'string' ? prop.teamCredentials.trim() : prop.teamCredentials?.length) || !prop.industryExperience?.trim() || !prop.auditMethodology?.trim())) throw new GuardError('INVALID_STATE', 'Comprehensive proposal requires firm profile, history, commercial registrations, team CVs, industry portfolio, ISA methodology, fee schedule and delivery timeline before dispatch.');
     if (prop.clientId) requireClientScope(this.state, prop.clientId);
+    const recipient = requireRoutedContact(this.state.contacts.filter(contact => contact.clientId === prop.clientId), 'proposals_reports');
     prop.presentedSnapshot = {
       revision: prop.revision,
       title: prop.title,
@@ -1042,6 +1053,8 @@ class PrototypeStore {
       presentedAt: new Date().toISOString(),
       proposalMode: prop.proposalMode,
       firmProfile: prop.firmProfile,
+      firmHistory: prop.firmHistory,
+      deliveryTimeline: prop.deliveryTimeline,
       regulatoryRegistrations: prop.regulatoryRegistrations ? [...prop.regulatoryRegistrations] : undefined,
       teamCredentials: prop.teamCredentials ? structuredClone(prop.teamCredentials) : undefined,
       industryExperience: prop.industryExperience,
@@ -1050,7 +1063,6 @@ class PrototypeStore {
       periodStart: prop.periodStart,
       periodEnd: prop.periodEnd
     };
-    const recipient = this.state.contacts.find(c => c.clientId === prop.clientId && c.active);
     (prop.dispatchHistory ||= []).push({ recipientContactId: recipient?.id, recipientName: recipient?.name || this.state.leads.find(l => l.id === prop.leadId)?.contact || 'Proposal recipient', channel, revision: prop.revision, dispatchedAt: new Date().toISOString(), simulatedOutcome: 'Delivered (simulated)' });
     prop.state = 'Presented';
     this.logEvent(`Proposal ${prop.id} Rev ${prop.revision} presented`, prop.id);
@@ -1082,6 +1094,7 @@ class PrototypeStore {
     if (prop.clientId) requireClientScope(this.state, prop.clientId);
     // Same-person commercial approval denied even under another role label (VP-011).
     requireIndependentActor(prop.preparedBy, this.state.currentPerson, 'commercially approve this proposal', this.state);
+    if (approved) requireRole(this.state, ['partner'], 'authorize commercial proposals');
     if (prop.state !== 'Draft' && prop.state !== 'Internal review') throw new GuardError('INVALID_STATE', 'Only an unpresented proposal revision can be reviewed.');
     if (!approved && !notes?.trim()) throw new GuardError('INVALID_STATE', 'A return reason is required before a proposal can be sent back for revision.');
     prop.commercialReview = {
@@ -1208,11 +1221,14 @@ class PrototypeStore {
 
     const partnerSigValue = isAssignedPartner && partnerSignature ? partnerSignature : (eng.partner || 'Daniel James');
     const isFirmStampApplied = isAssignedPartner && firmStamp;
+    const reportRecipient = requireRoutedContact(this.state.contacts.filter(contact => contact.clientId === eng.client), 'proposals_reports');
+    const financeRecipient = requireRoutedContact(this.state.contacts.filter(contact => contact.clientId === eng.client), 'invoices_receipts');
 
     const letterContent = [
       `ENGAGEMENT LETTER — ${template.toUpperCase()}`,
       `Date: ${this.state.asOfDate}`,
       `To: The Board of Directors / Executive Management of ${client.name}`,
+      `Attention: ${reportRecipient.name} (${reportRecipient.title || reportRecipient.contactRole})`,
       `Jurisdiction: ${client.jurisdiction || 'State of Qatar'} · Entity Structure: ${client.entityRole || 'Commercial Entity'}`,
       `Financial Reporting Period: ${eng.period} (Year: ${eng.year})`,
       `Applicable Financial Reporting Framework: ${framework}`,
@@ -1239,7 +1255,7 @@ class PrototypeStore {
     ].join('\n');
 
     // Create real persisted 50% advance invoice linked to accepted fee and EL
-    const advanceAmount = Math.round(eng.agreedFee * 0.5);
+    const advanceAmount = Math.round(eng.agreedFee * 0.5 * 100) / 100;
     const invId = `INV-ADV-${eng.id}`;
     let advanceInvoice = this.state.invoices.find(i => i.id === invId);
     if (!advanceInvoice) {
@@ -1249,7 +1265,8 @@ class PrototypeStore {
         invoiceNumber: invNumber,
         clientId: eng.client,
         engagementId: eng.id,
-        eng: eng.service,
+        eng: eng.id,
+        billingDetails: { accountName: client.name, contactName: financeRecipient.name, email: financeRecipient.email, phone: financeRecipient.phone },
         amount: advanceAmount,
         paid: 0,
         due: this.state.asOfDate,
@@ -2066,6 +2083,9 @@ class PrototypeStore {
   public addTimeEntry(entry: TimeEntryItem) {
     requireActiveIdentity(this.state);
     requireEngagementScope(this.state, entry.engagementId);
+    const timeEngagement = this.state.engagements.find(engagement => engagement.id === entry.engagementId);
+    if (!timeEngagement || entry.clientId !== timeEngagement.client || this.state.times.some(record => record.id === entry.id)) throw new GuardError('INVALID_STATE', 'Time requires a unique record and the exact engagement client.');
+    if (entry.auditPhase && !['Planning', 'Fieldwork', 'Review', 'Reporting'].includes(entry.auditPhase)) throw new GuardError('INVALID_STATE', 'Choose a valid audit phase.');
     if (!/^\d{4}-\d{2}-\d{2}$/.test(entry.date) || Number.isNaN(Date.parse(`${entry.date}T00:00:00Z`)) || new Date(`${entry.date}T00:00:00Z`).toISOString().slice(0, 10) !== entry.date || entry.date > this.state.asOfDate) throw new GuardError('INVALID_STATE', 'Time entry date must be a valid date on or before the active scenario date.');
     if (entry.jobId) {
       const job = this.state.jobs.find(item => item.id === entry.jobId && item.engagementId === entry.engagementId);
@@ -2079,6 +2099,17 @@ class PrototypeStore {
     }
     if (!Number.isInteger(entry.durationMinutes) || entry.durationMinutes <= 0 || !entry.activity.trim() || !entry.taskTitle.trim()) throw new GuardError('INVALID_STATE', 'Time entry needs an activity, task, and positive whole-minute duration.');
     if (entry.person !== this.state.currentPerson && !recordPrototypeSuperuserOverride(this.state, `record time for ${entry.person}`)) throw new GuardError('FORBIDDEN_SCOPE', 'A persona can record time only for itself.');
+    entry.recordedByUserId = this.state.currentUserId;
+    entry.recordedAt = new Date().toISOString();
+    if (timeEngagement.auditLifecycle) {
+      const staffing = timeEngagement.auditLifecycle.staffing.at(-1);
+      const allocation = staffing?.allocations.find(record => this.state.users.find(user => user.id === record.userId)?.name === entry.person);
+      entry.chargeOutRole = allocation?.role;
+      entry.billingRatePerHour = allocation?.chargeRate ?? undefined;
+      entry.costRatePerHour = allocation?.costRate ?? undefined;
+      entry.currency = timeEngagement.currency;
+      entry.budgetVersion = staffing?.revision;
+    }
     this.state.times.unshift(entry);
     this.logEvent(`Time entry recorded by ${entry.person} (${entry.durationMinutes} min)`, entry.id);
     this.notify();
@@ -3942,6 +3973,7 @@ class PrototypeStore {
     const eng = this.state.engagements.find(e => e.id === engId);
     if (!eng) return;
     if (eng.auditLifecycle && !eng.auditLifecycle.workspace?.accessVerifiedAt) throw new GuardError('INVALID_STATE', 'Verify the simulated engagement workspace before PBC access.');
+    if (eng.auditLifecycle?.deliverables.some(set => Boolean(set.deliveredAt)) || eng.releases.some(release => release.delivered)) throw new GuardError('INVALID_STATE', 'Final report release permanently freezes client uploads for this engagement.');
     if (eng.auditLifecycle && isClientRole(this.state.currentRole) && !this.state.portalPasswordChanges?.some(p => p.userId === this.state.currentUserId)) throw new GuardError('INVALID_STATE', 'Complete the simulated mandatory password change before uploading.');
     const req = eng.pbc.find(r => r.id === requestId);
     if (!req) throw new GuardError('INVALID_STATE', 'PBC request not found.');
@@ -4050,6 +4082,8 @@ class PrototypeStore {
     if (!request.id?.trim() || this.state.engagements.some(e => e.pbc.some(p => p.id === request.id))) throw new GuardError('INVALID_STATE', 'PBC request ID must be unique.');
     if (!request.title || !request.title.trim() || !request.category.trim() || !request.owner.trim() || !request.contributor?.trim()) throw new GuardError('INVALID_STATE', 'Request title, category, owner and client recipient are required.');
     if (!isActiveClientContact(this.state, eng.client, request.contributor)) throw new GuardError('FORBIDDEN_SCOPE', 'Client recipient must be an active contact assigned to this client.');
+    const liaison = requireRoutedContact(this.state.contacts.filter(contact => contact.clientId === eng.client && contact.name === request.contributor), 'pbc_requests');
+    if (request.contributor !== liaison.name) throw new GuardError('FORBIDDEN_SCOPE', 'PBC requests must be routed to the designated Chief Accountant/Audit Liaison.');
     if (eng.auditLifecycle && !eng.auditLifecycle.workspace?.accessVerifiedAt) throw new GuardError('INVALID_STATE', 'Prepare and verify workspace access before drafting PBC requests.');
     eng.pbc.unshift({ ...request, status: 'Draft', version: 1 });
     this.invalidateReleaseBasis(eng);
@@ -4087,6 +4121,8 @@ class PrototypeStore {
     if (!eng || !req) throw new GuardError('INVALID_STATE', `PBC request "${requestId}" was not found.`);
     if (!req.title.trim() || !req.owner.trim() || !req.contributor?.trim()) throw new GuardError('INVALID_STATE', 'A title, owner, and client recipient are required before presentation.');
     if (!isActiveClientContact(this.state, eng.client, req.contributor)) throw new GuardError('FORBIDDEN_SCOPE', 'Client recipient must be an active contact assigned to this client before presentation.');
+    const liaison = requireRoutedContact(this.state.contacts.filter(contact => contact.clientId === eng.client && contact.name === req.contributor), 'pbc_requests');
+    if (req.contributor !== liaison.name) throw new GuardError('FORBIDDEN_SCOPE', 'PBC recipient no longer matches the designated audit liaison.');
     if (req.status !== 'Draft') throw new GuardError('INVALID_STATE', 'Only draft requests can be presented.');
     if (eng.auditLifecycle && !eng.auditLifecycle.workspace?.accessVerifiedAt) throw new GuardError('INVALID_STATE', 'Verify the engagement workspace before sending PBC requests.');
     req.status = 'Requested';
@@ -4359,6 +4395,17 @@ class PrototypeStore {
     const mapping = this.state.accountMappingRevisions?.filter(m => m.engagementId === engId).at(-1);
     if (input.tbSourceVersion !== eng.sourceVersion || input.planVersion !== plan?.version || input.mappingRevision !== mapping?.revision) throw new GuardError('STALE_REVISION', 'Analytical Review basis changed; reopen the current statements.');
     if (!input.analysis.trim() || !input.isa570Checklist.conclusion.trim() || ['operatingCashFlows', 'debtCovenantsCompliant', 'workingCapitalAdequate', 'noMaterialDisruptions'].some(key => typeof input.isa570Checklist[key as keyof typeof input.isa570Checklist] !== 'boolean')) throw new GuardError('INVALID_STATE', 'Record analysis, all ISA 570 answers and a going concern conclusion.');
+    const lineBalance = (target: EngagementRecord) => target.rows.filter(row => row.mappedStatementLine === input.fsli).reduce((sum, row) => sum + (['liability', 'equity', 'revenue'].includes(row.type) ? -row.balance : row.balance), 0);
+    if (!eng.rows.some(row => row.mappedStatementLine === input.fsli) || !Number.isFinite(input.currentBalance) || Math.abs(lineBalance(eng) - input.currentBalance) > 0.005) throw new GuardError('STALE_REVISION', 'Analytical Review must use the selected FSLI and current mapped balance.');
+    if (input.comparativeEngagementId) {
+      const prior = this.state.engagements.find(item => item.id === input.comparativeEngagementId);
+      const allowed = visibleEngagementIds(this.state);
+      const priorMapping = this.state.accountMappingRevisions?.filter(item => item.engagementId === prior?.id).at(-1);
+      if (!prior || (allowed !== 'ALL' && !allowed.includes(prior.id)) || prior.client !== eng.client || prior.service !== eng.service || prior.currency !== eng.currency || prior.year >= eng.year || !prior.mappingApproved || prior.sourceVersion !== input.comparativeSourceVersion || priorMapping?.revision !== input.comparativeMappingRevision) throw new GuardError('STALE_REVISION', 'Choose an authorized, same-client/service/currency prior period with current comparative source pins.');
+      const balance = lineBalance(prior), variance = input.currentBalance - balance;
+      const pct = balance === 0 ? null : variance / Math.abs(balance) * 100;
+      if (!Number.isFinite(input.priorBalance) || !Number.isFinite(input.varianceAmount) || Math.abs(balance - input.priorBalance!) > 0.005 || Math.abs(variance - input.varianceAmount!) > 0.005 || (pct === null ? input.variancePct !== null : !Number.isFinite(input.variancePct) || Math.abs(pct - input.variancePct!) > 0.01)) throw new GuardError('INVALID_STATE', 'Comparative values and variance must reconcile to the pinned prior-period source.');
+    } else if (input.priorBalance !== undefined || input.varianceAmount !== undefined || input.variancePct !== null) throw new GuardError('INVALID_STATE', 'An unavailable prior period remains Unknown; select a source before recording comparative figures.');
     const procedure = this.state.auditPrograms.filter(p => p.engagementId === engId && p.area === 'Analytical Review').flatMap(p => p.procedures).find(p => p.status !== 'Cleared');
     if (!procedure) throw new GuardError('INVALID_STATE', 'Prepare an open Analytical Review procedure before signing off.');
     this.updateAuditProcedureExecution(engId, procedure.id, input.analysis, input.isa570Checklist.conclusion, '');
@@ -4371,13 +4418,16 @@ class PrototypeStore {
 
   public updateAuditProcedureExecution(engId: string, procedureId: string, workPerformed: string, conclusion: string, evidenceLimitation: string) {
     requireActiveIdentity(this.state);
-    requireRole(this.state, ['preparer', 'manager'], 'record procedure fieldwork');
+    requireRole(this.state, ['preparer', 'manager', 'reviewer'], 'record procedure fieldwork');
     requireEngagementScope(this.state, engId);
     const targetEngagement = this.state.engagements.find(e => e.id === engId);
     if (targetEngagement?.auditLifecycle) { const blockers = fieldworkBlockers(this.state, targetEngagement); if (blockers.length) throw new GuardError('INVALID_STATE', blockers.join(' ')); }
     const procedure = this.state.auditPrograms.find(p => (p.engagementId === engId || (!p.engagementId && engId === this.state.engagements[0]?.id)) && p.procedures.some(item => item.id === procedureId))?.procedures.find(p => p.id === procedureId);
     if (!procedure) throw new GuardError('INVALID_STATE', 'Procedure was not found in the selected engagement.');
     if (!workPerformed.trim() || !conclusion.trim()) throw new GuardError('INVALID_STATE', 'Record work performed and a conclusion.');
+    const executionProgram = this.state.auditPrograms.find(program => program.engagementId === engId && program.procedures.some(item => item.id === procedureId));
+    if (targetEngagement?.auditLifecycle && executionProgram?.financialStatementLines?.some(line => fsliRiskLevel(this.state, targetEngagement, line) === 'RED') && !hasAnyRole(this.state, ['manager'])) throw new GuardError('FORBIDDEN_SCOPE', 'Red FSLI procedures require Manager-level execution and subsequent Partner review.');
+    if (targetEngagement?.auditLifecycle && executionProgram?.financialStatementLines?.some(line => fsliRiskLevel(this.state, targetEngagement, line) === 'AMBER') && !hasAnyRole(this.state, ['reviewer', 'manager'])) throw new GuardError('FORBIDDEN_SCOPE', 'Amber FSLI procedures require Senior or Manager execution.');
     const previous = { status: procedure.status, workPerformed: procedure.workPerformed, conclusion: procedure.conclusion, evidenceLimitation: procedure.evidenceLimitation };
     procedure.workPerformed = workPerformed.trim();
     procedure.conclusion = conclusion.trim();
@@ -4402,6 +4452,8 @@ class PrototypeStore {
     if (targetEngagement?.auditLifecycle) { const blockers = fieldworkBlockers(this.state, targetEngagement); if (blockers.length) throw new GuardError('INVALID_STATE', blockers.join(' ')); }
     const procedure = this.state.auditPrograms.find(p => (p.engagementId === engId || (!p.engagementId && engId === this.state.engagements[0]?.id)) && p.procedures.some(item => item.id === procedureId))?.procedures.find(p => p.id === procedureId);
     if (!procedure) throw new GuardError('INVALID_STATE', 'Procedure was not found in the selected engagement.');
+    const executionProgram = this.state.auditPrograms.find(program => program.engagementId === engId && program.procedures.some(item => item.id === procedureId));
+    if (status === 'Submitted' && targetEngagement?.auditLifecycle && executionProgram?.financialStatementLines?.some(line => fsliRiskLevel(this.state, targetEngagement, line) === 'RED') && !hasAnyRole(this.state, ['manager'])) throw new GuardError('FORBIDDEN_SCOPE', 'Red FSLI procedures require Manager-level execution and subsequent Partner review.');
     const previous = { status: procedure.status, workPerformed: procedure.workPerformed, conclusion: procedure.conclusion, evidenceLimitation: procedure.evidenceLimitation };
     const isReturn = (procedure.status === 'Submitted' || procedure.status === 'Cleared') && ['Not started', 'In progress', 'Blocked'].includes(status);
     if (isReturn) {
@@ -4411,7 +4463,7 @@ class PrototypeStore {
       procedure.returnedAt = new Date().toISOString();
     }
     if (status === 'Submitted') {
-      requireRole(this.state, ['preparer', 'manager'], 'submit procedure fieldwork');
+      requireRole(this.state, ['preparer', 'manager', 'reviewer'], 'submit procedure fieldwork');
       if (!procedure.workPerformed?.trim() || !procedure.conclusion?.trim()) throw new GuardError('INVALID_STATE', 'Record work performed and a conclusion before submitting fieldwork.');
       const hasCurrentEvidence = this.state.evidenceCatalogue.some(e => {
         if (!e.linkedProcedures.includes(procedureId) || e.adequacyStatus !== 'Adequate') return false;

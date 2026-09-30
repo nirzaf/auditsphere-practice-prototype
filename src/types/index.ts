@@ -369,6 +369,8 @@ export interface ProposalRecord {
   terms: string;
   proposalMode?: 'Brief Quotation' | 'Comprehensive Technical Proposal';
   firmProfile?: string;
+  firmHistory?: string;
+  deliveryTimeline?: string;
   regulatoryRegistrations?: string[];
   teamCredentials?: Array<{ name: string; role: string; qualification: string; experience: string }> | string;
   industryExperience?: string;
@@ -390,6 +392,8 @@ export interface ProposalRecord {
     presentedAt: string;
     proposalMode?: 'Brief Quotation' | 'Comprehensive Technical Proposal';
     firmProfile?: string;
+    firmHistory?: string;
+    deliveryTimeline?: string;
     regulatoryRegistrations?: string[];
     teamCredentials?: any;
     industryExperience?: string;
@@ -922,6 +926,10 @@ export interface TimeEntryItem {
   billable: boolean;
   activity: string;
   fsli?: string;
+  auditPhase?: 'Planning' | 'Fieldwork' | 'Review' | 'Reporting';
+  recordedByUserId?: string;
+  recordedAt?: string;
+  chargeOutRole?: 'Partner' | 'Manager' | 'Senior/Reviewer' | 'Preparer/Staff';
   narrative?: string;
   status: 'Draft' | 'Submitted' | 'Approved' | 'Returned' | 'Superseded';
   reviewedBy?: string;

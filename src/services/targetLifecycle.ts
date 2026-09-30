@@ -6,6 +6,7 @@ import type {
   TargetLifecycleState
 } from '../types/targetLifecycle';
 import { isReleaseBlockingFinding } from './findings';
+export const STANDARD_CHARGE_OUT_RATES = { Partner: 1000, Manager: 750, 'Senior/Reviewer': 500, 'Preparer/Staff': 200 } as const;
 
 export const TARGET_STAGES: TargetStageDefinition[] = [
   {
@@ -424,13 +425,27 @@ export function fieldworkBlockers(state: PrototypeState, engagement: EngagementR
     blockers.push('Prepare and verify the simulated engagement workspace for evidence handoff.');
   return blockers;
 }
+export function fsliRiskLevel(state: PrototypeState, engagement: EngagementRecord, fsli: string): 'GREEN' | 'AMBER' | 'RED' {
+  const rows = engagement.rows.filter(row => row.mappedStatementLine === fsli);
+  const balance = Math.abs(rows.reduce((sum, row) => sum + row.balance, 0));
+  const plan = currentPlan(state, engagement);
+  const estimate = /estimate|provision|fair value|impairment|ecl|expected credit loss|allowance|obsolesc|warranty|goodwill|contingenc/i;
+  const critical = estimate.test(fsli) || rows.some(row => estimate.test(row.name));
+  const significant = state.auditRisks.some(risk => risk.engagementId === engagement.id && risk.rating === 'Significant' && (risk.area?.toLowerCase() === fsli.toLowerCase() || rows.some(row => risk.area?.toLowerCase().includes(row.name.toLowerCase()))));
+  if (critical || significant || (plan && balance > plan.overallMateriality)) return 'RED';
+  if (plan && balance >= plan.performanceMateriality) return 'AMBER';
+  return 'GREEN';
+}
 export function scopedPrograms(state: PrototypeState, engagement: EngagementRecord) {
   return state.auditPrograms.filter((p) => p.engagementId === engagement.id);
 }
 /** Canonical material projection: migration-added empty histories must not stale a review. */
 export function analyticalReviewIsCurrent(state: PrototypeState, engagement: EngagementRecord, record: import('../types/targetLifecycle').AnalyticalReviewRecord) {
   const mapping = state.accountMappingRevisions?.filter(m => m.engagementId === engagement.id).at(-1);
-  return record.tbSourceVersion === engagement.sourceVersion && record.mappingRevision === mapping?.revision && record.planVersion === currentPlan(state, engagement)?.version;
+  const prior = state.engagements.find(item => item.id === record.comparativeEngagementId);
+  const priorMapping = state.accountMappingRevisions?.filter(item => item.engagementId === prior?.id).at(-1);
+  return record.tbSourceVersion === engagement.sourceVersion && record.mappingRevision === mapping?.revision && record.planVersion === currentPlan(state, engagement)?.version
+    && (!record.comparativeEngagementId || Boolean(prior && prior.sourceVersion === record.comparativeSourceVersion && priorMapping?.revision === record.comparativeMappingRevision));
 }
 export function reviewBasis(state: PrototypeState, engagement: EngagementRecord): string {
   const plan = currentPlan(state, engagement),
@@ -696,6 +711,7 @@ export function managerReviewBlockers(
   )
     blockers.push('Generate the current mapped P&L / BS snapshot.');
   if ([...new Map((engagement.auditLifecycle?.analyticalReviews || []).map(r => [r.fsli, r])).values()].some(r => !analyticalReviewIsCurrent(state, engagement, r))) blockers.push('Analytical Review sign-off is stale after TB, mapping or plan changes; re-sign on the current basis.');
+  if (!engagement.auditLifecycle?.analyticalReviews?.some(record => analyticalReviewIsCurrent(state, engagement, record) && record.isa570Checklist.conclusion.trim() && ['operatingCashFlows', 'debtCovenantsCompliant', 'workingCapitalAdequate', 'noMaterialDisruptions'].every(key => typeof record.isa570Checklist[key as keyof typeof record.isa570Checklist] === 'boolean'))) blockers.push('Record deliberate ISA 570 answers and a written going concern conclusion before managerial clearance.');
   const programs = scopedPrograms(state, engagement);
   if (
     !['Analytical Review', 'Going Concern'].every((area) =>
@@ -792,8 +808,36 @@ export function currentDeliverables(state: PrototypeState, engagement: Engagemen
     ? set
     : undefined;
 }
-export function isFrozen(engagement: EngagementRecord): boolean {
-  return engagement.auditLifecycle?.archiveControl.freezeStatus === 'Frozen';
+export function isFrozen(engagement: EngagementRecord, asOfDate = new Date().toISOString().slice(0, 10)): boolean {
+  const control = engagement.auditLifecycle?.archiveControl;
+  const today = new Date().toISOString().slice(0, 10);
+  if (today > asOfDate) asOfDate = today;
+  return control?.freezeStatus === 'Frozen' || Boolean(control?.freezeDueDate && control.freezeDueDate <= (control.asOfDate && control.asOfDate > asOfDate ? control.asOfDate : asOfDate));
+}
+/** Monotonic system closure; runs on load/read and before command notification. */
+export function closeExpiredArchives(state: PrototypeState): boolean {
+  let changed = false;
+  const today = new Date().toISOString().slice(0, 10);
+  const asOf = state.asOfDate > today ? state.asOfDate : today;
+  for (const engagement of state.engagements) {
+    const control = engagement.auditLifecycle?.archiveControl;
+    if (!control || control.freezeStatus === 'Frozen' || !control.freezeDueDate || control.freezeDueDate > asOf) continue;
+    control.freezeStatus = 'Frozen';
+    control.frozenAt = `${control.freezeDueDate}T00:00:00.000Z`;
+    control.frozenByUserId = 'system';
+    control.asOfDate = asOf;
+    const entry = { at: control.frozenAt, actorUserId: 'system', action: 'Automatic 60-day archive lock', reason: `Signature date ${control.finalReportDate}; expiry ${control.freezeDueDate}.` };
+    control.history.push(entry);
+    engagement.auditLifecycle!.history.push(entry);
+    const set = engagement.auditLifecycle!.deliverables.find(record => record.id === control.reportSetId);
+    if (set) {
+      const manifest = set.artifacts.map(artifact => `${artifact.deliverable}: ${artifact.id} / SHA-256 ${artifact.sha256}`);
+      engagement.archive = { archivedAt: control.frozenAt, archivedBy: 'Automatic compliance clock', releaseId: set.id, manifest, artifacts: set.artifacts.map(artifact => ({ ...structuredClone(artifact), sourceArtifactId: artifact.id })) };
+      (state.archives ||= []).push({ id: `ARCH-${set.id}`, engagementId: engagement.id, releaseId: set.id, clientName: state.clients.find(client => client.id === engagement.client)?.name || engagement.client, service: engagement.service, year: engagement.year, archivedAt: control.frozenAt, archivedBy: 'Automatic compliance clock', onHold: false, manifestCount: manifest.length, manifest, artifacts: set.artifacts.map(artifact => ({ ...structuredClone(artifact), sourceArtifactId: artifact.id })) });
+    }
+    changed = true;
+  }
+  return changed;
 }
 export function firmTrialBalance(state: PrototypeState) {
   const accounts = new Map<
@@ -838,6 +882,11 @@ export function practiceEconomics(state: PrototypeState, engagement: EngagementR
   return {
     budgetHours,
     actualHours,
+    phases: (['Planning', 'Fieldwork', 'Review', 'Reporting'] as const).map(phase => {
+      const budget = allocations.filter(allocation => allocation.phase === phase).reduce((sum, allocation) => sum + allocation.plannedHours, 0);
+      const actual = times.filter(entry => entry.auditPhase === phase || (!entry.auditPhase && (/planning/i.test(entry.activity) ? 'Planning' : /review/i.test(entry.activity) ? 'Review' : /report/i.test(entry.activity) ? 'Reporting' : 'Fieldwork') === phase)).reduce((sum, entry) => sum + entry.durationMinutes / 60, 0);
+      return { phase, budget, actual, variance: actual - budget };
+    }),
     budgetValue,
     actualCost,
     wip,
@@ -1099,7 +1148,7 @@ export function computeSystemState(
   }
   const set = currentDeliverables(state, engagement);
   const control = engagement.auditLifecycle?.archiveControl;
-  if (control?.freezeStatus === 'Counting Down' || (set && set.deliveredAt)) {
+  if (set?.deliveredAt || (control?.freezeStatus === 'Counting Down' && !set)) {
     return SYSTEM_LIFECYCLE_STATES[9]; // COMPLIANCE_COUNTDOWN
   }
   if (set && set.artifacts.length >= 3) {
