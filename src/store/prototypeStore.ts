@@ -76,6 +76,7 @@ class PrototypeStore {
   private storageConflict = false;
   private persistedBase: PrototypeState;
   private previousPersistedBase?: PrototypeState;
+  private replacingWorkspace = false;
   private packaging = new Set<string>();
   private packageExpiredArchives() {
     if (typeof indexedDB === 'undefined') return;
@@ -211,11 +212,12 @@ class PrototypeStore {
     if (this.isSessionOnly || this.storageConflict) return;
     try {
       const latest = localStorage.getItem(STORAGE_KEY);
-      if (latest && latest !== JSON.stringify(this.persistedBase)) {
+      if (!this.replacingWorkspace && latest && latest !== JSON.stringify(this.persistedBase)) {
         try { this.state = mergeIndependentEdits(this.persistedBase, this.state, JSON.parse(latest)); }
         catch { this.storageConflict = true; markStateStale(this.state, true); return; }
       }
       localStorage.setItem(STORAGE_KEY, JSON.stringify(this.state));
+      this.replacingWorkspace = false;
       this.previousPersistedBase = this.persistedBase;
       this.persistedBase = structuredClone(this.state);
     } catch (e) {
@@ -5688,13 +5690,27 @@ class PrototypeStore {
   }
 
   // --- Scenario & State Reset (VP-004) ---
+  private beginWorkspaceReplacement() {
+    // Explicit replacement is a new workspace, not a merge of business edits.
+    // Use the actual saved payload as its baseline, including pre-migration data.
+    try {
+      const raw = typeof localStorage !== 'undefined' ? localStorage.getItem(STORAGE_KEY) : null;
+      if (raw) this.persistedBase = JSON.parse(raw);
+    } catch { /* A reset also recovers an unreadable saved payload. */ }
+    this.previousPersistedBase = undefined;
+    this.replacingWorkspace = true;
+    this.loadError = null;
+    this.storageConflict = false;
+  }
   public loadScenario(name: ScenarioName) {
+    this.beginWorkspaceReplacement();
     this.state = loadScenarioState(name);
     this.logEvent(`Loaded scenario preset: ${name}`, 'SYS');
     this.notify();
   }
 
   public resetState() {
+    this.beginWorkspaceReplacement();
     this.state = loadScenarioState('target-lifecycle');
     this.loadError = null;
     this.storageConflict = false;

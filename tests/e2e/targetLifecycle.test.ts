@@ -95,6 +95,47 @@ after(async () => {
     }
   if (profile) rmSync(profile, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
 });
+it('visible Partner reporting flow retains signed LOR and releases the exact five-file bundle', async () => {
+  const result=await tab.evaluate<any>(`import('/tests/helpers/targetJourney.ts').then(m=>m.runTargetJourney({stopBeforePartner:true}))`);
+  await tab.evaluate(`(()=>{const f=document.querySelector('[data-target-form="partner-clearance"]');f.querySelector('[name="notes"]').value='Current SRM and audited evidence independently evaluated for final reporting.';f.requestSubmit()})()`);await sleep(150);
+  await tab.evaluate(`location.hash='delivery'`);await sleep(150);
+  await tab.evaluate(`document.querySelector('[data-target-form="opinion"]').requestSubmit()`);await sleep(150);
+  assert.equal(await tab.evaluate<boolean>(`document.body.innerText.includes('Synthetic Partner signature') && !document.body.innerText.includes('QFC-AUD-SIG-9281')`),true);
+  await tab.evaluate(`document.querySelector('[data-target-form="deliverables"]').requestSubmit()`);
+  const inspect=`import('/src/store/prototypeStore.ts').then(({prototypeStore:s})=>s.getSnapshot().engagements.find(e=>e.id===${JSON.stringify(result.engagementId)}).auditLifecycle)`;
+  let lifecycle:any;
+  for(let n=0;n<100;n++){lifecycle=await tab.evaluate(inspect);if(lifecycle.deliverables.length===1)break;await sleep(100);}
+  assert.equal(lifecycle.deliverables[0].artifacts.length,5);assert.equal(lifecycle.deliverables[0].deliveredAt,undefined);
+  await tab.evaluate(`import('/src/services/exportService.ts').then(m=>{const file=new File([m.createPDFBlob('Synthetic executive-signed LOR',['Synthetic fixture only; Managing Director and Finance Executive signatures.'])],'signed-lor.pdf',{type:'application/pdf'});const transfer=new DataTransfer();transfer.items.add(file);const f=document.querySelector('[data-target-form="signed-lor"]');f.querySelector('[name="signedLor"]').files=transfer.files;f.querySelector('[name="executive"]').value='Demo Managing Director';f.querySelector('[name="financeExecutive"]').value='Demo CFO';f.querySelector('[name="inspection"]').value='Synthetic executive signature inspection against this current bundle.';f.requestSubmit()})`);
+  for(let n=0;n<100;n++){lifecycle=await tab.evaluate(inspect);if(lifecycle.signedRepresentations?.length===1)break;await sleep(100);}
+  assert.equal(lifecycle.signedRepresentations.length,1);
+  await tab.evaluate(`Array.from(document.querySelectorAll('button')).find(b=>b.textContent.includes('Release Bundle to Client Portal')).click()`);
+  await sleep(150);lifecycle=await tab.evaluate(inspect);assert.ok(lifecycle.deliverables[0].deliveredAt);
+  assert.equal(lifecycle.signedRepresentations[0].deliverableSetId,lifecycle.deliverables[0].id);
+  await tab.evaluate(`import('/src/store/prototypeStore.ts').then(({prototypeStore:s})=>s.setPersona('client_finance'))`);
+  await tab.evaluate(`location.hash='portal'`);await sleep(150);
+  await tab.evaluate(`Array.from(document.querySelectorAll('button')).find(b=>b.textContent.includes('4. Final Certified Deliverables')).click()`);await sleep(100);
+  assert.equal(await tab.evaluate<number>(`document.querySelectorAll('[data-testid="client-release-set"]').length`),1);
+}, {timeout:60000});
+it('critical confirmation transitions through visible forms automatically issue one verified Holding Letter', async () => {
+  const result=await tab.evaluate<any>(`import('/tests/helpers/targetJourney.ts').then(m=>m.runTargetJourney({stopAtFieldwork:true}))`);
+  await tab.evaluate(`location.hash='confirmations'`);await sleep(150);
+  await tab.evaluate(`(()=>{const f=document.querySelector('[data-target-form="confirmation"]');f.querySelector('[name="counterparty"]').value='Synthetic Confirmation Bank';f.requestSubmit()})()`);
+  await sleep(150);
+  for(const status of ['Requested','Awaiting']){
+    await tab.evaluate(`(()=>{const f=Array.from(document.querySelectorAll('form')).find(f=>f.textContent.includes('Update confirmation: Synthetic Confirmation Bank'));f.querySelector('[name="status"]').value=${JSON.stringify(status)};f.querySelector('[name="note"]').value='Bank confirmation requested and followed up against the current cash balance.';f.requestSubmit()})()`);
+    await sleep(200);
+  }
+  const inspect=`import('/src/store/prototypeStore.ts').then(async({prototypeStore:s})=>{const state=s.getSnapshot(),e=state.engagements.find(e=>e.id===${JSON.stringify(result.engagementId)});const {criticalConfirmationBlockers}=await import('/src/services/targetLifecycle.ts');return {letters:e.auditLifecycle.holdingLetters||[],blockers:criticalConfirmationBlockers(state,e)}})`;
+  let completed:any;
+  for(let n=0;n<100;n++){completed=await tab.evaluate(inspect);if(completed.letters.length===1)break;await sleep(100);}
+  assert.equal(completed.letters.length,1);assert.ok(completed.blockers.length>0);
+  assert.equal(await tab.evaluate<boolean>(`import('/src/services/artifactStore.ts').then(async m=>(await (await m.loadVerifiedArtifact(${JSON.stringify(completed.letters[0].artifact)})).text()).startsWith('%PDF-'))`),true);
+  await tab.command('Page.reload');
+  for(let n=0;n<100;n++){if(await tab.evaluate<boolean>('!!document.querySelector(".sidebar")'))break;await sleep(100);}
+  assert.equal((await tab.evaluate<any>(inspect)).letters.length,1);
+  assert.equal(await tab.evaluate(`import('/src/store/prototypeStore.ts').then(({prototypeStore:s})=>s.loadError)`),null);
+}, {timeout:60000});
 it('two real browser tabs preserve independent procedure edits after reload', async () => {
   const result=await tab.evaluate<any>(`import('/tests/helpers/targetJourney.ts').then(m=>m.runTargetJourney({stopAtFieldwork:true}))`);
   const port=readFileSync(join(profile,'DevToolsActivePort'),'utf8').split('\n')[0];

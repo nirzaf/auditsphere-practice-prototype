@@ -34,7 +34,7 @@ const INVENTORY: Record<Family, string[]> = {
   billing: ['addInvoice', 'cancelInvoiceDraft', 'reviseInvoiceDraft', 'reviewInvoice', 'issueInvoice', 'addCreditNote', 'reviewCreditNote', 'reviseCreditNote', 'issueCreditNote', 'addReceipt', 'allocateReceipt', 'reverseAllocation'],
   records: ['linkDocumentToTask', 'unlinkDocumentFromTask', 'setDocumentClientSharing', 'archiveEngagement', 'recordArchiveHandover'],
   setup: ['updateM365Config', 'simulateM365Verification', 'simulateM365Disconnect', 'prepareClientWorkspace', 'saveAcceptanceCase', 'decideAcceptanceCase'],
-  recovery: ['loadScenario', 'resetState', 'exportStateJSON', 'importStateJSON', 'checkIntegrity'],
+  recovery: ['beginWorkspaceReplacement', 'loadScenario', 'resetState', 'exportStateJSON', 'importStateJSON', 'checkIntegrity'],
   professional: ['signOffAnalyticalReview',
     'addJob', 'updateJob', 'addTask', 'updateTask', 'reassignTask', 'applyJobTemplate',
     'addComment', 'moderateComment', 'editComment',

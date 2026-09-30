@@ -62,7 +62,7 @@ export function FreezeArchiveView(props: TargetViewProps) {
         <section className="panel panel-pad borderbox" style={{ background: '#f8fafc', border: '1px solid #cbd5e1' }}>
           <h4>Lead Partner Immediate Archival Seal (Early Lock Command)</h4>
           <p className="caption mt4">
-            Under ISA 230 / STE policy, the Lead Audit Partner may execute an immediate manual freeze prior to the 60-day statutory expiry.
+            The assigned Partner may apply this prototype's early archive policy before the 60-day due date.
           </p>
           <ActionButton action={() => prototypeStore.lifecycle.simulateFreeze(eng.id, state.asOfDate, true)}>
             Execute Partner Early Archival Lock Now

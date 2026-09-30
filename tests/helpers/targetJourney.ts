@@ -15,7 +15,7 @@ import {
   targetReleaseBlockers
 } from '../../src/services/targetLifecycle';
 import { calculateBalanceSheet, calculateIncomeStatement } from '../../src/services/calculations';
-export async function runTargetJourney(options: { stopAtFieldwork?: boolean; stopBeforeAdvance?: boolean; stopBeforeManager?: boolean } = {}) {
+export async function runTargetJourney(options: { stopAtFieldwork?: boolean; stopBeforeAdvance?: boolean; stopBeforeManager?: boolean; stopBeforePartner?: boolean } = {}) {
   const baseline = createInitialState();
   store.loadScenario('target-lifecycle');
   let s = (store as any).state as ReturnType<typeof store.getSnapshot>; // Read current records; all journey writes use store commands.
@@ -518,6 +518,7 @@ export async function runTargetJourney(options: { stopAtFieldwork?: boolean; sto
     throw Error('Current SRM became stale during reload normalization.');
   mark('Preparer ready → Manager return → revision → Manager clearance → genuine SRM');
   act('partner');
+  if (options.stopBeforePartner) { await route('reviews'); return {engagementId:e.id,checkpoints}; }
   store.lifecycle.clearPartner(
     e.id,
     'Current SRM and source basis independently assessed and cleared.'

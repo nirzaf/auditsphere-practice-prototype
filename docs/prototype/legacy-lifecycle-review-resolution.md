@@ -2,6 +2,8 @@
 
 Review source: `AuditSphere_Requirements_Legacy_Lifecycle_Review_2ba177c.md`, reviewed baseline `2ba177c35ba649036db800c29dca41371fefb94b`. This change implements its F01–F22 remediation within the existing five-module synthetic prototype. The detailed STE v2.1 user stories supply the concrete presentation terminology. Document recommendations are implementation requirements, not authority to claim professional or client sign-off.
 
+On 2026-10-01 the user chose the newer “STE Audit Management Tool” page as the governing source and said its readable contents would be provided. Those contents are pending. The fallback v2.1 specification therefore does not establish final source fidelity or acceptance; concrete remediation against the attached review continues independently.
+
 ## Finding-by-finding changes
 
 | Finding | Implemented remediation | Evidence |
@@ -53,9 +55,12 @@ These checks are not forty independently executed RT01–RT40 user-acceptance jo
 
 - TypeScript/build and Worker type-check: passed.
 - Unit suite: 410 passed, 0 failed/skipped (follow-up on 2026-10-01).
-- Chrome suite: 11 passed, 0 failed/skipped, including cloud save/resume and verified ZIP inspection.
+- Chrome suite: 13 passed, 0 failed/skipped, including cloud save/resume and verified ZIP inspection.
 - Follow-up browser evidence: two actual tabs save distinct procedure edits concurrently and retain both after reload; visible payment failure/retry keeps one payment and generates a verified PDF receipt, exactly five folders and invitation; visible Manager clearance automatically generates the current verified PDF SRM.
 - Follow-up bundle format gate rejects text/Office formats for required PDF outputs; the representation letter may be PDF or DOCX.
+- Additional visible workflows: critical-confirmation transitions generate one verified Holding Letter and retain it after reload; Partner clearance, opinion selection, bundle compilation, signed-LOR upload and release publish exactly the current five-file set to the client portal. These start from command-created prerequisite fixtures and are not complete visible intake-to-archive journeys.
+- Reporting-screen credentials are explicitly synthetic; unsupported verified-stamp, fabricated signing-key and strict-compliance claims were removed. Modified-opinion preview now follows the selected FSLI.
+- Explicit scenario/reset recovery replaces the workspace without attempting to merge pre-migration or conflicting prior records; ordinary edits retain conflict checks. The combined browser suite exercises this following reload.
 - Completion audit remains open: the five source workflows have not all been executed end-to-end solely through visible role-appropriate actions, and no fresh agreed visual baseline or formal acceptance has been supplied. These follow-up checks do not establish those remaining acceptance conditions.
 - Responsive evidence: 96 route/width combinations; sidebar/shell non-overlap asserted at desktop widths including 960 and 1000 px.
 - Live Worker/D1 isolation and stale-revision rejection: 1 passed, 0 failed/skipped.

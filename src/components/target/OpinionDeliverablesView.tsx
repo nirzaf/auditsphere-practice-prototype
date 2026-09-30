@@ -60,8 +60,7 @@ export function OpinionDeliverablesView(props: TargetViewProps) {
             <span className="tag blue mb8">MODULE 4: REPORTING, DELIVERABLES & ARCHIVE</span>
             <h2>Audit Opinion & 5-Part Commercial Deliverables Package</h2>
             <p className="caption">
-              Strict compliance with <strong>ISA 700</strong> (Forming an Opinion), <strong>ISA 705</strong> (Modifications to the Opinion), 
-              and <strong>ISA 230</strong> (Audit Documentation 60-Day Archival Lock). Primary Currency: <strong>QAR</strong>.
+              Prototype workflows for opinion selection, modified opinions and a 60-day archive policy. Primary Currency: <strong>QAR</strong>.
             </p>
           </div>
           <div className="text-right">
@@ -121,13 +120,14 @@ export function OpinionDeliverablesView(props: TargetViewProps) {
               ISA 705 requires an explicit Basis for Modification paragraph describing the specific quantitative and qualitative matters.
             </p>
 
-            <Field label="Affected Financial Statement Line Item (FSLI)" name="focus" defaultValue={selectedFsli || availableFslis[0]}>
+            <label className="target-field"><span>Affected Financial Statement Line Item (FSLI)</span>
+            <select name="focus" value={selectedFsli || availableFslis[0]} onChange={e => setSelectedFsli(e.target.value)}>
               {availableFslis.map((line) => (
                 <option key={line} value={line}>
                   {line}
                 </option>
               ))}
-            </Field>
+            </select></label>
 
             <label className="target-field mt12">
               <span>Quantitative / Qualitative Rationale (min 20 characters, injected into report)</span>
@@ -164,11 +164,11 @@ export function OpinionDeliverablesView(props: TargetViewProps) {
               </div>
               <div>
                 <strong>{eng.partner || 'Daniel James'}, Engagement Partner</strong>
-                <p className="caption">Digital Signature Key: QFC-AUD-SIG-9281 · Licensed Signatory</p>
+                <p className="caption">Synthetic Partner signature · prototype illustration</p>
               </div>
             </div>
             <div style={{ padding: '6px 12px', background: '#ecfdf5', border: '1px solid #10b981', borderRadius: 4, color: '#047857', fontWeight: 600, fontSize: '12px' }}>
-              ✓ STE Audit &amp; Accounting LLC Firm Stamp Verified
+              STE Audit &amp; Accounting LLC · simulated firm seal
             </div>
           </div>
         </div>
@@ -310,7 +310,7 @@ export function OpinionDeliverablesView(props: TargetViewProps) {
           <div>
             <h3>ISA 230 Regulatory Archival Lock</h3>
             <p className="caption">
-              International Standards on Auditing (ISA 230) require final audit documentation assembly within 60 days of the report date, followed by immutable permanent locking.
+              This prototype applies a 60-day assembly policy and blocks application edits after closure. Browser storage is not a certified immutable retention system.
             </p>
           </div>
           <span className={`tag ${frozen ? 'red' : 'green'}`}>
