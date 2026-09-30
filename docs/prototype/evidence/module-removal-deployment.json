@@ -1,0 +1,25 @@
+{
+  "removedFiles": 34,
+  "removedLines": 12212,
+  "build": "passed",
+  "deployment": "https://defe03c1.steaudit-prototype.pages.dev",
+  "endpoints": [
+    {
+      "url": "https://prototype.steaudit.com",
+      "status": "200",
+      "htmlMatchesBuild": true
+    },
+    {
+      "url": "https://steaudit-prototype.pages.dev",
+      "status": "200",
+      "htmlMatchesBuild": true
+    },
+    {
+      "url": "https://defe03c1.steaudit-prototype.pages.dev",
+      "status": "200",
+      "htmlMatchesBuild": true
+    }
+  ],
+  "tests": "not rerun",
+  "workingTree": "uncommitted"
+}
