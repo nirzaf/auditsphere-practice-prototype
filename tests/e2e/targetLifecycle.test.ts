@@ -95,6 +95,51 @@ after(async () => {
     }
   if (profile) rmSync(profile, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
 });
+it('two real browser tabs preserve independent procedure edits after reload', async () => {
+  const result=await tab.evaluate<any>(`import('/tests/helpers/targetJourney.ts').then(m=>m.runTargetJourney({stopAtFieldwork:true}))`);
+  const port=readFileSync(join(profile,'DevToolsActivePort'),'utf8').split('\n')[0];
+  const target=await fetch(`http://127.0.0.1:${port}/json/new?${origin}`,{method:'PUT'}).then(r=>r.json()) as any;
+  const ws=new WebSocket(target.webSocketDebuggerUrl);
+  await new Promise<void>((resolve,reject)=>{ws.addEventListener('open',()=>resolve(),{once:true});ws.addEventListener('error',()=>reject(Error('Second tab CDP failed')),{once:true});});
+  const other=new CdpTab(ws,origin);
+  try {
+    await other.command('Runtime.enable');
+    for(let n=0;n<100;n++){if(await other.evaluate<boolean>('!!document.querySelector(".sidebar")'))break;await sleep(100);}
+    const ids=await tab.evaluate<string[]>(`import('/src/store/prototypeStore.ts').then(({prototypeStore:s})=>s.getSnapshot().auditPrograms.filter(p=>p.engagementId===${JSON.stringify(result.engagementId)}).flatMap(p=>p.procedures).slice(0,2).map(p=>p.id))`);
+    assert.equal(ids.length,2);
+    const edit=(id:string,label:string)=>`import('/src/store/prototypeStore.ts').then(({prototypeStore:s})=>s.updateAuditProcedureExecution(${JSON.stringify(result.engagementId)},${JSON.stringify(id)},${JSON.stringify(label)},'Evidence supports the recorded conclusion.',''))`;
+    await Promise.all([tab.evaluate(edit(ids[0],'Independent work in first tab')),other.evaluate(edit(ids[1],'Independent work in second tab'))]);
+    const inspect=`import('/src/store/prototypeStore.ts').then(({prototypeStore:s})=>{const state=s.getSnapshot();return state.auditPrograms.filter(p=>p.engagementId===${JSON.stringify(result.engagementId)}).flatMap(p=>p.procedures).filter(p=>${JSON.stringify(ids)}.includes(p.id)).map(p=>p.workPerformed)})`;
+    for(let n=0;n<100;n++){const values=await tab.evaluate<string[]>(inspect);if(values.includes('Independent work in second tab'))break;await sleep(50);}
+    await sleep(300);
+    for(const page of [tab,other])assert.deepEqual(await page.evaluate(inspect),['Independent work in first tab','Independent work in second tab'],JSON.stringify(await page.evaluate(`import('/src/store/prototypeStore.ts').then(({prototypeStore:s})=>({conflict:s.hasStorageConflict(),stored:JSON.parse(localStorage.getItem('ste-auditsphere-role-portals-v2')).auditPrograms.filter(p=>p.engagementId===${JSON.stringify(result.engagementId)}).flatMap(p=>p.procedures).slice(0,2).map(p=>p.workPerformed)}))`)));
+    await other.command('Page.reload');
+    for(let n=0;n<100;n++){if(await other.evaluate<boolean>('!!document.querySelector(".sidebar")'))break;await sleep(100);}
+    assert.deepEqual(await other.evaluate(inspect),['Independent work in first tab','Independent work in second tab']);
+  } finally {other.close();await fetch(`http://127.0.0.1:${port}/json/close/${target.id}`);}
+}, {timeout:60000});
+it('Manager clearance through the visible form automatically generates a current PDF SRM', async () => {
+  const result=await tab.evaluate<any>(`import('/tests/helpers/targetJourney.ts').then(m=>m.runTargetJourney({stopBeforeManager:true}))`);
+  await tab.evaluate(`(()=>{const f=document.querySelector('[data-target-form="manager-clearance"]');const input=f.querySelector('[name="notes"]');input.value='All current workpapers and supporting evidence independently reviewed.';input.dispatchEvent(new Event('input',{bubbles:true}));f.requestSubmit()})()`);
+  const inspect=`import('/src/store/prototypeStore.ts').then(async({prototypeStore:s})=>{const state=s.getSnapshot(),e=state.engagements.find(e=>e.id===${JSON.stringify(result.engagementId)});const {currentReview}=await import('/src/services/targetLifecycle.ts');return {review:currentReview(state,e),srms:e.auditLifecycle.srms.length}})`;
+  let completed:any;
+  for(let n=0;n<100;n++){completed=await tab.evaluate<any>(inspect);if(completed.srms===1)break;await sleep(100);}
+  assert.equal(completed.srms,1);assert.equal(completed.review.manager,true);assert.equal(completed.review.srm,true);
+  assert.equal(await tab.evaluate<boolean>(`import('/src/store/prototypeStore.ts').then(async({prototypeStore:s})=>{const e=s.getSnapshot().engagements.find(e=>e.id===${JSON.stringify(result.engagementId)});const {loadVerifiedArtifact}=await import('/src/services/artifactStore.ts');return (await (await loadVerifiedArtifact(e.auditLifecycle.srms[0].artifact)).text()).startsWith('%PDF-')})`),true);
+}, {timeout:60000});
+it('records payment through the visible form and retries failed receipt/onboarding without duplicating payment', async () => {
+  const result=await tab.evaluate<any>(`import('/tests/helpers/targetJourney.ts').then(m=>m.runTargetJourney({stopBeforeAdvance:true}))`);
+  await tab.evaluate(`import('/src/store/prototypeStore.ts').then(({prototypeStore:s})=>{window.__receiptWriter=s.lifecycle.artifactWriter;s.lifecycle.artifactWriter=async()=>{throw Error('Injected IndexedDB failure')};const f=document.querySelector('[data-target-form="advance"]');f.querySelector('[name="reference"]').value='UI-RETRY-001';f.querySelector('[name="reference"]').dispatchEvent(new Event('input',{bubbles:true}));f.requestSubmit()})`);
+  for(let n=0;n<100;n++){if(await tab.evaluate<boolean>(`document.body.innerText.includes('Payment recorded once; receipt/onboarding pending')`))break;await sleep(100);}
+  assert.equal(await tab.evaluate<boolean>(`document.body.innerText.includes('Payment recorded once; receipt/onboarding pending')`),true);
+  const inspect=`import('/src/store/prototypeStore.ts').then(({prototypeStore:s})=>{const state=s.getSnapshot(),e=state.engagements.find(e=>e.id===${JSON.stringify(result.engagementId)});return {payments:e.auditLifecycle.advancePayments.length,receipts:e.auditLifecycle.receiptDocuments.length,folders:state.folders.filter(f=>f.engagementId===e.id).length,onboarding:e.auditLifecycle.onboarding}})`;
+  const failed=await tab.evaluate<any>(inspect);assert.equal(failed.payments,1);assert.equal(failed.receipts,0);
+  await tab.evaluate(`import('/src/store/prototypeStore.ts').then(({prototypeStore:s})=>{s.lifecycle.artifactWriter=window.__receiptWriter;Array.from(document.querySelectorAll('button')).find(b=>b.textContent.trim()==='Generate official receipt').click()})`);
+  let completed:any;
+  for(let n=0;n<100;n++){completed=await tab.evaluate<any>(inspect);if(completed.receipts===1)break;await sleep(100);}
+  assert.equal(completed.payments,1);assert.equal(completed.receipts,1);assert.equal(completed.folders,5);assert.equal(completed.onboarding.requiresFirstLoginReset,true);
+  assert.equal(await tab.evaluate<boolean>(`import('/src/store/prototypeStore.ts').then(async({prototypeStore:s})=>{const e=s.getSnapshot().engagements.find(e=>e.id===${JSON.stringify(result.engagementId)});const {loadVerifiedArtifact}=await import('/src/services/artifactStore.ts');return (await (await loadVerifiedArtifact(e.auditLifecycle.receiptDocuments[0].artifact)).text()).startsWith('%PDF-')})`),true);
+}, {timeout:60000});
 it(
   'executes the complete canonical command journey in Chrome with genuine artifacts and rendered checkpoints',
   async () => {

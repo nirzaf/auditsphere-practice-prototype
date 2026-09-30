@@ -15,7 +15,7 @@ import {
   targetReleaseBlockers
 } from '../../src/services/targetLifecycle';
 import { calculateBalanceSheet, calculateIncomeStatement } from '../../src/services/calculations';
-export async function runTargetJourney(options: { stopAtFieldwork?: boolean } = {}) {
+export async function runTargetJourney(options: { stopAtFieldwork?: boolean; stopBeforeAdvance?: boolean; stopBeforeManager?: boolean } = {}) {
   const baseline = createInitialState();
   store.loadScenario('target-lifecycle');
   let s = (store as any).state as ReturnType<typeof store.getSnapshot>; // Read current records; all journey writes use store commands.
@@ -151,6 +151,7 @@ export async function runTargetJourney(options: { stopAtFieldwork?: boolean } = 
   store.generateEngagementLetter(e.id, 'ISA 210 External Statutory Audit', 'IFRS', s.currentPerson, true);
   store.recordSignedEngagementLetter(e.id, 'Synthetic executive-signed engagement letter evidence');
   act('billing');
+  if (options.stopBeforeAdvance) { await route('billing'); return {engagementId:e.id,checkpoints}; }
   store.lifecycle.recordAdvance(e.id, {
     amount: 500,
     date: s.asOfDate,
@@ -503,6 +504,7 @@ export async function runTargetJourney(options: { stopAtFieldwork?: boolean } = 
     await store.lifecycle.saveFieldworkWorkbook(e.id, other.id, e.period, 'Performed all current program tests with accepted evidence.', 'Current scoped conclusion independently supported by evidence.');
     store.submitWorkpaper(e.id, other.id); act('manager'); store.clearWorkpaper(e.id, other.id, 'Independent review of current program workbook and evidence.');
   }
+  if (options.stopBeforeManager) { await route('reviews'); return {engagementId:e.id,checkpoints}; }
   store.lifecycle.recordManagerClearance(
     e.id,
     'All workpapers, procedures and review points cleared for SRM.'

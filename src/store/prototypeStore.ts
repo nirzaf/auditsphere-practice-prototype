@@ -75,6 +75,7 @@ class PrototypeStore {
   private loadError: string | null = null;
   private storageConflict = false;
   private persistedBase: PrototypeState;
+  private previousPersistedBase?: PrototypeState;
   private packaging = new Set<string>();
   private packageExpiredArchives() {
     if (typeof indexedDB === 'undefined') return;
@@ -99,9 +100,17 @@ class PrototypeStore {
           try {
             if (!e.newValue) throw new Error('Remote workspace was reset.');
             const remote = normalizeTargetState(JSON.parse(e.newValue));
-            this.state = mergeIndependentEdits(this.persistedBase, this.state, remote);
+            // A save in this tab can precede delivery of the other tab's event.
+            // The event's old value is the shared ancestor; persistedBase may
+            // already contain our own save and would discard it as unchanged.
+            const eventBase = e.oldValue ? normalizeTargetState(JSON.parse(e.oldValue)) : this.persistedBase;
+            const ancestor = this.previousPersistedBase && JSON.stringify(eventBase) === JSON.stringify(this.persistedBase) ? this.previousPersistedBase : eventBase;
+            this.state = mergeIndependentEdits(ancestor, this.state, remote);
             this.persistedBase = structuredClone(remote);
-          } catch {
+            const remoteWithLocalSession = { ...remote, currentUserId: this.state.currentUserId, currentRole: this.state.currentRole, currentPerson: this.state.currentPerson, selectedEngagement: this.state.selectedEngagement };
+            if (JSON.stringify(this.state) !== JSON.stringify(remoteWithLocalSession)) this.persist();
+          } catch (error) {
+            console.warn('Workspace merge conflict', error);
             this.storageConflict = true;
             markStateStale(this.state, true);
           }
@@ -207,6 +216,7 @@ class PrototypeStore {
         catch { this.storageConflict = true; markStateStale(this.state, true); return; }
       }
       localStorage.setItem(STORAGE_KEY, JSON.stringify(this.state));
+      this.previousPersistedBase = this.persistedBase;
       this.persistedBase = structuredClone(this.state);
     } catch (e) {
       console.warn('Storage quota exceeded, switching to session-only mode', e);

@@ -85,6 +85,12 @@ it('RT-19 independent Sales/PPE edits survive; same procedure revisions conflict
   const merged=mergeIndependentEdits(base,a,b); assert.equal(merged.auditPrograms[0].procedures[0].conclusion,'Sales evidence'); assert.equal(merged.auditPrograms[0].procedures[1].conclusion,'PPE evidence');
   b.auditPrograms[0].procedures[0].conclusion='Conflicting Sales'; assert.throws(()=>mergeIndependentEdits(base,a,b),/same-row/);
 });
+it('RT-19 independently prepended event history merges without losing either audit entry', () => {
+  const base={events:[{text:'Original',ref:'BASE'}]};
+  const local={events:[{text:'First tab',ref:'A'},...base.events]};
+  const remote={events:[{text:'Second tab',ref:'B'},...base.events]};
+  assert.deepEqual(mergeIndependentEdits(base,local,remote).events,[local.events[0],remote.events[0],base.events[0]]);
+});
 it('RT-22 old SRM never advances a fresh engagement review', () => {
   const s=targetFixture(), e=s.engagements[0]; e.auditLifecycle!.srms=[{basis:'old-source',artifact:awaitableArtifact(),summary:[],revision:1,at:new Date().toISOString(),actorUserId:'manager',notes:'Old review'}];
   assert.notEqual(computeSystemState(s,e).state,'MANAGERIAL_REVIEW');
@@ -94,6 +100,14 @@ it('RT-26 validates exactly five semantic outputs, rejects duplicates and three-
   const types=['Audit Report','Management Letter','Letter of Representation','Management Correspondences Audit Trail','Final Balance Fee Note'];
   const set={artifacts:types.map((deliverable,i)=>({...awaitableArtifact(),id:String(i),deliverable}))} as any;
   assert.equal(hasExactFivePartBundle(set),true); set.artifacts[4].deliverable='Management Letter'; assert.equal(hasExactFivePartBundle(set),false); set.artifacts=set.artifacts.slice(0,3); assert.equal(hasExactFivePartBundle(set),false);
+});
+it('RT-26 rejects wrong file formats and accepts a DOCX representation letter', () => {
+  const types=['Audit Report','Management Letter','Letter of Representation','Management Correspondences Audit Trail','Final Balance Fee Note'];
+  const set={artifacts:types.map((deliverable,i)=>({...awaitableArtifact(),id:String(i),deliverable}))} as any;
+  set.artifacts[0].mimeType='text/plain'; assert.equal(hasExactFivePartBundle(set),false);
+  set.artifacts[0].mimeType='application/pdf';
+  set.artifacts[2].mimeType='application/vnd.openxmlformats-officedocument.wordprocessingml.document'; assert.equal(hasExactFivePartBundle(set),true);
+  set.artifacts[4].mimeType='application/vnd.openxmlformats-officedocument.wordprocessingml.document'; assert.equal(hasExactFivePartBundle(set),false);
 });
 it('RT-32/33 expiry without a report still reloads as read-only with explicit packaging exception', () => {
   const s=targetFixture(),e=s.engagements[0]; Object.assign(e.auditLifecycle!.archiveControl,{finalReportDate:'2026-07-01',freezeDueDate:'2026-08-30',freezeStatus:'Counting Down'});

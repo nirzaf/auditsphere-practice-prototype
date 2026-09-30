@@ -52,8 +52,11 @@ These checks are not forty independently executed RT01–RT40 user-acceptance jo
 ### Executed on 2026-09-30
 
 - TypeScript/build and Worker type-check: passed.
-- Unit suite: 408 passed, 0 failed/skipped.
-- Chrome suite: 8 passed, 0 failed/skipped, including cloud save/resume and verified ZIP inspection.
+- Unit suite: 410 passed, 0 failed/skipped (follow-up on 2026-10-01).
+- Chrome suite: 11 passed, 0 failed/skipped, including cloud save/resume and verified ZIP inspection.
+- Follow-up browser evidence: two actual tabs save distinct procedure edits concurrently and retain both after reload; visible payment failure/retry keeps one payment and generates a verified PDF receipt, exactly five folders and invitation; visible Manager clearance automatically generates the current verified PDF SRM.
+- Follow-up bundle format gate rejects text/Office formats for required PDF outputs; the representation letter may be PDF or DOCX.
+- Completion audit remains open: the five source workflows have not all been executed end-to-end solely through visible role-appropriate actions, and no fresh agreed visual baseline or formal acceptance has been supplied. These follow-up checks do not establish those remaining acceptance conditions.
 - Responsive evidence: 96 route/width combinations; sidebar/shell non-overlap asserted at desktop widths including 960 and 1000 px.
 - Live Worker/D1 isolation and stale-revision rejection: 1 passed, 0 failed/skipped.
 - Generated report PDF rendered with Poppler and visually inspected: seal/signature, disclaimer and content fit without clipping.

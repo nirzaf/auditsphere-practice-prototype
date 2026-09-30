@@ -15,7 +15,8 @@ export function hasValidLeadProfile(state: PrototypeState, clientId: string) {
 }
 export const FINAL_DELIVERABLE_TYPES = ['Independent Auditor Report & Audited Financial Statements', 'Management Letter', 'Letter of Representation', 'Management Correspondences Audit Trail', 'Final Balance Fee Note'];
 export function hasExactFivePartBundle(set: import('../types/targetLifecycle').DeliverableSet) {
-  return set.artifacts.length === 5 && new Set(set.artifacts.map(a => a.id)).size === 5 && FINAL_DELIVERABLE_TYPES.every(type => set.artifacts.filter(a => (a.deliverable === type || (type === FINAL_DELIVERABLE_TYPES[0] && a.deliverable === 'Audit Report')) && a.id && /^[a-f0-9]{64}$/i.test(a.sha256) && a.size > 0).length === 1);
+  const formatValid = (artifact: typeof set.artifacts[number]) => artifact.mimeType === 'application/pdf' || (artifact.deliverable === 'Letter of Representation' && artifact.mimeType === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
+  return set.artifacts.length === 5 && new Set(set.artifacts.map(a => a.id)).size === 5 && set.artifacts.every(formatValid) && FINAL_DELIVERABLE_TYPES.every(type => set.artifacts.filter(a => (a.deliverable === type || (type === FINAL_DELIVERABLE_TYPES[0] && a.deliverable === 'Audit Report')) && a.id && /^[a-f0-9]{64}$/i.test(a.sha256) && a.size > 0).length === 1);
 }
 export function hasAllApplicableProceduresSubmitted(state: PrototypeState, engagement: EngagementRecord) {
   const programs = scopedPrograms(state, engagement);

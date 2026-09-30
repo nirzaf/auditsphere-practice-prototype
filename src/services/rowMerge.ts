@@ -11,6 +11,11 @@ export function mergeIndependentEdits<T>(base: T, local: T, remote: T, path = ''
     }
     const prefix = (a: unknown[]) => a.length >= base.length && base.every((x,i) => equal(x, a[i]));
     if (prefix(local) && prefix(remote)) return [...base, ...remote.slice(base.length), ...local.slice(base.length).filter(x => !remote.slice(base.length).some(y => equal(x,y)))] as T;
+    const suffix = (a: unknown[]) => a.length >= base.length && base.every((x,i) => equal(x, a[a.length-base.length+i]));
+    if (suffix(local) && suffix(remote)) {
+      const remoteNew = remote.slice(0,remote.length-base.length);
+      return [...local.slice(0,local.length-base.length).filter(x=>!remoteNew.some(y=>equal(x,y))),...remoteNew,...base] as T;
+    }
   }
   if (base && local && remote && !Array.isArray(local) && typeof base === 'object' && typeof local === 'object' && typeof remote === 'object') {
     if (path.includes('.procedures[') && !path.slice(path.indexOf('.procedures[') + 12).includes('.')) throw new Error(`Conflicting same-row revision at ${path}`);
