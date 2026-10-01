@@ -6,7 +6,7 @@ import { visibleEngagementIds, hasAnyRole } from '../../services/guards';
 import { isFrozen } from '../../services/targetLifecycle';
 
 export function TrialBalanceView(props: TargetViewProps) {
-  const state = prototypeStore.getSnapshot(),
+  const state = prototypeStore.getReadSnapshot(),
     eng = state.engagements.find((e) => e.id === state.selectedEngagement);
   if (!eng) return null;
 

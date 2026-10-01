@@ -14,7 +14,7 @@ import {
 } from './TargetCommon';
 
 export function PracticeView(props: TargetViewProps & { ledger?: boolean }) {
-  const s = prototypeStore.getSnapshot(),
+  const s = prototypeStore.getReadSnapshot(),
     visible = visibleEngagementIds(s),
     engagements = s.engagements.filter((e) => visible === 'ALL' || visible.includes(e.id));
 

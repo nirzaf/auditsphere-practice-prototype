@@ -20,6 +20,8 @@ export type RoleKey =
   | 'superuser';
 
 export interface UserPersona {
+  credentialSummary?: string;
+  cvReference?: string;
   id: string;
   /** Stable natural-person key shared by a person's role personas. */
   personId?: string;
@@ -1547,6 +1549,7 @@ export interface EvidenceItem {
 }
 
 export interface WorkpaperItem {
+  evidenceMode?: 'Digital' | 'Physical' | 'Hybrid';
   id: string;
   physicalReference?: PhysicalEvidenceReference;
   /** Recorded risk tier at preparation: RED files are manager-executed and partner-reviewed. */
@@ -1635,6 +1638,8 @@ export interface WorkpaperTemplateItem {
 }
 
 export interface FindingItem {
+  managementLetterVisible?: boolean;
+  managementLetterHistory?: Array<{ at: string; actorUserId: string; included: boolean; reason: string }>;
   id: string;
   engagementId: string;
   type?: 'Monetary misstatement' | 'Internal control deficiency' | 'Disclosure omission';

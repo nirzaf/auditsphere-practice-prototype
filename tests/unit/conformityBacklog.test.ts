@@ -6,7 +6,7 @@ import type { PrototypeState } from '../../src/types';
 import { prototypeStore as store } from '../../src/store/prototypeStore';
 import { TargetLifecycleCommands } from '../../src/store/targetLifecycleCommands';
 import { targetFixture, act, acceptance } from '../helpers/targetFixture';
-import { computeSystemState, firmTrialBalance, fsliRiskLevel, reviewBasis } from '../../src/services/targetLifecycle';
+import { computeSystemState, currentDeliverables, firmTrialBalance, fsliRiskLevel, reviewBasis, plusDays, modifiedOpinionBasisLines } from '../../src/services/targetLifecycle';
 
 // Acceptance coverage for the requirements-conformity review backlog (R01/R04/R09/R11/R13).
 let state: ReturnType<typeof targetFixture>, e: typeof state.engagements[number], commands: TargetLifecycleCommands;
@@ -88,7 +88,7 @@ it('R01: designation is an explicit manager/partner decision with a reason and o
 it('R09: incomplete findings are omitted from the management letter; complete findings keep their three parts', async () => {
   partnerReadyFromFixture((fixedState, fixedEngagement) => {
     fixedState.findings.push({
-      id: 'F-COMPLETE', engagementId: fixedEngagement.id, title: 'Segregation of duties gap', category: 'Internal control deficiency', severity: 'Minor',
+      managementLetterVisible: true, id: 'F-COMPLETE', engagementId: fixedEngagement.id, title: 'Segregation of duties gap', category: 'Internal control deficiency', severity: 'Minor',
       condition: 'One clerk both approves and posts payments.', impact: 'Duplicate or fraudulent payments could be processed without detection.',
       recommendation: 'Separate approval and posting duties across two clerks.', disposition: 'Management agreed'
     } as any);
@@ -105,6 +105,31 @@ it('R09: incomplete findings are omitted from the management letter; complete fi
   assert.ok(letter.lines.some((line) => line.includes('Separate approval and posting duties')), 'recorded recommendation is reproduced verbatim');
   assert.ok(!letter.lines.some((line) => line.includes('INCOMPLETE-MARKER')), 'incomplete finding must not appear');
   assert.ok(letter.lines.some((line) => line.includes('1 finding(s) omitted')), 'the letter discloses the omitted finding');
+});
+
+it('A11/R08/R10 four opinions share exported basis and reissues retain one fee and earliest deadline', async () => {
+  partnerReadyFromFixture();
+  const focus = e.rows.find(r => r.mappedStatementLine)!.mappedStatementLine!;
+  const due = e.auditLifecycle!.archiveControl.freezeDueDate;
+  for (const value of ['Clean','Qualified','Adverse','Disclaimer'] as const) {
+    const basis = value === 'Clean' ? '' : 'Recorded scope limitation for the selected FSLI; no invented valuation defect.';
+    commands.selectOpinion(e.id,value,value === 'Clean' ? '' : focus,basis);
+    commands.authorizeReportSignature(e.id,state.asOfDate,'Partner authorizes the current opinion and reporting basis with simulated credentials.');
+    written=[]; await commands.generateDeliverables(e.id,state.asOfDate);
+    const report=written.find(w=>w.title==='Audit Report')!;
+    if (value !== 'Clean') for (const line of modifiedOpinionBasisLines(e.auditLifecycle!.opinions.at(-1)!)) assert.ok(report.lines.includes(line));
+    assert.ok(!report.lines.some(l=>l.includes('inadequate valuation')));
+    assert.equal(new Set(e.auditLifecycle!.balanceInvoices.map(r=>r.invoiceId)).size,1);
+    assert.ok(currentDeliverables(state,e)); assert.equal(e.auditLifecycle!.archiveControl.freezeDueDate,due);
+  }
+  const previous=currentDeliverables(state,e)!.id;
+  state.asOfDate=plusDays(state.asOfDate,1);
+  commands.authorizeReportSignature(e.id,state.asOfDate,'Synthetic reissue authorization after one day; original deadline retained.');
+  assert.equal(currentDeliverables(state,e),undefined,'A superseded signature revision cannot remain current.');
+  await commands.generateDeliverables(e.id,state.asOfDate);
+  assert.notEqual(currentDeliverables(state,e)!.id,previous);
+  assert.equal(e.auditLifecycle!.archiveControl.freezeDueDate,due);
+  assert.equal(new Set(e.auditLifecycle!.balanceInvoices.map(r=>r.invoiceId)).size,1);
 });
 
 it('R11: a critical Requested confirmation auto-issues a current holding letter, refreshed per blocker set', async () => {
@@ -151,6 +176,13 @@ it('R13: firm TB carries opening balances forward and clears settled receivables
   const cashOctober = october.find((r) => r.account === 'Cash')!;
   assert.equal(cashOctober.opening, 0);
   assert.equal(cashOctober.closing, 400);
+  const allocation=state.receipts.find(r=>r.id==='REC-TB')!.allocations[0];
+  allocation.reversed=true;allocation.reversalDate='2026-11-05';allocation.reversalReason='Synthetic incorrect allocation reversed.';
+  const november=firmTrialBalance(state,'2026-11');
+  assert.equal(november.find(r=>r.account==='Accounts receivable')!.opening,600);
+  assert.equal(november.find(r=>r.account==='Accounts receivable')!.closing,1000);
+  assert.equal(november.find(r=>r.account==='Cash')!.closing,0);
+  assert.equal(firmTrialBalance(state,'2026-10').find(r=>r.account==='Accounts receivable')!.closing,600,'Later reversals preserve earlier-month settlement history.');
 });
 
 it('R04: one workpaper per FSLI with risk-tiered ownership (RED manager/partner, GREEN preparer/senior)', async () => {

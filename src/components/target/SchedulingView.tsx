@@ -68,7 +68,7 @@ function buildDraftRows(allocations: StaffAllocation[], fallbackDate: string): A
 }
 
 export function SchedulingView(props: TargetViewProps) {
-  const state = prototypeStore.getSnapshot(),
+  const state = prototypeStore.getReadSnapshot(),
     eng = state.engagements.find((e) => e.id === state.selectedEngagement);
   const [draftEngagementId, setDraftEngagementId] = useState(eng?.id || '');
   const [draftRows, setDraftRows] = useState<AllocationDraftRow[]>(() =>
@@ -112,8 +112,11 @@ export function SchedulingView(props: TargetViewProps) {
     if (!allocations.length) return null;
     const dayMs = 24 * 60 * 60 * 1000;
     const toUtc = (iso: string) => Date.parse(`${iso}T00:00:00Z`);
-    const start = Math.min(...allocations.map((a) => toUtc(a.startDate)));
-    const end = Math.max(...allocations.map((a) => toUtc(a.endDate)));
+    const allowed = visibleEngagementIds(state);
+    const peopleIds = new Set(allocations.map(a => a.userId));
+    const scopedAllocations = state.engagements.filter(other => !isFrozen(other) && (allowed === 'ALL' || allowed.includes(other.id))).flatMap(other => (other.auditLifecycle?.staffing.at(-1)?.allocations || []).filter(a => peopleIds.has(a.userId)).map(a => ({ ...a, engagementId: other.id })));
+    const start = Math.min(...scopedAllocations.map((a) => toUtc(a.startDate)));
+    const end = Math.max(...scopedAllocations.map((a) => toUtc(a.endDate)));
     const firstWeekStart = start - ((new Date(start).getUTCDay() + 6) % 7) * dayMs; // Monday
     const weeks: Array<{ start: number; days: string[] }> = [];
     for (let weekStart = firstWeekStart; weekStart <= end; weekStart += 7 * dayMs)
@@ -124,12 +127,11 @@ export function SchedulingView(props: TargetViewProps) {
     const people = [...new Map(allocations.map((a) => [a.userId, a])).values()].map((a) => ({
       userId: a.userId,
       name: state.users.find((u) => u.id === a.userId)?.name || a.userId,
-      capacityHours: a.capacityHours,
-      leaveHours: a.leaveHours || 0,
-      leaveNote: a.leaveNote || '',
+      leaveIntervals: [...new Map(scopedAllocations.filter(x => x.userId === a.userId && x.leaveHours).map(x => [`${x.startDate}|${x.endDate}|${x.leaveHours}|${x.leaveNote}`, `${x.startDate}–${x.endDate}: ${x.leaveHours} h ${x.leaveNote || ''}`])).values()],
       weekly: weeks.map(({ days }) => {
         let hours = 0;
-        for (const allocation of allocations.filter((x) => x.userId === a.userId)) {
+        let capacity = 0, leave = 0, capacityKnown = false;
+        for (const allocation of scopedAllocations.filter((x) => x.userId === a.userId)) {
           const from = Math.max(toUtc(allocation.startDate), toUtc(days[0]));
           const to = Math.min(toUtc(allocation.endDate), toUtc(days[6]));
           if (to < from) continue;
@@ -137,10 +139,18 @@ export function SchedulingView(props: TargetViewProps) {
           const overlapDays = Math.floor((to - from) / dayMs) + 1;
           hours += (allocation.plannedHours / spanDays) * overlapDays;
         }
-        return Math.round(hours * 10) / 10;
+        // Availability is person-level, not additive across repeated phase/engagement rows.
+        // Prorating interval leave does not assert specific absence dates.
+        for (const day of days) {
+          const active = scopedAllocations.filter(x => x.userId === a.userId && x.startDate <= day && x.endDate >= day);
+          const fraction = (x: StaffAllocation) => Math.floor((toUtc(x.endDate)-toUtc(x.startDate))/dayMs)+1;
+          if (active.some(x => x.capacityHours !== undefined)) { capacityKnown = true; capacity += Math.max(0,...active.map(x => (x.capacityHours || 0)/fraction(x))); }
+          leave += Math.max(0,...active.map(x => (x.leaveHours || 0)/fraction(x)));
+        }
+        return { hours: Math.round(hours*10)/10, capacity: capacityKnown ? Math.round(capacity*10)/10 : undefined, leave: Math.round(leave*10)/10 };
       })
     }));
-    return { weeks: weeks.map((w) => new Date(w.start).toISOString().slice(0, 10)), people };
+    return { weeks: weeks.map((w) => new Date(w.start).toISOString().slice(0, 10)), people, engagements: [...new Set(scopedAllocations.map(a => a.engagementId))].join(', ') };
   })();
 
   return (
@@ -218,6 +228,7 @@ export function SchedulingView(props: TargetViewProps) {
                         <span className={`tag ${isOptimal ? 'green' : isHigh ? 'purple' : 'amber'}`}>
                           {util === null ? 'Unknown' : isOptimal ? `Optimal (${target}–${target + 5}%)` : isHigh ? 'High Demand' : 'Available Capacity'}
                         </span>
+                        <small style={{display:'block'}}>Saved target {target}–{target + 5}%</small>
                       </td>
                     </tr>
                   );
@@ -229,7 +240,7 @@ export function SchedulingView(props: TargetViewProps) {
           {calendar ? (
             <div className="mt16">
               <h4 style={{ margin: '0 0 6px 0' }}>Week-axis allocation calendar (saved allocations)</h4>
-              <p className="caption mb8">Allocated hours spread across each interval's days; editing and saving an allocation re-shapes the affected weeks and capacity totals.</p>
+              <p className="caption mb8">Allocated hours across authorized engagements {calendar.engagements}, spread across each interval's days; editing and saving an allocation re-shapes affected weeks. Leave is recorded for the allocation interval, not inferred as exact absence dates.</p>
               <div className="tablewrap">
                 <table className="target-table">
                   <thead>
@@ -245,23 +256,23 @@ export function SchedulingView(props: TargetViewProps) {
                     {calendar.people.map((person) => (
                       <tr key={person.userId} className="hover-row">
                         <td><strong>{person.name}</strong></td>
-                        {person.weekly.map((hours, index) => {
-                          const capacityPerWeek = person.capacityHours ? person.capacityHours / calendar.weeks.length : undefined;
-                          const over = capacityPerWeek !== undefined && hours > capacityPerWeek - person.leaveHours / calendar.weeks.length;
+                        {person.weekly.map(({hours,capacity,leave}, index) => {
+                          const over = capacity !== undefined && hours > capacity - leave;
                           return (
                             <td
                               key={index}
                               className="text-right mono"
                               style={{ background: hours === 0 ? undefined : over ? '#fee2e2' : '#dcfce7' }}
-                              title={`Week commencing ${calendar.weeks[index]}`}
+                              title={`Week commencing ${calendar.weeks[index]}: ${hours} planned, ${capacity ?? 'unrecorded'} capacity, ${leave} prorated interval leave hours`}
                             >
                               {hours === 0 ? '·' : hours}
+                              <small style={{display:'block'}}>cap {capacity ?? '—'} · leave {leave}</small>
                             </td>
                           );
                         })}
                         <td>
-                          <span className="caption" style={{ color: person.leaveHours ? '#0284c7' : '#64748b' }}>
-                            {person.leaveHours ? `${person.leaveHours} hrs ${person.leaveNote}` : '—'}
+                          <span className="caption" style={{ color: person.leaveIntervals.length ? '#0284c7' : '#64748b' }}>
+                            {person.leaveIntervals.join('; ') || '—'}
                           </span>
                         </td>
                       </tr>

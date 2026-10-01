@@ -1,3 +1,4 @@
+import { STANDARD_PAYMENT_TERMS } from '../../services/clientOutputs';
 // Module 1: Proposals, terms and commercial review (VP-010, VP-011)
 import React, { useEffect, useRef, useState } from 'react';
 import { RouteKey, ProposalContentTemplate, ProposalItem, ProposalRecord, ProposalServiceDefinition } from '../../types';
@@ -8,6 +9,8 @@ import { StatusBadge } from '../common/StatusBadge';
 import { formatCurrency } from '../../services/calculations';
 import { UnsavedFormGuard } from '../../services/unsavedFormGuard';
 import { visibleClientIds, hasAnyRole } from '../../services/guards';
+import { proposalPDF, proposalTeam } from '../../services/proposalOutput';
+import { downloadBlob } from '../../services/exportService';
 
 interface ProposalsViewProps {
   onNavigate: (route: RouteKey) => void;
@@ -19,15 +22,8 @@ export const ProposalsView: React.FC<ProposalsViewProps> = ({ onNavigate, onRegi
   // R02: one 50/50 commercial definition everywhere. The final 50% belongs to delivery of the
   // FINAL signed deliverables package — the balance fee note is prepared with the final bundle
   // (Draft) and issued at final release, matching the active billing implementation.
-  const STANDARD_PAYMENT_TERMS = '50% advance deposit payable upon engagement letter (EL) execution; 50% final balance payable upon delivery of the final signed audit deliverables package (balance fee note prepared with the final bundle and issued at final release).';
   const rosterTeamCredentials = () => {
-    const byRole = (roles: string[]) =>
-      state.users.filter((u) => u.status === 'Active' && roles.includes(u.role)).map((u) => u.name);
-    const partner = byRole(['partner'])[0] || 'Unassigned partner';
-    const manager = byRole(['manager'])[0] || 'Unassigned manager';
-    const senior = byRole(['reviewer'])[0] || 'Unassigned senior';
-    const associate = byRole(['preparer'])[0] || 'Unassigned associate';
-    return `Engagement Partner: ${partner} (synthetic CV — FCA); Audit Manager: ${manager} (synthetic CV — CPA); Senior Auditor: ${senior} (synthetic CV — ACCA); Audit Associate: ${associate} (synthetic CV). Assigned engagement team is confirmed at scheduling.`;
+    return proposalTeam(state,{id:'new-proposal'});
   };
   const [selectedProposal, setSelectedProposal] = useState<ProposalRecord | null>(null);
   const [showReviewModal, setShowReviewModal] = useState(false);
@@ -57,10 +53,10 @@ export const ProposalsView: React.FC<ProposalsViewProps> = ({ onNavigate, onRegi
   const [proposalMode, setProposalMode] = useState<'Brief Quotation' | 'Comprehensive Technical Proposal'>('Brief Quotation');
   const [firmHistory, setFirmHistory] = useState('');
   const [deliveryTimeline, setDeliveryTimeline] = useState('');
-  const [firmProfile, setFirmProfile] = useState('Established licensed audit firm authorized under QFC / MOCI / QCB regulations with dedicated audit, assurance and financial advisory practice.');
-  const [regulatoryRegistrations, setRegulatoryRegistrations] = useState('QFC Regulatory Authority, Qatar Ministry of Commerce & Industry (MOCI), Qatar Central Bank (QCB) Approved Auditor');
+  const [firmProfile, setFirmProfile] = useState('Synthetic firm profile — replace with approved firm history and registration evidence before presenting.');
+  const [regulatoryRegistrations, setRegulatoryRegistrations] = useState('Synthetic demonstration only; approved registration evidence not supplied');
   const [teamCredentials, setTeamCredentials] = useState(() => rosterTeamCredentials());
-  const [industryExperience, setIndustryExperience] = useState('Statutory financial statement audits under IFRS / ISA across Energy, Financial Services, Real Estate, and Commercial Trading in Qatar.');
+  const [industryExperience, setIndustryExperience] = useState('Record industry engagements and approved portfolio evidence references; no credentials inferred.');
   const [auditMethodology, setAuditMethodology] = useState('Risk-based ISA audit methodology conforming to ISA 200–720 and IFRS, utilizing 3-tier materiality (PM/TE/SAD), dual-key governance, and rigorous sampling.');
   const [proposalAmount, setProposalAmount] = useState(0);
   const [proposalCurrency, setProposalCurrency] = useState('QAR');
@@ -416,7 +412,8 @@ export const ProposalsView: React.FC<ProposalsViewProps> = ({ onNavigate, onRegi
             </div>
             <div className="modal-foot">
               <button className="btn sm ghost" onClick={() => setSelectedProposal(null)}>Close</button>
-              <button className="btn sm ghost no-print" onClick={() => window.print()}>Print Proposal</button>
+              <button className="btn sm ghost no-print" onClick={() => { void proposalPDF(prototypeStore.getSnapshot(),selectedProposal).then(blob => downloadBlob(blob,`${selectedProposal.id}-v${selectedProposal.revision}.pdf`)).catch(error => setNotice({type:'error',text:String(error.message)})); }}>Download Proposal PDF</button>
+              {selectedProposal.state === 'Draft' && <button className="btn sm ghost" onClick={() => { const updated={...selectedProposal,teamCredentials:proposalTeam(state,selectedProposal)}; try { prototypeStore.updateProposal(updated); setSelectedProposal(updated); } catch(error: any) {setNotice({type:'error',text:error.message});} }}>Refresh team from assigned roster</button>}
               {selectedProposal.state === 'Draft' && <><button className="btn sm ghost" onClick={() => loadProposalDraft(selectedProposal)}>Edit Draft</button><button className="btn sm ghost" onClick={() => { try { const revised = prototypeStore.createProposalRevision(selectedProposal.id); setSelectedProposal(revised); loadProposalDraft(revised); } catch (error: any) { setNotice({ type: 'error', text: error.message }); } }}>Create Revision</button></>}
               {selectedProposal.state === 'Draft' && (
                 <button className="btn primary sm" onClick={() => setShowReviewModal(true)}>

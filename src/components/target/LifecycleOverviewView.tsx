@@ -10,7 +10,7 @@ import {
 import type { TargetViewProps } from './TargetCommon';
 
 export function LifecycleOverviewView({ onNavigate }: TargetViewProps) {
-  const state = prototypeStore.getSnapshot(),
+  const state = prototypeStore.getReadSnapshot(),
     visible = visibleEngagementIds(state),
     engagements = state.engagements.filter((e) => visible === 'ALL' || visible.includes(e.id));
   const selected = engagements.find((e) => e.id === state.selectedEngagement);

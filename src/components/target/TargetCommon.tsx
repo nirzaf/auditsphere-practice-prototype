@@ -212,7 +212,7 @@ export function TargetLifecycleHeader({
   route,
   onNavigate
 }: TargetViewProps & { route: RouteKey }) {
-  const state = prototypeStore.getSnapshot(),
+  const state = prototypeStore.getReadSnapshot(),
     allowed = visibleEngagementIds(state),
     engagement = state.engagements.find(
       (e) => e.id === state.selectedEngagement && (allowed === 'ALL' || allowed.includes(e.id))

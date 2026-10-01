@@ -233,7 +233,7 @@
         ]
       }
     ],
-    "note": "Lead requires an entity and active reachable contact. Proposal requires a draft commercial record. Dual-Key Pending requires the current presented revision and successful simulated dispatch; both acceptance keys precede EL issuance. Advance Billing exposes the issued unpaid 50% invoice. Planning follows effective settlement and receipt/onboarding. Fieldwork needs current approved planning and mapped TB. Submitted procedures enter Managerial Review; current Manager clearance and SRM enter Partner Approval. Assigned Partner approval precedes exact five-part compilation and release. Release starts the 60-day countdown; expiry closes mutations even if file packaging needs retry.",
+    "note": "Lead requires an entity and active reachable contact. Proposal requires a draft commercial record. Dual-Key Pending requires the current presented revision and successful simulated dispatch; both acceptance keys precede EL issuance. Advance Billing exposes the issued unpaid 50% invoice. Planning follows effective settlement and receipt/onboarding. Fieldwork needs current approved planning and mapped TB. Submitted procedures enter Managerial Review; current Manager clearance and SRM enter Partner Approval. Assigned Partner opinion selection remains Partner Approval. Separate signature/seal authorization enables exact five-part compilation and starts the 60-day countdown; release retains that deadline; expiry closes mutations even if file packaging needs retry.",
     "review": "Confirm this flow against executed evidence.",
     "boundary": "Local prototype: email, WhatsApp, M365 provisioning, authentication, signature, payment and immutable storage are simulations."
   },
@@ -338,7 +338,7 @@
         ]
       }
     ],
-    "note": "Independent acceptance/continuance approval and 50% advance activation create the exact five-folder workspace. Import the TB, validate balance and source digest, approve mapping and record staffing/milestones. Select a current TB-derived benchmark and document any PBT normalization against a contributing account. Assigned Partner approval binds the plan to the source revision; replacement TB requires reconfirmation.",
+    "note": "Assigned-Partner risk acceptance provisions the internal five-folder directory; advance receipt and simulated password reset separately activate client uploads. Import the TB, validate balance and source digest, approve mapping and record staffing/milestones. Select a current TB-derived benchmark and document any PBT normalization against a contributing account. Assigned Partner approval binds the plan to the source revision; replacement TB requires reconfirmation.",
     "review": "Confirm this flow against executed evidence.",
     "boundary": "Local prototype: email, WhatsApp, M365 provisioning, authentication, signature, payment and immutable storage are simulations."
   },

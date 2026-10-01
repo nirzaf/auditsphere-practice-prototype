@@ -3,6 +3,7 @@ import { persistArtifact, artifactSha256 } from '../../services/artifactStore';
 import { prototypeStore } from '../../store/prototypeStore';
 import type { AuditOpinion } from '../../types/targetLifecycle';
 import { hasAnyRole } from '../../services/guards';
+import { clientCorrespondenceLines, managementLetterLines } from '../../services/clientOutputs';
 import {
   currentDeliverables,
   currentPartnerOpinion,
@@ -23,7 +24,7 @@ import {
 } from './TargetCommon';
 
 export function OpinionDeliverablesView(props: TargetViewProps) {
-  const state = prototypeStore.getSnapshot(),
+  const state = prototypeStore.getReadSnapshot(),
     eng = state.engagements.find((e) => e.id === state.selectedEngagement);
   const opinion = eng ? currentPartnerOpinion(state, eng) : undefined;
 
@@ -176,10 +177,12 @@ export function OpinionDeliverablesView(props: TargetViewProps) {
               <div>
                 <strong>{eng.partner || 'Daniel James'}, Engagement Partner</strong>
                 <p className="caption">Synthetic Partner signature · prototype illustration</p>
+                {signature?.signaturePng && <img src={signature.signaturePng} alt="Pinned synthetic Partner signature" style={{ maxWidth: 180, maxHeight: 70 }} />}
               </div>
             </div>
             <div style={{ padding: '6px 12px', background: '#ecfdf5', border: '1px solid #10b981', borderRadius: 4, color: '#047857', fontWeight: 600, fontSize: '12px' }}>
               STE Audit &amp; Accounting LLC · simulated firm seal
+              {signature?.sealPng && <img src={signature.sealPng} alt="Pinned synthetic firm seal" style={{ maxWidth: 90, maxHeight: 90 }} />}
             </div>
           </div>
         </div>
@@ -213,6 +216,8 @@ export function OpinionDeliverablesView(props: TargetViewProps) {
       )}
 
       {eng.auditLifecycle!.opinions.filter(record => record !== opinion).map(record => <details className="panel panel-pad" key={record.revision}><summary>Historical opinion revision {record.revision} · {record.value}</summary><p>{record.focusArea} · {record.basis}</p><p>Selected {record.selectedAt} by {state.users.find(u => u.id === record.selectedByUserId)?.name || record.selectedByUserId}. This decision does not authorize the current reporting basis.</p></details>)}
+      <details className="panel panel-pad"><summary>Client correspondence preview (same projection as exported bundle)</summary>{clientCorrespondenceLines(state,eng).map((line,i) => <p key={i}>{line}</p>)}</details>
+      <details className="panel panel-pad"><summary>Management letter preview (designated observations only)</summary>{managementLetterLines(state,eng).map((line,i) => <p key={i}>{line}</p>)}</details>
       {/* Partner Signature & Firm Seal — the authoritative signature event (R10) */}
       <TargetForm
         title="Partner Signature & Firm Seal (ISA 700 sign-off — authoritative signature event)"
@@ -220,13 +225,21 @@ export function OpinionDeliverablesView(props: TargetViewProps) {
         button="Sign & authorize reporting basis (simulated signature / seal)"
         disabled={!hasAnyRole(state, ['partner']) || frozen || !opinion || blockers.length > 0}
         onRegisterUnsavedForm={props.onRegisterUnsavedForm}
-        onCommit={(data) =>
+        onCommit={async (data) => {
+          const png = async (key: string) => {
+            const file = data.get(key) as File | null;
+            if (!file?.size) return undefined;
+            if (file.type !== 'image/png' || file.size > 1024*1024) throw Error('Choose a PNG illustration under 1 MB.');
+            const bytes = new Uint8Array(await file.arrayBuffer());
+            return `data:image/png;base64,${btoa(Array.from(bytes,b => String.fromCharCode(b)).join(''))}`;
+          };
           prototypeStore.lifecycle.authorizeReportSignature(
             eng.id,
             value(data, 'signatureDate'),
-            value(data, 'note')
-          )
-        }
+            value(data, 'note'),
+            { signaturePng: await png('signaturePng'), sealPng: await png('sealPng') }
+          );
+        }}
       >
         <p className="sub mb12">
           Selecting an opinion is <strong>not</strong> the signature event. This step records the
@@ -241,6 +254,8 @@ export function OpinionDeliverablesView(props: TargetViewProps) {
           defaultValue={signature?.signatureDate || state.asOfDate}
         />
         <Field label="Signature authorization note" name="note" type="textarea" />
+        <label className="target-field"><span>Partner signature PNG illustration (optional, synthetic)</span><input type="file" name="signaturePng" accept="image/png" /></label>
+        <label className="target-field"><span>Firm seal PNG illustration (optional, synthetic)</span><input type="file" name="sealPng" accept="image/png" /></label>
         {signatureHistory.map((record) => (
           <p className="caption" key={record.revision}>
             Authorization v{record.revision} · signed {record.signatureDate} · opinion revision{' '}

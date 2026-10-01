@@ -1,3 +1,4 @@
+import { clientCorrespondenceLines, managementLetterLines, STANDARD_PAYMENT_TERMS } from '../services/clientOutputs';
 import { REQUIRED_CONFIRMATION_TYPES, type RequiredConfirmationType } from '../types/targetLifecycle';
 import type {
   EngagementRecord,
@@ -56,7 +57,7 @@ import {
   targetReleaseBlockers,
   hasExactFivePartBundle, fsliRiskLevel, proposalMatchesEngagement
 } from '../services/targetLifecycle';
-import { createPDFBlob, createXLSXBlob, createDOCXBlob } from '../services/exportService';
+import { createPDFBlob, createXLSXBlob, createDOCXBlob, type PDFVisualAssets } from '../services/exportService';
 import { applyReportingAdjustments, calculateBalanceSheet, calculateIncomeStatement } from '../services/calculations';
 import { requireRoutedContact } from '../services/contactRouting';
 import { sealEngagementArchive } from '../services/archivePackage';
@@ -72,15 +73,17 @@ import {
 export type ArtifactWriter = (
   id: string,
   title: string,
-  lines: string[]
+  lines: string[],
+  visuals?: PDFVisualAssets
 ) => Promise<GeneratedArtifactRecord>;
 export async function writeLifecyclePDF(
   id: string,
   title: string,
-  lines: string[]
+  lines: string[],
+  visuals?: PDFVisualAssets
 ): Promise<GeneratedArtifactRecord> {
   const representation = title === 'Letter of Representation';
-  const blob = representation ? await createDOCXBlob(title, lines) : createPDFBlob(title, lines);
+  const blob = representation ? await createDOCXBlob(title, lines) : createPDFBlob(title, lines, visuals);
   const record: GeneratedArtifactRecord = {
     id,
     name: `${id.replaceAll(':', '_')}.${representation ? 'docx' : 'pdf'}`,
@@ -1108,7 +1111,8 @@ export class TargetLifecycleCommands {
     workpaperId: string,
     scope: string,
     workPerformed: string,
-    conclusion: string
+    conclusion: string,
+    evidenceMode?: 'Digital' | 'Physical' | 'Hybrid'
   ) {
     let engagement = this.engagement(engagementId, ['preparer', 'manager'], true);
     fail(fieldworkBlockers(this.state, engagement));
@@ -1140,6 +1144,9 @@ export class TargetLifecycleCommands {
     const physicalReady = Boolean(
       wp.physicalReference?.indexCode.trim() && wp.physicalReference?.description.trim()
     );
+    const mode = evidenceMode || wp.evidenceMode;
+    if (mode && !['Digital','Physical','Hybrid'].includes(mode)) throw new GuardError('INVALID_STATE','Choose Digital, Physical or Hybrid evidence.');
+    if (mode === 'Physical' && !physicalReady || mode === 'Hybrid' && (!physicalReady || !digitalRefs.length) || mode === 'Digital' && !digitalRefs.length) throw new GuardError('INVALID_STATE', `${mode} evidence requirements are incomplete.`);
     if (staleDigital || (!digitalRefs.length && !physicalReady))
       throw new GuardError(
         'INVALID_STATE',
@@ -1193,6 +1200,7 @@ export class TargetLifecycleCommands {
     wp.scope = scope;
     wp.workPerformed = workPerformed;
     wp.conclusion = conclusion;
+    if (mode) wp.evidenceMode = mode;
     wp.status = 'In progress';
     wp.clearance = null;
     wp.generatedArtifact = artifact;
@@ -1687,10 +1695,15 @@ export class TargetLifecycleCommands {
    *  revision and reporting basis. Opinion selection, bundle compilation and delivery are
    *  deliberately separate steps; only this command records the signature date that starts
    *  the 60-day compliance clock. */
-  public authorizeReportSignature(engagementId: string, signatureDate: string, note: string) {
+  public authorizeReportSignature(engagementId: string, signatureDate: string, note: string, visuals?: PDFVisualAssets) {
     const engagement = this.engagement(engagementId, ['partner'], true);
     this.assignedPartner(engagement);
     requireText(note, 'Signature authorization note', 10);
+    for (const png of [visuals?.signaturePng, visuals?.sealPng]) if (png && (!/^data:image\/png;base64,iVBORw0KGgo/.test(png) || png.length > 1400000)) throw new GuardError('INVALID_STATE','Use a PNG signature/seal illustration under 1 MB.');
+    if (visuals?.signaturePng || visuals?.sealPng) {
+      try { createPDFBlob('Validate synthetic visual assets', [], visuals); }
+      catch { throw new GuardError('INVALID_STATE','The supplied PNG illustration cannot be rendered. Choose a valid PNG before authorizing.'); }
+    }
     if (!isIsoDate(signatureDate) || signatureDate > this.state.asOfDate)
       throw new GuardError(
         'INVALID_STATE',
@@ -1706,7 +1719,7 @@ export class TargetLifecycleCommands {
     const basis = reportBasis(this.state, engagement);
     const authorizations = engagement.auditLifecycle!.signatureAuthorizations ||= [];
     const existing = authorizations.at(-1);
-    if (existing && existing.basis === basis && existing.opinionRevision === opinion.revision && existing.signatureDate === signatureDate)
+    if (existing && existing.basis === basis && existing.opinionRevision === opinion.revision && existing.signatureDate === signatureDate && existing.signaturePng === visuals?.signaturePng && existing.sealPng === visuals?.sealPng)
       return existing;
     authorizations.push({
       revision: authorizations.length + 1,
@@ -1714,6 +1727,8 @@ export class TargetLifecycleCommands {
       opinionRevision: opinion.revision,
       signatureDate,
       signedByUserId: this.state.currentUserId,
+      signaturePng: visuals?.signaturePng,
+      sealPng: visuals?.sealPng,
       sealApplied: true,
       at: new Date().toISOString(),
       note: note.trim()
@@ -1741,6 +1756,7 @@ export class TargetLifecycleCommands {
     }
     fail(targetReleaseBlockers(this.state, engagement));
     const opinion = currentPartnerOpinion(this.state, engagement);
+    if (this.state.findings.some(f => f.engagementId === engagementId && f.managementLetterVisible && (!f.impact?.trim() || !f.recommendation?.trim()))) throw new GuardError('INVALID_STATE','Complete every designated management-letter impact and recommendation before compiling.');
     if (!opinion)
       throw new GuardError('INVALID_STATE', 'The assigned Partner must select an opinion first.');
     fail(opinionValidation(opinion.value, opinion.focusArea, opinion.basis));
@@ -1845,28 +1861,7 @@ export class TargetLifecycleCommands {
           ...header,
           'Deliverable 2: Management Letter on Internal Control Observations',
           'Structured Observations (Deficiency -> Impact -> Auditor Recommendation):',
-          // R09: only findings with explicitly recorded impact and recommendation become
-          // management-letter observations; no impact/recommendation is manufactured from
-          // the deficiency text, and incomplete findings remain internal audit records.
-          ...(() => {
-            const findings = this.state.findings.filter((f) => f.engagementId === engagementId);
-            const included = findings.filter((f) => f.impact?.trim() && f.recommendation?.trim());
-            const omitted = findings.length - included.length;
-            return [
-              ...included.map(
-                (f) =>
-                  `• Deficiency: ${f.title}${f.condition ? ` — ${f.condition}` : ''}\n  Impact: ${f.impact!.trim()}\n  Auditor Recommendation: ${f.recommendation!.trim()} (${f.disposition})`
-              ),
-              ...(included.length
-                ? []
-                : ['No finding carries both a recorded impact and an auditor recommendation; nothing is presented as a complete management-letter observation.']),
-              ...(omitted > 0
-                ? [
-                    `${omitted} finding(s) omitted from this client document: missing explicit impact and/or recommendation. They are retained in the internal audit record.`
-                  ]
-                : [])
-            ];
-          })()
+          ...managementLetterLines(this.state, engagement)
         ]
       },
       {
@@ -1888,31 +1883,13 @@ export class TargetLifecycleCommands {
           ...header,
           'Deliverable 4: Management Correspondences Audit Trail',
           'Summary of Formal Audit Inquiries, Confirmation Results & Cleared Inquiries:',
-          ...this.state.communications.filter(message => message.clientId === engagement.client && message.engagementId === engagementId && message.visibility === 'Client visible').map(message => `• [Management correspondence ${message.id}] ${message.date} | ${message.channel} | ${message.participants}: ${message.summary} ${message.body || ''}`),
-          ...engagement.pbc.filter(request => !['Draft', 'Cancelled'].includes(request.status)).flatMap(request => (request.thread || []).filter(message => message.clientVisible).map(message => `• [PBC inquiry ${request.id}] ${message.time} | ${message.kind} | ${message.author}: ${message.text} (current request status: ${request.status})`)),
-          ...(this.state.confirmations || [])
-            .filter((c) => c.engagementId === engagementId)
-            .map((c) => `• [Confirmation ${c.type}] ${c.counterparty} (${c.relatedFsli}): Status ${c.status} (Critical: ${c.critical ? 'Yes' : 'No'})`),
-          // R01: review notes are internal audit records. Only notes explicitly designated
-          // as formal client correspondence (and cleared) enter the client-facing bundle.
-          ...(() => {
-            const reviews = engagement.reviews || [];
-            const designated = reviews.filter(
-              (r) => r.externalVisibility === 'Formal client correspondence' && r.status === 'Cleared'
-            );
-            const internal = reviews.length - designated.length;
-            return [
-              ...designated.map(
-                (r) => `• [Formal client correspondence ${r.id}] ${r.title} (${r.status}): ${r.body}`
-              ),
-              `Internal review notes retained in the audit file: ${internal} (not client correspondence).`
-            ];
-          })()
+          ...clientCorrespondenceLines(this.state, engagement)
         ]
       },
       {
         deliverable: 'Final Balance Fee Note',
         lines: [
+          STANDARD_PAYMENT_TERMS,
           ...header,
           'Deliverable 5: Final Balance Fee Note (Remaining 50% Professional Fee Balance)',
           `Invoice Number: ${invoiceNumber}`,
@@ -1927,7 +1904,7 @@ export class TargetLifecycleCommands {
     const artifacts = [];
     for (const [index, d] of definitions.entries())
       artifacts.push({
-        ...(await this.artifactWriter(`${id}-${index + 1}`, d.deliverable, d.lines)),
+        ...(await this.artifactWriter(`${id}-${index + 1}`, d.deliverable, d.lines, {signaturePng:signature.signaturePng,sealPng:signature.sealPng,signerName:this.state.currentPerson})),
         deliverable: d.deliverable
       });
     engagement = this.engagement(engagementId, ['partner'], true);
@@ -1955,6 +1932,7 @@ export class TargetLifecycleCommands {
       basis,
       opinionRevision: opinion.revision,
       generatedAt: new Date().toISOString(),
+      signatureAuthorizationRevision: signature.revision,
       generatedByUserId: actor,
       reportDate,
       artifacts
@@ -2001,12 +1979,12 @@ export class TargetLifecycleCommands {
       at: new Date().toISOString(),
       actorUserId: this.state.currentUserId,
       action: control.finalReportDate
-        ? 'Report reissue resets freeze basis'
+        ? 'Report release retains signature deadline'
         : 'Freeze timer started',
       reason: `Final opinion/report date ${set.reportDate}; report set ${set.id}.`
     });
-    control.finalReportDate = set.reportDate;
-    control.freezeDueDate = plusDays(set.reportDate, 60);
+    control.finalReportDate ||= set.reportDate;
+    control.freezeDueDate ||= plusDays(set.reportDate, 60);
     control.freezeStatus = 'Counting Down';
     control.reportSetId = set.id;
     const version = engagement.releases.length + 1;

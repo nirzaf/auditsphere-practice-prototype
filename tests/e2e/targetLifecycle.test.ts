@@ -125,6 +125,18 @@ it('visible Partner reporting flow retains signed LOR and releases the exact fiv
   await tab.evaluate(`Array.from(document.querySelectorAll('button')).find(b=>b.textContent.includes('Release Bundle to Client Portal')).click()`);
   await sleep(150);lifecycle=await tab.evaluate(inspect);assert.ok(lifecycle.deliverables[0].deliveredAt);
   assert.equal(lifecycle.signedRepresentations[0].deliverableSetId,lifecycle.deliverables[0].id);
+  await tab.evaluate("import('/src/store/prototypeStore.ts').then(({prototypeStore:s})=>s.setPersona('billing'))");await tab.evaluate("location.hash='billing'");await sleep(150);
+  const balanceId=lifecycle.balanceInvoices[0].invoiceId;
+  const balanceAmount=await tab.evaluate<number>("import('/src/store/prototypeStore.ts').then(({prototypeStore:s})=>s.getSnapshot().invoices.find(i=>i.id==="+JSON.stringify(balanceId)+").amount)");
+  const payment=async(amount:number,reference:string)=>{await tab.evaluate("(()=>{const f=document.querySelector('[data-target-form=final-fee-payment]');f.querySelector('[name=amount]').value="+amount+";f.querySelector('[name=reference]').value="+JSON.stringify(reference)+";f.requestSubmit()})()");await sleep(150);};
+  await payment(balanceAmount/2,'VISIBLE-FINAL-PARTIAL');
+  assert.equal(await tab.evaluate<number>("import('/src/store/prototypeStore.ts').then(({prototypeStore:s})=>s.getSnapshot().invoices.find(i=>i.id==="+JSON.stringify(balanceId)+").paid)"),balanceAmount/2);
+  await tab.evaluate("(()=>{const f=document.querySelector('[data-target-form=final-fee-reversal]');f.querySelector('[name=reason]').value='Synthetic incorrect allocation reversed with retained history.';f.requestSubmit()})()");await sleep(150);
+  assert.equal(await tab.evaluate<number>("import('/src/store/prototypeStore.ts').then(({prototypeStore:s})=>s.getSnapshot().invoices.find(i=>i.id==="+JSON.stringify(balanceId)+").paid)"),0);
+  await payment(balanceAmount,'VISIBLE-FINAL-SETTLED');
+  assert.equal(await tab.evaluate<string>("import('/src/store/prototypeStore.ts').then(({prototypeStore:s})=>s.getSnapshot().invoices.find(i=>i.id==="+JSON.stringify(balanceId)+").status)"),'Paid');
+  await saveEvidence('docs/prototype/evidence/review-final-fee-ui.json',JSON.stringify({partialPayment:balanceAmount/2,reversed:true,settled:balanceAmount,issuedObligations:1,method:'Visible final-fee payment and reversal forms; synthetic offline receipts.'},null,2));
+
   await tab.evaluate(`import('/src/store/prototypeStore.ts').then(({prototypeStore:s})=>s.setPersona('client_finance'))`);
   await tab.evaluate(`location.hash='portal'`);await sleep(150);
   await tab.evaluate(`Array.from(document.querySelectorAll('button')).find(b=>b.textContent.includes('4. Final Certified Deliverables')).click()`);await sleep(100);
@@ -187,7 +199,7 @@ it('D5 Workprograms & Evidence opens current FSLI fieldwork rather than the reti
   assert.equal(await tab.evaluate<boolean>(`document.querySelector('main').innerText.includes('Audit programs & fieldwork') && !document.querySelector('main').innerText.includes('Preparer → Manager → SRM → Partner')`),true);
   assert.ok(await tab.evaluate<number>(`document.querySelectorAll('select[name="program"] option').length`)>0);
 }, {timeout:30000});
-it('two real browser tabs preserve independent procedure edits after reload', async () => {
+it('two real browser tabs preserve independent FSLI procedure edits after reload', async () => {
   const result=await tab.evaluate<any>(`import('/tests/helpers/targetJourney.ts').then(m=>m.runTargetJourney({stopAtFieldwork:true}))`);
   const port=readFileSync(join(profile,'DevToolsActivePort'),'utf8').split('\n')[0];
   const target=await fetch(`http://127.0.0.1:${port}/json/new?${origin}`,{method:'PUT'}).then(r=>r.json()) as any;
@@ -197,7 +209,7 @@ it('two real browser tabs preserve independent procedure edits after reload', as
   try {
     await other.command('Runtime.enable');
     for(let n=0;n<100;n++){if(await other.evaluate<boolean>('!!document.querySelector(".sidebar")'))break;await sleep(100);}
-    const ids=await tab.evaluate<string[]>(`import('/src/store/prototypeStore.ts').then(({prototypeStore:s})=>s.getSnapshot().auditPrograms.filter(p=>p.engagementId===${JSON.stringify(result.engagementId)}).flatMap(p=>p.procedures).slice(0,2).map(p=>p.id))`);
+    const ids=await tab.evaluate<string[]>(`import('/src/store/prototypeStore.ts').then(({prototypeStore:s})=>s.getSnapshot().auditPrograms.filter(p=>p.engagementId===${JSON.stringify(result.engagementId)}).slice(0,2).map(p=>p.procedures[0].id))`);
     assert.equal(ids.length,2);
     const edit=(id:string,label:string)=>`import('/src/store/prototypeStore.ts').then(({prototypeStore:s})=>s.updateAuditProcedureExecution(${JSON.stringify(result.engagementId)},${JSON.stringify(id)},${JSON.stringify(label)},'Evidence supports the recorded conclusion.',''))`;
     await Promise.all([tab.evaluate(edit(ids[0],'Independent work in first tab')),other.evaluate(edit(ids[1],'Independent work in second tab'))]);
@@ -210,6 +222,81 @@ it('two real browser tabs preserve independent procedure edits after reload', as
     assert.deepEqual(await other.evaluate(inspect),['Independent work in first tab','Independent work in second tab']);
   } finally {other.close();await fetch(`http://127.0.0.1:${port}/json/close/${target.id}`);}
 }, {timeout:60000});
+it('A07 visible workbook forms enforce Digital, Physical and Hybrid evidence',async()=>{
+  const result=await tab.evaluate<any>("import('/tests/helpers/targetJourney.ts').then(m=>m.runTargetJourney({stopBeforeManager:true}))");
+  const setup=await tab.evaluate<any>("import('/src/store/prototypeStore.ts').then(({prototypeStore:s})=>{const state=s.getSnapshot(),e=state.engagements.find(e=>e.id==="+JSON.stringify(result.engagementId)+"),p=state.samplePopulations.find(p=>p.engagementId===e.id),program=state.auditPrograms.find(p=>p.engagementId===e.id&&p.area==='Revenue'),wp=e.workpapers.find(w=>w.id===program.leadWorkpaperRef),item=p.items.find(i=>i.selected);s.lifecycle.attachPhysicalReference(e.id,wp.id,p.id,item.id,{indexCode:'X-1',description:'Synthetic original customer invoice inspection',box:'Demo cabinet'});for(const id of wp.evidenceRefs)s.unlinkWorkpaperEvidence(e.id,wp.id,id,'Physical-only evidence readiness demonstration.');return {wp:wp.id,doc:wp.evidenceRefs[0]||state.documents.find(d=>d.engagementId===e.id&&!d.brokenLink&&!state.documents.some(n=>n.supersedesDocumentId===d.id)).id}})");
+  await tab.evaluate("location.hash='reviews'");await sleep(150);
+  const form="Array.from(document.querySelectorAll('[data-target-form=workpaper]')).find(f=>f.querySelector('h3')?.textContent.includes("+JSON.stringify(setup.wp)+"))";
+  const inspect="import('/src/store/prototypeStore.ts').then(({prototypeStore:s})=>s.getSnapshot().engagements.find(e=>e.id==="+JSON.stringify(result.engagementId)+").workpapers.find(w=>w.id==="+JSON.stringify(setup.wp)+"))";
+  const initial=await tab.evaluate<any>(inspect);
+  const save=async(mode:string)=>{await tab.evaluate("(()=>{const f="+form+";if(!f)throw Error('Workpaper form not found');f.querySelector('[name=evidenceMode]').value="+JSON.stringify(mode)+";f.requestSubmit()})()");await sleep(300);};
+  await save('Digital');assert.equal((await tab.evaluate<any>(inspect)).version,initial.version);
+  await save('Physical');const physical=await tab.evaluate<any>(inspect);assert.equal(physical.evidenceMode,'Physical');assert.ok(physical.version>initial.version);
+  await save('Hybrid');assert.equal((await tab.evaluate<any>(inspect)).version,physical.version);
+  await tab.evaluate("import('/src/store/prototypeStore.ts').then(({prototypeStore:s})=>s.linkWorkpaperEvidence("+JSON.stringify(result.engagementId)+","+JSON.stringify(setup.wp)+","+JSON.stringify(setup.doc)+"))");
+  await save('Hybrid');const hybrid=await tab.evaluate<any>(inspect);assert.equal(hybrid.evidenceMode,'Hybrid');assert.ok(hybrid.version>physical.version);
+  const verified=await tab.evaluate<boolean>("Promise.all([import('/src/store/prototypeStore.ts'),import('/src/services/artifactStore.ts')]).then(async([{prototypeStore:s},m])=>{const w=s.getSnapshot().engagements.find(e=>e.id==="+JSON.stringify(result.engagementId)+").workpapers.find(w=>w.id==="+JSON.stringify(setup.wp)+");return (await m.loadVerifiedArtifact(w.generatedArtifact)).size>0})");assert.ok(verified);
+  await saveEvidence('docs/prototype/evidence/review-evidence-modes-ui.json',JSON.stringify({digitalMissingBlocked:true,physicalWorkbookGenerated:true,hybridMissingDigitalBlocked:true,hybridWorkbookGenerated:true,genuineBytesVerified:true,workpaper:setup.wp},null,2));
+});
+
+it('A04 visible staffing preserves two associates and multiple Manager phases with date-axis leave', async()=>{
+  const result=await tab.evaluate<any>("import('/tests/helpers/targetJourney.ts').then(m=>m.runTargetJourney({stopAtFieldwork:true}))");
+  await tab.evaluate("location.hash='scheduling'");await sleep(150);
+  const setRow=async(index:number,prefix:string,value:string)=>{await tab.evaluate("(()=>{const row=document.querySelectorAll('.target-staff-row')["+index+"];const e=row.querySelector('[name^="+JSON.stringify(prefix+'-')+"]');Object.getOwnPropertyDescriptor(e.tagName==='SELECT'?HTMLSelectElement.prototype:HTMLInputElement.prototype,'value').set.call(e,"+JSON.stringify(value)+");e.dispatchEvent(new Event(e.tagName==='SELECT'?'change':'input',{bubbles:true}))})()");await sleep(60);};
+  const managerIndex=await tab.evaluate<number>("Array.from(document.querySelectorAll('.target-staff-row')).findIndex(row=>row.querySelector('[name^=role-]').value==='Manager')");
+  await setRow(managerIndex,'phase','Planning');await setRow(managerIndex,'capacity','1000');await setRow(managerIndex,'leave','8');await setRow(managerIndex,'target','72');
+  const add=async()=>{await tab.evaluate("Array.from(document.querySelectorAll('button')).find(b=>b.textContent.includes('Add allocation row')).click()");await sleep(70);return await tab.evaluate<number>("document.querySelectorAll('.target-staff-row').length-1");};
+  const review=await add();await setRow(review,'role','Manager');await setRow(review,'user','manager');await setRow(review,'phase','Review');await setRow(review,'hours','12');await setRow(review,'charge','750');await setRow(review,'cost','375');await setRow(review,'start','2026-10-05');await setRow(review,'end','2026-10-11');await setRow(review,'capacity','1000');await setRow(review,'leave','8');await setRow(review,'target','72');
+  const associate=await add();await setRow(associate,'user','preparer-2');await setRow(associate,'start','2026-10-05');await setRow(associate,'end','2026-10-11');await setRow(associate,'capacity','100');await setRow(associate,'target','72');
+  await tab.evaluate("(()=>{const f=document.querySelector('[data-target-form=staffing]');f.querySelector('[name=reason]').value='Manager Planning/Review and two associate allocations with saved leave intervals.';f.requestSubmit()})()");await sleep(200);
+  const inspect="import('/src/store/prototypeStore.ts').then(({prototypeStore:s})=>s.getSnapshot().engagements.find(e=>e.id==="+JSON.stringify(result.engagementId)+").auditLifecycle.staffing.at(-1).allocations)";
+  const saved=await tab.evaluate<any[]>(inspect);assert.ok(saved.some(a=>a.userId==='manager'&&a.phase==='Planning'));assert.ok(saved.some(a=>a.userId==='manager'&&a.phase==='Review'&&a.startDate==='2026-10-05'));assert.ok(saved.some(a=>a.userId==='preparer-2'));
+  await tab.command('Page.reload');await sleep(200);for(let n=0;n<100;n++){if(await tab.evaluate<boolean>('!!document.querySelector(".target-staff-row")'))break;await sleep(100);}assert.deepEqual(await tab.evaluate(inspect),saved);
+  assert.equal(await tab.evaluate<boolean>("document.querySelector('main').innerText.includes('72–77%') && document.querySelector('main').innerText.includes('cap') && document.querySelector('main').innerText.includes('leave')"),true);
+  await saveEvidence('docs/prototype/evidence/review-staffing-ui.json',JSON.stringify({multipleAssociates:true,managerPhases:['Planning','Review'],reloadPreserved:true,leaveHours:8,targetPct:72,allocations:saved},null,2));
+});
+
+it('A14 independent browser profiles merge distinct FSLIs and reject concurrent same-row revisions', {skip:!process.env.TEST_CLOUD_API_URL,timeout:60000}, async()=>{
+  const result=await tab.evaluate<any>("import('/tests/helpers/targetJourney.ts').then(m=>m.runTargetJourney({stopAtFieldwork:true}))");
+  const snapshot=await tab.evaluate<any>("import('/src/store/prototypeStore.ts').then(({prototypeStore:s})=>JSON.parse(s.exportStateJSON()))");
+  const sourceId=snapshot.engagements.find((e:any)=>e.id===result.engagementId).sourceHistory.at(-1).originalArtifact.id;
+  const response=await fetch(process.env.TEST_CLOUD_API_URL+'/workspaces',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({seedId:'commercial'})});
+  const workspace=await response.json() as any;assert.ok(workspace.token);
+  const authorization={Authorization:'Bearer '+workspace.token,'Content-Type':'application/json'};
+  assert.equal((await fetch(process.env.TEST_CLOUD_API_URL+'/workspaces/'+workspace.id,{method:'PUT',headers:authorization,body:JSON.stringify({revision:workspace.revision,state:snapshot})})).status,200);
+  const secondProfile=mkdtempSync(join(tmpdir(),'auditsphere-independent-'));
+  const secondChrome=spawn(process.env.CHROME_PATH!,['--headless=new','--no-sandbox','--disable-gpu','--remote-debugging-port=0','--remote-allow-origins=*','--user-data-dir='+secondProfile,'--no-first-run','about:blank'],{stdio:'ignore'});
+  let other:CdpTab|undefined;
+  try {
+    let secondPort='';for(let n=0;n<100;n++){try{secondPort=readFileSync(join(secondProfile,'DevToolsActivePort'),'utf8').split('\n')[0];}catch{}if(secondPort)break;await sleep(100);}
+    const target=await fetch('http://127.0.0.1:'+secondPort+'/json/new?'+origin,{method:'PUT'}).then(r=>r.json()) as any;
+    const ws=new WebSocket(target.webSocketDebuggerUrl);await new Promise<void>((resolve,reject)=>{ws.addEventListener('open',()=>resolve(),{once:true});ws.addEventListener('error',()=>reject(Error('Independent profile failed')),{once:true});});
+    other=new CdpTab(ws,origin,[new URL(process.env.TEST_CLOUD_API_URL!).origin]);await other.command('Runtime.enable');await other.command('Page.enable');
+    for(let n=0;n<100;n++){if(await other.evaluate<boolean>('!!document.querySelector(".sidebar")'))break;await sleep(100);}
+    const code=workspace.id+'.'+workspace.token;
+    for(const page of [tab,other])await page.evaluate("import('/src/services/cloudDemo.ts').then(m=>m.resumeCloudDemo("+JSON.stringify(code)+"))");
+    const programs=snapshot.auditPrograms.filter((p:any)=>p.engagementId===result.engagementId);const ids=programs.slice(0,2).map((p:any)=>p.procedures[0].id);assert.notEqual(programs[0].area,programs[1].area);
+    const edit=(id:string,label:string)=>"import('/src/store/prototypeStore.ts').then(({prototypeStore:s})=>s.updateAuditProcedureExecution("+JSON.stringify(result.engagementId)+","+JSON.stringify(id)+","+JSON.stringify(label)+",'Independent evidence supports the conclusion.',''))";
+    await Promise.all([tab.evaluate(edit(ids[0],'Profile A independent FSLI')),other.evaluate(edit(ids[1],'Profile B independent FSLI'))]);
+    for(const page of [tab,other])await page.evaluate("import('/src/services/cloudDemo.ts').then(m=>m.saveCloudDemo())");
+    let persisted:any;for(let n=0;n<150;n++){persisted=await fetch(process.env.TEST_CLOUD_API_URL+'/workspaces/'+workspace.id,{headers:authorization}).then(r=>r.json());const values=persisted.state.auditPrograms.flatMap((p:any)=>p.procedures).filter((p:any)=>ids.includes(p.id)).map((p:any)=>p.workPerformed);if(values[0]==='Profile A independent FSLI'&&values[1]==='Profile B independent FSLI')break;await sleep(100);}
+    const saveStatuses=await Promise.all([tab,other].map(page=>page.evaluate<any>("import('/src/services/cloudDemo.ts').then(m=>m.cloudDemoSnapshot())")));
+    assert.deepEqual(persisted.state.auditPrograms.flatMap((p:any)=>p.procedures).filter((p:any)=>ids.includes(p.id)).map((p:any)=>p.workPerformed),['Profile A independent FSLI','Profile B independent FSLI'],JSON.stringify(saveStatuses));
+    for(const page of [tab,other]){for(let n=0;n<100;n++){if(await page.evaluate<boolean>("import('/src/services/cloudDemo.ts').then(m=>m.cloudDemoSnapshot().mode!=='saving')"))break;await sleep(100);}}
+    for(const page of [tab,other]){await page.evaluate("import('/src/services/cloudDemo.ts').then(m=>m.reloadCloudDemo())");const values=await page.evaluate<any>("import('/src/store/prototypeStore.ts').then(({prototypeStore:s})=>s.getSnapshot().auditPrograms.flatMap(p=>p.procedures).filter(p=>"+JSON.stringify(ids)+".includes(p.id)).map(p=>p.workPerformed))");assert.deepEqual(values,['Profile A independent FSLI','Profile B independent FSLI']);}
+    const available=(id:string)=>"Promise.all([import('/src/store/prototypeStore.ts'),import('/src/services/artifactStore.ts')]).then(async([{prototypeStore:s},m])=>{const history=s.getSnapshot().engagements.find(e=>e.id==="+JSON.stringify(result.engagementId)+").sourceHistory;const a=history.map(h=>h.originalArtifact).find(a=>a?.id==="+JSON.stringify(id)+");if(!a)return {metadata:false,bytes:false,history};try{return {metadata:true,bytes:(await m.loadVerifiedArtifact(a)).size>0}}catch(error){return {metadata:true,bytes:false,error:String(error)}}})";
+    const originalA=await tab.evaluate<any>(available(sourceId)),originalB=await other.evaluate<any>(available(sourceId));
+    assert.equal(originalA.metadata,true,JSON.stringify(originalA));assert.equal(originalA.bytes,true,JSON.stringify(originalA));assert.equal(originalB.metadata,true,JSON.stringify(originalB));assert.equal(originalB.bytes,false);
+
+    await Promise.all([tab.evaluate(edit(ids[0],'Profile A same-row draft')),other.evaluate(edit(ids[0],'Profile B same-row draft'))]);
+    await Promise.all([tab,other].map(page=>page.evaluate("import('/src/services/cloudDemo.ts').then(m=>m.saveCloudDemo())")));
+    let statuses:any[]=[];
+    for(let n=0;n<150;n++){statuses=await Promise.all([tab,other].map(page=>page.evaluate<any>("import('/src/services/cloudDemo.ts').then(m=>m.cloudDemoSnapshot())")));if(statuses.some(x=>x.mode==='conflict'&&/same-row/.test(x.message)))break;await sleep(100);}
+    assert.ok(statuses.some(x=>x.mode==='conflict'&&/same-row/.test(x.message)),JSON.stringify(statuses));
+    await saveEvidence('docs/prototype/evidence/review-concurrency.json',JSON.stringify({independentProfiles:2,distinctFslis:programs.slice(0,2).map((p:any)=>p.area),independentEditsRetained:true,sameRowConflictExplicit:true,originalBytes:{profileA:true,profileB:false},boundary:'D1 metadata snapshots; original bytes remain browser-local.'},null,2));
+  }finally{for(const page of [tab,other].filter(Boolean) as CdpTab[])await page.evaluate("import('/src/services/cloudDemo.ts').then(m=>m.disconnectCloudDemo())").catch(()=>{});other?.close();if(secondChrome.exitCode===null){const exited=new Promise<void>(r=>secondChrome.once('exit',()=>r()));secondChrome.kill();await exited;}rmSync(secondProfile,{recursive:true,force:true,maxRetries:20,retryDelay:100});await fetch(process.env.TEST_CLOUD_API_URL+'/workspaces/'+workspace.id,{method:'DELETE',headers:authorization});}
+});
+
 it('Manager clearance through the visible form automatically generates a current PDF SRM', async () => {
   const result=await tab.evaluate<any>(`import('/tests/helpers/targetJourney.ts').then(m=>m.runTargetJourney({stopBeforeManager:true}))`);
   await tab.evaluate(`(()=>{const f=document.querySelector('[data-target-form="manager-clearance"]');const input=f.querySelector('[name="notes"]');input.value='All current workpapers and supporting evidence independently reviewed.';input.dispatchEvent(new Event('input',{bubbles:true}));f.requestSubmit()})()`);
@@ -449,6 +536,7 @@ it('creates a cloud demo from Presenter controls, autosaves a guarded change and
     await tab.evaluate(`import('/src/store/prototypeStore.ts').then(({prototypeStore:s})=>s.loadScenario('target-lifecycle'))`);
     await tab.evaluate(`import('/src/services/cloudDemo.ts').then(m=>m.resumeCloudDemo(${JSON.stringify(code)}))`);
     assert.equal(await tab.evaluate<string>(`import('/src/store/prototypeStore.ts').then(({prototypeStore:s})=>s.getSnapshot().clients[0].notes)`), 'Browser cloud save verified.');
+    remote.state.clients[0].notes='Concurrent remote change to the same client row.';
     const remoteChange = await fetch(process.env.TEST_CLOUD_API_URL+`/workspaces/${id}`, {method:'PUT',headers:{Authorization:`Bearer ${token}`,'Content-Type':'application/json'},body:JSON.stringify({revision:remote.revision,state:remote.state})});
     assert.equal(remoteChange.status,200);
     await tab.evaluate(`import('/src/store/prototypeStore.ts').then(({prototypeStore:s})=>{const client=s.getSnapshot().clients[0];s.updateClient({...client,notes:'Local edit must survive a cloud conflict.'},client.profileRevision||0)})`);
@@ -456,7 +544,7 @@ it('creates a cloud demo from Presenter controls, autosaves a guarded change and
     assert.equal(await tab.evaluate<string>(`import('/src/services/cloudDemo.ts').then(m=>m.cloudDemoSnapshot().mode)`),'conflict');
     assert.equal(await tab.evaluate<string>(`import('/src/store/prototypeStore.ts').then(({prototypeStore:s})=>s.getSnapshot().clients[0].notes)`),'Local edit must survive a cloud conflict.');
     await tab.evaluate(`import('/src/services/cloudDemo.ts').then(m=>m.reloadCloudDemo())`);
-    assert.equal(await tab.evaluate<string>(`import('/src/store/prototypeStore.ts').then(({prototypeStore:s})=>s.getSnapshot().clients[0].notes)`),'Browser cloud save verified.');
+    assert.equal(await tab.evaluate<string>(`import('/src/store/prototypeStore.ts').then(({prototypeStore:s})=>s.getSnapshot().clients[0].notes)`),'Concurrent remote change to the same client row.');
     await tab.command('Emulation.setDeviceMetricsOverride',{width:390,height:1000,deviceScaleFactor:1,mobile:false});
     await sleep(100);
     assert.equal(await tab.evaluate<boolean>(`document.querySelector('.topbar').getBoundingClientRect().bottom<=document.querySelector('.contextbar').getBoundingClientRect().top+1`),true,'mobile presenter header must not overlap context');

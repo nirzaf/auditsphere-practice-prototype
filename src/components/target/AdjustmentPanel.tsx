@@ -5,7 +5,7 @@ import { isFrozen } from '../../services/targetLifecycle';
 import { ActionButton, Field, TargetForm, amount, value, type TargetViewProps } from './TargetCommon';
 
 export function AdjustmentPanel(props: Pick<TargetViewProps, 'onRegisterUnsavedForm'>) {
-  const state = prototypeStore.getSnapshot(), eng = state.engagements.find(e => e.id === state.selectedEngagement);
+  const state = prototypeStore.getReadSnapshot(), eng = state.engagements.find(e => e.id === state.selectedEngagement);
   if (!eng) return null;
   const client = isClientRole(state.currentRole), frozen = isFrozen(eng);
   const journals = state.adjustmentJournals.filter(j => j.engagementId === eng.id && (!client || j.status !== 'Draft'));

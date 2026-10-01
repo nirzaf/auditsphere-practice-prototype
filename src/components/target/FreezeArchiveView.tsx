@@ -7,7 +7,7 @@ import { inspectionRecords, createInspectionZip } from '../../services/archivePa
 import { downloadBlob } from '../../services/exportService';
 
 export function FreezeArchiveView(props: TargetViewProps) {
-  const state = prototypeStore.getSnapshot(),
+  const state = prototypeStore.getReadSnapshot(),
     eng = state.engagements.find((e) => e.id === state.selectedEngagement);
   if (!eng) return null;
   const control = eng.auditLifecycle!.archiveControl,

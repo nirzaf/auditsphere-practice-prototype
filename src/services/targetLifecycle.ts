@@ -506,7 +506,16 @@ export function analyticalReviewIsCurrent(state: PrototypeState, engagement: Eng
   return record.tbSourceVersion === engagement.sourceVersion && record.mappingRevision === mapping?.revision && record.planVersion === currentPlan(state, engagement)?.version
     && (!record.comparativeEngagementId || Boolean(prior && prior.sourceVersion === record.comparativeSourceVersion && priorMapping?.revision === record.comparativeMappingRevision));
 }
+const immutableReviewBases = new WeakMap<PrototypeState, Map<string,string>>();
 export function reviewBasis(state: PrototypeState, engagement: EngagementRecord): string {
+  // Only immutable view snapshots are cached. Mutable command/test state always recomputes.
+  if (!Object.isFrozen(state) || !Object.isFrozen(engagement)) return buildReviewBasis(state,engagement);
+  let cache = immutableReviewBases.get(state);
+  if (!cache) { cache = new Map(); immutableReviewBases.set(state,cache); }
+  if (!cache.has(engagement.id)) cache.set(engagement.id,buildReviewBasis(state,engagement));
+  return cache.get(engagement.id)!;
+}
+function buildReviewBasis(state: PrototypeState, engagement: EngagementRecord): string {
   const plan = currentPlan(state, engagement),
     record = professionalCase(state, engagement),
     statement = state.statementSetRevisions?.filter((r) => r.engagementId === engagement.id).at(-1);
@@ -617,6 +626,7 @@ export function reviewBasis(state: PrototypeState, engagement: EngagementRecord)
       conclusion: w.conclusion,
       clearance: w.clearance || null,
       evidence: w.evidenceRevisions || {},
+      evidenceMode: w.evidenceMode,
       physical: w.physicalReference
     })),
     reviews: engagement.reviews.map((r) => ({
@@ -626,6 +636,7 @@ export function reviewBasis(state: PrototypeState, engagement: EngagementRecord)
       subjectVersion: r.subjectVersion,
       title: r.title,
       body: r.body,
+      externalVisibility: r.externalVisibility || 'Internal only',
       status: r.status,
       response: r.response,
       assignee: r.assignedUserId || r.assigned,
@@ -665,6 +676,9 @@ export function reviewBasis(state: PrototypeState, engagement: EngagementRecord)
         value: p.totalPopulationValue,
         selection: p.selectionVersion,
         method: p.methodology,
+        samplingBasis: p.samplingBasis,
+        sizeDetermination: p.sizeDetermination,
+        attributeDefinition: p.attributeDefinition,
         items: p.items.map((i) => ({
           id: i.id,
           ref: i.itemRef,
@@ -678,6 +692,7 @@ export function reviewBasis(state: PrototypeState, engagement: EngagementRecord)
           notes: i.notes,
           limitation: i.limitation,
           evidence: i.evidenceDoc,
+          evidenceMode: i.evidenceMode,
           physical: i.physicalReference
         }))
       })),
@@ -698,6 +713,8 @@ export function reviewBasis(state: PrototypeState, engagement: EngagementRecord)
         account: f.affectedAccount,
         line: f.financialStatementLine,
         condition: f.condition,
+        impact: f.impact,
+        managementLetterVisible: !!f.managementLetterVisible,
         recommendation: f.recommendation,
         severity: f.severity,
         description: f.description,
@@ -921,7 +938,7 @@ export function currentDeliverables(state: PrototypeState, engagement: Engagemen
     return engagement.auditLifecycle?.deliverables.find(
       (item) => item.id === engagement.archive!.releaseId
     );
-  return currentPartnerOpinion(state, engagement) && set?.basis === reportBasis(state, engagement) &&
+  return currentPartnerOpinion(state, engagement) && set?.basis === reportBasis(state, engagement) && currentSignatureAuthorization(state,engagement)?.revision === set.signatureAuthorizationRevision &&
     targetReleaseBlockers(state, engagement).length === 0
     ? set
     : undefined;
@@ -1179,16 +1196,16 @@ export function engagementProgress(
               ? 'Needs Rework'
               : reasons.length
                 ? 'Blocked'
-                : !current
+                : stage.parallel || !current
                   ? 'Current'
                   : 'Not Started';
-    if (status === 'Current') current = true;
+    if (status === 'Current' && !stage.parallel) current = true;
     return {
       ...stage,
       status,
       blockers: ['Completed', 'Frozen'].includes(status) ? [] : reasons,
-      predecessor: ENGAGEMENT_WORKFLOW_SUBSTEPS[index - 1]?.label,
-      successor: ENGAGEMENT_WORKFLOW_SUBSTEPS[index + 1]?.label
+      predecessor: stage.parallel ? undefined : ENGAGEMENT_WORKFLOW_SUBSTEPS.slice(0,index).filter(s => !s.parallel).at(-1)?.label,
+      successor: stage.parallel ? undefined : ENGAGEMENT_WORKFLOW_SUBSTEPS.slice(index+1).find(s => !s.parallel)?.label
     };
   });
 }

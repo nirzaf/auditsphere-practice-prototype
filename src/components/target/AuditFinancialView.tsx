@@ -1,3 +1,4 @@
+import { comparativeVariance } from '../../services/comparativeVariance';
 import React, { useEffect, useState } from 'react';
 import { prototypeStore } from '../../store/prototypeStore';
 import {
@@ -19,7 +20,7 @@ interface ARModalState {
 }
 
 export function AuditFinancialView({ onNavigate }: TargetViewProps) {
-  const state = prototypeStore.getSnapshot(),
+  const state = prototypeStore.getReadSnapshot(),
     eng = state.engagements.find((e) => e.id === state.selectedEngagement),
     [comparisonId, setComparisonId] = useState(''),
     [arModal, setArModal] = useState<ARModalState | null>(null),
@@ -70,7 +71,7 @@ export function AuditFinancialView({ onNavigate }: TargetViewProps) {
         0
       );
       const comparativeRows = comparison?.rows.filter((r) => r.mappedStatementLine === line) || [];
-      const comparative = comparison
+      const comparative = comparison && comparativeRows.length
         ? comparativeRows.reduce(
             (n, r) =>
               n + (['liability', 'equity', 'revenue'].includes(r.type) ? -r.balance : r.balance),
@@ -78,19 +79,8 @@ export function AuditFinancialView({ onNavigate }: TargetViewProps) {
           )
         : undefined;
 
-      const variance = comparative !== undefined ? current - comparative : 0;
-      // R03: a zero prior balance has no meaningful percentage. Distinguish deliberately:
-      //  - no comparative source  -> undefined comparative (dash)
-      //  - prior 0 / current != 0 -> new balance, percentage null ("n.m.")
-      //  - prior 0 / current 0    -> no movement (0.0% is a deliberate zero state)
-      const variancePercent =
-        comparative !== undefined && comparative !== 0
-          ? ((current - comparative) / Math.abs(comparative)) * 100
-          : comparative === 0 && current !== 0
-            ? null
-            : comparative === 0 && current === 0
-              ? 0
-              : null;
+      const comparisonMovement = comparativeVariance(current,comparative);
+      const variance = comparisonMovement.movement ?? 0, variancePercent = comparisonMovement.percent;
 
       const riskLevel = fsliRiskLevel(state, eng, line);
 

@@ -14,7 +14,7 @@ import {
 } from './TargetCommon';
 
 export function EngagementBillingView({ onNavigate, onRegisterUnsavedForm }: TargetViewProps) {
-  const state = prototypeStore.getSnapshot(),
+  const state = prototypeStore.getReadSnapshot(),
     engagement = state.engagements.find((e) => e.id === state.selectedEngagement);
   if (!engagement) return null;
   const summary = billingSummary(state, engagement),
@@ -187,7 +187,7 @@ export function EngagementBillingView({ onNavigate, onRegisterUnsavedForm }: Tar
         <button className="btn sm" onClick={() => onNavigate('delivery')}>
           Opinion &amp; deliverables
         </button>
-        {lifecycle.balanceInvoices.map((record) => {
+        {[...new Map(lifecycle.balanceInvoices.map(record=>[record.invoiceId,record])).values()].map((record) => {
           const invoice = state.invoices.find((i) => i.id === record.invoiceId);
           return (
             <div className="target-record" key={record.invoiceId}>
@@ -196,6 +196,26 @@ export function EngagementBillingView({ onNavigate, onRegisterUnsavedForm }: Tar
                 {record.recognizedAdvance} · status {invoice?.status}
               </span>
               <ArtifactLink artifact={record.artifact} />
+              {lifecycle.balanceInvoices.filter(history=>history.invoiceId===record.invoiceId && history.deliverableId!==record.deliverableId).map(history=><p key={history.deliverableId} className="caption">Historical bundle {history.deliverableId} · same invoice obligation <ArtifactLink artifact={history.artifact} /></p>)}
+              <p>Paid {formatCurrency(invoice?.paid || 0,engagement.currency)} · outstanding {formatCurrency(Math.max(0,(invoice?.amount || 0)-(invoice?.paid || 0)),engagement.currency)}</p>
+              <TargetForm title="Record final-fee settlement (offline simulation)" formId="final-fee-payment" button="Record and allocate final-fee payment" disabled={!hasAnyRole(state,['billing','manager','partner']) || invoice?.status !== 'Issued'} onRegisterUnsavedForm={onRegisterUnsavedForm} onCommit={data => {
+                const reference=value(data,'reference').trim(), paid=amount(data,'amount');
+                if (!reference || !Number.isFinite(paid) || paid <= 0 || paid > (invoice!.amount-invoice!.paid)) throw Error('Record a unique payment reference and a positive amount within the outstanding final fee.');
+                const existing=prototypeStore.getSnapshot().receipts.find(r=>r.clientId===engagement.client && r.externalRef===reference);
+                if (existing && (existing.amount !== paid || existing.allocations.some(a=>!a.reversed))) throw Error('That reference already has a payment/allocation. Use its history rather than record it twice.');
+                const id=existing?.id || `FINAL-PAY-${crypto.randomUUID()}`;
+                if (!existing) prototypeStore.addReceipt({id,clientId:engagement.client,receiptNumber:id,amount:paid,currency:engagement.currency,date:value(data,'date'),method:'Bank transfer',externalRef:reference,reference,notes:'Offline synthetic final-fee payment; no funds collected.',allocatedAmount:0,allocations:[]});
+                prototypeStore.allocateReceipt(id,record.invoiceId,paid);
+              }}>
+                <Field label="Final-fee amount" name="amount" type="number" min={0.01} step="0.01" defaultValue={Math.max(0,(invoice?.amount||0)-(invoice?.paid||0))} />
+                <Field label="Final-fee payment date" name="date" type="date" defaultValue={state.asOfDate} />
+                <Field label="Final-fee payment reference" name="reference" />
+                <p className="caption">Partial payments are supported. If allocation fails after saving, retry with the same reference and amount to reuse that receipt.</p>
+              </TargetForm>
+              {state.receipts.flatMap(receipt=>receipt.allocations.map((allocation,index)=>({receipt,allocation,index}))).filter(x=>x.allocation.invoiceId===record.invoiceId).map(({receipt,allocation,index})=><div key={`${receipt.id}-${index}`}>
+                <p>{receipt.externalRef}: {allocation.amount} {receipt.currency} · {allocation.reversed ? `Reversed: ${allocation.reversalReason}` : 'Allocated'}</p>
+                {!allocation.reversed && <TargetForm title={`Reverse final-fee allocation ${receipt.externalRef}`} formId="final-fee-reversal" button="Reverse final-fee allocation" disabled={!hasAnyRole(state,['billing','manager','partner'])} onRegisterUnsavedForm={onRegisterUnsavedForm} onCommit={data=>prototypeStore.reverseAllocation(receipt.id,index,value(data,'reason'))}><Field label="Final-fee reversal reason" name="reason" /></TargetForm>}
+              </div>)}
             </div>
           );
         })}

@@ -103,6 +103,7 @@ export type TargetLifecycleState =
   | 'ARCHIVED_READ_ONLY';
 
 export interface DeliverableSet {
+  signatureAuthorizationRevision?: number;
   draftRepresentationArtifact?: GeneratedArtifactRecord;
   id: string;
   revision: number;
@@ -211,6 +212,8 @@ export interface TargetEngagementLifecycle {
   opinions: OpinionRecord[];
   /** Authoritative partner signature/seal event pinning the reported basis and opinion revision. */
   signatureAuthorizations?: Array<{
+    signaturePng?: string;
+    sealPng?: string;
     revision: number;
     basis: string;
     opinionRevision: number;

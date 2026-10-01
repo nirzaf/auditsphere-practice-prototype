@@ -6,11 +6,12 @@ import { sha256OfFile } from '../../services/fileMetadata';
 import { validatePbcUpload } from '../../services/pbcUpload';
 import { currentDeliverables, isFrozen } from '../../services/targetLifecycle';
 import { formatCurrency } from '../../services/calculations';
+import { STANDARD_PAYMENT_TERMS } from '../../services/clientOutputs';
 import { getRoutedContact } from '../../services/contactRouting';
 import { ActionButton, ArtifactLink, Field, TargetForm, value, type TargetViewProps } from './TargetCommon';
 
 export function PbcWorkspaceView(props: TargetViewProps & { client?: boolean }) {
-  const s = prototypeStore.getSnapshot(),
+  const s = prototypeStore.getReadSnapshot(),
     allowed = visibleEngagementIds(s),
     e = s.engagements.find(
       (eng) => eng.id === s.selectedEngagement && (allowed === 'ALL' || allowed.includes(eng.id))
@@ -508,8 +509,9 @@ export function PbcWorkspaceView(props: TargetViewProps & { client?: boolean }) 
         <section className="panel panel-pad">
           <h3>Certified Final Deliverables Bundle</h3>
           <p className="caption mb12">
-            Certified, sealed, and digitally signed audit reports, management letters, and representation letters.
+            Compiled demo audit reports, management letters and representation letters; signature and seal authorization are explicitly simulated.
           </p>
+          <p className="caption">{STANDARD_PAYMENT_TERMS}</p>
 
           {releasedSets.length > 0 ? (
             <div className="stack" style={{ gap: 12 }}>

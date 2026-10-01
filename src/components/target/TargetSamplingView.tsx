@@ -5,7 +5,7 @@ import { sha256OfFile } from '../../services/fileMetadata';
 import { captureSourceOriginal } from '../../services/artifactStore';
 import { Field, TargetForm, value, amount, type TargetViewProps } from './TargetCommon';
 export function TargetSamplingView(props: TargetViewProps) {
-  const s = prototypeStore.getSnapshot(),
+  const s = prototypeStore.getReadSnapshot(),
     e = s.engagements.find((e) => e.id === s.selectedEngagement);
   if (!e) return null;
   const populations = s.samplePopulations.filter((p) => p.engagementId === e.id);

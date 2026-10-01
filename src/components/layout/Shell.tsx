@@ -21,7 +21,7 @@ interface ShellProps {
 }
 
 export const Shell: React.FC<ShellProps> = ({ currentRoute, onRouteChange, onSelectClient, onBeforeContextChange, children }) => {
-  const state = prototypeStore.getSnapshot();
+  const state = prototypeStore.getReadSnapshot();
   const [showScenarioModal, setShowScenarioModal] = useState(false);
   const [showSearchModal, setShowSearchModal] = useState(false);
   const [presenterMode, setPresenterMode] = useState(false);
@@ -235,7 +235,7 @@ export const Shell: React.FC<ShellProps> = ({ currentRoute, onRouteChange, onSel
   const handleRoleChange = (userId: string) => {
     onBeforeContextChange(() => {
       prototypeStore.setPersona(userId);
-      const snap = prototypeStore.getSnapshot();
+      const snap = prototypeStore.getReadSnapshot();
       if (isClientRole(snap.currentRole)) onRouteChange('portal');
       triggerToast(`Switched simulated identity to ${snap.currentPerson} (${snap.currentRole})`);
     });
@@ -745,7 +745,7 @@ export const Shell: React.FC<ShellProps> = ({ currentRoute, onRouteChange, onSel
                         style={{ textAlign: 'left', width: '100%', cursor: 'pointer', padding: 10 }}
                         onClick={() => {
                           onBeforeContextChange(() => {
-                            const currentState = prototypeStore.getSnapshot();
+                            const currentState = prototypeStore.getReadSnapshot();
                             if (!canReadSearchRecord(currentState, item)) {
                               triggerToast('This search result is no longer available in your current access scope.', 'error');
                               return;

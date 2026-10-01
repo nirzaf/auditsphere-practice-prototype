@@ -8,7 +8,7 @@ import { ActionButton, Field, TargetForm, value, type TargetViewProps } from './
 import { downloadVerifiedArtifact } from '../../services/artifactStore';
 
 export function ConfirmationsView(props: TargetViewProps) {
-  const state = prototypeStore.getSnapshot(),
+  const state = prototypeStore.getReadSnapshot(),
     eng = state.engagements.find((e) => e.id === state.selectedEngagement);
   if (!eng) return null;
   const confirmations = (state.confirmations || []).filter((c) => c.engagementId === eng.id),

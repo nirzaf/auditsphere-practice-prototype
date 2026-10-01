@@ -12,7 +12,7 @@ import {
 } from './TargetCommon';
 
 export function ReviewSRMView(props: TargetViewProps) {
-  const state = prototypeStore.getSnapshot(),
+  const state = prototypeStore.getReadSnapshot(),
     eng = state.engagements.find((e) => e.id === state.selectedEngagement);
   if (!eng) return null;
   const current = currentReview(state, eng),
@@ -104,11 +104,15 @@ export function ReviewSRMView(props: TargetViewProps) {
                 w.id,
                 value(data, 'scope'),
                 value(data, 'work'),
-                value(data, 'conclusion')
+                value(data, 'conclusion'),
+                value(data, 'evidenceMode') as 'Digital' | 'Physical' | 'Hybrid'
               )
             }
           >
             <Field label="Workpaper scope" name="scope" defaultValue={w.scope || eng.period} />
+            <Field label="Workpaper evidence mode" name="evidenceMode" defaultValue={w.evidenceMode || (w.physicalReference ? (w.evidenceRefs?.length ? 'Hybrid' : 'Physical') : 'Digital')}>
+              <option>Digital</option><option>Physical</option><option>Hybrid</option>
+            </Field>
             <Field
               label="Work performed"
               name="work"

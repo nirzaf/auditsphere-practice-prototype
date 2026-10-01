@@ -1,3 +1,4 @@
+import { STANDARD_PAYMENT_TERMS } from '../services/clientOutputs';
 import { assertAdjustmentSupport } from '../services/adjustmentSupport';
 import type { GeneratedArtifactRecord } from '../types';
 import { canonicalRoute } from '../services/legacyRoutes';
@@ -70,6 +71,8 @@ const hasValidProposalPeriod = (start?: string, end?: string) => Boolean(isPropo
 
 class PrototypeStore {
   private state: PrototypeState;
+  private readSnapshot?: PrototypeState;
+  private readSnapshotSource?: PrototypeState;
   public readonly lifecycle = new TargetLifecycleCommands(() => this.state, () => this.notify());
   private listeners: Set<() => void> = new Set();
   private isSessionOnly = false;
@@ -116,6 +119,7 @@ class PrototypeStore {
             this.storageConflict = true;
             markStateStale(this.state, true);
           }
+          this.readSnapshot = undefined;
           this.listeners.forEach(fn => fn());
         }
       });
@@ -210,6 +214,7 @@ class PrototypeStore {
   }
 
   private persist() {
+    this.readSnapshot = undefined;
     if (this.isSessionOnly || this.storageConflict) return;
     try {
       const latest = localStorage.getItem(STORAGE_KEY);
@@ -243,6 +248,24 @@ class PrototypeStore {
     if (closeExpiredArchives(this.state)) this.persist();
     this.packageExpiredArchives();
     return structuredClone(this.state);
+  };
+  /** Shared immutable view snapshot. Commands retain mutable internal state; callers that
+   * need an editable copy continue using getSnapshot. Persist/notify invalidate this cache. */
+  public getReadSnapshot = (): PrototypeState => {
+    if (closeExpiredArchives(this.state)) this.persist();
+    this.packageExpiredArchives();
+    if (!this.readSnapshot || this.readSnapshotSource !== this.state) {
+      const freeze = (value: any): any => {
+        if (value && typeof value === 'object' && !Object.isFrozen(value)) {
+          Object.values(value).forEach(freeze);
+          Object.freeze(value);
+        }
+        return value;
+      };
+      this.readSnapshot = freeze(structuredClone(this.state));
+      this.readSnapshotSource = this.state;
+    }
+    return this.readSnapshot!;
   };
 
   public getPreservedStateJSON(): string | null {
@@ -426,6 +449,19 @@ class PrototypeStore {
       catch { throw new GuardError('INVALID_STATE', 'Enter a valid website URL beginning with http:// or https://.'); }
     }
     if (typeof client.revenue !== 'number' || !Number.isFinite(client.revenue) || client.revenue < 0) throw new GuardError('INVALID_STATE', 'Annual revenue must be a finite non-negative amount.');
+    if (client.entityRole && !['Standalone','Holding','Subsidiary','Affiliate'].includes(client.entityRole)) throw new GuardError('INVALID_STATE','Choose a supported corporate hierarchy role.');
+    if (['Subsidiary','Affiliate'].includes(client.entityRole || '') && !client.parentClientId) throw new GuardError('INVALID_STATE','Subsidiaries and affiliates require a recorded parent entity.');
+    if (client.parentClientId) {
+      const seen = new Set([client.id]);
+      let parent: string | undefined = client.parentClientId;
+      while (parent) {
+        if (seen.has(parent)) throw new GuardError('INVALID_STATE','Corporate hierarchy cannot contain a cycle or self-parent.');
+        const entity = this.state.clients.find(c=>c.id===parent);
+        if (!entity) throw new GuardError('INVALID_STATE','Corporate parent must be an existing client entity.');
+        requireClientScope(this.state,parent);
+        seen.add(parent); parent=entity.parentClientId;
+      }
+    }
   }
 
   public getClientProfileWarnings(client: Pick<ClientRecord, 'name' | 'registrationNumber'>, excludingClientId?: string): string[] {
@@ -1268,7 +1304,7 @@ class PrototypeStore {
       '4. FEES AND COMMERCIAL BILLING TERMS (50/50 STRUCTURE):',
       `Our agreed professional fee for this engagement is ${eng.agreedFee.toLocaleString()} ${eng.currency}.`,
       `• Initial advance deposit: 50% (${(eng.agreedFee * 0.5).toLocaleString()} ${eng.currency}) payable upon signing this Engagement Letter.`,
-      `• Final balance: 50% (${(eng.agreedFee * 0.5).toLocaleString()} ${eng.currency}) payable upon issuance and delivery of the certified audit deliverables bundle.`,
+      STANDARD_PAYMENT_TERMS,
       '',
       '5. SIGNATORIES AND CREDENTIALS:',
       `Engagement Partner: ${partnerSigValue}`,
@@ -3531,7 +3567,7 @@ class PrototypeStore {
     this.notify();
   }
 
-  public updateWorkpaper(engId: string, wpId: string, updates: Pick<WorkpaperItem, 'applicable'> & Partial<Pick<WorkpaperItem, 'scope' | 'workPerformed' | 'conclusion'>> & { rationale?: string }) {
+  public updateWorkpaper(engId: string, wpId: string, updates: Pick<WorkpaperItem, 'applicable'> & Partial<Pick<WorkpaperItem, 'scope' | 'workPerformed' | 'conclusion' | 'evidenceMode'>> & { rationale?: string }) {
     requireActiveIdentity(this.state);
     requireRole(this.state, ['manager', 'preparer', 'partner'], 'change workpaper applicability');
     requireEngagementScope(this.state, engId);
@@ -3539,7 +3575,8 @@ class PrototypeStore {
     if (!eng) return;
     const wp = eng.workpapers.find(w => w.id === wpId);
     if (!wp) return;
-    const changed = wp.applicable !== updates.applicable || (updates.scope !== undefined && updates.scope !== wp.scope) || (updates.workPerformed !== undefined && updates.workPerformed !== wp.workPerformed) || (updates.conclusion !== undefined && updates.conclusion !== wp.conclusion);
+    if (updates.evidenceMode && !['Digital','Physical','Hybrid'].includes(updates.evidenceMode)) throw new GuardError('INVALID_STATE', 'Choose Digital, Physical or Hybrid evidence.');
+    const changed = wp.applicable !== updates.applicable || (updates.evidenceMode !== undefined && updates.evidenceMode !== wp.evidenceMode) || (updates.scope !== undefined && updates.scope !== wp.scope) || (updates.workPerformed !== undefined && updates.workPerformed !== wp.workPerformed) || (updates.conclusion !== undefined && updates.conclusion !== wp.conclusion);
     if (!changed) return;
     if (wp.applicable && !updates.applicable) {
       requireRole(this.state, ['manager', 'partner'], 'mark workpapers not applicable');
@@ -3549,6 +3586,7 @@ class PrototypeStore {
     wp.version++;
     this.reopenWorkpaperReviewNotes(eng, wp);
     wp.applicable = updates.applicable;
+    if (updates.evidenceMode) wp.evidenceMode = updates.evidenceMode;
     if (updates.scope !== undefined) wp.scope = updates.scope.trim();
     if (updates.workPerformed !== undefined) wp.workPerformed = updates.workPerformed.trim();
     if (updates.conclusion !== undefined) wp.conclusion = updates.conclusion.trim();
@@ -3628,6 +3666,7 @@ class PrototypeStore {
     if (!workpaper.workPerformed?.trim() || !workpaper.conclusion.trim() || !workpaper.scope?.trim() || !workpaper.workingPaper || workpaper.workingPaper.version !== workpaper.version) throw new GuardError('INVALID_STATE', 'Record work performed, scope, conclusion and a current workbook before submission.');
     // R12: physical-mode workpapers submit on a recorded physical index; digital links, when present, stay mandatory.
     const physicalEvidenceReady = Boolean(workpaper.physicalReference?.indexCode?.trim() && workpaper.physicalReference?.description?.trim());
+    if (workpaper.evidenceMode === 'Physical' && !physicalEvidenceReady || workpaper.evidenceMode === 'Hybrid' && (!physicalEvidenceReady || !workpaper.evidenceRefs?.length) || workpaper.evidenceMode === 'Digital' && !workpaper.evidenceRefs?.length) throw new GuardError('INVALID_STATE', `${workpaper.evidenceMode} evidence requirements are incomplete.`);
     if (!(workpaper.evidenceRefs || []).length && !physicalEvidenceReady) throw new GuardError('INVALID_STATE', 'Record work performed, scope, conclusion, a current workbook and linked digital or recorded physical evidence before submission.');
     if ((workpaper.evidenceRefs || []).some(id => {
       const document = this.state.documents.find(item => item.id === id && item.engagementId === engId);
@@ -4990,7 +5029,7 @@ class PrototypeStore {
     const sequence = Math.max(0, ...this.state.findings.map(item => Number(item.id.match(/^FND-(\d+)$/)?.[1] || 0))) + 1;
     const id = `FND-${String(sequence).padStart(3, '0')}`;
     const finding: PrototypeState['findings'][number] = {
-      ...structuredClone(input), id, category, type: category,
+      ...structuredClone(input), id, category, type: category, managementLetterVisible: false, managementLetterHistory: [],
       grossMisstatement: category === 'Monetary misstatement' ? Math.abs(amount!) : undefined,
       netMisstatement: category === 'Monetary misstatement' ? amount : undefined,
       disposition: 'Proposed for correction', dispositionHistory: []
@@ -5001,6 +5040,23 @@ class PrototypeStore {
     this.logEvent(`Audit finding raised: ${finding.title}`, id);
     this.notify();
     return id;
+  }
+
+  public designateManagementLetter(findingId: string, included: boolean, reason: string) {
+    requireActiveIdentity(this.state);
+    requireRole(this.state, ['manager','partner'], 'designate management-letter observations');
+    const finding = this.state.findings.find(f => f.id === findingId);
+    if (!finding) throw new GuardError('INVALID_STATE', 'Finding was not found.');
+    requireEngagementScope(this.state, finding.engagementId);
+    if (!reason.trim() || included && (!finding.impact?.trim() || !finding.recommendation?.trim())) throw new GuardError('INVALID_STATE', 'Record a designation reason and explicit impact and recommendation before inclusion.');
+    finding.managementLetterVisible = included;
+    (finding.managementLetterHistory ||= []).push({ at: new Date().toISOString(), actorUserId: this.state.currentUserId, included, reason: reason.trim() });
+    finding.revision = (finding.revision || 1) + 1;
+    const eng = this.state.engagements.find(e => e.id === finding.engagementId)!;
+    this.reopenFindingReviewNotes(eng,finding);
+    this.invalidateReleaseBasis(eng);
+    this.logEvent(`Management-letter designation ${finding.id}: ${included ? 'Included' : 'Internal only'} — ${reason}`,eng.id);
+    this.notify();
   }
 
   public setFindingDisposition(findingId: string, disposition: PrototypeState['findings'][0]['disposition'], rationale: string) {
@@ -5506,6 +5562,18 @@ class PrototypeStore {
     record.history ||= [];
     record.history.push({ action: 'decision', by: this.state.currentPerson, byUserId: this.state.currentUserId, at, notes: rationale.trim(), status: decision });
     eng.acceptance = decision === 'Accepted';
+    if (decision === 'Accepted' && eng.auditLifecycle) {
+      // Internal provisioning is independent of receipt, invitation and external upload activation.
+      const client = this.state.clients.find(c => c.id === eng.client)!;
+      const root = this.state.m365Config.folderRoot.replace(/\\/g, '/').replace(/\/+$/, '');
+      const path = `${root}/${client.code}/${eng.year}/${eng.id}/`;
+      eng.auditLifecycle.workspace ||= { path, preparedAt: at, preparedByUserId: this.state.currentUserId };
+      this.state.folders ||= [];
+      for (const name of ['01_Administration & Planning', '02_Trial Balance & Schedules', '03_Fieldwork & Testing', '04_Drafts & Deliverables', '05_Final Signed Archive']) {
+        const folderPath = `${path}${name}/`;
+        if (!this.state.folders.some(f => f.path === folderPath)) this.state.folders.push({ path: folderPath, label: name.replace('_',' '), clientId: eng.client, engagementId: eng.id });
+      }
+    }
     const acceptedClient = this.state.clients.find(client=>client.id===eng.client);
     if (eng.auditLifecycle && decision === 'Accepted' && acceptedClient?.status === 'Prospect') { acceptedClient.status = 'Active'; acceptedClient.profileRevision = (acceptedClient.profileRevision || 0) + 1; }
     this.invalidateReleaseBasis(eng);

@@ -54,7 +54,7 @@ const INVENTORY: Record<Family, string[]> = {
     'setEvidenceAdequacy', 'linkEvidenceProcedure', 'unlinkEvidenceProcedure',
     'updateAuditProcedureExecution', 'updateAuditProcedureStatus', 'updateAuditRisk', 'createAuditRisk', 'applyAuditProgramTemplate', 'setAuditRiskProcedureLink',
     'setSampleItemSelected', 'reviewSampleSelection', 'linkSampleExceptionToFinding', 'recordSampleItemLimitation', 'recordSampleItemTest', 'replaceSamplePopulationSource',
-    'addFinding', 'setFindingDisposition',
+    'addFinding', 'designateManagementLetter', 'setFindingDisposition',
     'prepareReleaseCandidate', 'prepareAmendedRelease', 'issueRelease', 'reopenReleaseForAmendment',
     'saveDisclosureReview', 'reviewDisclosure', 'saveFinancialPackageRevision',
  'saveAuditPlan', 'reviewAuditPlan'

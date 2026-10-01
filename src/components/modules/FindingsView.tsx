@@ -8,6 +8,7 @@ import { StatusBadge } from '../common/StatusBadge';
 import { formatCurrency } from '../../services/calculations';
 import { UnsavedFormGuard } from '../../services/unsavedFormGuard';
 import { AdjustmentPanel } from '../target/AdjustmentPanel';
+import { Field, TargetForm, value } from '../target/TargetCommon';
 
 interface FindingsViewProps {
   onNavigate: (route: RouteKey, targetId?: string) => void;
@@ -219,6 +220,10 @@ export const FindingsView: React.FC<FindingsViewProps> = ({ onNavigate, searchTa
               <p className="sub mt4">{f.impact || 'Not recorded — finding stays internal (not management-letter ready)'}</p>
               <b className="mt12" style={{ display: 'block' }}>Auditor Recommendation:</b>
               <p className="sub mt4">{f.recommendation || 'Not recorded'}</p>
+              <p className="caption">Management-letter scope: {f.managementLetterVisible ? 'Designated for client output' : 'Internal only'}</p>
+              {hasAnyRole(state,['manager','partner']) && <TargetForm title={`Management-letter designation: ${f.id}`} button={f.managementLetterVisible ? 'Keep internal' : 'Include in management letter'} onRegisterUnsavedForm={onRegisterUnsavedForm} onCommit={data => prototypeStore.designateManagementLetter(f.id,!f.managementLetterVisible,value(data,'reason'))}>
+                <Field label="Designation reason" name="reason" />
+              </TargetForm>}
               <p className="cell-sub">Assertion: {f.assertion || '—'} · Evidence: {f.linkedEvidenceId || '—'} · Procedure: {f.linkedProcedureId || '—'} · Workpaper: {f.linkedWorkpaperId || '—'} · Journal: {f.linkedJournalId || '—'} · Review: {f.linkedReviewNoteId || '—'}{f.linkedSampleItemId ? ` · Sample: ${f.linkedSamplePopulationId}/${f.linkedSampleItemId}` : ''}</p>
               {f.managementResponse && <p className="cell-sub">Management response: {f.managementResponse}</p>}
               {f.proposedCorrection && <p className="cell-sub">Proposed correction: {f.proposedCorrection}</p>}

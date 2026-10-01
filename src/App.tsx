@@ -150,7 +150,7 @@ export const App: React.FC = () => {
       // the route policy.
       if (event && !resolved.redirected && `#${resolved.route}` === acceptedRouteHash.current) return;
       requestContextChange(() => {
-        const snapshot = prototypeStore.getSnapshot();
+        const snapshot = prototypeStore.getReadSnapshot();
         const active = snapshot.users.find(user => user.id === snapshot.currentUserId)?.status === 'Active';
         const allowedRoute = canOpenRoute(snapshot.currentRole, resolved.route, active)
           ? resolved.route
@@ -354,13 +354,13 @@ export const App: React.FC = () => {
     };
   }, []);
 
-  const state = prototypeStore.getSnapshot();
+  const state = prototypeStore.getReadSnapshot();
   const isClient = isClientRole(state.currentRole);
   const activeIdentity = state.users.find(user => user.id === state.currentUserId)?.status === 'Active';
   const navigate = (route: RouteKey, targetId?: string) => {
     route = canonicalRoute(route);
     requestContextChange(() => {
-      const current = prototypeStore.getSnapshot();
+      const current = prototypeStore.getReadSnapshot();
       const active = current.users.find(user => user.id === current.currentUserId)?.status === 'Active';
       setSearchTargetId(targetId);
       setWorkflowSelection(null);
@@ -372,7 +372,7 @@ export const App: React.FC = () => {
   };
   const navigateToPbcRequest = (clientId: string, requestId: string) => {
     requestContextChange(() => {
-      const current = prototypeStore.getSnapshot();
+      const current = prototypeStore.getReadSnapshot();
       const active = current.users.find(user => user.id === current.currentUserId)?.status === 'Active';
       const route: RouteKey = canOpenRoute(current.currentRole, 'client-detail', active) ? 'client-detail' : active && isClientRole(current.currentRole) ? 'portal' : 'overview';
       setSelectedClientId(clientId);
