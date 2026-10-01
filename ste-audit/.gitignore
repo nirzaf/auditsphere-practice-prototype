@@ -1,0 +1,16 @@
+node_modules/
+.next/
+out/
+dist/
+coverage/
+*.tsbuildinfo
+next-env.d.ts
+
+# Secrets and local runtime state
+.env
+.env.local
+.env.production
+.storage/
+
+# Local PostgreSQL data (docker compose)
+.pgdata/

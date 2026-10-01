@@ -6,14 +6,17 @@ import { prototypeStore } from '../../src/store/prototypeStore';
 import {
   activationBlockers,
   billingSummary,
+  computeSystemState,
   criticalConfirmationBlockers,
   currentReview,
   emptyAuditLifecycle,
   fieldworkBlockers,
   firmTrialBalance,
+  getLifecycleDisplayStatus,
   opinionValidation,
   plusDays,
-  reviewBasis
+  reviewBasis,
+  SYSTEM_LIFECYCLE_STATES
 } from '../../src/services/targetLifecycle';
 import { requireEngagementScope } from '../../src/services/guards';
 import { createTargetScenario } from '../../src/store/targetScenario';
@@ -350,3 +353,133 @@ it('replays Random, Stratified and systematic MUS samples from the same complete
       assert.ok(p.items.find((i) => i.amount === 700)?.selected);
   }
 });
+
+describe('11-state lifecycle status visualization and transitions', () => {
+  it('preserves the exact canonical 11 states in order with terminal archive', () => {
+    assert.equal(SYSTEM_LIFECYCLE_STATES.length, 11);
+    const expectedStates = [
+      'LEAD_INGESTION',
+      'PROPOSAL_GENERATION',
+      'DUAL_KEY_PENDING',
+      'ADVANCE_BILLING',
+      'PORTAL_ACTIVE_PLANNING',
+      'FIELDWORK_EXECUTION',
+      'MANAGERIAL_REVIEW',
+      'PARTNER_APPROVAL',
+      'DELIVERABLE_RELEASE',
+      'COMPLIANCE_COUNTDOWN',
+      'ARCHIVED_READ_ONLY'
+    ];
+    assert.deepEqual(
+      SYSTEM_LIFECYCLE_STATES.map((s) => s.state),
+      expectedStates
+    );
+    assert.equal(SYSTEM_LIFECYCLE_STATES[10].nextState, 'TERMINAL');
+  });
+
+  it('correctly maps display statuses for Proposal Generation (Case B - screenshot scenario)', () => {
+    // Current index 1 = PROPOSAL_GENERATION
+    const currentIndex = 1;
+    assert.equal(getLifecycleDisplayStatus(0, currentIndex), 'CLEARED');
+    assert.equal(getLifecycleDisplayStatus(1, currentIndex), 'ACTIVE');
+    assert.equal(getLifecycleDisplayStatus(2, currentIndex), 'NEXT');
+    assert.equal(getLifecycleDisplayStatus(3, currentIndex), 'NOT STARTED');
+    assert.equal(getLifecycleDisplayStatus(4, currentIndex), 'NOT STARTED');
+    assert.equal(getLifecycleDisplayStatus(5, currentIndex), 'NOT STARTED');
+    assert.equal(getLifecycleDisplayStatus(6, currentIndex), 'NOT STARTED');
+    assert.equal(getLifecycleDisplayStatus(7, currentIndex), 'NOT STARTED');
+    assert.equal(getLifecycleDisplayStatus(8, currentIndex), 'NOT STARTED');
+    assert.equal(getLifecycleDisplayStatus(9, currentIndex), 'NOT STARTED');
+    assert.equal(getLifecycleDisplayStatus(10, currentIndex), 'NOT STARTED');
+  });
+
+  it('correctly maps display statuses for Lead Ingestion active (Case A - index 0)', () => {
+    const currentIndex = 0;
+    assert.equal(getLifecycleDisplayStatus(0, currentIndex), 'ACTIVE');
+    assert.equal(getLifecycleDisplayStatus(1, currentIndex), 'NEXT');
+    for (let i = 2; i <= 10; i++) {
+      assert.equal(getLifecycleDisplayStatus(i, currentIndex), 'NOT STARTED');
+    }
+    // No cleared states
+    const cleared = SYSTEM_LIFECYCLE_STATES.filter((_, i) => getLifecycleDisplayStatus(i, currentIndex) === 'CLEARED');
+    assert.equal(cleared.length, 0);
+  });
+
+  it('correctly maps display statuses for Dual-Key active (Case C - index 2), badge is ACTIVE not PENDING', () => {
+    const currentIndex = 2;
+    assert.equal(getLifecycleDisplayStatus(0, currentIndex), 'CLEARED');
+    assert.equal(getLifecycleDisplayStatus(1, currentIndex), 'CLEARED');
+    assert.equal(getLifecycleDisplayStatus(2, currentIndex), 'ACTIVE'); // DUAL_KEY_PENDING badge must be ACTIVE
+    assert.equal(getLifecycleDisplayStatus(3, currentIndex), 'NEXT');
+    for (let i = 4; i <= 10; i++) {
+      assert.equal(getLifecycleDisplayStatus(i, currentIndex), 'NOT STARTED');
+    }
+  });
+
+  it('correctly maps display statuses for Fieldwork active (Case D - index 5)', () => {
+    const currentIndex = 5;
+    for (let i = 0; i <= 4; i++) {
+      assert.equal(getLifecycleDisplayStatus(i, currentIndex), 'CLEARED');
+    }
+    assert.equal(getLifecycleDisplayStatus(5, currentIndex), 'ACTIVE');
+    assert.equal(getLifecycleDisplayStatus(6, currentIndex), 'NEXT');
+    for (let i = 7; i <= 10; i++) {
+      assert.equal(getLifecycleDisplayStatus(i, currentIndex), 'NOT STARTED');
+    }
+  });
+
+  it('correctly maps display statuses for Compliance Countdown active (Case E - index 9)', () => {
+    const currentIndex = 9;
+    for (let i = 0; i <= 8; i++) {
+      assert.equal(getLifecycleDisplayStatus(i, currentIndex), 'CLEARED');
+    }
+    assert.equal(getLifecycleDisplayStatus(9, currentIndex), 'ACTIVE');
+    assert.equal(getLifecycleDisplayStatus(10, currentIndex), 'NEXT');
+  });
+
+  it('correctly maps display statuses for Archived (Case F - index 10 terminal, no NEXT or NOT STARTED)', () => {
+    const currentIndex = 10;
+    for (let i = 0; i <= 9; i++) {
+      assert.equal(getLifecycleDisplayStatus(i, currentIndex), 'CLEARED');
+    }
+    assert.equal(getLifecycleDisplayStatus(10, currentIndex), 'ACTIVE');
+
+    const nextStates = SYSTEM_LIFECYCLE_STATES.filter((_, i) => getLifecycleDisplayStatus(i, currentIndex) === 'NEXT');
+    const notStartedStates = SYSTEM_LIFECYCLE_STATES.filter((_, i) => getLifecycleDisplayStatus(i, currentIndex) === 'NOT STARTED');
+    assert.equal(nextStates.length, 0);
+    assert.equal(notStartedStates.length, 0);
+  });
+
+  it('safely handles empty selection (currentIndex = -1), setting all to NOT STARTED', () => {
+    const currentIndex = -1;
+    for (let i = 0; i <= 10; i++) {
+      assert.equal(getLifecycleDisplayStatus(i, currentIndex), 'NOT STARTED');
+    }
+  });
+
+  it('never returns generic PENDING across all valid indexes', () => {
+    for (let current = -1; current <= 10; current++) {
+      for (let idx = 0; idx <= 10; idx++) {
+        const status = getLifecycleDisplayStatus(idx, current);
+        assert.notEqual(status as string, 'PENDING');
+        assert.ok(['CLEARED', 'ACTIVE', 'NEXT', 'NOT STARTED'].includes(status));
+      }
+    }
+  });
+
+  it('preserves computeSystemState authority and derives correct next state for ENG-26001', () => {
+    const state = targetFixture();
+    const e = state.engagements[0];
+    const systemState = computeSystemState(state, e);
+    assert.ok(systemState);
+    const currentIndex = SYSTEM_LIFECYCLE_STATES.findIndex((s) => s.state === systemState.state);
+    assert.ok(currentIndex >= 0);
+    const nextState = currentIndex < SYSTEM_LIFECYCLE_STATES.length - 1 ? SYSTEM_LIFECYCLE_STATES[currentIndex + 1] : undefined;
+    if (systemState.nextState === 'TERMINAL') {
+      assert.equal(nextState, undefined);
+    } else {
+      assert.equal(nextState?.state, systemState.nextState);
+    }
+  });
+});
+
