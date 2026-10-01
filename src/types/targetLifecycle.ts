@@ -136,6 +136,8 @@ export interface HoldingLetterRecord {
   recipientContactId?: string;
   recipientName: string;
   sourceBlockers: string[];
+  /** Identity of the blocked critical-confirmation set (ids) — letters refresh when the set changes, not on status wording. */
+  blockerKey?: string;
   artifactId: string;
   artifact?: import('./index').GeneratedArtifactRecord;
   simulatedDispatchStatus: 'Issued (simulated)' | 'Pending';
@@ -207,6 +209,17 @@ export interface TargetEngagementLifecycle {
   srms: SRMRecord[];
   partnerClearances: ReviewBasisRecord[];
   opinions: OpinionRecord[];
+  /** Authoritative partner signature/seal event pinning the reported basis and opinion revision. */
+  signatureAuthorizations?: Array<{
+    revision: number;
+    basis: string;
+    opinionRevision: number;
+    signatureDate: string;
+    signedByUserId: string;
+    sealApplied: boolean;
+    at: string;
+    note: string;
+  }>;
   deliverables: DeliverableSet[];
   signedRepresentations?: Array<{ revision: number; deliverableSetId: string; basis: string; artifact: GeneratedArtifactRecord; executive: string; financeExecutive: string; note: string; actorUserId: string; at: string }>;
   holdingLetters?: HoldingLetterRecord[];
@@ -273,4 +286,6 @@ export interface TargetStageDefinition {
   roles: RoleKey[];
   /** Legacy/shared routes that render the same operational step (e.g. audit-risks hosts fieldwork programs). */
   aliases?: import('./index').RouteKey[];
+  /** Parallel operating lane: runs alongside the engagement lifecycle, not a sequential state handoff. */
+  parallel?: boolean;
 }

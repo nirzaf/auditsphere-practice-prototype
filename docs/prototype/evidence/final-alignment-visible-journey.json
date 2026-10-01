@@ -9,7 +9,7 @@
     "FIELDWORK_EXECUTION",
     "PARTNER_APPROVAL"
   ],
-  "programs": 7,
+  "programs": 6,
   "digitalSamples": 2,
   "reviewLoop": true,
   "mode": "Visible commercial, planning and fieldwork controls; only reset, scoped synthetic grant and leaving client persona use harness setup"

@@ -118,7 +118,9 @@ describe('STE Audit Management Tool v2.1 Requirements Conformance (All 17 Gaps)'
     const proposalsTsx = readFileSync(join(process.cwd(), 'src/components/modules/ProposalsView.tsx'), 'utf-8');
     assert.match(proposalsTsx, /Brief Quotation/);
     assert.match(proposalsTsx, /Comprehensive Technical Proposal/);
-    assert.match(proposalsTsx, /50% advance deposit payable upon contract signing/);
+    // R02: the final 50% belongs to delivery of the FINAL signed deliverables package.
+    assert.match(proposalsTsx, /50% advance deposit payable upon engagement letter \(EL\) execution/);
+    assert.match(proposalsTsx, /50% final balance payable upon delivery of the final signed audit deliverables package/);
     assert.match(proposalsTsx, /WhatsApp \(Direct communication channel\)/);
   });
 

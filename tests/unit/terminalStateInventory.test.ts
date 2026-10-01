@@ -48,7 +48,7 @@ const INVENTORY: Record<Family, string[]> = {
     'updateConsolidationGroup', 'revertConsolidationPerimeter', 'saveConsolidationElimination', 'submitConsolidationElimination', 'reviewConsolidationElimination',
     'saveConsolidationOutputPackage', 'reviewConsolidationOutputPackage', 'updateConsolidationFxRate',
     'createWorkpaperFromTemplate', 'reassignWorkpaper', 'updateWorkpaper', 'linkWorkpaperEvidence', 'unlinkWorkpaperEvidence', 'submitWorkpaper', 'clearWorkpaper', 'replaceWorkpaperRevision',
-    'addReviewNote', 'reassignReviewNote', 'respondReviewNote', 'clearReviewNote',
+    'addReviewNote', 'reassignReviewNote', 'respondReviewNote', 'clearReviewNote', 'designateReviewCorrespondence',
     'recordApproval', 'assignEqrReviewer', 'presentManagementPackage', 'recordManagementPackageDecision', 'addEqrConcern', 'toggleEqrConcern', 'respondEqrConcern',
     'uploadPbcResponse', 'replyToPbcRequest', 'addPbcRequest', 'requestPbcClarification', 'presentPbcRequest', 'acceptPbcResponse', 'updatePbcRequest', 'cancelPbcRequest',
     'setEvidenceAdequacy', 'linkEvidenceProcedure', 'unlinkEvidenceProcedure',

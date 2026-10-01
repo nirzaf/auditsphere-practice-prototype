@@ -108,6 +108,10 @@ it('visible Partner reporting flow retains signed LOR and releases the exact fiv
   await tab.evaluate(`location.hash='delivery'`);await sleep(150);
   assert.equal(await tab.evaluate(`import('/src/store/prototypeStore.ts').then(async({prototypeStore:s})=>{const state=s.getSnapshot();return (await import('/src/services/targetLifecycle.ts')).computeSystemState(state,state.engagements.find(e=>e.id===${JSON.stringify(result.engagementId)})).state})`),'PARTNER_APPROVAL');
   await tab.evaluate(`document.querySelector('[data-target-form="opinion"]').requestSubmit()`);await sleep(150);
+  // R10: opinion selection alone is not the signature event; the state stays in
+  // PARTNER_APPROVAL until the partner records the simulated signature/seal.
+  assert.equal(await tab.evaluate(`import('/src/store/prototypeStore.ts').then(async({prototypeStore:s})=>{const state=s.getSnapshot();return (await import('/src/services/targetLifecycle.ts')).computeSystemState(state,state.engagements.find(e=>e.id===${JSON.stringify(result.engagementId)})).state})`),'PARTNER_APPROVAL');
+  await tab.evaluate(`(()=>{const f=document.querySelector('[data-target-form="partner-signature"]');f.querySelector('[name="note"]').value='Simulated digital signature and firm seal authorize the current reporting basis.';f.requestSubmit()})()`);await sleep(150);
   assert.equal(await tab.evaluate(`import('/src/store/prototypeStore.ts').then(async({prototypeStore:s})=>{const state=s.getSnapshot();return (await import('/src/services/targetLifecycle.ts')).computeSystemState(state,state.engagements.find(e=>e.id===${JSON.stringify(result.engagementId)})).state})`),'DELIVERABLE_RELEASE');
   assert.equal(await tab.evaluate<boolean>(`document.body.innerText.includes('Synthetic Partner signature') && !document.body.innerText.includes('QFC-AUD-SIG-9281')`),true);
   await tab.evaluate(`document.querySelector('[data-target-form="deliverables"]').requestSubmit()`);

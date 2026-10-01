@@ -3625,7 +3625,10 @@ class PrototypeStore {
     const workpaper = engagement?.workpapers.find(item => item.id === wpId);
     if (!engagement || !workpaper || !workpaper.applicable || workpaper.status === 'Not applicable') throw new GuardError('INVALID_STATE', 'Only an applicable workpaper can be submitted.');
     if (this.state.currentRole === 'preparer' && workpaper.preparer !== this.state.currentPerson) throw new GuardError('FORBIDDEN_SCOPE', 'Only the assigned preparer may submit this workpaper.');
-    if (!workpaper.workPerformed?.trim() || !workpaper.conclusion.trim() || !workpaper.scope?.trim() || !workpaper.workingPaper || workpaper.workingPaper.version !== workpaper.version || !(workpaper.evidenceRefs || []).length) throw new GuardError('INVALID_STATE', 'Record work performed, scope, conclusion, a current workbook and linked evidence before submission.');
+    if (!workpaper.workPerformed?.trim() || !workpaper.conclusion.trim() || !workpaper.scope?.trim() || !workpaper.workingPaper || workpaper.workingPaper.version !== workpaper.version) throw new GuardError('INVALID_STATE', 'Record work performed, scope, conclusion and a current workbook before submission.');
+    // R12: physical-mode workpapers submit on a recorded physical index; digital links, when present, stay mandatory.
+    const physicalEvidenceReady = Boolean(workpaper.physicalReference?.indexCode?.trim() && workpaper.physicalReference?.description?.trim());
+    if (!(workpaper.evidenceRefs || []).length && !physicalEvidenceReady) throw new GuardError('INVALID_STATE', 'Record work performed, scope, conclusion, a current workbook and linked digital or recorded physical evidence before submission.');
     if ((workpaper.evidenceRefs || []).some(id => {
       const document = this.state.documents.find(item => item.id === id && item.engagementId === engId);
       return !document || document.brokenLink || this.hasNewerDocumentRevision(id) || workpaper.evidenceRevisions?.[id] !== document.version;
@@ -3653,7 +3656,18 @@ class PrototypeStore {
     if (!wp) return;
     if (!wp.applicable || !notes.trim()) throw new GuardError('INVALID_STATE', 'Only applicable workpapers with a clearance rationale can be cleared.');
     if (wp.status !== 'Submitted' || wp.submittedVersion !== wp.version || !wp.submittedBy) throw new GuardError('INVALID_STATE', 'Only the exact current submitted revision can be cleared.');
-    if (wp.reviewer !== this.state.currentPerson && !(eng.auditLifecycle && this.state.currentRole === 'manager' && eng.manager === this.state.currentPerson) && !recordPrototypeSuperuserOverride(this.state, 'clear a workpaper as a non-assigned reviewer')) throw new GuardError('FORBIDDEN_SCOPE', 'Only the assigned reviewer may clear this workpaper.');
+    // R04: manager-executed (RED) workpapers are reviewed only by their assigned partner
+    // reviewer — the engagement manager may not clear their own execution.
+    const redExecuted = wp.executionRiskLevel === 'RED';
+    const assignedReviewer = wp.reviewer === this.state.currentPerson;
+    const engagementManagerClears = !redExecuted && Boolean(eng.auditLifecycle) && this.state.currentRole === 'manager' && eng.manager === this.state.currentPerson;
+    if (!assignedReviewer && !engagementManagerClears && !recordPrototypeSuperuserOverride(this.state, redExecuted ? 'clear a manager-executed RED workpaper as the prototype superuser' : 'clear a workpaper as a non-assigned reviewer'))
+      throw new GuardError(
+        'FORBIDDEN_SCOPE',
+        redExecuted
+          ? 'Manager-executed RED workpapers are reviewed only by their assigned Partner reviewer.'
+          : 'Only the assigned reviewer may clear this workpaper.'
+      );
 
     // Check separation of duties: preparer cannot clear own workpaper!
     requireIndependentActor(wp.preparer, this.state.currentPerson, 'independently clear this workpaper', this.state);
@@ -3778,6 +3792,28 @@ class PrototypeStore {
       time: new Date().toLocaleTimeString('en-GB')
     });
     this.logEvent(`Review note ${note.id} cleared by ${this.state.currentPerson}`, note.id);
+    this.notify();
+  }
+
+  /** R01: review notes are internal audit records. Only an explicit, reasoned designation
+   *  by the Manager or Partner pulls a cleared note into the client-facing correspondence
+   *  bundle; designation never happens implicitly. */
+  public designateReviewCorrespondence(engId: string, noteId: string, include: boolean, reason: string) {
+    requireActiveIdentity(this.state);
+    requireRole(this.state, ['manager', 'partner'], 'designate client correspondence');
+    requireEngagementScope(this.state, engId);
+    const eng = this.state.engagements.find(e => e.id === engId);
+    if (!eng) throw new GuardError('INVALID_STATE', `Engagement "${engId}" was not found.`);
+    const note = eng.reviews.find(r => r.id === noteId);
+    if (!note) throw new GuardError('INVALID_STATE', `Review point "${noteId}" was not found.`);
+    if (!reason.trim()) throw new GuardError('INVALID_STATE', 'A recorded reason is required for every correspondence designation change.');
+    if (include && note.status !== 'Cleared')
+      throw new GuardError('INVALID_STATE', 'Only a cleared review point can be designated as formal client correspondence.');
+    const visibility = include ? 'Formal client correspondence' : 'Internal only';
+    if (note.externalVisibility === visibility) return;
+    note.externalVisibility = visibility;
+    (note.correspondenceHistory ||= []).push({ at: new Date().toISOString(), actorUserId: this.state.currentUserId, visibility, reason: reason.trim() });
+    this.logEvent(`Review note ${note.id} designated ${visibility}: ${reason.trim()}`, note.id);
     this.notify();
   }
 

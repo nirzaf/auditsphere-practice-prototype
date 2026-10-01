@@ -35,7 +35,7 @@ it('systematic samples can reach every population item with N=10 and n=6',()=>{
  act(state,'preparer'); const rows=Array.from({length:10},(_,i)=>({id:`ROW-${i}`,itemRef:`ROW-${i}`,tested:false,result:'Untested' as const,date:`${e.year}-09-01`,counterparty:'Synthetic',amount:10,description:'Population item'}));
  const populationId=commands.importPopulation(e.id,'1000','sample.csv','b'.repeat(64),rows);
  const seen=new Set<string>();
- for(let seed=0;seed<10000;seed+=277){commands.generateSample(e.id,populationId,'Systematic Random Sampling',6,seed); const p=state.samplePopulations.find(p=>p.id===populationId)!; assert.equal(p.items.filter(i=>i.selected).length,6);p.items.filter(i=>i.selected).forEach(i=>seen.add(i.id));}
+ for(let seed=0;seed<10000;seed+=277){commands.generateSample(e.id,populationId,'Systematic Random Sampling',6,seed,{samplingBasis:'Systematic selection over the complete reconciled cash population corroborates existence.',sizeDetermination:'Six items selected as a documented professional override covering the interval structure.'}); const p=state.samplePopulations.find(p=>p.id===populationId)!; assert.equal(p.items.filter(i=>i.selected).length,6);p.items.filter(i=>i.selected).forEach(i=>seen.add(i.id));}
  assert.equal(seen.size,10,'tail and every other item have positive inclusion probability');
 });
 it('Holding Letters persist revisions and retain critical release blockers',async()=>{
@@ -60,7 +60,7 @@ it('Red estimate requires Manager execution even below materiality; all mapped F
   const equity = state.auditPrograms.find(program => program.financialStatementLines?.includes('Equity') && program.procedures.length === 5)!;
   assert.ok(equity, 'Uncovered equity FSLI has five assertion procedures');
   e.rows.find(row => row.mappedStatementLine === 'Cash')!.name = 'Cash impairment estimate';
-  const procedure = state.auditPrograms.find(program => program.area === 'Treasury')!.procedures[0];
+  const procedure = state.auditPrograms.find(program => program.area === 'Cash')!.procedures[0];
   act(state, 'preparer');
   assert.throws(() => store.updateAuditProcedureExecution(e.id, procedure.id, 'Estimate assessment performed.', 'Estimate assessment conclusion.', ''), /Manager-level/);
   assert.equal(procedure.workPerformed, undefined);

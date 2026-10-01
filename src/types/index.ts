@@ -1520,6 +1520,12 @@ export interface SamplePopulationItem {
   selectedValue: number;
   selectionVersion?: number;
   selectionPreparedBy?: string;
+  /** Reviewer-recorded sampling basis: why this population and method are appropriate. */
+  samplingBasis?: string;
+  /** How the sample size was determined (firm method or documented professional override). */
+  sizeDetermination?: string;
+  /** Reviewer-defined applicable attributes/strata for attribute sampling. */
+  attributeDefinition?: string;
   selectionReviews?: Array<{ version: number; sourceRevision: number; reviewedBy: string; reviewedAt: string; selectedCount: number; testedCount: number; untestedCount: number; limitedCount: number; exceptionCount: number; evaluation: string }>;
   items: SamplePopulationRow[];
 }
@@ -1543,6 +1549,8 @@ export interface EvidenceItem {
 export interface WorkpaperItem {
   id: string;
   physicalReference?: PhysicalEvidenceReference;
+  /** Recorded risk tier at preparation: RED files are manager-executed and partner-reviewed. */
+  executionRiskLevel?: 'RED' | 'AMBER' | 'GREEN';
   generatedArtifact?: GeneratedArtifactRecord;
   generatedArtifactHistory?: GeneratedArtifactRecord[];
   title: string;
@@ -1641,6 +1649,8 @@ export interface FindingItem {
   grossMisstatement?: number;
   netMisstatement?: number;
   condition?: string;
+  /** Substantive consequence of the deficiency; required for management-letter inclusion. */
+  impact?: string;
   recommendation?: string;
   currency?: string;
   disposition: 'Uncorrected' | 'Management agreed' | 'Corrected in TB' | 'Waived as immaterial' | 'Proposed for correction' | 'Corrected by client' | 'Uncorrected waived';
@@ -1680,6 +1690,9 @@ export interface ReviewNoteItem {
   responseEvidence?: string;
   version: number;
   subjectVersion?: number;
+  /** Client-bundle scope: review notes stay internal unless explicitly designated as formal client correspondence. */
+  externalVisibility?: 'Internal only' | 'Formal client correspondence';
+  correspondenceHistory?: Array<{ at: string; actorUserId: string; visibility: 'Internal only' | 'Formal client correspondence'; reason: string }>;
   history: Array<{ actor: string; action: string; time: string; text?: string }>;
 }
 

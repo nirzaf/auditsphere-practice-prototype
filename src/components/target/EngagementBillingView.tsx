@@ -166,30 +166,39 @@ export function EngagementBillingView({ onNavigate, onRegisterUnsavedForm }: Tar
         })}
       </section>
       <section className="panel panel-pad">
-        <h3>Final balance invoice</h3>
+        <h3>Final balance fee note (remaining 50%)</h3>
+        <p>
+          The final 50% balance fee note is compiled automatically <strong>with</strong> the
+          5-part final deliverables bundle (status <em>Draft</em>) and becomes{' '}
+          <strong>Issued</strong> when the Partner records final delivery/release. There is no
+          second normal billing step.
+        </p>
         <p>
           {set?.deliveredAt
-            ? 'The final audit set has a current recorded delivery/sign-off.'
-            : 'Generate and record final report delivery/sign-off before issuing the remaining balance.'}
+            ? 'The final audit set has a current recorded delivery/sign-off; the linked balance fee note is issued.'
+            : 'Record final report delivery/sign-off in Opinion & Deliverables to issue the balance fee note.'}
         </p>
         <ActionButton
           disabled={!canBill || !set?.deliveredAt || !!lifecycle.balanceInvoices.length}
           action={() => prototypeStore.lifecycle.generateBalanceInvoice(engagement.id)}
         >
-          Generate final balance invoice
+          Recover missing balance invoice record (history/recovery path only)
         </ActionButton>
         <button className="btn sm" onClick={() => onNavigate('delivery')}>
-          Opinion & deliverables
+          Opinion &amp; deliverables
         </button>
-        {lifecycle.balanceInvoices.map((record) => (
-          <div className="target-record" key={record.invoiceId}>
-            <span>
-              {state.invoices.find((i) => i.id === record.invoiceId)?.invoiceNumber} · accepted fee{' '}
-              {record.acceptedFee} − recognized advance {record.recognizedAdvance}
-            </span>
-            <ArtifactLink artifact={record.artifact} />
-          </div>
-        ))}
+        {lifecycle.balanceInvoices.map((record) => {
+          const invoice = state.invoices.find((i) => i.id === record.invoiceId);
+          return (
+            <div className="target-record" key={record.invoiceId}>
+              <span>
+                {invoice?.invoiceNumber} · accepted fee {record.acceptedFee} − recognized advance{' '}
+                {record.recognizedAdvance} · status {invoice?.status}
+              </span>
+              <ArtifactLink artifact={record.artifact} />
+            </div>
+          );
+        })}
       </section>
     </div>
   );

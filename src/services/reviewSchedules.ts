@@ -24,5 +24,15 @@ export function srmReviewSections(state: PrototypeState, engagement: EngagementR
       'SIGNIFICANT ESTIMATES AND GOING CONCERN EVALUATION:',
       ...engagement.rows.filter(r => /estimate|provision|fair value|impairment|ecl|expected credit loss|allowance|obsolesc|warranty|goodwill|contingenc/i.test(r.name)).map(r => `Estimate ${r.code} / ${r.name}: ${r.balance} ${engagement.currency}; FSLI ${r.mappedStatementLine || 'Unmapped'}; risk ${fsliRiskLevel(state,engagement,r.mappedStatementLine || r.name)}; evaluation ${engagement.auditLifecycle!.analyticalReviews?.find(a => a.fsli === r.mappedStatementLine)?.analysis || 'See current risk response and workprogram conclusions below.'}`),
       ...[...new Map((engagement.auditLifecycle!.analyticalReviews || []).map(r => [r.fsli,r])).values()].map(r => `${r.fsli}: ${r.analysis}; ${r.isa570Checklist.conclusion}`),
+      'RED-AREA REVIEW EVIDENCE (manager-executed workpapers with their current clearance):',
+      ...(() => {
+        const red = engagement.workpapers.filter(w => w.applicable && w.executionRiskLevel === 'RED');
+        if (!red.length) return ['No RED-risk workpaper in the current program file; manager execution and partner review were not triggered.'];
+        return red.map(w => {
+          const areas = state.auditPrograms.filter(p => p.engagementId === engagementId && p.leadWorkpaperRef === w.id).map(p => p.area).join(', ');
+          const procedures = state.auditPrograms.flatMap(p => (p.leadWorkpaperRef === w.id ? p.procedures : [])).map(s => `${s.id} ${s.status}`).join('; ');
+          return `Workpaper ${w.id} (areas: ${areas || w.title}); executor/preparer ${w.preparer}; assigned reviewer ${w.reviewer}; v${w.version} ${w.status}; clearance ${w.clearance ? `${w.clearance.clearedBy} at ${w.clearance.clearedAt} (v${w.clearance.version}, source v${w.clearance.sourceVersion})` : 'MISSING — assigned reviewer clearance required before Partner approval'}; procedures ${procedures || 'none linked'}.`;
+        });
+      })(),
   ];
 }

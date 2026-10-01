@@ -329,10 +329,14 @@ it('replays Random, Stratified and systematic MUS samples from the same complete
     })) as any
   );
   const p = state.samplePopulations[0];
+  const methodology = {
+    samplingBasis: 'Reconciled complete supplier population supports reproducible selection for existence testing.',
+    sizeDetermination: 'Three items recorded as a documented professional override for this fixture.'
+  };
   for (const method of ['Random', 'Stratified', 'Monetary Unit Sampling'] as const) {
-    commands.generateSample(e.id, id, method, 3, 42);
+    commands.generateSample(e.id, id, method, 3, 42, methodology);
     const selected = p.items.filter((i) => i.selected).map((i) => i.id);
-    commands.generateSample(e.id, id, method, 3, 42);
+    commands.generateSample(e.id, id, method, 3, 42, methodology);
     assert.deepEqual(
       p.items.filter((i) => i.selected).map((i) => i.id),
       selected

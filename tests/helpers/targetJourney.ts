@@ -400,7 +400,12 @@ export async function runTargetJourney(options: { stopAtFieldwork?: boolean; sto
     populationRows,
     populationSource
   );
-  store.lifecycle.generateSample(e.id, pop, 'Random', 2, 260930);
+  store.lifecycle.generateSample(e.id, pop, 'Random', 2, 260930, {
+    samplingBasis:
+      'Cash existence and completeness tested through a random selection reconciled to the complete imported population and accepted evidence.',
+    sizeDetermination:
+      'Two items recorded as a documented professional override for this demonstration population.'
+  });
   const population = s.samplePopulations.find((p) => p.id === pop)!;
   for (const item of population.items.filter((i) => i.selected)) {
     store.recordSampleItemTest(
@@ -453,16 +458,18 @@ export async function runTargetJourney(options: { stopAtFieldwork?: boolean; sto
     'Bank response reconciled and independently cleared.'
   );
   mark('Critical bank confirmation tracked through independent clearance');
-  act('preparer');
+  // R04: every mapped FSLI in this fixture exceeds PM, so every program workpaper is RED —
+  // manager-executed and partner-reviewed. The manager prepares and submits; the assigned
+  // partner reviewer clears the note and workpaper.
+  act('manager');
   await store.lifecycle.saveFieldworkWorkbook(
     e.id,
     wp.id,
     e.period,
-    'Completed all six program areas and reconciled selected samples.',
+    'Completed all program areas and reconciled selected samples.',
     'No unresolved exceptions; conclusions supported by accepted evidence.'
   );
   store.submitWorkpaper(e.id, wp.id);
-  act('manager');
   store.addReviewNote(e.id, {
     id: 'RN-TARGET',
     wp: wp.id,
@@ -478,12 +485,11 @@ export async function runTargetJourney(options: { stopAtFieldwork?: boolean; sto
     history: []
   } as any);
   expectBlocked(() => store.clearReviewNote(e.id, 'RN-TARGET'), /response/);
-  act('preparer');
   await store.lifecycle.saveFieldworkWorkbook(
     e.id,
     wp.id,
     e.period,
-    'Completed all six areas; cash samples reconcile to 1500 control total.',
+    'Completed all areas; cash samples reconcile to 1500 control total.',
     'No exceptions, cash population tested and physical index X-1 verified.'
   );
   store.respondReviewNote(
@@ -492,19 +498,28 @@ export async function runTargetJourney(options: { stopAtFieldwork?: boolean; sto
     'Revised workbook documents reconciliation to the 1500 cash control total.'
   );
   store.submitWorkpaper(e.id, wp.id);
-  act('manager');
+  act('partner');
   store.clearReviewNote(e.id, 'RN-TARGET');
   store.clearWorkpaper(
     e.id,
     wp.id,
-    'Current revised workbook and point response independently assessed.'
+    'Manager-executed RED work: current revised workbook and point response independently reviewed by the assigned Partner reviewer.'
   );
   for (const other of e.workpapers.filter(w => w.applicable && w.id !== wp.id)) {
-    act('preparer'); store.linkWorkpaperEvidence(e.id, other.id, doc.id);
+    act('manager'); store.linkWorkpaperEvidence(e.id, other.id, doc.id);
     await store.lifecycle.saveFieldworkWorkbook(e.id, other.id, e.period, 'Performed all current program tests with accepted evidence.', 'Current scoped conclusion independently supported by evidence.');
-    store.submitWorkpaper(e.id, other.id); act('manager'); store.clearWorkpaper(e.id, other.id, 'Independent review of current program workbook and evidence.');
+    store.submitWorkpaper(e.id, other.id);
+    act('partner');
+    store.clearWorkpaper(e.id, other.id, 'Manager-executed RED work independently reviewed and cleared by the assigned Partner reviewer.');
   }
-  if (options.stopBeforeManager) { await route('reviews'); return {engagementId:e.id,checkpoints}; }
+  if (options.stopBeforeManager) {
+    // The manager-clearance form must be enabled for the visible-form tests: restore the
+    // manager persona (the RED workpaper loop above ends as the clearing partner).
+    act('manager');
+    await route('reviews');
+    return {engagementId:e.id,checkpoints};
+  }
+  act('manager');
   store.lifecycle.recordManagerClearance(
     e.id,
     'All workpapers, procedures and review points cleared for SRM.'
@@ -525,6 +540,19 @@ export async function runTargetJourney(options: { stopAtFieldwork?: boolean; sto
   );
   expectBlocked(() => store.lifecycle.selectOpinion(e.id, 'Qualified', '', 'short'), /focus|basis/);
   store.lifecycle.selectOpinion(e.id, 'Clean', '', '');
+  // R10: opinion selection is not the signature event; compilation requires the recorded
+  // partner signature/seal pinned to the current opinion revision and reporting basis.
+  try {
+    await store.lifecycle.generateDeliverables(e.id, s.asOfDate);
+    throw Error('Expected generateDeliverables to be blocked without a partner signature.');
+  } catch (error) {
+    if (!/signature/i.test(String(error))) throw error;
+  }
+  store.lifecycle.authorizeReportSignature(
+    e.id,
+    s.asOfDate,
+    'Simulated digital signature and firm seal authorize the current opinion and reporting basis.'
+  );
   await store.lifecycle.generateDeliverables(e.id, s.asOfDate);
   const compiled = e.auditLifecycle!.deliverables.at(-1)!;
   const invoice = s.invoices.find(item => item.id === e.auditLifecycle!.balanceInvoices[0].invoiceId)!;

@@ -53,7 +53,7 @@ export const ENGAGEMENT_WORKFLOW_SUBSTEPS: TargetStageDefinition[] = [
   },
   {
     id: 'proposal',
-    label: 'Proposal & Engagement Letter',
+    label: 'Proposal & commercial acceptance',
     route: 'proposals',
     owner: 'Relationship owner / client',
     roles: ['relationship', 'manager', 'partner']
@@ -173,10 +173,11 @@ export const ENGAGEMENT_WORKFLOW_SUBSTEPS: TargetStageDefinition[] = [
   },
   {
     id: 'analytics',
-    label: 'Practice analytics & firm ledger',
+    label: 'Practice analytics & firm ledger (parallel lane)',
     route: 'reports',
     owner: 'Partner / firm finance',
-    roles: ['manager', 'partner', 'billing', 'admin']
+    roles: ['manager', 'partner', 'billing', 'admin'],
+    parallel: true
   }
 ];
 export function emptyAuditLifecycle(): TargetEngagementLifecycle {
@@ -464,12 +465,12 @@ export function fieldworkBlockers(state: PrototypeState, engagement: EngagementR
   const staffing = engagement.auditLifecycle?.staffing.at(-1);
   if (
     !staffing ||
-    ['Partner', 'Manager', 'Senior/Reviewer', 'Preparer/Staff'].some(
+    ['Partner', 'Manager', 'Preparer/Staff'].some(
       (role) => !staffing.allocations.some((a) => a.role === role)
     )
   )
     blockers.push(
-      'Assign Partner, Manager, Senior/Reviewer and Preparer/Staff with hours and explicit rates (unknown is allowed).'
+      'Assign Partner, Manager and associates with hours and explicit rates (unknown is allowed); Senior/Reviewer is optional.'
     );
   if (
     !engagement.sourceAccepted ||
@@ -837,6 +838,20 @@ export function opinionValidation(value: AuditOpinion, focusArea: string, basis:
       : [])
   ];
 }
+
+/** Single source of truth for the ISA 705 basis paragraph: the live preview and the
+ *  generated report must render exactly these lines, with no invented valuation defect. */
+export function modifiedOpinionBasisLines(opinion: {
+  value: AuditOpinion;
+  focusArea: string;
+  basis: string;
+}): string[] {
+  return [
+    `Basis for ${opinion.value} Opinion (ISA 705):`,
+    ...(opinion.focusArea ? [`Affected FSLI / Focus Area: ${opinion.focusArea}`] : []),
+    opinion.basis
+  ];
+}
 export function targetReleaseBlockers(
   state: PrototypeState,
   engagement: EngagementRecord
@@ -867,6 +882,28 @@ export function currentPartnerOpinion(state: PrototypeState, engagement: Engagem
 }
 export function partnerApprovalComplete(state: PrototypeState, engagement: EngagementRecord): boolean {
   return !targetReleaseBlockers(state, engagement).length && Boolean(currentPartnerOpinion(state, engagement));
+}
+/** Current authoritative signature/seal event: must pin the present reporting basis and opinion revision. */
+export function currentSignatureAuthorization(state: PrototypeState, engagement: EngagementRecord) {
+  const opinion = currentPartnerOpinion(state, engagement);
+  const record = engagement.auditLifecycle?.signatureAuthorizations?.at(-1);
+  const actor = state.users.find((u) => u.id === record?.signedByUserId);
+  const assigned = state.users.find((u) => u.name === engagement.partner && u.role === 'partner');
+  const authorized = Boolean(
+    actor?.status === 'Active' &&
+      (actor.role === 'superuser' ||
+        (actor.role === 'partner' &&
+          assigned &&
+          (actor.personId || actor.id) === (assigned.personId || assigned.id)))
+  );
+  return record &&
+    opinion &&
+    record.opinionRevision === opinion.revision &&
+    record.basis === reportBasis(state, engagement) &&
+    record.sealApplied &&
+    authorized
+    ? record
+    : undefined;
 }
 export function reportBasis(state: PrototypeState, engagement: EngagementRecord): string {
   return JSON.stringify({
@@ -923,29 +960,54 @@ export function closeExpiredArchives(state: PrototypeState): boolean {
 export function firmTrialBalance(state: PrototypeState, month?: string, currency = state.firmSettings.currency) {
   const accounts = new Map<
     string,
-    { account: string; debit: number; credit: number; balance: number }
+    { account: string; opening: number; debit: number; credit: number; balance: number; closing: number }
   >();
   const projection = (state.firmLedger || []).filter(e => e.currency === currency && (!month || e.date.startsWith(month))).map(e => e.lines);
+  const openingProjection = month ? (state.firmLedger || []).filter(e => e.currency === currency && e.date.slice(0, 7) < month).map(e => e.lines) : [];
   const invoices = state.invoices.filter(i => ['Issued','Paid'].includes(i.status) && i.currency === currency);
-  for (const invoice of invoices.filter(i => !month || i.issueDate?.startsWith(month))) projection.push([{ account: 'Accounts receivable', debit: invoice.amount, credit: 0 }, { account: 'Audit fee revenue', debit: 0, credit: invoice.amount }] as any);
+  const inMonthInvoices = invoices.filter(i => !month || i.issueDate?.startsWith(month));
+  for (const invoice of inMonthInvoices) projection.push([{ account: 'Accounts receivable', debit: invoice.amount, credit: 0 }, { account: 'Audit fee revenue', debit: 0, credit: invoice.amount }] as any);
+  const openingInvoices = month ? invoices.filter(i => i.issueDate && i.issueDate.slice(0, 7) < month) : [];
+  if (month) {
+    // Opening balances: invoices issued before the month are receivable; their in-month receipts clear below.
+    for (const invoice of openingInvoices) openingProjection.push([{ account: 'Accounts receivable', debit: invoice.amount, credit: 0 }, { account: 'Audit fee revenue', debit: 0, credit: invoice.amount }] as any);
+    for (const receipt of state.receipts.filter(r => r.currency === currency)) for (const allocation of receipt.allocations.filter(a => invoices.some(i => i.id === a.invoiceId) && (a.date || receipt.date).slice(0, 7) < month)) openingProjection.push([{ account: 'Cash', debit: allocation.amount, credit: 0 }, { account: 'Accounts receivable', debit: 0, credit: allocation.amount }] as any);
+    for (const receipt of state.receipts.filter(r => r.currency === currency)) for (const allocation of receipt.allocations.filter(a => invoices.some(i => i.id === a.invoiceId) && a.reversed && (a.reversalDate || a.date || receipt.date).slice(0,7) < month)) openingProjection.push([{ account: 'Cash', debit: 0, credit: allocation.amount }, { account: 'Accounts receivable', debit: allocation.amount, credit: 0 }] as any);
+  }
   for (const receipt of state.receipts.filter(r => r.currency === currency)) for (const allocation of receipt.allocations.filter(a => invoices.some(i => i.id === a.invoiceId))) {
     if (!month || (allocation.date || receipt.date).startsWith(month)) projection.push([{ account: 'Cash', debit: allocation.amount, credit: 0 }, { account: 'Accounts receivable', debit: 0, credit: allocation.amount }] as any);
     if (allocation.reversed && (!month || (allocation.reversalDate || allocation.date || receipt.date).startsWith(month))) projection.push([{ account: 'Cash', debit: 0, credit: allocation.amount }, { account: 'Accounts receivable', debit: allocation.amount, credit: 0 }] as any);
   }
+  for (const lines of openingProjection)
+    for (const line of lines) {
+      const account = accounts.get(line.account) || {
+        account: line.account,
+        opening: 0,
+        debit: 0,
+        credit: 0,
+        balance: 0,
+        closing: 0
+      };
+      account.opening = money(account.opening + line.debit - line.credit);
+      accounts.set(line.account, account);
+    }
   for (const lines of projection)
     for (const line of lines) {
       const account = accounts.get(line.account) || {
         account: line.account,
+        opening: 0,
         debit: 0,
         credit: 0,
-        balance: 0
+        balance: 0,
+        closing: 0
       };
       account.debit = money(account.debit + line.debit);
       account.credit = money(account.credit + line.credit);
       account.balance = money(account.debit - account.credit);
+      account.closing = money(account.opening + account.balance);
       accounts.set(line.account, account);
     }
-  return [...accounts.values()];
+  return [...accounts.values()].map(account => ({ ...account, closing: money(account.opening + account.balance) }));
 }
 export function allocatedSettlementAt(state: PrototypeState, invoiceId: string, asOf: string) {
   return money(state.receipts.reduce((sum,r) => sum + r.allocations.filter(a => a.invoiceId === invoiceId && (a.date || r.date) <= asOf && (!a.reversed || Boolean(a.reversalDate && a.reversalDate > asOf))).reduce((n,a) => n + a.amount,0),0));
@@ -1201,8 +1263,8 @@ export const SYSTEM_LIFECYCLE_STATES: SystemLifecycleStateDefinition[] = [
     state: 'PARTNER_APPROVAL',
     label: 'Partner Approval & Opinion',
     module: 'Module 4: Reporting & Deliverables',
-    allowedActions: 'Partner inspects SRM, reviews Red-risk areas, selects Audit Opinion (ISA 700/705)',
-    gateToAdvance: 'Assigned Partner selects and validates the current audit opinion, including affected FSLI and rationale for a modified opinion, and authorizes the reporting basis.',
+    allowedActions: 'Partner inspects SRM, reviews Red-risk areas, selects Audit Opinion (ISA 700/705), signs and authorizes the reporting basis',
+    gateToAdvance: 'Assigned Partner selects and validates the current audit opinion, including affected FSLI and rationale for a modified opinion, then records the digital signature and simulated firm seal that authorize the reporting basis.',
     nextState: 'DELIVERABLE_RELEASE'
   },
   {
@@ -1247,10 +1309,10 @@ export function computeSystemState(
     return SYSTEM_LIFECYCLE_STATES[8]; // DELIVERABLE_RELEASE
   }
   const review = currentReview(state, engagement);
-  if (partnerApprovalComplete(state, engagement)) {
-    return SYSTEM_LIFECYCLE_STATES[8]; // Await compilation/release
+  if (partnerApprovalComplete(state, engagement) && currentSignatureAuthorization(state, engagement)) {
+    return SYSTEM_LIFECYCLE_STATES[8]; // Signed basis awaits bundle compilation/release
   }
-  if (review.partner) return SYSTEM_LIFECYCLE_STATES[7]; // Current opinion still required
+  if (review.partner) return SYSTEM_LIFECYCLE_STATES[7]; // Current opinion and/or signature still required
   if (review.srm && !criticalConfirmationBlockers(state, engagement).length) {
     return SYSTEM_LIFECYCLE_STATES[7]; // Await assigned Partner
   }

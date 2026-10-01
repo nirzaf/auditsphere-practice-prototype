@@ -14,7 +14,7 @@ interface ARModalState {
   current: number;
   comparative?: number;
   variance: number;
-  variancePercent: number;
+  variancePercent: number | null;
   accounts: import('../../types').TrialBalanceRow[];
 }
 
@@ -79,10 +79,18 @@ export function AuditFinancialView({ onNavigate }: TargetViewProps) {
         : undefined;
 
       const variance = comparative !== undefined ? current - comparative : 0;
+      // R03: a zero prior balance has no meaningful percentage. Distinguish deliberately:
+      //  - no comparative source  -> undefined comparative (dash)
+      //  - prior 0 / current != 0 -> new balance, percentage null ("n.m.")
+      //  - prior 0 / current 0    -> no movement (0.0% is a deliberate zero state)
       const variancePercent =
         comparative !== undefined && comparative !== 0
           ? ((current - comparative) / Math.abs(comparative)) * 100
-          : 0;
+          : comparative === 0 && current !== 0
+            ? null
+            : comparative === 0 && current === 0
+              ? 0
+              : null;
 
       const riskLevel = fsliRiskLevel(state, eng, line);
 
@@ -201,7 +209,7 @@ export function AuditFinancialView({ onNavigate }: TargetViewProps) {
           <label className="target-field" style={{ minWidth: 280 }}>
             <span>Prior Year Comparative Benchmark</span>
             <select value={comparisonId} onChange={(e) => setComparisonId(e.target.value)}>
-              <option value="">Synthetic Prior Year Comparative (FY {eng.year - 1})</option>
+              <option value="">No comparative loaded — select a prior engagement below (none is synthesized)</option>
               {comparisons.map((c) => (
                 <option value={c.id} key={c.id}>
                   {c.period} · {c.id} (source v{c.sourceVersion})
@@ -299,10 +307,21 @@ export function AuditFinancialView({ onNavigate }: TargetViewProps) {
                       ? `${l.variance > 0 ? '+' : ''}${formatCurrency(l.variance, eng.currency)}`
                       : '—'}
                   </td>
-                  <td className="text-right mono font-medium">
-                    {l.comparative !== undefined
-                      ? `${l.variancePercent > 0 ? '+' : ''}${l.variancePercent.toFixed(1)}%`
-                      : '—'}
+                  <td
+                    className="text-right mono font-medium"
+                    title={
+                      l.comparative === undefined
+                        ? 'No prior-period source selected'
+                        : l.variancePercent === null
+                          ? `New balance — prior balance is zero; movement ${l.variance} ${eng.currency}`
+                          : 'Signed movement on prior balance'
+                    }
+                  >
+                    {l.comparative === undefined
+                      ? '—'
+                      : l.variancePercent === null
+                        ? 'n.m.'
+                        : `${l.variancePercent > 0 ? '+' : ''}${l.variancePercent.toFixed(1)}%`}
                   </td>
                   <td>
                     <span
@@ -429,10 +448,21 @@ export function AuditFinancialView({ onNavigate }: TargetViewProps) {
                       ? `${l.variance > 0 ? '+' : ''}${formatCurrency(l.variance, eng.currency)}`
                       : '—'}
                   </td>
-                  <td className="text-right mono font-medium">
-                    {l.comparative !== undefined
-                      ? `${l.variancePercent > 0 ? '+' : ''}${l.variancePercent.toFixed(1)}%`
-                      : '—'}
+                  <td
+                    className="text-right mono font-medium"
+                    title={
+                      l.comparative === undefined
+                        ? 'No prior-period source selected'
+                        : l.variancePercent === null
+                          ? `New balance — prior balance is zero; movement ${l.variance} ${eng.currency}`
+                          : 'Signed movement on prior balance'
+                    }
+                  >
+                    {l.comparative === undefined
+                      ? '—'
+                      : l.variancePercent === null
+                        ? 'n.m.'
+                        : `${l.variancePercent > 0 ? '+' : ''}${l.variancePercent.toFixed(1)}%`}
                   </td>
                   <td>
                     <span
@@ -520,7 +550,13 @@ export function AuditFinancialView({ onNavigate }: TargetViewProps) {
                   <div>
                     <span className="caption">Variance:</span>
                     <div className="mono font-medium">
-                      {arModal.comparative === undefined ? 'Unknown — no prior-period source selected' : `${arModal.comparative === 0 ? 'Percentage undefined (zero prior balance)' : `${arModal.variancePercent.toFixed(1)}%`} (${formatCurrency(arModal.variance, eng.currency)})`}
+                      {arModal.comparative === undefined
+                        ? 'Unknown — no prior-period source selected'
+                        : arModal.comparative === 0
+                          ? arModal.current === 0
+                            ? `No movement — both periods nil (${formatCurrency(0, eng.currency)})`
+                            : `New balance — percentage not meaningful on a zero prior balance (movement ${formatCurrency(arModal.variance, eng.currency)})`
+                          : `${arModal.variancePercent === null ? 'n.m.' : `${arModal.variancePercent > 0 ? '+' : ''}${arModal.variancePercent.toFixed(1)}%`} (${formatCurrency(arModal.variance, eng.currency)})`}
                     </div>
                   </div>
                 </div>

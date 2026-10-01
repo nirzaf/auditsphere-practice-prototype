@@ -60,6 +60,19 @@ export function ReviewSRMView(props: TargetViewProps) {
           <p className="caption">
             Preparer: {w.preparer} · Reviewer: {w.reviewer} · Scope: {w.scope} · Evidence:{' '}
             {w.evidenceRefs?.join(', ') || 'Not linked'}
+            {w.physicalReference ? ` · Physical: ${w.physicalReference.indexCode} (${w.physicalReference.description})` : ''}
+          </p>
+          {w.executionRiskLevel === 'RED' && (
+            <p className="caption" role="status">
+              <span className="tag red">RED-RISK FILE</span> Manager-executed work: the engagement
+              Manager may not clear this workpaper; the assigned Partner reviewer ({w.reviewer})
+              records its clearance, which is reproduced in the SRM Red-area evidence section.
+            </p>
+          )}
+          <p className="caption">
+            Evidence policy: Digital/Hybrid work needs current accepted digital documents;
+            Physical-mode work is supported by the recorded X-1 physical index — one readiness
+            policy per selected evidence mode.
           </p>
           <TargetForm
             title={`Link accepted evidence to ${w.id}`}
@@ -120,21 +133,25 @@ export function ReviewSRMView(props: TargetViewProps) {
               }
               action={() => prototypeStore.submitWorkpaper(eng.id, w.id)}
             >
-              Preparer marks ready
+              Mark ready for independent review
             </ActionButton>
             <ActionButton
               disabled={
-                !hasAnyRole(state, ['manager', 'reviewer']) || frozen || w.status !== 'Submitted'
+                !hasAnyRole(state, ['manager', 'reviewer', 'partner']) ||
+                frozen ||
+                w.status !== 'Submitted'
               }
               action={() =>
                 prototypeStore.clearWorkpaper(
                   eng.id,
                   w.id,
-                  'Current revision, evidence and conclusions independently reviewed.'
+                  w.executionRiskLevel === 'RED'
+                    ? 'Manager-executed RED work independently reviewed and cleared by the assigned Partner reviewer.'
+                    : 'Current revision, evidence and conclusions independently reviewed.'
                 )
               }
             >
-              Clear current workpaper
+              {w.executionRiskLevel === 'RED' ? 'Partner reviewer clears RED workpaper' : 'Clear current workpaper'}
             </ActionButton>
           </div>
           <TargetForm
@@ -184,8 +201,35 @@ export function ReviewSRMView(props: TargetViewProps) {
           <p>{note.body}</p>
           <p className="caption">
             Assigned: {note.assigned} · Workpaper: {note.wp} · Response basis: v
-            {note.subjectVersion ?? 'Not recorded'}
+            {note.subjectVersion ?? 'Not recorded'} · Client-bundle visibility:{' '}
+            <strong>{note.externalVisibility || 'Internal only'}</strong> (internal review notes
+            never enter the client correspondence bundle unless explicitly designated and cleared).
           </p>
+          {(note.externalVisibility === 'Formal client correspondence' || note.status === 'Cleared') && hasAnyRole(state, ['manager', 'partner']) && !frozen && (
+            <TargetForm
+              title={`Client-correspondence designation: ${note.id}`}
+              button={note.externalVisibility === 'Formal client correspondence' ? 'Withdraw from client bundle' : 'Designate as formal client correspondence'}
+              disabled={frozen || !hasAnyRole(state, ['manager', 'partner']) || (note.externalVisibility !== 'Formal client correspondence' && note.status !== 'Cleared')}
+              onRegisterUnsavedForm={props.onRegisterUnsavedForm}
+              onCommit={(data) =>
+                prototypeStore.designateReviewCorrespondence(
+                  eng.id,
+                  note.id,
+                  note.externalVisibility !== 'Formal client correspondence',
+                  value(data, 'reason')
+                )
+              }
+            >
+              <Field
+                label={note.externalVisibility === 'Formal client correspondence' ? 'Withdrawal reason' : 'Designation reason (why this cleared query is formal management correspondence)'}
+                name="reason"
+                type="textarea"
+              />
+              {(note.correspondenceHistory || []).map((entry, index) => (
+                <p className="caption" key={index}>{entry.at} · {entry.visibility} · {entry.reason}</p>
+              ))}
+            </TargetForm>
+          )}
           <TargetForm
             title={`Preparer response: ${note.id}`}
             button="Record revised response"
@@ -214,7 +258,7 @@ export function ReviewSRMView(props: TargetViewProps) {
             }
             action={() => prototypeStore.clearReviewNote(eng.id, note.id)}
           >
-            Manager clears review point
+            Independent clearance of review point
           </ActionButton>
           <details>
             <summary>Rework history</summary>

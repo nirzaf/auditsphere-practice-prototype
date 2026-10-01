@@ -6,7 +6,9 @@ import { hasAnyRole } from '../../services/guards';
 import {
   currentDeliverables,
   currentPartnerOpinion,
+  currentSignatureAuthorization,
   isFrozen,
+  modifiedOpinionBasisLines,
   reportBasis,
   targetReleaseBlockers,
   plusDays
@@ -38,6 +40,8 @@ export function OpinionDeliverablesView(props: TargetViewProps) {
   }, [eng?.id, opinion?.revision]);
   if (!eng) return null;
   const set = currentDeliverables(state, eng), blockers = targetReleaseBlockers(state, eng), frozen = isFrozen(eng), archiveControl = eng.auditLifecycle!.archiveControl;
+  const signature = currentSignatureAuthorization(state, eng);
+  const signatureHistory = eng.auditLifecycle!.signatureAuthorizations || [];
 
   const availableFslis = [
     ...new Set(
@@ -145,11 +149,17 @@ export function OpinionDeliverablesView(props: TargetViewProps) {
             {opinionRationale.trim().length > 0 && (
               <div className="mt12 p12 bg-white" style={{ borderRadius: 4, border: '1px dashed #cbd5e1' }}>
                 <span className="caption" style={{ fontWeight: 600, color: '#475569' }}>
-                  Live Preview: "Basis for {selectedOpinionType} Opinion" (ISA 705 Paragraph):
+                  Live Preview — rendered by the same projection as the generated report:
                 </span>
-                <p className="sub mt4" style={{ fontStyle: 'italic' }}>
-                  "The financial statements do not adequately reflect the required valuation of {selectedFsli || '[FSLI]'} in accordance with IFRS. {opinionRationale}"
-                </p>
+                <div className="sub mt4" style={{ fontStyle: 'italic' }}>
+                  {modifiedOpinionBasisLines({
+                    value: selectedOpinionType,
+                    focusArea: selectedFsli || '[affected FSLI]',
+                    basis: opinionRationale
+                  }).map((line, index) => (
+                    <p key={index} style={{ margin: '2px 0' }}>{line}</p>
+                  ))}
+                </div>
               </div>
             )}
           </div>
@@ -203,26 +213,64 @@ export function OpinionDeliverablesView(props: TargetViewProps) {
       )}
 
       {eng.auditLifecycle!.opinions.filter(record => record !== opinion).map(record => <details className="panel panel-pad" key={record.revision}><summary>Historical opinion revision {record.revision} · {record.value}</summary><p>{record.focusArea} · {record.basis}</p><p>Selected {record.selectedAt} by {state.users.find(u => u.id === record.selectedByUserId)?.name || record.selectedByUserId}. This decision does not authorize the current reporting basis.</p></details>)}
+      {/* Partner Signature & Firm Seal — the authoritative signature event (R10) */}
+      <TargetForm
+        title="Partner Signature & Firm Seal (ISA 700 sign-off — authoritative signature event)"
+        formId="partner-signature"
+        button="Sign & authorize reporting basis (simulated signature / seal)"
+        disabled={!hasAnyRole(state, ['partner']) || frozen || !opinion || blockers.length > 0}
+        onRegisterUnsavedForm={props.onRegisterUnsavedForm}
+        onCommit={(data) =>
+          prototypeStore.lifecycle.authorizeReportSignature(
+            eng.id,
+            value(data, 'signatureDate'),
+            value(data, 'note')
+          )
+        }
+      >
+        <p className="sub mb12">
+          Selecting an opinion is <strong>not</strong> the signature event. This step records the
+          simulated digital signature and firm seal that pin the current opinion revision and
+          reporting basis. The signature date starts the 60-day compliance clock, and the compiled
+          bundle must carry the same report date.
+        </p>
+        <Field
+          label="Signature date (starts the 60-day compliance clock)"
+          name="signatureDate"
+          type="date"
+          defaultValue={signature?.signatureDate || state.asOfDate}
+        />
+        <Field label="Signature authorization note" name="note" type="textarea" />
+        {signatureHistory.map((record) => (
+          <p className="caption" key={record.revision}>
+            Authorization v{record.revision} · signed {record.signatureDate} · opinion revision{' '}
+            {record.opinionRevision} · {record.basis === (opinion ? reportBasis(state, eng) : '') && signature?.revision === record.revision ? 'Current authoritative signature' : 'Historical / superseded'} · {record.note}
+          </p>
+        ))}
+      </TargetForm>
+
       {/* Compile Mandatory 5-Part Deliverables Package */}
       <TargetForm
         title="Compile Mandatory 5-Part Commercial Deliverables Bundle"
         formId="deliverables"
-        button="Authorize & Compile 5-Part Deliverables Bundle"
-        disabled={!hasAnyRole(state, ['partner']) || frozen || !opinion || blockers.length > 0}
+        button="Compile 5-Part Deliverables Bundle (separate from signature)"
+        disabled={!hasAnyRole(state, ['partner']) || frozen || !opinion || !signature || blockers.length > 0}
         onRegisterUnsavedForm={props.onRegisterUnsavedForm}
         onCommit={(data) =>
           prototypeStore.lifecycle.generateDeliverables(eng.id, value(data, 'reportDate'))
         }
       >
         <p className="sub mb12">
-          Upon Partner authorization, the system compiles the complete 5-part bundle, embeds digital credentials, triggers the remaining 50% fee invoice, and prepares the PBC freeze.
+          Compilation is a separate step from the signature above. The system compiles the complete
+          5-part bundle — including the Final Balance Fee Note (remaining 50%) as a Draft invoice —
+          and prepares the release. {!signature ? 'The Partner must sign and seal the current reporting basis first.' : `Report date must equal the authorized signature date (${signature.signatureDate}).`}
         </p>
 
         <Field
-          label="Independent Auditor's Report Date (ISA 700 Cut-off)"
+          label="Independent Auditor's Report Date (ISA 700 Cut-off — must equal the signature date)"
           name="reportDate"
           type="date"
-          defaultValue={state.asOfDate}
+          defaultValue={signature?.signatureDate || state.asOfDate}
         />
       </TargetForm>
 
@@ -283,7 +331,7 @@ export function OpinionDeliverablesView(props: TargetViewProps) {
                   )
                 }
               >
-                Lead Partner Authorization: Release Bundle to Client Portal (Freezes Uploads)
+                Record Final Delivery &amp; Release Bundle to Client Portal (Freezes Uploads)
               </ActionButton>
             )}
           </div>

@@ -16,6 +16,19 @@ interface ProposalsViewProps {
 
 export const ProposalsView: React.FC<ProposalsViewProps> = ({ onNavigate, onRegisterUnsavedForm }) => {
   const state = prototypeStore.getSnapshot();
+  // R02: one 50/50 commercial definition everywhere. The final 50% belongs to delivery of the
+  // FINAL signed deliverables package — the balance fee note is prepared with the final bundle
+  // (Draft) and issued at final release, matching the active billing implementation.
+  const STANDARD_PAYMENT_TERMS = '50% advance deposit payable upon engagement letter (EL) execution; 50% final balance payable upon delivery of the final signed audit deliverables package (balance fee note prepared with the final bundle and issued at final release).';
+  const rosterTeamCredentials = () => {
+    const byRole = (roles: string[]) =>
+      state.users.filter((u) => u.status === 'Active' && roles.includes(u.role)).map((u) => u.name);
+    const partner = byRole(['partner'])[0] || 'Unassigned partner';
+    const manager = byRole(['manager'])[0] || 'Unassigned manager';
+    const senior = byRole(['reviewer'])[0] || 'Unassigned senior';
+    const associate = byRole(['preparer'])[0] || 'Unassigned associate';
+    return `Engagement Partner: ${partner} (synthetic CV — FCA); Audit Manager: ${manager} (synthetic CV — CPA); Senior Auditor: ${senior} (synthetic CV — ACCA); Audit Associate: ${associate} (synthetic CV). Assigned engagement team is confirmed at scheduling.`;
+  };
   const [selectedProposal, setSelectedProposal] = useState<ProposalRecord | null>(null);
   const [showReviewModal, setShowReviewModal] = useState(false);
   const [showResponseModal, setShowResponseModal] = useState(false);
@@ -40,13 +53,13 @@ export const ProposalsView: React.FC<ProposalsViewProps> = ({ onNavigate, onRegi
   const [proposalExclusions, setProposalExclusions] = useState('');
   const [proposalDeliverables, setProposalDeliverables] = useState('');
   const [proposalResponsibilities, setProposalResponsibilities] = useState('');
-  const [proposalTerms, setProposalTerms] = useState('50% advance deposit payable upon contract signing / EL execution; 50% final balance payable upon issuance of draft audit deliverables bundle.');
+  const [proposalTerms, setProposalTerms] = useState(STANDARD_PAYMENT_TERMS);
   const [proposalMode, setProposalMode] = useState<'Brief Quotation' | 'Comprehensive Technical Proposal'>('Brief Quotation');
   const [firmHistory, setFirmHistory] = useState('');
   const [deliveryTimeline, setDeliveryTimeline] = useState('');
   const [firmProfile, setFirmProfile] = useState('Established licensed audit firm authorized under QFC / MOCI / QCB regulations with dedicated audit, assurance and financial advisory practice.');
   const [regulatoryRegistrations, setRegulatoryRegistrations] = useState('QFC Regulatory Authority, Qatar Ministry of Commerce & Industry (MOCI), Qatar Central Bank (QCB) Approved Auditor');
-  const [teamCredentials, setTeamCredentials] = useState('Engagement Partner: Daniel James (FCA, 18 yrs exp); Audit Manager: Layla Rahman (CPA, 10 yrs exp); Senior Auditor: Associate (ACCA, 5 yrs exp)');
+  const [teamCredentials, setTeamCredentials] = useState(() => rosterTeamCredentials());
   const [industryExperience, setIndustryExperience] = useState('Statutory financial statement audits under IFRS / ISA across Energy, Financial Services, Real Estate, and Commercial Trading in Qatar.');
   const [auditMethodology, setAuditMethodology] = useState('Risk-based ISA audit methodology conforming to ISA 200–720 and IFRS, utilizing 3-tier materiality (PM/TE/SAD), dual-key governance, and rigorous sampling.');
   const [proposalAmount, setProposalAmount] = useState(0);
@@ -96,7 +109,7 @@ export const ProposalsView: React.FC<ProposalsViewProps> = ({ onNavigate, onRegi
     const service = proposalServices.find(item => item.active);
     setAdditionalProposalLines([]);
     setSelectedProposal(null); setProposalTitle(''); setProposalLead(''); setProposalClientId(''); setProposalScope(service?.scope || ''); setProposalExclusions(service?.exclusions || ''); setProposalDeliverables(service?.deliverables || ''); setProposalResponsibilities(service?.clientResponsibilities || ''); setProposalDependencies(service?.dependencies || ''); setProposalPeriod(service?.period || ''); setProposalPeriodStart(service?.periodStart || ''); setProposalPeriodEnd(service?.periodEnd || ''); setProposalTemplateId(''); setProposalTemplateRevision(undefined);
-    setProposalTerms('50% advance deposit payable upon contract signing / EL execution; 50% final balance payable upon issuance of draft audit deliverables bundle.'); setProposalMode('Brief Quotation'); setProposalAmount(service?.feeModel === 'Fixed' ? service.rate : (service?.quantity || 1) * (service?.rate || 0)); setProposalQuantity(service?.quantity || 1); setProposalRate(service?.rate || 0); setProposalFeeModel(service?.feeModel || 'Fixed'); setProposalCurrency(service?.currency || 'QAR'); setProposalServiceId(service?.id || ''); setProposalServiceRevision(service?.revision); setShowNewModal(true);
+    setProposalTerms(STANDARD_PAYMENT_TERMS); setProposalMode('Brief Quotation'); setProposalAmount(service?.feeModel === 'Fixed' ? service.rate : (service?.quantity || 1) * (service?.rate || 0)); setProposalQuantity(service?.quantity || 1); setProposalRate(service?.rate || 0); setProposalFeeModel(service?.feeModel || 'Fixed'); setProposalCurrency(service?.currency || 'QAR'); setProposalServiceId(service?.id || ''); setProposalServiceRevision(service?.revision); setTeamCredentials(rosterTeamCredentials()); setShowNewModal(true);
   };
 
   const loadProposalDraft = (proposal: ProposalRecord) => {
@@ -163,7 +176,7 @@ export const ProposalsView: React.FC<ProposalsViewProps> = ({ onNavigate, onRegi
       label: 'Proposal draft',
       isDirty: () => showNewModal,
       save: saveProposalDraft,
-      discard: () => { setProposalTitle(''); setProposalLead(''); setProposalScope(''); setProposalExclusions(''); setProposalDeliverables(''); setProposalResponsibilities(''); setProposalTerms('Payment due within 30 days of invoice.'); setProposalAmount(0); setProposalCurrency('QAR'); setShowNewModal(false); initialProposalDraft.current = JSON.stringify({ proposalTitle: '', proposalLead: '', proposalScope: '', proposalExclusions: '', proposalDeliverables: '', proposalResponsibilities: '', proposalTerms: 'Payment due within 30 days of invoice.', proposalAmount: 0, proposalCurrency: 'QAR' }); }
+      discard: () => { setProposalTitle(''); setProposalLead(''); setProposalScope(''); setProposalExclusions(''); setProposalDeliverables(''); setProposalResponsibilities(''); setProposalTerms(STANDARD_PAYMENT_TERMS); setProposalAmount(0); setProposalCurrency('QAR'); setShowNewModal(false); initialProposalDraft.current = JSON.stringify({ proposalTitle: '', proposalLead: '', proposalScope: '', proposalExclusions: '', proposalDeliverables: '', proposalResponsibilities: '', proposalTerms: STANDARD_PAYMENT_TERMS, proposalAmount: 0, proposalCurrency: 'QAR' }); }
     };
     onRegisterUnsavedForm(guard, key);
     return () => onRegisterUnsavedForm(null, key);
@@ -243,7 +256,7 @@ export const ProposalsView: React.FC<ProposalsViewProps> = ({ onNavigate, onRegi
         <section className="panel panel-pad stack" style={{ gap: 10 }}><div className="between"><div><h3>Supported Service Catalogue</h3><p className="sub">Reusable service defaults are copied into proposals when selected.</p></div><button className="btn sm primary" onClick={() => { setEditingServiceId(null); setServiceDraft({ id: `SVC-${crypto.randomUUID().slice(0,8).toUpperCase()}`, name: '', description: '', scope: '', exclusions: '', deliverables: '', clientResponsibilities: '', dependencies: '', period: '', periodStart: new Date().toISOString().slice(0,10), periodEnd: new Date().toISOString().slice(0,10), feeModel: 'Fixed', quantity: 1, rate: 0, currency: 'QAR', active: true, revision: 0 }); }}>Add Service</button></div>
           {proposalServices.map(service => <div className="borderbox" key={service.id}><div className="between"><b>{service.name}</b><button className="btn xs" onClick={() => { setEditingServiceId(service.id); setServiceDraft(structuredClone(service)); }}>Edit</button></div><p className="sub">{service.description} · {service.feeModel} · Rev {service.revision} · {service.active ? 'Active' : 'Inactive'}</p></div>)}
         </section>
-        <section className="panel panel-pad stack" style={{ gap: 10 }}><div className="between"><div><h3>Proposal Content Templates</h3><p className="sub">Template defaults copy once; editing a proposal does not change this source.</p></div><button className="btn sm primary" onClick={() => { const service = proposalServices.find(item => item.active) || proposalServices[0]; setEditingTemplateId(null); setTemplateDraft({ id: `PT-${crypto.randomUUID().slice(0,8).toUpperCase()}`, name: '', description: '', serviceId: service?.id || '', serviceRevision: service?.revision, title: '', scope: service?.scope || '', exclusions: service?.exclusions || '', deliverables: service?.deliverables || '', clientResponsibilities: service?.clientResponsibilities || '', dependencies: service?.dependencies || '', period: service?.period || '', periodStart: service?.periodStart || '', periodEnd: service?.periodEnd || '', feeModel: service?.feeModel || 'Fixed', quantity: service?.quantity || 1, rate: service?.rate || 0, currency: service?.currency || 'QAR', terms: 'Payment due within 30 days of invoice.', revision: 0, active: true }); }}>Add Template</button></div>
+        <section className="panel panel-pad stack" style={{ gap: 10 }}><div className="between"><div><h3>Proposal Content Templates</h3><p className="sub">Template defaults copy once; editing a proposal does not change this source.</p></div><button className="btn sm primary" onClick={() => { const service = proposalServices.find(item => item.active) || proposalServices[0]; setEditingTemplateId(null); setTemplateDraft({ id: `PT-${crypto.randomUUID().slice(0,8).toUpperCase()}`, name: '', description: '', serviceId: service?.id || '', serviceRevision: service?.revision, title: '', scope: service?.scope || '', exclusions: service?.exclusions || '', deliverables: service?.deliverables || '', clientResponsibilities: service?.clientResponsibilities || '', dependencies: service?.dependencies || '', period: service?.period || '', periodStart: service?.periodStart || '', periodEnd: service?.periodEnd || '', feeModel: service?.feeModel || 'Fixed', quantity: service?.quantity || 1, rate: service?.rate || 0, currency: service?.currency || 'QAR', terms: STANDARD_PAYMENT_TERMS, revision: 0, active: true }); }}>Add Template</button></div>
           {proposalTemplates.map(template => <div className="borderbox" key={template.id}><div className="between"><b>{template.name}</b><button className="btn xs" onClick={() => { setEditingTemplateId(template.id); setTemplateDraft(structuredClone(template)); }}>Edit</button></div><p className="sub">{template.title} · {template.period} · Rev {template.revision} · {template.active ? 'Active' : 'Inactive'}</p></div>)}
         </section>
       </div>}
@@ -550,7 +563,7 @@ export const ProposalsView: React.FC<ProposalsViewProps> = ({ onNavigate, onRegi
             <label className="caption">Regulatory Registrations &amp; Licenses
               <input className="input" value={regulatoryRegistrations} onChange={e => setRegulatoryRegistrations(e.target.value)} placeholder="QFC Regulatory Authority, MOCI, QCB Approved Auditor" />
             </label>
-            <label className="caption">Key Engagement Team Credentials &amp; Staff CVs
+            <label className="caption">Key Engagement Team Credentials &amp; Staff CVs (defaults drawn from the firm roster; synthetic prototype CVs)
               <textarea className="input" rows={2} value={teamCredentials} onChange={e => setTeamCredentials(e.target.value)} />
             </label>
             <label className="caption">Industry Credentials &amp; Track Record

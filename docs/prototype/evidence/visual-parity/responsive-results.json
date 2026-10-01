@@ -161,13 +161,13 @@
     "title": "Opinion & ML / LOR / Audit Report",
     "overflow": [
       "BUTTON.btn primary mt16",
+      "BUTTON.btn primary mt16",
       "SPAN.target-action",
       "BUTTON.btn sm",
       "SPAN.target-action",
       "BUTTON.btn sm",
       "SPAN.target-action",
-      "BUTTON.btn sm",
-      "SPAN.target-action"
+      "BUTTON.btn sm"
     ]
   },
   {
@@ -404,8 +404,8 @@
     "topbar": "rgb(255, 255, 255)",
     "title": "Opinion & ML / LOR / Audit Report",
     "overflow": [
-      "SPAN.target-action",
-      "BUTTON.btn sm",
+      "BUTTON.btn primary mt16",
+      "BUTTON.btn primary mt16",
       "SPAN.target-action",
       "BUTTON.btn sm",
       "SPAN.target-action",

@@ -72,7 +72,7 @@ export function PracticeView(props: TargetViewProps & { ledger?: boolean }) {
 
   return (
     <div className="target-stack">
-      <section className="panel panel-pad"><label>Reporting month <input aria-label="Reporting month" type="month" value={reportMonth} onChange={e => setReportMonth(e.target.value)} /></label><p>Currency: {s.firmSettings.currency}. Prototype accrual projection: issued fees credit revenue/debit receivables; effective allocated receipts debit cash/credit receivables; reversals post on their recorded reversal date. Drafts excluded. Monthly TB shows movements; aging shows balances at month end; withdrawals remain separate.</p></section>
+      <section className="panel panel-pad"><label>Reporting month <input aria-label="Reporting month" type="month" value={reportMonth} onChange={e => setReportMonth(e.target.value)} /></label><p>Currency: {s.firmSettings.currency}. Prototype accrual projection: issued fees credit revenue/debit receivables; effective allocated receipts debit cash/credit receivables; reversals post on their recorded reversal date. Drafts excluded. The monthly trial balance shows brought-forward opening balances, period movements and carried-forward closing balances, so a prior-month uncollected invoice carries forward and clears when its payment is recorded; the aging shows balances at month end; partner withdrawals remain separate.</p></section>
       {/* Module Header */}
       <section className="panel panel-pad">
         <div className="flex-between">
@@ -253,20 +253,21 @@ export function PracticeView(props: TargetViewProps & { ledger?: boolean }) {
                 <div className="flex-between mb12">
                   <div>
                     <h4>Internal Firm Trial Balance ({s.firmSettings.currency})</h4>
-                    <p className="caption">Operational general ledger accounts reconciled for the practice.</p>
+                    <p className="caption">Opening (brought forward) · period debit/credit movements · closing (carried forward). Income accounts carry unclosed period results in this prototype projection.</p>
                   </div>
                   <ActionButton
                     action={() =>
                       exportToCSV('STE_Firm_Monthly_Trial_Balance.csv', [
-                        ['Account', 'Currency', 'Debit', 'Credit', 'Net Balance'],
+                        ['Account', 'Currency', 'Opening', 'Debit', 'Credit', 'Closing'],
                         ...tbRows.map((r) => [
                           r.account,
                           s.firmSettings.currency,
+                          String(r.opening),
                           String(r.debit),
                           String(r.credit),
-                          String(r.balance)
+                          String(r.closing)
                         ]),
-                        ['TOTAL', s.firmSettings.currency, String(totalDebit), String(totalCredit), '0.00']
+                        ['TOTAL', s.firmSettings.currency, String(tbRows.reduce((sum, r) => sum + r.opening, 0)), String(totalDebit), String(totalCredit), String(tbRows.reduce((sum, r) => sum + r.closing, 0))]
                       ])
                     }
                   >
@@ -279,26 +280,29 @@ export function PracticeView(props: TargetViewProps & { ledger?: boolean }) {
                     <thead>
                       <tr>
                         <th>Account Name</th>
+                        <th className="text-right">Opening</th>
                         <th className="text-right">Debit (QAR)</th>
                         <th className="text-right">Credit (QAR)</th>
-                        <th className="text-right">Net Balance</th>
+                        <th className="text-right">Closing</th>
                       </tr>
                     </thead>
                     <tbody>
                       {tbRows.map((r) => (
                         <tr key={r.account}>
                           <td><strong>{r.account}</strong></td>
+                          <td className="text-right mono">{formatCurrency(r.opening, 'QAR')}</td>
                           <td className="text-right mono">{formatCurrency(r.debit, 'QAR')}</td>
                           <td className="text-right mono">{formatCurrency(r.credit, 'QAR')}</td>
-                          <td className="text-right mono font-medium">{formatCurrency(r.balance, 'QAR')}</td>
+                          <td className="text-right mono font-medium">{formatCurrency(r.closing, 'QAR')}</td>
                         </tr>
                       ))}
                       <tr style={{ background: '#f8fafc', fontWeight: 'bold' }}>
                         <td>TOTAL RECONCILED</td>
+                        <td className="text-right mono">{formatCurrency(tbRows.reduce((sum, r) => sum + r.opening, 0), 'QAR')}</td>
                         <td className="text-right mono">{formatCurrency(totalDebit, 'QAR')}</td>
                         <td className="text-right mono">{formatCurrency(totalCredit, 'QAR')}</td>
-                        <td className="text-right mono" style={{ color: totalDebit === totalCredit ? '#15803d' : '#b91c1c' }}>
-                          {totalDebit === totalCredit ? 'BALANCED' : 'OUT OF BALANCE'}
+                        <td className="text-right mono">
+                          {formatCurrency(tbRows.reduce((sum, r) => sum + r.closing, 0), 'QAR')}
                         </td>
                       </tr>
                     </tbody>

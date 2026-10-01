@@ -169,6 +169,10 @@ it('A6-01 current Partner clearance without an opinion stays PARTNER_APPROVAL',(
 });
 it('A6-02 current clean opinion advances to DELIVERABLE_RELEASE',()=>{
   const {state,engagement,commands}=clearedPartnerFixture(); commands.selectOpinion(engagement.id,'Clean','','');
+  // R10: opinion selection alone is not the signature event; the state stays in PARTNER_APPROVAL
+  // until the partner records the simulated signature/seal for the current basis.
+  assert.equal(computeSystemState(state,engagement).state,'PARTNER_APPROVAL');
+  commands.authorizeReportSignature(engagement.id,state.asOfDate,'Simulated digital signature and firm seal authorize the current clean reporting basis.');
   assert.equal(computeSystemState(state,engagement).state,'DELIVERABLE_RELEASE');
 });
 it('A6-03 a new SRM keeps the old opinion historical and requires fresh Partner approval',async()=>{
@@ -192,5 +196,7 @@ it('A6-05 Qualified with missing or short rationale cannot advance',()=>{
 it('A6-06 current assigned-Partner Qualified opinion with mapped FSLI and rationale advances',()=>{
   const {state,engagement,commands}=clearedPartnerFixture();
   commands.selectOpinion(engagement.id,'Qualified','Revenue','Current revenue evidence is incomplete for a material amount in the mapped reporting basis.');
+  assert.equal(computeSystemState(state,engagement).state,'PARTNER_APPROVAL');
+  commands.authorizeReportSignature(engagement.id,state.asOfDate,'Simulated digital signature and firm seal authorize the current modified reporting basis.');
   assert.equal(computeSystemState(state,engagement).state,'DELIVERABLE_RELEASE');
 });

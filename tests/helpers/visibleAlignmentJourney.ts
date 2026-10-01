@@ -114,8 +114,12 @@ export async function runVisibleAlignmentJourney(tab: CdpTab) {
   assert.equal(await inspect<number>('state.invoices.length'),1); assert.equal(await inspect<number>('state.folders.length'),5);
   await actor('manager'); await route('documents', '5-Folder'); await button('Verify Workspace Access');
   await route('scheduling', 'staffing');
-  for(let i=0;i<4;i++) await fill(`[data-target-form="staffing"] [name="capacity${i}"]`,'80');
-  await fill('[data-target-form="staffing"] [name="start"]', '2026-10-01'); await fill('[data-target-form="staffing"] [name="end"]', '2026-10-15');
+  const staffingRowKeys = await tab.evaluate<string[]>(`Array.from(document.querySelectorAll('[data-target-form="staffing"] fieldset.target-staff-row')).map(f => f.querySelector('input[name^="capacity-"]').name.slice('capacity-'.length))`);
+  for(const key of staffingRowKeys) {
+    await fill(`[data-target-form="staffing"] [name="capacity-${key}"]`,'80');
+    await fill(`[data-target-form="staffing"] [name="start-${key}"]`, '2026-10-01');
+    await fill(`[data-target-form="staffing"] [name="end-${key}"]`, '2026-10-15');
+  }
   await fill('[data-target-form="staffing"] [name="reason"]','Initial visible four-role team allocation and recorded charge-out rates.'); await submit('[data-target-form="staffing"]');
   assert.equal(await inspect<number>('e.auditLifecycle.staffing.at(-1).allocations.length'),4);
   await actor('preparer'); await route('trial-balance', 'Trial balance source ingestion');
@@ -161,7 +165,10 @@ export async function runVisibleAlignmentJourney(tab: CdpTab) {
   await route('audit-fieldwork','Prepare standard audit programs'); await button('Prepare standard audit programs');
   const programs = await inspect<Array<{id:string;title:string;area:string;procedures:Array<{id:string}>}>>('state.auditPrograms');
   assert.ok(programs.length>=6);
-  for(const area of ['Revenue','Purchasing','Fixed Assets','Treasury','Analytical Review','Going Concern'])assert.ok(programs.some(p=>p.area===area),area);
+  // R04: one substantive program per mapped FSLI plus Analytical Review and Going Concern.
+  for(const area of ['Analytical Review','Going Concern'])assert.ok(programs.some(p=>p.area===area),area);
+  const mappedFslis = await inspect<string[]>('[...new Set(e.rows.map(r=>r.mappedStatementLine).filter(Boolean))]');
+  for(const line of mappedFslis) assert.ok(programs.some(p=>p.area===line && p.procedures.length===5),`FSLI program ${line}`);
   await actor('manager'); await route('financial-statements','Split Financial Statement'); await button('Generate current P&L / BS snapshot');
   await button('[AR Test]', row('Revenue'));
   await label('Auditor Analysis & Investigation Notes:','Current revenue corroborated with management enquiries and current-period evidence.');
@@ -200,7 +207,10 @@ export async function runVisibleAlignmentJourney(tab: CdpTab) {
   await actor('preparer'); await route('sampling','Import a complete sampling population');
   await upload('input[name="source"]','visible-population.csv','itemRef,date,counterparty,amount\nCASH-1,2026-09-01,Demo customer,500\nCASH-2,2026-09-01,Demo customer,500\nCASH-3,2026-09-01,Demo customer,500');
   await submit(await form('Import a complete')); await wait(`import('/src/store/prototypeStore.ts').then(({prototypeStore:s})=>s.getSnapshot().samplePopulations.length===1)`);
-  let selectedForm=await form('Generate sample:'); await fill(`${selectedForm} [name="method"]`,'Systematic Random Sampling'); await fill(`${selectedForm} [name="count"]`,'2'); await submit(selectedForm);
+  let selectedForm=await form('Generate sample:'); await fill(`${selectedForm} [name="method"]`,'Systematic Random Sampling'); await fill(`${selectedForm} [name="count"]`,'2');
+  await fill(`${selectedForm} [name="samplingBasis"]`,'Cash existence is tested by a reproducible systematic selection over the complete reconciled population.');
+  await fill(`${selectedForm} [name="sizeDetermination"]`,'Two items recorded as a documented professional override for this demonstration scope.');
+  await submit(selectedForm);
   const items=await inspect<Array<{itemRef:string}>>('state.samplePopulations[0].items.filter(i=>i.selected)'); assert.equal(items.length,2);
   for(const item of items) {
     selectedForm=await form(`Test ${item.itemRef}`); await fill(`${selectedForm} [name="notes"]`,'Compared current sample amount with accepted digital evidence; no exception.'); await submit(selectedForm);
@@ -219,21 +229,23 @@ export async function runVisibleAlignmentJourney(tab: CdpTab) {
     selectedForm=await form('Update confirmation:'); await fill(`${selectedForm} [name="status"]`,status); await fill(`${selectedForm} [name="note"]`,'Independent reviewer corroborated the current bank response and resolved the critical blocker.'); await submit(selectedForm);
   }
   console.log('Visible checkpoint: sampling and confirmations');
-  await actor('preparer'); await route('reviews','Preparer → Manager');
+  // R04: every mapped FSLI in this fixture exceeds PM, so all program workpapers are RED —
+  // manager-executed and partner-reviewed. The manager prepares and submits; the assigned
+  // partner reviewer clears the rework point and each workpaper.
+  await actor('manager'); await route('reviews','Preparer → Manager');
   const workpapers=await inspect<Array<{id:string}>>('e.workpapers.filter(w=>w.applicable)');
   for(const wp of workpapers) {
     selectedForm=await form(`Link accepted evidence to ${wp.id}`); await fill(`${selectedForm} [name="document"]`,documentId); await submit(selectedForm);
     selectedForm=await form(`Prepare / revise ${wp.id}`); await fill(`${selectedForm} [name="work"]`,'Recorded current procedures, digital source verification and current supporting evidence.'); await fill(`${selectedForm} [name="conclusion"]`,'The current evidence supports the recorded audit area conclusion without unresolved exceptions.'); await submit(selectedForm);
-    await button('Preparer marks ready',`Array.from(document.querySelectorAll('form[data-target-form="workpaper"]')).find(f=>f.innerText.includes(${JSON.stringify(wp.id)})).closest('section')`);
+    await button('Mark ready for independent review',`Array.from(document.querySelectorAll('form[data-target-form="workpaper"]')).find(f=>f.innerText.includes(${JSON.stringify(wp.id)})).closest('section')`);
   }
-  await actor('manager'); await route('reviews','Preparer → Manager');
   selectedForm=await form(`Return a review point on ${workpapers[0].id}`); await fill(`${selectedForm} [name="title"]`,'Clarify current evidence basis'); await fill(`${selectedForm} [name="note"]`,'Expand the source verification and cross-reference the current digital evidence.'); await submit(selectedForm);
-  await actor('preparer'); await route('reviews','Preparer → Manager');
   selectedForm=await form(`Prepare / revise ${workpapers[0].id}`); await fill(`${selectedForm} [name="work"]`,'Revised source verification explicitly cross-references the current accepted digital source and sample tests.'); await fill(`${selectedForm} [name="conclusion"]`,'Current source corroboration supports the revised conclusion without exceptions.'); await submit(selectedForm);
   selectedForm=await form('Preparer response:'); await fill(`${selectedForm} [name="response"]`,'Revised workpaper source verification and linked current digital evidence address the returned point.'); await submit(selectedForm);
-  await button('Preparer marks ready',`Array.from(document.querySelectorAll('form[data-target-form="workpaper"]')).find(f=>f.innerText.includes(${JSON.stringify(workpapers[0].id)})).closest('section')`);
-  await actor('manager'); await route('reviews','Preparer → Manager'); await button('Manager clears review point');
-  for(const wp of workpapers) await button('Clear current workpaper',`Array.from(document.querySelectorAll('form[data-target-form="workpaper"]')).find(f=>f.innerText.includes(${JSON.stringify(wp.id)})).closest('section')`);
+  await button('Mark ready for independent review',`Array.from(document.querySelectorAll('form[data-target-form="workpaper"]')).find(f=>f.innerText.includes(${JSON.stringify(workpapers[0].id)})).closest('section')`);
+  await actor('partner'); await route('reviews','Preparer → Manager'); await button('Independent clearance of review point');
+  for(const wp of workpapers) await button('Partner reviewer clears RED workpaper',`Array.from(document.querySelectorAll('form[data-target-form="workpaper"]')).find(f=>f.innerText.includes(${JSON.stringify(wp.id)})).closest('section')`);
+  await actor('manager'); await route('reviews','Preparer → Manager');
   await fill('[data-target-form="manager-clearance"] [name="notes"]','Current workpapers, digital sample evidence, confirmations and the resolved rework loop support Manager clearance.'); await submit('[data-target-form="manager-clearance"]');
   await wait(`import('/src/store/prototypeStore.ts').then(({prototypeStore:s})=>s.getSnapshot().engagements[0].auditLifecycle.srms.length===1)`);
   await state('PARTNER_APPROVAL');
