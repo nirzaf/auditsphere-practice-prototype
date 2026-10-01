@@ -214,20 +214,22 @@ export function PbcWorkspaceView(props: TargetViewProps & { client?: boolean }) 
               button="Dispatch PBC Request to Client"
               formId="pbc-create"
               onRegisterUnsavedForm={props.onRegisterUnsavedForm}
-              onCommit={(d) =>
+              onCommit={(d) => {
+                const requestId = `PBC-${crypto.randomUUID()}`;
                 prototypeStore.addPbcRequest(e.id, {
-                  id: `PBC-${crypto.randomUUID()}`,
+                  id: requestId,
                   title: value(d, 'title'),
                   category: value(d, 'category'),
                   description: value(d, 'description'),
                   owner: s.currentPerson,
                   contributor: value(d, 'recipient'),
                   due: value(d, 'due'),
-                  status: 'Requested',
+                  status: 'Draft',
                   version: 1,
                   thread: []
-                })
-              }
+                });
+                prototypeStore.presentPbcRequest(e.id, requestId);
+              }}
             >
               <Field label="Request Title" name="title" placeholder="e.g. FY 2026 Trial Balance & General Ledger Export" />
               <Field label="Audit Category" name="category" defaultValue="Financial Schedules">

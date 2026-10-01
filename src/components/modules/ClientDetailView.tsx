@@ -1,5 +1,5 @@
-// Module 02 & 17: Centralized Client 360 Workspace (VP-008)
-// 12 Tabs: Overview, Contacts, Engagements, Jobs, Documents, Requests, Communications, Time/Budgets, Billing, Accounting, Audit, Activity
+// Module 1: Client profile, contacts and current engagement handoffs (VP-008).
+// Historical tab rendering branches remain compatibility support; the visible tab list is current-only.
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { RouteKey, ClientContact, PbcRequestItem, CustomFieldDefinition } from '../../types';

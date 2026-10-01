@@ -167,7 +167,7 @@ export type LegacyRouteId =
   | 'm365-setup'
   | 'services';
 
-// Module 02: Clients & CRM
+// Historical schema grouping (migration compatibility): 02: Clients & CRM
 export interface ClientContactSnapshot {
   name: string;
   email: string;
@@ -310,7 +310,7 @@ export interface ClientAccountingProfile extends AccountingProfileSnapshot {
   history: Array<AccountingProfileSnapshot & { revision: number; chartRevision: number; savedAt: string; savedByUserId: string }>;
 }
 
-// Module 03: Leads & Opportunities
+// Historical schema grouping (migration compatibility): 03: Leads & Opportunities
 export interface LeadOpportunity {
   id: string;
   name: string;
@@ -337,7 +337,7 @@ export interface LeadOpportunity {
   terms: boolean;
 }
 
-// Module 04: Proposals & Services
+// Historical schema grouping (migration compatibility): 04: Proposals & Services
 export interface ProposalItem {
   id: string;
   serviceName: string;
@@ -489,7 +489,7 @@ export interface ProposalRecord {
   };
 }
 
-// Module 04 / Engagements
+// Historical schema grouping (migration compatibility): 04 / Engagements
 export interface GeneratedArtifactRecord {
   id: string;
   name: string;
@@ -756,7 +756,7 @@ export interface EngagementRecord {
   events: Array<{ text: string; ref: string; time: string; type: string }>;
 }
 
-// Module 05: Jobs & Tasks
+// Historical schema grouping (migration compatibility): 05: Jobs & Tasks
 export interface JobTaskItem {
   id: string;
   jobId: string;
@@ -795,7 +795,7 @@ export interface JobRecord {
   createdAt: string;
 }
 
-// Module 06: Job Templates
+// Historical schema grouping (migration compatibility): 06: Job Templates
 export interface JobTemplateItem {
   id: string;
   name: string;
@@ -814,7 +814,7 @@ export interface JobTemplateItem {
   }>;
 }
 
-// Module 07: Contextual Collaboration
+// Historical schema grouping (migration compatibility): 07: Contextual Collaboration
 export interface CommentItem {
   id: string;
   subjectType: 'client' | 'engagement' | 'job' | 'task';
@@ -839,7 +839,7 @@ export interface LocalNoticeItem {
   readAt?: string;
 }
 
-// Module 09: PBC
+// Historical schema grouping (migration compatibility): 09: PBC
 export interface PbcRequestItem {
   id: string;
   title: string;
@@ -889,7 +889,7 @@ export interface PbcRequestItem {
   };
 }
 
-// Module 10 & 18: Documents & SharePoint
+// Historical schema grouping (migration compatibility): 10 & 18: Documents & SharePoint
 export interface DocumentItem {
   mimeType?: string;
   id: string;
@@ -918,7 +918,7 @@ export interface DocumentItem {
   sharingHistory?: Array<{ from: 'Internal' | 'Client shared'; to: 'Internal' | 'Client shared'; by: string; byUserId: string; at: string; reason: string }>;
 }
 
-// Module 11: Communications
+// Historical schema grouping (migration compatibility): 11: Communications
 export interface CommunicationItem {
   id: string;
   clientId: string;
@@ -970,7 +970,7 @@ export interface EmailTemplateItem {
   placeholders: string[]; // e.g. ['{client_name}', '{request_title}', '{due_date}']
 }
 
-// Module 12: Time Tracking
+// Historical schema grouping (migration compatibility): 12: Time Tracking
 export interface TimeEntryItem {
   id: string;
   person: string;
@@ -1003,7 +1003,7 @@ export interface TimeEntryItem {
   billedInvoiceId?: string;
 }
 
-// Module 13: Budgets
+// Historical schema grouping (migration compatibility): 13: Budgets
 export interface BudgetRecord {
   id: string;
   engagementId: string;
@@ -1022,7 +1022,7 @@ export interface BudgetRecord {
   }>;
 }
 
-// Module 14: Billing & Invoicing
+// Historical schema grouping (migration compatibility): 14: Billing & Invoicing
 export interface InvoiceLineItem {
   id: string;
   description: string;
@@ -1103,7 +1103,7 @@ export interface CreditNoteRecord {
   issuedBy?: string;
 }
 
-// Module 15: Receivables & Offline Receipts
+// Historical schema grouping (migration compatibility): 15: Receivables & Offline Receipts
 export interface ReceiptRecord {
   id: string;
   clientId: string;
@@ -1127,7 +1127,7 @@ export interface ReceiptRecord {
   }>;
 }
 
-// Module 20-25: Accounting
+// Historical schema grouping (migration compatibility): 20-25: Accounting
 export interface TrialBalanceRow {
   code: string;
   name: string;
@@ -1262,7 +1262,7 @@ export interface ReconciliationSchedule {
   }>;
 }
 
-// Module 26: Consolidation
+// Historical schema grouping (migration compatibility): 26: Consolidation
 export interface ConsolidationPerimeterHistoryEntry {
   revision: number;
   changedBy: string;
@@ -1349,7 +1349,7 @@ export interface ConsolidationGroupRecord {
   outputPackages?: ConsolidationOutputPackage[];
 }
 
-// Module 27-36: Audit
+// Historical schema grouping (migration compatibility): 27-36: Audit
 export interface AuditRiskRevision {
   revision: number;
   title: string;
@@ -1705,7 +1705,7 @@ export interface M365SimulationConfig {
   liveConnected: false; // Must strictly always be false!
 }
 
-// Module 39: Firm Administration
+// Historical schema grouping (migration compatibility): 39: Firm Administration
 export interface FirmSettings {
   firmName: string;
   firmLegalName: string;

@@ -1,3 +1,4 @@
+import { runVisibleAlignmentJourney } from '../helpers/visibleAlignmentJourney';
 import { before, after, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn, type ChildProcess } from 'node:child_process';
@@ -95,6 +96,12 @@ after(async () => {
     }
   if (profile) rmSync(profile, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
 });
+it('US-FINAL-ALIGN-001 scenarios 1–3 use visible controls from lead through planning and fieldwork', {timeout:120000}, async()=> {
+ const {approvalFixture,...result}=await runVisibleAlignmentJourney(tab);
+ mkdirSync('tests/fixtures',{recursive:true});
+ await saveEvidence('tests/fixtures/current-partner-approval.json',JSON.stringify(approvalFixture,null,2));
+ await saveEvidence('docs/prototype/evidence/final-alignment-visible-journey.json',JSON.stringify(result,null,2));
+});
 it('visible Partner reporting flow retains signed LOR and releases the exact five-file bundle', async () => {
   const result=await tab.evaluate<any>(`import('/tests/helpers/targetJourney.ts').then(m=>m.runTargetJourney({stopBeforePartner:true}))`);
   await tab.evaluate(`(()=>{const f=document.querySelector('[data-target-form="partner-clearance"]');f.querySelector('[name="notes"]').value='Current SRM and audited evidence independently evaluated for final reporting.';f.requestSubmit()})()`);await sleep(150);
@@ -118,8 +125,14 @@ it('visible Partner reporting flow retains signed LOR and releases the exact fiv
   await tab.evaluate(`location.hash='portal'`);await sleep(150);
   await tab.evaluate(`Array.from(document.querySelectorAll('button')).find(b=>b.textContent.includes('4. Final Certified Deliverables')).click()`);await sleep(100);
   assert.equal(await tab.evaluate<number>(`document.querySelectorAll('[data-testid="client-release-set"]').length`),1);
+  assert.equal(await tab.evaluate<number>(`document.querySelectorAll('[data-testid="client-release-set"] button').length`),5);
+  await tab.evaluate(`window.__clientURL=URL.createObjectURL;URL.createObjectURL=function(blob){window.__clientArtifact=blob;return window.__clientURL.call(URL,blob)};document.querySelector('[data-testid="client-release-set"] button').click()`);
+  for(let n=0;n<100;n++){if(await tab.evaluate<boolean>(`!!window.__clientArtifact?.size`))break;await sleep(50);}
+  assert.equal(await tab.evaluate<boolean>(`window.__clientArtifact?.size>0`),true,'client downloads genuine released artifact bytes');
+  await tab.evaluate(`URL.createObjectURL=window.__clientURL`);
   await tab.evaluate(`import('/src/store/prototypeStore.ts').then(({prototypeStore:s})=>s.setPersona('records'))`);
   await tab.evaluate(`location.hash='records'`);await sleep(150);
+  assert.equal(await tab.evaluate<boolean>(`document.querySelector('main').innerText.includes('Counting Down') && document.querySelector('main').innerText.includes('Days remaining')`),true);
   await tab.evaluate(`document.querySelector('[data-target-form="freeze"]').requestSubmit()`);
   const archiveInspect=`import('/src/store/prototypeStore.ts').then(({prototypeStore:s})=>{const e=s.getSnapshot().engagements.find(e=>e.id===${JSON.stringify(result.engagementId)});return {archive:e.archive,control:e.auditLifecycle.archiveControl}})`;
   let sealed:any;
@@ -495,3 +508,28 @@ it('F22 renders all detailed notes equally in React and the standalone presentat
   await tab.command('Page.navigate',{url:origin+'/#overview'});await sleep(300);
   assert.deepEqual(tab.exceptions,[]);
 },{timeout:15000});
+
+it('final alignment preserves mobile keyboard containment, route focus and modal focus restoration', async()=>{
+  await tab.evaluate(`import('/src/store/prototypeStore.ts').then(({prototypeStore:s})=>{s.setPersona('manager');location.hash='engagements'})`);
+  await sleep(200);
+  await tab.command('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:false});
+  const key=async(key:string,code:string,vk:number,modifiers=0)=>{await tab.command('Input.dispatchKeyEvent',{type:'keyDown',key,code,windowsVirtualKeyCode:vk,modifiers});await tab.command('Input.dispatchKeyEvent',{type:'keyUp',key,code,windowsVirtualKeyCode:vk,modifiers});};
+  await tab.evaluate(`document.querySelector('[aria-label="Open navigation"]').click()`); await sleep(100);
+  const targets=`Array.from(document.querySelector('#primary-sidebar').querySelectorAll('a[href],button:not([disabled]),select:not([disabled]),input:not([disabled]),[tabindex]:not([tabindex="-1"])')).filter(e=>e.getClientRects().length>0&&!e.closest('[hidden],[inert]'))`;
+  assert.equal(await tab.evaluate<boolean>(`document.querySelector('#primary-sidebar').contains(document.activeElement)`),true);
+  await tab.evaluate(`${targets}.at(-1).focus()`); await key('Tab','Tab',9);
+  assert.equal(await tab.evaluate<boolean>(`document.activeElement===${targets}[0]`),true,await tab.evaluate<string>(`JSON.stringify({active:document.activeElement.outerHTML,first:${targets}[0].outerHTML,last:${targets}.at(-1).outerHTML})`));
+  await key('Tab','Tab',9,8);
+  assert.equal(await tab.evaluate<boolean>(`document.activeElement===${targets}.at(-1)`),true);
+  await key('Escape','Escape',27); await sleep(100);
+  assert.equal(await tab.evaluate<boolean>(`document.activeElement===document.querySelector('[aria-label="Open navigation"]')`),true);
+  await tab.evaluate(`location.hash='overview'`); await sleep(150);
+  assert.equal(await tab.evaluate<string>('document.activeElement.id'),'main');
+  await tab.command('Emulation.setDeviceMetricsOverride',{width:1440,height:1000,deviceScaleFactor:1,mobile:false});
+  await tab.evaluate(`location.hash='engagements'`); await sleep(150);
+  await tab.evaluate(`const trigger=Array.from(document.querySelectorAll('button')).find(b=>b.textContent.trim()==='New Engagement');trigger.focus();trigger.click()`); await sleep(150);
+  assert.equal(await tab.evaluate<boolean>(`document.querySelector('.modal').contains(document.activeElement)`),true);
+  await key('Escape','Escape',27); await sleep(150);
+  assert.equal(await tab.evaluate<boolean>(`!document.querySelector('.modal') && document.activeElement.textContent.trim()==='New Engagement'`),true);
+  assert.deepEqual(tab.exceptions,[]);
+});

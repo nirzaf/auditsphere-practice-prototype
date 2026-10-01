@@ -1,4 +1,4 @@
-// Module 28: Audit Planning & Materiality (VP-048)
+// Module 2: Audit Planning & Materiality (VP-048)
 // ISA 320 quantitative materiality thresholds, versioned audit plan persistence,
 // team section allocations, timing milestones, and independent plan review.
 

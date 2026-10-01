@@ -1,4 +1,4 @@
-// Module 03: Leads & Opportunities Pipeline (VP-009)
+// Module 1: Leads and opportunities (VP-009)
 import React, { useEffect, useRef, useState } from 'react';
 import { ActivityTimeline } from '../common/ActivityTimeline';
 import { RouteKey, LeadOpportunity } from '../../types';

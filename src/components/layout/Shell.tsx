@@ -31,6 +31,12 @@ export const Shell: React.FC<ShellProps> = ({ currentRoute, onRouteChange, onSel
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const mobileMenuTrigger = useRef<HTMLButtonElement>(null);
   const mobileNavigation = useRef<HTMLElement>(null);
+  const previousRoute = useRef(currentRoute);
+  useEffect(() => {
+    if (previousRoute.current === currentRoute) return;
+    previousRoute.current = currentRoute;
+    document.getElementById('main')?.focus();
+  }, [currentRoute]);
   const searchTrigger = useRef<HTMLButtonElement>(null);
   const searchInput = useRef<HTMLInputElement>(null);
   const searchOpener = useRef<HTMLElement | null>(null);
@@ -53,7 +59,8 @@ export const Shell: React.FC<ShellProps> = ({ currentRoute, onRouteChange, onSel
   useEffect(() => {
     if (!mobileMenuOpen) return;
     const drawer = mobileNavigation.current;
-    const focusable = () => Array.from(drawer?.querySelectorAll<HTMLElement>('a[href], button:not([disabled]), select:not([disabled]), input:not([disabled]), [tabindex]:not([tabindex="-1"])') ?? []);
+    const focusable = () => Array.from(drawer?.querySelectorAll<HTMLElement>('a[href], button:not([disabled]), select:not([disabled]), input:not([disabled]), [tabindex]:not([tabindex="-1"])') ?? [])
+      .filter(element => element.getClientRects().length > 0 && !element.closest('[hidden], [inert]'));
     window.requestAnimationFrame(() => focusable()[0]?.focus());
     const onKeyDown = (event: KeyboardEvent) => {
       if (!window.matchMedia?.('(max-width: 959px)').matches) return;

@@ -1,4 +1,4 @@
-// Module 34: Audit Findings & Misstatements Register (VP-054)
+// Module 3: Audit findings and differences (VP-054)
 import React, { useEffect, useRef, useState } from 'react';
 import { RouteKey, AuditFindingItem } from '../../types';
 import { prototypeStore } from '../../store/prototypeStore';

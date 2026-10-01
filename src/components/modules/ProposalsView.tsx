@@ -1,4 +1,4 @@
-// Module 04: Proposals, Terms & Commercial Review (VP-010, VP-011)
+// Module 1: Proposals, terms and commercial review (VP-010, VP-011)
 import React, { useEffect, useRef, useState } from 'react';
 import { RouteKey, ProposalContentTemplate, ProposalItem, ProposalRecord, ProposalServiceDefinition } from '../../types';
 import { prototypeStore } from '../../store/prototypeStore';

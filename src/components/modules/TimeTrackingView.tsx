@@ -1,4 +1,4 @@
-// Module 12: Staff Time Tracking & Review (VP-028)
+// Module 5: Staff time tracking and review (VP-028)
 import React, { useEffect, useRef, useState } from 'react';
 import { RouteKey, TimeEntryItem } from '../../types';
 import { prototypeStore } from '../../store/prototypeStore';

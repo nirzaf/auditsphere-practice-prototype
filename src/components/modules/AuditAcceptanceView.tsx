@@ -1,4 +1,4 @@
-// Module 27: Acceptance, Continuance & KYC Questionnaire (VP-047)
+// Module 2: Acceptance, Continuance & KYC Questionnaire (VP-047)
 // Engagement onboarding, independence evaluation, conditions management, partner sign-off, and persisted acceptance cases.
 
 import React, { useEffect, useRef, useState } from 'react';

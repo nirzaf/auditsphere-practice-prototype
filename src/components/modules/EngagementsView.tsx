@@ -1,4 +1,4 @@
-// Module 04: Engagements Workspace & Lifecycle Handoff (VP-012)
+// Module 1: Engagement register and lifecycle handoff (VP-012)
 import React, { useEffect, useRef, useState } from 'react';
 import { RouteKey, EngagementRecord } from '../../types';
 import { prototypeStore } from '../../store/prototypeStore';
@@ -137,8 +137,6 @@ export const EngagementsView: React.FC<EngagementsViewProps> = ({ onNavigate, on
     ? 3
     : 2;
 
-  if (!scopedEngagements.length) return <div className="panel"><EmptyState variant="scope" title="No engagement access" description="No engagements are available under the active scope grant." /></div>;
-
   const commitNewEngagement = (): boolean => {
     const proposal = state.proposals.find(item => item.id === proposalId);
     setModalError('');
@@ -202,6 +200,8 @@ export const EngagementsView: React.FC<EngagementsViewProps> = ({ onNavigate, on
           <Icon name="plus" /> New Engagement
         </button> : <ActionReason>New engagements are created by a manager or partner</ActionReason>}
       </div>
+
+      {!scopedEngagements.length && <div className="panel"><EmptyState variant="scope" title="No engagements recorded in this scope" description="A manager or partner can create the first engagement from an accepted proposal for a permitted client." /></div>}
 
       {actionError && <Notice tone="error" onDismiss={() => setActionError('')}>{actionError}</Notice>}
 

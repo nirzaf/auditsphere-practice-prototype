@@ -1,4 +1,4 @@
-// Modules 29 & 30: Audit Risk Register & Fieldwork Audit Programs (VP-049, VP-050)
+// Module 3: Audit risks and substantive fieldwork programs (VP-049, VP-050)
 import React, { useEffect, useState } from 'react';
 import { RouteKey, AuditProcedureItem, AuditProgramTemplate, AuditRiskItem } from '../../types';
 import { prototypeStore } from '../../store/prototypeStore';

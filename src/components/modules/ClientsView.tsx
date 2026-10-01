@@ -1,4 +1,4 @@
-// Module 02: Client Portfolio & CRM (VP-006, VP-007, VP-008)
+// Module 1: Client portfolio and contacts (VP-006, VP-007, VP-008)
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { ClientRecord, RouteKey } from '../../types';
 import { prototypeStore } from '../../store/prototypeStore';

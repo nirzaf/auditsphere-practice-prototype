@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { targetFixture } from '../helpers/targetFixture';
-import { currentPartnerOpinion, partnerReportingBasis } from '../../src/services/targetLifecycle';
+import { currentPartnerOpinion, partnerReportingBasis, computeSystemState, currentReview } from '../../src/services/targetLifecycle';
 import { REQUIRED_CONFIRMATION_TYPES } from '../../src/types/targetLifecycle';
 import { TargetLifecycleCommands } from '../../src/store/targetLifecycleCommands';
 import { prototypeStore } from '../../src/store/prototypeStore';
@@ -12,7 +12,7 @@ import { act, acceptance } from '../helpers/targetFixture';
 import { CURRENT_ROUTE_CATALOG } from '../../src/services/routeCatalog';
 import { RETIRED_ROUTE_REDIRECTS, resolveRouteHash } from '../../src/services/legacyRoutes';
 import { DECK_SLIDES } from '../../src/components/clientRequirements/deckData';
-import type { CurrentRouteKey, LegacyRouteId } from '../../src/types';
+import type { CurrentRouteKey, LegacyRouteId, PrototypeState } from '../../src/types';
 
 async function activatedFixture() {
   const state=targetFixture(),engagement=state.engagements[0];(prototypeStore as any).state=state;
@@ -122,7 +122,7 @@ it('F old bookmarks still resolve through the retained redirect map', () => {
 it('H prohibited historical labels never appear in active navigation sources (§17)', () => {
   const prohibited = [
     /39 modules/i, /Accounting Workbench/, /Group Consolidation/, /M365 Setup/, /Microsoft 365 Setup/,
-    /Firm Administration/, /Jobs & Tasks/, /Job Templates/, /Approvals Centre/
+    /Firm Administration/, /\bEQR\b/, /Jobs & Tasks/, /Job Templates/, /Approvals Centre/
   ];
   const navSources = [
     join(process.cwd(), 'src/components/layout/Shell.tsx'),
@@ -148,4 +148,49 @@ it('J the requirements presentation covers the eleven states, four opinions and 
   ]) assert.ok(deck.includes(state), `the presentation must present ${state}`);
   for (const opinion of ['Unmodified', 'Qualified', 'Adverse', 'Disclaimer']) assert.ok(deck.includes(opinion), `the presentation must present the ${opinion} opinion`);
   for (const confirmation of [...REQUIRED_CONFIRMATION_TYPES]) assert.ok(deck.includes(confirmation), `the presentation must present the ${confirmation} confirmation type`);
+});
+
+// Metadata fixture captured after the visible empty-demo → SRM journey. Original bytes are
+// verified in Chrome, not fabricated in unit tests. These cases exercise the actual state gate.
+function clearedPartnerFixture() {
+  const state: PrototypeState = JSON.parse(readFileSync(join(process.cwd(),'tests/fixtures/current-partner-approval.json'),'utf8'));
+  const engagement = state.engagements.find(e=>e.id===state.selectedEngagement)!;
+  const commands = new TargetLifecycleCommands(()=>state,()=>{},async id=>({id,name:`${id}.pdf`,kind:'PDF',mimeType:'application/pdf',size:3,sha256:'a'.repeat(64)}));
+  act(state,'partner');
+  assert.equal(currentReview(state,engagement).manager,true);
+  assert.equal(currentReview(state,engagement).srm,true);
+  commands.clearPartner(engagement.id,'Assigned Partner independently reviewed the current SRM and Red-risk fieldwork.');
+  assert.equal(currentReview(state,engagement).partner,true);
+  return {state,engagement,commands};
+}
+it('A6-01 current Partner clearance without an opinion stays PARTNER_APPROVAL',()=>{
+  const {state,engagement}=clearedPartnerFixture();
+  assert.equal(computeSystemState(state,engagement).state,'PARTNER_APPROVAL');
+});
+it('A6-02 current clean opinion advances to DELIVERABLE_RELEASE',()=>{
+  const {state,engagement,commands}=clearedPartnerFixture(); commands.selectOpinion(engagement.id,'Clean','','');
+  assert.equal(computeSystemState(state,engagement).state,'DELIVERABLE_RELEASE');
+});
+it('A6-03 a new SRM keeps the old opinion historical and requires fresh Partner approval',async()=>{
+  const {state,engagement,commands}=clearedPartnerFixture(); commands.selectOpinion(engagement.id,'Clean','','');
+  const opinion=structuredClone(engagement.auditLifecycle!.opinions[0]);
+  act(state,'manager'); await commands.generateSRM(engagement.id,'Fresh Manager SRM recommendation based on current evidence and reviewed fieldwork.');
+  act(state,'partner'); commands.clearPartner(engagement.id,'Assigned Partner independently evaluated the new current SRM reporting basis.');
+  assert.deepEqual(engagement.auditLifecycle!.opinions[0],opinion);
+  assert.equal(computeSystemState(state,engagement).state,'PARTNER_APPROVAL');
+});
+it('A6-04 Qualified without an affected FSLI cannot advance',()=>{
+  const {state,engagement,commands}=clearedPartnerFixture();
+  assert.throws(()=>commands.selectOpinion(engagement.id,'Qualified','','A material current evidence limitation affects reporting.'),/FSLI|focus area/);
+  assert.equal(computeSystemState(state,engagement).state,'PARTNER_APPROVAL');
+});
+it('A6-05 Qualified with missing or short rationale cannot advance',()=>{
+  const {state,engagement,commands}=clearedPartnerFixture();
+  for(const basis of ['', 'short'])assert.throws(()=>commands.selectOpinion(engagement.id,'Qualified','Revenue',basis),/basis|rationale/);
+  assert.equal(computeSystemState(state,engagement).state,'PARTNER_APPROVAL');
+});
+it('A6-06 current assigned-Partner Qualified opinion with mapped FSLI and rationale advances',()=>{
+  const {state,engagement,commands}=clearedPartnerFixture();
+  commands.selectOpinion(engagement.id,'Qualified','Revenue','Current revenue evidence is incomplete for a material amount in the mapped reporting basis.');
+  assert.equal(computeSystemState(state,engagement).state,'DELIVERABLE_RELEASE');
 });
