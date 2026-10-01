@@ -6,7 +6,7 @@ import { aggregateWorkflowSteps, computeModuleWorkflowProgress, isEngagementRele
 import type { WorkflowStep } from '../../src/services/workflowProgress.js';
 import { evaluateReleaseReadiness } from '../../src/services/releaseReadiness.js';
 import { archiveForRelease, releaseForPackage } from '../../src/services/packageLineage.js';
-import { ROUTE_CATALOG } from '../../src/services/routeCatalog.js';
+import { ROUTE_CATALOG } from '../../src/services/legacyRouteCatalog.js';
 import { resolveRouteHash } from '../../src/services/legacyRoutes.js';
 import type { FinancialPackageRevision, GeneratedArtifactRecord, PrototypeState, RouteKey } from '../../src/types/index.js';
 

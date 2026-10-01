@@ -18,7 +18,7 @@ import { consolidationOutputFingerprint } from './consolidationOutput';
 import { isSampleFrameReconciled } from './samplingReadiness';
 import { evaluateReleaseReadiness } from './releaseReadiness';
 import { archiveForRelease, releaseForPackage } from './packageLineage';
-import { ROUTE_CATALOG } from './routeCatalog';
+import { ROUTE_CATALOG } from './legacyRouteCatalog';
 
 export type ProgressStepState = 'completed' | 'current' | 'pending' | 'blocked' | 'returned' | 'stale' | 'skipped' | 'na';
 export type ProgressApplicability = 'workflow' | 'summary' | 'reference' | 'unavailable';

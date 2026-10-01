@@ -1,3 +1,4 @@
+import { routeCode } from '../../src/services/routeCatalog.js';
 // Enterprise UX layer contracts: shared status semantics, lifecycle definitions grounded in
 // real store commands, route catalogue coverage and deterministic scoped work queues.
 import { describe, it, beforeEach } from 'node:test';
@@ -10,7 +11,7 @@ import { prototypeStore } from '../../src/store/prototypeStore.js';
 import { loadScenarioState } from '../../src/store/scenarios.js';
 import { statusKind, statusSemantic, isTerminalStatus } from '../../src/services/statusSemantics.js';
 import { LIFECYCLES, lifecycleById, projectLifecycle } from '../../src/services/lifecycles.js';
-import { ROUTE_CATALOG, routeCode } from '../../src/services/routeCatalog.js';
+import { ROUTE_CATALOG } from '../../src/services/legacyRouteCatalog.js';
 import { buildWorkQueues, readyForReleaseEngagements } from '../../src/services/workQueues.js';
 import { isSamePerson, requireIndependentActor, scopedInvoices } from '../../src/services/guards.js';
 import type { PrototypeState } from '../../src/types/index.js';

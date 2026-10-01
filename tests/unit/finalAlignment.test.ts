@@ -1,3 +1,4 @@
+import { ROUTE_CATALOG } from '../../src/services/legacyRouteCatalog';
 import { it } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -8,7 +9,7 @@ import { REQUIRED_CONFIRMATION_TYPES } from '../../src/types/targetLifecycle';
 import { TargetLifecycleCommands } from '../../src/store/targetLifecycleCommands';
 import { prototypeStore } from '../../src/store/prototypeStore';
 import { act, acceptance } from '../helpers/targetFixture';
-import { CURRENT_ROUTE_CATALOG, ROUTE_CATALOG } from '../../src/services/routeCatalog';
+import { CURRENT_ROUTE_CATALOG } from '../../src/services/routeCatalog';
 import { RETIRED_ROUTE_REDIRECTS, resolveRouteHash } from '../../src/services/legacyRoutes';
 import { DECK_SLIDES } from '../../src/components/clientRequirements/deckData';
 import type { CurrentRouteKey, LegacyRouteId } from '../../src/types';
