@@ -1,4 +1,4 @@
-// Module 12: Staff Time Tracking & Review (VP-028)
+// Module 5: Staff time tracking and review (VP-028)
 import React, { useEffect, useRef, useState } from 'react';
 import { RouteKey, TimeEntryItem } from '../../types';
 import { prototypeStore } from '../../store/prototypeStore';
@@ -53,7 +53,7 @@ export const TimeTrackingView: React.FC<TimeTrackingViewProps> = ({ onNavigate, 
       } else {
         const engObj = state.engagements.find(e => e.id === selectedEngId);
         const newEntry: TimeEntryItem = {
-          id: `TIME-00${times.length + 1}`,
+          id: `TIME-${crypto.randomUUID()}`,
           person,
           clientId: engObj?.client || 'CL-001',
           engagementId: selectedEngId,
@@ -62,6 +62,8 @@ export const TimeTrackingView: React.FC<TimeTrackingViewProps> = ({ onNavigate, 
           durationMinutes: minutes,
           billable,
           activity,
+          fsli,
+          auditPhase: /planning/i.test(activity) ? 'Planning' : /review/i.test(activity) ? 'Review' : /report/i.test(activity) ? 'Reporting' : 'Fieldwork',
           narrative: narrative ? `[FSLI: ${fsli}] ${narrative}` : `[FSLI: ${fsli}]`,
           status: 'Submitted'
         };
@@ -334,6 +336,8 @@ export const TimeTrackingView: React.FC<TimeTrackingViewProps> = ({ onNavigate, 
                       onChange={e => setActivity(e.target.value)}
                     >
                       <option value="Audit fieldwork">Audit fieldwork</option>
+                       <option value="Audit planning">Audit planning</option>
+                       <option value="Audit reporting">Audit reporting</option>
                       <option value="Quality review">Quality review</option>
                       <option value="Management">Management & Supervision</option>
                       <option value="Client liaison">Client liaison</option>

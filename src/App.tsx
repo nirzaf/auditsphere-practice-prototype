@@ -25,40 +25,34 @@ import { prototypeStore } from './store/prototypeStore';
 import { canOpenRoute, isClientRole, hasSelectedEngagementScope } from './services/guards';
 import { Shell } from './components/layout/Shell';
 
-// Practice & CRM Modules
+// Module 1 — Commercial & CRM
 import { ClientsView } from './components/modules/ClientsView';
 import { ClientDetailView } from './components/modules/ClientDetailView';
 import { LeadsPipelineView } from './components/modules/LeadsPipelineView';
 import { ProposalsView } from './components/modules/ProposalsView';
 import { EngagementsView } from './components/modules/EngagementsView';
 
-// Work & Collaboration Modules
 
-// Economics & Billing Modules
 
-// Accounting Workbench & Reporting
 
-// Audit & Assurance Modules
+
+
+
+// Modules 2–4 — Governance, Fieldwork & Reporting
 import { AuditAcceptanceView } from './components/modules/AuditAcceptanceView';
 import { AuditPlanningView } from './components/modules/AuditPlanningView';
-import { AuditRisksProgramsView } from './components/modules/AuditRisksProgramsView';
 import { EvidenceCatalogueView } from './components/modules/EvidenceCatalogueView';
 import { FindingsView } from './components/modules/FindingsView';
 
-// Client Services, Admin & Specifications
+// Module 5 & reference views
 import { TimeTrackingView } from './components/modules/TimeTrackingView';
-import { AdministrationView } from './components/modules/AdministrationView';
-import { M365SetupView } from './components/modules/M365SetupView';
 import { UnsavedFormGuard } from './services/unsavedFormGuard';
 import { resolveRouteHash, canonicalRoute } from './services/legacyRoutes';
 
 const ENGAGEMENT_CONTEXT_ROUTES = new Set<string>([
-  'onboarding', 'audit-acceptance', 'jobs', 'job-templates', 'documents', 'communications',
-  'my-time', 'time-tracking', 'budgets', 'billing', 'receivables', 'accounting-setup',
-  'trial-balance', 'gl-transactions', 'account-mappings', 'adjustments', 'reconciliations',
-  'financial-statements', 'financial-packages', 'audit-planning', 'audit-risks',
-  'audit-fieldwork', 'sampling', 'audit', 'evidence', 'findings', 'reviews', 'approvals',
-  'quality', 'delivery', 'records', 'm365-setup', 'scheduling', 'confirmations'
+  'onboarding', 'documents', 'my-time', 'billing', 'trial-balance',
+  'financial-statements', 'audit-planning', 'audit-risks', 'audit-fieldwork',
+  'sampling', 'evidence', 'findings', 'reviews', 'delivery', 'records', 'scheduling', 'confirmations'
 ]);
 
 const ACTIVE_DIALOG_GUARD = '__active-dialog__';
@@ -70,7 +64,6 @@ export const App: React.FC = () => {
   const [searchTargetId, setSearchTargetId] = useState<string | undefined>();
   const [workflowSelection, setWorkflowSelection] = useState<WorkflowSelection | null>(null);
   const [, setTick] = useState(0);
-  const [guideOrigin, setGuideOrigin] = useState<RouteKey>('overview');
   const unsavedForms = useRef<Map<string, UnsavedFormGuard>>(new Map());
   const acceptedRouteHash = useRef(`#${resolveRouteHash(window.location.hash)?.route || 'overview'}`);
   const [pendingTransition, setPendingTransition] = useState<{ run: () => void; label: string } | null>(null);
@@ -88,7 +81,6 @@ export const App: React.FC = () => {
       ? previous
       : { route, context });
   }, []);
-  const reportJobsWorkflowContext = useCallback((context: WorkflowSelection['context']) => reportWorkflowSelection('jobs', context), [reportWorkflowSelection]);
   const reportSamplingWorkflowContext = useCallback((context: WorkflowSelection['context']) => reportWorkflowSelection('sampling', context), [reportWorkflowSelection]);
   const requestContextChange = useCallback((run: () => void) => {
     const dirtyGuards = () => [...unsavedForms.current.values()].filter(guard => guard.isDirty());
@@ -158,7 +150,7 @@ export const App: React.FC = () => {
       // the route policy.
       if (event && !resolved.redirected && `#${resolved.route}` === acceptedRouteHash.current) return;
       requestContextChange(() => {
-        const snapshot = prototypeStore.getSnapshot();
+        const snapshot = prototypeStore.getReadSnapshot();
         const active = snapshot.users.find(user => user.id === snapshot.currentUserId)?.status === 'Active';
         const allowedRoute = canOpenRoute(snapshot.currentRole, resolved.route, active)
           ? resolved.route
@@ -362,14 +354,13 @@ export const App: React.FC = () => {
     };
   }, []);
 
-  const state = prototypeStore.getSnapshot();
+  const state = prototypeStore.getReadSnapshot();
   const isClient = isClientRole(state.currentRole);
   const activeIdentity = state.users.find(user => user.id === state.currentUserId)?.status === 'Active';
   const navigate = (route: RouteKey, targetId?: string) => {
     route = canonicalRoute(route);
-    if (route === 'module-guide' && effectiveRoute !== 'module-guide') setGuideOrigin(effectiveRoute);
     requestContextChange(() => {
-      const current = prototypeStore.getSnapshot();
+      const current = prototypeStore.getReadSnapshot();
       const active = current.users.find(user => user.id === current.currentUserId)?.status === 'Active';
       setSearchTargetId(targetId);
       setWorkflowSelection(null);
@@ -381,7 +372,7 @@ export const App: React.FC = () => {
   };
   const navigateToPbcRequest = (clientId: string, requestId: string) => {
     requestContextChange(() => {
-      const current = prototypeStore.getSnapshot();
+      const current = prototypeStore.getReadSnapshot();
       const active = current.users.find(user => user.id === current.currentUserId)?.status === 'Active';
       const route: RouteKey = canOpenRoute(current.currentRole, 'client-detail', active) ? 'client-detail' : active && isClientRole(current.currentRole) ? 'portal' : 'overview';
       setSelectedClientId(clientId);
@@ -412,7 +403,7 @@ export const App: React.FC = () => {
       </div>;
     }
     switch (effectiveRoute) {
-      // Practice & CRM
+      // Module 1 — Commercial & CRM
       case 'overview':
         return <LifecycleOverviewView onNavigate={navigate} />;
       case 'clients':
@@ -450,15 +441,15 @@ export const App: React.FC = () => {
       case 'audit-acceptance' as any:
         return <AuditAcceptanceView key={state.selectedEngagement} onNavigate={navigate} onRegisterUnsavedForm={registerUnsavedForm} />;
 
-      // Work & Collaboration
+      // Module 2 — Governance & Planning
       case 'documents':
         return <PbcWorkspaceView onNavigate={navigate} onRegisterUnsavedForm={registerUnsavedForm} />;
 
-      // Economics & Billing
+      // Module 1 — Commercial & CRM
       case 'billing':
         return <EngagementBillingView onNavigate={navigate} onRegisterUnsavedForm={registerUnsavedForm} />;
 
-      // Accounting Workbench
+      // Modules 2–3 — Planning, Scheduling & Fieldwork
       case 'trial-balance':
         return <TrialBalanceView onNavigate={navigate} onRegisterUnsavedForm={registerUnsavedForm} />;
       case 'my-time':
@@ -470,7 +461,7 @@ export const App: React.FC = () => {
       case 'financial-statements':
         return <AuditFinancialView onNavigate={navigate} onRegisterUnsavedForm={registerUnsavedForm} />;
 
-      // Audit & Assurance
+      // Modules 2–4 — Planning, Fieldwork & Reporting
       case 'audit-planning':
         return <AuditPlanningView key={state.selectedEngagement} onNavigate={navigate} onRegisterUnsavedForm={registerUnsavedForm} />;
       case 'audit-risks':
@@ -484,28 +475,18 @@ export const App: React.FC = () => {
         return <FindingsView key={`${state.selectedEngagement}:${searchTargetId || ''}`} searchTargetId={searchTargetId} onNavigate={navigate} onRegisterUnsavedForm={registerUnsavedForm} onBeforeContextChange={requestContextChange} />;
       case 'reviews':
         return <ReviewSRMView onNavigate={navigate} onRegisterUnsavedForm={registerUnsavedForm} />;
-      case 'approvals':
-      case 'quality':
-        return <ReviewSRMView onNavigate={navigate} onRegisterUnsavedForm={registerUnsavedForm} />;
       case 'delivery':
         return <OpinionDeliverablesView onNavigate={navigate} onRegisterUnsavedForm={registerUnsavedForm} />;
       case 'records':
         return <FreezeArchiveView onNavigate={navigate} onRegisterUnsavedForm={registerUnsavedForm} />;
 
-      // Client Services & Admin
+      // Client Portal, Module 5 & Reference
       case 'portal':
-      case 'client-portal' as any:
         return <PbcWorkspaceView client onNavigate={navigate} onRegisterUnsavedForm={registerUnsavedForm} />;
       case 'practice-ledger':
         return <PracticeView ledger onNavigate={navigate} onRegisterUnsavedForm={registerUnsavedForm} />;
       case 'reports':
-      case 'reporting-centre' as any:
         return <PracticeView onNavigate={navigate} onRegisterUnsavedForm={registerUnsavedForm} />;
-      case 'administration':
-      case 'services':
-        return <AdministrationView onNavigate={navigate} onRegisterUnsavedForm={registerUnsavedForm} onBeforeContextChange={requestContextChange} />;
-      case 'm365-setup':
-        return <M365SetupView onNavigate={navigate} onRegisterUnsavedForm={registerUnsavedForm} onBeforeContextChange={requestContextChange} />;
       case 'requirements':
       case 'role-guide':
         return <TargetScopeView onNavigate={navigate} />;

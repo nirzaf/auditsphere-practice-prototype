@@ -5,7 +5,7 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { LIFECYCLES, lifecycleById } from '../src/services/lifecycles.js';
-import { MODULE_GUIDES } from '../src/services/moduleGuideContent.js';
+import { MODULE_GUIDES } from '../historical/moduleGuideContent.js';
 import { canOpenRoute } from '../src/services/guards.js';
 import type { RoleKey, RouteKey } from '../src/types/index.js';
 

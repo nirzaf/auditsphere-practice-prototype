@@ -1,0 +1,7 @@
+{
+  "partialPayment": 250,
+  "reversed": true,
+  "settled": 500,
+  "issuedObligations": 1,
+  "method": "Visible final-fee payment and reversal forms; synthetic offline receipts."
+}

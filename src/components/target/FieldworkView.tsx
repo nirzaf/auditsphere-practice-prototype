@@ -5,7 +5,7 @@ import { prototypeStore } from '../../store/prototypeStore';
 import { ActionButton, Field, TargetForm, value, type TargetViewProps } from './TargetCommon';
 import { AuditRisksProgramsView } from '../modules/AuditRisksProgramsView';
 export function FieldworkView(props: TargetViewProps & { programId?: string }) {
-  const state = prototypeStore.getSnapshot(),
+  const state = prototypeStore.getReadSnapshot(),
     eng = state.engagements.find((e) => e.id === state.selectedEngagement);
   if (!eng) return null;
   const programs = state.auditPrograms.filter((p) => p.engagementId === eng.id);

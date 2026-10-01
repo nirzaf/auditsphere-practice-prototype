@@ -6,7 +6,7 @@ import { aggregateWorkflowSteps, computeModuleWorkflowProgress, isEngagementRele
 import type { WorkflowStep } from '../../src/services/workflowProgress.js';
 import { evaluateReleaseReadiness } from '../../src/services/releaseReadiness.js';
 import { archiveForRelease, releaseForPackage } from '../../src/services/packageLineage.js';
-import { ROUTE_CATALOG } from '../../src/services/routeCatalog.js';
+import { ROUTE_CATALOG } from '../../src/services/legacyRouteCatalog.js';
 import { resolveRouteHash } from '../../src/services/legacyRoutes.js';
 import type { FinancialPackageRevision, GeneratedArtifactRecord, PrototypeState, RouteKey } from '../../src/types/index.js';
 
@@ -77,9 +77,11 @@ describe('workflow progress contracts', () => {
       assert.ok(progress.nextAction.trim() && progress.whoActsNext.trim(), `${route} states an action and eligible role`);
     }
 
+    // Retired routes carry redirect-only metadata (LEGACY), current routes keep their
+    // five-module identity — historical modules must not present as current scope.
     assert.deepEqual(
       ['accounting-setup', 'trial-balance', 'gl-transactions', 'account-mappings', 'adjustments', 'reconciliations', 'financial-statements', 'financial-packages', 'consolidation'].map(route => ROUTE_CATALOG[route as RouteKey].moduleId),
-      ['MOD-20', 'MOD-21', 'MOD-21', 'MOD-20', 'MOD-22', 'MOD-23', 'MOD-24', 'MOD-25', 'MOD-26']
+      ['LEGACY', 'M2-TB', 'LEGACY', 'LEGACY', 'LEGACY', 'LEGACY', 'M3-FS', 'LEGACY', 'LEGACY']
     );
     assert.deepEqual(resolveRouteHash('#packages'), { route: 'delivery', redirected: true });
     assert.deepEqual(resolveRouteHash('#time-tracking'), { route: 'my-time', redirected: true });

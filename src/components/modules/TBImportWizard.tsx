@@ -9,6 +9,7 @@ import * as XLSX from 'xlsx';
 import { TrialBalanceRow } from '../../types';
 import { prototypeStore } from '../../store/prototypeStore';
 import { UnsavedFormGuard } from '../../services/unsavedFormGuard';
+import { captureSourceOriginal } from '../../services/artifactStore';
 
 export const TB_ROW_LIMIT = 2000;
 export const TB_FILE_BYTES_LIMIT = 2 * 1024 * 1024;
@@ -249,10 +250,12 @@ export const TBImportWizard: React.FC<TBImportWizardProps> = ({ engagementId, on
     const digest = await crypto.subtle.digest('SHA-256', bytes);
     const sha256 = Array.from(new Uint8Array(digest), b => b.toString(16).padStart(2, '0')).join('');
     const importRows = currentEngagement?.auditLifecycle ? prototypeStore.lifecycle.importMappedTB.bind(prototypeStore.lifecycle) : prototypeStore.updateTrialBalanceRows.bind(prototypeStore);
+    const originalArtifact = currentEngagement?.auditLifecycle ? await captureSourceOriginal(fileName, bytes, format === 'XLSX' ? 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' : 'text/csv') : undefined;
     importRows(engagementId, preview, {
       fileName,
       format: format || 'CSV',
       sha256,
+      originalArtifact,
       mapping: { ...mapping, convention }
     });
     setPreview(null);

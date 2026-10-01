@@ -1,4 +1,4 @@
-// Module 27: Acceptance, Continuance & KYC Questionnaire (VP-047)
+// Module 2: Acceptance, Continuance & KYC Questionnaire (VP-047)
 // Engagement onboarding, independence evaluation, conditions management, partner sign-off, and persisted acceptance cases.
 
 import React, { useEffect, useRef, useState } from 'react';
@@ -399,7 +399,7 @@ export const AuditAcceptanceView: React.FC<AuditAcceptanceViewProps> = ({ onNavi
             >
               <option value="Low">Low Risk — Standard Mandate Controls</option>
               <option value="Medium">Medium Risk — Enhanced Manager Supervision</option>
-              <option value="High">High Risk — Mandatory EQR &amp; Partner Concurrence</option>
+              <option value="High">High Risk — Enhanced Partner Oversight &amp; Concurrence</option>
               <option value="Prohibited">Prohibited — Mandatory Mandate Rejection</option>
             </select>
           </div>

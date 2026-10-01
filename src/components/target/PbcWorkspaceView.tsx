@@ -6,25 +6,26 @@ import { sha256OfFile } from '../../services/fileMetadata';
 import { validatePbcUpload } from '../../services/pbcUpload';
 import { currentDeliverables, isFrozen } from '../../services/targetLifecycle';
 import { formatCurrency } from '../../services/calculations';
+import { STANDARD_PAYMENT_TERMS } from '../../services/clientOutputs';
+import { getRoutedContact } from '../../services/contactRouting';
 import { ActionButton, ArtifactLink, Field, TargetForm, value, type TargetViewProps } from './TargetCommon';
 
 export function PbcWorkspaceView(props: TargetViewProps & { client?: boolean }) {
-  const s = prototypeStore.getSnapshot(),
+  const s = prototypeStore.getReadSnapshot(),
     allowed = visibleEngagementIds(s),
     e = s.engagements.find(
       (eng) => eng.id === s.selectedEngagement && (allowed === 'ALL' || allowed.includes(eng.id))
     );
 
   const client = isClientRole(s.currentRole) || props.client;
-  const contacts = e ? s.contacts.filter((c) => c.clientId === e.client && c.active) : [];
+  const contacts = e ? s.contacts.filter(c => c.clientId === e.client && Boolean(getRoutedContact([c], 'pbc_requests'))) : [];
   const set = e ? currentDeliverables(s, e) : undefined;
   const frozen = e ? isFrozen(e) : false;
-  const isUploadLocked = frozen || Boolean(set?.deliveredAt);
+  const releasedSets = (e?.auditLifecycle?.deliverables || []).filter(d => Boolean(d.deliveredAt));
+  const isUploadLocked = frozen || releasedSets.length > 0;
 
   const [activeClientTab, setActiveClientTab] = useState<'requests' | 'invoices' | 'holding_letters' | 'deliverables'>('requests');
-  const [passwordResetCompleted, setPasswordResetCompleted] = useState<boolean>(() => {
-    return Boolean(s.portalPasswordChanges?.some((p) => p.userId === s.currentUserId));
-  });
+  const passwordResetCompleted = Boolean(s.portalPasswordChanges?.some(p => p.userId === s.currentUserId));
   const [newPassword, setNewPassword] = useState('');
   const [passwordNotice, setPasswordNotice] = useState('');
 
@@ -39,8 +40,8 @@ export function PbcWorkspaceView(props: TargetViewProps & { client?: boolean }) 
   const clientEntity = s.clients.find((c) => c.id === e.client);
   const holdingLetters = (e.auditLifecycle?.holdingLetters || []).filter(l => l.simulatedDispatchStatus === 'Issued (simulated)');
 
-  const invoices = s.invoices.filter((inv) => inv.clientId === e.client);
-  const receipts = s.receipts.filter((r) => r.clientId === e.client);
+  const invoices = s.invoices.filter(inv => inv.clientId === e.client && (inv.engagementId || inv.eng) === e.id && ['Issued', 'Paid'].includes(inv.status));
+  const receipts = s.receipts.filter(r => r.clientId === e.client && r.allocations.length > 0 && r.allocations.every(allocation => invoices.some(inv => inv.id === allocation.invoiceId)));
 
   const handlePasswordReset = (ev: React.FormEvent) => {
     ev.preventDefault();
@@ -49,7 +50,6 @@ export function PbcWorkspaceView(props: TargetViewProps & { client?: boolean }) 
       return;
     }
     prototypeStore.lifecycle.simulatePasswordChange();
-    setPasswordResetCompleted(true);
     setPasswordNotice('Password successfully updated. Document submission access unlocked.');
   };
 
@@ -201,7 +201,7 @@ export function PbcWorkspaceView(props: TargetViewProps & { client?: boolean }) 
             className={`tab-btn ${activeClientTab === 'deliverables' ? 'active' : ''}`}
             onClick={() => setActiveClientTab('deliverables')}
           >
-            4. Final Certified Deliverables ({e.auditLifecycle?.deliverables.length || 0})
+            4. Final Certified Deliverables ({releasedSets.length})
           </button>
         </div>
       )}
@@ -215,20 +215,22 @@ export function PbcWorkspaceView(props: TargetViewProps & { client?: boolean }) 
               button="Dispatch PBC Request to Client"
               formId="pbc-create"
               onRegisterUnsavedForm={props.onRegisterUnsavedForm}
-              onCommit={(d) =>
+              onCommit={(d) => {
+                const requestId = `PBC-${crypto.randomUUID()}`;
                 prototypeStore.addPbcRequest(e.id, {
-                  id: `PBC-${crypto.randomUUID()}`,
+                  id: requestId,
                   title: value(d, 'title'),
                   category: value(d, 'category'),
                   description: value(d, 'description'),
                   owner: s.currentPerson,
                   contributor: value(d, 'recipient'),
                   due: value(d, 'due'),
-                  status: 'Requested',
+                  status: 'Draft',
                   version: 1,
                   thread: []
-                })
-              }
+                });
+                prototypeStore.presentPbcRequest(e.id, requestId);
+              }}
             >
               <Field label="Request Title" name="title" placeholder="e.g. FY 2026 Trial Balance & General Ledger Export" />
               <Field label="Audit Category" name="category" defaultValue="Financial Schedules">
@@ -259,7 +261,7 @@ export function PbcWorkspaceView(props: TargetViewProps & { client?: boolean }) 
 
             <div className="stack" style={{ gap: 12 }}>
               {e.pbc
-                .filter((p) => !client || p.status !== 'Draft')
+                .filter(p => !client || !['Draft', 'Cancelled'].includes(p.status))
                 .map((p) => {
                   const badge = getPbcStatusBadge(p);
                   return (
@@ -301,7 +303,7 @@ export function PbcWorkspaceView(props: TargetViewProps & { client?: boolean }) 
                         <div className="mt12 p12 borderbox" style={{ background: '#fef2f2', border: '1px solid #f87171', borderRadius: 4 }}>
                           <strong style={{ color: '#991b1b' }}>⚠️ Auditor Rejection Reason / Clarification Required:</strong>
                           <p className="sub mt4" style={{ color: '#7f1d1d' }}>
-                            {p.thread[p.thread.length - 1]?.text || 'Document incomplete or unreconciled to trial balance. Please re-upload corrected file.'}
+                            {p.clarificationNote || p.thread.filter(item => item.clientVisible && item.kind === 'clarification').at(-1)?.text || 'Ask the audit liaison for the recorded clarification reason.'}
                           </p>
                         </div>
                       )}
@@ -309,17 +311,50 @@ export function PbcWorkspaceView(props: TargetViewProps & { client?: boolean }) 
                       {/* Shared Files list */}
                       {p.sharedFiles && p.sharedFiles.length > 0 && (
                         <div className="mt12 pt8 border-top">
-                          <span className="caption font-medium">Uploaded Client Files:</span>
+                          <span className="caption font-medium">Shared files:</span>
                           <div className="stack mt4" style={{ gap: 4 }}>
                             {p.sharedFiles.map((f) => (
                               <div key={f.id} className="row justify-between caption bg-muted-subtle p4" style={{ borderRadius: 4 }}>
                                 <span>📄 {f.name} (v{f.version})</span>
                                 <span className="mono text-muted">{f.sha ? `${f.sha.slice(0, 12)}...` : 'Verified'}</span>
+                                {f.artifact ? <ArtifactLink artifact={f.artifact} /> : <span>Original download metadata unavailable</span>}
                               </div>
                             ))}
                           </div>
                         </div>
                       )}
+
+                      <section className="mt12 pt12 border-top" aria-label={`Conversation for ${p.title}`}>
+                        <h4>Staff–client conversation</h4>
+                        <ol className="stack" style={{ listStyle: 'none', padding: 0, overflowWrap: 'anywhere' }}>
+                          {(p.thread || []).filter(message => !client || message.clientVisible === true).map(message => {
+                            const attachment = p.sharedFiles?.find(file => message.fileId ? file.id === message.fileId : file.name === message.file && file.version === message.version);
+                            return <li key={message.id} className="borderbox p12">
+                              <strong>{message.author}</strong> <span className="caption">{isClientRole(message.role as typeof s.currentRole) ? 'Client' : 'Staff'} · <time dateTime={message.time}>{new Date(message.time).toLocaleString()}</time>{!message.clientVisible && ' · Internal only'}</span>
+                              <p style={{ whiteSpace: 'pre-wrap' }}>{message.text}</p>
+                              {attachment?.artifact && <ArtifactLink artifact={attachment.artifact} />}
+                            </li>;
+                          })}
+                        </ol>
+                        {!p.thread?.some(message => !client || message.clientVisible) && <p className="caption">No messages yet.</p>}
+                        {!isUploadLocked && ['Requested','Needs clarification','Received','Under review','Accepted'].includes(p.status) && (client ? passwordResetCompleted && p.contributor === s.currentPerson : ['manager','partner','preparer','reviewer'].includes(s.currentRole)) ? <TargetForm
+                          title={`Reply to: ${p.title}`} button="Send reply" formId={`pbc-reply-${p.id}`} onRegisterUnsavedForm={props.onRegisterUnsavedForm}
+                          onCommit={async data => {
+                            const file = data.get('attachment') as File | null;
+                            let attachment;
+                            if (file?.size) {
+                              const error = validatePbcUpload(file); if (error) throw Error(error);
+                              attachment = { id: `PBC-STAFF-${crypto.randomUUID()}`, name: file.name, kind: 'PBC' as const, mimeType: file.type || 'application/octet-stream', size: file.size, sha256: await sha256OfFile(file) };
+                              await persistArtifact(attachment, new Blob([file], { type: attachment.mimeType }));
+                            }
+                            prototypeStore.replyToPbcRequest(e.id, p.id, value(data, 'message'), attachment);
+                          }}>
+                          <label className="target-field"><span>Message to {client ? 'audit staff' : 'client'}</span><textarea name="message" required maxLength={2000} /></label>
+                          {!client && <label className="target-field"><span>Attach a file (optional)</span><input type="file" name="attachment" /></label>}
+                          {client && <p className="caption">Use Upload Evidence below to send files for audit review.</p>}
+                        </TargetForm> : <p className="caption">Conversation is read-only until access is unlocked, or after release, cancellation or archive.</p>}
+                        <p className="caption">File originals are stored in this browser; cloud demo sync transfers conversation metadata only.</p>
+                      </section>
 
                       {/* Upload Form for Client */}
                       {client && ['Requested', 'Needs clarification', 'Draft'].includes(p.status) && (
@@ -424,6 +459,8 @@ export function PbcWorkspaceView(props: TargetViewProps & { client?: boolean }) 
                 <div>
                   <strong style={{ color: '#047857' }}>Official Receipt: {rec.receiptNumber}</strong>
                   <div className="caption text-muted">Payment Date: {rec.date} · Ref: {rec.externalRef} ({rec.method})</div>
+                  <strong>{rec.allocations.every(a => a.reversed) ? 'Reversed — historical receipt, no current settlement' : `Effective settlement: ${rec.allocations.filter(a => !a.reversed).reduce((sum,a) => sum+a.amount,0)} ${rec.currency}${rec.allocations.some(a => a.reversed) ? ' · partially reversed historical receipt' : ''}`}</strong>
+                  {e.auditLifecycle?.receiptDocuments.filter(document => document.receiptIds.includes(rec.id)).map(document => <ArtifactLink key={document.artifact.id} artifact={document.artifact} />)}
                 </div>
                 <div className="mono font-medium" style={{ color: '#047857' }}>
                   {formatCurrency(rec.amount, rec.currency)}
@@ -472,17 +509,18 @@ export function PbcWorkspaceView(props: TargetViewProps & { client?: boolean }) 
         <section className="panel panel-pad">
           <h3>Certified Final Deliverables Bundle</h3>
           <p className="caption mb12">
-            Certified, sealed, and digitally signed audit reports, management letters, and representation letters.
+            Compiled demo audit reports, management letters and representation letters; signature and seal authorization are explicitly simulated.
           </p>
+          <p className="caption">{STANDARD_PAYMENT_TERMS}</p>
 
-          {e.auditLifecycle?.deliverables && e.auditLifecycle.deliverables.length > 0 ? (
+          {releasedSets.length > 0 ? (
             <div className="stack" style={{ gap: 12 }}>
-              {e.auditLifecycle.deliverables.map((d) => (
-                <div key={d.id} className="borderbox p16" style={{ background: '#f8fafc', borderRadius: 6 }}>
+              {releasedSets.map((d) => (
+                <div key={d.id} data-testid="client-release-set" className="borderbox p16" style={{ background: '#f8fafc', borderRadius: 6 }}>
                   <div className="flex-between">
                     <div>
                       <strong>Final Audit Deliverables Package (Revision v{d.revision})</strong>
-                      <div className="caption text-muted">Certified on {d.reportDate} · Opinion: {e.auditLifecycle?.opinions.at(-1)?.value || 'Clean'}</div>
+                      <div className="caption text-muted">Released on {d.deliveredAt} · Report date: {d.reportDate} · Opinion: {e.auditLifecycle?.opinions.find(o => o.revision === d.opinionRevision)?.value || 'Unavailable'}</div>
                     </div>
                     <span className="tag green">CERTIFIED &amp; SEALED</span>
                   </div>

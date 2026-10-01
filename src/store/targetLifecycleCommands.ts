@@ -1,3 +1,5 @@
+import { clientCorrespondenceLines, managementLetterLines, STANDARD_PAYMENT_TERMS } from '../services/clientOutputs';
+import { REQUIRED_CONFIRMATION_TYPES, type RequiredConfirmationType } from '../types/targetLifecycle';
 import type {
   EngagementRecord,
   GeneratedArtifactRecord,
@@ -27,6 +29,7 @@ import {
 } from '../services/guards';
 import {
   acceptedProposal,
+  STANDARD_CHARGE_OUT_RATES,
   activationBlockers,
   advanceBasis,
   advanceReceipts,
@@ -35,6 +38,7 @@ import {
   currentDeliverables,
   currentPlan,
   currentReview,
+  currentSignatureAuthorization,
   emptyAuditLifecycle,
   fieldworkBlockers,
   firmTrialBalance,
@@ -42,14 +46,23 @@ import {
   isIsoDate,
   managerReviewBlockers,
   money,
+  modifiedOpinionBasisLines,
   opinionValidation,
+  partnerReportingBasis,
+  currentPartnerOpinion,
   plusDays,
   professionalBlockers,
   reportBasis,
   reviewBasis,
-  targetReleaseBlockers
+  targetReleaseBlockers,
+  hasExactFivePartBundle, fsliRiskLevel, proposalMatchesEngagement
 } from '../services/targetLifecycle';
-import { createPDFBlob, createXLSXBlob } from '../services/exportService';
+import { createPDFBlob, createXLSXBlob, createDOCXBlob, type PDFVisualAssets } from '../services/exportService';
+import { applyReportingAdjustments, calculateBalanceSheet, calculateIncomeStatement } from '../services/calculations';
+import { requireRoutedContact } from '../services/contactRouting';
+import { sealEngagementArchive } from '../services/archivePackage';
+import { srmReviewSections } from '../services/reviewSchedules';
+import { adjustmentSupportIssues } from '../services/adjustmentSupport';
 import {
   artifactSha256,
   loadVerifiedArtifact,
@@ -60,18 +73,21 @@ import {
 export type ArtifactWriter = (
   id: string,
   title: string,
-  lines: string[]
+  lines: string[],
+  visuals?: PDFVisualAssets
 ) => Promise<GeneratedArtifactRecord>;
 export async function writeLifecyclePDF(
   id: string,
   title: string,
-  lines: string[]
+  lines: string[],
+  visuals?: PDFVisualAssets
 ): Promise<GeneratedArtifactRecord> {
-  const blob = createPDFBlob(title, lines);
+  const representation = title === 'Letter of Representation';
+  const blob = representation ? await createDOCXBlob(title, lines) : createPDFBlob(title, lines, visuals);
   const record: GeneratedArtifactRecord = {
     id,
-    name: `${id.replaceAll(':', '_')}.pdf`,
-    kind: 'PDF',
+    name: `${id.replaceAll(':', '_')}.${representation ? 'docx' : 'pdf'}`,
+    kind: representation ? 'DOCX' : 'PDF',
     mimeType: blob.type,
     size: blob.size,
     sha256: await artifactSha256(blob)
@@ -101,6 +117,15 @@ const requireMoney = (value: number, allowZero = false) => {
 function fail(blockers: string[]) {
   if (blockers.length) throw new GuardError('INVALID_STATE', blockers.join(' '));
 }
+/** Compact non-cryptographic display digest for printed lineage lines (FNV-1a). */
+function fingerprintDigest(value: string): string {
+  let hash = 0x811c9dc5;
+  for (let index = 0; index < value.length; index++) {
+    hash ^= value.charCodeAt(index);
+    hash = Math.imul(hash, 0x01000193) >>> 0;
+  }
+  return `fnv1a-${hash.toString(16).padStart(8, '0')}`;
+}
 
 /** Commands operate on the host store's state; there is no second store or copied engagement truth. */
 export class TargetLifecycleCommands {
@@ -120,7 +145,7 @@ export class TargetLifecycleCommands {
     requireEngagementScope(state, id, 'administrative');
     const engagement = state.engagements.find((e) => e.id === id);
     if (!engagement) throw new GuardError('INVALID_STATE', 'Engagement was not found.');
-    if (isFrozen(engagement))
+    if (isFrozen(engagement, state.asOfDate))
       throw new GuardError(
         'INVALID_STATE',
         'This engagement is frozen and read-only. Use an explicit successor engagement for an amendment.'
@@ -187,17 +212,10 @@ export class TargetLifecycleCommands {
       );
     if (proposal.totalAmount <= 0)
       throw new GuardError('INVALID_STATE', 'The accepted engagement fee must be positive.');
-    if (
-      engagement.auditLifecycle!.commercialBasis?.proposalId === proposalId &&
-      engagement.auditLifecycle!.commercialBasis?.revision === proposal.revision
-    )
-      return;
-    if (
-      proposal.periodStart?.slice(0, 4) !== String(engagement.year) ||
-      !proposal.items.some((item) => /audit/i.test(item.serviceName))
-    )
-      throw new GuardError('INVALID_STATE', 'Pin an audit proposal for this engagement year.');
-    engagement.auditLifecycle!.commercialBasis = { proposalId, revision: proposal.revision };
+    if (!proposalMatchesEngagement(proposal,engagement))
+      throw new GuardError('INVALID_STATE', 'Pin the proposal for this exact client, service and reporting period.');
+    if (engagement.auditLifecycle!.commercialBasis && acceptedProposal(this.state,engagement)?.id === proposalId) return;
+    engagement.auditLifecycle!.commercialBasis = { proposalId, revision: proposal.revision, engagementService: engagement.service, engagementPeriod: engagement.period, proposalPeriodEnd: proposal.periodEnd, proposalPeriodStart: proposal.periodStart, acceptedFee: proposal.presentedSnapshot.totalAmount, currency: proposal.currency };
     engagement.proposalId = proposalId;
     engagement.agreedFee = proposal.presentedSnapshot.totalAmount;
     engagement.currency = proposal.currency;
@@ -245,10 +263,13 @@ export class TargetLifecycleCommands {
         `Dual-Key Gate: Partner risk clearance is incomplete — ${key2.join(' ')}`
       );
     const summary = billingSummary(this.state, engagement);
-    if (summary.advance + input.amount > summary.fee!)
+    const invoice = this.state.invoices.find(record => record.id === `INV-ADV-${engagement.id}` && record.engagementId === engagement.id && record.clientId === engagement.client && record.isAdvanceInvoice);
+    if (!invoice || !engagement.engagementLetter?.firmStamp || !engagement.engagementLetter.partnerSignature || !['Approved', 'Issued', 'Paid'].includes(invoice.status)) throw new GuardError('INVALID_STATE', 'The Partner-issued engagement letter and exact 50% advance invoice are required before payment recording.');
+    if (invoice.amount !== summary.expectedAdvance || invoice.currency !== engagement.currency) throw new GuardError('STALE_REVISION', 'Advance invoice must match the current contracted fee and currency.');
+    if (summary.advance + input.amount > summary.expectedAdvance!)
       throw new GuardError(
         'INVALID_STATE',
-        'Recorded advances cannot exceed the accepted fee. Reverse a wrong record explicitly.'
+        'Recorded advances cannot exceed the required 50% invoice. Reverse a wrong record explicitly.'
       );
     if (
       this.state.receipts.some(
@@ -273,14 +294,16 @@ export class TargetLifecycleCommands {
       externalRef: input.reference.trim(),
       reference: input.reference.trim(),
       notes: `Manually recorded synthetic advance for ${engagement.id}; no funds collected.`,
-      allocatedAmount: 0,
-      allocations: []
+      allocatedAmount: input.amount,
+      allocations: [{ invoiceId: invoice.id, amount: input.amount, allocatedAt: new Date().toISOString(), date: input.date }]
     });
     engagement.auditLifecycle!.advancePayments.push({
       receiptId: id,
       ...pin,
       recordedByUserId: this.state.currentUserId
     });
+    invoice.paid = money(invoice.paid + input.amount);
+    invoice.status = invoice.paid === invoice.amount ? 'Paid' : 'Issued';
     this.event(
       engagement,
       'Advance recorded',
@@ -296,6 +319,14 @@ export class TargetLifecycleCommands {
     );
     if (!payment) throw new GuardError('INVALID_STATE', 'An active advance record is required.');
     payment.reversed = true;
+    const receipt = this.state.receipts.find(record => record.id === receiptId);
+    for (const allocation of receipt?.allocations || []) {
+      if (allocation.reversed) continue;
+      const invoice = this.state.invoices.find(record => record.id === allocation.invoiceId);
+      if (invoice) { invoice.paid = money(invoice.paid - allocation.amount); invoice.status = 'Issued'; }
+      allocation.reversed = true; allocation.reversalReason = reason; allocation.reversalDate = this.state.asOfDate;
+    }
+    if (receipt) receipt.allocatedAmount = 0;
     payment.reversalReason = reason.trim();
     this.event(
       engagement,
@@ -305,6 +336,7 @@ export class TargetLifecycleCommands {
   }
   public async generateOfficialReceipt(engagementId: string) {
     let engagement = this.engagement(engagementId, ['billing']);
+    const recipient = requireRoutedContact(this.state.contacts.filter(contact => contact.clientId === engagement.client), 'invoices_receipts');
     const summary = billingSummary(this.state, engagement),
       receipts = advanceReceipts(this.state, engagement);
     if (!acceptedProposal(this.state, engagement) || !receipts.length)
@@ -314,10 +346,14 @@ export class TargetLifecycleCommands {
       );
     const basis = advanceBasis(this.state, engagement),
       actor = this.state.currentUserId;
+    const existing = engagement.auditLifecycle!.receiptDocuments.find(d => d.basis === basis);
+    if (existing) return existing.artifact;
+    const liaison = requireRoutedContact(this.state.contacts.filter(c => c.clientId === engagement.client), 'pbc_requests');
     const client = this.state.clients.find((c) => c.id === engagement.client)!;
     const id = uniqueId(`RECEIPT-${engagement.id}`);
     const artifact = await this.artifactWriter(id, 'Official Receipt — Prototype', [
       `Client: ${client.name}`,
+      `To: ${recipient.name} (${recipient.title || recipient.contactRole}); ${recipient.email}`,
       `Engagement: ${engagement.id} / ${engagement.period}`,
       `Accepted Proposal / EL: ${engagement.auditLifecycle!.commercialBasis!.proposalId} revision ${engagement.auditLifecycle!.commercialBasis!.revision}`,
       `Recorded amount: ${summary.advance} ${engagement.currency}`,
@@ -335,12 +371,25 @@ export class TargetLifecycleCommands {
         'STALE_REVISION',
         'Advance changed while generating the receipt. Generate it again.'
       );
+    const completed = engagement.auditLifecycle!.receiptDocuments.find(d => d.basis === basis);
+    if (completed) return completed.artifact;
     engagement.auditLifecycle!.receiptDocuments.push({
       receiptIds: receipts.map((r) => r.id),
       basis,
       generatedAt: new Date().toISOString(),
       artifact
     });
+    if (summary.advance === summary.expectedAdvance) {
+      const path = `/Demo/${client.code}/${engagement.year}/${engagement.id}/`;
+      engagement.auditLifecycle!.workspace ||= { path, preparedAt: new Date().toISOString(), preparedByUserId: actor };
+      engagement.auditLifecycle!.workspace.accessVerifiedAt ||= new Date().toISOString();
+      engagement.auditLifecycle!.workspace.accessVerifiedByUserId ||= actor;
+      for (const name of ['01_Administration & Planning', '02_Trial Balance & Schedules', '03_Fieldwork & Testing', '04_Drafts & Deliverables', '05_Final Signed Archive']) {
+        const folderPath = `${engagement.auditLifecycle!.workspace.path}${name}/`;
+        if (!(this.state.folders ||= []).some(f => f.path === folderPath)) this.state.folders.push({ path: folderPath, label: name, clientId: client.id, engagementId });
+      }
+      engagement.auditLifecycle!.onboarding ||= { liaisonContactId: liaison.id, recipient: liaison.email || liaison.phone || liaison.name, at: new Date().toISOString(), status: 'Invitation issued (simulated)', requiresFirstLoginReset: true };
+    }
     this.event(engagement, 'Official receipt generated', artifact.id);
     return artifact;
   }
@@ -427,6 +476,15 @@ export class TargetLifecycleCommands {
       expiresAt: new Date(Date.now() + 5 * 60 * 1000).toISOString(), ...(active ? { releasedAt: now } : {}) };
     this.event(eng, 'FSLI row lock revised (local simulation)', `${fsli}: v${expectedRevision + 1}; five-minute bounded lease.`);
   }
+  public saveMilestones(engagementId: string, dates: { cutoff: string; fieldwork: string; draft: string; final: string }, reason: string) {
+    const engagement = this.engagement(engagementId, ['manager', 'partner'], true);
+    requireText(reason, 'Milestone revision reason');
+    const ordered = [dates.cutoff, dates.fieldwork, dates.draft, dates.final];
+    if (ordered.some(date => !isIsoDate(date)) || ordered.some((date, index) => index > 0 && date < ordered[index - 1])) throw new GuardError('INVALID_STATE', 'Milestones require valid dates in cutoff, fieldwork, draft, final order.');
+    const history = engagement.auditLifecycle!.milestones ||= [];
+    history.push({ ...dates, revision: history.length + 1, reason: reason.trim(), actorUserId: this.state.currentUserId, at: new Date().toISOString() });
+    this.event(engagement, 'Statutory milestones revised', reason);
+  }
   public saveStaffing(engagementId: string, allocations: StaffAllocation[], reason: string) {
     const engagement = this.engagement(engagementId, ['manager', 'partner'], true);
     requireText(reason, 'Staffing revision reason');
@@ -436,8 +494,8 @@ export class TargetLifecycleCommands {
       'Senior/Reviewer',
       'Preparer/Staff'
     ];
-    if (!allocations.length || roles.some((r) => !allocations.some((a) => a.role === r)))
-      throw new GuardError('INVALID_STATE', 'Assign all four engagement responsibilities.');
+    if (!allocations.length || ['Partner','Manager','Preparer/Staff'].some((r) => !allocations.some((a) => a.role === r)))
+      throw new GuardError('INVALID_STATE', 'Assign Partner, Manager and associate responsibilities; Senior/Reviewer is an optional charge-out grade.');
     for (const a of allocations) {
       const user = this.state.users.find((u) => u.id === a.userId && u.status === 'Active');
       const validRoles: Record<StaffAllocation['role'], RoleKey[]> = {
@@ -469,7 +527,15 @@ export class TargetLifecycleCommands {
         );
       if ([a.capacityHours, a.leaveHours, a.targetUtilizationPct].some(v => v !== undefined && (!Number.isFinite(v) || v < 0)) || (a.capacityHours !== undefined && a.capacityHours <= 0) || (a.targetUtilizationPct !== undefined && a.targetUtilizationPct > 100) || (a.capacityHours !== undefined && (a.leaveHours || 0) > a.capacityHours)) throw new GuardError('INVALID_STATE', 'Availability needs positive capacity, bounded leave and a 0–100% utilization target.');
       if (a.chargeRate !== null) requireMoney(a.chargeRate, true);
+      if (engagement.currency === 'QAR' && a.chargeRate !== null && a.chargeRate !== STANDARD_CHARGE_OUT_RATES[a.role]) throw new GuardError('INVALID_STATE', 'Use the standard QAR role charge-out rate, or leave the rate explicitly Unknown.');
       if (a.costRate !== null) requireMoney(a.costRate, true);
+    }
+    for (const person of new Set(allocations.map(a => a.userId))) {
+      const own = allocations.filter(a => a.userId === person), capacity = own[0].capacityHours;
+      if (capacity === undefined) continue;
+      if (own.some(a => a.capacityHours !== capacity || (a.leaveHours || 0) !== (own[0].leaveHours || 0))) throw new GuardError('INVALID_STATE', 'Use one consistent capacity/leave interval per person across phases.');
+      const overlaps = this.state.engagements.filter(e => e.id !== engagementId && !isFrozen(e)).flatMap(e => e.auditLifecycle?.staffing.at(-1)?.allocations || []).filter(a => a.userId === person && own.some(b => a.startDate <= b.endDate && b.startDate <= a.endDate));
+      if ([...own, ...overlaps].reduce((n,a) => n + a.plannedHours,0) > capacity - (own[0].leaveHours || 0)) throw new GuardError('INVALID_STATE', 'Overlapping engagement allocations exceed recorded person capacity less leave.');
     }
     const partner = allocations.find((a) => a.role === 'Partner')!,
       manager = allocations.find((a) => a.role === 'Manager')!;
@@ -497,7 +563,7 @@ export class TargetLifecycleCommands {
   public importMappedTB(
     engagementId: string,
     rows: TrialBalanceRow[],
-    input: { fileName: string; format: 'CSV' | 'XLSX'; sha256: string }
+    input: { fileName: string; format: 'CSV' | 'XLSX'; sha256: string; originalArtifact?: GeneratedArtifactRecord }
   ) {
     const engagement = this.engagement(
       engagementId,
@@ -523,7 +589,7 @@ export class TargetLifecycleCommands {
     if (
       !input.fileName.trim() ||
       !['CSV', 'XLSX'].includes(input.format) ||
-      !/^[0-9a-f]{64}$/i.test(input.sha256)
+      !/^[0-9a-f]{64}$/i.test(input.sha256) || (input.originalArtifact && (input.originalArtifact.sha256 !== input.sha256 || input.originalArtifact.name !== input.fileName))
     )
       throw new GuardError('INVALID_STATE', 'TB file name, format and SHA-256 are required.');
     const previous = engagement.sourceVersion;
@@ -659,12 +725,21 @@ export class TargetLifecycleCommands {
       `${workpaperId} / ${itemId}: ${reference.indexCode} ${reference.box || ''}. ${reference.description}`
     );
   }
+  public attachDigitalSampleEvidence(engagementId: string, populationId: string, itemId: string, documentId: string, mode: 'Digital' | 'Hybrid' = 'Digital') {
+    const engagement = this.engagement(engagementId, ['preparer','reviewer','manager'], true);
+    const item = this.state.samplePopulations.find(p => p.id === populationId && p.engagementId === engagementId)?.items.find(i => i.id === itemId && i.selected);
+    const document = this.state.documents.find(d => d.id === documentId && d.engagementId === engagementId && d.clientId === engagement.client && !d.brokenLink && !this.state.documents.some(n => n.supersedesDocumentId === d.id));
+    if (!item || !document || !this.state.evidenceCatalogue.some(e => e.documentId === document.id && e.adequacyStatus === 'Adequate' && e.version === document.version)) throw new GuardError('INVALID_STATE', 'Select current adequate same-engagement digital evidence.');
+    item.evidenceDoc = documentId; item.evidenceMode = mode;
+    this.event(engagement, 'Digital sample evidence linked', `${populationId}/${itemId}: ${documentId} v${document.version}; ${mode}`);
+  }
   public generateSample(
     engagementId: string,
     populationId: string,
     method: 'Random' | 'Monetary Unit Sampling' | 'Stratified' | 'Systematic Random Sampling' | 'Stratified Attribute Sampling',
     count: number,
-    seed: number
+    seed: number,
+    methodology?: { samplingBasis: string; sizeDetermination: string; attributeDefinition?: string; strataField?: 'counterparty' | 'month' | 'direction' }
   ) {
     const engagement = this.engagement(engagementId, ['preparer', 'manager', 'reviewer'], true);
     fail(fieldworkBlockers(this.state, engagement));
@@ -691,6 +766,17 @@ export class TargetLifecycleCommands {
         'INVALID_STATE',
         'Choose a supported method, integer sample size and reproducible integer seed.'
       );
+    // R07: the reviewer records the sampling basis and how the size was determined. The
+    // entered count is a professional decision (or documented override), never a silently
+    // validated recommendation; attribute strata must be defined by the reviewer.
+    requireText(methodology?.samplingBasis || '', 'Sampling basis (population and method rationale)', 20);
+    requireText(methodology?.sizeDetermination || '', 'Sample-size determination', 10);
+    if (method === 'Stratified Attribute Sampling')
+      requireText(
+        methodology?.attributeDefinition || '',
+        'Applicable attribute / strata definition',
+        20
+      );
     let rng = seed >>> 0;
     const random = () => {
       rng = (1664525 * rng + 1013904223) >>> 0;
@@ -709,21 +795,23 @@ export class TargetLifecycleCommands {
         item.selectionRationale = `Value-stratified sampling: stratum ${n + 1} of ${count}; rank ${idx + 1}; amount ${item.amount}.`;
       }
     } else if (method === 'Stratified Attribute Sampling') {
-      // Attribute = transaction direction (credit, zero, debit), not monetary rank.
-      const strata = [...new Set(items.map(i => Math.sign(i.amount)))];
-      if (count < strata.length) throw new GuardError('INVALID_STATE', 'Attribute sampling needs at least one item per transaction-direction stratum.');
+      const field = methodology?.strataField || 'counterparty';
+      if (!['counterparty','month','direction'].includes(field)) throw new GuardError('INVALID_STATE','Choose a supported attribute field.');
+      const attributeOf = (item: typeof items[number]) => field === 'counterparty' ? item.counterparty : field === 'month' ? item.date.slice(0,7) : String(Math.sign(item.amount));
+      const strata = [...new Set(items.map(attributeOf))];
+      if (count < strata.length) throw new GuardError('INVALID_STATE', 'Attribute sampling needs at least one item per selected nonempty stratum.');
       for (const attribute of strata) {
-        const group = items.filter(i => Math.sign(i.amount) === attribute);
+        const group = items.filter(i => attributeOf(i) === attribute);
         const item = group[Math.floor(random() * group.length)];
         selected.add(item.id);
-        item.selectionRationale = `Stratified Attribute Sampling: transaction-direction attribute ${attribute}; one random item per nonempty stratum.`;
+        item.selectionRationale = `Stratified Attribute Sampling: ${field}=${attribute}; ${methodology!.attributeDefinition}; one random item per nonempty stratum.`;
       }
       const remaining = items.filter(i => !selected.has(i.id));
       while (selected.size < count) {
         const index = Math.floor(random() * remaining.length);
         const [item] = remaining.splice(index, 1);
         selected.add(item.id);
-        item.selectionRationale = `Stratified Attribute Sampling: random remainder after credit/zero/debit coverage; attribute ${Math.sign(item.amount)}.`;
+        item.selectionRationale = `Stratified Attribute Sampling: random remainder after ${field} coverage; attribute ${attributeOf(item)}.`;
       }
     } else if (method === 'Systematic Random Sampling') {
       const interval = items.length / count;
@@ -777,6 +865,9 @@ export class TargetLifecycleCommands {
       item.physicalReference = undefined;
     }
     population.methodology = `${method}; seed ${seed}`;
+    population.samplingBasis = methodology!.samplingBasis.trim();
+    population.sizeDetermination = methodology!.sizeDetermination.trim();
+    population.attributeDefinition = methodology?.attributeDefinition ? `${methodology.strataField || 'counterparty'}: ${methodology.attributeDefinition.trim()}` : undefined;
     population.selectionVersion = (population.selectionVersion || 0) + 1;
     population.selectionPreparedBy = this.state.currentPerson;
     population.selectedCount = selected.size;
@@ -788,7 +879,7 @@ export class TargetLifecycleCommands {
     this.event(
       engagement,
       'Sample generated',
-      `${populationId}: ${method}, seed ${seed}, ${selected.size}/${items.length} distinct items from ${count} draws; control total ${population.totalPopulationValue}.`
+      `${populationId}: ${method}, seed ${seed}, ${selected.size}/${items.length} distinct items from ${count} draws; control total ${population.totalPopulationValue}; size determination recorded by the reviewer.`
     );
   }
   public prepareStandardPrograms(engagementId: string) {
@@ -800,24 +891,24 @@ export class TargetLifecycleCommands {
         'Programs already exist. Tailor them with an ad-hoc procedure instead of duplicating the file.'
       );
     const staffing = engagement.auditLifecycle!.staffing.at(-1)!;
-    const preparer = this.state.users.find(
-      (u) => u.id === staffing.allocations.find((a) => a.role === 'Preparer/Staff')!.userId
-    )!;
-    const reviewer = this.state.users.find(
-      (u) => u.id === staffing.allocations.find((a) => a.role === 'Senior/Reviewer')!.userId
-    )!;
+    const allocationFor = (role: StaffAllocation['role']) =>
+      this.state.users.find((u) => u.id === staffing.allocations.find((a) => a.role === role)!.userId)!;
+    const preparerUser = allocationFor('Preparer/Staff');
+    const managerUser = allocationFor('Manager');
+    const reviewerUser = staffing.allocations.some(a => a.role === 'Senior/Reviewer') ? allocationFor('Senior/Reviewer') : managerUser;
+    const partnerUser = allocationFor('Partner');
     requireIndependentActor(
-      preparer.id,
-      reviewer.id,
+      preparerUser.id,
+      reviewerUser.id,
       'assign a workpaper to its own reviewer',
       this.state
     );
     const workpaperId = `WP-${engagementId}-AUDIT`;
+    // R04: one substantive program per mapped FSLI. Expense, inventory and payable lines are
+    // no longer collapsed into a shared Purchasing file, so each FSLI keeps its own owner,
+    // evidence, completion and review state.
     const areas = [
-      'Revenue',
-      'Purchasing',
-      'Fixed Assets',
-      'Treasury',
+      ...new Set(engagement.rows.map((row) => row.mappedStatementLine!).filter(Boolean)),
       'Analytical Review',
       'Going Concern'
     ];
@@ -832,7 +923,7 @@ export class TargetLifecycleCommands {
         linkedWorkpaperId: string;
       }> = [];
 
-      if (['Revenue', 'Purchasing', 'Fixed Assets', 'Treasury'].includes(area)) {
+      if (!['Analytical Review', 'Going Concern'].includes(area)) {
         const assertions = [
           { name: 'Ownership', title: `[Ownership / Rights] Verify legal title, contracts and obligations for ${area.toLowerCase()}`, desc: `Inspect title deeds, agreements, contracts, and registers to verify ownership rights and absence of encumbrances.` },
           { name: 'Valuation', title: `[Valuation & Allocation] Test measurement, impairment and allocation for ${area.toLowerCase()}`, desc: `Assess accounting estimates, net realizable values, depreciation models, and expected credit loss (ECL) provisions.` },
@@ -845,7 +936,7 @@ export class TargetLifecycleCommands {
           engagementId,
           title: a.title,
           instructions: a.desc,
-          assignee: preparer.name,
+          assignee: preparerUser.name,
           status: 'Not started' as const,
           linkedWorkpaperId: workpaperId
         }));
@@ -856,7 +947,7 @@ export class TargetLifecycleCommands {
             engagementId,
             title: '[Analytical Review] Substantive ratio analysis and fluctuation review',
             instructions: 'Evaluate gross margin, operating ratios, and material budget/comparative variances against audit materiality.',
-            assignee: preparer.name,
+            assignee: preparerUser.name,
             status: 'Not started' as const,
             linkedWorkpaperId: workpaperId
           }
@@ -868,7 +959,7 @@ export class TargetLifecycleCommands {
             engagementId,
             title: '[Going Concern] Evaluate 12-month cash forecast and covenant compliance',
             instructions: 'Evaluate management going concern assessment, forward liquidity forecast, debt covenants, and operational solvency indicators (ISA 570).',
-            assignee: preparer.name,
+            assignee: preparerUser.name,
             status: 'Not started' as const,
             linkedWorkpaperId: workpaperId
           }
@@ -883,15 +974,9 @@ export class TargetLifecycleCommands {
           ...new Set(
             engagement.rows
               .filter((r) =>
-                area === 'Revenue'
-                  ? r.type === 'revenue'
-                  : area === 'Purchasing'
-                    ? r.type === 'expense' || /payable|inventory|purchas/i.test(r.name)
-                    : area === 'Fixed Assets'
-                      ? /fixed|plant|equipment|ppe|depreciation/i.test(r.name)
-                      : area === 'Treasury'
-                        ? /cash|bank|loan|borrow/i.test(r.name)
-                        : true
+                ['Analytical Review', 'Going Concern'].includes(area)
+                  ? true
+                  : r.mappedStatementLine === area
               )
               .map((r) => r.mappedStatementLine!)
           )
@@ -902,11 +987,28 @@ export class TargetLifecycleCommands {
         procedures
       };
     });
+    // R04: procedure owners and workpaper preparer/reviewer pairs come from the same risk
+    // tier: RED = manager executes / partner reviews; AMBER = senior executes / manager
+    // reviews; GREEN = preparer executes / senior reviews.
+    const tierFor = (level: 'RED' | 'AMBER' | 'GREEN') =>
+      level === 'RED'
+        ? { executor: managerUser, reviewer: partnerUser }
+        : level === 'AMBER'
+          ? { executor: reviewerUser, reviewer: reviewerUser.id === managerUser.id ? partnerUser : managerUser }
+          : { executor: preparerUser, reviewer: reviewerUser };
+    for (const program of programs) {
+      const level = program.financialStatementLines.some(line => fsliRiskLevel(this.state, engagement, line) === 'RED') ? 'RED' as const : program.financialStatementLines.some(line => fsliRiskLevel(this.state, engagement, line) === 'AMBER') ? 'AMBER' as const : 'GREEN' as const;
+      const tier = tierFor(level);
+      program.leadWorkpaperRef = `${workpaperId}-${program.id}`;
+      for (const procedure of program.procedures) { procedure.assignee = tier.executor.name; procedure.linkedWorkpaperId = program.leadWorkpaperRef; }
+      (program as typeof program & { riskTier: 'RED' | 'AMBER' | 'GREEN' }).riskTier = level;
+      (program as typeof program & { executorName: string }).executorName = tier.executor.name;
+    }
     this.state.auditPrograms.push(...programs);
     engagement.workpapers.push({
       id: workpaperId,
       title: 'Audit fieldwork and completion conclusions',
-      objective: 'Reconcile the TB and document the six program areas.',
+      objective: 'Reconcile the TB and document the program areas.',
       assertion: 'Existence / completeness / valuation / presentation',
       risk: 'Material misstatement and going concern',
       version: 1,
@@ -915,8 +1017,8 @@ export class TargetLifecycleCommands {
       scope: engagement.period,
       workPerformed: '',
       conclusion: '',
-      preparer: preparer.name,
-      reviewer: reviewer.name,
+      preparer: preparerUser.name,
+      reviewer: reviewerUser.name,
       guidelines: areas.map((area) => ({
         title: area,
         desc: `Record the ${area.toLowerCase()} conclusion.`,
@@ -937,7 +1039,33 @@ export class TargetLifecycleCommands {
       clearanceHistory: [],
       sourceProcedureRefs: programs.flatMap((p) => p.procedures.map((s) => s.id))
     });
-    this.event(engagement, 'Standard audit programs prepared', areas.join(', '));
+    const aggregate = engagement.workpapers.at(-1)!;
+    aggregate.applicable = false;
+    aggregate.status = 'Not applicable';
+    aggregate.notApplicableRationale = 'Historical aggregate header; each program now has its own workpaper.';
+    for (const program of programs) {
+      const level = (program as typeof program & { riskTier?: 'RED' | 'AMBER' | 'GREEN' }).riskTier || 'GREEN';
+      const tier = tierFor(level);
+      engagement.workpapers.push({
+        ...structuredClone(aggregate),
+        id: program.leadWorkpaperRef,
+        title: `${program.area} workpaper`,
+        objective: program.objective,
+        applicable: true,
+        status: 'Planned',
+        executionRiskLevel: level,
+        notApplicableRationale: undefined,
+        preparer: tier.executor.name,
+        reviewer: tier.reviewer.name,
+        guidelines: [{ title: program.area, desc: 'Record the current scoped work and conclusion.', mandatory: true }],
+        sourceProcedureRefs: program.procedures.map(p => p.id)
+      });
+    }
+    this.event(
+      engagement,
+      'Standard audit programs prepared',
+      `${areas.join(', ')}; one workpaper per FSLI with risk-tiered ownership (RED manager/partner, AMBER senior/manager, GREEN preparer/senior).`
+    );
   }
   public addAdHocProcedure(
     engagementId: string,
@@ -983,7 +1111,8 @@ export class TargetLifecycleCommands {
     workpaperId: string,
     scope: string,
     workPerformed: string,
-    conclusion: string
+    conclusion: string,
+    evidenceMode?: 'Digital' | 'Physical' | 'Hybrid'
   ) {
     let engagement = this.engagement(engagementId, ['preparer', 'manager'], true);
     fail(fieldworkBlockers(this.state, engagement));
@@ -998,22 +1127,32 @@ export class TargetLifecycleCommands {
         'FORBIDDEN_SCOPE',
         'Only the assigned Preparer may revise this workpaper.'
       );
-    if (
-      !wp.evidenceRefs?.length ||
-      wp.evidenceRefs.some(
-        (id) =>
-          !this.state.documents.some(
-            (d) =>
-              d.id === id &&
-              d.engagementId === engagementId &&
-              !d.brokenLink &&
-              !this.state.documents.some((next) => next.supersedesDocumentId === id)
-          )
-      )
-    )
+    // R12: one readiness policy per evidence mode. Physical-mode work (recorded on the
+    // workpaper via the X-1 physical index) supports the workbook without digital refs;
+    // any linked digital evidence must still be current same-engagement documents.
+    const digitalRefs = wp.evidenceRefs || [];
+    const staleDigital = digitalRefs.some(
+      (id) =>
+        !this.state.documents.some(
+          (d) =>
+            d.id === id &&
+            d.engagementId === engagementId &&
+            !d.brokenLink &&
+            !this.state.documents.some((next) => next.supersedesDocumentId === id)
+        )
+    );
+    const physicalReady = Boolean(
+      wp.physicalReference?.indexCode.trim() && wp.physicalReference?.description.trim()
+    );
+    const mode = evidenceMode || wp.evidenceMode;
+    if (mode && !['Digital','Physical','Hybrid'].includes(mode)) throw new GuardError('INVALID_STATE','Choose Digital, Physical or Hybrid evidence.');
+    if (mode === 'Physical' && !physicalReady || mode === 'Hybrid' && (!physicalReady || !digitalRefs.length) || mode === 'Digital' && !digitalRefs.length) throw new GuardError('INVALID_STATE', `${mode} evidence requirements are incomplete.`);
+    if (staleDigital || (!digitalRefs.length && !physicalReady))
       throw new GuardError(
         'INVALID_STATE',
-        'Link current accepted evidence before generating the workpaper workbook.'
+        staleDigital
+          ? 'The linked digital evidence is stale. Refresh it to the current same-engagement revision before generating the workpaper workbook.'
+          : 'Link current accepted evidence (digital, or a recorded physical X-1 index for Physical-mode work) before generating the workpaper workbook.'
       );
     const programs = this.state.auditPrograms.filter(
       (p) =>
@@ -1030,7 +1169,7 @@ export class TargetLifecycleCommands {
       ['Work performed', workPerformed],
       ['Conclusion', conclusion],
       ['TB revision', engagement.sourceVersion],
-      ['Evidence', wp.evidenceRefs.join(', ')],
+      ['Evidence', [...digitalRefs, wp.physicalReference ? `Physical ${wp.physicalReference.indexCode}: ${wp.physicalReference.description}` : ''].filter(Boolean).join(', ')],
       [],
       ['Area', 'Procedure', 'Work performed', 'Conclusion', 'Status'],
       ...programs.flatMap((p) =>
@@ -1061,6 +1200,7 @@ export class TargetLifecycleCommands {
     wp.scope = scope;
     wp.workPerformed = workPerformed;
     wp.conclusion = conclusion;
+    if (mode) wp.evidenceMode = mode;
     wp.status = 'In progress';
     wp.clearance = null;
     wp.generatedArtifact = artifact;
@@ -1097,7 +1237,8 @@ export class TargetLifecycleCommands {
     accountCode: string,
     fileName: string,
     sha256: string,
-    rows: import('../types').SamplePopulationRow[]
+    rows: import('../types').SamplePopulationRow[],
+    sourceArtifact?: GeneratedArtifactRecord
   ) {
     const engagement = this.engagement(engagementId, ['preparer', 'manager', 'reviewer'], true);
     fail(fieldworkBlockers(this.state, engagement));
@@ -1106,7 +1247,7 @@ export class TargetLifecycleCommands {
       !account ||
       !rows.length ||
       !fileName.trim() ||
-      !/^[0-9a-f]{64}$/i.test(sha256) ||
+      !/^[0-9a-f]{64}$/i.test(sha256) || (sourceArtifact && (sourceArtifact.sha256 !== sha256 || sourceArtifact.name !== fileName)) ||
       Math.abs(rows.reduce((n, r) => n + r.amount, 0) - account.balance) > 0.005
     )
       throw new GuardError(
@@ -1142,6 +1283,7 @@ export class TargetLifecycleCommands {
       description: fileName,
       sourceFileName: fileName,
       sourceSha256: sha256,
+      sourceArtifact,
       sourceRevision: 1,
       sourceComplete: true,
       totalPopulationCount: rows.length,
@@ -1176,7 +1318,7 @@ export class TargetLifecycleCommands {
       | 'dueAt'
       | 'critical'
       | 'workpaperIds'
-    >
+    > & { type: RequiredConfirmationType }
   ) {
     const engagement = this.engagement(engagementId, ['preparer', 'manager', 'partner'], true);
     requireText(input.counterparty, 'Counterparty');
@@ -1192,7 +1334,7 @@ export class TargetLifecycleCommands {
       !owner ||
       (visible !== 'ALL' && !visible.includes(engagementId)) ||
       !isIsoDate(input.dueAt) ||
-      !['Bank', 'Debtor', 'Inventory', 'Other'].includes(input.type) ||
+      !(REQUIRED_CONFIRMATION_TYPES as readonly string[]).includes(input.type) ||
       typeof input.critical !== 'boolean' ||
       input.workpaperIds.some((id) => !engagement.workpapers.some((w) => w.id === id))
     )
@@ -1224,6 +1366,17 @@ export class TargetLifecycleCommands {
     this.event(engagement, 'Confirmation created', `${id}: ${input.type} / ${input.counterparty}`);
     return id;
   }
+  public async transitionConfirmationWithHandover(engagementId: string, id: string, status: ConfirmationStatus, note: string, evidenceRefs: string[] = []) {
+    this.transitionConfirmation(engagementId, id, status, note, evidenceRefs);
+    // R11: any transition that leaves critical confirmations outstanding — including
+    // Requested and Cancelled, not only Awaiting/No Response/Exception — keeps final
+    // reporting blocked and must have a current holding letter. Idempotent per blocker set.
+    const engagement = this.state.engagements.find(e => e.id === engagementId);
+    if (engagement && criticalConfirmationBlockers(this.state, engagement).length) {
+      try { await this.generateHoldingLetter(engagementId); }
+      catch (error) { throw new Error(`Confirmation transition saved; Holding Letter pending. Retry generation. ${error instanceof Error ? error.message : ''}`); }
+    }
+  }
   public transitionConfirmation(
     engagementId: string,
     id: string,
@@ -1242,6 +1395,7 @@ export class TargetLifecycleCommands {
     );
     if (!confirmation)
       throw new GuardError('FORBIDDEN_SCOPE', 'Confirmation is outside this engagement.');
+    if (!(REQUIRED_CONFIRMATION_TYPES as readonly string[]).includes(confirmation.type)) throw new GuardError('INVALID_STATE', 'Historical confirmation types are read-only.');
     const allowed: Record<ConfirmationStatus, ConfirmationStatus[]> = {
       Draft: ['Requested', 'Cancelled'],
       Requested: ['Awaiting', 'Received', 'Cancelled'],
@@ -1331,27 +1485,37 @@ export class TargetLifecycleCommands {
     this.event(engagement, 'Confirmation updated', `${id}: ${status}. ${note.trim()}`);
   }
   public async generateHoldingLetter(engagementId: string) {
-    const engagement = this.engagement(engagementId, ['manager', 'partner'], true),
+    const engagement = this.engagement(engagementId, ['preparer', 'reviewer', 'manager', 'partner'], true),
       blockers = criticalConfirmationBlockers(this.state, engagement);
     if (!blockers.length)
       throw new GuardError(
         'INVALID_STATE',
         'A holding letter requires a critical outstanding confirmation.'
       );
+    // R11: idempotent per the identity of the blocked confirmation SET — a status rewording
+    // (Requested → Awaiting) never duplicates the letter; a new confirmation joining the
+    // blocked set triggers a fresh current letter.
+    const blockerKey = (this.state.confirmations || [])
+      .filter((c) => c.engagementId === engagementId && c.critical && c.status !== 'Cleared')
+      .map((c) => c.id)
+      .sort()
+      .join('|');
     const actor = this.state.currentUserId, sourceVersion = engagement.sourceVersion;
+    const existing = engagement.auditLifecycle!.holdingLetters?.find(l => l.blockerKey ? l.blockerKey === blockerKey : JSON.stringify(l.sourceBlockers) === JSON.stringify(blockers));
+    if (existing?.artifact) return existing.artifact;
+    const recipient = requireRoutedContact(this.state.contacts.filter(contact => contact.clientId === engagement.client), 'proposals_reports');
     const id = uniqueId(`HOLD-${engagementId}`);
     const artifact = await this.artifactWriter(id, 'Pending Confirmation / Holding Letter — Prototype', [
-      `Engagement: ${engagementId} / ${engagement.period}`, ...blockers,
+      `Engagement: ${engagementId} / ${engagement.period}`, `To: ${recipient.name} (${recipient.title || recipient.contactRole})`, ...blockers,
       'Final report remains blocked. Issued locally (simulated); no external dispatch.'
     ]);
-    const current = this.engagement(engagementId, ['manager', 'partner'], true);
+    const current = this.engagement(engagementId, ['preparer', 'reviewer', 'manager', 'partner'], true);
     if (actor !== this.state.currentUserId || sourceVersion !== current.sourceVersion || JSON.stringify(blockers) !== JSON.stringify(criticalConfirmationBlockers(this.state, current))) throw new GuardError('STALE_REVISION', 'Holding Letter source or actor changed during generation.');
     const letters = current.auditLifecycle!.holdingLetters ||= [];
-    const recipient = this.state.contacts.find(c => c.clientId === current.client && c.active);
     letters.push({ id, revision: letters.length + 1, engagementId, generatedAt: new Date().toISOString(),
       generatedByUserId: this.state.currentUserId, recipientContactId: recipient?.id,
       recipientName: recipient?.name || this.state.clients.find(c => c.id === current.client)?.name || current.client,
-      sourceBlockers: [...blockers], artifactId: artifact.id, artifact, simulatedDispatchStatus: 'Issued (simulated)' });
+      sourceBlockers: [...blockers], blockerKey, artifactId: artifact.id, artifact, simulatedDispatchStatus: 'Issued (simulated)' });
     this.event(current, 'Holding Letter issued (simulated)', id);
     return artifact;
   }
@@ -1371,13 +1535,28 @@ export class TargetLifecycleCommands {
         'FORBIDDEN_SCOPE',
         'Only the assigned Manager can record engagement clearance.'
       );
-    for (const wp of engagement.workpapers.filter((w) => w.applicable))
+    // R04: a workpaper already cleared at its current revision by an actor independent of
+    // its preparer (e.g. a partner-cleared, manager-executed RED file) does not need the
+    // Manager to re-clear work they executed themselves.
+    for (const wp of engagement.workpapers.filter((w) => w.applicable)) {
+      const preparerPerson = this.state.users.find((u) => u.name === wp.preparer);
+      const clearedByPerson = this.state.users.find((u) => u.name === wp.clearance?.clearedBy);
+      const independentlyCleared =
+        wp.clearance &&
+        wp.clearance.version === wp.version &&
+        wp.clearance.sourceVersion === engagement.sourceVersion &&
+        preparerPerson &&
+        clearedByPerson &&
+        (clearedByPerson.personId || clearedByPerson.id) !==
+          (preparerPerson.personId || preparerPerson.id);
+      if (independentlyCleared) continue;
       requireIndependentActor(
         wp.submittedBy || wp.preparer,
         this.state.currentUserId,
         'clear work they prepared',
         this.state
       );
+    }
     const basis = reviewBasis(this.state, engagement);
     engagement.auditLifecycle!.managerReviews.push({
       revision: engagement.auditLifecycle!.managerReviews.length + 1,
@@ -1397,10 +1576,13 @@ export class TargetLifecycleCommands {
     const basis = reviewBasis(this.state, engagement),
       actor = this.state.currentUserId,
       plan = currentPlan(this.state, engagement)!;
+    const existing = engagement.auditLifecycle!.srms.find(r => r.basis === basis && r.notes === recommendation);
+    if (existing) return existing.artifact;
     const summary = [
       `Client: ${this.state.clients.find((c) => c.id === engagement.client)?.name}`,
       `Engagement: ${engagement.id} / ${engagement.period}`,
       `TB source: v${engagement.sourceVersion}; PM ${plan.overallMateriality}, TE ${plan.performanceMateriality}, SAD ${plan.clearlyTrivialThreshold}`,
+      ...srmReviewSections(this.state,engagement),
       ...this.state.auditRisks
         .filter((r) => r.engagementId === engagementId)
         .map((r) => `Risk: ${r.title} (${r.rating}) — ${r.response}`),
@@ -1423,7 +1605,9 @@ export class TargetLifecycleCommands {
         ),
       `Open review points: ${engagement.reviews.filter((r) => r.status !== 'Cleared').length}`,
       `Manager recommendation: ${recommendation}`,
-      `Source fingerprint: ${basis}`,
+      // R16: the full serialized basis stays in the SRM record for lineage; the printed
+      // document carries only a compact digest plus revision summary.
+      `Source fingerprint: ${fingerprintDigest(basis)} (SRM revision ${engagement.auditLifecycle!.srms.length + 1}; TB source v${engagement.sourceVersion}; full basis lineage retained in the SRM record)`,
       'Prototype SRM; no legal or regulatory compliance claim.'
     ];
     const artifact = await this.artifactWriter(
@@ -1490,7 +1674,9 @@ export class TargetLifecycleCommands {
     this.assignedPartner(engagement);
     fail(targetReleaseBlockers(this.state, engagement));
     fail(opinionValidation(value, focusArea, basis));
+    if (value !== 'Clean' && !engagement.rows.some(row => row.mappedStatementLine === focusArea.trim())) throw new GuardError('INVALID_STATE', 'Select an affected FSLI from the current mapped trial balance.');
     engagement.auditLifecycle!.opinions.push({
+      reportingBasis: partnerReportingBasis(this.state, engagement),
       revision: engagement.auditLifecycle!.opinions.length + 1,
       value,
       focusArea: focusArea.trim(),
@@ -1502,21 +1688,97 @@ export class TargetLifecycleCommands {
     this.event(
       engagement,
       'Audit opinion selected',
-      `${value}; ${focusArea}. Prior deliverables require regeneration.`
+      `${value}; ${focusArea}. Opinion selection alone is not the signature event; prior deliverables require regeneration and a fresh partner signature.`
+    );
+  }
+  /** R10: the authoritative partner signature/seal event, pinned to the current opinion
+   *  revision and reporting basis. Opinion selection, bundle compilation and delivery are
+   *  deliberately separate steps; only this command records the signature date that starts
+   *  the 60-day compliance clock. */
+  public authorizeReportSignature(engagementId: string, signatureDate: string, note: string, visuals?: PDFVisualAssets) {
+    const engagement = this.engagement(engagementId, ['partner'], true);
+    this.assignedPartner(engagement);
+    requireText(note, 'Signature authorization note', 10);
+    for (const png of [visuals?.signaturePng, visuals?.sealPng]) if (png && (!/^data:image\/png;base64,iVBORw0KGgo/.test(png) || png.length > 1400000)) throw new GuardError('INVALID_STATE','Use a PNG signature/seal illustration under 1 MB.');
+    if (visuals?.signaturePng || visuals?.sealPng) {
+      try { createPDFBlob('Validate synthetic visual assets', [], visuals); }
+      catch { throw new GuardError('INVALID_STATE','The supplied PNG illustration cannot be rendered. Choose a valid PNG before authorizing.'); }
+    }
+    if (!isIsoDate(signatureDate) || signatureDate > this.state.asOfDate)
+      throw new GuardError(
+        'INVALID_STATE',
+        'Use a valid signature date on or before the simulation as-of date.'
+      );
+    const opinion = currentPartnerOpinion(this.state, engagement);
+    if (!opinion)
+      throw new GuardError(
+        'STALE_REVISION',
+        'Select and validate the current audit opinion before recording the partner signature.'
+      );
+    fail(targetReleaseBlockers(this.state, engagement));
+    const basis = reportBasis(this.state, engagement);
+    const authorizations = engagement.auditLifecycle!.signatureAuthorizations ||= [];
+    const existing = authorizations.at(-1);
+    if (existing && existing.basis === basis && existing.opinionRevision === opinion.revision && existing.signatureDate === signatureDate && existing.signaturePng === visuals?.signaturePng && existing.sealPng === visuals?.sealPng)
+      return existing;
+    authorizations.push({
+      revision: authorizations.length + 1,
+      basis,
+      opinionRevision: opinion.revision,
+      signatureDate,
+      signedByUserId: this.state.currentUserId,
+      signaturePng: visuals?.signaturePng,
+      sealPng: visuals?.sealPng,
+      sealApplied: true,
+      at: new Date().toISOString(),
+      note: note.trim()
+    });
+    const clock = engagement.auditLifecycle!.archiveControl;
+    const due = plusDays(signatureDate, 60);
+    if (!clock.freezeDueDate || due < clock.freezeDueDate) {
+      clock.finalReportDate = signatureDate;
+      clock.freezeDueDate = due;
+    }
+    clock.freezeStatus = 'Counting Down';
+    clock.history.push({ at: new Date().toISOString(), actorUserId: this.state.currentUserId, action: 'Partner signature starts compliance countdown', reason: `Opinion v${opinion.revision}; signature ${signatureDate}; earliest due date ${clock.freezeDueDate}. Reissues never extend this deadline.` });
+    this.event(
+      engagement,
+      'Partner signature & firm seal applied (simulated)',
+      `Signature date ${signatureDate}; opinion revision ${opinion.revision}. Authoritative signature event; compilation and delivery remain separate steps. No cryptographic or legal signature is claimed.`
     );
   }
   public async generateDeliverables(engagementId: string, reportDate: string) {
-    let engagement = this.engagement(engagementId, ['manager', 'partner'], true);
+    let engagement = this.engagement(engagementId, ['partner'], true);
+    this.assignedPartner(engagement);
+    if (criticalConfirmationBlockers(this.state, engagement).length) {
+      try { await this.generateHoldingLetter(engagementId); }
+      catch (error) { throw new GuardError('INVALID_STATE', `Reporting blocked; Holding Letter generation failed. Retry the Holding Letter action: ${String(error)}`); }
+    }
     fail(targetReleaseBlockers(this.state, engagement));
-    const opinion = engagement.auditLifecycle!.opinions.at(-1);
+    const opinion = currentPartnerOpinion(this.state, engagement);
+    if (this.state.findings.some(f => f.engagementId === engagementId && f.managementLetterVisible && (!f.impact?.trim() || !f.recommendation?.trim()))) throw new GuardError('INVALID_STATE','Complete every designated management-letter impact and recommendation before compiling.');
     if (!opinion)
       throw new GuardError('INVALID_STATE', 'The assigned Partner must select an opinion first.');
     fail(opinionValidation(opinion.value, opinion.focusArea, opinion.basis));
+    // R10: compilation requires the recorded partner signature/seal for the current basis,
+    // and the report date must equal the authorized signature date.
+    const signature = currentSignatureAuthorization(this.state, engagement);
+    if (!signature)
+      throw new GuardError(
+        'INVALID_STATE',
+        'The assigned Partner must record the simulated digital signature and firm seal for the current opinion and reporting basis before compiling deliverables.'
+      );
     if (!isIsoDate(reportDate) || reportDate > this.state.asOfDate)
       throw new GuardError(
         'INVALID_STATE',
         'Use a valid final opinion/report date on or before the simulation as-of date.'
       );
+    if (reportDate !== signature.signatureDate)
+      throw new GuardError(
+        'INVALID_STATE',
+        `The report date must equal the authorized signature date ${signature.signatureDate}. Re-sign the reporting basis to change the signature date.`
+      );
+    fail(targetReleaseBlockers(this.state, engagement));
     const reviewAt = engagement.auditLifecycle!.partnerClearances.at(-1)!.at.slice(0, 10);
     if (reportDate < reviewAt)
       throw new GuardError(
@@ -1531,6 +1793,7 @@ export class TargetLifecycleCommands {
       `Client: ${client.name}`,
       `Engagement: ${engagementId} / ${engagement.period}`,
       `Final report date: ${reportDate}`,
+      `Partner signature date (ISA 700): ${signature.signatureDate}`,
       `Opinion: ${opinion.value}`,
       `TB source: v${engagement.sourceVersion}`,
       `SRM revision: ${engagement.auditLifecycle!.srms.at(-1)!.revision}`,
@@ -1542,6 +1805,26 @@ export class TargetLifecycleCommands {
     const acceptedFee = summary.fee ?? engagement.agreedFee;
     const advancePaid = summary.advance;
     const balanceRemaining = money(acceptedFee - advancePaid);
+    const financeRecipient = requireRoutedContact(this.state.contacts.filter(contact => contact.clientId === engagement.client), 'invoices_receipts');
+    const reportRecipient = requireRoutedContact(this.state.contacts.filter(contact => contact.clientId === engagement.client), 'proposals_reports');
+    const existingBalance = engagement.auditLifecycle!.balanceInvoices[0];
+    if (existingBalance) {
+      const existingInvoice = this.state.invoices.find(i => i.id === existingBalance.invoiceId);
+      if (!existingInvoice || existingInvoice.amount !== balanceRemaining || existingInvoice.currency !== engagement.currency || existingBalance.acceptedFee !== acceptedFee || existingBalance.recognizedAdvance !== advancePaid) throw new GuardError('STALE_REVISION', 'Reconcile the existing final invoice obligation before compiling a replacement set.');
+    }
+    const finalInvoiceId = existingBalance?.invoiceId || uniqueId(`BAL-${engagementId}`);
+    const invoiceNumber = existingBalance ? this.state.invoices.find(invoice => invoice.id === existingBalance.invoiceId)?.invoiceNumber : `${this.state.firmSettings.invoiceNumberPrefix}${this.state.firmSettings.invoiceNextNumber}`;
+    if (!invoiceNumber) throw new GuardError('INVALID_STATE', 'The persisted final invoice is missing.');
+    const reporting = applyReportingAdjustments(engagement.rows, this.state.adjustmentJournals.filter(journal => journal.engagementId === engagementId), engagement.sourceVersion,adjustmentSupportIssues(this.state,engagementId));
+    if (reporting.unapplied.length) throw new GuardError('INVALID_STATE', 'Resolve reporting adjustment support before compiling the statements.');
+    const income = calculateIncomeStatement(reporting.rows), position = calculateBalanceSheet(reporting.rows);
+    const statementLines = [
+      `Audited statement of profit or loss (${engagement.currency})`,
+      `Revenue: ${money(income.revenue)}; Cost of sales: ${money(income.costOfSales)}; Operating expenses: ${money(income.operatingExpenses)}; Net profit / loss: ${money(income.netProfit)}`,
+      `Audited statement of financial position (${engagement.currency})`,
+      `Assets: ${money(position.totalAssets)}; Liabilities: ${money(position.totalLiabilities)}; Equity including current result: ${money(position.totalEquity)}`,
+      ...reporting.rows.map(row => `${row.mappedStatementLine || row.type} | ${row.code} ${row.name}: ${money(row.balance)} ${engagement.currency}`)
+    ];
     const definitions: Array<{
       deliverable:
         | 'Independent Auditor Report & Audited Financial Statements'
@@ -1556,21 +1839,20 @@ export class TargetLifecycleCommands {
         deliverable: 'Audit Report',
         lines: [
           ...header,
+          `To: ${reportRecipient.name} (${reportRecipient.title || reportRecipient.contactRole})`,
           'Deliverable 1: Independent Auditor’s Report & Certified Financial Statements (ISA 700 / 705)',
           opinion.value === 'Clean'
             ? 'Clean / Unqualified Opinion — Financial statements give a true and fair view in accordance with IFRS'
             : `${opinion.value} Opinion — ISA 705 Modified Auditor Report`,
           ...(opinion.value !== 'Clean'
-            ? [
-                `Basis for ${opinion.value} Opinion (ISA 705):`,
-                ...(opinion.focusArea ? [`Affected FSLI / Focus Area: ${opinion.focusArea}`] : []),
-                opinion.basis
-              ]
+            ? // R08: one rendering function for preview and export; the partner's recorded
+              // basis and FSLI are reproduced verbatim with no invented valuation defect.
+              modifiedOpinionBasisLines(opinion)
             : []),
-          'Financial Statements: Statement of Financial Position, Statement of Profit or Loss and Other Comprehensive Income, Statement of Changes in Equity, Statement of Cash Flows, and Notes.',
+          ...statementLines,
           'Digital Credentials Embedded:',
           `• Engagement Partner Signature: [Signed Digitally by ${engagement.partner || 'Engagement Partner'}, Engagement Partner]`,
-          `• Official Firm Stamp & Seal: STE Audit & Accounting LLC [State of Qatar - QFC Registration QFC-00892]`
+          `• Official Firm Stamp & Seal: STE Audit SYNTHETIC DEMO SEAL — no legal certification claim`
         ]
       },
       {
@@ -1579,12 +1861,7 @@ export class TargetLifecycleCommands {
           ...header,
           'Deliverable 2: Management Letter on Internal Control Observations',
           'Structured Observations (Deficiency -> Impact -> Auditor Recommendation):',
-          ...this.state.findings
-            .filter((f) => f.engagementId === engagementId)
-            .map(
-              (f) =>
-                `• Deficiency: ${f.title}\n  Impact: ${f.severity} severity on ${f.financialStatementLine || 'financial reporting'}\n  Auditor Recommendation: ${f.recommendation || f.condition || f.description || ''} (${f.disposition})`
-            )
+          ...managementLetterLines(this.state, engagement)
         ]
       },
       {
@@ -1592,6 +1869,8 @@ export class TargetLifecycleCommands {
         lines: [
           ...header,
           'Deliverable 3: Letter of Representation (LOR formatted for client letterhead)',
+          `[Place on ${client.name} letterhead; reporting period ${engagement.period}]`,
+          ...statementLines,
           'To: STE Audit & Accounting LLC',
           'This representation letter is provided in connection with your audit of the financial statements of the entity for the statutory reporting period for the purpose of expressing an opinion on whether the financial statements give a true and fair view in accordance with IFRS.',
           'Management acknowledges its responsibility for the preparation of financial statements, internal control systems, and complete disclosure of fraud, litigation and subsequent events (ISA 580).',
@@ -1604,19 +1883,17 @@ export class TargetLifecycleCommands {
           ...header,
           'Deliverable 4: Management Correspondences Audit Trail',
           'Summary of Formal Audit Inquiries, Confirmation Results & Cleared Inquiries:',
-          ...(this.state.confirmations || [])
-            .filter((c) => c.engagementId === engagementId)
-            .map((c) => `• [Confirmation ${c.type}] ${c.counterparty} (${c.relatedFsli}): Status ${c.status} (Critical: ${c.critical ? 'Yes' : 'No'})`),
-          ...(engagement.reviews || [])
-            .map((r) => `• [Review Inquiry] ${r.title} (${r.status}): ${r.body}`)
+          ...clientCorrespondenceLines(this.state, engagement)
         ]
       },
       {
         deliverable: 'Final Balance Fee Note',
         lines: [
+          STANDARD_PAYMENT_TERMS,
           ...header,
           'Deliverable 5: Final Balance Fee Note (Remaining 50% Professional Fee Balance)',
-          `Invoice Number: INV-2026-FINAL-${engagementId}`,
+          `Invoice Number: ${invoiceNumber}`,
+          `To: ${financeRecipient.name} (${financeRecipient.title || financeRecipient.contactRole}); ${financeRecipient.email}`,
           `Contracted Professional Fee: ${acceptedFee.toLocaleString()} ${engagement.currency}`,
           `Recognized 50% Advance Settlement: ${advancePaid.toLocaleString()} ${engagement.currency}`,
           `Net Balance Professional Fee Due: ${balanceRemaining.toLocaleString()} ${engagement.currency}`,
@@ -1627,26 +1904,45 @@ export class TargetLifecycleCommands {
     const artifacts = [];
     for (const [index, d] of definitions.entries())
       artifacts.push({
-        ...(await this.artifactWriter(`${id}-${index + 1}`, d.deliverable, d.lines)),
+        ...(await this.artifactWriter(`${id}-${index + 1}`, d.deliverable, d.lines, {signaturePng:signature.signaturePng,sealPng:signature.sealPng,signerName:this.state.currentPerson})),
         deliverable: d.deliverable
       });
-    engagement = this.engagement(engagementId, ['manager', 'partner'], true);
+    engagement = this.engagement(engagementId, ['partner'], true);
+    this.assignedPartner(engagement);
     fail(targetReleaseBlockers(this.state, engagement));
-    if (actor !== this.state.currentUserId || basis !== reportBasis(this.state, engagement))
+    if (
+      actor !== this.state.currentUserId ||
+      basis !== reportBasis(this.state, engagement) ||
+      currentSignatureAuthorization(this.state, engagement)?.revision !== signature.revision
+    )
       throw new GuardError(
         'STALE_REVISION',
-        'Cleared audit basis/opinion changed while generating deliverables. Generate again.'
+        'Cleared audit basis, opinion or partner signature changed while generating deliverables. Generate again.'
       );
+    if (!existingBalance) {
+      if (invoiceNumber !== `${this.state.firmSettings.invoiceNumberPrefix}${this.state.firmSettings.invoiceNextNumber}` || engagement.auditLifecycle!.balanceInvoices.length) throw new GuardError('STALE_REVISION', 'Invoice sequence changed during bundle generation. Compile again.');
+      this.state.invoices.push({ id: finalInvoiceId, clientId: engagement.client, eng: engagementId, engagementId, invoiceNumber, description: 'Final audit balance — accepted fee less recorded advance', amount: balanceRemaining, paid: 0, currency: engagement.currency, status: 'Draft', due: plusDays(reportDate, this.state.firmSettings.paymentTermsDays), issueDate: reportDate, preparedBy: this.state.currentPerson, revision: 1, lines: [{ id: `${finalInvoiceId}-1`, description: 'Final audit balance', quantity: 1, rate: balanceRemaining, amount: balanceRemaining, sourceType: 'Fixed service', sourceId: engagement.proposalId }] });
+      this.state.firmSettings.invoiceNextNumber++;
+      engagement.auditLifecycle!.balanceInvoices.push({ invoiceId: finalInvoiceId, deliverableId: id, acceptedFee, recognizedAdvance: advancePaid, artifact: artifacts[4] });
+    }
+    if (existingBalance) engagement.auditLifecycle!.balanceInvoices.push({ invoiceId: finalInvoiceId, deliverableId: id, acceptedFee, recognizedAdvance: advancePaid, artifact: artifacts[4] });
     engagement.auditLifecycle!.deliverables.push({
       id,
       revision: engagement.auditLifecycle!.deliverables.length + 1,
       basis,
       opinionRevision: opinion.revision,
       generatedAt: new Date().toISOString(),
+      signatureAuthorizationRevision: signature.revision,
       generatedByUserId: actor,
       reportDate,
       artifacts
     });
+    const control = engagement.auditLifecycle!.archiveControl;
+    control.finalReportDate ||= reportDate;
+    control.freezeDueDate ||= plusDays(reportDate, 60);
+    control.freezeStatus = 'Counting Down';
+    control.reportSetId = id;
+    control.history.push({ at: new Date().toISOString(), actorUserId: actor, action: 'Signed report bundle compiled', reason: `Bundle ${id}; report date ${reportDate}; existing signature deadline ${control.freezeDueDate} retained.` });
     this.event(
       engagement,
       'ML / LOR / Audit Report generated',
@@ -1655,15 +1951,26 @@ export class TargetLifecycleCommands {
     return artifacts;
   }
   public markDeliverablesDelivered(engagementId: string, note: string) {
-    const engagement = this.engagement(engagementId, ['manager', 'partner'], true);
+    const engagement = this.engagement(engagementId, ['partner'], true);
+    this.assignedPartner(engagement);
     requireText(note, 'Delivery/sign-off record', 10);
     const set = currentDeliverables(this.state, engagement);
+    if (set && !hasExactFivePartBundle(set)) throw new GuardError('INVALID_STATE', 'Release requires exactly five semantic deliverables.');
     if (!set)
       throw new GuardError(
         'STALE_REVISION',
         'Generate a current cleared final audit set before recording delivery.'
       );
     if (set.deliveredAt) return;
+    const signedRepresentation = engagement.auditLifecycle!.signedRepresentations?.filter(record => record.deliverableSetId === set.id && record.basis === set.basis).at(-1);
+    if (!signedRepresentation) throw new GuardError('INVALID_STATE', 'Retain the executive-signed representation letter for this exact bundle before release.');
+    const finalInvoice = this.state.invoices.find(invoice => invoice.id === engagement.auditLifecycle!.balanceInvoices[0]?.invoiceId);
+    if (!finalInvoice) throw new GuardError('INVALID_STATE', 'Compile the persisted final invoice before release.');
+    const commercial = billingSummary(this.state, engagement);
+    if (finalInvoice.clientId !== engagement.client || finalInvoice.engagementId !== engagement.id || finalInvoice.currency !== engagement.currency || finalInvoice.amount !== commercial.balance || finalInvoice.status === 'Cancelled') throw new GuardError('STALE_REVISION', 'The persisted final invoice must reconcile to the exact engagement, currency and contracted balance before release.');
+    set.draftRepresentationArtifact = set.artifacts[2];
+    set.artifacts[2] = { ...signedRepresentation.artifact, deliverable: 'Letter of Representation' };
+    if (finalInvoice.status === 'Draft') finalInvoice.status = 'Issued';
     set.deliveredAt = new Date().toISOString();
     set.deliveredByUserId = this.state.currentUserId;
     set.deliveryNote = note;
@@ -1672,12 +1979,12 @@ export class TargetLifecycleCommands {
       at: new Date().toISOString(),
       actorUserId: this.state.currentUserId,
       action: control.finalReportDate
-        ? 'Report reissue resets freeze basis'
+        ? 'Report release retains signature deadline'
         : 'Freeze timer started',
       reason: `Final opinion/report date ${set.reportDate}; report set ${set.id}.`
     });
-    control.finalReportDate = set.reportDate;
-    control.freezeDueDate = plusDays(set.reportDate, 60);
+    control.finalReportDate ||= set.reportDate;
+    control.freezeDueDate ||= plusDays(set.reportDate, 60);
     control.freezeStatus = 'Counting Down';
     control.reportSetId = set.id;
     const version = engagement.releases.length + 1;
@@ -1710,6 +2017,9 @@ export class TargetLifecycleCommands {
   }
   public async generateBalanceInvoice(engagementId: string) {
     let engagement = this.engagement(engagementId, ['billing'], true);
+    const delivered = currentDeliverables(this.state, engagement);
+    const linked = engagement.auditLifecycle!.balanceInvoices.find(i => i.deliverableId === delivered?.id);
+    if (linked && delivered?.deliveredAt) return linked.artifact;
     const set = currentDeliverables(this.state, engagement),
       summary = billingSummary(this.state, engagement);
     if (
@@ -1801,12 +2111,29 @@ export class TargetLifecycleCommands {
     );
     return artifact;
   }
+  public async recordSignedRepresentation(engagementId: string, setId: string, artifact: GeneratedArtifactRecord, executive: string, financeExecutive: string, note: string) {
+    const engagement = this.engagement(engagementId, ['manager', 'partner'], true);
+    requireText(executive, 'Executive management signatory');
+    requireText(financeExecutive, 'Finance executive signatory');
+    requireText(note, 'Signature inspection and source reference', 10);
+    const set = currentDeliverables(this.state, engagement);
+    if (!set || set.id !== setId || set.deliveredAt) throw new GuardError('STALE_REVISION', 'Choose the current unreleased bundle for the signed representation.');
+    if (!artifact.size || !/^[a-f0-9]{64}$/i.test(artifact.sha256 || '') || !['application/pdf', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'].includes(artifact.mimeType)) throw new GuardError('INVALID_STATE', 'Upload the signed PDF or Word representation letter with a verified hash.');
+    const actor = this.state.currentUserId, basis = set.basis;
+    await loadVerifiedArtifact(artifact);
+    const current = this.engagement(engagementId, ['manager', 'partner'], true);
+    if (actor !== this.state.currentUserId || currentDeliverables(this.state, current)?.id !== setId || basis !== reportBasis(this.state, current)) throw new GuardError('STALE_REVISION', 'Bundle or actor changed while verifying the signed representation.');
+    const records = current.auditLifecycle!.signedRepresentations ||= [];
+    records.push({ revision: records.length + 1, deliverableSetId: setId, basis, artifact, executive, financeExecutive, note, actorUserId: actor, at: new Date().toISOString() });
+    this.event(current, 'Executive-signed representation retained', `${artifact.name}; ${executive}; ${financeExecutive}; ${note}`);
+  }
   public async simulateFreeze(engagementId: string, asOfDate: string, partnerEarlyLock = false) {
     let engagement = this.engagement(
       engagementId,
       partnerEarlyLock ? ['partner'] : ['records', 'manager', 'partner'],
       true
     );
+    if (partnerEarlyLock) this.assignedPartner(engagement);
     if (!isIsoDate(asOfDate))
       throw new GuardError('INVALID_STATE', 'Choose a valid simulation as-of date.');
     const control = engagement.auditLifecycle!.archiveControl,
@@ -1883,6 +2210,8 @@ export class TargetLifecycleCommands {
       manifest,
       artifacts: copies
     };
+    engagement.archive.packagingStatus = 'Pending';
+    await sealEngagementArchive(this.state, engagement);
     (this.state.archives ||= []).push({
       id: `ARCH-${set.id}`,
       engagementId,
@@ -1893,15 +2222,24 @@ export class TargetLifecycleCommands {
       archivedAt: at,
       archivedBy: this.state.currentPerson,
       onHold: false,
-      manifestCount: manifest.length,
-      manifest,
-      artifacts: copies
+      manifestCount: engagement.archive.manifest.length,
+      manifest: engagement.archive.manifest,
+      artifacts: engagement.archive.artifacts
     });
     this.event(
       engagement,
       partnerEarlyLock ? 'Partner manual early archive lock executed' : 'Archive frozen read-only',
       `Simulation as-of ${asOfDate}. No live SharePoint lock or legal compliance verification.`
     );
+  }
+  public async retryArchivePackaging(engagementId: string) {
+    requireActiveIdentity(this.state);
+    if (!hasAnyRole(this.state,['records','manager','partner'])) throw new GuardError('FORBIDDEN_SCOPE','Archive packaging requires records, Manager or Partner access.');
+    requireEngagementScope(this.state,engagementId,'administrative');
+    const engagement = this.state.engagements.find(e => e.id === engagementId);
+    if (!engagement?.archive || !isFrozen(engagement)) throw new GuardError('INVALID_STATE','Only a closed archive can be repackaged.');
+    await sealEngagementArchive(this.state,engagement);
+    this.notify();
   }
   public postFirmExpense(input: {
     date: string;

@@ -48,6 +48,7 @@ async function ready() {
     'Accepted',
     'Independent Partner assessment of all five screening areas.'
   );
+  prototypeStore.generateEngagementLetter(e.id, 'ISA 210 External Statutory Audit', 'IFRS', state.currentPerson, true);
   act(state, 'billing');
   commands.recordAdvance(e.id, {
     amount: e.agreedFee / 2,
@@ -331,10 +332,14 @@ it('replays Random, Stratified and systematic MUS samples from the same complete
     })) as any
   );
   const p = state.samplePopulations[0];
+  const methodology = {
+    samplingBasis: 'Reconciled complete supplier population supports reproducible selection for existence testing.',
+    sizeDetermination: 'Three items recorded as a documented professional override for this fixture.'
+  };
   for (const method of ['Random', 'Stratified', 'Monetary Unit Sampling'] as const) {
-    commands.generateSample(e.id, id, method, 3, 42);
+    commands.generateSample(e.id, id, method, 3, 42, methodology);
     const selected = p.items.filter((i) => i.selected).map((i) => i.id);
-    commands.generateSample(e.id, id, method, 3, 42);
+    commands.generateSample(e.id, id, method, 3, 42, methodology);
     assert.deepEqual(
       p.items.filter((i) => i.selected).map((i) => i.id),
       selected

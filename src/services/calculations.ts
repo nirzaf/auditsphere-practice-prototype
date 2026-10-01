@@ -94,7 +94,7 @@ export function applyReportingAdjustments(rows: TrialBalanceRow[], journals: Adj
   return { rows: adjustedRows, applied, unapplied };
 }
 
-// Module 15: Receivables Aging Calculation (VP-033)
+// Module 5: Receivables Aging Calculation (VP-033)
 export interface AgingSummary {
   current: number;
   days1_30: number;
@@ -254,7 +254,7 @@ export function calculateReceivablesAging(
   };
 }
 
-// Module 13: Budget vs Actuals (VP-029)
+// Module 5: Budget vs Actuals (VP-029)
 export interface BudgetAnalysis {
   plannedMinutes: number;
   plannedHours: number;
@@ -342,7 +342,7 @@ export function calculateBudgetVsActual(
   };
 }
 
-// Module 21 & 24: Trial Balance Totals (VP-035, VP-038, VP-040)
+// Module 2 / 5: Trial Balance Totals (VP-035, VP-038, VP-040)
 export function calculateTrialBalanceTotals(rows: TrialBalanceRow[]) {
   let assets = 0;
   let liabilities = 0;
@@ -385,7 +385,7 @@ export function calculateTrialBalanceTotals(rows: TrialBalanceRow[]) {
   };
 }
 
-// Module 21: General Ledger Completeness Check (VP-036)
+// Module 5: General Ledger Completeness Check (VP-036)
 export interface GLCompletenessCheck {
   accountCode: string;
   accountName: string;
@@ -507,7 +507,7 @@ export function verifyGLCompleteness(
   };
 }
 
-// Module 23: Reconciliation Variance Check (VP-039 / EX09)
+// Historical calculation compatibility: Reconciliation Variance Check (VP-039 / EX09)
 export function calculateReconciliationVariance(rec: ReconciliationSchedule) {
   const items = rec.items || [];
   // Proposed corrections cannot clear timing residual (EX09)
@@ -546,7 +546,7 @@ export function calculateReconciliationVariance(rec: ReconciliationSchedule) {
   };
 }
 
-// Module 24: Financial Statements Math
+// Module 3 / 5: Financial Statements Math
 export function calculateBalanceSheet(rows: TrialBalanceRow[]) {
   const assets = rows.filter(r => r.type === 'asset');
   const liabilities = rows.filter(r => r.type === 'liability');
@@ -597,7 +597,7 @@ export function calculateIncomeStatement(rows: TrialBalanceRow[]) {
   };
 }
 
-// Module 26: Consolidation Math (VP-045, VP-046 / EX10, EX11, EX12)
+// Historical calculation compatibility: Consolidation Math (VP-045, VP-046 / EX10, EX11, EX12)
 export function calculateConsolidatedBalanceSheet(
   parentRows: TrialBalanceRow[],
   subRows: TrialBalanceRow[],
@@ -732,7 +732,7 @@ export function calculateConsolidatedBalanceSheet(
   };
 }
 
-// Module 28: ISA 320 Materiality Calculation (VP-048 / F16 / STE v2.1)
+// Module 2: ISA 320 Materiality Calculation (VP-048 / F16 / STE v2.1)
 export type BenchmarkType = 'profit' | 'revenue' | 'assets' | 'equity';
 
 export interface BenchmarkBand {

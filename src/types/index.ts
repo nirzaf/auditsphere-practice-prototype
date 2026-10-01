@@ -1,5 +1,5 @@
-// AuditSphere Visual Prototype — Shared Types & Domain Models
-// Covers all 39 functional modules (VP-001 through VP-064)
+// STE Audit Management Tool v2.1 prototype — shared types & domain models.
+// Five required business modules plus supporting lifecycle records and migration compatibility.
 import type { TargetEngagementLifecycle, ExternalConfirmation, FirmLedgerEntry, PortalPasswordSimulation, PortalDelegation, PhysicalEvidenceReference } from './targetLifecycle';
 
 export type RoleKey =
@@ -20,6 +20,8 @@ export type RoleKey =
   | 'superuser';
 
 export interface UserPersona {
+  credentialSummary?: string;
+  cvReference?: string;
   id: string;
   /** Stable natural-person key shared by a person's role personas. */
   personId?: string;
@@ -111,7 +113,63 @@ export type RouteKey =
   | 'requirements'
   | 'client-requirements';
 
-// Module 02: Clients & CRM
+/** Routes that are part of the current STE Audit Management Tool v2.1 product surface:
+ * the five business modules, the client PBC portal and reference routes. */
+export type CurrentRouteKey =
+  | 'overview'
+  | 'acquisition'
+  | 'clients'
+  | 'client-detail'
+  | 'proposals'
+  | 'engagements'
+  | 'billing'
+  | 'onboarding'
+  | 'documents'
+  | 'trial-balance'
+  | 'audit-planning'
+  | 'scheduling'
+  | 'financial-statements'
+  | 'audit-risks'
+  | 'audit-fieldwork'
+  | 'sampling'
+  | 'confirmations'
+  | 'evidence'
+  | 'findings'
+  | 'reviews'
+  | 'delivery'
+  | 'records'
+  | 'my-time'
+  | 'reports'
+  | 'practice-ledger'
+  | 'portal'
+  | 'requirements'
+  | 'client-requirements'
+  | 'role-guide'
+  | 'module-guide';
+
+/** Retired historical route ids. They survive only as bookmark/persisted-hash redirects
+ * (see services/legacyRoutes.ts) and are not current product surfaces or navigation. */
+export type LegacyRouteId =
+  | 'jobs'
+  | 'job-templates'
+  | 'communications'
+  | 'budgets'
+  | 'receivables'
+  | 'accounting-setup'
+  | 'gl-transactions'
+  | 'account-mappings'
+  | 'adjustments'
+  | 'reconciliations'
+  | 'financial-packages'
+  | 'consolidation'
+  | 'audit'
+  | 'approvals'
+  | 'quality'
+  | 'administration'
+  | 'm365-setup'
+  | 'services';
+
+// Historical schema grouping (migration compatibility): 02: Clients & CRM
 export interface ClientContactSnapshot {
   name: string;
   email: string;
@@ -254,7 +312,7 @@ export interface ClientAccountingProfile extends AccountingProfileSnapshot {
   history: Array<AccountingProfileSnapshot & { revision: number; chartRevision: number; savedAt: string; savedByUserId: string }>;
 }
 
-// Module 03: Leads & Opportunities
+// Historical schema grouping (migration compatibility): 03: Leads & Opportunities
 export interface LeadOpportunity {
   id: string;
   name: string;
@@ -281,7 +339,7 @@ export interface LeadOpportunity {
   terms: boolean;
 }
 
-// Module 04: Proposals & Services
+// Historical schema grouping (migration compatibility): 04: Proposals & Services
 export interface ProposalItem {
   id: string;
   serviceName: string;
@@ -369,6 +427,8 @@ export interface ProposalRecord {
   terms: string;
   proposalMode?: 'Brief Quotation' | 'Comprehensive Technical Proposal';
   firmProfile?: string;
+  firmHistory?: string;
+  deliveryTimeline?: string;
   regulatoryRegistrations?: string[];
   teamCredentials?: Array<{ name: string; role: string; qualification: string; experience: string }> | string;
   industryExperience?: string;
@@ -390,6 +450,8 @@ export interface ProposalRecord {
     presentedAt: string;
     proposalMode?: 'Brief Quotation' | 'Comprehensive Technical Proposal';
     firmProfile?: string;
+    firmHistory?: string;
+    deliveryTimeline?: string;
     regulatoryRegistrations?: string[];
     teamCredentials?: any;
     industryExperience?: string;
@@ -429,7 +491,7 @@ export interface ProposalRecord {
   };
 }
 
-// Module 04 / Engagements
+// Historical schema grouping (migration compatibility): 04 / Engagements
 export interface GeneratedArtifactRecord {
   id: string;
   name: string;
@@ -571,6 +633,7 @@ export interface EngagementRecord {
   agreedFee: number;
   currency: string;
   proposalId?: string;
+  engagementLetterHistory?: NonNullable<EngagementRecord['engagementLetter']>[];
   engagementLetter?: {
     revision?: number;
     template: 'ISA 210 External Statutory Audit' | 'ISRS 4400 Agreed-Upon Procedures';
@@ -600,6 +663,7 @@ export interface EngagementRecord {
     importedAt: string;
     importedBy: string;
     fileName?: string;
+    originalArtifact?: GeneratedArtifactRecord;
     format?: 'CSV' | 'XLSX' | 'Legacy' | 'Manual';
     sha256?: string;
     mapping?: { code: number; name: number; debit: number; credit: number; signed: number; convention: 'signed-net' | 'debit-credit'; dimension?: { id: string; index: number } };
@@ -642,6 +706,10 @@ export interface EngagementRecord {
     manifest: Array<{ id: string; artifactId?: string; name: string; type: string; mimeType?: string; size?: number; sha?: string; sourceId?: string; sourceRevision?: number }>;
   }>;
   archive?: null | {
+    packagingStatus?: 'Pending' | 'Verified' | 'Incomplete — originals unavailable';
+    processedAt?: string;
+    unavailable?: string[];
+    inspection?: GeneratedArtifactRecord;
     archivedAt: string;
     archivedBy: string;
     releaseId: string;
@@ -690,7 +758,7 @@ export interface EngagementRecord {
   events: Array<{ text: string; ref: string; time: string; type: string }>;
 }
 
-// Module 05: Jobs & Tasks
+// Historical schema grouping (migration compatibility): 05: Jobs & Tasks
 export interface JobTaskItem {
   id: string;
   jobId: string;
@@ -729,7 +797,7 @@ export interface JobRecord {
   createdAt: string;
 }
 
-// Module 06: Job Templates
+// Historical schema grouping (migration compatibility): 06: Job Templates
 export interface JobTemplateItem {
   id: string;
   name: string;
@@ -748,7 +816,7 @@ export interface JobTemplateItem {
   }>;
 }
 
-// Module 07: Contextual Collaboration
+// Historical schema grouping (migration compatibility): 07: Contextual Collaboration
 export interface CommentItem {
   id: string;
   subjectType: 'client' | 'engagement' | 'job' | 'task';
@@ -773,7 +841,7 @@ export interface LocalNoticeItem {
   readAt?: string;
 }
 
-// Module 09: PBC
+// Historical schema grouping (migration compatibility): 09: PBC
 export interface PbcRequestItem {
   id: string;
   title: string;
@@ -795,6 +863,7 @@ export interface PbcRequestItem {
   requestLink?: string;
   clarificationNote?: string;
   sharedFiles?: Array<{
+    artifact?: GeneratedArtifactRecord;
     id: string;
     name: string;
     version: number;
@@ -812,6 +881,7 @@ export interface PbcRequestItem {
     text: string;
     time: string;
     file?: string;
+    fileId?: string;
     version?: number;
     clientVisible?: boolean;
   }>;
@@ -823,8 +893,9 @@ export interface PbcRequestItem {
   };
 }
 
-// Module 10 & 18: Documents & SharePoint
+// Historical schema grouping (migration compatibility): 10 & 18: Documents & SharePoint
 export interface DocumentItem {
+  mimeType?: string;
   id: string;
   clientId: string;
   engagementId?: string;
@@ -851,7 +922,7 @@ export interface DocumentItem {
   sharingHistory?: Array<{ from: 'Internal' | 'Client shared'; to: 'Internal' | 'Client shared'; by: string; byUserId: string; at: string; reason: string }>;
 }
 
-// Module 11: Communications
+// Historical schema grouping (migration compatibility): 11: Communications
 export interface CommunicationItem {
   id: string;
   clientId: string;
@@ -903,7 +974,7 @@ export interface EmailTemplateItem {
   placeholders: string[]; // e.g. ['{client_name}', '{request_title}', '{due_date}']
 }
 
-// Module 12: Time Tracking
+// Historical schema grouping (migration compatibility): 12: Time Tracking
 export interface TimeEntryItem {
   id: string;
   person: string;
@@ -922,6 +993,10 @@ export interface TimeEntryItem {
   billable: boolean;
   activity: string;
   fsli?: string;
+  auditPhase?: 'Planning' | 'Fieldwork' | 'Review' | 'Reporting';
+  recordedByUserId?: string;
+  recordedAt?: string;
+  chargeOutRole?: 'Partner' | 'Manager' | 'Senior/Reviewer' | 'Preparer/Staff';
   narrative?: string;
   status: 'Draft' | 'Submitted' | 'Approved' | 'Returned' | 'Superseded';
   reviewedBy?: string;
@@ -932,7 +1007,7 @@ export interface TimeEntryItem {
   billedInvoiceId?: string;
 }
 
-// Module 13: Budgets
+// Historical schema grouping (migration compatibility): 13: Budgets
 export interface BudgetRecord {
   id: string;
   engagementId: string;
@@ -951,7 +1026,7 @@ export interface BudgetRecord {
   }>;
 }
 
-// Module 14: Billing & Invoicing
+// Historical schema grouping (migration compatibility): 14: Billing & Invoicing
 export interface InvoiceLineItem {
   id: string;
   description: string;
@@ -1032,7 +1107,7 @@ export interface CreditNoteRecord {
   issuedBy?: string;
 }
 
-// Module 15: Receivables & Offline Receipts
+// Historical schema grouping (migration compatibility): 15: Receivables & Offline Receipts
 export interface ReceiptRecord {
   id: string;
   clientId: string;
@@ -1056,7 +1131,7 @@ export interface ReceiptRecord {
   }>;
 }
 
-// Module 20-25: Accounting
+// Historical schema grouping (migration compatibility): 20-25: Accounting
 export interface TrialBalanceRow {
   code: string;
   name: string;
@@ -1098,6 +1173,7 @@ export interface GLTransactionItem {
 }
 
 export interface AdjustmentJournalItem {
+  managementResponses?: Array<{ journalRevision: number; accepted: boolean; respondent: string; reference: string; note: string; recordedByUserId: string; at: string }>;
   id: string;
   engagementId: string;
   revision?: number;
@@ -1190,7 +1266,7 @@ export interface ReconciliationSchedule {
   }>;
 }
 
-// Module 26: Consolidation
+// Historical schema grouping (migration compatibility): 26: Consolidation
 export interface ConsolidationPerimeterHistoryEntry {
   revision: number;
   changedBy: string;
@@ -1277,7 +1353,7 @@ export interface ConsolidationGroupRecord {
   outputPackages?: ConsolidationOutputPackage[];
 }
 
-// Module 27-36: Audit
+// Historical schema grouping (migration compatibility): 27-36: Audit
 export interface AuditRiskRevision {
   revision: number;
   title: string;
@@ -1398,6 +1474,7 @@ export interface AuditProgramItem {
 }
 
 export interface SamplePopulationRow {
+  evidenceMode?: 'Digital' | 'Physical' | 'Hybrid';
   id: string;
   physicalReference?: PhysicalEvidenceReference;
   itemRef: string;
@@ -1429,6 +1506,7 @@ export interface SamplePopulationItem {
   sourceRevision?: number;
   sourceFileName?: string;
   sourceSha256?: string;
+  sourceArtifact?: GeneratedArtifactRecord;
   sourceComplete?: boolean;
   sourceHistory?: Array<{ revision: number; fileName: string; sha256: string; importedAt: string; importedBy: string; totalPopulationCount: number; totalPopulationValue: number; items: SamplePopulationRow[] }>;
   area: string;
@@ -1444,6 +1522,12 @@ export interface SamplePopulationItem {
   selectedValue: number;
   selectionVersion?: number;
   selectionPreparedBy?: string;
+  /** Reviewer-recorded sampling basis: why this population and method are appropriate. */
+  samplingBasis?: string;
+  /** How the sample size was determined (firm method or documented professional override). */
+  sizeDetermination?: string;
+  /** Reviewer-defined applicable attributes/strata for attribute sampling. */
+  attributeDefinition?: string;
   selectionReviews?: Array<{ version: number; sourceRevision: number; reviewedBy: string; reviewedAt: string; selectedCount: number; testedCount: number; untestedCount: number; limitedCount: number; exceptionCount: number; evaluation: string }>;
   items: SamplePopulationRow[];
 }
@@ -1465,8 +1549,11 @@ export interface EvidenceItem {
 }
 
 export interface WorkpaperItem {
+  evidenceMode?: 'Digital' | 'Physical' | 'Hybrid';
   id: string;
   physicalReference?: PhysicalEvidenceReference;
+  /** Recorded risk tier at preparation: RED files are manager-executed and partner-reviewed. */
+  executionRiskLevel?: 'RED' | 'AMBER' | 'GREEN';
   generatedArtifact?: GeneratedArtifactRecord;
   generatedArtifactHistory?: GeneratedArtifactRecord[];
   title: string;
@@ -1551,6 +1638,8 @@ export interface WorkpaperTemplateItem {
 }
 
 export interface FindingItem {
+  managementLetterVisible?: boolean;
+  managementLetterHistory?: Array<{ at: string; actorUserId: string; included: boolean; reason: string }>;
   id: string;
   engagementId: string;
   type?: 'Monetary misstatement' | 'Internal control deficiency' | 'Disclosure omission';
@@ -1565,6 +1654,8 @@ export interface FindingItem {
   grossMisstatement?: number;
   netMisstatement?: number;
   condition?: string;
+  /** Substantive consequence of the deficiency; required for management-letter inclusion. */
+  impact?: string;
   recommendation?: string;
   currency?: string;
   disposition: 'Uncorrected' | 'Management agreed' | 'Corrected in TB' | 'Waived as immaterial' | 'Proposed for correction' | 'Corrected by client' | 'Uncorrected waived';
@@ -1604,10 +1695,13 @@ export interface ReviewNoteItem {
   responseEvidence?: string;
   version: number;
   subjectVersion?: number;
+  /** Client-bundle scope: review notes stay internal unless explicitly designated as formal client correspondence. */
+  externalVisibility?: 'Internal only' | 'Formal client correspondence';
+  correspondenceHistory?: Array<{ at: string; actorUserId: string; visibility: 'Internal only' | 'Formal client correspondence'; reason: string }>;
   history: Array<{ actor: string; action: string; time: string; text?: string }>;
 }
 
-// Module 18: Microsoft 365 Setup Simulation
+// Legacy Microsoft 365 simulation configuration retained for saved-state migration compatibility; not a current product module.
 export interface M365SimulationConfig {
   tenantName: string;
   tenantId: string;
@@ -1631,7 +1725,7 @@ export interface M365SimulationConfig {
   liveConnected: false; // Must strictly always be false!
 }
 
-// Module 39: Firm Administration
+// Historical schema grouping (migration compatibility): 39: Firm Administration
 export interface FirmSettings {
   firmName: string;
   firmLegalName: string;
@@ -1704,6 +1798,7 @@ export interface AcceptanceCaseRecord {
 }
 
 export interface AuditPlanRecord {
+  benchmarkProvenance?: { sourceVersion: number; accounts: Array<{ code: string; balance: number }>; rawValue: number; normalizations: Array<{ amount: number; rationale: string; accountCode: string }> };
   id: string;
   sourceVersion?: number;
   benchmarkSource?: 'TB' | 'Manual';

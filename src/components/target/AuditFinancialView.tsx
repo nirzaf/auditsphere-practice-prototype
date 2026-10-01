@@ -1,3 +1,4 @@
+import { comparativeVariance } from '../../services/comparativeVariance';
 import React, { useEffect, useState } from 'react';
 import { prototypeStore } from '../../store/prototypeStore';
 import {
@@ -5,7 +6,7 @@ import {
   calculateIncomeStatement,
   formatCurrency
 } from '../../services/calculations';
-import { analyticalReviewIsCurrent, isFrozen, currentPlan } from '../../services/targetLifecycle';
+import { analyticalReviewIsCurrent, isFrozen, currentPlan, fsliRiskLevel } from '../../services/targetLifecycle';
 import { hasAnyRole, visibleEngagementIds } from '../../services/guards';
 import { ActionButton, type TargetViewProps } from './TargetCommon';
 
@@ -14,12 +15,12 @@ interface ARModalState {
   current: number;
   comparative?: number;
   variance: number;
-  variancePercent: number;
+  variancePercent: number | null;
   accounts: import('../../types').TrialBalanceRow[];
 }
 
 export function AuditFinancialView({ onNavigate }: TargetViewProps) {
-  const state = prototypeStore.getSnapshot(),
+  const state = prototypeStore.getReadSnapshot(),
     eng = state.engagements.find((e) => e.id === state.selectedEngagement),
     [comparisonId, setComparisonId] = useState(''),
     [arModal, setArModal] = useState<ARModalState | null>(null),
@@ -45,6 +46,7 @@ export function AuditFinancialView({ onNavigate }: TargetViewProps) {
     comparisons = state.engagements.filter(
       (e) =>
         e.client === eng.client &&
+        e.service === eng.service &&
         e.year < eng.year &&
         e.currency === eng.currency &&
         (visible === 'ALL' || visible.includes(e.id)) &&
@@ -69,7 +71,7 @@ export function AuditFinancialView({ onNavigate }: TargetViewProps) {
         0
       );
       const comparativeRows = comparison?.rows.filter((r) => r.mappedStatementLine === line) || [];
-      const comparative = comparison
+      const comparative = comparison && comparativeRows.length
         ? comparativeRows.reduce(
             (n, r) =>
               n + (['liability', 'equity', 'revenue'].includes(r.type) ? -r.balance : r.balance),
@@ -77,33 +79,10 @@ export function AuditFinancialView({ onNavigate }: TargetViewProps) {
           )
         : undefined;
 
-      const variance = comparative !== undefined ? current - comparative : 0;
-      const variancePercent =
-        comparative !== undefined && comparative !== 0
-          ? ((current - comparative) / Math.abs(comparative)) * 100
-          : 0;
+      const comparisonMovement = comparativeVariance(current,comparative);
+      const variance = comparisonMovement.movement ?? 0, variancePercent = comparisonMovement.percent;
 
-      // Risk Stratification according to Section 4.2 Module 2
-      // Green = Balance < TE and Low Inherent Risk (Low Risk)
-      // Amber = Balance >= TE, Low Inherent Risk (Moderate Risk)
-      // Red = Balance >= PM OR High Inherent Risk OR Critical Accounting Estimate (Critical Risk)
-      const isCriticalEstimate = /estimate|provision|fair value|impairment|ecl|expected credit loss|allowance|obsolesc|warranty|goodwill|contingenc|going concern/i.test(line) ||
-        accounts.some(a => /estimate|provision|fair value|impairment|ecl|expected credit loss|allowance|obsolesc|warranty|goodwill|contingenc|going concern/i.test(a.name));
-
-      const isHighInherentRisk = (state.auditRisks || []).some(
-        (risk) =>
-          risk.engagementId === eng.id &&
-          risk.rating === 'Significant' &&
-          (risk.area?.toLowerCase() === line.toLowerCase() ||
-           accounts.some(a => risk.area?.toLowerCase().includes(a.name.toLowerCase())))
-      );
-
-      let riskLevel: 'GREEN' | 'AMBER' | 'RED' = 'GREEN';
-      if (isCriticalEstimate || isHighInherentRisk || (pm && Math.abs(current) >= pm)) {
-        riskLevel = 'RED';
-      } else if (te && Math.abs(current) >= te) {
-        riskLevel = 'AMBER';
-      }
+      const riskLevel = fsliRiskLevel(state, eng, line);
 
       return {
         line,
@@ -171,6 +150,7 @@ export function AuditFinancialView({ onNavigate }: TargetViewProps) {
     const program = state.auditPrograms.find(
       (p) =>
         p.engagementId === eng.id &&
+        !['Analytical Review', 'Going Concern'].includes(p.area) &&
         (p.financialStatementLines?.includes(lineName) || match(p.area))
     );
     onNavigate('audit-risks', program?.id);
@@ -219,7 +199,7 @@ export function AuditFinancialView({ onNavigate }: TargetViewProps) {
           <label className="target-field" style={{ minWidth: 280 }}>
             <span>Prior Year Comparative Benchmark</span>
             <select value={comparisonId} onChange={(e) => setComparisonId(e.target.value)}>
-              <option value="">Synthetic Prior Year Comparative (FY {eng.year - 1})</option>
+              <option value="">No comparative loaded — select a prior engagement below (none is synthesized)</option>
               {comparisons.map((c) => (
                 <option value={c.id} key={c.id}>
                   {c.period} · {c.id} (source v{c.sourceVersion})
@@ -317,10 +297,21 @@ export function AuditFinancialView({ onNavigate }: TargetViewProps) {
                       ? `${l.variance > 0 ? '+' : ''}${formatCurrency(l.variance, eng.currency)}`
                       : '—'}
                   </td>
-                  <td className="text-right mono font-medium">
-                    {l.comparative !== undefined
-                      ? `${l.variancePercent > 0 ? '+' : ''}${l.variancePercent.toFixed(1)}%`
-                      : '—'}
+                  <td
+                    className="text-right mono font-medium"
+                    title={
+                      l.comparative === undefined
+                        ? 'No prior-period source selected'
+                        : l.variancePercent === null
+                          ? `New balance — prior balance is zero; movement ${l.variance} ${eng.currency}`
+                          : 'Signed movement on prior balance'
+                    }
+                  >
+                    {l.comparative === undefined
+                      ? '—'
+                      : l.variancePercent === null
+                        ? 'n.m.'
+                        : `${l.variancePercent > 0 ? '+' : ''}${l.variancePercent.toFixed(1)}%`}
                   </td>
                   <td>
                     <span
@@ -447,10 +438,21 @@ export function AuditFinancialView({ onNavigate }: TargetViewProps) {
                       ? `${l.variance > 0 ? '+' : ''}${formatCurrency(l.variance, eng.currency)}`
                       : '—'}
                   </td>
-                  <td className="text-right mono font-medium">
-                    {l.comparative !== undefined
-                      ? `${l.variancePercent > 0 ? '+' : ''}${l.variancePercent.toFixed(1)}%`
-                      : '—'}
+                  <td
+                    className="text-right mono font-medium"
+                    title={
+                      l.comparative === undefined
+                        ? 'No prior-period source selected'
+                        : l.variancePercent === null
+                          ? `New balance — prior balance is zero; movement ${l.variance} ${eng.currency}`
+                          : 'Signed movement on prior balance'
+                    }
+                  >
+                    {l.comparative === undefined
+                      ? '—'
+                      : l.variancePercent === null
+                        ? 'n.m.'
+                        : `${l.variancePercent > 0 ? '+' : ''}${l.variancePercent.toFixed(1)}%`}
                   </td>
                   <td>
                     <span
@@ -538,7 +540,13 @@ export function AuditFinancialView({ onNavigate }: TargetViewProps) {
                   <div>
                     <span className="caption">Variance:</span>
                     <div className="mono font-medium">
-                      {arModal.variancePercent.toFixed(1)}% ({formatCurrency(arModal.variance, eng.currency)})
+                      {arModal.comparative === undefined
+                        ? 'Unknown — no prior-period source selected'
+                        : arModal.comparative === 0
+                          ? arModal.current === 0
+                            ? `No movement — both periods nil (${formatCurrency(0, eng.currency)})`
+                            : `New balance — percentage not meaningful on a zero prior balance (movement ${formatCurrency(arModal.variance, eng.currency)})`
+                          : `${arModal.variancePercent === null ? 'n.m.' : `${arModal.variancePercent > 0 ? '+' : ''}${arModal.variancePercent.toFixed(1)}%`} (${formatCurrency(arModal.variance, eng.currency)})`}
                     </div>
                   </div>
                 </div>
@@ -593,6 +601,11 @@ export function AuditFinancialView({ onNavigate }: TargetViewProps) {
                 </div>
               </div>
             </div>
+            <div className="p12">
+              <label htmlFor="ar-conclusion">Going concern conclusion and source references</label>
+              <textarea id="ar-conclusion" className="w-full mt4" rows={3} value={arConclusion} onChange={event => setArConclusion(event.target.value)} placeholder="Record the conclusion, explain adverse answers, and identify supporting sources." />
+              {arError && <p role="alert" className="tag red">{arError}</p>}
+            </div>
             <div className="modal-foot">
               <button className="btn sm ghost" onClick={() => setArModal(null)}>Cancel</button>
               <button
@@ -602,8 +615,9 @@ export function AuditFinancialView({ onNavigate }: TargetViewProps) {
                   try {
                     prototypeStore.signOffAnalyticalReview(eng.id, { fsli: arModal.line, tbSourceVersion: eng.sourceVersion,
                       mappingRevision: mapping?.revision, planVersion: plan?.version, comparativeEngagementId: comparison?.id,
-                      currentBalance: arModal.current, priorBalance: arModal.comparative || 0,
-                      varianceAmount: arModal.variance, variancePct: arModal.variancePercent,
+                      comparativeSourceVersion: comparison?.sourceVersion, comparativeMappingRevision: state.accountMappingRevisions?.filter(item => item.engagementId === comparison?.id).at(-1)?.revision,
+                      currentBalance: arModal.current, priorBalance: arModal.comparative,
+                      varianceAmount: comparison ? arModal.variance : undefined, variancePct: comparison && arModal.comparative !== 0 ? arModal.variancePercent : null,
                       analysis: arNotes, isa570Checklist: { ...goingConcernChecklist, conclusion: arConclusion } });
                     setArModal(null); setArError('');
                   } catch (error) { setArError(error instanceof Error ? error.message : 'Sign-off failed'); }

@@ -1,5 +1,5 @@
-// Module 02 & 17: Centralized Client 360 Workspace (VP-008)
-// 12 Tabs: Overview, Contacts, Engagements, Jobs, Documents, Requests, Communications, Time/Budgets, Billing, Accounting, Audit, Activity
+// Module 1: Client profile, contacts and current engagement handoffs (VP-008).
+// Historical tab rendering branches remain compatibility support; the visible tab list is current-only.
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { RouteKey, ClientContact, PbcRequestItem, CustomFieldDefinition } from '../../types';
@@ -627,8 +627,8 @@ const ClientDetailWorkspace: React.FC<ClientDetailViewProps> = ({ clientId, sear
         <div className="panel">
           <div className="panel-head">
             <h3>Jobs & Delivery Containers</h3>
-            <button className="btn primary sm" onClick={() => navigateWithClientEngagement('jobs')}>
-              <Icon name="plus" /> Go to Jobs
+            <button className="btn primary sm" onClick={() => navigateWithClientEngagement('scheduling')}>
+              <Icon name="clock" /> Open Resource Scheduling
             </button>
           </div>
           <div className="tablewrap">
@@ -768,8 +768,8 @@ const ClientDetailWorkspace: React.FC<ClientDetailViewProps> = ({ clientId, sear
         <div className="panel">
           <div className="panel-head">
             <h3>Client Communications Register</h3>
-            <button className="btn primary sm" onClick={() => navigateWithClientEngagement('communications')}>
-              <Icon name="message" /> Compose Email / Note
+            <button className="btn primary sm" onClick={() => navigateWithClientEngagement('documents')}>
+              <Icon name="folder" /> Open Engagement Directory
             </button>
           </div>
           <div className="stack panel-pad" style={{ gap: 12 }}>
@@ -845,8 +845,8 @@ const ClientDetailWorkspace: React.FC<ClientDetailViewProps> = ({ clientId, sear
         <div className="panel panel-pad">
           <h3>Trial Balance & Ledgers</h3>
           <p className="sub" style={{ marginBottom: 16 }}>Imported accounting books for active external audit.</p>
-          <button className="btn primary sm" onClick={() => navigateWithClientEngagement('accounting-setup')}>
-            <Icon name="calculator" /> Open Accounting Workbench
+          <button className="btn primary sm" onClick={() => navigateWithClientEngagement('trial-balance')}>
+            <Icon name="calculator" /> Open Trial Balance & Ledgers
           </button>
         </div>
       )}
@@ -856,8 +856,8 @@ const ClientDetailWorkspace: React.FC<ClientDetailViewProps> = ({ clientId, sear
         <div className="panel">
           <div className="panel-head">
             <h3>Assurance Workpapers ({workpapers.length})</h3>
-            <button className="btn primary sm" onClick={() => navigateWithClientEngagement('audit')}>
-              <Icon name="checkboard" /> Open Workpaper Desk
+            <button className="btn primary sm" onClick={() => navigateWithClientEngagement('audit-fieldwork')}>
+              <Icon name="checkboard" /> Open Workprograms & Evidence
             </button>
           </div>
           <div className="tablewrap">

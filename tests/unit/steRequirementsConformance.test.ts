@@ -6,8 +6,9 @@ import { createInitialState } from '../../src/store/initialState.js';
 import { prototypeStore } from '../../src/store/prototypeStore.js';
 import { TargetLifecycleCommands } from '../../src/store/targetLifecycleCommands.js';
 import { getRoutedContact } from '../../src/services/contactRouting.js';
-import { opinionValidation } from '../../src/services/targetLifecycle.js';
+import { opinionValidation, fsliRiskLevel } from '../../src/services/targetLifecycle.js';
 import { DECK_SLIDES } from '../../src/components/clientRequirements/deckData.js';
+import { REQUIRED_CONFIRMATION_TYPES } from '../../src/types/targetLifecycle';
 import type { PrototypeState, LeadOpportunity, ClientRecord, ClientContact, AcceptanceCaseRecord } from '../../src/types/index.js';
 
 let state: PrototypeState;
@@ -117,7 +118,11 @@ describe('STE Audit Management Tool v2.1 Requirements Conformance (All 17 Gaps)'
     const proposalsTsx = readFileSync(join(process.cwd(), 'src/components/modules/ProposalsView.tsx'), 'utf-8');
     assert.match(proposalsTsx, /Brief Quotation/);
     assert.match(proposalsTsx, /Comprehensive Technical Proposal/);
-    assert.match(proposalsTsx, /50% advance deposit payable upon contract signing/);
+    // R02: the final 50% belongs to delivery of the FINAL signed deliverables package.
+    const terms = readFileSync(join(process.cwd(),'src/services/clientOutputs.ts'),'utf8');
+    assert.match(proposalsTsx, /STANDARD_PAYMENT_TERMS/);
+    assert.match(terms, /50% advance deposit payable upon engagement letter \(EL\) execution/);
+    assert.match(terms, /50% final balance payable upon delivery of the final signed audit deliverables package/);
     assert.match(proposalsTsx, /WhatsApp \(Direct communication channel\)/);
   });
 
@@ -199,8 +204,12 @@ describe('STE Audit Management Tool v2.1 Requirements Conformance (All 17 Gaps)'
 
   // Gap 11: Green / Amber / Red algorithm forces critical accounting estimates and high risks to RED
   it('Gap 11: critical accounting estimates and high inherent risks are forced to RED', () => {
-    const financialTsx = readFileSync(join(process.cwd(), 'src/components/target/AuditFinancialView.tsx'), 'utf-8');
-    assert.match(financialTsx, /isCriticalEstimate\s*\|\|\s*isHighInherentRisk/, 'Critical estimates and high inherent risks must trigger RED riskLevel');
+    const engagement = state.engagements[0];
+    engagement.rows = [{ code: 'TEST-ECL', name: 'Expected credit loss estimate', type: 'asset', balance: 1, mappedStatementLine: 'Receivables' }];
+    assert.equal(fsliRiskLevel(state, engagement, 'Receivables'), 'RED');
+    engagement.rows[0].name = 'Trade receivables';
+    state.auditRisks.push({ ...state.auditRisks[0], id: 'RISK-TEST', engagementId: engagement.id, area: 'Receivables', rating: 'Significant' });
+    assert.equal(fsliRiskLevel(state, engagement, 'Receivables'), 'RED');
   });
 
   // Gap 12: TB automated mapping memory
@@ -232,14 +241,8 @@ describe('STE Audit Management Tool v2.1 Requirements Conformance (All 17 Gaps)'
   // Gap 15: Confirmation types (Bank, Accounts Receivable, Accounts Payable, Inventory, Legal)
   it('Gap 15: confirmation types include Bank, Accounts Receivable, Accounts Payable, Inventory, and Legal', () => {
     const confirmationsTsx = readFileSync(join(process.cwd(), 'src/components/target/ConfirmationsView.tsx'), 'utf-8');
-    assert.match(confirmationsTsx, /Accounts Receivable/);
-    assert.match(confirmationsTsx, /Accounts Payable/);
-    assert.match(confirmationsTsx, /Legal/);
-    assert.match(confirmationsTsx, /Bank/);
-    assert.match(confirmationsTsx, /Inventory/);
-
-    const typesTs = readFileSync(join(process.cwd(), 'src/types/targetLifecycle.ts'), 'utf-8');
-    assert.match(typesTs, /'Accounts Receivable'\s*\|\s*'Accounts Payable'\s*\|\s*'Inventory'\s*\|\s*'Legal'/);
+    assert.match(confirmationsTsx, /REQUIRED_CONFIRMATION_TYPES\.map/);
+    assert.deepEqual([...REQUIRED_CONFIRMATION_TYPES], ['Bank','Accounts Receivable','Accounts Payable','Inventory','Legal']);
   });
 
   // Gap 16: Reporting/archive authorization (FSLI requirement, Partner signature, Partner manual early lock)

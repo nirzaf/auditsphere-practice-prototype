@@ -1,10 +1,15 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
+import { persistArtifact, artifactSha256 } from '../../services/artifactStore';
 import { prototypeStore } from '../../store/prototypeStore';
 import type { AuditOpinion } from '../../types/targetLifecycle';
 import { hasAnyRole } from '../../services/guards';
+import { clientCorrespondenceLines, managementLetterLines } from '../../services/clientOutputs';
 import {
   currentDeliverables,
+  currentPartnerOpinion,
+  currentSignatureAuthorization,
   isFrozen,
+  modifiedOpinionBasisLines,
   reportBasis,
   targetReleaseBlockers,
   plusDays
@@ -19,15 +24,9 @@ import {
 } from './TargetCommon';
 
 export function OpinionDeliverablesView(props: TargetViewProps) {
-  const state = prototypeStore.getSnapshot(),
+  const state = prototypeStore.getReadSnapshot(),
     eng = state.engagements.find((e) => e.id === state.selectedEngagement);
-  if (!eng) return null;
-
-  const opinion = eng.auditLifecycle!.opinions.at(-1),
-    set = currentDeliverables(state, eng),
-    blockers = targetReleaseBlockers(state, eng),
-    frozen = isFrozen(eng),
-    archiveControl = eng.auditLifecycle!.archiveControl;
+  const opinion = eng ? currentPartnerOpinion(state, eng) : undefined;
 
   // Local state for interactive conditional qualification builder
   const [selectedOpinionType, setSelectedOpinionType] = useState<AuditOpinion>(
@@ -35,6 +34,15 @@ export function OpinionDeliverablesView(props: TargetViewProps) {
   );
   const [selectedFsli, setSelectedFsli] = useState<string>(opinion?.focusArea || '');
   const [opinionRationale, setOpinionRationale] = useState<string>(opinion?.basis || '');
+  useEffect(() => {
+    setSelectedOpinionType(opinion?.value || 'Clean');
+    setSelectedFsli(opinion?.focusArea || '');
+    setOpinionRationale(opinion?.basis || '');
+  }, [eng?.id, opinion?.revision]);
+  if (!eng) return null;
+  const set = currentDeliverables(state, eng), blockers = targetReleaseBlockers(state, eng), frozen = isFrozen(eng), archiveControl = eng.auditLifecycle!.archiveControl;
+  const signature = currentSignatureAuthorization(state, eng);
+  const signatureHistory = eng.auditLifecycle!.signatureAuthorizations || [];
 
   const availableFslis = [
     ...new Set(
@@ -58,8 +66,7 @@ export function OpinionDeliverablesView(props: TargetViewProps) {
             <span className="tag blue mb8">MODULE 4: REPORTING, DELIVERABLES & ARCHIVE</span>
             <h2>Audit Opinion & 5-Part Commercial Deliverables Package</h2>
             <p className="caption">
-              Strict compliance with <strong>ISA 700</strong> (Forming an Opinion), <strong>ISA 705</strong> (Modifications to the Opinion), 
-              and <strong>ISA 230</strong> (Audit Documentation 60-Day Archival Lock). Primary Currency: <strong>QAR</strong>.
+              Prototype workflows for opinion selection, modified opinions and a 60-day archive policy. Primary Currency: <strong>QAR</strong>.
             </p>
           </div>
           <div className="text-right">
@@ -119,13 +126,14 @@ export function OpinionDeliverablesView(props: TargetViewProps) {
               ISA 705 requires an explicit Basis for Modification paragraph describing the specific quantitative and qualitative matters.
             </p>
 
-            <Field label="Affected Financial Statement Line Item (FSLI)" name="focus" defaultValue={selectedFsli || availableFslis[0]}>
+            <label className="target-field"><span>Affected Financial Statement Line Item (FSLI)</span>
+            <select name="focus" value={selectedFsli || availableFslis[0]} onChange={e => setSelectedFsli(e.target.value)}>
               {availableFslis.map((line) => (
                 <option key={line} value={line}>
                   {line}
                 </option>
               ))}
-            </Field>
+            </select></label>
 
             <label className="target-field mt12">
               <span>Quantitative / Qualitative Rationale (min 20 characters, injected into report)</span>
@@ -142,11 +150,17 @@ export function OpinionDeliverablesView(props: TargetViewProps) {
             {opinionRationale.trim().length > 0 && (
               <div className="mt12 p12 bg-white" style={{ borderRadius: 4, border: '1px dashed #cbd5e1' }}>
                 <span className="caption" style={{ fontWeight: 600, color: '#475569' }}>
-                  Live Preview: "Basis for {selectedOpinionType} Opinion" (ISA 705 Paragraph):
+                  Live Preview — rendered by the same projection as the generated report:
                 </span>
-                <p className="sub mt4" style={{ fontStyle: 'italic' }}>
-                  "The financial statements do not adequately reflect the required valuation of {selectedFsli || '[FSLI]'} in accordance with IFRS. {opinionRationale}"
-                </p>
+                <div className="sub mt4" style={{ fontStyle: 'italic' }}>
+                  {modifiedOpinionBasisLines({
+                    value: selectedOpinionType,
+                    focusArea: selectedFsli || '[affected FSLI]',
+                    basis: opinionRationale
+                  }).map((line, index) => (
+                    <p key={index} style={{ margin: '2px 0' }}>{line}</p>
+                  ))}
+                </div>
               </div>
             )}
           </div>
@@ -162,11 +176,13 @@ export function OpinionDeliverablesView(props: TargetViewProps) {
               </div>
               <div>
                 <strong>{eng.partner || 'Daniel James'}, Engagement Partner</strong>
-                <p className="caption">Digital Signature Key: QFC-AUD-SIG-9281 · Licensed Signatory</p>
+                <p className="caption">Synthetic Partner signature · prototype illustration</p>
+                {signature?.signaturePng && <img src={signature.signaturePng} alt="Pinned synthetic Partner signature" style={{ maxWidth: 180, maxHeight: 70 }} />}
               </div>
             </div>
             <div style={{ padding: '6px 12px', background: '#ecfdf5', border: '1px solid #10b981', borderRadius: 4, color: '#047857', fontWeight: 600, fontSize: '12px' }}>
-              ✓ STE Audit &amp; Accounting LLC Firm Stamp Verified
+              STE Audit &amp; Accounting LLC · simulated firm seal
+              {signature?.sealPng && <img src={signature.sealPng} alt="Pinned synthetic firm seal" style={{ maxWidth: 90, maxHeight: 90 }} />}
             </div>
           </div>
         </div>
@@ -199,26 +215,77 @@ export function OpinionDeliverablesView(props: TargetViewProps) {
         </section>
       )}
 
+      {eng.auditLifecycle!.opinions.filter(record => record !== opinion).map(record => <details className="panel panel-pad" key={record.revision}><summary>Historical opinion revision {record.revision} · {record.value}</summary><p>{record.focusArea} · {record.basis}</p><p>Selected {record.selectedAt} by {state.users.find(u => u.id === record.selectedByUserId)?.name || record.selectedByUserId}. This decision does not authorize the current reporting basis.</p></details>)}
+      <details className="panel panel-pad"><summary>Client correspondence preview (same projection as exported bundle)</summary>{clientCorrespondenceLines(state,eng).map((line,i) => <p key={i}>{line}</p>)}</details>
+      <details className="panel panel-pad"><summary>Management letter preview (designated observations only)</summary>{managementLetterLines(state,eng).map((line,i) => <p key={i}>{line}</p>)}</details>
+      {/* Partner Signature & Firm Seal — the authoritative signature event (R10) */}
+      <TargetForm
+        title="Partner Signature & Firm Seal (ISA 700 sign-off — authoritative signature event)"
+        formId="partner-signature"
+        button="Sign & authorize reporting basis (simulated signature / seal)"
+        disabled={!hasAnyRole(state, ['partner']) || frozen || !opinion || blockers.length > 0}
+        onRegisterUnsavedForm={props.onRegisterUnsavedForm}
+        onCommit={async (data) => {
+          const png = async (key: string) => {
+            const file = data.get(key) as File | null;
+            if (!file?.size) return undefined;
+            if (file.type !== 'image/png' || file.size > 1024*1024) throw Error('Choose a PNG illustration under 1 MB.');
+            const bytes = new Uint8Array(await file.arrayBuffer());
+            return `data:image/png;base64,${btoa(Array.from(bytes,b => String.fromCharCode(b)).join(''))}`;
+          };
+          prototypeStore.lifecycle.authorizeReportSignature(
+            eng.id,
+            value(data, 'signatureDate'),
+            value(data, 'note'),
+            { signaturePng: await png('signaturePng'), sealPng: await png('sealPng') }
+          );
+        }}
+      >
+        <p className="sub mb12">
+          Selecting an opinion is <strong>not</strong> the signature event. This step records the
+          simulated digital signature and firm seal that pin the current opinion revision and
+          reporting basis. The signature date starts the 60-day compliance clock, and the compiled
+          bundle must carry the same report date.
+        </p>
+        <Field
+          label="Signature date (starts the 60-day compliance clock)"
+          name="signatureDate"
+          type="date"
+          defaultValue={signature?.signatureDate || state.asOfDate}
+        />
+        <Field label="Signature authorization note" name="note" type="textarea" />
+        <label className="target-field"><span>Partner signature PNG illustration (optional, synthetic)</span><input type="file" name="signaturePng" accept="image/png" /></label>
+        <label className="target-field"><span>Firm seal PNG illustration (optional, synthetic)</span><input type="file" name="sealPng" accept="image/png" /></label>
+        {signatureHistory.map((record) => (
+          <p className="caption" key={record.revision}>
+            Authorization v{record.revision} · signed {record.signatureDate} · opinion revision{' '}
+            {record.opinionRevision} · {record.basis === (opinion ? reportBasis(state, eng) : '') && signature?.revision === record.revision ? 'Current authoritative signature' : 'Historical / superseded'} · {record.note}
+          </p>
+        ))}
+      </TargetForm>
+
       {/* Compile Mandatory 5-Part Deliverables Package */}
       <TargetForm
         title="Compile Mandatory 5-Part Commercial Deliverables Bundle"
         formId="deliverables"
-        button="Authorize & Compile 5-Part Deliverables Bundle"
-        disabled={!hasAnyRole(state, ['manager', 'partner']) || frozen || !opinion || blockers.length > 0}
+        button="Compile 5-Part Deliverables Bundle (separate from signature)"
+        disabled={!hasAnyRole(state, ['partner']) || frozen || !opinion || !signature || blockers.length > 0}
         onRegisterUnsavedForm={props.onRegisterUnsavedForm}
         onCommit={(data) =>
           prototypeStore.lifecycle.generateDeliverables(eng.id, value(data, 'reportDate'))
         }
       >
         <p className="sub mb12">
-          Upon Partner authorization, the system compiles the complete 5-part bundle, embeds digital credentials, triggers the remaining 50% fee invoice, and prepares the PBC freeze.
+          Compilation is a separate step from the signature above. The system compiles the complete
+          5-part bundle — including the Final Balance Fee Note (remaining 50%) as a Draft invoice —
+          and prepares the release. {!signature ? 'The Partner must sign and seal the current reporting basis first.' : `Report date must equal the authorized signature date (${signature.signatureDate}).`}
         </p>
 
         <Field
-          label="Independent Auditor's Report Date (ISA 700 Cut-off)"
+          label="Independent Auditor's Report Date (ISA 700 Cut-off — must equal the signature date)"
           name="reportDate"
           type="date"
-          defaultValue={state.asOfDate}
+          defaultValue={signature?.signatureDate || state.asOfDate}
         />
       </TargetForm>
 
@@ -232,7 +299,7 @@ export function OpinionDeliverablesView(props: TargetViewProps) {
                 {d.basis === reportBasis(state, eng) && set ? 'Current & Certified' : 'Historical Revision'}
               </h3>
               <p className="caption">
-                Report Date: {d.reportDate} · Opinion: {opinion?.value} · Compiled: {d.generatedAt}
+                Report Date: {d.reportDate} · Opinion: {eng.auditLifecycle!.opinions.find(item => item.revision === d.opinionRevision)?.value} · Compiled: {d.generatedAt}
               </p>
             </div>
             <span className="tag green">5-PART CERTIFIED BUNDLE</span>
@@ -279,20 +346,36 @@ export function OpinionDeliverablesView(props: TargetViewProps) {
                   )
                 }
               >
-                Lead Partner Authorization: Release Bundle to Client Portal (Freezes Uploads)
+                Record Final Delivery &amp; Release Bundle to Client Portal (Freezes Uploads)
               </ActionButton>
             )}
           </div>
         </section>
       ))}
 
+      {set && !set.deliveredAt && <TargetForm title="Retain executive-signed representation letter" formId="signed-lor" button="Verify and retain signed LOR" disabled={frozen || !hasAnyRole(state, ['manager', 'partner'])} onRegisterUnsavedForm={props.onRegisterUnsavedForm}
+        onCommit={async data => {
+          const file = data.get('signedLor');
+          if (!(file instanceof File) || !file.size) throw new Error('Select the signed representation file.');
+          if (!['application/pdf', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'].includes(file.type)) throw new Error('Use a PDF or Word representation letter.');
+          const artifact: import('../../types').GeneratedArtifactRecord = { id: `SIGNED-LOR-${crypto.randomUUID()}`, name: file.name, kind: file.type === 'application/pdf' ? 'PDF' : 'DOCX', mimeType: file.type, size: file.size, sha256: await artifactSha256(file) };
+          await persistArtifact(artifact, file);
+          await prototypeStore.lifecycle.recordSignedRepresentation(eng.id, set.id, artifact, value(data, 'executive'), value(data, 'financeExecutive'), value(data, 'inspection'));
+        }}>
+        <p>Export the Word draft onto client letterhead, obtain executive management signatures, then retain the signed copy against this bundle revision.</p>
+        <label className="target-field">Signed PDF or Word letter<input type="file" name="signedLor" accept=".pdf,.docx" required /></label>
+        <Field label="Executive management signatory" name="executive" />
+        <Field label="Finance executive signatory" name="financeExecutive" />
+        <Field label="Signature inspection and source reference" name="inspection" type="textarea" />
+        {eng.auditLifecycle!.signedRepresentations?.filter(record => record.deliverableSetId === set.id).map(record => <p key={record.revision}>v{record.revision} · {record.executive} / {record.financeExecutive} · {record.at} <ArtifactLink artifact={record.artifact} /></p>)}
+      </TargetForm>}
       {/* 60-Day Compliance Archival Timer (ISA 230) */}
       <section className="panel panel-pad" style={{ background: frozen ? '#fef2f2' : '#f0fdf4', border: frozen ? '1px solid #f87171' : '1px solid #86efac' }}>
         <div className="flex-between">
           <div>
             <h3>ISA 230 Regulatory Archival Lock</h3>
             <p className="caption">
-              International Standards on Auditing (ISA 230) require final audit documentation assembly within 60 days of the report date, followed by immutable permanent locking.
+              This prototype applies a 60-day assembly policy and blocks application edits after closure. Browser storage is not a certified immutable retention system.
             </p>
           </div>
           <span className={`tag ${frozen ? 'red' : 'green'}`}>

@@ -24,7 +24,7 @@ type Family =
   | 'professional';     // engagement-bound professional preparation/review/output
 
 const INVENTORY: Record<Family, string[]> = {
-  internal: ['hasStorageConflict', 'resolveStorageConflict', 'isSessionOnlyMode', 'getLoadError', 'assertCurrentAdjustmentSupport', 'getAdjustmentSupportIssue', 'getAdjustmentSupportIssues', 'loadInitialState', 'persist', 'notify', 'getPreservedStateJSON', 'invalidateReleaseBasis', 'reopenWorkpaperReviewNotes', 'reopenFindingReviewNotes', 'reviewSubjectRevision', 'assignAccountingPeriod', 'hasNewerDocumentRevision', 'staleReconciliation', 'staleStatementSetRevisions', 'staleCashFlowSchedules', 'logEvent', 'validateClientProfile', 'getClientProfileWarnings', 'assertTaskHierarchy', 'assertTaskAssignee', 'assertScopedJobStaff', 'assertJobTemplateStructure', 'recordAuditProcedureHistory', 'markLocalNoticeRead', 'evaluateReleaseReadiness'],
+  internal: ['packageExpiredArchives', 'hasStorageConflict', 'resolveStorageConflict', 'isSessionOnlyMode', 'getLoadError', 'assertCurrentAdjustmentSupport', 'getAdjustmentSupportIssue', 'getAdjustmentSupportIssues', 'loadInitialState', 'persist', 'notify', 'getPreservedStateJSON', 'invalidateReleaseBasis', 'reopenWorkpaperReviewNotes', 'reopenFindingReviewNotes', 'reviewSubjectRevision', 'assignAccountingPeriod', 'hasNewerDocumentRevision', 'staleReconciliation', 'staleStatementSetRevisions', 'staleCashFlowSchedules', 'logEvent', 'validateClientProfile', 'getClientProfileWarnings', 'assertTaskHierarchy', 'assertTaskAssignee', 'assertScopedJobStaff', 'assertJobTemplateStructure', 'recordAuditProcedureHistory', 'markLocalNoticeRead', 'evaluateReleaseReadiness'],
   session: ['setRole', 'setPerson', 'setPersona', 'setSelectedEngagement'],
   crm: ['addClient', 'updateClient', 'updateClientContact', 'addContact', 'nominateClientContact', 'reviewClientContactNomination', 'setClientCustomField', 'addCustomFieldDefinition', 'setCustomFieldDefinitionEnabled', 'assignClientRelationshipGroup', 'createClientRelationshipGroup', 'setPrimaryContact'],
   identity: ['grantAccess', 'revokeAccess', 'createDemoIdentity', 'setUserStatus', 'sendSimulatedInvitation', 'recordInvitationExpiry', 'revokeSimulatedInvitation', 'acceptSimulatedInvitation', 'resendSimulatedInvitation'],
@@ -34,7 +34,7 @@ const INVENTORY: Record<Family, string[]> = {
   billing: ['addInvoice', 'cancelInvoiceDraft', 'reviseInvoiceDraft', 'reviewInvoice', 'issueInvoice', 'addCreditNote', 'reviewCreditNote', 'reviseCreditNote', 'issueCreditNote', 'addReceipt', 'allocateReceipt', 'reverseAllocation'],
   records: ['linkDocumentToTask', 'unlinkDocumentFromTask', 'setDocumentClientSharing', 'archiveEngagement', 'recordArchiveHandover'],
   setup: ['updateM365Config', 'simulateM365Verification', 'simulateM365Disconnect', 'prepareClientWorkspace', 'saveAcceptanceCase', 'decideAcceptanceCase'],
-  recovery: ['loadScenario', 'resetState', 'exportStateJSON', 'importStateJSON', 'checkIntegrity'],
+  recovery: ['beginWorkspaceReplacement', 'loadScenario', 'resetState', 'exportStateJSON', 'importStateJSON', 'checkIntegrity'],
   professional: ['signOffAnalyticalReview',
     'addJob', 'updateJob', 'addTask', 'updateTask', 'reassignTask', 'applyJobTemplate',
     'addComment', 'moderateComment', 'editComment',
@@ -44,17 +44,17 @@ const INVENTORY: Record<Family, string[]> = {
     'saveAccountingProfile', 'updateTrialBalanceRows', 'importGeneralLedgerSource', 'saveReconciliationSchedule', 'reviewReconciliationSchedule',
     'saveAccountMappings', 'approveAccountMappings', 'saveStatementLayoutRevision', 'saveStatementSetRevision', 'staleStatementRevisionsForComparativeChange',
     'reviewStatementSetRevision', 'saveCashFlowSchedule', 'reviewCashFlowSchedule',
-    'addAdjustmentJournal', 'amendAdjustmentJournal', 'reviewAdjustmentJournal', 'markAdjustmentJournalReportingIncluded', 'recordAdjustmentManagementDecision', 'updateAdjustmentJournal',
+    'addAdjustmentJournal', 'amendAdjustmentJournal', 'reviewAdjustmentJournal', 'markAdjustmentJournalReportingIncluded', 'recordAdjustmentManagementDecision', 'recordAdjustmentManagementResponse', 'updateAdjustmentJournal',
     'updateConsolidationGroup', 'revertConsolidationPerimeter', 'saveConsolidationElimination', 'submitConsolidationElimination', 'reviewConsolidationElimination',
     'saveConsolidationOutputPackage', 'reviewConsolidationOutputPackage', 'updateConsolidationFxRate',
     'createWorkpaperFromTemplate', 'reassignWorkpaper', 'updateWorkpaper', 'linkWorkpaperEvidence', 'unlinkWorkpaperEvidence', 'submitWorkpaper', 'clearWorkpaper', 'replaceWorkpaperRevision',
-    'addReviewNote', 'reassignReviewNote', 'respondReviewNote', 'clearReviewNote',
+    'addReviewNote', 'reassignReviewNote', 'respondReviewNote', 'clearReviewNote', 'designateReviewCorrespondence',
     'recordApproval', 'assignEqrReviewer', 'presentManagementPackage', 'recordManagementPackageDecision', 'addEqrConcern', 'toggleEqrConcern', 'respondEqrConcern',
     'uploadPbcResponse', 'replyToPbcRequest', 'addPbcRequest', 'requestPbcClarification', 'presentPbcRequest', 'acceptPbcResponse', 'updatePbcRequest', 'cancelPbcRequest',
     'setEvidenceAdequacy', 'linkEvidenceProcedure', 'unlinkEvidenceProcedure',
     'updateAuditProcedureExecution', 'updateAuditProcedureStatus', 'updateAuditRisk', 'createAuditRisk', 'applyAuditProgramTemplate', 'setAuditRiskProcedureLink',
     'setSampleItemSelected', 'reviewSampleSelection', 'linkSampleExceptionToFinding', 'recordSampleItemLimitation', 'recordSampleItemTest', 'replaceSamplePopulationSource',
-    'addFinding', 'setFindingDisposition',
+    'addFinding', 'designateManagementLetter', 'setFindingDisposition',
     'prepareReleaseCandidate', 'prepareAmendedRelease', 'issueRelease', 'reopenReleaseForAmendment',
     'saveDisclosureReview', 'reviewDisclosure', 'saveFinancialPackageRevision',
  'saveAuditPlan', 'reviewAuditPlan'

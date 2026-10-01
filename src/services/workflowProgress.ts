@@ -18,7 +18,7 @@ import { consolidationOutputFingerprint } from './consolidationOutput';
 import { isSampleFrameReconciled } from './samplingReadiness';
 import { evaluateReleaseReadiness } from './releaseReadiness';
 import { archiveForRelease, releaseForPackage } from './packageLineage';
-import { ROUTE_CATALOG } from './routeCatalog';
+import { ROUTE_CATALOG } from './legacyRouteCatalog';
 
 export type ProgressStepState = 'completed' | 'current' | 'pending' | 'blocked' | 'returned' | 'stale' | 'skipped' | 'na';
 export type ProgressApplicability = 'workflow' | 'summary' | 'reference' | 'unavailable';
@@ -118,10 +118,9 @@ export function isEngagementReleaseReady(e: EngagementRecord, state: PrototypeSt
 }
 
 const ENGAGEMENT_CONTEXT_ROUTES = new Set<RouteKey>([
-  'onboarding', 'jobs', 'documents', 'communications', 'my-time', 'budgets', 'billing', 'receivables',
-  'accounting-setup', 'trial-balance', 'gl-transactions', 'account-mappings', 'adjustments', 'reconciliations',
-  'financial-statements', 'financial-packages', 'audit-planning', 'audit-risks', 'audit-fieldwork', 'sampling',
-  'audit', 'evidence', 'findings', 'reviews', 'approvals', 'quality', 'delivery', 'records', 'm365-setup'
+  'onboarding', 'documents', 'my-time', 'billing', 'trial-balance',
+  'financial-statements', 'audit-planning', 'audit-risks', 'audit-fieldwork', 'sampling',
+  'evidence', 'findings', 'reviews', 'delivery', 'records', 'scheduling', 'confirmations'
 ]);
 
 export function computeModuleWorkflowProgress(
@@ -255,6 +254,9 @@ function computeLegacyModuleWorkflowProgress(
   state: PrototypeState,
   context: WorkflowProgressContext
 ): ModuleWorkflowProgress {
+  // Retired-route compatibility selectors: module identity derives from the (legacy) catalog
+  // entry, never a hardcoded historical module name.
+  const routeInfo = ROUTE_CATALOG[route];
   const allowedEngIds = visibleEngagementIds(state);
   const scopedEngagements: EngagementRecord[] = state.engagements.filter(
     e => allowedEngIds === 'ALL' || allowedEngIds.includes(e.id)
@@ -284,8 +286,8 @@ function computeLegacyModuleWorkflowProgress(
       const percent = Math.round((completed / steps.length) * 100);
 
       return {
-        moduleId: 'MOD-01',
-        moduleName: 'Practice Overview',
+        moduleId: routeInfo.moduleId,
+        moduleName: routeInfo.label,
         route: 'overview',
         currentSection: 'Practice Operations Dashboard',
         steps,
@@ -325,8 +327,8 @@ function computeLegacyModuleWorkflowProgress(
       ];
 
       return {
-        moduleId: 'MOD-02',
-        moduleName: 'CRM & Client Management',
+        moduleId: routeInfo.moduleId,
+        moduleName: routeInfo.label,
         route: 'clients',
         currentSection: route === 'client-detail' ? 'Client 360 & Relationship Profile' : 'Client Portfolio Directory',
         steps,
@@ -363,8 +365,8 @@ function computeLegacyModuleWorkflowProgress(
       const percent = leads.length > 0 ? Math.round((won.length / leads.length) * 100) : 0;
 
       return {
-        moduleId: 'MOD-03',
-        moduleName: 'Leads & Opportunities',
+        moduleId: routeInfo.moduleId,
+        moduleName: routeInfo.label,
         route: 'acquisition',
         currentSection: 'Commercial Acquisition Pipeline',
         steps,
@@ -403,8 +405,8 @@ function computeLegacyModuleWorkflowProgress(
       ];
 
       return {
-        moduleId: 'MOD-04',
-        moduleName: 'Proposals & Terms',
+        moduleId: routeInfo.moduleId,
+        moduleName: routeInfo.label,
         route: 'proposals',
         currentSection: 'Commercial Engagement Proposals',
         steps,
@@ -443,8 +445,8 @@ function computeLegacyModuleWorkflowProgress(
       ];
 
       return {
-        moduleId: 'MOD-04',
-        moduleName: 'Engagements',
+        moduleId: routeInfo.moduleId,
+        moduleName: routeInfo.label,
         route: 'engagements',
         currentSection: 'Professional Engagements Workspace',
         steps,
@@ -479,8 +481,8 @@ function computeLegacyModuleWorkflowProgress(
       ];
 
       return {
-        moduleId: 'MOD-27',
-        moduleName: 'Acceptance & KYC',
+        moduleId: routeInfo.moduleId,
+        moduleName: routeInfo.label,
         route: 'onboarding',
         currentSection: 'Client Acceptance & Continuance Review',
         steps,
@@ -506,7 +508,7 @@ function computeLegacyModuleWorkflowProgress(
         : context.recordId ? state.jobTasks.find(task => task.id === context.recordId)?.jobId : undefined;
       const selectedJob = requestedJobId ? state.jobs.find(job => job.id === requestedJobId && scopedEngagements.some(engagement => engagement.id === job.engagementId && engagement.client === job.clientId)) : undefined;
       if (context.recordId && !selectedJob) return {
-        moduleId: 'MOD-05', moduleName: 'Jobs & Tasks', route, currentSection: 'Selected Job', steps: [], percentComplete: null,
+        moduleId: routeInfo.moduleId, moduleName: routeInfo.label, route, currentSection: 'Selected Job', steps: [], percentComplete: null,
         applicability: 'unavailable', metricLabel: 'Unavailable', scopeLabel: 'The selected job is missing or outside the current permitted scope.', selectedRecordId: context.recordId,
         counts: { completed: 0, current: 0, pending: 0, blocked: 0, returned: 0, stale: 0, skipped: 0, notApplicable: 0, total: 0 },
         completedSummary: 'No job record was loaded.', pendingSummary: 'Select a job that is visible in the current job register.', blockers: [],
@@ -533,8 +535,8 @@ function computeLegacyModuleWorkflowProgress(
       const percent = tasks.length ? Math.round((completedTasks.length / tasks.length) * 100) : 0;
 
       return {
-        moduleId: 'MOD-05',
-        moduleName: 'Jobs & Tasks',
+        moduleId: routeInfo.moduleId,
+        moduleName: routeInfo.label,
         route: 'jobs',
         currentSection: 'Engagement Delivery & Task Hierarchy',
         steps,
@@ -573,8 +575,8 @@ function computeLegacyModuleWorkflowProgress(
       ];
 
       return {
-        moduleId: 'MOD-06',
-        moduleName: 'Job Templates',
+        moduleId: routeInfo.moduleId,
+        moduleName: routeInfo.label,
         route: 'job-templates',
         currentSection: 'Standardized Delivery Templates',
         steps,
@@ -608,8 +610,8 @@ function computeLegacyModuleWorkflowProgress(
       ];
 
       return {
-        moduleId: 'MOD-07',
-        moduleName: 'Team & Client Comms',
+        moduleId: routeInfo.moduleId,
+        moduleName: routeInfo.label,
         route: 'communications',
         currentSection: 'Inter-Team & Client Communication Trail',
         steps,
@@ -653,8 +655,8 @@ function computeLegacyModuleWorkflowProgress(
       const percent = pbc.length ? Math.round((acceptedPbc.length / pbc.length) * 100) : 100;
 
       return {
-        moduleId: 'MOD-08',
-        moduleName: 'Client Experience Portal',
+        moduleId: routeInfo.moduleId,
+        moduleName: routeInfo.label,
         route: 'portal',
         currentSection: 'Client Secure Portal',
         steps,
@@ -693,8 +695,8 @@ function computeLegacyModuleWorkflowProgress(
       ];
 
       return {
-        moduleId: 'MOD-09',
-        moduleName: 'Documents & PBC',
+        moduleId: routeInfo.moduleId,
+        moduleName: routeInfo.label,
         route: 'documents',
         currentSection: 'Document Management & Client PBC Requests',
         steps,
@@ -736,8 +738,8 @@ function computeLegacyModuleWorkflowProgress(
       ];
 
       return {
-        moduleId: 'MOD-12',
-        moduleName: 'Time Tracking',
+        moduleId: routeInfo.moduleId,
+        moduleName: routeInfo.label,
         route: 'my-time',
         currentSection: 'Staff Time Registration & Timesheet Review',
         steps,
@@ -773,8 +775,8 @@ function computeLegacyModuleWorkflowProgress(
       ];
 
       return {
-        moduleId: 'MOD-13',
-        moduleName: 'Budgets & Variances',
+        moduleId: routeInfo.moduleId,
+        moduleName: routeInfo.label,
         route: 'budgets',
         currentSection: 'Engagement Budget & Recovery Analysis',
         steps,
@@ -816,8 +818,8 @@ function computeLegacyModuleWorkflowProgress(
         const percent = 0;
 
       return {
-        moduleId: 'MOD-14',
-        moduleName: 'Billing & Invoices',
+        moduleId: routeInfo.moduleId,
+        moduleName: routeInfo.label,
         route: 'billing',
         currentSection: 'Invoicing & Fee Realization Register',
         steps,
@@ -859,8 +861,8 @@ function computeLegacyModuleWorkflowProgress(
       ];
 
       return {
-        moduleId: 'MOD-15',
-        moduleName: 'Receivables & Receipts',
+        moduleId: routeInfo.moduleId,
+        moduleName: routeInfo.label,
         route: 'receivables',
         currentSection: 'Accounts Receivable & Cash Allocation',
         steps,
@@ -889,8 +891,8 @@ function computeLegacyModuleWorkflowProgress(
       ];
 
       return {
-        moduleId: 'MOD-16',
-        moduleName: 'Report Centre',
+        moduleId: routeInfo.moduleId,
+        moduleName: routeInfo.label,
         route: 'reports',
         currentSection: 'Practice Operational & Financial Reports',
         steps,
@@ -927,8 +929,8 @@ function computeLegacyModuleWorkflowProgress(
       const okCount = [idOk, spOk, mailOk].filter(Boolean).length;
 
       return {
-        moduleId: 'MOD-18',
-        moduleName: 'Microsoft 365 Setup',
+        moduleId: routeInfo.moduleId,
+        moduleName: routeInfo.label,
         route: 'm365-setup',
         currentSection: 'Simulated Microsoft 365 Environment',
         steps,
@@ -967,8 +969,8 @@ function computeLegacyModuleWorkflowProgress(
       ];
 
       return {
-        moduleId: 'MOD-19',
-        moduleName: 'Firm Administration',
+        moduleId: routeInfo.moduleId,
+        moduleName: routeInfo.label,
         route: 'administration',
         currentSection: 'User Directory, Role Grants & Firm Settings',
         steps,
@@ -999,7 +1001,7 @@ function computeLegacyModuleWorkflowProgress(
         { id: 'chart-of-accounts', label: 'Active Posting Accounts', state: activeAccounts.length ? 'completed' : profileSaved ? 'current' : 'pending', detail: `${activeAccounts.length} active posting account(s)` }
       ];
       return {
-        moduleId: 'MOD-20', moduleName: 'Accounting Workbench', route, currentSection: 'Client Accounting Setup', steps, percentComplete: 0,
+        moduleId: routeInfo.moduleId, moduleName: routeInfo.label, route, currentSection: 'Client Accounting Setup', steps, percentComplete: 0,
         counts: { completed: 0, pending: 0, blocked: 0, total: steps.length },
         completedSummary: profileSaved ? `Saved accounting profile revision ${profile?.revision}.` : 'Accounting setup has not been saved with a complete reporting profile.',
         pendingSummary: !periodBook ? 'Choose and save the period book for this engagement.' : !activeAccounts.length ? 'Add and save active posting accounts before importing a trial balance.' : 'Accounting context is available for this engagement.',
@@ -1017,7 +1019,7 @@ function computeLegacyModuleWorkflowProgress(
         { id: 'tb-mapping', label: 'Statement Mapping', state: activeEng?.mappingApproved ? 'completed' : sourceExists ? 'current' : 'pending', targetRoute: 'account-mappings' }
       ];
       return {
-        moduleId: 'MOD-20', moduleName: 'Accounting Workbench', route, currentSection: 'Trial Balance', steps, percentComplete: 0,
+        moduleId: routeInfo.moduleId, moduleName: routeInfo.label, route, currentSection: 'Trial Balance', steps, percentComplete: 0,
         counts: { completed: 0, pending: 0, blocked: 0, total: steps.length },
         completedSummary: sourceExists ? `Current trial-balance source v${activeEng?.sourceVersion} contains ${activeEng?.rows.length} row(s).` : 'No trial-balance source is recorded for this engagement.',
         pendingSummary: !sourceExists ? 'Import or enter a trial balance.' : !accepted ? 'Review and accept the current trial-balance source.' : !activeEng?.mappingApproved ? 'Complete current account mappings.' : 'Current trial balance and mapping are accepted.',
@@ -1038,7 +1040,7 @@ function computeLegacyModuleWorkflowProgress(
         { id: 'gl-integrity', label: 'Source Integrity Digest', state: hasIntegrityDigest ? 'completed' : latestGL ? 'pending' : 'pending', detail: hasIntegrityDigest ? 'SHA-256 digest recorded.' : 'A source digest is not recorded for this revision.' }
       ];
       return {
-        moduleId: 'MOD-20', moduleName: 'Accounting Workbench', route, currentSection: 'General Ledger Transactions', steps, percentComplete: 0,
+        moduleId: routeInfo.moduleId, moduleName: routeInfo.label, route, currentSection: 'General Ledger Transactions', steps, percentComplete: 0,
         counts: { completed: 0, pending: 0, blocked: 0, total: steps.length },
         completedSummary: latestGL ? `GL source revision ${latestGL.revision} is recorded for this engagement.` : 'No GL source revision is recorded.',
         pendingSummary: transactionCount ? (hasIntegrityDigest ? 'Imported transaction source is available for review.' : 'Review the source integrity details before relying on this import.') : 'Import a GL source containing transactions.',
@@ -1061,7 +1063,7 @@ function computeLegacyModuleWorkflowProgress(
         { id: 'mapping-statements', label: 'Statement Preparation', state: approvedCurrent ? 'current' : 'pending', targetRoute: 'financial-statements' }
       ];
       return {
-        moduleId: 'MOD-20', moduleName: 'Accounting Workbench', route, currentSection: 'Account Mapping', steps, percentComplete: 0,
+        moduleId: routeInfo.moduleId, moduleName: routeInfo.label, route, currentSection: 'Account Mapping', steps, percentComplete: 0,
         counts: { completed: 0, pending: 0, blocked: 0, total: steps.length },
         completedSummary: approvedCurrent ? `Mapping revision ${latestMapping?.revision} is approved across all ${accountCodes.size} current TB accounts.` : `${mappedCodes.size} current TB account(s) have complete mapping targets.`,
         pendingSummary: accountCodes.size === 0 ? 'Load the current trial balance before preparing mappings.' : unmapped.length ? `${unmapped.length} account(s) need complete 100% statement-line allocations.` : 'Submit the current mapping revision for independent approval.',
@@ -1084,7 +1086,7 @@ function computeLegacyModuleWorkflowProgress(
         { id: 'journal-reflection', label: 'Current TB Reflection', state: staleReflection.length ? 'stale' : accepted.length ? 'completed' : 'pending', detail: `${staleReflection.length} accepted journal(s) need current source reflection` }
       ];
       return {
-        moduleId: 'MOD-20', moduleName: 'Accounting Workbench', route, currentSection: 'Adjustment Journals', steps, percentComplete: 0,
+        moduleId: routeInfo.moduleId, moduleName: routeInfo.label, route, currentSection: 'Adjustment Journals', steps, percentComplete: 0,
         counts: { completed: 0, pending: 0, blocked: 0, total: steps.length },
         completedSummary: `${accepted.length} journal(s) have reached management acceptance or reporting inclusion.`,
         pendingSummary: `${drafts.length} draft(s), ${technical.length} in technical review, ${staleReflection.length} reflection(s) needing current-source confirmation.`,
@@ -1107,7 +1109,7 @@ function computeLegacyModuleWorkflowProgress(
         { id: 'rec-review', label: 'Independent Review', state: returned.length ? 'returned' : inReview.length ? 'current' : drafts.length ? 'pending' : cleared.length ? 'completed' : 'pending', detail: `${cleared.length} approved or cleared` }
       ];
       return {
-        moduleId: 'MOD-20', moduleName: 'Accounting Workbench', route, currentSection: 'Reconciliations', steps, percentComplete: 0,
+        moduleId: routeInfo.moduleId, moduleName: routeInfo.label, route, currentSection: 'Reconciliations', steps, percentComplete: 0,
         counts: { completed: 0, pending: 0, blocked: 0, total: steps.length },
         completedSummary: `${cleared.length} schedule(s) approved or cleared against the current engagement source.`,
         pendingSummary: `${drafts.length} draft/in-progress, ${inReview.length} awaiting independent review, ${stale.length} stale.`,
@@ -1140,8 +1142,8 @@ function computeLegacyModuleWorkflowProgress(
       ];
 
       return {
-        moduleId: 'MOD-24',
-        moduleName: 'Financial Statements',
+        moduleId: routeInfo.moduleId,
+        moduleName: routeInfo.label,
         route: 'financial-statements',
         currentSection: 'Statement Set & Supporting Schedules',
         steps,
@@ -1182,8 +1184,8 @@ function computeLegacyModuleWorkflowProgress(
       const percent = 0;
 
       return {
-        moduleId: 'MOD-25',
-        moduleName: 'Financial Packages',
+        moduleId: routeInfo.moduleId,
+        moduleName: routeInfo.label,
         route: 'financial-packages',
         currentSection: 'Financial Statements Package Assembly & Artifacts',
         steps,
@@ -1208,7 +1210,7 @@ function computeLegacyModuleWorkflowProgress(
       const group = groups.find(item => item.id === context.recordId) || groups[0];
       if (group && !hasConsolidationGroupScope(state, group.id)) {
         return {
-          moduleId: 'MOD-26', moduleName: 'Group Consolidation', route, currentSection: 'Consolidation Group', steps: [], percentComplete: null,
+          moduleId: routeInfo.moduleId, moduleName: routeInfo.label, route, currentSection: 'Consolidation Group', steps: [], percentComplete: null,
           applicability: 'unavailable', metricLabel: 'Unavailable', scopeLabel: 'The selected group is outside the current permitted scope.',
           counts: { completed: 0, current: 0, pending: 0, blocked: 0, returned: 0, stale: 0, skipped: 0, notApplicable: 0, total: 0 },
           completedSummary: 'No group progress was loaded.', pendingSummary: 'Select an authorized consolidation group.', blockers: [],
@@ -1241,10 +1243,10 @@ function computeLegacyModuleWorkflowProgress(
       ];
 
       return {
-        moduleId: 'MOD-26',
-        moduleName: 'Group Consolidation',
+        moduleId: routeInfo.moduleId,
+        moduleName: routeInfo.label,
         route: 'consolidation',
-        currentSection: 'Multi-Entity Group Consolidation & Elimination',
+        currentSection: 'Multi-Entity Group Elimination Records',
         steps,
         percentComplete: 0,
         counts: {
@@ -1279,8 +1281,8 @@ function computeLegacyModuleWorkflowProgress(
       ];
 
       return {
-        moduleId: 'MOD-28',
-        moduleName: 'Audit Planning & Materiality',
+        moduleId: routeInfo.moduleId,
+        moduleName: routeInfo.label,
         route: 'audit-planning',
         currentSection: 'Materiality, Audit Strategy & Milestones',
         steps,
@@ -1324,8 +1326,8 @@ function computeLegacyModuleWorkflowProgress(
       const percent = procs.length ? Math.round((cleared.length / procs.length) * 100) : 0;
 
       return {
-        moduleId: 'MOD-29',
-        moduleName: 'Risks & Audit Programs',
+        moduleId: routeInfo.moduleId,
+        moduleName: routeInfo.label,
         route,
         currentSection: isRiskRoute ? 'Engagement Risk Register' : 'Audit Program & Fieldwork Execution',
         steps,
@@ -1351,7 +1353,7 @@ function computeLegacyModuleWorkflowProgress(
       const explicitPopulationUnavailable = Boolean(context.recordId && !populations.some(population => population.id === context.recordId));
       if (explicitPopulationUnavailable) {
         return {
-          moduleId: 'MOD-31', moduleName: 'Sampling & Populations', route: 'sampling', currentSection: 'Audit Sampling & Substantive Testing',
+          moduleId: routeInfo.moduleId, moduleName: routeInfo.label, route: 'sampling', currentSection: 'Audit Sampling & Substantive Testing',
           steps: [], percentComplete: null, applicability: 'unavailable', metricLabel: 'Unavailable',
           scopeLabel: 'Selected population is missing or outside the engagement', selectedRecordId: context.recordId,
           counts: { completed: 0, current: 0, pending: 0, blocked: 0, returned: 0, stale: 0, skipped: 0, notApplicable: 0, total: 0 },
@@ -1377,8 +1379,8 @@ function computeLegacyModuleWorkflowProgress(
       ];
 
       return {
-        moduleId: 'MOD-31',
-        moduleName: 'Sampling & Populations',
+        moduleId: routeInfo.moduleId,
+        moduleName: routeInfo.label,
         route: 'sampling',
         currentSection: 'Audit Sampling & Substantive Testing',
         steps,
@@ -1420,8 +1422,8 @@ function computeLegacyModuleWorkflowProgress(
       const percent = applicable.length ? Math.round((cleared.length / applicable.length) * 100) : 0;
 
       return {
-        moduleId: 'MOD-32',
-        moduleName: 'Audit Workpapers',
+        moduleId: routeInfo.moduleId,
+        moduleName: routeInfo.label,
         route: 'audit',
         currentSection: 'Audit Workpapers & Lead Schedules',
         steps,
@@ -1461,8 +1463,8 @@ function computeLegacyModuleWorkflowProgress(
       ];
 
       return {
-        moduleId: 'MOD-33',
-        moduleName: 'Evidence Catalogue',
+        moduleId: routeInfo.moduleId,
+        moduleName: routeInfo.label,
         route: 'evidence',
         currentSection: 'Audit Evidence & Corroborating Documentation',
         steps,
@@ -1497,8 +1499,8 @@ function computeLegacyModuleWorkflowProgress(
       ];
 
       return {
-        moduleId: 'MOD-34',
-        moduleName: 'Findings & Differences',
+        moduleId: routeInfo.moduleId,
+        moduleName: routeInfo.label,
         route: 'findings',
         currentSection: 'Audit Differences & Findings Register',
         steps,
@@ -1541,8 +1543,8 @@ function computeLegacyModuleWorkflowProgress(
       const percent = 0;
 
       return {
-        moduleId: 'MOD-35',
-        moduleName: 'Review Desk',
+        moduleId: routeInfo.moduleId,
+        moduleName: routeInfo.label,
         route: 'reviews',
         currentSection: 'Cross-Engagement Technical Review Points',
         steps,
@@ -1584,8 +1586,8 @@ function computeLegacyModuleWorkflowProgress(
       ];
 
       return {
-        moduleId: 'MOD-36',
-        moduleName: 'Sign-offs & EQR',
+        moduleId: routeInfo.moduleId,
+        moduleName: routeInfo.label,
         route: 'approvals',
         currentSection: 'Engagement Final Approvals & Quality Review',
         steps,
@@ -1624,8 +1626,8 @@ function computeLegacyModuleWorkflowProgress(
       ];
 
       return {
-        moduleId: 'MOD-37',
-        moduleName: 'Release & Completion',
+        moduleId: routeInfo.moduleId,
+        moduleName: routeInfo.label,
         route: 'delivery',
         currentSection: 'Final Release Gates & Artifact Packaging',
         steps,
@@ -1661,8 +1663,8 @@ function computeLegacyModuleWorkflowProgress(
       ];
 
       return {
-        moduleId: 'MOD-38',
-        moduleName: 'Records & Archive',
+        moduleId: routeInfo.moduleId,
+        moduleName: routeInfo.label,
         route: 'records',
         currentSection: 'Logical Archive, Lineage & Handover',
         steps,

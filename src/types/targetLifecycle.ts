@@ -9,6 +9,12 @@ export interface LifecycleHistory {
 export interface SourcePin {
   proposalId: string;
   revision: number;
+  engagementService?: string;
+  engagementPeriod?: string;
+  proposalPeriodEnd?: string;
+  proposalPeriodStart?: string;
+  currency?: string;
+  acceptedFee?: number;
 }
 export interface PhysicalEvidenceReference {
   indexCode: string;
@@ -27,18 +33,14 @@ export type ConfirmationStatus =
   | 'No Response'
   | 'Exception'
   | 'Cancelled';
+export const REQUIRED_CONFIRMATION_TYPES = ['Bank', 'Accounts Receivable', 'Accounts Payable', 'Inventory', 'Legal'] as const;
+export type RequiredConfirmationType = typeof REQUIRED_CONFIRMATION_TYPES[number];
+export type LegacyConfirmationType = 'Debtor' | 'Other';
 export interface ExternalConfirmation {
   id: string;
   clientId: string;
   engagementId: string;
-  type:
-    | 'Bank'
-    | 'Accounts Receivable'
-    | 'Accounts Payable'
-    | 'Inventory'
-    | 'Legal'
-    | 'Debtor'
-    | 'Other';
+  type: RequiredConfirmationType | LegacyConfirmationType;
   counterparty: string;
   relatedFsli: string;
   ownerUserId: string;
@@ -79,6 +81,7 @@ export interface SRMRecord extends ReviewBasisRecord {
   summary: string[];
 }
 export interface OpinionRecord {
+  reportingBasis?: string;
   revision: number;
   value: AuditOpinion;
   focusArea: string;
@@ -100,6 +103,8 @@ export type TargetLifecycleState =
   | 'ARCHIVED_READ_ONLY';
 
 export interface DeliverableSet {
+  signatureAuthorizationRevision?: number;
+  draftRepresentationArtifact?: GeneratedArtifactRecord;
   id: string;
   revision: number;
   basis: string;
@@ -132,6 +137,8 @@ export interface HoldingLetterRecord {
   recipientContactId?: string;
   recipientName: string;
   sourceBlockers: string[];
+  /** Identity of the blocked critical-confirmation set (ids) — letters refresh when the set changes, not on status wording. */
+  blockerKey?: string;
   artifactId: string;
   artifact?: import('./index').GeneratedArtifactRecord;
   simulatedDispatchStatus: 'Issued (simulated)' | 'Pending';
@@ -145,9 +152,11 @@ export interface AnalyticalReviewRecord {
   mappingRevision?: number;
   planVersion?: number;
   comparativeEngagementId?: string;
+  comparativeSourceVersion?: number;
+  comparativeMappingRevision?: number;
   currentBalance: number;
-  priorBalance: number;
-  varianceAmount: number;
+  priorBalance?: number;
+  varianceAmount?: number;
   variancePct: number | null;
   analysis: string;
   isa570Checklist: {
@@ -165,6 +174,7 @@ export interface AnalyticalReviewRecord {
 }
 
 export interface TargetEngagementLifecycle {
+  onboarding?: { liaisonContactId: string; recipient: string; at: string; status: 'Invitation issued (simulated)'; requiresFirstLoginReset: boolean };
   rowLocks?: Record<string, { actorUserId: string; revision: number; acquiredAt: string; expiresAt: string; releasedAt?: string }>;
   commercialBasis?: SourcePin;
   advancePayments: Array<{
@@ -195,11 +205,26 @@ export interface TargetEngagementLifecycle {
     at: string;
     reason: string;
   }>;
+  milestones?: Array<{ revision: number; cutoff: string; fieldwork: string; draft: string; final: string; reason: string; actorUserId: string; at: string }>;
   managerReviews: ReviewBasisRecord[];
   srms: SRMRecord[];
   partnerClearances: ReviewBasisRecord[];
   opinions: OpinionRecord[];
+  /** Authoritative partner signature/seal event pinning the reported basis and opinion revision. */
+  signatureAuthorizations?: Array<{
+    signaturePng?: string;
+    sealPng?: string;
+    revision: number;
+    basis: string;
+    opinionRevision: number;
+    signatureDate: string;
+    signedByUserId: string;
+    sealApplied: boolean;
+    at: string;
+    note: string;
+  }>;
   deliverables: DeliverableSet[];
+  signedRepresentations?: Array<{ revision: number; deliverableSetId: string; basis: string; artifact: GeneratedArtifactRecord; executive: string; financeExecutive: string; note: string; actorUserId: string; at: string }>;
   holdingLetters?: HoldingLetterRecord[];
   analyticalReviews?: AnalyticalReviewRecord[];
   balanceInvoices: Array<{
@@ -264,4 +289,6 @@ export interface TargetStageDefinition {
   roles: RoleKey[];
   /** Legacy/shared routes that render the same operational step (e.g. audit-risks hosts fieldwork programs). */
   aliases?: import('./index').RouteKey[];
+  /** Parallel operating lane: runs alongside the engagement lifecycle, not a sequential state handoff. */
+  parallel?: boolean;
 }

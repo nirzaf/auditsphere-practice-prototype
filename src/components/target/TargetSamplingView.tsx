@@ -2,15 +2,16 @@ import React from 'react';
 import { prototypeStore } from '../../store/prototypeStore';
 import { parsePopulation } from '../../services/populationImport';
 import { sha256OfFile } from '../../services/fileMetadata';
+import { captureSourceOriginal } from '../../services/artifactStore';
 import { Field, TargetForm, value, amount, type TargetViewProps } from './TargetCommon';
 export function TargetSamplingView(props: TargetViewProps) {
-  const s = prototypeStore.getSnapshot(),
+  const s = prototypeStore.getReadSnapshot(),
     e = s.engagements.find((e) => e.id === s.selectedEngagement);
   if (!e) return null;
   const populations = s.samplePopulations.filter((p) => p.engagementId === e.id);
   return (
     <div className="target-stack">
-      <p className="caption">Systematic Random uses fractional N/n intervals and a reproducible random start. Stratified uses monetary ranks; Stratified Attribute uses credit / zero / debit transaction-direction strata, one random item per stratum followed by a random remainder. These prototype methods require professional methodology review.</p>
+      <p className="caption">Systematic Random uses fractional N/n intervals and a reproducible random start. Stratified uses monetary ranks; Stratified Attribute sampling tests the attributes/strata the reviewer defines below (the prototype's default strata are credit / zero / debit transaction directions, one random item per stratum followed by a random remainder). Sample size is a reviewer decision: the default of 3 is a demonstration placeholder, never a professionally validated recommendation. All prototype methods require professional methodology review.</p>
       <TargetForm
         title="Import a complete sampling population"
         button="Validate & import source"
@@ -18,14 +19,16 @@ export function TargetSamplingView(props: TargetViewProps) {
         onCommit={async (d) => {
           const file = d.get('source') as File;
           if (!file?.size) throw Error('Choose a CSV or XLSX population.');
-          const parsed = parsePopulation(await file.arrayBuffer(), file.name);
+          const bytes = await file.arrayBuffer();
+          const parsed = parsePopulation(bytes, file.name);
           if (parsed.errors.length) throw Error(parsed.errors.join(' '));
           return prototypeStore.lifecycle.importPopulation(
             e.id,
             value(d, 'account'),
             file.name,
             await sha256OfFile(file),
-            parsed.rows
+            parsed.rows,
+            await captureSourceOriginal(file.name, bytes, /\.xlsx$/i.test(file.name) ? 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' : 'text/csv')
           );
         }}
       >
@@ -54,6 +57,12 @@ export function TargetSamplingView(props: TargetViewProps) {
             Control count: {p.totalPopulationCount} · control value: {p.totalPopulationValue} ·
             selected: {p.selectedCount} / {p.selectedValue}
           </p>
+          {p.samplingBasis && (
+            <p className="caption">
+              Recorded sampling basis: {p.samplingBasis} · size determination: {p.sizeDetermination || 'Not recorded'}
+              {p.attributeDefinition ? ` · attributes/strata: ${p.attributeDefinition}` : ''}
+            </p>
+          )}
           <TargetForm
             title={`Generate sample: ${p.id}`}
             button="Generate reproducible sample"
@@ -64,7 +73,13 @@ export function TargetSamplingView(props: TargetViewProps) {
                 p.id,
                 value(d, 'method') as 'Random',
                 amount(d, 'count'),
-                amount(d, 'seed')
+                amount(d, 'seed'),
+                {
+                  samplingBasis: value(d, 'samplingBasis'),
+                  sizeDetermination: value(d, 'sizeDetermination'),
+                  attributeDefinition: value(d, 'attributeDefinition') || undefined,
+                  strataField: value(d, 'strataField') as 'counterparty' | 'month' | 'direction'
+                }
               )
             }
           >
@@ -74,7 +89,7 @@ export function TargetSamplingView(props: TargetViewProps) {
               ))}
             </Field>
             <Field
-              label="Sample size"
+              label="Sample size (reviewer-determined)"
               name="count"
               type="number"
               min={1}
@@ -82,6 +97,28 @@ export function TargetSamplingView(props: TargetViewProps) {
               defaultValue={Math.min(3, p.items.length)}
             />
             <Field label="Integer seed" name="seed" type="number" defaultValue={260930} />
+            <Field label="Attribute field for strata" name="strataField"><option value="counterparty">Counterparty</option><option value="month">Transaction month</option><option value="direction">Transaction direction (explicit choice)</option></Field>
+            <Field
+              label="Sampling basis — why this population and method are appropriate"
+              name="samplingBasis"
+              type="textarea"
+            />
+            <Field
+              label="Sample-size determination — firm method, calculation or documented professional override"
+              name="sizeDetermination"
+              type="textarea"
+            />
+            <Field
+              label="Applicable attributes / strata definition (required for Stratified Attribute Sampling)"
+              name="attributeDefinition"
+              type="textarea"
+              required={false}
+            />
+            <p className="caption">
+              The entered count is treated as the reviewer's professional selection. The prototype
+              ships no mandatory sample-size formula; a documented override is required to keep the
+              selection explainable. Source replacement invalidates dependent samples.
+            </p>
           </TargetForm>
           {p.items
             .filter((i) => i.selected)
@@ -146,6 +183,10 @@ export function TargetSamplingView(props: TargetViewProps) {
                   <Field label="Box reference (optional)" name="box" required={false} />
                   <Field label="Evidence description" name="description" />
                   <Field label="Location note (optional)" name="location" required={false} />
+                </TargetForm>
+                <TargetForm title={`Digital evidence for ${i.itemRef}`} button="Link digital sample evidence" onRegisterUnsavedForm={props.onRegisterUnsavedForm} onCommit={d => prototypeStore.lifecycle.attachDigitalSampleEvidence(e.id, p.id, i.id, value(d,'document'), value(d,'mode') as 'Digital' | 'Hybrid')}>
+                  <Field label="Evidence mode" name="mode"><option value="Digital">Digital only</option><option value="Hybrid">Hybrid · digital and physical</option></Field>
+                  <Field label="Accepted evidence document" name="document">{s.documents.filter(d => d.engagementId === e.id).map(d => <option key={d.id} value={d.id}>{d.name} · v{d.version}</option>)}</Field>
                 </TargetForm>
               </div>
             ))}

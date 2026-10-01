@@ -1,0 +1,16 @@
+{
+  "engagementId": "ENG-26001",
+  "checkpoints": [
+    "LEAD_INGESTION — inquiry registered through visible form",
+    "PROPOSAL_GENERATION — draft created through visible form",
+    "DUAL_KEY_PENDING",
+    "ADVANCE_BILLING",
+    "PORTAL_ACTIVE_PLANNING",
+    "FIELDWORK_EXECUTION",
+    "PARTNER_APPROVAL"
+  ],
+  "programs": 6,
+  "digitalSamples": 2,
+  "reviewLoop": true,
+  "mode": "Visible commercial, planning and fieldwork controls; only reset, scoped synthetic grant and leaving client persona use harness setup"
+}

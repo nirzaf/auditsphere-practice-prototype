@@ -1,4 +1,4 @@
-// Module 34: Audit Findings & Misstatements Register (VP-054)
+// Module 3: Audit findings and differences (VP-054)
 import React, { useEffect, useRef, useState } from 'react';
 import { RouteKey, AuditFindingItem } from '../../types';
 import { prototypeStore } from '../../store/prototypeStore';
@@ -7,6 +7,8 @@ import { Icon } from '../common/Icons';
 import { StatusBadge } from '../common/StatusBadge';
 import { formatCurrency } from '../../services/calculations';
 import { UnsavedFormGuard } from '../../services/unsavedFormGuard';
+import { AdjustmentPanel } from '../target/AdjustmentPanel';
+import { Field, TargetForm, value } from '../target/TargetCommon';
 
 interface FindingsViewProps {
   onNavigate: (route: RouteKey, targetId?: string) => void;
@@ -31,6 +33,7 @@ export const FindingsView: React.FC<FindingsViewProps> = ({ onNavigate, searchTa
   const [currency, setCurrency] = useState('QAR');
   const [condition, setCondition] = useState('');
   const [recommendation, setRecommendation] = useState('');
+  const [impact, setImpact] = useState('');
   const [managementResponse, setManagementResponse] = useState('');
   const [submitAttempted, setSubmitAttempted] = useState(false);
   const [proposedCorrection, setProposedCorrection] = useState('');
@@ -47,14 +50,14 @@ export const FindingsView: React.FC<FindingsViewProps> = ({ onNavigate, searchTa
   const findingDraftBaseline = useRef('');
   const findingDraft = () => JSON.stringify({
     engagementId: state.selectedEngagement, title, category, severity, accounts, amount, currency, condition,
-    recommendation, managementResponse, proposedCorrection, owner, assertion, evidenceId, procedureId,
+    impact, recommendation, managementResponse, proposedCorrection, owner, assertion, evidenceId, procedureId,
     workpaperId, samplePopulationId, sampleItemId, journalId, reviewNoteId,
   });
   const discardFindingDraft = () => {
     if (!findingDraftBaseline.current) return;
     const draft = JSON.parse(findingDraftBaseline.current);
     setTitle(draft.title); setCategory(draft.category); setSeverity(draft.severity); setAccounts(draft.accounts);
-    setAmount(draft.amount); setCurrency(draft.currency); setCondition(draft.condition); setRecommendation(draft.recommendation);
+    setAmount(draft.amount); setCurrency(draft.currency); setCondition(draft.condition); setImpact(draft.impact || ''); setRecommendation(draft.recommendation);
     setManagementResponse(draft.managementResponse); setProposedCorrection(draft.proposedCorrection); setOwner(draft.owner);
     setAssertion(draft.assertion); setEvidenceId(draft.evidenceId); setProcedureId(draft.procedureId); setWorkpaperId(draft.workpaperId);
     setSamplePopulationId(draft.samplePopulationId); setSampleItemId(draft.sampleItemId); setJournalId(draft.journalId); setReviewNoteId(draft.reviewNoteId);
@@ -72,7 +75,7 @@ export const FindingsView: React.FC<FindingsViewProps> = ({ onNavigate, searchTa
       discard: discardFindingDraft,
     }, 'finding-create');
     return () => onRegisterUnsavedForm(null, 'finding-create');
-  }, [showAddModal, state.selectedEngagement, title, category, severity, accounts, amount, currency, condition, recommendation, managementResponse, proposedCorrection, owner, assertion, evidenceId, procedureId, workpaperId, samplePopulationId, sampleItemId, journalId, reviewNoteId, onRegisterUnsavedForm]);
+  }, [showAddModal, state.selectedEngagement, title, category, severity, accounts, amount, currency, condition, impact, recommendation, managementResponse, proposedCorrection, owner, assertion, evidenceId, procedureId, workpaperId, samplePopulationId, sampleItemId, journalId, reviewNoteId, onRegisterUnsavedForm]);
   if (!engagement) {
     return (
       <div className="panel panel-pad text-center" style={{ padding: '60px 20px' }}>
@@ -109,7 +112,7 @@ export const FindingsView: React.FC<FindingsViewProps> = ({ onNavigate, searchTa
       prototypeStore.addFinding({
         engagementId: state.selectedEngagement, title: title.trim(), category, severity,
         financialStatementLine: accounts.trim(), affectedAccount: accounts.trim(), assertion,
-        condition: condition.trim(), description: condition.trim(), recommendation: recommendation.trim(), owner,
+        condition: condition.trim(), description: condition.trim(), impact: impact.trim() || undefined, recommendation: recommendation.trim(), owner,
         managementResponse: managementResponse.trim() || undefined, proposedCorrection: proposedCorrection.trim() || undefined,
         amount: category === 'Monetary misstatement' ? amount : undefined,
         currency: category === 'Monetary misstatement' ? currency : undefined,
@@ -140,7 +143,7 @@ export const FindingsView: React.FC<FindingsViewProps> = ({ onNavigate, searchTa
           <p>ISA 450 evaluation of misstatements, control deficiencies, and management correction tracking.</p>
         </div>
         <div className="row" style={{ gap: 10 }}>
-          <button className="btn sm ghost" onClick={() => onNavigate('accounting-setup')}>
+          <button className="btn sm ghost" onClick={() => document.querySelector('[data-testid="adjustment-panel"]')?.scrollIntoView({ behavior: 'smooth' })}>
             <Icon name="calculator" /> Propose Journal
           </button>
           <button className="btn primary sm" onClick={() => { findingDraftBaseline.current = findingDraft(); setShowAddModal(true); }}>
@@ -150,6 +153,7 @@ export const FindingsView: React.FC<FindingsViewProps> = ({ onNavigate, searchTa
       </div>
 
       {notice && <div role="status" className="panel panel-pad">{notice}</div>}
+      <AdjustmentPanel onRegisterUnsavedForm={onRegisterUnsavedForm} />
 
       <div className="metric-grid">
         <div className="metric">
@@ -212,14 +216,20 @@ export const FindingsView: React.FC<FindingsViewProps> = ({ onNavigate, searchTa
             <div className="borderbox mt12" style={{ padding: 12 }}>
               <b>Condition & Cause:</b>
               <p className="sub mt4">{f.condition || f.description || 'Not recorded'}</p>
+              <b className="mt12" style={{ display: 'block' }}>Impact:</b>
+              <p className="sub mt4">{f.impact || 'Not recorded — finding stays internal (not management-letter ready)'}</p>
               <b className="mt12" style={{ display: 'block' }}>Auditor Recommendation:</b>
               <p className="sub mt4">{f.recommendation || 'Not recorded'}</p>
+              <p className="caption">Management-letter scope: {f.managementLetterVisible ? 'Designated for client output' : 'Internal only'}</p>
+              {hasAnyRole(state,['manager','partner']) && <TargetForm title={`Management-letter designation: ${f.id}`} button={f.managementLetterVisible ? 'Keep internal' : 'Include in management letter'} onRegisterUnsavedForm={onRegisterUnsavedForm} onCommit={data => prototypeStore.designateManagementLetter(f.id,!f.managementLetterVisible,value(data,'reason'))}>
+                <Field label="Designation reason" name="reason" />
+              </TargetForm>}
               <p className="cell-sub">Assertion: {f.assertion || '—'} · Evidence: {f.linkedEvidenceId || '—'} · Procedure: {f.linkedProcedureId || '—'} · Workpaper: {f.linkedWorkpaperId || '—'} · Journal: {f.linkedJournalId || '—'} · Review: {f.linkedReviewNoteId || '—'}{f.linkedSampleItemId ? ` · Sample: ${f.linkedSamplePopulationId}/${f.linkedSampleItemId}` : ''}</p>
               {f.managementResponse && <p className="cell-sub">Management response: {f.managementResponse}</p>}
               {f.proposedCorrection && <p className="cell-sub">Proposed correction: {f.proposedCorrection}</p>}
               {(f.linkedWorkpaperId || f.linkedJournalId || f.linkedEvidenceId || f.linkedProcedureId || f.linkedSamplePopulationId) && <div className="handoff-bar mt8" aria-label={`Records linked to ${f.id}`}><span className="eyebrow">Linked records</span>
-                {f.linkedWorkpaperId && <a className="btn sm" href="#audit" onClick={event => { event.preventDefault(); onNavigate('audit', f.linkedWorkpaperId); }}>Open workpaper {f.linkedWorkpaperId}</a>}
-                {f.linkedJournalId && <a className="btn sm" href="#adjustments" onClick={event => { event.preventDefault(); onNavigate('adjustments'); }}>Open related journal {f.linkedJournalId}</a>}
+                {f.linkedWorkpaperId && <a className="btn sm" href="#reviews" onClick={event => { event.preventDefault(); onNavigate('reviews', f.linkedWorkpaperId); }}>Open workpaper {f.linkedWorkpaperId}</a>}
+                {f.linkedJournalId && <a className="btn sm" href="#findings" onClick={event => { event.preventDefault(); onNavigate('findings'); }}>Open related journal {f.linkedJournalId}</a>}
                 {f.linkedEvidenceId && <a className="btn sm" href="#evidence" onClick={event => { event.preventDefault(); onNavigate('evidence'); }}>View supporting evidence</a>}
                 {f.linkedProcedureId && <a className="btn sm" href="#audit-risks" onClick={event => { event.preventDefault(); onNavigate('audit-risks'); }}>Open procedure {f.linkedProcedureId}</a>}
                 {f.linkedSamplePopulationId && <a className="btn sm" href="#sampling" onClick={event => { event.preventDefault(); onNavigate('sampling'); }}>Open sample population</a>}
@@ -328,6 +338,15 @@ export const FindingsView: React.FC<FindingsViewProps> = ({ onNavigate, searchTa
                     onChange={e => setRecommendation(e.target.value)}
                     required
                   />
+                  <label className="caption">Impact (required for management-letter inclusion)</label>
+                  <textarea
+                    className="input"
+                    aria-label="Finding impact"
+                    rows={2}
+                    value={impact}
+                    onChange={e => setImpact(e.target.value)}
+                  />
+                  <p className="cell-sub">Findings without an explicit impact and recommendation stay internal — the management letter never manufactures missing elements.</p>
                 </div>
                 <label className="caption">Linked procedure<select className="input" aria-label="Finding procedure" value={procedureId} onChange={e => setProcedureId(e.target.value)}><option value="">None</option>{availableProcedures.map(item => <option key={item.id} value={item.id}>{item.ref || item.id} · {item.title}</option>)}</select></label>
                 <label className="caption">Linked evidence<select className="input" aria-label="Finding evidence" value={evidenceId} onChange={e => setEvidenceId(e.target.value)}><option value="">None</option>{availableEvidence.map(item => <option key={item.id} value={item.id}>{item.id} · {item.title}</option>)}</select></label>

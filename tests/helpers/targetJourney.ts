@@ -5,7 +5,8 @@ import { acceptance } from './targetFixture';
 import {
   artifactSha256,
   loadVerifiedArtifact,
-  persistArtifact
+  persistArtifact,
+  captureSourceOriginal
 } from '../../src/services/artifactStore';
 import {
   currentReview,
@@ -14,7 +15,7 @@ import {
   targetReleaseBlockers
 } from '../../src/services/targetLifecycle';
 import { calculateBalanceSheet, calculateIncomeStatement } from '../../src/services/calculations';
-export async function runTargetJourney() {
+export async function runTargetJourney(options: { stopAtFieldwork?: boolean; stopBeforeAdvance?: boolean; stopBeforeManager?: boolean; stopBeforePartner?: boolean } = {}) {
   const baseline = createInitialState();
   store.loadScenario('target-lifecycle');
   let s = (store as any).state as ReturnType<typeof store.getSnapshot>; // Read current records; all journey writes use store commands.
@@ -60,6 +61,8 @@ export async function runTargetJourney() {
     name: 'Rami Nasser',
     active: true
   });
+  store.addContact({ ...baseline.contacts.find(contact => contact.contactRole === 'MD/GM')!, id: 'CONTACT-TARGET-MD', clientId: client.id });
+  store.addContact({ ...baseline.contacts.find(contact => contact.title === 'Chief Financial Officer')!, id: 'CONTACT-TARGET-CFO', clientId: client.id });
   const item = {
     ...baseline.proposals[0].items[0],
     id: 'ITEM-TARGET',
@@ -83,7 +86,7 @@ export async function runTargetJourney() {
     presentedSnapshot: undefined
   };
   store.addProposal(proposal);
-  act('manager');
+  act('partner');
   store.reviewProposal(proposal.id, true, 'Scope and fee reviewed independently.');
   act('relationship');
   store.presentProposal(proposal.id);
@@ -145,7 +148,10 @@ export async function runTargetJourney() {
     'Accepted',
     'Independent Partner acceptance based on complete screening evidence.'
   );
+  store.generateEngagementLetter(e.id, 'ISA 210 External Statutory Audit', 'IFRS', s.currentPerson, true);
+  store.recordSignedEngagementLetter(e.id, 'Synthetic executive-signed engagement letter evidence');
   act('billing');
+  if (options.stopBeforeAdvance) { await route('billing'); return {engagementId:e.id,checkpoints}; }
   store.lifecycle.recordAdvance(e.id, {
     amount: 500,
     date: s.asOfDate,
@@ -262,6 +268,10 @@ export async function runTargetJourney() {
       preparedBy: s.currentPerson
     }) as any;
   act('preparer');
+  const preliminaryRows = [{code:'1000',name:'Cash',type:'asset',balance:1500},{code:'3000',name:'Capital',type:'equity',balance:-1000},{code:'4000',name:'Revenue',type:'revenue',balance:-1000},{code:'5000',name:'Purchases',type:'expense',balance:500}] as any;
+  const preliminarySource = await captureSourceOriginal('planning-tb.csv', new TextEncoder().encode('Code,Name,Type,Balance\n1000,Cash,asset,1500\n3000,Capital,equity,-1000\n4000,Revenue,revenue,-1000\n5000,Purchases,expense,500').buffer, 'text/csv');
+  store.lifecycle.importMappedTB(e.id, preliminaryRows, {fileName:'planning-tb.csv',format:'CSV',sha256:preliminarySource.sha256,originalArtifact:preliminarySource});
+  store.lifecycle.confirmMapping(e.id, preliminaryRows.map((r:any) => ({code:r.code,line:r.name})));
   store.saveAuditPlan(plan(1));
   act('partner');
   store.reviewAuditPlan('PLAN-TARGET-1', true, 'Independent initial planning review.');
@@ -277,7 +287,7 @@ export async function runTargetJourney() {
       ...a,
       phase: 'Fieldwork',
       plannedHours: 10,
-      chargeRate: 100,
+      chargeRate: a.role === 'Partner' ? 1000 : a.role === 'Manager' ? 750 : a.role === 'Senior/Reviewer' ? 500 : 200,
       costRate: 50,
       startDate: s.asOfDate,
       endDate: s.asOfDate
@@ -298,7 +308,8 @@ export async function runTargetJourney() {
   store.lifecycle.importMappedTB(e.id, rows, {
     fileName: 'target-tb.csv',
     format: 'CSV',
-    sha256: await artifactSha256(source)
+    sha256: await artifactSha256(source),
+    originalArtifact: await captureSourceOriginal('target-tb.csv',await source.arrayBuffer(),'text/csv')
   });
   store.lifecycle.confirmMapping(
     e.id,
@@ -328,13 +339,14 @@ export async function runTargetJourney() {
   if (!s.statementSetRevisions?.length) throw Error('Statement snapshot was not generated.');
   mark('P&L / BS generated with reconciled totals and FSLI drill-down rendered');
   store.lifecycle.prepareStandardPrograms(e.id);
-  act('preparer');
-  const wp = e.workpapers[0],
+  act('manager');
+  if (options.stopAtFieldwork) return { engagementId: e.id, checkpoints };
+  const wp = e.workpapers.find(w => w.applicable)!,
     evidence = s.evidenceCatalogue.find((i) => i.documentId === doc.id)!;
   store.linkWorkpaperEvidence(e.id, wp.id, doc.id);
   store.signOffAnalyticalReview(e.id, { fsli: 'Revenue', tbSourceVersion: e.sourceVersion,
     mappingRevision: s.accountMappingRevisions?.filter(m => m.engagementId === e.id).at(-1)?.revision,
-    planVersion: 2, currentBalance: 1000, priorBalance: 900, varianceAmount: 100, variancePct: 100/900*100,
+    planVersion: 2, currentBalance: 1000, variancePct: null,
     analysis: 'Corroborated revenue fluctuation against client evidence and current-period activity.',
     isa570Checklist: { operatingCashFlows: true, debtCovenantsCompliant: true, workingCapitalAdequate: true, noMaterialDisruptions: true, conclusion: 'Twelve-month cash forecast and financing corroborated with the current evidence.' } });
 
@@ -356,7 +368,7 @@ export async function runTargetJourney() {
       );
     }
   }
-  act('manager');
+  act('reviewer');
   for (const program of s.auditPrograms.filter((p) => p.engagementId === e.id))
     for (const proc of program.procedures)
       store.updateAuditProcedureStatus(
@@ -379,14 +391,21 @@ export async function runTargetJourney() {
         result: 'Untested'
       }) as any
   );
+  const populationSource = await captureSourceOriginal('population.csv',new TextEncoder().encode('itemRef,date,counterparty,amount\n'+populationRows.map((r:any)=>`${r.itemRef},${r.date},${r.counterparty},${r.amount}`).join('\n')).buffer,'text/csv');
   const pop = store.lifecycle.importPopulation(
     e.id,
     '1000',
     'population.csv',
-    'a'.repeat(64),
-    populationRows
+    populationSource.sha256,
+    populationRows,
+    populationSource
   );
-  store.lifecycle.generateSample(e.id, pop, 'Random', 2, 260930);
+  store.lifecycle.generateSample(e.id, pop, 'Random', 2, 260930, {
+    samplingBasis:
+      'Cash existence and completeness tested through a random selection reconciled to the complete imported population and accepted evidence.',
+    sizeDetermination:
+      'Two items recorded as a documented professional override for this demonstration population.'
+  });
   const population = s.samplePopulations.find((p) => p.id === pop)!;
   for (const item of population.items.filter((i) => i.selected)) {
     store.recordSampleItemTest(
@@ -439,16 +458,18 @@ export async function runTargetJourney() {
     'Bank response reconciled and independently cleared.'
   );
   mark('Critical bank confirmation tracked through independent clearance');
-  act('preparer');
+  // R04: every mapped FSLI in this fixture exceeds PM, so every program workpaper is RED —
+  // manager-executed and partner-reviewed. The manager prepares and submits; the assigned
+  // partner reviewer clears the note and workpaper.
+  act('manager');
   await store.lifecycle.saveFieldworkWorkbook(
     e.id,
     wp.id,
     e.period,
-    'Completed all six program areas and reconciled selected samples.',
+    'Completed all program areas and reconciled selected samples.',
     'No unresolved exceptions; conclusions supported by accepted evidence.'
   );
   store.submitWorkpaper(e.id, wp.id);
-  act('manager');
   store.addReviewNote(e.id, {
     id: 'RN-TARGET',
     wp: wp.id,
@@ -464,12 +485,11 @@ export async function runTargetJourney() {
     history: []
   } as any);
   expectBlocked(() => store.clearReviewNote(e.id, 'RN-TARGET'), /response/);
-  act('preparer');
   await store.lifecycle.saveFieldworkWorkbook(
     e.id,
     wp.id,
     e.period,
-    'Completed all six areas; cash samples reconcile to 1500 control total.',
+    'Completed all areas; cash samples reconcile to 1500 control total.',
     'No exceptions, cash population tested and physical index X-1 verified.'
   );
   store.respondReviewNote(
@@ -478,13 +498,28 @@ export async function runTargetJourney() {
     'Revised workbook documents reconciliation to the 1500 cash control total.'
   );
   store.submitWorkpaper(e.id, wp.id);
-  act('manager');
+  act('partner');
   store.clearReviewNote(e.id, 'RN-TARGET');
   store.clearWorkpaper(
     e.id,
     wp.id,
-    'Current revised workbook and point response independently assessed.'
+    'Manager-executed RED work: current revised workbook and point response independently reviewed by the assigned Partner reviewer.'
   );
+  for (const other of e.workpapers.filter(w => w.applicable && w.id !== wp.id)) {
+    act('manager'); store.linkWorkpaperEvidence(e.id, other.id, doc.id);
+    await store.lifecycle.saveFieldworkWorkbook(e.id, other.id, e.period, 'Performed all current program tests with accepted evidence.', 'Current scoped conclusion independently supported by evidence.');
+    store.submitWorkpaper(e.id, other.id);
+    act('partner');
+    store.clearWorkpaper(e.id, other.id, 'Manager-executed RED work independently reviewed and cleared by the assigned Partner reviewer.');
+  }
+  if (options.stopBeforeManager) {
+    // The manager-clearance form must be enabled for the visible-form tests: restore the
+    // manager persona (the RED workpaper loop above ends as the clearing partner).
+    act('manager');
+    await route('reviews');
+    return {engagementId:e.id,checkpoints};
+  }
+  act('manager');
   store.lifecycle.recordManagerClearance(
     e.id,
     'All workpapers, procedures and review points cleared for SRM.'
@@ -498,17 +533,55 @@ export async function runTargetJourney() {
     throw Error('Current SRM became stale during reload normalization.');
   mark('Preparer ready → Manager return → revision → Manager clearance → genuine SRM');
   act('partner');
+  if (options.stopBeforePartner) { await route('reviews'); return {engagementId:e.id,checkpoints}; }
   store.lifecycle.clearPartner(
     e.id,
     'Current SRM and source basis independently assessed and cleared.'
   );
   expectBlocked(() => store.lifecycle.selectOpinion(e.id, 'Qualified', '', 'short'), /focus|basis/);
   store.lifecycle.selectOpinion(e.id, 'Clean', '', '');
+  // R10: opinion selection is not the signature event; compilation requires the recorded
+  // partner signature/seal pinned to the current opinion revision and reporting basis.
+  try {
+    await store.lifecycle.generateDeliverables(e.id, s.asOfDate);
+    throw Error('Expected generateDeliverables to be blocked without a partner signature.');
+  } catch (error) {
+    if (!/signature/i.test(String(error))) throw error;
+  }
+  store.lifecycle.authorizeReportSignature(
+    e.id,
+    s.asOfDate,
+    'Simulated digital signature and firm seal authorize the current opinion and reporting basis.'
+  );
   await store.lifecycle.generateDeliverables(e.id, s.asOfDate);
+  const compiled = e.auditLifecycle!.deliverables.at(-1)!;
+  const invoice = s.invoices.find(item => item.id === e.auditLifecycle!.balanceInvoices[0].invoiceId)!;
+  if (invoice.status !== 'Draft' || compiled.artifacts.length !== 5) throw Error('Final invoice must remain internal until Partner release.');
+  const reportBlob = await loadVerifiedArtifact(compiled.artifacts[0]);
+  if (!(await reportBlob.text()).includes('Revenue:')) throw Error('Certified report has no audited figures.');
+  const invoiceBlob = await loadVerifiedArtifact(compiled.artifacts[4]);
+  if (!(await invoiceBlob.text()).includes(invoice.invoiceNumber)) throw Error('Bundle uses a different invoice identity.');
+  act('client_finance');
+  await route('portal');
+  [...document.querySelectorAll('button')].find(button => button.textContent?.includes('4. Final Certified Deliverables'))?.click();
+  await new Promise(resolve => setTimeout(resolve, 50));
+  if (document.querySelector('[data-testid="client-release-set"]')) throw Error('Unreleased bundle leaked into the client portal.');
+  act('partner');
+  expectBlocked(() => store.lifecycle.markDeliverablesDelivered(e.id, 'Cannot release without executive signatures.'), /executive-signed/);
+  const signedBlob = (await import('../../src/services/exportService')).createPDFBlob('Synthetic executive-signed LOR', ['Synthetic test fixture: executive management signatures inspected.', 'Demo Managing Director / Omar Nasser', `Engagement ${e.id}; bundle ${compiled.id}`]);
+  const signedArtifact = { id: `SIGNED-${compiled.id}`, name: 'Synthetic_signed_LOR.pdf', kind: 'PDF' as const, mimeType: signedBlob.type, size: signedBlob.size, sha256: await artifactSha256(signedBlob) };
+  await persistArtifact(signedArtifact, signedBlob);
+  await store.lifecycle.recordSignedRepresentation(e.id, compiled.id, signedArtifact, 'Demo Managing Director', 'Omar Nasser', 'Synthetic executive signature inspection for this exact bundle.');
   store.lifecycle.markDeliverablesDelivered(
     e.id,
     'Synthetic delivery to client recorded; no transmission.'
   );
+  act('client_finance');
+  expectBlocked(() => store.uploadPbcResponse(e.id, 'PBC-TARGET', { name: 'after-release.pdf', size: 10, sha256: 'a'.repeat(64) }), /freezes client uploads/);
+  await route('portal');
+  [...document.querySelectorAll('button')].find(button => button.textContent?.includes('4. Final Certified Deliverables'))?.click();
+  await new Promise(resolve => setTimeout(resolve, 50));
+  if (document.querySelectorAll('[data-testid="client-release-set"]').length !== 1) throw Error('Released bundle is missing from the client portal.');
   mark('Partner clearance, explicit Clean opinion and genuine ML/LOR/Audit Report PDFs');
   act('billing');
   await store.lifecycle.generateBalanceInvoice(e.id);

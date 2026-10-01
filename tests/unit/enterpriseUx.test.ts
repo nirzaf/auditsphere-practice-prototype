@@ -1,3 +1,4 @@
+import { routeCode } from '../../src/services/routeCatalog.js';
 // Enterprise UX layer contracts: shared status semantics, lifecycle definitions grounded in
 // real store commands, route catalogue coverage and deterministic scoped work queues.
 import { describe, it, beforeEach } from 'node:test';
@@ -10,7 +11,7 @@ import { prototypeStore } from '../../src/store/prototypeStore.js';
 import { loadScenarioState } from '../../src/store/scenarios.js';
 import { statusKind, statusSemantic, isTerminalStatus } from '../../src/services/statusSemantics.js';
 import { LIFECYCLES, lifecycleById, projectLifecycle } from '../../src/services/lifecycles.js';
-import { ROUTE_CATALOG, routeCode } from '../../src/services/routeCatalog.js';
+import { ROUTE_CATALOG } from '../../src/services/legacyRouteCatalog.js';
 import { buildWorkQueues, readyForReleaseEngagements } from '../../src/services/workQueues.js';
 import { isSamePerson, requireIndependentActor, scopedInvoices } from '../../src/services/guards.js';
 import type { PrototypeState } from '../../src/types/index.js';
@@ -231,7 +232,7 @@ describe('what changed since last review (deterministic workpaper diff)', () => 
 
 describe('module lifecycle guide coverage', () => {
   it('gives every operational route its own rehearsal guide, exact route first', async () => {
-    const { guidesForRoute } = await import('../../src/components/common/ModuleGuideStrip.js');
+    const { guidesForRoute } = await import('../../historical/guideProjections.js');
     const reference = new Set(['requirements', 'client-requirements', 'role-guide', 'module-guide']);
     const missing = Object.keys(ROUTE_CATALOG).filter(route => !reference.has(route) && guidesForRoute(route as any).length === 0);
     assert.deepEqual(missing, []);

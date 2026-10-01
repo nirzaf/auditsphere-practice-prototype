@@ -8,8 +8,6 @@
     "build": "node tools/generate-requirements-deck.mjs && tsc --noEmit && vite build",
     "lint": "tsc --noEmit",
     "preview": "vite preview --host 0.0.0.0 --port 3000",
-    "legacy:build": "py -3 build.py",
-    "legacy:check": "node --check app.bundle.js",
     "test:unit": "tsx --test --test-concurrency=1 tests/unit/*.test.ts",
     "demo:seed": "tsx tools/seed-cloud-demo.ts",
     "demo:typecheck": "tsc --noEmit -p worker/tsconfig.json",
@@ -18,6 +16,7 @@
   },
   "dependencies": {
     "docx": "^9.7.1",
+    "fflate": "0.8.3",
     "jspdf": "^4.2.1",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",

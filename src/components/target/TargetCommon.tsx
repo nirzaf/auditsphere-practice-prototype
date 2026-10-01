@@ -3,7 +3,7 @@ import type { GeneratedArtifactRecord, RouteKey } from '../../types';
 import type { UnsavedFormGuard } from '../../services/unsavedFormGuard';
 import { downloadVerifiedArtifact } from '../../services/artifactStore';
 import { prototypeStore } from '../../store/prototypeStore';
-import { engagementProgress, isFrozen } from '../../services/targetLifecycle';
+import { engagementProgress, isFrozen, computeSystemState } from '../../services/targetLifecycle';
 import { visibleEngagementIds } from '../../services/guards';
 
 export interface TargetViewProps {
@@ -212,7 +212,7 @@ export function TargetLifecycleHeader({
   route,
   onNavigate
 }: TargetViewProps & { route: RouteKey }) {
-  const state = prototypeStore.getSnapshot(),
+  const state = prototypeStore.getReadSnapshot(),
     allowed = visibleEngagementIds(state),
     engagement = state.engagements.find(
       (e) => e.id === state.selectedEngagement && (allowed === 'ALL' || allowed.includes(e.id))
@@ -237,7 +237,7 @@ export function TargetLifecycleHeader({
           <p className="caption">
             {state.clients.find((c) => c.id === engagement.client)?.name} · {engagement.period}
           </p>
-          <h2>{stage.label}</h2>
+          <h2>{route === 'delivery' && computeSystemState(state, engagement).state === 'PARTNER_APPROVAL' ? 'Partner Approval & Opinion' : stage.label}</h2>
           <p className="caption">
             {engagement.id} ·{' '}
             {isFrozen(engagement) ? 'Frozen · read-only' : engagement.lifecycleStatus || 'Active'} ·

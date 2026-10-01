@@ -1,5 +1,5 @@
-import type { RouteKey } from '../types';
-import { ROUTE_CATALOG } from './routeCatalog';
+import type { CurrentRouteKey, LegacyRouteId, RouteKey } from '../types';
+import { ROUTE_CATALOG } from './legacyRouteCatalog';
 
 /**
  * Route IDs used by the former role-portal entrypoint. Keep explicit redirects
@@ -54,12 +54,14 @@ export const LEGACY_ROUTE_REDIRECTS: Readonly<Record<string, RouteKey>> = {
 };
 
 
-export const RETIRED_ROUTE_REDIRECTS: Partial<Record<RouteKey,RouteKey>> = {
+/** Retired historical route ids redirect into the current surface; legacy resolution happens
+ * before route authorization, so current authorization never sees a retired route id. */
+export const RETIRED_ROUTE_REDIRECTS: Record<LegacyRouteId, CurrentRouteKey> = {
   jobs:'scheduling', 'job-templates':'audit-risks', communications:'documents', budgets:'scheduling', receivables:'billing', 'accounting-setup':'trial-balance', 'gl-transactions':'trial-balance', 'account-mappings':'trial-balance', adjustments:'findings', reconciliations:'trial-balance', 'financial-packages':'delivery', consolidation:'overview', quality:'reviews', audit:'reviews', approvals:'reviews', services:'proposals', administration:'overview', 'm365-setup':'documents'
 };
-export function canonicalRoute(route:RouteKey):RouteKey { return RETIRED_ROUTE_REDIRECTS[route] || route; }
+export function canonicalRoute(route:RouteKey):CurrentRouteKey { return RETIRED_ROUTE_REDIRECTS[route as LegacyRouteId] || route as CurrentRouteKey; }
 
-export function resolveRouteHash(hash: string): { route: RouteKey; redirected: boolean } | null {
+export function resolveRouteHash(hash: string): { route: CurrentRouteKey; redirected: boolean } | null {
   const key = hash.replace(/^#/, '').trim();
   if (!key) return null;
   const legacyTarget = LEGACY_ROUTE_REDIRECTS[key];

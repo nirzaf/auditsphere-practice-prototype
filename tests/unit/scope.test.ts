@@ -37,7 +37,7 @@ describe('scope freeze AT-04: no excluded module is offered in target-facing cod
   const allowFiles = new Set([
     join(srcRoot, 'components/modules/RequirementsView.tsx'),
     join(srcRoot, 'components/modules/RecordsArchiveView.tsx'),
-    join(srcRoot, 'components/modules/M365SetupView.tsx'),
+    join(repoRoot, 'historical/components/M365SetupView.tsx.txt'),
     join(srcRoot, 'store/initialState.ts')
   ]);
   const allowLine = /not current product scope|not part of|no .*adapter|without claiming|Historical source|excluded|hard exclusion|never|not offered|No .*integration|no .*purview|not in product|without |is not part/i;
@@ -73,8 +73,9 @@ describe('scope freeze AT-04: no excluded module is offered in target-facing cod
   });
 
   it('M365 config keeps liveConnected=false and offers no Purview control', () => {
-    const setup = readFileSync(join(srcRoot, 'components/modules/M365SetupView.tsx'), 'utf8');
+    const setup = readFileSync(join(repoRoot, 'historical/components/M365SetupView.tsx.txt'), 'utf8');
     assert.match(setup, /liveConnected:\s*false/);
+    assert.doesNotMatch(readFileSync(join(srcRoot,'App.tsx'),'utf8'), /import.*M365SetupView/);
     // No Purview setup control, toggle, input, or gate — only exclusion disclosures.
     assert.doesNotMatch(setup, /purview.*(input|select|checkbox|toggle|enable|setup|gate|required)/i);
     const store = readFileSync(join(srcRoot, 'store/prototypeStore.ts'), 'utf8');

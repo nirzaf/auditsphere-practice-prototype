@@ -4,6 +4,8 @@
 // every status literal of the record type is placed somewhere in its definition).
 // Nothing here changes behaviour: it drives lifecycle steppers, the lifecycle matrix and
 // "what happens next" copy. Eligibility stays with guards and store validation.
+// Definitions for retired-route record types are migration-compatibility metadata; the
+// current five-module surface consumes only the lead and audit-plan lifecycles.
 import type { RouteKey } from '../types';
 import { statusKind } from './statusSemantics';
 

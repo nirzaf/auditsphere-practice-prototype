@@ -2,14 +2,14 @@
 
 ## Implemented
 
-The existing React/Vite prototype now has a canonical 19-stage audit lifecycle over the same `prototypeStore`, role/scope guards and artifact store. The current scenario starts clean. Commercial and professional decisions remain separate; later commands check current prerequisites and source revisions.
+The existing React/Vite prototype implements the canonical **eleven lifecycle states** (`SYSTEM_LIFECYCLE_STATES` in `src/services/targetLifecycle.ts`) over the same `prototypeStore`, role/scope guards and artifact store; the operational stages in the stepper are substeps of those states (`ENGAGEMENT_WORKFLOW_SUBSTEPS`), not additional canonical states. The current scenario starts clean. Commercial and professional decisions remain separate; later commands check current prerequisites and source revisions.
 
 - Accepted Proposal/EL revision and fee pin; manually recorded advances; current official receipt PDF; final balance invoice from accepted fee less recognized advance; explicit advance reversal history.
 - Exact engagement/year/service acceptance case, five evidence-backed checks, independent assigned Partner decision, conditions/decline/payment gates.
 - Five-folder simulated M365 workspace, access verification, scoped PBC handoff, simulated first-login password change/delegation, actual browser file bytes and independent accepted evidence.
-- Source-pinned PM/TE/SAD planning, independent plan review, four-role scheduling, budget hours and explicit charge/cost rates. Approved time retains scheduling rate snapshots; missing rates stay Unknown.
+- Source-pinned PM/TE/SAD planning, independent plan review, allocation-list scheduling (multiple people, phases and date intervals per person), budget hours and explicit charge/cost rates. Approved time retains scheduling rate snapshots; missing rates stay Unknown.
 - Balanced CSV/genuine Excel TB intake, preserved source history, explicit FSLI mapping, P&L/BS snapshot, approved earlier client-period comparatives and linked program drill-down.
-- Six fieldwork areas including Analytical Review and Going Concern, ad-hoc procedure insertion, work/evidence/conclusions, actual XLSX workpaper revisions, reproducible Random/Stratified/systematic MUS sampling and structured X-1/box evidence.
+- One substantive program per mapped FSLI (plus Analytical Review and Going Concern) with risk-tiered ownership (RED: manager executes / partner reviews; AMBER: senior executes / manager reviews; GREEN: preparer executes / senior reviews), ad-hoc procedure insertion, work/evidence/conclusions, actual XLSX workpaper revisions, reproducible Random/Stratified/systematic MUS sampling with recorded reviewer basis and size determination, and structured X-1/box evidence.
 - Scoped confirmation state transitions and independently cleared current response evidence. Critical unresolved/no-response/exception/cancelled matters block final reporting; holding letters remain non-final.
 - Preparer ready → Manager return → revised response/workbook → current independent clearance → SRM PDF → assigned Partner clearance. Material source changes stale downstream reviews; migration-added empty histories do not.
 - Explicit Clean/Qualified/Disclaimer/Adverse opinion; modified basis/focus validation; genuine illustrative ML/LOR/Audit Report PDFs; simulated delivery; report-date +60 countdown, verified archive copies and frozen-write rejection including superuser.
@@ -22,6 +22,8 @@ The current sidebar follows the target flow. Standalone jobs/templates, communic
 Current implementation files: `src/services/targetLifecycle.ts`, `src/store/targetLifecycleCommands.ts`, `src/store/targetScenario.ts`, `src/types/targetLifecycle.ts`, `src/components/target/`. Store, guards, schema-30 migration, App/Shell navigation, reused planning/program/time views and TB wizard were integrated. Current master/module/playbook/role references link to the target rehearsal.
 
 ## Verified
+
+**Historical verification record** — the results below were captured on the earlier `main@716cacf` working tree and are retained for traceability; they are **not** current-commit acceptance evidence. Current-commit results live in the newest verification logs and `docs/prototype/final-alignment-resolution.md`.
 
 Executed on the implementation working tree based on `main@716cacf20debb33a64314ffd174f784fe5ade1c9`:
 

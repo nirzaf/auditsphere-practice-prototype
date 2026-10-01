@@ -1,13 +1,14 @@
 import React from 'react';
 import { prototypeStore } from '../../store/prototypeStore';
 import type { ConfirmationStatus } from '../../types/targetLifecycle';
+import { REQUIRED_CONFIRMATION_TYPES, type RequiredConfirmationType } from '../../types/targetLifecycle';
 import { hasAnyRole, visibleEngagementIds } from '../../services/guards';
 import { criticalConfirmationBlockers, isFrozen } from '../../services/targetLifecycle';
 import { ActionButton, Field, TargetForm, value, type TargetViewProps } from './TargetCommon';
 import { downloadVerifiedArtifact } from '../../services/artifactStore';
 
 export function ConfirmationsView(props: TargetViewProps) {
-  const state = prototypeStore.getSnapshot(),
+  const state = prototypeStore.getReadSnapshot(),
     eng = state.engagements.find((e) => e.id === state.selectedEngagement);
   if (!eng) return null;
   const confirmations = (state.confirmations || []).filter((c) => c.engagementId === eng.id),
@@ -57,7 +58,7 @@ export function ConfirmationsView(props: TargetViewProps) {
         onRegisterUnsavedForm={props.onRegisterUnsavedForm}
         onCommit={(data) =>
           prototypeStore.lifecycle.createConfirmation(eng.id, {
-            type: value(data, 'type') as 'Bank',
+            type: value(data, 'type') as RequiredConfirmationType,
             counterparty: value(data, 'counterparty'),
             relatedFsli: value(data, 'fsli'),
             ownerUserId: value(data, 'owner'),
@@ -68,7 +69,7 @@ export function ConfirmationsView(props: TargetViewProps) {
         }
       >
         <Field label="Type" name="type" defaultValue="Bank">
-          {['Bank', 'Accounts Receivable', 'Accounts Payable', 'Inventory', 'Legal', 'Debtor', 'Other'].map((type) => (
+          {REQUIRED_CONFIRMATION_TYPES.map((type) => (
             <option key={type}>{type}</option>
           ))}
         </Field>
@@ -113,7 +114,7 @@ export function ConfirmationsView(props: TargetViewProps) {
         <section className="panel panel-pad" key={c.id}>
           <div className="flex-between">
             <h3>
-              {c.type} · {c.counterparty}
+              {c.type} · {c.counterparty}{!(REQUIRED_CONFIRMATION_TYPES as readonly string[]).includes(c.type) && ' · Historical type'}
             </h3>
             <strong>
               {c.status} · {c.critical ? 'Critical' : 'Supporting'}
@@ -127,10 +128,10 @@ export function ConfirmationsView(props: TargetViewProps) {
           <TargetForm
             title={`Update confirmation: ${c.counterparty}`}
             button="Record transition"
-            disabled={isFrozen(eng)}
+            disabled={isFrozen(eng) || !(REQUIRED_CONFIRMATION_TYPES as readonly string[]).includes(c.type)}
             onRegisterUnsavedForm={props.onRegisterUnsavedForm}
             onCommit={(data) =>
-              prototypeStore.lifecycle.transitionConfirmation(
+              prototypeStore.lifecycle.transitionConfirmationWithHandover(
                 eng.id,
                 c.id,
                 value(data, 'status') as ConfirmationStatus,
