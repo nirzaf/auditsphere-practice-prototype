@@ -1,4 +1,5 @@
 import { assertAdjustmentSupport } from '../services/adjustmentSupport';
+import type { GeneratedArtifactRecord } from '../types';
 import { canonicalRoute } from '../services/legacyRoutes';
 import { mergeIndependentEdits } from '../services/rowMerge';
 import { sealEngagementArchive } from '../services/archivePackage';
@@ -4031,8 +4032,8 @@ class PrototypeStore {
     const docId = file.id || `DOC-PBC-${crypto.randomUUID()}`;
     if (!/^DOC-PBC-[\w-]+$/.test(docId) || this.state.documents.some(document => document.id === docId)) throw new GuardError('INVALID_STATE', 'PBC response identity must be unique and valid.');
     const uploadedAt = new Date().toISOString();
-    const uploadVersion = (req.sharedFiles?.at(-1)?.version || 0) + 1;
-    const previousSubmission = req.sharedFiles?.at(-1);
+    const previousSubmission = req.sharedFiles?.filter(file => file.source !== 'Staff correspondence').at(-1);
+    const uploadVersion = (previousSubmission?.version || 0) + 1;
     const previousDocument = previousSubmission && this.state.documents.find(document => document.id === previousSubmission.id);
     if (previousDocument) {
       this.replaceDocumentRevision(previousDocument.id, { name: file.name, size: file.size!, sha256: file.sha256 }, docId);
@@ -4059,6 +4060,7 @@ class PrototypeStore {
 
     if (!req.sharedFiles) req.sharedFiles = [];
     req.sharedFiles.push({
+      artifact: { id: docId, name: file.name, kind: 'PBC', mimeType: file.type || 'application/octet-stream', size: file.size!, sha256: file.sha256 },
       id: docId,
       name: file.name,
       version: uploadVersion,
@@ -4078,6 +4080,7 @@ class PrototypeStore {
       text: `Uploaded evidence file: ${file.name}`,
       time: new Date().toISOString(),
       file: file.name,
+      fileId: docId,
       version: uploadVersion,
       clientVisible: true
     });
@@ -4092,18 +4095,30 @@ class PrototypeStore {
     this.logEvent(`PBC response file uploaded by ${this.state.currentPerson}: ${file.name}`, req.id);
     this.notify();
   }
-  public replyToPbcRequest(engId: string, requestId: string, text: string) {
+  public replyToPbcRequest(engId: string, requestId: string, text: string, attachment?: GeneratedArtifactRecord) {
     requireActiveIdentity(this.state);
-    requireRole(this.state, ['client_admin', 'client_finance', 'client'], 'reply to a client PBC request');
+    requireRole(this.state, ['client_admin', 'client_finance', 'client', 'manager', 'partner', 'preparer', 'reviewer'], 'reply to a PBC request');
     requireEngagementScope(this.state, engId);
     const engagement = this.state.engagements.find(item => item.id === engId);
     const request = engagement?.pbc.find(item => item.id === requestId);
     const message = text.trim();
     if (!request) throw new GuardError('INVALID_STATE', 'PBC request not found.');
+    if (engagement?.auditLifecycle?.deliverables.some(set => Boolean(set.deliveredAt)) || engagement?.releases.some(release => release.delivered)) throw new GuardError('INVALID_STATE', 'Final release locks the PBC conversation.');
+    if (isClientRole(this.state.currentRole)) {
+      if (request.contributor !== this.state.currentPerson) throw new GuardError('FORBIDDEN_SCOPE', 'Only the named client contributor can reply to this PBC request.');
+      if (engagement?.auditLifecycle && !this.state.portalPasswordChanges?.some(change => change.userId === this.state.currentUserId)) throw new GuardError('INVALID_STATE', 'Complete the mandatory password change before replying.');
+      if (attachment) throw new GuardError('INVALID_STATE', 'Client attachments must use the PBC evidence upload workflow.');
+    }
     if (!message) throw new GuardError('INVALID_STATE', 'A reply message is required.');
     if (message.length > 2000) throw new GuardError('INVALID_STATE', 'A PBC reply cannot exceed 2,000 characters.');
-    if (!['Requested', 'Needs clarification', 'Received'].includes(request.status)) {
+    if (!['Requested', 'Needs clarification', 'Received', 'Under review', 'Accepted'].includes(request.status)) {
       throw new GuardError('INVALID_STATE', `A reply cannot be added while the request is ${request.status}.`);
+    }
+    if (attachment) {
+      const error = validatePbcUpload({ name: attachment.name, size: attachment.size, type: attachment.mimeType });
+      if (error || !/^[a-f0-9]{64}$/i.test(attachment.sha256) || attachment.kind !== 'PBC' || !attachment.id.startsWith('PBC-STAFF-') || request.sharedFiles?.some(file => file.id === attachment.id)) throw new GuardError('INVALID_STATE', error || 'A unique verified PBC attachment is required.');
+      request.sharedFiles ||= [];
+      request.sharedFiles.push({ id: attachment.id, name: attachment.name, version: 1, size: attachment.size, sha: attachment.sha256, uploadedBy: this.state.currentPerson, uploadedAt: new Date().toISOString(), source: 'Staff correspondence', artifact: attachment });
     }
     request.thread ||= [];
     request.thread.push({
@@ -4113,9 +4128,10 @@ class PrototypeStore {
       role: this.state.currentRole,
       text: message,
       time: new Date().toISOString(),
-      clientVisible: true
+      clientVisible: true,
+      file: attachment?.name, fileId: attachment?.id
     });
-    this.logEvent(`Client replied to PBC request: ${request.title}`, request.id);
+    this.logEvent(`PBC conversation reply: ${request.title}`, request.id);
     this.notify();
   }
 

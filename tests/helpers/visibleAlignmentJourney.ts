@@ -146,6 +146,17 @@ export async function runVisibleAlignmentJourney(tab: CdpTab) {
   await wait(`import('/src/store/prototypeStore.ts').then(({prototypeStore:s})=>s.getSnapshot().documents.length===1)`);
   assert.equal(await tab.evaluate<boolean>(`/Adjusting journals|Propose balanced AJE|Management decision|Internal SRM|Charge-out/.test(document.querySelector('main').innerText)`),false);
   await actor('manager'); await route('documents','Visible digital audit evidence'); await button('✓ Approve Uploaded Evidence');
+  let replyForm=await form('Reply to: Visible digital');
+  await fill(`${replyForm} [name="message"]`,'Staff reply with the requested reconciliation example.');
+  await upload(`${replyForm} [name="attachment"]`,'staff-example.csv','account,amount\nCash,1500'); await submit(replyForm);
+  await actor('client_finance'); await route('portal','Staff reply with the requested reconciliation example.');
+  assert.equal(await tab.evaluate<boolean>(`document.querySelector('main').innerText.includes('staff-example.csv')`),true);
+  replyForm=await form('Reply to: Visible digital'); await fill(`${replyForm} [name="message"]`,'Client confirms receipt of the reconciliation example.'); await submit(replyForm);
+  await tab.evaluate(`window.__pbcURL=URL.createObjectURL;URL.createObjectURL=function(blob){window.__pbcDownload=blob;return window.__pbcURL.call(URL,blob)};Array.from(document.querySelectorAll('button')).find(b=>b.textContent.trim()==='Download staff-example.csv').click()`);
+  await wait(`!!window.__pbcDownload?.size`);
+  assert.equal(await tab.evaluate<string>(`window.__pbcDownload.text()`),'account,amount\nCash,1500');
+  await tab.evaluate(`URL.createObjectURL=window.__pbcURL`);
+  await actor('manager'); await route('documents','Client confirms receipt of the reconciliation example.');
   const documentId = await inspect<string>('state.documents[0].id');
   await route('audit-fieldwork','Prepare standard audit programs'); await button('Prepare standard audit programs');
   const programs = await inspect<Array<{id:string;title:string;area:string;procedures:Array<{id:string}>}>>('state.auditPrograms');

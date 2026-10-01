@@ -657,7 +657,7 @@
   {
     "route": "#portal",
     "width": 760,
-    "documentWidth": 760,
+    "documentWidth": 745,
     "main": true,
     "hiddenIdentity": true,
     "hiddenSearch": true,
@@ -851,7 +851,7 @@
   {
     "route": "#portal",
     "width": 960,
-    "documentWidth": 960,
+    "documentWidth": 945,
     "main": true,
     "hiddenIdentity": true,
     "hiddenSearch": true,
@@ -1045,7 +1045,7 @@
   {
     "route": "#portal",
     "width": 1000,
-    "documentWidth": 1000,
+    "documentWidth": 985,
     "main": true,
     "hiddenIdentity": true,
     "hiddenSearch": true,
@@ -1239,7 +1239,7 @@
   {
     "route": "#portal",
     "width": 1024,
-    "documentWidth": 1024,
+    "documentWidth": 1009,
     "main": true,
     "hiddenIdentity": true,
     "hiddenSearch": true,
@@ -1414,7 +1414,7 @@
   {
     "route": "#portal",
     "width": 1440,
-    "documentWidth": 1440,
+    "documentWidth": 1425,
     "main": true,
     "hiddenIdentity": true,
     "hiddenSearch": true,
@@ -1579,7 +1579,7 @@
   {
     "route": "#portal",
     "width": 1920,
-    "documentWidth": 1920,
+    "documentWidth": 1905,
     "main": true,
     "hiddenIdentity": true,
     "hiddenSearch": true,

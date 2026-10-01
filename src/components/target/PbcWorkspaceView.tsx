@@ -310,17 +310,50 @@ export function PbcWorkspaceView(props: TargetViewProps & { client?: boolean }) 
                       {/* Shared Files list */}
                       {p.sharedFiles && p.sharedFiles.length > 0 && (
                         <div className="mt12 pt8 border-top">
-                          <span className="caption font-medium">Uploaded Client Files:</span>
+                          <span className="caption font-medium">Shared files:</span>
                           <div className="stack mt4" style={{ gap: 4 }}>
                             {p.sharedFiles.map((f) => (
                               <div key={f.id} className="row justify-between caption bg-muted-subtle p4" style={{ borderRadius: 4 }}>
                                 <span>📄 {f.name} (v{f.version})</span>
                                 <span className="mono text-muted">{f.sha ? `${f.sha.slice(0, 12)}...` : 'Verified'}</span>
+                                {f.artifact ? <ArtifactLink artifact={f.artifact} /> : <span>Original download metadata unavailable</span>}
                               </div>
                             ))}
                           </div>
                         </div>
                       )}
+
+                      <section className="mt12 pt12 border-top" aria-label={`Conversation for ${p.title}`}>
+                        <h4>Staff–client conversation</h4>
+                        <ol className="stack" style={{ listStyle: 'none', padding: 0, overflowWrap: 'anywhere' }}>
+                          {(p.thread || []).filter(message => !client || message.clientVisible === true).map(message => {
+                            const attachment = p.sharedFiles?.find(file => message.fileId ? file.id === message.fileId : file.name === message.file && file.version === message.version);
+                            return <li key={message.id} className="borderbox p12">
+                              <strong>{message.author}</strong> <span className="caption">{isClientRole(message.role as typeof s.currentRole) ? 'Client' : 'Staff'} · <time dateTime={message.time}>{new Date(message.time).toLocaleString()}</time>{!message.clientVisible && ' · Internal only'}</span>
+                              <p style={{ whiteSpace: 'pre-wrap' }}>{message.text}</p>
+                              {attachment?.artifact && <ArtifactLink artifact={attachment.artifact} />}
+                            </li>;
+                          })}
+                        </ol>
+                        {!p.thread?.some(message => !client || message.clientVisible) && <p className="caption">No messages yet.</p>}
+                        {!isUploadLocked && ['Requested','Needs clarification','Received','Under review','Accepted'].includes(p.status) && (client ? passwordResetCompleted && p.contributor === s.currentPerson : ['manager','partner','preparer','reviewer'].includes(s.currentRole)) ? <TargetForm
+                          title={`Reply to: ${p.title}`} button="Send reply" formId={`pbc-reply-${p.id}`} onRegisterUnsavedForm={props.onRegisterUnsavedForm}
+                          onCommit={async data => {
+                            const file = data.get('attachment') as File | null;
+                            let attachment;
+                            if (file?.size) {
+                              const error = validatePbcUpload(file); if (error) throw Error(error);
+                              attachment = { id: `PBC-STAFF-${crypto.randomUUID()}`, name: file.name, kind: 'PBC' as const, mimeType: file.type || 'application/octet-stream', size: file.size, sha256: await sha256OfFile(file) };
+                              await persistArtifact(attachment, new Blob([file], { type: attachment.mimeType }));
+                            }
+                            prototypeStore.replyToPbcRequest(e.id, p.id, value(data, 'message'), attachment);
+                          }}>
+                          <label className="target-field"><span>Message to {client ? 'audit staff' : 'client'}</span><textarea name="message" required maxLength={2000} /></label>
+                          {!client && <label className="target-field"><span>Attach a file (optional)</span><input type="file" name="attachment" /></label>}
+                          {client && <p className="caption">Use Upload Evidence below to send files for audit review.</p>}
+                        </TargetForm> : <p className="caption">Conversation is read-only until access is unlocked, or after release, cancellation or archive.</p>}
+                        <p className="caption">File originals are stored in this browser; cloud demo sync transfers conversation metadata only.</p>
+                      </section>
 
                       {/* Upload Form for Client */}
                       {client && ['Requested', 'Needs clarification', 'Draft'].includes(p.status) && (

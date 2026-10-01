@@ -20,6 +20,7 @@ export async function sealEngagementArchive(state: PrototypeState, eng: Engageme
   if (!eng.archive) throw new Error('Read-only closure must be recorded before packaging.');
   const archive = eng.archive;
   const sources: GeneratedArtifactRecord[] = [];
+  for (const request of eng.pbc) sources.push(...(request.sharedFiles || []).flatMap(file => file.artifact ? [file.artifact] : []));
   for (const set of eng.auditLifecycle?.deliverables || []) { sources.push(...set.artifacts); if (set.draftRepresentationArtifact) sources.push(set.draftRepresentationArtifact); }
   for (const wp of eng.workpapers) { if (wp.generatedArtifact) sources.push(wp.generatedArtifact); sources.push(...(wp.generatedArtifactHistory || [])); }
   sources.push(...(eng.auditLifecycle?.srms || []).map(r => r.artifact), ...(eng.auditLifecycle?.receiptDocuments || []).map(r => r.artifact), ...(eng.auditLifecycle?.holdingLetters || []).flatMap(r => r.artifact ? [r.artifact] : []));

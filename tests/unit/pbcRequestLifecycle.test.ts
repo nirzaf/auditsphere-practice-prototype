@@ -118,7 +118,33 @@ describe('PBC request lifecycle (VP-023)', () => {
     assert.match(reply.text, /approved fixed-asset register/);
     assert.ok(Date.parse(reply.time));
     prototypeStore.setPersona('manager');
-    assert.throws(() => prototypeStore.replyToPbcRequest('ENG-26001', 'PBC-03', 'Staff must not impersonate a client reply.'), /cannot reply to a client PBC request/i);
+    const currentRequest = () => prototypeStore.getSnapshot().engagements.find(e => e.id === 'ENG-26001')!.pbc.find(p => p.id === 'PBC-03')!;
+    prototypeStore.replyToPbcRequest('ENG-26001', 'PBC-03', 'Please include the current period reconciliation.');
+    assert.equal(currentRequest().thread!.at(-1)!.role, 'manager');
+    assert.equal(currentRequest().thread!.at(-1)!.clientVisible, true);
+    const before = structuredClone(currentRequest());
+    assert.throws(() => prototypeStore.replyToPbcRequest('ENG-26001', 'PBC-03', ' '), /message is required/i);
+    assert.throws(() => prototypeStore.replyToPbcRequest('ENG-26001', 'PBC-03', 'x'.repeat(2001)), /2,000/);
+    assert.deepEqual(currentRequest(), before);
+    prototypeStore.replyToPbcRequest('ENG-26001', 'PBC-03', 'Use this example schedule.', { id: 'PBC-STAFF-example', name: 'example.csv', kind: 'PBC', mimeType: 'text/csv', size: 12, sha256: 'a'.repeat(64) });
+    assert.equal(currentRequest().thread!.at(-1)!.fileId, 'PBC-STAFF-example');
+    assert.equal(currentRequest().sharedFiles!.at(-1)!.source, 'Staff correspondence');
+    prototypeStore.setPersona('client_finance');
+    assert.throws(() => prototypeStore.replyToPbcRequest('ENG-26001', 'PBC-03', 'Attachment bypass', { id: 'PBC-STAFF-bypass', name: 'b.csv', kind: 'PBC', mimeType: 'text/csv', size: 12, sha256: 'a'.repeat(64) }), /evidence upload/);
+  });
+
+  it('keeps conversation mutations atomic and refuses cancelled requests, unrelated clients and unsupported roles', () => {
+    const request = prototypeStore.getSnapshot().engagements.find(e => e.id === 'ENG-26001')!.pbc.find(p => p.id === 'PBC-03')!;
+    const before = structuredClone(request);
+    assert.throws(() => prototypeStore.replyToPbcRequest('ENG-26001', 'PBC-03', 'Invalid attachment', { id: 'PBC-STAFF-invalid', name: 'malware.exe', kind: 'PBC', mimeType: 'application/octet-stream', size: 12, sha256: 'a'.repeat(64) }), /Choose a/);
+    assert.deepEqual(request, before);
+    prototypeStore.setPersona('billing');
+    assert.throws(() => prototypeStore.replyToPbcRequest('ENG-26001', 'PBC-03', 'Not permitted'), /cannot reply/);
+    prototypeStore.setPersona('client_admin');
+    assert.throws(() => prototypeStore.replyToPbcRequest('ENG-26001', 'PBC-03', 'Wrong contributor'), /contributor|outside/);
+    prototypeStore.setPersona('manager');
+    prototypeStore.cancelPbcRequest('ENG-26001', 'PBC-03', 'Request no longer required.');
+    assert.throws(() => prototypeStore.replyToPbcRequest('ENG-26001', 'PBC-03', 'Closed reply'), /Cancelled/);
   });
 
   it('cancels with a reason, retains shared files and history, and refuses double cancellation', () => {

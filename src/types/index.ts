@@ -861,6 +861,7 @@ export interface PbcRequestItem {
   requestLink?: string;
   clarificationNote?: string;
   sharedFiles?: Array<{
+    artifact?: GeneratedArtifactRecord;
     id: string;
     name: string;
     version: number;
@@ -878,6 +879,7 @@ export interface PbcRequestItem {
     text: string;
     time: string;
     file?: string;
+    fileId?: string;
     version?: number;
     clientVisible?: boolean;
   }>;
