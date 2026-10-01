@@ -999,6 +999,24 @@ export interface SystemLifecycleStateDefinition {
   nextState: TargetLifecycleState | 'TERMINAL';
 }
 
+export type LifecycleDisplayStatus =
+  | 'CLEARED'
+  | 'ACTIVE'
+  | 'NEXT'
+  | 'NOT STARTED';
+
+export function getLifecycleDisplayStatus(
+  index: number,
+  currentIndex: number
+): LifecycleDisplayStatus {
+  if (currentIndex < 0) return 'NOT STARTED';
+  if (index < currentIndex) return 'CLEARED';
+  if (index === currentIndex) return 'ACTIVE';
+  if (index === currentIndex + 1) return 'NEXT';
+  return 'NOT STARTED';
+}
+
+
 export const SYSTEM_LIFECYCLE_STATES: SystemLifecycleStateDefinition[] = [
   {
     state: 'LEAD_INGESTION',

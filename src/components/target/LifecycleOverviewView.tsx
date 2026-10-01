@@ -5,7 +5,8 @@ import {
   TARGET_STAGES,
   engagementProgress,
   SYSTEM_LIFECYCLE_STATES,
-  computeSystemState
+  computeSystemState,
+  getLifecycleDisplayStatus
 } from '../../services/targetLifecycle';
 import type { TargetViewProps } from './TargetCommon';
 
@@ -20,6 +21,20 @@ export function LifecycleOverviewView({ onNavigate }: TargetViewProps) {
   const stages = selected
     ? engagementProgress(state, selected)
     : TARGET_STAGES.map((s) => ({ ...s, status: 'Not Started' as const, blockers: [] as string[] }));
+
+  const currentIndex = selected
+    ? SYSTEM_LIFECYCLE_STATES.findIndex((s) => s.state === activeSystemState.state)
+    : -1;
+  const nextSystemState =
+    currentIndex >= 0 && currentIndex < SYSTEM_LIFECYCLE_STATES.length - 1
+      ? SYSTEM_LIFECYCLE_STATES[currentIndex + 1]
+      : undefined;
+  const nextStateLabel =
+    !selected
+      ? '—'
+      : activeSystemState.state === 'ARCHIVED_READ_ONLY' || activeSystemState.nextState === 'TERMINAL'
+        ? 'Terminal'
+        : (nextSystemState?.label ?? 'Terminal');
 
   return (
     <div className="target-overview stack" style={{ gap: 24 }}>
@@ -100,18 +115,75 @@ export function LifecycleOverviewView({ onNavigate }: TargetViewProps) {
 
       {/* SECTION 5: 11-STAGE END-TO-END SYSTEM STATE MACHINE */}
       <section className="panel panel-pad">
-        <div className="flex-between mb12">
-          <div>
-            <h3 style={{ margin: 0 }}>End-to-End System State Machine &amp; Lifecycle Transitions</h3>
-            <p className="caption">
-              Current Engagement:{' '}
-              <strong>{clientEntity ? `${clientEntity.name} (${selected?.id})` : 'No engagement selected'}</strong> · 
-              Active State: <span className="tag green">{activeSystemState.label}</span>
-            </p>
+        <div
+          className="flex-between mb16"
+          style={{
+            alignItems: 'flex-start',
+            flexWrap: 'wrap',
+            gap: 16,
+            borderBottom: '1px solid #e2e8f0',
+            paddingBottom: 12
+          }}
+        >
+          <div style={{ minWidth: 260, flex: '1 1 320px' }}>
+            <h3 style={{ margin: '0 0 6px 0', fontSize: '15px' }}>
+              End-to-End System State Machine &amp; Lifecycle Transitions
+            </h3>
+            <div className="caption" style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+              <div>
+                <span className="text-muted">Current Engagement: </span>
+                <strong>
+                  {selected
+                    ? clientEntity
+                      ? `${clientEntity.name} (${selected.id})`
+                      : selected.id
+                    : 'No engagement selected'}
+                </strong>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                <span className="text-muted">Active State: </span>
+                {selected ? (
+                  <>
+                    <span
+                      style={{
+                        padding: '2px 8px',
+                        borderRadius: 4,
+                        fontSize: '11px',
+                        fontWeight: 700,
+                        backgroundColor: '#bfdbfe',
+                        color: '#1e40af'
+                      }}
+                    >
+                      {activeSystemState.label}
+                    </span>
+                    <span className="text-muted font-medium" style={{ fontSize: '11.5px' }}>
+                      Stage {currentIndex + 1} of {SYSTEM_LIFECYCLE_STATES.length}
+                    </span>
+                  </>
+                ) : (
+                  <span className="text-muted">None (Select an engagement below)</span>
+                )}
+              </div>
+            </div>
           </div>
-          <div className="text-right">
-            <span className="caption">Next State Gate:</span>
-            <div className="caption font-medium text-muted">{activeSystemState.gateToAdvance}</div>
+
+          <div style={{ display: 'flex', gap: 24, flexWrap: 'wrap', alignItems: 'flex-start' }}>
+            <div style={{ maxWidth: 320, minWidth: 200 }}>
+              <span className="caption text-muted" style={{ display: 'block', fontWeight: 600, marginBottom: 2 }}>
+                Current Gate to Advance:
+              </span>
+              <div className="caption font-medium" style={{ color: '#1e293b', lineHeight: 1.4 }}>
+                {selected ? activeSystemState.gateToAdvance : '—'}
+              </div>
+            </div>
+            <div style={{ minWidth: 160 }}>
+              <span className="caption text-muted" style={{ display: 'block', fontWeight: 600, marginBottom: 2 }}>
+                Next State:
+              </span>
+              <div className="caption font-medium" style={{ color: '#1e293b', lineHeight: 1.4 }}>
+                {selected ? nextStateLabel : '—'}
+              </div>
+            </div>
           </div>
         </div>
 
@@ -121,10 +193,47 @@ export function LifecycleOverviewView({ onNavigate }: TargetViewProps) {
           style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: 10, listStyle: 'none', padding: 0, margin: 0 }}
         >
           {SYSTEM_LIFECYCLE_STATES.map((stageDef, index) => {
-            const isCurrent = stageDef.state === activeSystemState.state;
-            const currentIndex = SYSTEM_LIFECYCLE_STATES.findIndex((s) => s.state === activeSystemState.state);
-            const isCompleted = index < currentIndex;
-            const isFuture = index > currentIndex;
+            const displayStatus = getLifecycleDisplayStatus(index, currentIndex);
+
+            let cardBg = '#f8fafc';
+            let cardBorder = '1px solid #e2e8f0';
+            let numColor = '#64748b';
+            let badgeBg = '#f1f5f9';
+            let badgeColor = '#475569';
+            let cardOpacity = 1;
+            let cardShadow = 'none';
+
+            if (displayStatus === 'ACTIVE') {
+              cardBg = '#eff6ff';
+              cardBorder = '2px solid #0284c7';
+              numColor = '#0284c7';
+              badgeBg = '#bfdbfe';
+              badgeColor = '#1e40af';
+              cardOpacity = 1;
+              cardShadow = '0 1px 3px rgba(2, 132, 199, 0.15)';
+            } else if (displayStatus === 'CLEARED') {
+              cardBg = '#f0fdf4';
+              cardBorder = '1px solid #86efac';
+              numColor = '#16a34a';
+              badgeBg = '#bbf7d0';
+              badgeColor = '#166534';
+              cardOpacity = 1;
+            } else if (displayStatus === 'NEXT') {
+              cardBg = '#f8fafc';
+              cardBorder = '1px solid #93c5fd';
+              numColor = '#0284c7';
+              badgeBg = '#e0f2fe';
+              badgeColor = '#0369a1';
+              cardOpacity = 1;
+            } else {
+              // NOT STARTED
+              cardBg = '#f8fafc';
+              cardBorder = '1px solid #e2e8f0';
+              numColor = '#94a3b8';
+              badgeBg = '#f1f5f9';
+              badgeColor = '#64748b';
+              cardOpacity = 0.75;
+            }
 
             return (
               <li
@@ -132,13 +241,14 @@ export function LifecycleOverviewView({ onNavigate }: TargetViewProps) {
                 className="borderbox p12"
                 style={{
                   borderRadius: 6,
-                  background: isCurrent ? '#eff6ff' : isCompleted ? '#f0fdf4' : '#f8fafc',
-                  border: isCurrent ? '2px solid #0284c7' : isCompleted ? '1px solid #86efac' : '1px solid #e2e8f0',
-                  opacity: isFuture ? 0.75 : 1
+                  background: cardBg,
+                  border: cardBorder,
+                  boxShadow: cardShadow,
+                  opacity: cardOpacity
                 }}
               >
                 <div className="flex-between mb4">
-                  <span className="caption mono font-medium" style={{ color: isCurrent ? '#0284c7' : isCompleted ? '#16a34a' : '#64748b' }}>
+                  <span className="caption mono font-medium" style={{ color: numColor }}>
                     {String(index + 1).padStart(2, '0')}. {stageDef.module.split(':')[0]}
                   </span>
                   <span
@@ -147,11 +257,12 @@ export function LifecycleOverviewView({ onNavigate }: TargetViewProps) {
                       borderRadius: 4,
                       fontSize: '10px',
                       fontWeight: 700,
-                      backgroundColor: isCurrent ? '#bfdbfe' : isCompleted ? '#bbf7d0' : '#e2e8f0',
-                      color: isCurrent ? '#1e40af' : isCompleted ? '#166534' : '#475569'
+                      backgroundColor: badgeBg,
+                      color: badgeColor,
+                      letterSpacing: '0.02em'
                     }}
                   >
-                    {isCurrent ? 'ACTIVE' : isCompleted ? 'CLEARED' : 'PENDING'}
+                    {displayStatus}
                   </span>
                 </div>
 

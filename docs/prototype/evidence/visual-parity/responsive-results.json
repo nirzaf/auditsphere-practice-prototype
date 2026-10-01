@@ -238,7 +238,9 @@
     "text": "rgb(23, 33, 43)",
     "topbar": "rgb(255, 255, 255)",
     "title": "STE Audit Management Tool v2.1",
-    "overflow": []
+    "overflow": [
+      "BUTTON.btn sm ghost"
+    ]
   },
   {
     "route": "#overview",
@@ -340,8 +342,8 @@
       "TH.text-right",
       "TH.text-right",
       "TH.text-right",
-      "TH.",
-      "TH.text-center"
+      "TH.text-right",
+      "TH."
     ]
   },
   {
@@ -357,10 +359,10 @@
     "title": "Fieldwork programs",
     "overflow": [
       "BUTTON.tab-btn ",
+      "BUTTON.tab-btn ",
       "TABLE.",
       "THEAD.",
       "TR.",
-      "TH.",
       "TH.",
       "TH.",
       "TH."
@@ -510,9 +512,9 @@
       "TR.",
       "TH.",
       "TH.",
+      "TH.",
       "TBODY.",
-      "TR.",
-      "TD."
+      "TR."
     ]
   },
   {
@@ -526,7 +528,15 @@
     "text": "rgb(23, 33, 43)",
     "topbar": "rgb(255, 255, 255)",
     "title": "Acceptance / continuance",
-    "overflow": []
+    "overflow": [
+      "TABLE.",
+      "THEAD.",
+      "TR.",
+      "TH.",
+      "TBODY.",
+      "TR.",
+      "TD."
+    ]
   },
   {
     "route": "#audit-planning",
@@ -750,11 +760,11 @@
       "TABLE.target-table",
       "THEAD.",
       "TR.",
+      "TH.text-right",
       "TH.",
       "TH.text-center",
       "TBODY.",
-      "TR.hover-row",
-      "TD."
+      "TR.hover-row"
     ]
   },
   {
@@ -1009,6 +1019,7 @@
       "TABLE.target-table",
       "THEAD.",
       "TR.",
+      "TH.text-right",
       "TH.text-right",
       "TBODY.",
       "TR.hover-row",

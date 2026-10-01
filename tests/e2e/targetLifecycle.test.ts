@@ -171,6 +171,44 @@ it(
       ),
       11
     );
+    assert.equal(
+      await tab.evaluate<boolean>(
+        `[...document.querySelectorAll('[aria-label="System lifecycle state machine"] li')].some(li => {
+          const badge = li.querySelector('span:nth-child(2)');
+          return badge && badge.textContent.trim() === 'PENDING';
+        })`
+      ),
+      false,
+      'No card in the 11-state state machine may use the generic PENDING badge'
+    );
+    assert.equal(
+      await tab.evaluate<number>(
+        `[...document.querySelectorAll('[aria-label="System lifecycle state machine"] li span')].filter(s => s.textContent.trim() === 'ACTIVE').length`
+      ),
+      1,
+      'Exactly one card must be ACTIVE'
+    );
+    assert.equal(
+      await tab.evaluate<number>(
+        `[...document.querySelectorAll('[aria-label="System lifecycle state machine"] li span')].filter(s => s.textContent.trim() === 'CLEARED').length`
+      ),
+      10,
+      'Cards 1 to 10 must be CLEARED for frozen archive'
+    );
+    assert.equal(
+      await tab.evaluate<number>(
+        `[...document.querySelectorAll('[aria-label="System lifecycle state machine"] li span')].filter(s => s.textContent.trim() === 'NEXT').length`
+      ),
+      0,
+      'Archived state must have 0 NEXT cards'
+    );
+    assert.equal(
+      await tab.evaluate<boolean>(
+        `document.querySelector('main').textContent.includes('Current Gate to Advance:') && document.querySelector('main').textContent.includes('Next State:') && document.querySelector('main').textContent.includes('Terminal')`
+      ),
+      true,
+      'Header must display Current Gate to Advance and Next State: Terminal'
+    );
     await tab.command('Emulation.setDeviceMetricsOverride', {
       width: 390,
       height: 844,
