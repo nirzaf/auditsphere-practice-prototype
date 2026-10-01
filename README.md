@@ -32,7 +32,7 @@ Local PBC uploads, new TB/population source uploads and generated artifacts reta
 
 ## Review resolution and evidence
 
-[Legacy/lifecycle review resolution](docs/prototype/legacy-lifecycle-review-resolution.md) maps F01–F22 to changes and executed verification. [Target lifecycle implementation](docs/prototype/target-lifecycle-report.md), [browser rehearsal](docs/prototype/target-lifecycle-demo.md), and [Cloudflare demo setup](docs/prototype/cloud-demo.md) provide supporting context. Formal client sign-off and production professional controls remain separate from executed prototype checks.
+[Current requirements review resolution](docs/prototype/requirements-review-resolution.md) maps R01–R16 and A01–A15 to implemented behavior and current execution evidence (444 unit tests and 19 browser tests). [Legacy/lifecycle review resolution](docs/prototype/legacy-lifecycle-review-resolution.md) preserves the earlier F01–F22 mapping and historical verification. [Target lifecycle implementation](docs/prototype/target-lifecycle-report.md), [browser rehearsal](docs/prototype/target-lifecycle-demo.md), and [Cloudflare demo setup](docs/prototype/cloud-demo.md) provide supporting context. Formal client sign-off and production professional controls remain separate from executed prototype checks.
 
 ## Historical compatibility
 
