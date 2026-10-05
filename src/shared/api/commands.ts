@@ -48,8 +48,14 @@ export type WorkspaceCommandType = WorkspaceCommand['type'];
 
 export interface CommandEnvelope {
   command: WorkspaceCommand;
-  /** Workspace revision the client last observed. A newer server revision -> 409. */
+  /**
+   * @deprecated The workspace revision is a monotonic change cursor, not a
+   * concurrency gate. Declare `expectedVersions` instead so independent edits to
+   * different rows do not conflict with each other.
+   */
   expectedRevision?: number;
+  /** Entity versions the caller observed; any drift rejects the command with 409. */
+  expectedVersions?: Array<{ entity: string; id: string; version: number }>;
   /** Retry-safe key. Replaying the same key returns the original response. */
   idempotencyKey?: string;
 }

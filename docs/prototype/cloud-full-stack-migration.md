@@ -58,6 +58,32 @@ Additive, not a rewrite, and not a cutover:
 * **Generic state adapter** driven by a stored manifest instead of enumerating
   every `PrototypeState` collection: fewer places to drift.
 
+### Command execution: one atomic batch
+
+Every command now commits its *entire* effect in a single D1 batch:
+
+```
+version assertions -> revision bump -> row upserts/removals -> root documents
+    -> manifest -> audit event -> idempotency record -> clear assertion rows
+```
+
+* **No partial commits.** The earlier path issued three independent commits (revision
+  bump, row writes, audit/idempotency), so a mid-way failure could leave a prefix of
+  the work applied while the caller was told the command had failed. A D1 `batch()` is
+  one transaction, so a failure now commits nothing at all.
+* **Optimistic concurrency is per entity, not per workspace.** Callers declare
+  `expectedVersions: [{ entity, id, version }]`. A stale entry returns
+  `409 VERSION_CONFLICT` with `details.currentVersions`, and an in-batch assertion row
+  (`command_assertions`, migration `0005`, whose `CHECK (ok = 1)` constraint aborts the
+  batch) re-checks the versions *inside* the transaction, so a race between the
+  pre-check and the commit still rolls back instead of writing.
+* **The workspace revision is a change cursor, not a gate.** Two clients editing
+  different rows no longer conflict merely because some other command advanced the
+  revision; `expectedRevision` is still accepted for compatibility but ignored.
+* **Oversized commands fail closed.** Above `COMMAND_STATEMENT_LIMIT` (100) statements
+  a command is rejected with `503` rather than being silently split, because splitting
+  would reintroduce the partial-commit problem.
+
 ## 4. Files changed / added
 
 | Area | Files | What changed |

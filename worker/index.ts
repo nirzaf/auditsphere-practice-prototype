@@ -29,6 +29,8 @@ import {
   persistCommandChanges,
   persistEntityRemovals,
   persistManifest,
+  readEntityVersions,
+  executeCommandAtomically,
   readEntity,
   renameWorkspace,
   requireWorkspace,
@@ -267,6 +269,18 @@ const handleEvents = async (ctx: RouteContext): Promise<Response> => {
   return jsonResponse({ events: await listAuditEvents(ctx.env, ctx.params.workspaceId, Number.isFinite(limit) ? limit : 200) }, 200, ctx.requestId);
 };
 
+/** Authoritative stored versions for a returned change list (read after commit). */
+async function withLiveVersions(
+  env: Env,
+  workspaceId: string,
+  items: Array<{ entityKind: string; entityId: string; clientId?: string; engagementId?: string; version: number }>
+): Promise<Array<{ entityKind: string; entityId: string; clientId?: string; engagementId?: string; version: number }>> {
+  return Promise.all(items.map(async item => ({
+    ...item,
+    version: (await readEntity(env, workspaceId, item.entityKind, item.entityId))?.version ?? 0
+  })));
+}
+
 // --- Commands (server-authoritative) ---------------------------------------
 
 /**
@@ -294,7 +308,16 @@ const handleCommand = async (ctx: RouteContext): Promise<Response> => {
       if (existing.request_hash !== requestHash) {
         throw new ApiError('IDEMPOTENCY_MISMATCH', 'This idempotency key was already used with a different request.');
       }
-      return jsonResponse({ ...JSON.parse(existing.response_json), replayed: true }, 200, ctx.requestId);
+      // The recorded payload is the original outcome except for the workspace revision,
+      // which is a live cursor rather than part of the command's result.
+      const replay = JSON.parse(existing.response_json) as CommandResponse;
+      const live = await getWorkspace(ctx.env, workspaceId);
+      return jsonResponse({
+        ...replay,
+        revision: live?.revision ?? replay.revision,
+        changes: await withLiveVersions(ctx.env, workspaceId, replay.changes),
+        replayed: true
+      }, 200, ctx.requestId);
     }
   }
 
@@ -304,35 +327,35 @@ const handleCommand = async (ctx: RouteContext): Promise<Response> => {
   // state itself rather than a hand-maintained change list.
   const before = snapshotEntityCollections(state, loaded.manifest.entityCollections);
 
-  // Fail closed on a stale workspace revision BEFORE any write happens.
-  const revision = await advanceWorkspaceRevision(ctx.env, workspaceId, envelope.expectedRevision);
+  // Optimistic concurrency is per entity: a stale declared version is rejected before
+  // anything is written. The workspace revision is a monotonic change cursor rather
+  // than a gate, so two clients editing different rows never conflict.
+  const expectedVersions = envelope.expectedVersions ?? [];
+  if (expectedVersions.length) {
+    const current = await readEntityVersions(ctx.env, workspaceId, expectedVersions);
+    const drifted = expectedVersions.filter(ref => current[`${ref.entity}:${ref.id}`] !== ref.version);
+    if (drifted.length) {
+      throw new ApiError('VERSION_CONFLICT', 'Another client changed one of these records. Reload before continuing.', {
+        currentVersions: drifted.map(ref => ({
+          entity: ref.entity,
+          id: ref.id,
+          version: current[`${ref.entity}:${ref.id}`]
+        }))
+      });
+    }
+  }
 
   const trail: string[] = [];
   const domain = runWorkspaceCommand(state, envelope.command, runtimeCommandContext((text, ref) => {
     trail.push(`${ref}: ${text}`);
   }));
 
-  if (envelope.command.type === 'workspace.rename') {
-    await renameWorkspace(ctx.env, workspaceId, (domain.result as { name: string }).name);
-  }
-
   // Persist what the command actually changed: added/updated entities, removed
-  // entities, and any root document whose content differs.
+  // entities, any root document whose content differs, the monotonic revision bump,
+  // the audit event and the idempotency record — all in ONE batch, so a failure can
+  // never leave a prefix of the command committed.
   const diff = diffEntityCollections(state, loaded.manifest, before);
-  await persistCommandChanges(
-    ctx.env,
-    workspaceId,
-    state,
-    loaded.manifest,
-    diff.upserts,
-    loaded.originalRootDocuments
-  );
-  await persistEntityRemovals(ctx.env, workspaceId, diff.removals);
-  if (diff.manifest) await persistManifest(ctx.env, workspaceId, diff.manifest);
-
-  // Read back authoritative entity versions for the returned change list.
-  const changes = await Promise.all(diff.upserts.map(async change => {
-    const row = await readEntity(ctx.env, workspaceId, change.entityKind, change.entityId);
+  const changes = diff.upserts.map(change => {
     const collection = (state as unknown as Record<string, unknown>)[change.entityKind];
     const item = Array.isArray(collection)
       ? (collection as Array<Record<string, unknown>>).find(candidate => candidate && (candidate as { id?: unknown }).id === change.entityId)
@@ -343,29 +366,50 @@ const handleCommand = async (ctx: RouteContext): Promise<Response> => {
       entityId: change.entityId,
       clientId: scope.clientId,
       engagementId: scope.engagementId,
-      version: row?.version ?? 0
+      version: 0
     };
-  }));
-
-  const response: CommandResponse = { workspaceId, revision, changes, replayed: false };
-  const audit = auditEventStatement(ctx.env, {
-    workspaceId,
-    actorUserId: actor.userId || undefined,
-    actorRole: actor.role,
-    commandType: envelope.command.type,
-    entityKind: changes[0]?.entityKind,
-    entityId: changes[0]?.entityId,
-    clientId: changes[0]?.clientId,
-    engagementId: changes[0]?.engagementId,
-    details: { trail, changeCount: changes.length }
   });
-  const statements: D1PreparedStatement[] = [audit.statement];
-  if (envelope.idempotencyKey) {
-    statements.push(idempotencyStatement(ctx.env, workspaceId, envelope.idempotencyKey, requestHash, response));
-  }
-  await ctx.env.DB.batch(statements);
 
-  return jsonResponse({ ...response, auditSequence: audit.id, result: domain.result }, 200, ctx.requestId);
+  // The revision is assigned inside the batch, so the recorded replay payload carries
+  // every other field and the caller-facing revision is read back live.
+  const recorded: Omit<CommandResponse, 'revision'> = { workspaceId, changes, replayed: false };
+
+  const outcome = await executeCommandAtomically(ctx.env, {
+    workspaceId,
+    state,
+    manifest: loaded.manifest,
+    originalRootDocuments: loaded.originalRootDocuments,
+    upserts: diff.upserts,
+    removals: diff.removals,
+    manifestUpdate: diff.manifest,
+    expectedVersions,
+    newName: envelope.command.type === 'workspace.rename' ? (domain.result as { name: string }).name : undefined,
+    audit: {
+      actorUserId: actor.userId || undefined,
+      actorRole: actor.role,
+      commandType: envelope.command.type,
+      entityKind: changes[0]?.entityKind,
+      entityId: changes[0]?.entityId,
+      clientId: changes[0]?.clientId,
+      engagementId: changes[0]?.engagementId,
+      details: { trail, changeCount: changes.length }
+    },
+    idempotency: envelope.idempotencyKey
+      ? { key: envelope.idempotencyKey, requestHash, response: recorded }
+      : undefined
+  });
+
+  return jsonResponse(
+    {
+      ...recorded,
+      changes: await withLiveVersions(ctx.env, workspaceId, changes),
+      revision: outcome.revision,
+      auditSequence: outcome.auditSequence,
+      result: domain.result
+    },
+    200,
+    ctx.requestId
+  );
 };
 
 // --- Files (R2) -------------------------------------------------------------

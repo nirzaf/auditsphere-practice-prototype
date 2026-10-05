@@ -218,8 +218,8 @@ it('cloud API enforces sessions, revisions, idempotency and R2 integrity', { ski
   });
   assert.ok([403, 422].includes(unknownEvidence.status), JSON.stringify(unknownEvidence.body));
   assert.ok(['FORBIDDEN_SCOPE', 'INVALID_STATE'].includes(unknownEvidence.body.code), JSON.stringify(unknownEvidence.body));
-  // A rejected command still advances the workspace revision, so re-read it before
-  // the next mutation.
+  // A rejected command commits nothing, so the revision is unchanged; re-read it so
+  // the next assertion is not coupled to that detail.
   revision = (await json(`/api/workspaces/${workspaceId}/state`)).body.revision;
 
   // --- positive command -----------------------------------------------------
@@ -231,14 +231,29 @@ it('cloud API enforces sessions, revisions, idempotency and R2 integrity', { ski
   assert.equal(renamed.body.revision, revision + 1);
   revision = renamed.body.revision;
 
-  // --- stale revision fails closed (409) -----------------------------------
-  const stale = await post(`/api/workspaces/${workspaceId}/commands`, {
-    command: { type: 'workspace.rename', payload: { name: 'Should not apply' } },
-    expectedRevision: state.body.revision
+  // --- the workspace revision is a cursor, not a concurrency gate ----------
+  // A stale workspace revision no longer rejects an independent edit.
+  const staleCursor = await post(`/api/workspaces/${workspaceId}/commands`, {
+    command: { type: 'workspace.rename', payload: { name: 'Cursor is not a gate' } },
+    expectedRevision: 1
   });
-  assert.equal(stale.status, 409);
-  assert.equal(stale.body.code, 'STALE_REVISION');
-  assert.equal(stale.body.details.currentRevision, revision);
+  assert.equal(staleCursor.status, 200, JSON.stringify(staleCursor.body));
+  revision = staleCursor.body.revision;
+
+  // --- a stale entity version fails closed (409) and writes nothing --------
+  const staleVersion = await post(`/api/workspaces/${workspaceId}/commands`, {
+    command: { type: 'workspace.rename', payload: { name: 'Should not apply' } },
+    expectedVersions: [{ entity: 'clients', id: clientId, version: 999999 }]
+  });
+  assert.equal(staleVersion.status, 409, JSON.stringify(staleVersion.body));
+  assert.equal(staleVersion.body.code, 'VERSION_CONFLICT');
+  assert.equal(staleVersion.body.details.currentVersions[0].id, clientId);
+  const afterConflict = await json(`/api/workspaces/${workspaceId}/state`);
+  assert.equal(
+    afterConflict.body.state.clients.find((item: any) => item.id === clientId).name,
+    'Cloud Command Test Revised LLC',
+    'a rejected command commits nothing'
+  );
 
   // --- invalid payload rejected (fails closed, nothing persisted) ----------
   const invalid = await post(`/api/workspaces/${workspaceId}/commands`, {

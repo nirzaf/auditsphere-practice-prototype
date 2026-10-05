@@ -266,22 +266,52 @@ const distinctChanges = <T extends { entityKind: string; entityId: string }>(cha
   return [...map.values()];
 };
 
+/** Root-document upsert used by every persistence path. */
+const ROOT_DOCUMENT_UPSERT_SQL = `INSERT INTO workspace_root_documents(workspace_id,document_key,version,payload_json,created_at,updated_at)
+    VALUES(?,?,1,?,?,?)
+    ON CONFLICT(workspace_id,document_key) DO UPDATE SET
+      version=workspace_root_documents.version+1,
+      payload_json=excluded.payload_json, updated_at=excluded.updated_at`;
+
 /**
- * Persist ONLY the entities a command actually touched, plus any root document
- * whose content changed (for example the append-only event feed).
+ * Assertion rows let one D1 batch abort when an optimistic version check fails: the
+ * CHECK constraint rejects `ok = 0`, so the transaction rolls back instead of
+ * committing a prefix of the command. The rows are deleted in the same batch.
  */
-export async function persistCommandChanges(
+const COMMAND_ASSERT_TABLE = 'command_assertions';
+
+/**
+ * A command's whole effect must commit in ONE batch. Beyond this many statements the
+ * command fails closed rather than being split, because a partially committed
+ * command would otherwise be reported as successful.
+ */
+const COMMAND_STATEMENT_LIMIT = 100;
+
+export interface VersionRef {
+  entity: string;
+  id: string;
+  version: number;
+}
+
+/**
+ * Build the entity and root-document rows a command touched without executing them,
+ * so a caller can commit them together with the revision, audit and idempotency rows
+ * in a single transaction.
+ */
+export function buildCommandRowStatements(
   env: Env,
   workspaceId: string,
   state: PrototypeState,
   manifest: WorkspaceManifest,
-  changes: Array<{ entityKind: string; entityId: string }>,
-  originalRootDocuments: Record<string, Record<string, unknown>>
-): Promise<void> {
-  const now = nowSeconds();
+  upserts: Array<{ entityKind: string; entityId: string }>,
+  removals: Array<{ entityKind: string; entityId: string }>,
+  originalRootDocuments: Record<string, Record<string, unknown>>,
+  manifestUpdate: WorkspaceManifest | undefined,
+  now: number
+): D1PreparedStatement[] {
   const statements: D1PreparedStatement[] = [];
 
-  for (const change of distinctChanges(changes)) {
+  for (const change of distinctChanges(upserts)) {
     const collection = (state as unknown as Record<string, unknown>)[change.entityKind];
     if (!Array.isArray(collection)) continue;
     const item = collection.find(candidate =>
@@ -298,20 +328,47 @@ export async function persistCommandChanges(
     ));
   }
 
-  const documentSql = `INSERT INTO workspace_root_documents(workspace_id,document_key,version,payload_json,created_at,updated_at)
-    VALUES(?,?,1,?,?,?)
-    ON CONFLICT(workspace_id,document_key) DO UPDATE SET
-      version=workspace_root_documents.version+1,
-      payload_json=excluded.payload_json, updated_at=excluded.updated_at`;
+  if (removals.length) {
+    const removalSql = `UPDATE workspace_entities SET deleted_at=?, updated_at=?
+      WHERE workspace_id=? AND entity_kind=? AND entity_id=? AND deleted_at IS NULL`;
+    for (const removal of distinctChanges(removals)) {
+      statements.push(env.DB.prepare(removalSql).bind(now, now, workspaceId, removal.entityKind, removal.entityId));
+    }
+  }
+
   for (const key of manifest.rootDocuments) {
     const current = (state as unknown as Record<string, unknown>)[key];
     if (current === undefined) continue;
     if (JSON.stringify(current) === JSON.stringify(originalRootDocuments[key])) continue;
-    statements.push(env.DB.prepare(documentSql).bind(workspaceId, key, JSON.stringify(current), now, now));
+    statements.push(env.DB.prepare(ROOT_DOCUMENT_UPSERT_SQL).bind(workspaceId, key, JSON.stringify(current), now, now));
   }
 
-  await runBatched(env, statements);
+  if (manifestUpdate) {
+    statements.push(env.DB.prepare(ROOT_DOCUMENT_UPSERT_SQL)
+      .bind(workspaceId, MANIFEST_DOCUMENT_KEY, JSON.stringify(manifestUpdate), now, now));
+  }
+
+  return statements;
 }
+
+/**
+ * Persist ONLY the entities a command actually touched, plus any root document whose
+ * content changed. Retained for callers that do not need the atomic path.
+ */
+export async function persistCommandChanges(
+  env: Env,
+  workspaceId: string,
+  state: PrototypeState,
+  manifest: WorkspaceManifest,
+  changes: Array<{ entityKind: string; entityId: string }>,
+  originalRootDocuments: Record<string, Record<string, unknown>>
+): Promise<void> {
+  const now = nowSeconds();
+  await runBatched(env, buildCommandRowStatements(
+    env, workspaceId, state, manifest, changes, [], originalRootDocuments, undefined, now
+  ));
+}
+
 
 /**
  * Soft-delete entity rows a command removed from the authoritative state. Rows are
@@ -342,6 +399,103 @@ export async function persistManifest(env: Env, workspaceId: string, manifest: W
       version=workspace_root_documents.version+1,
       payload_json=excluded.payload_json, updated_at=excluded.updated_at`;
   await env.DB.prepare(sql).bind(workspaceId, MANIFEST_DOCUMENT_KEY, JSON.stringify(manifest), now, now).run();
+}
+
+/** Current stored versions for the entities a caller declared. */
+export async function readEntityVersions(
+  env: Env,
+  workspaceId: string,
+  refs: VersionRef[]
+): Promise<Record<string, number>> {
+  const versions: Record<string, number> = {};
+  for (const ref of refs) {
+    const row = await env.DB.prepare(
+      `SELECT version FROM workspace_entities
+       WHERE workspace_id=? AND entity_kind=? AND entity_id=? AND deleted_at IS NULL`
+    ).bind(workspaceId, ref.entity, ref.id).first<{ version: number }>();
+    versions[`${ref.entity}:${ref.id}`] = row?.version ?? 0;
+  }
+  return versions;
+}
+
+export interface AtomicCommandInput {
+  workspaceId: string;
+  state: PrototypeState;
+  manifest: WorkspaceManifest;
+  originalRootDocuments: Record<string, Record<string, unknown>>;
+  upserts: Array<{ entityKind: string; entityId: string }>;
+  removals: Array<{ entityKind: string; entityId: string }>;
+  manifestUpdate?: WorkspaceManifest;
+  /** Entity versions the caller observed. A drift aborts the batch. */
+  expectedVersions: VersionRef[];
+  newName?: string;
+  audit: Omit<AuditEventInput, 'workspaceId'>;
+  idempotency?: { key: string; requestHash: string; response: unknown };
+}
+
+/**
+ * Apply a command's entire effect in ONE D1 batch.
+ *
+ * The previous path issued three independent commits (revision bump, row writes,
+ * audit/idempotency), so a failure could leave a prefix of the work applied while the
+ * caller was told the command failed. Everything now commits together or not at all.
+ *
+ * Concurrency is per entity: a stale declared version aborts the batch through a
+ * CHECK-constrained assertion row, and the workspace revision is a monotonic change
+ * cursor rather than a gate, so independent edits to different rows no longer
+ * conflict with each other.
+ */
+export async function executeCommandAtomically(
+  env: Env,
+  input: AtomicCommandInput
+): Promise<{ revision: number; auditSequence: string }> {
+  const now = nowSeconds();
+  const statements: D1PreparedStatement[] = [];
+
+  input.expectedVersions.forEach((ref, seq) => {
+    statements.push(env.DB.prepare(
+      `INSERT INTO ${COMMAND_ASSERT_TABLE}(workspace_id,seq,ok)
+       SELECT ?,?,CASE WHEN EXISTS(SELECT 1 FROM workspace_entities
+         WHERE workspace_id=? AND entity_kind=? AND entity_id=? AND version=? AND deleted_at IS NULL)
+         THEN 1 ELSE 0 END`
+    ).bind(input.workspaceId, seq, input.workspaceId, ref.entity, ref.id, ref.version));
+  });
+
+  statements.push(env.DB.prepare('UPDATE workspaces SET revision=revision+1, updated_at=? WHERE id=?')
+    .bind(now, input.workspaceId));
+  if (input.newName !== undefined) {
+    statements.push(env.DB.prepare('UPDATE workspaces SET name=?, updated_at=? WHERE id=?')
+      .bind(input.newName, now, input.workspaceId));
+  }
+
+  statements.push(...buildCommandRowStatements(
+    env, input.workspaceId, input.state, input.manifest,
+    input.upserts, input.removals, input.originalRootDocuments, input.manifestUpdate, now
+  ));
+
+  const audit = auditEventStatement(env, { ...input.audit, workspaceId: input.workspaceId });
+  statements.push(audit.statement);
+
+  if (input.idempotency) {
+    statements.push(idempotencyStatement(
+      env, input.workspaceId, input.idempotency.key, input.idempotency.requestHash, input.idempotency.response
+    ));
+  }
+
+  if (input.expectedVersions.length) {
+    statements.push(env.DB.prepare(`DELETE FROM ${COMMAND_ASSERT_TABLE} WHERE workspace_id=?`).bind(input.workspaceId));
+  }
+
+  if (statements.length > COMMAND_STATEMENT_LIMIT) {
+    throw new ApiError(
+      'UNAVAILABLE',
+      `This command changes ${statements.length} rows, above the atomic batch limit of ${COMMAND_STATEMENT_LIMIT}; nothing was saved.`
+    );
+  }
+
+  await env.DB.batch(statements);
+  const workspace = await getWorkspace(env, input.workspaceId);
+  return { revision: workspace?.revision ?? 0, auditSequence: audit.id };
 }
 
 export interface AuditEventInput {

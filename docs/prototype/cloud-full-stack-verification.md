@@ -76,7 +76,9 @@ Assertions exercised, in order:
 | Workspace | create -> 201, access code `<uuid>.<64hex>`, session cookie issued | pass |
 | State | `GET /state` -> 200, revision >= 1 | pass |
 | Command | `workspace.rename` -> 200, revision + 1 | pass |
-| Conflict | stale `expectedRevision` -> **409 `STALE_REVISION`** + `details.currentRevision` | pass |
+| Cursor | stale `expectedRevision` is ignored and the command still succeeds — the revision is a change cursor, not a gate | pass |
+| Conflict | stale `expectedVersions` entry -> **409 `VERSION_CONFLICT`** + `details.currentVersions`, nothing committed | pass |
+| Atomicity | rows, revision bump, audit event and idempotency record commit in ONE D1 batch; a rejected command commits nothing | pass |
 | Validation | empty name -> **422 `INVALID_STATE`** | pass |
 | Safety | arbitrary `state.replaceEverything` -> **422**, nothing persisted | pass |
 | Idempotency | replay -> `replayed: true`, revision unchanged; same key + different body -> **409 `IDEMPOTENCY_MISMATCH`** | pass |
