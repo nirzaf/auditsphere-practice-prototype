@@ -5,6 +5,9 @@
 // they are classified, so the inventory cannot silently drift.
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync, readdirSync } from 'node:fs';
+import { join, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { prototypeStore } from '../../src/store/prototypeStore.js';
 import { createInitialState } from '../../src/store/initialState.js';
 import type { PrototypeState } from '../../src/types/index.js';
@@ -67,6 +70,28 @@ const DELEGATES: Record<string, string> = {
   revertConsolidationPerimeter: 'updateConsolidationGroup'
 };
 
+// Professional commands whose implementation now lives in the shared browser-free
+// domain layer. The lifecycle guard moved with the code, so the assertion follows it
+// there instead of scanning the store method.
+const SHARED_BODIES: Record<string, string> = {
+  setEvidenceAdequacy: 'setEvidenceAdequacyCommand',
+  linkEvidenceProcedure: 'linkEvidenceProcedureCommand',
+  unlinkEvidenceProcedure: 'unlinkEvidenceProcedureCommand'
+};
+
+const domainSource = readdirSync(join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'src', 'domain'))
+  .filter(file => file.endsWith('.ts'))
+  .map(file => readFileSync(join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'src', 'domain', file), 'utf8'))
+  .join('\n');
+
+/** Whitespace-stripped source of one exported domain function body. */
+const sharedFunctionBody = (name: string): string => {
+  const start = domainSource.indexOf(`export function ${name}(`);
+  if (start < 0) return '';
+  const end = domainSource.indexOf('\n}\n', start);
+  return domainSource.slice(start, end < 0 ? undefined : end).replace(/\s+/g, '');
+};
+
 const store = prototypeStore as any;
 const proto = Object.getPrototypeOf(prototypeStore);
 const publicCommands = Object.getOwnPropertyNames(proto).filter(name => name !== 'constructor' && typeof proto[name] === 'function');
@@ -91,8 +116,13 @@ describe('VP-012-E02 terminal-state command inventory', () => {
   it('routes every professional command through a lifecycle guard', () => {
     const unguarded = INVENTORY.professional.filter(name => {
       const body = source(DELEGATES[name] || name);
+      const shared = SHARED_BODIES[name] ? sharedFunctionBody(SHARED_BODIES[name]) : '';
       const scopedProfessional = /requireEngagementScope\(this\.state,[^,()]+(\.[a-zA-Z]+)*\)/.test(body) || /requireEngagementScope\(this\.state,[^()]*,"professional"\)/.test(body);
-      return !scopedProfessional && !body.includes('requireActiveEngagementLifecycle(') && !body.includes('requireActiveConsolidationComponents(');
+      const scopedShared = /requireEngagementScope\(state,[^,()]+(\.[a-zA-Z]+)*\)/.test(shared);
+      const guarded = scopedProfessional || scopedShared
+        || body.includes('requireActiveEngagementLifecycle(') || body.includes('requireActiveConsolidationComponents(')
+        || shared.includes('requireActiveEngagementLifecycle(') || shared.includes('requireActiveConsolidationComponents(');
+      return !guarded;
     });
     assert.deepEqual(unguarded, [], 'professional commands without a lifecycle guard');
   });

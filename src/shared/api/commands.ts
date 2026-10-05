@@ -39,6 +39,9 @@ export type WorkspaceCommand =
   | { type: 'invoice.create'; payload: { invoice: InvoiceRecord } }
   | { type: 'invoice.review'; payload: { invoiceId: string; approved: boolean; note?: string } }
   | { type: 'invoice.issue'; payload: { invoiceId: string } }
+  | { type: 'evidence.setAdequacy'; payload: { evidenceId: string; status: 'Adequate' | 'Pending verification' | 'Deficient'; rationale?: string } }
+  | { type: 'evidence.linkProcedure'; payload: { evidenceId: string; procedureId: string } }
+  | { type: 'evidence.unlinkProcedure'; payload: { evidenceId: string; procedureId: string; reason: string } }
   | { type: 'workspace.rename'; payload: { name: string } };
 
 export type WorkspaceCommandType = WorkspaceCommand['type'];

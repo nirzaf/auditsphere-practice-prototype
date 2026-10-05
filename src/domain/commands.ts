@@ -27,6 +27,11 @@ import { createEngagementCommand, setEngagementLifecycleCommand } from './crmEng
 import { updateEngagementAdminCommand } from './crmEngagementAdminCommands';
 import { createInvoiceCommand } from './crmBillingCreateCommands';
 import { issueInvoiceCommand, reviewInvoiceCommand } from './crmBillingReviewCommands';
+import {
+  linkEvidenceProcedureCommand,
+  setEvidenceAdequacyCommand,
+  unlinkEvidenceProcedureCommand
+} from './evidenceCommands';
 
 /** Entity kinds persisted in workspace_entities. These are `PrototypeState` collection keys. */
 export type EntityKind = 'clients' | 'contacts' | 'leads' | 'proposals' | 'engagements' | 'invoices' | 'clientContactNominations' | 'customFields' | 'relationshipGroups';
@@ -236,6 +241,21 @@ export function runWorkspaceCommand(
       const { saved } = issueInvoiceCommand(state, command.payload.invoiceId, ctx);
       ctx.dispatch?.(command);
       return { changes: [{ entityKind: 'invoices', entityId: saved.id, clientId: saved.clientId, engagementId: saved.engagementId ?? saved.eng }], result: { invoiceId: saved.id } };
+    }
+    case 'evidence.setAdequacy': {
+      const result = setEvidenceAdequacyCommand(state, command.payload.evidenceId, command.payload.status, command.payload.rationale ?? '', ctx);
+      ctx.dispatch?.(command);
+      return { changes: [], result };
+    }
+    case 'evidence.linkProcedure': {
+      const result = linkEvidenceProcedureCommand(state, command.payload.evidenceId, command.payload.procedureId, ctx);
+      ctx.dispatch?.(command);
+      return { changes: [], result };
+    }
+    case 'evidence.unlinkProcedure': {
+      const result = unlinkEvidenceProcedureCommand(state, command.payload.evidenceId, command.payload.procedureId, command.payload.reason, ctx);
+      ctx.dispatch?.(command);
+      return { changes: [], result };
     }
     case 'workspace.rename': {
       const name = command.payload.name?.trim();

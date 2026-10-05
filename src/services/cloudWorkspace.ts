@@ -63,7 +63,10 @@ export const SYNCED_COMMAND_TYPES: readonly string[] = [
   'engagement.create',
   'engagement.setLifecycle',
   'invoice.review',
-  'invoice.issue'
+  'invoice.issue',
+  'evidence.setAdequacy',
+  'evidence.linkProcedure',
+  'evidence.unlinkProcedure'
 ];
 
 let hint: ConnectionHint | null = null;

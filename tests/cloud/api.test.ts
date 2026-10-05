@@ -210,6 +210,18 @@ it('cloud API enforces sessions, revisions, idempotency and R2 integrity', { ski
     'relationship group persists server-side'
   );
 
+  // --- newly migrated families route through the shared body server-side -----
+  // The command type must reach the shared domain body and fail closed with one of
+  // its own codes, rather than being rejected as an unknown type.
+  const unknownEvidence = await post(`/api/workspaces/${workspaceId}/commands`, {
+    command: { type: 'evidence.setAdequacy', payload: { evidenceId: 'EV-DOES-NOT-EXIST', status: 'Adequate', rationale: 'integration probe' } }
+  });
+  assert.ok([403, 422].includes(unknownEvidence.status), JSON.stringify(unknownEvidence.body));
+  assert.ok(['FORBIDDEN_SCOPE', 'INVALID_STATE'].includes(unknownEvidence.body.code), JSON.stringify(unknownEvidence.body));
+  // A rejected command still advances the workspace revision, so re-read it before
+  // the next mutation.
+  revision = (await json(`/api/workspaces/${workspaceId}/state`)).body.revision;
+
   // --- positive command -----------------------------------------------------
   const renamed = await post(`/api/workspaces/${workspaceId}/commands`, {
     command: { type: 'workspace.rename', payload: { name: 'Renamed by integration test' } },
