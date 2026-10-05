@@ -5,6 +5,10 @@ import type {
   BusinessClientDetail,
   BusinessClientSummary,
   BusinessDirectoryCommandResponse,
+  BusinessFileMediaType,
+  BusinessFileMetadata,
+  BusinessFilePurpose,
+  BusinessFileReservation,
   BusinessLead,
   BusinessPersona,
   BusinessStandardsProfile,
@@ -139,6 +143,32 @@ async function requestJson<T>(path: string, options: {
   return body as T;
 }
 
+async function requestBinary<T>(path: string, file: Blob, options: {
+  contentType: BusinessFileMediaType;
+  expectedVersion: number;
+  idempotencyKey: string;
+  context: BusinessWorkspacePreference;
+}): Promise<T> {
+  if (!options.context.actorId || !options.context.persona) throw new Error('Select an active actor profile before uploading a file.');
+  const headers = contextHeaders(options.context);
+  headers.set('Content-Type', options.contentType);
+  headers.set('X-File-Version', String(options.expectedVersion));
+  headers.set('Idempotency-Key', options.idempotencyKey);
+  let response: Response;
+  try {
+    response = await fetch(path, { method: 'PUT', /* raw file bytes go only to the file /content endpoint */ headers, body: file, credentials: 'omit', cache: 'no-store' });
+  } catch (error) {
+    if (error instanceof DOMException && error.name === 'AbortError') throw error;
+    throw new Error('Business file storage is unavailable. Retry the upload with the same file.');
+  }
+  const body = await response.json().catch(() => null);
+  if (!response.ok) {
+    if (isApiErrorBody(body)) throw Object.assign(new Error(body.message), { code: body.code, requestId: body.requestId });
+    throw new Error('The file upload failed. Retry or check the service status.');
+  }
+  return body as T;
+}
+
 export async function createBusinessWorkspace(
   input: BusinessWorkspaceBootstrapRequest,
   idempotencyKey: string
@@ -205,6 +235,78 @@ export async function getBusinessStandardsProfiles(
     `/api/workspaces/${encodeURIComponent(workspaceId)}/standards-profiles`, { context: selected, signal }
   );
   return result.items;
+}
+
+export async function getBusinessFiles(
+  workspaceId: string,
+  selected: BusinessWorkspacePreference,
+  signal?: AbortSignal
+): Promise<BusinessFileMetadata[]> {
+  const result = await requestJson<{ files: BusinessFileMetadata[] }>(
+    `/api/workspaces/${encodeURIComponent(workspaceId)}/files?limit=100`, { context: selected, signal }
+  );
+  return result.files;
+}
+
+export function initializeBusinessFile(
+  workspaceId: string,
+  selected: BusinessWorkspacePreference,
+  input: { purpose: BusinessFilePurpose; originalName: string; mediaType: BusinessFileMediaType; sizeBytes: number; clientId?: string; engagementId?: string },
+  idempotencyKey: string
+): Promise<BusinessFileReservation> {
+  return requestJson(`/api/workspaces/${encodeURIComponent(workspaceId)}/files`, {
+    method: 'POST', body: input, idempotencyKey, context: selected
+  });
+}
+
+export function uploadBusinessFile(
+  workspaceId: string,
+  selected: BusinessWorkspacePreference,
+  reservation: BusinessFileReservation,
+  file: Blob,
+  mediaType: BusinessFileMediaType,
+  idempotencyKey: string
+): Promise<{ fileId: string; version: number; state: 'STAGED'; sizeBytes: number; sha256: string; commandId: string; replayed: boolean }> {
+  return requestBinary(`/api/workspaces/${encodeURIComponent(workspaceId)}/files/${encodeURIComponent(reservation.fileId)}/content`, file, {
+    contentType: mediaType, expectedVersion: reservation.version, idempotencyKey, context: selected
+  });
+}
+
+export function completeBusinessFile(
+  workspaceId: string,
+  selected: BusinessWorkspacePreference,
+  staged: { fileId: string; version: number; sizeBytes: number; sha256: string },
+  idempotencyKey: string
+): Promise<{ fileId: string; version: number; state: 'COMMITTED'; sizeBytes: number; sha256: string; commandId: string; replayed: boolean }> {
+  return requestJson(`/api/workspaces/${encodeURIComponent(workspaceId)}/files/${encodeURIComponent(staged.fileId)}/complete`, {
+    method: 'POST', body: { expectedVersion: staged.version, sizeBytes: staged.sizeBytes, sha256: staged.sha256 }, idempotencyKey, context: selected
+  });
+}
+
+export function getBusinessFileDownloadUrl(workspaceId: string, fileId: string): string {
+  return `/api/workspaces/${encodeURIComponent(workspaceId)}/files/${encodeURIComponent(fileId)}`;
+}
+
+export async function downloadBusinessFile(
+  workspaceId: string,
+  file: BusinessFileMetadata,
+  selected: BusinessWorkspacePreference
+): Promise<Blob> {
+  const headers = contextHeaders(selected);
+  let response: Response;
+  try {
+    response = await fetch(getBusinessFileDownloadUrl(workspaceId, file.id), {
+      headers, credentials: 'omit', cache: 'no-store'
+    });
+  } catch {
+    throw new Error('Business file storage is unavailable. Retry the download.');
+  }
+  if (!response.ok) {
+    const body = await response.json().catch(() => null);
+    if (isApiErrorBody(body)) throw Object.assign(new Error(body.message), { code: body.code, requestId: body.requestId });
+    throw new Error('The file download failed. Check the service status and retry.');
+  }
+  return response.blob();
 }
 
 export async function runBusinessCommand<T = Record<string, unknown>>(

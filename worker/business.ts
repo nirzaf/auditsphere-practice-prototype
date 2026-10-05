@@ -461,10 +461,10 @@ export async function resolveBusinessContext(env: Env, workspaceId: string, requ
     },
     scope: { clientId, engagementId: requestedEngagementId },
     allowedActions: row.persona === 'APPROVER' && row.staffGrade === 'PARTNER'
-      ? ['directory.manage', 'client.read', 'client.manage', 'lead.read', 'lead.manage', 'lead.convert', 'engagement.read', 'engagement.advance', 'standards.read', 'standards.manage']
-      : row.persona === 'PREPARER' ? ['client.read', 'client.manage', 'lead.read', 'lead.manage', 'lead.convert', 'engagement.read', 'engagement.advance', 'standards.read']
-        : row.persona === 'REVIEWER' ? ['client.read', 'lead.read', 'engagement.read', 'standards.read']
-          : ['client.read'],
+      ? ['directory.manage', 'client.read', 'client.manage', 'lead.read', 'lead.manage', 'lead.convert', 'engagement.read', 'engagement.advance', 'standards.read', 'standards.manage', 'file.read', 'file.upload']
+      : row.persona === 'PREPARER' ? ['client.read', 'client.manage', 'lead.read', 'lead.manage', 'lead.convert', 'engagement.read', 'engagement.advance', 'standards.read', 'file.read', 'file.upload']
+        : row.persona === 'REVIEWER' ? ['client.read', 'lead.read', 'engagement.read', 'standards.read', 'file.read', 'file.upload']
+          : ['client.read', 'file.read', 'file.upload'],
     readOnlyReasons: isClient ? ['CLIENT_PROJECTION_ONLY'] : []
   };
 }
@@ -689,6 +689,53 @@ const standardsProfileCreateCommand = z.strictObject({
   })
 });
 
+const businessFilePurposeSchema = z.enum(['PBC', 'TB', 'EVIDENCE', 'TEMPLATE', 'SIGNATURE', 'SEAL', 'GENERATED', 'RELEASE', 'ARCHIVE']);
+const businessFileMediaTypeSchema = z.enum([
+  'application/pdf',
+  'text/plain',
+  'text/csv',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'image/png',
+  'image/jpeg',
+  'application/zip'
+]);
+const businessFileReserveCommand = z.strictObject({
+  type: z.literal('file.reserve'),
+  payload: z.strictObject({
+    clientId: clientIdSchema.optional(),
+    engagementId: clientIdSchema.optional(),
+    purpose: businessFilePurposeSchema,
+    originalName: z.string().trim().min(1).max(200),
+    mediaType: businessFileMediaTypeSchema,
+    sizeBytes: z.number().int().positive().max(25 * 1024 * 1024)
+  }).refine(payload => !payload.engagementId || Boolean(payload.clientId), {
+    message: 'An engagement-scoped file must also identify its client.'
+  })
+});
+const businessFileStageCommand = z.strictObject({
+  type: z.literal('file.stage'),
+  payload: z.strictObject({
+    fileId: clientIdSchema,
+    expectedVersion: z.number().int().positive(),
+    sizeBytes: z.number().int().positive().max(25 * 1024 * 1024),
+    sha256: z.string().regex(/^[a-f0-9]{64}$/)
+  })
+});
+const businessFileCommitCommand = z.strictObject({
+  type: z.literal('file.commit'),
+  payload: z.strictObject({
+    fileId: clientIdSchema,
+    expectedVersion: z.number().int().positive(),
+    sizeBytes: z.number().int().positive().max(25 * 1024 * 1024),
+    sha256: z.string().regex(/^[a-f0-9]{64}$/)
+  })
+});
+const businessFileRejectCommand = z.strictObject({
+  type: z.literal('file.reject'),
+  payload: z.strictObject({ fileId: clientIdSchema, expectedVersion: z.number().int().positive(), reason: z.string().trim().min(10).max(1000) })
+});
+
 export const businessCommandSchema = z.discriminatedUnion('type', [
   staffCreateCommand,
   staffUpdateCommand,
@@ -706,7 +753,11 @@ export const businessCommandSchema = z.discriminatedUnion('type', [
   leadLoseCommand,
   leadConvertCommand,
   engagementAdvanceCommand,
-  standardsProfileCreateCommand
+  standardsProfileCreateCommand,
+  businessFileReserveCommand,
+  businessFileStageCommand,
+  businessFileCommitCommand,
+  businessFileRejectCommand
 ]);
 
 const expectedVersionSchema = z.strictObject({
@@ -726,11 +777,17 @@ type BusinessCommandBody = z.infer<typeof businessCommandEnvelopeSchema>;
 export type BusinessCommandEnvelope = BusinessCommandBody & { idempotencyKey: string };
 type BusinessCommand = BusinessCommandBody['command'];
 type BusinessDirectoryCommand = Extract<BusinessCommand, { type: 'staff.create' | 'staff.update' | 'actor-profile.assign' | 'actor-profile.deactivate' }>;
-type BusinessCommercialCommand = Exclude<BusinessCommand, BusinessDirectoryCommand>;
+type BusinessFileCommand = Extract<BusinessCommand, { type: 'file.reserve' | 'file.stage' | 'file.commit' | 'file.reject' }>;
+type BusinessCommercialCommand = Exclude<BusinessCommand, BusinessDirectoryCommand | BusinessFileCommand>;
 
 function isBusinessDirectoryCommand(command: BusinessCommand): command is BusinessDirectoryCommand {
   return command.type === 'staff.create' || command.type === 'staff.update'
     || command.type === 'actor-profile.assign' || command.type === 'actor-profile.deactivate';
+}
+
+function isBusinessFileCommand(command: BusinessCommand): command is BusinessFileCommand {
+  return command.type === 'file.reserve' || command.type === 'file.stage'
+    || command.type === 'file.commit' || command.type === 'file.reject';
 }
 
 export function parseBusinessCommandEnvelope(value: unknown, idempotencyKey: string | null): BusinessCommandEnvelope {
@@ -747,7 +804,9 @@ export function parseBusinessCommandEnvelope(value: unknown, idempotencyKey: str
           : command.type === 'lead.update' || command.type === 'lead.lose' || command.type === 'lead.convert'
             ? { entity: 'Lead', id: command.payload.leadId, version: command.payload.expectedVersion }
             : command.type === 'engagement.advance' ? { entity: 'Engagement', id: command.payload.engagementId, version: command.payload.expectedVersion }
-              : null;
+              : command.type === 'file.stage' || command.type === 'file.commit' || command.type === 'file.reject'
+                ? { entity: 'FileVersion', id: command.payload.fileId, version: command.payload.expectedVersion }
+                : null;
   if (versionTarget && (parsed.data.expectedVersions.length !== 1
     || parsed.data.expectedVersions[0].entity !== versionTarget.entity
     || parsed.data.expectedVersions[0].id !== versionTarget.id
@@ -758,6 +817,26 @@ export function parseBusinessCommandEnvelope(value: unknown, idempotencyKey: str
     throw new ApiError('BAD_REQUEST', 'This command does not accept an unrelated expectedVersions entry.');
   }
   return { ...parsed.data, idempotencyKey: idempotencyKey.trim() };
+}
+
+export function businessEnvelopeFromRequest(
+  request: Request,
+  command: unknown,
+  expectedVersions: Array<{ entity: string; id: string; version: number }> = []
+): BusinessCommandEnvelope {
+  const actorId = request.headers.get('X-Actor-Id');
+  const persona = request.headers.get('X-Active-Persona');
+  const clientId = request.headers.get('X-Client-Id');
+  const engagementId = request.headers.get('X-Engagement-Id');
+  return parseBusinessCommandEnvelope({
+    actor: { actorId, persona },
+    context: {
+      ...(clientId ? { clientId } : {}),
+      ...(engagementId ? { engagementId } : {})
+    },
+    expectedVersions,
+    command
+  }, request.headers.get('Idempotency-Key'));
 }
 
 interface CommandReceiptRow {
@@ -775,6 +854,24 @@ function replayCommand(receipt: CommandReceiptRow, requestHash: string): Record<
     throw new ApiError('IDEMPOTENCY_MISMATCH', 'That command key was already used for different details.');
   }
   return { ...(JSON.parse(receipt.response_json) as Record<string, unknown>), replayed: true };
+}
+
+function businessRequestHash(envelope: BusinessCommandEnvelope): Promise<string> {
+  return sha256Hex(JSON.stringify({
+    command: envelope.command,
+    actor: envelope.actor,
+    context: envelope.context,
+    expectedVersions: envelope.expectedVersions
+  }));
+}
+
+export async function findBusinessCommandReplay(
+  env: Env,
+  workspaceId: string,
+  envelope: BusinessCommandEnvelope
+): Promise<Record<string, unknown> | null> {
+  const prior = await findCommandReceipt(env, workspaceId, envelope.idempotencyKey);
+  return prior ? replayCommand(prior, await businessRequestHash(envelope)) : null;
 }
 
 function requireDirectoryApprover(context: BusinessContext): void {
@@ -946,6 +1043,436 @@ interface BusinessMutation {
   beforeVersion: number | null;
   afterVersion: number;
   auditDetails?: Record<string, unknown>;
+}
+
+const BUSINESS_FILE_MAX_BYTES = 25 * 1024 * 1024;
+type BusinessFileRow = {
+  id: string;
+  version: number;
+  client_id: string | null;
+  engagement_id: string | null;
+  original_name: string;
+  media_type: string;
+  size_bytes: number;
+  sha256: string | null;
+  object_key: string;
+  purpose: z.infer<typeof businessFilePurposeSchema>;
+  state: 'INITIALIZED' | 'STAGED' | 'VERIFIED' | 'COMMITTED' | 'REJECTED';
+  committed_at: string | null;
+  immutable: number;
+};
+
+async function businessFileRow(env: Env, workspaceId: string, fileId: string): Promise<BusinessFileRow | null> {
+  return env.DB.prepare(`SELECT id,version,client_id,engagement_id,original_name,media_type,size_bytes,sha256,
+      object_key,purpose,state,committed_at,immutable
+    FROM file_versions WHERE workspace_id=? AND id=?`).bind(workspaceId, fileId).first<BusinessFileRow>();
+}
+
+async function sha256Bytes(bytes: Uint8Array): Promise<string> {
+  const digest = await crypto.subtle.digest('SHA-256', bytes.slice().buffer as ArrayBuffer);
+  return Array.from(new Uint8Array(digest), value => value.toString(16).padStart(2, '0')).join('');
+}
+
+function includesAscii(bytes: Uint8Array, needle: string): boolean {
+  const target = new TextEncoder().encode(needle);
+  if (target.length > bytes.length) return false;
+  outer: for (let start = 0; start <= bytes.length - target.length; start++) {
+    for (let offset = 0; offset < target.length; offset++) {
+      if (bytes[start + offset] !== target[offset]) continue outer;
+    }
+    return true;
+  }
+  return false;
+}
+
+function isZipContainer(bytes: Uint8Array): boolean {
+  if (bytes.length < 22 || bytes[0] !== 0x50 || bytes[1] !== 0x4b || bytes[2] !== 0x03 || bytes[3] !== 0x04) return false;
+  const floor = Math.max(0, bytes.length - 65_557);
+  for (let index = bytes.length - 22; index >= floor; index--) {
+    if (bytes[index] === 0x50 && bytes[index + 1] === 0x4b && bytes[index + 2] === 0x05 && bytes[index + 3] === 0x06) return true;
+  }
+  return false;
+}
+
+export function verifyBusinessFileBytes(mediaType: string, bytes: Uint8Array): void {
+  if (bytes.byteLength < 1 || bytes.byteLength > BUSINESS_FILE_MAX_BYTES) {
+    throw new ApiError('PAYLOAD_TOO_LARGE', 'The file must contain between 1 byte and 25 MiB.');
+  }
+  if (mediaType === 'application/pdf') {
+    const tail = bytes.subarray(Math.max(0, bytes.length - 2048));
+    if (bytes.length < 12 || !includesAscii(bytes.subarray(0, 8), '%PDF-') || !includesAscii(tail, '%%EOF')) {
+      throw new ApiError('UNSUPPORTED_MEDIA_TYPE', 'The uploaded bytes are not a complete PDF document.');
+    }
+    return;
+  }
+  if (mediaType === 'image/png') {
+    const signature = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
+    if (bytes.length < 24 || signature.some((value, index) => bytes[index] !== value) || !includesAscii(bytes, 'IEND')) {
+      throw new ApiError('UNSUPPORTED_MEDIA_TYPE', 'The uploaded bytes are not a complete PNG image.');
+    }
+    return;
+  }
+  if (mediaType === 'image/jpeg') {
+    if (bytes.length < 4 || bytes[0] !== 0xff || bytes[1] !== 0xd8 || bytes[2] !== 0xff
+      || bytes[bytes.length - 2] !== 0xff || bytes[bytes.length - 1] !== 0xd9) {
+      throw new ApiError('UNSUPPORTED_MEDIA_TYPE', 'The uploaded bytes are not a complete JPEG image.');
+    }
+    return;
+  }
+  if (mediaType === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+    || mediaType === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    || mediaType === 'application/zip') {
+    if (!isZipContainer(bytes)) throw new ApiError('UNSUPPORTED_MEDIA_TYPE', 'The uploaded bytes are not a complete ZIP-based document.');
+    if (mediaType !== 'application/zip') {
+      const directory = new TextDecoder().decode(bytes);
+      const expectedEntry = mediaType.endsWith('wordprocessingml.document') ? 'word/document.xml' : 'xl/workbook.xml';
+      if (!directory.includes('[Content_Types].xml') || !directory.includes(expectedEntry)) {
+        throw new ApiError('UNSUPPORTED_MEDIA_TYPE', 'The ZIP archive does not contain the required Office document parts.');
+      }
+    }
+    return;
+  }
+  if (mediaType === 'text/plain' || mediaType === 'text/csv') {
+    if (bytes.includes(0)) throw new ApiError('UNSUPPORTED_MEDIA_TYPE', 'Text files cannot contain binary NUL bytes.');
+    try { new TextDecoder('utf-8', { fatal: true, ignoreBOM: false }).decode(bytes); }
+    catch { throw new ApiError('UNSUPPORTED_MEDIA_TYPE', 'The uploaded text is not valid UTF-8.'); }
+    return;
+  }
+  throw new ApiError('UNSUPPORTED_MEDIA_TYPE', 'This file type is not supported in Business workspaces.');
+}
+
+function assertBusinessFileAction(context: BusinessContext, file: Pick<BusinessFileRow, 'client_id' | 'engagement_id' | 'purpose'>, action: 'read' | 'upload'): void {
+  const required = action === 'read' ? 'file.read' : 'file.upload';
+  if (!context.allowedActions.includes(required)) throw new ApiError('PERSONA_ACTION_DENIED', 'This actor profile cannot access files.');
+  if (context.actor.persona === 'CLIENT') {
+    if (action === 'upload' && !['PBC', 'TB'].includes(file.purpose)) {
+      throw new ApiError('PERSONA_ACTION_DENIED', 'CLIENT profiles can upload only to their own PBC or trial-balance request.');
+    }
+    if (action === 'read' && !['PBC', 'TB'].includes(file.purpose)) {
+      throw new ApiError('FORBIDDEN_SCOPE', 'This file is not part of the client-facing projection.');
+    }
+    if (!context.actor.clientId || file.client_id !== context.actor.clientId || !file.engagement_id) {
+      throw new ApiError('FORBIDDEN_SCOPE', 'The file is outside this client profile.');
+    }
+  } else if (file.client_id && context.scope.clientId && context.scope.clientId !== file.client_id) {
+    throw new ApiError('FORBIDDEN_SCOPE', 'The file does not match the selected client context.');
+  }
+  if (file.engagement_id && context.scope.engagementId && context.scope.engagementId !== file.engagement_id) {
+    throw new ApiError('FORBIDDEN_SCOPE', 'The file does not match the selected engagement context.');
+  }
+  if (action === 'upload' && ['TEMPLATE', 'SIGNATURE', 'SEAL'].includes(file.purpose)
+    && (context.actor.persona !== 'APPROVER' || context.actor.staffGrade !== 'PARTNER')) {
+    throw new ApiError('PERSONA_ACTION_DENIED', 'Only a PARTNER APPROVER can upload firm templates or signature assets.');
+  }
+  if (action === 'upload' && ['GENERATED', 'RELEASE', 'ARCHIVE'].includes(file.purpose)) {
+    throw new ApiError('PERSONA_ACTION_DENIED', 'Generated, released and archived artifacts are created by the document workflow.');
+  }
+}
+
+async function assertFileEngagementWritable(env: Env, workspaceId: string, clientId: string, engagementId: string, clientActor: boolean): Promise<void> {
+  const engagement = await env.DB.prepare(`SELECT lifecycle_state,locked_at,portal_frozen_at FROM engagements
+    WHERE workspace_id=? AND client_id=? AND id=?`).bind(workspaceId, clientId, engagementId)
+    .first<{ lifecycle_state: string; locked_at: string | null; portal_frozen_at: string | null }>();
+  if (!engagement) throw new ApiError('FORBIDDEN_SCOPE', 'The file engagement does not belong to the selected client.');
+  if (engagement.locked_at || engagement.lifecycle_state === 'ARCHIVED_READ_ONLY') {
+    throw new ApiError('WORKSPACE_FROZEN', 'This engagement is read-only.');
+  }
+  if (clientActor && engagement.portal_frozen_at) {
+    throw new ApiError('WORKSPACE_FROZEN', 'Client uploads are frozen for this engagement.');
+  }
+}
+
+export async function getBusinessFileForUpload(
+  env: Env,
+  workspaceId: string,
+  request: Request,
+  fileId: string
+): Promise<{ context: BusinessContext; file: BusinessFileRow }> {
+  const context = await resolveBusinessContext(env, workspaceId, request);
+  const file = await businessFileRow(env, workspaceId, fileId);
+  if (!file) throw new ApiError('NOT_FOUND', 'File reservation not found.');
+  assertBusinessFileAction(context, file, 'upload');
+  if (file.client_id && file.engagement_id) {
+    await assertFileEngagementWritable(env, workspaceId, file.client_id, file.engagement_id, context.actor.persona === 'CLIENT');
+  }
+  return { context, file };
+}
+
+async function buildBusinessFileMutation(
+  env: Env,
+  workspaceId: string,
+  context: BusinessContext,
+  command: BusinessFileCommand,
+  now: string
+): Promise<BusinessMutation> {
+  if (!context.allowedActions.includes('file.upload')) throw new ApiError('PERSONA_ACTION_DENIED', 'This actor profile cannot upload files.');
+  const actorId = context.actor.id;
+  if (command.type === 'file.reserve') {
+    const payload = command.payload;
+    const descriptor = { client_id: payload.clientId ?? null, engagement_id: payload.engagementId ?? null, purpose: payload.purpose };
+    assertBusinessFileAction(context, descriptor, 'upload');
+    const requiresEngagement = ['PBC', 'TB', 'EVIDENCE'].includes(payload.purpose);
+    if (requiresEngagement && (!payload.clientId || !payload.engagementId)) {
+      throw new ApiError('VALIDATION_FAILED', 'PBC, TB and evidence files must be scoped to a client engagement.');
+    }
+    if (payload.clientId) {
+      requireClientScope(context, payload.clientId);
+      const client = await env.DB.prepare(`SELECT id FROM clients WHERE workspace_id=? AND id=? AND active=1`)
+        .bind(workspaceId, payload.clientId).first<{ id: string }>();
+      if (!client) throw new ApiError('NOT_FOUND', 'An active client is required for this file.');
+    }
+    if (payload.engagementId && payload.clientId) {
+      if (context.scope.engagementId && context.scope.engagementId !== payload.engagementId) {
+        throw new ApiError('FORBIDDEN_SCOPE', 'The file engagement does not match the selected context.');
+      }
+      await assertFileEngagementWritable(env, workspaceId, payload.clientId, payload.engagementId, context.actor.persona === 'CLIENT');
+    }
+    const id = crypto.randomUUID();
+    const key = `workspaces/${workspaceId}/files/${id}`;
+    return {
+      statements: [
+        env.DB.prepare(`INSERT INTO command_assertions(workspace_id,seq,ok)
+          SELECT ?,71,CASE WHEN (? IS NULL OR EXISTS(SELECT 1 FROM clients WHERE workspace_id=? AND id=? AND active=1))
+            AND (? IS NULL OR EXISTS(SELECT 1 FROM engagements WHERE workspace_id=? AND client_id=? AND id=? AND locked_at IS NULL AND lifecycle_state<>'ARCHIVED_READ_ONLY'
+              AND (?=0 OR portal_frozen_at IS NULL))) THEN 1 ELSE 0 END`)
+          .bind(workspaceId, payload.clientId ?? null, workspaceId, payload.clientId ?? null,
+            payload.engagementId ?? null, workspaceId, payload.clientId ?? null, payload.engagementId ?? null,
+            context.actor.persona === 'CLIENT' ? 1 : 0),
+        env.DB.prepare(`INSERT INTO file_versions(
+          id,workspace_id,version,client_id,engagement_id,original_name,media_type,size_bytes,object_key,purpose,state,
+          immutable,created_at,updated_at,created_by_actor_id,updated_by_actor_id
+        ) VALUES(?,?,1,?,?,?,?,?,?,?,'INITIALIZED',0,?,?,?,?)`).bind(
+          id, workspaceId, payload.clientId ?? null, payload.engagementId ?? null, payload.originalName,
+          payload.mediaType, payload.sizeBytes, key, payload.purpose, now, now, actorId, actorId
+        )
+      ],
+      result: { fileId: id, version: 1, state: 'INITIALIZED', uploadPath: `/api/workspaces/${workspaceId}/files/${id}/content` },
+      entityType: 'FILE_VERSION', entityId: id, beforeVersion: null, afterVersion: 1
+    };
+  }
+
+  const fileId = command.payload.fileId;
+  const file = await businessFileRow(env, workspaceId, fileId);
+  if (!file) throw new ApiError('NOT_FOUND', 'File reservation not found.');
+  assertBusinessFileAction(context, file, 'upload');
+  if (file.client_id && file.engagement_id) {
+    await assertFileEngagementWritable(env, workspaceId, file.client_id, file.engagement_id, context.actor.persona === 'CLIENT');
+  }
+
+  if (command.type === 'file.stage') {
+    const payload = command.payload;
+    if (file.state !== 'INITIALIZED' || file.version !== payload.expectedVersion) {
+      throw new ApiError('VERSION_CONFLICT', 'The file reservation changed before staging. Reload it and retry.');
+    }
+    if (payload.sizeBytes !== file.size_bytes) throw new ApiError('INTEGRITY_MISMATCH', 'The uploaded byte count does not match the reservation.');
+    const objectKey = `${file.object_key}/${payload.sha256}`;
+    const stored = await env.FILES.get(objectKey);
+    if (!stored) throw new ApiError('UNAVAILABLE', 'Uploaded bytes are not available in object storage. Retry the same upload key.');
+    const bytes = new Uint8Array(await stored.arrayBuffer());
+    const digest = await sha256Bytes(bytes);
+    if (bytes.length !== payload.sizeBytes || digest !== payload.sha256) {
+      throw new ApiError('INTEGRITY_MISMATCH', 'The stored bytes do not match their declared size and digest.');
+    }
+    verifyBusinessFileBytes(file.media_type, bytes);
+    return {
+      statements: [
+        env.DB.prepare(`INSERT INTO command_assertions(workspace_id,seq,ok)
+          SELECT ?,72,CASE WHEN EXISTS(SELECT 1 FROM file_versions WHERE workspace_id=? AND id=? AND version=? AND state='INITIALIZED')
+            THEN 1 ELSE 0 END`).bind(workspaceId, workspaceId, file.id, payload.expectedVersion),
+        env.DB.prepare(`UPDATE file_versions SET version=version+1,size_bytes=?,sha256=?,object_key=?,state='STAGED',updated_at=?,updated_by_actor_id=?
+          WHERE workspace_id=? AND id=? AND version=? AND state='INITIALIZED'`)
+          .bind(payload.sizeBytes, digest, objectKey, now, actorId, workspaceId, file.id, payload.expectedVersion)
+      ],
+      result: { fileId: file.id, version: payload.expectedVersion + 1, state: 'STAGED', sizeBytes: payload.sizeBytes, sha256: digest },
+      entityType: 'FILE_VERSION', entityId: file.id, beforeVersion: payload.expectedVersion, afterVersion: payload.expectedVersion + 1
+    };
+  }
+
+  if (command.type === 'file.commit') {
+    const payload = command.payload;
+    if (file.state !== 'STAGED' || file.version !== payload.expectedVersion || !file.sha256) {
+      throw new ApiError('VERSION_CONFLICT', 'Only the current staged file version can be committed.');
+    }
+    const stored = await env.FILES.get(file.object_key);
+    if (!stored) throw new ApiError('INTEGRITY_MISMATCH', 'The staged object is missing from storage.');
+    const bytes = new Uint8Array(await stored.arrayBuffer());
+    const digest = await sha256Bytes(bytes);
+    if (bytes.length !== payload.sizeBytes || digest !== payload.sha256
+      || bytes.length !== file.size_bytes || digest !== file.sha256
+      || payload.sizeBytes !== file.size_bytes || payload.sha256 !== file.sha256) {
+      throw new ApiError('INTEGRITY_MISMATCH', 'The file changed after staging; it cannot be committed.');
+    }
+    verifyBusinessFileBytes(file.media_type, bytes);
+    return {
+      statements: [
+        env.DB.prepare(`INSERT INTO command_assertions(workspace_id,seq,ok)
+          SELECT ?,73,CASE WHEN EXISTS(SELECT 1 FROM file_versions fv WHERE fv.workspace_id=? AND fv.id=? AND fv.version=? AND fv.state='STAGED'
+            AND fv.sha256=? AND fv.size_bytes=? AND (? IS NULL OR EXISTS(SELECT 1 FROM engagements e WHERE e.workspace_id=fv.workspace_id
+              AND e.client_id=fv.client_id AND e.id=fv.engagement_id AND e.locked_at IS NULL AND e.lifecycle_state<>'ARCHIVED_READ_ONLY'
+              AND (?=0 OR e.portal_frozen_at IS NULL)))) THEN 1 ELSE 0 END`)
+          .bind(workspaceId, workspaceId, file.id, payload.expectedVersion, digest, bytes.length, file.engagement_id,
+            context.actor.persona === 'CLIENT' ? 1 : 0),
+        env.DB.prepare(`UPDATE file_versions SET version=version+1,state='COMMITTED',immutable=1,committed_at=?,updated_at=?,updated_by_actor_id=?
+          WHERE workspace_id=? AND id=? AND version=? AND state='STAGED' AND sha256=? AND size_bytes=?`)
+          .bind(now, now, actorId, workspaceId, file.id, payload.expectedVersion, digest, bytes.length)
+      ],
+      result: { fileId: file.id, version: payload.expectedVersion + 1, state: 'COMMITTED', sizeBytes: bytes.length, sha256: digest },
+      entityType: 'FILE_VERSION', entityId: file.id, beforeVersion: payload.expectedVersion, afterVersion: payload.expectedVersion + 1
+    };
+  }
+
+  const rejectPayload = command.payload;
+  if (file.state === 'COMMITTED') throw new ApiError('IMMUTABLE_RECORD', 'Committed file versions cannot be rejected or changed.');
+  if (file.state === 'REJECTED' || file.version !== rejectPayload.expectedVersion) {
+    throw new ApiError('VERSION_CONFLICT', 'The file reservation changed before rejection.');
+  }
+  return {
+    statements: [
+      env.DB.prepare(`INSERT INTO command_assertions(workspace_id,seq,ok)
+        SELECT ?,74,CASE WHEN EXISTS(SELECT 1 FROM file_versions WHERE workspace_id=? AND id=? AND version=? AND state IN ('INITIALIZED','STAGED','VERIFIED'))
+          THEN 1 ELSE 0 END`).bind(workspaceId, workspaceId, file.id, rejectPayload.expectedVersion),
+      env.DB.prepare(`UPDATE file_versions SET version=version+1,state='REJECTED',updated_at=?,updated_by_actor_id=?
+        WHERE workspace_id=? AND id=? AND version=? AND state IN ('INITIALIZED','STAGED','VERIFIED')`)
+        .bind(now, actorId, workspaceId, file.id, rejectPayload.expectedVersion)
+    ],
+    result: { fileId: file.id, version: rejectPayload.expectedVersion + 1, state: 'REJECTED', reason: rejectPayload.reason },
+    entityType: 'FILE_VERSION', entityId: file.id, beforeVersion: rejectPayload.expectedVersion, afterVersion: rejectPayload.expectedVersion + 1,
+    auditDetails: { rejectionReason: rejectPayload.reason }
+  };
+}
+
+function businessFileMetadata(file: BusinessFileRow) {
+  return {
+    id: file.id,
+    version: file.version,
+    clientId: file.client_id,
+    engagementId: file.engagement_id,
+    originalName: file.original_name,
+    mediaType: file.media_type,
+    sizeBytes: file.size_bytes,
+    sha256: file.sha256,
+    purpose: file.purpose,
+    state: file.state,
+    committedAt: file.committed_at,
+    immutable: file.immutable === 1
+  };
+}
+
+export async function runBusinessFileContent(
+  env: Env,
+  workspaceId: string,
+  request: Request,
+  fileId: string
+): Promise<Record<string, unknown>> {
+  const { context, file } = await getBusinessFileForUpload(env, workspaceId, request, fileId);
+  const expectedVersion = Number(request.headers.get('X-File-Version'));
+  if (!Number.isInteger(expectedVersion) || expectedVersion < 1) {
+    throw new ApiError('BAD_REQUEST', 'X-File-Version must identify the current reservation version.');
+  }
+  const declaredType = request.headers.get('Content-Type')?.split(';', 1)[0]?.trim().toLowerCase();
+  if (declaredType !== file.media_type) throw new ApiError('UNSUPPORTED_MEDIA_TYPE', 'Content-Type must match the reserved file type.');
+  const declaredLength = request.headers.get('Content-Length');
+  if (declaredLength && (!/^\d+$/.test(declaredLength) || Number(declaredLength) !== file.size_bytes)) {
+    throw new ApiError('INTEGRITY_MISMATCH', 'Content-Length does not match the reserved file size.');
+  }
+  if (!request.body) throw new ApiError('BAD_REQUEST', 'Upload a non-empty raw file body.');
+  const bytes = new Uint8Array(await request.clone().arrayBuffer());
+  if (bytes.length !== file.size_bytes) throw new ApiError('INTEGRITY_MISMATCH', 'Uploaded bytes do not match the reserved file size.');
+  verifyBusinessFileBytes(file.media_type, bytes);
+  const digest = await sha256Bytes(bytes);
+  const envelope = businessEnvelopeFromRequest(request, {
+    type: 'file.stage',
+    payload: { fileId, expectedVersion, sizeBytes: bytes.length, sha256: digest }
+  }, [{ entity: 'FileVersion', id: fileId, version: expectedVersion }]);
+  const replay = await findBusinessCommandReplay(env, workspaceId, envelope);
+  if (replay) return replay;
+  if (file.version !== expectedVersion || file.state !== 'INITIALIZED') {
+    throw new ApiError(file.state === 'COMMITTED' ? 'IMMUTABLE_RECORD' : 'VERSION_CONFLICT', 'The file is not an open reservation at that version.');
+  }
+
+  const objectKey = `${file.object_key}/${digest}`;
+  try {
+    await env.FILES.put(objectKey, request.body, {
+      httpMetadata: { contentType: file.media_type },
+      customMetadata: { sha256: digest, fileVersionId: file.id }
+    });
+  } catch {
+    throw new ApiError('UNAVAILABLE', 'The object store could not accept this upload. Retry with the same Idempotency-Key.');
+  }
+  return runBusinessDirectoryCommand(env, workspaceId, request, envelope);
+}
+
+export async function listBusinessFiles(
+  env: Env,
+  workspaceId: string,
+  request: Request,
+  limit = 100
+): Promise<{ items: Array<ReturnType<typeof businessFileMetadata>> }> {
+  const context = await resolveBusinessContext(env, workspaceId, request);
+  if (!context.allowedActions.includes('file.read')) throw new ApiError('PERSONA_ACTION_DENIED', 'This actor profile cannot read files.');
+  const safeLimit = Math.min(Math.max(Math.trunc(limit) || 100, 1), 100);
+  const clauses = ['workspace_id=?', "state='COMMITTED'"];
+  const bindings: unknown[] = [workspaceId];
+  const clientId = context.actor.persona === 'CLIENT' ? context.actor.clientId : context.scope.clientId;
+  if (clientId) {
+    if (context.actor.persona === 'CLIENT') { clauses.push('client_id=?'); bindings.push(clientId); }
+    else { clauses.push('(client_id=? OR client_id IS NULL)'); bindings.push(clientId); }
+  }
+  if (context.scope.engagementId) {
+    if (context.actor.persona === 'CLIENT') { clauses.push('engagement_id=?'); bindings.push(context.scope.engagementId); }
+    else { clauses.push('(engagement_id=? OR engagement_id IS NULL)'); bindings.push(context.scope.engagementId); }
+  }
+  if (context.actor.persona === 'CLIENT') clauses.push("purpose IN ('PBC','TB')");
+  const result = await env.DB.prepare(`SELECT id,version,client_id,engagement_id,original_name,media_type,size_bytes,
+      sha256,object_key,purpose,state,committed_at,immutable FROM file_versions
+    WHERE ${clauses.join(' AND ')} ORDER BY created_at DESC,id DESC LIMIT ?`)
+    .bind(...bindings, safeLimit).all<BusinessFileRow>();
+  return { items: (result.results ?? []).map(businessFileMetadata) };
+}
+
+async function readableBusinessFile(env: Env, workspaceId: string, request: Request, fileId: string): Promise<BusinessFileRow> {
+  const context = await resolveBusinessContext(env, workspaceId, request);
+  const file = await businessFileRow(env, workspaceId, fileId);
+  if (!file) throw new ApiError('NOT_FOUND', 'File not found.');
+  assertBusinessFileAction(context, file, 'read');
+  if (file.state !== 'COMMITTED' || !file.sha256 || !file.committed_at) {
+    throw new ApiError('NOT_FOUND', 'A committed file was not found in this scope.');
+  }
+  return file;
+}
+
+export async function getBusinessFileMetadata(
+  env: Env,
+  workspaceId: string,
+  request: Request,
+  fileId: string
+): Promise<Record<string, unknown>> {
+  return { file: businessFileMetadata(await readableBusinessFile(env, workspaceId, request, fileId)) };
+}
+
+export async function getBusinessFileDownload(
+  env: Env,
+  workspaceId: string,
+  request: Request,
+  fileId: string
+): Promise<Response> {
+  const file = await readableBusinessFile(env, workspaceId, request, fileId);
+  const stored = await env.FILES.get(file.object_key);
+  if (!stored) throw new ApiError('INTEGRITY_MISMATCH', 'The committed file is missing from object storage.');
+  const bytes = new Uint8Array(await stored.arrayBuffer());
+  if (bytes.length !== file.size_bytes || await sha256Bytes(bytes) !== file.sha256) {
+    throw new ApiError('INTEGRITY_MISMATCH', 'The committed file bytes failed their stored integrity check.');
+  }
+  verifyBusinessFileBytes(file.media_type, bytes);
+  const headers = new Headers({
+    'Content-Type': file.media_type,
+    'Content-Length': String(file.size_bytes),
+    'Content-Disposition': `attachment; filename*=UTF-8''${encodeURIComponent(file.original_name)}`,
+    'Cache-Control': 'private, no-store',
+    'X-Content-Type-Options': 'nosniff',
+    'Content-Security-Policy': "default-src 'none'; sandbox"
+  });
+  return new Response(bytes, { status: 200, headers });
 }
 
 function requireCommercialStaff(context: BusinessContext, command: string): void {
@@ -1593,7 +2120,9 @@ export async function runBusinessDirectoryCommand(
     const now = Math.floor(Date.now() / 1000);
     const mutation = isBusinessDirectoryCommand(envelope.command)
       ? await buildDirectoryMutation(env, workspaceId, context, envelope.command, commandId, timestamp)
-      : await buildCommercialMutation(env, workspaceId, context, envelope.command, commandId, timestamp);
+      : isBusinessFileCommand(envelope.command)
+        ? await buildBusinessFileMutation(env, workspaceId, context, envelope.command, timestamp)
+        : await buildCommercialMutation(env, workspaceId, context, envelope.command, commandId, timestamp);
     const sequence = head.last_sequence + 1;
     const eventDetails = JSON.stringify({
       commandId,

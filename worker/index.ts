@@ -70,8 +70,13 @@ import {
   getBusinessClient,
   listBusinessLeads,
   listBusinessStandardsProfiles,
+  businessEnvelopeFromRequest,
+  getBusinessFileDownload,
+  getBusinessFileMetadata,
+  listBusinessFiles,
   parseBusinessBootstrapInput,
   parseBusinessCommandEnvelope,
+  runBusinessFileContent,
   resolveBusinessContext,
   runBusinessDirectoryCommand
 } from './business';
@@ -503,6 +508,14 @@ const handleCommand = async (ctx: RouteContext): Promise<Response> => {
 
 const handleFileInit = async (ctx: RouteContext): Promise<Response> => {
   await assertSameOrigin(ctx.request, ctx.url);
+  const workspace = await getWorkspace(ctx.env, ctx.params.workspaceId);
+  if (workspace?.data_mode === 'BUSINESS') {
+    const body = await readJson<Record<string, unknown>>(ctx.request, 64 * 1024);
+    const envelope = businessEnvelopeFromRequest(ctx.request, { type: 'file.reserve', payload: body });
+    const result = await runBusinessDirectoryCommand(ctx.env, ctx.params.workspaceId, ctx.request, envelope);
+    const replayed = Boolean(result.replayed);
+    return jsonResponse({ ...(result.result as Record<string, unknown>), commandId: result.commandId, replayed }, replayed ? 200 : 201, ctx.requestId);
+  }
   const { session, actor } = await resolveSession(ctx.env, ctx.request);
   if (session.workspace_id !== ctx.params.workspaceId) throw new ApiError('FORBIDDEN_SCOPE', 'Session does not match this workspace.');
   const body = await readJson<FileInitRequest>(ctx.request, 64 * 1024);
@@ -513,6 +526,11 @@ const handleFileInit = async (ctx: RouteContext): Promise<Response> => {
 
 const handleFileContent = async (ctx: RouteContext): Promise<Response> => {
   await assertSameOrigin(ctx.request, ctx.url);
+  const workspace = await getWorkspace(ctx.env, ctx.params.workspaceId);
+  if (workspace?.data_mode === 'BUSINESS') {
+    const result = await runBusinessFileContent(ctx.env, ctx.params.workspaceId, ctx.request, ctx.params.fileId);
+    return jsonResponse({ ...(result.result as Record<string, unknown>), commandId: result.commandId, replayed: result.replayed }, 200, ctx.requestId);
+  }
   const { session, actor } = await resolveSession(ctx.env, ctx.request);
   if (session.workspace_id !== ctx.params.workspaceId) throw new ApiError('FORBIDDEN_SCOPE', 'Session does not match this workspace.');
   const file = await writeFileContent(ctx.env, ctx.params.workspaceId, ctx.params.fileId, actor, ctx.request);
@@ -521,6 +539,19 @@ const handleFileContent = async (ctx: RouteContext): Promise<Response> => {
 
 const handleFileComplete = async (ctx: RouteContext): Promise<Response> => {
   await assertSameOrigin(ctx.request, ctx.url);
+  const workspace = await getWorkspace(ctx.env, ctx.params.workspaceId);
+  if (workspace?.data_mode === 'BUSINESS') {
+    const body = await readJson<{ expectedVersion: number; sizeBytes: number; sha256: string }>(ctx.request, 8 * 1024);
+    if (!body || !Number.isFinite(body.expectedVersion) || !Number.isFinite(body.sizeBytes)) {
+      throw new ApiError('BAD_REQUEST', 'The staged file version and digest are required to complete the upload.');
+    }
+    const command = { type: 'file.commit', payload: { fileId: ctx.params.fileId, ...body } };
+    const envelope = businessEnvelopeFromRequest(ctx.request, command, [
+      { entity: 'FileVersion', id: ctx.params.fileId, version: body.expectedVersion }
+    ]);
+    const result = await runBusinessDirectoryCommand(ctx.env, ctx.params.workspaceId, ctx.request, envelope);
+    return jsonResponse({ ...(result.result as Record<string, unknown>), commandId: result.commandId, replayed: result.replayed }, 200, ctx.requestId);
+  }
   const { session, actor } = await resolveSession(ctx.env, ctx.request);
   if (session.workspace_id !== ctx.params.workspaceId) throw new ApiError('FORBIDDEN_SCOPE', 'Session does not match this workspace.');
   const body = await readJson<FileCompleteRequest>(ctx.request, 8 * 1024);
@@ -530,6 +561,14 @@ const handleFileComplete = async (ctx: RouteContext): Promise<Response> => {
 };
 
 const handleFileDownload = async (ctx: RouteContext): Promise<Response> => {
+  const workspace = await getWorkspace(ctx.env, ctx.params.workspaceId);
+  if (workspace?.data_mode === 'BUSINESS') {
+    const response = await getBusinessFileDownload(ctx.env, ctx.params.workspaceId, ctx.request, ctx.params.fileId);
+    const headers = new Headers(response.headers);
+    headers.set('X-Request-Id', ctx.requestId);
+    headers.set('Referrer-Policy', 'no-referrer');
+    return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
+  }
   const { session, actor } = await resolveSession(ctx.env, ctx.request);
   if (session.workspace_id !== ctx.params.workspaceId) throw new ApiError('FORBIDDEN_SCOPE', 'Session does not match this workspace.');
   const response = await buildDownloadResponse(ctx.env, ctx.params.workspaceId, ctx.params.fileId, actor);
@@ -542,6 +581,17 @@ const handleFileDownload = async (ctx: RouteContext): Promise<Response> => {
 
 const handleFileDelete = async (ctx: RouteContext): Promise<Response> => {
   await assertSameOrigin(ctx.request, ctx.url);
+  const workspace = await getWorkspace(ctx.env, ctx.params.workspaceId);
+  if (workspace?.data_mode === 'BUSINESS') {
+    const expectedVersion = Number(ctx.request.headers.get('X-File-Version'));
+    const reason = ctx.request.headers.get('X-Rejection-Reason') ?? '';
+    const command = { type: 'file.reject', payload: { fileId: ctx.params.fileId, expectedVersion, reason } };
+    const envelope = businessEnvelopeFromRequest(ctx.request, command, [
+      { entity: 'FileVersion', id: ctx.params.fileId, version: expectedVersion }
+    ]);
+    const result = await runBusinessDirectoryCommand(ctx.env, ctx.params.workspaceId, ctx.request, envelope);
+    return jsonResponse(result.result, 200, ctx.requestId);
+  }
   const { session, actor } = await resolveSession(ctx.env, ctx.request);
   if (session.workspace_id !== ctx.params.workspaceId) throw new ApiError('FORBIDDEN_SCOPE', 'Session does not match this workspace.');
   await deleteFile(ctx.env, ctx.params.workspaceId, ctx.params.fileId, actor);
@@ -549,6 +599,12 @@ const handleFileDelete = async (ctx: RouteContext): Promise<Response> => {
 };
 
 const handleFileList = async (ctx: RouteContext): Promise<Response> => {
+  const workspace = await getWorkspace(ctx.env, ctx.params.workspaceId);
+  if (workspace?.data_mode === 'BUSINESS') {
+    const limit = Number(ctx.url.searchParams.get('limit') ?? 100);
+    const result = await listBusinessFiles(ctx.env, ctx.params.workspaceId, ctx.request, limit);
+    return jsonResponse({ files: result.items }, 200, ctx.requestId);
+  }
   const { session, actor } = await resolveSession(ctx.env, ctx.request);
   if (session.workspace_id !== ctx.params.workspaceId) throw new ApiError('FORBIDDEN_SCOPE', 'Session does not match this workspace.');
   const rows = await listFileRows(ctx.env, ctx.params.workspaceId, {
@@ -565,6 +621,11 @@ const handleFileList = async (ctx: RouteContext): Promise<Response> => {
 };
 
 const handleFileMetadata = async (ctx: RouteContext): Promise<Response> => {
+  const workspace = await getWorkspace(ctx.env, ctx.params.workspaceId);
+  if (workspace?.data_mode === 'BUSINESS') {
+    const result = await getBusinessFileMetadata(ctx.env, ctx.params.workspaceId, ctx.request, ctx.params.fileId);
+    return jsonResponse(result, 200, ctx.requestId);
+  }
   const { session, actor } = await resolveSession(ctx.env, ctx.request);
   if (session.workspace_id !== ctx.params.workspaceId) throw new ApiError('FORBIDDEN_SCOPE', 'Session does not match this workspace.');
   const row = await getFileRow(ctx.env, ctx.params.workspaceId, ctx.params.fileId);

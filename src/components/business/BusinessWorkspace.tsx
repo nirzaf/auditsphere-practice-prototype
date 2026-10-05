@@ -4,6 +4,9 @@ import type {
   BusinessClientDetail,
   BusinessClientSummary,
   BusinessContextResponse,
+  BusinessFileMediaType,
+  BusinessFileMetadata,
+  BusinessFilePurpose,
   BusinessLead,
   BusinessPersona,
   BusinessStandardsProfile,
@@ -15,6 +18,9 @@ import {
   businessWorkspaceSnapshot,
   clearBusinessWorkspacePreference,
   createBusinessWorkspace,
+  completeBusinessFile,
+  downloadBusinessFile,
+  getBusinessFiles,
   getBusinessActorProfiles,
   getBusinessClient,
   getBusinessClients,
@@ -22,11 +28,13 @@ import {
   getBusinessLeads,
   getBusinessStandardsProfiles,
   getBusinessWorkspace,
+  initializeBusinessFile,
   newBusinessIdempotencyKey,
   runBusinessCommand,
   saveBusinessWorkspacePreference,
   selectBusinessActor,
-  subscribeBusinessWorkspace
+  subscribeBusinessWorkspace,
+  uploadBusinessFile
 } from '../../services/businessWorkspace';
 import './business-workspace.css';
 
@@ -205,6 +213,14 @@ export function BusinessWorkspaceConsole() {
   const [clientDetail, setClientDetail] = useState<BusinessClientDetail | null>(null);
   const [leads, setLeads] = useState<BusinessLead[]>([]);
   const [standardsProfiles, setStandardsProfiles] = useState<BusinessStandardsProfile[]>([]);
+  const [files, setFiles] = useState<BusinessFileMetadata[]>([]);
+  const [filePurpose, setFilePurpose] = useState<BusinessFilePurpose>('TEMPLATE');
+  const [fileBusy, setFileBusy] = useState(false);
+  const [fileMessage, setFileMessage] = useState('');
+  const [fileError, setFileError] = useState('');
+  const [downloadingFileId, setDownloadingFileId] = useState<string | null>(null);
+  const [selectedUploadFile, setSelectedUploadFile] = useState<File | null>(null);
+  const fileInput = useRef<HTMLInputElement>(null);
   const [recordError, setRecordError] = useState('');
   const [recordsKey, setRecordsKey] = useState(0);
   const [clientCode, setClientCode] = useState('');
@@ -336,6 +352,20 @@ export function BusinessWorkspaceConsole() {
     });
     return () => controller.abort();
   }, [preference?.workspaceId, preference?.actorId, preference?.persona, preference?.clientId, context?.actor.id, context?.allowedActions.join(','), recordsKey]);
+
+  useEffect(() => {
+    if (!preference?.workspaceId || !preference.actorId || !context?.allowedActions.includes('file.read')) {
+      setFiles([]);
+      return;
+    }
+    const controller = new AbortController();
+    getBusinessFiles(preference.workspaceId, preference, controller.signal).then(items => {
+      if (!controller.signal.aborted) setFiles(items);
+    }).catch(reason => {
+      if (!controller.signal.aborted) setRecordError(reason instanceof Error ? reason.message : 'Stored files could not be loaded.');
+    });
+    return () => controller.abort();
+  }, [preference?.workspaceId, preference?.actorId, preference?.persona, preference?.clientId, preference?.engagementId, context?.actor.id, context?.allowedActions.join(','), recordsKey]);
 
   useEffect(() => {
     if (!preference?.workspaceId || !preference.actorId || !preference.clientId || !context?.allowedActions.includes('client.read')) {
@@ -597,6 +627,66 @@ export function BusinessWorkspaceConsole() {
     } finally { setCommandBusy(false); }
   };
 
+  const storeFirmFile = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const selected = currentSelection();
+    const upload = selectedUploadFile;
+    if (!selected || !upload || context?.actor.persona !== 'APPROVER' || context.actor.staffGrade !== 'PARTNER') return;
+    setFileBusy(true);
+    setFileMessage('');
+    setFileError('');
+    try {
+      if (upload.size < 1 || upload.size > 25 * 1024 * 1024) throw new Error('Choose a file between 1 byte and 25 MiB.');
+      const mediaTypes: BusinessFileMediaType[] = [
+        'application/pdf', 'text/plain', 'text/csv',
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        'image/png', 'image/jpeg', 'application/zip'
+      ];
+      if (!mediaTypes.includes(upload.type as BusinessFileMediaType)) throw new Error('The selected file must have a supported, declared file type.');
+      const input = { purpose: filePurpose, originalName: upload.name, mediaType: upload.type as BusinessFileMediaType, sizeBytes: upload.size };
+      const reservation = await initializeBusinessFile(
+        selected.workspaceId, selected, input, commandKeyFor('file.reserve', input)
+      );
+      const stagedResponse = await uploadBusinessFile(
+        selected.workspaceId, selected, reservation, upload, input.mediaType,
+        commandKeyFor(`file.stage.${reservation.fileId}`, { fileId: reservation.fileId, version: reservation.version, name: upload.name, size: upload.size, mediaType: upload.type, lastModified: upload.lastModified })
+      );
+      const staged = stagedResponse;
+      const committed = await completeBusinessFile(
+        selected.workspaceId, selected, staged,
+        commandKeyFor(`file.commit.${reservation.fileId}`, staged)
+      );
+      businessCommandKeys.current.delete('file.reserve');
+      businessCommandKeys.current.delete(`file.stage.${reservation.fileId}`);
+      businessCommandKeys.current.delete(`file.commit.${reservation.fileId}`);
+      setFileMessage(`${upload.name} is committed and verified (${committed.sha256.slice(0, 12)}…).`);
+      setSelectedUploadFile(null);
+      if (fileInput.current) fileInput.current.value = '';
+      setRecordsKey(value => value + 1);
+    } catch (reason) {
+      setFileError(reason instanceof Error ? reason.message : 'The file could not be stored. Retry with the same file.');
+    } finally { setFileBusy(false); }
+  };
+
+  const downloadStoredFile = async (file: BusinessFileMetadata) => {
+    const selected = currentSelection();
+    if (!selected) return;
+    setDownloadingFileId(file.id);
+    setFileError('');
+    try {
+      const blob = await downloadBusinessFile(selected.workspaceId, file, selected);
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = file.originalName;
+      link.click();
+      window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+    } catch (reason) {
+      setFileError(reason instanceof Error ? reason.message : 'The stored file could not be downloaded.');
+    } finally { setDownloadingFileId(null); }
+  };
+
   return <main className="business-console">
     <header className="business-console-header">
       <div className="business-console-brand">
@@ -785,6 +875,28 @@ export function BusinessWorkspaceConsole() {
             <p className="business-note">Only a Partner profile can approve this immutable basis. Enter firm-approved content; this form does not choose professional standards for the firm.</p>
             <div className="business-dialog-actions"><button className="btn primary" type="submit" disabled={commandBusy}>{commandBusy ? 'Saving…' : 'Approve standards profile'}</button></div>
           </form>}
+        </section>}
+
+        {context?.allowedActions.includes('file.read') && <section className="business-directory-card" aria-labelledby="business-files-heading">
+          <div className="business-section-heading">
+            <div><p className="business-eyebrow">PRIVATE R2 OBJECT STORE · VERIFIED BYTES</p><h2 id="business-files-heading">Stored files</h2></div>
+            <button type="button" className="btn sm" disabled={fileBusy} onClick={() => setRecordsKey(value => value + 1)}>Refresh files</button>
+          </div>
+          {fileError && <p className="business-alert" role="alert">{fileError}</p>}
+          {fileMessage && <p className="business-command-message" role="status">{fileMessage}</p>}
+          {context.actor.persona === 'APPROVER' && context.actor.staffGrade === 'PARTNER' ? <form className="business-form business-commercial-form" onSubmit={storeFirmFile}>
+            <h3>Store a firm template or signature asset</h3>
+            <div className="business-form-grid">
+              <label className="business-field" htmlFor="business-file-purpose"><span>Purpose</span><select id="business-file-purpose" value={filePurpose} onChange={event => setFilePurpose(event.target.value as BusinessFilePurpose)}><option value="TEMPLATE">Approved document template</option><option value="SIGNATURE">Signature image</option><option value="SEAL">Firm seal image</option></select></label>
+              <label className="business-field" htmlFor="business-file-input"><span>File</span><input ref={fileInput} id="business-file-input" type="file" accept=".pdf,.txt,.csv,.xlsx,.docx,.png,.jpg,.jpeg,.zip" onChange={event => { setSelectedUploadFile(event.currentTarget.files?.[0] ?? null); setFileError(''); setFileMessage(''); }} /><small>Raw bytes are sent to the Worker; maximum 25 MiB. MIME claims are checked against file signatures before commitment.</small></label>
+            </div>
+            <p className="business-note">The file remains a draft until the server verifies its byte count, digest and declared document type, then commits an immutable file version.</p>
+            <div className="business-dialog-actions"><button className="btn primary" type="submit" disabled={fileBusy || !selectedUploadFile}>{fileBusy ? 'Verifying and storing…' : 'Store file'}</button></div>
+          </form> : context.actor.persona === 'CLIENT' ? <p className="business-note">Client files are limited to committed PBC and trial-balance records for this contact. Select an engagement request to upload; that scoped request selector is part of the next commercial and planning slice.</p> : <p className="business-note">Internal PBC, TB and evidence uploads require a selected engagement. This view has no engagement selected.</p>}
+          {files.length ? <ul className="business-record-list business-file-list">{files.map(file => <li key={file.id}>
+            <strong>{file.originalName}</strong><span>{file.purpose} · {file.mediaType} · {(file.sizeBytes / 1024).toFixed(1)} KiB · v{file.version}</span><small>SHA-256 {file.sha256?.slice(0, 16)}… · committed {file.committedAt}</small>
+            <button type="button" className="btn sm" disabled={downloadingFileId === file.id} onClick={() => void downloadStoredFile(file)}>{downloadingFileId === file.id ? 'Checking…' : 'Download verified bytes'}</button>
+          </li>)}</ul> : <p className="business-muted">No committed files are visible in this request context.</p>}
         </section>}
       </>}
     </div>

@@ -62,6 +62,39 @@ export interface BusinessDirectoryCommandResponse<T = Record<string, unknown>> {
   replayed: boolean;
 }
 
+export type BusinessFilePurpose = 'PBC' | 'TB' | 'EVIDENCE' | 'TEMPLATE' | 'SIGNATURE' | 'SEAL' | 'GENERATED' | 'RELEASE' | 'ARCHIVE';
+export type BusinessFileMediaType =
+  | 'application/pdf'
+  | 'text/plain'
+  | 'text/csv'
+  | 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+  | 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+  | 'image/png'
+  | 'image/jpeg'
+  | 'application/zip';
+
+export interface BusinessFileMetadata {
+  id: string;
+  version: number;
+  clientId: string | null;
+  engagementId: string | null;
+  originalName: string;
+  mediaType: BusinessFileMediaType;
+  sizeBytes: number;
+  sha256: string | null;
+  purpose: BusinessFilePurpose;
+  state: 'INITIALIZED' | 'STAGED' | 'VERIFIED' | 'COMMITTED' | 'REJECTED';
+  committedAt: string | null;
+  immutable: boolean;
+}
+
+export interface BusinessFileReservation {
+  fileId: string;
+  version: number;
+  state: 'INITIALIZED';
+  uploadPath: string;
+}
+
 export interface BusinessClientSummary {
   id: string;
   version: number;

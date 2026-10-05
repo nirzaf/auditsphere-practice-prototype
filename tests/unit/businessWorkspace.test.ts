@@ -8,9 +8,30 @@ import { SqliteD1 } from '../helpers/sqliteD1.js';
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const db = new SqliteD1();
 db.migrate(repositoryRoot);
+const r2Objects = new Map<string, Uint8Array>();
+const fakeR2 = {
+  async put(key: string, body: BodyInit) {
+    const bytes = new Uint8Array(await new Response(body).arrayBuffer());
+    r2Objects.set(key, bytes);
+    return { key, size: bytes.length, etag: 'test-etag', httpEtag: 'test-etag', uploaded: new Date() };
+  },
+  async get(key: string) {
+    const bytes = r2Objects.get(key);
+    if (!bytes) return null;
+    const copy = bytes.slice();
+    return {
+      key, size: copy.length, etag: 'test-etag', httpEtag: 'test-etag', uploaded: new Date(),
+      body: new Response(copy).body,
+      arrayBuffer: async () => copy.slice().buffer,
+      text: async () => new TextDecoder().decode(copy),
+      json: async () => JSON.parse(new TextDecoder().decode(copy)),
+      httpMetadata: {}, customMetadata: {}
+    };
+  }
+};
 const env = {
   DB: db,
-  FILES: {} as any,
+  FILES: fakeR2 as any,
   ASSETS: { fetch: async () => new Response('not found', { status: 404 }) } as any,
   BUSINESS_SETUP_ENABLED: 'true'
 } as any;
@@ -123,7 +144,7 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
   const approverContext = await call(`/api/workspaces/${workspaceId}/context`, { headers: approverHeaders });
   assert.equal(approverContext.response.status, 200, JSON.stringify(approverContext.body));
   assert.deepEqual(approverContext.body.allowedActions, [
-    'directory.manage', 'client.read', 'client.manage', 'lead.read', 'lead.manage', 'lead.convert', 'engagement.read', 'engagement.advance', 'standards.read', 'standards.manage'
+    'directory.manage', 'client.read', 'client.manage', 'lead.read', 'lead.manage', 'lead.convert', 'engagement.read', 'engagement.advance', 'standards.read', 'standards.manage', 'file.read', 'file.upload'
   ]);
 
   const staffKey = crypto.randomUUID();
@@ -304,6 +325,7 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
   }, approverHeaders);
   assert.equal(clientProfile.response.status, 200, JSON.stringify(clientProfile.body));
   const clientHeaders = { 'X-Actor-Id': clientProfile.body.result.actorProfileId as string, 'X-Active-Persona': 'CLIENT' };
+
   const clientProjection = await call(`/api/workspaces/${workspaceId}/clients`, { headers: clientHeaders });
   assert.equal(clientProjection.response.status, 200, JSON.stringify(clientProjection.body));
   assert.equal(clientProjection.body.items.length, 1);
@@ -370,6 +392,79 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
   const transition = db.prepare(`SELECT from_state,to_state,command_id FROM state_transitions WHERE workspace_id=? AND engagement_id=?`)
     .bind(workspaceId, conversion.body.result.engagementId).first<any>();
   assert.deepEqual({ ...transition }, { from_state: 'LEAD_INGESTION', to_state: 'PROPOSAL_GENERATION', command_id: advance.body.commandId });
+
+  const pdf = new TextEncoder().encode('%PDF-1.4\n1 0 obj\n<< /Type /Catalog >>\nendobj\n%%EOF\n');
+  const fileReservation = await post(`/api/workspaces/${workspaceId}/files`, {
+    clientId, engagementId: conversion.body.result.engagementId, purpose: 'PBC', originalName: 'audit-evidence.pdf',
+    mediaType: 'application/pdf', sizeBytes: pdf.length
+  }, { ...clientHeaders, 'Idempotency-Key': crypto.randomUUID() });
+  assert.equal(fileReservation.response.status, 201, JSON.stringify(fileReservation.body));
+  assert.equal(fileReservation.body.state, 'INITIALIZED');
+  const fileId = fileReservation.body.fileId as string;
+
+  const uploadFileBytes = async (bytes: Uint8Array, idempotencyKey: string) => {
+    const uploadRequest = new Request(`https://local.auditsphere.test/api/workspaces/${workspaceId}/files/${fileId}/content`, {
+      method: 'PUT',
+      headers: {
+        Origin: 'https://local.auditsphere.test', ...clientHeaders, 'Idempotency-Key': idempotencyKey,
+        'X-File-Version': '1', 'Content-Type': 'application/pdf'
+      },
+      body: bytes
+    });
+    const response = await worker.fetch(uploadRequest, env, {} as any);
+    return { response, body: await response.json() };
+  };
+  const disguisedBytes = new Uint8Array(pdf.length);
+  disguisedBytes.set(new TextEncoder().encode('MZ\u0000not a PDF'));
+  const disguisedExecutable = await uploadFileBytes(disguisedBytes, crypto.randomUUID());
+  assert.equal(disguisedExecutable.response.status, 415);
+  assert.equal(disguisedExecutable.body.code, 'UNSUPPORTED_MEDIA_TYPE');
+  assert.equal(db.prepare('SELECT state FROM file_versions WHERE workspace_id=? AND id=?').bind(workspaceId, fileId).first<any>()?.state, 'INITIALIZED');
+
+  const stageKey = crypto.randomUUID();
+  const stagedFile = await uploadFileBytes(pdf, stageKey);
+  assert.equal(stagedFile.response.status, 200, JSON.stringify(stagedFile.body));
+  assert.equal(stagedFile.body.state, 'STAGED');
+  assert.equal(stagedFile.body.sha256, 'eadef7418e14af08d4dab416d408d94121199f49e60eed1caa7a6bec3b16ebe0');
+  const stageReplay = await uploadFileBytes(pdf, stageKey);
+  assert.equal(stageReplay.response.status, 200);
+  assert.equal(stageReplay.body.replayed, true, 'the same binary upload key and bytes replay the recorded stage result');
+  const changedPdf = pdf.slice();
+  changedPdf[5] = '2'.charCodeAt(0);
+  const changedRetry = await uploadFileBytes(changedPdf, stageKey);
+  assert.equal(changedRetry.response.status, 409);
+  assert.equal(changedRetry.body.code, 'IDEMPOTENCY_MISMATCH');
+
+  const staleCommit = await post(`/api/workspaces/${workspaceId}/files/${fileId}/complete`, {
+    expectedVersion: 1, sizeBytes: stagedFile.body.sizeBytes, sha256: stagedFile.body.sha256
+  }, { ...clientHeaders, 'Idempotency-Key': crypto.randomUUID() });
+  assert.equal(staleCommit.response.status, 409);
+  assert.equal(staleCommit.body.code, 'VERSION_CONFLICT');
+  const commitKey = crypto.randomUUID();
+  const committedFile = await post(`/api/workspaces/${workspaceId}/files/${fileId}/complete`, {
+    expectedVersion: 2, sizeBytes: stagedFile.body.sizeBytes, sha256: stagedFile.body.sha256
+  }, { ...clientHeaders, 'Idempotency-Key': commitKey });
+  assert.equal(committedFile.response.status, 200, JSON.stringify(committedFile.body));
+  assert.equal(committedFile.body.state, 'COMMITTED');
+  const committedRow = db.prepare('SELECT version,state,immutable,sha256,object_key FROM file_versions WHERE workspace_id=? AND id=?')
+    .bind(workspaceId, fileId).first<any>();
+  assert.deepEqual({ version: committedRow.version, state: committedRow.state, immutable: committedRow.immutable }, { version: 3, state: 'COMMITTED', immutable: 1 });
+  assert.equal(committedRow.sha256, stagedFile.body.sha256);
+  assert.equal(db.prepare('SELECT COUNT(*) AS count FROM audit_events WHERE workspace_id=? AND entity_id=?')
+    .bind(workspaceId, fileId).first<any>()?.count, 3, 'reservation, staging and commitment are individually audited');
+  const listedFiles = await call(`/api/workspaces/${workspaceId}/files`, { headers: clientHeaders });
+  assert.equal(listedFiles.response.status, 200, JSON.stringify(listedFiles.body));
+  assert.equal(listedFiles.body.files.length, 1);
+  assert.equal(listedFiles.body.files[0].id, fileId);
+  const download = await worker.fetch(new Request(`https://local.auditsphere.test/api/workspaces/${workspaceId}/files/${fileId}`, { headers: clientHeaders }), env, {} as any);
+  assert.equal(download.status, 200);
+  assert.deepEqual(new Uint8Array(await download.arrayBuffer()), pdf, 'download returns the verified committed bytes');
+  const otherClientFile = await call(`/api/workspaces/${workspaceId}/files/${crypto.randomUUID()}/metadata`, { headers: clientHeaders });
+  assert.equal(otherClientFile.response.status, 404);
+  const selectedClientTemplate = await post(`/api/workspaces/${workspaceId}/files`, {
+    purpose: 'TEMPLATE', originalName: 'firm-template.txt', mediaType: 'text/plain', sizeBytes: 4
+  }, { ...approverHeaders, 'X-Client-Id': clientId, 'Idempotency-Key': crypto.randomUUID() });
+  assert.equal(selectedClientTemplate.response.status, 201, JSON.stringify(selectedClientTemplate.body));
 
   const prospectLead = await post(`/api/workspaces/${workspaceId}/commands`, {
     idempotencyKey: crypto.randomUUID(), command: { type: 'lead.create', payload: {
