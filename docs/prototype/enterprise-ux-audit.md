@@ -100,6 +100,32 @@ Legend for the “States verified” column: **R** role/SoD, **F** failure/denia
 3. **Display defects** — “TB vnot assembled”, blank Review Desk author/query columns, blank finding fields,
    error notices styled as success in Documents and Client Portal.
 
+### Priority Workflow & Progress Defect Classifications (FIX-01 to FIX-07)
+
+Following the audit and analysis of operational workflows, seven priority defects were identified and resolved, selectively adapting progress-tracking concepts while preserving the pure browser-only prototype architecture and prototypeStore authority:
+
+- **FIX-01: Section 5 Aggregator Math & Non-Linear Workflows (`src/services/workflowProgress.ts`)**
+  - *Defect:* Ad-hoc percentages across modules were fabricated or failed to reconcile to actual state counts; 0/0 calculations displayed 100% complete for reference views.
+  - *Fix:* Replaced fabricated percentages with pure `aggregateWorkflowSteps` adhering strictly to Section 5 progress calculation math: `applicable = completed + current + pending + blocked + returned + stale + skipped`, `percent = 100 * completed / applicable`. Not-applicable items are separated from completed work; 0/0 returns `null` ("Reference view" / "No linear workflow applies"). Displayed integer is capped below 100% whenever unresolved items exist, displaying 100% only when all applicable required units are complete. Covered by unit tests T01, T03, T18, T19.
+- **FIX-02: Accounting Domain Selectors & Route Aliases (`src/services/workflowProgress.ts`)**
+  - *Defect:* Accounting sub-routes lacked distinct state-reading selectors and defaulted to generic metrics; legacy and nested route aliases produced disconnected progress.
+  - *Fix:* Implemented 9 distinct state selectors for `accounting-setup`, `trial-balance`, `gl-transactions`, `account-mappings`, `adjustments`, `reconciliations`, `financial-statements`, `financial-packages`, and `consolidation`. Mapped canonical route aliases (`client-portal`, `crm`, `audit-acceptance`, `reporting-centre`) to their target selectors. Added terminal state handling for cancelled and suspended engagements. Covered by unit tests T04, T13, T14.
+- **FIX-03: Security & Non-Disclosure Bounds (`src/services/workflowProgress.ts`)**
+  - *Defect:* Consolidation progress leaked confidential component names or figures when a user lacked full group-level grants.
+  - *Fix:* Enforced narrow consolidation grant boundaries via `hasConsolidationGroupScope`. When `!fullyGranted`, renders a blocked perimeter state with `percentComplete: null` and generic labels, preventing disclosure of restricted subsidiary entities or figures while satisfying AT-43 assertions. Covered by unit tests T02, T08, T09 and E2E AT-43.
+- **FIX-04: Lineage & Stale Approval Invalidation (`src/services/workflowProgress.ts`)**
+  - *Defect:* Prior-generation approvals or released v1 packages were counted as completing unreviewed v2 revisions; rework states did not isolate affected steps.
+  - *Fix:* Enforced package and statement lineage tracking so approvals on historical generations never complete current generations. Isolated return -> revision -> resubmit transitions so only affected steps reflect rework. Covered by unit tests T05, T06, T12.
+- **FIX-05: False Positive Save Detection (`src/components/modules/BillingInvoicingView.tsx`)**
+  - *Defect:* In draft save workflows, save detection relied on array length or global record count changes rather than verifying that the exact created record was persisted.
+  - *Fix:* Updated `saveInvoiceDraft` and `saveCreditDraft` to record initial record IDs in a `Set` before action (`previousIds = new Set(...)`) and verify the newly created record ID (`!previousIds.has(item.id)`). Covered by unit tests T10, T11.
+- **FIX-06: Context Guards & Route Switching (`src/App.tsx`)**
+  - *Defect:* Accessing an engagement-specific route when `selectedEngagement` was expired or unauthorized displayed an engagement-unavailable placeholder, but the progress bar and guide strip still attempted to read engagement context, risking restricted data leakage.
+  - *Fix:* Guarded `WorkflowProgress` and `ModuleGuideStrip` with `!isEngagementContextUnavailable` when `ENGAGEMENT_CONTEXT_ROUTES.has(effectiveRoute) && !hasSelectedEngagementScope(state)`. Covered by unit tests T02, T07, T15 and E2E VP-003-AC01.
+- **FIX-07: Presentation Semantics & Keyboard Accessibility (`src/components/common/WorkflowProgress.tsx`)**
+  - *Defect:* Stepper used `<button>` tags within `<nav>` tags, colliding with E2E harness selectors for sidebar navigation (`document.querySelectorAll('nav button')`) and page tabs (`clickButton(...)`); compact view required opening a drawer to see next actions.
+  - *Fix:* Replaced stepper `<nav>` with `<div role="region" aria-label="Workflow progress stepper" className="wp-stepper-nav">`. Step items render as `<li className="wp-step ..." role={isClickable ? 'button' : undefined} tabIndex={isClickable ? 0 : undefined}>` with Enter and Space key handling, eliminating DOM query collisions while retaining full keyboard accessibility. Added a compact callout strip displaying `nextAction`, `whoActsNext`, and immediate blocker directly in compact mode. Standardized Module 37 naming to 'Release & Completion'. Handled `percentComplete: null` gracefully. Covered by unit tests T16, T17, T20 and E2E UIX-06, UX-ENT-05.
+
 ## 4. Cross-module journey matrix
 
 | Journey | Path | Demonstrated by (executed) | Handoffs added | Status |

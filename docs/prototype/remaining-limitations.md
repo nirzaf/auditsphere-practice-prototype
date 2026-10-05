@@ -585,6 +585,17 @@ Remaining limitations of the UX layer (intentional or not yet done — not claim
 - **Work queues are projections, not a workflow engine**: no assignment rules, reminders, scheduling or
   notifications. Sign-off items in "Waiting for my review" only indicate that the assigned approver's sign-off
   for the current generation is outstanding; the store still decides whether it can be recorded.
+- **Workflow progress is calculated on demand from prototypeStore**: `workflowProgress.ts` calculates
+  deterministic progress directly from current in-memory store records adhering to the Section 5 contract
+  (`applicable = completed + current + pending + blocked + returned + stale + skipped`, `percent = 100 * completed / applicable`).
+  It is not an autonomous workflow engine, does not run background automations or web workers, and never stores computed progress
+  in the store.
+- **Reference modules display null percentage**: Non-linear or informational screens (such as Practice Dashboard,
+  Documents Library, Communications, Reporting, and Administration) deliberately return `percentComplete: null`
+  ("Reference view" / "No linear workflow applies") rather than a fabricated 100% or 0% indicator.
+- **Narrow consolidation grant boundary**: When a user's grant does not include full group scope, consolidation
+  progress renders a perimeter-blocked state with `percentComplete: null` and generic labels, preventing disclosure of
+  restricted subsidiary entity names or values (preserving AT-43 assertions).
 - **History timelines** render through the shared `ActivityTimeline` for invoices, workpapers, adjustment journals, review points and lead/opportunity stage history; other records keep their existing history lists or the engagement event log.
 - **"What changed since last review" is implemented for workpapers only**, as deterministic field differences
   against the last clearance or submission; other review-driven records show their revision history instead.
