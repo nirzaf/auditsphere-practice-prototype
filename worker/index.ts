@@ -63,6 +63,14 @@ import {
   writeFileContent
 } from './files';
 import { diffEntityCollections, snapshotEntityCollections, scopeOf } from './state';
+import {
+  bootstrapBusinessWorkspace,
+  listBusinessActorProfiles,
+  parseBusinessBootstrapInput,
+  parseBusinessCommandEnvelope,
+  resolveBusinessContext,
+  runBusinessDirectoryCommand
+} from './business';
 
 const JSON_BODY_LIMIT = 1_000_000;
 /** Hard ceiling for a single command payload; the domain model is small. */
@@ -108,8 +116,28 @@ const handleSeeds = async (ctx: RouteContext): Promise<Response> => {
 const handleCreateWorkspace = async (ctx: RouteContext): Promise<Response> => {
   await assertSameOrigin(ctx.request, ctx.url);
   await enforceRateLimit(ctx, 'workspace.create', clientKey(ctx));
-  const body = await readJson<CreateWorkspaceRequest>(ctx.request, 64 * 1024);
-  if (!body || typeof body.seedId !== 'string') throw new ApiError('BAD_REQUEST', 'Choose an available seed.');
+  const requestBody = await readJson<unknown>(ctx.request, 64 * 1024);
+  if (!requestBody || typeof requestBody !== 'object' || Array.isArray(requestBody)) {
+    throw new ApiError('BAD_REQUEST', 'Workspace details are required.');
+  }
+
+  // The real operating profile has a separate empty BUSINESS bootstrap. It does
+  // not load a seed, create a session/access code, or set a cookie.
+  if (!Object.hasOwn(requestBody, 'seedId')) {
+    if (ctx.env.BUSINESS_SETUP_ENABLED !== 'true') {
+      throw new ApiError('UNAVAILABLE', 'Business workspace setup is not enabled for this trusted deployment.');
+    }
+    const setupKey = ctx.request.headers.get('Idempotency-Key')?.trim();
+    if (!setupKey || setupKey.length < 8 || setupKey.length > 200) {
+      throw new ApiError('BAD_REQUEST', 'A unique Idempotency-Key header is required for workspace setup.');
+    }
+    const input = parseBusinessBootstrapInput(requestBody);
+    const created = await bootstrapBusinessWorkspace(ctx.env, input, setupKey);
+    return jsonResponse(created, created.replayed ? 200 : 201, ctx.requestId);
+  }
+
+  const body = requestBody as Partial<CreateWorkspaceRequest>;
+  if (typeof body.seedId !== 'string') throw new ApiError('BAD_REQUEST', 'Choose an available seed.');
   const name = (typeof body.name === 'string' && body.name.trim() ? body.name.trim() : 'AuditSphere demo workspace').slice(0, 200);
   const created = await createSeededWorkspace(ctx.env, { seedId: body.seedId, name, ttlSeconds: WORKSPACE_TTL_SECONDS });
   const loaded = await loadWorkspaceState(ctx.env, created.workspaceId);
@@ -146,6 +174,16 @@ const handleCreateWorkspace = async (ctx: RouteContext): Promise<Response> => {
     expiresAt: created.expiresAt
   };
   return jsonResponse(response, 201, ctx.requestId, { 'Set-Cookie': sessionCookie(sessionToken) });
+};
+
+const handleBusinessActorProfiles = async (ctx: RouteContext): Promise<Response> => {
+  const profiles = await listBusinessActorProfiles(ctx.env, ctx.params.workspaceId);
+  return jsonResponse(profiles, 200, ctx.requestId);
+};
+
+const handleBusinessContext = async (ctx: RouteContext): Promise<Response> => {
+  const context = await resolveBusinessContext(ctx.env, ctx.params.workspaceId, ctx.request);
+  return jsonResponse(context, 200, ctx.requestId);
 };
 
 const handleResumeWorkspace = async (ctx: RouteContext): Promise<Response> => {
@@ -294,6 +332,14 @@ const handleCommand = async (ctx: RouteContext): Promise<Response> => {
   await assertSameOrigin(ctx.request, ctx.url);
   const workspaceId = ctx.params.workspaceId;
   await enforceRateLimit(ctx, 'workspace.command', `${clientKey(ctx)}:${workspaceId}`);
+
+  const workspace = await getWorkspace(ctx.env, workspaceId);
+  if (workspace?.data_mode === 'BUSINESS') {
+    const body = await readJson<unknown>(ctx.request, COMMAND_BODY_LIMIT);
+    const envelope = parseBusinessCommandEnvelope(body);
+    const response = await runBusinessDirectoryCommand(ctx.env, workspaceId, ctx.request, envelope);
+    return jsonResponse(response, 200, ctx.requestId);
+  }
 
   const { session, state, actor } = await resolveSession(ctx.env, ctx.request);
   if (session.workspace_id !== workspaceId) throw new ApiError('FORBIDDEN_SCOPE', 'Session does not match this workspace.');
@@ -496,6 +542,8 @@ const router = createRouter()
   .get('/api/seeds', handleSeeds)
   .post('/api/workspaces', handleCreateWorkspace)
   .post('/api/workspaces/resume', handleResumeWorkspace)
+  .get('/api/workspaces/:workspaceId/actor-profiles', handleBusinessActorProfiles)
+  .get('/api/workspaces/:workspaceId/context', handleBusinessContext)
   .get('/api/workspaces/:workspaceId/state', handleState)
   .get('/api/workspaces/:workspaceId/changes', handleChanges)
   .get('/api/workspaces/:workspaceId/events', handleEvents)

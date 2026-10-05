@@ -19,6 +19,8 @@ export interface Env {
   /** Comma-separated allowed origins. Same-origin deployments need not list one. */
   ALLOWED_ORIGINS?: string;
   ENVIRONMENT?: string;
+  /** Enable first-time BUSINESS workspace setup only in a trusted deployment. */
+  BUSINESS_SETUP_ENABLED?: string;
   /** Optional Cloudflare Worker Rate Limiting binding. */
   RATE_LIMITER?: RateLimiterBinding;
 }
