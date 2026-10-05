@@ -1,0 +1,49 @@
+// Consolidated Cloudflare Worker for the AuditSphere prototype.
+//
+// Serves the existing React/Vite build (dist/) as Cloudflare Workers Static
+// Assets and the v2 JSON API under /api/*. The legacy snapshot Worker
+// (worker/wrangler.jsonc -> steaudit-prototype-demo-api) is intentionally kept
+// untouched so the existing Pages deployment and demo keep working until a
+// cutover is explicitly approved.
+//
+// Design note: this uses Wrangler's first-class `assets.directory` static-asset
+// support instead of the @cloudflare/vite-plugin. Both produce the same runtime
+// shape (one Worker serving assets + API), but this route leaves the existing
+// `vite build` output and the Cloudflare Pages deployment byte-for-byte
+// unchanged, which keeps the migration additive and low-risk (see
+// docs/prototype/cloud-full-stack-migration.md).
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "auditsphere-visual-prototype",
+  "main": "worker/v2/index.ts",
+  "compatibility_date": "2026-09-30",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": true,
+
+  "assets": {
+    "directory": "./dist",
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": ["/api/*"]
+  },
+
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "steaudit-prototype-demo",
+      "database_id": "3562b9c7-742b-4a64-b250-64e1987f9b4b",
+      "migrations_dir": "worker/migrations"
+    }
+  ],
+
+  "r2_buckets": [
+    {
+      "binding": "FILES",
+      "bucket_name": "auditsphere-prototype-files"
+    }
+  ],
+
+  "observability": { "enabled": true },
+
+  "triggers": { "crons": ["0 2 * * *"] }
+}
