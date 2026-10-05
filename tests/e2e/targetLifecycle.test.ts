@@ -504,14 +504,14 @@ it('checks US-UIUX-001 responsive scope and captures twelve required surfaces', 
     for (const route of routes) {
       await tab.evaluate(`import('/src/store/prototypeStore.ts').then(({prototypeStore:s})=>{s.setPersona(${JSON.stringify(route==='portal'?'client_finance':'superuser')});location.hash=${JSON.stringify(route)}})`);
       await sleep(120);
-      const result = await tab.evaluate<any>(`({route:location.hash,width:innerWidth,documentWidth:document.documentElement.scrollWidth, main:!!document.querySelector('main'), hiddenIdentity:!document.querySelector('#role-select')?.getClientRects().length, hiddenSearch:!document.querySelector('.search-trigger')?.getClientRects().length, font:getComputedStyle(document.body).fontFamily, text:getComputedStyle(document.body).color, topbar:getComputedStyle(document.querySelector('.topbar')).backgroundColor, title:document.querySelector('main h1,main h2')?.textContent, overflow:[...document.querySelectorAll('main *')].filter(e=>e.getBoundingClientRect().right>innerWidth+1&&getComputedStyle(e).position!=='fixed').slice(0,8).map(e=>e.tagName+'.'+e.className)})`);
+      const result = await tab.evaluate<any>(`({route:location.hash,width:innerWidth,documentWidth:document.documentElement.scrollWidth, main:!!document.querySelector('main'), personaVisible:!!document.querySelector('#role-select')?.getClientRects().length, hiddenSearch:!document.querySelector('.search-trigger')?.getClientRects().length, font:getComputedStyle(document.body).fontFamily, text:getComputedStyle(document.body).color, topbar:getComputedStyle(document.querySelector('.topbar')).backgroundColor, title:document.querySelector('main h1,main h2')?.textContent, overflow:[...document.querySelectorAll('main *')].filter(e=>e.getBoundingClientRect().right>innerWidth+1&&getComputedStyle(e).position!=='fixed').slice(0,8).map(e=>e.tagName+'.'+e.className)})`);
       assert.equal(await tab.evaluate<boolean>(`!!document.querySelector('[role=alertdialog]')`), false, 'navigation must not silently stall at an unsaved dialog');
       assert.equal(result.route, `#${route}`, 'the requested surface must be active');
       results.push(result);
       assert.ok(result.main && result.title, `${route} renders at ${width}`);
       assert.ok(result.documentWidth <= width + 1, `${route} at ${width}: ${JSON.stringify(result)}`);
       if (width >= 960) assert.equal(await tab.evaluate<boolean>(`document.querySelector('.sidebar').getBoundingClientRect().right <= document.querySelector('.shell').getBoundingClientRect().left + 1`),true,`sidebar must not overlap ${route} at ${width}`);
-      assert.equal(result.hiddenIdentity,true,'normal experience hides identity utility');
+      assert.equal(result.personaVisible,true,'the four-persona selector remains visible in the normal experience');
       assert.equal(result.hiddenSearch,true,'normal experience hides global search utility');
       if ([390,1440].includes(width)) {
         const screenshot = await tab.command('Page.captureScreenshot',{format:'png',captureBeyondViewport:true});
@@ -626,4 +626,67 @@ it('final alignment preserves mobile keyboard containment, route focus and modal
   await key('Escape','Escape',27); await sleep(150);
   assert.equal(await tab.evaluate<boolean>(`!document.querySelector('.modal') && document.activeElement.textContent.trim()==='New Engagement'`),true);
   assert.deepEqual(tab.exceptions,[]);
+});
+
+it('US-SYS-001 keeps exactly four self-selected personas visible and persistent at desktop and mobile sizes', async () => {
+  await tab.command('Emulation.setDeviceMetricsOverride', { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });
+  await tab.evaluate(`location.hash='overview'`);
+  await sleep(180);
+  const desktop = await tab.evaluate<{ options: string[]; visible: boolean; warning: string; width: number }>(`(() => {
+    const select = document.querySelector('#role-select');
+    const notice = document.querySelector('.persona-trust-notice');
+    return {
+      options: Array.from(select?.options ?? []).map(option => option.value),
+      visible: Boolean(select?.getClientRects().length),
+      warning: notice?.innerText ?? '',
+      width: innerWidth
+    };
+  })()`);
+  assert.deepEqual(desktop.options, ['PREPARER', 'REVIEWER', 'APPROVER', 'CLIENT']);
+  assert.equal(desktop.visible, true);
+  assert.match(desktop.warning, /trusted environment/i);
+  assert.match(desktop.warning, /do not verify identity/i);
+  assert.equal(desktop.width, 1440);
+
+  await tab.evaluate(`(() => { const select = document.querySelector('#role-select'); select.value = 'PREPARER'; select.dispatchEvent(new Event('change', { bubbles: true })); })()`);
+  await sleep(160);
+  await tab.command('Page.reload');
+  for (let attempt = 0; attempt < 60; attempt++) {
+    if (await tab.evaluate<string>(`document.querySelector('#role-select')?.value ?? ''`) === 'PREPARER') break;
+    await sleep(50);
+  }
+  assert.equal(await tab.evaluate<string>(`document.querySelector('#role-select')?.value ?? ''`), 'PREPARER');
+  await tab.evaluate('window.scrollTo(0, 0)');
+  await sleep(80);
+  const desktopScreenshot = await tab.command('Page.captureScreenshot', { format: 'png' });
+
+  await tab.command('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 1, mobile: false });
+  await tab.evaluate('window.scrollTo(0, 0)');
+  await sleep(80);
+  const mobile = await tab.evaluate<{ visible: boolean; noticeVisible: boolean; warningTop: number; warningBottom: number; selectorRight: number; pageWidth: number }>(`(() => {
+    const select = document.querySelector('#role-select');
+    const notice = document.querySelector('.persona-trust-notice');
+    const warningRect = notice?.getBoundingClientRect();
+    return {
+      visible: Boolean(select?.getClientRects().length),
+      noticeVisible: Boolean(warningRect && warningRect.top >= 0 && warningRect.bottom <= innerHeight),
+      warningTop: warningRect?.top ?? Number.NEGATIVE_INFINITY,
+      warningBottom: warningRect?.bottom ?? Number.POSITIVE_INFINITY,
+      selectorRight: select?.getBoundingClientRect().right ?? Number.POSITIVE_INFINITY,
+      pageWidth: document.documentElement.scrollWidth
+    };
+  })()`);
+  assert.equal(mobile.visible, true);
+  assert.equal(mobile.noticeVisible, true);
+  assert.ok(mobile.warningTop >= 0 && mobile.warningBottom <= 844, 'trust notice is inside the captured mobile viewport');
+  assert.ok(mobile.selectorRight <= 390, `persona selector is inside the 390px viewport: ${mobile.selectorRight}`);
+  assert.ok(mobile.pageWidth <= 390, `document does not overflow the 390px viewport: ${mobile.pageWidth}`);
+  const mobileScreenshot = await tab.command('Page.captureScreenshot', { format: 'png' });
+
+  const evidenceDir = 'docs/prototype/evidence/real-implementation';
+  mkdirSync(evidenceDir, { recursive: true });
+  await saveEvidence(`${evidenceDir}/persona-1440x900.png`, Buffer.from(desktopScreenshot.data, 'base64'));
+  await saveEvidence(`${evidenceDir}/persona-390x844.png`, Buffer.from(mobileScreenshot.data, 'base64'));
+  await saveEvidence(`${evidenceDir}/persona-selector.json`, JSON.stringify({ story: 'US-SYS-001', status: 'PASS', desktop, mobile }, null, 2));
+  await tab.command('Emulation.setDeviceMetricsOverride', { width: 1440, height: 1000, deviceScaleFactor: 1, mobile: false });
 });

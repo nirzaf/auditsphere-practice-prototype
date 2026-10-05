@@ -12,7 +12,7 @@ import type { RoleKey, RouteKey } from '../src/types/index.js';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const target = join(root, 'docs', 'prototype', 'lifecycle-matrix.md');
-const roles: RoleKey[] = ['relationship','onboarding','compliance','partner','manager','preparer','reviewer','eqr','client_admin','client_finance','client','billing','records','admin'];
+const roles: RoleKey[] = ['preparer','reviewer','partner','client'];
 const cell = (value: unknown) => String(value ?? '').replaceAll('|', '/').replaceAll('\n', ' ').trim();
 
 export function renderCurrentWorkflowMatrix(): string {
