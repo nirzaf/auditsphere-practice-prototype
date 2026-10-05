@@ -1,0 +1,23 @@
+{
+  "story": "US-SYS-001",
+  "status": "PASS",
+  "desktop": {
+    "options": [
+      "PREPARER",
+      "REVIEWER",
+      "APPROVER",
+      "CLIENT"
+    ],
+    "visible": true,
+    "warning": "Trusted environment only.\nAnyone with access can select any persona; workflow checks do not verify identity or secure client data.",
+    "width": 1440
+  },
+  "mobile": {
+    "visible": true,
+    "noticeVisible": true,
+    "warningTop": 73,
+    "warningBottom": 135.5,
+    "selectorRight": 361,
+    "pageWidth": 375
+  }
+}

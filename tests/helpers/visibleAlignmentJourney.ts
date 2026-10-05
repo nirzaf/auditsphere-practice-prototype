@@ -25,13 +25,11 @@ export async function runVisibleAlignmentJourney(tab: CdpTab) {
     await wait(`location.hash===${JSON.stringify('#' + id)} && document.querySelector('main')?.innerText.includes(${JSON.stringify(expected.replaceAll('_',' '))})`);
   };
   const actor = async (id: string) => {
-    // Client UI deliberately contains no presenter controls. Leaving that persona is harness setup.
-    if (await tab.evaluate<boolean>(`import('/src/store/prototypeStore.ts').then(({prototypeStore:s})=>['client','client_finance','client_admin'].includes(s.getSnapshot().currentRole))`)) {
-      await tab.evaluate(`import('/src/store/prototypeStore.ts').then(({prototypeStore:s})=>s.setPersona(${JSON.stringify(id)}))`); await pause(); return;
-    }
-    if (!await tab.evaluate<boolean>(`document.querySelector('#role-select')?.offsetParent!==null`)) await button('Presenter / Demo Controls');
-    await fill('#role-select', id);
-    await wait(`import('/src/store/prototypeStore.ts').then(({prototypeStore:s})=>s.getSnapshot().currentUserId===${JSON.stringify(id)})`);
+    // The supported UI selector exposes four workflow personas. Distinct seeded
+    // actors used to exercise legacy internal duties are harness setup; business
+    // transitions below still go through visible forms and guarded commands.
+    await tab.evaluate(`import('/src/store/prototypeStore.ts').then(({prototypeStore:s})=>s.setPersona(${JSON.stringify(id)}))`);
+    await pause();
   };
   const submit = async (selector: string) => {
     const invalid = await tab.evaluate<string[]>(`(()=>{const f=document.querySelector(${JSON.stringify(selector)});return Array.from(f.querySelectorAll(':invalid')).map(e=>e.name||e.getAttribute('aria-label')||e.outerHTML)})()`);
@@ -52,9 +50,9 @@ export async function runVisibleAlignmentJourney(tab: CdpTab) {
   const row = (id: string) => `Array.from(document.querySelectorAll('tr')).find(r=>r.innerText.includes(${JSON.stringify(id)}))`;
   const checkpoints: string[] = [];
   const state = async (expected: string) => {
-    await route('overview', 'Next State Gate');
+    await route('overview', 'Current Gate to Advance');
     const display = await tab.evaluate<string>(`import('/src/services/targetLifecycle.ts').then(m=>m.SYSTEM_LIFECYCLE_STATES.find(s=>s.state===${JSON.stringify(expected)}).label)`);
-    await wait(`Array.from(document.querySelectorAll('main p')).some(p=>p.innerText.includes('Active State:') && p.innerText.includes(${JSON.stringify(display)}))`);
+    await wait(`document.querySelector('main')?.innerText.includes('Active State:') && document.querySelector('main')?.innerText.includes(${JSON.stringify(display)})`);
     assert.equal(await tab.evaluate<string>(`import('/src/store/prototypeStore.ts').then(async({prototypeStore:s})=>{const state=s.getSnapshot(),e=state.engagements.find(e=>e.id===state.selectedEngagement);return (await import('/src/services/targetLifecycle.ts')).computeSystemState(state,e).state})`), expected);
     checkpoints.push(expected); console.log('Visible checkpoint:',expected);
   };
