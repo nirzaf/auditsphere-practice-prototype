@@ -264,3 +264,72 @@ export interface BusinessProposalWorkspace {
   contactRoutes: BusinessProposalContactRoute[];
   proposals: BusinessProposal[];
 }
+
+export type BusinessRiskCheckCode = 'UBO' | 'KYC' | 'AML' | 'INTEGRITY' | 'VIABILITY' | 'INDEPENDENCE' | 'CONFLICTS';
+export type BusinessRiskOutcome = 'CLEAR' | 'ISSUE' | 'NOT_APPLICABLE';
+export interface BusinessRiskCheckDraft {
+  code: BusinessRiskCheckCode;
+  outcome: BusinessRiskOutcome | '';
+  findings: string;
+  sourceReference: string;
+  checkMethod: 'MANUAL' | 'EXTERNAL_SERVICE';
+  providerName?: string;
+  externalReference?: string;
+  checkedOn: string;
+  evidenceFileId?: string;
+  resolution?: string;
+}
+export interface BusinessRiskAssessmentDraft {
+  engagementId: string;
+  track: 'NEW_CLIENT' | 'CONTINUANCE';
+  expectedDraftVersion: number;
+  questionnaireTemplateVersion: string;
+  assessmentDate: string;
+  overallRisk: 'LOW' | 'MODERATE' | 'HIGH' | '';
+  managementIntegrityConclusion: string;
+  viabilityConclusion: string;
+  independenceConclusion: string;
+  checks: BusinessRiskCheckDraft[];
+}
+export interface BusinessRiskEscalation {
+  id: string;
+  version: number;
+  assessmentVersionId: string;
+  checkId: string;
+  checkCode: string;
+  reason: string;
+  requiredEvidence: string;
+  status: 'OPEN' | 'RESOLVED';
+  resolution: string | null;
+  evidenceFileId: string | null;
+  evidenceSha256: string | null;
+  createdByActorId: string;
+  createdByName: string;
+  createdAt: string;
+  resolvedByActorId: string | null;
+  resolvedByName: string | null;
+  resolvedAt: string | null;
+}
+export interface BusinessRiskWorkspace {
+  engagement: { id: string; clientId: string; clientName: string; lifecycleState: string };
+  requiredTrackACodes: BusinessRiskCheckCode[];
+  requiredTrackBCodes: string[];
+  assessment: null | {
+    id: string; version: number; track: 'NEW_CLIENT' | 'CONTINUANCE'; currentVersionId: string | null;
+    revision: number | null; overallRisk: string | null; questionnaireTemplateVersion: string | null;
+    assessmentDate: string | null; managementIntegrityConclusion: string | null; viabilityConclusion: string | null;
+    independenceConclusion: string | null; submittedAt: string | null; draftVersion: number; draft: BusinessRiskAssessmentDraft | null;
+  };
+  checks: Array<Record<string, unknown>>;
+  escalations: BusinessRiskEscalation[];
+  beneficialOwners: Array<{ id: string; version: number; revisionId: string; fullName: string; ownershipBps: number; controlBasis: string; identityEvidenceFileId: string | null; effectiveFrom: string; effectiveTo: string | null; evidenceSha256: string | null }>;
+  acceptanceGate: BusinessAcceptanceGate;
+}
+export interface BusinessAcceptanceGate {
+  engagementId: string;
+  lifecycleState: string;
+  commercialKey: Record<string, unknown> & { status: 'ACTIVE' | 'PENDING' | 'REVOKED' };
+  riskKey: Record<string, unknown> & { status: 'ACTIVE' | 'PENDING' | 'STALE' | 'REJECTED' | 'REVOKED' | 'HIDDEN' };
+  ready: boolean;
+  blockers: string[];
+}

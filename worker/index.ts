@@ -82,6 +82,7 @@ import {
   resolveBusinessContext,
   runBusinessDirectoryCommand
 } from './business';
+import { getBusinessAcceptanceGate, getBusinessRiskWorkspace } from './businessRisk';
 
 const JSON_BODY_LIMIT = 1_000_000;
 /** Hard ceiling for a single command payload; the domain model is small. */
@@ -219,6 +220,18 @@ const handleBusinessStandardsProfiles = async (ctx: RouteContext): Promise<Respo
 
 const handleBusinessProposalWorkspace = async (ctx: RouteContext): Promise<Response> => {
   const result = await getBusinessProposalWorkspace(ctx.env, ctx.params.workspaceId, ctx.request);
+  return jsonResponse(result, 200, ctx.requestId);
+};
+
+const handleBusinessAcceptanceGate = async (ctx: RouteContext): Promise<Response> => {
+  const context = await resolveBusinessContext(ctx.env, ctx.params.workspaceId, ctx.request);
+  const result = await getBusinessAcceptanceGate(ctx.env, ctx.params.workspaceId, context, ctx.params.engagementId);
+  return jsonResponse(result, 200, ctx.requestId);
+};
+
+const handleBusinessRiskWorkspace = async (ctx: RouteContext): Promise<Response> => {
+  const context = await resolveBusinessContext(ctx.env, ctx.params.workspaceId, ctx.request);
+  const result = await getBusinessRiskWorkspace(ctx.env, ctx.params.workspaceId, context, ctx.params.engagementId);
   return jsonResponse(result, 200, ctx.requestId);
 };
 
@@ -657,6 +670,8 @@ const router = createRouter()
   .get('/api/workspaces/:workspaceId/leads', handleBusinessLeads)
   .get('/api/workspaces/:workspaceId/standards-profiles', handleBusinessStandardsProfiles)
   .get('/api/workspaces/:workspaceId/proposal-workspace', handleBusinessProposalWorkspace)
+  .get('/api/workspaces/:workspaceId/engagements/:engagementId/acceptance-gate', handleBusinessAcceptanceGate)
+  .get('/api/workspaces/:workspaceId/engagements/:engagementId/risk-workspace', handleBusinessRiskWorkspace)
   .get('/api/workspaces/:workspaceId/state', handleState)
   .get('/api/workspaces/:workspaceId/changes', handleChanges)
   .get('/api/workspaces/:workspaceId/events', handleEvents)

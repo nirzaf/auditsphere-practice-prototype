@@ -154,7 +154,7 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
   const approverContext = await call(`/api/workspaces/${workspaceId}/context`, { headers: approverHeaders });
   assert.equal(approverContext.response.status, 200, JSON.stringify(approverContext.body));
   assert.deepEqual(approverContext.body.allowedActions, [
-    'directory.manage', 'client.read', 'client.manage', 'lead.read', 'lead.manage', 'lead.convert', 'engagement.read', 'engagement.advance', 'standards.read', 'standards.manage', 'file.read', 'file.upload', 'proposal.read', 'proposal.create', 'proposal.generate', 'proposal.approve', 'proposal.dispatch', 'firm.manage'
+    'directory.manage', 'client.read', 'client.manage', 'lead.read', 'lead.manage', 'lead.convert', 'engagement.read', 'engagement.advance', 'standards.read', 'standards.manage', 'file.read', 'file.upload', 'proposal.read', 'proposal.create', 'proposal.generate', 'proposal.approve', 'proposal.dispatch', 'firm.manage', 'risk.read', 'riskAssessment.draft', 'riskAssessment.submit', 'riskAssessment.resolveEscalation', 'risk.clear', 'commercialAcceptance.read'
   ]);
 
   const staffKey = crypto.randomUUID();
@@ -715,4 +715,192 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
   assert.equal(db.prepare(`SELECT lifecycle_state FROM engagements WHERE workspace_id=? AND id=?`)
     .bind(workspaceId, conversion.body.result.engagementId).first<any>()?.lifecycle_state, 'DUAL_KEY_PENDING',
     'the lifecycle advances only after the email provider returns a verifiable message ID');
+
+  const engagementId = conversion.body.result.engagementId as string;
+  const makeRiskHeaders = (headers: Record<string, string>) => ({ ...headers, 'X-Client-Id': clientId, 'X-Engagement-Id': engagementId });
+  const signatory = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'contact.update', payload: { contactId: financeContactId, expectedVersion: 1, isSignatory: true } }
+  }, preparerHeaders);
+  assert.equal(signatory.response.status, 200, JSON.stringify(signatory.body));
+
+  const owner = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'riskAssessment.owner.save', payload: {
+      engagementId, expectedVersion: null, fullName: 'Test beneficial owner', ownershipBps: 10000,
+      controlBasis: 'Direct 100 percent ownership per the filed shareholder register.', identityEvidenceFileId: fileId,
+      effectiveFrom: '2020-01-01', active: true
+    } }
+  }, makeRiskHeaders(reviewerHeaders));
+  assert.equal(owner.response.status, 200, JSON.stringify(owner.body));
+  assert.equal(owner.body.result.revision, 1);
+
+  const riskChecks = [
+    ['UBO', fileId], ['KYC', fileId], ['AML', fileId], ['INTEGRITY', undefined], ['VIABILITY', undefined], ['INDEPENDENCE', undefined], ['CONFLICTS', undefined]
+  ].map(([code, evidenceFileId]) => ({
+    code, outcome: code === 'AML' ? 'ISSUE' : 'CLEAR', findings: `${code} reviewed against the current client evidence and recorded sources.`,
+    sourceReference: `${code} workpaper evidence and reviewer inspection`, checkedOn: '2026-10-05',
+    ...(evidenceFileId ? { evidenceFileId } : {})
+  }));
+  const riskDraftPayload = {
+    engagementId, track: 'NEW_CLIENT', expectedDraftVersion: 0, questionnaireTemplateVersion: 'QA-TRACK-A-2026.1',
+    assessmentDate: '2026-10-05', overallRisk: 'MODERATE',
+    managementIntegrityConclusion: 'Management integrity was reviewed against the documented source evidence and no unresolved issue was identified.',
+    viabilityConclusion: 'The client has a viable operating profile based on the current engagement intake and records reviewed.',
+    independenceConclusion: 'The engagement team independence checks were documented and no unresolved conflict was identified.', checks: riskChecks
+  };
+  const draftRisk = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'riskAssessment.saveDraft', payload: riskDraftPayload }
+  }, makeRiskHeaders(reviewerHeaders));
+  assert.equal(draftRisk.response.status, 200, JSON.stringify(draftRisk.body));
+  assert.equal(draftRisk.body.result.draftVersion, 1);
+
+  const incompleteGate = await call(`/api/workspaces/${workspaceId}/engagements/${engagementId}/acceptance-gate`, { headers: makeRiskHeaders(approverHeaders) });
+  assert.equal(incompleteGate.response.status, 200, JSON.stringify(incompleteGate.body));
+  assert.equal(incompleteGate.body.commercialKey.status, 'PENDING');
+  assert.equal(incompleteGate.body.riskKey.status, 'PENDING');
+  assert.equal(incompleteGate.body.ready, false);
+
+  const submitRisk = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'riskAssessment.submit', payload: { assessmentId: draftRisk.body.result.assessmentId, expectedDraftVersion: 1 } }
+  }, makeRiskHeaders(reviewerHeaders));
+  assert.equal(submitRisk.response.status, 200, JSON.stringify(submitRisk.body));
+  const submitDuplicate = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'riskAssessment.submit', payload: { assessmentId: draftRisk.body.result.assessmentId, expectedDraftVersion: 1 } }
+  }, makeRiskHeaders(reviewerHeaders));
+  assert.equal(submitDuplicate.response.status, 409);
+  assert.equal(submitDuplicate.body.code, 'VERSION_CONFLICT');
+
+  const clientCannotReadRisk = await call(`/api/workspaces/${workspaceId}/engagements/${engagementId}/risk-workspace`, { headers: makeRiskHeaders(clientHeaders) });
+  assert.equal(clientCannotReadRisk.response.status, 403);
+  const clientCannotClearRisk = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'risk.clear', payload: { engagementId, riskAssessmentVersionId: submitRisk.body.result.assessmentVersionId, rationale: 'The client must not clear internal risk.' } }
+  }, makeRiskHeaders(clientHeaders));
+  assert.equal(clientCannotClearRisk.response.status, 403);
+  assert.equal(clientCannotClearRisk.body.code, 'PERSONA_ACTION_DENIED');
+
+  const amlCheckId = db.prepare(`SELECT id FROM risk_checks WHERE workspace_id=? AND assessment_version_id=? AND code='AML'`)
+    .bind(workspaceId, submitRisk.body.result.assessmentVersionId).first<any>()?.id as string;
+  const unresolvedIssueClear = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'risk.clear', payload: {
+      engagementId, riskAssessmentVersionId: submitRisk.body.result.assessmentVersionId,
+      rationale: 'Attempted Partner clearance while the AML issue still needs review.'
+    } }
+  }, makeRiskHeaders(approverHeaders));
+  assert.equal(unresolvedIssueClear.response.status, 422);
+  assert.equal(unresolvedIssueClear.body.code, 'GATE_BLOCKED');
+  assert.equal(db.prepare(`SELECT COUNT(*) AS count FROM risk_clearances WHERE workspace_id=? AND engagement_id=?`)
+    .bind(workspaceId, engagementId).first<any>()?.count, 0, 'blocked clearance writes no decision history');
+
+  const escalation = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'riskAssessment.escalate', payload: {
+      assessmentVersionId: submitRisk.body.result.assessmentVersionId, checkId: amlCheckId,
+      reason: 'The AML source report contains an unresolved adverse media match requiring Partner evaluation.',
+      requiredEvidence: 'Obtain the current signed client explanation and supporting court disposition.'
+    } }
+  }, makeRiskHeaders(reviewerHeaders));
+  assert.equal(escalation.response.status, 200, JSON.stringify(escalation.body));
+  const clearWhileEscalated = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'risk.clear', payload: {
+      engagementId, riskAssessmentVersionId: submitRisk.body.result.assessmentVersionId,
+      rationale: 'Attempted Partner clearance while the escalation remains open.'
+    } }
+  }, makeRiskHeaders(approverHeaders));
+  assert.equal(clearWhileEscalated.response.status, 422);
+  assert.equal(clearWhileEscalated.body.code, 'GATE_BLOCKED');
+  const unqualifiedResolution = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'riskAssessment.resolveEscalation', payload: {
+      escalationId: escalation.body.result.escalationId, expectedVersion: 1,
+      resolution: 'Reviewed the source report and supporting documents; the issue is resolved for this revision.', evidenceFileId: fileId
+    } }
+  }, makeRiskHeaders(preparerHeaders));
+  assert.equal(unqualifiedResolution.response.status, 403);
+  assert.equal(unqualifiedResolution.body.code, 'PERSONA_ACTION_DENIED');
+  const resolvedEscalation = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'riskAssessment.resolveEscalation', payload: {
+      escalationId: escalation.body.result.escalationId, expectedVersion: 1,
+      resolution: 'Reviewed the source report and signed client explanation; the reported matter is not a match to the client.', evidenceFileId: fileId
+    } }
+  }, makeRiskHeaders(approverHeaders));
+  assert.equal(resolvedEscalation.response.status, 200, JSON.stringify(resolvedEscalation.body));
+  assert.equal(resolvedEscalation.body.result.status, 'RESOLVED');
+
+  const clearedRisk = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'risk.clear', payload: {
+      engagementId, riskAssessmentVersionId: submitRisk.body.result.assessmentVersionId,
+      rationale: 'The Partner reviewed the complete current Track A dossier and its pinned evidence.'
+    } }
+  }, makeRiskHeaders(approverHeaders));
+  assert.equal(clearedRisk.response.status, 200, JSON.stringify(clearedRisk.body));
+  const oneKeyGate = await call(`/api/workspaces/${workspaceId}/engagements/${engagementId}/acceptance-gate`, { headers: makeRiskHeaders(approverHeaders) });
+  assert.equal(oneKeyGate.body.commercialKey.status, 'PENDING');
+  assert.equal(oneKeyGate.body.riskKey.status, 'ACTIVE');
+  assert.equal(oneKeyGate.body.ready, false);
+
+  const proposalVersionId = thirdProposal.body.result.proposalVersionId as string;
+  const forgedDualKey = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'commercialAcceptance.record', payload: {
+      engagementId, proposalVersionId, acceptedFeeMinor: '250001', confirmationText: 'I accept the agreed scope and fee.', dualKeyPassed: true
+    } }
+  }, makeRiskHeaders(clientHeaders));
+  assert.equal(forgedDualKey.response.status, 400);
+  assert.equal(forgedDualKey.body.code, 'BAD_REQUEST');
+
+  const wrongFee = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'commercialAcceptance.record', payload: {
+      engagementId, proposalVersionId, acceptedFeeMinor: '250000', confirmationText: 'I accept the agreed scope and fee.'
+    } }
+  }, makeRiskHeaders(clientHeaders));
+  assert.equal(wrongFee.response.status, 422);
+  assert.equal(wrongFee.body.code, 'VALIDATION_FAILED');
+
+  const accepted = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'commercialAcceptance.record', payload: {
+      engagementId, proposalVersionId, acceptedFeeMinor: '250001', confirmationText: 'I accept the agreed audit scope and stated proposal fee.'
+    } }
+  }, makeRiskHeaders(clientHeaders));
+  assert.equal(accepted.response.status, 200, JSON.stringify(accepted.body));
+  assert.equal(accepted.body.result.commercialKey, 'ACTIVE');
+  assert.equal(db.prepare(`SELECT lifecycle_state FROM engagements WHERE workspace_id=? AND id=?`)
+    .bind(workspaceId, engagementId).first<any>()?.lifecycle_state, 'ADVANCE_BILLING',
+    'both current keys advance the engagement atomically into advance billing');
+  const readyGate = await call(`/api/workspaces/${workspaceId}/engagements/${engagementId}/acceptance-gate`, { headers: makeRiskHeaders(approverHeaders) });
+  assert.equal(readyGate.body.ready, true);
+  assert.equal(readyGate.body.commercialKey.status, 'ACTIVE');
+  assert.equal(readyGate.body.riskKey.status, 'ACTIVE');
+  const clientReadyGate = await call(`/api/workspaces/${workspaceId}/engagements/${engagementId}/acceptance-gate`, { headers: makeRiskHeaders(clientHeaders) });
+  assert.equal(clientReadyGate.body.ready, true);
+  assert.equal('partnerName' in clientReadyGate.body.riskKey, false, 'the client projection does not disclose internal risk decision details');
+  assert.equal(typeof clientReadyGate.body.commercialKey.acceptanceId, 'string', 'a client can manage only its own acceptance record');
+  const revokedAcceptance = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'commercialAcceptance.revoke', payload: {
+      acceptanceId: clientReadyGate.body.commercialKey.acceptanceId, rationale: 'The client requested withdrawal while the current proposal terms are being reconsidered.'
+    } }
+  }, makeRiskHeaders(clientHeaders));
+  assert.equal(revokedAcceptance.response.status, 200, JSON.stringify(revokedAcceptance.body));
+  const revokedGate = await call(`/api/workspaces/${workspaceId}/engagements/${engagementId}/acceptance-gate`, { headers: makeRiskHeaders(approverHeaders) });
+  assert.equal(revokedGate.body.commercialKey.status, 'REVOKED');
+  assert.equal(revokedGate.body.riskKey.status, 'ACTIVE');
+  assert.equal(revokedGate.body.ready, false, 'revoking the commercial key invalidates the gate without rewriting the risk decision');
+  const renewedAcceptance = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'commercialAcceptance.record', payload: {
+      engagementId, proposalVersionId, acceptedFeeMinor: '250001', confirmationText: 'I reconfirm the current audit scope and proposal fee.'
+    } }
+  }, makeRiskHeaders(clientHeaders));
+  assert.equal(renewedAcceptance.response.status, 200, JSON.stringify(renewedAcceptance.body));
+  const renewedGate = await call(`/api/workspaces/${workspaceId}/engagements/${engagementId}/acceptance-gate`, { headers: makeRiskHeaders(approverHeaders) });
+  assert.equal(renewedGate.body.ready, true);
+
+  const changedOwner = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'riskAssessment.owner.save', payload: {
+      engagementId, ownerId: owner.body.result.ownerId, expectedVersion: 1, fullName: 'Test beneficial owner revised', ownershipBps: 10000,
+      controlBasis: 'Reconfirmed direct ownership after a current shareholder-register review.', identityEvidenceFileId: fileId,
+      effectiveFrom: '2020-01-01', active: true
+    } }
+  }, makeRiskHeaders(reviewerHeaders));
+  assert.equal(changedOwner.response.status, 200, JSON.stringify(changedOwner.body));
+  const staleGate = await call(`/api/workspaces/${workspaceId}/engagements/${engagementId}/acceptance-gate`, { headers: makeRiskHeaders(approverHeaders) });
+  assert.equal(staleGate.body.commercialKey.status, 'ACTIVE');
+  assert.equal(staleGate.body.riskKey.status, 'STALE');
+  assert.equal(staleGate.body.ready, false, 'an ownership revision makes the previous risk key stale without rewriting its history');
+  assert.equal(db.prepare(`SELECT COUNT(*) AS count FROM risk_clearances WHERE workspace_id=? AND engagement_id=? AND decision='CLEAR'`)
+    .bind(workspaceId, engagementId).first<any>()?.count, 1, 'ownership changes preserve the prior Partner decision as immutable history');
 });

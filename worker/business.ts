@@ -6,6 +6,7 @@ import type { Env } from './env';
 import { ApiError } from './errors';
 import { sha256Hex } from './http';
 import { requireWorkspace } from './db';
+import { businessRiskCommands, buildBusinessRiskMutation, isBusinessRiskCommand } from './businessRisk';
 
 export const BUSINESS_SCHEMA_VERSION = 9;
 
@@ -419,8 +420,7 @@ export async function getBusinessProposalWorkspace(env: Env, workspaceId: string
   if (clientId) { proposalClauses.push('p.client_id=?'); proposalBindings.push(clientId); }
   if (engagementId) { proposalClauses.push('p.engagement_id=?'); proposalBindings.push(engagementId); }
   if (context.actor.persona === 'CLIENT') {
-    proposalClauses.push(`EXISTS(SELECT 1 FROM dispatches d WHERE d.workspace_id=p.workspace_id AND d.engagement_id=p.engagement_id
-      AND d.file_version_id=ga.file_version_id AND d.status IN ('ACCEPTED','DELIVERED'))`);
+    proposalClauses.push(`ga.file_version_id IS NOT NULL AND COALESCE(approval.decision,'PENDING')='APPROVE'`);
   }
   const proposals = await env.DB.prepare(`SELECT p.id AS proposal_id,p.version AS proposal_version,p.client_id,p.engagement_id,
       pv.id AS proposal_version_id,pv.revision,pv.mode,pv.scope,pv.fee_minor,pv.currency,pv.advance_bps,pv.final_bps,pv.valid_until,pv.timeline_json,
@@ -570,10 +570,10 @@ export async function resolveBusinessContext(env: Env, workspaceId: string, requ
     },
     scope: { clientId, engagementId: requestedEngagementId },
     allowedActions: row.persona === 'APPROVER' && row.staffGrade === 'PARTNER'
-      ? ['directory.manage', 'client.read', 'client.manage', 'lead.read', 'lead.manage', 'lead.convert', 'engagement.read', 'engagement.advance', 'standards.read', 'standards.manage', 'file.read', 'file.upload', 'proposal.read', 'proposal.create', 'proposal.generate', 'proposal.approve', 'proposal.dispatch', 'firm.manage']
-      : row.persona === 'PREPARER' ? ['client.read', 'client.manage', 'lead.read', 'lead.manage', 'lead.convert', 'engagement.read', 'engagement.advance', 'standards.read', 'file.read', 'file.upload', 'proposal.read', 'proposal.create', 'proposal.generate']
-        : row.persona === 'REVIEWER' ? ['client.read', 'lead.read', 'engagement.read', 'standards.read', 'file.read', 'file.upload', 'proposal.read', 'proposal.create', 'proposal.generate']
-          : ['client.read', 'file.read', 'file.upload', 'proposal.read'],
+      ? ['directory.manage', 'client.read', 'client.manage', 'lead.read', 'lead.manage', 'lead.convert', 'engagement.read', 'engagement.advance', 'standards.read', 'standards.manage', 'file.read', 'file.upload', 'proposal.read', 'proposal.create', 'proposal.generate', 'proposal.approve', 'proposal.dispatch', 'firm.manage', 'risk.read', 'riskAssessment.draft', 'riskAssessment.submit', 'riskAssessment.resolveEscalation', 'risk.clear', 'commercialAcceptance.read']
+      : row.persona === 'PREPARER' ? ['client.read', 'client.manage', 'lead.read', 'lead.manage', 'lead.convert', 'engagement.read', 'engagement.advance', 'standards.read', 'file.read', 'file.upload', 'proposal.read', 'proposal.create', 'proposal.generate', 'risk.read', 'riskAssessment.draft', 'riskAssessment.submit', 'commercialAcceptance.read']
+        : row.persona === 'REVIEWER' ? ['client.read', 'lead.read', 'engagement.read', 'standards.read', 'file.read', 'file.upload', 'proposal.read', 'proposal.create', 'proposal.generate', 'risk.read', 'riskAssessment.draft', 'riskAssessment.submit', 'riskAssessment.escalate', 'commercialAcceptance.read']
+          : ['client.read', 'file.read', 'file.upload', 'proposal.read', 'commercialAcceptance.read', 'commercialAcceptance.record', 'commercialAcceptance.revoke'],
     readOnlyReasons: isClient ? ['CLIENT_PROJECTION_ONLY'] : []
   };
 }
@@ -932,7 +932,8 @@ export const businessCommandSchema = z.discriminatedUnion('type', [
   proposalGenerateRetryCommand,
   proposalApproveCommand,
   proposalDispatchCommand,
-  proposalDispatchRetryCommand
+  proposalDispatchRetryCommand,
+  ...businessRiskCommands
 ]);
 
 const expectedVersionSchema = z.strictObject({
@@ -954,7 +955,7 @@ type BusinessCommand = BusinessCommandBody['command'];
 type BusinessDirectoryCommand = Extract<BusinessCommand, { type: 'staff.create' | 'staff.update' | 'actor-profile.assign' | 'actor-profile.deactivate' }>;
 type BusinessFileCommand = Extract<BusinessCommand, { type: 'file.reserve' | 'file.stage' | 'file.commit' | 'file.reject' }>;
 type BusinessProposalCommand = Extract<BusinessCommand, { type: 'firm-profile.save' | 'team-cv.attach' | 'team-cv.approve' | 'proposal.create' | 'proposal.revise' | 'proposal.generate' | 'proposal.generate.retry' | 'proposal.approve' | 'proposal.dispatch' | 'proposal.dispatch.retry' }>;
-type BusinessCommercialCommand = Exclude<BusinessCommand, BusinessDirectoryCommand | BusinessFileCommand | BusinessProposalCommand>;
+type BusinessCommercialCommand = Exclude<BusinessCommand, BusinessDirectoryCommand | BusinessFileCommand | BusinessProposalCommand | import('./businessRisk').BusinessRiskCommand>;
 
 function isBusinessDirectoryCommand(command: BusinessCommand): command is BusinessDirectoryCommand {
   return command.type === 'staff.create' || command.type === 'staff.update'
@@ -1613,9 +1614,10 @@ export async function listBusinessFiles(
   if (context.actor.persona === 'CLIENT') clauses.push(`(purpose IN ('PBC','TB') OR (purpose='GENERATED' AND EXISTS(
     SELECT 1 FROM generated_artifacts ga JOIN proposal_artifacts pa ON pa.workspace_id=ga.workspace_id AND pa.artifact_id=ga.id
     JOIN proposals p ON p.workspace_id=pa.workspace_id AND p.current_version_id=pa.proposal_version_id
-    JOIN dispatches d ON d.workspace_id=ga.workspace_id AND d.file_version_id=ga.file_version_id
+    JOIN proposal_approvals a ON a.workspace_id=pa.workspace_id AND a.proposal_version_id=pa.proposal_version_id AND a.decision='APPROVE'
     WHERE ga.workspace_id=file_versions.workspace_id AND ga.file_version_id=file_versions.id
-      AND p.client_id=? AND d.status IN ('ACCEPTED','DELIVERED'))))`), bindings.push(clientId);
+      AND p.client_id=? AND NOT EXISTS(SELECT 1 FROM proposal_approvals later WHERE later.workspace_id=a.workspace_id
+        AND later.proposal_version_id=a.proposal_version_id AND (later.decided_at>a.decided_at OR (later.decided_at=a.decided_at AND later.id>a.id))))))`), bindings.push(clientId);
   const result = await env.DB.prepare(`SELECT id,version,client_id,engagement_id,original_name,media_type,size_bytes,
       sha256,object_key,purpose,state,committed_at,immutable FROM file_versions
     WHERE ${clauses.join(' AND ')} ORDER BY created_at DESC,id DESC LIMIT ?`)
@@ -1632,10 +1634,12 @@ async function readableBusinessFile(env: Env, workspaceId: string, request: Requ
     const issued = await env.DB.prepare(`SELECT 1 AS found FROM generated_artifacts ga
       JOIN proposal_artifacts pa ON pa.workspace_id=ga.workspace_id AND pa.artifact_id=ga.id
       JOIN proposals p ON p.workspace_id=pa.workspace_id AND p.current_version_id=pa.proposal_version_id
-      JOIN dispatches d ON d.workspace_id=ga.workspace_id AND d.engagement_id=ga.engagement_id AND d.file_version_id=ga.file_version_id
-      WHERE ga.workspace_id=? AND ga.file_version_id=? AND p.client_id=? AND d.status IN ('ACCEPTED','DELIVERED') LIMIT 1`)
+      JOIN proposal_approvals a ON a.workspace_id=pa.workspace_id AND a.proposal_version_id=pa.proposal_version_id AND a.decision='APPROVE'
+      WHERE ga.workspace_id=? AND ga.file_version_id=? AND p.client_id=?
+        AND NOT EXISTS(SELECT 1 FROM proposal_approvals later WHERE later.workspace_id=a.workspace_id
+          AND later.proposal_version_id=a.proposal_version_id AND (later.decided_at>a.decided_at OR (later.decided_at=a.decided_at AND later.id>a.id))) LIMIT 1`)
       .bind(workspaceId, fileId, context.actor.clientId).first<{ found: number }>();
-    if (!issued) throw new ApiError('FORBIDDEN_SCOPE', 'This generated file has not been accepted by the proposal delivery provider.');
+    if (!issued) throw new ApiError('FORBIDDEN_SCOPE', 'This generated file is not the current Partner-approved proposal for the selected client.');
   }
   if (file.state !== 'COMMITTED' || !file.sha256 || !file.committed_at) {
     throw new ApiError('NOT_FOUND', 'A committed file was not found in this scope.');
@@ -2803,7 +2807,9 @@ export async function runBusinessDirectoryCommand(
         ? await buildBusinessFileMutation(env, workspaceId, context, envelope.command, timestamp)
         : isBusinessProposalCommand(envelope.command)
           ? await buildBusinessProposalMutation(env, workspaceId, context, envelope.command, commandId, timestamp)
-          : await buildCommercialMutation(env, workspaceId, context, envelope.command, commandId, timestamp);
+          : isBusinessRiskCommand(envelope.command)
+            ? await buildBusinessRiskMutation(env, workspaceId, context, envelope.command, commandId, timestamp)
+            : await buildCommercialMutation(env, workspaceId, context, envelope.command, commandId, timestamp);
     const sequence = head.last_sequence + 1;
     const eventDetails = JSON.stringify({
       commandId,

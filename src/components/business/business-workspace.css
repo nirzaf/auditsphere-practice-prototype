@@ -91,3 +91,31 @@
 @media (prefers-reduced-motion: reduce) {
   .business-console *, .business-setup-dialog * { scroll-behavior: auto !important; transition-duration: .01ms !important; animation-duration: .01ms !important; }
 }
+.business-risk-card { border-color: #b9c8d8; }
+.business-key-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin: 12px 0; }
+.business-key-status { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 14px; border: 1px solid #d7e0e8; border-radius: 10px; background: #f8fafc; }
+.business-key-status span { color: #496174; font-size: .88rem; }
+.business-key-status strong { color: #17334a; text-transform: capitalize; }
+.business-key-details { display: grid; gap: 7px; margin: 8px 0 14px; color: #496174; font-size: .88rem; line-height: 1.5; overflow-wrap: anywhere; }
+.business-key-details p { margin: 0; }
+.business-gate-blocker { margin: 8px 0; padding: 10px 12px; border-left: 3px solid #c47b27; background: #fff8eb; color: #69420e; }
+.business-risk-summary { display: grid; gap: 4px; margin: 10px 0; padding: 12px 14px; border: 1px solid #d7e0e8; border-radius: 10px; background: #f8fafc; }
+.business-risk-summary span { color: #496174; font-size: .9rem; overflow-wrap: anywhere; }
+.business-risk-check-list { display: grid; gap: 12px; margin: 14px 0; }
+.business-risk-check { min-width: 0; padding: 14px; border: 1px solid #d7e0e8; border-radius: 10px; }
+.business-risk-check legend { padding: 0 6px; color: #17334a; font-weight: 700; }
+.business-risk-escalations { display: grid; gap: 10px; margin-top: 16px; }
+.business-risk-escalations h3 { margin: 0; }
+.business-risk-escalation { display: grid; gap: 5px; padding: 12px 14px; border: 1px solid #d7e0e8; border-radius: 9px; overflow-wrap: anywhere; }
+.business-risk-escalation.is-open { border-left: 4px solid #b45309; background: #fffbeb; }
+.business-risk-escalation.is-resolved { border-left: 4px solid #15803d; background: #f0fdf4; }
+.business-risk-escalation div { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 4px 12px; }
+.business-risk-escalation span { color: #496174; font-size: .83rem; }
+.business-risk-escalation p { margin: 0; line-height: 1.45; }
+.business-check-field { display: inline-flex; align-items: center; gap: 8px; margin: 8px 0 12px; color: #496174; }
+.business-check-field input { width: 18px; height: 18px; }
+.business-success-note { padding: 10px 12px; border-radius: 8px; background: #edf8f1; color: #17613a; }
+@media (max-width: 600px) {
+  .business-key-grid { grid-template-columns: minmax(0, 1fr); }
+  .business-risk-check { padding: 10px; }
+}

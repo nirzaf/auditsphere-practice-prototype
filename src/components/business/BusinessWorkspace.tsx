@@ -40,6 +40,7 @@ import {
   uploadBusinessFile
 } from '../../services/businessWorkspace';
 import './business-workspace.css';
+import { BusinessAcceptanceRiskPanel } from './BusinessAcceptanceRiskPanel';
 
 type SetupMode = 'create' | 'connect';
 
@@ -218,6 +219,7 @@ export function BusinessWorkspaceConsole() {
   const [standardsProfiles, setStandardsProfiles] = useState<BusinessStandardsProfile[]>([]);
   const [proposalWorkspace, setProposalWorkspace] = useState<BusinessProposalWorkspace | null>(null);
   const [proposalEngagementId, setProposalEngagementId] = useState('');
+  const [riskEngagementId, setRiskEngagementId] = useState('');
   const [proposalMode, setProposalMode] = useState<'QUOTE' | 'FULL_PROPOSAL'>('QUOTE');
   const [proposalScope, setProposalScope] = useState('');
   const [proposalFeeMinor, setProposalFeeMinor] = useState('');
@@ -384,6 +386,8 @@ export function BusinessWorkspaceConsole() {
       setProposalWorkspace(next);
       setProposalEngagementId(current => current && next.engagements.some(item => item.id === current)
         ? current : next.engagements.find(item => item.lifecycleState === 'PROPOSAL_GENERATION')?.id ?? '');
+      setRiskEngagementId(current => current && next.engagements.some(item => item.id === current)
+        ? current : next.engagements.find(item => ['PROPOSAL_GENERATION', 'DUAL_KEY_PENDING', 'ADVANCE_BILLING'].includes(item.lifecycleState))?.id ?? '');
       setCvStaffMemberId(current => current || selectedProfile?.staffMemberId || next.staffMembers.find(staff => staff.grade === 'PARTNER')?.id || '');
       setCvFileVersionId(current => current || files.find(file => file.purpose === 'TEMPLATE'
         && ['application/pdf', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'].includes(file.mediaType))?.id || '');
@@ -911,6 +915,8 @@ export function BusinessWorkspaceConsole() {
     } finally { setDownloadingFileId(null); }
   };
 
+  const riskEngagement = proposalWorkspace?.engagements.find(item => item.id === riskEngagementId) ?? null;
+
   return <main className="business-console">
     <header className="business-console-header">
       <div className="business-console-brand">
@@ -1108,7 +1114,7 @@ export function BusinessWorkspaceConsole() {
           </div>
 
           {context.actor.persona === 'CLIENT' ? <>
-            <p className="business-note">Only proposal revisions accepted by the configured delivery provider appear here.</p>
+            <p className="business-note">Current Partner-approved revisions with committed PDFs appear here. Provider delivery status remains visible when available.</p>
             {proposalWorkspace?.proposals.length ? <ul className="business-record-list">
               {proposalWorkspace.proposals.map(proposal => {
                 const artifact = files.find(file => file.id === proposal.artifactFileId);
@@ -1116,7 +1122,10 @@ export function BusinessWorkspaceConsole() {
                   <strong>{proposal.mode === 'QUOTE' ? 'Quotation' : 'Comprehensive proposal'} · Revision {proposal.revision}</strong>
                   <span>{proposal.clientName} · QAR {proposal.feeMinor} minor units · valid through {proposal.validUntil}</span>
                   <small>{proposal.scope} · provider status {proposal.dispatchStatus}</small>
-                  {artifact && <button type="button" className="btn sm" disabled={downloadingFileId === artifact.id} onClick={() => void downloadStoredFile(artifact)}>{downloadingFileId === artifact.id ? 'Downloading…' : 'Download accepted proposal'}</button>}
+                  {artifact && <button type="button" className="btn sm" disabled={downloadingFileId === artifact.id} onClick={() => void downloadStoredFile(artifact)}>{downloadingFileId === artifact.id ? 'Downloading…' : 'Download approved proposal'}</button>}
+                  {preference && context && <BusinessAcceptanceRiskPanel workspaceId={preference.workspaceId} selected={preference} context={context}
+                    engagementId={proposal.engagementId} clientId={proposal.clientId} engagementName={proposal.clientName} files={files}
+                    clientProposal={proposal} onChanged={() => setRecordsKey(value => value + 1)} />}
                 </li>;
               })}
             </ul> : <p className="business-muted">No accepted proposal is available for this client context.</p>}
@@ -1196,6 +1205,19 @@ export function BusinessWorkspaceConsole() {
               </li>;
             })}</ul> : <p className="business-muted">No proposal revisions exist in this workspace scope.</p>}
           </>}
+        </section>}
+
+        {context?.allowedActions.includes('risk.read') && preference && riskEngagement && <section className="business-directory-card" aria-labelledby="business-risk-engagement-heading">
+          <div className="business-section-heading">
+            <div><p className="business-eyebrow">ADMINISTRATION · GOVERNANCE</p><h2 id="business-risk-engagement-heading">Engagement acceptance and risk</h2></div>
+            <label className="business-field" htmlFor="business-risk-engagement"><span>Engagement</span><select id="business-risk-engagement" value={riskEngagementId} onChange={event => setRiskEngagementId(event.target.value)}>
+              {proposalWorkspace?.engagements.filter(item => item.lifecycleState !== 'ARCHIVED_READ_ONLY').map(item => <option key={item.id} value={item.id}>{item.clientName} · {item.code} · {item.lifecycleState.replaceAll('_', ' ')}</option>)}
+            </select></label>
+          </div>
+          <BusinessAcceptanceRiskPanel workspaceId={preference.workspaceId} selected={preference} context={context}
+            engagementId={riskEngagement.id} clientId={riskEngagement.clientId}
+            engagementName={`${riskEngagement.clientName} · ${riskEngagement.code}`} files={files}
+            onChanged={() => setRecordsKey(value => value + 1)} />
         </section>}
 
         {context?.allowedActions.includes('file.read') && <section className="business-directory-card" aria-labelledby="business-files-heading">
