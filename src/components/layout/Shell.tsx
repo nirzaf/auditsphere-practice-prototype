@@ -1,7 +1,7 @@
 // AuditSphere Layout Shell
 // Sidebar, Topbar, Scenario Switcher, Search Modal, and Notifications
 
-import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { RouteKey, RoleKey } from '../../types';
 import { prototypeStore } from '../../store/prototypeStore';
 import { canOpenRoute, canReadSearchRecord, visibleClientIds, visibleEngagementIds, isClientRole, scopedInvoices } from '../../services/guards';
@@ -10,6 +10,7 @@ import { getPackageContextDisplay } from '../../services/calculations';
 import { Icon } from '../common/Icons';
 import { ROUTE_CATALOG, routeCode } from '../../services/routeCatalog';
 import { CloudDemoControls, CloudWorkspaceLabel } from '../common/CloudDemoControls';
+import { BusinessWorkspaceSetupDialog } from '../business/BusinessWorkspace';
 
 interface ShellProps {
   currentRoute: RouteKey;
@@ -41,6 +42,8 @@ export const Shell: React.FC<ShellProps> = ({ currentRoute, onRouteChange, onSel
   const [showScenarioModal, setShowScenarioModal] = useState(false);
   const [showSearchModal, setShowSearchModal] = useState(false);
   const [presenterMode, setPresenterMode] = useState(false);
+  const [showBusinessSetup, setShowBusinessSetup] = useState(false);
+  const closeBusinessSetup = useCallback(() => setShowBusinessSetup(false), []);
   const [searchQuery, setSearchQuery] = useState('');
   const [searchRecordType, setSearchRecordType] = useState('all');
   const [searchContext, setSearchContext] = useState('all');
@@ -530,6 +533,7 @@ export const Shell: React.FC<ShellProps> = ({ currentRoute, onRouteChange, onSel
           </div>
 
           <div className="topbar-right">
+            <button className="btn sm business-mode-launch" onClick={() => setShowBusinessSetup(true)}>Business workspace</button>
             <button className="btn sm presenter-controls" aria-pressed={presenterMode} onClick={() => setPresenterMode(v => !v)}>Presenter / Demo Controls</button>
             <span className="demo-pill">
               <span className="demo-dot" />
@@ -772,6 +776,8 @@ export const Shell: React.FC<ShellProps> = ({ currentRoute, onRouteChange, onSel
           </div>
         </div>
       )}
+
+      <BusinessWorkspaceSetupDialog open={showBusinessSetup} onClose={closeBusinessSetup} />
 
       {/* Toast Notification Container */}
       <div id="toasts">

@@ -18,7 +18,7 @@ import { ProjectTemplates } from './components/common/ProjectTemplates';
 // AuditSphere Main Application Component
 // Subscribes to the shared store and renders the target audit lifecycle.
 
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useSyncExternalStore } from 'react';
 import { createPortal } from 'react-dom';
 import { RouteKey } from './types';
 import { prototypeStore } from './store/prototypeStore';
@@ -48,6 +48,8 @@ import { FindingsView } from './components/modules/FindingsView';
 import { TimeTrackingView } from './components/modules/TimeTrackingView';
 import { UnsavedFormGuard } from './services/unsavedFormGuard';
 import { resolveRouteHash, routeHash } from './services/routes';
+import { BusinessWorkspaceConsole } from './components/business/BusinessWorkspace';
+import { businessWorkspaceSnapshot, subscribeBusinessWorkspace } from './services/businessWorkspace';
 
 const ENGAGEMENT_CONTEXT_ROUTES = new Set<string>([
   'onboarding', 'documents', 'my-time', 'billing', 'trial-balance',
@@ -58,7 +60,7 @@ const ENGAGEMENT_CONTEXT_ROUTES = new Set<string>([
 const ACTIVE_DIALOG_GUARD = '__active-dialog__';
 type WorkflowSelection = { route: RouteKey; context: { clientId?: string; engagementId?: string; recordId?: string } };
 
-export const App: React.FC = () => {
+const PrototypeApp: React.FC = () => {
   const [currentRoute, setCurrentRoute] = useState<RouteKey>(() => resolveRouteHash(window.location.hash) ?? 'overview');
   const [selectedClientId, setSelectedClientId] = useState<string>('CL-001');
   const [searchTargetId, setSearchTargetId] = useState<string | undefined>();
@@ -521,4 +523,10 @@ export const App: React.FC = () => {
     </Shell>
   );
 };
+
+export const App: React.FC = () => {
+  const businessWorkspace = useSyncExternalStore(subscribeBusinessWorkspace, businessWorkspaceSnapshot);
+  return businessWorkspace ? <BusinessWorkspaceConsole /> : <PrototypeApp />;
+};
+
 export default App;

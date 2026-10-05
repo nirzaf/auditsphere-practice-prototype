@@ -1,0 +1,792 @@
+import React, { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
+import type {
+  BusinessActorProfile,
+  BusinessClientDetail,
+  BusinessClientSummary,
+  BusinessContextResponse,
+  BusinessLead,
+  BusinessPersona,
+  BusinessStandardsProfile,
+  BusinessWorkspacePreference,
+  BusinessWorkspaceSummary,
+  StaffGrade
+} from '../../shared/api/business';
+import {
+  businessWorkspaceSnapshot,
+  clearBusinessWorkspacePreference,
+  createBusinessWorkspace,
+  getBusinessActorProfiles,
+  getBusinessClient,
+  getBusinessClients,
+  getBusinessContext,
+  getBusinessLeads,
+  getBusinessStandardsProfiles,
+  getBusinessWorkspace,
+  newBusinessIdempotencyKey,
+  runBusinessCommand,
+  saveBusinessWorkspacePreference,
+  selectBusinessActor,
+  subscribeBusinessWorkspace
+} from '../../services/businessWorkspace';
+import './business-workspace.css';
+
+type SetupMode = 'create' | 'connect';
+
+export function BusinessWorkspaceSetupDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const [mode, setMode] = useState<SetupMode>('create');
+  const [workspaceName, setWorkspaceName] = useState('');
+  const [partnerName, setPartnerName] = useState('');
+  const [naturalPersonKey, setNaturalPersonKey] = useState('');
+  const [email, setEmail] = useState('');
+  const [workspaceId, setWorkspaceId] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const createKey = useRef<string | undefined>(undefined);
+
+  useEffect(() => {
+    if (!open) return;
+    setError('');
+    setBusy(false);
+  }, [open]);
+
+  if (!open) return null;
+
+  const clearKey = () => { createKey.current = undefined; };
+  const create = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setBusy(true);
+    setError('');
+    try {
+      createKey.current ??= newBusinessIdempotencyKey();
+      const created = await createBusinessWorkspace({
+        name: workspaceName,
+        currency: 'QAR',
+        timezone: 'Asia/Qatar',
+        initialPartner: { displayName: partnerName, naturalPersonKey, email }
+      }, createKey.current);
+      saveBusinessWorkspacePreference({
+        version: 1,
+        workspaceId: created.workspaceId,
+        actorId: created.actorProfileId,
+        persona: 'APPROVER'
+      });
+      createKey.current = undefined;
+      onClose();
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'The workspace could not be created. Retry the request.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const connect = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setBusy(true);
+    setError('');
+    try {
+      const id = workspaceId.trim();
+      const [workspace, profiles] = await Promise.all([
+        getBusinessWorkspace(id),
+        getBusinessActorProfiles(id)
+      ]);
+      const firstProfile = profiles[0];
+      saveBusinessWorkspacePreference({
+        version: 1,
+        workspaceId: workspace.id,
+        ...(firstProfile ? { actorId: firstProfile.id, persona: firstProfile.persona } : {})
+      });
+      onClose();
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'The workspace could not be opened. Check the ID and retry.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return <div className="modal-overlay business-setup-overlay" role="presentation" data-dismiss-guard="self" onClick={event => {
+    // The shared app Escape handler dispatches an untrusted click on the active
+    // backdrop. Ignore pointer backdrop clicks so setup fields are not discarded.
+    if (event.target === event.currentTarget && event.detail === 0) onClose();
+  }}>
+    <section className="modal-card business-setup-dialog" role="dialog" aria-modal="true" aria-labelledby="business-setup-title" aria-describedby="business-setup-description">
+      <div className="business-setup-head">
+        <div>
+          <p className="business-eyebrow">AUDITSPHERE · BUSINESS MODE</p>
+          <h2 id="business-setup-title">Open a business workspace</h2>
+          <p id="business-setup-description" className="business-muted">Business workspaces start empty and persist in the server database. Persona selection is self-asserted; it does not verify identity.</p>
+        </div>
+        <button className="btn sm" type="button" onClick={onClose}>Close</button>
+      </div>
+
+      <div className="business-mode-tabs" role="group" aria-label="Workspace action">
+        <button type="button" className={mode === 'create' ? 'business-mode-tab selected' : 'business-mode-tab'} aria-pressed={mode === 'create'} onClick={() => { setMode('create'); setError(''); }}>Create workspace</button>
+        <button type="button" className={mode === 'connect' ? 'business-mode-tab selected' : 'business-mode-tab'} aria-pressed={mode === 'connect'} onClick={() => { setMode('connect'); setError(''); }}>Connect by workspace ID</button>
+      </div>
+
+      {error && <p className="business-alert" role="alert">{error}</p>}
+
+      {mode === 'create' ? <form className="business-form" onSubmit={create}>
+        <label className="business-field" htmlFor="business-workspace-name">
+          <span>Workspace name</span>
+          <input id="business-workspace-name" autoComplete="organization" required minLength={1} maxLength={200} value={workspaceName} onChange={event => { clearKey(); setWorkspaceName(event.target.value); }} />
+        </label>
+        <div className="business-static-fields" aria-label="Workspace defaults">
+          <div><span>Currency</span><strong>QAR</strong></div>
+          <div><span>Timezone</span><strong>Asia/Qatar</strong></div>
+        </div>
+        <h3>Initial Partner directory record</h3>
+        <div className="business-form-grid">
+          <label className="business-field" htmlFor="business-partner-name">
+            <span>Display name</span>
+            <input id="business-partner-name" autoComplete="name" required maxLength={200} value={partnerName} onChange={event => { clearKey(); setPartnerName(event.target.value); }} />
+          </label>
+          <label className="business-field" htmlFor="business-partner-key">
+            <span>Natural-person key</span>
+            <input id="business-partner-key" autoComplete="off" required maxLength={200} value={naturalPersonKey} onChange={event => { clearKey(); setNaturalPersonKey(event.target.value); }} />
+            <small>Firm-maintained unique reference used for independence checks.</small>
+          </label>
+          <label className="business-field" htmlFor="business-partner-email">
+            <span>Email</span>
+            <input id="business-partner-email" type="email" autoComplete="email" required maxLength={254} value={email} onChange={event => { clearKey(); setEmail(event.target.value); }} />
+          </label>
+        </div>
+        <p className="business-note">This creates one Partner staff record and one APPROVER profile. It does not create clients, engagements, invoices, approvals, or payment history.</p>
+        <div className="business-dialog-actions">
+          <button type="button" className="btn" onClick={onClose}>Cancel</button>
+          <button type="submit" className="btn primary" disabled={busy}>{busy ? 'Creating workspace…' : 'Create business workspace'}</button>
+        </div>
+      </form> : <form className="business-form" onSubmit={connect}>
+        <label className="business-field" htmlFor="business-connect-id">
+          <span>Workspace ID</span>
+          <input id="business-connect-id" autoComplete="off" required minLength={36} maxLength={36} value={workspaceId} onChange={event => setWorkspaceId(event.target.value)} />
+          <small>The ID is a locator, not an access credential. This profile runs in a trusted environment.</small>
+        </label>
+        <p className="business-note">The browser will load configured profiles from the workspace and keep your selection in this browser only. No cookie, password, or access token is created.</p>
+        <div className="business-dialog-actions">
+          <button type="button" className="btn" onClick={onClose}>Cancel</button>
+          <button type="submit" className="btn primary" disabled={busy}>{busy ? 'Connecting…' : 'Connect workspace'}</button>
+        </div>
+      </form>}
+    </section>
+  </div>;
+}
+
+interface PendingStaffAssignment {
+  staffMemberId: string;
+  persona: Exclude<BusinessPersona, 'CLIENT'>;
+  idempotencyKey: string;
+  displayName: string;
+}
+
+function gradeAllowsPersona(grade: StaffGrade, persona: Exclude<BusinessPersona, 'CLIENT'>): boolean {
+  if (persona === 'APPROVER') return grade === 'PARTNER';
+  if (persona === 'REVIEWER') return grade === 'MANAGER' || grade === 'SENIOR';
+  return true;
+}
+
+export function BusinessWorkspaceConsole() {
+  const preference = useSyncExternalStore(subscribeBusinessWorkspace, businessWorkspaceSnapshot);
+  const [workspace, setWorkspace] = useState<BusinessWorkspaceSummary | null>(null);
+  const [profiles, setProfiles] = useState<BusinessActorProfile[]>([]);
+  const [context, setContext] = useState<BusinessContextResponse | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [retryKey, setRetryKey] = useState(0);
+  const [commandBusy, setCommandBusy] = useState(false);
+  const [commandMessage, setCommandMessage] = useState('');
+  const [staffName, setStaffName] = useState('');
+  const [staffNaturalKey, setStaffNaturalKey] = useState('');
+  const [staffEmail, setStaffEmail] = useState('');
+  const [staffGrade, setStaffGrade] = useState<StaffGrade>('ASSOCIATE');
+  const [staffPersona, setStaffPersona] = useState<Exclude<BusinessPersona, 'CLIENT'>>('PREPARER');
+  const [pendingAssignment, setPendingAssignment] = useState<PendingStaffAssignment | null>(null);
+  const pendingCreate = useRef<{ idempotencyKey: string; naturalPersonKey: string; displayName: string; email: string; grade: StaffGrade } | null>(null);
+  const [clients, setClients] = useState<BusinessClientSummary[]>([]);
+  const [clientDetail, setClientDetail] = useState<BusinessClientDetail | null>(null);
+  const [leads, setLeads] = useState<BusinessLead[]>([]);
+  const [standardsProfiles, setStandardsProfiles] = useState<BusinessStandardsProfile[]>([]);
+  const [recordError, setRecordError] = useState('');
+  const [recordsKey, setRecordsKey] = useState(0);
+  const [clientCode, setClientCode] = useState('');
+  const [clientName, setClientName] = useState('');
+  const [clientType, setClientType] = useState<'HOLDING' | 'SUBSIDIARY' | 'STANDALONE'>('STANDALONE');
+  const [clientIndustry, setClientIndustry] = useState('');
+  const [clientAddress, setClientAddress] = useState('');
+  const [primaryContactName, setPrimaryContactName] = useState('');
+  const [primaryContactEmail, setPrimaryContactEmail] = useState('');
+  const [primaryContactRole, setPrimaryContactRole] = useState<'MD_GM' | 'CFO_FINANCE_DIRECTOR' | 'CHIEF_ACCOUNTANT_LIAISON' | 'OTHER'>('CFO_FINANCE_DIRECTOR');
+  const [leadSource, setLeadSource] = useState<'PHONE' | 'WHATSAPP' | 'EMAIL' | 'WEB_FORM' | 'REFERRAL'>('REFERRAL');
+  const [leadClientMode, setLeadClientMode] = useState<'NEW' | 'EXISTING'>('NEW');
+  const [leadClientCode, setLeadClientCode] = useState('');
+  const [leadClientName, setLeadClientName] = useState('');
+  const [leadClientIndustry, setLeadClientIndustry] = useState('');
+  const [leadClientAddress, setLeadClientAddress] = useState('');
+  const [leadContactName, setLeadContactName] = useState('');
+  const [leadContactEmail, setLeadContactEmail] = useState('');
+  const [leadContactPhone, setLeadContactPhone] = useState('');
+  const [leadContactTitle, setLeadContactTitle] = useState('CFO / Finance Director');
+  const [leadContactRole, setLeadContactRole] = useState<'MD_GM' | 'CFO_FINANCE_DIRECTOR' | 'CHIEF_ACCOUNTANT_LIAISON' | 'OTHER'>('CFO_FINANCE_DIRECTOR');
+  const [leadService, setLeadService] = useState<'STATUTORY_AUDIT' | 'INTERNAL_AUDIT' | 'AGREED_UPON_PROCEDURES'>('STATUTORY_AUDIT');
+  const [leadPeriodStart, setLeadPeriodStart] = useState('2026-01-01');
+  const [leadPeriodEnd, setLeadPeriodEnd] = useState('2026-12-31');
+  const [leadEstimatedFee, setLeadEstimatedFee] = useState('');
+  const [standardsName, setStandardsName] = useState('');
+  const [standardsStart, setStandardsStart] = useState('');
+  const [standardsEnd, setStandardsEnd] = useState('');
+  const [isa220Edition, setIsa220Edition] = useState('');
+  const [isa570Edition, setIsa570Edition] = useState('');
+  const [reportingFramework, setReportingFramework] = useState('');
+  const [presentationEdition, setPresentationEdition] = useState<'IAS1' | 'IFRS18' | 'OTHER_APPROVED'>('IAS1');
+  const [engagementCode, setEngagementCode] = useState('');
+  const [contractFeeMinor, setContractFeeMinor] = useState('');
+  const [createdEngagement, setCreatedEngagement] = useState<{ id: string; version: number; state: string } | null>(null);
+  const businessCommandKeys = useRef(new Map<string, { signature: string; key: string }>());
+
+  const selectedProfile = useMemo(
+    () => profiles.find(profile => profile.id === preference?.actorId && profile.persona === preference?.persona) ?? null,
+    [profiles, preference?.actorId, preference?.persona]
+  );
+
+  useEffect(() => {
+    if (!preference?.workspaceId) {
+      setWorkspace(null);
+      setProfiles([]);
+      setContext(null);
+      setLoading(false);
+      setError('');
+      return;
+    }
+    const controller = new AbortController();
+    setLoading(true);
+    setError('');
+    Promise.all([
+      getBusinessWorkspace(preference.workspaceId, controller.signal),
+      getBusinessActorProfiles(preference.workspaceId, controller.signal)
+    ]).then(([summary, items]) => {
+      if (controller.signal.aborted) return;
+      setWorkspace(summary);
+      setProfiles(items);
+      if (preference.actorId && !items.some(profile => profile.id === preference.actorId && profile.persona === preference.persona)) {
+        saveBusinessWorkspacePreference({ version: 1, workspaceId: preference.workspaceId });
+        setError('The previously selected profile is no longer active. Choose an available profile.');
+      }
+    }).catch(reason => {
+      if (controller.signal.aborted) return;
+      setError(reason instanceof Error ? reason.message : 'Business workspace is unavailable. Retry the connection.');
+    }).finally(() => {
+      if (!controller.signal.aborted) setLoading(false);
+    });
+    return () => controller.abort();
+  }, [preference?.workspaceId, retryKey]);
+
+  useEffect(() => {
+    if (!preference?.workspaceId || !preference.actorId || !preference.persona) {
+      setContext(null);
+      return;
+    }
+    const controller = new AbortController();
+    setContext(null);
+    getBusinessContext(preference.workspaceId, preference, controller.signal).then(next => {
+      if (!controller.signal.aborted) setContext(next);
+    }).catch(reason => {
+      if (controller.signal.aborted) return;
+      if (reason && typeof reason === 'object' && 'code' in reason && ['DISABLED_IDENTITY', 'PERSONA_ACTION_DENIED'].includes(String(reason.code))) {
+        saveBusinessWorkspacePreference({ version: 1, workspaceId: preference.workspaceId });
+        setError('That profile is unavailable or does not match its persona. Select an active profile.');
+      } else {
+        setError(reason instanceof Error ? reason.message : 'The selected workspace context could not be loaded.');
+      }
+    });
+    return () => controller.abort();
+  }, [preference?.workspaceId, preference?.actorId, preference?.persona, preference?.clientId, preference?.engagementId]);
+
+  useEffect(() => {
+    if (!preference?.workspaceId || !preference.actorId || !context || context.actor.id !== preference.actorId) {
+      setClients([]);
+      setClientDetail(null);
+      setLeads([]);
+      setStandardsProfiles([]);
+      return;
+    }
+    const controller = new AbortController();
+    setRecordError('');
+    const work: Array<Promise<unknown>> = [];
+    const positions: Array<'clients' | 'leads' | 'standards'> = [];
+    if (context.allowedActions.includes('client.read')) {
+      positions.push('clients');
+      work.push(getBusinessClients(preference.workspaceId, preference, controller.signal));
+    }
+    if (context.allowedActions.includes('lead.read')) {
+      positions.push('leads');
+      work.push(getBusinessLeads(preference.workspaceId, preference, controller.signal));
+    }
+    if (context.allowedActions.includes('standards.read')) {
+      positions.push('standards');
+      work.push(getBusinessStandardsProfiles(preference.workspaceId, preference, controller.signal));
+    }
+    Promise.all(work).then(results => {
+      if (controller.signal.aborted) return;
+      results.forEach((result, index) => {
+        if (positions[index] === 'clients') setClients((result as { items: BusinessClientSummary[] }).items);
+        if (positions[index] === 'leads') setLeads((result as { items: BusinessLead[] }).items);
+        if (positions[index] === 'standards') setStandardsProfiles(result as BusinessStandardsProfile[]);
+      });
+    }).catch(reason => {
+      if (!controller.signal.aborted) setRecordError(reason instanceof Error ? reason.message : 'Business records could not be loaded. Retry.');
+    });
+    return () => controller.abort();
+  }, [preference?.workspaceId, preference?.actorId, preference?.persona, preference?.clientId, context?.actor.id, context?.allowedActions.join(','), recordsKey]);
+
+  useEffect(() => {
+    if (!preference?.workspaceId || !preference.actorId || !preference.clientId || !context?.allowedActions.includes('client.read')) {
+      setClientDetail(null);
+      return;
+    }
+    const controller = new AbortController();
+    getBusinessClient(preference.workspaceId, preference.clientId, preference, controller.signal).then(detail => {
+      if (!controller.signal.aborted) setClientDetail(detail);
+    }).catch(reason => {
+      if (!controller.signal.aborted) {
+        setClientDetail(null);
+        setRecordError(reason instanceof Error ? reason.message : 'The selected client could not be loaded.');
+      }
+    });
+    return () => controller.abort();
+  }, [preference?.workspaceId, preference?.actorId, preference?.persona, preference?.clientId, context?.actor.id, recordsKey]);
+
+  const refreshProfiles = async () => {
+    if (!preference?.workspaceId) return;
+    try {
+      setProfiles(await getBusinessActorProfiles(preference.workspaceId));
+      setCommandMessage('Directory refreshed.');
+    } catch (reason) {
+      setCommandMessage(reason instanceof Error ? reason.message : 'The directory could not be refreshed.');
+    }
+  };
+
+  const assignPendingStaff = async (pending: PendingStaffAssignment, selected: BusinessWorkspacePreference) => {
+    const result = await runBusinessCommand<{ actorProfileId: string }>(
+      selected.workspaceId,
+      selected,
+      { type: 'actor-profile.assign', payload: { persona: pending.persona, staffMemberId: pending.staffMemberId } },
+      pending.idempotencyKey
+    );
+    setPendingAssignment(null);
+    setCommandMessage(`${pending.displayName} was added to the ${pending.persona} directory.`);
+    await refreshProfiles();
+    return result;
+  };
+
+  const addStaffPersona = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!preference?.actorId || !preference.persona || !context?.allowedActions.includes('directory.manage')) return;
+    setCommandBusy(true);
+    setCommandMessage('');
+    try {
+      if (pendingAssignment) {
+        await assignPendingStaff(pendingAssignment, preference);
+      } else {
+        const createInput = pendingCreate.current ??= {
+          idempotencyKey: newBusinessIdempotencyKey(),
+          displayName: staffName,
+          naturalPersonKey: staffNaturalKey,
+          email: staffEmail,
+          grade: staffGrade
+        };
+        const created = await runBusinessCommand<{ staffMemberId: string }>(
+          preference.workspaceId,
+          preference,
+          { type: 'staff.create', payload: {
+            displayName: createInput.displayName,
+            naturalPersonKey: createInput.naturalPersonKey,
+            email: createInput.email,
+            grade: createInput.grade
+          } },
+          createInput.idempotencyKey
+        );
+        const pending: PendingStaffAssignment = {
+          staffMemberId: created.result.staffMemberId,
+          persona: staffPersona,
+          idempotencyKey: newBusinessIdempotencyKey(),
+          displayName: createInput.displayName
+        };
+        pendingCreate.current = null;
+        setPendingAssignment(pending);
+        await assignPendingStaff(pending, preference);
+        setStaffName('');
+        setStaffNaturalKey('');
+        setStaffEmail('');
+        setStaffGrade('ASSOCIATE');
+        setStaffPersona('PREPARER');
+      }
+    } catch (reason) {
+      setCommandMessage(reason instanceof Error ? reason.message : 'The directory command failed. Retry without closing this panel.');
+    } finally {
+      setCommandBusy(false);
+    }
+  };
+
+  const commandKeyFor = (slot: string, payload: unknown): string => {
+    const signature = JSON.stringify(payload);
+    const current = businessCommandKeys.current.get(slot);
+    if (current?.signature === signature) return current.key;
+    const next = { signature, key: newBusinessIdempotencyKey() };
+    businessCommandKeys.current.set(slot, next);
+    return next.key;
+  };
+
+  const currentSelection = (): BusinessWorkspacePreference | null =>
+    preference?.actorId && preference.persona ? preference : null;
+
+  const selectClientContext = (clientId: string) => {
+    if (!preference?.workspaceId || !preference.actorId || !preference.persona || preference.persona === 'CLIENT') return;
+    saveBusinessWorkspacePreference({
+      version: 1, workspaceId: preference.workspaceId, actorId: preference.actorId, persona: preference.persona,
+      ...(clientId ? { clientId } : {})
+    });
+  };
+
+  const createClient = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const selected = currentSelection();
+    if (!selected || !context?.allowedActions.includes('client.manage')) return;
+    const payload = {
+      code: clientCode, legalName: clientName, entityType: clientType,
+      ...(clientType === 'SUBSIDIARY' && preference?.clientId ? { parentClientId: preference.clientId } : {}),
+      industry: clientIndustry, address: clientAddress, countryCode: 'QA',
+      primaryContact: {
+        fullName: primaryContactName, email: primaryContactEmail, title: primaryContactRole.replaceAll('_', ' '),
+        role: primaryContactRole, effectiveFrom: new Date().toISOString().slice(0, 10)
+      }
+    };
+    setCommandBusy(true);
+    setCommandMessage('');
+    try {
+      const created = await runBusinessCommand<{ clientId: string; primaryContactId: string }>(
+        selected.workspaceId, selected, { type: 'client.create', payload }, commandKeyFor('client.create', payload)
+      );
+      businessCommandKeys.current.delete('client.create');
+      setClientCode(''); setClientName(''); setClientIndustry(''); setClientAddress('');
+      setPrimaryContactName(''); setPrimaryContactEmail('');
+      selectClientContext(created.result.clientId);
+      setCommandMessage(`${clientName} was saved with its primary contact and default role routes.`);
+      setRecordsKey(value => value + 1);
+    } catch (reason) {
+      setCommandMessage(reason instanceof Error ? reason.message : 'The client could not be saved. Retry with the same details.');
+    } finally { setCommandBusy(false); }
+  };
+
+  const createLead = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const selected = currentSelection();
+    if (!selected || !context?.allowedActions.includes('lead.manage')) return;
+    let commandContext = selected;
+    let payload: Record<string, unknown>;
+    if (leadClientMode === 'EXISTING') {
+      const clientId = preference?.clientId;
+      const primaryContact = clientDetail?.contacts.find(contact => contact.active && contact.isPrimary);
+      if (!clientId || !primaryContact) {
+        setCommandMessage('Select an existing client with an active primary contact, or choose new prospect.');
+        return;
+      }
+      payload = {
+        clientId, primaryContactId: primaryContact.id, source: leadSource, receivedAt: new Date().toISOString(),
+        requestedService: leadService, periodStart: leadPeriodStart, periodEnd: leadPeriodEnd,
+        ...(leadEstimatedFee ? { estimatedFeeMinor: leadEstimatedFee } : {})
+      };
+    } else {
+      commandContext = { ...selected, clientId: undefined, engagementId: undefined };
+      payload = {
+        newClient: {
+          code: leadClientCode, legalName: leadClientName, industry: leadClientIndustry, address: leadClientAddress,
+          countryCode: 'QA',
+          primaryContact: {
+            fullName: leadContactName,
+            ...(leadContactEmail ? { email: leadContactEmail } : {}),
+            ...(leadContactPhone ? { phone: leadContactPhone } : {}),
+            title: leadContactTitle, role: leadContactRole
+          }
+        },
+        source: leadSource, receivedAt: new Date().toISOString(), requestedService: leadService,
+        periodStart: leadPeriodStart, periodEnd: leadPeriodEnd,
+        ...(leadEstimatedFee ? { estimatedFeeMinor: leadEstimatedFee } : {})
+      };
+    }
+    setCommandBusy(true);
+    setCommandMessage('');
+    try {
+      const created = await runBusinessCommand<{ leadId: string; clientId: string; createdClient: boolean }>(
+        selected.workspaceId, commandContext, { type: 'lead.create', payload }, commandKeyFor('lead.create', payload)
+      );
+      businessCommandKeys.current.delete('lead.create');
+      setLeadEstimatedFee('');
+      if (created.result.createdClient) {
+        setLeadClientCode(''); setLeadClientName(''); setLeadClientIndustry(''); setLeadClientAddress('');
+        setLeadContactName(''); setLeadContactEmail(''); setLeadContactPhone('');
+        selectClientContext(created.result.clientId);
+        setLeadClientMode('EXISTING');
+      }
+      setCommandMessage(created.result.createdClient
+        ? 'Lead intake, client, primary contact and default role routes were saved atomically.'
+        : 'Lead intake was recorded against the selected client and primary contact.');
+      setRecordsKey(value => value + 1);
+    } catch (reason) {
+      setCommandMessage(reason instanceof Error ? reason.message : 'The lead could not be saved. Retry with the same details.');
+    } finally { setCommandBusy(false); }
+  };
+
+  const createStandardsProfile = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const selected = currentSelection();
+    if (!selected || !context?.allowedActions.includes('standards.manage')) return;
+    const payload = {
+      name: standardsName, effectivePeriodStart: standardsStart,
+      ...(standardsEnd ? { effectivePeriodEnd: standardsEnd } : {}),
+      isa220Edition, isa570Edition, reportingFramework, presentationEdition, earlyAdoption: false
+    };
+    setCommandBusy(true);
+    setCommandMessage('');
+    try {
+      await runBusinessCommand(selected.workspaceId, selected, { type: 'standards-profile.create', payload }, commandKeyFor('standards.create', payload));
+      businessCommandKeys.current.delete('standards.create');
+      setStandardsName(''); setIsa220Edition(''); setIsa570Edition(''); setReportingFramework('');
+      setCommandMessage('The standards profile was saved as an immutable, Partner-approved version.');
+      setRecordsKey(value => value + 1);
+    } catch (reason) {
+      setCommandMessage(reason instanceof Error ? reason.message : 'The standards profile could not be saved.');
+    } finally { setCommandBusy(false); }
+  };
+
+  const convertLead = async (lead: BusinessLead) => {
+    const selected = currentSelection();
+    const standardsProfile = standardsProfiles[0];
+    const fee = contractFeeMinor || lead.estimatedFeeMinor;
+    if (!selected || !standardsProfile || !context?.allowedActions.includes('lead.convert') || !engagementCode.trim() || !fee) return;
+    const payload = { leadId: lead.id, expectedVersion: lead.version, engagementCode: engagementCode.trim(), standardsProfileId: standardsProfile.id, contractFeeMinor: fee };
+    setCommandBusy(true);
+    setCommandMessage('');
+    try {
+      const result = await runBusinessCommand<{ engagementId: string; state: string; version: number }>(
+        selected.workspaceId, selected, { type: 'lead.convert', payload }, commandKeyFor(`lead.convert.${lead.id}`, payload)
+      );
+      businessCommandKeys.current.delete(`lead.convert.${lead.id}`);
+      setCreatedEngagement({ id: result.result.engagementId, version: result.result.version, state: result.result.state });
+      setEngagementCode(''); setContractFeeMinor('');
+      setCommandMessage(`Lead converted to engagement ${result.result.engagementId}.`);
+      setRecordsKey(value => value + 1);
+    } catch (reason) {
+      setCommandMessage(reason instanceof Error ? reason.message : 'The lead could not be converted. Retry with the same details.');
+    } finally { setCommandBusy(false); }
+  };
+
+  const advanceCreatedEngagement = async () => {
+    const selected = currentSelection();
+    if (!selected || !createdEngagement || !context?.allowedActions.includes('engagement.advance')) return;
+    const payload = { engagementId: createdEngagement.id, expectedVersion: createdEngagement.version, expectedState: 'LEAD_INGESTION' as const };
+    setCommandBusy(true);
+    setCommandMessage('');
+    try {
+      const result = await runBusinessCommand<{ state: string; version: number }>(
+        selected.workspaceId, selected, { type: 'engagement.advance', payload }, commandKeyFor('engagement.advance', payload)
+      );
+      businessCommandKeys.current.delete('engagement.advance');
+      setCreatedEngagement({ ...createdEngagement, version: result.result.version, state: result.result.state });
+      setCommandMessage(`Engagement advanced to ${result.result.state}.`);
+    } catch (reason) {
+      setCommandMessage(reason instanceof Error ? reason.message : 'The engagement could not be advanced.');
+    } finally { setCommandBusy(false); }
+  };
+
+  return <main className="business-console">
+    <header className="business-console-header">
+      <div className="business-console-brand">
+        <span className="business-brand-mark" aria-hidden="true">AS</span>
+        <div><strong>AuditSphere</strong><span>Business workspace</span></div>
+      </div>
+      <button type="button" className="btn sm" onClick={clearBusinessWorkspacePreference}>Switch to prototype / TEST</button>
+    </header>
+
+    <div className="business-console-content">
+      <section className="business-overview-card" aria-labelledby="business-workspace-heading">
+        <div className="business-overview-copy">
+          <p className="business-eyebrow">SERVER-PERSISTED · QAR · ASIA/QATAR</p>
+          <h1 id="business-workspace-heading">{workspace?.name ?? 'Business workspace'}</h1>
+          <p>Records in this workspace are read from the Worker database. A connection problem stays visible here; no prototype or browser-local business data will be loaded.</p>
+        </div>
+        <div className="business-workspace-status">
+          <span className={loading ? 'business-status-dot loading' : error ? 'business-status-dot error' : 'business-status-dot'} aria-hidden="true" />
+          <span role="status">{loading ? 'Connecting' : error ? 'Unavailable / needs attention' : workspace?.status ?? 'Ready'}</span>
+        </div>
+      </section>
+
+      {error && <div className="business-alert business-console-alert" role="alert">
+        <span>{error}</span>
+        <button type="button" className="btn sm" disabled={loading} onClick={() => setRetryKey(value => value + 1)}>Retry</button>
+      </div>}
+      {recordError && <div className="business-alert business-console-alert" role="alert"><span>{recordError}</span><button type="button" className="btn sm" onClick={() => setRecordsKey(value => value + 1)}>Retry records</button></div>}
+      {commandMessage && <p className="business-command-message" role="status">{commandMessage}</p>}
+
+      {!loading && workspace && <>
+        <section className="business-context-card" aria-labelledby="business-context-heading">
+          <div>
+            <p className="business-eyebrow">CURRENT REQUEST CONTEXT</p>
+            <h2 id="business-context-heading">Self-selected persona</h2>
+          </div>
+          <label className="business-field business-persona-select" htmlFor="business-active-persona">
+            <span>Active persona</span>
+            <select id="business-active-persona" value={selectedProfile?.id ?? ''} disabled={!profiles.length || loading} onChange={event => {
+              const chosen = profiles.find(profile => profile.id === event.target.value);
+              if (chosen) selectBusinessActor(chosen);
+            }}>
+              <option value="">Choose a configured profile</option>
+              {profiles.map(profile => <option key={profile.id} value={profile.id}>{profile.persona} · {profile.displayName}{profile.staffGrade ? ` · ${profile.staffGrade}` : ''}</option>)}
+            </select>
+          </label>
+          {context?.allowedActions.includes('client.read') && selectedProfile?.persona !== 'CLIENT' && <label className="business-field business-client-context" htmlFor="business-selected-client">
+            <span>Selected client context</span>
+            <select id="business-selected-client" value={preference?.clientId ?? ''} onChange={event => selectClientContext(event.target.value)}>
+              <option value="">All clients · workspace view</option>
+              {clients.map(client => <option key={client.id} value={client.id}>{client.code ?? client.id.slice(0, 8)} · {client.legalName}</option>)}
+            </select>
+          </label>}
+          {selectedProfile ? <div className="business-actor-summary">
+            <strong>{selectedProfile.displayName}</strong>
+            <span>{selectedProfile.persona}{selectedProfile.staffGrade ? ` · ${selectedProfile.staffGrade}` : ''}</span>
+            {selectedProfile.persona === 'CLIENT' && <span>Client projection only</span>}
+          </div> : <p className="business-muted">No active profile is selected. Choose a configured profile or add one from the directory setup below.</p>}
+          <p className="business-self-select-note">Persona selection changes the request context in this browser only. It is not authentication or identity verification.</p>
+          {context?.readOnlyReasons.map(reason => <p className="business-muted" key={reason}>{reason.replaceAll('_', ' ').toLowerCase()}</p>)}
+        </section>
+
+        {context?.allowedActions.includes('directory.manage') && <section className="business-directory-card" aria-labelledby="business-directory-heading">
+          <div className="business-section-heading">
+            <div><p className="business-eyebrow">WORKSPACE DIRECTORY</p><h2 id="business-directory-heading">Configure staff personas</h2></div>
+            <button type="button" className="btn sm" onClick={() => void refreshProfiles()}>Refresh profiles</button>
+          </div>
+          {profiles.length ? <ul className="business-profile-list" aria-label="Configured actor profiles">
+            {profiles.map(profile => <li key={profile.id}><span className="business-profile-persona">{profile.persona}</span><span>{profile.displayName}</span><small>{profile.staffGrade ?? `Client ${profile.clientId ?? ''}`}</small></li>)}
+          </ul> : <p className="business-muted">There are no configured actor profiles yet.</p>}
+          <form className="business-form business-staff-form" onSubmit={addStaffPersona}>
+            <div className="business-form-grid">
+              <label className="business-field" htmlFor="business-staff-name"><span>Staff display name</span><input id="business-staff-name" required maxLength={200} value={staffName} onChange={event => { pendingCreate.current = null; setStaffName(event.target.value); }} /></label>
+              <label className="business-field" htmlFor="business-staff-person-key"><span>Natural-person key</span><input id="business-staff-person-key" required maxLength={200} value={staffNaturalKey} onChange={event => { pendingCreate.current = null; setStaffNaturalKey(event.target.value); }} /></label>
+              <label className="business-field" htmlFor="business-staff-email"><span>Email</span><input id="business-staff-email" type="email" maxLength={254} value={staffEmail} onChange={event => { pendingCreate.current = null; setStaffEmail(event.target.value); }} /></label>
+              <label className="business-field" htmlFor="business-staff-grade"><span>Staff grade</span><select id="business-staff-grade" value={staffGrade} onChange={event => {
+                const grade = event.target.value as StaffGrade;
+                setStaffGrade(grade);
+                setStaffPersona(current => gradeAllowsPersona(grade, current) ? current : 'PREPARER');
+                pendingCreate.current = null;
+              }}><option value="PARTNER">PARTNER</option><option value="MANAGER">MANAGER</option><option value="SENIOR">SENIOR</option><option value="ASSOCIATE">ASSOCIATE</option></select></label>
+              <label className="business-field" htmlFor="business-staff-persona"><span>Persona profile</span><select id="business-staff-persona" value={staffPersona} onChange={event => setStaffPersona(event.target.value as Exclude<BusinessPersona, 'CLIENT'>)}>
+                <option value="PREPARER">PREPARER</option>
+                <option value="REVIEWER" disabled={!gradeAllowsPersona(staffGrade, 'REVIEWER')}>REVIEWER · manager or senior</option>
+                <option value="APPROVER" disabled={!gradeAllowsPersona(staffGrade, 'APPROVER')}>APPROVER · partner</option>
+              </select></label>
+            </div>
+            <p className="business-note">Staff and profile changes use separate idempotent commands. The profile is assigned only when its grade rules pass.</p>
+            {pendingAssignment && <div className="business-pending-assignment" role="status">Staff record saved for {pendingAssignment.displayName}; profile assignment is pending.</div>}
+            {commandMessage && <p className="business-command-message" role="status">{commandMessage}</p>}
+            <div className="business-dialog-actions"><button className="btn primary" type="submit" disabled={commandBusy || !selectedProfile || !gradeAllowsPersona(staffGrade, staffPersona)}>{commandBusy ? 'Saving…' : pendingAssignment ? `Retry ${pendingAssignment.persona} assignment` : `Add ${staffPersona.toLowerCase()} profile`}</button></div>
+          </form>
+          {!profiles.some(profile => profile.persona === 'CLIENT') && <p className="business-muted">CLIENT profiles become available after a client and contact are created in the commercial workflow.</p>}
+        </section>}
+
+        {context?.allowedActions.includes('client.read') && <section className="business-directory-card" aria-labelledby="business-clients-heading">
+          <div className="business-section-heading"><div><p className="business-eyebrow">COMMERCIAL · US-ENG-001</p><h2 id="business-clients-heading">Client registry</h2></div><span className="business-count">{clients.length} loaded</span></div>
+          {clients.length ? <ul className="business-client-list" aria-label="Workspace clients">{clients.map(client => <li key={client.id}>
+            <button type="button" className={preference?.clientId === client.id ? 'business-client-choice selected' : 'business-client-choice'} onClick={() => selectClientContext(client.id)}>
+              <strong>{client.legalName}</strong><span>{client.code ?? client.id.slice(0, 8)} · {client.entityType ?? 'CLIENT'}</span>
+            </button>
+          </li>)}</ul> : <p className="business-muted">No clients are registered. Add the first real client and primary contact below.</p>}
+
+          {context.allowedActions.includes('client.manage') && <form className="business-form business-commercial-form" onSubmit={createClient}>
+            <h3>Create client and primary contact</h3>
+            <div className="business-form-grid">
+              <label className="business-field" htmlFor="business-client-code"><span>Client code</span><input id="business-client-code" required maxLength={200} value={clientCode} onChange={event => setClientCode(event.target.value)} /></label>
+              <label className="business-field" htmlFor="business-client-name"><span>Legal name</span><input id="business-client-name" required maxLength={250} value={clientName} onChange={event => setClientName(event.target.value)} /></label>
+              <label className="business-field" htmlFor="business-client-type"><span>Organization type</span><select id="business-client-type" value={clientType} onChange={event => setClientType(event.target.value as typeof clientType)}><option value="STANDALONE">Standalone</option><option value="HOLDING">Holding</option><option value="SUBSIDIARY">Subsidiary of selected client</option></select></label>
+              <label className="business-field" htmlFor="business-client-industry"><span>Industry</span><input id="business-client-industry" required maxLength={200} value={clientIndustry} onChange={event => setClientIndustry(event.target.value)} /></label>
+              <label className="business-field" htmlFor="business-client-address"><span>Registered address</span><input id="business-client-address" required maxLength={1000} value={clientAddress} onChange={event => setClientAddress(event.target.value)} /></label>
+              <label className="business-field" htmlFor="business-client-country"><span>Country</span><input id="business-client-country" value="QA · Qatar" readOnly /></label>
+              <label className="business-field" htmlFor="business-primary-contact-name"><span>Primary contact</span><input id="business-primary-contact-name" required maxLength={200} value={primaryContactName} onChange={event => setPrimaryContactName(event.target.value)} /></label>
+              <label className="business-field" htmlFor="business-primary-contact-email"><span>Contact email</span><input id="business-primary-contact-email" type="email" required maxLength={254} value={primaryContactEmail} onChange={event => setPrimaryContactEmail(event.target.value)} /></label>
+              <label className="business-field" htmlFor="business-primary-contact-role"><span>Contact role</span><select id="business-primary-contact-role" value={primaryContactRole} onChange={event => setPrimaryContactRole(event.target.value as typeof primaryContactRole)}><option value="MD_GM">MD / General Manager</option><option value="CFO_FINANCE_DIRECTOR">CFO / Finance Director</option><option value="CHIEF_ACCOUNTANT_LIAISON">Chief Accountant / Audit Liaison</option><option value="OTHER">Other</option></select></label>
+            </div>
+            {clientType === 'SUBSIDIARY' && !preference?.clientId && <p className="business-alert" role="alert">Choose a parent client context before creating a subsidiary.</p>}
+            <p className="business-note">Country and currency follow this QAR / Qatar workspace. Contact routes are created from the selected role and can be changed with an explicit route command.</p>
+            <div className="business-dialog-actions"><button className="btn primary" type="submit" disabled={commandBusy || (clientType === 'SUBSIDIARY' && !preference?.clientId)}>{commandBusy ? 'Saving…' : 'Create client'}</button></div>
+          </form>}
+
+          {preference?.clientId && clientDetail && <div className="business-client-detail">
+            <div className="business-section-heading"><div><p className="business-eyebrow">SELECTED CLIENT</p><h3>{clientDetail.client.legalName}</h3></div><span>v{clientDetail.client.version}</span></div>
+            <p>{clientDetail.client.entityType ?? 'Client'} · {clientDetail.client.industry} · {clientDetail.client.countryCode}</p>
+            <h4>Active contacts</h4>
+            {clientDetail.contacts.length ? <ul className="business-record-list">{clientDetail.contacts.map(contact => <li key={contact.id}><strong>{contact.full_name}</strong><span>{contact.role.replaceAll('_', ' ')}{contact.isPrimary ? ' · Primary' : ''}</span><small>{contact.email ?? contact.phone}</small></li>)}</ul> : <p className="business-muted">No active contact is available in this projection.</p>}
+            <h4>Communication routes</h4>
+            {clientDetail.routes.length ? <ul className="business-route-list">{clientDetail.routes.map((route, index) => <li key={`${route.id}-${index}`}><span>{route.purpose.replaceAll('_', ' ')}</span><strong>{route.full_name}</strong><small>{route.email ?? route.phone}</small></li>)}</ul> : <p className="business-muted">No configured routes.</p>}
+          </div>}
+        </section>}
+
+        {context?.allowedActions.includes('lead.read') && <section className="business-directory-card" aria-labelledby="business-leads-heading">
+          <div className="business-section-heading"><div><p className="business-eyebrow">COMMERCIAL · US-ENG-002</p><h2 id="business-leads-heading">Lead pipeline</h2></div><span className="business-count">{leads.length} loaded</span></div>
+          {context.allowedActions.includes('lead.manage') && <form className="business-form business-commercial-form" onSubmit={createLead}>
+            <h3>Record an inquiry</h3>
+            <div className="business-form-grid">
+              <label className="business-field" htmlFor="business-lead-client-mode"><span>Prospect link</span><select id="business-lead-client-mode" value={leadClientMode} onChange={event => setLeadClientMode(event.target.value as typeof leadClientMode)}><option value="NEW">Create prospect, contact and lead</option><option value="EXISTING">Link an existing client</option></select></label>
+              {leadClientMode === 'EXISTING' ? <label className="business-field" htmlFor="business-lead-client"><span>Existing client</span><select id="business-lead-client" value={preference?.clientId ?? ''} onChange={event => selectClientContext(event.target.value)} required><option value="">Select a client</option>{clients.map(client => <option key={client.id} value={client.id}>{client.legalName} · {client.code ?? client.id.slice(0, 8)}</option>)}</select></label> : <>
+                <label className="business-field" htmlFor="business-lead-client-code"><span>Client code</span><input id="business-lead-client-code" required maxLength={200} value={leadClientCode} onChange={event => setLeadClientCode(event.target.value)} /></label>
+                <label className="business-field" htmlFor="business-lead-client-name"><span>Prospect legal name</span><input id="business-lead-client-name" required maxLength={250} value={leadClientName} onChange={event => setLeadClientName(event.target.value)} /></label>
+                <label className="business-field" htmlFor="business-lead-industry"><span>Industry</span><input id="business-lead-industry" required maxLength={200} value={leadClientIndustry} onChange={event => setLeadClientIndustry(event.target.value)} /></label>
+                <label className="business-field" htmlFor="business-lead-address"><span>Registered address</span><input id="business-lead-address" required maxLength={1000} value={leadClientAddress} onChange={event => setLeadClientAddress(event.target.value)} /></label>
+                <label className="business-field" htmlFor="business-lead-contact-name"><span>Primary contact</span><input id="business-lead-contact-name" required maxLength={200} value={leadContactName} onChange={event => setLeadContactName(event.target.value)} /></label>
+                <label className="business-field" htmlFor="business-lead-contact-email"><span>Contact email</span><input id="business-lead-contact-email" type="email" maxLength={254} value={leadContactEmail} onChange={event => setLeadContactEmail(event.target.value)} required={!leadContactPhone} /></label>
+                <label className="business-field" htmlFor="business-lead-contact-phone"><span>Contact phone</span><input id="business-lead-contact-phone" type="tel" maxLength={40} value={leadContactPhone} onChange={event => setLeadContactPhone(event.target.value)} required={!leadContactEmail} /></label>
+                <label className="business-field" htmlFor="business-lead-contact-title"><span>Contact title</span><input id="business-lead-contact-title" required maxLength={200} value={leadContactTitle} onChange={event => setLeadContactTitle(event.target.value)} /></label>
+                <label className="business-field" htmlFor="business-lead-contact-role"><span>Contact role</span><select id="business-lead-contact-role" value={leadContactRole} onChange={event => setLeadContactRole(event.target.value as typeof leadContactRole)}><option value="MD_GM">MD / General Manager</option><option value="CFO_FINANCE_DIRECTOR">CFO / Finance Director</option><option value="CHIEF_ACCOUNTANT_LIAISON">Chief Accountant / Audit Liaison</option><option value="OTHER">Other</option></select></label>
+              </>}
+              <label className="business-field" htmlFor="business-lead-source"><span>Inquiry source</span><select id="business-lead-source" value={leadSource} onChange={event => setLeadSource(event.target.value as typeof leadSource)}><option value="PHONE">Phone</option><option value="WHATSAPP">WhatsApp inquiry</option><option value="EMAIL">Email</option><option value="WEB_FORM">Web form</option><option value="REFERRAL">Referral</option></select></label>
+              <label className="business-field" htmlFor="business-lead-service"><span>Requested service</span><select id="business-lead-service" value={leadService} onChange={event => setLeadService(event.target.value as typeof leadService)}><option value="STATUTORY_AUDIT">Statutory audit</option><option value="INTERNAL_AUDIT">Internal audit</option><option value="AGREED_UPON_PROCEDURES">Agreed-upon procedures</option></select></label>
+              <label className="business-field" htmlFor="business-lead-period-start"><span>Period start</span><input id="business-lead-period-start" type="date" required value={leadPeriodStart} onChange={event => setLeadPeriodStart(event.target.value)} /></label>
+              <label className="business-field" htmlFor="business-lead-period-end"><span>Period end</span><input id="business-lead-period-end" type="date" required value={leadPeriodEnd} onChange={event => setLeadPeriodEnd(event.target.value)} /></label>
+              <label className="business-field" htmlFor="business-lead-fee"><span>Estimated fee · QAR minor units</span><input id="business-lead-fee" inputMode="numeric" pattern="[0-9]*" value={leadEstimatedFee} onChange={event => setLeadEstimatedFee(event.target.value)} /><small>Optional intake estimate; no currency conversion or payment is implied.</small></label>
+            </div>
+            {leadClientMode === 'NEW' && <p className="business-note">Client, primary contact, default role routes and lead are created in one transaction. Exact legal-name and code matches require you to link the existing client; no fuzzy auto-merge is performed.</p>}
+            {leadClientMode === 'EXISTING' && preference?.clientId && !clientDetail?.contacts.some(contact => contact.active && contact.isPrimary) && <p className="business-alert" role="alert">This client needs an active primary contact before lead intake.</p>}
+            <div className="business-dialog-actions"><button className="btn primary" type="submit" disabled={commandBusy || (leadClientMode === 'EXISTING' && (!preference?.clientId || !clientDetail?.contacts.some(contact => contact.active && contact.isPrimary)))}>{commandBusy ? 'Saving…' : 'Record lead'}</button></div>
+          </form>}
+          {leads.length ? <ul className="business-record-list business-lead-list">{leads.map(lead => <li key={lead.id}>
+            <strong>{lead.clientName ?? 'Client'} · {lead.requestedService.replaceAll('_', ' ')}</strong>
+            <span>{lead.source.replaceAll('_', ' ')} · {lead.periodStart} to {lead.periodEnd} · {lead.status}</span>
+            <small>{lead.contactName ?? 'No active contact'} · {lead.estimatedFeeMinor ? `QAR minor ${lead.estimatedFeeMinor}` : 'Fee not set'}</small>
+            {context.allowedActions.includes('lead.convert') && ['OPEN', 'QUALIFIED'].includes(lead.status) && <div className="business-convert-controls">
+              <label className="business-field" htmlFor={`business-engagement-code-${lead.id}`}><span>Engagement code</span><input id={`business-engagement-code-${lead.id}`} required maxLength={200} value={engagementCode} onChange={event => setEngagementCode(event.target.value)} /></label>
+              {!lead.estimatedFeeMinor && <label className="business-field" htmlFor="business-contract-fee"><span>Contract fee · QAR minor units</span><input id="business-contract-fee" inputMode="numeric" pattern="[0-9]*" value={contractFeeMinor} onChange={event => setContractFeeMinor(event.target.value)} /></label>}
+              <button type="button" className="btn sm" disabled={commandBusy || !standardsProfiles.length || !engagementCode.trim() || !(contractFeeMinor || lead.estimatedFeeMinor)} onClick={() => void convertLead(lead)}>{commandBusy ? 'Converting…' : 'Convert to engagement'}</button>
+            </div>}
+          </li>)}</ul> : <p className="business-muted">No lead records match this context.</p>}
+          {!standardsProfiles.length && context.allowedActions.includes('lead.convert') && <p className="business-note">Lead conversion is blocked until a Partner records the firm-approved standards profile covering the engagement period.</p>}
+          {createdEngagement && <div className="business-created-engagement" role="status"><strong>Engagement {createdEngagement.id}</strong><span>Current state: {createdEngagement.state}</span>{createdEngagement.state === 'LEAD_INGESTION' && context.allowedActions.includes('engagement.advance') && <button type="button" className="btn sm" disabled={commandBusy} onClick={() => void advanceCreatedEngagement()}>Validate profile and enter proposal generation</button>}</div>}
+        </section>}
+
+        {context?.allowedActions.includes('standards.read') && <section className="business-directory-card" aria-labelledby="business-standards-heading">
+          <div className="business-section-heading"><div><p className="business-eyebrow">FIRM APPROVED REFERENCE</p><h2 id="business-standards-heading">Standards profiles</h2></div><span className="business-count">{standardsProfiles.length} versions</span></div>
+          {standardsProfiles.length ? <ul className="business-record-list">{standardsProfiles.map(profile => <li key={profile.id}><strong>{profile.name}</strong><span>{profile.effectivePeriodStart}–{profile.effectivePeriodEnd ?? 'open'} · {profile.reportingFramework} · {profile.presentationEdition}</span><small>{profile.isa220Edition} · {profile.isa570Edition} · SHA-256 {profile.contentSha256.slice(0, 12)}…</small></li>)}</ul> : <p className="business-muted">No standards profile has been approved. The firm must supply its applicable editions and reporting framework before conversion.</p>}
+          {context.allowedActions.includes('standards.manage') && <form className="business-form business-commercial-form" onSubmit={createStandardsProfile}>
+            <h3>Approve a standards profile version</h3>
+            <div className="business-form-grid">
+              <label className="business-field" htmlFor="business-standards-name"><span>Profile name</span><input id="business-standards-name" required maxLength={200} value={standardsName} onChange={event => setStandardsName(event.target.value)} /></label>
+              <label className="business-field" htmlFor="business-standards-start"><span>Period start</span><input id="business-standards-start" type="date" required value={standardsStart} onChange={event => setStandardsStart(event.target.value)} /></label>
+              <label className="business-field" htmlFor="business-standards-end"><span>Period end · optional</span><input id="business-standards-end" type="date" value={standardsEnd} onChange={event => setStandardsEnd(event.target.value)} /></label>
+              <label className="business-field" htmlFor="business-isa220"><span>ISA 220 edition</span><input id="business-isa220" required maxLength={200} value={isa220Edition} onChange={event => setIsa220Edition(event.target.value)} /></label>
+              <label className="business-field" htmlFor="business-isa570"><span>ISA 570 edition</span><input id="business-isa570" required maxLength={200} value={isa570Edition} onChange={event => setIsa570Edition(event.target.value)} /></label>
+              <label className="business-field" htmlFor="business-reporting-framework"><span>Reporting framework</span><input id="business-reporting-framework" required maxLength={200} value={reportingFramework} onChange={event => setReportingFramework(event.target.value)} /></label>
+              <label className="business-field" htmlFor="business-presentation-edition"><span>Presentation edition</span><select id="business-presentation-edition" value={presentationEdition} onChange={event => setPresentationEdition(event.target.value as typeof presentationEdition)}><option value="IAS1">IAS 1</option><option value="IFRS18">IFRS 18</option><option value="OTHER_APPROVED">Other approved</option></select></label>
+            </div>
+            <p className="business-note">Only a Partner profile can approve this immutable basis. Enter firm-approved content; this form does not choose professional standards for the firm.</p>
+            <div className="business-dialog-actions"><button className="btn primary" type="submit" disabled={commandBusy}>{commandBusy ? 'Saving…' : 'Approve standards profile'}</button></div>
+          </form>}
+        </section>}
+      </>}
+    </div>
+  </main>;
+}

@@ -40,18 +40,31 @@ describe('BUSINESS workspace and directory contracts', () => {
     assert.throws(() => parseBusinessBootstrapInput({ ...valid, initialPartner: { ...valid.initialPartner, extra: true } }), /invalid/i);
   });
 
-  it('accepts only the implemented strict directory command families', () => {
+  it('accepts implemented strict directory and commercial command families only', () => {
     assert.deepEqual(parseBusinessCommandEnvelope({
-      idempotencyKey: 'test-key-0001',
+      actor: { persona: 'APPROVER', actorId: '00000000-0000-4000-8000-000000000010' },
+      context: {}, expectedVersions: [],
       command: { type: 'actor-profile.assign', payload: { persona: 'APPROVER', staffMemberId: '00000000-0000-4000-8000-000000000001' } }
-    }).command.type, 'actor-profile.assign');
+    }, 'test-key-0001').command.type, 'actor-profile.assign');
+    assert.equal(parseBusinessCommandEnvelope({
+      actor: { persona: 'PREPARER', actorId: '00000000-0000-4000-8000-000000000010' },
+      context: {}, expectedVersions: [],
+      command: { type: 'lead.create', payload: {
+        clientId: '00000000-0000-4000-8000-000000000001',
+        primaryContactId: '00000000-0000-4000-8000-000000000002',
+        source: 'REFERRAL', receivedAt: '2026-10-05T09:00:00Z', requestedService: 'STATUTORY_AUDIT',
+        periodStart: '2026-01-01', periodEnd: '2026-12-31', estimatedFeeMinor: '100000'
+      } }
+    }, 'test-key-0004').command.type, 'lead.create');
     assert.throws(() => parseBusinessCommandEnvelope({
-      idempotencyKey: 'test-key-0002',
+      actor: { persona: 'APPROVER', actorId: '00000000-0000-4000-8000-000000000010' },
+      context: {}, expectedVersions: [],
       command: { type: 'staff.create', payload: { displayName: 'Aisha', naturalPersonKey: 'P1', grade: 'PARTNER', isSuperuser: true } }
-    }), /invalid/i);
+    }, 'test-key-0002'), /invalid/i);
     assert.throws(() => parseBusinessCommandEnvelope({
-      idempotencyKey: 'test-key-0003',
+      actor: { persona: 'APPROVER', actorId: '00000000-0000-4000-8000-000000000010' },
+      context: {}, expectedVersions: [],
       command: { type: 'workspace.status.set', payload: { state: 'PARTNER_APPROVAL' } }
-    }), /invalid/i);
+    }, 'test-key-0003'), /invalid/i);
   });
 });

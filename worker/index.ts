@@ -66,6 +66,10 @@ import { diffEntityCollections, snapshotEntityCollections, scopeOf } from './sta
 import {
   bootstrapBusinessWorkspace,
   listBusinessActorProfiles,
+  listBusinessClients,
+  getBusinessClient,
+  listBusinessLeads,
+  listBusinessStandardsProfiles,
   parseBusinessBootstrapInput,
   parseBusinessCommandEnvelope,
   resolveBusinessContext,
@@ -186,6 +190,26 @@ const handleBusinessContext = async (ctx: RouteContext): Promise<Response> => {
   return jsonResponse(context, 200, ctx.requestId);
 };
 
+const handleBusinessClients = async (ctx: RouteContext): Promise<Response> => {
+  const result = await listBusinessClients(ctx.env, ctx.params.workspaceId, ctx.request, ctx.url);
+  return jsonResponse(result, 200, ctx.requestId);
+};
+
+const handleBusinessClient = async (ctx: RouteContext): Promise<Response> => {
+  const result = await getBusinessClient(ctx.env, ctx.params.workspaceId, ctx.request, ctx.params.clientId);
+  return jsonResponse(result, 200, ctx.requestId);
+};
+
+const handleBusinessLeads = async (ctx: RouteContext): Promise<Response> => {
+  const result = await listBusinessLeads(ctx.env, ctx.params.workspaceId, ctx.request, ctx.url);
+  return jsonResponse(result, 200, ctx.requestId);
+};
+
+const handleBusinessStandardsProfiles = async (ctx: RouteContext): Promise<Response> => {
+  const result = await listBusinessStandardsProfiles(ctx.env, ctx.params.workspaceId, ctx.request);
+  return jsonResponse(result, 200, ctx.requestId);
+};
+
 const handleResumeWorkspace = async (ctx: RouteContext): Promise<Response> => {
   await assertSameOrigin(ctx.request, ctx.url);
   await enforceRateLimit(ctx, 'workspace.resume', clientKey(ctx));
@@ -212,6 +236,21 @@ const handleResumeWorkspace = async (ctx: RouteContext): Promise<Response> => {
 };
 
 const handleGetWorkspace = async (ctx: RouteContext): Promise<Response> => {
+  const candidate = await getWorkspace(ctx.env, ctx.params.workspaceId);
+  if (candidate?.data_mode === 'BUSINESS') {
+    const row = await requireWorkspace(ctx.env, ctx.params.workspaceId);
+    const directory = await ctx.env.DB.prepare(`SELECT version,business_status,currency,timezone
+      FROM workspaces WHERE id=?`).bind(row.id)
+      .first<{ version: number; business_status: 'ACTIVE' | 'READ_ONLY'; currency: 'QAR'; timezone: 'Asia/Qatar' }>();
+    if (!directory) throw new ApiError('NOT_FOUND', 'Workspace not found.');
+    return jsonResponse({ workspace: {
+      ...workspaceSummary(row),
+      version: directory.version,
+      status: directory.business_status,
+      currency: directory.currency,
+      timezone: directory.timezone
+    } }, 200, ctx.requestId);
+  }
   const { session } = await resolveSession(ctx.env, ctx.request);
   if (session.workspace_id !== ctx.params.workspaceId) throw new ApiError('FORBIDDEN_SCOPE', 'Session does not match this workspace.');
   const row = await requireWorkspace(ctx.env, ctx.params.workspaceId);
@@ -336,7 +375,7 @@ const handleCommand = async (ctx: RouteContext): Promise<Response> => {
   const workspace = await getWorkspace(ctx.env, workspaceId);
   if (workspace?.data_mode === 'BUSINESS') {
     const body = await readJson<unknown>(ctx.request, COMMAND_BODY_LIMIT);
-    const envelope = parseBusinessCommandEnvelope(body);
+    const envelope = parseBusinessCommandEnvelope(body, ctx.request.headers.get('Idempotency-Key'));
     const response = await runBusinessDirectoryCommand(ctx.env, workspaceId, ctx.request, envelope);
     return jsonResponse(response, 200, ctx.requestId);
   }
@@ -544,6 +583,10 @@ const router = createRouter()
   .post('/api/workspaces/resume', handleResumeWorkspace)
   .get('/api/workspaces/:workspaceId/actor-profiles', handleBusinessActorProfiles)
   .get('/api/workspaces/:workspaceId/context', handleBusinessContext)
+  .get('/api/workspaces/:workspaceId/clients', handleBusinessClients)
+  .get('/api/workspaces/:workspaceId/clients/:clientId', handleBusinessClient)
+  .get('/api/workspaces/:workspaceId/leads', handleBusinessLeads)
+  .get('/api/workspaces/:workspaceId/standards-profiles', handleBusinessStandardsProfiles)
   .get('/api/workspaces/:workspaceId/state', handleState)
   .get('/api/workspaces/:workspaceId/changes', handleChanges)
   .get('/api/workspaces/:workspaceId/events', handleEvents)
