@@ -6,8 +6,8 @@ import { aggregateWorkflowSteps, computeModuleWorkflowProgress, isEngagementRele
 import type { WorkflowStep } from '../../src/services/workflowProgress.js';
 import { evaluateReleaseReadiness } from '../../src/services/releaseReadiness.js';
 import { archiveForRelease, releaseForPackage } from '../../src/services/packageLineage.js';
-import { ROUTE_CATALOG } from '../../src/services/legacyRouteCatalog.js';
-import { resolveRouteHash } from '../../src/services/legacyRoutes.js';
+import { ROUTE_CATALOG } from '../../src/services/routeCatalog.js';
+import { resolveRouteHash } from '../../src/services/routes.js';
 import type { FinancialPackageRevision, GeneratedArtifactRecord, PrototypeState, RouteKey } from '../../src/types/index.js';
 
 describe('workflow progress contracts', () => {
@@ -51,7 +51,7 @@ describe('workflow progress contracts', () => {
 
   it('T13: maps every route to a deliberate workflow, summary, or reference surface', () => {
     const routes = Object.keys(ROUTE_CATALOG) as RouteKey[];
-    assert.ok(routes.length >= 40, 'the test covers the exhaustive route catalogue');
+    assert.ok(routes.length >= 30, 'the test covers the exhaustive current route catalogue');
     for (const route of routes) {
       const definition = ROUTE_CATALOG[route];
       const progress = computeModuleWorkflowProgress(route, state, {
@@ -77,15 +77,15 @@ describe('workflow progress contracts', () => {
       assert.ok(progress.nextAction.trim() && progress.whoActsNext.trim(), `${route} states an action and eligible role`);
     }
 
-    // Retired routes carry redirect-only metadata (LEGACY), current routes keep their
-    // five-module identity — historical modules must not present as current scope.
-    assert.deepEqual(
-      ['accounting-setup', 'trial-balance', 'gl-transactions', 'account-mappings', 'adjustments', 'reconciliations', 'financial-statements', 'financial-packages', 'consolidation'].map(route => ROUTE_CATALOG[route as RouteKey].moduleId),
-      ['LEGACY', 'M2-TB', 'LEGACY', 'LEGACY', 'LEGACY', 'LEGACY', 'M3-FS', 'LEGACY', 'LEGACY']
-    );
-    assert.deepEqual(resolveRouteHash('#packages'), { route: 'delivery', redirected: true });
-    assert.deepEqual(resolveRouteHash('#time-tracking'), { route: 'my-time', redirected: true });
+    // The catalogue is current-only: retired identifiers are not routes at all, and a
+    // retired hash resolves to nothing instead of redirecting into another module.
+    for (const retired of ['accounting-setup', 'gl-transactions', 'account-mappings', 'adjustments', 'reconciliations', 'financial-packages', 'consolidation']) {
+      assert.equal((ROUTE_CATALOG as Record<string, unknown>)[retired], undefined, `${retired} is not a current route`);
+    }
+    assert.equal(resolveRouteHash('#packages'), null, 'a retired hash resolves to nothing');
+    assert.equal(resolveRouteHash('#time-tracking'), null, 'a retired hash resolves to nothing');
     assert.equal(resolveRouteHash('#made-up-route'), null);
+    assert.equal(resolveRouteHash('#trial-balance'), 'trial-balance', 'a current hash resolves directly');
   });
 
   it('T02: missing or out-of-scope engagement and population context fails closed', () => {
@@ -215,25 +215,13 @@ describe('workflow progress contracts', () => {
     assert.equal(revoked.percentComplete, null);
   });
 
-  it('T04 and T17: cancellation stays skipped and selected-job metrics use the selected job', () => {
-    const engagement = state.engagements.find(item => item.id === 'ENG-26001')!;
-    const cancelled = { ...structuredClone(state.jobs[0]), id: 'JOB-CANCELLED-LIFECYCLE', status: 'Cancelled' as const, cancellationReason: 'Client withdrew the assignment.' };
-    state.jobs.push(cancelled);
-    const selected = computeModuleWorkflowProgress('jobs', state, { engagementId: engagement.id, clientId: engagement.client, recordId: cancelled.id });
-    assert.equal(selected.selectedRecordId, cancelled.id);
-    assert.ok(selected.steps.some(step => step.state === 'skipped'));
-    assert.ok((selected.percentComplete ?? 100) < 100, 'cancelled work cannot create successful completion');
-    assert.match(selected.recordSummary || '', /cancelled/i);
-
-    const other = computeModuleWorkflowProgress('jobs', state, { engagementId: engagement.id, clientId: engagement.client, recordId: 'JOB-2602' });
-    assert.equal(other.selectedRecordId, 'JOB-2602');
-    assert.match(other.recordSummary || '', /PBC Information Gathering.*JOB-2602.*Completed/);
-    assert.notEqual(selected.steps[0].detail, other.steps[0].detail, 'record details change with the selected job');
-  });
+  // The retired `jobs` route and its Jobs & Tasks progress selector no longer exist in the
+  // current five-module surface, so the two job-scoped selector tests were removed with it.
+  // Job and task records remain first-class domain data used by the current work queues.
 
   it('T19: progress selectors are deterministic and do not mutate business state', () => {
     const before = structuredClone(state);
-    for (const route of ['trial-balance', 'financial-packages', 'audit', 'delivery', 'records'] as const) {
+    for (const route of ['trial-balance', 'delivery', 'records'] as const) {
       const first = computeModuleWorkflowProgress(route, state, { engagementId: 'ENG-26001' });
       const second = computeModuleWorkflowProgress(route, state, { engagementId: 'ENG-26001' });
       assert.deepEqual(second, first, `${route} selection is deterministic`);
@@ -241,19 +229,9 @@ describe('workflow progress contracts', () => {
     assert.deepEqual(state, before, 'computing progress leaves persistent business state unchanged');
   });
 
-  it('T16: names a recorded task owner or a supported eligible role for the next action', () => {
-    const job = state.jobs.find(item => item.id === 'JOB-2601')!;
-    const activeTask = state.jobTasks.find(item => item.jobId === job.id && (item.status === 'Not started' || item.status === 'In progress'))!;
-    const jobProgress = computeModuleWorkflowProgress('jobs', state, {
-      engagementId: job.engagementId,
-      clientId: job.clientId,
-      recordId: job.id
-    });
-    assert.equal(jobProgress.whoActsNext, activeTask.assignee, 'a selected job uses its recorded next task assignee');
-    assert.ok(state.users.some(user => user.name === jobProgress.whoActsNext && user.status === 'Active'), 'the named owner exists as an active persona');
-
-    const releaseProgress = computeModuleWorkflowProgress('approvals', state, { engagementId: 'ENG-26001' });
-    assert.match(releaseProgress.whoActsNext, /Engagement Manager/);
+  it('T16: names a supported eligible role for the next action', () => {
+    const releaseProgress = computeModuleWorkflowProgress('reviews', state, { engagementId: 'ENG-26001' });
+    assert.match(releaseProgress.whoActsNext, /Preparer|Manager/, 'the current review selector names a role-level actor');
     assert.ok(state.users.some(user => user.role === 'manager' && user.status === 'Active'), 'a role-level hint names a supported active role');
     assert.doesNotMatch(`${releaseProgress.nextAction} ${releaseProgress.whoActsNext}`, /waiting on others/i, 'the hint does not claim that another actor is blocking an action available to this user');
   });

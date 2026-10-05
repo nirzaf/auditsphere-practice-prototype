@@ -1,15 +1,17 @@
-// Route catalogue: navigation section + human module name for every route, used by the shell
-// breadcrumb and cross-module handoff links.
-// STE Audit Management Tool v2.1: CURRENT_ROUTE_CATALOG is the authoritative business surface —
-// the five visible modules, the client PBC portal and reference routes. Retired historical routes
-// live in legacyRouteCatalog.ts as redirect metadata only; they are not current
-// product surfaces, carry no module claims, and never appear in current navigation.
-import type { CurrentRouteKey, RouteKey } from '../types';
+// Route catalogue: the single authoritative navigation surface. It carries the
+// section, human label, module id and progress mode for every route in the current
+// STE Audit Management Tool prototype: the five visible modules, the client PBC
+// portal and the reference routes.
+//
+// There is no legacy complement. `RouteKey` and `ROUTE_CATALOG` describe the same
+// set, and retired identifiers no longer exist in the type model, so a retired route
+// cannot reach navigation, search, workflow progress or route authorization.
+import type { RouteKey } from '../types';
 
 export type RouteProgressMode = 'workflow' | 'summary' | 'reference';
 export interface RouteInfo { section: string; label: string; moduleId: string; progressMode: RouteProgressMode }
 
-export const CURRENT_ROUTE_CATALOG: Record<CurrentRouteKey, RouteInfo> = {
+export const ROUTE_CATALOG: Record<RouteKey, RouteInfo> = {
   // Module 1 — Commercial & CRM
   'overview': { section: 'Module 1 — Commercial & CRM', label: 'Lifecycle Overview', moduleId: 'M1-OVERVIEW', progressMode: 'summary' },
   'clients': { section: 'Module 1 — Commercial & CRM', label: 'Client Profiles', moduleId: 'M1-CLIENTS', progressMode: 'workflow' },

@@ -39,6 +39,9 @@ const partnerReadyFromFixture = (seed?: (state: PrototypeState, e: typeof state.
   }
   act(state, 'partner');
   commands.clearPartner(e.id, 'Assigned Partner independently reviewed the current SRM and Red-risk fieldwork.');
+  // The command stamps the real wall clock; normalize the decision to the scenario as-of date
+  // so the compiled report date (bounded by asOfDate) cannot predate the recorded clearance.
+  e.auditLifecycle!.partnerClearances.at(-1)!.at = `${state.asOfDate}T09:00:00.000Z`;
   commands.selectOpinion(e.id, 'Clean', '', '');
   commands.authorizeReportSignature(e.id, state.asOfDate, 'Simulated digital signature and firm seal authorize the current reporting basis.');
 };

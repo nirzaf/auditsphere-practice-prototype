@@ -1,4 +1,3 @@
-import { RETIRED_ROUTE_REDIRECTS, canonicalRoute } from './legacyRoutes';
 // AuditSphere shared command guards — VP-002/VP-003/VP-019/VP-056
 // Single place for demo person, active status, role grant, scope, revision and
 // separation-of-duties checks. UI actions AND programmatic command calls must use
@@ -6,7 +5,7 @@ import { RETIRED_ROUTE_REDIRECTS, canonicalRoute } from './legacyRoutes';
 // Browser-local only: these illustrate intended production behaviour; browser data
 // remains inspectable by the browser owner.
 
-import type { PrototypeState, RoleKey, RouteKey, CurrentRouteKey, LegacyRouteId } from '../types';
+import type { PrototypeState, RoleKey, RouteKey } from '../types';
 import { activationBlockers, isFrozen, closeExpiredArchives } from './targetLifecycle';
 
 export interface CommandContext {
@@ -254,11 +253,11 @@ export function isClientRole(role: RoleKey): boolean {
 }
 
 /**
- * Current-route authorization pipeline: raw URL/hash → resolve legacy redirect
- * (services/legacyRoutes.ts) → CurrentRouteKey → canOpenRoute. Retired routes are
- * rejected outright; the role lists below therefore contain only current routes.
+ * Current-route authorization. `RouteKey` names only current product routes, so a
+ * retired identifier cannot reach this function — it will not type-check. There is
+ * therefore no retired-route branch to keep in sync here.
  */
-const PROFESSIONAL_ROUTES: CurrentRouteKey[] = [
+const PROFESSIONAL_ROUTES: RouteKey[] = [
   'scheduling', 'confirmations', 'practice-ledger', 'overview', 'clients', 'client-detail', 'proposals', 'engagements',
   'documents', 'my-time', 'billing', 'trial-balance', 'financial-statements', 'onboarding',
   'audit-planning', 'audit-risks', 'audit-fieldwork', 'sampling', 'evidence', 'findings',
@@ -267,27 +266,23 @@ const PROFESSIONAL_ROUTES: CurrentRouteKey[] = [
 
 /** Shared UI route policy; App checks it again so direct navigation cannot bypass the sidebar. */
 export function canOpenRoute(role: RoleKey, route: RouteKey, active = true): boolean {
-  if (RETIRED_ROUTE_REDIRECTS[route as LegacyRouteId]) return false;
   if (!active) return route === 'requirements' || route === 'client-requirements';
   if (isSuperuserRole(role)) return true;
   if (route === 'requirements' || route === 'client-requirements') return true;
   // The module guide is read-only client-demo guidance available to every active persona.
   if (route === 'module-guide') return true;
   if (isClientRole(role)) return route === 'portal';
-  // Retired routes never reach the role lists (rejected above), so casting to the
-  // current-route vocabulary is safe for the checks below.
-  const current = route as CurrentRouteKey;
-  if (role === 'partner') return PROFESSIONAL_ROUTES.includes(current);
-  if (role === 'manager') return PROFESSIONAL_ROUTES.includes(current);
-  if (role === 'reviewer') return ['scheduling', 'confirmations', 'overview', 'engagements', 'documents', 'my-time', 'trial-balance', 'financial-statements', 'audit-planning', 'audit-risks', 'audit-fieldwork', 'sampling', 'evidence', 'findings', 'reviews', 'requirements'].includes(current);
-  if (role === 'preparer') return ['scheduling', 'confirmations', 'overview', 'engagements', 'documents', 'my-time', 'trial-balance', 'financial-statements', 'audit-planning', 'audit-risks', 'audit-fieldwork', 'sampling', 'evidence', 'findings', 'reviews', 'requirements'].includes(current);
-  if (role === 'eqr') return ['overview', 'engagements', 'documents', 'trial-balance', 'financial-statements', 'audit-planning', 'audit-risks', 'evidence', 'findings', 'reviews', 'delivery', 'records', 'requirements'].includes(current);
-  if (role === 'relationship') return ['overview', 'clients', 'client-detail', 'acquisition', 'proposals', 'engagements', 'requirements'].includes(current);
-  if (role === 'onboarding') return ['overview', 'clients', 'client-detail', 'engagements', 'documents', 'onboarding', 'portal', 'requirements'].includes(current);
-  if (role === 'compliance') return ['overview', 'clients', 'client-detail', 'engagements', 'documents', 'onboarding', 'requirements'].includes(current);
-  if (role === 'billing') return ['scheduling', 'practice-ledger', 'overview', 'clients', 'my-time', 'billing', 'reports', 'requirements'].includes(current);
-  if (role === 'records') return ['overview', 'clients', 'documents', 'records', 'reports', 'requirements'].includes(current);
-  if (role === 'admin') return ['overview', 'requirements'].includes(current);
+  if (role === 'partner') return PROFESSIONAL_ROUTES.includes(route);
+  if (role === 'manager') return PROFESSIONAL_ROUTES.includes(route);
+  if (role === 'reviewer') return ['scheduling', 'confirmations', 'overview', 'engagements', 'documents', 'my-time', 'trial-balance', 'financial-statements', 'audit-planning', 'audit-risks', 'audit-fieldwork', 'sampling', 'evidence', 'findings', 'reviews', 'requirements'].includes(route);
+  if (role === 'preparer') return ['scheduling', 'confirmations', 'overview', 'engagements', 'documents', 'my-time', 'trial-balance', 'financial-statements', 'audit-planning', 'audit-risks', 'audit-fieldwork', 'sampling', 'evidence', 'findings', 'reviews', 'requirements'].includes(route);
+  if (role === 'eqr') return ['overview', 'engagements', 'documents', 'trial-balance', 'financial-statements', 'audit-planning', 'audit-risks', 'evidence', 'findings', 'reviews', 'delivery', 'records', 'requirements'].includes(route);
+  if (role === 'relationship') return ['overview', 'clients', 'client-detail', 'acquisition', 'proposals', 'engagements', 'requirements'].includes(route);
+  if (role === 'onboarding') return ['overview', 'clients', 'client-detail', 'engagements', 'documents', 'onboarding', 'portal', 'requirements'].includes(route);
+  if (role === 'compliance') return ['overview', 'clients', 'client-detail', 'engagements', 'documents', 'onboarding', 'requirements'].includes(route);
+  if (role === 'billing') return ['scheduling', 'practice-ledger', 'overview', 'clients', 'my-time', 'billing', 'reports', 'requirements'].includes(route);
+  if (role === 'records') return ['overview', 'clients', 'documents', 'records', 'reports', 'requirements'].includes(route);
+  if (role === 'admin') return ['overview', 'requirements'].includes(route);
   return false;
 }
 
@@ -301,7 +296,7 @@ export function canReadSearchRecord(
   record: { route: RouteKey; clientId?: string; engagementId?: string; requiresEngagement?: boolean; clientWide?: boolean }
 ): boolean {
   const persona = activePersona(state);
-  if (!persona.active || !canOpenRoute(state.currentRole, canonicalRoute(record.route), persona.active)) return false;
+  if (!persona.active || !canOpenRoute(state.currentRole, record.route, persona.active)) return false;
 
   const clients = visibleClientIds(state);
   const engagements = visibleEngagementIds(state);

@@ -64,62 +64,10 @@ export interface IdentityStatusEvent {
 
 
 export type RouteKey =
-  | 'confirmations'
-  | 'practice-ledger'
-  | 'scheduling'
   | 'overview'
   | 'clients'
   | 'client-detail'
   | 'acquisition'
-  | 'proposals'
-  | 'engagements'
-  | 'jobs'
-  | 'job-templates'
-  | 'documents'
-  | 'communications'
-  | 'my-time'
-  | 'budgets'
-  | 'billing'
-  | 'receivables'
-  | 'accounting-setup'
-  | 'trial-balance'
-  | 'gl-transactions'
-  | 'account-mappings'
-  | 'adjustments'
-  | 'reconciliations'
-  | 'financial-statements'
-  | 'financial-packages'
-  | 'consolidation'
-  | 'onboarding'
-  | 'audit-planning'
-  | 'audit-risks'
-  | 'audit-fieldwork'
-  | 'sampling'
-  | 'audit'
-  | 'evidence'
-  | 'findings'
-  | 'reviews'
-  | 'approvals'
-  | 'quality'
-  | 'delivery'
-  | 'records'
-  | 'reports'
-  | 'administration'
-  | 'm365-setup'
-  | 'portal'
-  | 'services'
-  | 'role-guide'
-  | 'module-guide'
-  | 'requirements'
-  | 'client-requirements';
-
-/** Routes that are part of the current STE Audit Management Tool v2.1 product surface:
- * the five business modules, the client PBC portal and reference routes. */
-export type CurrentRouteKey =
-  | 'overview'
-  | 'acquisition'
-  | 'clients'
-  | 'client-detail'
   | 'proposals'
   | 'engagements'
   | 'billing'
@@ -146,28 +94,6 @@ export type CurrentRouteKey =
   | 'client-requirements'
   | 'role-guide'
   | 'module-guide';
-
-/** Retired historical route ids. They survive only as bookmark/persisted-hash redirects
- * (see services/legacyRoutes.ts) and are not current product surfaces or navigation. */
-export type LegacyRouteId =
-  | 'jobs'
-  | 'job-templates'
-  | 'communications'
-  | 'budgets'
-  | 'receivables'
-  | 'accounting-setup'
-  | 'gl-transactions'
-  | 'account-mappings'
-  | 'adjustments'
-  | 'reconciliations'
-  | 'financial-packages'
-  | 'consolidation'
-  | 'audit'
-  | 'approvals'
-  | 'quality'
-  | 'administration'
-  | 'm365-setup'
-  | 'services';
 
 // Historical schema grouping (migration compatibility): 02: Clients & CRM
 export interface ClientContactSnapshot {

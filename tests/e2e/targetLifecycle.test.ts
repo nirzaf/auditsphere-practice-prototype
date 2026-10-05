@@ -26,7 +26,7 @@ before(
     vite = spawn(
       process.execPath,
       ['node_modules/vite/bin/vite.js', '--host', '127.0.0.1', '--port', '3007', '--strictPort'],
-      { stdio: 'ignore', env: { ...process.env, VITE_DEMO_API_URL: process.env.TEST_CLOUD_API_URL || '' } }
+      { stdio: 'ignore', env: { ...process.env } }
     );
     for (let n = 0; n < 100; n++) {
       if (
@@ -256,45 +256,38 @@ it('A04 visible staffing preserves two associates and multiple Manager phases wi
   await saveEvidence('docs/prototype/evidence/review-staffing-ui.json',JSON.stringify({multipleAssociates:true,managerPhases:['Planning','Review'],reloadPreserved:true,leaveHours:8,targetPct:72,allocations:saved},null,2));
 });
 
-it('A14 independent browser profiles merge distinct FSLIs and reject concurrent same-row revisions', {skip:!process.env.TEST_CLOUD_API_URL,timeout:60000}, async()=>{
-  const result=await tab.evaluate<any>("import('/tests/helpers/targetJourney.ts').then(m=>m.runTargetJourney({stopAtFieldwork:true}))");
-  const snapshot=await tab.evaluate<any>("import('/src/store/prototypeStore.ts').then(({prototypeStore:s})=>JSON.parse(s.exportStateJSON()))");
-  const sourceId=snapshot.engagements.find((e:any)=>e.id===result.engagementId).sourceHistory.at(-1).originalArtifact.id;
-  const response=await fetch(process.env.TEST_CLOUD_API_URL+'/workspaces',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({seedId:'commercial'})});
-  const workspace=await response.json() as any;assert.ok(workspace.token);
-  const authorization={Authorization:'Bearer '+workspace.token,'Content-Type':'application/json'};
-  assert.equal((await fetch(process.env.TEST_CLOUD_API_URL+'/workspaces/'+workspace.id,{method:'PUT',headers:authorization,body:JSON.stringify({revision:workspace.revision,state:snapshot})})).status,200);
-  const secondProfile=mkdtempSync(join(tmpdir(),'auditsphere-independent-'));
-  const secondChrome=spawn(process.env.CHROME_PATH!,['--headless=new','--no-sandbox','--disable-gpu','--remote-debugging-port=0','--remote-allow-origins=*','--user-data-dir='+secondProfile,'--no-first-run','about:blank'],{stdio:'ignore'});
-  let other:CdpTab|undefined;
-  try {
-    let secondPort='';for(let n=0;n<100;n++){try{secondPort=readFileSync(join(secondProfile,'DevToolsActivePort'),'utf8').split('\n')[0];}catch{}if(secondPort)break;await sleep(100);}
-    const target=await fetch('http://127.0.0.1:'+secondPort+'/json/new?'+origin,{method:'PUT'}).then(r=>r.json()) as any;
-    const ws=new WebSocket(target.webSocketDebuggerUrl);await new Promise<void>((resolve,reject)=>{ws.addEventListener('open',()=>resolve(),{once:true});ws.addEventListener('error',()=>reject(Error('Independent profile failed')),{once:true});});
-    other=new CdpTab(ws,origin,[new URL(process.env.TEST_CLOUD_API_URL!).origin]);await other.command('Runtime.enable');await other.command('Page.enable');
-    for(let n=0;n<100;n++){if(await other.evaluate<boolean>('!!document.querySelector(".sidebar")'))break;await sleep(100);}
-    const code=workspace.id+'.'+workspace.token;
-    for(const page of [tab,other])await page.evaluate("import('/src/services/cloudDemo.ts').then(m=>m.resumeCloudDemo("+JSON.stringify(code)+"))");
-    const programs=snapshot.auditPrograms.filter((p:any)=>p.engagementId===result.engagementId);const ids=programs.slice(0,2).map((p:any)=>p.procedures[0].id);assert.notEqual(programs[0].area,programs[1].area);
-    const edit=(id:string,label:string)=>"import('/src/store/prototypeStore.ts').then(({prototypeStore:s})=>s.updateAuditProcedureExecution("+JSON.stringify(result.engagementId)+","+JSON.stringify(id)+","+JSON.stringify(label)+",'Independent evidence supports the conclusion.',''))";
-    await Promise.all([tab.evaluate(edit(ids[0],'Profile A independent FSLI')),other.evaluate(edit(ids[1],'Profile B independent FSLI'))]);
-    for(const page of [tab,other])await page.evaluate("import('/src/services/cloudDemo.ts').then(m=>m.saveCloudDemo())");
-    let persisted:any;for(let n=0;n<150;n++){persisted=await fetch(process.env.TEST_CLOUD_API_URL+'/workspaces/'+workspace.id,{headers:authorization}).then(r=>r.json());const values=persisted.state.auditPrograms.flatMap((p:any)=>p.procedures).filter((p:any)=>ids.includes(p.id)).map((p:any)=>p.workPerformed);if(values[0]==='Profile A independent FSLI'&&values[1]==='Profile B independent FSLI')break;await sleep(100);}
-    const saveStatuses=await Promise.all([tab,other].map(page=>page.evaluate<any>("import('/src/services/cloudDemo.ts').then(m=>m.cloudDemoSnapshot())")));
-    assert.deepEqual(persisted.state.auditPrograms.flatMap((p:any)=>p.procedures).filter((p:any)=>ids.includes(p.id)).map((p:any)=>p.workPerformed),['Profile A independent FSLI','Profile B independent FSLI'],JSON.stringify(saveStatuses));
-    for(const page of [tab,other]){for(let n=0;n<100;n++){if(await page.evaluate<boolean>("import('/src/services/cloudDemo.ts').then(m=>m.cloudDemoSnapshot().mode!=='saving')"))break;await sleep(100);}}
-    for(const page of [tab,other]){await page.evaluate("import('/src/services/cloudDemo.ts').then(m=>m.reloadCloudDemo())");const values=await page.evaluate<any>("import('/src/store/prototypeStore.ts').then(({prototypeStore:s})=>s.getSnapshot().auditPrograms.flatMap(p=>p.procedures).filter(p=>"+JSON.stringify(ids)+".includes(p.id)).map(p=>p.workPerformed))");assert.deepEqual(values,['Profile A independent FSLI','Profile B independent FSLI']);}
-    const available=(id:string)=>"Promise.all([import('/src/store/prototypeStore.ts'),import('/src/services/artifactStore.ts')]).then(async([{prototypeStore:s},m])=>{const history=s.getSnapshot().engagements.find(e=>e.id==="+JSON.stringify(result.engagementId)+").sourceHistory;const a=history.map(h=>h.originalArtifact).find(a=>a?.id==="+JSON.stringify(id)+");if(!a)return {metadata:false,bytes:false,history};try{return {metadata:true,bytes:(await m.loadVerifiedArtifact(a)).size>0}}catch(error){return {metadata:true,bytes:false,error:String(error)}}})";
-    const originalA=await tab.evaluate<any>(available(sourceId)),originalB=await other.evaluate<any>(available(sourceId));
-    assert.equal(originalA.metadata,true,JSON.stringify(originalA));assert.equal(originalA.bytes,true,JSON.stringify(originalA));assert.equal(originalB.metadata,true,JSON.stringify(originalB));assert.equal(originalB.bytes,false);
+it('retired route hashes fall back safely and never reach the legacy snapshot Worker', async () => {
+  // Staff persona: a retired hash lands on the safe overview default, never a redirect into
+  // another module, and the hash is rewritten to a real current route.
+  await tab.evaluate("import('/src/store/prototypeStore.ts').then(({prototypeStore:s})=>s.setPersona('manager'))");await sleep(120);
+  await tab.evaluate("location.hash='adjustments'");await sleep(200);
+  assert.equal(await tab.evaluate<string>('location.hash'), '#overview', 'retired hash falls back to the staff default');
+  assert.equal(await tab.evaluate<boolean>("document.querySelector('main').innerText.includes('Lifecycle Overview') || !!document.querySelector('main')"), true);
+  // Client persona: the safe fallback is the portal.
+  await tab.evaluate("import('/src/store/prototypeStore.ts').then(({prototypeStore:s})=>s.setPersona('client'))");await sleep(120);
+  await tab.evaluate("location.hash='consolidation'");await sleep(200);
+  assert.equal(await tab.evaluate<string>('location.hash'), '#portal', 'retired hash falls back to the client portal');
+  // Sidebar contains only current routes: every hash link names a route the resolver accepts.
+  const sidebarRoutes = await tab.evaluate<string[]>("Array.from(document.querySelectorAll('#primary-sidebar a[href]')).map(a=>a.getAttribute('href').slice(1)).filter(h=>h && !h.startsWith('http'))");
+  const invalid = (await Promise.all(sidebarRoutes.map(route => tab.evaluate<boolean>("import('/src/services/routes.ts').then(m=>!m.isRouteKey("+JSON.stringify(route)+"))")))).filter(isInvalid => isInvalid);
+  assert.deepEqual(invalid, [], 'the sidebar only links current routes');
+  // No request in this browser session may target the retired snapshot Worker hostname.
+  assert.ok(!tab.requests.some(url => url.includes('steaudit-prototype-demo-api')), JSON.stringify(tab.requests.filter(url => url.includes('demo-api'))));
+  await tab.evaluate("import('/src/store/prototypeStore.ts').then(({prototypeStore:s})=>s.setPersona('manager'))");await sleep(100);
+  await tab.evaluate("location.hash='overview'");await sleep(120);
+});
 
-    await Promise.all([tab.evaluate(edit(ids[0],'Profile A same-row draft')),other.evaluate(edit(ids[0],'Profile B same-row draft'))]);
-    await Promise.all([tab,other].map(page=>page.evaluate("import('/src/services/cloudDemo.ts').then(m=>m.saveCloudDemo())")));
-    let statuses:any[]=[];
-    for(let n=0;n<150;n++){statuses=await Promise.all([tab,other].map(page=>page.evaluate<any>("import('/src/services/cloudDemo.ts').then(m=>m.cloudDemoSnapshot())")));if(statuses.some(x=>x.mode==='conflict'&&/same-row/.test(x.message)))break;await sleep(100);}
-    assert.ok(statuses.some(x=>x.mode==='conflict'&&/same-row/.test(x.message)),JSON.stringify(statuses));
-    await saveEvidence('docs/prototype/evidence/review-concurrency.json',JSON.stringify({independentProfiles:2,distinctFslis:programs.slice(0,2).map((p:any)=>p.area),independentEditsRetained:true,sameRowConflictExplicit:true,originalBytes:{profileA:true,profileB:false},boundary:'D1 metadata snapshots; original bytes remain browser-local.'},null,2));
-  }finally{for(const page of [tab,other].filter(Boolean) as CdpTab[])await page.evaluate("import('/src/services/cloudDemo.ts').then(m=>m.disconnectCloudDemo())").catch(()=>{});other?.close();if(secondChrome.exitCode===null){const exited=new Promise<void>(r=>secondChrome.once('exit',()=>r()));secondChrome.kill();await exited;}rmSync(secondProfile,{recursive:true,force:true,maxRetries:20,retryDelay:100});await fetch(process.env.TEST_CLOUD_API_URL+'/workspaces/'+workspace.id,{method:'DELETE',headers:authorization});}
+it('cloud workspace controls degrade honestly without a cloud API and label local-only edits', async () => {
+  await tab.evaluate("import('/src/store/prototypeStore.ts').then(({prototypeStore:s})=>{s.setPersona('superuser');location.hash='proposals'})");await sleep(150);
+  await tab.evaluate("[...document.querySelectorAll('button')].find(button=>button.textContent==='Presenter / Demo Controls').click()");await sleep(200);
+  // No /api exists on the vite dev origin: the controls must fail closed with honest copy,
+  // the label stays LOCAL WORKSPACE, and no legacy snapshot Worker is ever contacted.
+  await tab.evaluate("[...document.querySelectorAll('[data-testid=cloud-demo-controls] button')].find(button=>button.textContent==='Create cloud workspace').click()");await sleep(250);
+  assert.equal(await tab.evaluate<boolean>("document.body.innerText.includes('LOCAL WORKSPACE')"), true);
+  assert.ok(await tab.evaluate<boolean>("!!document.querySelector('[data-testid=cloud-demo-controls]')"), 'controls render');
+  assert.equal(await tab.evaluate<boolean>("document.body.innerText.includes('steaudit-prototype-demo-api')"), false, 'no legacy Worker naming is surfaced');
+  assert.ok(!tab.requests.some(url => url.includes('steaudit-prototype-demo-api')), 'zero requests to the retired Worker hostname');
+  await tab.evaluate("location.hash='overview'");await sleep(120);
 });
 
 it('Manager clearance through the visible form automatically generates a current PDF SRM', async () => {
@@ -393,7 +386,7 @@ it(
   { timeout: 60000 }
 );
 it(
-  'renders the lifecycle overview, retired redirects and mobile layout without exposing client staff economics',
+  'renders the lifecycle overview, retired hash fallbacks and mobile layout without exposing client staff economics',
   async () => {
     await tab.evaluate(
       `import('/src/store/prototypeStore.ts').then(({prototypeStore:s})=>{s.setPersona('manager');location.hash='overview'})`
@@ -456,7 +449,7 @@ it(
     );
     await tab.evaluate(`location.hash='quality'`);
     await sleep(150);
-    assert.equal(await tab.evaluate<string>('location.hash'), '#reviews');
+    assert.equal(await tab.evaluate<string>('location.hash'), '#overview', 'a retired hash falls back to the staff default instead of redirecting');
     await tab.evaluate(
       `import('/src/store/prototypeStore.ts').then(({prototypeStore:s})=>{s.setPersona('client_finance');location.hash='scheduling'})`
     );
@@ -554,44 +547,15 @@ it('offers native workflow templates with working downloads and keeps source exa
   assert.deepEqual(tab.exceptions, []);
 }, { timeout: 10000 });
 
-it('creates a cloud demo from Presenter controls, autosaves a guarded change and resumes it', { skip: !process.env.TEST_CLOUD_API_URL, timeout: 30000 }, async () => {
-  await tab.evaluate(`import('/src/store/prototypeStore.ts').then(({prototypeStore:s})=>{s.setPersona('superuser');location.hash='proposals'})`);
-  await sleep(150);
-  await tab.evaluate(`[...document.querySelectorAll('button')].find(button=>button.textContent==='Presenter / Demo Controls').click()`);
-  for (let n=0;n<50;n++) { if (await tab.evaluate<boolean>(`!!document.querySelector('[data-testid=cloud-demo-controls] option')`)) break; await sleep(100); }
-  assert.ok(await tab.evaluate<boolean>(`!!document.querySelector('[data-testid=cloud-demo-controls] option')`), JSON.stringify({ blocked: tab.blockedExternalRequests, failures: tab.networkFailures, requests: tab.requests.slice(-10) }));
-  await tab.evaluate(`[...document.querySelectorAll('[data-testid=cloud-demo-controls] button')].find(button=>button.textContent==='Start new cloud demo').click()`);
-  for (let n=0;n<70;n++) { if (await tab.evaluate<boolean>(`import('/src/services/cloudDemo.ts').then(m=>m.cloudDemoSnapshot().mode==='saved')`)) break; await sleep(100); }
-  assert.equal(await tab.evaluate<string>(`import('/src/store/prototypeStore.ts').then(({prototypeStore:s})=>s.getSnapshot().clients[0]?.name)`), 'Synthetic Demo Trading LLC', await tab.evaluate<string>(`document.querySelector('[data-testid=cloud-demo-controls]').textContent+'; unsaved dialog: '+!!document.querySelector('[role=dialog]')`));
-  const code = await tab.evaluate<string>(`import('/src/services/cloudDemo.ts').then(m=>m.cloudDemoAccessCode())`);
-  const [id, token] = code.split('.');
-  try {
-    await tab.evaluate(`import('/src/store/prototypeStore.ts').then(({prototypeStore:s})=>{const client=s.getSnapshot().clients[0];s.updateClient({...client,notes:'Browser cloud save verified.'},client.profileRevision||0)})`);
-    for (let n=0;n<70;n++) { if (await tab.evaluate<boolean>(`import('/src/services/cloudDemo.ts').then(m=>m.cloudDemoSnapshot().mode==='saved'&&m.cloudDemoSnapshot().revision>=2)`)) break; await sleep(100); }
-    const remote = await (await fetch(process.env.TEST_CLOUD_API_URL+`/workspaces/${id}`, {headers:{Authorization:`Bearer ${token}`}})).json() as any;
-    assert.equal(remote.state.clients[0].notes, 'Browser cloud save verified.');
-    await tab.evaluate(`import('/src/services/cloudDemo.ts').then(m=>m.disconnectCloudDemo())`);
-    await tab.evaluate(`import('/src/store/prototypeStore.ts').then(({prototypeStore:s})=>s.loadScenario('target-lifecycle'))`);
-    await tab.evaluate(`import('/src/services/cloudDemo.ts').then(m=>m.resumeCloudDemo(${JSON.stringify(code)}))`);
-    assert.equal(await tab.evaluate<string>(`import('/src/store/prototypeStore.ts').then(({prototypeStore:s})=>s.getSnapshot().clients[0].notes)`), 'Browser cloud save verified.');
-    remote.state.clients[0].notes='Concurrent remote change to the same client row.';
-    const remoteChange = await fetch(process.env.TEST_CLOUD_API_URL+`/workspaces/${id}`, {method:'PUT',headers:{Authorization:`Bearer ${token}`,'Content-Type':'application/json'},body:JSON.stringify({revision:remote.revision,state:remote.state})});
-    assert.equal(remoteChange.status,200);
-    await tab.evaluate(`import('/src/store/prototypeStore.ts').then(({prototypeStore:s})=>{const client=s.getSnapshot().clients[0];s.updateClient({...client,notes:'Local edit must survive a cloud conflict.'},client.profileRevision||0)})`);
-    for (let n=0;n<70;n++) { if (await tab.evaluate<boolean>(`import('/src/services/cloudDemo.ts').then(m=>m.cloudDemoSnapshot().mode==='conflict')`)) break; await sleep(100); }
-    assert.equal(await tab.evaluate<string>(`import('/src/services/cloudDemo.ts').then(m=>m.cloudDemoSnapshot().mode)`),'conflict');
-    assert.equal(await tab.evaluate<string>(`import('/src/store/prototypeStore.ts').then(({prototypeStore:s})=>s.getSnapshot().clients[0].notes)`),'Local edit must survive a cloud conflict.');
-    await tab.evaluate(`import('/src/services/cloudDemo.ts').then(m=>m.reloadCloudDemo())`);
-    assert.equal(await tab.evaluate<string>(`import('/src/store/prototypeStore.ts').then(({prototypeStore:s})=>s.getSnapshot().clients[0].notes)`),'Concurrent remote change to the same client row.');
-    await tab.command('Emulation.setDeviceMetricsOverride',{width:390,height:1000,deviceScaleFactor:1,mobile:false});
-    await sleep(100);
-    assert.equal(await tab.evaluate<boolean>(`document.querySelector('.topbar').getBoundingClientRect().bottom<=document.querySelector('.contextbar').getBoundingClientRect().top+1`),true,'mobile presenter header must not overlap context');
-    assert.equal(await tab.evaluate<boolean>(`document.documentElement.scrollWidth<=innerWidth+1`), true);
-    const capture=await tab.command('Page.captureScreenshot',{format:'png',captureBeyondViewport:true});
-    writeFileSync('docs/prototype/evidence/visual-parity/cloud-demo-390.png',Buffer.from(capture.data,'base64'));
-    await tab.evaluate(`import('/src/services/cloudDemo.ts').then(m=>m.disconnectCloudDemo())`);
-  } finally { await fetch(process.env.TEST_CLOUD_API_URL+`/workspaces/${id}`, {method:'DELETE',headers:{Authorization:`Bearer ${token}`}}); }
-  assert.deepEqual(tab.exceptions, []);
+it('cloud workspace control structure stays honest for the /api cutover', async () => {
+  // The presenter panel keeps its synthetic-data disclosure and never names the retired
+  // snapshot Worker; cloud resume is exercised at API level in tests/cloud/api.test.ts.
+  await tab.evaluate("import('/src/store/prototypeStore.ts').then(({prototypeStore:s})=>{s.setPersona('superuser');location.hash='proposals'})");await sleep(150);
+  await tab.evaluate("[...document.querySelectorAll('button')].find(button=>button.textContent==='Presenter / Demo Controls').click()");await sleep(200);
+  const panel = await tab.evaluate<string>("document.querySelector('[data-testid=cloud-demo-controls]')?.textContent ?? ''");
+  assert.ok(panel.includes('Synthetic data only'), 'synthetic honesty retained');
+  assert.ok(panel.includes('access code'), 'resume-by-access-code flow retained');
+  assert.ok(!panel.includes('Bearer'), 'no Bearer-token session flow');
 });
 
 it('B5 visible internal AJE authoring retains evidenced management response and TB reflection without client approval UI', async () => {

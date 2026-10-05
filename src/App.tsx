@@ -47,7 +47,7 @@ import { FindingsView } from './components/modules/FindingsView';
 // Module 5 & reference views
 import { TimeTrackingView } from './components/modules/TimeTrackingView';
 import { UnsavedFormGuard } from './services/unsavedFormGuard';
-import { resolveRouteHash, canonicalRoute } from './services/legacyRoutes';
+import { resolveRouteHash, routeHash } from './services/routes';
 
 const ENGAGEMENT_CONTEXT_ROUTES = new Set<string>([
   'onboarding', 'documents', 'my-time', 'billing', 'trial-balance',
@@ -59,13 +59,13 @@ const ACTIVE_DIALOG_GUARD = '__active-dialog__';
 type WorkflowSelection = { route: RouteKey; context: { clientId?: string; engagementId?: string; recordId?: string } };
 
 export const App: React.FC = () => {
-  const [currentRoute, setCurrentRoute] = useState<RouteKey>(() => resolveRouteHash(window.location.hash)?.route || 'overview');
+  const [currentRoute, setCurrentRoute] = useState<RouteKey>(() => resolveRouteHash(window.location.hash) ?? 'overview');
   const [selectedClientId, setSelectedClientId] = useState<string>('CL-001');
   const [searchTargetId, setSearchTargetId] = useState<string | undefined>();
   const [workflowSelection, setWorkflowSelection] = useState<WorkflowSelection | null>(null);
   const [, setTick] = useState(0);
   const unsavedForms = useRef<Map<string, UnsavedFormGuard>>(new Map());
-  const acceptedRouteHash = useRef(`#${resolveRouteHash(window.location.hash)?.route || 'overview'}`);
+  const acceptedRouteHash = useRef(routeHash(resolveRouteHash(window.location.hash) ?? 'overview'));
   const [pendingTransition, setPendingTransition] = useState<{ run: () => void; label: string } | null>(null);
   const [transitionError, setTransitionError] = useState('');
   // VP-003-E01: dialog whose Escape/backdrop dismissal is waiting for an explicit discard decision.
@@ -144,20 +144,24 @@ export const App: React.FC = () => {
   useEffect(() => {
     const syncFromLocation = (event?: Event) => {
       const resolved = resolveRouteHash(window.location.hash);
-      if (!resolved) return;
       // A hash/popstate event that lands on the already-accepted route changes nothing, so it
       // must not raise an unsaved-changes decision. The initial sync (no event) still applies
       // the route policy.
-      if (event && !resolved.redirected && `#${resolved.route}` === acceptedRouteHash.current) return;
+      if (event && resolved && routeHash(resolved) === acceptedRouteHash.current) return;
       requestContextChange(() => {
         const snapshot = prototypeStore.getReadSnapshot();
         const active = snapshot.users.find(user => user.id === snapshot.currentUserId)?.status === 'Active';
-        const allowedRoute = canOpenRoute(snapshot.currentRole, resolved.route, active)
-          ? resolved.route
-          : active && isClientRole(snapshot.currentRole) ? 'portal' : active ? 'overview' : 'requirements';
+        // An unknown or retired hash is never redirected into another module: it falls back
+        // to the safe current default for the active persona and the hash is rewritten.
+        const fallback: RouteKey = active && isClientRole(snapshot.currentRole)
+          ? 'portal'
+          : active ? 'overview' : 'requirements';
+        const allowedRoute = resolved && canOpenRoute(snapshot.currentRole, resolved, active)
+          ? resolved
+          : fallback;
         setCurrentRoute(allowedRoute);
-        acceptedRouteHash.current = `#${allowedRoute}`;
-        if (window.location.hash !== `#${allowedRoute}`) window.history.replaceState(null, '', `#${allowedRoute}`);
+        acceptedRouteHash.current = routeHash(allowedRoute);
+        if (window.location.hash !== routeHash(allowedRoute)) window.history.replaceState(null, '', routeHash(allowedRoute));
       });
     };
     window.addEventListener('hashchange', syncFromLocation);
@@ -358,7 +362,6 @@ export const App: React.FC = () => {
   const isClient = isClientRole(state.currentRole);
   const activeIdentity = state.users.find(user => user.id === state.currentUserId)?.status === 'Active';
   const navigate = (route: RouteKey, targetId?: string) => {
-    route = canonicalRoute(route);
     requestContextChange(() => {
       const current = prototypeStore.getReadSnapshot();
       const active = current.users.find(user => user.id === current.currentUserId)?.status === 'Active';

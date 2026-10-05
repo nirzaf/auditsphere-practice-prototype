@@ -1,12 +1,9 @@
-// Lifecycle definitions for every stateful record type (enterprise UX layer).
-// Authority: the store commands in prototypeStore.ts. Each transition names the command
-// that performs it (tests/unit/lifecycles.test.ts verifies the command exists and that
-// every status literal of the record type is placed somewhere in its definition).
-// Nothing here changes behaviour: it drives lifecycle steppers, the lifecycle matrix and
-// "what happens next" copy. Eligibility stays with guards and store validation.
-// Definitions for retired-route record types are migration-compatibility metadata; the
-// current five-module surface consumes only the lead and audit-plan lifecycles.
+// Lifecycle definitions for current workflow records. Authority: the store commands
+// in prototypeStore.ts and TargetLifecycleCommands. This metadata drives lifecycle
+// steppers, the generated route matrix and "what happens next" copy; eligibility
+// remains with guards and store validation.
 import type { RouteKey } from '../types';
+import { ROUTE_CATALOG } from './routeCatalog';
 import { statusKind } from './statusSemantics';
 
 export interface LifecycleTransition {
@@ -42,7 +39,7 @@ export interface LifecycleDefinition {
   amendPath?: string;
 }
 
-export const LIFECYCLES: LifecycleDefinition[] = [
+const lifecycleDefinitions: LifecycleDefinition[] = [
   {
     id: 'lead', record: 'Lead / opportunity', module: 'Leads & Opportunities', route: 'acquisition',
     path: [{ step: 'Inquiry', statuses: ['Inquiry'] }, { step: 'Discovery', statuses: ['Discovery'] }, { step: 'Evaluation', statuses: ['Evaluation'] }, { step: 'Proposal', statuses: ['Proposal'] }, { step: 'Won', statuses: ['Won'] }],
@@ -87,7 +84,7 @@ export const LIFECYCLES: LifecycleDefinition[] = [
     ]
   },
   {
-    id: 'acceptance', record: 'Acceptance / continuance case', module: 'Acceptance & KYC', route: 'onboarding',
+    id: 'acceptance', record: 'Acceptance / continuance case', module: 'Engagement Governance', route: 'onboarding',
     path: [{ step: 'Recommendation', statuses: ['Pending'] }, { step: 'Decision', statuses: ['Accepted'] }],
     terminal: ['Declined'],
     transitions: [
@@ -97,7 +94,7 @@ export const LIFECYCLES: LifecycleDefinition[] = [
     ]
   },
   {
-    id: 'job', record: 'Job / task', module: 'Jobs & Tasks', route: 'jobs',
+    id: 'job', record: 'Job / task', module: 'Resource Scheduling', route: 'scheduling',
     path: [{ step: 'Not started', statuses: ['Not started'] }, { step: 'In progress', statuses: ['In progress'] }, { step: 'Completed', statuses: ['Completed'] }],
     blocked: ['Blocked'], blockedAt: 'In progress', terminal: ['Cancelled'],
     transitions: [
@@ -108,7 +105,7 @@ export const LIFECYCLES: LifecycleDefinition[] = [
     ]
   },
   {
-    id: 'job-template', record: 'Job template', module: 'Job Templates', route: 'job-templates',
+    id: 'job-template', record: 'Job template', module: 'Audit Program Templates', route: 'audit-risks',
     path: [{ step: 'Draft', statuses: ['Draft'] }, { step: 'Published', statuses: ['Published'] }],
     terminal: ['Retired'],
     transitions: [
@@ -132,7 +129,7 @@ export const LIFECYCLES: LifecycleDefinition[] = [
     ]
   },
   {
-    id: 'time', record: 'Time entry', module: 'Time Tracking', route: 'my-time',
+    id: 'time', record: 'Time entry', module: 'Practice Management', route: 'my-time',
     path: [{ step: 'Draft', statuses: ['Draft'] }, { step: 'Submitted', statuses: ['Submitted'] }, { step: 'Approved', statuses: ['Approved'] }],
     rework: { statuses: ['Returned'], returnsTo: 'Submitted', note: 'Only the time owner can resubmit; the returned entry becomes Superseded.' },
     terminal: ['Superseded'],
@@ -144,7 +141,7 @@ export const LIFECYCLES: LifecycleDefinition[] = [
     ]
   },
   {
-    id: 'budget', record: 'Budget', module: 'Budgets & Variances', route: 'budgets',
+    id: 'budget', record: 'Budget', module: 'Resource Scheduling', route: 'scheduling',
     path: [{ step: 'Draft', statuses: ['Draft'] }, { step: 'Approved', statuses: ['Approved'] }],
     transitions: [{ from: 'Draft', to: 'Approved (new version)', command: 'updateBudget', actor: 'Manager / partner', rule: 'Each change creates a new version; missing cost rate stays Unknown' }]
   },
@@ -175,7 +172,7 @@ export const LIFECYCLES: LifecycleDefinition[] = [
     ]
   },
   {
-    id: 'adjustment', record: 'Adjustment journal', module: 'Accounting Workbench', route: 'adjustments',
+    id: 'adjustment', record: 'Adjustment journal', module: 'Accounting & Reconciliation', route: 'findings',
     path: [{ step: 'Draft', statuses: ['Draft'] }, { step: 'Technical review', statuses: ['Technical review'] }, { step: 'Management accepted', statuses: ['Management accepted'] }, { step: 'Reporting included', statuses: ['Reporting included'] }],
     terminal: ['Rejected'],
     transitions: [
@@ -188,7 +185,7 @@ export const LIFECYCLES: LifecycleDefinition[] = [
     staleness: 'A pinned evidence, workpaper or finding revision that moves excludes the journal from statements and packages until re-pinned and re-reviewed.'
   },
   {
-    id: 'reconciliation', record: 'Reconciliation schedule', module: 'Accounting Workbench', route: 'reconciliations',
+    id: 'reconciliation', record: 'Reconciliation schedule', module: 'Accounting & Reconciliation', route: 'trial-balance',
     path: [{ step: 'Draft', statuses: ['Draft', 'In progress'] }, { step: 'In review', statuses: ['In Review'] }, { step: 'Approved', statuses: ['Approved', 'Cleared'] }],
     rework: { statuses: ['Returned', 'Differences noted'], returnsTo: 'Draft', note: 'Returned schedules are revised and resubmitted as a new revision.' },
     stale: ['Stale'],
@@ -199,7 +196,7 @@ export const LIFECYCLES: LifecycleDefinition[] = [
     staleness: 'A new TB source revision marks the schedule Stale; the prior review stays in history.'
   },
   {
-    id: 'mapping', record: 'Account mapping revision', module: 'Accounting Workbench', route: 'account-mappings',
+    id: 'mapping', record: 'Account mapping revision', module: 'Accounting & Reconciliation', route: 'trial-balance',
     path: [{ step: 'Draft', statuses: ['Draft'] }, { step: 'Approved', statuses: ['Approved'] }],
     transitions: [
       { from: 'New', to: 'Draft', command: 'saveAccountMappings', actor: 'Preparer' },
@@ -220,7 +217,7 @@ export const LIFECYCLES: LifecycleDefinition[] = [
     staleness: 'TB source, mapping, layout or comparative changes mark revisions Stale.'
   },
   {
-    id: 'disclosure', record: 'Disclosure', module: 'Financial Packages', route: 'financial-packages',
+    id: 'disclosure', record: 'Disclosure', module: 'Reporting & Delivery', route: 'delivery',
     path: [{ step: 'Draft', statuses: ['Draft'] }, { step: 'Reviewed', statuses: ['Reviewed'] }],
     transitions: [
       { from: 'Draft', to: 'Draft (saved revision)', command: 'saveDisclosureReview', actor: 'Preparer / manager' },
@@ -228,7 +225,7 @@ export const LIFECYCLES: LifecycleDefinition[] = [
     ]
   },
   {
-    id: 'package', record: 'Financial package revision', module: 'Financial Packages', route: 'financial-packages',
+    id: 'package', record: 'Financial package revision', module: 'Reporting & Delivery', route: 'delivery',
     path: [{ step: 'Assembled', statuses: ['Assembled'] }, { step: 'Validated', statuses: ['Validated'] }, { step: 'Presented to management', statuses: ['Presented'] }, { step: 'Management decision', statuses: ['Acknowledged'] }, { step: 'Released', statuses: ['Released'] }],
     blocked: ['Validation blocked'], blockedAt: 'Validated', stale: ['Stale'], staleAt: 'Assembled', terminal: ['Rejected'],
     transitions: [
@@ -240,7 +237,7 @@ export const LIFECYCLES: LifecycleDefinition[] = [
     staleness: 'TB source, GL source, mapping or generation changes stale the package; earlier revisions and approvals remain in history.'
   },
   {
-    id: 'consolidation-elimination', record: 'Consolidation elimination', module: 'Group Consolidation', route: 'consolidation',
+    id: 'consolidation-elimination', record: 'Consolidation elimination', module: 'Historical consolidated-state projection', route: 'overview',
     path: [{ step: 'Draft', statuses: ['Draft'] }, { step: 'Submitted', statuses: ['Submitted'] }, { step: 'Approved', statuses: ['Approved'] }],
     rework: { statuses: ['Returned'], returnsTo: 'Draft', note: 'Returned eliminations are corrected and resubmitted.' },
     transitions: [
@@ -251,7 +248,7 @@ export const LIFECYCLES: LifecycleDefinition[] = [
     staleness: 'Perimeter or FX changes return eliminations to Draft.'
   },
   {
-    id: 'consolidation-output', record: 'Consolidation output package', module: 'Group Consolidation', route: 'consolidation',
+    id: 'consolidation-output', record: 'Consolidation output package', module: 'Historical consolidated-state projection', route: 'overview',
     path: [{ step: 'Draft', statuses: ['Draft'] }, { step: 'Approved', statuses: ['Approved'] }],
     rework: { statuses: ['Returned'], returnsTo: 'Draft', note: 'A returned output package is corrected and saved again.' },
     blocked: ['Pending'], stale: ['Stale'],
@@ -262,7 +259,7 @@ export const LIFECYCLES: LifecycleDefinition[] = [
     ]
   },
   {
-    id: 'audit-plan', record: 'Audit plan', module: 'Audit Planning & Materiality', route: 'audit-planning',
+    id: 'audit-plan', record: 'Audit plan', module: 'Audit Planning', route: 'audit-planning',
     path: [{ step: 'Draft', statuses: ['Draft'] }, { step: 'Under review', statuses: ['Under review'] }, { step: 'Approved', statuses: ['Approved'] }],
     terminal: ['Superseded'],
     transitions: [
@@ -272,7 +269,7 @@ export const LIFECYCLES: LifecycleDefinition[] = [
     ]
   },
   {
-    id: 'audit-procedure', record: 'Audit procedure', module: 'Risks & Audit Programs', route: 'audit-risks',
+    id: 'audit-procedure', record: 'Audit procedure', module: 'Audit Programs', route: 'audit-risks',
     path: [{ step: 'Not started', statuses: ['Not started'] }, { step: 'In progress', statuses: ['In progress'] }, { step: 'Submitted', statuses: ['Submitted'] }, { step: 'Cleared', statuses: ['Cleared', 'Completed'] }],
     rework: { statuses: ['Exceptions noted', 'Exception noted'], returnsTo: 'In progress', note: 'Exceptions route to findings; evidence changes reopen the procedure.' },
     transitions: [
@@ -282,7 +279,7 @@ export const LIFECYCLES: LifecycleDefinition[] = [
     staleness: 'Evidence adequacy, evidence links or risk changes return Submitted/Cleared procedures to In progress.'
   },
   {
-    id: 'audit-program-template', record: 'Audit program template', module: 'Risks & Audit Programs', route: 'audit-risks',
+    id: 'audit-program-template', record: 'Audit program template', module: 'Audit Programs', route: 'audit-risks',
     path: [{ step: 'Draft', statuses: ['Draft'] }, { step: 'Published', statuses: ['Published'] }],
     terminal: ['Retired'],
     transitions: [
@@ -292,7 +289,7 @@ export const LIFECYCLES: LifecycleDefinition[] = [
     ]
   },
   {
-    id: 'sample', record: 'Sample population', module: 'Sampling & Populations', route: 'sampling',
+    id: 'sample', record: 'Sample population', module: 'Audit Sampling', route: 'sampling',
     path: [{ step: 'Population imported', statuses: ['Imported'] }, { step: 'Items selected', statuses: ['Selected'] }, { step: 'Items tested', statuses: ['Tested'] }, { step: 'Selection reviewed', statuses: ['Reviewed'] }],
     stale: ['Stale'],
     transitions: [
@@ -304,7 +301,7 @@ export const LIFECYCLES: LifecycleDefinition[] = [
     ]
   },
   {
-    id: 'workpaper', record: 'Workpaper', module: 'Audit Workpapers', route: 'audit',
+    id: 'workpaper', record: 'Workpaper', module: 'Audit Workpapers', route: 'reviews',
     path: [{ step: 'Planned', statuses: ['Planned'] }, { step: 'In progress', statuses: ['In progress'] }, { step: 'Submitted', statuses: ['Submitted'] }, { step: 'Cleared', statuses: ['Cleared'] }],
     rework: { statuses: ['Changes required'], returnsTo: 'In progress', note: 'Evidence or document changes require rework and a fresh submission.' },
     terminal: ['Not applicable'],
@@ -318,7 +315,7 @@ export const LIFECYCLES: LifecycleDefinition[] = [
     staleness: 'New evidence revisions or inadequate evidence set Changes required and reopen review notes.'
   },
   {
-    id: 'review-note', record: 'Review point', module: 'Review Desk', route: 'reviews',
+    id: 'review-note', record: 'Review point', module: 'Review & Quality', route: 'reviews',
     path: [{ step: 'Open', statuses: ['Open'] }, { step: 'Responded', statuses: ['Responded'] }, { step: 'Cleared', statuses: ['Cleared'] }],
     rework: { statuses: ['Reopened'], returnsTo: 'Open', note: 'Reopened when the subject changes or the response is insufficient.' },
     transitions: [
@@ -329,7 +326,7 @@ export const LIFECYCLES: LifecycleDefinition[] = [
     ]
   },
   {
-    id: 'evidence', record: 'Evidence item', module: 'Evidence Catalogue', route: 'evidence',
+    id: 'evidence', record: 'Evidence item', module: 'Evidence', route: 'evidence',
     path: [{ step: 'Pending verification', statuses: ['Pending verification'] }, { step: 'Adequate', statuses: ['Adequate'] }],
     blocked: ['Deficient', 'Inadequate'], blockedAt: 'Adequate',
     transitions: [
@@ -338,7 +335,7 @@ export const LIFECYCLES: LifecycleDefinition[] = [
     ]
   },
   {
-    id: 'finding', record: 'Finding / difference', module: 'Findings & Differences', route: 'findings',
+    id: 'finding', record: 'Finding / difference', module: 'Findings', route: 'findings',
     path: [{ step: 'Uncorrected', statuses: ['Uncorrected'] }, { step: 'Proposed for correction', statuses: ['Proposed for correction', 'Management agreed'] }, { step: 'Resolved', statuses: ['Corrected in TB', 'Corrected by client'] }],
     terminal: ['Waived as immaterial', 'Uncorrected waived'],
     transitions: [
@@ -347,7 +344,7 @@ export const LIFECYCLES: LifecycleDefinition[] = [
     ]
   },
   {
-    id: 'release', record: 'Release candidate / release', module: 'Release & Completion', route: 'delivery',
+    id: 'release', record: 'Release candidate / release', module: 'Reporting & Archive', route: 'delivery',
     path: [{ step: 'Gates cleared', statuses: ['Ready'] }, { step: 'Candidate prepared', statuses: ['Candidate'] }, { step: 'Released', statuses: ['Released'] }, { step: 'Archived', statuses: ['Archived'] }],
     blocked: ['Blocked'], blockedAt: 'Gates cleared', stale: ['Stale'],
     transitions: [
@@ -359,7 +356,7 @@ export const LIFECYCLES: LifecycleDefinition[] = [
     amendPath: 'reopenReleaseForAmendment → prepareAmendedRelease produces an amended release that references its predecessor.'
   },
   {
-    id: 'approval', record: 'Engagement approval (manager / client / partner / EQR)', module: 'Sign-offs & EQR', route: 'approvals',
+    id: 'approval', record: 'Engagement approval (manager / client / partner / EQR)', module: 'Review & Quality', route: 'reviews',
     path: [{ step: 'Manager', statuses: ['manager'] }, { step: 'Client management', statuses: ['client'] }, { step: 'Partner', statuses: ['partner'] }, { step: 'EQR (when required)', statuses: ['eqr'] }],
     stale: ['Stale'],
     transitions: [
@@ -378,7 +375,7 @@ export const LIFECYCLES: LifecycleDefinition[] = [
     ]
   },
   {
-    id: 'invitation', record: 'Simulated invitation', module: 'Firm Administration', route: 'administration',
+    id: 'invitation', record: 'Simulated invitation', module: 'Identity & Workspace Access', route: 'overview',
     path: [{ step: 'Pending', statuses: ['Pending'] }, { step: 'Accepted', statuses: ['Accepted'] }],
     terminal: ['Expired', 'Revoked'],
     transitions: [
@@ -389,7 +386,7 @@ export const LIFECYCLES: LifecycleDefinition[] = [
     ]
   },
   {
-    id: 'm365', record: 'Microsoft 365 simulation', module: 'Microsoft 365 Setup', route: 'm365-setup',
+    id: 'm365', record: 'Microsoft 365 simulation', module: 'Historical simulation state', route: 'documents',
     path: [{ step: 'Not configured', statuses: ['Not configured'] }, { step: 'Simulated verified', statuses: ['Simulated verified'] }],
     blocked: ['Simulated error'], blockedAt: 'Simulated verified', terminal: ['Disconnected'],
     transitions: [{ from: 'Not configured', to: 'Simulated verified / Simulated error', command: 'updateFirmSettings', actor: 'Administrator', rule: 'liveConnected is always false; no OAuth or Graph calls' }]
@@ -405,6 +402,15 @@ export interface LifecycleView {
   /** Where the record sits relative to the main path. */
   position: 'path' | 'rework' | 'blocked' | 'stale' | 'terminal' | 'unknown';
   reworkNote?: string;
+}
+
+/** Current record lifecycles. Every owner route must be present in the current catalogue. */
+export const LIFECYCLES: LifecycleDefinition[] = lifecycleDefinitions;
+
+for (const definition of LIFECYCLES) {
+  if (!Object.hasOwn(ROUTE_CATALOG, definition.route)) {
+    throw new Error(`Lifecycle ${definition.id} refers to an unknown current route: ${definition.route}`);
+  }
 }
 
 export function lifecycleById(id: string): LifecycleDefinition {

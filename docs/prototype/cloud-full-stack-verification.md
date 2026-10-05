@@ -1,5 +1,7 @@
 # Cloud full-stack verification
 
+> **Phase record (historical):** This document records verification evidence for the cloud full-stack PHASE as it was executed. Later cutover work (route model, Worker consolidation, `cloudWorkspace.ts`) supersedes operational details such as `demo:*` scripts and `tests/cloud/v2-api.test.ts` (now `tests/cloud/api.test.ts`).
+
 Evidence recorded from a real deployment. Nothing here is a plan.
 
 ## 1. Environment
@@ -47,9 +49,9 @@ env.ASSETS                               Assets
 
 The Worker's transitive `src/` imports were listed explicitly and contain **no**
 browser-only module: `types/*`, `shared/api/*`, `services/{guards, targetLifecycle,
-calculations, findings, adjustmentSupport, legacyRoutes, legacyRouteCatalog,
+calculations, findings, adjustmentSupport,
 routeCatalog}`, `domain/*`. `prototypeStore`, `exportService`, `artifactStore` and
-`cloudDemo` are never bundled — which is what makes the shared rules genuinely
+the retired snapshot client are never bundled — which is what makes the shared rules genuinely
 runnable in `workerd`.
 
 ## 5. Live API smoke
@@ -122,3 +124,98 @@ Recorded because they are the reason the tests exist:
   run, because those are not implemented yet (see the architecture doc, section 9).
 * The three pre-existing `conformityBacklog` failures remain unresolved; they
   predate this work and were left untouched.
+
+---
+
+# Cutover verification (one route model, one guide model, one Worker)
+
+Recorded from the worktree that cut the prototype to a single current route model,
+a single current workflow-guide model and a single same-origin Worker.
+
+| Check | Command | Result |
+| --- | --- | --- |
+| Source typecheck | `npm run lint` | pass |
+| Worker typecheck | `npm run cloud:typecheck` | pass |
+| Unit suite | `npm run test:unit` | 459/459 pass, 0 fail |
+| Production build | `npm run build` | `vite build` exit 0 |
+| Current workflow matrix | `npx tsx tools/current-workflow-matrix.ts --check` | current (30 routes, 33 record lifecycles) |
+| Migration | `npm run cloud:migrate` | `0004_workspace_seeds.sql` applied |
+| Deploy | `wrangler deploy --config wrangler.jsonc` | 40 asset files uploaded; Worker `auditsphere-visual-prototype` |
+| Live health | `GET /api/health` | `200 {"ok":true,"storage":"D1+R2","mode":"cloud-workspace","version":2}` |
+| Live seeds | `GET /api/seeds` | 200 |
+| Live SPA deep link | `GET /delivery` | 200 |
+| Live integration | `npm run test:cloud` with `CLOUD_API_URL` | tests 1, pass 1, fail 0 (real D1 + real R2) |
+| Shipped bundle scan | `dist/**/*.js` scanned | clean: no `steaudit-prototype-demo-api`, `legacyRoutes`, `legacyRouteCatalog`, `moduleGuideContent`, `guideProjections`, `VITE_DEMO_API_URL` |
+
+The live integration test also covers the newly server-authoritative
+`contact.create` / `contact.update` / `contact.setPrimary`,
+`proposal.create` / `proposal.revise` and
+`client.defineCustomField` / `client.setCustomField` /
+`client.createRelationshipGroup` commands, reading the committed state back from D1.
+
+## Server-authoritative command families after the cutover
+
+25 command types dispatch through `SYNCED_COMMAND_TYPES` and execute a single shared
+browser-free `src/domain/` body on both the browser and the Worker:
+`client.create`, `client.update`, `client.nominateContact`,
+`client.reviewContactNomination`, `client.setCustomField`, `client.defineCustomField`,
+`client.setCustomFieldEnabled`, `client.assignRelationshipGroup`,
+`client.createRelationshipGroup`, `contact.create`, `contact.update`,
+`contact.setPrimary`, `lead.create`, `lead.update`, `lead.convert`,
+`proposal.create`, `proposal.update`, `proposal.present`, `proposal.review`,
+`proposal.revise`, `proposal.respond`, `engagement.create`,
+`engagement.setLifecycle`, `invoice.review` and `invoice.issue`.
+
+Two further union members are deliberately **not** in the sync list:
+
+* `engagement.updateAdmin` and `invoice.create` — their browser implementations
+  still enforce richer rules than the extracted shared body (audit-plan
+  supersession, procedure scope reassessment, time/proposal source pinning), so
+  syncing them would make a cloud workspace behave differently from a local one.
+* `workspace.rename` is server-authoritative, but through the dedicated workspace
+  route rather than the browser command dispatch.
+
+See the coverage table in
+[cloud-full-stack-migration.md](cloud-full-stack-migration.md).
+
+The remaining mutation families (jobs/tasks, PBC/documents, trial balance,
+planning, risks/workprograms, sampling, confirmations, evidence, findings,
+reviews, delivery, records, reports, ledger, time, scheduling, portal and
+`artifactStore` byte flows) still run browser-local. Adding one is mechanical but
+per-family: a faithful browser-free body, a union member, a dispatcher case that
+declares every changed entity, store delegation, and the `SYNCED_COMMAND_TYPES`
+entry. Note that the Worker's state adapter persists any `id`-keyed top-level array
+generically, but a collection must exist in the seed to be part of the workspace
+manifest; `customFields`, `relationshipGroups` and `clientContactNominations` are
+all present in `initialState.ts` and `worker/seed.sql`.
+
+## Browser (Chrome) e2e status
+
+`npm run test:e2e` was run against the cutover worktree (Chrome via CDP):
+
+* **18 of 20 journeys pass**, including `retired route hashes fall back safely and
+  never reach the legacy snapshot Worker`, `cloud workspace controls degrade
+  honestly without a cloud API`, `D5 Workprograms & Evidence opens current FSLI
+  fieldwork rather than the retired audit redirect`, the lifecycle-overview /
+  retired-hash / mobile journey, and the full canonical command journey.
+* **1 failure is caused by this cutover and was repaired in the test.** The
+  lifecycle-overview journey still asserted the removed redirect contract
+  (retired hash `quality` → `#reviews`). Under the current no-redirect policy a
+  retired hash falls back to the persona default, so the assertion now expects
+  `#overview`; the journey name was updated from "retired redirects" to "retired
+  hash fallbacks".
+* **1 failure is pre-existing and deliberately left untouched:**
+  `US-FINAL-ALIGN-001 scenarios 1–3 use visible controls from lead through
+  planning and fieldwork`. Its harness (`tests/helpers/visibleAlignmentJourney.ts`)
+  waits for strings the baseline product does not render:
+  1. the first `state()` call waits for overview text `Next State Gate`, which does
+     not exist anywhere in `src` (only in the helper); the current copy is
+     `Current Gate to Advance:` / `Next State:`;
+  2. once that is passed, the same call waits for a single `<p>` containing both
+     `Active State:` and the state label, but `LifecycleOverviewView.tsx:147-150`
+     renders them as sibling `<span>`s, so the condition can never match.
+
+  Both conditions are properties of unmodified baseline files
+  (`visibleAlignmentJourney.ts` and `LifecycleOverviewView.tsx` were last changed in
+  commit `955427d`), so this journey could not pass before the cutover either. It is
+  reported here rather than deleted, skipped or silently re-baselined.

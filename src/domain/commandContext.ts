@@ -16,6 +16,10 @@ export interface CommandContext {
   log(text: string, ref: string, type?: string): void;
   /** Notify subscribers. Store: re-render. Worker: no-op. */
   notify(): void;
+  /** Optional callback for the browser to delegate this command to the Worker after local acceptance. */
+  dispatch?(command: import('../shared/api/commands').WorkspaceCommand): void;
+  /** Local compatibility wrapper may preserve its historical missing-ID no-op. */
+  strictNotFound?: boolean;
 }
 
 /** Context used by the Worker: wall clock, crypto ids, no-op notification. */

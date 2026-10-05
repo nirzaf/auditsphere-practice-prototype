@@ -10,7 +10,7 @@ import { prototypeStore } from '../../src/store/prototypeStore.js';
 import { migratePersistedState } from '../../src/services/migrations.js';
 import { visibleClientIds, visibleEngagementIds, hasConsolidationGroupScope, canReadSearchRecord } from '../../src/services/guards.js';
 import { applyReportingAdjustments, calculateBalanceSheet, calculateBudgetVsActual, calculateIncomeStatement } from '../../src/services/calculations.js';
-import type { PrototypeState } from '../../src/types/index.js';
+import type { PrototypeState, RouteKey } from '../../src/types/index.js';
 
 let state: PrototypeState;
 
@@ -126,7 +126,7 @@ describe('invoice reasoned return and rework (MOD-14)', () => {
   });
 });
 
-describe('firm settings prospective save (MOD-39)', () => {
+describe('firm settings prospective save', () => {
   it('rejects non-admins and atomically rejects invalid patches', () => {
     setPersona(state, 'Layla Rahman');
     assert.throws(() => prototypeStore.updateFirmSettings({ firmName: 'X' }), /Only administrators/);
@@ -669,16 +669,17 @@ describe('proposal response methods and search person/grant matrix (VP-010/011/0
     const clientState = { ...s, currentUserId: clientUser.id, currentRole: clientUser.role, currentPerson: clientUser.name };
     assert.equal(canReadSearchRecord(clientState as any, { route: 'portal', clientId: doc.clientId, objectId: doc.id, title: doc.name }), true, 'a client reads its shared document through the portal route');
     assert.equal(canReadSearchRecord(clientState as any, internalDoc as any), false, 'a client cannot open internal staff records through search');
-    // Narrow manager: granted engagement only.
+    // Narrow manager: granted engagement only, on a current staff route.
     const narrow = { ...s, currentUserId: 'group-user', currentRole: 'manager', currentPerson: 'Mona Khalil' };
-    assert.equal(canReadSearchRecord(narrow as any, { route: 'jobs', clientId: 'CL-001', engagementId: 'ENG-26001', objectId: 'JOB-2601', title: 'Granted job' }), true, 'the narrow manager reads granted-engagement records');
-    assert.equal(canReadSearchRecord(narrow as any, { route: 'jobs', clientId: 'CL-002', engagementId: 'ENG-26002', objectId: 'JOB-2602', title: 'Foreign job' }), false, 'the narrow manager cannot read sibling-engagement records');
+    assert.equal(canReadSearchRecord(narrow as any, { route: 'scheduling', clientId: 'CL-001', engagementId: 'ENG-26001', objectId: 'SCH-2601', title: 'Granted scheduling record' }), true, 'the narrow manager reads granted-engagement records');
+    assert.equal(canReadSearchRecord(narrow as any, { route: 'scheduling', clientId: 'CL-002', engagementId: 'ENG-26002', objectId: 'SCH-2602', title: 'Foreign scheduling record' }), false, 'the narrow manager cannot read sibling-engagement records');
     // Revoked scope: strip the narrow grant and the record becomes unreadable.
     const revoked = { ...narrow, roleGrants: s.roleGrants.filter(g => g.userId !== 'group-user') };
-    assert.equal(canReadSearchRecord(revoked as any, { route: 'jobs', clientId: 'CL-001', engagementId: 'ENG-26001', objectId: 'JOB-2601', title: 'Granted job' }), false, 'a revoked grant removes search readability');
-    // Superuser reads everything but overrides are labelled (checked elsewhere); admin reads staff records.
+    assert.equal(canReadSearchRecord(revoked as any, { route: 'scheduling', clientId: 'CL-001', engagementId: 'ENG-26001', objectId: 'SCH-2601', title: 'Granted scheduling record' }), false, 'a revoked grant removes search readability');
+    // Retired route identifiers are openable by no one, so a firm-settings record has no fake
+    // legacy search destination; the administrator reaches current workspaces only.
     const admin = { ...s, currentUserId: 'admin', currentRole: 'admin', currentPerson: 'Khalid Al-Nuaimi' };
-    assert.equal(canReadSearchRecord(admin as any, { route: 'administration', objectId: 'FIRM', title: 'Firm settings' }), true, 'an administrator reads administration records');
+    assert.equal(canReadSearchRecord(admin as any, { route: 'administration' as unknown as RouteKey, objectId: 'FIRM', title: 'Firm settings' }), false, 'a retired route is not a readable search destination for any persona');
   });
 });
 

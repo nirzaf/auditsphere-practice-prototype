@@ -141,6 +141,10 @@
       "SPAN.target-action",
       "BUTTON.btn sm",
       "SPAN.target-action",
+      "BUTTON.btn sm",
+      "SPAN.target-action",
+      "BUTTON.btn sm",
+      "SPAN.target-action",
       "BUTTON.btn sm"
     ]
   },
@@ -157,13 +161,13 @@
     "title": "Opinion & ML / LOR / Audit Report",
     "overflow": [
       "BUTTON.btn primary mt16",
+      "BUTTON.btn primary mt16",
       "SPAN.target-action",
       "BUTTON.btn sm",
       "SPAN.target-action",
       "BUTTON.btn sm",
       "SPAN.target-action",
-      "BUTTON.btn sm",
-      "SPAN.target-action"
+      "BUTTON.btn sm"
     ]
   },
   {
@@ -238,9 +242,7 @@
     "text": "rgb(23, 33, 43)",
     "topbar": "rgb(255, 255, 255)",
     "title": "STE Audit Management Tool v2.1",
-    "overflow": [
-      "BUTTON.btn sm ghost"
-    ]
+    "overflow": []
   },
   {
     "route": "#overview",
@@ -342,8 +344,8 @@
       "TH.text-right",
       "TH.text-right",
       "TH.text-right",
-      "TH.text-right",
-      "TH."
+      "TH.",
+      "TH.text-center"
     ]
   },
   {
@@ -359,7 +361,7 @@
     "title": "Fieldwork programs",
     "overflow": [
       "BUTTON.tab-btn ",
-      "BUTTON.tab-btn ",
+      "BUTTON.btn sm",
       "TABLE.",
       "THEAD.",
       "TR.",
@@ -383,6 +385,10 @@
       "SPAN.target-action",
       "BUTTON.btn sm",
       "SPAN.target-action",
+      "BUTTON.btn sm",
+      "SPAN.target-action",
+      "BUTTON.btn sm",
+      "SPAN.target-action",
       "BUTTON.btn sm"
     ]
   },
@@ -398,8 +404,8 @@
     "topbar": "rgb(255, 255, 255)",
     "title": "Opinion & ML / LOR / Audit Report",
     "overflow": [
-      "SPAN.target-action",
-      "BUTTON.btn sm",
+      "BUTTON.btn primary mt16",
+      "BUTTON.btn primary mt16",
       "SPAN.target-action",
       "BUTTON.btn sm",
       "SPAN.target-action",
@@ -512,9 +518,9 @@
       "TR.",
       "TH.",
       "TH.",
-      "TH.",
       "TBODY.",
-      "TR."
+      "TR.",
+      "TD."
     ]
   },
   {
@@ -528,15 +534,7 @@
     "text": "rgb(23, 33, 43)",
     "topbar": "rgb(255, 255, 255)",
     "title": "Acceptance / continuance",
-    "overflow": [
-      "TABLE.",
-      "THEAD.",
-      "TR.",
-      "TH.",
-      "TBODY.",
-      "TR.",
-      "TD."
-    ]
+    "overflow": []
   },
   {
     "route": "#audit-planning",
@@ -637,7 +635,7 @@
   {
     "route": "#reports",
     "width": 760,
-    "documentWidth": 760,
+    "documentWidth": 745,
     "main": true,
     "hiddenIdentity": true,
     "hiddenSearch": true,
@@ -659,7 +657,7 @@
   {
     "route": "#portal",
     "width": 760,
-    "documentWidth": 760,
+    "documentWidth": 745,
     "main": true,
     "hiddenIdentity": true,
     "hiddenSearch": true,
@@ -675,6 +673,394 @@
     "route": "#client-requirements",
     "width": 760,
     "documentWidth": 745,
+    "main": true,
+    "hiddenIdentity": true,
+    "hiddenSearch": true,
+    "font": "system-ui, sans-serif",
+    "text": "rgb(23, 33, 43)",
+    "topbar": "rgb(255, 255, 255)",
+    "title": "STE Audit Management Tool v2.1",
+    "overflow": []
+  },
+  {
+    "route": "#overview",
+    "width": 960,
+    "documentWidth": 945,
+    "main": true,
+    "hiddenIdentity": true,
+    "hiddenSearch": true,
+    "font": "system-ui, sans-serif",
+    "text": "rgb(23, 33, 43)",
+    "topbar": "rgb(255, 255, 255)",
+    "title": "STE Audit Management Tool",
+    "overflow": []
+  },
+  {
+    "route": "#proposals",
+    "width": 960,
+    "documentWidth": 960,
+    "main": true,
+    "hiddenIdentity": true,
+    "hiddenSearch": true,
+    "font": "system-ui, sans-serif",
+    "text": "rgb(23, 33, 43)",
+    "topbar": "rgb(255, 255, 255)",
+    "title": "Proposals & Engagement Terms",
+    "overflow": [
+      "TABLE.",
+      "THEAD.",
+      "TR.",
+      "TH.",
+      "TH.",
+      "TBODY.",
+      "TR.",
+      "TD."
+    ]
+  },
+  {
+    "route": "#onboarding",
+    "width": 960,
+    "documentWidth": 945,
+    "main": true,
+    "hiddenIdentity": true,
+    "hiddenSearch": true,
+    "font": "system-ui, sans-serif",
+    "text": "rgb(23, 33, 43)",
+    "topbar": "rgb(255, 255, 255)",
+    "title": "Acceptance / continuance",
+    "overflow": []
+  },
+  {
+    "route": "#audit-planning",
+    "width": 960,
+    "documentWidth": 945,
+    "main": true,
+    "hiddenIdentity": true,
+    "hiddenSearch": true,
+    "font": "system-ui, sans-serif",
+    "text": "rgb(23, 33, 43)",
+    "topbar": "rgb(255, 255, 255)",
+    "title": "Planning & PM / TE / SAD",
+    "overflow": []
+  },
+  {
+    "route": "#financial-statements",
+    "width": 960,
+    "documentWidth": 945,
+    "main": true,
+    "hiddenIdentity": true,
+    "hiddenSearch": true,
+    "font": "system-ui, sans-serif",
+    "text": "rgb(23, 33, 43)",
+    "topbar": "rgb(255, 255, 255)",
+    "title": "P&L / balance sheet drill-down",
+    "overflow": [
+      "TABLE.target-table",
+      "THEAD.",
+      "TR.",
+      "TH.text-right",
+      "TH.",
+      "TH.text-center",
+      "TBODY.",
+      "TR.hover-row"
+    ]
+  },
+  {
+    "route": "#audit-fieldwork",
+    "width": 960,
+    "documentWidth": 945,
+    "main": true,
+    "hiddenIdentity": true,
+    "hiddenSearch": true,
+    "font": "system-ui, sans-serif",
+    "text": "rgb(23, 33, 43)",
+    "topbar": "rgb(255, 255, 255)",
+    "title": "Fieldwork programs",
+    "overflow": [
+      "TABLE.",
+      "THEAD.",
+      "TR.",
+      "TH.",
+      "TH.",
+      "TH.",
+      "TH.",
+      "TBODY."
+    ]
+  },
+  {
+    "route": "#reviews",
+    "width": 960,
+    "documentWidth": 945,
+    "main": true,
+    "hiddenIdentity": true,
+    "hiddenSearch": true,
+    "font": "system-ui, sans-serif",
+    "text": "rgb(23, 33, 43)",
+    "topbar": "rgb(255, 255, 255)",
+    "title": "SRM → Partner clearance",
+    "overflow": []
+  },
+  {
+    "route": "#delivery",
+    "width": 960,
+    "documentWidth": 945,
+    "main": true,
+    "hiddenIdentity": true,
+    "hiddenSearch": true,
+    "font": "system-ui, sans-serif",
+    "text": "rgb(23, 33, 43)",
+    "topbar": "rgb(255, 255, 255)",
+    "title": "Opinion & ML / LOR / Audit Report",
+    "overflow": []
+  },
+  {
+    "route": "#records",
+    "width": 960,
+    "documentWidth": 945,
+    "main": true,
+    "hiddenIdentity": true,
+    "hiddenSearch": true,
+    "font": "system-ui, sans-serif",
+    "text": "rgb(23, 33, 43)",
+    "topbar": "rgb(255, 255, 255)",
+    "title": "60-day freeze & read-only archive",
+    "overflow": []
+  },
+  {
+    "route": "#reports",
+    "width": 960,
+    "documentWidth": 945,
+    "main": true,
+    "hiddenIdentity": true,
+    "hiddenSearch": true,
+    "font": "system-ui, sans-serif",
+    "text": "rgb(23, 33, 43)",
+    "topbar": "rgb(255, 255, 255)",
+    "title": "Practice realization & analytics",
+    "overflow": [
+      "TABLE.target-table",
+      "THEAD.",
+      "TR.",
+      "TH.text-right",
+      "TH.text-right",
+      "TH.text-right",
+      "TH.text-right",
+      "TBODY."
+    ]
+  },
+  {
+    "route": "#portal",
+    "width": 960,
+    "documentWidth": 945,
+    "main": true,
+    "hiddenIdentity": true,
+    "hiddenSearch": true,
+    "font": "system-ui, sans-serif",
+    "text": "rgb(23, 33, 43)",
+    "topbar": "rgb(255, 255, 255)",
+    "title": "Client Information & PBC Workspace",
+    "overflow": [
+      "BUTTON.tab-btn "
+    ]
+  },
+  {
+    "route": "#client-requirements",
+    "width": 960,
+    "documentWidth": 945,
+    "main": true,
+    "hiddenIdentity": true,
+    "hiddenSearch": true,
+    "font": "system-ui, sans-serif",
+    "text": "rgb(23, 33, 43)",
+    "topbar": "rgb(255, 255, 255)",
+    "title": "STE Audit Management Tool v2.1",
+    "overflow": []
+  },
+  {
+    "route": "#overview",
+    "width": 1000,
+    "documentWidth": 985,
+    "main": true,
+    "hiddenIdentity": true,
+    "hiddenSearch": true,
+    "font": "system-ui, sans-serif",
+    "text": "rgb(23, 33, 43)",
+    "topbar": "rgb(255, 255, 255)",
+    "title": "STE Audit Management Tool",
+    "overflow": []
+  },
+  {
+    "route": "#proposals",
+    "width": 1000,
+    "documentWidth": 1000,
+    "main": true,
+    "hiddenIdentity": true,
+    "hiddenSearch": true,
+    "font": "system-ui, sans-serif",
+    "text": "rgb(23, 33, 43)",
+    "topbar": "rgb(255, 255, 255)",
+    "title": "Proposals & Engagement Terms",
+    "overflow": [
+      "TABLE.",
+      "THEAD.",
+      "TR.",
+      "TH.",
+      "TH.",
+      "TBODY.",
+      "TR.",
+      "TD."
+    ]
+  },
+  {
+    "route": "#onboarding",
+    "width": 1000,
+    "documentWidth": 985,
+    "main": true,
+    "hiddenIdentity": true,
+    "hiddenSearch": true,
+    "font": "system-ui, sans-serif",
+    "text": "rgb(23, 33, 43)",
+    "topbar": "rgb(255, 255, 255)",
+    "title": "Acceptance / continuance",
+    "overflow": []
+  },
+  {
+    "route": "#audit-planning",
+    "width": 1000,
+    "documentWidth": 985,
+    "main": true,
+    "hiddenIdentity": true,
+    "hiddenSearch": true,
+    "font": "system-ui, sans-serif",
+    "text": "rgb(23, 33, 43)",
+    "topbar": "rgb(255, 255, 255)",
+    "title": "Planning & PM / TE / SAD",
+    "overflow": []
+  },
+  {
+    "route": "#financial-statements",
+    "width": 1000,
+    "documentWidth": 985,
+    "main": true,
+    "hiddenIdentity": true,
+    "hiddenSearch": true,
+    "font": "system-ui, sans-serif",
+    "text": "rgb(23, 33, 43)",
+    "topbar": "rgb(255, 255, 255)",
+    "title": "P&L / balance sheet drill-down",
+    "overflow": [
+      "TABLE.target-table",
+      "THEAD.",
+      "TR.",
+      "TH.",
+      "TH.text-center",
+      "TBODY.",
+      "TR.hover-row",
+      "TD."
+    ]
+  },
+  {
+    "route": "#audit-fieldwork",
+    "width": 1000,
+    "documentWidth": 985,
+    "main": true,
+    "hiddenIdentity": true,
+    "hiddenSearch": true,
+    "font": "system-ui, sans-serif",
+    "text": "rgb(23, 33, 43)",
+    "topbar": "rgb(255, 255, 255)",
+    "title": "Fieldwork programs",
+    "overflow": [
+      "TABLE.",
+      "THEAD.",
+      "TR.",
+      "TH.",
+      "TH.",
+      "TH.",
+      "TH.",
+      "TBODY."
+    ]
+  },
+  {
+    "route": "#reviews",
+    "width": 1000,
+    "documentWidth": 985,
+    "main": true,
+    "hiddenIdentity": true,
+    "hiddenSearch": true,
+    "font": "system-ui, sans-serif",
+    "text": "rgb(23, 33, 43)",
+    "topbar": "rgb(255, 255, 255)",
+    "title": "SRM → Partner clearance",
+    "overflow": []
+  },
+  {
+    "route": "#delivery",
+    "width": 1000,
+    "documentWidth": 985,
+    "main": true,
+    "hiddenIdentity": true,
+    "hiddenSearch": true,
+    "font": "system-ui, sans-serif",
+    "text": "rgb(23, 33, 43)",
+    "topbar": "rgb(255, 255, 255)",
+    "title": "Opinion & ML / LOR / Audit Report",
+    "overflow": []
+  },
+  {
+    "route": "#records",
+    "width": 1000,
+    "documentWidth": 985,
+    "main": true,
+    "hiddenIdentity": true,
+    "hiddenSearch": true,
+    "font": "system-ui, sans-serif",
+    "text": "rgb(23, 33, 43)",
+    "topbar": "rgb(255, 255, 255)",
+    "title": "60-day freeze & read-only archive",
+    "overflow": []
+  },
+  {
+    "route": "#reports",
+    "width": 1000,
+    "documentWidth": 985,
+    "main": true,
+    "hiddenIdentity": true,
+    "hiddenSearch": true,
+    "font": "system-ui, sans-serif",
+    "text": "rgb(23, 33, 43)",
+    "topbar": "rgb(255, 255, 255)",
+    "title": "Practice realization & analytics",
+    "overflow": [
+      "TABLE.target-table",
+      "THEAD.",
+      "TR.",
+      "TH.text-right",
+      "TH.text-right",
+      "TH.text-right",
+      "TH.text-right",
+      "TBODY."
+    ]
+  },
+  {
+    "route": "#portal",
+    "width": 1000,
+    "documentWidth": 985,
+    "main": true,
+    "hiddenIdentity": true,
+    "hiddenSearch": true,
+    "font": "system-ui, sans-serif",
+    "text": "rgb(23, 33, 43)",
+    "topbar": "rgb(255, 255, 255)",
+    "title": "Client Information & PBC Workspace",
+    "overflow": [
+      "BUTTON.tab-btn "
+    ]
+  },
+  {
+    "route": "#client-requirements",
+    "width": 1000,
+    "documentWidth": 985,
     "main": true,
     "hiddenIdentity": true,
     "hiddenSearch": true,
@@ -760,11 +1146,11 @@
       "TABLE.target-table",
       "THEAD.",
       "TR.",
-      "TH.text-right",
       "TH.",
       "TH.text-center",
       "TBODY.",
-      "TR.hover-row"
+      "TR.hover-row",
+      "TD."
     ]
   },
   {
@@ -831,7 +1217,7 @@
   {
     "route": "#reports",
     "width": 1024,
-    "documentWidth": 1024,
+    "documentWidth": 1009,
     "main": true,
     "hiddenIdentity": true,
     "hiddenSearch": true,
@@ -853,7 +1239,7 @@
   {
     "route": "#portal",
     "width": 1024,
-    "documentWidth": 1024,
+    "documentWidth": 1009,
     "main": true,
     "hiddenIdentity": true,
     "hiddenSearch": true,
@@ -955,10 +1341,10 @@
     "topbar": "rgb(255, 255, 255)",
     "title": "Fieldwork programs",
     "overflow": [
+      "BUTTON.btn sm",
       "TABLE.",
       "THEAD.",
       "TR.",
-      "TH.",
       "TH.",
       "TH.",
       "TH.",
@@ -1007,7 +1393,7 @@
   {
     "route": "#reports",
     "width": 1440,
-    "documentWidth": 1440,
+    "documentWidth": 1425,
     "main": true,
     "hiddenIdentity": true,
     "hiddenSearch": true,
@@ -1020,7 +1406,6 @@
       "THEAD.",
       "TR.",
       "TH.text-right",
-      "TH.text-right",
       "TBODY.",
       "TR.hover-row",
       "TD.text-right mono"
@@ -1029,7 +1414,7 @@
   {
     "route": "#portal",
     "width": 1440,
-    "documentWidth": 1440,
+    "documentWidth": 1425,
     "main": true,
     "hiddenIdentity": true,
     "hiddenSearch": true,
@@ -1181,7 +1566,7 @@
   {
     "route": "#reports",
     "width": 1920,
-    "documentWidth": 1920,
+    "documentWidth": 1905,
     "main": true,
     "hiddenIdentity": true,
     "hiddenSearch": true,
@@ -1194,7 +1579,7 @@
   {
     "route": "#portal",
     "width": 1920,
-    "documentWidth": 1920,
+    "documentWidth": 1905,
     "main": true,
     "hiddenIdentity": true,
     "hiddenSearch": true,

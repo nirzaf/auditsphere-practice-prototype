@@ -1,4 +1,3 @@
-import { RETIRED_ROUTE_REDIRECTS } from '../../src/services/legacyRoutes';
 // VP-063 unit: guards + store commands (AT-11/AT-12/AT-18/AT-24/AT-28/AT-31/AT-32/AT-47/AT-54).
 // Same-person, scope, hierarchy, allocation and stale-revision rules share one
 // implementation between UI actions and tests.
@@ -8,7 +7,7 @@ import { createInitialState } from '../../src/store/initialState.js';
 import { prototypeStore } from '../../src/store/prototypeStore.js';
 import { visibleClientIds, visibleEngagementIds, requireEngagementScope, canOpenRoute, canReadSearchRecord, GuardError, hasConsolidationGroupScope, hasSelectedEngagementScope, eligibleAuditRiskOwners, requireIndependentActor } from '../../src/services/guards.js';
 import { validateFixtures, migratePersistedState } from '../../src/services/migrations.js';
-import type { PrototypeState } from '../../src/types/index.js';
+import type { PrototypeState, RouteKey } from '../../src/types/index.js';
 import { seedPackageDefinition, seedManagementAcknowledgement } from './packageFixture.js';
 
 let state: PrototypeState;
@@ -122,11 +121,13 @@ describe('client contact nomination (VP-025)', () => {
 });
 
 describe('prototype superuser access', () => {
-  it('opens every route, sees every client, engagement and supported consolidation group', () => {
+  it('opens every current route, sees every client, engagement and supported consolidation group', () => {
     setPersona(state, 'AuditSphere Superuser');
     state.roleGrants = state.roleGrants.filter(grant => grant.userId !== 'superuser');
-    const routes = ['overview','clients','client-detail','acquisition','proposals','engagements','jobs','job-templates','documents','communications','my-time','budgets','billing','receivables','accounting-setup','trial-balance','gl-transactions','account-mappings','adjustments','reconciliations','financial-statements','financial-packages','consolidation','onboarding','audit-planning','audit-risks','audit-fieldwork','sampling','audit','evidence','findings','reviews','approvals','quality','delivery','records','reports','search','administration','m365-setup','portal','services','role-guide','module-guide','requirements'] as const;
-    assert.ok(routes.every(route => canOpenRoute('superuser', route) === !RETIRED_ROUTE_REDIRECTS[route]), 'active routes are available; retired surfaces are redirected');
+    // Every current route is open to the presenter identity. Retired identifiers no longer
+    // exist in RouteKey, so there is no retired complement left to enumerate.
+    const routes: RouteKey[] = ['overview','clients','client-detail','acquisition','proposals','engagements','billing','onboarding','documents','trial-balance','audit-planning','scheduling','financial-statements','audit-risks','audit-fieldwork','sampling','confirmations','evidence','findings','reviews','delivery','records','my-time','reports','practice-ledger','portal','requirements','client-requirements','role-guide','module-guide'];
+    assert.ok(routes.every(route => canOpenRoute('superuser', route)), 'every current route is available to the presenter identity');
     assert.deepEqual(visibleClientIds(state), 'ALL');
     assert.deepEqual(visibleEngagementIds(state), 'ALL');
     assert.ok(state.consolidationGroups.every(group => hasConsolidationGroupScope(state, group.id)));
@@ -173,9 +174,9 @@ describe('global search access projection (F01)', () => {
     assert.equal(canReadSearchRecord(state, invoice), false, 'a wide engagement grant does not grant the billing route');
 
     setPersona(state, 'Mona Khalil');
-    assert.equal(canReadSearchRecord(state, { route: 'communications', clientId: 'CL-001', clientWide: true }), true);
-    assert.equal(canReadSearchRecord(state, { route: 'communications', clientId: 'CL-001', requiresEngagement: true }), false, 'missing engagement ownership does not become a client-wide permission');
-    const communication = { route: 'communications' as const, clientId: 'CL-001', engagementId: 'ENG-26003', requiresEngagement: true };
+    assert.equal(canReadSearchRecord(state, { route: 'documents', clientId: 'CL-001', clientWide: true }), true);
+    assert.equal(canReadSearchRecord(state, { route: 'documents', clientId: 'CL-001', requiresEngagement: true }), false, 'missing engagement ownership does not become a client-wide permission');
+    const communication = { route: 'documents' as const, clientId: 'CL-001', engagementId: 'ENG-26003', requiresEngagement: true };
     assert.equal(canReadSearchRecord(state, communication), false, 'a stale or revoked sibling-scope click is rejected against current state');
   });
 });

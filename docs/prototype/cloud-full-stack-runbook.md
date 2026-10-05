@@ -34,21 +34,19 @@ npm.cmd run cloud:deploy     # npm run build && wrangler deploy --config wrangle
 ## Regenerating Worker binding types
 
 ```powershell
-npx.cmd wrangler types --config wrangler.jsonc worker/v2/cloudflare-env.d.ts
+npx.cmd wrangler types --config wrangler.jsonc worker/worker-configuration.d.ts
 ```
 
 If that command fails with `CreateDirectory: Access is denied; path =
 miniflare-CacheObject`, the environment blocks miniflare's cache directory. In
-that case `worker/v2/cloudflare-env.d.ts` already references the repo's generated
-runtime types, and the Worker's binding contract lives in `worker/v2/env.ts`.
+that case `worker/cloudflare-env.d.ts` already references the repo's generated
+runtime types, and the Worker's binding contract lives in `worker/env.ts`.
 
 ## Testing
 
 ```powershell
 $env:CLOUD_API_URL='https://auditsphere-visual-prototype.quadrate-lk.workers.dev'
-npm.cmd run test:cloud:v2
-$env:DEMO_API_URL=$env:CLOUD_API_URL
-npm.cmd run test:cloud      # legacy v1 snapshot API (unchanged)
+npm.cmd run test:cloud
 ```
 
 ## Inspecting data
@@ -68,19 +66,18 @@ never logged.
 
 ## Rollback
 
-The new Worker is fully additive, so rollback is a no-op for the existing product:
+The Worker serves both the app and the API, so rollback is per deployment:
 
-1. The Pages deployment (`steaudit-prototype`, `prototype.steaudit.com`) and the
-   legacy Worker (`steaudit-prototype-demo-api`) were never modified.
-2. To stop using the v2 Worker, simply stop calling it, or redeploy a previous
-   version with `wrangler rollback --config wrangler.jsonc`.
-3. Migration `0003` is additive. The new tables can be left in place harmlessly;
-   dropping them is only necessary if you want the schema fully back to v1, and
-   should be done deliberately (it destroys v2 workspace state).
+1. Redeploy a previous Worker version with `wrangler rollback --config wrangler.jsonc`.
+2. The retired snapshot Worker (`steaudit-prototype-demo-api`) still exists remotely but
+   receives no browser traffic; decommissioning it is a separately authorized action.
+3. Migrations are additive. The current tables can be left in place harmlessly;
+   dropping them is a destructive operation that would destroy cloud workspace state.
 
 ## Scheduled cleanup
 
 Cron `0 2 * * *` removes expired workspace sessions, expired idempotency keys,
 soft-deletes expired workspaces, purges abandoned `INITIALIZED`/`UPLOADING`/
-`STAGED` file rows and their R2 objects, and preserves the legacy snapshot
-retention (`demo_workspaces`, `demo_creation_limits`).
+`STAGED` file rows and their R2 objects. The retired snapshot tables
+(`demo_workspaces`, `demo_creation_limits`) are not consulted by the current
+runtime; removing them is a separately authorized destructive migration.

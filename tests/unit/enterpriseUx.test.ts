@@ -11,7 +11,7 @@ import { prototypeStore } from '../../src/store/prototypeStore.js';
 import { loadScenarioState } from '../../src/store/scenarios.js';
 import { statusKind, statusSemantic, isTerminalStatus } from '../../src/services/statusSemantics.js';
 import { LIFECYCLES, lifecycleById, projectLifecycle } from '../../src/services/lifecycles.js';
-import { ROUTE_CATALOG } from '../../src/services/legacyRouteCatalog.js';
+import { ROUTE_CATALOG } from '../../src/services/routeCatalog.js';
 import { buildWorkQueues, readyForReleaseEngagements } from '../../src/services/workQueues.js';
 import { isSamePerson, requireIndependentActor, scopedInvoices } from '../../src/services/guards.js';
 import type { PrototypeState } from '../../src/types/index.js';
@@ -230,14 +230,14 @@ describe('what changed since last review (deterministic workpaper diff)', () => 
   });
 });
 
-describe('module lifecycle guide coverage', () => {
-  it('gives every operational route its own rehearsal guide, exact route first', async () => {
-    const { guidesForRoute } = await import('../../historical/guideProjections.js');
-    const reference = new Set(['requirements', 'client-requirements', 'role-guide', 'module-guide']);
-    const missing = Object.keys(ROUTE_CATALOG).filter(route => !reference.has(route) && guidesForRoute(route as any).length === 0);
-    assert.deepEqual(missing, []);
-    assert.equal(guidesForRoute('approvals')[0].id, 'MOD-36', 'Sign-offs shows its own guide, not the adjustment guide that mentions approvals');
-    assert.equal(guidesForRoute('reconciliations')[0].id.startsWith('MOD-2'), true);
+describe('current workflow guide coverage', () => {
+  it('keeps every current workflow guide pointed at a current route', async () => {
+    const { TARGET_GUIDES } = await import('../../src/services/currentWorkflowGuides.js');
+    // The guide source is now the single workflow-guidance model; this asserts it can only
+    // describe routes that exist, rather than enumerating the retired 39-module catalogue.
+    const missing = TARGET_GUIDES.filter((guide: { route: string }) => !(guide.route in ROUTE_CATALOG));
+    assert.deepEqual(missing, [], 'every workflow guide targets a current route');
+    assert.ok(TARGET_GUIDES.length >= 15, 'the current workflow guide set covers the five modules');
   });
 });
 
@@ -252,7 +252,7 @@ describe('blocked and stale lifecycle positioning', () => {
 
 describe('outstanding sign-offs in the review queue', () => {
   it('lists a sign-off only for the assigned approver and only while it is not current for the generation', () => {
-    const q = (s: PrototypeState) => buildWorkQueues(s).find(queue => queue.id === 'my-reviews')!.items.filter(item => item.route === 'approvals');
+    const q = (s: PrototypeState) => buildWorkQueues(s).find(queue => queue.id === 'my-reviews')!.items.filter(item => item.kind === 'Partner sign-off');
     setPersona(state, 'partner');
     const partnerItems = q(state);
     const assigned = state.engagements.filter(e => !e.archive && e.partner === 'Daniel James' && (e.lifecycleStatus || 'Active') === 'Active' && e.approvals.partner?.generation !== e.generation);

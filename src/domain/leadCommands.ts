@@ -33,7 +33,10 @@ export function updateLeadCommand(state: PrototypeState, lead: Lead, ctx: Comman
   requireActiveIdentity(state);
   requireRoleKey(state, ['relationship', 'manager', 'partner'], 'manage opportunities');
   const index = state.leads.findIndex(l => l.id === lead.id);
-  if (index < 0) throw new GuardError('INVALID_STATE', `Opportunity "${lead.id}" was not found.`);
+  if (index < 0) {
+    if (ctx.strictNotFound) throw new GuardError('INVALID_STATE', `Opportunity "${lead.id}" was not found.`);
+    return { saved: lead };
+  }
   if (state.leads[index].convertedClientId) throw new GuardError('INVALID_STATE', 'A converted opportunity cannot be converted or reclassified again.');
   if (!lead.name.trim() || !lead.contact.trim() || !lead.service.trim() || !lead.owner.trim() || !isValidMoney(lead.value, true)) throw new GuardError('INVALID_STATE', 'Opportunity name, contact, requested service, owner and a valid non-negative fee are required.');
   if (lead.targetDate && !isRealDate(lead.targetDate)) throw new GuardError('INVALID_STATE', 'Opportunity target date must be a real calendar date.');
@@ -59,7 +62,9 @@ export function convertLeadCommand(state: PrototypeState, leadId: string, client
   if (lead.convertedClientId) {
     const existing = state.clients.find(c => c.id === lead.convertedClientId);
     if (existing) return { client: existing };
+    if (!ctx.strictNotFound) throw new GuardError('INVALID_STATE', 'A converted opportunity cannot be converted or reclassified again.');
   }
+  const previousClientCount = state.clients.length;
   if (lead.stage !== 'Won') throw new GuardError('INVALID_STATE', 'Only a won opportunity can be converted to a prospect.');
   lead.stage = 'Won';
   lead.accepted = false;
@@ -91,6 +96,17 @@ export function convertLeadCommand(state: PrototypeState, leadId: string, client
     state.clients.push(client);
   }
   lead.convertedClientId = client.id;
+  if (state.clients.length > previousClientCount && client.contact?.trim() && client.email?.trim()) {
+    state.contacts.push({
+      id: ctx.newId('CNT'),
+      clientId: client.id,
+      name: client.contact.trim(),
+      email: client.email.trim(),
+      phone: client.phone?.trim() || undefined,
+      isPrimary: true,
+      active: true
+    });
+  }
   ctx.log(`Opportunity ${lead.name} converted to client ${client.name}`, client.id);
   ctx.notify();
   return { client };

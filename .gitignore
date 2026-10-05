@@ -26,7 +26,7 @@ Desktop.ini
 .dev.vars
 .dev.vars.*
 
-# Regenerate with npm run demo:seed
+# Regenerate with npm run cloud:seed
 /worker/seed.sql
 
 # Generated test output (root only; evidence under docs/ stays tracked)

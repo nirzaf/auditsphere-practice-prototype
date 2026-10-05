@@ -5,12 +5,11 @@ import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { RouteKey, RoleKey } from '../../types';
 import { prototypeStore } from '../../store/prototypeStore';
 import { canOpenRoute, canReadSearchRecord, visibleClientIds, visibleEngagementIds, isClientRole, scopedInvoices } from '../../services/guards';
-import { canonicalRoute } from '../../services/legacyRoutes';
 import { SCENARIO_DEFINITIONS, ScenarioName } from '../../store/scenarios';
 import { getPackageContextDisplay } from '../../services/calculations';
 import { Icon } from '../common/Icons';
-import { CURRENT_ROUTE_CATALOG, routeCode } from '../../services/routeCatalog';
-import { CloudDemoControls, CloudDemoLabel } from '../common/CloudDemoControls';
+import { ROUTE_CATALOG, routeCode } from '../../services/routeCatalog';
+import { CloudDemoControls, CloudWorkspaceLabel } from '../common/CloudDemoControls';
 
 interface ShellProps {
   currentRoute: RouteKey;
@@ -497,9 +496,9 @@ export const Shell: React.FC<ShellProps> = ({ currentRoute, onRouteChange, onSel
               <Icon name="menu" />
             </button>
             <nav className="crumb" aria-label="Breadcrumb">
-              <span className="crumb-section">{CURRENT_ROUTE_CATALOG[canonicalRoute(currentRoute)]?.section || 'Workspace'}</span>
+              <span className="crumb-section">{ROUTE_CATALOG[currentRoute]?.section || 'Workspace'}</span>
               <span className="crumb-sep" aria-hidden="true">/</span>
-              <span className="crumb-module" aria-current="page">{CURRENT_ROUTE_CATALOG[canonicalRoute(currentRoute)]?.label || currentRoute}</span>
+              <span className="crumb-module" aria-current="page">{ROUTE_CATALOG[currentRoute]?.label || currentRoute}</span>
 
             </nav>
             <button
@@ -519,7 +518,7 @@ export const Shell: React.FC<ShellProps> = ({ currentRoute, onRouteChange, onSel
             <button className="btn sm" aria-pressed={presenterMode} onClick={() => setPresenterMode(v => !v)}>Presenter / Demo Controls</button>
             <span className="demo-pill">
               <span className="demo-dot" />
-              <CloudDemoLabel />
+              <CloudWorkspaceLabel />
             </span>
             <button
               className="btn sm tour-header"

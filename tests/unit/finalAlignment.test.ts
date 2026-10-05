@@ -1,4 +1,4 @@
-import { ROUTE_CATALOG } from '../../src/services/legacyRouteCatalog';
+import { ROUTE_CATALOG } from '../../src/services/routeCatalog';
 import { it } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -9,10 +9,9 @@ import { REQUIRED_CONFIRMATION_TYPES } from '../../src/types/targetLifecycle';
 import { TargetLifecycleCommands } from '../../src/store/targetLifecycleCommands';
 import { prototypeStore } from '../../src/store/prototypeStore';
 import { act, acceptance } from '../helpers/targetFixture';
-import { CURRENT_ROUTE_CATALOG } from '../../src/services/routeCatalog';
-import { RETIRED_ROUTE_REDIRECTS, resolveRouteHash } from '../../src/services/legacyRoutes';
+import { resolveRouteHash } from '../../src/services/routes';
 import { DECK_SLIDES } from '../../src/components/clientRequirements/deckData';
-import type { CurrentRouteKey, LegacyRouteId, PrototypeState } from '../../src/types';
+import type { PrototypeState, RouteKey } from '../../src/types';
 
 async function activatedFixture() {
   const state=targetFixture(),engagement=state.engagements[0];(prototypeStore as any).state=state;
@@ -88,35 +87,28 @@ const CURRENT_SECTIONS = [
   'Reference / Specification'
 ];
 
-it('F current route catalog covers only the five-module surface; legacy entries are redirect metadata', () => {
-  const currentKeys = Object.keys(CURRENT_ROUTE_CATALOG) as CurrentRouteKey[];
-  assert.ok(currentKeys.length >= 30, 'the current catalogue covers the whole v2.1 surface');
-  for (const key of currentKeys) {
-    const info = CURRENT_ROUTE_CATALOG[key];
+it('F the route catalogue is the single current five-module surface', () => {
+  const keys = Object.keys(ROUTE_CATALOG) as RouteKey[];
+  assert.ok(keys.length >= 30, 'the catalogue covers the whole current surface');
+  for (const key of keys) {
+    const info = ROUTE_CATALOG[key];
     assert.ok(CURRENT_SECTIONS.includes(info.section), `${key} sits in a current five-module section`);
     assert.doesNotMatch(info.moduleId, /^(LEGACY|MOD-)/, `${key} carries a current module identity`);
   }
-  const legacyIds = Object.keys(RETIRED_ROUTE_REDIRECTS) as LegacyRouteId[];
-  assert.equal(legacyIds.length, 18, 'the historical route ids stay enumerated');
-  for (const id of legacyIds) {
-    assert.ok(CURRENT_ROUTE_CATALOG[RETIRED_ROUTE_REDIRECTS[id]], `${id} redirects into a current route`);
-    assert.equal(ROUTE_CATALOG[id].moduleId, 'LEGACY', `${id} no longer claims a product module`);
-    assert.equal(ROUTE_CATALOG[id].section, 'Legacy Redirect', `${id} is marked as redirect metadata`);
-  }
-  const partition = new Set([...currentKeys, ...legacyIds]);
-  for (const key of Object.keys(ROUTE_CATALOG)) assert.ok(partition.has(key), `${key} is either current or legacy`);
 });
 
-it('F old bookmarks still resolve through the retained redirect map', () => {
-  const expectations = [
-    ['#audit', 'reviews'], ['#m365-setup', 'documents'], ['#packages', 'delivery'],
-    ['#accounting', 'trial-balance'], ['#jobs', 'scheduling'], ['#approvals', 'reviews']
-  ] as const;
-  for (const [hash, expected] of expectations) {
-    const resolved = resolveRouteHash(hash);
-    assert.ok(resolved && resolved.route === expected && resolved.redirected, `${hash} redirects to ${expected}`);
+it('F retired identifiers are not routes and never redirect into a module', () => {
+  const retired = [
+    'jobs', 'job-templates', 'communications', 'budgets', 'receivables', 'accounting-setup',
+    'gl-transactions', 'account-mappings', 'adjustments', 'reconciliations', 'financial-packages',
+    'consolidation', 'audit', 'approvals', 'quality', 'administration', 'm365-setup', 'services'
+  ];
+  assert.equal(retired.length, 18, 'the retired identifiers stay enumerated for the regression scan');
+  for (const id of retired) {
+    assert.equal((ROUTE_CATALOG as Record<string, unknown>)[id], undefined, `${id} is not a current route`);
+    assert.equal(resolveRouteHash(`#${id}`), null, `#${id} resolves to nothing and is never redirected`);
   }
-  assert.equal(resolveRouteHash('#audit-fieldwork')?.redirected, false, 'current routes resolve directly');
+  assert.equal(resolveRouteHash('#audit-fieldwork'), 'audit-fieldwork', 'current routes resolve directly');
 });
 
 it('H prohibited historical labels never appear in active navigation sources (§17)', () => {
@@ -133,8 +125,8 @@ it('H prohibited historical labels never appear in active navigation sources (§
     const source = readFileSync(file, 'utf-8');
     for (const rx of prohibited) assert.doesNotMatch(source, rx, `${file} must not present historical modules as current navigation`);
   }
-  for (const key of Object.keys(CURRENT_ROUTE_CATALOG) as CurrentRouteKey[]) {
-    const text = `${CURRENT_ROUTE_CATALOG[key].section} ${CURRENT_ROUTE_CATALOG[key].label}`;
+  for (const key of Object.keys(ROUTE_CATALOG) as RouteKey[]) {
+    const text = `${ROUTE_CATALOG[key].section} ${ROUTE_CATALOG[key].label}`;
     for (const rx of prohibited) assert.doesNotMatch(text, rx, `catalog entry ${key} must not use a historical label`);
   }
 });

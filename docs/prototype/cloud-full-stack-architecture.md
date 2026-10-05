@@ -15,7 +15,7 @@ calculations, generated documents and the existing test suites.
 | **Cloudflare Workers + Static Assets** | Serves the built React app (`dist/`) and the `/api/*` JSON API from one same-origin deployment | Same-origin removes the CORS surface entirely and lets the session cookie be `SameSite=Strict` |
 | **D1** | Authoritative structured workspace state (root documents + entities + sessions + audit) | SQL, migrations, transactions/batches and indexes; the prototype already reasoned in relational-ish terms |
 | **R2** | Exact uploaded/generated file bytes | Canonical cloud location for bytes; objects are private and only reachable through authorized Worker routes |
-| **Workers Cron Triggers** | Expired workspace/session/idempotency cleanup, abandoned staged uploads, legacy snapshot retention | Reuses the existing `0 2 * * *` schedule |
+| **Workers Cron Triggers** | Expired workspace/session/idempotency cleanup and abandoned staged uploads | Reuses the existing `0 2 * * *` schedule |
 | **Worker Rate Limiting binding** | Workspace create, resume, command, if the account provides it | Applied only when the binding is present, so it is never a hard dependency |
 
 Deliberately **not** used: KV, Queues, Vectorize, external search, a separate API
@@ -167,9 +167,9 @@ errors map to stable `ApiErrorCode` values so no raw D1/R2 exception reaches the
    `PrototypeState` mutations still run in the browser. The migration mechanism is
    established (extract a browser-free body into `src/domain/`, add it to the
    union, delegate from `prototypeStore`); the remaining slice work is not done.
-2. `prototypeStore` does **not** yet delegate to `src/domain/` inside the browser,
-   and the UI does not consume the v2 API yet (`cloudDemo.ts` still uses the legacy
-   snapshot API). The v2 API is verified independently by its integration test.
+2. `prototypeStore` delegates migrated commands to the shared `src/domain/` bodies and
+   posts them to the same-origin API when a cloud workspace is connected
+   (`src/services/cloudWorkspace.ts`); the retired snapshot client has been removed.
 3. No Durable Objects. Write serialization is `batch()` plus the conditional
    revision `UPDATE`. A narrow window exists where a revision could advance before
    entity writes fail; this fails closed (the client sees an error and must reload)

@@ -1,5 +1,7 @@
 # Cloud full-stack migration
 
+> **Phase record (historical):** This document records the additive migration PHASE only (before the route/Worker cutover). Script names, file paths and the retained legacy Worker it mentions describe that phase and are superseded by the current architecture: one root `wrangler.jsonc` → `worker/index.ts`, same-origin `/api/*`, and `src/services/cloudWorkspace.ts`.
+
 ## 1. Baseline (Phase 0) — recorded before any change
 
 | Item | Value |
@@ -62,15 +64,15 @@ Additive, not a rewrite, and not a cutover:
 | --- | --- | --- |
 | Config | `wrangler.jsonc` (new) | Consolidated Worker: `main`, `assets` + `run_worker_first: ["/api/*"]`, D1, R2, observability, cron |
 | Migrations | `worker/migrations/0003_cloud_full_stack.sql` (new) | 7 additive tables + indexes |
-| Worker | `worker/v2/{index,router,http,errors,env,db,state,sessions,files}.ts`, `worker/v2/tsconfig.json`, `worker/v2/cloudflare-env.d.ts` (all new) | v2 API |
+| Worker | `worker/{index,router,http,errors,env,db,state,sessions,files}.ts`, `worker/tsconfig.json`, `worker/cloudflare-env.d.ts` | current API |
 | Shared contracts | `src/shared/api/{errors,sessions,files,commands}.ts` (new) | Typed wire contracts imported by both sides |
 | Domain | `src/domain/{commandContext,clientCommands,leadCommands,commands}.ts` (new) | Browser-free command bodies + dispatcher |
-| Tests | `tests/cloud/v2-api.test.ts` (new) | Live integration test |
+| Tests | `tests/cloud/api.test.ts` | Live integration test |
 | Scripts | `package.json` | `cloud:typecheck`, `cloud:migrate`, `cloud:dev`, `cloud:deploy`, `test:cloud:v2`, `cf` |
 | Docs | `docs/prototype/cloud-full-stack-*.md` (new) | This set |
 
-Nothing in `src/components/`, `src/store/prototypeStore.ts`, `src/services/cloudDemo.ts`,
-`index.html`, `vite.config.ts`, `worker/index.ts` or `worker/wrangler.jsonc` was modified.
+Nothing in `src/components/`, `src/store/prototypeStore.ts`, the retired snapshot client,
+`index.html`, `vite.config.ts`, `worker/index.ts` or the retired snapshot Worker config was modified.
 
 ## 5. Migrating the next command family (the repeatable slice recipe)
 
@@ -93,3 +95,47 @@ No UI redesign, no state-management framework, no `vite` change, no Node server
 framework, no duplicated domain model, no microservices, no queues/KV/vector
 search, no speculative AI features, no new DNS or custom-domain changes, and no
 deletion of the existing Pages deployment, D1 database or R2 bucket.
+
+
+---
+
+# Current command-coverage table (post-cutover)
+
+Maintained against the CURRENT architecture. Every current UI mutation either
+executes through a server-authoritative shared command or is explicitly labelled
+local-only in the cloud workspace controls.
+
+| Current UI action | Current store method | Current command | Server-authoritative? | File dependency |
+|---|---|---|---|---|
+| Create client | addClient | client.create | Yes (shared body + Worker) | — |
+| Update client profile | updateClient | client.update | Yes | — |
+| Nominate client contact | nominateClientContact | client.nominateContact | Yes | - |
+| Review contact nomination | reviewClientContactNomination | client.reviewContactNomination | Yes | - |
+| Set client custom field value | setClientCustomField | client.setCustomField | Yes | - |
+| Define client custom field | addCustomFieldDefinition | client.defineCustomField | Yes | - |
+| Enable / disable custom field | setCustomFieldDefinitionEnabled | client.setCustomFieldEnabled | Yes | - |
+| Assign client relationship group | assignClientRelationshipGroup | client.assignRelationshipGroup | Yes | - |
+| Create client relationship group | createClientRelationshipGroup | client.createRelationshipGroup | Yes | - |
+| Create lead | addLead | lead.create | Yes | — |
+| Update lead | updateLead | lead.update | Yes | — |
+| Convert lead | convertLead | lead.convert | Yes | — |
+| Add / edit / set-primary contact | addContact, updateClientContact, setPrimaryContact | contact.create, contact.update, contact.setPrimary | Yes | - |
+| Draft / edit proposal | addProposal, updateProposal | proposal.create, proposal.update | Yes | - |
+| Present proposal | presentProposal | proposal.present | Yes | - |
+| Commercially review / return proposal | reviewProposal | proposal.review | Yes | - |
+| Revise proposal (supersede + new revision) | createProposalRevision | proposal.revise | Yes | - |
+| Record client proposal response | recordProposalResponse | proposal.respond | Yes | - |
+| Create engagement | addEngagement | engagement.create | Yes | - |
+| Change engagement lifecycle | setEngagementLifecycle | engagement.setLifecycle | Yes | - |
+| Review / issue invoice | reviewInvoice, issueInvoice | invoice.review, invoice.issue | Yes | - |
+| Edit engagement administration fields | updateEngagement | engagement.updateAdmin (body exists but narrower) | No - browser-local until audit-plan/procedure invalidation is ported | - |
+| Draft invoice with time/service-linked lines | addInvoice | invoice.create (body exists but ad-hoc lines only) | No - browser-local until source-linked lines are ported | - |
+| Rename workspace | workspace controls | workspace.rename | Yes | — |
+| File upload (PBC/TB/evidence/…) | artifact/document flows | two-phase R2 file API | Yes (bytes + SHA-256) | R2 |
+| All other store mutations | per-family methods | not yet in union | No — labelled local-only | IndexedDB (local mode) |
+
+The two excluded families are excluded deliberately, not by omission: their browser
+implementations still enforce richer rules (audit-plan supersession, procedure scope
+reassessment, time/proposal source pinning), so dispatching them to the narrower
+shared body would make a cloud workspace behave differently from a local one. They
+stay local-only until those rules are ported into `src/domain/`.
