@@ -154,7 +154,7 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
   const approverContext = await call(`/api/workspaces/${workspaceId}/context`, { headers: approverHeaders });
   assert.equal(approverContext.response.status, 200, JSON.stringify(approverContext.body));
   assert.deepEqual(approverContext.body.allowedActions, [
-    'directory.manage', 'client.read', 'client.manage', 'lead.read', 'lead.manage', 'lead.convert', 'engagement.read', 'engagement.advance', 'standards.read', 'standards.manage', 'file.read', 'file.upload', 'proposal.read', 'proposal.create', 'proposal.generate', 'proposal.approve', 'proposal.dispatch', 'firm.manage', 'risk.read', 'riskAssessment.draft', 'riskAssessment.submit', 'riskAssessment.resolveEscalation', 'risk.clear', 'commercialAcceptance.read'
+    'directory.manage', 'client.read', 'client.manage', 'lead.read', 'lead.manage', 'lead.convert', 'engagement.read', 'engagement.advance', 'standards.read', 'standards.manage', 'file.read', 'file.upload', 'proposal.read', 'proposal.create', 'proposal.generate', 'proposal.approve', 'proposal.dispatch', 'firm.manage', 'risk.read', 'riskAssessment.draft', 'riskAssessment.submit', 'riskAssessment.resolveEscalation', 'risk.clear', 'commercialAcceptance.read', 'engagementLetter.manage', 'invoice.issue', 'payment.record', 'payment.reverse', 'billing.read'
   ]);
 
   const staffKey = crypto.randomUUID();
@@ -700,10 +700,12 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
   }, approverHeaders);
   assert.equal(retryDispatch.response.status, 202, JSON.stringify(retryDispatch.body));
   let deliveredAttachments = 0;
+  const deliveredRecipients: string[] = [];
   env.EMAIL_PROVIDER = { fetch: async (request: Request) => {
     const form = await request.formData();
     const message = JSON.parse(String(form.get('message')));
-    assert.equal(message.to, route.email);
+    assert.match(message.to, /^[^@]+@example\.invalid$/);
+    deliveredRecipients.push(message.to);
     deliveredAttachments = form.getAll('attachment').length;
     assert.ok(request.headers.get('Idempotency-Key'));
     return Response.json({ messageId: 'local-provider-message-001' }, { status: 202 });
@@ -888,6 +890,169 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
   assert.equal(renewedAcceptance.response.status, 200, JSON.stringify(renewedAcceptance.body));
   const renewedGate = await call(`/api/workspaces/${workspaceId}/engagements/${engagementId}/acceptance-gate`, { headers: makeRiskHeaders(approverHeaders) });
   assert.equal(renewedGate.body.ready, true);
+
+  const storeCommittedFile = async (purpose: string, originalName: string, mediaType: string, bytes: Uint8Array, headers: Record<string, string>, scope: Record<string, string> = {}) => {
+    const reservation = await post(`/api/workspaces/${workspaceId}/files`, { ...scope, purpose, originalName, mediaType, sizeBytes: bytes.length },
+      { ...headers, 'Idempotency-Key': crypto.randomUUID() });
+    assert.equal(reservation.response.status, 201, JSON.stringify(reservation.body));
+    const fileId = reservation.body.fileId as string;
+    const staged = await worker.fetch(new Request(`https://local.auditsphere.test/api/workspaces/${workspaceId}/files/${fileId}/content`, {
+      method: 'PUT', headers: { Origin: 'https://local.auditsphere.test', ...headers, 'Idempotency-Key': crypto.randomUUID(), 'X-File-Version': '1', 'Content-Type': mediaType }, body: bytes
+    }), env, {} as any);
+    const stagedBody = await staged.json() as any;
+    assert.equal(staged.status, 200, JSON.stringify(stagedBody));
+    const committed = await post(`/api/workspaces/${workspaceId}/files/${fileId}/complete`, {
+      expectedVersion: 2, sizeBytes: stagedBody.sizeBytes, sha256: stagedBody.sha256
+    }, { ...headers, 'Idempotency-Key': crypto.randomUUID() });
+    assert.equal(committed.response.status, 200, JSON.stringify(committed.body));
+    assert.equal(committed.body.state, 'COMMITTED');
+    return fileId;
+  };
+  const validPng = Uint8Array.from(atob('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGMQMQr4DwACigGWbdwAgAAAAABJRU5ErkJggg=='), value => value.charCodeAt(0));
+  const signatureFileId = await storeCommittedFile('SIGNATURE', 'partner-signature.png', 'image/png', validPng, approverHeaders);
+  const sealFileId = await storeCommittedFile('SEAL', 'firm-seal.png', 'image/png', validPng, approverHeaders);
+  const wrongServiceTemplate = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'document-template.save', payload: {
+      serviceType: 'INTERNAL_AUDIT', name: 'Internal audit letter', clauses: 'Firm-approved internal audit service terms and scope.', expectedRevision: 0
+    } }
+  }, approverHeaders);
+  assert.equal(wrongServiceTemplate.response.status, 200, JSON.stringify(wrongServiceTemplate.body));
+  const serviceTemplate = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'document-template.save', payload: {
+      serviceType: 'STATUTORY_AUDIT', name: 'Statutory audit letter', clauses: 'Firm-approved statutory audit service terms and scope.', expectedRevision: 0
+    } }
+  }, approverHeaders);
+  assert.equal(serviceTemplate.response.status, 200, JSON.stringify(serviceTemplate.body));
+  const taxPolicy = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'billing.tax-policy.save', payload: {
+      name: 'Local explicit zero-tax policy', taxBasisPoints: 0, rationale: 'Firm-approved test policy; zero is explicitly configured for this test workspace.'
+    } }
+  }, approverHeaders);
+  assert.equal(taxPolicy.response.status, 200, JSON.stringify(taxPolicy.body));
+  for (const command of [
+    { type: 'signature-asset.consent', payload: { fileVersionId: signatureFileId, decision: 'CONSENT', rationale: 'I consent to use this uploaded test signature image.' } },
+    { type: 'seal-asset.approve', payload: { fileVersionId: sealFileId, decision: 'APPROVE', rationale: 'This uploaded test PNG is approved as the firm seal image.' } }
+  ]) {
+    const decision = await post(`/api/workspaces/${workspaceId}/commands`, { idempotencyKey: crypto.randomUUID(), command }, approverHeaders);
+    assert.equal(decision.response.status, 200, JSON.stringify(decision.body));
+  }
+  const deliveryPath = `/api/workspaces/${workspaceId}/engagements/${engagementId}/delivery-workspace`;
+  const deliveryBeforeLetter = await call(deliveryPath, { headers: makeRiskHeaders(approverHeaders) });
+  assert.equal(deliveryBeforeLetter.response.status, 200, JSON.stringify(deliveryBeforeLetter.body));
+  const deliveryRoutes = deliveryBeforeLetter.body.contactRoutes as Array<{ id: string; purpose: string }>;
+  const letterRouteId = deliveryRoutes.find(item => item.purpose === 'EL')?.id;
+  const invoiceRouteId = deliveryRoutes.find(item => item.purpose === 'INVOICE')?.id;
+  const receiptRouteId = deliveryRoutes.find(item => item.purpose === 'RECEIPT')?.id;
+  assert.ok(letterRouteId && invoiceRouteId && receiptRouteId, 'all three active commercial routes are available');
+  const wrongTemplateLetter = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'engagementLetter.generate', payload: {
+      engagementId, templateVersionId: wrongServiceTemplate.body.result.templateVersionId, signatureFileVersionId: signatureFileId, sealFileVersionId: sealFileId
+    } }
+  }, makeRiskHeaders(approverHeaders));
+  assert.equal(wrongTemplateLetter.response.status, 422);
+  assert.equal(wrongTemplateLetter.body.code, 'GATE_BLOCKED');
+  const generatedLetter = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'engagementLetter.generate', payload: {
+      engagementId, templateVersionId: serviceTemplate.body.result.templateVersionId, signatureFileVersionId: signatureFileId, sealFileVersionId: sealFileId
+    } }
+  }, makeRiskHeaders(approverHeaders));
+  assert.equal(generatedLetter.response.status, 202, JSON.stringify(generatedLetter.body));
+  await worker.scheduled({ scheduledTime: Date.now(), cron: '*/5 * * * *' } as any, env);
+  const renderedDelivery = await call(deliveryPath, { headers: makeRiskHeaders(approverHeaders) });
+  const renderedDraft = renderedDelivery.body.letterDrafts.find((draft: any) => draft.id === generatedLetter.body.result.draftId);
+  assert.equal(renderedDraft?.status, 'SUCCEEDED', JSON.stringify(renderedDraft));
+  assert.ok(renderedDraft.fileVersionId);
+  const renderedLetterFile = await worker.fetch(new Request(`https://local.auditsphere.test/api/workspaces/${workspaceId}/files/${renderedDraft.fileVersionId}`, { headers: makeRiskHeaders(approverHeaders) }), env, {} as any);
+  const renderedLetterBytes = new Uint8Array(await renderedLetterFile.arrayBuffer());
+  assert.equal(renderedLetterFile.status, 200);
+  assert.equal(new TextDecoder().decode(renderedLetterBytes.slice(0, 8)), '%PDF-1.3', 'the approved clause and actual PNG assets produced a PDF');
+
+  const issuedLetter = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'engagementLetter.issue', payload: {
+      engagementId, jobId: renderedDraft.jobId, expectedProposalVersionId: renewedGate.body.commercialKey.proposalVersionId,
+      expectedRiskClearanceId: renewedGate.body.riskKey.clearanceId, contactRouteId: letterRouteId
+    } }
+  }, makeRiskHeaders(approverHeaders));
+  assert.equal(issuedLetter.response.status, 202, JSON.stringify(issuedLetter.body));
+  assert.equal(issuedLetter.body.result.state, 'ADVANCE_BILLING');
+  const issuedDelivery = await call(deliveryPath, { headers: makeRiskHeaders(reviewerHeaders) });
+  const invoiceDraft = issuedDelivery.body.invoices.find((invoice: any) => invoice.id === issuedLetter.body.result.advanceInvoiceDraftId);
+  assert.equal(invoiceDraft?.status, 'DRAFT');
+  assert.equal(invoiceDraft?.subtotalMinor, '125001', 'the odd-minor-unit advance fee rounds half up');
+  const invoiceIssued = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'invoice.issueAdvance', payload: {
+      engagementId, engagementLetterId: issuedLetter.body.result.letterId, dueDate: '2099-12-31', contactRouteId: invoiceRouteId
+    } }
+  }, makeRiskHeaders(reviewerHeaders));
+  assert.equal(invoiceIssued.response.status, 202, JSON.stringify(invoiceIssued.body));
+  assert.equal(invoiceIssued.body.result.totalMinor, '125001');
+  await worker.scheduled({ scheduledTime: Date.now(), cron: '*/5 * * * *' } as any, env);
+  const issuedInvoiceView = await call(deliveryPath, { headers: makeRiskHeaders(reviewerHeaders) });
+  const issuedInvoice = issuedInvoiceView.body.invoices.find((invoice: any) => invoice.id === invoiceIssued.body.result.invoiceId);
+  assert.equal(issuedInvoice?.status, 'ISSUED');
+  assert.ok(issuedInvoice?.fileVersionId);
+
+  const evidenceFileId = await storeCommittedFile('EVIDENCE', 'bank-transfer-evidence.pdf', 'application/pdf', pdf,
+    makeRiskHeaders(reviewerHeaders), { clientId, engagementId });
+  const partialPayment = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'payment.record', payload: {
+      clientId, engagementId, amountMinor: '60000', receivedOn: '2026-10-05', method: 'BANK_TRANSFER', reference: 'BANK-LOCAL-001',
+      evidenceFileId, receiptContactRouteId: receiptRouteId, allocations: [{ invoiceId: issuedInvoice.id, amountMinor: '60000' }]
+    } }
+  }, makeRiskHeaders(reviewerHeaders));
+  assert.equal(partialPayment.response.status, 202, JSON.stringify(partialPayment.body));
+  assert.equal(partialPayment.body.result.outstandingMinor, '65001');
+  await worker.scheduled({ scheduledTime: Date.now(), cron: '*/5 * * * *' } as any, env);
+  const partialPaymentView = await call(deliveryPath, { headers: makeRiskHeaders(reviewerHeaders) });
+  assert.equal(partialPaymentView.body.engagement.lifecycleState, 'ADVANCE_BILLING');
+  assert.equal(partialPaymentView.body.invoices.find((invoice: any) => invoice.id === issuedInvoice.id).outstandingMinor, '65001');
+  assert.equal(partialPaymentView.body.payments.find((payment: any) => payment.id === partialPayment.body.result.paymentId).receiptStatus, 'ISSUED');
+  const overAllocation = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'payment.record', payload: {
+      clientId, engagementId, amountMinor: '70000', receivedOn: '2026-10-05', method: 'BANK_TRANSFER', reference: 'BANK-LOCAL-OVER',
+      evidenceFileId, receiptContactRouteId: receiptRouteId, allocations: [{ invoiceId: issuedInvoice.id, amountMinor: '70000' }]
+    } }
+  }, makeRiskHeaders(reviewerHeaders));
+  assert.equal(overAllocation.response.status, 422);
+  assert.equal(overAllocation.body.code, 'VALIDATION_FAILED');
+  const reversedPayment = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'payment.reverse', payload: {
+      paymentId: partialPayment.body.result.paymentId, rationale: 'The recorded test transfer was reversed by the bank.'
+    } }
+  }, makeRiskHeaders(reviewerHeaders));
+  assert.equal(reversedPayment.response.status, 202, JSON.stringify(reversedPayment.body));
+  await worker.scheduled({ scheduledTime: Date.now(), cron: '*/5 * * * *' } as any, env);
+  const reversedView = await call(deliveryPath, { headers: makeRiskHeaders(reviewerHeaders) });
+  assert.equal(reversedView.body.invoices.find((invoice: any) => invoice.id === issuedInvoice.id).outstandingMinor, '125001');
+  assert.equal(reversedView.body.payments.find((payment: any) => payment.id === reversedPayment.body.result.paymentId).reversal, true);
+  const settlement = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'payment.record', payload: {
+      clientId, engagementId, amountMinor: '125001', receivedOn: '2026-10-05', method: 'BANK_TRANSFER', reference: 'BANK-LOCAL-SETTLEMENT',
+      evidenceFileId, receiptContactRouteId: receiptRouteId, allocations: [{ invoiceId: issuedInvoice.id, amountMinor: '125001' }]
+    } }
+  }, makeRiskHeaders(reviewerHeaders));
+  assert.equal(settlement.response.status, 202, JSON.stringify(settlement.body));
+  await worker.scheduled({ scheduledTime: Date.now(), cron: '*/5 * * * *' } as any, env);
+  const settledView = await call(deliveryPath, { headers: makeRiskHeaders(reviewerHeaders) });
+  assert.equal(settledView.body.engagement.lifecycleState, 'PORTAL_ACTIVE_PLANNING', 'planning unlocks only when the full advance and committed final receipt exist');
+  assert.equal(settledView.body.invoices.find((invoice: any) => invoice.id === issuedInvoice.id).outstandingMinor, '0');
+  assert.ok(deliveredRecipients.includes('md-new@example.invalid'));
+  assert.ok(deliveredRecipients.includes('c001-finance@example.invalid'));
+  const clientDelivery = await call(deliveryPath, { headers: makeRiskHeaders(clientHeaders) });
+  assert.equal(clientDelivery.response.status, 200, JSON.stringify(clientDelivery.body));
+  assert.equal('templates' in clientDelivery.body, false, 'the client projection excludes internal approved templates');
+  assert.equal('letterDrafts' in clientDelivery.body, false, 'the client projection excludes internal letter drafts');
+  const clientInvoice = clientDelivery.body.invoices.find((invoice: any) => invoice.id === issuedInvoice.id);
+  assert.equal(clientInvoice.status, 'ISSUED');
+  for (const fileVersionId of [issuedLetter.body.result.fileId, clientInvoice.fileVersionId]) {
+    const clientDocument = await worker.fetch(new Request(`https://local.auditsphere.test/api/workspaces/${workspaceId}/files/${fileVersionId}`, { headers: makeRiskHeaders(clientHeaders) }), env, {} as any);
+    assert.equal(clientDocument.status, 200, 'the client can download an issued document scoped to its engagement');
+    assert.equal(new TextDecoder().decode(new Uint8Array(await clientDocument.arrayBuffer()).slice(0, 5)), '%PDF-');
+  }
+  const clientCannotReadDeliveryElsewhere = await call(`/api/workspaces/${workspaceId}/engagements/${conversion.body.result.engagementId}/delivery-workspace`, {
+    headers: { ...clientHeaders, 'X-Client-Id': childClientId }
+  });
+  assert.equal(clientCannotReadDeliveryElsewhere.response.status, 403);
 
   const changedOwner = await post(`/api/workspaces/${workspaceId}/commands`, {
     idempotencyKey: crypto.randomUUID(), command: { type: 'riskAssessment.owner.save', payload: {

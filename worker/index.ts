@@ -83,6 +83,7 @@ import {
   runBusinessDirectoryCommand
 } from './business';
 import { getBusinessAcceptanceGate, getBusinessRiskWorkspace } from './businessRisk';
+import { getBusinessDeliveryWorkspace } from './businessDelivery';
 
 const JSON_BODY_LIMIT = 1_000_000;
 /** Hard ceiling for a single command payload; the domain model is small. */
@@ -232,6 +233,12 @@ const handleBusinessAcceptanceGate = async (ctx: RouteContext): Promise<Response
 const handleBusinessRiskWorkspace = async (ctx: RouteContext): Promise<Response> => {
   const context = await resolveBusinessContext(ctx.env, ctx.params.workspaceId, ctx.request);
   const result = await getBusinessRiskWorkspace(ctx.env, ctx.params.workspaceId, context, ctx.params.engagementId);
+  return jsonResponse(result, 200, ctx.requestId);
+};
+
+const handleBusinessDeliveryWorkspace = async (ctx: RouteContext): Promise<Response> => {
+  const context = await resolveBusinessContext(ctx.env, ctx.params.workspaceId, ctx.request);
+  const result = await getBusinessDeliveryWorkspace(ctx.env, ctx.params.workspaceId, context, ctx.params.engagementId);
   return jsonResponse(result, 200, ctx.requestId);
 };
 
@@ -402,7 +409,8 @@ const handleCommand = async (ctx: RouteContext): Promise<Response> => {
     const body = await readJson<unknown>(ctx.request, COMMAND_BODY_LIMIT);
     const envelope = parseBusinessCommandEnvelope(body, ctx.request.headers.get('Idempotency-Key'));
     const response = await runBusinessDirectoryCommand(ctx.env, workspaceId, ctx.request, envelope);
-    const status = ['proposal.generate', 'proposal.generate.retry', 'proposal.dispatch', 'proposal.dispatch.retry'].includes(envelope.command.type) ? 202 : 200;
+    const status = ['proposal.generate', 'proposal.generate.retry', 'proposal.dispatch', 'proposal.dispatch.retry',
+      'engagementLetter.generate', 'engagementLetter.issue', 'invoice.issueAdvance', 'payment.record', 'payment.reverse'].includes(envelope.command.type) ? 202 : 200;
     return jsonResponse(response, status, ctx.requestId);
   }
 
@@ -672,6 +680,7 @@ const router = createRouter()
   .get('/api/workspaces/:workspaceId/proposal-workspace', handleBusinessProposalWorkspace)
   .get('/api/workspaces/:workspaceId/engagements/:engagementId/acceptance-gate', handleBusinessAcceptanceGate)
   .get('/api/workspaces/:workspaceId/engagements/:engagementId/risk-workspace', handleBusinessRiskWorkspace)
+  .get('/api/workspaces/:workspaceId/engagements/:engagementId/delivery-workspace', handleBusinessDeliveryWorkspace)
   .get('/api/workspaces/:workspaceId/state', handleState)
   .get('/api/workspaces/:workspaceId/changes', handleChanges)
   .get('/api/workspaces/:workspaceId/events', handleEvents)

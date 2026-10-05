@@ -1,6 +1,8 @@
 import type { Env } from './env';
 import { sha256Hex } from './http';
 import { ProposalDocumentError, renderProposalPdf, type ProposalDocumentInput } from './proposalDocument';
+import { CommercialDocumentError, renderCommercialPdf, type CommercialDocumentInput } from './commercialDocument';
+import { getBusinessAcceptanceGate } from './businessRisk';
 
 type JobKind = 'GENERATE_DOCUMENT' | 'EMAIL';
 interface OutboxJob {
@@ -90,6 +92,17 @@ function parsePayload(job: OutboxJob): JobPayload {
       || typeof payload.commandId !== 'string' || typeof payload.proposalVersionId !== 'string'
       || typeof payload.engagementId !== 'string' || typeof payload.clientId !== 'string') throw new Error('shape');
     return payload as JobPayload;
+  } catch {
+    throw new OutboxError('INVALID_JOB_PAYLOAD', 'The stored job payload is invalid and needs administrator review.');
+  }
+}
+
+function parseRawPayload(job: OutboxJob): Record<string, any> {
+  try {
+    const payload = JSON.parse(job.payload_json) as Record<string, unknown>;
+    if (!payload || typeof payload !== 'object' || typeof payload.commandId !== 'string'
+      || typeof payload.engagementId !== 'string' || typeof payload.clientId !== 'string') throw new Error('shape');
+    return payload as Record<string, any>;
   } catch {
     throw new OutboxError('INVALID_JOB_PAYLOAD', 'The stored job payload is invalid and needs administrator review.');
   }
@@ -261,6 +274,246 @@ async function renderAndStoreProposal(env: Env, job: OutboxJob): Promise<void> {
   });
 }
 
+const qatarDate = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Qatar', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+
+async function commercialInput(env: Env, job: OutboxJob, payload: Record<string, any>): Promise<CommercialDocumentInput> {
+  if (payload.documentType === 'ENGAGEMENT_LETTER') {
+    const draft = await env.DB.prepare(`SELECT d.id,d.revision,d.client_id,d.engagement_id,d.proposal_version_id,d.commercial_acceptance_id,d.risk_clearance_id,
+        d.template_version_id,d.signature_file_version_id,d.signature_consent_id,d.seal_file_version_id,d.seal_approval_id,d.dependency_hash,d.status,d.created_by_actor_id,
+        pv.fee_minor,e.version AS engagement_version,e.lifecycle_state,e.code AS engagement_code,e.period_start,e.period_end,e.engagement_type,
+        c.legal_name AS client_name,fp.legal_name AS firm_name,t.clauses,t.revision AS template_revision,
+        t.content_sha256 AS template_sha256,sm.display_name AS partner_name,signfile.sha256 AS signature_sha256,sealf.sha256 AS seal_sha256,
+        ca.decision AS consent_decision,sa.decision AS seal_decision
+      FROM engagement_letter_drafts d JOIN proposal_versions pv ON pv.workspace_id=d.workspace_id AND pv.id=d.proposal_version_id
+      JOIN proposals p ON p.workspace_id=pv.workspace_id AND p.id=pv.proposal_id
+      JOIN engagements e ON e.workspace_id=d.workspace_id AND e.client_id=d.client_id AND e.id=d.engagement_id
+      JOIN clients c ON c.workspace_id=e.workspace_id AND c.id=e.client_id AND c.active=1
+      JOIN firm_profiles fp ON fp.workspace_id=e.workspace_id
+      JOIN document_template_versions t ON t.workspace_id=d.workspace_id AND t.id=d.template_version_id
+      JOIN file_versions signfile ON signfile.workspace_id=d.workspace_id AND signfile.id=d.signature_file_version_id
+      JOIN signature_asset_decisions ca ON ca.workspace_id=d.workspace_id AND ca.id=d.signature_consent_id
+      JOIN file_versions sealf ON sealf.workspace_id=d.workspace_id AND sealf.id=d.seal_file_version_id
+      JOIN seal_asset_approvals sa ON sa.workspace_id=d.workspace_id AND sa.id=d.seal_approval_id
+      JOIN actor_profiles ap ON ap.workspace_id=ca.workspace_id AND ap.id=ca.partner_actor_id
+      JOIN staff_members sm ON sm.workspace_id=ap.workspace_id AND sm.id=ap.staff_member_id
+      WHERE d.workspace_id=? AND d.id=? AND d.status IN ('PENDING','RUNNING','RETRYABLE_FAILED') AND p.current_version_id=d.proposal_version_id`)
+      .bind(job.workspace_id, payload.draftId).first<Record<string, any>>();
+    if (!draft || draft.id !== payload.draftId || draft.engagement_id !== payload.engagementId || draft.client_id !== payload.clientId
+      || draft.lifecycle_state !== 'ADVANCE_BILLING' || draft.consent_decision !== 'CONSENT' || draft.seal_decision !== 'APPROVE') {
+      throw new OutboxError('STALE_APPROVAL', 'The letter source, lifecycle or approved image assets changed before render.');
+    }
+    const gateContext = { actor: { id: draft.created_by_actor_id, persona: 'APPROVER' as const, displayName: '', staffGrade: 'PARTNER' as const, clientId: null },
+      scope: { clientId: draft.client_id, engagementId: draft.engagement_id }, allowedActions: ['commercialAcceptance.read'], readOnlyReasons: [] };
+    const gate = await getBusinessAcceptanceGate(env, job.workspace_id, gateContext, draft.engagement_id) as any;
+    if (!gate.ready || gate.commercialKey.acceptanceId !== draft.commercial_acceptance_id
+      || gate.commercialKey.proposalVersionId !== draft.proposal_version_id || gate.riskKey.clearanceId !== draft.risk_clearance_id) {
+      throw new OutboxError('STALE_APPROVAL', 'A current commercial or Partner risk key no longer matches this letter revision.');
+    }
+    const baseDependencyHash = await sha256Hex(JSON.stringify({ engagementId: draft.engagement_id, engagementVersion: draft.engagement_version,
+      proposalVersionId: draft.proposal_version_id, acceptanceId: draft.commercial_acceptance_id, clearanceId: draft.risk_clearance_id }));
+    const [currentConsent, currentSealApproval] = await Promise.all([
+      env.DB.prepare(`SELECT id,decision FROM signature_asset_decisions WHERE workspace_id=? AND file_version_id=? ORDER BY sequence DESC LIMIT 1`)
+        .bind(job.workspace_id, draft.signature_file_version_id).first<{ id: string; decision: string }>(),
+      env.DB.prepare(`SELECT id,decision FROM seal_asset_approvals WHERE workspace_id=? AND file_version_id=? ORDER BY sequence DESC LIMIT 1`)
+        .bind(job.workspace_id, draft.seal_file_version_id).first<{ id: string; decision: string }>()
+    ]);
+    if (!currentConsent || currentConsent.id !== draft.signature_consent_id || currentConsent.decision !== 'CONSENT'
+      || !currentSealApproval || currentSealApproval.id !== draft.seal_approval_id || currentSealApproval.decision !== 'APPROVE') {
+      throw new OutboxError('STALE_APPROVAL', 'The Partner signature consent or firm seal approval changed before render.');
+    }
+    const dependencyHash = await sha256Hex(JSON.stringify({ base: baseDependencyHash, templateVersionId: draft.template_version_id,
+      templateHash: draft.template_sha256, signatureFileVersionId: draft.signature_file_version_id, signatureSha256: draft.signature_sha256,
+      signatureConsentId: currentConsent.id, sealFileVersionId: draft.seal_file_version_id, sealSha256: draft.seal_sha256,
+      sealApprovalId: currentSealApproval.id }));
+    if (dependencyHash !== draft.dependency_hash) throw new OutboxError('STALE_APPROVAL', 'The engagement, proposal, keys or exact image asset changed after this letter draft began.');
+    const currentTemplate = await env.DB.prepare(`SELECT MAX(revision) AS revision FROM document_template_versions WHERE workspace_id=? AND service_type=?`)
+      .bind(job.workspace_id, draft.engagement_type).first<{ revision: number | null }>();
+    if (draft.template_revision !== currentTemplate?.revision) throw new OutboxError('STALE_TEMPLATE', 'The approved service template changed before render.');
+    const [signature, seal] = await Promise.all([
+      exactFile(env, job.workspace_id, draft.signature_file_version_id), exactFile(env, job.workspace_id, draft.seal_file_version_id)
+    ]);
+    if (signature.metadata.purpose !== 'SIGNATURE' || signature.metadata.media_type !== 'image/png'
+      || seal.metadata.purpose !== 'SEAL' || seal.metadata.media_type !== 'image/png'
+      || signature.metadata.sha256 !== draft.signature_sha256 || seal.metadata.sha256 !== draft.seal_sha256) {
+      throw new OutboxError('ENGAGEMENT_ASSET_INVALID', 'A pinned PNG signature or firm seal no longer matches its committed file digest.');
+    }
+    return {
+      kind: 'ENGAGEMENT_LETTER', number: `EL-${draft.engagement_code}-R${draft.revision}`, createdAt: nowIso(),
+      firmName: draft.firm_name, clientName: draft.client_name, engagementCode: draft.engagement_code, serviceType: draft.engagement_type,
+      periodStart: draft.period_start, periodEnd: draft.period_end, feeMinor: Number(draft.fee_minor), clauses: draft.clauses,
+      signature: { bytes: signature.bytes, partnerName: draft.partner_name }, sealBytes: seal.bytes
+    };
+  }
+  if (payload.documentType === 'ADVANCE_INVOICE') {
+    const invoice = await env.DB.prepare(`SELECT i.id,i.client_id,i.engagement_id,i.number,i.subtotal_minor,i.tax_minor,i.total_minor,i.due_date,i.status,
+        e.code AS engagement_code,e.period_start,e.period_end,e.engagement_type,c.legal_name AS client_name,fp.legal_name AS firm_name,tp.name AS tax_policy_name
+      FROM invoices i JOIN engagements e ON e.workspace_id=i.workspace_id AND e.client_id=i.client_id AND e.id=i.engagement_id
+      JOIN clients c ON c.workspace_id=i.workspace_id AND c.id=i.client_id JOIN firm_profiles fp ON fp.workspace_id=i.workspace_id
+      JOIN billing_tax_policy_versions tp ON tp.workspace_id=i.workspace_id AND tp.id=i.tax_policy_version_id
+      WHERE i.workspace_id=? AND i.id=? AND i.status='PENDING_DOCUMENT'`)
+      .bind(job.workspace_id, payload.invoiceId).first<Record<string, any>>();
+    if (!invoice || invoice.id !== payload.invoiceId || invoice.engagement_id !== payload.engagementId || invoice.client_id !== payload.clientId
+      || !Number.isSafeInteger(invoice.total_minor)) throw new OutboxError('STALE_INVOICE', 'The invoice snapshot could not be verified.');
+    return { kind: 'INVOICE', number: invoice.number, createdAt: nowIso(), firmName: invoice.firm_name, clientName: invoice.client_name,
+      engagementCode: invoice.engagement_code, serviceType: invoice.engagement_type, periodStart: invoice.period_start, periodEnd: invoice.period_end,
+      feeMinor: invoice.total_minor, subtotalMinor: invoice.subtotal_minor, taxMinor: invoice.tax_minor, taxPolicyName: invoice.tax_policy_name, dueDate: invoice.due_date };
+  }
+  if (payload.documentType === 'RECEIPT') {
+    const receipt = await env.DB.prepare(`SELECT rv.id,rv.number,rv.status,p.id AS payment_id,p.client_id,p.engagement_id,p.amount_minor,p.received_on,p.reference,p.reverses_payment_id,
+        e.code AS engagement_code,e.period_start,e.period_end,e.engagement_type,c.legal_name AS client_name,fp.legal_name AS firm_name
+      FROM receipt_vouchers rv JOIN payments p ON p.workspace_id=rv.workspace_id AND p.id=rv.payment_id
+      JOIN engagements e ON e.workspace_id=p.workspace_id AND e.client_id=p.client_id AND e.id=p.engagement_id
+      JOIN clients c ON c.workspace_id=p.workspace_id AND c.id=p.client_id JOIN firm_profiles fp ON fp.workspace_id=p.workspace_id
+      WHERE rv.workspace_id=? AND rv.id=? AND rv.status='PENDING' AND p.id=?`)
+      .bind(job.workspace_id, payload.receiptId, payload.paymentId).first<Record<string, any>>();
+    if (!receipt || receipt.engagement_id !== payload.engagementId || receipt.client_id !== payload.clientId) throw new OutboxError('STALE_RECEIPT', 'The receipt voucher is no longer pending or does not match the payment.');
+    const allocated = await env.DB.prepare(`SELECT COALESCE(SUM(amount_minor),0) AS amount FROM payment_allocations WHERE workspace_id=? AND payment_id=?`)
+      .bind(job.workspace_id, payload.paymentId).first<{ amount: number }>();
+    return { kind: 'RECEIPT', number: receipt.number, createdAt: nowIso(), firmName: receipt.firm_name, clientName: receipt.client_name,
+      engagementCode: receipt.engagement_code, serviceType: receipt.engagement_type, periodStart: receipt.period_start, periodEnd: receipt.period_end,
+      feeMinor: Number(receipt.amount_minor), paymentReference: receipt.reference, receivedOn: receipt.received_on, allocatedMinor: Number(allocated?.amount ?? 0),
+      isReversal: Boolean(receipt.reverses_payment_id) };
+  }
+  throw new OutboxError('INVALID_DOCUMENT_TYPE', 'The commercial document job has an unsupported document type.');
+}
+
+async function renderAndStoreCommercialDocument(env: Env, job: OutboxJob): Promise<void> {
+  const payload = parseRawPayload(job);
+  const input = await commercialInput(env, job, payload);
+  const bytes = renderCommercialPdf(input);
+  const digest = await sha256HexBytes(bytes);
+  const fileVersionId = crypto.randomUUID();
+  const artifactId = crypto.randomUUID();
+  const generatedAt = nowIso();
+  const type = String(payload.documentType);
+  const category = type === 'ENGAGEMENT_LETTER' ? 'engagement-letters' : type === 'ADVANCE_INVOICE' ? 'invoices' : 'receipts';
+  const key = `workspaces/${job.workspace_id}/generated/${category}/${job.aggregate_id}/${digest}.pdf`;
+  try {
+    await env.FILES.put(key, bytes, { httpMetadata: { contentType: 'application/pdf' }, customMetadata: { sha256: digest, documentType: type, generatedByJobId: job.id } });
+  } catch {
+    throw new OutboxError('OBJECT_STORE_WRITE_FAILED', 'The generated PDF could not be stored. The job will retry without claiming an artifact.', 'RETRY');
+  }
+  const stored = await env.FILES.get(key);
+  if (!stored) throw new OutboxError('GENERATED_OBJECT_MISSING', 'The generated PDF could not be read back from object storage.', 'RETRY');
+  const storedBytes = new Uint8Array(await stored.arrayBuffer());
+  if (storedBytes.byteLength !== bytes.byteLength || await sha256HexBytes(storedBytes) !== digest) {
+    throw new OutboxError('GENERATED_OBJECT_INTEGRITY_MISMATCH', 'The generated PDF did not match its stored size and digest.');
+  }
+  const fileName = `${input.number.replace(/[^A-Z0-9._-]/gi, '-')}.pdf`;
+  const artifactSourceType = type === 'ENGAGEMENT_LETTER' ? 'ENGAGEMENT_LETTER_DRAFT' : type === 'ADVANCE_INVOICE' ? 'INVOICE' : 'PAYMENT';
+  const artifactSourceId = type === 'ENGAGEMENT_LETTER' ? payload.draftId : type === 'ADVANCE_INVOICE' ? payload.invoiceId : payload.paymentId;
+  const revision = type === 'ENGAGEMENT_LETTER' ? Number(job.aggregate_version) : 1;
+  const details = { jobId: job.id, documentType: type, fileVersionId, artifactId, contentSha256: digest, sizeBytes: bytes.byteLength, number: input.number };
+  const result = { fileVersionId, artifactId, contentSha256: digest, sizeBytes: bytes.byteLength, mediaType: 'application/pdf', number: input.number };
+  const statements: D1PreparedStatement[] = [
+    env.DB.prepare(`INSERT INTO command_assertions(workspace_id,seq,ok)
+      SELECT ?,992,CASE WHEN EXISTS(SELECT 1 FROM outbox_jobs WHERE workspace_id=? AND id=? AND status='RUNNING' AND lease_until=?)
+        THEN 1 ELSE 0 END`).bind(job.workspace_id, job.workspace_id, job.id, job.lease_until),
+    env.DB.prepare(`INSERT INTO file_versions(id,workspace_id,version,client_id,engagement_id,original_name,media_type,size_bytes,sha256,object_key,purpose,state,committed_at,immutable,created_at,updated_at,created_by_actor_id,updated_by_actor_id)
+      VALUES(?,?,1,?,?,?,'application/pdf',?,?,?,'GENERATED','COMMITTED',?,1,?,?,NULL,NULL)`)
+      .bind(fileVersionId, job.workspace_id, payload.clientId, payload.engagementId, fileName, bytes.byteLength, digest, key, generatedAt, generatedAt, generatedAt),
+    env.DB.prepare(`UPDATE outbox_jobs SET status='SUCCEEDED',result_file_id=?,result_json=?,last_error_code=NULL,completed_at=?,lease_until=NULL,updated_at=?,version=version+1
+      WHERE workspace_id=? AND id=? AND status='RUNNING' AND lease_until=?`)
+      .bind(fileVersionId, JSON.stringify(result), generatedAt, generatedAt, job.workspace_id, job.id, job.lease_until),
+    env.DB.prepare(`INSERT INTO generated_artifacts(id,workspace_id,client_id,engagement_id,artifact_kind,source_entity_type,source_entity_id,source_revision,file_version_id,content_sha256,size_bytes,generated_at,generated_by_job_id)
+      VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)`).bind(artifactId, job.workspace_id, payload.clientId, payload.engagementId,
+      type === 'ENGAGEMENT_LETTER' ? 'ENGAGEMENT_LETTER' : type === 'ADVANCE_INVOICE' ? 'INVOICE' : 'RECEIPT', artifactSourceType,
+      artifactSourceId, revision, fileVersionId, digest, bytes.byteLength, generatedAt, job.id)
+  ];
+  const dispatchStatements: D1PreparedStatement[] = [];
+  let emailDispatchId: string | null = null;
+  if (type === 'ADVANCE_INVOICE' || type === 'RECEIPT') {
+    const recipient = payload.recipient as { contactRouteId?: unknown; contactRouteVersion?: unknown; contactId?: unknown; name?: unknown; email?: unknown } | undefined;
+    if (!recipient || typeof recipient.contactRouteId !== 'string' || typeof recipient.contactRouteVersion !== 'number'
+      || typeof recipient.contactId !== 'string' || typeof recipient.name !== 'string' || typeof recipient.email !== 'string') {
+      throw new OutboxError('INVALID_DISPATCH_PAYLOAD', 'The invoice or receipt is missing its pinned email recipient.');
+    }
+    emailDispatchId = crypto.randomUUID();
+    const emailJobId = crypto.randomUUID();
+    const dispatchDedup = `commercial-document-email:${artifactId}`;
+    const documentLabel = type === 'ADVANCE_INVOICE' ? `invoice ${input.number}` : `receipt ${input.number}`;
+    const emailPayload = { documentType: 'COMMERCIAL_EMAIL', commandId: payload.commandId, engagementId: payload.engagementId, clientId: payload.clientId,
+      dispatchId: emailDispatchId, fileVersionId, recipient, subject: `AuditSphere ${documentLabel}`,
+      body: `Please find the ${documentLabel} for ${input.clientName} attached.` };
+    const purpose = type === 'ADVANCE_INVOICE' ? 'INVOICE' : 'RECEIPT';
+    dispatchStatements.push(
+      env.DB.prepare(`INSERT INTO outbox_jobs(id,workspace_id,version,kind,aggregate_id,aggregate_version,payload_json,deduplication_key,status,attempts,next_attempt_at,lease_until,last_error_code,provider_reference,result_file_id,result_json,completed_at,created_at,updated_at)
+        VALUES(?,?,1,'EMAIL',?,?,?,?,'PENDING',0,?,NULL,NULL,NULL,NULL,NULL,NULL,?,?)`)
+        .bind(emailJobId, job.workspace_id, emailDispatchId, 1, JSON.stringify(emailPayload), dispatchDedup, generatedAt, generatedAt, generatedAt),
+      env.DB.prepare(`INSERT INTO dispatches(id,workspace_id,version,client_id,engagement_id,purpose,file_version_id,recipient_snapshot_json,status,provider_message_id,sent_at,deduplication_key,job_id,created_at,updated_at)
+        VALUES(?,?,1,?,?,?,?,?,'QUEUED',NULL,NULL,?,?,?,?)`)
+        .bind(emailDispatchId, job.workspace_id, payload.clientId, payload.engagementId, purpose, fileVersionId, JSON.stringify(recipient), dispatchDedup, emailJobId, generatedAt, generatedAt)
+    );
+  }
+  let lifecycleTransition: D1PreparedStatement[] = [];
+  if (type === 'ENGAGEMENT_LETTER') {
+    await commercialInput(env, job, payload);
+    const draft = await env.DB.prepare(`SELECT d.id,d.version,d.status,d.proposal_version_id,d.commercial_acceptance_id,d.risk_clearance_id,d.engagement_id,d.client_id
+        ,d.created_by_actor_id
+      FROM engagement_letter_drafts d WHERE d.workspace_id=? AND d.id=?`).bind(job.workspace_id, payload.draftId)
+      .first<{ id: string; version: number; status: string; proposal_version_id: string; commercial_acceptance_id: string; risk_clearance_id: string; engagement_id: string; client_id: string; created_by_actor_id: string }>();
+    if (!draft) throw new OutboxError('STALE_APPROVAL', 'The engagement letter draft no longer exists.');
+    const gateContext = { actor: { id: draft.created_by_actor_id, persona: 'APPROVER' as const, displayName: '', staffGrade: 'PARTNER' as const, clientId: null },
+      scope: { clientId: payload.clientId, engagementId: payload.engagementId }, allowedActions: ['commercialAcceptance.read'], readOnlyReasons: [] };
+    const gate = await getBusinessAcceptanceGate(env, job.workspace_id, gateContext, payload.engagementId) as any;
+    if (!['PENDING','RETRYABLE_FAILED'].includes(draft.status) || !gate.ready || gate.commercialKey.acceptanceId !== draft.commercial_acceptance_id
+      || gate.riskKey.clearanceId !== draft.risk_clearance_id || gate.commercialKey.proposalVersionId !== draft.proposal_version_id) {
+      throw new OutboxError('STALE_APPROVAL', 'The acceptance keys changed while the engagement letter was rendering.');
+    }
+    statements.push(env.DB.prepare(`UPDATE engagement_letter_drafts SET status='SUCCEEDED',version=version+1,artifact_id=?,file_version_id=?,error_code=NULL,updated_at=?
+      WHERE workspace_id=? AND id=? AND version=? AND status IN ('PENDING','RETRYABLE_FAILED')`).bind(artifactId, fileVersionId, generatedAt, job.workspace_id, draft.id, draft.version));
+  } else if (type === 'ADVANCE_INVOICE') {
+    const invoice = await env.DB.prepare(`SELECT id,version,engagement_id FROM invoices WHERE workspace_id=? AND id=? AND status='PENDING_DOCUMENT'`)
+      .bind(job.workspace_id, payload.invoiceId).first<{ id: string; version: number; engagement_id: string }>();
+    if (!invoice) throw new OutboxError('STALE_INVOICE', 'The advance invoice changed while its PDF was rendering.');
+    statements.push(env.DB.prepare(`UPDATE invoices SET status='ISSUED',version=version+1,artifact_id=?,file_version_id=?,issue_date=?,issued_at=?,updated_at=?
+      WHERE workspace_id=? AND id=? AND version=? AND status='PENDING_DOCUMENT'`).bind(artifactId, fileVersionId, qatarDate(), generatedAt, generatedAt, job.workspace_id, invoice.id, invoice.version));
+  } else {
+    const receipt = await env.DB.prepare(`SELECT id,client_id,engagement_id,payment_id,status FROM receipt_vouchers WHERE workspace_id=? AND id=? AND status='PENDING'`)
+      .bind(job.workspace_id, payload.receiptId).first<{ id: string; client_id: string; engagement_id: string; payment_id: string; status: string }>();
+    if (!receipt) throw new OutboxError('STALE_RECEIPT', 'The receipt changed while its PDF was rendering.');
+    statements.push(env.DB.prepare(`UPDATE receipt_vouchers SET status='ISSUED',artifact_id=?,file_version_id=?,issued_at=?
+      WHERE workspace_id=? AND id=? AND status='PENDING'`).bind(artifactId, fileVersionId, generatedAt, job.workspace_id, receipt.id));
+    const advance = await env.DB.prepare(`SELECT id,total_minor FROM invoices WHERE workspace_id=? AND engagement_id=? AND kind='ADVANCE' AND status='ISSUED'`)
+      .bind(job.workspace_id, payload.engagementId).first<{ id: string; total_minor: number }>();
+    if (advance) {
+      const allocated = await env.DB.prepare(`SELECT pa.amount_minor,p.reverses_payment_id,p.id AS payment_id,rv.status AS receipt_status
+        FROM payment_allocations pa JOIN payments p ON p.workspace_id=pa.workspace_id AND p.id=pa.payment_id
+        LEFT JOIN receipt_vouchers rv ON rv.workspace_id=p.workspace_id AND rv.payment_id=p.id
+        WHERE pa.workspace_id=? AND pa.invoice_id=?`).bind(job.workspace_id, advance.id).all<{ amount_minor: number; reverses_payment_id: string | null; payment_id: string; receipt_status: string | null }>();
+      let paid = 0n;
+      let receiptsReady = true;
+      for (const row of allocated.results ?? []) {
+        paid += BigInt(row.reverses_payment_id ? -row.amount_minor : row.amount_minor);
+        if (row.payment_id !== receipt.payment_id && row.receipt_status !== 'ISSUED') receiptsReady = false;
+      }
+      if (paid === BigInt(advance.total_minor) && receiptsReady) {
+        const engagement = await env.DB.prepare(`SELECT version,lifecycle_state FROM engagements WHERE workspace_id=? AND id=?`)
+          .bind(job.workspace_id, payload.engagementId).first<{ version: number; lifecycle_state: string }>();
+        if (engagement?.lifecycle_state === 'ADVANCE_BILLING') {
+          const transitionId = crypto.randomUUID();
+          const reason = 'The issued advance invoice is fully settled by verified allocations with committed receipt vouchers.';
+          const dependencyHash = await sha256Hex(JSON.stringify({ engagementId: payload.engagementId, invoiceId: advance.id, totalMinor: advance.total_minor, paymentId: receipt.payment_id }));
+          lifecycleTransition = [
+            env.DB.prepare(`INSERT INTO command_assertions(workspace_id,seq,ok)
+              SELECT ?,993,CASE WHEN EXISTS(SELECT 1 FROM engagements WHERE workspace_id=? AND id=? AND version=? AND lifecycle_state='ADVANCE_BILLING')
+                THEN 1 ELSE 0 END`).bind(job.workspace_id, job.workspace_id, payload.engagementId, engagement.version),
+            env.DB.prepare(`UPDATE engagements SET lifecycle_state='PORTAL_ACTIVE_PLANNING',version=version+1,updated_at=?,updated_by_actor_id=NULL
+              WHERE workspace_id=? AND id=? AND version=? AND lifecycle_state='ADVANCE_BILLING'`).bind(generatedAt, job.workspace_id, payload.engagementId, engagement.version),
+            env.DB.prepare(`INSERT INTO state_transitions(id,workspace_id,client_id,engagement_id,version,from_state,to_state,command_id,reason,dependency_hash,transitioned_at)
+              VALUES(?,?,?, ?,1,'ADVANCE_BILLING','PORTAL_ACTIVE_PLANNING',?,?,?,?)`)
+              .bind(transitionId, job.workspace_id, payload.clientId, payload.engagementId, payload.commandId, reason, dependencyHash, generatedAt)
+          ];
+        }
+      }
+    }
+  }
+  if (emailDispatchId) Object.assign(result, { dispatchId: emailDispatchId, emailStatus: 'QUEUED' });
+  await commitJobMutation(env, job, { entityType: type === 'ENGAGEMENT_LETTER' ? 'ENGAGEMENT_LETTER_DRAFT' : type === 'ADVANCE_INVOICE' ? 'INVOICE' : 'RECEIPT_VOUCHER',
+    entityId: String(payload.draftId ?? payload.invoiceId ?? payload.receiptId), clientId: payload.clientId, engagementId: payload.engagementId,
+    details, result, statements: [...statements, ...lifecycleTransition, ...dispatchStatements] });
+}
+
 function bytesToFormData(bytes: Uint8Array, input: {
   recipient: { contactRouteId: string; contactRouteVersion: number; name: string; email: string };
   proposalVersionId: string;
@@ -386,6 +639,71 @@ async function dispatchProposal(env: Env, job: OutboxJob): Promise<void> {
   });
 }
 
+async function dispatchCommercial(env: Env, job: OutboxJob): Promise<void> {
+  const payload = parseRawPayload(job);
+  if (!env.EMAIL_PROVIDER) throw new OutboxError('EMAIL_PROVIDER_NOT_CONFIGURED', 'Configure the EMAIL_PROVIDER service binding before sending this commercial document. The message has not been sent.');
+  if (!payload.dispatchId || !payload.fileVersionId || !payload.recipient
+    || typeof payload.recipient.contactRouteId !== 'string' || typeof payload.recipient.contactRouteVersion !== 'number'
+    || typeof payload.recipient.name !== 'string' || typeof payload.recipient.email !== 'string') {
+    throw new OutboxError('INVALID_DISPATCH_PAYLOAD', 'The commercial dispatch is missing its exact document or recipient snapshot.');
+  }
+  const dispatch = await env.DB.prepare(`SELECT id,status,version,purpose,file_version_id,recipient_snapshot_json FROM dispatches WHERE workspace_id=? AND id=? AND job_id=?`)
+    .bind(job.workspace_id, payload.dispatchId, job.id).first<{ id: string; status: string; version: number; purpose: string; file_version_id: string; recipient_snapshot_json: string }>();
+  if (!dispatch || dispatch.status !== 'QUEUED' || dispatch.file_version_id !== payload.fileVersionId
+    || !['EL','INVOICE','RECEIPT'].includes(dispatch.purpose)) throw new OutboxError('DISPATCH_NOT_QUEUED', 'This commercial dispatch is no longer queued for the pinned artifact.');
+  let snapshot: Record<string, unknown>;
+  try { snapshot = JSON.parse(dispatch.recipient_snapshot_json) as Record<string, unknown>; }
+  catch { throw new OutboxError('INVALID_RECIPIENT_SNAPSHOT', 'The pinned recipient snapshot cannot be verified.'); }
+  if (snapshot.contactRouteId !== payload.recipient.contactRouteId || snapshot.contactRouteVersion !== payload.recipient.contactRouteVersion
+    || snapshot.name !== payload.recipient.name || snapshot.email !== payload.recipient.email) {
+    throw new OutboxError('INVALID_RECIPIENT_SNAPSHOT', 'The email job recipient differs from the route snapshot recorded at issue.');
+  }
+  const document = await exactFile(env, job.workspace_id, payload.fileVersionId);
+  if (document.metadata.purpose !== 'GENERATED' || document.metadata.media_type !== 'application/pdf') {
+    throw new OutboxError('COMMERCIAL_ARTIFACT_INVALID', 'The exact commercial PDF is no longer available.');
+  }
+  const form = new FormData();
+  form.set('message', JSON.stringify({ to: payload.recipient.email, recipientName: payload.recipient.name,
+    subject: payload.subject, text: payload.body, dispatchId: payload.dispatchId, purpose: dispatch.purpose }));
+  form.append('attachment', new Blob([document.bytes], { type: 'application/pdf' }), document.metadata.original_name);
+  let response: Response;
+  try {
+    response = await env.EMAIL_PROVIDER.fetch(new Request('https://email-provider.local/send', {
+      method: 'POST', headers: { 'Idempotency-Key': job.deduplication_key }, body: form
+    }));
+  } catch {
+    throw new OutboxError('EMAIL_PROVIDER_OUTCOME_UNKNOWN', 'The email provider connection ended without a verifiable outcome. Do not resend until the provider is reconciled.', 'UNKNOWN');
+  }
+  if (response.status === 408 || response.status === 429) throw new OutboxError(`EMAIL_PROVIDER_HTTP_${response.status}`, `The provider returned HTTP ${response.status}; the dispatch will retry with the same idempotency key.`, 'RETRY');
+  if (response.status >= 500) throw new OutboxError(`EMAIL_PROVIDER_HTTP_${response.status}`, `The provider returned HTTP ${response.status}; whether it accepted the message is unknown.`, 'UNKNOWN');
+  if (!response.ok) throw new OutboxError(`EMAIL_PROVIDER_HTTP_${response.status}`, `The provider rejected the email with HTTP ${response.status}.`);
+  let providerMessageId: string;
+  try {
+    const result = await response.json() as { messageId?: unknown };
+    if (typeof result.messageId !== 'string' || !result.messageId.trim() || result.messageId.length > 512) throw new Error('missing message id');
+    providerMessageId = result.messageId.trim();
+  } catch {
+    throw new OutboxError('EMAIL_PROVIDER_RESPONSE_INVALID', 'The provider returned success without a verifiable message ID; delivery status is unknown.', 'UNKNOWN');
+  }
+  const acceptedAt = nowIso();
+  await commitJobMutation(env, job, {
+    entityType: 'DISPATCH', entityId: payload.dispatchId, clientId: payload.clientId, engagementId: payload.engagementId,
+    details: { dispatchId: payload.dispatchId, fileVersionId: payload.fileVersionId, providerMessageId, recipient: payload.recipient.email, purpose: dispatch.purpose },
+    result: { dispatchId: payload.dispatchId, providerMessageId, status: 'ACCEPTED' },
+    statements: [
+      env.DB.prepare(`INSERT INTO command_assertions(workspace_id,seq,ok)
+        SELECT ?,994,CASE WHEN EXISTS(SELECT 1 FROM dispatches WHERE workspace_id=? AND id=? AND job_id=? AND status='QUEUED' AND file_version_id=?)
+          THEN 1 ELSE 0 END`).bind(job.workspace_id, job.workspace_id, payload.dispatchId, job.id, payload.fileVersionId),
+      env.DB.prepare(`UPDATE outbox_jobs SET status='SUCCEEDED',provider_reference=?,result_json=?,last_error_code=NULL,completed_at=?,lease_until=NULL,updated_at=?,version=version+1
+        WHERE workspace_id=? AND id=? AND status='RUNNING' AND lease_until=?`)
+        .bind(providerMessageId, JSON.stringify({ dispatchId: payload.dispatchId, providerMessageId, status: 'ACCEPTED' }), acceptedAt, acceptedAt,
+          job.workspace_id, job.id, job.lease_until),
+      env.DB.prepare(`UPDATE dispatches SET status='ACCEPTED',provider_message_id=?,sent_at=?,updated_at=?,version=version+1
+        WHERE workspace_id=? AND id=? AND job_id=? AND status='QUEUED'`).bind(providerMessageId, acceptedAt, acceptedAt, job.workspace_id, payload.dispatchId, job.id)
+    ]
+  });
+}
+
 interface JobMutation {
   entityType: string;
   entityId: string;
@@ -453,6 +771,8 @@ async function recordJobFailure(env: Env, job: OutboxJob, error: unknown): Promi
     ? error
     : error instanceof ProposalDocumentError
       ? new OutboxError(error.code, error.message)
+      : error instanceof CommercialDocumentError
+        ? new OutboxError(error.code, error.message)
       : new OutboxError('JOB_PROCESSING_FAILED', 'The background job failed unexpectedly. Retry or inspect Worker logs.', 'RETRY');
   const now = nowIso();
   const exhausted = job.attempts >= MAX_JOB_ATTEMPTS;
@@ -460,12 +780,18 @@ async function recordJobFailure(env: Env, job: OutboxJob, error: unknown): Promi
   const status = disposition === 'RETRY' ? 'RETRYABLE_FAILED' : disposition === 'UNKNOWN' ? 'UNKNOWN' : 'PERMANENT_FAILED';
   const delaySeconds = Math.min(60 * 2 ** Math.min(job.attempts, 6), 3600);
   const nextAttempt = new Date(Date.parse(now) + delaySeconds * 1000).toISOString();
-  const payload = (() => { try { return JSON.parse(job.payload_json) as Partial<JobPayload>; } catch { return {}; } })();
+  const payload = (() => { try { return JSON.parse(job.payload_json) as Record<string, unknown>; } catch { return {}; } })();
   const dispatchStatus = disposition === 'UNKNOWN' ? 'UNKNOWN' : disposition === 'FAIL' ? 'FAILED' : null;
   const dispatchId = typeof payload.dispatchId === 'string' ? payload.dispatchId : null;
+  const documentType = typeof payload.documentType === 'string' ? payload.documentType : null;
+  const documentEntity = documentType === 'ENGAGEMENT_LETTER' && typeof payload.draftId === 'string' ? { type: 'ENGAGEMENT_LETTER_DRAFT', id: payload.draftId }
+    : documentType === 'ADVANCE_INVOICE' && typeof payload.invoiceId === 'string' ? { type: 'INVOICE', id: payload.invoiceId }
+      : documentType === 'RECEIPT' && typeof payload.receiptId === 'string' ? { type: 'RECEIPT_VOUCHER', id: payload.receiptId } : null;
+  const failureEntityType = job.kind === 'EMAIL' ? 'DISPATCH' : documentEntity?.type ?? 'PROPOSAL_VERSION';
+  const failureEntityId = dispatchId ?? documentEntity?.id ?? job.aggregate_id;
   await commitJobMutation(env, job, {
-    entityType: job.kind === 'EMAIL' ? 'DISPATCH' : 'PROPOSAL_VERSION',
-    entityId: dispatchId ?? job.aggregate_id,
+    entityType: failureEntityType,
+    entityId: failureEntityId,
     clientId: typeof payload.clientId === 'string' ? payload.clientId : undefined,
     engagementId: typeof payload.engagementId === 'string' ? payload.engagementId : undefined,
     details: { jobId: job.id, status, errorCode: failure.code, errorMessage: failure.message },
@@ -475,7 +801,10 @@ async function recordJobFailure(env: Env, job: OutboxJob, error: unknown): Promi
         .bind(status, failure.code, nextAttempt, status === 'RETRYABLE_FAILED' ? null : now, now, job.workspace_id, job.id, job.lease_until),
       ...(dispatchId && dispatchStatus ? [env.DB.prepare(`UPDATE dispatches SET status=?,updated_at=?,version=version+1
           WHERE workspace_id=? AND id=? AND job_id=? AND status='QUEUED'`)
-        .bind(dispatchStatus, now, job.workspace_id, dispatchId, job.id)] : [])
+        .bind(dispatchStatus, now, job.workspace_id, dispatchId, job.id)] : []),
+      ...(documentType === 'ENGAGEMENT_LETTER' && typeof payload.draftId === 'string' ? [env.DB.prepare(`UPDATE engagement_letter_drafts SET status=?,error_code=?,version=version+1,updated_at=?
+          WHERE workspace_id=? AND id=? AND job_id=? AND status IN ('PENDING','RETRYABLE_FAILED')`)
+        .bind(status, failure.code, now, job.workspace_id, payload.draftId, job.id)] : [])
     ],
     result: { status, errorCode: failure.code }
   });
@@ -487,10 +816,10 @@ async function markExpiredEmailUnknown(env: Env, candidate: { id: string; worksp
     FROM outbox_jobs WHERE workspace_id=? AND id=? AND status='RUNNING' AND lease_until=? AND kind='EMAIL'`)
     .bind(candidate.workspace_id, candidate.id, candidate.lease_until).first<OutboxJob>();
   if (!job) return;
-  const payload = parsePayload(job);
+  const payload = parseRawPayload(job);
   const now = nowIso();
   await commitJobMutation(env, job, {
-    entityType: 'DISPATCH', entityId: payload.dispatchId ?? job.aggregate_id,
+    entityType: 'DISPATCH', entityId: typeof payload.dispatchId === 'string' ? payload.dispatchId : job.aggregate_id,
     clientId: payload.clientId, engagementId: payload.engagementId,
     details: { jobId: job.id, status: 'UNKNOWN', errorCode: 'EMAIL_PROVIDER_OUTCOME_UNKNOWN',
       errorMessage: 'The Worker stopped after the provider call began. Reconcile the provider record before any retry.' },
@@ -498,7 +827,7 @@ async function markExpiredEmailUnknown(env: Env, candidate: { id: string; worksp
       env.DB.prepare(`UPDATE outbox_jobs SET status='UNKNOWN',last_error_code='EMAIL_PROVIDER_OUTCOME_UNKNOWN',completed_at=?,lease_until=NULL,updated_at=?,version=version+1
         WHERE workspace_id=? AND id=? AND status='RUNNING' AND lease_until=?`)
         .bind(now, now, job.workspace_id, job.id, job.lease_until),
-      ...(payload.dispatchId ? [env.DB.prepare(`UPDATE dispatches SET status='UNKNOWN',updated_at=?,version=version+1
+      ...(typeof payload.dispatchId === 'string' ? [env.DB.prepare(`UPDATE dispatches SET status='UNKNOWN',updated_at=?,version=version+1
           WHERE workspace_id=? AND id=? AND job_id=? AND status='QUEUED'`)
         .bind(now, job.workspace_id, payload.dispatchId, job.id)] : [])
     ],
@@ -531,7 +860,11 @@ export async function processBusinessOutbox(env: Env, limit = 20): Promise<numbe
     const job = await claimJob(env, candidate.id, nowIso());
     if (!job) continue;
     try {
-      if (job.kind === 'GENERATE_DOCUMENT') await renderAndStoreProposal(env, job);
+      const payload = parseRawPayload(job);
+      if (job.kind === 'GENERATE_DOCUMENT') {
+        if (typeof payload.documentType === 'string') await renderAndStoreCommercialDocument(env, job);
+        else await renderAndStoreProposal(env, job);
+      } else if (payload.documentType === 'COMMERCIAL_EMAIL') await dispatchCommercial(env, job);
       else await dispatchProposal(env, job);
       processed += 1;
     } catch (error) {

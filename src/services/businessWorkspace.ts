@@ -11,6 +11,7 @@ import type {
   BusinessFileReservation,
   BusinessAcceptanceGate,
   BusinessRiskWorkspace,
+  BusinessDeliveryWorkspace,
   BusinessLead,
   BusinessPersona,
   BusinessProposalWorkspace,
@@ -264,6 +265,15 @@ export async function getBusinessRiskWorkspace(
   signal?: AbortSignal
 ): Promise<BusinessRiskWorkspace> {
   return requestJson(`/api/workspaces/${encodeURIComponent(workspaceId)}/engagements/${encodeURIComponent(engagementId)}/risk-workspace`, { context: selected, signal });
+}
+
+export async function getBusinessDeliveryWorkspace(
+  workspaceId: string,
+  engagementId: string,
+  selected: BusinessWorkspacePreference,
+  signal?: AbortSignal
+): Promise<BusinessDeliveryWorkspace> {
+  return requestJson(`/api/workspaces/${encodeURIComponent(workspaceId)}/engagements/${encodeURIComponent(engagementId)}/delivery-workspace`, { context: selected, signal });
 }
 
 export async function getBusinessFiles(

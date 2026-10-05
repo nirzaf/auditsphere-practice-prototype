@@ -41,6 +41,7 @@ import {
 } from '../../services/businessWorkspace';
 import './business-workspace.css';
 import { BusinessAcceptanceRiskPanel } from './BusinessAcceptanceRiskPanel';
+import { BusinessDeliveryPanel } from './BusinessDeliveryPanel';
 
 type SetupMode = 'create' | 'connect';
 
@@ -1126,6 +1127,9 @@ export function BusinessWorkspaceConsole() {
                   {preference && context && <BusinessAcceptanceRiskPanel workspaceId={preference.workspaceId} selected={preference} context={context}
                     engagementId={proposal.engagementId} clientId={proposal.clientId} engagementName={proposal.clientName} files={files}
                     clientProposal={proposal} onChanged={() => setRecordsKey(value => value + 1)} />}
+                  {preference && context && <BusinessDeliveryPanel workspaceId={preference.workspaceId} selected={preference} context={context}
+                    engagement={{ id: proposal.engagementId, clientId: proposal.clientId, clientName: proposal.clientName, lifecycleState: proposal.lifecycleState }}
+                    files={files} onChanged={() => setRecordsKey(value => value + 1)} />}
                 </li>;
               })}
             </ul> : <p className="business-muted">No accepted proposal is available for this client context.</p>}
@@ -1218,6 +1222,8 @@ export function BusinessWorkspaceConsole() {
             engagementId={riskEngagement.id} clientId={riskEngagement.clientId}
             engagementName={`${riskEngagement.clientName} · ${riskEngagement.code}`} files={files}
             onChanged={() => setRecordsKey(value => value + 1)} />
+          {context.allowedActions.includes('billing.read') && <BusinessDeliveryPanel workspaceId={preference.workspaceId} selected={preference} context={context}
+            engagement={riskEngagement} files={files} onChanged={() => setRecordsKey(value => value + 1)} />}
         </section>}
 
         {context?.allowedActions.includes('file.read') && <section className="business-directory-card" aria-labelledby="business-files-heading">

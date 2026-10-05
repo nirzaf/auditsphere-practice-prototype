@@ -119,3 +119,24 @@
   .business-key-grid { grid-template-columns: minmax(0, 1fr); }
   .business-risk-check { padding: 10px; }
 }
+.business-delivery-card { margin-top: 14px; padding: 16px; border: 1px solid #b9c8d8; border-radius: 12px; background: #fff; }
+.business-delivery-card h2, .business-delivery-card h3 { margin: 0; color: #17334a; }
+.business-delivery-card h3 { font-size: 1rem; }
+.business-delivery-state { flex: none; border-radius: 99px; padding: 6px 10px; color: #17334a; background: #edf3f8; font-size: .78rem; font-weight: 700; }
+.business-delivery-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; gap: 14px; }
+.business-delivery-assets { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-top: 14px; }
+.business-delivery-assets > div { min-width: 0; padding: 12px; border: 1px solid #d7e0e8; border-radius: 9px; }
+.business-delivery-assets p { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; margin: 10px 0 0; }
+.business-delivery-assets p span { color: #496174; font-size: .88rem; overflow-wrap: anywhere; }
+.business-delivery-workflow { display: grid; gap: 10px; margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--line); }
+.business-delivery-row { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px 14px; min-width: 0; padding: 11px 12px; border: 1px solid #d7e0e8; border-radius: 9px; background: #f8fafc; }
+.business-delivery-row strong, .business-delivery-row span { overflow-wrap: anywhere; }
+.business-delivery-row span, .business-delivery-row small { color: #496174; font-size: .85rem; }
+.business-delivery-row small[role="alert"] { color: #991b1b; }
+.business-delivery-allocations { display: grid; gap: 10px; min-width: 0; margin: 0; padding: 12px; border: 1px solid #d7e0e8; border-radius: 9px; }
+.business-delivery-allocations legend { padding: 0 6px; color: #17334a; font-weight: 700; }
+@media (max-width: 700px) {
+  .business-delivery-grid, .business-delivery-assets { grid-template-columns: minmax(0, 1fr); }
+  .business-delivery-card { padding: 12px; }
+  .business-delivery-row { align-items: flex-start; }
+}

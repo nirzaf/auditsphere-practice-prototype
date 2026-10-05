@@ -265,6 +265,27 @@ export interface BusinessProposalWorkspace {
   proposals: BusinessProposal[];
 }
 
+export interface BusinessDeliveryWorkspace {
+  engagement: { id: string; clientId: string; code: string; version: number; lifecycleState: string; periodStart: string; periodEnd: string;
+    serviceType: 'STATUTORY_AUDIT' | 'INTERNAL_AUDIT' | 'AGREED_UPON_PROCEDURES'; clientName: string; contractFeeMinor: string };
+  letters: Array<{ id: string; revision: number; proposalVersionId?: string; commercialAcceptanceId?: string; riskClearanceId?: string;
+    templateVersionId: string; artifactId: string; fileVersionId: string; contentSha256: string; feeMinor: string;
+    periodStart: string; periodEnd: string; issuedAt: string }>;
+  invoices: Array<{ id: string; version: number; kind: 'ADVANCE' | 'FINAL'; engagementLetterId: string; number: string; subtotalMinor: string; taxMinor: string; totalMinor: string;
+    dueDate: string; status: 'DRAFT' | 'PENDING_DOCUMENT' | 'ISSUED' | 'VOID'; artifactId: string | null; fileVersionId: string | null;
+    issueDate: string | null; issuedAt: string | null; documentErrorCode: string | null; outstandingMinor: string; allocations: Array<{ amountMinor: string; reversal: boolean }> }>;
+  payments: Array<{ id: string; amountMinor: string; receivedOn: string; method: 'BANK_TRANSFER' | 'CHEQUE' | 'CASH'; reversal: boolean;
+    receiptId: string | null; receiptNumber: string | null; receiptStatus: 'PENDING' | 'ISSUED' | null; receiptFileId: string | null; receiptErrorCode: string | null }>;
+  letterDrafts?: Array<{ id: string; revision: number; proposalVersionId: string; commercialAcceptanceId: string; riskClearanceId: string;
+    templateVersionId: string; signatureFileVersionId: string; sealFileVersionId: string; status: string; jobId: string;
+    fileVersionId: string | null; errorCode: string | null }>;
+  templates?: Array<{ id: string; serviceType: string; revision: number; name: string; clauses: string; contentSha256: string; approvedByActorId: string; approvedAt: string }>;
+  contactRoutes?: Array<{ id: string; version: number; contactId: string; purpose: 'EL' | 'INVOICE' | 'RECEIPT'; name: string; email: string }>;
+  signatureAssets?: Array<{ id: string; originalName: string; sha256: string; decision: string; decisionId: string | null }>;
+  sealAssets?: Array<{ id: string; originalName: string; sha256: string; decision: string; approvalId: string | null }>;
+  taxPolicies?: Array<{ id: string; revision: number; name: string; taxBasisPoints: number; rationale: string; approvedAt: string }>;
+}
+
 export type BusinessRiskCheckCode = 'UBO' | 'KYC' | 'AML' | 'INTEGRITY' | 'VIABILITY' | 'INDEPENDENCE' | 'CONFLICTS';
 export type BusinessRiskOutcome = 'CLEAR' | 'ISSUE' | 'NOT_APPLICABLE';
 export interface BusinessRiskCheckDraft {
