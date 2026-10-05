@@ -83,7 +83,9 @@ export interface StateResponse {
   revision: number;
   schemaVersion: number;
   status: 'active' | 'frozen' | 'deleted';
-  expiresAt: number;
+  dataMode: 'BUSINESS' | 'TEST';
+  /** Present only for isolated TEST workspaces. */
+  expiresAt?: number;
   state: PrototypeState;
 }
 

@@ -21,24 +21,40 @@ export interface WorkspaceRow {
   schema_version: number;
   revision: number;
   status: WorkspaceStatus;
+  data_mode: 'BUSINESS' | 'TEST';
   created_at: number;
   updated_at: number;
-  expires_at: number;
+  /** TEST-only retention sidecar. BUSINESS workspaces have no expiry value. */
+  expires_at: number | null;
+}
+
+/** The legacy retention clock applies only to isolated TEST workspaces. */
+export function workspaceIsExpired(
+  workspace: Pick<WorkspaceRow, 'data_mode' | 'expires_at'>,
+  now = nowSeconds()
+): boolean {
+  return workspace.data_mode === 'TEST'
+    && (workspace.expires_at === null || workspace.expires_at <= now);
 }
 
 export async function getWorkspace(env: Env, workspaceId: string): Promise<WorkspaceRow | null> {
   return await env.DB
-    .prepare(`SELECT id,seed_id,name,schema_version,revision,status,created_at,updated_at,expires_at
-              FROM workspaces WHERE id=? AND status<>'deleted'`)
+    .prepare(`SELECT w.id,w.seed_id,w.name,w.schema_version,w.revision,w.status,w.data_mode,w.created_at,w.updated_at,
+                     test_expiry.expires_at
+              FROM workspaces AS w
+              LEFT JOIN test_workspace_expiry AS test_expiry ON test_expiry.workspace_id=w.id
+              WHERE w.id=? AND w.status<>'deleted'`)
     .bind(workspaceId)
     .first<WorkspaceRow>();
 }
 
-/** Load a workspace and enforce expiry, mapping failures to stable API codes. */
+/** Enforce the isolated TEST workspace retention policy. BUSINESS data never expires. */
 export async function requireWorkspace(env: Env, workspaceId: string): Promise<WorkspaceRow> {
   const workspace = await getWorkspace(env, workspaceId);
   if (!workspace) throw new ApiError('NOT_FOUND', 'Workspace not found.');
-  if (workspace.expires_at <= nowSeconds()) throw new ApiError('WORKSPACE_EXPIRED', 'This demo workspace has expired.');
+  if (workspaceIsExpired(workspace)) {
+    throw new ApiError('WORKSPACE_EXPIRED', 'This test workspace has expired or has no valid test-retention record.');
+  }
   return workspace;
 }
 
@@ -179,10 +195,13 @@ export async function createSeededWorkspace(
   const schemaVersion = Number((state as unknown as { schema?: unknown }).schema ?? 1) || 1;
   const now = nowSeconds();
   const expiresAt = now + options.ttlSeconds;
-  await env.DB.prepare(`INSERT INTO workspaces(id,seed_id,name,schema_version,revision,status,created_at,updated_at,expires_at)
-                        VALUES(?,?,?,?,1,'active',?,?,?)`)
-    .bind(workspaceId, options.seedId, options.name, schemaVersion, now, now, expiresAt)
-    .run();
+  await env.DB.batch([
+    env.DB.prepare(`INSERT INTO workspaces(id,seed_id,name,schema_version,revision,status,created_at,updated_at,data_mode)
+                    VALUES(?,?,?,?,1,'active',?,?,'TEST')`)
+      .bind(workspaceId, options.seedId, options.name, schemaVersion, now, now),
+    env.DB.prepare('INSERT INTO test_workspace_expiry(workspace_id,expires_at) VALUES(?,?)')
+      .bind(workspaceId, expiresAt)
+  ]);
   await writeDecomposedState(env, workspaceId, state, schemaVersion);
   return { workspaceId, revision: 1, expiresAt, schemaVersion };
 }

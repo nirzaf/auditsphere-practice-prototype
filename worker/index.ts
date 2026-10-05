@@ -79,14 +79,15 @@ async function enforceRateLimit(ctx: RouteContext, bucket: string, key: string):
 const clientKey = (ctx: RouteContext): string =>
   ctx.request.headers.get('CF-Connecting-IP') || 'local';
 
-const workspaceSummary = (row: { id: string; name: string; seed_id: string | null; schema_version: number; revision: number; status: WorkspaceSummary['status']; expires_at: number }): WorkspaceSummary => ({
+const workspaceSummary = (row: { id: string; name: string; seed_id: string | null; schema_version: number; revision: number; status: WorkspaceSummary['status']; data_mode: WorkspaceSummary['dataMode']; expires_at: number | null }): WorkspaceSummary => ({
   id: row.id,
   name: row.name,
   seedId: row.seed_id,
   schemaVersion: row.schema_version,
   revision: row.revision,
   status: row.status,
-  expiresAt: row.expires_at
+  dataMode: row.data_mode,
+  ...(row.expires_at === null ? {} : { expiresAt: row.expires_at })
 });
 
 // --- Health & seeds ---------------------------------------------------------
@@ -220,7 +221,8 @@ const handleState = async (ctx: RouteContext): Promise<Response> => {
     revision: row.revision,
     schemaVersion: row.schema_version,
     status: row.status,
-    expiresAt: row.expires_at,
+    dataMode: row.data_mode,
+    ...(row.expires_at === null ? {} : { expiresAt: row.expires_at }),
     state
   };
   return jsonResponse(response, 200, ctx.requestId);
@@ -572,7 +574,10 @@ export default {
     const now = nowSeconds();
     await env.DB.prepare('DELETE FROM workspace_sessions WHERE expires_at<=?').bind(now).run();
     await env.DB.prepare('DELETE FROM idempotency_keys WHERE expires_at<=?').bind(now).run();
-    await env.DB.prepare("UPDATE workspaces SET status='deleted' WHERE expires_at<=? AND status<>'deleted'").bind(now).run();
+    await env.DB.prepare(`UPDATE workspaces SET status='deleted'
+                          WHERE data_mode='TEST' AND status<>'deleted'
+                            AND id IN (SELECT workspace_id FROM test_workspace_expiry WHERE expires_at<=?)`)
+      .bind(now).run();
     await cleanupStagedFiles(env).catch(error => console.error('staged cleanup failed', String(error)));
     // Preserve the existing legacy snapshot API's retention behaviour.
     await env.DB.prepare('DELETE FROM demo_workspaces WHERE expires_at<=?').bind(now).run();

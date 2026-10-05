@@ -56,7 +56,9 @@ export interface WorkspaceSummary {
   schemaVersion: number;
   revision: number;
   status: 'active' | 'frozen' | 'deleted';
-  expiresAt: number;
+  dataMode: 'BUSINESS' | 'TEST';
+  /** Present only for isolated TEST workspaces. */
+  expiresAt?: number;
 }
 
 export interface SeedSummary {
