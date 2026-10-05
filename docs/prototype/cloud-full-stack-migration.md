@@ -128,6 +128,9 @@ local-only in the cloud workspace controls.
 | Create engagement | addEngagement | engagement.create | Yes | - |
 | Change engagement lifecycle | setEngagementLifecycle | engagement.setLifecycle | Yes | - |
 | Review / issue invoice | reviewInvoice, issueInvoice | invoice.review, invoice.issue | Yes | - |
+| Set evidence adequacy | setEvidenceAdequacy | evidence.setAdequacy | Yes | - |
+| Link evidence to a procedure | linkEvidenceProcedure | evidence.linkProcedure | Yes | - |
+| Unlink evidence from a procedure | unlinkEvidenceProcedure | evidence.unlinkProcedure | Yes | - |
 | Edit engagement administration fields | updateEngagement | engagement.updateAdmin (body exists but narrower) | No - browser-local until audit-plan/procedure invalidation is ported | - |
 | Draft invoice with time/service-linked lines | addInvoice | invoice.create (body exists but ad-hoc lines only) | No - browser-local until source-linked lines are ported | - |
 | Rename workspace | workspace controls | workspace.rename | Yes | — |

@@ -155,7 +155,7 @@ The live integration test also covers the newly server-authoritative
 
 ## Server-authoritative command families after the cutover
 
-25 command types dispatch through `SYNCED_COMMAND_TYPES` and execute a single shared
+28 command types dispatch through `SYNCED_COMMAND_TYPES` and execute a single shared
 browser-free `src/domain/` body on both the browser and the Worker:
 `client.create`, `client.update`, `client.nominateContact`,
 `client.reviewContactNomination`, `client.setCustomField`, `client.defineCustomField`,
@@ -164,7 +164,14 @@ browser-free `src/domain/` body on both the browser and the Worker:
 `contact.setPrimary`, `lead.create`, `lead.update`, `lead.convert`,
 `proposal.create`, `proposal.update`, `proposal.present`, `proposal.review`,
 `proposal.revise`, `proposal.respond`, `engagement.create`,
-`engagement.setLifecycle`, `invoice.review` and `invoice.issue`.
+`engagement.setLifecycle`, `invoice.review`, `invoice.issue`,
+`evidence.setAdequacy`, `evidence.linkProcedure` and `evidence.unlinkProcedure`.
+
+Persisted rows are no longer declared by hand: the Worker snapshots every id-keyed
+collection before the command, diffs it afterwards, persists added/changed rows,
+soft-deletes removed rows and writes any changed root document. Nested records (a
+procedure inside a program, a workpaper inside an engagement) therefore persist
+through their parent entity automatically.
 
 Two further union members are deliberately **not** in the sync list:
 
@@ -179,9 +186,9 @@ See the coverage table in
 [cloud-full-stack-migration.md](cloud-full-stack-migration.md).
 
 The remaining mutation families (jobs/tasks, PBC/documents, trial balance,
-planning, risks/workprograms, sampling, confirmations, evidence, findings,
-reviews, delivery, records, reports, ledger, time, scheduling, portal and
-`artifactStore` byte flows) still run browser-local. Adding one is mechanical but
+planning, risks/workprograms, sampling, confirmations, findings, reviews,
+delivery, records, reports, ledger, time, scheduling, portal and `artifactStore`
+byte flows) still run browser-local. Adding one is mechanical but
 per-family: a faithful browser-free body, a union member, a dispatcher case that
 declares every changed entity, store delegation, and the `SYNCED_COMMAND_TYPES`
 entry. Note that the Worker's state adapter persists any `id`-keyed top-level array
