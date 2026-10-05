@@ -313,6 +313,37 @@ export async function persistCommandChanges(
   await runBatched(env, statements);
 }
 
+/**
+ * Soft-delete entity rows a command removed from the authoritative state. Rows are
+ * marked `deleted_at` rather than dropped, so the workspace can still explain what
+ * happened.
+ */
+export async function persistEntityRemovals(
+  env: Env,
+  workspaceId: string,
+  removals: Array<{ entityKind: string; entityId: string }>
+): Promise<void> {
+  if (!removals.length) return;
+  const now = nowSeconds();
+  const sql = `UPDATE workspace_entities SET deleted_at=?, updated_at=?
+    WHERE workspace_id=? AND entity_kind=? AND entity_id=? AND deleted_at IS NULL`;
+  const statements = distinctChanges(removals).map(removal =>
+    env.DB.prepare(sql).bind(now, now, workspaceId, removal.entityKind, removal.entityId)
+  );
+  await runBatched(env, statements);
+}
+
+/** Persist an extended layout manifest when a command introduced new collections. */
+export async function persistManifest(env: Env, workspaceId: string, manifest: WorkspaceManifest): Promise<void> {
+  const now = nowSeconds();
+  const sql = `INSERT INTO workspace_root_documents(workspace_id,document_key,version,payload_json,created_at,updated_at)
+    VALUES(?,?,1,?,?,?)
+    ON CONFLICT(workspace_id,document_key) DO UPDATE SET
+      version=workspace_root_documents.version+1,
+      payload_json=excluded.payload_json, updated_at=excluded.updated_at`;
+  await env.DB.prepare(sql).bind(workspaceId, MANIFEST_DOCUMENT_KEY, JSON.stringify(manifest), now, now).run();
+}
+
 export interface AuditEventInput {
   workspaceId: string;
   actorUserId?: string;

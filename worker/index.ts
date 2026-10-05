@@ -27,6 +27,8 @@ import {
   listRootDocumentRows,
   loadWorkspaceState,
   persistCommandChanges,
+  persistEntityRemovals,
+  persistManifest,
   readEntity,
   renameWorkspace,
   requireWorkspace,
@@ -58,6 +60,7 @@ import {
   toFileMetadata,
   writeFileContent
 } from './files';
+import { diffEntityCollections, snapshotEntityCollections, scopeOf } from './state';
 
 const JSON_BODY_LIMIT = 1_000_000;
 /** Hard ceiling for a single command payload; the domain model is small. */
@@ -297,6 +300,10 @@ const handleCommand = async (ctx: RouteContext): Promise<Response> => {
 
   const loaded = await loadWorkspaceState(ctx.env, workspaceId);
 
+  // Snapshot the entity collections so the command's real effect is derived from the
+  // state itself rather than a hand-maintained change list.
+  const before = snapshotEntityCollections(state, loaded.manifest.entityCollections);
+
   // Fail closed on a stale workspace revision BEFORE any write happens.
   const revision = await advanceWorkspaceRevision(ctx.env, workspaceId, envelope.expectedRevision);
 
@@ -309,23 +316,33 @@ const handleCommand = async (ctx: RouteContext): Promise<Response> => {
     await renameWorkspace(ctx.env, workspaceId, (domain.result as { name: string }).name);
   }
 
+  // Persist what the command actually changed: added/updated entities, removed
+  // entities, and any root document whose content differs.
+  const diff = diffEntityCollections(state, loaded.manifest, before);
   await persistCommandChanges(
     ctx.env,
     workspaceId,
     state,
     loaded.manifest,
-    domain.changes,
+    diff.upserts,
     loaded.originalRootDocuments
   );
+  await persistEntityRemovals(ctx.env, workspaceId, diff.removals);
+  if (diff.manifest) await persistManifest(ctx.env, workspaceId, diff.manifest);
 
   // Read back authoritative entity versions for the returned change list.
-  const changes = await Promise.all(domain.changes.map(async change => {
+  const changes = await Promise.all(diff.upserts.map(async change => {
     const row = await readEntity(ctx.env, workspaceId, change.entityKind, change.entityId);
+    const collection = (state as unknown as Record<string, unknown>)[change.entityKind];
+    const item = Array.isArray(collection)
+      ? (collection as Array<Record<string, unknown>>).find(candidate => candidate && (candidate as { id?: unknown }).id === change.entityId)
+      : undefined;
+    const scope = scopeOf(change.entityKind, item ?? {});
     return {
       entityKind: change.entityKind,
       entityId: change.entityId,
-      clientId: change.clientId,
-      engagementId: change.engagementId,
+      clientId: scope.clientId,
+      engagementId: scope.engagementId,
       version: row?.version ?? 0
     };
   }));
