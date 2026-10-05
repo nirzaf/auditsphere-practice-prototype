@@ -41,6 +41,7 @@ import type { Env } from './env';
 import { ApiError, toApiError } from './errors';
 import { assertSameOrigin, baseHeaders, jsonResponse, readJson, sha256Hex } from './http';
 import { createRouter, type RouteContext } from './router';
+import { processBusinessOutbox } from './businessOutbox';
 import {
   SESSION_TTL_SECONDS,
   WORKSPACE_TTL_SECONDS,
@@ -70,6 +71,7 @@ import {
   getBusinessClient,
   listBusinessLeads,
   listBusinessStandardsProfiles,
+  getBusinessProposalWorkspace,
   businessEnvelopeFromRequest,
   getBusinessFileDownload,
   getBusinessFileMetadata,
@@ -212,6 +214,11 @@ const handleBusinessLeads = async (ctx: RouteContext): Promise<Response> => {
 
 const handleBusinessStandardsProfiles = async (ctx: RouteContext): Promise<Response> => {
   const result = await listBusinessStandardsProfiles(ctx.env, ctx.params.workspaceId, ctx.request);
+  return jsonResponse(result, 200, ctx.requestId);
+};
+
+const handleBusinessProposalWorkspace = async (ctx: RouteContext): Promise<Response> => {
+  const result = await getBusinessProposalWorkspace(ctx.env, ctx.params.workspaceId, ctx.request);
   return jsonResponse(result, 200, ctx.requestId);
 };
 
@@ -382,7 +389,8 @@ const handleCommand = async (ctx: RouteContext): Promise<Response> => {
     const body = await readJson<unknown>(ctx.request, COMMAND_BODY_LIMIT);
     const envelope = parseBusinessCommandEnvelope(body, ctx.request.headers.get('Idempotency-Key'));
     const response = await runBusinessDirectoryCommand(ctx.env, workspaceId, ctx.request, envelope);
-    return jsonResponse(response, 200, ctx.requestId);
+    const status = ['proposal.generate', 'proposal.generate.retry', 'proposal.dispatch', 'proposal.dispatch.retry'].includes(envelope.command.type) ? 202 : 200;
+    return jsonResponse(response, status, ctx.requestId);
   }
 
   const { session, state, actor } = await resolveSession(ctx.env, ctx.request);
@@ -648,6 +656,7 @@ const router = createRouter()
   .get('/api/workspaces/:workspaceId/clients/:clientId', handleBusinessClient)
   .get('/api/workspaces/:workspaceId/leads', handleBusinessLeads)
   .get('/api/workspaces/:workspaceId/standards-profiles', handleBusinessStandardsProfiles)
+  .get('/api/workspaces/:workspaceId/proposal-workspace', handleBusinessProposalWorkspace)
   .get('/api/workspaces/:workspaceId/state', handleState)
   .get('/api/workspaces/:workspaceId/changes', handleChanges)
   .get('/api/workspaces/:workspaceId/events', handleEvents)
@@ -718,12 +727,10 @@ export default {
     }
   },
 
-  /**
-   * Scheduled cleanup: expired workspaces/sessions/idempotency keys, abandoned
-   * staged uploads, and the legacy snapshot tables the v1 API still owns.
-   */
+  /** Process durable business jobs and clean expired legacy/session state. */
   async scheduled(_event: ScheduledController, env: Env): Promise<void> {
     const now = nowSeconds();
+    await processBusinessOutbox(env).catch(error => console.error('business outbox processing failed', String(error)));
     await env.DB.prepare('DELETE FROM workspace_sessions WHERE expires_at<=?').bind(now).run();
     await env.DB.prepare('DELETE FROM idempotency_keys WHERE expires_at<=?').bind(now).run();
     await env.DB.prepare(`UPDATE workspaces SET status='deleted'

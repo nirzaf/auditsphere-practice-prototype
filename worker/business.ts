@@ -7,7 +7,7 @@ import { ApiError } from './errors';
 import { sha256Hex } from './http';
 import { requireWorkspace } from './db';
 
-export const BUSINESS_SCHEMA_VERSION = 8;
+export const BUSINESS_SCHEMA_VERSION = 9;
 
 const emailSchema = z.string().trim().toLowerCase().max(254).pipe(z.email());
 
@@ -143,6 +143,7 @@ export interface BusinessActorProfileSummary {
   displayName: string;
   staffGrade: 'PARTNER' | 'MANAGER' | 'SENIOR' | 'ASSOCIATE' | null;
   clientId: string | null;
+  staffMemberId?: string | null;
 }
 
 interface BusinessActorProfileRow extends BusinessActorProfileSummary {
@@ -188,7 +189,8 @@ export async function listBusinessActorProfiles(env: Env, workspaceId: string): 
     persona: row.persona,
     displayName: row.displayName,
     staffGrade: row.persona === 'CLIENT' ? null : row.staffGrade,
-    clientId: row.persona === 'CLIENT' ? row.clientId : null
+    clientId: row.persona === 'CLIENT' ? row.clientId : null,
+    staffMemberId: row.persona === 'CLIENT' ? null : row.staffMemberId
   }));
   return { items, nextCursor: null };
 }
@@ -402,6 +404,113 @@ export async function listBusinessStandardsProfiles(
   })) };
 }
 
+export async function getBusinessProposalWorkspace(env: Env, workspaceId: string, request: Request): Promise<Record<string, unknown>> {
+  const context = await resolveBusinessContext(env, workspaceId, request);
+  if (!context.allowedActions.includes('proposal.read')) throw new ApiError('PERSONA_ACTION_DENIED', 'This persona cannot read proposal records.');
+  const clientId = context.actor.persona === 'CLIENT' ? context.actor.clientId : context.scope.clientId;
+  const engagementId = context.scope.engagementId;
+  const engagements = context.actor.persona === 'CLIENT' ? { results: [] } : await env.DB.prepare(`SELECT e.id,e.version,e.client_id,e.code,e.period_start,e.period_end,e.lifecycle_state,e.contract_fee_minor,c.legal_name AS client_name
+    FROM engagements e JOIN clients c ON c.workspace_id=e.workspace_id AND c.id=e.client_id
+    WHERE e.workspace_id=? AND (? IS NULL OR e.client_id=?) AND (? IS NULL OR e.id=?)
+    ORDER BY e.updated_at DESC,e.id DESC LIMIT 100`)
+    .bind(workspaceId, clientId, clientId, engagementId, engagementId).all<Record<string, unknown>>();
+  const proposalClauses = ['p.workspace_id=?'];
+  const proposalBindings: unknown[] = [workspaceId];
+  if (clientId) { proposalClauses.push('p.client_id=?'); proposalBindings.push(clientId); }
+  if (engagementId) { proposalClauses.push('p.engagement_id=?'); proposalBindings.push(engagementId); }
+  if (context.actor.persona === 'CLIENT') {
+    proposalClauses.push(`EXISTS(SELECT 1 FROM dispatches d WHERE d.workspace_id=p.workspace_id AND d.engagement_id=p.engagement_id
+      AND d.file_version_id=ga.file_version_id AND d.status IN ('ACCEPTED','DELIVERED'))`);
+  }
+  const proposals = await env.DB.prepare(`SELECT p.id AS proposal_id,p.version AS proposal_version,p.client_id,p.engagement_id,
+      pv.id AS proposal_version_id,pv.revision,pv.mode,pv.scope,pv.fee_minor,pv.currency,pv.advance_bps,pv.final_bps,pv.valid_until,pv.timeline_json,
+      pv.team_cv_file_ids_json,pv.methodology_version,pv.firm_profile_version,pv.created_at,
+      e.lifecycle_state,c.legal_name AS client_name,ga.file_version_id AS artifact_file_id,ga.content_sha256 AS artifact_sha256,
+      COALESCE(approval.decision,'PENDING') AS approval_status,
+      dispatch.id AS dispatch_id,dispatch.version AS dispatch_version,dispatch.last_error_code AS dispatch_error_code,
+      COALESCE(dispatch.status,'NOT_DISPATCHED') AS dispatch_status,
+      document_job.id AS document_job_id,document_job.last_error_code AS document_error_code,
+      COALESCE(document_job.status,'NOT_GENERATED') AS document_status
+    FROM proposals p JOIN proposal_versions pv ON pv.workspace_id=p.workspace_id AND pv.id=p.current_version_id
+    JOIN engagements e ON e.workspace_id=p.workspace_id AND e.client_id=p.client_id AND e.id=p.engagement_id
+    JOIN clients c ON c.workspace_id=p.workspace_id AND c.id=p.client_id
+    LEFT JOIN proposal_artifacts pa ON pa.workspace_id=p.workspace_id AND pa.proposal_version_id=pv.id
+    LEFT JOIN generated_artifacts ga ON ga.workspace_id=pa.workspace_id AND ga.id=pa.artifact_id
+    LEFT JOIN (SELECT proposal_version_id,decision,ROW_NUMBER() OVER(PARTITION BY proposal_version_id ORDER BY decided_at DESC,id DESC) AS rn
+      FROM proposal_approvals WHERE workspace_id=?) approval ON approval.proposal_version_id=pv.id AND approval.rn=1
+    LEFT JOIN (SELECT d.id,d.version,d.engagement_id,d.file_version_id,d.status,j.last_error_code,
+        ROW_NUMBER() OVER(PARTITION BY d.engagement_id,d.file_version_id ORDER BY d.created_at DESC,d.id DESC) AS rn
+      FROM dispatches d JOIN outbox_jobs j ON j.workspace_id=d.workspace_id AND j.id=d.job_id
+      WHERE d.workspace_id=? AND d.purpose='PROPOSAL') dispatch
+      ON dispatch.engagement_id=p.engagement_id AND dispatch.file_version_id=ga.file_version_id AND dispatch.rn=1
+    LEFT JOIN outbox_jobs document_job ON document_job.workspace_id=p.workspace_id AND document_job.kind='GENERATE_DOCUMENT'
+      AND document_job.aggregate_id=pv.id
+    WHERE ${proposalClauses.join(' AND ')}
+    ORDER BY pv.created_at DESC,p.id DESC LIMIT 100`)
+    .bind(workspaceId, workspaceId, ...proposalBindings).all<Record<string, unknown>>();
+  const items = (proposals.results ?? []).map(row => ({
+    proposalId: row.proposal_id, proposalVersion: row.proposal_version, clientId: row.client_id, engagementId: row.engagement_id,
+    proposalVersionId: row.proposal_version_id, revision: row.revision, mode: row.mode, scope: row.scope,
+    feeMinor: String(row.fee_minor), currency: row.currency, advanceBps: row.advance_bps, finalBps: row.final_bps,
+    validUntil: row.valid_until, timeline: JSON.parse(String(row.timeline_json)), clientName: row.client_name,
+    lifecycleState: row.lifecycle_state, approvalStatus: row.approval_status,
+    dispatchStatus: row.dispatch_status, documentStatus: row.document_status,
+    dispatchId: row.dispatch_id ?? null, dispatchVersion: row.dispatch_version == null ? null : Number(row.dispatch_version),
+    dispatchErrorCode: row.dispatch_error_code ?? null, documentJobId: row.document_job_id ?? null,
+    documentErrorCode: row.document_error_code ?? null,
+    artifactFileId: row.artifact_file_id, artifactSha256: row.artifact_sha256,
+    ...(context.actor.persona === 'CLIENT' ? {} : {
+      teamCvFileIds: JSON.parse(String(row.team_cv_file_ids_json)), methodologyVersion: row.methodology_version,
+      firmProfileVersion: row.firm_profile_version, createdAt: row.created_at
+    })
+  }));
+  if (context.actor.persona === 'CLIENT') return { engagements: [], firmProfile: null, staffMembers: [], teamCvs: [], contactRoutes: [], proposals: items };
+
+  const [firm, staff, cvs, routes] = await Promise.all([
+    env.DB.prepare(`SELECT id,version,legal_name,registration_number,address,profile_text,methodology_text,logo_file_id,updated_at
+      FROM firm_profiles WHERE workspace_id=?`).bind(workspaceId).first<Record<string, unknown>>(),
+    env.DB.prepare(`SELECT id,version,display_name,grade,active FROM staff_members WHERE workspace_id=? AND active=1 ORDER BY grade,display_name,id LIMIT 100`)
+      .bind(workspaceId).all<Record<string, unknown>>(),
+    env.DB.prepare(`SELECT cv.id,cv.version,cv.staff_member_id,sm.display_name,sm.grade,cv.file_version_id,f.original_name,f.sha256,cv.approved,cv.approved_by_actor_id,cv.approved_at
+      FROM team_cv_documents cv JOIN staff_members sm ON sm.workspace_id=cv.workspace_id AND sm.id=cv.staff_member_id
+      JOIN file_versions f ON f.workspace_id=cv.workspace_id AND f.id=cv.file_version_id
+      WHERE cv.workspace_id=? ORDER BY sm.display_name,cv.created_at DESC LIMIT 100`).bind(workspaceId).all<Record<string, unknown>>(),
+    env.DB.prepare(`SELECT cr.id,cr.version,cr.client_id,c.legal_name AS client_name,ct.full_name AS contact_name,ct.email
+      FROM contact_routes cr JOIN contacts ct ON ct.workspace_id=cr.workspace_id AND ct.client_id=cr.client_id AND ct.id=cr.contact_id
+      JOIN clients c ON c.workspace_id=cr.workspace_id AND c.id=cr.client_id
+      WHERE cr.workspace_id=? AND cr.purpose='PROPOSAL' AND ct.active=1 AND ct.email IS NOT NULL AND c.active=1
+        AND (? IS NULL OR cr.client_id=?) ORDER BY c.legal_name,ct.full_name,cr.id LIMIT 100`)
+      .bind(workspaceId, clientId, clientId).all<Record<string, unknown>>()
+  ]);
+  const firmProfile = firm ? {
+    id: firm.id, version: firm.version, legalName: firm.legal_name, registrationNumber: firm.registration_number,
+    address: firm.address, profileText: firm.profile_text, methodologyText: firm.methodology_text,
+    logoFileId: firm.logo_file_id, updatedAt: firm.updated_at
+  } : null;
+  const staffMembers = (staff.results ?? []).map(row => ({
+    id: String(row.id), version: Number(row.version), displayName: String(row.display_name),
+    grade: String(row.grade), active: Number(row.active) === 1
+  }));
+  const teamCvs = (cvs.results ?? []).map(cv => ({
+    id: cv.id, version: cv.version, staffMemberId: cv.staff_member_id, displayName: cv.display_name, grade: cv.grade,
+    fileVersionId: cv.file_version_id, originalName: cv.original_name, sha256: cv.sha256, approved: cv.approved === 1,
+    approvedByActorId: cv.approved_by_actor_id, approvedAt: cv.approved_at
+  }));
+  return {
+    engagements: (engagements.results ?? []).map(row => ({
+      id: row.id, version: row.version, clientId: row.client_id, clientName: row.client_name, code: row.code,
+      periodStart: row.period_start, periodEnd: row.period_end, lifecycleState: row.lifecycle_state,
+      contractFeeMinor: String(row.contract_fee_minor)
+    })),
+    firmProfile, staffMembers, teamCvs,
+    contactRoutes: (routes.results ?? []).map(route => ({
+      id: route.id, version: route.version, clientId: route.client_id, clientName: route.client_name,
+      contactName: route.contact_name, email: route.email
+    })),
+    proposals: items
+  };
+}
+
 export interface BusinessContext {
   actor: {
     id: string;
@@ -461,10 +570,10 @@ export async function resolveBusinessContext(env: Env, workspaceId: string, requ
     },
     scope: { clientId, engagementId: requestedEngagementId },
     allowedActions: row.persona === 'APPROVER' && row.staffGrade === 'PARTNER'
-      ? ['directory.manage', 'client.read', 'client.manage', 'lead.read', 'lead.manage', 'lead.convert', 'engagement.read', 'engagement.advance', 'standards.read', 'standards.manage', 'file.read', 'file.upload']
-      : row.persona === 'PREPARER' ? ['client.read', 'client.manage', 'lead.read', 'lead.manage', 'lead.convert', 'engagement.read', 'engagement.advance', 'standards.read', 'file.read', 'file.upload']
-        : row.persona === 'REVIEWER' ? ['client.read', 'lead.read', 'engagement.read', 'standards.read', 'file.read', 'file.upload']
-          : ['client.read', 'file.read', 'file.upload'],
+      ? ['directory.manage', 'client.read', 'client.manage', 'lead.read', 'lead.manage', 'lead.convert', 'engagement.read', 'engagement.advance', 'standards.read', 'standards.manage', 'file.read', 'file.upload', 'proposal.read', 'proposal.create', 'proposal.generate', 'proposal.approve', 'proposal.dispatch', 'firm.manage']
+      : row.persona === 'PREPARER' ? ['client.read', 'client.manage', 'lead.read', 'lead.manage', 'lead.convert', 'engagement.read', 'engagement.advance', 'standards.read', 'file.read', 'file.upload', 'proposal.read', 'proposal.create', 'proposal.generate']
+        : row.persona === 'REVIEWER' ? ['client.read', 'lead.read', 'engagement.read', 'standards.read', 'file.read', 'file.upload', 'proposal.read', 'proposal.create', 'proposal.generate']
+          : ['client.read', 'file.read', 'file.upload', 'proposal.read'],
     readOnlyReasons: isClient ? ['CLIENT_PROJECTION_ONLY'] : []
   };
 }
@@ -735,6 +844,62 @@ const businessFileRejectCommand = z.strictObject({
   type: z.literal('file.reject'),
   payload: z.strictObject({ fileId: clientIdSchema, expectedVersion: z.number().int().positive(), reason: z.string().trim().min(10).max(1000) })
 });
+const timelineMilestoneSchema = z.strictObject({ name: z.string().trim().min(1).max(160), date: dateSchema });
+const proposalTermsSchema = z.strictObject({
+  engagementId: clientIdSchema,
+  mode: z.enum(['QUOTE', 'FULL_PROPOSAL']),
+  scope: z.string().trim().min(10).max(10000),
+  feeMinor: moneyMinorSchema,
+  validUntil: dateSchema,
+  timeline: z.array(timelineMilestoneSchema).min(1).max(24)
+});
+const firmProfileSaveCommand = z.strictObject({
+  type: z.literal('firm-profile.save'),
+  payload: z.strictObject({
+    expectedVersion: z.number().int().positive().nullable(),
+    legalName: z.string().trim().min(1).max(250),
+    registrationNumber: z.string().trim().min(1).max(200),
+    address: z.string().trim().min(1).max(1000),
+    profileText: z.string().trim().min(10).max(10000),
+    methodologyText: z.string().trim().min(10).max(20000),
+    logoFileId: clientIdSchema.nullable().optional()
+  }).refine(value => value.profileText.length + value.methodologyText.length <= 25000, {
+    message: 'Firm profile and methodology together must fit within 25,000 characters.'
+  })
+});
+const teamCvAttachCommand = z.strictObject({
+  type: z.literal('team-cv.attach'),
+  payload: z.strictObject({ staffMemberId: staffIdSchema, fileVersionId: clientIdSchema })
+});
+const teamCvApproveCommand = z.strictObject({
+  type: z.literal('team-cv.approve'),
+  payload: z.strictObject({ teamCvId: clientIdSchema, expectedVersion: z.number().int().positive(), rationale: z.string().trim().min(10).max(10000) })
+});
+const proposalCreateCommand = z.strictObject({ type: z.literal('proposal.create'), payload: proposalTermsSchema.extend({ expectedEngagementVersion: z.number().int().positive() }) });
+const proposalReviseCommand = z.strictObject({
+  type: z.literal('proposal.revise'),
+  payload: proposalTermsSchema.extend({ proposalId: clientIdSchema, expectedVersion: z.number().int().positive() })
+});
+const proposalGenerateCommand = z.strictObject({
+  type: z.literal('proposal.generate'),
+  payload: z.strictObject({ proposalVersionId: clientIdSchema, expectedVersion: z.number().int().positive() })
+});
+const proposalGenerateRetryCommand = z.strictObject({
+  type: z.literal('proposal.generate.retry'),
+  payload: z.strictObject({ proposalVersionId: clientIdSchema, expectedVersion: z.number().int().positive(), failedJobId: clientIdSchema })
+});
+const proposalApproveCommand = z.strictObject({
+  type: z.literal('proposal.approve'),
+  payload: z.strictObject({ proposalVersionId: clientIdSchema, expectedVersion: z.number().int().positive(), note: z.string().trim().min(10).max(10000) })
+});
+const proposalDispatchCommand = z.strictObject({
+  type: z.literal('proposal.dispatch'),
+  payload: z.strictObject({ proposalVersionId: clientIdSchema, expectedVersion: z.number().int().positive(), contactRouteId: clientIdSchema })
+});
+const proposalDispatchRetryCommand = z.strictObject({
+  type: z.literal('proposal.dispatch.retry'),
+  payload: z.strictObject({ dispatchId: clientIdSchema, expectedVersion: z.number().int().positive() })
+});
 
 export const businessCommandSchema = z.discriminatedUnion('type', [
   staffCreateCommand,
@@ -757,7 +922,17 @@ export const businessCommandSchema = z.discriminatedUnion('type', [
   businessFileReserveCommand,
   businessFileStageCommand,
   businessFileCommitCommand,
-  businessFileRejectCommand
+  businessFileRejectCommand,
+  firmProfileSaveCommand,
+  teamCvAttachCommand,
+  teamCvApproveCommand,
+  proposalCreateCommand,
+  proposalReviseCommand,
+  proposalGenerateCommand,
+  proposalGenerateRetryCommand,
+  proposalApproveCommand,
+  proposalDispatchCommand,
+  proposalDispatchRetryCommand
 ]);
 
 const expectedVersionSchema = z.strictObject({
@@ -778,7 +953,8 @@ export type BusinessCommandEnvelope = BusinessCommandBody & { idempotencyKey: st
 type BusinessCommand = BusinessCommandBody['command'];
 type BusinessDirectoryCommand = Extract<BusinessCommand, { type: 'staff.create' | 'staff.update' | 'actor-profile.assign' | 'actor-profile.deactivate' }>;
 type BusinessFileCommand = Extract<BusinessCommand, { type: 'file.reserve' | 'file.stage' | 'file.commit' | 'file.reject' }>;
-type BusinessCommercialCommand = Exclude<BusinessCommand, BusinessDirectoryCommand | BusinessFileCommand>;
+type BusinessProposalCommand = Extract<BusinessCommand, { type: 'firm-profile.save' | 'team-cv.attach' | 'team-cv.approve' | 'proposal.create' | 'proposal.revise' | 'proposal.generate' | 'proposal.generate.retry' | 'proposal.approve' | 'proposal.dispatch' | 'proposal.dispatch.retry' }>;
+type BusinessCommercialCommand = Exclude<BusinessCommand, BusinessDirectoryCommand | BusinessFileCommand | BusinessProposalCommand>;
 
 function isBusinessDirectoryCommand(command: BusinessCommand): command is BusinessDirectoryCommand {
   return command.type === 'staff.create' || command.type === 'staff.update'
@@ -788,6 +964,11 @@ function isBusinessDirectoryCommand(command: BusinessCommand): command is Busine
 function isBusinessFileCommand(command: BusinessCommand): command is BusinessFileCommand {
   return command.type === 'file.reserve' || command.type === 'file.stage'
     || command.type === 'file.commit' || command.type === 'file.reject';
+}
+
+function isBusinessProposalCommand(command: BusinessCommand): command is BusinessProposalCommand {
+  return command.type.startsWith('proposal.') || command.type === 'firm-profile.save'
+    || command.type === 'team-cv.attach' || command.type === 'team-cv.approve';
 }
 
 export function parseBusinessCommandEnvelope(value: unknown, idempotencyKey: string | null): BusinessCommandEnvelope {
@@ -806,7 +987,14 @@ export function parseBusinessCommandEnvelope(value: unknown, idempotencyKey: str
             : command.type === 'engagement.advance' ? { entity: 'Engagement', id: command.payload.engagementId, version: command.payload.expectedVersion }
               : command.type === 'file.stage' || command.type === 'file.commit' || command.type === 'file.reject'
                 ? { entity: 'FileVersion', id: command.payload.fileId, version: command.payload.expectedVersion }
-                : null;
+                : command.type === 'team-cv.approve' ? { entity: 'TeamCv', id: command.payload.teamCvId, version: command.payload.expectedVersion }
+                  : command.type === 'proposal.create' ? { entity: 'Engagement', id: command.payload.engagementId, version: command.payload.expectedEngagementVersion }
+                    : command.type === 'proposal.revise' ? { entity: 'Proposal', id: command.payload.proposalId, version: command.payload.expectedVersion }
+                      : command.type === 'proposal.generate' || command.type === 'proposal.generate.retry' || command.type === 'proposal.approve' || command.type === 'proposal.dispatch'
+                        ? { entity: 'ProposalVersion', id: command.payload.proposalVersionId, version: command.payload.expectedVersion }
+                        : command.type === 'proposal.dispatch.retry'
+                          ? { entity: 'Dispatch', id: command.payload.dispatchId, version: command.payload.expectedVersion }
+                        : null;
   if (versionTarget && (parsed.data.expectedVersions.length !== 1
     || parsed.data.expectedVersions[0].entity !== versionTarget.entity
     || parsed.data.expectedVersions[0].id !== versionTarget.id
@@ -1148,7 +1336,7 @@ function assertBusinessFileAction(context: BusinessContext, file: Pick<BusinessF
     if (action === 'upload' && !['PBC', 'TB'].includes(file.purpose)) {
       throw new ApiError('PERSONA_ACTION_DENIED', 'CLIENT profiles can upload only to their own PBC or trial-balance request.');
     }
-    if (action === 'read' && !['PBC', 'TB'].includes(file.purpose)) {
+    if (action === 'read' && !['PBC', 'TB', 'GENERATED'].includes(file.purpose)) {
       throw new ApiError('FORBIDDEN_SCOPE', 'This file is not part of the client-facing projection.');
     }
     if (!context.actor.clientId || file.client_id !== context.actor.clientId || !file.engagement_id) {
@@ -1422,7 +1610,12 @@ export async function listBusinessFiles(
     if (context.actor.persona === 'CLIENT') { clauses.push('engagement_id=?'); bindings.push(context.scope.engagementId); }
     else { clauses.push('(engagement_id=? OR engagement_id IS NULL)'); bindings.push(context.scope.engagementId); }
   }
-  if (context.actor.persona === 'CLIENT') clauses.push("purpose IN ('PBC','TB')");
+  if (context.actor.persona === 'CLIENT') clauses.push(`(purpose IN ('PBC','TB') OR (purpose='GENERATED' AND EXISTS(
+    SELECT 1 FROM generated_artifacts ga JOIN proposal_artifacts pa ON pa.workspace_id=ga.workspace_id AND pa.artifact_id=ga.id
+    JOIN proposals p ON p.workspace_id=pa.workspace_id AND p.current_version_id=pa.proposal_version_id
+    JOIN dispatches d ON d.workspace_id=ga.workspace_id AND d.file_version_id=ga.file_version_id
+    WHERE ga.workspace_id=file_versions.workspace_id AND ga.file_version_id=file_versions.id
+      AND p.client_id=? AND d.status IN ('ACCEPTED','DELIVERED'))))`), bindings.push(clientId);
   const result = await env.DB.prepare(`SELECT id,version,client_id,engagement_id,original_name,media_type,size_bytes,
       sha256,object_key,purpose,state,committed_at,immutable FROM file_versions
     WHERE ${clauses.join(' AND ')} ORDER BY created_at DESC,id DESC LIMIT ?`)
@@ -1435,6 +1628,15 @@ async function readableBusinessFile(env: Env, workspaceId: string, request: Requ
   const file = await businessFileRow(env, workspaceId, fileId);
   if (!file) throw new ApiError('NOT_FOUND', 'File not found.');
   assertBusinessFileAction(context, file, 'read');
+  if (context.actor.persona === 'CLIENT' && file.purpose === 'GENERATED') {
+    const issued = await env.DB.prepare(`SELECT 1 AS found FROM generated_artifacts ga
+      JOIN proposal_artifacts pa ON pa.workspace_id=ga.workspace_id AND pa.artifact_id=ga.id
+      JOIN proposals p ON p.workspace_id=pa.workspace_id AND p.current_version_id=pa.proposal_version_id
+      JOIN dispatches d ON d.workspace_id=ga.workspace_id AND d.engagement_id=ga.engagement_id AND d.file_version_id=ga.file_version_id
+      WHERE ga.workspace_id=? AND ga.file_version_id=? AND p.client_id=? AND d.status IN ('ACCEPTED','DELIVERED') LIMIT 1`)
+      .bind(workspaceId, fileId, context.actor.clientId).first<{ found: number }>();
+    if (!issued) throw new ApiError('FORBIDDEN_SCOPE', 'This generated file has not been accepted by the proposal delivery provider.');
+  }
   if (file.state !== 'COMMITTED' || !file.sha256 || !file.committed_at) {
     throw new ApiError('NOT_FOUND', 'A committed file was not found in this scope.');
   }
@@ -2063,6 +2265,483 @@ async function buildCommercialMutation(
   };
 }
 
+/** Versioned firm content, proposal revisions and approval/dispatch commands. */
+async function buildBusinessProposalMutation(
+  env: Env,
+  workspaceId: string,
+  context: BusinessContext,
+  command: BusinessProposalCommand,
+  commandId: string,
+  now: string
+): Promise<BusinessMutation> {
+  const actorId = context.actor.id;
+  const isPartnerApprover = context.actor.persona === 'APPROVER' && context.actor.staffGrade === 'PARTNER';
+  const requirePartner = () => {
+    if (!isPartnerApprover) throw new ApiError('PERSONA_ACTION_DENIED', 'Only an APPROVER with PARTNER grade can maintain firm content, approve CVs, approve or dispatch proposals.');
+  };
+  const requireProposalAction = (action: 'proposal.create' | 'proposal.generate' | 'proposal.approve' | 'proposal.dispatch') => {
+    if (!context.allowedActions.includes(action)) throw new ApiError('PERSONA_ACTION_DENIED', 'This actor profile cannot perform the requested proposal action.');
+  };
+
+  if (command.type === 'firm-profile.save') {
+    requirePartner();
+    const input = command.payload;
+    const current = await env.DB.prepare(`SELECT id,version FROM firm_profiles WHERE workspace_id=?`).bind(workspaceId)
+      .first<{ id: string; version: number }>();
+    if (input.expectedVersion === null ? Boolean(current) : !current || current.version !== input.expectedVersion) {
+      throw new ApiError('VERSION_CONFLICT', 'The firm profile changed. Reload it before saving.');
+    }
+    if (input.logoFileId) {
+      const logo = await env.DB.prepare(`SELECT id FROM file_versions WHERE workspace_id=? AND id=? AND state='COMMITTED'
+          AND immutable=1 AND purpose='TEMPLATE' AND media_type IN ('image/png','image/jpeg')`)
+        .bind(workspaceId, input.logoFileId).first<{ id: string }>();
+      if (!logo) throw new ApiError('GATE_BLOCKED', 'Choose a committed PNG or JPEG firm logo from Stored files.');
+    }
+    const profileId = current?.id ?? crypto.randomUUID();
+    const nextVersion = current ? current.version + 1 : 1;
+    const statements = [
+      env.DB.prepare(`INSERT INTO command_assertions(workspace_id,seq,ok)
+        SELECT ?,73,CASE WHEN (? IS NULL AND NOT EXISTS(SELECT 1 FROM firm_profiles WHERE workspace_id=?))
+          OR EXISTS(SELECT 1 FROM firm_profiles WHERE workspace_id=? AND version=?) THEN 1 ELSE 0 END`)
+        .bind(workspaceId, input.expectedVersion, workspaceId, workspaceId, input.expectedVersion),
+      current
+        ? env.DB.prepare(`UPDATE firm_profiles SET version=version+1,legal_name=?,registration_number=?,address=?,profile_text=?,methodology_text=?,logo_file_id=?,updated_at=?,updated_by_actor_id=?
+            WHERE workspace_id=? AND id=? AND version=?`).bind(input.legalName, input.registrationNumber, input.address,
+          input.profileText, input.methodologyText, input.logoFileId ?? null, now, actorId, workspaceId, profileId, current.version)
+        : env.DB.prepare(`INSERT INTO firm_profiles(id,workspace_id,version,legal_name,registration_number,address,profile_text,methodology_text,logo_file_id,created_at,updated_at,created_by_actor_id,updated_by_actor_id)
+            VALUES(?,?,1,?,?,?,?,?,?, ?,?,?,?)`).bind(profileId, workspaceId, input.legalName, input.registrationNumber,
+          input.address, input.profileText, input.methodologyText, input.logoFileId ?? null, now, now, actorId, actorId)
+    ];
+    return {
+      statements, result: { firmProfileId: profileId, version: nextVersion },
+      entityType: 'FIRM_PROFILE', entityId: profileId, beforeVersion: current?.version ?? null, afterVersion: nextVersion
+    };
+  }
+
+  if (command.type === 'team-cv.attach') {
+    requirePartner();
+    const { staffMemberId, fileVersionId } = command.payload;
+    const file = await env.DB.prepare(`SELECT id FROM file_versions WHERE workspace_id=? AND id=? AND state='COMMITTED'
+        AND immutable=1 AND purpose='TEMPLATE' AND media_type IN ('application/pdf','application/vnd.openxmlformats-officedocument.wordprocessingml.document')`)
+      .bind(workspaceId, fileVersionId).first<{ id: string }>();
+    if (!file) throw new ApiError('GATE_BLOCKED', 'Attach a committed PDF or DOCX stored as a firm template.');
+    const staff = await env.DB.prepare(`SELECT id FROM staff_members WHERE workspace_id=? AND id=? AND active=1`)
+      .bind(workspaceId, staffMemberId).first<{ id: string }>();
+    if (!staff) throw new ApiError('NOT_FOUND', 'The active staff member was not found in this workspace.');
+    const duplicate = await env.DB.prepare(`SELECT id FROM team_cv_documents WHERE workspace_id=? AND staff_member_id=? AND file_version_id=?`)
+      .bind(workspaceId, staffMemberId, fileVersionId).first<{ id: string }>();
+    if (duplicate) throw new ApiError('VERSION_CONFLICT', 'This CV file is already attached to that staff member.');
+    const teamCvId = crypto.randomUUID();
+    return {
+      statements: [env.DB.prepare(`INSERT INTO team_cv_documents(
+        id,workspace_id,version,staff_member_id,file_version_id,approved,approved_by_actor_id,approved_at,created_at,updated_at,created_by_actor_id
+      ) VALUES(?,?,1,?,?,0,NULL,NULL,?,?,?)`).bind(teamCvId, workspaceId, staffMemberId, fileVersionId, now, now, actorId)],
+      result: { teamCvId, version: 1, status: 'PENDING_APPROVAL' }, entityType: 'TEAM_CV', entityId: teamCvId, beforeVersion: null, afterVersion: 1
+    };
+  }
+
+  if (command.type === 'team-cv.approve') {
+    requirePartner();
+    const { teamCvId, expectedVersion, rationale } = command.payload;
+    const cv = await env.DB.prepare(`SELECT cv.version,cv.staff_member_id,cv.file_version_id,cv.approved,f.sha256
+        FROM team_cv_documents cv JOIN file_versions f ON f.workspace_id=cv.workspace_id AND f.id=cv.file_version_id
+        WHERE cv.workspace_id=? AND cv.id=?`).bind(workspaceId, teamCvId)
+      .first<{ version: number; staff_member_id: string; file_version_id: string; approved: number; sha256: string | null }>();
+    if (!cv) throw new ApiError('NOT_FOUND', 'The team CV record was not found.');
+    if (cv.version !== expectedVersion || cv.approved === 1) throw new ApiError('VERSION_CONFLICT', 'The CV changed or is already approved.');
+    const approvalId = crypto.randomUUID();
+    const linkId = crypto.randomUUID();
+    const actorSnapshot = JSON.stringify({ actorId, persona: context.actor.persona, displayName: context.actor.displayName, staffGrade: context.actor.staffGrade });
+    return {
+      statements: [
+        env.DB.prepare(`INSERT INTO command_assertions(workspace_id,seq,ok)
+          SELECT ?,74,CASE WHEN EXISTS(SELECT 1 FROM team_cv_documents cv JOIN file_versions f ON f.workspace_id=cv.workspace_id AND f.id=cv.file_version_id
+            WHERE cv.workspace_id=? AND cv.id=? AND cv.version=? AND cv.approved=0 AND f.state='COMMITTED' AND f.immutable=1)
+          THEN 1 ELSE 0 END`).bind(workspaceId, workspaceId, teamCvId, expectedVersion),
+        env.DB.prepare(`INSERT INTO approval_decisions(id,workspace_id,client_id,engagement_id,version,subject_type,subject_id,subject_version,decision,rationale,actor_snapshot_json,decided_at,supersedes_decision_id)
+          VALUES(?,?,NULL,NULL,1,'TEAM_CV',?,?, 'APPROVE',?,?,?,NULL)`)
+          .bind(approvalId, workspaceId, teamCvId, expectedVersion, rationale, actorSnapshot, now),
+        env.DB.prepare(`UPDATE team_cv_documents SET version=version+1,approved=1,approved_by_actor_id=?,approved_at=?,updated_at=?
+          WHERE workspace_id=? AND id=? AND version=? AND approved=0`).bind(actorId, now, now, workspaceId, teamCvId, expectedVersion)
+      ],
+      result: { teamCvId, approvalId, version: expectedVersion + 1, status: 'APPROVED' },
+      entityType: 'TEAM_CV', entityId: teamCvId, beforeVersion: expectedVersion, afterVersion: expectedVersion + 1,
+      auditDetails: { fileVersionId: cv.file_version_id, contentSha256: cv.sha256, approvalId }
+    };
+  }
+
+  if (command.type === 'proposal.create' || command.type === 'proposal.revise') {
+    requireProposalAction('proposal.create');
+    const input = command.payload;
+    const engagement = await env.DB.prepare(`SELECT e.id,e.version,e.client_id,e.lifecycle_state,e.period_start,e.period_end,e.contract_fee_minor,
+        c.legal_name,c.trading_name,c.commercial_registration,c.address,c.active AS client_active
+      FROM engagements e JOIN clients c ON c.workspace_id=e.workspace_id AND c.id=e.client_id
+      WHERE e.workspace_id=? AND e.id=?`).bind(workspaceId, input.engagementId)
+      .first<{ id: string; version: number; client_id: string; lifecycle_state: string; period_start: string; period_end: string; contract_fee_minor: number; legal_name: string; trading_name: string | null; commercial_registration: string | null; address: string; client_active: number }>();
+    if (!engagement) throw new ApiError('NOT_FOUND', 'The engagement was not found.');
+    requireClientScope(context, engagement.client_id);
+    if (context.scope.engagementId && context.scope.engagementId !== engagement.id) throw new ApiError('FORBIDDEN_SCOPE', 'The engagement does not match the selected request context.');
+    if (engagement.lifecycle_state !== 'PROPOSAL_GENERATION' || engagement.client_active !== 1) throw new ApiError('GATE_BLOCKED', 'Proposals can be drafted only for an active engagement in PROPOSAL_GENERATION.');
+    const firm = await env.DB.prepare(`SELECT id,version,legal_name,registration_number,address,profile_text,methodology_text,logo_file_id
+      FROM firm_profiles WHERE workspace_id=?`).bind(workspaceId)
+      .first<{ id: string; version: number; legal_name: string; registration_number: string; address: string; profile_text: string; methodology_text: string; logo_file_id: string | null }>();
+    if (!firm) throw new ApiError('GATE_BLOCKED', 'Complete the Partner-approved legal firm profile, registration and methodology before drafting a proposal.');
+    const currentPartner = await env.DB.prepare(`SELECT ap.staff_member_id FROM actor_profiles ap
+      JOIN staff_members sm ON sm.workspace_id=ap.workspace_id AND sm.id=ap.staff_member_id
+      WHERE ap.workspace_id=? AND ap.persona='APPROVER' AND ap.active=1 AND sm.active=1 AND sm.grade='PARTNER'
+      ORDER BY ap.created_at,ap.id LIMIT 1`).bind(workspaceId).first<{ staff_member_id: string }>();
+    const teamCvs = await env.DB.prepare(`SELECT cv.id,cv.staff_member_id,cv.file_version_id,sm.display_name,sm.grade,f.original_name,f.sha256
+      FROM team_cv_documents cv JOIN staff_members sm ON sm.workspace_id=cv.workspace_id AND sm.id=cv.staff_member_id
+      JOIN file_versions f ON f.workspace_id=cv.workspace_id AND f.id=cv.file_version_id
+      WHERE cv.workspace_id=? AND cv.approved=1 AND sm.active=1 AND f.state='COMMITTED' AND f.immutable=1
+      ORDER BY CASE WHEN sm.grade='PARTNER' THEN 0 ELSE 1 END,sm.display_name,cv.id`).bind(workspaceId)
+      .all<{ id: string; staff_member_id: string; file_version_id: string; display_name: string; grade: string; original_name: string; sha256: string }>();
+    const approvedCvs = teamCvs.results ?? [];
+    if (input.mode === 'FULL_PROPOSAL' && (!currentPartner || !approvedCvs.some(cv => cv.staff_member_id === currentPartner.staff_member_id && cv.grade === 'PARTNER'))) {
+      throw new ApiError('GATE_BLOCKED', 'A full proposal requires an approved, committed CV for the active assigned Partner. No biography will be invented.');
+    }
+
+    let proposalId: string;
+    let previousProposalVersion: number | null = null;
+    let revision = 1;
+    if (command.type === 'proposal.create') {
+      if (engagement.version !== command.payload.expectedEngagementVersion) throw new ApiError('VERSION_CONFLICT', 'The engagement changed. Reload it before drafting.');
+      const existing = await env.DB.prepare(`SELECT id FROM proposals WHERE workspace_id=? AND engagement_id=?`).bind(workspaceId, engagement.id).first<{ id: string }>();
+      if (existing) throw new ApiError('VERSION_CONFLICT', 'This engagement already has a proposal. Create a new revision of that proposal.');
+      proposalId = crypto.randomUUID();
+    } else {
+      const existing = await env.DB.prepare(`SELECT id,version,current_version_id FROM proposals WHERE workspace_id=? AND id=? AND engagement_id=?`)
+        .bind(workspaceId, command.payload.proposalId, engagement.id).first<{ id: string; version: number; current_version_id: string | null }>();
+      if (!existing) throw new ApiError('NOT_FOUND', 'The proposal was not found for this engagement.');
+      if (existing.version !== command.payload.expectedVersion) throw new ApiError('VERSION_CONFLICT', 'The proposal changed. Reload it before revising.');
+      proposalId = existing.id;
+      previousProposalVersion = existing.version;
+      const latest = await env.DB.prepare(`SELECT COALESCE(MAX(revision),0) AS revision FROM proposal_versions WHERE workspace_id=? AND proposal_id=?`)
+        .bind(workspaceId, proposalId).first<{ revision: number }>();
+      revision = (latest?.revision ?? 0) + 1;
+    }
+
+    const proposalVersionId = crypto.randomUUID();
+    const methodologyVersion = await sha256Hex(firm.methodology_text);
+    const firmSnapshot = JSON.stringify({
+      legalName: firm.legal_name, registrationNumber: firm.registration_number, address: firm.address,
+      profileText: firm.profile_text, methodologyText: firm.methodology_text, logoFileId: firm.logo_file_id,
+      version: firm.version, methodologyVersion
+    });
+    const cvSnapshot = approvedCvs.map(cv => ({
+      teamCvId: cv.id, staffMemberId: cv.staff_member_id, displayName: cv.display_name, grade: cv.grade,
+      fileVersionId: cv.file_version_id, originalName: cv.original_name, sha256: cv.sha256
+    }));
+    const statements: D1PreparedStatement[] = [
+      env.DB.prepare(`INSERT INTO command_assertions(workspace_id,seq,ok)
+        SELECT ?,75,CASE WHEN EXISTS(SELECT 1 FROM engagements e JOIN clients c ON c.workspace_id=e.workspace_id AND c.id=e.client_id
+          JOIN firm_profiles fp ON fp.workspace_id=e.workspace_id AND fp.version=?
+          WHERE e.workspace_id=? AND e.id=? AND e.lifecycle_state='PROPOSAL_GENERATION' AND c.active=1
+            AND (? IS NULL OR e.version=?))
+          AND ((? IS NULL AND NOT EXISTS(SELECT 1 FROM proposals WHERE workspace_id=? AND engagement_id=?))
+            OR EXISTS(SELECT 1 FROM proposals WHERE workspace_id=? AND id=? AND version=?))
+        THEN 1 ELSE 0 END`).bind(workspaceId, firm.version, workspaceId, engagement.id,
+        command.type === 'proposal.create' ? command.payload.expectedEngagementVersion : null,
+        command.type === 'proposal.create' ? command.payload.expectedEngagementVersion : null,
+        command.type === 'proposal.create' ? null : command.payload.proposalId,
+        workspaceId, engagement.id, workspaceId,
+        command.type === 'proposal.revise' ? command.payload.proposalId : '',
+        command.type === 'proposal.revise' ? command.payload.expectedVersion : -1),
+      ...(command.type === 'proposal.create' ? [env.DB.prepare(`INSERT INTO proposals(
+        id,workspace_id,version,client_id,engagement_id,current_version_id,created_at,updated_at,created_by_actor_id,updated_by_actor_id
+      ) VALUES(?,?,1,?,?,NULL,?,?,?,?)`).bind(proposalId, workspaceId, engagement.client_id, engagement.id, now, now, actorId, actorId)] : []),
+      env.DB.prepare(`INSERT INTO proposal_versions(
+        id,workspace_id,version,client_id,engagement_id,proposal_id,revision,mode,scope,fee_minor,currency,advance_bps,final_bps,
+        valid_until,timeline_json,firm_profile_snapshot_json,team_cv_file_ids_json,methodology_version,firm_profile_version,created_at,created_by_actor_id
+      ) VALUES(?,?,1,?,?,?,?,?,?,?,'QAR',5000,5000,?,?,?,?,?,?,?,?)`).bind(
+        proposalVersionId, workspaceId, engagement.client_id, engagement.id, proposalId, revision, input.mode,
+        input.scope, Number(input.feeMinor), input.validUntil, JSON.stringify(input.timeline), firmSnapshot,
+        JSON.stringify(cvSnapshot.map(cv => cv.fileVersionId)), methodologyVersion, firm.version, now, actorId
+      ),
+      command.type === 'proposal.create'
+        ? env.DB.prepare(`UPDATE proposals SET current_version_id=?,updated_at=?,updated_by_actor_id=? WHERE workspace_id=? AND id=? AND version=1`)
+          .bind(proposalVersionId, now, actorId, workspaceId, proposalId)
+        : env.DB.prepare(`UPDATE proposals SET current_version_id=?,version=version+1,updated_at=?,updated_by_actor_id=?
+            WHERE workspace_id=? AND id=? AND version=?`)
+          .bind(proposalVersionId, now, actorId, workspaceId, proposalId, previousProposalVersion)
+    ];
+    return {
+      statements,
+      result: { proposalId, proposalVersionId, revision, mode: input.mode, feeMinor: input.feeMinor, currency: 'QAR', advanceMinor: String(Math.floor(Number(input.feeMinor) / 2) + (Number(input.feeMinor) % 2)), finalMinor: String(Math.floor(Number(input.feeMinor) / 2)) },
+      entityType: 'PROPOSAL_VERSION', entityId: proposalVersionId, beforeVersion: null, afterVersion: 1,
+      auditDetails: { proposalId, proposalVersionId, revision, firmProfileVersion: firm.version, methodologyVersion, teamCvFileVersionIds: cvSnapshot.map(cv => cv.fileVersionId) }
+    };
+  }
+
+  if (command.type === 'proposal.generate') {
+    requireProposalAction('proposal.generate');
+    const { proposalVersionId, expectedVersion } = command.payload;
+    const version = await env.DB.prepare(`SELECT pv.id,pv.version,pv.proposal_id,pv.client_id,pv.engagement_id,pv.revision,pv.mode,p.current_version_id,e.lifecycle_state
+      FROM proposal_versions pv JOIN proposals p ON p.workspace_id=pv.workspace_id AND p.id=pv.proposal_id
+      JOIN engagements e ON e.workspace_id=pv.workspace_id AND e.client_id=pv.client_id AND e.id=pv.engagement_id
+      WHERE pv.workspace_id=? AND pv.id=?`).bind(workspaceId, proposalVersionId)
+      .first<{ id: string; version: number; proposal_id: string; client_id: string; engagement_id: string; revision: number; mode: string; current_version_id: string; lifecycle_state: string }>();
+    if (!version) throw new ApiError('NOT_FOUND', 'The proposal revision was not found.');
+    requireClientScope(context, version.client_id);
+    if (context.scope.engagementId && context.scope.engagementId !== version.engagement_id) throw new ApiError('FORBIDDEN_SCOPE', 'The proposal is outside the selected engagement.');
+    if (version.version !== expectedVersion || version.current_version_id !== version.id) throw new ApiError('STALE_APPROVAL', 'Only the current proposal revision can be generated.');
+    if (version.lifecycle_state !== 'PROPOSAL_GENERATION') throw new ApiError('INVALID_TRANSITION', 'The engagement is no longer accepting proposal documents.');
+    const jobId = crypto.randomUUID();
+    const deduplicationKey = `proposal-document:${proposalVersionId}`;
+    const prior = await env.DB.prepare(`SELECT id,status,result_json FROM outbox_jobs WHERE workspace_id=? AND deduplication_key=?`)
+      .bind(workspaceId, deduplicationKey).first<{ id: string; status: string; result_json: string | null }>();
+    if (prior) return {
+      statements: [], result: { jobId: prior.id, status: prior.status, ...(prior.result_json ? { result: JSON.parse(prior.result_json) } : {}) },
+      entityType: 'PROPOSAL_VERSION', entityId: version.id, beforeVersion: null, afterVersion: 1
+    };
+    return {
+      statements: [env.DB.prepare(`INSERT INTO outbox_jobs(id,workspace_id,version,kind,aggregate_id,aggregate_version,payload_json,deduplication_key,status,attempts,next_attempt_at,lease_until,last_error_code,provider_reference,result_file_id,result_json,completed_at,created_at,updated_at)
+        VALUES(?,?,1,'GENERATE_DOCUMENT',?,?,? ,?,'PENDING',0,?,NULL,NULL,NULL,NULL,NULL,NULL,?,?)`)
+        .bind(jobId, workspaceId, version.id, version.revision,
+          JSON.stringify({ proposalVersionId: version.id, proposalId: version.proposal_id, engagementId: version.engagement_id, clientId: version.client_id, mode: version.mode, commandId }),
+          deduplicationKey, now, now, now)],
+      result: { jobId, status: 'PENDING' }, entityType: 'PROPOSAL_VERSION', entityId: version.id, beforeVersion: null, afterVersion: 1,
+      auditDetails: { jobId, proposalVersionId: version.id }
+    };
+  }
+
+  if (command.type === 'proposal.generate.retry') {
+    requireProposalAction('proposal.generate');
+    const { proposalVersionId, expectedVersion, failedJobId } = command.payload;
+    const version = await env.DB.prepare(`SELECT pv.version,pv.client_id,pv.engagement_id,p.current_version_id,e.lifecycle_state
+      FROM proposal_versions pv JOIN proposals p ON p.workspace_id=pv.workspace_id AND p.id=pv.proposal_id
+      JOIN engagements e ON e.workspace_id=pv.workspace_id AND e.client_id=pv.client_id AND e.id=pv.engagement_id
+      WHERE pv.workspace_id=? AND pv.id=?`).bind(workspaceId, proposalVersionId)
+      .first<{ version: number; client_id: string; engagement_id: string; current_version_id: string; lifecycle_state: string }>();
+    if (!version) throw new ApiError('NOT_FOUND', 'The proposal revision was not found.');
+    requireClientScope(context, version.client_id);
+    if (version.version !== expectedVersion || version.current_version_id !== proposalVersionId) throw new ApiError('STALE_APPROVAL', 'Only the current proposal revision can be regenerated.');
+    if (version.lifecycle_state !== 'PROPOSAL_GENERATION') throw new ApiError('INVALID_TRANSITION', 'The engagement is no longer accepting proposal documents.');
+    const job = await env.DB.prepare(`SELECT status,aggregate_id,kind FROM outbox_jobs WHERE workspace_id=? AND id=? AND deduplication_key=?`)
+      .bind(workspaceId, failedJobId, `proposal-document:${proposalVersionId}`)
+      .first<{ status: string; aggregate_id: string; kind: string }>();
+    if (!job || job.aggregate_id !== proposalVersionId || job.kind !== 'GENERATE_DOCUMENT'
+      || !['RETRYABLE_FAILED','PERMANENT_FAILED'].includes(job.status)) {
+      throw new ApiError('INVALID_STATE', 'Only a failed proposal generation job can be retried.');
+    }
+    return {
+      statements: [
+        env.DB.prepare(`INSERT INTO command_assertions(workspace_id,seq,ok)
+          SELECT ?,78,CASE WHEN EXISTS(SELECT 1 FROM proposals p JOIN proposal_versions pv ON pv.workspace_id=p.workspace_id AND pv.id=p.current_version_id
+            JOIN outbox_jobs j ON j.workspace_id=p.workspace_id AND j.aggregate_id=pv.id
+            WHERE p.workspace_id=? AND pv.id=? AND pv.version=? AND j.id=? AND j.kind='GENERATE_DOCUMENT'
+              AND j.status IN ('RETRYABLE_FAILED','PERMANENT_FAILED')) THEN 1 ELSE 0 END`)
+          .bind(workspaceId, workspaceId, proposalVersionId, expectedVersion, failedJobId),
+        env.DB.prepare(`UPDATE outbox_jobs SET status='PENDING',next_attempt_at=?,lease_until=NULL,last_error_code=NULL,result_json=NULL,completed_at=NULL,updated_at=?,version=version+1
+          WHERE workspace_id=? AND id=? AND status IN ('RETRYABLE_FAILED','PERMANENT_FAILED')`)
+          .bind(now, now, workspaceId, failedJobId)
+      ],
+      result: { jobId: failedJobId, status: 'PENDING', retry: true }, entityType: 'PROPOSAL_VERSION', entityId: proposalVersionId,
+      beforeVersion: expectedVersion, afterVersion: expectedVersion,
+      auditDetails: { jobId: failedJobId, proposalVersionId, retry: true }
+    };
+  }
+
+  if (command.type === 'proposal.approve') {
+    requirePartner();
+    const { proposalVersionId, expectedVersion, note } = command.payload;
+    const row = await env.DB.prepare(`SELECT pv.version,pv.proposal_id,pv.client_id,pv.engagement_id,pv.revision,p.current_version_id,pv.created_by_actor_id,e.lifecycle_state,
+        creatorStaff.natural_person_key AS preparer_key,approverStaff.natural_person_key AS approver_key
+      FROM proposal_versions pv JOIN proposals p ON p.workspace_id=pv.workspace_id AND p.id=pv.proposal_id
+      JOIN engagements e ON e.workspace_id=pv.workspace_id AND e.client_id=pv.client_id AND e.id=pv.engagement_id
+      LEFT JOIN actor_profiles creator ON creator.workspace_id=pv.workspace_id AND creator.id=pv.created_by_actor_id
+      LEFT JOIN staff_members creatorStaff ON creatorStaff.workspace_id=creator.workspace_id AND creatorStaff.id=creator.staff_member_id
+      JOIN actor_profiles approver ON approver.workspace_id=pv.workspace_id AND approver.id=?
+      JOIN staff_members approverStaff ON approverStaff.workspace_id=approver.workspace_id AND approverStaff.id=approver.staff_member_id
+      WHERE pv.workspace_id=? AND pv.id=?`).bind(actorId, workspaceId, proposalVersionId)
+      .first<{ version: number; proposal_id: string; client_id: string; engagement_id: string; revision: number; current_version_id: string; created_by_actor_id: string; lifecycle_state: string; preparer_key: string | null; approver_key: string }>();
+    if (!row) throw new ApiError('NOT_FOUND', 'The proposal revision was not found.');
+    requireClientScope(context, row.client_id);
+    if (context.scope.engagementId && context.scope.engagementId !== row.engagement_id) throw new ApiError('FORBIDDEN_SCOPE', 'The proposal is outside the selected engagement.');
+    if (row.version !== expectedVersion || row.current_version_id !== proposalVersionId) throw new ApiError('STALE_APPROVAL', 'The proposal changed. Approval applies only to the current revision.');
+    if (row.preparer_key && row.preparer_key === row.approver_key) throw new ApiError('PERSONA_ACTION_DENIED', 'The proposal preparer and approving Partner must be different natural persons.');
+    const generated = await env.DB.prepare(`SELECT 1 AS found FROM proposal_artifacts pa
+      JOIN generated_artifacts ga ON ga.workspace_id=pa.workspace_id AND ga.id=pa.artifact_id
+      JOIN outbox_jobs j ON j.workspace_id=ga.workspace_id AND j.id=ga.generated_by_job_id AND j.status='SUCCEEDED'
+      WHERE pa.workspace_id=? AND pa.proposal_version_id=? AND ga.artifact_kind IN ('QUOTE','FULL_PROPOSAL') LIMIT 1`)
+      .bind(workspaceId, proposalVersionId).first<{ found: number }>();
+    if (!generated) throw new ApiError('GATE_BLOCKED', 'Generate and verify the exact proposal PDF before Partner approval.');
+    if (row.lifecycle_state !== 'PROPOSAL_GENERATION') throw new ApiError('INVALID_TRANSITION', 'This engagement is no longer accepting proposal approval.');
+    const approvalId = crypto.randomUUID();
+    const proposalApprovalId = crypto.randomUUID();
+    const actorSnapshot = JSON.stringify({ actorId, persona: context.actor.persona, displayName: context.actor.displayName, staffGrade: context.actor.staffGrade });
+    return {
+      statements: [
+        env.DB.prepare(`INSERT INTO command_assertions(workspace_id,seq,ok)
+          SELECT ?,76,CASE WHEN EXISTS(SELECT 1 FROM proposal_versions pv JOIN proposals p ON p.workspace_id=pv.workspace_id AND p.id=pv.proposal_id
+              JOIN proposal_artifacts pa ON pa.workspace_id=pv.workspace_id AND pa.proposal_version_id=pv.id
+              JOIN generated_artifacts ga ON ga.workspace_id=pa.workspace_id AND ga.id=pa.artifact_id
+              JOIN outbox_jobs j ON j.workspace_id=ga.workspace_id AND j.id=ga.generated_by_job_id AND j.status='SUCCEEDED'
+            WHERE pv.workspace_id=? AND pv.id=? AND pv.version=? AND p.current_version_id=pv.id)
+          THEN 1 ELSE 0 END`).bind(workspaceId, workspaceId, proposalVersionId, expectedVersion),
+        env.DB.prepare(`INSERT INTO approval_decisions(id,workspace_id,client_id,engagement_id,version,subject_type,subject_id,subject_version,decision,rationale,actor_snapshot_json,decided_at,supersedes_decision_id)
+          VALUES(?,?,?, ?,1,'PROPOSAL_VERSION',?,?,'APPROVE',?,?,?,NULL)`)
+          .bind(approvalId, workspaceId, row.client_id, row.engagement_id, proposalVersionId, row.revision, note, actorSnapshot, now),
+        env.DB.prepare(`INSERT INTO proposal_approvals(id,workspace_id,client_id,engagement_id,proposal_version_id,approval_decision_id,decision,rationale,decided_by_actor_id,decided_at)
+          VALUES(?,?,?,?,?,?,'APPROVE',?,?,?)`).bind(proposalApprovalId, workspaceId, row.client_id, row.engagement_id,
+          proposalVersionId, approvalId, note, actorId, now)
+      ],
+      result: { approvalId, proposalApprovalId, proposalVersionId, status: 'APPROVED' }, entityType: 'PROPOSAL_VERSION', entityId: proposalVersionId,
+      beforeVersion: expectedVersion, afterVersion: expectedVersion,
+      auditDetails: { approvalId, proposalVersionId, revision: row.revision }
+    };
+  }
+
+  if (command.type === 'proposal.dispatch') {
+    requirePartner();
+    const { proposalVersionId, expectedVersion, contactRouteId } = command.payload;
+    const proposal = await env.DB.prepare(`SELECT pv.version,pv.proposal_id,pv.client_id,pv.engagement_id,pv.revision,pv.team_cv_file_ids_json,p.current_version_id,e.lifecycle_state
+      FROM proposal_versions pv JOIN proposals p ON p.workspace_id=pv.workspace_id AND p.id=pv.proposal_id
+      JOIN engagements e ON e.workspace_id=pv.workspace_id AND e.client_id=pv.client_id AND e.id=pv.engagement_id
+      WHERE pv.workspace_id=? AND pv.id=?`).bind(workspaceId, proposalVersionId)
+      .first<{ version: number; proposal_id: string; client_id: string; engagement_id: string; revision: number; team_cv_file_ids_json: string; current_version_id: string; lifecycle_state: string }>();
+    if (!proposal) throw new ApiError('NOT_FOUND', 'The proposal revision was not found.');
+    requireClientScope(context, proposal.client_id);
+    if (context.scope.engagementId && context.scope.engagementId !== proposal.engagement_id) throw new ApiError('FORBIDDEN_SCOPE', 'The proposal is outside the selected engagement.');
+    if (proposal.version !== expectedVersion || proposal.current_version_id !== proposalVersionId) throw new ApiError('STALE_APPROVAL', 'Only the current proposal revision can be dispatched.');
+    if (proposal.lifecycle_state !== 'PROPOSAL_GENERATION') throw new ApiError('INVALID_TRANSITION', 'The engagement is no longer in proposal generation.');
+    const approved = await env.DB.prepare(`SELECT 1 AS found FROM proposal_approvals WHERE workspace_id=? AND proposal_version_id=? AND decision='APPROVE' LIMIT 1`)
+      .bind(workspaceId, proposalVersionId).first<{ found: number }>();
+    if (!approved) throw new ApiError('GATE_BLOCKED', 'A Partner must approve this exact proposal revision before dispatch.');
+    const artifact = await env.DB.prepare(`SELECT ga.file_version_id,ga.content_sha256 FROM proposal_artifacts pa
+      JOIN generated_artifacts ga ON ga.workspace_id=pa.workspace_id AND ga.id=pa.artifact_id
+      JOIN outbox_jobs j ON j.workspace_id=ga.workspace_id AND j.id=ga.generated_by_job_id AND j.status='SUCCEEDED'
+      WHERE pa.workspace_id=? AND pa.proposal_version_id=? AND ga.artifact_kind IN ('QUOTE','FULL_PROPOSAL') LIMIT 1`)
+      .bind(workspaceId, proposalVersionId).first<{ file_version_id: string; content_sha256: string }>();
+    if (!artifact) throw new ApiError('GATE_BLOCKED', 'The verified proposal PDF is not available for dispatch.');
+    const route = await env.DB.prepare(`SELECT cr.id,cr.version,ct.full_name,ct.email,ct.phone,cr.purpose
+      FROM contact_routes cr JOIN contacts ct ON ct.workspace_id=cr.workspace_id AND ct.client_id=cr.client_id AND ct.id=cr.contact_id
+      WHERE cr.workspace_id=? AND cr.id=? AND cr.client_id=? AND cr.purpose='PROPOSAL' AND ct.active=1 AND ct.email IS NOT NULL`)
+      .bind(workspaceId, contactRouteId, proposal.client_id)
+      .first<{ id: string; version: number; full_name: string; email: string; phone: string | null; purpose: string }>();
+    if (!route) throw new ApiError('GATE_BLOCKED', 'Choose an active PROPOSAL contact route with a verified email address. WhatsApp source labels are not dispatch providers.');
+    const dispatchId = crypto.randomUUID();
+    const jobId = crypto.randomUUID();
+    const deduplicationKey = `proposal-email:${proposalVersionId}:${route.id}`;
+    const recipients = JSON.stringify({ contactRouteId: route.id, contactRouteVersion: route.version, name: route.full_name, email: route.email });
+    const attachmentFileVersionIds = JSON.parse(proposal.team_cv_file_ids_json) as unknown;
+    if (!Array.isArray(attachmentFileVersionIds) || attachmentFileVersionIds.some(id => typeof id !== 'string')) {
+      throw new ApiError('GATE_BLOCKED', 'The CV attachment manifest for this proposal revision is invalid.');
+    }
+    const jobPayload = JSON.stringify({ dispatchId, proposalVersionId, proposalId: proposal.proposal_id,
+      clientId: proposal.client_id, engagementId: proposal.engagement_id, fileVersionId: artifact.file_version_id,
+      attachmentFileVersionIds, recipient: JSON.parse(recipients), commandId });
+    return {
+      statements: [
+        env.DB.prepare(`INSERT INTO command_assertions(workspace_id,seq,ok)
+          SELECT ?,77,CASE WHEN EXISTS(SELECT 1 FROM proposals p JOIN proposal_versions pv ON pv.workspace_id=p.workspace_id AND pv.id=p.current_version_id
+              JOIN proposal_approvals pa ON pa.workspace_id=pv.workspace_id AND pa.proposal_version_id=pv.id AND pa.decision='APPROVE'
+              JOIN proposal_artifacts pra ON pra.workspace_id=pv.workspace_id AND pra.proposal_version_id=pv.id
+              JOIN generated_artifacts ga ON ga.workspace_id=pra.workspace_id AND ga.id=pra.artifact_id
+              JOIN outbox_jobs gj ON gj.workspace_id=ga.workspace_id AND gj.id=ga.generated_by_job_id AND gj.status='SUCCEEDED'
+            WHERE p.workspace_id=? AND pv.id=? AND pv.version=? AND EXISTS(SELECT 1 FROM contact_routes cr JOIN contacts ct ON ct.workspace_id=cr.workspace_id AND ct.id=cr.contact_id
+              WHERE cr.workspace_id=p.workspace_id AND cr.id=? AND cr.client_id=p.client_id AND cr.purpose='PROPOSAL' AND ct.active=1 AND ct.email IS NOT NULL))
+          THEN 1 ELSE 0 END`).bind(workspaceId, workspaceId, proposalVersionId, expectedVersion, route.id),
+        env.DB.prepare(`INSERT INTO outbox_jobs(id,workspace_id,version,kind,aggregate_id,aggregate_version,payload_json,deduplication_key,status,attempts,next_attempt_at,lease_until,last_error_code,provider_reference,result_file_id,result_json,completed_at,created_at,updated_at)
+          VALUES(?,?,1,'EMAIL',?,?,?,?,'PENDING',0,?,NULL,NULL,NULL,NULL,NULL,NULL,?,?)`)
+          .bind(jobId, workspaceId, dispatchId, 1, jobPayload, deduplicationKey, now, now, now),
+        env.DB.prepare(`INSERT INTO dispatches(id,workspace_id,version,client_id,engagement_id,purpose,file_version_id,recipient_snapshot_json,status,provider_message_id,sent_at,deduplication_key,job_id,created_at,updated_at)
+          VALUES(?,?,1,?,?,'PROPOSAL',?,?,'QUEUED',NULL,NULL,?,?,?,?)`)
+          .bind(dispatchId, workspaceId, proposal.client_id, proposal.engagement_id, artifact.file_version_id, recipients, deduplicationKey, jobId, now, now)
+      ],
+      result: { dispatchId, jobId, status: 'QUEUED', recipient: { name: route.full_name, email: route.email }, artifactSha256: artifact.content_sha256 },
+      entityType: 'DISPATCH', entityId: dispatchId, beforeVersion: null, afterVersion: 1,
+      auditDetails: { dispatchId, jobId, proposalVersionId, artifactSha256: artifact.content_sha256, recipient: JSON.parse(recipients) }
+    };
+  }
+
+  if (command.type === 'proposal.dispatch.retry') {
+    requirePartner();
+    const prior = await env.DB.prepare(`SELECT d.id,d.version,d.client_id,d.engagement_id,d.purpose,d.file_version_id,d.recipient_snapshot_json,d.job_id,d.status,
+        j.status AS job_status,j.payload_json,j.aggregate_id,j.kind
+      FROM dispatches d JOIN outbox_jobs j ON j.workspace_id=d.workspace_id AND j.id=d.job_id
+      WHERE d.workspace_id=? AND d.id=?`).bind(workspaceId, command.payload.dispatchId)
+      .first<{ id: string; version: number; client_id: string; engagement_id: string; purpose: string; file_version_id: string; recipient_snapshot_json: string; job_id: string; status: string; job_status: string; payload_json: string; aggregate_id: string; kind: string }>();
+    if (!prior) throw new ApiError('NOT_FOUND', 'The failed proposal dispatch was not found.');
+    requireClientScope(context, prior.client_id);
+    if (context.scope.engagementId && context.scope.engagementId !== prior.engagement_id) throw new ApiError('FORBIDDEN_SCOPE', 'The dispatch is outside the selected engagement.');
+    if (prior.version !== command.payload.expectedVersion || prior.status !== 'FAILED' || prior.job_status !== 'PERMANENT_FAILED'
+      || prior.purpose !== 'PROPOSAL' || prior.kind !== 'EMAIL' || prior.aggregate_id !== prior.id) {
+      throw new ApiError('INVALID_STATE', 'Only a definitively failed proposal dispatch can be retried. Unknown provider outcomes must be reconciled first.');
+    }
+    let priorPayload: { proposalVersionId?: unknown; proposalId?: unknown; recipient?: unknown; attachmentFileVersionIds?: unknown };
+    let recipient: { contactRouteId: string; contactRouteVersion: number; name: string; email: string };
+    try {
+      priorPayload = JSON.parse(prior.payload_json) as typeof priorPayload;
+      recipient = JSON.parse(prior.recipient_snapshot_json) as typeof recipient;
+      if (typeof priorPayload.proposalVersionId !== 'string' || typeof priorPayload.proposalId !== 'string' || !recipient
+        || typeof recipient.contactRouteId !== 'string' || typeof recipient.contactRouteVersion !== 'number'
+        || typeof recipient.name !== 'string' || typeof recipient.email !== 'string') throw new Error('shape');
+    } catch {
+      throw new ApiError('INVALID_STATE', 'The stored recipient or attachment snapshot cannot be verified, so this dispatch cannot be retried.');
+    }
+    const version = await env.DB.prepare(`SELECT pv.version,pv.revision,p.current_version_id,pv.team_cv_file_ids_json
+      FROM proposal_versions pv JOIN proposals p ON p.workspace_id=pv.workspace_id AND p.id=pv.proposal_id
+      JOIN engagements e ON e.workspace_id=pv.workspace_id AND e.client_id=pv.client_id AND e.id=pv.engagement_id
+      JOIN proposal_approvals a ON a.workspace_id=pv.workspace_id AND a.proposal_version_id=pv.id AND a.decision='APPROVE'
+      WHERE pv.workspace_id=? AND pv.id=? AND e.lifecycle_state='PROPOSAL_GENERATION'
+      ORDER BY a.decided_at DESC,a.id DESC LIMIT 1`).bind(workspaceId, priorPayload.proposalVersionId)
+      .first<{ version: number; revision: number; current_version_id: string; team_cv_file_ids_json: string }>();
+    if (!version || version.current_version_id !== priorPayload.proposalVersionId) throw new ApiError('STALE_APPROVAL', 'Retry requires the currently approved proposal revision.');
+    const currentCvIds = JSON.parse(version.team_cv_file_ids_json) as unknown;
+    if (!Array.isArray(currentCvIds) || JSON.stringify(currentCvIds) !== JSON.stringify(priorPayload.attachmentFileVersionIds)) {
+      throw new ApiError('STALE_APPROVAL', 'The dispatch CV manifest no longer matches the approved proposal revision.');
+    }
+    const route = await env.DB.prepare(`SELECT cr.version,ct.full_name,ct.email FROM contact_routes cr
+      JOIN contacts ct ON ct.workspace_id=cr.workspace_id AND ct.client_id=cr.client_id AND ct.id=cr.contact_id
+      WHERE cr.workspace_id=? AND cr.id=? AND cr.client_id=? AND cr.purpose='PROPOSAL' AND ct.active=1 AND ct.email IS NOT NULL`)
+      .bind(workspaceId, recipient.contactRouteId, prior.client_id)
+      .first<{ version: number; full_name: string; email: string }>();
+    if (!route || route.version !== recipient.contactRouteVersion || route.email !== recipient.email || route.full_name !== recipient.name) {
+      throw new ApiError('GATE_BLOCKED', 'The proposal recipient route changed or is inactive. Review the route and create a fresh dispatch.');
+    }
+    const attemptCount = await env.DB.prepare(`SELECT COUNT(*) AS count FROM dispatches d
+      JOIN outbox_jobs j ON j.workspace_id=d.workspace_id AND j.id=d.job_id
+      WHERE d.workspace_id=? AND d.engagement_id=? AND d.file_version_id=? AND d.purpose='PROPOSAL'
+        AND json_extract(j.payload_json,'$.proposalVersionId')=? AND json_extract(j.payload_json,'$.recipient.contactRouteId')=?`)
+      .bind(workspaceId, prior.engagement_id, prior.file_version_id, priorPayload.proposalVersionId, recipient.contactRouteId)
+      .first<{ count: number }>();
+    const attempt = (attemptCount?.count ?? 1) + 1;
+    const dispatchId = crypto.randomUUID();
+    const jobId = crypto.randomUUID();
+    const deduplicationKey = `proposal-email:${String(priorPayload.proposalVersionId)}:${recipient.contactRouteId}:retry:${attempt}`;
+    const jobPayload = JSON.stringify({
+      dispatchId, proposalVersionId: priorPayload.proposalVersionId, proposalId: priorPayload.proposalId,
+      clientId: prior.client_id, engagementId: prior.engagement_id, fileVersionId: prior.file_version_id,
+      attachmentFileVersionIds: currentCvIds, recipient, commandId
+    });
+    return {
+      statements: [
+        env.DB.prepare(`INSERT INTO command_assertions(workspace_id,seq,ok)
+          SELECT ?,79,CASE WHEN EXISTS(SELECT 1 FROM dispatches d JOIN outbox_jobs j ON j.workspace_id=d.workspace_id AND j.id=d.job_id
+              JOIN proposals p ON p.workspace_id=d.workspace_id
+              JOIN proposal_versions pv ON pv.workspace_id=p.workspace_id AND pv.id=p.current_version_id
+              JOIN proposal_approvals a ON a.workspace_id=pv.workspace_id AND a.proposal_version_id=pv.id AND a.decision='APPROVE'
+            WHERE d.workspace_id=? AND d.id=? AND d.version=? AND d.status='FAILED' AND j.status='PERMANENT_FAILED'
+              AND json_extract(j.payload_json,'$.proposalVersionId')=? AND p.current_version_id=?) THEN 1 ELSE 0 END`)
+          .bind(workspaceId, workspaceId, command.payload.dispatchId, command.payload.expectedVersion, priorPayload.proposalVersionId, priorPayload.proposalVersionId),
+        env.DB.prepare(`INSERT INTO outbox_jobs(id,workspace_id,version,kind,aggregate_id,aggregate_version,payload_json,deduplication_key,status,attempts,next_attempt_at,lease_until,last_error_code,provider_reference,result_file_id,result_json,completed_at,created_at,updated_at)
+          VALUES(?,?,1,'EMAIL',?,?,?,?,'PENDING',0,?,NULL,NULL,NULL,NULL,NULL,NULL,?,?)`)
+          .bind(jobId, workspaceId, dispatchId, 1, jobPayload, deduplicationKey, now, now, now),
+        env.DB.prepare(`INSERT INTO dispatches(id,workspace_id,version,client_id,engagement_id,purpose,file_version_id,recipient_snapshot_json,status,provider_message_id,sent_at,deduplication_key,job_id,created_at,updated_at)
+          VALUES(?,?,1,?,?,'PROPOSAL',?,?,'QUEUED',NULL,NULL,?,?,?,?)`)
+          .bind(dispatchId, workspaceId, prior.client_id, prior.engagement_id, prior.file_version_id, prior.recipient_snapshot_json,
+            deduplicationKey, jobId, now, now)
+      ],
+      result: { dispatchId, jobId, status: 'QUEUED', recipient, retryOfDispatchId: prior.id }, entityType: 'DISPATCH', entityId: dispatchId,
+      beforeVersion: null, afterVersion: 1,
+      auditDetails: { dispatchId, retryOfDispatchId: prior.id, jobId, proposalVersionId: priorPayload.proposalVersionId, recipient }
+    };
+  }
+
+  throw new ApiError('BAD_REQUEST', 'Unsupported proposal command.');
+}
+
 /** Atomic first set of normalized directory commands for BUSINESS workspaces. */
 export async function runBusinessDirectoryCommand(
   env: Env,
@@ -2122,7 +2801,9 @@ export async function runBusinessDirectoryCommand(
       ? await buildDirectoryMutation(env, workspaceId, context, envelope.command, commandId, timestamp)
       : isBusinessFileCommand(envelope.command)
         ? await buildBusinessFileMutation(env, workspaceId, context, envelope.command, timestamp)
-        : await buildCommercialMutation(env, workspaceId, context, envelope.command, commandId, timestamp);
+        : isBusinessProposalCommand(envelope.command)
+          ? await buildBusinessProposalMutation(env, workspaceId, context, envelope.command, commandId, timestamp)
+          : await buildCommercialMutation(env, workspaceId, context, envelope.command, commandId, timestamp);
     const sequence = head.last_sequence + 1;
     const eventDetails = JSON.stringify({
       commandId,

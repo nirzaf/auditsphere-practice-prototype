@@ -16,6 +16,8 @@ export interface Env {
   FILES: R2Bucket;
   /** Static assets binding for the built React app (Workers Static Assets). */
   ASSETS: Fetcher;
+  /** Optional Worker service binding implementing the proposal-email provider contract. */
+  EMAIL_PROVIDER?: Fetcher;
   /** Comma-separated allowed origins. Same-origin deployments need not list one. */
   ALLOWED_ORIGINS?: string;
   ENVIRONMENT?: string;

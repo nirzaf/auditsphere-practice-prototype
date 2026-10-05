@@ -9,8 +9,10 @@ const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../..')
 const db = new SqliteD1();
 db.migrate(repositoryRoot);
 const r2Objects = new Map<string, Uint8Array>();
+let failNextR2Write = false;
 const fakeR2 = {
   async put(key: string, body: BodyInit) {
+    if (failNextR2Write) { failNextR2Write = false; throw new Error('Simulated transient object store write failure'); }
     const bytes = new Uint8Array(await new Response(body).arrayBuffer());
     r2Objects.set(key, bytes);
     return { key, size: bytes.length, etag: 'test-etag', httpEtag: 'test-etag', uploaded: new Date() };
@@ -50,13 +52,21 @@ async function call(path: string, options: {
     const request = payload as { command: { type?: string; payload?: Record<string, unknown> }; idempotencyKey?: string };
     if (request.idempotencyKey) headers.set('Idempotency-Key', request.idempotencyKey);
     const commandPayload = request.command.payload ?? {};
-    const versionTarget = typeof commandPayload.expectedVersion === 'number'
+    const commandVersion = request.command.type === 'proposal.create' ? commandPayload.expectedEngagementVersion : commandPayload.expectedVersion;
+    const versionTarget = typeof commandVersion === 'number'
       ? request.command.type === 'staff.update' ? { entity: 'StaffMember', id: commandPayload.staffMemberId }
         : request.command.type === 'actor-profile.deactivate' ? { entity: 'ActorProfile', id: commandPayload.actorProfileId }
           : request.command.type === 'client.update' || request.command.type === 'client.deactivate' ? { entity: 'Client', id: commandPayload.clientId }
             : request.command.type === 'contact.update' ? { entity: 'Contact', id: commandPayload.contactId }
               : request.command.type === 'lead.update' || request.command.type === 'lead.lose' || request.command.type === 'lead.convert' ? { entity: 'Lead', id: commandPayload.leadId }
                 : request.command.type === 'engagement.advance' ? { entity: 'Engagement', id: commandPayload.engagementId }
+                  : request.command.type === 'team-cv.approve' ? { entity: 'TeamCv', id: commandPayload.teamCvId }
+                    : request.command.type === 'proposal.create' ? { entity: 'Engagement', id: commandPayload.engagementId }
+                      : request.command.type === 'proposal.revise' ? { entity: 'Proposal', id: commandPayload.proposalId }
+                        : request.command.type === 'proposal.generate' || request.command.type === 'proposal.generate.retry'
+                          || request.command.type === 'proposal.approve' || request.command.type === 'proposal.dispatch'
+                          ? { entity: 'ProposalVersion', id: commandPayload.proposalVersionId }
+                          : request.command.type === 'proposal.dispatch.retry' ? { entity: 'Dispatch', id: commandPayload.dispatchId }
                   : null
       : null;
     payload = {
@@ -66,7 +76,7 @@ async function call(path: string, options: {
         ...(headers.get('X-Engagement-Id') ? { engagementId: headers.get('X-Engagement-Id') } : {})
       },
       expectedVersions: versionTarget && typeof versionTarget.id === 'string'
-        ? [{ ...versionTarget, version: commandPayload.expectedVersion }]
+        ? [{ ...versionTarget, version: commandVersion }]
         : [],
       command: request.command
     };
@@ -144,7 +154,7 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
   const approverContext = await call(`/api/workspaces/${workspaceId}/context`, { headers: approverHeaders });
   assert.equal(approverContext.response.status, 200, JSON.stringify(approverContext.body));
   assert.deepEqual(approverContext.body.allowedActions, [
-    'directory.manage', 'client.read', 'client.manage', 'lead.read', 'lead.manage', 'lead.convert', 'engagement.read', 'engagement.advance', 'standards.read', 'standards.manage', 'file.read', 'file.upload'
+    'directory.manage', 'client.read', 'client.manage', 'lead.read', 'lead.manage', 'lead.convert', 'engagement.read', 'engagement.advance', 'standards.read', 'standards.manage', 'file.read', 'file.upload', 'proposal.read', 'proposal.create', 'proposal.generate', 'proposal.approve', 'proposal.dispatch', 'firm.manage'
   ]);
 
   const staffKey = crypto.randomUUID();
@@ -513,4 +523,196 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
   assert.equal(db.prepare('SELECT COUNT(*) AS count FROM audit_events WHERE workspace_id=?')
     .bind(workspaceId).first<{ count: number }>()?.count, auditBeforeDuplicate,
     'a rejected duplicate does not append an audit decision');
+
+  const firmProfile = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'firm-profile.save', payload: {
+      expectedVersion: null, legalName: 'Local Audit Partners WLL', registrationNumber: 'CR-LOCAL-001',
+      address: 'Doha, Qatar', profileText: 'Independent assurance and advisory services for Qatar entities.',
+      methodologyText: 'The firm performs a risk-based engagement using its approved methodology and documented professional review.'
+    } }
+  }, approverHeaders);
+  assert.equal(firmProfile.response.status, 200, JSON.stringify(firmProfile.body));
+  assert.equal(firmProfile.body.result.version, 1);
+
+  const proposalTerms = {
+    engagementId: conversion.body.result.engagementId,
+    mode: 'FULL_PROPOSAL',
+    scope: 'Statutory audit for the reporting period ended 31 December 2025.',
+    feeMinor: '250001', validUntil: '2026-11-01',
+    timeline: [{ name: 'Planning and fieldwork', date: '2027-02-15' }]
+  };
+  const blockedFullProposal = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'proposal.create', payload: { ...proposalTerms, expectedEngagementVersion: advance.body.result.version } }
+  }, reviewerHeaders);
+  assert.equal(blockedFullProposal.response.status, 422, JSON.stringify(blockedFullProposal.body));
+  assert.equal(blockedFullProposal.body.code, 'GATE_BLOCKED');
+  assert.match(blockedFullProposal.body.message, /approved.*CV.*Partner/i);
+
+  const cvBytes = new TextEncoder().encode('%PDF-1.4\n1 0 obj\n<< /Type /Catalog >>\nendobj\n%%EOF\n');
+  const cvReservation = await post(`/api/workspaces/${workspaceId}/files`, {
+    purpose: 'TEMPLATE', originalName: 'approved-partner-cv.pdf', mediaType: 'application/pdf', sizeBytes: cvBytes.length
+  }, { ...approverHeaders, 'Idempotency-Key': crypto.randomUUID() });
+  assert.equal(cvReservation.response.status, 201, JSON.stringify(cvReservation.body));
+  const cvUpload = await worker.fetch(new Request(`https://local.auditsphere.test/api/workspaces/${workspaceId}/files/${cvReservation.body.fileId}/content`, {
+    method: 'PUT', headers: { Origin: 'https://local.auditsphere.test', ...approverHeaders, 'Idempotency-Key': crypto.randomUUID(), 'X-File-Version': '1', 'Content-Type': 'application/pdf' }, body: cvBytes
+  }), env, {} as any);
+  const cvStaged = await cvUpload.json() as any;
+  assert.equal(cvUpload.status, 200, JSON.stringify(cvStaged));
+  const cvCommit = await post(`/api/workspaces/${workspaceId}/files/${cvReservation.body.fileId}/complete`, {
+    expectedVersion: 2, sizeBytes: cvBytes.length, sha256: cvStaged.sha256
+  }, { ...approverHeaders, 'Idempotency-Key': crypto.randomUUID() });
+  assert.equal(cvCommit.response.status, 200, JSON.stringify(cvCommit.body));
+  const partnerStaffId = db.prepare(`SELECT staff_member_id FROM actor_profiles WHERE workspace_id=? AND id=?`)
+    .bind(workspaceId, created.body.actorProfileId).first<any>()?.staff_member_id;
+  const attachedCv = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'team-cv.attach', payload: { staffMemberId: partnerStaffId, fileVersionId: cvReservation.body.fileId } }
+  }, approverHeaders);
+  assert.equal(attachedCv.response.status, 200, JSON.stringify(attachedCv.body));
+  const approvedCv = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'team-cv.approve', payload: {
+      teamCvId: attachedCv.body.result.teamCvId, expectedVersion: 1, rationale: 'The Partner reviewed this current CV and confirms it for client proposals.'
+    } }
+  }, approverHeaders);
+  assert.equal(approvedCv.response.status, 200, JSON.stringify(approvedCv.body));
+  assert.equal(approvedCv.body.result.status, 'APPROVED');
+
+  const proposal = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'proposal.create', payload: { ...proposalTerms, expectedEngagementVersion: advance.body.result.version } }
+  }, reviewerHeaders);
+  assert.equal(proposal.response.status, 200, JSON.stringify(proposal.body));
+  assert.equal(proposal.body.result.revision, 1);
+  assert.deepEqual({ advance: proposal.body.result.advanceMinor, final: proposal.body.result.finalMinor }, { advance: '125001', final: '125000' });
+
+  const revisedProposal = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'proposal.revise', payload: {
+      ...proposalTerms, proposalId: proposal.body.result.proposalId, expectedVersion: 1,
+      scope: 'Statutory audit scope with the agreed reporting period and named deliverables.'
+    } }
+  }, reviewerHeaders);
+  assert.equal(revisedProposal.response.status, 200, JSON.stringify(revisedProposal.body));
+  assert.equal(revisedProposal.body.result.revision, 2);
+  assert.equal(db.prepare('SELECT scope FROM proposal_versions WHERE workspace_id=? AND id=?')
+    .bind(workspaceId, proposal.body.result.proposalVersionId).first<any>()?.scope, proposalTerms.scope,
+    'an issued revision remains immutable when a new proposal revision is drafted');
+  const generateProposal = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'proposal.generate', payload: {
+      proposalVersionId: revisedProposal.body.result.proposalVersionId, expectedVersion: 1
+    } }
+  }, reviewerHeaders);
+  assert.equal(generateProposal.response.status, 202, JSON.stringify(generateProposal.body));
+  assert.equal(generateProposal.body.result.status, 'PENDING');
+  await worker.scheduled({ scheduledTime: Date.now(), cron: '*/5 * * * *' } as any, env);
+  const generatedJob = db.prepare(`SELECT status,result_file_id FROM outbox_jobs WHERE workspace_id=? AND id=?`)
+    .bind(workspaceId, generateProposal.body.result.jobId).first<any>();
+  assert.equal(generatedJob?.status, 'SUCCEEDED', 'the scheduled outbox renders and commits the actual proposal PDF');
+  const generatedFile = db.prepare(`SELECT state,purpose,media_type,sha256,size_bytes,immutable FROM file_versions WHERE workspace_id=? AND id=?`)
+    .bind(workspaceId, generatedJob.result_file_id).first<any>();
+  assert.deepEqual({ state: generatedFile?.state, purpose: generatedFile?.purpose, mediaType: generatedFile?.media_type, immutable: generatedFile?.immutable },
+    { state: 'COMMITTED', purpose: 'GENERATED', mediaType: 'application/pdf', immutable: 1 });
+  assert.ok(generatedFile.sha256 && generatedFile.size_bytes > 500);
+  assert.equal(db.prepare(`SELECT COUNT(*) AS count FROM proposal_artifacts WHERE workspace_id=? AND proposal_version_id=?`)
+    .bind(workspaceId, revisedProposal.body.result.proposalVersionId).first<any>()?.count, 1);
+  const downloadedProposal = await worker.fetch(new Request(`https://local.auditsphere.test/api/workspaces/${workspaceId}/files/${generatedJob.result_file_id}`, {
+    headers: { Origin: 'https://local.auditsphere.test', ...reviewerHeaders }
+  }), env, {} as any);
+  const downloadedBytes = new Uint8Array(await downloadedProposal.arrayBuffer());
+  assert.equal(downloadedProposal.status, 200);
+  assert.equal(await crypto.subtle.digest('SHA-256', downloadedBytes).then(digest => Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, '0')).join('')), generatedFile.sha256,
+    'the downloaded proposal contains the exact committed PDF bytes');
+  const proposalWorkspace = await call(`/api/workspaces/${workspaceId}/proposal-workspace`, { headers: reviewerHeaders });
+  assert.equal(proposalWorkspace.response.status, 200, JSON.stringify(proposalWorkspace.body));
+  assert.equal(proposalWorkspace.body.proposals[0].revision, 2);
+  assert.equal(proposalWorkspace.body.proposals[0].documentStatus, 'SUCCEEDED');
+  assert.equal(proposalWorkspace.body.proposals[0].artifactFileId, generatedJob.result_file_id);
+  assert.equal(proposalWorkspace.body.firmProfile.registrationNumber, 'CR-LOCAL-001');
+
+  const thirdProposal = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'proposal.revise', payload: {
+      ...proposalTerms, proposalId: proposal.body.result.proposalId, expectedVersion: 2,
+      scope: 'Statutory audit and reporting deliverables for the agreed reporting period ended 31 December 2025.'
+    } }
+  }, reviewerHeaders);
+  assert.equal(thirdProposal.response.status, 200, JSON.stringify(thirdProposal.body));
+  failNextR2Write = true;
+  const failingGenerate = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'proposal.generate', payload: {
+      proposalVersionId: thirdProposal.body.result.proposalVersionId, expectedVersion: 1
+    } }
+  }, reviewerHeaders);
+  assert.equal(failingGenerate.response.status, 202, JSON.stringify(failingGenerate.body));
+  await worker.scheduled({ scheduledTime: Date.now(), cron: '* * * * *' } as any, env);
+  const failedDocument = db.prepare(`SELECT status,last_error_code FROM outbox_jobs WHERE workspace_id=? AND id=?`)
+    .bind(workspaceId, failingGenerate.body.result.jobId).first<any>();
+  assert.equal(failedDocument?.status, 'RETRYABLE_FAILED');
+  assert.equal(failedDocument?.last_error_code, 'OBJECT_STORE_WRITE_FAILED');
+  const retryDocument = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'proposal.generate.retry', payload: {
+      proposalVersionId: thirdProposal.body.result.proposalVersionId, expectedVersion: 1, failedJobId: failingGenerate.body.result.jobId
+    } }
+  }, reviewerHeaders);
+  assert.equal(retryDocument.response.status, 202, JSON.stringify(retryDocument.body));
+  await worker.scheduled({ scheduledTime: Date.now(), cron: '* * * * *' } as any, env);
+  assert.equal(db.prepare(`SELECT status FROM outbox_jobs WHERE workspace_id=? AND id=?`)
+    .bind(workspaceId, failingGenerate.body.result.jobId).first<any>()?.status, 'SUCCEEDED');
+  const latestProposalWorkspace = await call(`/api/workspaces/${workspaceId}/proposal-workspace`, { headers: reviewerHeaders });
+  assert.equal(latestProposalWorkspace.body.proposals[0].revision, 3);
+  assert.equal(latestProposalWorkspace.body.proposals[0].documentStatus, 'SUCCEEDED');
+
+  const approval = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'proposal.approve', payload: {
+      proposalVersionId: thirdProposal.body.result.proposalVersionId, expectedVersion: 1,
+      note: 'The Partner reviewed the generated current quotation against approved firm content.'
+    } }
+  }, approverHeaders);
+  assert.equal(approval.response.status, 200, JSON.stringify(approval.body));
+
+  const route = latestProposalWorkspace.body.contactRoutes[0];
+  assert.ok(route?.id, 'a proposal email contact route is available');
+  const queuedDispatch = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'proposal.dispatch', payload: {
+      proposalVersionId: thirdProposal.body.result.proposalVersionId, expectedVersion: 1, contactRouteId: route.id
+    } }
+  }, approverHeaders);
+  assert.equal(queuedDispatch.response.status, 202, JSON.stringify(queuedDispatch.body));
+  assert.equal(queuedDispatch.body.result.status, 'QUEUED');
+  assert.equal(db.prepare(`SELECT lifecycle_state FROM engagements WHERE workspace_id=? AND id=?`)
+    .bind(workspaceId, conversion.body.result.engagementId).first<any>()?.lifecycle_state, 'PROPOSAL_GENERATION',
+    'queue insertion does not advance the lifecycle before provider acceptance');
+
+  await worker.scheduled({ scheduledTime: Date.now(), cron: '*/5 * * * *' } as any, env);
+  const failedDispatch = db.prepare(`SELECT d.status,d.version,j.status AS job_status,j.last_error_code
+    FROM dispatches d JOIN outbox_jobs j ON j.workspace_id=d.workspace_id AND j.id=d.job_id
+    WHERE d.workspace_id=? AND d.id=?`).bind(workspaceId, queuedDispatch.body.result.dispatchId).first<any>();
+  assert.equal(failedDispatch?.status, 'FAILED');
+  assert.equal(failedDispatch?.job_status, 'PERMANENT_FAILED');
+  assert.equal(failedDispatch?.last_error_code, 'EMAIL_PROVIDER_NOT_CONFIGURED');
+  assert.equal(db.prepare(`SELECT lifecycle_state FROM engagements WHERE workspace_id=? AND id=?`)
+    .bind(workspaceId, conversion.body.result.engagementId).first<any>()?.lifecycle_state, 'PROPOSAL_GENERATION',
+    'an unconfigured email provider does not claim acceptance or progress the engagement');
+  const failureView = await call(`/api/workspaces/${workspaceId}/proposal-workspace`, { headers: reviewerHeaders });
+  assert.equal(failureView.body.proposals[0].dispatchStatus, 'FAILED');
+  assert.equal(failureView.body.proposals[0].dispatchErrorCode, 'EMAIL_PROVIDER_NOT_CONFIGURED');
+
+  const retryDispatch = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'proposal.dispatch.retry', payload: {
+      dispatchId: queuedDispatch.body.result.dispatchId, expectedVersion: failedDispatch.version
+    } }
+  }, approverHeaders);
+  assert.equal(retryDispatch.response.status, 202, JSON.stringify(retryDispatch.body));
+  let deliveredAttachments = 0;
+  env.EMAIL_PROVIDER = { fetch: async (request: Request) => {
+    const form = await request.formData();
+    const message = JSON.parse(String(form.get('message')));
+    assert.equal(message.to, route.email);
+    deliveredAttachments = form.getAll('attachment').length;
+    assert.ok(request.headers.get('Idempotency-Key'));
+    return Response.json({ messageId: 'local-provider-message-001' }, { status: 202 });
+  } };
+  await worker.scheduled({ scheduledTime: Date.now(), cron: '*/5 * * * *' } as any, env);
+  assert.equal(deliveredAttachments, 2, 'dispatch contains the exact generated PDF and pinned approved Partner CV');
+  assert.equal(db.prepare(`SELECT status FROM dispatches WHERE workspace_id=? AND id=?`)
+    .bind(workspaceId, retryDispatch.body.result.dispatchId).first<any>()?.status, 'ACCEPTED');
+  assert.equal(db.prepare(`SELECT lifecycle_state FROM engagements WHERE workspace_id=? AND id=?`)
+    .bind(workspaceId, conversion.body.result.engagementId).first<any>()?.lifecycle_state, 'DUAL_KEY_PENDING',
+    'the lifecycle advances only after the email provider returns a verifiable message ID');
 });

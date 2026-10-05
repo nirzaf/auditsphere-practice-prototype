@@ -9,6 +9,8 @@ import type {
   BusinessFilePurpose,
   BusinessLead,
   BusinessPersona,
+  BusinessProposal,
+  BusinessProposalWorkspace,
   BusinessStandardsProfile,
   BusinessWorkspacePreference,
   BusinessWorkspaceSummary,
@@ -26,6 +28,7 @@ import {
   getBusinessClients,
   getBusinessContext,
   getBusinessLeads,
+  getBusinessProposalWorkspace,
   getBusinessStandardsProfiles,
   getBusinessWorkspace,
   initializeBusinessFile,
@@ -213,6 +216,23 @@ export function BusinessWorkspaceConsole() {
   const [clientDetail, setClientDetail] = useState<BusinessClientDetail | null>(null);
   const [leads, setLeads] = useState<BusinessLead[]>([]);
   const [standardsProfiles, setStandardsProfiles] = useState<BusinessStandardsProfile[]>([]);
+  const [proposalWorkspace, setProposalWorkspace] = useState<BusinessProposalWorkspace | null>(null);
+  const [proposalEngagementId, setProposalEngagementId] = useState('');
+  const [proposalMode, setProposalMode] = useState<'QUOTE' | 'FULL_PROPOSAL'>('QUOTE');
+  const [proposalScope, setProposalScope] = useState('');
+  const [proposalFeeMinor, setProposalFeeMinor] = useState('');
+  const [proposalValidUntil, setProposalValidUntil] = useState('');
+  const [proposalMilestoneName, setProposalMilestoneName] = useState('Planning and fieldwork');
+  const [proposalMilestoneDate, setProposalMilestoneDate] = useState('');
+  const [cvStaffMemberId, setCvStaffMemberId] = useState('');
+  const [cvFileVersionId, setCvFileVersionId] = useState('');
+  const [proposalRouteIds, setProposalRouteIds] = useState<Record<string, string>>({});
+  const [approvalNotes, setApprovalNotes] = useState<Record<string, string>>({});
+  const [firmLegalName, setFirmLegalName] = useState('');
+  const [firmRegistrationNumber, setFirmRegistrationNumber] = useState('');
+  const [firmAddress, setFirmAddress] = useState('');
+  const [firmProfileText, setFirmProfileText] = useState('');
+  const [firmMethodologyText, setFirmMethodologyText] = useState('');
   const [files, setFiles] = useState<BusinessFileMetadata[]>([]);
   const [filePurpose, setFilePurpose] = useState<BusinessFilePurpose>('TEMPLATE');
   const [fileBusy, setFileBusy] = useState(false);
@@ -352,6 +372,41 @@ export function BusinessWorkspaceConsole() {
     });
     return () => controller.abort();
   }, [preference?.workspaceId, preference?.actorId, preference?.persona, preference?.clientId, context?.actor.id, context?.allowedActions.join(','), recordsKey]);
+
+  useEffect(() => {
+    if (!preference?.workspaceId || !preference.actorId || !context?.allowedActions.includes('proposal.read')) {
+      setProposalWorkspace(null);
+      return;
+    }
+    const controller = new AbortController();
+    getBusinessProposalWorkspace(preference.workspaceId, preference, controller.signal).then(next => {
+      if (controller.signal.aborted) return;
+      setProposalWorkspace(next);
+      setProposalEngagementId(current => current && next.engagements.some(item => item.id === current)
+        ? current : next.engagements.find(item => item.lifecycleState === 'PROPOSAL_GENERATION')?.id ?? '');
+      setCvStaffMemberId(current => current || selectedProfile?.staffMemberId || next.staffMembers.find(staff => staff.grade === 'PARTNER')?.id || '');
+      setCvFileVersionId(current => current || files.find(file => file.purpose === 'TEMPLATE'
+        && ['application/pdf', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'].includes(file.mediaType))?.id || '');
+      if (next.firmProfile) {
+        setFirmLegalName(next.firmProfile.legalName);
+        setFirmRegistrationNumber(next.firmProfile.registrationNumber);
+        setFirmAddress(next.firmProfile.address);
+        setFirmProfileText(next.firmProfile.profileText);
+        setFirmMethodologyText(next.firmProfile.methodologyText);
+      }
+    }).catch(reason => {
+      if (!controller.signal.aborted) setRecordError(reason instanceof Error ? reason.message : 'Proposal workspace could not be loaded.');
+    });
+    return () => controller.abort();
+  }, [preference?.workspaceId, preference?.actorId, preference?.persona, preference?.clientId, preference?.engagementId, context?.actor.id, context?.allowedActions.join(','), recordsKey]);
+
+  useEffect(() => {
+    const pending = proposalWorkspace?.proposals.some(proposal => ['PENDING', 'RUNNING'].includes(proposal.documentStatus)
+      || proposal.dispatchStatus === 'QUEUED');
+    if (!pending) return;
+    const timer = window.setInterval(() => setRecordsKey(value => value + 1), 5000);
+    return () => window.clearInterval(timer);
+  }, [proposalWorkspace]);
 
   useEffect(() => {
     if (!preference?.workspaceId || !preference.actorId || !context?.allowedActions.includes('file.read')) {
@@ -584,6 +639,175 @@ export function BusinessWorkspaceConsole() {
       setRecordsKey(value => value + 1);
     } catch (reason) {
       setCommandMessage(reason instanceof Error ? reason.message : 'The standards profile could not be saved.');
+    } finally { setCommandBusy(false); }
+  };
+
+  const saveFirmProfile = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const selected = currentSelection();
+    if (!selected || !context?.allowedActions.includes('firm.manage')) return;
+    const payload = {
+      expectedVersion: proposalWorkspace?.firmProfile?.version ?? null,
+      legalName: firmLegalName, registrationNumber: firmRegistrationNumber, address: firmAddress,
+      profileText: firmProfileText, methodologyText: firmMethodologyText
+    };
+    setCommandBusy(true);
+    setCommandMessage('');
+    try {
+      const saved = await runBusinessCommand<{ firmProfileId: string; version: number }>(
+        selected.workspaceId, selected, { type: 'firm-profile.save', payload }, commandKeyFor('firm-profile.save', payload)
+      );
+      businessCommandKeys.current.delete('firm-profile.save');
+      setCommandMessage(`Firm profile revision ${saved.result.version} saved. New proposals will snapshot this approved content.`);
+      setRecordsKey(value => value + 1);
+    } catch (reason) {
+      setCommandMessage(reason instanceof Error ? reason.message : 'The firm profile could not be saved.');
+    } finally { setCommandBusy(false); }
+  };
+
+  const attachTeamCv = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const selected = currentSelection();
+    if (!selected || !context?.allowedActions.includes('firm.manage')) return;
+    const payload = { staffMemberId: cvStaffMemberId, fileVersionId: cvFileVersionId };
+    setCommandBusy(true);
+    setCommandMessage('');
+    try {
+      const attached = await runBusinessCommand<{ teamCvId: string }>(
+        selected.workspaceId, selected, { type: 'team-cv.attach', payload }, commandKeyFor('team-cv.attach', payload)
+      );
+      businessCommandKeys.current.delete('team-cv.attach');
+      setCommandMessage('The committed CV is attached and awaiting Partner approval.');
+      setRecordsKey(value => value + 1);
+    } catch (reason) {
+      setCommandMessage(reason instanceof Error ? reason.message : 'The CV could not be attached.');
+    } finally { setCommandBusy(false); }
+  };
+
+  const approveTeamCv = async (cv: BusinessProposalWorkspace['teamCvs'][number]) => {
+    const selected = currentSelection();
+    if (!selected || !context?.allowedActions.includes('firm.manage')) return;
+    const payload = { teamCvId: cv.id, expectedVersion: cv.version, rationale: 'Partner reviewed the committed staff CV and approves it for proposal use.' };
+    setCommandBusy(true);
+    setCommandMessage('');
+    try {
+      await runBusinessCommand(selected.workspaceId, selected, { type: 'team-cv.approve', payload }, commandKeyFor(`team-cv.approve.${cv.id}`, payload));
+      businessCommandKeys.current.delete(`team-cv.approve.${cv.id}`);
+      setCommandMessage(`${cv.displayName}’s CV is approved for future proposal snapshots.`);
+      setRecordsKey(value => value + 1);
+    } catch (reason) {
+      setCommandMessage(reason instanceof Error ? reason.message : 'The CV approval could not be recorded.');
+    } finally { setCommandBusy(false); }
+  };
+
+  const createProposal = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const selected = currentSelection();
+    const engagement = proposalWorkspace?.engagements.find(item => item.id === proposalEngagementId);
+    if (!selected || !engagement || !context?.allowedActions.includes('proposal.create')) return;
+    const payload = {
+      engagementId: engagement.id, expectedEngagementVersion: engagement.version, mode: proposalMode,
+      scope: proposalScope, feeMinor: proposalFeeMinor, validUntil: proposalValidUntil,
+      timeline: [{ name: proposalMilestoneName, date: proposalMilestoneDate }]
+    };
+    setCommandBusy(true);
+    setCommandMessage('');
+    try {
+      const created = await runBusinessCommand<{ proposalId: string; proposalVersionId: string; revision: number; advanceMinor: string; finalMinor: string }>(
+        selected.workspaceId, selected, { type: 'proposal.create', payload }, commandKeyFor('proposal.create', payload)
+      );
+      businessCommandKeys.current.delete('proposal.create');
+      setCommandMessage(`Proposal revision ${created.result.revision} saved. QAR minor-unit terms split to ${created.result.advanceMinor} advance and ${created.result.finalMinor} final.`);
+      setProposalScope(''); setProposalFeeMinor('');
+      setRecordsKey(value => value + 1);
+    } catch (reason) {
+      setCommandMessage(reason instanceof Error ? reason.message : 'The proposal could not be saved.');
+    } finally { setCommandBusy(false); }
+  };
+
+  const generateProposal = async (proposal: BusinessProposal) => {
+    const selected = currentSelection();
+    if (!selected || !context?.allowedActions.includes('proposal.generate')) return;
+    const payload = { proposalVersionId: proposal.proposalVersionId, expectedVersion: 1 };
+    setCommandBusy(true);
+    setCommandMessage('');
+    try {
+      const queued = await runBusinessCommand<{ jobId: string; status: string }>(
+        selected.workspaceId, selected, { type: 'proposal.generate', payload }, commandKeyFor(`proposal.generate.${proposal.proposalVersionId}`, payload)
+      );
+      setCommandMessage(`Document job ${queued.result.jobId} is ${queued.result.status.toLowerCase()}. It will not be treated as ready until its stored PDF is verified.`);
+      setRecordsKey(value => value + 1);
+    } catch (reason) {
+      setCommandMessage(reason instanceof Error ? reason.message : 'The proposal document could not be queued.');
+    } finally { setCommandBusy(false); }
+  };
+
+  const retryProposalDocument = async (proposal: BusinessProposal) => {
+    const selected = currentSelection();
+    if (!selected || !proposal.documentJobId || !context?.allowedActions.includes('proposal.generate')) return;
+    const payload = { proposalVersionId: proposal.proposalVersionId, expectedVersion: 1, failedJobId: proposal.documentJobId };
+    setCommandBusy(true);
+    setCommandMessage('');
+    try {
+      const retried = await runBusinessCommand<{ jobId: string; status: string }>(
+        selected.workspaceId, selected, { type: 'proposal.generate.retry', payload }, newBusinessIdempotencyKey()
+      );
+      setCommandMessage(`Proposal PDF job ${retried.result.jobId} was returned to the queue. Its artifact remains unavailable until storage verification succeeds.`);
+      setRecordsKey(value => value + 1);
+    } catch (reason) {
+      setCommandMessage(reason instanceof Error ? reason.message : 'The proposal PDF could not be queued for a verified retry.');
+    } finally { setCommandBusy(false); }
+  };
+
+  const approveProposal = async (proposal: BusinessProposal) => {
+    const selected = currentSelection();
+    if (!selected || !context?.allowedActions.includes('proposal.approve')) return;
+    const note = approvalNotes[proposal.proposalVersionId] ?? 'Reviewed against the current firm profile and client terms.';
+    const payload = { proposalVersionId: proposal.proposalVersionId, expectedVersion: 1, note };
+    setCommandBusy(true);
+    setCommandMessage('');
+    try {
+      await runBusinessCommand(selected.workspaceId, selected, { type: 'proposal.approve', payload }, commandKeyFor(`proposal.approve.${proposal.proposalVersionId}`, payload));
+      businessCommandKeys.current.delete(`proposal.approve.${proposal.proposalVersionId}`);
+      setCommandMessage(`Partner approval recorded against proposal revision ${proposal.revision}.`);
+      setRecordsKey(value => value + 1);
+    } catch (reason) {
+      setCommandMessage(reason instanceof Error ? reason.message : 'The proposal approval could not be recorded.');
+    } finally { setCommandBusy(false); }
+  };
+
+  const dispatchProposal = async (proposal: BusinessProposal) => {
+    const selected = currentSelection();
+    const contactRouteId = proposalRouteIds[proposal.proposalVersionId];
+    if (!selected || !contactRouteId || !context?.allowedActions.includes('proposal.dispatch')) return;
+    const payload = { proposalVersionId: proposal.proposalVersionId, expectedVersion: 1, contactRouteId };
+    setCommandBusy(true);
+    setCommandMessage('');
+    try {
+      const queued = await runBusinessCommand<{ dispatchId: string; jobId: string; status: string }>(
+        selected.workspaceId, selected, { type: 'proposal.dispatch', payload }, commandKeyFor(`proposal.dispatch.${proposal.proposalVersionId}`, payload)
+      );
+      setCommandMessage(`Dispatch ${queued.result.status.toLowerCase()} for the saved recipient snapshot. Lifecycle advances only after provider acceptance.`);
+      setRecordsKey(value => value + 1);
+    } catch (reason) {
+      setCommandMessage(reason instanceof Error ? reason.message : 'The proposal dispatch could not be queued.');
+    } finally { setCommandBusy(false); }
+  };
+
+  const retryProposalDispatch = async (proposal: BusinessProposal) => {
+    const selected = currentSelection();
+    if (!selected || !proposal.dispatchId || !proposal.dispatchVersion || !context?.allowedActions.includes('proposal.dispatch')) return;
+    const payload = { dispatchId: proposal.dispatchId, expectedVersion: proposal.dispatchVersion };
+    setCommandBusy(true);
+    setCommandMessage('');
+    try {
+      const retried = await runBusinessCommand<{ dispatchId: string; jobId: string; status: string }>(
+        selected.workspaceId, selected, { type: 'proposal.dispatch.retry', payload }, newBusinessIdempotencyKey()
+      );
+      setCommandMessage(`Dispatch ${retried.result.status.toLowerCase()} using the same approved proposal and recipient snapshot. Lifecycle advances only after provider acceptance.`);
+      setRecordsKey(value => value + 1);
+    } catch (reason) {
+      setCommandMessage(reason instanceof Error ? reason.message : 'The failed dispatch could not be retried.');
     } finally { setCommandBusy(false); }
   };
 
@@ -875,6 +1099,103 @@ export function BusinessWorkspaceConsole() {
             <p className="business-note">Only a Partner profile can approve this immutable basis. Enter firm-approved content; this form does not choose professional standards for the firm.</p>
             <div className="business-dialog-actions"><button className="btn primary" type="submit" disabled={commandBusy}>{commandBusy ? 'Saving…' : 'Approve standards profile'}</button></div>
           </form>}
+        </section>}
+
+        {context?.allowedActions.includes('proposal.read') && <section className="business-directory-card" aria-labelledby="business-proposals-heading">
+          <div className="business-section-heading">
+            <div><p className="business-eyebrow">COMMERCIAL · US-ENG-003</p><h2 id="business-proposals-heading">Quotes and proposals</h2></div>
+            <span className="business-count">{proposalWorkspace?.proposals.length ?? 0} current revisions</span>
+          </div>
+
+          {context.actor.persona === 'CLIENT' ? <>
+            <p className="business-note">Only proposal revisions accepted by the configured delivery provider appear here.</p>
+            {proposalWorkspace?.proposals.length ? <ul className="business-record-list">
+              {proposalWorkspace.proposals.map(proposal => {
+                const artifact = files.find(file => file.id === proposal.artifactFileId);
+                return <li key={proposal.proposalVersionId}>
+                  <strong>{proposal.mode === 'QUOTE' ? 'Quotation' : 'Comprehensive proposal'} · Revision {proposal.revision}</strong>
+                  <span>{proposal.clientName} · QAR {proposal.feeMinor} minor units · valid through {proposal.validUntil}</span>
+                  <small>{proposal.scope} · provider status {proposal.dispatchStatus}</small>
+                  {artifact && <button type="button" className="btn sm" disabled={downloadingFileId === artifact.id} onClick={() => void downloadStoredFile(artifact)}>{downloadingFileId === artifact.id ? 'Downloading…' : 'Download accepted proposal'}</button>}
+                </li>;
+              })}
+            </ul> : <p className="business-muted">No accepted proposal is available for this client context.</p>}
+          </> : <>
+            {context.allowedActions.includes('firm.manage') && <>
+              <form className="business-form business-commercial-form" onSubmit={saveFirmProfile}>
+                <h3>{proposalWorkspace?.firmProfile ? `Partner-approved firm content · v${proposalWorkspace.firmProfile.version}` : 'Set up approved firm content'}</h3>
+                <div className="business-form-grid">
+                  <label className="business-field" htmlFor="business-firm-legal-name"><span>Legal firm name</span><input id="business-firm-legal-name" required maxLength={250} value={firmLegalName} onChange={event => setFirmLegalName(event.target.value)} /></label>
+                  <label className="business-field" htmlFor="business-firm-registration"><span>Registration number</span><input id="business-firm-registration" required maxLength={200} value={firmRegistrationNumber} onChange={event => setFirmRegistrationNumber(event.target.value)} /></label>
+                  <label className="business-field" htmlFor="business-firm-address"><span>Registered address</span><input id="business-firm-address" required maxLength={1000} value={firmAddress} onChange={event => setFirmAddress(event.target.value)} /></label>
+                </div>
+                <label className="business-field" htmlFor="business-firm-profile-text"><span>Approved firm profile</span><textarea id="business-firm-profile-text" className="input" required minLength={10} maxLength={10000} rows={3} value={firmProfileText} onChange={event => setFirmProfileText(event.target.value)} /></label>
+                <label className="business-field" htmlFor="business-firm-methodology"><span>Approved methodology summary</span><textarea id="business-firm-methodology" className="input" required minLength={10} maxLength={20000} rows={4} value={firmMethodologyText} onChange={event => setFirmMethodologyText(event.target.value)} /></label>
+                <p className="business-note">Enter the firm’s actual registration and approved content. These values are snapshotted into new proposal revisions; no biography or professional claim is generated from a placeholder.</p>
+                <div className="business-dialog-actions"><button className="btn primary" type="submit" disabled={commandBusy}>{commandBusy ? 'Saving…' : proposalWorkspace?.firmProfile ? 'Save new firm profile revision' : 'Save firm profile'}</button></div>
+              </form>
+
+              <form className="business-form business-commercial-form" onSubmit={attachTeamCv}>
+                <h3>Attach an actual team CV</h3>
+                <div className="business-form-grid">
+                  <label className="business-field" htmlFor="business-cv-staff"><span>Staff member</span><select id="business-cv-staff" required value={cvStaffMemberId} onChange={event => setCvStaffMemberId(event.target.value)}><option value="">Select staff</option>{proposalWorkspace?.staffMembers.map(staff => <option key={staff.id} value={staff.id}>{staff.displayName} · {staff.grade}</option>)}</select></label>
+                  <label className="business-field" htmlFor="business-cv-file"><span>Committed CV file</span><select id="business-cv-file" required value={cvFileVersionId} onChange={event => setCvFileVersionId(event.target.value)}><option value="">Select a stored PDF or DOCX</option>{files.filter(file => file.purpose === 'TEMPLATE' && ['application/pdf', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'].includes(file.mediaType)).map(file => <option key={file.id} value={file.id}>{file.originalName} · SHA-256 {file.sha256?.slice(0, 10)}</option>)}</select></label>
+                </div>
+                <p className="business-note">First store the original PDF or DOCX in Stored files as a firm template. The CV bytes stay unchanged; approval records the exact file version.</p>
+                <div className="business-dialog-actions"><button className="btn" type="submit" disabled={commandBusy || !cvStaffMemberId || !cvFileVersionId}>{commandBusy ? 'Attaching…' : 'Attach CV for Partner review'}</button></div>
+              </form>
+              {proposalWorkspace?.teamCvs.length ? <ul className="business-record-list business-cv-list" aria-label="Attached team CVs">{proposalWorkspace.teamCvs.map(cv => <li key={cv.id}>
+                <strong>{cv.displayName} · {cv.grade}</strong><span>{cv.originalName} · SHA-256 {cv.sha256.slice(0, 12)}…</span><small>{cv.approved ? `Approved ${cv.approvedAt ?? ''}` : 'Awaiting Partner approval'}</small>
+                {!cv.approved && <button type="button" className="btn sm" disabled={commandBusy} onClick={() => void approveTeamCv(cv)}>Approve this CV</button>}
+              </li>)}</ul> : <p className="business-muted">No actual team CV is attached yet. Full proposals remain blocked until the active Partner has an approved CV.</p>}
+            </>}
+
+            {context.allowedActions.includes('proposal.create') && <form className="business-form business-commercial-form" onSubmit={createProposal}>
+              <h3>Draft a versioned proposal</h3>
+              {!proposalWorkspace?.firmProfile && <p className="business-alert" role="alert">A Partner must save the firm’s legal registration, profile and methodology before a proposal can be created.</p>}
+              <div className="business-form-grid">
+                <label className="business-field" htmlFor="business-proposal-engagement"><span>Engagement in proposal generation</span><select id="business-proposal-engagement" required value={proposalEngagementId} onChange={event => setProposalEngagementId(event.target.value)}><option value="">Select engagement</option>{proposalWorkspace?.engagements.filter(engagement => engagement.lifecycleState === 'PROPOSAL_GENERATION').map(engagement => <option key={engagement.id} value={engagement.id}>{engagement.clientName} · {engagement.code} · {engagement.periodStart}–{engagement.periodEnd}</option>)}</select></label>
+                <label className="business-field" htmlFor="business-proposal-mode"><span>Document mode</span><select id="business-proposal-mode" value={proposalMode} onChange={event => setProposalMode(event.target.value as typeof proposalMode)}><option value="QUOTE">Quotation · 1–2 pages</option><option value="FULL_PROPOSAL">Comprehensive proposal · approved team CV required</option></select></label>
+                <label className="business-field" htmlFor="business-proposal-fee"><span>Total fee · QAR minor units</span><input id="business-proposal-fee" required inputMode="numeric" pattern="[0-9]*" value={proposalFeeMinor} onChange={event => setProposalFeeMinor(event.target.value)} /><small>Advance is rounded half-up; the final amount is the exact remainder.</small></label>
+                <label className="business-field" htmlFor="business-proposal-valid-until"><span>Offer valid until</span><input id="business-proposal-valid-until" type="date" required value={proposalValidUntil} onChange={event => setProposalValidUntil(event.target.value)} /></label>
+                <label className="business-field" htmlFor="business-proposal-milestone"><span>Timeline milestone</span><input id="business-proposal-milestone" required maxLength={160} value={proposalMilestoneName} onChange={event => setProposalMilestoneName(event.target.value)} /></label>
+                <label className="business-field" htmlFor="business-proposal-milestone-date"><span>Milestone date</span><input id="business-proposal-milestone-date" type="date" required value={proposalMilestoneDate} onChange={event => setProposalMilestoneDate(event.target.value)} /></label>
+              </div>
+              <label className="business-field" htmlFor="business-proposal-scope"><span>Agreed scope</span><textarea id="business-proposal-scope" className="input" required minLength={10} maxLength={10000} rows={3} value={proposalScope} onChange={event => setProposalScope(event.target.value)} /></label>
+              <p className="business-note">Each revision pins the current firm profile, methodology hash and approved CV file IDs. A new revision does not overwrite a prior approval or document.</p>
+              <div className="business-dialog-actions"><button className="btn primary" type="submit" disabled={commandBusy || !proposalWorkspace?.firmProfile || !proposalEngagementId}>{commandBusy ? 'Saving…' : 'Create proposal revision'}</button></div>
+            </form>}
+
+            {proposalWorkspace?.proposals.length ? <ul className="business-record-list business-proposal-list" aria-label="Current proposal revisions">{proposalWorkspace.proposals.map(proposal => {
+              const routeOptions = proposalWorkspace.contactRoutes.filter(route => route.clientId === proposal.clientId);
+              const routeValue = proposalRouteIds[proposal.proposalVersionId] ?? routeOptions[0]?.id ?? '';
+              const artifact = files.find(file => file.id === proposal.artifactFileId);
+              return <li key={proposal.proposalVersionId}>
+                <strong>{proposal.clientName} · {proposal.mode === 'QUOTE' ? 'Quotation' : 'Full proposal'} · Revision {proposal.revision}</strong>
+                <span>{proposal.lifecycleState} · QAR {proposal.feeMinor} minor · {proposal.advanceBps / 100}% / {proposal.finalBps / 100}% · valid until {proposal.validUntil}</span>
+                <small>Document {proposal.documentStatus.replaceAll('_', ' ')} · Partner approval {proposal.approvalStatus} · dispatch {proposal.dispatchStatus.replaceAll('_', ' ')}{proposal.artifactSha256 ? ` · SHA-256 ${proposal.artifactSha256.slice(0, 12)}…` : ''}</small>
+                {proposal.documentErrorCode && <small role="status">Document job: {proposal.documentErrorCode.replaceAll('_', ' ').toLowerCase()}.</small>}
+                {proposal.dispatchErrorCode && <small role="status">Dispatch job: {proposal.dispatchErrorCode.replaceAll('_', ' ').toLowerCase()}.</small>}
+                {proposal.documentStatus === 'NOT_GENERATED' && <button type="button" className="btn sm" disabled={commandBusy} onClick={() => void generateProposal(proposal)}>Generate verified PDF</button>}
+                {['PENDING', 'RUNNING'].includes(proposal.documentStatus) && <button type="button" className="btn sm" disabled>Generating PDF…</button>}
+                {['RETRYABLE_FAILED', 'PERMANENT_FAILED'].includes(proposal.documentStatus) && <button type="button" className="btn sm" disabled={commandBusy || !proposal.documentJobId} onClick={() => void retryProposalDocument(proposal)}>Retry PDF generation</button>}
+                {artifact && <button type="button" className="btn sm" disabled={downloadingFileId === artifact.id} onClick={() => void downloadStoredFile(artifact)}>{downloadingFileId === artifact.id ? 'Downloading…' : 'Download generated PDF'}</button>}
+                {context.allowedActions.includes('proposal.approve') && proposal.documentStatus === 'SUCCEEDED' && proposal.approvalStatus === 'PENDING' && <>
+                  <label className="business-field" htmlFor={`business-proposal-approval-${proposal.proposalVersionId}`}><span>Partner approval note</span><input id={`business-proposal-approval-${proposal.proposalVersionId}`} minLength={10} maxLength={10000} value={approvalNotes[proposal.proposalVersionId] ?? 'Reviewed against the current firm profile and client terms.'} onChange={event => setApprovalNotes(current => ({ ...current, [proposal.proposalVersionId]: event.target.value }))} /></label>
+                  <button type="button" className="btn sm" disabled={commandBusy} onClick={() => void approveProposal(proposal)}>Approve this exact revision</button>
+                </>}
+                {context.allowedActions.includes('proposal.dispatch') && proposal.approvalStatus === 'APPROVE' && ['NOT_DISPATCHED', 'BOUNCED'].includes(proposal.dispatchStatus) && <>
+                  <label className="business-field" htmlFor={`business-proposal-route-${proposal.proposalVersionId}`}><span>Proposal email recipient</span><select id={`business-proposal-route-${proposal.proposalVersionId}`} value={routeValue} onChange={event => setProposalRouteIds(current => ({ ...current, [proposal.proposalVersionId]: event.target.value }))}><option value="">Select an active contact email</option>{routeOptions.map(route => <option key={route.id} value={route.id}>{route.clientName} · {route.contactName} · {route.email}</option>)}</select></label>
+                  <button type="button" className="btn sm" disabled={commandBusy || !routeValue || proposal.documentStatus !== 'SUCCEEDED'} onClick={() => void dispatchProposal(proposal)}>Queue approved proposal email</button>
+                </>}
+                {proposal.dispatchStatus === 'FAILED' && <>
+                  <p className="business-alert" role="alert">The provider rejected this dispatch. The engagement remains in proposal generation. Confirm provider configuration before retrying.</p>
+                  {context.allowedActions.includes('proposal.dispatch') && <button type="button" className="btn sm" disabled={commandBusy || !proposal.dispatchId || !proposal.dispatchVersion} onClick={() => void retryProposalDispatch(proposal)}>Retry failed dispatch</button>}
+                </>}
+                {proposal.dispatchStatus === 'UNKNOWN' && <p className="business-alert" role="alert">The provider outcome is unknown. Reconcile the provider message before sending again; automatic retry is blocked to avoid a duplicate email.</p>}
+              </li>;
+            })}</ul> : <p className="business-muted">No proposal revisions exist in this workspace scope.</p>}
+          </>}
         </section>}
 
         {context?.allowedActions.includes('file.read') && <section className="business-directory-card" aria-labelledby="business-files-heading">

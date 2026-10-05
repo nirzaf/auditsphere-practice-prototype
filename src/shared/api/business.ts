@@ -31,6 +31,7 @@ export interface BusinessActorProfile {
   displayName: string;
   staffGrade: StaffGrade | null;
   clientId: string | null;
+  staffMemberId?: string | null;
 }
 
 export interface BusinessWorkspaceSummary {
@@ -165,4 +166,101 @@ export interface BusinessStandardsProfile {
   approvedByActorId: string;
   approvedAt: string;
   contentSha256: string;
+}
+
+export interface BusinessFirmProfile {
+  id: string;
+  version: number;
+  legalName: string;
+  registrationNumber: string;
+  address: string;
+  profileText: string;
+  methodologyText: string;
+  logoFileId: string | null;
+  updatedAt: string;
+}
+
+export interface BusinessTeamCv {
+  id: string;
+  version: number;
+  staffMemberId: string;
+  displayName: string;
+  grade: StaffGrade;
+  fileVersionId: string;
+  originalName: string;
+  sha256: string;
+  approved: boolean;
+  approvedByActorId: string | null;
+  approvedAt: string | null;
+}
+
+export interface BusinessEngagementOption {
+  id: string;
+  version: number;
+  clientId: string;
+  clientName: string;
+  code: string;
+  periodStart: string;
+  periodEnd: string;
+  lifecycleState: string;
+  contractFeeMinor: string;
+}
+
+export interface BusinessProposal {
+  proposalId: string;
+  proposalVersion: number;
+  clientId: string;
+  engagementId: string;
+  proposalVersionId: string;
+  revision: number;
+  mode: 'QUOTE' | 'FULL_PROPOSAL';
+  scope: string;
+  feeMinor: string;
+  currency: 'QAR';
+  advanceBps: number;
+  finalBps: number;
+  validUntil: string;
+  timeline: Array<{ name: string; date: string }>;
+  clientName: string;
+  lifecycleState: string;
+  documentStatus: 'NOT_GENERATED' | 'PENDING' | 'RUNNING' | 'SUCCEEDED' | 'RETRYABLE_FAILED' | 'PERMANENT_FAILED' | 'UNKNOWN';
+  documentJobId?: string | null;
+  documentErrorCode?: string | null;
+  approvalStatus: 'APPROVE' | 'REJECT' | 'PENDING';
+  dispatchStatus: 'QUEUED' | 'ACCEPTED' | 'DELIVERED' | 'BOUNCED' | 'FAILED' | 'UNKNOWN' | 'NOT_DISPATCHED';
+  dispatchId?: string | null;
+  dispatchVersion?: number | null;
+  dispatchErrorCode?: string | null;
+  artifactFileId: string | null;
+  artifactSha256: string | null;
+  teamCvFileIds?: string[];
+  methodologyVersion?: string;
+  firmProfileVersion?: number;
+  createdAt?: string;
+}
+
+export interface BusinessStaffMember {
+  id: string;
+  version: number;
+  displayName: string;
+  grade: StaffGrade;
+  active: boolean;
+}
+
+export interface BusinessProposalContactRoute {
+  id: string;
+  version: number;
+  clientId: string;
+  clientName: string;
+  contactName: string;
+  email: string;
+}
+
+export interface BusinessProposalWorkspace {
+  engagements: BusinessEngagementOption[];
+  firmProfile: BusinessFirmProfile | null;
+  staffMembers: BusinessStaffMember[];
+  teamCvs: BusinessTeamCv[];
+  contactRoutes: BusinessProposalContactRoute[];
+  proposals: BusinessProposal[];
 }

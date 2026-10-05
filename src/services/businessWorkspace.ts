@@ -11,6 +11,7 @@ import type {
   BusinessFileReservation,
   BusinessLead,
   BusinessPersona,
+  BusinessProposalWorkspace,
   BusinessStandardsProfile,
   BusinessWorkspaceBootstrapRequest,
   BusinessWorkspaceBootstrapResponse,
@@ -237,6 +238,14 @@ export async function getBusinessStandardsProfiles(
   return result.items;
 }
 
+export async function getBusinessProposalWorkspace(
+  workspaceId: string,
+  selected: BusinessWorkspacePreference,
+  signal?: AbortSignal
+): Promise<BusinessProposalWorkspace> {
+  return requestJson(`/api/workspaces/${encodeURIComponent(workspaceId)}/proposal-workspace`, { context: selected, signal });
+}
+
 export async function getBusinessFiles(
   workspaceId: string,
   selected: BusinessWorkspacePreference,
@@ -319,17 +328,23 @@ export async function runBusinessCommand<T = Record<string, unknown>>(
   if (!selected.actorId || !selected.persona) throw new Error('Select an active actor profile before making a business change.');
   const value = command && typeof command === 'object' ? command as { type?: string; payload?: Record<string, unknown> } : {};
   const payload = value.payload ?? {};
-  const versionTarget = typeof payload.expectedVersion === 'number'
+  const commandVersion = value.type === 'proposal.create' ? payload.expectedEngagementVersion : payload.expectedVersion;
+  const versionTarget = typeof commandVersion === 'number'
     ? value.type === 'staff.update' ? { entity: 'StaffMember', id: payload.staffMemberId }
       : value.type === 'actor-profile.deactivate' ? { entity: 'ActorProfile', id: payload.actorProfileId }
         : value.type === 'client.update' || value.type === 'client.deactivate' ? { entity: 'Client', id: payload.clientId }
           : value.type === 'contact.update' ? { entity: 'Contact', id: payload.contactId }
             : value.type === 'lead.update' || value.type === 'lead.lose' || value.type === 'lead.convert' ? { entity: 'Lead', id: payload.leadId }
               : value.type === 'engagement.advance' ? { entity: 'Engagement', id: payload.engagementId }
+            : value.type === 'team-cv.approve' ? { entity: 'TeamCv', id: payload.teamCvId }
+              : value.type === 'proposal.create' ? { entity: 'Engagement', id: payload.engagementId }
+                : value.type === 'proposal.revise' ? { entity: 'Proposal', id: payload.proposalId }
+              : value.type === 'proposal.generate' || value.type === 'proposal.generate.retry' || value.type === 'proposal.approve' || value.type === 'proposal.dispatch' ? { entity: 'ProposalVersion', id: payload.proposalVersionId }
+                : value.type === 'proposal.dispatch.retry' ? { entity: 'Dispatch', id: payload.dispatchId }
                 : null
     : null;
   const expectedVersions = versionTarget && typeof versionTarget.id === 'string'
-    ? [{ ...versionTarget, version: payload.expectedVersion as number }]
+    ? [{ ...versionTarget, version: commandVersion as number }]
     : [];
   return requestJson(`/api/workspaces/${encodeURIComponent(workspaceId)}/commands`, {
     method: 'POST',
