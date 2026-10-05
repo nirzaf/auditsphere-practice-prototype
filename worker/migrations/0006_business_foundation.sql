@@ -58,6 +58,8 @@ CREATE TABLE IF NOT EXISTS staff_members (
   created_by_actor_id TEXT,
   updated_by_actor_id TEXT,
   FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE RESTRICT,
+  FOREIGN KEY (workspace_id, created_by_actor_id) REFERENCES actor_profiles(workspace_id, id) ON DELETE RESTRICT,
+  FOREIGN KEY (workspace_id, updated_by_actor_id) REFERENCES actor_profiles(workspace_id, id) ON DELETE RESTRICT,
   UNIQUE (workspace_id, id),
   UNIQUE (workspace_id, natural_person_key)
 );
@@ -83,6 +85,8 @@ CREATE TABLE IF NOT EXISTS clients (
   created_by_actor_id TEXT,
   updated_by_actor_id TEXT,
   FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE RESTRICT,
+  FOREIGN KEY (workspace_id, created_by_actor_id) REFERENCES actor_profiles(workspace_id, id) ON DELETE RESTRICT,
+  FOREIGN KEY (workspace_id, updated_by_actor_id) REFERENCES actor_profiles(workspace_id, id) ON DELETE RESTRICT,
   FOREIGN KEY (workspace_id, parent_client_id) REFERENCES clients(workspace_id, id) ON DELETE RESTRICT,
   UNIQUE (workspace_id, id),
   UNIQUE (workspace_id, code),
@@ -104,6 +108,8 @@ CREATE TABLE IF NOT EXISTS client_affiliations (
   updated_by_actor_id TEXT,
   FOREIGN KEY (workspace_id, client_id) REFERENCES clients(workspace_id, id) ON DELETE RESTRICT,
   FOREIGN KEY (workspace_id, related_client_id) REFERENCES clients(workspace_id, id) ON DELETE RESTRICT,
+  FOREIGN KEY (workspace_id, created_by_actor_id) REFERENCES actor_profiles(workspace_id, id) ON DELETE RESTRICT,
+  FOREIGN KEY (workspace_id, updated_by_actor_id) REFERENCES actor_profiles(workspace_id, id) ON DELETE RESTRICT,
   UNIQUE (workspace_id, id),
   UNIQUE (workspace_id, client_id, related_client_id, relationship),
   CHECK (client_id <> related_client_id)
@@ -130,6 +136,8 @@ CREATE TABLE IF NOT EXISTS contacts (
   created_by_actor_id TEXT,
   updated_by_actor_id TEXT,
   FOREIGN KEY (workspace_id, client_id) REFERENCES clients(workspace_id, id) ON DELETE RESTRICT,
+  FOREIGN KEY (workspace_id, created_by_actor_id) REFERENCES actor_profiles(workspace_id, id) ON DELETE RESTRICT,
+  FOREIGN KEY (workspace_id, updated_by_actor_id) REFERENCES actor_profiles(workspace_id, id) ON DELETE RESTRICT,
   UNIQUE (workspace_id, id),
   CHECK (email IS NOT NULL OR phone IS NOT NULL),
   CHECK (effective_to IS NULL OR effective_to >= effective_from)
@@ -152,10 +160,34 @@ CREATE TABLE IF NOT EXISTS contact_routes (
   updated_by_actor_id TEXT,
   FOREIGN KEY (workspace_id, client_id) REFERENCES clients(workspace_id, id) ON DELETE RESTRICT,
   FOREIGN KEY (workspace_id, contact_id) REFERENCES contacts(workspace_id, id) ON DELETE RESTRICT,
+  FOREIGN KEY (workspace_id, created_by_actor_id) REFERENCES actor_profiles(workspace_id, id) ON DELETE RESTRICT,
+  FOREIGN KEY (workspace_id, updated_by_actor_id) REFERENCES actor_profiles(workspace_id, id) ON DELETE RESTRICT,
   UNIQUE (workspace_id, id),
   UNIQUE (workspace_id, client_id, purpose, contact_id)
 );
 CREATE INDEX IF NOT EXISTS contact_routes_primary_idx ON contact_routes(workspace_id, client_id, purpose, is_primary);
+
+CREATE TABLE IF NOT EXISTS actor_profiles (
+  id TEXT PRIMARY KEY,
+  workspace_id TEXT NOT NULL,
+  version INTEGER NOT NULL DEFAULT 1 CHECK (version > 0),
+  persona TEXT NOT NULL CHECK (persona IN ('PREPARER', 'REVIEWER', 'APPROVER', 'CLIENT')),
+  staff_member_id TEXT,
+  contact_id TEXT,
+  active INTEGER NOT NULL DEFAULT 1 CHECK (active IN (0, 1)),
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE RESTRICT,
+  FOREIGN KEY (workspace_id, staff_member_id) REFERENCES staff_members(workspace_id, id) ON DELETE RESTRICT,
+  FOREIGN KEY (workspace_id, contact_id) REFERENCES contacts(workspace_id, id) ON DELETE RESTRICT,
+  UNIQUE (workspace_id, id),
+  CHECK (
+    (persona = 'CLIENT' AND contact_id IS NOT NULL AND staff_member_id IS NULL) OR
+    (persona <> 'CLIENT' AND staff_member_id IS NOT NULL AND contact_id IS NULL)
+  )
+);
+CREATE INDEX IF NOT EXISTS actor_profiles_persona_active_idx ON actor_profiles(workspace_id, persona, active);
+CREATE INDEX IF NOT EXISTS actor_profiles_contact_idx ON actor_profiles(workspace_id, contact_id);
 
 CREATE TABLE IF NOT EXISTS standards_profiles (
   id TEXT PRIMARY KEY,
@@ -175,6 +207,7 @@ CREATE TABLE IF NOT EXISTS standards_profiles (
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL,
   FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE RESTRICT,
+  FOREIGN KEY (workspace_id, approved_by_actor_id) REFERENCES actor_profiles(workspace_id, id) ON DELETE RESTRICT,
   UNIQUE (workspace_id, id),
   CHECK (effective_period_end IS NULL OR effective_period_end >= effective_period_start)
 );
@@ -206,6 +239,8 @@ CREATE TABLE IF NOT EXISTS engagements (
   updated_by_actor_id TEXT,
   FOREIGN KEY (workspace_id, client_id) REFERENCES clients(workspace_id, id) ON DELETE RESTRICT,
   FOREIGN KEY (workspace_id, standards_profile_id) REFERENCES standards_profiles(workspace_id, id) ON DELETE RESTRICT,
+  FOREIGN KEY (workspace_id, created_by_actor_id) REFERENCES actor_profiles(workspace_id, id) ON DELETE RESTRICT,
+  FOREIGN KEY (workspace_id, updated_by_actor_id) REFERENCES actor_profiles(workspace_id, id) ON DELETE RESTRICT,
   UNIQUE (workspace_id, id),
   UNIQUE (workspace_id, code),
   UNIQUE (workspace_id, client_id, id),
@@ -258,6 +293,7 @@ CREATE TABLE IF NOT EXISTS state_transitions (
   dependency_hash TEXT NOT NULL CHECK (length(dependency_hash) = 64),
   transitioned_at TEXT NOT NULL,
   FOREIGN KEY (workspace_id, client_id, engagement_id) REFERENCES engagements(workspace_id, client_id, id) ON DELETE RESTRICT,
+  FOREIGN KEY (workspace_id, command_id) REFERENCES command_receipts(workspace_id, id) ON DELETE RESTRICT,
   UNIQUE (workspace_id, id),
   CHECK (from_state <> to_state)
 );
@@ -372,6 +408,7 @@ CREATE TABLE IF NOT EXISTS outbox_jobs (
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL,
   FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE RESTRICT,
+  FOREIGN KEY (workspace_id, result_file_id) REFERENCES file_versions(workspace_id, id) ON DELETE RESTRICT,
   UNIQUE (workspace_id, id),
   UNIQUE (workspace_id, deduplication_key)
 );
@@ -400,6 +437,10 @@ CREATE TABLE IF NOT EXISTS file_versions (
   created_by_actor_id TEXT,
   updated_by_actor_id TEXT,
   FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE RESTRICT,
+  FOREIGN KEY (workspace_id, created_by_actor_id) REFERENCES actor_profiles(workspace_id, id) ON DELETE RESTRICT,
+  FOREIGN KEY (workspace_id, updated_by_actor_id) REFERENCES actor_profiles(workspace_id, id) ON DELETE RESTRICT,
+  FOREIGN KEY (workspace_id, client_id) REFERENCES clients(workspace_id, id) ON DELETE RESTRICT,
+  FOREIGN KEY (workspace_id, client_id, engagement_id) REFERENCES engagements(workspace_id, client_id, id) ON DELETE RESTRICT,
   FOREIGN KEY (workspace_id, previous_version_id) REFERENCES file_versions(workspace_id, id) ON DELETE RESTRICT,
   UNIQUE (workspace_id, id),
   CHECK (state <> 'COMMITTED' OR (sha256 IS NOT NULL AND committed_at IS NOT NULL))
@@ -408,13 +449,7 @@ CREATE INDEX IF NOT EXISTS file_versions_scope_idx ON file_versions(workspace_id
 CREATE INDEX IF NOT EXISTS file_versions_purpose_idx ON file_versions(workspace_id, engagement_id, purpose, state);
 CREATE TRIGGER IF NOT EXISTS committed_files_no_metadata_update
 BEFORE UPDATE ON file_versions
-WHEN OLD.state = 'COMMITTED' AND (
-  NEW.workspace_id <> OLD.workspace_id OR NEW.client_id IS NOT OLD.client_id OR
-  NEW.engagement_id IS NOT OLD.engagement_id OR NEW.original_name <> OLD.original_name OR
-  NEW.media_type <> OLD.media_type OR NEW.size_bytes <> OLD.size_bytes OR NEW.sha256 IS NOT OLD.sha256 OR
-  NEW.object_key <> OLD.object_key OR NEW.previous_version_id IS NOT OLD.previous_version_id OR
-  NEW.purpose <> OLD.purpose OR NEW.immutable <> OLD.immutable OR NEW.committed_at IS NOT OLD.committed_at
-)
+WHEN OLD.state = 'COMMITTED'
 BEGIN SELECT RAISE(ABORT, 'committed file metadata is immutable'); END;
 CREATE TRIGGER IF NOT EXISTS committed_files_no_delete
 BEFORE DELETE ON file_versions WHEN OLD.state = 'COMMITTED'
@@ -431,6 +466,11 @@ ALTER TABLE audit_events ADD COLUMN chain_scope_kind TEXT NOT NULL DEFAULT 'WORK
 ALTER TABLE audit_events ADD COLUMN chain_scope_id TEXT NOT NULL DEFAULT '';
 ALTER TABLE audit_events ADD COLUMN previous_hash TEXT;
 ALTER TABLE audit_events ADD COLUMN event_hash TEXT;
+ALTER TABLE audit_events ADD COLUMN actor_id TEXT;
+ALTER TABLE audit_events ADD COLUMN event_type TEXT NOT NULL DEFAULT 'LEGACY_COMMAND';
+ALTER TABLE audit_events ADD COLUMN entity_type TEXT;
+ALTER TABLE audit_events ADD COLUMN command_id TEXT;
+ALTER TABLE audit_events ADD COLUMN actor_persona TEXT CHECK (actor_persona IS NULL OR actor_persona IN ('PREPARER', 'REVIEWER', 'APPROVER', 'CLIENT'));
 UPDATE audit_events SET chain_scope_id = workspace_id WHERE chain_scope_id = '';
 CREATE UNIQUE INDEX IF NOT EXISTS audit_events_scoped_sequence_idx
   ON audit_events(workspace_id, chain_scope_kind, chain_scope_id, sequence);
