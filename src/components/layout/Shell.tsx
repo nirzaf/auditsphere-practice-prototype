@@ -19,6 +19,23 @@ interface ShellProps {
   children: React.ReactNode;
 }
 
+const PERSONA_CHOICES = [
+  { persona: 'PREPARER', userId: 'preparer', label: 'PREPARER' },
+  { persona: 'REVIEWER', userId: 'reviewer', label: 'REVIEWER' },
+  { persona: 'APPROVER', userId: 'partner', label: 'APPROVER' },
+  { persona: 'CLIENT', userId: 'client', label: 'CLIENT' }
+] as const;
+
+type SelectablePersona = typeof PERSONA_CHOICES[number]['persona'];
+
+const personaForRole = (role: string): SelectablePersona | '' => {
+  if (role === 'preparer') return 'PREPARER';
+  if (role === 'reviewer' || role === 'manager') return 'REVIEWER';
+  if (role === 'partner') return 'APPROVER';
+  if (role === 'client' || role === 'client_admin' || role === 'client_finance') return 'CLIENT';
+  return '';
+};
+
 export const Shell: React.FC<ShellProps> = ({ currentRoute, onRouteChange, onSelectClient, onBeforeContextChange, children }) => {
   const state = prototypeStore.getReadSnapshot();
   const [showScenarioModal, setShowScenarioModal] = useState(false);
@@ -149,7 +166,8 @@ export const Shell: React.FC<ShellProps> = ({ currentRoute, onRouteChange, onSel
   const scopedEngagements = state.engagements.filter(e => allowedEngagementIds === 'ALL' || allowedEngagementIds.includes(e.id));
   const selectedEng = scopedEngagements.find(e => e.id === state.selectedEngagement);
   const selectedClient = state.clients.find(c => c.id === selectedEng?.client);
-  const currentPersona = state.users.find(u => u.id === state.currentUserId) || state.users[0];
+  const currentPersona = state.users.find(u => u.id === state.currentUserId);
+  const selectedPersona = personaForRole(state.currentRole);
 
   const triggerToast = (text: string, type = '') => {
     const id = Date.now();
@@ -231,12 +249,14 @@ export const Shell: React.FC<ShellProps> = ({ currentRoute, onRouteChange, onSel
     .map(([name, items]) => [name, items.filter(item => canOpenRoute(state.currentRole, item.key, activeIdentity))] as [string, typeof items])
     .filter(([, items]) => items.length > 0);
 
-  const handleRoleChange = (userId: string) => {
+  const handleRoleChange = (persona: string) => {
+    const choice = PERSONA_CHOICES.find(item => item.persona === persona);
+    if (!choice) return;
     onBeforeContextChange(() => {
-      prototypeStore.setPersona(userId);
+      prototypeStore.setPersona(choice.userId);
       const snap = prototypeStore.getReadSnapshot();
       if (isClientRole(snap.currentRole)) onRouteChange('portal');
-      triggerToast(`Switched simulated identity to ${snap.currentPerson} (${snap.currentRole})`);
+      triggerToast(`Selected ${choice.label}. Persona selection is self-asserted; identity is not verified.`);
     });
   };
 
@@ -417,11 +437,6 @@ export const Shell: React.FC<ShellProps> = ({ currentRoute, onRouteChange, onSel
           </span>
         </div>
 
-        {presenterMode && state.currentRole === 'superuser' && <div className="banner amber" role="status" aria-label="Superuser full prototype access">
-          <b>SUPERUSER · FULL PROTOTYPE ACCESS</b>
-          <div className="caption mt4">Synthetic testing identity · overrides are logged</div>
-        </div>}
-
         <nav id="primary-navigation" className="side-scroll" aria-label="Main navigation">
           {navGroups.map(([groupName, items]) => (
             <React.Fragment key={groupName}>
@@ -515,7 +530,7 @@ export const Shell: React.FC<ShellProps> = ({ currentRoute, onRouteChange, onSel
           </div>
 
           <div className="topbar-right">
-            <button className="btn sm" aria-pressed={presenterMode} onClick={() => setPresenterMode(v => !v)}>Presenter / Demo Controls</button>
+            <button className="btn sm presenter-controls" aria-pressed={presenterMode} onClick={() => setPresenterMode(v => !v)}>Presenter / Demo Controls</button>
             <span className="demo-pill">
               <span className="demo-dot" />
               <CloudWorkspaceLabel />
@@ -528,42 +543,32 @@ export const Shell: React.FC<ShellProps> = ({ currentRoute, onRouteChange, onSel
               <Icon name="layers" />
               Explore Scenarios
             </button>
-            <div className="persona" hidden={!presenterMode}>
+            <div className="persona persona-selection" data-testid="active-persona">
               <div className="firmavatar" style={{ width: 28, height: 28, fontSize: 11 }}>
-                {currentPersona.initials}
+                {currentPersona?.initials || '—'}
               </div>
               <div>
-                <label htmlFor="role-select">SIMULATED IDENTITY (NOT LIVE AUTH)</label>
+                <label htmlFor="role-select">Active persona</label>
                 <select
                   id="role-select"
-                  value={state.currentUserId}
+                  aria-label="Active persona"
+                  value={selectedPersona}
                   onChange={e => handleRoleChange(e.target.value)}
                 >
-                  <optgroup label="Core User Personas (STE Specification 1.2)">
-                    {state.users.filter(u => ['preparer', 'reviewer', 'partner', 'client'].includes(u.id)).map(u => {
-                      const specLabel = u.id === 'preparer' ? 'PREPARER (Associate)' :
-                                        u.id === 'reviewer' ? 'REVIEWER (Senior / Manager)' :
-                                        u.id === 'partner' ? 'APPROVER (Partner)' :
-                                        'CLIENT (Coordinator / CFO)';
-                      return (
-                        <option key={u.id} value={u.id}>
-                          {specLabel} — {u.name}
-                        </option>
-                      );
-                    })}
-                  </optgroup>
-                  <optgroup label="Other Internal / Simulated Identities">
-                    {state.users.filter(u => !['preparer', 'reviewer', 'partner', 'client'].includes(u.id)).map(u => (
-                      <option key={u.id} value={u.id}>
-                        {u.label} — {u.name}{u.status !== 'Active' ? ' (disabled)' : ''}
-                      </option>
-                    ))}
-                  </optgroup>
+                  {PERSONA_CHOICES.map(choice => (
+                    <option key={choice.persona} value={choice.persona}>{choice.label}</option>
+                  ))}
                 </select>
+                <span className="persona-self-selected">Self-selected · not identity verification</span>
               </div>
             </div>
           </div>
         </header>
+
+        <div className="persona-trust-notice" role="note" aria-label="Trusted environment notice">
+          <strong>Trusted environment only.</strong>
+          <span>Anyone with access can select any persona; workflow checks do not verify identity or secure client data.</span>
+        </div>
 
         {/* Global Context Bar */}
         <div className="contextbar">

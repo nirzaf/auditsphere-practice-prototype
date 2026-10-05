@@ -5,6 +5,7 @@ import '../roles.css';
 import '../styles.css';
 import './host.css';
 import './enterprise.css';
+import './persona.css';
 
 const rootElement = document.getElementById('root');
 if (!rootElement) {
