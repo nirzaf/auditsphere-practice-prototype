@@ -1,5 +1,6 @@
-// AuditSphere Comprehensive Initial State & Seed Data
-// Covers all 39 functional modules with realistic synthetic data
+// STE Audit Management Tool v2.1 prototype — initial state & seed data.
+// Five required business modules with realistic synthetic data, plus migration-compatible
+// historical records (read-only) so older saved sessions keep opening.
 
 import { PrototypeState, UserPersona, RoleKey } from '../types';
 import { CURRENT_SCHEMA } from '../services/migrations';
@@ -197,7 +198,8 @@ export function createInitialState(): PrototypeState {
     contacts: [
       { id: 'CNT-01', clientId: 'CL-001', name: 'Omar Nasser', email: 'omar.nasser@example-trading.demo', phone: '+974 4411 2233', title: 'Chief Financial Officer', isPrimary: true, active: true },
       { id: 'CNT-02', clientId: 'CL-001', name: 'Amal Nasser', email: 'amal.nasser@example-trading.demo', phone: '+974 4411 2234', title: 'Finance Administrator', isPrimary: false, active: true, portalAccessRequested: true },
-      { id: 'CNT-03', clientId: 'CL-001', name: 'Rami Nasser', email: 'rami.nasser@example-trading.demo', phone: '+974 4411 2235', title: 'Senior Accountant', isPrimary: false, active: true, portalAccessRequested: true },
+      { id: 'CNT-03', clientId: 'CL-001', name: 'Rami Nasser', email: 'rami.nasser@example-trading.demo', phone: '+974 4411 2235', title: 'Chief Accountant / Audit Liaison', contactRole: 'Chief Accountant/Audit Liaison', isPrimary: false, active: true, portalAccessRequested: true },
+      { id: 'CNT-DEMO-MD', clientId: 'CL-001', name: 'Demo Managing Director', email: 'director@example-trading.demo', title: 'Managing Director', contactRole: 'MD/GM', isPrimary: false, active: true },
       { id: 'CNT-04', clientId: 'CL-002', name: 'Aisha Saleh', email: 'aisha.saleh@northstar.demo', title: 'Managing Director', isPrimary: true, active: true }
     ],
     clientContactNominations: [],
@@ -232,7 +234,17 @@ export function createInitialState(): PrototypeState {
         preparedAt: '2026-09-10',
         currency: 'QAR',
         totalAmount: 600000,
-        terms: 'Payment 30 days upon milestone issue. Scope limited to agreed audit program.',
+        terms: '50% advance deposit payable upon contract signing / EL execution; 50% final balance payable upon issuance and delivery of the final certified audit deliverables bundle.',
+        proposalMode: 'Comprehensive Technical Proposal',
+        firmProfile: 'STE Audit & Accounting LLC — synthetic audit practice profile for demonstration.',
+        firmHistory: 'Fictional demo practice history: audit, assurance and advisory engagements across trading and retail. Replace with verified firm history before external use.',
+        regulatoryRegistrations: ['QFC Registration QFC-00892', 'Ministry of Commerce & Industry Audit Registry #1084'],
+        teamCredentials: [
+          { name: 'Daniel James', role: 'Lead Audit Partner', qualification: 'FCA, CPA', experience: '18 years statutory audit experience in Qatar and GCC' },
+          { name: 'Layla Rahman', role: 'Audit Manager', qualification: 'ACA', experience: '10 years audit management and IFRS compliance' }
+        ],
+        industryExperience: 'Extensive audit portfolio in retail, trading, and logistics sectors.',
+        auditMethodology: 'Risk-based audit methodology in strict accordance with International Standards on Auditing (ISA).',
         period: 'Year ended 31 December 2026', periodStart: '2026-01-01', periodEnd: '2026-12-31',
         templateId: 'PT-AUDIT-BASE', templateRevision: 1,
         state: 'Accepted',
@@ -241,7 +253,29 @@ export function createInitialState(): PrototypeState {
           { id: 'PI-02', serviceId: 'SVC-REVIEW', serviceName: 'Interim Review Procedures', description: 'Mid-year analytical review', scope: 'Q2 2026 statements', exclusions: 'Audit opinion, tax preparation and payroll processing.', deliverables: 'Interim Review Memorandum', clientResponsibilities: 'Provide interim records and management explanations.', dependencies: 'Current interim ledger.', period: 'Quarter ended 30 June 2026', periodStart: '2026-04-01', periodEnd: '2026-06-30', feeModel: 'Fixed', quantity: 1, rate: 100000, amount: 100000 }
         ],
         commercialReview: { reviewedBy: 'Layla Rahman', reviewedAt: '2026-09-12', approved: true, notes: 'Fee conforms to approved firm schedule.' },
-        clientResponse: { responseType: 'Accepted', contact: 'Omar Nasser', date: '2026-09-14', method: 'Email', notes: 'Confirmed acceptance of scope and fees.', evidenceRef: 'DOC-PROP-ACC-01' }
+        presentedSnapshot: {
+          revision: 2,
+          title: 'Example Trading · Statutory Audit FY2026',
+          currency: 'QAR',
+          totalAmount: 600000,
+          terms: '50% advance deposit payable upon contract signing / EL execution; 50% final balance payable upon issuance and delivery of the final certified audit deliverables bundle.',
+          items: [
+            { id: 'PI-01', serviceId: 'SVC-AUDIT', serviceName: 'Statutory Financial Statement Audit', description: 'Full scope audit under ISA & QFC regulations', scope: 'Financial statements year ended 31 Dec 2026', exclusions: 'Tax preparation, payroll processing, bookkeeping and future-period recurring work.', deliverables: 'Independent Auditor Report, Management Letter', clientResponsibilities: 'Provide complete accounting records and timely management responses.', dependencies: 'Engagement acceptance and complete supporting records.', period: 'Year ended 31 December 2026', periodStart: '2026-01-01', periodEnd: '2026-12-31', feeModel: 'Fixed', quantity: 1, rate: 500000, amount: 500000 },
+            { id: 'PI-02', serviceId: 'SVC-REVIEW', serviceName: 'Interim Review Procedures', description: 'Mid-year analytical review', scope: 'Q2 2026 statements', exclusions: 'Audit opinion, tax preparation and payroll processing.', deliverables: 'Interim Review Memorandum', clientResponsibilities: 'Provide interim records and management explanations.', dependencies: 'Current interim ledger.', period: 'Quarter ended 30 June 2026', periodStart: '2026-04-01', periodEnd: '2026-06-30', feeModel: 'Fixed', quantity: 1, rate: 100000, amount: 100000 }
+          ],
+          presentedBy: 'Amira Qasim',
+          presentedAt: '2026-09-13T10:00:00.000Z',
+          proposalMode: 'Comprehensive Technical Proposal',
+          firmProfile: 'STE Audit & Accounting LLC is a premier licensed audit and advisory firm in Qatar.',
+          regulatoryRegistrations: ['QFC Registration QFC-00892', 'Ministry of Commerce & Industry Audit Registry #1084'],
+          teamCredentials: [
+            { name: 'Daniel James', role: 'Lead Audit Partner', qualification: 'FCA, CPA', experience: '18 years statutory audit experience in Qatar and GCC' },
+            { name: 'Layla Rahman', role: 'Audit Manager', qualification: 'ACA', experience: '10 years audit management and IFRS compliance' }
+          ],
+          industryExperience: 'Extensive audit portfolio in retail, trading, and logistics sectors.',
+          auditMethodology: 'Risk-based audit methodology in strict accordance with International Standards on Auditing (ISA).'
+        },
+        clientResponse: { responseType: 'Accepted', contact: 'Omar Nasser', date: '2026-09-14', method: 'Email', notes: 'Confirmed acceptance of scope and fees.', evidenceRef: 'DOC-PROP-ACC-01', revision: 2 }
       }
     ],
     proposalServices: [
@@ -588,6 +622,72 @@ export function createInitialState(): PrototypeState {
         annual: { confirmed: [], decision: null, nextId: null },
         questionnaire: { answers: { 0: true, 1: true, 2: true, 3: true }, status: 'Completed' },
         events: []
+      }
+    ],
+
+    // Client Acceptance Cases (Module 02 / Track A & B)
+    acceptanceCases: [
+      {
+        id: 'ACC-CL-001-2026',
+        engagementId: 'ENG-26001',
+        clientId: 'CL-001',
+        year: 2026,
+        service: 'External audit',
+        assessmentType: 'Track A (Initial)',
+        riskRating: 'Low',
+        independenceConfirmed: true,
+        amlKycCompleted: true,
+        conflictsCleared: true,
+        prohibitionsChecked: true,
+        competenceConfirmed: true,
+        managementIntegrityConfirmed: true,
+        financialViabilityConfirmed: true,
+        screeningEvidence: {
+          amlKyc: 'KYC-CL001-2026',
+          independence: 'IND-CL001-2026',
+          conflicts: 'CONF-CL001-2026',
+          prohibitions: 'PROH-CL001-2026',
+          competence: 'COMP-CL001-2026',
+          managementIntegrity: 'INTEG-CL001-2026',
+          financialViability: 'VIAB-CL001-2026'
+        },
+        conditions: [],
+        recommendationBy: 'Amira Qasim',
+        recommendationByUserId: 'usr-senior-amira',
+        recommendationDate: '2026-09-12T10:00:00.000Z',
+        recommendationNotes: 'Full KYC/AML, UBO and independence clearance completed. Management integrity verified.',
+        decisionStatus: 'Accepted',
+        decisionBy: 'Daniel James',
+        decisionByUserId: 'partner',
+        decisionDate: '2026-09-14T14:00:00.000Z',
+        decisionNotes: 'Partner approval granted following complete screening evidence review.',
+        history: [
+          {
+            action: 'recommendation',
+            by: 'Amira Qasim',
+            byUserId: 'usr-senior-amira',
+            at: '2026-09-12T10:00:00.000Z',
+            notes: 'Full KYC/AML, UBO and independence clearance completed.',
+            status: 'Pending',
+            screeningEvidence: {
+              amlKyc: 'KYC-CL001-2026',
+              independence: 'IND-CL001-2026',
+              conflicts: 'CONF-CL001-2026',
+              prohibitions: 'PROH-CL001-2026',
+              competence: 'COMP-CL001-2026',
+              managementIntegrity: 'INTEG-CL001-2026',
+              financialViability: 'VIAB-CL001-2026'
+            }
+          },
+          {
+            action: 'decision',
+            by: 'Daniel James',
+            byUserId: 'partner',
+            at: '2026-09-14T14:00:00.000Z',
+            notes: 'Partner approval granted.',
+            status: 'Accepted'
+          }
+        ]
       }
     ],
 
@@ -1095,7 +1195,7 @@ export function createInitialState(): PrototypeState {
       }
     ],
 
-    // Module 18: Microsoft 365 Setup (NO Purview!)
+    // Legacy mail/workspace simulation configuration retained for saved-state migration compatibility; not a current product module.
     m365Config: {
       tenantName: 'ste-audit-demo.onmicrosoft.com',
       tenantId: 'd48e8912-3211-4091-a1b2-9901882299aa',
@@ -1431,5 +1531,6 @@ export function createInitialState(): PrototypeState {
     guidelines: structuredClone(cashWp.guidelines), template: structuredClone(cashWp.template), procedureRefs: ['PRC-01'],
     sampleFileName: 'WP-A1_Cash_and_Bank_Audit_Template.xlsx'
   }] : [];
+  state.proposals.forEach(proposal => { proposal.deliveryTimeline = 'Synthetic schedule: fieldwork within 30 days of receipt of complete records; draft within 15 days of fieldwork completion; final release after Partner review and executive representations.'; });
   return state;
 }

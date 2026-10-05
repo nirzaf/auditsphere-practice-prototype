@@ -3,8 +3,9 @@
 // migration, migrate deterministically, validate references, never silently reset.
 
 import type { PrototypeState } from '../types';
+import { normalizeTargetState } from './targetLifecycle';
 
-export const CURRENT_SCHEMA = 29;
+export const CURRENT_SCHEMA = 30;
 
 export interface MigrationResult {
   state: PrototypeState;
@@ -494,6 +495,7 @@ export function migratePersistedState(parsed: unknown, fresh: PrototypeState): M
   state.auditProgramTemplates = Array.isArray(state.auditProgramTemplates) ? state.auditProgramTemplates : [];
   state.auditProgramTemplateHistory = Array.isArray(state.auditProgramTemplateHistory) ? state.auditProgramTemplateHistory : [];
   state.workpaperTemplates = Array.isArray(state.workpaperTemplates) ? state.workpaperTemplates : [];
+  normalizeTargetState(state);
   state.schema = CURRENT_SCHEMA;
   return { state, migratedFrom: from, warnings };
 }

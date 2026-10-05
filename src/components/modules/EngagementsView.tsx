@@ -1,15 +1,16 @@
-// Module 04: Engagements Workspace & Lifecycle Handoff (VP-012)
+// Module 1: Engagement register and lifecycle handoff (VP-012)
 import React, { useEffect, useRef, useState } from 'react';
 import { RouteKey, EngagementRecord } from '../../types';
 import { prototypeStore } from '../../store/prototypeStore';
 import { Icon } from '../common/Icons';
+import { StatusBadge } from '../common/StatusBadge';
 import { formatCurrency } from '../../services/calculations';
-import { visibleClientIds, visibleEngagementIds } from '../../services/guards';
+import { visibleClientIds, visibleEngagementIds, hasAnyRole } from '../../services/guards';
 import { InternalNotesPanel } from '../common/InternalNotesPanel';
 import { UnsavedFormGuard } from '../../services/unsavedFormGuard';
+import { consequencePrompt, ConsequenceKey } from '../../services/terminalActions';
+import { Notice, EmptyState, ActionReason } from '../common/Feedback';
 
-import { ListState, ModuleIdentityLine, ModuleLifecycleHint, StatusBadge, WorkflowProgressTracker } from '../common/Enterprise';
-import { deriveEngagementJourney } from '../../services/engagementJourney';
 interface EngagementsViewProps {
   onNavigate: (route: RouteKey) => void;
   onBeforeContextChange: (run: () => void) => void;
@@ -32,6 +33,12 @@ export const EngagementsView: React.FC<EngagementsViewProps> = ({ onNavigate, on
   const [editManager, setEditManager] = useState('');
   const [editPartner, setEditPartner] = useState('');
   const [editTeam, setEditTeam] = useState<string[]>([]);
+  const [showElModal, setShowElModal] = useState(false);
+  const [elTemplate, setElTemplate] = useState<'ISA 210 External Statutory Audit' | 'ISRS 4400 Agreed-Upon Procedures'>('ISA 210 External Statutory Audit');
+  const [elFramework, setElFramework] = useState('IFRS (International Financial Reporting Standards)');
+  const [elPartnerSignature, setElPartnerSignature] = useState('');
+  const [elFirmStamp, setElFirmStamp] = useState(true);
+  const [elEvidenceRef, setElEvidenceRef] = useState('');
 
   // New engagement form
   const [clientId, setClientId] = useState(scopedClients[0]?.id || '');
@@ -47,11 +54,14 @@ export const EngagementsView: React.FC<EngagementsViewProps> = ({ onNavigate, on
   const selectedEng = scopedEngagements.find(e => e.id === state.selectedEngagement) || scopedEngagements[0];
   const client = scopedClients.find(c => c.id === selectedEng?.client);
   const lifecycleStatus = selectedEng?.lifecycleStatus || 'Active';
+  const [actionError, setActionError] = useState('');
+  const [modalError, setModalError] = useState('');
   const updateLifecycle = (status: NonNullable<EngagementRecord['lifecycleStatus']>) => {
-    const reason = window.prompt(`Reason for ${status.toLowerCase()} engagement:`);
+    const reason = window.prompt(consequencePrompt(`engagement-${status.toLowerCase()}` as ConsequenceKey, `${selectedEng!.id} · ${client?.name || selectedEng!.client}`, `Reason for ${status.toLowerCase()} engagement`));
     if (!reason?.trim()) return;
+    setActionError('');
     try { prototypeStore.setEngagementLifecycle(selectedEng!.id, status, reason); }
-    catch (error) { window.alert(error instanceof Error ? error.message : String(error)); }
+    catch (error) { setActionError(error instanceof Error ? error.message : String(error)); }
   };
   const openAdminEditor = () => {
     if (!selectedEng) return;
@@ -66,11 +76,12 @@ export const EngagementsView: React.FC<EngagementsViewProps> = ({ onNavigate, on
   };
   const commitAdminChanges = (): boolean => {
     if (!selectedEng) return false;
+    setModalError('');
     try {
       prototypeStore.updateEngagement({ ...selectedEng, service: editService, year: editYear, period: editPeriod, due: editDue, manager: editManager, partner: editPartner, team: editTeam });
       setShowEditAdminModal(false);
       return true;
-    } catch (error) { window.alert(error instanceof Error ? error.message : String(error)); return false; }
+    } catch (error) { setModalError(error instanceof Error ? error.message : String(error)); return false; }
   };
   const saveAdminChanges = (event: React.FormEvent) => { event.preventDefault(); commitAdminChanges(); };
   const assignedPeople = state.users.filter(user => {
@@ -115,18 +126,21 @@ export const EngagementsView: React.FC<EngagementsViewProps> = ({ onNavigate, on
     return () => onRegisterUnsavedForm(null, 'engagement-edit');
   }, [showEditAdminModal, selectedEng, editService, editYear, editPeriod, editDue, editManager, editPartner, editTeam, onRegisterUnsavedForm]);
 
-  // The journey tracker is derived from this engagement's own records: its
-  // acceptance decision, reviewed plan, linked risks, workpapers, findings,
-  // review points, sign-offs and releases. Nothing here is positional.
-  const engagementProgress = selectedEng
-    ? deriveEngagementJourney({ state, engagement: selectedEng, clientName: scopedClients.find(item => item.id === selectedEng.client)?.name })
-    : null;
-
-  if (!scopedEngagements.length) return <div className="panel panel-pad"><h2>No engagement access</h2><p className="sub mt8">No engagements are available under the active scope grant.</p></div>;
+  const steps = ['Acceptance', 'Planning', 'Production', 'Review', 'Release', 'Archive'];
+  const currentStepIndex = selectedEng?.archive
+    ? 5
+    : selectedEng?.stage === 'Draft' || selectedEng?.stage === 'Acceptance'
+    ? 0
+    : selectedEng?.releases.length
+    ? 4
+    : selectedEng?.stage === 'Review'
+    ? 3
+    : 2;
 
   const commitNewEngagement = (): boolean => {
     const proposal = state.proposals.find(item => item.id === proposalId);
-    if (proposalId && !acceptedProposals.some(item => item.id === proposalId)) { window.alert('Select a currently accepted proposal with client response evidence.'); return false; }
+    setModalError('');
+    if (proposalId && !acceptedProposals.some(item => item.id === proposalId)) { setModalError('Select a currently accepted proposal with client response evidence.'); return false; }
     const newId = `ENG-2600${state.engagements.length + 1}`;
     const newEng: EngagementRecord = {
       id: newId,
@@ -145,23 +159,18 @@ export const EngagementsView: React.FC<EngagementsViewProps> = ({ onNavigate, on
       proposalId: proposal?.id,
       acceptance: !proposal,
       terms: !proposal,
-      planning: true,
+      planning: false,
       sourceAccepted: false,
       mappingApproved: false,
       generation: 1,
       packageRevision: 1,
       builtGeneration: 1,
-      sourceVersion: 1,
-      eqrRequired: service === 'External audit',
-      opinion: 'Standard unmodified',
+      sourceVersion: 0,
+      eqrRequired: false,
+      opinion: 'Not selected',
       releases: [],
       approvals: { manager: null, client: null, partner: null, eqr: null },
-      rows: [
-        { code: '1000', name: 'Cash and bank balances', type: 'asset', balance: 500000 },
-        { code: '1100', name: 'Trade receivables', type: 'asset', balance: 300000 },
-        { code: '2000', name: 'Trade payables', type: 'liability', balance: -200000 },
-        { code: '3000', name: 'Share capital', type: 'equity', balance: -600000 }
-      ],
+      rows: [],
       adjustment: 0,
       journalState: 'Applied',
       sourceReflection: true,
@@ -171,12 +180,12 @@ export const EngagementsView: React.FC<EngagementsViewProps> = ({ onNavigate, on
       reviews: [],
       pbc: [],
       annual: { confirmed: [], decision: null, nextId: null },
-      questionnaire: { answers: { 0: true, 1: true, 2: true, 3: true }, status: 'Completed' },
+      questionnaire: { answers: {}, status: 'Draft' },
       events: []
     };
 
     try { prototypeStore.addEngagement(newEng); setShowNewEngModal(false); setProposalId(''); return true; }
-    catch (error: any) { window.alert(error.message); return false; }
+    catch (error: any) { setModalError(error.message); return false; }
   };
   const handleCreateEngagement = (event: React.FormEvent) => { event.preventDefault(); commitNewEngagement(); };
 
@@ -187,12 +196,14 @@ export const EngagementsView: React.FC<EngagementsViewProps> = ({ onNavigate, on
           <h1>Engagements</h1>
           <p>One legal scope, one reporting period, one accountable team.</p>
         </div>
-        <button className="btn primary sm" onClick={() => { newEngagementBaseline.current = newEngagementDraft(); setShowNewEngModal(true); }}>
+        {hasAnyRole(state, ['manager', 'partner']) ? <button className="btn primary sm" onClick={() => { newEngagementBaseline.current = newEngagementDraft(); setShowNewEngModal(true); }}>
           <Icon name="plus" /> New Engagement
-        </button>
-        <ModuleIdentityLine />
-        <ModuleLifecycleHint />
+        </button> : <ActionReason>New engagements are created by a manager or partner</ActionReason>}
       </div>
+
+      {!scopedEngagements.length && <div className="panel"><EmptyState variant="scope" title="No engagements recorded in this scope" description="A manager or partner can create the first engagement from an accepted proposal for a permitted client." /></div>}
+
+      {actionError && <Notice tone="error" onDismiss={() => setActionError('')}>{actionError}</Notice>}
 
       {/* Selected Engagement Card */}
       {selectedEng && (
@@ -203,23 +214,20 @@ export const EngagementsView: React.FC<EngagementsViewProps> = ({ onNavigate, on
               <h2 className="mt8">{client?.name}</h2>
               <p className="sub">{selectedEng.service} · {selectedEng.period} · {selectedEng.mode}</p>
             </div>
-            <div className="stack" style={{ justifyItems: 'end', gap: 6 }}><StatusBadge status={selectedEng.stage} /><span className={`badge ${lifecycleStatus === 'Active' ? 'green' : lifecycleStatus === 'Suspended' ? 'amber' : 'red'}`}>{lifecycleStatus}</span></div>
+            <div className="stack" style={{ justifyItems: 'end', gap: 6 }}><span className="badge purple">{selectedEng.stage}</span><StatusBadge status={lifecycleStatus} /></div>
           </div>
 
-          {/* Workflow progress tracker — every number is derived from this
-              engagement's own records, reviews, findings, approvals and releases.
-              It replaces the previous index-based bar, which could not express a
-              blocked, returned or stale step. */}
-          <div className="mt16">
-            {engagementProgress && (
-              <WorkflowProgressTracker
-                progress={engagementProgress}
-                onStepSelect={step => {
-                  const route = step.targetSection as RouteKey | undefined;
-                  if (route) onNavigate(route);
-                }}
-              />
-            )}
+          {/* Lifecycle Bar */}
+          <div className="lifecyclebar mt16">
+            {steps.map((st, i) => (
+              <div
+                key={st}
+                className={`life-step ${i < currentStepIndex ? 'done' : i === currentStepIndex ? 'current' : ''}`}
+              >
+                <em>{i < currentStepIndex ? <Icon name="check" size="sm" /> : i + 1}</em>
+                {st}
+              </div>
+            ))}
           </div>
 
           <div className="info-grid mt16">
@@ -233,17 +241,32 @@ export const EngagementsView: React.FC<EngagementsViewProps> = ({ onNavigate, on
 
           <div className="row mt20 wrap" style={{ gap: 10 }}>
             {!['Cancelled', 'Closed'].includes(lifecycleStatus) && <button className="btn sm" onClick={openAdminEditor}>Edit Engagement Details</button>}
-            {selectedEng.stage === 'Draft' && <button className="btn primary sm" onClick={() => { const evidence = window.prompt('Professional acceptance evidence reference:'); if (evidence?.trim()) { try { prototypeStore.activateEngagement(selectedEng.id, evidence); } catch (error: any) { window.alert(error.message); } } }}>Activate Engagement</button>}
+            {selectedEng.stage === 'Draft' && !selectedEng.auditLifecycle && <button className="btn primary sm" onClick={() => { const evidence = window.prompt('Professional acceptance evidence reference:'); if (evidence?.trim()) { setActionError(''); try { prototypeStore.activateEngagement(selectedEng.id, evidence); } catch (error: any) { setActionError(error.message); } } }}>Activate Engagement</button>}
             {lifecycleStatus === 'Active' && <><button className="btn sm" onClick={() => updateLifecycle('Suspended')}>Suspend Engagement</button><button className="btn sm danger" onClick={() => updateLifecycle('Cancelled')}>Cancel Engagement</button><button className="btn sm ghost" onClick={() => updateLifecycle('Closed')}>Close Engagement</button></>}
             {lifecycleStatus === 'Suspended' && <><button className="btn sm primary" onClick={() => updateLifecycle('Active')}>Resume Engagement</button><button className="btn sm danger" onClick={() => updateLifecycle('Cancelled')}>Cancel Engagement</button><button className="btn sm ghost" onClick={() => updateLifecycle('Closed')}>Close Engagement</button></>}
-            <button className="btn sm" onClick={() => onNavigate('accounting-setup')}>
-              <Icon name="calculator" /> Accounting Workbench
+            <button className="btn sm" onClick={() => onNavigate('trial-balance')}>
+              <Icon name="calculator" /> Trial balance & mapping
             </button>
-            <button className="btn sm" onClick={() => onNavigate('audit')}>
-              <Icon name="checkboard" /> Audit Workpapers
+            <button className="btn sm" onClick={() => onNavigate('reviews')}>
+              <Icon name="checkboard" /> Workpaper Preparation & Review
             </button>
             <button className="btn sm" onClick={() => onNavigate('delivery')}>
               <Icon name="archive" /> Release Gates
+            </button>
+            <button className="btn sm primary" onClick={() => {
+              if (selectedEng.engagementLetter) {
+                setElTemplate(selectedEng.engagementLetter.template);
+                setElFramework(selectedEng.engagementLetter.framework);
+                setElPartnerSignature(selectedEng.engagementLetter.partnerSignature);
+                setElFirmStamp(selectedEng.engagementLetter.firmStamp);
+              } else {
+                setElTemplate(selectedEng.service.toLowerCase().includes('internal') || selectedEng.service.toLowerCase().includes('procedure') ? 'ISRS 4400 Agreed-Upon Procedures' : 'ISA 210 External Statutory Audit');
+                setElPartnerSignature(selectedEng.partner);
+                setElFirmStamp(true);
+              }
+              setShowElModal(true);
+            }}>
+              <Icon name="file-text" /> Engagement Letter (ISA 210 / ISRS 4400)
             </button>
             <button className="btn sm ghost" onClick={() => setShowScopeModal(true)}>
               <Icon name="layers" /> View Scope & Duties
@@ -258,6 +281,7 @@ export const EngagementsView: React.FC<EngagementsViewProps> = ({ onNavigate, on
           <form className="modal" style={{ maxWidth: 620 }} onSubmit={saveAdminChanges} onClick={event => event.stopPropagation()}>
             <div className="modal-head"><h2>Edit Engagement Details</h2><button type="button" className="icon-btn" onClick={closeEditEngagement}>✕</button></div>
             <div className="modal-body stack" style={{ gap: 12 }}>
+              {modalError && <Notice tone="error" onDismiss={() => setModalError('')}>{modalError}</Notice>}
               <div className="grid2"><label>Service scope<select aria-label="Engagement service" className="input" value={editService} onChange={event => setEditService(event.target.value)}>{[...new Set(state.engagements.map(engagement => engagement.service))].sort().map(service => <option key={service}>{service}</option>)}</select></label><label>Reporting year<input aria-label="Engagement reporting year" className="input" type="number" min="1900" max="2100" value={editYear} onChange={event => setEditYear(Number(event.target.value))} required /></label></div>
               <label>Reporting period<input aria-label="Engagement reporting period" className="input" value={editPeriod} onChange={event => setEditPeriod(event.target.value)} required /></label>
               <label>Target date<input aria-label="Engagement target date" className="input" type="date" value={editDue} onChange={event => setEditDue(event.target.value)} required /></label>
@@ -265,7 +289,7 @@ export const EngagementsView: React.FC<EngagementsViewProps> = ({ onNavigate, on
                 <label>Engagement manager<select aria-label="Engagement manager" className="input" value={editManager} onChange={event => setEditManager(event.target.value)}>{assignedPeople.filter(user => user.role === 'manager').map(user => <option key={user.id}>{user.name}</option>)}</select></label>
                 <label>Signing partner<select aria-label="Signing partner" className="input" value={editPartner} onChange={event => setEditPartner(event.target.value)}>{assignedPeople.filter(user => user.role === 'partner').map(user => <option key={user.id}>{user.name}</option>)}</select></label>
               </div>
-              <fieldset className="stack"><legend>Assigned professional team</legend>{assignedPeople.filter(user => ['manager', 'partner', 'preparer', 'reviewer', 'eqr'].includes(user.role)).map(user => <label key={user.id}><input type="checkbox" checked={editTeam.includes(user.name)} onChange={event => setEditTeam(current => event.target.checked ? [...new Set([...current, user.name])] : current.filter(name => name !== user.name))} /> {user.label} — {user.name}</label>)}</fieldset>
+              <fieldset className="stack"><legend>Assigned professional team</legend>{assignedPeople.filter(user => ['manager', 'partner', 'preparer', 'reviewer'].includes(user.role)).map(user => <label key={user.id}><input type="checkbox" checked={editTeam.includes(user.name)} onChange={event => setEditTeam(current => event.target.checked ? [...new Set([...current, user.name])] : current.filter(name => name !== user.name))} /> {user.label} — {user.name}</label>)}</fieldset>
                <p className="sub">Agreed fee and currency remain pinned to the accepted commercial proposal; this administrative edit does not amend them. Team members need active access to this engagement.</p>
                {engagementScopeChanged && <div className="borderbox mt8" role="status" style={{ borderColor: '#d97706', background: '#fffbeb' }}><b>Scope or period change impact</b><p>Saving will clear planning, source acceptance and mapping approval; mark statement, reconciliation and cash-flow reviews stale; supersede the active audit plan; require reassessment of performed procedures; and invalidate release approvals.</p></div>}
                {engagementTeamChanged && <div className="borderbox mt8" role="status" style={{ borderColor: '#d97706', background: '#fffbeb' }}><b>Team change impact</b><p>Saving will supersede the active audit-plan review and require reassessment of performed procedures. Existing records stay linked to this engagement; access is still checked for every assigned person.</p></div>}
@@ -297,14 +321,6 @@ export const EngagementsView: React.FC<EngagementsViewProps> = ({ onNavigate, on
               </tr>
             </thead>
             <tbody>
-              {scopedEngagements.length === 0 && (
-                <ListState
-                  colSpan={8}
-                  kind="no-match"
-                  message="No engagements match the current scope and filters"
-                  hint="Engagements exist for this practice but none are reachable with your current client, status and search filters. Clear a filter, or confirm the engagement has been accepted and activated."
-                />
-              )}
               {scopedEngagements.map(eng => {
                 const c = scopedClients.find(x => x.id === eng.client);
                 return (
@@ -313,7 +329,7 @@ export const EngagementsView: React.FC<EngagementsViewProps> = ({ onNavigate, on
                     <td><span className="mono">{eng.id}</span></td>
                     <td>{eng.service}</td>
                     <td>{eng.period}</td>
-                    <td><StatusBadge status={eng.stage} /></td>
+                    <td><span className="badge teal">{eng.stage}</span></td>
                     <td>
                       <div className="cell-sub">Mgr: {eng.manager}</div>
                       <div className="cell-sub">Ptnr: {eng.partner}</div>
@@ -366,6 +382,143 @@ export const EngagementsView: React.FC<EngagementsViewProps> = ({ onNavigate, on
         </div>
       )}
 
+      {/* Engagement Letter (ISA 210 / ISRS 4400) Modal */}
+      {showElModal && selectedEng && (
+        <div className="modal-backdrop" onClick={() => setShowElModal(false)}>
+          <div className="modal" style={{ maxWidth: 760 }} onClick={e => e.stopPropagation()}>
+            <div className="modal-head">
+              <h2>Engagement Letter Generator &amp; Repository</h2>
+              <button className="icon-btn" onClick={() => setShowElModal(false)}>✕</button>
+            </div>
+            <div className="modal-body stack" style={{ gap: 16 }}>
+              <div className="banner info">
+                <strong>Auditing Standards Compliance:</strong> Standardized engagement contracts governed by <strong>ISA 210</strong> (Agreeing the Terms of Audit Engagements) or <strong>ISRS 4400</strong> (Agreed-Upon Procedures).
+              </div>
+
+              <div className="grid2">
+                <label>
+                  Engagement Letter Template
+                  <select
+                    className="input"
+                    value={elTemplate}
+                    onChange={e => setElTemplate(e.target.value as any)}
+                  >
+                    <option value="ISA 210 External Statutory Audit">ISA 210 External Statutory Audit</option>
+                    <option value="ISRS 4400 Agreed-Upon Procedures">ISRS 4400 Agreed-Upon Procedures / Internal Audit</option>
+                  </select>
+                </label>
+                <label>
+                  Reporting Framework
+                  <select
+                    className="input"
+                    value={elFramework}
+                    onChange={e => setElFramework(e.target.value)}
+                  >
+                    <option value="IFRS (International Financial Reporting Standards)">IFRS (International Financial Reporting Standards)</option>
+                    <option value="IFRS for SMEs">IFRS for SMEs</option>
+                    <option value="Local Commercial Companies Law / Qatar GAAP">Local Commercial Companies Law / Qatar GAAP</option>
+                  </select>
+                </label>
+              </div>
+
+              <div className="grid2">
+                <label>
+                  Signing Partner Name &amp; Title
+                  <input
+                    className="input"
+                    value={elPartnerSignature}
+                    onChange={e => setElPartnerSignature(e.target.value)}
+                    placeholder="e.g. Daniel James, Licensed Partner"
+                  />
+                </label>
+                <div style={{ display: 'flex', alignItems: 'center', paddingTop: 20 }}>
+                  <label className="row" style={{ gap: 8, cursor: 'pointer' }}>
+                    <input
+                      type="checkbox"
+                      checked={elFirmStamp}
+                      onChange={e => setElFirmStamp(e.target.checked)}
+                    />
+                    <span>Affix STE Audit &amp; Accounting Firm Seal / Stamp</span>
+                  </label>
+                </div>
+              </div>
+
+              <div className="row" style={{ gap: 10 }}>
+                <button
+                  type="button"
+                  className="btn sm primary"
+                  onClick={() => {
+                    try {
+                      prototypeStore.generateEngagementLetter(
+                        selectedEng.id,
+                        elTemplate,
+                        elFramework,
+                        elPartnerSignature,
+                        elFirmStamp
+                      );
+                      setActionError('');
+                    } catch (err: any) {
+                      setActionError(err.message);
+                    }
+                  }}
+                >
+                  Generate &amp; Compile Engagement Letter
+                </button>
+              </div>
+
+              {selectedEng.engagementLetter && (
+                <div className="borderbox p12 stack" style={{ background: '#f8fafc', gap: 8 }}>
+                  <div className="between">
+                    <strong>Generated Document: {selectedEng.engagementLetter.template}</strong>
+                    <span className="caption">Generated on {new Date(selectedEng.engagementLetter.generatedAt).toLocaleString()} by {selectedEng.engagementLetter.generatedBy}</span>
+                  </div>
+                  <pre style={{ maxHeight: 220, overflowY: 'auto', background: '#fff', padding: 12, borderRadius: 4, fontSize: '12px', whiteSpace: 'pre-wrap', border: '1px solid #cbd5e1' }}>
+                    {selectedEng.engagementLetter.content}
+                  </pre>
+                  
+                  <div className="border-top pt12 mt8">
+                    <h4>Client Countersignature &amp; Terms Recording</h4>
+                    {selectedEng.engagementLetter.signedCopyReceived ? (
+                      <div className="badge green mt4">
+                        ✓ Signed Engagement Letter on file: Ref {selectedEng.engagementLetter.signedCopyRef}
+                      </div>
+                    ) : (
+                      <div className="row mt8" style={{ gap: 8 }}>
+                        <input
+                          className="input"
+                          placeholder="Countersigned EL Evidence Reference (e.g. EL-SIGNED-2026-001.pdf)"
+                          value={elEvidenceRef}
+                          onChange={e => setElEvidenceRef(e.target.value)}
+                        />
+                        <button
+                          type="button"
+                          className="btn sm primary"
+                          disabled={!elEvidenceRef.trim()}
+                          onClick={() => {
+                            try {
+                              prototypeStore.recordSignedEngagementLetter(selectedEng.id, elEvidenceRef);
+                              setElEvidenceRef('');
+                              setActionError('');
+                            } catch (err: any) {
+                              setActionError(err.message);
+                            }
+                          }}
+                        >
+                          Record Signed Copy
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+            <div className="modal-foot">
+              <button className="btn sm ghost" onClick={() => setShowElModal(false)}>Close</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Create Engagement Modal */}
       {showNewEngModal && (
         <div className="modal-backdrop" data-dismiss-guard="self" onClick={event => { if (event.target === event.currentTarget) closeNewEngagement(); }}>
@@ -376,6 +529,7 @@ export const EngagementsView: React.FC<EngagementsViewProps> = ({ onNavigate, on
             </div>
             <form onSubmit={handleCreateEngagement}>
               <div className="modal-body stack" style={{ gap: 12 }}>
+              {modalError && <Notice tone="error" onDismiss={() => setModalError('')}>{modalError}</Notice>}
                 <div>
                   <label className="caption">Accepted proposal (optional)</label>
                   <select className="input" value={proposalId} onChange={e => { const id = e.target.value; setProposalId(id); const p = acceptedProposals.find(item => item.id === id); if (p) setClientId(p.clientId!); }}>

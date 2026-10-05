@@ -3,8 +3,10 @@
 
 import { PrototypeState } from '../types';
 import { createInitialState } from './initialState';
+import { createTargetScenario } from './targetScenario';
 
 export type ScenarioName =
+  | 'target-lifecycle'
   | 'full-practice'
   | 'accounting-only'
   | 'audit-findings'
@@ -50,7 +52,7 @@ export const SCENARIO_DEFINITIONS: ScenarioDefinition[] = [
   },
   {
     id: 'two-component-consolidation',
-    title: 'Two-Component Group Consolidation',
+    title: 'Two-Component Group Dataset',
     description: 'Consolidation group GRP-01 linking Example Trading Entity (Parent) and Northstar Services with QAR 50,000 elimination.',
     createState: () => {
       const state = createInitialState();
@@ -101,7 +103,8 @@ export const SCENARIO_DEFINITIONS: ScenarioDefinition[] = [
       state.m365Config.status = 'Not configured';
       return state;
     }
-  }
+  },
+  { id: 'target-lifecycle', title: 'Canonical Audit Lifecycle', description: 'Start with a new lead and demonstrate the full controlled audit lifecycle with synthetic records.', createState: createTargetScenario },
 ];
 
 export function loadScenarioState(name: ScenarioName): PrototypeState {

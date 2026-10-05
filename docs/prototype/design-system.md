@@ -1,217 +1,118 @@
-# AuditSphere Visual Prototype — Design System Summary (MOD-UX-01)
+# AuditSphere Visual Prototype — Enterprise UX Design System (summary)
 
-Recorded 2026-09-27 · `docs/prototype/design-system.md`
+`docs/prototype/design-system.md` · recorded 2026-09-27 · scope: the browser-only synthetic prototype
+defined in [`scope.md`](scope.md). This is a vocabulary for consistent screens, not a component
+framework: every primitive below is a small React component or CSS rule that already exists in the
+repository and is reused by modules. Direction: *minimal Swiss / dense-but-readable professional
+workflow* (UI/UX Pro Max `--design-system` for "enterprise audit accounting SaaS", density 8, motion 2),
+using the steaudit.com colour palette (navy/blue/teal, see *Colour* below) and the existing system font stack
+(the CSP allows no web-font hosts).
 
-This is a **summary of the vocabulary that already exists plus the shared layer
-added by MOD-UX-01**, not a new component framework. The prototype ships two
-stylesheets of design tokens and utility classes (`styles.css`, `roles.css`) and
-one additive layer (`src/enterprise.css`). There is no CSS-in-JS runtime, no
-design-system dependency and no build-time token pipeline.
+## 1. Foundations
 
-Everything here is implementable today with the files listed at the end.
-
-## 1. Spacing
-
-The established utility scale, unchanged:
-
-| Token | Value | Class |
+| Token | Values | Where |
 |---|---|---|
-| space 1 | 4 px | `mt4`, `gap6` (6 px), `gap8` |
-| space 2 | 8 px | `mt8`, `mb8`, `ml8` |
-| space 3 | 12 px | `mt12`, `mb12`, `gap12` |
-| space 4 | 16 px | `mt16`, `mb16`, `gap-grid` |
-| space 5 | 20 px | `mt20` |
-| space 6 | 24 px | `mt24`, `mt32` |
+| Spacing | 4 · 8 · 12 · 16 · 20 · 24 px (`--space-1`…`--space-6`) | `src/enterprise.css` |
+| Radius | 6 px controls/badges, 10 px cards/notices, 15 px dialogs | `--radius-sm`, `--radius-md`, `.modal` |
+| Type scale | h1 24 px · h2 18 px · h3 15 px · h4 13 px · body 15 px (16 px ≤760 px) · caption 11–12 px | `styles.css` + `enterprise.css` |
+| Numbers | `font-variant-numeric: tabular-nums` in every table cell; amounts `nowrap` (`td.num`) | `enterprise.css` |
+| Colour | Source palette defined once in the first `:root` of `styles.css` (exact steaudit.com `app/globals.css` values): `--color-brand-primary` #0F172A navy (sidebar/dark chrome, headings, body text), `--color-brand-primary-dark` #0B1220, `--color-brand-secondary` #2B6CB0 blue (primary actions with white labels, links, active tabs, current workflow step), `--color-brand-accent` #38B2AC / `--color-brand-accent-alt` #6EE7E0 teal (accents on dark chrome only; teal fills carry navy labels), `--color-brand-neutral` #E2E8F0 (subtle dividers), `--color-site-bg` #F8FAFC (app background), `--color-white`, `--color-black`. Derived UI adaptations (not steaudit.com colours): `--action-hover` navy / `--action-active` deeper navy, `--action-tint` #EEF3F9 and `--action-tint-strong` #BFD3E7 (selection/hover tints), `--muted` #526176, `--ui-control-border` #7E8A9C (≥3:1 input/select boundary), `--ui-border` #CBD5E1, `--ui-subtle` #F1F5F9, `--chrome-text` #CBD5E1 / `--chrome-text-strong` #F1F5F9 (sidebar menu items, weight 600; active item white, 700) / `--chrome-muted` #94A3B8 / `--chrome-raised` #1E293B on dark chrome. `--teal`, `--teal2`, `--tealsoft` are brand-action compatibility aliases (blue, navy, blue tint); success uses the semantic `--st-green-*` tokens | `styles.css` |
+| Focus | 3 px `--focus-ring` (#2B6CB0) outline, 3 px offset, on every interactive element; on dark chrome (sidebar, portal/role banners, `.chrome-dark`) the ring is `--focus-ring-dark` (#6EE7E0) | `styles.css` |
+| Motion | 150–200 ms colour/border transitions only; `prefers-reduced-motion` disables them | `styles.css`, `enterprise.css` |
 
-MOD-UX-01 adds numeric tokens for the new primitives only, so future work has one
-place to change rhythm: `--sp-1` … `--sp-6` (4/8/12/16/20/24 px).
+## 2. Status semantics (single source: `src/services/statusSemantics.ts`)
 
-**Rules used by the shared primitives:** stack gaps are 20 px between page
-sections and 10–14 px inside a panel; panel padding is 20 px (`panel-pad`), 16 px
-below 760 px; table cell padding is 15 px/17 px (13 px under 1250 px).
+Every status literal in `src/types/index.ts` maps to one semantic kind (unit-tested). A status is always
+**text + glyph + tone** (`StatusBadge`), never colour alone; the tooltip carries the meaning.
 
-## 2. Typography
+| Kind | Meaning | Tone | Glyph | Examples |
+|---|---|---|---|---|
+| draft | Not yet submitted | gray | dot | Draft, Not started, Planned, Inquiry |
+| progress | In progress | blue | half circle | In progress, Open, Active, Planning |
+| waiting | Waiting on another party | amber | clock | Requested, Presented, Pending verification |
+| submitted | Submitted, awaiting review | blue | arrow up | Submitted, Received, Responded |
+| review | In review | purple | eye | In review, Under review, Internal review, Technical review |
+| returned | Returned — changes required | orange | undo | Returned, Changes required, Needs clarification, Reopened |
+| blocked | Cannot proceed | red | stop | Blocked, Deficient, Suspended, Uncorrected, Overdue |
+| stale | Source changed after preparation | orange, dashed | alert | Stale |
+| approved | Approved | green | check | Approved, Reviewed, Published, Adequate |
+| complete | Completed | green | check circle | Completed, Cleared, Accepted, Paid |
+| issued | Issued / released | teal | send | Issued, Released |
+| closed / cancelled / archived / superseded | Terminal | gray (cancelled and superseded struck through) | lock / x / box / layers | Closed, Cancelled, Archived, Superseded, Retired |
+| failed | Rejected / declined | red | x | Rejected, Declined, Lost |
+| simulation | Simulated — no external system contacted | indigo, dashed | flask | Simulated accepted, Simulated verified |
 
-| Role | Size / weight | Where |
-|---|---|---|
-| Page title | 29 px / 650, `-1px` tracking | one `h1` per routed page |
-| Panel title | 15 px / 650 | `panel-head h2`, `h3` in panels |
-| Body | 15 px / 400, 1.55 line-height | `body` |
-| Data | 12 px | tables, inputs |
-| Secondary | 11–12 px, `--muted` | `.sub`, `.caption`, `.cell-sub` |
-| Eyebrow | 11 px / 750, 1.7 px tracking, uppercase | `.eyebrow` |
-| Identifier | monospace 12 px | `.mono` |
-| Numerals | tabular | `.num`, `.tabular`, `.metric-value` |
+Legacy `.badge` call sites share the same tones and add a CSS glyph (✓ / ! / •) that is not part of the
+accessible text.
 
-Long-form help text is capped at 75–80 characters (`.sub`, `.page-subtitle`).
-
-## 3. Status semantics
-
-One mapping from every stored status value to one of eleven tones, in
-`src/services/lifecycle.ts` (`statusSemantics`). A tone carries a colour **and** a
-shaped left border **and** an accessible description, so meaning never depends on
-colour alone.
-
-| Tone | Means | Example values |
-|---|---|---|
-| `neutral` | nothing started, informational | Draft, Not started, Not configured, Recorded manually |
-| `progress` | work happening and owned | In progress, Active, Submitted, Received, Ready, Open |
-| `waiting` | waiting on someone else, not an error | Requested, Pending, Needs clarification, Not reflected, Outcome unknown |
-| `review` | awaiting an independent decision | In review, Under review, Pending review, Technical review |
-| `returned` | sent back for rework | Returned, Reopened, Changes required, Differences noted, Exceptions noted |
-| `blocked` | a named predecessor must be resolved | Blocked, Overdue |
-| `stale` | derived output no longer matches its source | Stale |
-| `approved` | a human decision is recorded | Approved, Cleared, Accepted, Adequate, Reporting included |
-| `complete` | good terminal state | Completed, Closed, Archived, Retired, Published, Not applicable |
-| `terminal-bad` | journey ended without delivery | Cancelled, Rejected, Withdrawn, Expired, Revoked, Declined, Lost, Unqualified |
-| `simulated` | prototype simulation surface | Simulated accepted / failed / verified / error |
-
-Rendering: `<StatusBadge status="…" />` emits the literal status text as its only
-text node, `data-status-tone` for styling and tests, and `aria-label`/`title` with
-the plain-language meaning. Terminal tones are never marked actionable
-(`isActionableStatus`), which is what lets a module grey out or omit a next action
-correctly.
-
-## 4. Layout patterns
-
-**Page anatomy** (`PageHeader`, `ModulePageHeader`):
+## 3. Page anatomy
 
 ```
-identity (breadcrumb-ish context line)
-Module title                         status · actions
-Client · Engagement · Period · Currency · Lifecycle · Manager · Revision
-───────────────────────────────────────────────────────────────────────
-lifecycle hint strip (how this module's work moves)
-sections: panels, grids, tables
+Breadcrumb: Section / Module  [ROUTE CODE]            (shell topbar)
+Context bar: Client · Engagement · Period · Mode · Package revision
+[How this module works ▸]  collapsed guide: steps, outcome, failure path, record lifecycles
+Page head: h1 title · one-line purpose · primary action(s)
+Lifecycle panel (stateful records): stepper · state · facts · blockers · next action · downstream impact
+Stale banner (when an upstream source moved)
+Working area: registers, forms, tabs
+Record detail: lifecycle + history timeline + related-module handoff bar
 ```
 
-- Exactly one `h1` per rendered page; asserted on every route in Chrome.
-- The identity line is derived from the store through the same scope guards the
-  module uses, so it cannot advertise an unreachable client or engagement.
-- Grids: `.grid-main` (2.4:1 working area + side panel), `.grid2`/`.grid-2`/`.grid-3`/`.grid4`,
-  `.metric-grid` (4 across, 2 under 1000 px).
-- Every grid child carries `min-width: 0` so a wide table can never widen the page.
+Not forced where it hurts usability: catalogue/reference routes (Requirements, Module Guide) keep their
+document layout, and client-portal personas do not see presenter guidance.
 
-## 5. Table patterns
+## 4. Shared primitives (`src/components/common/`)
 
-- Always inside `.tablewrap` (`overflow-x: auto`) so a wide table scrolls instead
-  of pushing the page: the 1024 px Proposals overflow found during this work was
-  exactly this failure mode.
-- Header row: uppercase 11 px on `#f8fafa`, no wrap.
-- First column identifies the record (`<b>` + `.cell-sub` for the id).
-- Row actions are small buttons; the row itself is not clickable, so keyboard
-  users get a single, predictable target.
-- Empty and no-match answers render through `ListState` with `colSpan`, so an
-  empty table explains itself instead of showing a blank body.
-- Long identifiers use `.mono`; amounts use `.tabular`/`.num`.
-
-## 6. Form patterns
-
-- `.field` (label + control + helper) and `.field-grid` (2 columns, collapsing to
-  1 below 760 px); `.field-grid .full` spans both.
-- Required inputs use the native `required` attribute; helper text sits in
-  `<small>` inside the field, and every control carries an `aria-label` or a
-  `<label>`.
-- Validation messages are `role="alert"` next to the control that failed, and
-  cross-field rules state the consequence before saving (for example an engagement
-  scope change lists what it will invalidate).
-- Draft protection is app-wide: `UnsavedFormGuard` plus the shell's dialog guard
-  means no route, persona or context change silently drops an edit
-  (`tests/e2e/app.test.ts` VP-003 family).
-- Progressive disclosure uses `<details>` for history, prior revisions and
-  advanced tables rather than hiding critical state behind a tab.
-
-## 7. Dialog, drawer and page rules
-
-| Use | Surface | Rule |
+| Primitive | File | Rule |
 |---|---|---|
-| Confirmation, small edit, return reason, status transition, simple creation | dialog (`.modal-backdrop .modal`, or `.modal-overlay .modal-card`) | bounded task, focus trapped, Escape/backdrop never silently discards edits |
-| Record preview, activity, related information, quick review | side panel / `<details>` | read-mostly |
-| Workpapers, statements, packages, consolidation, multi-section configuration | full page | complex work stays on a page, not in a modal |
+| `StatusBadge` | `StatusBadge.tsx` | Status text + glyph + tone; optional qualifier rendered in the same text node (`Draft · r2`). |
+| `Notice` | `Feedback.tsx` | Outcome message. Errors/warnings are `role="alert"`, success/info `role="status"`; dismissible. |
+| `EmptyState` / `EmptyTableRow` | `Feedback.tsx` | Three distinct variants: **none** (nothing exists), **filtered** (filters exclude records), **scope** (nothing permitted — never reveals restricted counts). Create actions only when the role can create. |
+| `StaleBanner` | `Feedback.tsx` | Source changed (from → to), affected items, historical decision preserved, required action. |
+| `GateList` | `Feedback.tsx` | Readiness gates with explicit PASSED / BLOCKED text and the precise reason. |
+| `ActionReason` | `Feedback.tsx` | Why an action is unavailable or will be refused (e.g. "You prepared this draft; another person must approve it"). The store remains the authority: SoD-protected buttons stay clickable so the enforced denial is demonstrable. |
+| `LifecyclePanel` / `LifecycleStepper` | `Lifecycle.tsx` | Driven by `src/services/lifecycles.ts`; shows done / current / returned / blocked / stale / terminal steps with `aria-current="step"`. |
+| `ActivityTimeline` | `ActivityTimeline.tsx` | Actor · timestamp · revision · reason · from → to, labelled "Browser-local demo history — not a tamper-evident audit trail". |
+| `ModuleGuideStrip` | `ModuleGuideStrip.tsx` | Collapsed "How this module works" from `moduleGuideContent.ts` + lifecycle paths. |
+| Work queues | `services/workQueues.ts` | Deterministic, scope-filtered projections (My work, Waiting for my review, Returned to me, Waiting on client, Blocked or stale, Ready for release); counts equal list lengths by construction. |
 
-The shared dialog runtime keeps `role="dialog"`, `aria-modal`, an accessible name,
-focus trapping, focus restoration and an unsaved-changes prompt. New dialogs must
-not opt out (`data-dismiss-guard`) unless they confirm through their own handler.
+## 5. Tables and lists
 
-## 8. Lifecycle, review and staleness patterns
+* Header row with muted uppercase labels; tabular numbers; amounts and dates never wrap.
+* Status column always uses `StatusBadge`; rework flags (Returned, Overdue) stack under the status.
+* Selected master/detail row: `--action-tint` background + 3 px brand-blue left rule (`tr.selected-row`, `tr.row-selected`).
+* Record identifiers that open a detail view are `tablelink` buttons with an explicit `aria-label`.
+* Empty rows use `EmptyTableRow` so the header context stays visible.
+* Wide registers scroll inside `.tablewrap`; the page body never scrolls horizontally (390/1024/1440 px tested).
 
-- **`WorkflowProgressTracker`** — the per-screen tracker. Renders a progress bar,
-  the completed/pending/blocked counts, the ordered step track, the single next
-  action and who acts next, and an explicit reason + required action for every
-  blocked step. Every number comes from `deriveWorkflowProgress`, which only
-  aggregates what the module derived from records the reader may see, so a
-  tracker can never report progress for work it did not read.
-- **`deriveWorkflowProgress`** — the counting rules, in one place:
-  `completed` = done + not-applicable; `total` = every budgeted step, including
-  not-applicable and skipped. A step deliberately waived is therefore *budgeted
-  and resolved* (a fully scoped-out record reads 100%), while a skipped step stays
-  in the denominator so skipping work cannot raise the percentage. Returned and
-  stale steps outrank a blocker in the next-action line, because neither can be
-  ignored.
-- **`LifecycleStepper`** — declare the model's steps and each step's state
-  (`done` / `current` / `blocked` / `returned` / `stale` / `pending` / `skipped` /
-  `not-applicable`), with the owner, the reason and the required action. Steps
-  become operable buttons when the module supplies a section to open, so a reader
-  can jump to the work a step governs. `LIFECYCLE_MODELS` holds the seven declared
-  models; `MODULE_LIFECYCLE_MODEL` says which one each route reports.
-- **Per-module journey derivations** — `engagementJourney.ts` (acceptance →
-  planned → risks → fieldwork → findings → review → completion → released) and
-  `packageJourney.ts` (calculated → validated → management → accounting → partner
-  → released). Each step's state is read from a named record field, so the tracker
-  is checked against the store contract rather than trusted.
-- **`ModuleLifecycleHint`** — the one-line strip naming the module's journey and
-  its steps.
-- **`BlockerNotice`** / **`StaleNotice`** — answer four questions in a fixed order:
-  *Why* · *Affected* · *Preserved* · *Required*. Never a bare "Error" or
-  "Cannot continue".
-- **`ProvenancePanel`** / **`ReviewPanel`** — prepared by, prepared date,
-  submitted revision, reviewer, review status, return reason, approval actor,
-  exact revision approved.
-- **`ActivityTimeline`** — created / edited / submitted / reviewed / returned /
-  resubmitted / approved / staled / reopened / issued / archived events with actor,
-  role, time, revision, reason and previous → new state.
-- **`StateBlock`** and **`ListState`** — the four different empties: nothing
-  exists, nothing matches the filters, everything is outside your scope, and the
-  list failed to load. Counts of records outside the reader's scope are never
-  disclosed.
-- **`HandoffLinks`** — contextual "open the source TB / view evidence / open the
-  journal / view the package" navigation, so work continues without duplicating
-  records.
+## 6. Forms
 
-Where the tracker is applied today, and the record fields each module counts, are
-generated from the code into
-[`lifecycle-progress-matrix.md`](lifecycle-progress-matrix.md); a unit test fails
-if that document and the code disagree.
+* Visible labels above inputs (never placeholder-only); helper text in `.caption`.
+* Dense filter bars use `.filter-grid` (auto-fit, labelled controls).
+* Validation messages come from the store's guard errors and are shown next to the action that failed
+  (inline `Notice` inside the dialog for dialog forms, page `Notice` otherwise).
+* Unsaved-change protection: every draft registers an `UnsavedFormGuard`; route, persona, engagement,
+  scenario and search changes ask to save, discard or stay (unchanged from VP-003).
 
-## 9. Accessibility rules the shared layer enforces
+## 7. Dialog vs drawer vs page
 
-- One `h1` per page; panels use `h2`/`h3` in order.
-- Status: visible text + tone + `aria-label`; nothing is conveyed by colour alone.
-- Lists and notices announce themselves (`role="status"`, `role="alert"` for
-  failures).
-- Disabled actions are either not rendered for a role that may not act, or
-  accompanied by a plain reason; they are never rendered as an enabled no-op.
-- Focus: a visible 3 px outline on every interactive element, a skip link, focus
-  trapping and restoration in dialogs, and a mobile drawer that stays out of
-  keyboard order while off-canvas.
-- Responsive: the shared primitives stack at 1000 px and 760 px; the route sweep
-  asserts no page-level horizontal scroll at 1440, 1024 and 390 px.
-
-## 10. Files that define the system
-
-| File | Contents |
+| Use | Pattern |
 |---|---|
-| `styles.css`, `roles.css` | existing tokens, utilities, chrome and legacy role views |
-| `src/enterprise.css` | the additive layer: tokens for the new primitives, the previously missing utility classes, status badges, page anatomy, lifecycle, notices, list states, provenance, review and timeline styling, responsive rules |
-| `src/services/lifecycle.ts` | status → tone/meaning/terminal mapping, lifecycle models, blocker descriptions |
-| `src/services/routeRegistry.ts` | one registration per route: label, group, kind, record, lifecycle, next step, handoffs |
-| `src/components/common/Enterprise.tsx` | the shared components listed above |
-| `src/components/common/Icons.tsx` | the 30 inline SVG icons (no icon font, no external asset) |
+| Confirmation, small edit, return reason, status transition, simple creation | Dialog (`.modal-backdrop .modal` or `.modal-overlay .modal-card`) with focus trap, Escape/backdrop dismissal guard and focus restoration (App-level). |
+| Record preview, lifecycle, history, related records | Inline detail panel below the register (invoice, workpaper, package). |
+| Complex work (workpapers, statements, packages, consolidation, multi-section configuration) | Full page with tabs (`.tabs .tab-btn`, `aria-pressed`). |
 
-## Deliberate non-goals
+Destructive and terminal actions state **impact, what is kept, and reversibility** before asking for the
+required reason (`src/services/terminalActions.ts`). They currently use the browser's native prompt for
+the reason text (see remaining limitations).
 
-- No theme system, no design tokens package, no component library publication.
-- No dark mode: the prototype demonstrates one professional light theme.
-- No animation beyond a 0.16–0.2 s transition, and `prefers-reduced-motion`
-  disables even that.
-- No decorative illustration set; empty states use the existing icon set and text.
+## 8. Lifecycle and review patterns
+
+* Lifecycles are defined once in `src/services/lifecycles.ts` and generated into
+  [`lifecycle-matrix.md`](lifecycle-matrix.md); nothing invents transitions the store lacks.
+* Returned work is a first-class rework state (orange, undo glyph) with the reason, who returned it and the
+  resubmission path — never styled as an error.
+* "What changed since last review" (`src/services/reviewDiff.ts`) lists deterministic field differences
+  against the last clearance or submission (revision, workbook, evidence events, assignments, source).
+* Stale items keep their historical approval visible and say exactly which upstream revision moved.
+* Superuser actions remain labelled `Prototype Superuser Override` and never count as independence.

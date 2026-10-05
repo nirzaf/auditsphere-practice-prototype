@@ -1,3 +1,9 @@
+# Current role handoffs
+
+Relationship → commercial reviewer/client → Billing → acceptance recommender/Partner → Admin/client contributor → Preparer/Manager → SRM/Partner → Billing/Records → firm finance. [Detailed target journey](../docs/prototype/target-lifecycle-demo.md). EQR is not a mandatory target role; historical roles below are retained for source history.
+
+---
+
 # Role handoffs and synthetic personas
 
 [Module index](../01_MODULE_INDEX.md) · [Presenter playbook](../02_CLIENT_DEMO_PLAYBOOK.md)

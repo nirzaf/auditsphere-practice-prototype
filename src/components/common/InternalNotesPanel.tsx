@@ -23,7 +23,7 @@ export function InternalNotesPanel({ subjectType, subjectId, onBeforeContextChan
   const draftBaseline = useRef(JSON.stringify({ subjectType, subjectId, editingId: null, text: '', mentions: [] as string[] }));
   const comments = state.comments.filter(comment => comment.subjectType === subjectType && comment.subjectId === subjectId && comment.visibility === 'internal');
   const eligibleUsers = useMemo(() => state.users.filter(user => {
-    if (user.status !== 'Active' || isClientRole(user.role) || !canOpenRoute(user.role, 'jobs')) return false;
+    if (user.status !== 'Active' || isClientRole(user.role) || !canOpenRoute(user.role, 'scheduling')) return false;
     if (subjectType === 'client') {
       const visible = visibleClientIds(state, user.id);
       return visible === 'ALL' || visible.includes(subjectId);

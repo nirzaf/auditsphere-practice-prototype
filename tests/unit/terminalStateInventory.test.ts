@@ -5,6 +5,9 @@
 // they are classified, so the inventory cannot silently drift.
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync, readdirSync } from 'node:fs';
+import { join, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { prototypeStore } from '../../src/store/prototypeStore.js';
 import { createInitialState } from '../../src/store/initialState.js';
 import type { PrototypeState } from '../../src/types/index.js';
@@ -24,18 +27,18 @@ type Family =
   | 'professional';     // engagement-bound professional preparation/review/output
 
 const INVENTORY: Record<Family, string[]> = {
-  internal: ['hasStorageConflict', 'resolveStorageConflict', 'isSessionOnlyMode', 'getLoadError', 'assertCurrentAdjustmentSupport', 'getAdjustmentSupportIssue', 'getAdjustmentSupportIssues', 'loadInitialState', 'persist', 'notify', 'getPreservedStateJSON', 'invalidateReleaseBasis', 'reopenWorkpaperReviewNotes', 'reopenFindingReviewNotes', 'reviewSubjectRevision', 'assignAccountingPeriod', 'hasNewerDocumentRevision', 'staleReconciliation', 'staleStatementSetRevisions', 'staleCashFlowSchedules', 'logEvent', 'validateClientProfile', 'getClientProfileWarnings', 'assertTaskHierarchy', 'assertTaskAssignee', 'assertScopedJobStaff', 'assertJobTemplateStructure', 'recordAuditProcedureHistory', 'markLocalNoticeRead', 'evaluateReleaseReadiness'],
+  internal: ['applySharedCommand', 'commandContext', 'executeLocalCommand', 'executeMigratedCommand', 'packageExpiredArchives', 'hasStorageConflict', 'resolveStorageConflict', 'isSessionOnlyMode', 'getLoadError', 'assertCurrentAdjustmentSupport', 'getAdjustmentSupportIssue', 'getAdjustmentSupportIssues', 'loadInitialState', 'persist', 'notify', 'getPreservedStateJSON', 'invalidateReleaseBasis', 'reopenWorkpaperReviewNotes', 'reopenFindingReviewNotes', 'reviewSubjectRevision', 'assignAccountingPeriod', 'hasNewerDocumentRevision', 'staleReconciliation', 'staleStatementSetRevisions', 'staleCashFlowSchedules', 'logEvent', 'validateClientProfile', 'getClientProfileWarnings', 'assertTaskHierarchy', 'assertTaskAssignee', 'assertScopedJobStaff', 'assertJobTemplateStructure', 'recordAuditProcedureHistory', 'markLocalNoticeRead', 'evaluateReleaseReadiness'],
   session: ['setRole', 'setPerson', 'setPersona', 'setSelectedEngagement'],
   crm: ['addClient', 'updateClient', 'updateClientContact', 'addContact', 'nominateClientContact', 'reviewClientContactNomination', 'setClientCustomField', 'addCustomFieldDefinition', 'setCustomFieldDefinitionEnabled', 'assignClientRelationshipGroup', 'createClientRelationshipGroup', 'setPrimaryContact'],
   identity: ['grantAccess', 'revokeAccess', 'createDemoIdentity', 'setUserStatus', 'sendSimulatedInvitation', 'recordInvitationExpiry', 'revokeSimulatedInvitation', 'acceptSimulatedInvitation', 'resendSimulatedInvitation'],
-  commercial: ['addLead', 'updateLead', 'convertLead', 'saveProposalService', 'saveProposalTemplate', 'addProposal', 'updateProposal', 'presentProposal', 'createProposalRevision', 'reviewProposal', 'recordProposalResponse', 'addEngagement'],
+  commercial: ['addLead', 'updateLead', 'convertLead', 'saveProposalService', 'saveProposalTemplate', 'addProposal', 'updateProposal', 'presentProposal', 'createProposalRevision', 'reviewProposal', 'recordProposalResponse', 'addEngagement', 'generateEngagementLetter', 'recordSignedEngagementLetter'],
   lifecycle: ['activateEngagement', 'updateEngagement', 'setEngagementLifecycle', 'createContinuanceDraft'],
   'firm-library': ['addJobTemplate', 'createJobTemplateRevision', 'publishJobTemplate', 'retireJobTemplate', 'saveEmailTemplate', 'createAuditProgramTemplate', 'reviseAuditProgramTemplate', 'publishAuditProgramTemplate', 'retireAuditProgramTemplate', 'updateFirmSettings'],
   billing: ['addInvoice', 'cancelInvoiceDraft', 'reviseInvoiceDraft', 'reviewInvoice', 'issueInvoice', 'addCreditNote', 'reviewCreditNote', 'reviseCreditNote', 'issueCreditNote', 'addReceipt', 'allocateReceipt', 'reverseAllocation'],
   records: ['linkDocumentToTask', 'unlinkDocumentFromTask', 'setDocumentClientSharing', 'archiveEngagement', 'recordArchiveHandover'],
-  setup: ['updateM365Config', 'simulateM365Verification', 'simulateM365Disconnect', 'prepareClientWorkspace', 'saveAcceptanceCase'],
-  recovery: ['loadScenario', 'resetState', 'exportStateJSON', 'importStateJSON', 'checkIntegrity'],
-  professional: [
+  setup: ['updateM365Config', 'simulateM365Verification', 'simulateM365Disconnect', 'prepareClientWorkspace', 'saveAcceptanceCase', 'decideAcceptanceCase'],
+  recovery: ['beginWorkspaceReplacement', 'loadScenario', 'resetState', 'exportStateJSON', 'importStateJSON', 'checkIntegrity'],
+  professional: ['signOffAnalyticalReview',
     'addJob', 'updateJob', 'addTask', 'updateTask', 'reassignTask', 'applyJobTemplate',
     'addComment', 'moderateComment', 'editComment',
     'addDocument', 'replaceDocumentRevision', 'updateDocumentReference', 'setDocumentAvailability', 'renameClientWorkspaceFolder',
@@ -44,20 +47,20 @@ const INVENTORY: Record<Family, string[]> = {
     'saveAccountingProfile', 'updateTrialBalanceRows', 'importGeneralLedgerSource', 'saveReconciliationSchedule', 'reviewReconciliationSchedule',
     'saveAccountMappings', 'approveAccountMappings', 'saveStatementLayoutRevision', 'saveStatementSetRevision', 'staleStatementRevisionsForComparativeChange',
     'reviewStatementSetRevision', 'saveCashFlowSchedule', 'reviewCashFlowSchedule',
-    'addAdjustmentJournal', 'amendAdjustmentJournal', 'reviewAdjustmentJournal', 'markAdjustmentJournalReportingIncluded', 'recordAdjustmentManagementDecision', 'updateAdjustmentJournal',
+    'addAdjustmentJournal', 'amendAdjustmentJournal', 'reviewAdjustmentJournal', 'markAdjustmentJournalReportingIncluded', 'recordAdjustmentManagementDecision', 'recordAdjustmentManagementResponse', 'updateAdjustmentJournal',
     'updateConsolidationGroup', 'revertConsolidationPerimeter', 'saveConsolidationElimination', 'submitConsolidationElimination', 'reviewConsolidationElimination',
     'saveConsolidationOutputPackage', 'reviewConsolidationOutputPackage', 'updateConsolidationFxRate',
     'createWorkpaperFromTemplate', 'reassignWorkpaper', 'updateWorkpaper', 'linkWorkpaperEvidence', 'unlinkWorkpaperEvidence', 'submitWorkpaper', 'clearWorkpaper', 'replaceWorkpaperRevision',
-    'addReviewNote', 'reassignReviewNote', 'respondReviewNote', 'clearReviewNote',
+    'addReviewNote', 'reassignReviewNote', 'respondReviewNote', 'clearReviewNote', 'designateReviewCorrespondence',
     'recordApproval', 'assignEqrReviewer', 'presentManagementPackage', 'recordManagementPackageDecision', 'addEqrConcern', 'toggleEqrConcern', 'respondEqrConcern',
     'uploadPbcResponse', 'replyToPbcRequest', 'addPbcRequest', 'requestPbcClarification', 'presentPbcRequest', 'acceptPbcResponse', 'updatePbcRequest', 'cancelPbcRequest',
     'setEvidenceAdequacy', 'linkEvidenceProcedure', 'unlinkEvidenceProcedure',
     'updateAuditProcedureExecution', 'updateAuditProcedureStatus', 'updateAuditRisk', 'createAuditRisk', 'applyAuditProgramTemplate', 'setAuditRiskProcedureLink',
     'setSampleItemSelected', 'reviewSampleSelection', 'linkSampleExceptionToFinding', 'recordSampleItemLimitation', 'recordSampleItemTest', 'replaceSamplePopulationSource',
-    'addFinding', 'setFindingDisposition',
+    'addFinding', 'designateManagementLetter', 'setFindingDisposition',
     'prepareReleaseCandidate', 'prepareAmendedRelease', 'issueRelease', 'reopenReleaseForAmendment',
     'saveDisclosureReview', 'reviewDisclosure', 'saveFinancialPackageRevision',
-    'decideAcceptanceCase', 'saveAuditPlan', 'reviewAuditPlan'
+ 'saveAuditPlan', 'reviewAuditPlan'
   ]
 };
 
@@ -65,6 +68,28 @@ const INVENTORY: Record<Family, string[]> = {
 const DELEGATES: Record<string, string> = {
   prepareAmendedRelease: 'reopenReleaseForAmendment',
   revertConsolidationPerimeter: 'updateConsolidationGroup'
+};
+
+// Professional commands whose implementation now lives in the shared browser-free
+// domain layer. The lifecycle guard moved with the code, so the assertion follows it
+// there instead of scanning the store method.
+const SHARED_BODIES: Record<string, string> = {
+  setEvidenceAdequacy: 'setEvidenceAdequacyCommand',
+  linkEvidenceProcedure: 'linkEvidenceProcedureCommand',
+  unlinkEvidenceProcedure: 'unlinkEvidenceProcedureCommand'
+};
+
+const domainSource = readdirSync(join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'src', 'domain'))
+  .filter(file => file.endsWith('.ts'))
+  .map(file => readFileSync(join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'src', 'domain', file), 'utf8'))
+  .join('\n');
+
+/** Whitespace-stripped source of one exported domain function body. */
+const sharedFunctionBody = (name: string): string => {
+  const start = domainSource.indexOf(`export function ${name}(`);
+  if (start < 0) return '';
+  const end = domainSource.indexOf('\n}\n', start);
+  return domainSource.slice(start, end < 0 ? undefined : end).replace(/\s+/g, '');
 };
 
 const store = prototypeStore as any;
@@ -91,8 +116,13 @@ describe('VP-012-E02 terminal-state command inventory', () => {
   it('routes every professional command through a lifecycle guard', () => {
     const unguarded = INVENTORY.professional.filter(name => {
       const body = source(DELEGATES[name] || name);
+      const shared = SHARED_BODIES[name] ? sharedFunctionBody(SHARED_BODIES[name]) : '';
       const scopedProfessional = /requireEngagementScope\(this\.state,[^,()]+(\.[a-zA-Z]+)*\)/.test(body) || /requireEngagementScope\(this\.state,[^()]*,"professional"\)/.test(body);
-      return !scopedProfessional && !body.includes('requireActiveEngagementLifecycle(') && !body.includes('requireActiveConsolidationComponents(');
+      const scopedShared = /requireEngagementScope\(state,[^,()]+(\.[a-zA-Z]+)*\)/.test(shared);
+      const guarded = scopedProfessional || scopedShared
+        || body.includes('requireActiveEngagementLifecycle(') || body.includes('requireActiveConsolidationComponents(')
+        || shared.includes('requireActiveEngagementLifecycle(') || shared.includes('requireActiveConsolidationComponents(');
+      return !guarded;
     });
     assert.deepEqual(unguarded, [], 'professional commands without a lifecycle guard');
   });

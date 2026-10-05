@@ -1,4 +1,4 @@
-// Module 27: Acceptance, Continuance & KYC Questionnaire (VP-047)
+// Module 2: Acceptance, Continuance & KYC Questionnaire (VP-047)
 // Engagement onboarding, independence evaluation, conditions management, partner sign-off, and persisted acceptance cases.
 
 import React, { useEffect, useRef, useState } from 'react';
@@ -6,8 +6,9 @@ import { RouteKey, AcceptanceCaseRecord } from '../../types';
 import { prototypeStore } from '../../store/prototypeStore';
 import { hasAnyRole, hasRole } from '../../services/guards';
 import { Icon } from '../common/Icons';
+import { StatusBadge } from '../common/StatusBadge';
+import { Notice } from '../common/Feedback';
 import { UnsavedFormGuard } from '../../services/unsavedFormGuard';
-import { ModuleIdentityLine, ModuleLifecycleHint } from '../common/Enterprise';
 
 interface AuditAcceptanceViewProps {
   onNavigate: (route: RouteKey) => void;
@@ -23,7 +24,7 @@ export const AuditAcceptanceView: React.FC<AuditAcceptanceViewProps> = ({ onNavi
 
   // Existing persisted case if any
   const existingCase = (state.acceptanceCases || []).find(
-    c => c.clientId === (client?.id || selectedEng?.client) && c.year === (selectedEng?.year || 2026)
+    c => c.engagementId === selectedEng?.id && c.clientId === selectedEng?.client && c.year === selectedEng?.year && c.service === selectedEng?.service
   );
 
   const [riskRating, setRiskRating] = useState<'Low' | 'Medium' | 'High' | 'Prohibited'>(
@@ -44,7 +45,24 @@ export const AuditAcceptanceView: React.FC<AuditAcceptanceViewProps> = ({ onNavi
   const [competenceConfirmed, setCompetenceConfirmed] = useState(
     existingCase?.competenceConfirmed || false
   );
+  const [managementIntegrityConfirmed, setManagementIntegrityConfirmed] = useState(
+    existingCase?.managementIntegrityConfirmed || false
+  );
+  const [financialViabilityConfirmed, setFinancialViabilityConfirmed] = useState(
+    existingCase?.financialViabilityConfirmed || false
+  );
   const [screeningEvidence, setScreeningEvidence] = useState<NonNullable<AcceptanceCaseRecord['screeningEvidence']>>(existingCase?.screeningEvidence || {});
+
+  // Continuance 6-point delta checklist
+  const [priorFeesSettled, setPriorFeesSettled] = useState<boolean | null>(existingCase?.continuanceDeltaChecklist?.priorFeesSettled ?? null);
+  const [managementShareholdingUnchanged, setManagementShareholdingUnchanged] = useState<boolean | null>(existingCase?.continuanceDeltaChecklist?.managementShareholdingUnchanged ?? null);
+  const [noNewLoansCovenants, setNoNewLoansCovenants] = useState<boolean | null>(existingCase?.continuanceDeltaChecklist?.noNewLoansCovenants ?? null);
+  const [noPendingLitigation, setNoPendingLitigation] = useState<boolean | null>(existingCase?.continuanceDeltaChecklist?.noPendingLitigation ?? null);
+  const [noFraudInvestigations, setNoFraudInvestigations] = useState<boolean | null>(existingCase?.continuanceDeltaChecklist?.noFraudInvestigations ?? null);
+  const [noRegulatoryInquiries, setNoRegulatoryInquiries] = useState<boolean | null>(existingCase?.continuanceDeltaChecklist?.noRegulatoryInquiries ?? null);
+  const [deltaExplanations, setDeltaExplanations] = useState(existingCase?.continuanceDeltaChecklist?.deltaExplanations || '');
+  const [assessmentType, setAssessmentType] = useState<NonNullable<AcceptanceCaseRecord['assessmentType']>>(existingCase?.assessmentType || 'Track A (Initial)');
+  const [priorPeriodEngagementId, setPriorPeriodEngagementId] = useState(existingCase?.priorPeriodEngagementId || '');
 
   const [conditions, setConditions] = useState<string[]>(
     existingCase?.conditions || []
@@ -62,8 +80,20 @@ export const AuditAcceptanceView: React.FC<AuditAcceptanceViewProps> = ({ onNavi
   );
   const historicalApprovalNeedsEvidenceReview = existingCase?.decisionStatus === 'Accepted' && !selectedEng.acceptance;
   const [changedFacts, setChangedFacts] = useState('');
-  const draftState = () => ({ riskRating, independenceConfirmed, amlKycCompleted, conflictsCleared, prohibitionsChecked, competenceConfirmed, screeningEvidence, conditions, newCondition, recommendationNotes, partnerDecision, partnerRationale, changedFacts });
+  const draftState = () => ({ managementIntegrityConfirmed, financialViabilityConfirmed, priorFeesSettled, managementShareholdingUnchanged, noNewLoansCovenants, noPendingLitigation, noFraudInvestigations, noRegulatoryInquiries, deltaExplanations, assessmentType, priorPeriodEngagementId, riskRating, independenceConfirmed, amlKycCompleted, conflictsCleared, prohibitionsChecked, competenceConfirmed, screeningEvidence, conditions, newCondition, recommendationNotes, partnerDecision, partnerRationale, changedFacts });
   const persistedDraftState = () => ({
+    priorFeesSettled: existingCase?.continuanceDeltaChecklist?.priorFeesSettled ?? null,
+    managementShareholdingUnchanged: existingCase?.continuanceDeltaChecklist?.managementShareholdingUnchanged ?? null,
+    noNewLoansCovenants: existingCase?.continuanceDeltaChecklist?.noNewLoansCovenants ?? null,
+    noPendingLitigation: existingCase?.continuanceDeltaChecklist?.noPendingLitigation ?? null,
+    noFraudInvestigations: existingCase?.continuanceDeltaChecklist?.noFraudInvestigations ?? null,
+    noRegulatoryInquiries: existingCase?.continuanceDeltaChecklist?.noRegulatoryInquiries ?? null,
+    managementIntegrityConfirmed: existingCase?.managementIntegrityConfirmed ?? false,
+    financialViabilityConfirmed: existingCase?.financialViabilityConfirmed ?? false,
+    deltaExplanations: existingCase?.continuanceDeltaChecklist?.deltaExplanations || '',
+    assessmentType: existingCase?.assessmentType || 'Track A (Initial)',
+    priorPeriodEngagementId: existingCase?.priorPeriodEngagementId || '',
+
     riskRating: existingCase?.riskRating || 'Low',
     independenceConfirmed: existingCase?.independenceConfirmed || false,
     amlKycCompleted: existingCase?.amlKycCompleted || false,
@@ -78,15 +108,27 @@ export const AuditAcceptanceView: React.FC<AuditAcceptanceViewProps> = ({ onNavi
     partnerRationale: existingCase?.decisionNotes || '',
     changedFacts: '',
   });
-  const draftBaseline = useRef(JSON.stringify(persistedDraftState()));
+  const draftJSON = (value: unknown) => JSON.stringify(value, (_key, v) => v && typeof v === 'object' && !Array.isArray(v) ? Object.fromEntries(Object.entries(v).sort(([a], [b]) => a.localeCompare(b))) : v);
+  const draftBaseline = useRef(draftJSON(persistedDraftState()));
   const currentDraft = useRef({ current: draftState(), saved: persistedDraftState() });
   currentDraft.current = { current: draftState(), saved: persistedDraftState() };
   const markDraftClean = (savedFields: Partial<ReturnType<typeof draftState>>) => {
     const baseline = JSON.parse(draftBaseline.current) as ReturnType<typeof draftState>;
-    draftBaseline.current = JSON.stringify({ ...baseline, ...savedFields });
+    draftBaseline.current = draftJSON({ ...baseline, ...savedFields });
   };
   const discardDraft = () => {
     const saved = currentDraft.current.saved;
+    setManagementIntegrityConfirmed(saved.managementIntegrityConfirmed);
+    setFinancialViabilityConfirmed(saved.financialViabilityConfirmed);
+    setPriorFeesSettled(saved.priorFeesSettled);
+    setManagementShareholdingUnchanged(saved.managementShareholdingUnchanged);
+    setNoNewLoansCovenants(saved.noNewLoansCovenants);
+    setNoPendingLitigation(saved.noPendingLitigation);
+    setNoFraudInvestigations(saved.noFraudInvestigations);
+    setNoRegulatoryInquiries(saved.noRegulatoryInquiries);
+    setDeltaExplanations(saved.deltaExplanations);
+    setPriorPeriodEngagementId(saved.priorPeriodEngagementId);
+    setAssessmentType(saved.assessmentType as typeof assessmentType);
     setRiskRating(saved.riskRating as typeof riskRating);
     setIndependenceConfirmed(saved.independenceConfirmed); setAmlKycCompleted(saved.amlKycCompleted);
     setConflictsCleared(saved.conflictsCleared); setProhibitionsChecked(saved.prohibitionsChecked);
@@ -94,14 +136,14 @@ export const AuditAcceptanceView: React.FC<AuditAcceptanceViewProps> = ({ onNavi
     setConditions([...saved.conditions]); setNewCondition(saved.newCondition);
     setRecommendationNotes(saved.recommendationNotes); setPartnerDecision(saved.partnerDecision as typeof partnerDecision);
     setPartnerRationale(saved.partnerRationale); setChangedFacts(saved.changedFacts);
-    draftBaseline.current = JSON.stringify(saved);
+    draftBaseline.current = draftJSON(saved);
   };
   useEffect(() => {
     const key = `audit-acceptance:${selectedEng?.id || 'none'}`;
     if (!selectedEng) return;
     onRegisterUnsavedForm({
       label: 'client acceptance and continuance draft',
-      isDirty: () => JSON.stringify(currentDraft.current.current) !== draftBaseline.current,
+      isDirty: () => draftJSON(currentDraft.current.current) !== draftBaseline.current,
       // Recommendation, partner decision and continuance creation are explicit
       // professional actions; generic navigation must not perform them implicitly.
       save: () => { throw new Error('Use Save Recommendation, Record Partner Decision, or Create Fresh FY Draft before continuing; these professional actions are never submitted implicitly.'); },
@@ -155,7 +197,12 @@ export const AuditAcceptanceView: React.FC<AuditAcceptanceViewProps> = ({ onNavi
         conflictsCleared,
         prohibitionsChecked,
         competenceConfirmed,
+        managementIntegrityConfirmed,
+        financialViabilityConfirmed,
         screeningEvidence,
+        assessmentType,
+        priorPeriodEngagementId: priorPeriodEngagementId || undefined,
+        continuanceDeltaChecklist: assessmentType === 'Track A (Initial)' ? undefined : { priorFeesSettled, managementShareholdingUnchanged, noNewLoansCovenants, noPendingLitigation, noFraudInvestigations, noRegulatoryInquiries, deltaExplanations },
         conditions,
         recommendationBy: state.currentPerson,
         recommendationDate: new Date().toISOString(),
@@ -165,7 +212,7 @@ export const AuditAcceptanceView: React.FC<AuditAcceptanceViewProps> = ({ onNavi
 
       prototypeStore.saveAcceptanceCase(caseRecord);
       setPartnerDecision('Pending');
-      markDraftClean({ riskRating, independenceConfirmed, amlKycCompleted, conflictsCleared, prohibitionsChecked, competenceConfirmed, screeningEvidence: { ...screeningEvidence }, conditions: [...conditions], recommendationNotes, partnerDecision: 'Pending' });
+      markDraftClean({ managementIntegrityConfirmed, financialViabilityConfirmed, priorFeesSettled, managementShareholdingUnchanged, noNewLoansCovenants, noPendingLitigation, noFraudInvestigations, noRegulatoryInquiries, deltaExplanations, assessmentType, priorPeriodEngagementId, riskRating, independenceConfirmed, amlKycCompleted, conflictsCleared, prohibitionsChecked, competenceConfirmed, screeningEvidence: { ...screeningEvidence }, conditions: [...conditions], recommendationNotes, partnerDecision: 'Pending' });
       triggerNotice('success', `Recommendation for case ${caseRecord.id} saved. Partner decision is pending.`);
     } catch (err: any) {
       triggerNotice('error', err.message);
@@ -183,7 +230,9 @@ export const AuditAcceptanceView: React.FC<AuditAcceptanceViewProps> = ({ onNavi
     }
   };
 
-  const allChecksPass = riskRating !== 'Prohibited' && independenceConfirmed && amlKycCompleted && conflictsCleared && prohibitionsChecked && competenceConfirmed && ['amlKyc', 'independence', 'conflicts', 'prohibitions', 'competence'].every(key => !!screeningEvidence[key as keyof typeof screeningEvidence]?.trim());
+  const baseChecksPass = riskRating !== 'Prohibited' && independenceConfirmed && amlKycCompleted && conflictsCleared && prohibitionsChecked && competenceConfirmed && ['amlKyc', 'independence', 'conflicts', 'prohibitions', 'competence'].every(key => !!screeningEvidence[key as keyof typeof screeningEvidence]?.trim());
+  const allChecksPass = baseChecksPass && (assessmentType === 'Track A (Initial)' ? managementIntegrityConfirmed && financialViabilityConfirmed && !!screeningEvidence.managementIntegrity?.trim() && !!screeningEvidence.financialViability?.trim() : [priorFeesSettled, managementShareholdingUnchanged, noNewLoansCovenants, noPendingLitigation, noFraudInvestigations, noRegulatoryInquiries].every(v => v !== null) && !!priorPeriodEngagementId);
+
   const handleCreateContinuance = () => {
     try {
       const draft = prototypeStore.createContinuanceDraft(selectedEng.id, changedFacts);
@@ -207,10 +256,19 @@ export const AuditAcceptanceView: React.FC<AuditAcceptanceViewProps> = ({ onNavi
             <Icon name="check" /> Save Recommendation
           </button>
         </div>
-        <ModuleIdentityLine />
-        <ModuleLifecycleHint />
       </div>
 
+      <section className="panel panel-pad">
+        <label htmlFor="acceptance-track">Assessment track</label>
+        <select id="acceptance-track" value={assessmentType} onChange={e => setAssessmentType(e.target.value as typeof assessmentType)}>
+          <option>Track A (Initial)</option><option>Track B (Continuance)</option>
+        </select>
+        {assessmentType !== 'Track A (Initial)' && <><label htmlFor="acceptance-prior">Prior-period engagement</label>
+          <select id="acceptance-prior" value={priorPeriodEngagementId} onChange={e => setPriorPeriodEngagementId(e.target.value)}>
+            <option value="">Select an eligible prior period</option>
+            {state.engagements.filter(e => e.client === selectedEng.client && e.service === selectedEng.service && e.year < selectedEng.year && e.acceptance).map(e => <option key={e.id} value={e.id}>{e.period} · {e.id}</option>)}
+          </select></>}
+      </section>
       {selectedEng.continuanceFromEngagementId && (
         <div className="panel panel-pad" role="status">
           <b>Fresh-period draft · FY {selectedEng.year}</b>
@@ -219,20 +277,7 @@ export const AuditAcceptanceView: React.FC<AuditAcceptanceViewProps> = ({ onNavi
         </div>
       )}
 
-      {notice && (
-        <div
-          className="panel panel-pad"
-          style={{
-            background: notice.type === 'success' ? '#f0fdf4' : '#fef2f2',
-            borderColor: notice.type === 'success' ? '#86efac' : '#fca5a5',
-            color: notice.type === 'success' ? '#166534' : '#991b1b',
-            padding: '10px 16px'
-          }}
-        >
-          <b>{notice.type === 'success' ? '✓ ' : '⚠ '}</b>
-          {notice.text}
-        </div>
-      )}
+      {notice && <Notice tone={notice.type} onDismiss={() => setNotice(null)}>{notice.text}</Notice>}
 
       <div className="panel panel-pad">
         <div className="between">
@@ -301,7 +346,7 @@ export const AuditAcceptanceView: React.FC<AuditAcceptanceViewProps> = ({ onNavi
             </div>
           </label>
 
-          <label className="borderbox row" style={{ padding: 12, gap: 10, alignItems: 'center', cursor: 'pointer', gridColumn: 'span 2' }}>
+          <label className="borderbox row" style={{ padding: 12, gap: 10, alignItems: 'center', cursor: 'pointer' }}>
             <input
               type="checkbox"
               checked={competenceConfirmed}
@@ -311,6 +356,32 @@ export const AuditAcceptanceView: React.FC<AuditAcceptanceViewProps> = ({ onNavi
               <b>Technical Industry Competence &amp; Resource Availability</b>
               <div className="cell-sub">Team staffed with licensed statutory audit practitioners and sector specialists.</div>
               <input className="input mt8" aria-label="Evidence reference for competence" placeholder="Evidence reference / case ID" value={screeningEvidence.competence || ''} onChange={e => setScreeningEvidence(prev => ({ ...prev, competence: e.target.value }))} onClick={e => e.stopPropagation()} />
+            </div>
+          </label>
+
+          <label className="borderbox row" style={{ padding: 12, gap: 10, alignItems: 'center', cursor: 'pointer' }}>
+            <input
+              type="checkbox"
+              checked={managementIntegrityConfirmed}
+              onChange={e => setManagementIntegrityConfirmed(e.target.checked)}
+            />
+            <div>
+              <b>Management Integrity &amp; Ethical Reputation Assessment</b>
+              <div className="cell-sub">Past regulatory sanctions, accounting disputes, executive reputation, and ethical background check.</div>
+              <input className="input mt8" aria-label="Evidence reference for management integrity" placeholder="Integrity assessment ref / report ID" value={screeningEvidence.managementIntegrity || ''} onChange={e => setScreeningEvidence(prev => ({ ...prev, managementIntegrity: e.target.value }))} onClick={e => e.stopPropagation()} />
+            </div>
+          </label>
+
+          <label className="borderbox row" style={{ padding: 12, gap: 10, alignItems: 'center', cursor: 'pointer', gridColumn: '1 / -1' }}>
+            <input
+              type="checkbox"
+              checked={financialViabilityConfirmed}
+              onChange={e => setFinancialViabilityConfirmed(e.target.checked)}
+            />
+            <div>
+              <b>Financial Viability &amp; Solvency Evaluation</b>
+              <div className="cell-sub">Client solvency evaluation, going concern indicators, working capital stability, and fee payment capacity.</div>
+              <input className="input mt8" aria-label="Evidence reference for financial viability" placeholder="Viability check ref / credit report ID" value={screeningEvidence.financialViability || ''} onChange={e => setScreeningEvidence(prev => ({ ...prev, financialViability: e.target.value }))} onClick={e => e.stopPropagation()} />
             </div>
           </label>
         </div>
@@ -328,7 +399,7 @@ export const AuditAcceptanceView: React.FC<AuditAcceptanceViewProps> = ({ onNavi
             >
               <option value="Low">Low Risk — Standard Mandate Controls</option>
               <option value="Medium">Medium Risk — Enhanced Manager Supervision</option>
-              <option value="High">High Risk — Mandatory EQR &amp; Partner Concurrence</option>
+              <option value="High">High Risk — Enhanced Partner Oversight &amp; Concurrence</option>
               <option value="Prohibited">Prohibited — Mandatory Mandate Rejection</option>
             </select>
           </div>
@@ -439,20 +510,110 @@ export const AuditAcceptanceView: React.FC<AuditAcceptanceViewProps> = ({ onNavi
         </div>
       )}
 
-      {existingCase?.decisionStatus === 'Accepted' && selectedEng.acceptance && (
+      {(assessmentType !== 'Track A (Initial)' || (existingCase?.decisionStatus === 'Accepted' && selectedEng.acceptance)) && (
         <div className="panel panel-pad">
-          <h3>Manual Annual Continuance</h3>
-          <p className="sub mt4">Record what changed since FY {selectedEng.year}; creating the next-period draft does not carry forward balances, tasks, evidence, workpapers, reviews, approvals or releases.</p>
-          {existingCase.continuedToEngagementId ? (
+          <h3>Annual Client Continuance Evaluation (Track B)</h3>
+          <p className="sub mt4">
+            Under ISQM 1 / ISA 220, recurring clients require evaluation of changes since the prior engagement using the mandatory 6-point delta checklist. Creating the next-period draft does not carry forward balances, tasks, evidence, workpapers, reviews, approvals or releases.
+          </p>
+          {existingCase?.continuedToEngagementId ? (
             <p className="mt12">Next-period draft: <b>{existingCase.continuedToEngagementId}</b></p>
           ) : (
-            <>
-              <label className="caption mt12" htmlFor="continuance-changed-facts">Current-period changes from prior period</label>
-              <textarea id="continuance-changed-facts" className="input mt4" rows={3} value={changedFacts} onChange={e => setChangedFacts(e.target.value)} placeholder="Record changed ownership, activities, risks, independence or other relevant facts" />
-              <button className="btn primary sm mt12" onClick={handleCreateContinuance} disabled={!hasAnyRole(state, ['manager', 'partner']) || !changedFacts.trim()}>
-                Create Fresh FY{selectedEng.year + 1} Draft
-              </button>
-            </>
+            <div className="stack mt16" style={{ gap: 12 }}>
+              <div className="caption font-medium">Mandatory Continuance Delta Checklist:</div>
+              <div className="grid2" style={{ gap: 10 }}>
+                <label className="borderbox row" style={{ padding: 10, gap: 8, alignItems: 'center', cursor: 'pointer' }}>
+                  <select aria-label="priorFeesSettled" value={priorFeesSettled === null ? '' : String(priorFeesSettled)} onChange={e => setPriorFeesSettled(e.target.value === '' ? null : e.target.value === 'true')}><option value="">Not assessed</option><option value="true">Yes</option><option value="false">No — changed fact</option></select>
+                  <div>
+                    <b>1. Prior-period professional fees settled</b>
+                    <div className="cell-sub">No outstanding or disputed audit fees that could impair auditor independence.</div>
+                  </div>
+                </label>
+
+                <label className="borderbox row" style={{ padding: 10, gap: 8, alignItems: 'center', cursor: 'pointer' }}>
+                  <select aria-label="managementShareholdingUnchanged" value={managementShareholdingUnchanged === null ? '' : String(managementShareholdingUnchanged)} onChange={e => setManagementShareholdingUnchanged(e.target.value === '' ? null : e.target.value === 'true')}><option value="">Not assessed</option><option value="true">Yes</option><option value="false">No — changed fact</option></select>
+                  <div>
+                    <b>2. Stable management &amp; shareholding</b>
+                    <div className="cell-sub">No significant changes in board of directors, executive management, or beneficial ownership (UBO).</div>
+                  </div>
+                </label>
+
+                <label className="borderbox row" style={{ padding: 10, gap: 8, alignItems: 'center', cursor: 'pointer' }}>
+                  <select aria-label="noNewLoansCovenants" value={noNewLoansCovenants === null ? '' : String(noNewLoansCovenants)} onChange={e => setNoNewLoansCovenants(e.target.value === '' ? null : e.target.value === 'true')}><option value="">Not assessed</option><option value="true">Yes</option><option value="false">No — changed fact</option></select>
+                  <div>
+                    <b>3. No debt covenant or loan distress</b>
+                    <div className="cell-sub">No newly entered bank loan covenants at risk of breach or distress financing.</div>
+                  </div>
+                </label>
+
+                <label className="borderbox row" style={{ padding: 10, gap: 8, alignItems: 'center', cursor: 'pointer' }}>
+                  <select aria-label="noPendingLitigation" value={noPendingLitigation === null ? '' : String(noPendingLitigation)} onChange={e => setNoPendingLitigation(e.target.value === '' ? null : e.target.value === 'true')}><option value="">Not assessed</option><option value="true">Yes</option><option value="false">No — changed fact</option></select>
+                  <div>
+                    <b>4. No material pending litigation</b>
+                    <div className="cell-sub">No threatened or ongoing legal disputes that could affect going concern or liabilities.</div>
+                  </div>
+                </label>
+
+                <label className="borderbox row" style={{ padding: 10, gap: 8, alignItems: 'center', cursor: 'pointer' }}>
+                  <select aria-label="noFraudInvestigations" value={noFraudInvestigations === null ? '' : String(noFraudInvestigations)} onChange={e => setNoFraudInvestigations(e.target.value === '' ? null : e.target.value === 'true')}><option value="">Not assessed</option><option value="true">Yes</option><option value="false">No — changed fact</option></select>
+                  <div>
+                    <b>5. No fraud or whistleblower incidents</b>
+                    <div className="cell-sub">No suspected or actual fraudulent acts, internal investigations, or whistleblower complaints.</div>
+                  </div>
+                </label>
+
+                <label className="borderbox row" style={{ padding: 10, gap: 8, alignItems: 'center', cursor: 'pointer' }}>
+                  <select aria-label="noRegulatoryInquiries" value={noRegulatoryInquiries === null ? '' : String(noRegulatoryInquiries)} onChange={e => setNoRegulatoryInquiries(e.target.value === '' ? null : e.target.value === 'true')}><option value="">Not assessed</option><option value="true">Yes</option><option value="false">No — changed fact</option></select>
+                  <div>
+                    <b>6. No regulatory or tax inquiries</b>
+                    <div className="cell-sub">No formal notices from QFC/MOCI/QCB regulatory bodies or tax authority audit sanctions.</div>
+                  </div>
+                </label>
+              </div>
+
+              <div>
+                <label className="caption" htmlFor="continuance-delta-explanations">
+                  Current-Period Delta Analysis &amp; Changed Facts *
+                </label>
+                <textarea
+                  id="continuance-delta-explanations"
+                  className="input mt4"
+                  rows={3}
+                  value={deltaExplanations}
+                  onChange={e => setDeltaExplanations(e.target.value)}
+                  placeholder="Detail changes since prior year (e.g., changes in revenue lines, new branch operations, or confirmation that 6-point checklist verified clean)..."
+                />
+              </div>
+
+              <div className="row" style={{ gap: 10 }}>
+                <button className="btn sm" onClick={handleSaveEvaluation} disabled={!hasAnyRole(state, ['manager', 'reviewer', 'onboarding', 'compliance'])}>Save Continuance Evaluation</button>
+                <button
+                  className="btn primary sm"
+                  onClick={() => {
+                    const deltaSummary = [
+                      `Continuance Delta Checklist for FY${selectedEng.year + 1}:`,
+                      `• Prior fees settled: ${priorFeesSettled ? 'Yes' : 'NO - FLAG'}`,
+                      `• Management/Shareholding unchanged: ${managementShareholdingUnchanged ? 'Yes' : 'NO - CHANGES RECORDED'}`,
+                      `• Loan covenants stable: ${noNewLoansCovenants ? 'Yes' : 'NO - NEW FACILITIES'}`,
+                      `• No pending litigation: ${noPendingLitigation ? 'Yes' : 'NO - LITIGATION FLAG'}`,
+                      `• No fraud / investigations: ${noFraudInvestigations ? 'Yes' : 'NO - INVESTIGATION FLAG'}`,
+                      `• No regulatory inquiries: ${noRegulatoryInquiries ? 'Yes' : 'NO - REGULATORY INQUIRY'}`,
+                      `Delta Notes: ${deltaExplanations.trim() || 'No material adverse changes verified.'}`
+                    ].join('\n');
+                    try {
+                      const draft = prototypeStore.createContinuanceDraft(selectedEng.id, deltaSummary);
+                      setDeltaExplanations('');
+                      triggerNotice('success', `Fresh FY${draft.year} continuance draft ${draft.id} created.`);
+                    } catch (err: any) {
+                      triggerNotice('error', err.message);
+                    }
+                  }}
+                  disabled={!hasAnyRole(state, ['manager', 'partner']) || existingCase?.decisionStatus !== 'Accepted' || !selectedEng.acceptance || [priorFeesSettled, managementShareholdingUnchanged, noNewLoansCovenants, noPendingLitigation, noFraudInvestigations, noRegulatoryInquiries].some(v => v === null) || !deltaExplanations.trim()}
+                >
+                  Create Fresh FY{selectedEng.year + 1} Draft with Continuance Checklist
+                </button>
+              </div>
+            </div>
           )}
         </div>
       )}
@@ -489,9 +650,7 @@ export const AuditAcceptanceView: React.FC<AuditAcceptanceViewProps> = ({ onNavi
                     <td>{c.recommendationBy}</td>
                     <td>{c.decisionBy || 'Pending'}</td>
                     <td>
-                      <span className={`badge ${c.decisionStatus === 'Accepted' ? 'green' : c.decisionStatus === 'Declined' ? 'red' : 'gray'}`}>
-                        {c.decisionStatus}
-                      </span>
+                      <StatusBadge status={c.decisionStatus} />
                     </td>
                   </tr>
                 ))}

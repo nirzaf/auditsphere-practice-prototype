@@ -102,9 +102,11 @@ export async function exportToDOCX(fileName = 'AuditSphere_Package.docx', title 
 }
 
 // 3. Genuine PDF Export
+export interface PDFVisualAssets { signaturePng?: string; sealPng?: string; signerName?: string; }
 export function createPDFBlob(
   title = 'AuditSphere Statement',
-  lines: string[] = []
+  lines: string[] = [],
+  visuals?: PDFVisualAssets
 ): Blob {
   const doc = new jsPDF();
 
@@ -134,6 +136,16 @@ export function createPDFBlob(
   });
 
   // Footer
+  if (visuals || lines.some(line => /SYNTHETIC DEMO SEAL|SIGNATORIES AND CREDENTIALS/.test(line))) {
+    if (y > 220) { doc.addPage(); y = 30; }
+    doc.setDrawColor(43, 108, 176); doc.setTextColor(43, 108, 176); doc.setLineWidth(0.6);
+    if (visuals?.sealPng) doc.addImage(visuals.sealPng,'PNG',142,y+2,36,36);
+    else { doc.circle(160, y + 20, 17); doc.circle(160, y + 20, 14); doc.setFontSize(8); doc.text('STE AUDIT', 160, y + 17, { align: 'center' }); doc.text('DEMO SEAL', 160, y + 23, { align: 'center' }); }
+    if (visuals?.signaturePng) doc.addImage(visuals.signaturePng,'PNG',24,y+2,64,22);
+    else { doc.setFont('helvetica', 'italic'); doc.setFontSize(17); doc.text(visuals?.signerName || 'Demo Partner', 24, y + 20); }
+    doc.line(24, y + 24, 88, y + 24); doc.setFont('helvetica', 'normal'); doc.setFontSize(8);
+    doc.text('Synthetic visual signature and seal — no legal certification', 24, y + 45);
+  }
   doc.setFontSize(8);
   doc.setTextColor(170, 170, 170);
   doc.text('AuditSphere Prototype v2.0 · Qatar Synthetic Accounting & Audit Scenario', 20, 285);

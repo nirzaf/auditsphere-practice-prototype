@@ -1,17 +1,19 @@
-// Module 02 & 17: Centralized Client 360 Workspace (VP-008)
-// 12 Tabs: Overview, Contacts, Engagements, Jobs, Documents, Requests, Communications, Time/Budgets, Billing, Accounting, Audit, Activity
+// Module 1: Client profile, contacts and current engagement handoffs (VP-008).
+// Historical tab rendering branches remain compatibility support; the visible tab list is current-only.
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { RouteKey, ClientContact, PbcRequestItem, CustomFieldDefinition } from '../../types';
 import { prototypeStore } from '../../store/prototypeStore';
 import { Icon } from '../common/Icons';
+import { EmptyTableRow } from '../common/Feedback';
+import { StatusBadge } from '../common/StatusBadge';
 import { formatCurrency, formatMinutesToHours, getEffectiveTimeEntries } from '../../services/calculations';
 import { UnsavedFormGuard } from '../../services/unsavedFormGuard';
 import { InternalNotesPanel } from '../common/InternalNotesPanel';
-import { visibleEngagementIds } from '../../services/guards';
+import { visibleClientIds, visibleEngagementIds } from '../../services/guards';
 import { filterPbcRequests, getOutstandingPbcRequestCount, getPbcRequestRecipient, PbcRequestDueFilter, PbcRequestStatusFilter } from '../../services/pbcRequestFilters';
+import { consequencePrompt } from '../../services/terminalActions';
 
-import { ModuleIdentityLine, StatusBadge } from '../common/Enterprise';
 type ClientPbcRequest = PbcRequestItem & { engagementId: string };
 
 interface ClientDetailViewProps {
@@ -26,7 +28,10 @@ interface ClientDetailViewProps {
 // An empty practice (e.g. the `empty-practice` preset) has no client to fall back to; render an
 // honest empty state instead of letting the workspace dereference a missing client.
 export const ClientDetailView: React.FC<ClientDetailViewProps> = props => {
-  if (!prototypeStore.getSnapshot().clients.length) {
+  const state = prototypeStore.getSnapshot();
+  const clientScope = visibleClientIds(state);
+  const selectedClientPermitted = state.clients.some(client => client.id === props.clientId && (clientScope === 'ALL' || clientScope.includes(client.id)));
+  if (!state.clients.length || !selectedClientPermitted) {
     return (
       <div className="stack" style={{ gap: 16 }}>
         <div className="between">
@@ -35,8 +40,8 @@ export const ClientDetailView: React.FC<ClientDetailViewProps> = props => {
           </button>
         </div>
         <div role="status" className="panel panel-pad">
-          <h2>No client selected</h2>
-          <p className="sub">There are no clients in this practice yet. Create a client from the Client Portfolio to open its workspace.</p>
+          <h2>{state.clients.length ? 'Client selection unavailable' : 'No client selected'}</h2>
+          <p className="sub">{state.clients.length ? 'This client is missing or outside your current access scope. Return to Client Portfolio and select a permitted client.' : 'There are no clients in this practice yet. Create a client from the Client Portfolio to open its workspace.'}</p>
         </div>
       </div>
     );
@@ -73,6 +78,7 @@ const ClientDetailWorkspace: React.FC<ClientDetailViewProps> = ({ clientId, sear
   const [contactResponsibility, setContactResponsibility] = useState('');
   const [contactEffectiveFrom, setContactEffectiveFrom] = useState('');
   const [contactEffectiveTo, setContactEffectiveTo] = useState('');
+  const [contactRole, setContactRole] = useState<ClientContact['contactRole']>('Other');
   const [contactActive, setContactActive] = useState(true);
   const contactForm = useRef<HTMLFormElement>(null);
   const [customFieldId, setCustomFieldId] = useState(state.customFields.find(f => f.enabled !== false)?.id || '');
@@ -82,7 +88,7 @@ const ClientDetailWorkspace: React.FC<ClientDetailViewProps> = ({ clientId, sear
   const [newFieldLabel, setNewFieldLabel] = useState('');
   const [newFieldType, setNewFieldType] = useState<CustomFieldDefinition['type']>('text');
   const [newFieldOptions, setNewFieldOptions] = useState('');
-  const client = state.clients.find(c => c.id === clientId) || state.clients[0];
+  const client = state.clients.find(c => c.id === clientId)!;
   const contacts = state.contacts.filter(c => c.clientId === client.id);
   const engagements = state.engagements.filter(e => e.client === client.id && canViewEngagement(e.id));
   const scopedEngagementIds = new Set(engagements.map(engagement => engagement.id));
@@ -166,7 +172,7 @@ const ClientDetailWorkspace: React.FC<ClientDetailViewProps> = ({ clientId, sear
     if (!showAddContact || !contactForm.current?.reportValidity() || !contactName.trim()) return false;
     try {
       if (editingContactId) {
-        prototypeStore.updateClientContact(client.id, editingContactId, { name: contactName, email: contactEmail, phone: contactPhone, title: contactTitle, responsibility: contactResponsibility, effectiveFrom: contactEffectiveFrom || undefined, effectiveTo: contactEffectiveTo || undefined, active: contactActive });
+        prototypeStore.updateClientContact(client.id, editingContactId, { name: contactName, email: contactEmail, phone: contactPhone, title: contactTitle, responsibility: contactResponsibility, effectiveFrom: contactEffectiveFrom || undefined, effectiveTo: contactEffectiveTo || undefined, active: contactActive, contactRole: contactRole || 'Other' });
       } else {
         const newContact: ClientContact = {
           id: `CNT-${crypto.randomUUID()}`,
@@ -180,7 +186,8 @@ const ClientDetailWorkspace: React.FC<ClientDetailViewProps> = ({ clientId, sear
           effectiveTo: contactEffectiveTo || undefined,
           isPrimary: contacts.length === 0,
           active: true,
-          portalAccessRequested: false
+          portalAccessRequested: false,
+          contactRole: contactRole || 'Other'
         };
         prototypeStore.addContact(newContact);
       }
@@ -195,14 +202,15 @@ const ClientDetailWorkspace: React.FC<ClientDetailViewProps> = ({ clientId, sear
     setContactResponsibility('');
     setContactEffectiveFrom('');
     setContactEffectiveTo('');
+    setContactRole('Other');
     setContactActive(true);
     return true;
-  }, [showAddContact, editingContactId, contactName, contactEmail, contactPhone, contactTitle, contactResponsibility, contactEffectiveFrom, contactEffectiveTo, contactActive, contacts.length, client.id]);
+  }, [showAddContact, editingContactId, contactName, contactEmail, contactPhone, contactTitle, contactResponsibility, contactEffectiveFrom, contactEffectiveTo, contactRole, contactActive, contacts.length, client.id]);
   const discardContact = useCallback(() => {
     setShowAddContact(false);
     setEditingContactId(null);
     setContactName(''); setContactEmail(''); setContactTitle(''); setContactResponsibility('');
-    setContactPhone(''); setContactActive(true);
+    setContactPhone(''); setContactRole('Other'); setContactActive(true);
     setContactEffectiveFrom(''); setContactEffectiveTo('');
   }, []);
   useEffect(() => {
@@ -215,7 +223,7 @@ const ClientDetailWorkspace: React.FC<ClientDetailViewProps> = ({ clientId, sear
     return () => onRegisterUnsavedForm(null, 'client-contact');
   }, [onRegisterUnsavedForm, showAddContact, editingContactId, contactName, contactEmail, contactPhone, contactTitle, contactResponsibility, contactEffectiveFrom, contactEffectiveTo, saveContact, discardContact]);
   const editContact = (contact: ClientContact) => {
-    setEditingContactId(contact.id); setContactName(contact.name); setContactEmail(contact.email); setContactPhone(contact.phone || ''); setContactTitle(contact.title || ''); setContactResponsibility(contact.responsibility || ''); setContactEffectiveFrom(contact.effectiveFrom || ''); setContactEffectiveTo(contact.effectiveTo || ''); setContactActive(contact.active); setShowAddContact(true);
+    setEditingContactId(contact.id); setContactName(contact.name); setContactEmail(contact.email); setContactPhone(contact.phone || ''); setContactTitle(contact.title || ''); setContactResponsibility(contact.responsibility || ''); setContactEffectiveFrom(contact.effectiveFrom || ''); setContactEffectiveTo(contact.effectiveTo || ''); setContactRole(contact.contactRole || 'Other'); setContactActive(contact.active); setShowAddContact(true);
   };
   const openAddContact = () => { discardContact(); setShowAddContact(true); };
   const handleAddContact = (e: React.FormEvent) => { e.preventDefault(); saveContact(); };
@@ -311,7 +319,7 @@ const ClientDetailWorkspace: React.FC<ClientDetailViewProps> = ({ clientId, sear
   const requestPbcEditClose = () => onBeforeContextChange(() => { setEditingRequest(null); setEditReason(''); });
 
   const handleCancelPbc = (p: ClientPbcRequest) => {
-    const reason = window.prompt('Reason for cancelling this information request (required):');
+    const reason = window.prompt(consequencePrompt('pbc-cancelled', `${p.id} · ${p.title}`, 'Reason for cancelling this information request (required)'));
     if (!reason || !reason.trim()) return;
     try {
       prototypeStore.cancelPbcRequest(p.engagementId, p.id, reason);
@@ -321,35 +329,13 @@ const ClientDetailWorkspace: React.FC<ClientDetailViewProps> = ({ clientId, sear
 
   return (
     <div className="stack" style={{ gap: 16 }}>
-      {/* Client record header: the canonical page title for this routed record. */}
-      <div className="pagehead panel panel-pad" style={{ marginBottom: 0, alignItems: 'center' }}>
-        <div className="row" style={{ gap: 16, flexWrap: 'wrap' }}>
-          <div className="firmavatar" style={{ width: 44, height: 44, fontSize: 17 }}>{client.initials}</div>
-          <div style={{ minWidth: 0 }}>
-            <div className="row" style={{ gap: 10, flexWrap: 'wrap' }}>
-              <h1>{client.name}</h1>
-              <span className="page-status">
-                <StatusBadge status={client.status} explain />
-                <span className={`badge ${client.risk === 'Low' ? 'green' : 'amber'}`}>{client.risk} risk</span>
-              </span>
-            </div>
-            <p className="page-subtitle">
-              Client ID: {client.id} · Code: {client.code} · {client.tradingName || client.industry} · {client.jurisdiction}.
-              One legal relationship with its own contacts, engagements, requests and shared records.
-            </p>
-            <ModuleIdentityLine clientId={client.id} extra={[
-              { label: 'Engagements', value: String(engagements.length) },
-              { label: 'Relationship owner', value: client.relationshipOwner }
-            ]} />
-          </div>
-        </div>
-        <div className="head-actions">
-          <button type="button" className="btn sm ghost" onClick={onBack}>
-            <Icon name="arrow" /> Back to Portfolio
-          </button>
-        </div>
+      {/* Top breadcrumb & back button */}
+      <div className="between">
+        <button className="btn sm ghost" onClick={onBack}>
+          <Icon name="arrow" /> Back to Portfolio
+        </button>
+        <span className="caption">Client ID: {client.id} · Code: {client.code}</span>
       </div>
-
       {clientNotice && <div role="status" className="panel panel-pad">{clientNotice}</div>}
 
       {/* Client Header Card */}
@@ -365,9 +351,7 @@ const ClientDetailWorkspace: React.FC<ClientDetailViewProps> = ({ clientId, sear
             </div>
           </div>
           <div className="row" style={{ gap: 10 }}>
-            <span className={`badge ${client.status === 'Active' ? 'green' : 'gray'}`}>
-              <StatusBadge status={client.status} />
-            </span>
+            <StatusBadge status={client.status} />
             <span className={`badge ${client.risk === 'Low' ? 'green' : 'amber'}`}>
               {client.risk} Risk
             </span>
@@ -385,7 +369,7 @@ const ClientDetailWorkspace: React.FC<ClientDetailViewProps> = ({ clientId, sear
               aria-selected={activeTab === tab.key}
               aria-controls="client-workspace-panel"
               tabIndex={activeTab === tab.key ? 0 : -1}
-              className={`tab-btn ${activeTab === tab.key ? 'active' : ''}`}
+              className={`tab-btn ${activeTab === tab.key ? 'active' : ''}`} aria-pressed={activeTab === tab.key}
               onClick={() => setActiveTab(tab.key)}
               onKeyDown={event => handleWorkspaceTabKeyDown(event, tab.key)}
             >
@@ -409,6 +393,7 @@ const ClientDetailWorkspace: React.FC<ClientDetailViewProps> = ({ clientId, sear
                 <div><label>Registration Number</label><span>{client.registrationNumber || 'N/A'}</span></div>
                 <div><label>Jurisdiction</label><span>{client.jurisdiction}</span></div>
                 <div><label>Industry</label><span>{client.industry}</span></div>
+                <div><label>Corporate Hierarchy</label><span><span className="badge blue">{client.entityRole || 'Standalone'}</span>{client.parentClientId && ` · Sub of ${state.clients.find(c => c.id === client.parentClientId)?.name || client.parentClientId}`}</span></div>
                 <div><label>Annual Revenue</label><span>{formatCurrency(client.revenue)}</span></div>
                 <div><label>Relationship Owner</label><span>{client.relationshipOwner}</span></div>
                 <div><label>Engagement Partner</label><span>{client.partner || 'Daniel James'}</span></div>
@@ -557,7 +542,12 @@ const ClientDetailWorkspace: React.FC<ClientDetailViewProps> = ({ clientId, sear
                     <td>{c.title || 'Finance'}</td>
                     <td>{c.email}</td>
                     <td>{c.phone || '—'}</td>
-                    <td>{c.responsibility || 'Management Contact'}</td>
+                    <td>
+                      {c.responsibility || 'Management Contact'}
+                      {c.contactRole && c.contactRole !== 'Other' && (
+                        <div className="mt4"><span className="badge blue" title="Firm communication routing rule">{c.contactRole}</span></div>
+                      )}
+                    </td>
                     <td>{c.effectiveFrom || 'No start'} – {c.effectiveTo || 'Open ended'}</td>
                     <td>
                       <span className={`badge ${c.portalAccessRequested ? 'amber' : 'gray'}`}>
@@ -576,7 +566,7 @@ const ClientDetailWorkspace: React.FC<ClientDetailViewProps> = ({ clientId, sear
             <p className="sub">Nominations are requests only. They do not create client contacts, portal identities, access grants or approval authority.</p>
             {(state.clientContactNominations || []).filter(item => item.clientId === client.id).length === 0
               ? <p className="caption mt8">No contact nominations received.</p>
-              : <div className="stack mt8">{(state.clientContactNominations || []).filter(item => item.clientId === client.id).map(item => <div className="borderbox" key={item.id}><div className="between"><b>{item.name} · {item.email}</b><span className={`badge ${item.status === 'Reviewed' ? 'green' : 'amber'}`}><StatusBadge status={item.status} /></span></div><div className="cell-sub">Submitted by {item.nominatedBy} · {new Date(item.nominatedAt).toLocaleString('en-GB')}</div><p className="sub mt4">{item.reason}</p>{item.reviewNote && <p className="caption mt4">Staff review by {item.reviewedBy}: {item.reviewNote}</p>}{item.status === 'Pending review' && ['relationship', 'onboarding', 'manager', 'partner', 'admin'].includes(state.currentRole) && <button className="btn sm mt8" onClick={() => { const note = window.prompt('Record a staff review note. This does not create a contact or access grant:'); if (note?.trim()) try { prototypeStore.reviewClientContactNomination(item.id, note); setClientNotice('Staff review recorded. Add a client contact and grant access separately if authorized.'); } catch (error) { setClientNotice(error instanceof Error ? error.message : 'Nomination review could not be recorded.'); } }}>Record staff review</button>}</div>)}</div>}
+              : <div className="stack mt8">{(state.clientContactNominations || []).filter(item => item.clientId === client.id).map(item => <div className="borderbox" key={item.id}><div className="between"><b>{item.name} · {item.email}</b><StatusBadge status={item.status} /></div><div className="cell-sub">Submitted by {item.nominatedBy} · {new Date(item.nominatedAt).toLocaleString('en-GB')}</div><p className="sub mt4">{item.reason}</p>{item.reviewNote && <p className="caption mt4">Staff review by {item.reviewedBy}: {item.reviewNote}</p>}{item.status === 'Pending review' && ['relationship', 'onboarding', 'manager', 'partner', 'admin'].includes(state.currentRole) && <button className="btn sm mt8" onClick={() => { const note = window.prompt('Record a staff review note. This does not create a contact or access grant:'); if (note?.trim()) try { prototypeStore.reviewClientContactNomination(item.id, note); setClientNotice('Staff review recorded. Add a client contact and grant access separately if authorized.'); } catch (error) { setClientNotice(error instanceof Error ? error.message : 'Nomination review could not be recorded.'); } }}>Record staff review</button>}</div>)}</div>}
           </div>
         </div>
       )}
@@ -604,13 +594,13 @@ const ClientDetailWorkspace: React.FC<ClientDetailViewProps> = ({ clientId, sear
                 </tr>
               </thead>
               <tbody>
-                {engagements.length === 0 && <tr><td colSpan={8} className="sub text-center" style={{ padding: 16 }}>No engagements for this client yet. Accept a proposal or a client-acceptance case to create one.</td></tr>}
+                {engagements.length === 0 && <EmptyTableRow colSpan={8} variant="none" title="No engagements for this client yet." description="Accept a proposal or a client-acceptance case to create one." />}
                 {engagements.map(e => (
                   <tr key={e.id}>
                     <td><b>{e.id}</b></td>
                     <td>{e.service}</td>
                     <td>{e.period}</td>
-                    <td><StatusBadge status={e.stage} /></td>
+                    <td><span className="badge teal">{e.stage}</span></td>
                     <td>{e.manager}</td>
                     <td>{formatCurrency(e.agreedFee, e.currency)}</td>
                     <td>
@@ -637,8 +627,8 @@ const ClientDetailWorkspace: React.FC<ClientDetailViewProps> = ({ clientId, sear
         <div className="panel">
           <div className="panel-head">
             <h3>Jobs & Delivery Containers</h3>
-            <button className="btn primary sm" onClick={() => navigateWithClientEngagement('jobs')}>
-              <Icon name="plus" /> Go to Jobs
+            <button className="btn primary sm" onClick={() => navigateWithClientEngagement('scheduling')}>
+              <Icon name="clock" /> Open Resource Scheduling
             </button>
           </div>
           <div className="tablewrap">
@@ -653,13 +643,13 @@ const ClientDetailWorkspace: React.FC<ClientDetailViewProps> = ({ clientId, sear
                 </tr>
               </thead>
               <tbody>
-                {jobs.length === 0 && <tr><td colSpan={7} className="sub text-center" style={{ padding: 16 }}>No jobs registered for this client. Jobs appear here once created in Jobs &amp; Tasks for one of this client's engagements.</td></tr>}
+                {jobs.length === 0 && <EmptyTableRow colSpan={7} variant="none" title="No jobs registered for this client." description="Jobs appear here once created in Jobs &amp; Tasks for one of this client's engagements." />}
                 {jobs.map(j => (
                   <tr key={j.id}>
                     <td><b>{j.title}</b><div className="cell-sub">{j.id}</div></td>
                     <td>{j.owner}</td>
                     <td>{j.dueDate}</td>
-                    <td><StatusBadge status={j.status} /></td>
+                    <td><span className="badge gray">{j.status}</span></td>
                     <td>{j.budgetHours ? `${j.budgetHours} hrs` : '—'}</td>
                   </tr>
                 ))}
@@ -690,7 +680,7 @@ const ClientDetailWorkspace: React.FC<ClientDetailViewProps> = ({ clientId, sear
                 </tr>
               </thead>
               <tbody>
-                {documents.length === 0 && <tr><td colSpan={7} className="sub text-center" style={{ padding: 16 }}>No documents registered for this client. Documents added through client uploads, the library, or workspace preparation appear here.</td></tr>}
+                {documents.length === 0 && <EmptyTableRow colSpan={7} variant="none" title="No documents registered for this client." description="Documents added through client uploads, the library, or workspace preparation appear here." />}
                 {documents.map(d => (
                   <tr key={d.id}>
                     <td><b>{d.name}</b></td>
@@ -746,18 +736,13 @@ const ClientDetailWorkspace: React.FC<ClientDetailViewProps> = ({ clientId, sear
                 </tr>
               </thead>
               <tbody>
-                {visiblePbcRequests.length === 0 && (
-                  <tr><td colSpan={6} style={{ textAlign: 'center', padding: '24px 12px' }}>
-                    <b>{pbcRequests.length === 0 ? 'No PBC requests for this client yet' : 'No requests match the current filter'}</b>
-                    <p className="sub mt8">{pbcRequests.length === 0 ? 'Use “New PBC Request” to draft an information request. Drafts are presented to the client, answered through the portal, clarified or accepted, and retained with full version history.' : 'Adjust the status filter or search text to see saved requests.'}</p>
-                  </td></tr>
-                )}
+                {visiblePbcRequests.length === 0 && <EmptyTableRow colSpan={6} variant={pbcRequests.length === 0 ? 'none' : 'filtered'} title={pbcRequests.length === 0 ? 'No PBC requests for this client yet' : 'No requests match the current filter'} description={pbcRequests.length === 0 ? 'Use “New PBC Request” to draft an information request. Drafts are presented to the client, answered through the portal, clarified or accepted, and retained with full version history.' : 'Adjust the status filter or search text to see saved requests.'} />}
                 {visiblePbcRequests.map(p => (
                   <tr key={p.id} data-search-target={p.id === searchTargetId ? 'true' : undefined} className={p.id === searchTargetId ? 'selected-row' : undefined}>
                     <td><b>{p.title}</b><div className="cell-sub">{p.id}</div>{p.clarificationNote && <div className="cell-sub">Clarification: {p.clarificationNote}</div>}{Boolean(p.sharedFiles?.length) && <details className="mt4"><summary className="caption">Submitted files ({p.sharedFiles!.length})</summary>{p.sharedFiles!.map((file, index) => <div className="cell-sub" key={`${file.id}-${index}`}>v{file.version} · {file.name} · {new Date(file.uploadedAt).toLocaleDateString()} · by {file.uploadedBy}</div>)}</details>}{Boolean(p.acceptanceHistory?.length) && <details className="mt4"><summary className="caption">Acceptance history ({p.acceptanceHistory!.length})</summary>{p.acceptanceHistory!.map(entry => <div className="cell-sub" key={`${entry.version}-${entry.acceptedAt}`}>v{entry.version} accepted by {entry.acceptedBy} · {new Date(entry.acceptedAt).toLocaleString()}</div>)}</details>}</td>
                     <td>{p.category}</td>
                     <td>{p.due}</td>
-                    <td><span className={`badge ${p.status === 'Accepted' ? 'green' : p.status === 'Received' ? 'blue' : 'amber'}`}><StatusBadge status={p.status} /></span></td>
+                    <td><StatusBadge status={p.status} />{!['Accepted', 'Cancelled', 'Draft'].includes(p.status) && p.due && p.due < state.asOfDate && <div className="mt4"><StatusBadge status="Overdue" kind="blocked" title={`Due ${p.due}; as of ${state.asOfDate}`} /></div>}</td>
                     <td>{p.file || 'Awaiting upload'}{state.documents.some(document => document.linkedPbcId === p.id && document.clientId === client.id && document.engagementId === p.engagementId && document.brokenLink) && <div className="tag red" role="status">Reference unavailable</div>}</td>
                     <td>
                       <div className="row" style={{ gap: 6 }}>
@@ -783,8 +768,8 @@ const ClientDetailWorkspace: React.FC<ClientDetailViewProps> = ({ clientId, sear
         <div className="panel">
           <div className="panel-head">
             <h3>Client Communications Register</h3>
-            <button className="btn primary sm" onClick={() => navigateWithClientEngagement('communications')}>
-              <Icon name="message" /> Compose Email / Note
+            <button className="btn primary sm" onClick={() => navigateWithClientEngagement('documents')}>
+              <Icon name="folder" /> Open Engagement Directory
             </button>
           </div>
           <div className="stack panel-pad" style={{ gap: 12 }}>
@@ -845,7 +830,7 @@ const ClientDetailWorkspace: React.FC<ClientDetailViewProps> = ({ clientId, sear
                     <td>{inv.description}</td>
                     <td>{formatCurrency(inv.amount, inv.currency)}</td>
                     <td>{formatCurrency(inv.paid, inv.currency)}</td>
-                    <td><span className={`badge ${inv.status === 'Paid' ? 'green' : 'amber'}`}><StatusBadge status={inv.status} /></span></td>
+                    <td><StatusBadge status={inv.status} /></td>
                     <td>{inv.due}</td>
                   </tr>
                 ))}
@@ -860,8 +845,8 @@ const ClientDetailWorkspace: React.FC<ClientDetailViewProps> = ({ clientId, sear
         <div className="panel panel-pad">
           <h3>Trial Balance & Ledgers</h3>
           <p className="sub" style={{ marginBottom: 16 }}>Imported accounting books for active external audit.</p>
-          <button className="btn primary sm" onClick={() => navigateWithClientEngagement('accounting-setup')}>
-            <Icon name="calculator" /> Open Accounting Workbench
+          <button className="btn primary sm" onClick={() => navigateWithClientEngagement('trial-balance')}>
+            <Icon name="calculator" /> Open Trial Balance & Ledgers
           </button>
         </div>
       )}
@@ -871,8 +856,8 @@ const ClientDetailWorkspace: React.FC<ClientDetailViewProps> = ({ clientId, sear
         <div className="panel">
           <div className="panel-head">
             <h3>Assurance Workpapers ({workpapers.length})</h3>
-            <button className="btn primary sm" onClick={() => navigateWithClientEngagement('audit')}>
-              <Icon name="checkboard" /> Open Workpaper Desk
+            <button className="btn primary sm" onClick={() => navigateWithClientEngagement('audit-fieldwork')}>
+              <Icon name="checkboard" /> Open Workprograms & Evidence
             </button>
           </div>
           <div className="tablewrap">
@@ -892,7 +877,7 @@ const ClientDetailWorkspace: React.FC<ClientDetailViewProps> = ({ clientId, sear
                     <td><b>{w.id}</b></td>
                     <td>{w.title}</td>
                     <td>{w.objective}</td>
-                    <td><span className={`badge ${w.status === 'Cleared' ? 'green' : 'amber'}`}><StatusBadge status={w.status} /></span></td>
+                    <td><StatusBadge status={w.status} /></td>
                     <td>{w.reviewer}</td>
                   </tr>
                 ))}
@@ -967,6 +952,15 @@ const ClientDetailWorkspace: React.FC<ClientDetailViewProps> = ({ clientId, sear
                   />
                 </div>
                 <label className="caption">Phone<input type="tel" className="input" aria-label="Contact phone" value={contactPhone} onChange={e => setContactPhone(e.target.value)} /></label>
+                <div>
+                  <label className="caption">Communication Routing Role</label>
+                  <select className="input" aria-label="Communication Routing Role" value={contactRole || 'Other'} onChange={e => setContactRole(e.target.value as any)}>
+                    <option value="Other">Standard Contact</option>
+                    <option value="MD/GM">MD / GM (Firm rule: Routes Proposals & Formal Audit Reports)</option>
+                    <option value="CFO/Finance Director">CFO / Finance Director (Firm rule: Routes Invoices & Receipts)</option>
+                    <option value="Chief Accountant/Audit Liaison">Chief Accountant / Liaison (Firm rule: Routes PBC Requests)</option>
+                  </select>
+                </div>
                 <div>
                   <label className="caption">Responsibility</label>
                   <input type="text" className="input" aria-label="Contact responsibility" placeholder="e.g. Financial reporting" value={contactResponsibility} onChange={e => setContactResponsibility(e.target.value)} />

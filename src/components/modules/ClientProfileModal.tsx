@@ -47,6 +47,8 @@ export const ClientProfileModal: React.FC<ClientProfileModalProps> = ({ existing
     partner: existing?.partner || '',
     manager: existing?.manager || '',
     notes: existing?.notes || '',
+    entityRole: existing?.entityRole || 'Standalone',
+    parentClientId: existing?.parentClientId || '',
   }));
   const initialDraft = useRef(JSON.stringify(draft));
   const draftRef = useRef(draft);
@@ -132,6 +134,24 @@ export const ClientProfileModal: React.FC<ClientProfileModalProps> = ({ existing
             </label>
           </div>
           <p className="caption">Client status records the relationship lifecycle. Commercial conversion creates a Prospect; professional acceptance and engagement activation are separate decisions.</p>
+          <div className="grid2">
+            <label className="caption">Corporate Hierarchy
+              <select className="input" aria-label="Corporate Hierarchy" value={draft.entityRole || 'Standalone'} onChange={event => set('entityRole', event.target.value as ClientDraft['entityRole'])}>
+                <option value="Standalone">Standalone Entity</option>
+                <option value="Holding">Holding Company (Parent)</option>
+                <option value="Subsidiary">Subsidiary</option>
+                <option value="Affiliate">Affiliate</option>
+              </select>
+            </label>
+            {(draft.entityRole === 'Subsidiary' || draft.entityRole === 'Affiliate') && (
+              <label className="caption">Parent Holding Company
+                <select className="input" aria-label="Parent Holding Company" value={draft.parentClientId || ''} onChange={event => set('parentClientId', event.target.value)}>
+                  <option value="">Select Parent Holding Company…</option>
+                  {clients.map(c => <option key={c.id} value={c.id}>{c.name} ({c.code})</option>)}
+                </select>
+              </label>
+            )}
+          </div>
           <div className="grid2">
             {input('Trading name', 'tradingName')}
             {input('Registration number', 'registrationNumber')}

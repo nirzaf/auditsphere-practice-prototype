@@ -94,7 +94,7 @@ export function applyReportingAdjustments(rows: TrialBalanceRow[], journals: Adj
   return { rows: adjustedRows, applied, unapplied };
 }
 
-// Module 15: Receivables Aging Calculation (VP-033)
+// Module 5: Receivables Aging Calculation (VP-033)
 export interface AgingSummary {
   current: number;
   days1_30: number;
@@ -254,7 +254,7 @@ export function calculateReceivablesAging(
   };
 }
 
-// Module 13: Budget vs Actuals (VP-029)
+// Module 5: Budget vs Actuals (VP-029)
 export interface BudgetAnalysis {
   plannedMinutes: number;
   plannedHours: number;
@@ -342,7 +342,7 @@ export function calculateBudgetVsActual(
   };
 }
 
-// Module 21 & 24: Trial Balance Totals (VP-035, VP-038, VP-040)
+// Module 2 / 5: Trial Balance Totals (VP-035, VP-038, VP-040)
 export function calculateTrialBalanceTotals(rows: TrialBalanceRow[]) {
   let assets = 0;
   let liabilities = 0;
@@ -385,7 +385,7 @@ export function calculateTrialBalanceTotals(rows: TrialBalanceRow[]) {
   };
 }
 
-// Module 21: General Ledger Completeness Check (VP-036)
+// Module 5: General Ledger Completeness Check (VP-036)
 export interface GLCompletenessCheck {
   accountCode: string;
   accountName: string;
@@ -507,7 +507,7 @@ export function verifyGLCompleteness(
   };
 }
 
-// Module 23: Reconciliation Variance Check (VP-039 / EX09)
+// Historical calculation compatibility: Reconciliation Variance Check (VP-039 / EX09)
 export function calculateReconciliationVariance(rec: ReconciliationSchedule) {
   const items = rec.items || [];
   // Proposed corrections cannot clear timing residual (EX09)
@@ -546,7 +546,7 @@ export function calculateReconciliationVariance(rec: ReconciliationSchedule) {
   };
 }
 
-// Module 24: Financial Statements Math
+// Module 3 / 5: Financial Statements Math
 export function calculateBalanceSheet(rows: TrialBalanceRow[]) {
   const assets = rows.filter(r => r.type === 'asset');
   const liabilities = rows.filter(r => r.type === 'liability');
@@ -597,7 +597,7 @@ export function calculateIncomeStatement(rows: TrialBalanceRow[]) {
   };
 }
 
-// Module 26: Consolidation Math (VP-045, VP-046 / EX10, EX11, EX12)
+// Historical calculation compatibility: Consolidation Math (VP-045, VP-046 / EX10, EX11, EX12)
 export function calculateConsolidatedBalanceSheet(
   parentRows: TrialBalanceRow[],
   subRows: TrialBalanceRow[],
@@ -732,18 +732,102 @@ export function calculateConsolidatedBalanceSheet(
   };
 }
 
-// Module 28: ISA 320 Materiality Calculation (VP-048 / F16)
+// Module 2: ISA 320 Materiality Calculation (VP-048 / F16 / STE v2.1)
+export type BenchmarkType = 'profit' | 'revenue' | 'assets' | 'equity';
+
+export interface BenchmarkBand {
+  minRate: number;
+  maxRate: number;
+  label: string;
+}
+
+export const MATERIALITY_BENCHMARK_BANDS: Record<BenchmarkType, BenchmarkBand> = {
+  profit: { minRate: 5.0, maxRate: 10.0, label: 'Profit Before Tax (5.0% - 10.0%)' },
+  revenue: { minRate: 0.5, maxRate: 2.0, label: 'Gross Revenue (0.5% - 2.0%)' },
+  assets: { minRate: 0.5, maxRate: 1.0, label: 'Total Assets (0.5% - 1.0%)' },
+  equity: { minRate: 1.0, maxRate: 2.0, label: 'Net Equity / Net Assets (1.0% - 2.0%)' }
+};
+
+export const TE_RATE_BAND = { minRate: 50.0, maxRate: 75.0, label: 'Tolerable Error / TE (50.0% - 75.0% of PM)' };
+export const SAD_RATE_BAND = { minRate: 3.0, maxRate: 5.0, label: 'Summary of Audit Differences / SAD (3.0% - 5.0% of PM)' };
+export const MAX_ROUNDING_TOLERANCE_PCT = 5.0;
+
+export function validateMaterialityRates(
+  benchmark: string,
+  materialityRate: number,
+  performanceRate?: number,
+  clearlyTrivialRate?: number
+) {
+  if (![materialityRate, performanceRate, clearlyTrivialRate].filter(v => v !== undefined).every(Number.isFinite)) throw new RangeError('Materiality rates must be finite numbers.');
+  const normBench = benchmark.toLowerCase();
+  const band = MATERIALITY_BENCHMARK_BANDS[normBench as BenchmarkType];
+  if (band) {
+    if (materialityRate < band.minRate || materialityRate > band.maxRate) {
+      throw new RangeError(`${band.label} rate must be between ${band.minRate}% and ${band.maxRate}% under STE v2.1 business rules.`);
+    }
+  } else {
+    throw new RangeError('Choose Profit Before Tax, Revenue, Assets or Equity as the materiality benchmark.');
+  }
+
+  if (performanceRate !== undefined) {
+    if (performanceRate < TE_RATE_BAND.minRate || performanceRate > TE_RATE_BAND.maxRate) {
+      throw new RangeError(`Performance materiality (TE) rate must be between ${TE_RATE_BAND.minRate}% and ${TE_RATE_BAND.maxRate}% of PM under STE v2.1 business rules.`);
+    }
+  }
+
+  if (clearlyTrivialRate !== undefined) {
+    if (clearlyTrivialRate < SAD_RATE_BAND.minRate || clearlyTrivialRate > SAD_RATE_BAND.maxRate) {
+      throw new RangeError(`Clearly trivial threshold (SAD) rate must be between ${SAD_RATE_BAND.minRate}% and ${SAD_RATE_BAND.maxRate}% of PM under STE v2.1 business rules.`);
+    }
+  }
+}
+
+export function validateMaterialityThresholds(
+  benchmarkValue: number,
+  materialityRate: number,
+  overallMateriality: number,
+  performanceRate: number,
+  performanceMateriality: number,
+  clearlyTrivialRate: number,
+  clearlyTrivialThreshold: number
+) {
+  if (![benchmarkValue, materialityRate, overallMateriality, performanceRate, performanceMateriality, clearlyTrivialRate, clearlyTrivialThreshold].every(Number.isFinite) || benchmarkValue <= 0 || overallMateriality <= 0) throw new RangeError('Materiality thresholds need finite positive benchmark and PM amounts.');
+  const rawPM = Math.round(benchmarkValue * (materialityRate / 100));
+  const tolerance = Math.abs(rawPM * (MAX_ROUNDING_TOLERANCE_PCT / 100));
+  const minAllowedPM = Math.round(rawPM - tolerance);
+  const maxAllowedPM = Math.round(rawPM + tolerance);
+
+  if (overallMateriality < minAllowedPM || overallMateriality > maxAllowedPM) {
+    throw new RangeError(`Manager rounded PM (${overallMateriality}) exceeds the ±5% permitted rounding band [${minAllowedPM}, ${maxAllowedPM}] from calculated PM (${rawPM}) under STE v2.1 rules.`);
+  }
+
+  const expectedTE = Math.round(overallMateriality * (performanceRate / 100));
+  const expectedSAD = Math.round(overallMateriality * (clearlyTrivialRate / 100));
+
+  if (Math.abs(performanceMateriality - expectedTE) > 1) {
+    throw new RangeError(`Performance materiality (${performanceMateriality}) must derive from selected PM (${overallMateriality}) at ${performanceRate}% (expected ${expectedTE}).`);
+  }
+  if (Math.abs(clearlyTrivialThreshold - expectedSAD) > 1) {
+    throw new RangeError(`Clearly trivial threshold (${clearlyTrivialThreshold}) must derive from selected PM (${overallMateriality}) at ${clearlyTrivialRate}% (expected ${expectedSAD}).`);
+  }
+}
+
 export function calculateMateriality(
   benchmarkValue: number,
   percentage: number,
   performancePct: number,
   trivialPct: number,
-  rationale: string
+  rationale: string,
+  benchmarkType?: string
 ) {
   if (!Number.isFinite(benchmarkValue) || benchmarkValue <= 0) throw new RangeError('Benchmark value must be a positive finite amount.');
-  if (!Number.isFinite(percentage) || percentage <= 0 || percentage > 100) throw new RangeError('Applied benchmark rate must be greater than 0 and no more than 100 percent.');
-  if (!Number.isFinite(performancePct) || performancePct <= 0 || performancePct > 100) throw new RangeError('Performance materiality rate must be greater than 0 and no more than 100 percent.');
-  if (!Number.isFinite(trivialPct) || trivialPct < 0 || trivialPct > 100) throw new RangeError('Clearly trivial rate must be from 0 through 100 percent.');
+  if (benchmarkType) {
+    validateMaterialityRates(benchmarkType, percentage, performancePct, trivialPct);
+  } else {
+    if (!Number.isFinite(percentage) || percentage <= 0 || percentage > 100) throw new RangeError('Applied benchmark rate must be greater than 0 and no more than 100 percent.');
+    if (!Number.isFinite(performancePct) || performancePct <= 0 || performancePct > 100) throw new RangeError('Performance materiality rate must be greater than 0 and no more than 100 percent.');
+    if (!Number.isFinite(trivialPct) || trivialPct < 0 || trivialPct > 100) throw new RangeError('Clearly trivial rate must be from 0 through 100 percent.');
+  }
   if (!rationale.trim()) throw new RangeError('A planning rationale is required to calculate materiality.');
   const overallMateriality = Math.round(benchmarkValue * (percentage / 100));
   const performanceMateriality = Math.round(overallMateriality * (performancePct / 100));
@@ -760,3 +844,4 @@ export function calculateMateriality(
     rationale
   };
 }
+

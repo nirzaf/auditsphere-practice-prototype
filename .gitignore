@@ -12,6 +12,22 @@ __pycache__/
 .claude/
 .tmp-build/
 .wrangler/
+.DS_Store
+Thumbs.db
+Desktop.ini
+~$*
+*.swp
+*.swo
+
+# Local credentials and environment overrides; public API config stays tracked
+.env
+.env.local
+.env.*.local
+.dev.vars
+.dev.vars.*
+
+# Regenerate with npm run cloud:seed
+/worker/seed.sql
 
 # Generated test output (root only; evidence under docs/ stays tracked)
 /test-results.json

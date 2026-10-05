@@ -1,13 +1,13 @@
-// Module 02: Client Portfolio & CRM (VP-006, VP-007, VP-008)
+// Module 1: Client portfolio and contacts (VP-006, VP-007, VP-008)
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { ClientRecord, RouteKey } from '../../types';
 import { prototypeStore } from '../../store/prototypeStore';
 import { visibleClientIds, visibleEngagementIds, hasAnyRole } from '../../services/guards';
 import { Icon } from '../common/Icons';
+import { StatusBadge } from '../common/StatusBadge';
 import { ClientProfileModal } from './ClientProfileModal';
 import { UnsavedFormGuard } from '../../services/unsavedFormGuard';
 
-import { ListState, StatusBadge } from '../common/Enterprise';
 interface ClientsViewProps {
   onNavigate: (route: RouteKey) => void;
   onSelectClientDetail: (clientId: string) => void;
@@ -130,16 +130,6 @@ export const ClientsView: React.FC<ClientsViewProps> = ({ onNavigate, onSelectCl
       </div>
 
       <div className="grid3">
-        {/* A filtered search must never look like an empty practice. */}
-        {filteredClients.length === 0 && (
-          state.clients.length === 0
-            ? <ListState kind="empty" message="No client records yet" hint="Client profiles appear here once the practice onboards its first client." />
-            : <ListState
-                kind="no-match"
-                message="No clients match these filters"
-                hint={`${state.clients.length} client record(s) exist in your scope but none match “${filterText || statusFilter}”. Clear the search or reset the status filter to see them.`}
-              />
-        )}
         {filteredClients.map(client => {
           const clientEngs = state.engagements.filter(e => e.client === client.id && (allowedEngagementIds === 'ALL' || allowedEngagementIds.includes(e.id)));
           const clientContacts = state.contacts.filter(c => c.clientId === client.id);
@@ -148,7 +138,7 @@ export const ClientsView: React.FC<ClientsViewProps> = ({ onNavigate, onSelectCl
             <div key={client.id} className="client-card">
               <div className="between">
                 <div className="row" style={{ gap: 10 }}>
-                  <div className="firmavatar" style={{ background: 'var(--teal-light)', color: 'var(--teal)' }}>
+                  <div className="firmavatar" style={{ background: 'var(--tealsoft)', color: 'var(--teal)' }}>
                     {client.initials}
                   </div>
                   <div>
@@ -156,9 +146,7 @@ export const ClientsView: React.FC<ClientsViewProps> = ({ onNavigate, onSelectCl
                     <div className="cell-sub">{client.industry}</div>
                   </div>
                 </div>
-                <span className={`badge ${client.status === 'Active' ? 'green' : 'gray'}`}>
-                  <StatusBadge status={client.status} />
-                </span>
+                <StatusBadge status={client.status} />
               </div>
 
               <div className="row mt12" style={{ gap: 8 }}>

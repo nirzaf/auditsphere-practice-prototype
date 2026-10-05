@@ -1,13 +1,17 @@
-// Module 03: Leads & Opportunities Pipeline (VP-009)
+// Module 1: Leads and opportunities (VP-009)
 import React, { useEffect, useRef, useState } from 'react';
+import { ActivityTimeline } from '../common/ActivityTimeline';
 import { RouteKey, LeadOpportunity } from '../../types';
 import { prototypeStore } from '../../store/prototypeStore';
 import { Icon } from '../common/Icons';
 import { formatCurrency } from '../../services/calculations';
 import { visibleClientIds } from '../../services/guards';
 import { UnsavedFormGuard } from '../../services/unsavedFormGuard';
+import { StatusBadge } from '../common/StatusBadge';
+import { LifecycleStepper } from '../common/Lifecycle';
+import { lifecycleById } from '../../services/lifecycles';
+import { keyboardActivate } from '../common/keyboardActivate';
 
-import { StatusBadge } from '../common/Enterprise';
 interface LeadsPipelineViewProps {
   onNavigate: (route: RouteKey) => void;
   onBeforeContextChange: (change: () => void) => void;
@@ -29,11 +33,14 @@ export const LeadsPipelineView: React.FC<LeadsPipelineViewProps> = ({ onNavigate
   const [currency, setCurrency] = useState('QAR');
   const [stage, setStage] = useState<LeadOpportunity['stage']>('Inquiry');
   const [source, setSource] = useState('');
+  const [intakeChannel, setIntakeChannel] = useState<LeadOpportunity['intakeChannel']>('Email');
+  const [entityStructure, setEntityStructure] = useState<LeadOpportunity['entityStructure']>('Standalone');
+  const [parentEntity, setParentEntity] = useState('');
   const [targetDate, setTargetDate] = useState('');
   const [nextAction, setNextAction] = useState('');
   const [discoveryNotes, setDiscoveryNotes] = useState('');
   const leadForm = useRef<HTMLFormElement>(null);
-  const initialLeadDraft = useRef({ name: '', contact: '', service: 'External audit', value: 1000000, currency: 'QAR', stage: 'Inquiry' as LeadOpportunity['stage'], source: '', targetDate: '', nextAction: '', discoveryNotes: '' });
+  const initialLeadDraft = useRef({ name: '', contact: '', service: 'External audit', value: 1000000, currency: 'QAR', stage: 'Inquiry' as LeadOpportunity['stage'], source: '', intakeChannel: 'Email' as LeadOpportunity['intakeChannel'], entityStructure: 'Standalone' as LeadOpportunity['entityStructure'], parentEntity: '', targetDate: '', nextAction: '', discoveryNotes: '' });
 
   const stages: Array<LeadOpportunity['stage']> = ['Inquiry', 'Discovery', 'Evaluation', 'Proposal', 'Won', 'Lost', 'Unqualified'];
   const clientScope = visibleClientIds(state);
@@ -51,6 +58,9 @@ export const LeadsPipelineView: React.FC<LeadsPipelineViewProps> = ({ onNavigate
       stage,
       owner: state.currentPerson,
       source: source.trim() || undefined,
+      intakeChannel,
+      entityStructure,
+      parentEntity: parentEntity.trim() || undefined,
       targetDate: targetDate || undefined,
       nextAction: nextAction.trim() || undefined,
       discoveryNotes: discoveryNotes.trim() || undefined,
@@ -62,7 +72,7 @@ export const LeadsPipelineView: React.FC<LeadsPipelineViewProps> = ({ onNavigate
       prototypeStore.addLead(newLead);
       setShowAddModal(false);
       setLeadName(''); setContact(''); setService('External audit'); setValue(1000000); setCurrency('QAR'); setStage('Inquiry');
-      setSource(''); setTargetDate(''); setNextAction(''); setDiscoveryNotes('');
+      setSource(''); setIntakeChannel('Email'); setEntityStructure('Standalone'); setParentEntity(''); setTargetDate(''); setNextAction(''); setDiscoveryNotes('');
       return true;
     } catch (error) { window.alert(error instanceof Error ? error.message : String(error)); return false; }
   };
@@ -71,11 +81,11 @@ export const LeadsPipelineView: React.FC<LeadsPipelineViewProps> = ({ onNavigate
   useEffect(() => {
     const guard: UnsavedFormGuard = {
       label: 'commercial inquiry draft',
-      isDirty: () => showAddModal && JSON.stringify({ name: leadName, contact, service, value, currency, stage, source, targetDate, nextAction, discoveryNotes }) !== JSON.stringify(initialLeadDraft.current),
+      isDirty: () => showAddModal && JSON.stringify({ name: leadName, contact, service, value, currency, stage, source, intakeChannel, entityStructure, parentEntity, targetDate, nextAction, discoveryNotes }) !== JSON.stringify(initialLeadDraft.current),
       save: saveLeadDraft,
       discard: () => {
         setShowAddModal(false); setLeadName(''); setContact(''); setService('External audit'); setValue(1000000); setCurrency('QAR'); setStage('Inquiry');
-        setSource(''); setTargetDate(''); setNextAction(''); setDiscoveryNotes('');
+        setSource(''); setIntakeChannel('Email'); setEntityStructure('Standalone'); setParentEntity(''); setTargetDate(''); setNextAction(''); setDiscoveryNotes('');
       }
     };
     onRegisterUnsavedForm(guard, 'lead-create');
@@ -139,7 +149,7 @@ export const LeadsPipelineView: React.FC<LeadsPipelineViewProps> = ({ onNavigate
           </p>
         </div>
       )}
-      {viewMode === 'list' ? <div className="panel tablewrap"><table><thead><tr><th>Opportunity</th><th>Stage</th><th>Service</th><th>Owner</th><th>Expected fee</th><th>Target date</th><th>Next action</th><th /></tr></thead><tbody>{state.leads.length === 0 && <tr><td colSpan={8} className="sub text-center" style={{ padding: 16 }}>No leads match the current view.</td></tr>}{state.leads.map(lead => <tr key={lead.id}><td>{lead.name}<div className="cell-sub">{lead.contact} · {lead.id}</div></td><td><StatusBadge status={lead.stage} />{lead.lostReason ? <div className="cell-sub">{lead.lostReason}</div> : null}</td><td>{lead.service}</td><td>{lead.owner}</td><td>{formatCurrency(lead.value, lead.currency)}</td><td>{lead.targetDate || '—'}</td><td>{lead.nextAction || '—'}</td><td><button className="btn sm ghost" onClick={() => { setSelectedLead(lead); setConversionClientId(''); }}>Details</button></td></tr>)}</tbody></table></div> : <div className="kanban">
+      {viewMode === 'list' ? <div className="panel tablewrap"><table><thead><tr><th>Opportunity</th><th>Stage</th><th>Service</th><th>Owner</th><th>Expected fee</th><th>Target date</th><th>Next action</th><th /></tr></thead><tbody>{state.leads.length === 0 && <tr><td colSpan={8} className="sub text-center" style={{ padding: 16 }}>No leads match the current view.</td></tr>}{state.leads.map(lead => <tr key={lead.id}><td>{lead.name}<div className="cell-sub">{lead.contact} · {lead.id}</div></td><td>{lead.stage}{lead.lostReason ? <div className="cell-sub">{lead.lostReason}</div> : null}</td><td>{lead.service}</td><td>{lead.owner}</td><td>{formatCurrency(lead.value, lead.currency)}</td><td>{lead.targetDate || '—'}</td><td>{lead.nextAction || '—'}</td><td><button className="btn sm ghost" onClick={() => { setSelectedLead(lead); setConversionClientId(''); }}>Details</button></td></tr>)}</tbody></table></div> : <div className="kanban">
         {stages.filter(s => !['Lost', 'Unqualified'].includes(s)).map((col, idx) => {
           const colLeads = state.leads.filter(l => l.stage === col);
           return (
@@ -149,15 +159,21 @@ export const LeadsPipelineView: React.FC<LeadsPipelineViewProps> = ({ onNavigate
                 <span className="tag gray">{colLeads.length}</span>
               </div>
               {colLeads.map(l => (
-                <div
+                <div {...keyboardActivate}
                   key={l.id}
                   className="lead-card"
                   onClick={() => { setSelectedLead(l); setConversionClientId(''); }}
                   style={{ cursor: 'pointer' }}
                 >
-                  <span className={`badge ${idx % 2 ? 'purple' : 'teal'}`}>{l.service}</span>
+                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                    <span className={`badge ${idx % 2 ? 'purple' : 'teal'}`}>{l.service}</span>
+                    <span className="badge blue">{l.intakeChannel || 'Email'}</span>
+                    {l.entityStructure && l.entityStructure !== 'Standalone' && (
+                      <span className="badge gray">{l.entityStructure}</span>
+                    )}
+                  </div>
                   <h3 className="mt8">{l.name}</h3>
-                  <p className="cell-sub">{l.contact} · {l.id}</p>
+                  <p className="cell-sub">{l.contact} · {l.id}{l.parentEntity ? ` · Sub of ${l.parentEntity}` : ''}</p>
                   <div className="value mt8">{formatCurrency(l.value, l.currency)}</div>
                   <div className="between mt12">
                     <span className="caption">{l.accepted ? 'Accepted' : 'Pending'}</span>
@@ -196,9 +212,12 @@ export const LeadsPipelineView: React.FC<LeadsPipelineViewProps> = ({ onNavigate
                 <div><label>Service</label><span>{selectedLead.service}</span></div>
                 <div><label>Pipeline Value</label><span>{formatCurrency(selectedLead.value, selectedLead.currency)}</span></div>
                 <div><label>Current Stage</label><span><StatusBadge status={selectedLead.stage} /></span></div>
+                <div><label>Intake Channel</label><span className="badge blue">{selectedLead.intakeChannel || 'Email'}</span></div>
+                <div><label>Corporate Structure</label><span>{selectedLead.entityStructure || 'Standalone'}{selectedLead.parentEntity ? ` (${selectedLead.parentEntity})` : ''}</span></div>
                 <div><label>Primary Contact</label><span>{selectedLead.contact}</span></div>
               <div><label>Commercial Owner</label><span>{selectedLead.owner}</span></div>
-              <div><label>Stage history</label><span>{(selectedLead.history || []).map(h => `${h.stage}${h.reason ? ` (${h.reason})` : ''} · ${new Date(h.at).toLocaleDateString()}`).join(' → ') || selectedLead.stage}</span></div>
+              <div className="full"><LifecycleStepper definition={lifecycleById('lead')} status={selectedLead.stage} label={`${selectedLead.id} pipeline stage`} />{['Lost', 'Unqualified'].includes(selectedLead.stage) && <p className="caption">{selectedLead.stage} is a terminal commercial outcome and is excluded from open pipeline totals.</p>}</div>
+              <div><label>Stage history</label><ActivityTimeline label="Opportunity stage history" emptyText="No stage transitions recorded yet." entries={(selectedLead.history || []).map((h, i) => ({ id: `${i}`, title: h.stage, actor: h.by, at: h.at, reason: h.reason }))} /></div>
               </div>
 
               {!selectedLead.convertedClientId && <div className="stack" style={{ gap: 8 }}>
@@ -206,6 +225,28 @@ export const LeadsPipelineView: React.FC<LeadsPipelineViewProps> = ({ onNavigate
                 <div className="grid2">
                   <label className="caption">Commercial owner<input className="input" value={selectedLead.owner} onChange={e => setSelectedLead({ ...selectedLead, owner: e.target.value })} /></label>
                   <label className="caption">Contact<input className="input" value={selectedLead.contact} onChange={e => setSelectedLead({ ...selectedLead, contact: e.target.value })} /></label>
+                  <label className="caption">Intake Channel
+                    <select className="input" value={selectedLead.intakeChannel || 'Email'} onChange={e => setSelectedLead({ ...selectedLead, intakeChannel: e.target.value as any })}>
+                      <option value="Phone">Phone</option>
+                      <option value="WhatsApp">WhatsApp</option>
+                      <option value="Email">Email</option>
+                      <option value="Web Form">Web Form</option>
+                      <option value="Referral">Referral</option>
+                    </select>
+                  </label>
+                  <label className="caption">Corporate Hierarchy
+                    <select className="input" value={selectedLead.entityStructure || 'Standalone'} onChange={e => setSelectedLead({ ...selectedLead, entityStructure: e.target.value as any })}>
+                      <option value="Standalone">Standalone Entity</option>
+                      <option value="Holding">Holding Company (Parent)</option>
+                      <option value="Subsidiary">Subsidiary</option>
+                      <option value="Affiliate">Affiliate</option>
+                    </select>
+                  </label>
+                  {(selectedLead.entityStructure === 'Subsidiary' || selectedLead.entityStructure === 'Affiliate') && (
+                    <label className="caption full">Parent Holding Entity
+                      <input className="input" value={selectedLead.parentEntity || ''} onChange={e => setSelectedLead({ ...selectedLead, parentEntity: e.target.value })} placeholder="e.g. Al-Sulaiti Global Holding Q.P.S.C." />
+                    </label>
+                  )}
                   <label className="caption">Requested service<input className="input" value={selectedLead.service} onChange={e => setSelectedLead({ ...selectedLead, service: e.target.value })} /></label>
                   <label className="caption">Expected fee<input className="input" type="number" min="0" step="0.01" value={selectedLead.value} onChange={e => setSelectedLead({ ...selectedLead, value: Number(e.target.value) })} /></label>
                   <label className="caption">Currency<select className="input" value={selectedLead.currency} onChange={e => setSelectedLead({ ...selectedLead, currency: e.target.value })}><option>QAR</option><option>USD</option><option>EUR</option><option>GBP</option></select></label>
@@ -286,6 +327,31 @@ export const LeadsPipelineView: React.FC<LeadsPipelineViewProps> = ({ onNavigate
                     placeholder="e.g. Mansour Al-Hajri"
                   />
                 </div>
+                <div className="grid2">
+                  <label className="caption">Intake Channel
+                    <select className="input" value={intakeChannel} onChange={e => setIntakeChannel(e.target.value as any)}>
+                      <option value="Phone">Phone</option>
+                      <option value="WhatsApp">WhatsApp</option>
+                      <option value="Email">Email</option>
+                      <option value="Web Form">Web Form</option>
+                      <option value="Referral">Referral</option>
+                    </select>
+                  </label>
+                  <label className="caption">Corporate Hierarchy
+                    <select className="input" value={entityStructure} onChange={e => setEntityStructure(e.target.value as any)}>
+                      <option value="Standalone">Standalone Entity</option>
+                      <option value="Holding">Holding Company (Parent)</option>
+                      <option value="Subsidiary">Subsidiary</option>
+                      <option value="Affiliate">Affiliate</option>
+                    </select>
+                  </label>
+                </div>
+                {(entityStructure === 'Subsidiary' || entityStructure === 'Affiliate') && (
+                  <div>
+                    <label className="caption">Parent Holding Entity</label>
+                    <input className="input" value={parentEntity} onChange={e => setParentEntity(e.target.value)} placeholder="e.g. Al-Sulaiti Global Holding Q.P.S.C." />
+                  </div>
+                )}
                 <label className="caption">Inquiry source<input className="input" value={source} onChange={e => setSource(e.target.value)} placeholder="Referral, existing contact, or event" /></label>
                 <label className="caption">Target date<input className="input" type="date" value={targetDate} onChange={e => setTargetDate(e.target.value)} /></label>
                 <label className="caption">Next action<input className="input" value={nextAction} onChange={e => setNextAction(e.target.value)} placeholder="Schedule discovery call" /></label>

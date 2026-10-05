@@ -1,25 +1,31 @@
-// VP-064-AC01/AC04: canonical records describe every module with routes, commands,
-// fixtures and assertions, and never claim live integrations, production readiness
-// or professional assurance.
+// VP-064-AC04: canonical records describe current routes and workflow guidance,
+// and never claim live integrations, production readiness or professional assurance.
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { renderCurrentWorkflowMatrix } from '../../tools/current-workflow-matrix.js';
+import { TARGET_GUIDES, CURRENT_WORKFLOW_ORDER } from '../../src/services/currentWorkflowGuides.js';
+import { ROUTE_CATALOG } from '../../src/services/routeCatalog.js';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const read = (path: string) => readFileSync(join(root, path), 'utf8');
 
 describe('VP-064 documentation contract', () => {
-  it('VP-064-AC01: module coverage lists all 39 modules with route, command, fixture and positive/negative assertions', () => {
-    const rows = read('docs/prototype/module-coverage.md').split('\n').filter(line => /^\| \d{2} \|/.test(line));
-    assert.deepEqual(rows.map(line => line.split('|')[1].trim()), Array.from({ length: 39 }, (_, index) => String(index + 1).padStart(2, '0')));
-    for (const row of rows) {
-      const cells = row.split('|').slice(1, -1).map(cell => cell.trim());
-      const [id, stories, routes, commands, fixtures, positive, negative] = cells;
-      assert.match(stories, /VP-\d{3}/, `module ${id} names its stories`);
-      for (const [label, value] of Object.entries({ routes, commands, fixtures, positive, negative })) assert.ok(value && value !== '—', `module ${id} records ${label}`);
-    }
+  it('current workflow guide coverage exactly matches the current route catalogue', () => {
+    const catalogRoutes = Object.keys(ROUTE_CATALOG).sort();
+    const guideRoutes = TARGET_GUIDES.map(guide => guide.route).sort();
+    assert.deepEqual(guideRoutes, catalogRoutes);
+    assert.deepEqual([...CURRENT_WORKFLOW_ORDER].sort(), catalogRoutes);
+    assert.equal(new Set(guideRoutes).size, guideRoutes.length, 'each current route has exactly one guide');
+  });
+
+  it('the generated workflow matrix describes current routes and lifecycle ownership only', () => {
+    const matrix = renderCurrentWorkflowMatrix();
+    assert.equal(read('docs/prototype/lifecycle-matrix.md'), matrix, 'regenerate with: npx tsx tools/current-workflow-matrix.ts');
+    assert.match(matrix, /^# Current workflow and lifecycle matrix/m);
+    assert.doesNotMatch(matrix, /MOD-\d{2}|39 modules|Legacy Redirect/);
   });
 
   it('VP-064-AC04: canonical records make no live, production or professional-assurance claim', () => {

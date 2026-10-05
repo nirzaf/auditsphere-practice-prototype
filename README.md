@@ -1,83 +1,59 @@
-# AuditSphere · All-role portals v2
+# AuditSphere · Five-module audit lifecycle prototype
 
-AuditSphere is a source-grounded, browser-only visualization of the 14 roles in STE-PRD-001, plus one reserved synthetic testing identity (`Superuser · Full Prototype Access`) that exists only to exercise every module from a single tab. It uses synthetic data only; there is no backend, live provider connection, authentication, or production authorization boundary.
+React, TypeScript and Vite demonstrate STE v2.1 using synthetic records, scoped personas and explicit professional decisions. Optional cloud workspaces persist isolated server-side state and exact file bytes for the prototype's seven-day retention window. This is a prototype; identity switching, email/WhatsApp, M365 provisioning, password reset, payments and signatures are simulations.
 
-## React + TypeScript + Vite
+The five connected modules cover Commercial & CRM, Governance & Planning, Technical Fieldwork, Reporting & Archive, and Practice Management. The client PBC portal and requirements presentation support that lifecycle. The application exposes the current five-module route surface only — there are no retired-route redirects and no legacy route identifiers.
 
-Install dependencies and start the development server:
+## Run and verify
 
-```bash
-npm install
-npm run dev
-```
-
-Create a production build with:
-
-```bash
-npm run build
-npm run preview
-```
-
-The production build is written to `dist/` (see `vite.config.ts` `build.outDir`). `deploy.sh` builds and deploys this output.
-
-## Application architecture
-
-The app is a native React + TypeScript single-page application; there is no legacy bridge in the runtime.
-
-- `src/main.tsx`: native React entrypoint; renders `<App />` in `React.StrictMode`.
-- `src/App.tsx`: route state, store subscription (with unsubscribe on unmount), modal focus trap and unsaved-form transition guard.
-- `src/store/prototypeStore.ts`: the single state authority (`prototypeStore`), with versioned localStorage persistence, storage-conflict guidance and role-scope guards.
-- `src/services/guards.ts`: the shared role, scope and segregation-of-duties policy used by store commands and UI affordances alike (`canOpenRoute`, `visibleClientIds`, `visibleEngagementIds`, `requireIndependentActor`, `hasAnyRole`). Reserved-testing overrides are recorded here, never applied silently.
-- `src/services/legacyRoutes.ts`: redirects historical hash links to current React routes; role checks still apply and denied destinations resolve to an allowed workspace.
-- `src/components/layout/Shell.tsx`: navigation shell, search and scenario controls.
-- `src/components/modules/*.tsx`: the 39-module route views.
-- `src/components/common/*.tsx`: shared presentational pieces (icon set and the internal-notes panel).
-- `src/services/*.ts`: guards, migrations, artifact/IndexedDB storage, exports, calculations.
-- `styles.css` / `roles.css`: responsive visual system, imported by Vite.
-- `roles.json` / `permissions.json` / `source.json`: synthetic source and role fixtures for the historical bundle — `build.py` validates them and embeds them in `legacy/index.html`. The Vite app does not read them; its personas, grants and records come from `src/store/initialState.ts`, and route/role policy comes from `src/services/guards.ts`.
-
-## Client file-request workflow
-
-Auditors and accountants can create a client-facing file request from `Documents & PBC`. Each request captures a description, due date, recipient, simulated email preview, portal link, shared-file metadata, and a two-sided conversation timeline. Client administrator, finance contributor, and authorized signatory views expose the same request thread within their permitted client scope; the finance contributor can upload or replace a built-in synthetic sample through the portal and the engagement team can reply or review it.
-
-Because this remains a browser-only prototype, email delivery is represented as a local preview and no external email is sent. No document bytes leave the browser; selected PBC uploads and generated artifacts persist only in this browser's local IndexedDB storage as described below, while registered library-document and evidence originals stay in-session.
-
-## Legacy compatibility build (historical)
-
-The original dependency-free HTML build is retained for comparison or rollback only; the Vite app does not load it:
-
-```bash
-py -3 build.py
-```
-
-It regenerates `app.bundle.js` and writes the standalone artifact to `legacy/index.html`; it does not touch the Vite entrypoint. Validate the compatibility bundle with:
-
-```bash
-npm run legacy:check
-```
-
-## Scope and limitations
-
-All synthetic state is inspectable in the browser and saved only in local storage when available. Browser-local storage classes exist and are not equivalent:
-
-- **Client PBC response uploads:** the selected bytes are persisted through the local artifact store (`IndexedDB`, labelled `PBC`) and replacement bytes and digests are re-verified after reload.
-- **Registered library documents and workpaper evidence attachments:** metadata plus a SHA-256 digest only; the original bytes stay in-session (source is labelled `Local In-Session`) and must be reselected after a reload. They are never advertised as downloadable originals.
-- **Generated artifacts (financial packages, exports):** the exact generated bytes are persisted in IndexedDB (`ste-auditsphere-generated-artifacts`) and re-verified against their recorded size, type and SHA-256 on every load.
-
-The visualization does not implement production authentication, enforceable multi-user authorization, real Microsoft integrations, legal signatures, ledger postings, payments, filings, or immutable retention.
-
-The `superuser` persona is a presenter/test tool, not a fifteenth product role. It opens every supported route and sees every synthetic client, engagement and group, and it may perform actor-restricted actions (for example reviewing a journal it prepared) — each such action appends a `Prototype Superuser Override` entry to the local event log and is labelled by the on-screen banner. Data validation, client-portal disclosure filters and revision staleness rules are unchanged for it, so boundary demonstrations must use the ordinary personas. It is seeded in every scenario preset and is added to older stored state by the schema v28 upgrade; demo-identity administration offers only the 14 product roles, and the store rejects an attempt to create a second one.
-
-Current supported scope, exclusions and historical-source labelling: `docs/prototype/scope.md`. Inspected baseline inventory: `docs/prototype/baseline.md`. 39-module route/command/test map: `docs/prototype/module-coverage.md`. Presenter scenarios with fixed arithmetic: `docs/prototype/demo-scenarios.md`. Actually executed checks (never claimed in advance): `docs/prototype/verification.md`.
-
-## Verification (VP-063)
-
-```bash
+```sh
 npm ci
+npm run dev
+npm run lint
+npm run test:unit
+npm run test:e2e
+npm run cloud:typecheck
 npm run build
-npm run legacy:check
-npm run test:unit   # deterministic calculations, guards, migrations, scope scan, TB parsing, export formats
-npm run test:e2e    # serves dist/ on loopback; asserts shell boot, no provider egress, simulated surfaces
 ```
 
-Microsoft 365 screens are local simulations (`liveConnected: false`); SharePoint is the canonical demo library, OneDrive import is optional and disabled by default, mail outcomes are simulated accepted/failed/unknown, and Microsoft Purview is not part of this product. Issued invoices, approvals and releases change local demo records only — no payment demand, signature, email delivery or external retention is performed.
+On Windows, set `CHROME_PATH` to the installed Chrome executable before browser tests. Production output is `dist/`. The build also generates `public/Client_Requirements.html` from the same 17-slide JSON used by React.
+
+## Architecture
+
+```text
+        AuditSphere React/Vite (current routes only)
+                        |
+          Cloudflare Worker + Static Assets
+                        |
+                     /api/*
+                  _____|_____
+                 |           |
+                D1          R2
+      structured state   exact file bytes
+```
+
+- **One Cloudflare Worker** (`wrangler.jsonc` → `worker/index.ts`) serves the built app as Static Assets and the JSON API under `/api/*`, same-origin. D1 stores authoritative structured cloud workspace state; R2 stores cloud file bytes with SHA-256 verification.
+- **Cloud browser sessions** use a same-origin HttpOnly session cookie. The workspace access code is only for enrolling another browser; no Bearer token is held in browser storage.
+- **Command-based API**: the browser posts the shared typed command union (`src/shared/api/commands.ts`) executed by the same browser-free domain layer (`src/domain/`) the store uses. There is no whole-state replacement API.
+- **Local mode** remains available for offline/development use: `prototypeStore`, localStorage and IndexedDB. Uploaded and generated bytes stay browser-local in local mode. Cloud mode stores exact file bytes in R2.
+- **Session/persona switching** is a simulated prototype control, never production authentication.
+
+## Current implementation
+
+- `src/App.tsx` renders the current route surface with the current-only resolver (`src/services/routes.ts`); an unknown or retired hash falls back to the safe default for the active persona.
+- `src/store/prototypeStore.ts` owns guarded records, migrations, local persistence and independent row merges. Conflicting edits to the same procedure require explicit resolution.
+- `src/store/targetLifecycleCommands.ts` enforces pinned commercial references, handover prerequisites, independent decisions, source revisions and read-only archive closure.
+- `src/services/targetLifecycle.ts` projects the eleven lifecycle states, shared FSLI risk, evidence readiness, materiality and practice ledger.
+- `src/services/currentWorkflowGuides.ts` is the single workflow-guide source for guide strips, walkthroughs and the requirements crosswalk.
+- `src/services/artifactStore.ts` verifies size, MIME and SHA-256 on loading local artifacts; `src/services/cloudWorkspace.ts` is the same-origin cloud client (files upload to R2 through two-phase commit).
+- `src/services/archivePackage.ts` seals scoped engagement records, source/review history and verified original files; unavailable originals are explicit exceptions.
+
+Browser owners can clear or modify local data; the archive is application-level read-only behavior, not immutable legal retention. Cloud workspaces expire at the end of the prototype's seven-day retention window.
+
+## Review resolution and evidence
+
+[Current requirements review resolution](docs/prototype/requirements-review-resolution.md) maps R01–R16 and A01–A15 to implemented behavior and current execution evidence. [Legacy/lifecycle review resolution](docs/prototype/legacy-lifecycle-review-resolution.md) preserves the earlier F01–F22 mapping. [Target lifecycle implementation](docs/prototype/target-lifecycle-report.md), [browser rehearsal](docs/prototype/target-lifecycle-demo.md), [cloud workspace setup](docs/prototype/cloud-demo.md) and the [full-stack architecture](docs/prototype/cloud-full-stack-architecture.md) docs provide supporting context. Formal client sign-off and production professional controls remain separate from executed prototype checks.
+
+Old persisted snapshots migrate through the versioned migration chain (`src/services/migrations.ts`); genuine historical fixtures live in `tests/fixtures/` as migration test inputs only. Git history preserves all removed source.
+
+The reserved Superuser exercises the demo with logged overrides; it is not a product role or a production authorization model. Use ordinary assigned actors to demonstrate independence and restricted visibility.

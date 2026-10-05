@@ -1,21 +1,22 @@
-// Modules 29 & 30: Audit Risk Register & Fieldwork Audit Programs (VP-049, VP-050)
+// Module 3: Audit risks and substantive fieldwork programs (VP-049, VP-050)
 import React, { useEffect, useState } from 'react';
 import { RouteKey, AuditProcedureItem, AuditProgramTemplate, AuditRiskItem } from '../../types';
 import { prototypeStore } from '../../store/prototypeStore';
 import { UnsavedFormGuard } from '../../services/unsavedFormGuard';
 import { eligibleAuditRiskOwners, hasAnyRole } from '../../services/guards';
 import { Icon } from '../common/Icons';
+import { consequencePrompt } from '../../services/terminalActions';
 
-import { ModuleIdentityLine, ModuleLifecycleHint, StatusBadge } from '../common/Enterprise';
 interface AuditRisksProgramsViewProps {
+  initialProgramId?: string;
   onNavigate: (route: RouteKey) => void;
   onRegisterUnsavedForm?: (guard: UnsavedFormGuard | null, key?: string) => void;
 }
 
-export const AuditRisksProgramsView: React.FC<AuditRisksProgramsViewProps> = ({ onNavigate, onRegisterUnsavedForm }) => {
+export const AuditRisksProgramsView: React.FC<AuditRisksProgramsViewProps> = ({ onNavigate, onRegisterUnsavedForm, initialProgramId }) => {
   const state = prototypeStore.getSnapshot();
   const [activeTab, setActiveTab] = useState<'risks' | 'programs' | 'templates'>('programs');
-  const [selectedProgramId, setSelectedProgramId] = useState<string>('PRG-01');
+  const [selectedProgramId, setSelectedProgramId] = useState<string>(initialProgramId || 'PRG-01');
   const [notice, setNotice] = useState<string | null>(null);
   const [editingProcedureId, setEditingProcedureId] = useState<string | null>(null);
   const [workPerformed, setWorkPerformed] = useState('');
@@ -110,7 +111,7 @@ export const AuditRisksProgramsView: React.FC<AuditRisksProgramsViewProps> = ({ 
     const isReturn = (procedure?.status === 'Submitted' || procedure?.status === 'Cleared') && ['Not started', 'In progress', 'Blocked'].includes(status);
     let reason = '';
     if (isReturn) {
-      const entered = window.prompt('Reason for returning this fieldwork to the preparer:');
+      const entered = window.prompt(consequencePrompt('fieldwork-returned', procId, 'Reason for returning this fieldwork to the preparer'));
       if (!entered?.trim()) return;
       reason = entered;
     }
@@ -172,24 +173,22 @@ export const AuditRisksProgramsView: React.FC<AuditRisksProgramsViewProps> = ({ 
           <button className="btn sm ghost" onClick={() => onNavigate('sampling')}>
             <Icon name="checkboard" /> Sampling Desk
           </button>
-          <button className="btn primary sm" onClick={() => onNavigate('audit')}>
-            <Icon name="checkboard" /> Workpaper Workspace
+          <button className="btn primary sm" onClick={() => onNavigate('reviews')}>
+            <Icon name="checkboard" /> Workpaper Preparation & Review
           </button>
         </div>
-        <ModuleIdentityLine />
-        <ModuleLifecycleHint />
       </div>
 
       {notice && <div role="status" className="panel panel-pad">{notice}</div>}
 
       <div className="tabs">
-        <button className={`tab-btn ${activeTab === 'programs' ? 'active' : ''}`} onClick={() => setActiveTab('programs')}>
+        <button className={`tab-btn ${activeTab === 'programs' ? 'active' : ''}`} aria-pressed={activeTab === 'programs'} onClick={() => setActiveTab('programs')}>
           Substantive Audit Programs ({programs.length})
         </button>
-        <button className={`tab-btn ${activeTab === 'risks' ? 'active' : ''}`} onClick={() => setActiveTab('risks')}>
+        <button className={`tab-btn ${activeTab === 'risks' ? 'active' : ''}`} aria-pressed={activeTab === 'risks'} onClick={() => setActiveTab('risks')}>
           Identified Risk Register ({risks.length})
         </button>
-        <button className={`tab-btn ${activeTab === 'templates' ? 'active' : ''}`} onClick={() => setActiveTab('templates')}>
+        <button className={`tab-btn ${activeTab === 'templates' ? 'active' : ''}`} aria-pressed={activeTab === 'templates'} onClick={() => setActiveTab('templates')}>
           Reusable Program Templates ({templates.length})
         </button>
       </div>
@@ -199,8 +198,8 @@ export const AuditRisksProgramsView: React.FC<AuditRisksProgramsViewProps> = ({ 
           <div className="between"><div><h3>Reusable audit program templates</h3><p className="sub">Published versions are copied into the selected engagement with new procedure identities; later template edits do not alter applied programs.</p></div><button className="btn sm" onClick={() => { setTemplateDraft({ name: '', area: '', description: '', procedures: [{ title: '', objective: '', instructions: '', defaultAssertions: ['Existence'], requiredEvidenceType: '' }] }); setEditingTemplateId(null); }}>New template</button></div>
           {(templates.length === 0) && <p className="sub mt12">No reusable templates yet.</p>}
           <div className="stack mt12" style={{ gap: 10 }}>{templates.map(template => <div className="borderbox panel-pad" key={template.id}>
-            <div className="between"><div><b>{template.name} · v{template.version}</b><div className="caption">{template.area} · <StatusBadge status={template.status} /> · {template.procedures.length} procedures</div><p className="sub mt4">{template.description}</p></div><div className="row">{template.status === 'Draft' && <button className="btn sm primary" onClick={() => { try { prototypeStore.publishAuditProgramTemplate(template.id); setNotice(`Published ${template.name} v${template.version}.`); } catch (err: any) { setNotice(err.message); } }}>Publish</button>}{template.status === 'Published' && <button className="btn sm" onClick={() => { try { const id = prototypeStore.applyAuditProgramTemplate(selectedEng.id, template.id); setSelectedProgramId(id); setActiveTab('programs'); setNotice(`Applied ${template.name} v${template.version} to ${selectedEng.id}.`); } catch (err: any) { setNotice(err.message); } }}>Apply to engagement</button>}<button className="btn sm ghost" disabled={template.status === 'Retired'} onClick={() => { setTemplateDraft({ name: template.name, area: template.area, description: template.description, procedures: structuredClone(template.procedures) }); setEditingTemplateId(template.id); }}>Revise</button>{template.status !== 'Retired' && <button className="btn sm ghost" aria-label={`Retire ${template.name}`} onClick={() => { if (window.confirm(`Retire ${template.name}? Existing engagement programs will remain unchanged.`)) try { prototypeStore.retireAuditProgramTemplate(template.id); setNotice(`Retired ${template.name} v${template.version}.`); } catch (err: any) { setNotice(err.message); } }}>Retire</button>}</div></div>
-            {(state.auditProgramTemplateHistory || []).filter(version => version.id === template.id).map(version => <div className="caption" key={version.version}>Archived v{version.version} · <StatusBadge status={version.status} /></div>)}
+            <div className="between"><div><b>{template.name} · v{template.version}</b><div className="caption">{template.area} · {template.status} · {template.procedures.length} procedures</div><p className="sub mt4">{template.description}</p></div><div className="row">{template.status === 'Draft' && <button className="btn sm primary" onClick={() => { try { prototypeStore.publishAuditProgramTemplate(template.id); setNotice(`Published ${template.name} v${template.version}.`); } catch (err: any) { setNotice(err.message); } }}>Publish</button>}{template.status === 'Published' && <button className="btn sm" onClick={() => { try { const id = prototypeStore.applyAuditProgramTemplate(selectedEng.id, template.id); setSelectedProgramId(id); setActiveTab('programs'); setNotice(`Applied ${template.name} v${template.version} to ${selectedEng.id}.`); } catch (err: any) { setNotice(err.message); } }}>Apply to engagement</button>}<button className="btn sm ghost" disabled={template.status === 'Retired'} onClick={() => { setTemplateDraft({ name: template.name, area: template.area, description: template.description, procedures: structuredClone(template.procedures) }); setEditingTemplateId(template.id); }}>Revise</button>{template.status !== 'Retired' && <button className="btn sm ghost" aria-label={`Retire ${template.name}`} onClick={() => { if (window.confirm(`Retire ${template.name}? Existing engagement programs will remain unchanged.`)) try { prototypeStore.retireAuditProgramTemplate(template.id); setNotice(`Retired ${template.name} v${template.version}.`); } catch (err: any) { setNotice(err.message); } }}>Retire</button>}</div></div>
+            {(state.auditProgramTemplateHistory || []).filter(version => version.id === template.id).map(version => <div className="caption" key={version.version}>Archived v{version.version} · {version.status}</div>)}
           </div>)}</div>
         </div>
         {templateDraft && <form className="panel panel-pad stack" onSubmit={e => { e.preventDefault(); try { if (editingTemplateId) prototypeStore.reviseAuditProgramTemplate(editingTemplateId, templateDraft); else prototypeStore.createAuditProgramTemplate(templateDraft); setTemplateDraft(null); setEditingTemplateId(null); setNotice('Template draft saved. Publish it before applying.'); } catch (err: any) { setNotice(err.message); } }}>
@@ -249,7 +248,7 @@ export const AuditRisksProgramsView: React.FC<AuditRisksProgramsViewProps> = ({ 
                 </div>
                 <button
                   className="btn sm"
-                  onClick={() => onNavigate('audit')}
+                  onClick={() => onNavigate('reviews')}
                 >
                   Open Lead Workpaper ({activeProgram.leadWorkpaperRef})
                 </button>
@@ -309,7 +308,7 @@ export const AuditRisksProgramsView: React.FC<AuditRisksProgramsViewProps> = ({ 
                         </td>
                         <td>{p.reviewedByUserId ? `Reviewed by ${state.users.find(user => user.id === p.reviewedByUserId)?.name || p.reviewedByUserId}` : p.preparedByUserId ? `Prepared by ${state.users.find(user => user.id === p.preparedByUserId)?.name || p.preparedByUserId}` : 'No sign-off'}
                           {p.returnReason && <div className="caption text-danger mt4">Returned: {p.returnReason}</div>}
-                          {Boolean(p.history?.length) && <details className="mt4"><summary className="caption">Fieldwork change history ({p.history?.length})</summary><ol className="sub mt4">{p.history?.map(entry => <li key={entry.id} className="mb8"><b>Revision {entry.revision}: {entry.action}</b> · {entry.occurredAt.slice(0, 10)} · {state.users.find(user => user.id === entry.actorUserId)?.name || entry.actorUserId}<div className="caption">Program {entry.programId}{entry.sourceTemplateVersion ? ` · template v${entry.sourceTemplateVersion}` : ''} · <StatusBadge status={entry.status} /></div>{entry.reason && <div className="caption text-danger">Reason: {entry.reason}</div>}{entry.previous && <div className="caption">Prior state: <StatusBadge status={entry.previous.status} />{entry.previous.workPerformed ? ` · Work: ${entry.previous.workPerformed}` : ''}{entry.previous.conclusion ? ` · Conclusion: ${entry.previous.conclusion}` : ''}</div>}{entry.workPerformed && <div className="caption">Work: {entry.workPerformed}</div>}{entry.conclusion && <div className="caption">Conclusion: {entry.conclusion}</div>}{entry.evidenceLimitation && <div className="caption">Evidence limitation: {entry.evidenceLimitation}</div>}</li>)}</ol></details>}
+                          {Boolean(p.history?.length) && <details className="mt4"><summary className="caption">Fieldwork change history ({p.history?.length})</summary><ol className="sub mt4">{p.history?.map(entry => <li key={entry.id} className="mb8"><b>Revision {entry.revision}: {entry.action}</b> · {entry.occurredAt.slice(0, 10)} · {state.users.find(user => user.id === entry.actorUserId)?.name || entry.actorUserId}<div className="caption">Program {entry.programId}{entry.sourceTemplateVersion ? ` · template v${entry.sourceTemplateVersion}` : ''} · {entry.status}</div>{entry.reason && <div className="caption text-danger">Reason: {entry.reason}</div>}{entry.previous && <div className="caption">Prior state: {entry.previous.status}{entry.previous.workPerformed ? ` · Work: ${entry.previous.workPerformed}` : ''}{entry.previous.conclusion ? ` · Conclusion: ${entry.previous.conclusion}` : ''}</div>}{entry.workPerformed && <div className="caption">Work: {entry.workPerformed}</div>}{entry.conclusion && <div className="caption">Conclusion: {entry.conclusion}</div>}{entry.evidenceLimitation && <div className="caption">Evidence limitation: {entry.evidenceLimitation}</div>}</li>)}</ol></details>}
                           {Boolean(p.scopeReassessmentHistory?.length) && <details className="mt4"><summary className="caption">Reassessment history ({p.scopeReassessmentHistory?.length})</summary>{p.scopeReassessmentHistory?.map((entry, index) => <div className="caption" key={`${entry.invalidatedAt}-${index}`}>{entry.invalidatedAt.slice(0, 10)} · was {entry.previousStatus} · {entry.reason}</div>)}</details>}
                         </td>
                         <td>{p.linkedRiskIds?.length ? p.linkedRiskIds.map(id => <span className="tag gray" key={id}>{id}</span>) : <span className="badge amber">Unlinked</span>}</td>

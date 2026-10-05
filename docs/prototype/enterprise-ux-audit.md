@@ -1,151 +1,116 @@
-# AuditSphere Visual Prototype — Enterprise UX Audit (MOD-UX-01)
+# AuditSphere Visual Prototype — Enterprise UX Audit (39 modules)
 
-Recorded 2026-09-27 · `docs/prototype/enterprise-ux-audit.md`
+`docs/prototype/enterprise-ux-audit.md` · recorded 2026-09-28 · companion documents:
+[design-system.md](design-system.md) (vocabulary), [lifecycle-matrix.md](lifecycle-matrix.md) (generated
+lifecycles plus the 39-row `Module | Steps | Current State | Completed | Pending | Blocked | Review/Rework | Role/Scope | Dependencies | Next Action` matrix), [remaining-limitations.md](remaining-limitations.md) (canonical limits — not duplicated here).
 
-Audit of the browser prototype at the tree recorded in
-[`verification.md`](verification.md). Each row states what was found, what was
-changed, and what remains. Status vocabulary is the repository's own:
-**Implemented**, **Verified**, **Demonstrated**, **Partial**, **Blocked**,
-**Simulated**, **Outside Scope**.
+Scope and honesty: this is an enhancement of the browser-only prototype, not a rewrite. No store
+command, guard, calculation, migration or scenario was removed or weakened; the scoped defects described in
+§3 were fixed. Status words below follow the repository's evidence discipline: **Verified** = covered by an
+executed automated test in this change; **Regression** = behaviour unchanged and still covered by the existing
+suite; **Partial** = improved but not every item in the spec's module acceptance standard is demonstrated;
+**Outside scope** = excluded by [`scope.md`](scope.md). Executed results are recorded in
+[verification.md](verification.md).
 
-Companion documents: [lifecycle matrix](lifecycle-matrix.md) ·
-[cross-module journeys](cross-module-journeys.md) ·
-[design system](design-system.md) ·
-[limitations](remaining-limitations.md).
+## 1. Cross-cutting changes (apply to every routed module)
 
-## Method
-
-1. Read every routed view, the shell, the store command boundary and the guards.
-2. Measured the UI vocabulary in the shipped source: page-header usage, status
-   rendering, empty-state copy, and every `className` against the stylesheets.
-3. Fixed the shared layer first, then applied it module by module, re-running
-   `tsc`, the unit suites and the full Chrome suite after each batch.
-4. Recorded what could **not** be verified rather than claiming it.
-
-## Findings that affected every module
-
-| # | Finding | Evidence | Resolution |
+| Area | Before | After | Evidence |
 |---|---|---|---|
-| F-1 | 28 style classes were referenced by views but defined in no stylesheet, so the markup rendered unstyled: `badge`, `grid-2`/`grid-3`/`grid4`, `modal-overlay`/`modal-card`/`modal-content`, `global-search-dialog`, `mt4`/`mb8`/`mb12`/`ml8`, `metric-val`/`metric-label`/`metric-sub`, `xs`, `warning`/`success` and others | static class inventory vs `styles.css`/`roles.css` | Implemented in `src/enterprise.css`; a unit test now fails on any undefined class |
-| F-2 | Every module invented its own wording and tone for the same business state; `Draft` in one view looked like `Stale` in another | 39 views | Implemented: one tone vocabulary in `src/services/lifecycle.ts`, rendered by `StatusBadge` |
-| F-3 | A page title could be an `h1`, an `h2` or a panel heading depending on the module | heading inventory | Implemented: one `h1` per page, asserted in the browser on every route |
-| F-4 | Views could not say which client, engagement, period or revision the reader was looking at | header markup | Implemented: store-derived identity line through `ModuleIdentityLine` |
-| F-5 | "No records exist" and "no records match these filters" were usually the same sentence | empty-copy inventory | Implemented: `ListState` distinguishes empty / no-match / out-of-scope / error |
-| F-6 | Staleness was reported as a bare word next to a revision number | package and statement markup | Implemented: `StaleNotice` names the movement, the impact, the preserved history and the required action |
-| F-7 | No module registered what it governs, how its journey ends, or where the work continues | — | Implemented: `src/services/routeRegistry.ts` registers all 44 routes |
-| F-8 | No screen showed what was complete, what remained, or what was blocked: the Engagements view drew its "lifecycle bar" from a positional index, so a blocked, returned or stale step could only ever render as "current" | `EngagementsView` `currentStepIndex` | Implemented (MOD-UX-02): `deriveWorkflowProgress` + `WorkflowProgressTracker`, with per-module journey derivations that read named record fields |
+| Progress & Six Questions | Fixed percentages, fabricated completion, mixed collection and milestone counts, and no operational guidance | One classified set of applicable milestones drives exact counts, percentage and summary; terminal/rework/stale states remain distinct; primary next action, blocker and next eligible role are visible; drawer answers all six questions; summary/reference screens do not claim workflow completion | `workflowProgress.test.ts` (T01–T09, T13, T17, T19); E2E `UX-ENT-05`, `UIX-06` |
+| Status presentation | `.badge` used at 136 call sites was never defined in CSS — statuses rendered as plain text; each module picked its own colours | Shared `statusSemantics.ts` (every status literal in `src/types` mapped, unit-tested) + `StatusBadge` (text + glyph + tone); legacy `.badge` defined with the same tones | `enterpriseUx.test.ts` “maps every declared status…” |
+| Breadcrumb / context | `Workspace / ROUTE-KEY` | `Section / Module [ROUTE CODE]`; context bar adds the last loaded scenario | E2E crumb assertions (unchanged) |
+| Undefined CSS | `.tab-btn` (12 modules, 36 tabs), `.modal-overlay/.modal-card` (4 dialogs), `.modal-foot` (all dialog footers incl. “Unsaved changes”), `metric-label/val/sub` (10 modules), `.grid4`, `.text-danger`, spacing utilities | All defined; tabs expose `aria-pressed`; dialogs render as proper overlays | Visual review 1440 px; CLOSE-J12 overflow test |
+| Notices | 17 hand-rolled notice blocks with inline colours; Documents and Client Portal showed **errors in green success styling** | Shared `Notice` (errors/warnings `role="alert"`, success `role="status"`, dismissible); Documents/Portal notices carry the correct tone | Regression suite |
+| Empty states | Mixed ad-hoc rows | `EmptyState` / `EmptyTableRow` with none / filtered / scope variants (scope never reveals restricted counts) | UX-ENT-01; regression |
+| Destructive / terminal actions | Bare “Reason?” prompts; `window.alert` errors in Engagements | Every reason prompt states impact, what is kept, and reversibility (`terminalActions.ts`); Engagements shows errors inline (page or dialog) | Regression (prompt stubs unchanged) |
+| Lifecycle guidance | Separate Module Guide route only | Collapsed “How this module works” strip on every staff route from `moduleGuideContent.ts` + lifecycle paths | `enterpriseUx.test.ts` guide coverage; UX-ENT-04 |
+| Dashboard work queues | Portfolio metrics only | Six role queues (My work, Waiting for my review, Returned to me, Waiting on client, Blocked or stale, Ready for release) — scoped projections, counts equal lists | `enterpriseUx.test.ts` queues; UX-ENT-01 |
+| Responsive | Detail panes squeezed into the narrow column (Jobs, Workpapers); bare selects | `master-detail` layout, compact filter grid, unclassed-control styling; block-level badges wrap | `UIX-06` checks the tracker at 390/1024/1440; `CLOSE-J12` checks every staff route for page-level overflow at those widths |
 
-## Module-by-module audit
+## 1.1 Progress lifecycle hardening (FIX-01–07, T01–T20)
 
-`Identity` = renders the shared client/engagement/period line · `LC` = renders its
-lifecycle hint · `Status` = uses the shared status badge · `Lists` = distinguishes
-empty from no-match.
+| Repair | Outcome | Evidence |
+|---|---|---|
+| FIX-01 — Honest arithmetic | Removed fixed percentage and default-completion paths. A single set of unique milestones determines applicable denominator, state counts, summaries and percentage; all-N/A and no-work cases have no numeric bar, and unresolved steps cannot round to 100%. | Unit T01/T02/T04/T13; E2E `UX-ENT-05` |
+| FIX-02 — Context and scope | Progress receives selected engagement, client, record and portal-resolved context. It fails closed on missing or unauthorized selections, uses the same scoped invoice and portal selectors as content, and removes stale portal projection on persona changes. | Unit T02/T07–T09/T17; E2E `AT-18`, `VP-025-AC01`, `UX-ENT-02/03`, `T10/T11` |
+| FIX-03 — Readiness and applicability | Release guidance uses the read-only readiness evaluator for current-generation approvals, natural-person independence, package acknowledgement, and EQR applicability; it does not invoke write commands. | Unit T03/T05; release and approval journeys in the full E2E run |
+| FIX-04 — Exact package and terminal outcomes | Release/archive completion follows the exact package revision and artifact manifest. Cancellation stays a skipped terminal outcome with its history; an older release cannot complete a newer package. | Unit T04/T06; E2E `VP-012-E02`, package/release journeys |
+| FIX-05 — Save result and invoice scope | “Save and continue” checks the committed record and revision in the scoped invoice collection. Failed validation retains the draft and route; a valid correction creates one record and navigates once. Credit-note revision increments now match the persisted rework history. | E2E `T10/T11`, `AT-31`; unit guard tests |
+| FIX-06 — Route and module coverage | The runtime route catalog explicitly classifies workflow, summary and reference surfaces. Accounting selectors distinguish setup, TB, GL, mappings, journals, reconciliations, statements, packages and consolidation; module IDs and aliases are checked against the canonical catalog. | Unit T13; `npx tsx tools/lifecycle-matrix.ts --check`; full route E2E |
+| FIX-07 — Next action and navigation | The compact panel keeps next action, immediate blocker and next role visible. Steps use native buttons and navigate to their declared route/record; the app’s existing unsaved-form and route guards still own the transition. Assigned task owners are shown only when the record supplies one; otherwise a role is shown. | Unit route/owner projections; E2E `UIX-06`, `T10/T11`, dialog and route-guard regressions |
 
-| Module (route) | Current UX issues found | Lifecycle supported | Changes implemented | Shared components reused | Role states verified | Failure / rework verified | Responsive | Accessibility | Tests / evidence | Remaining limitation |
+The focused matrix is covered as follows: T01 arithmetic, T02 missing context, T03 applicability, T04 terminal outcome, T05 stale approvals, T06 package lineage, T07 context switch, T08 non-disclosure, T09 revocation, T10/T11 failed and successful invoice save, T12 rework/currentness (`AT-31`), T13 catalog coverage, T14 exact Enter/Space targets (`UIX-06`), T15 unsaved transition retention (`T10/T11` through the shared route guard), T16 role/owner guidance (route projections and selected-job owner), T17 queue/scope agreement, T18 responsive/progressbar semantics (`UIX-06` and `CLOSE-J12`), T19 read-only calculation, and T20 prior UX regression coverage (`UX-ENT-02–05`, `UIX-06`).
+
+T15 is verified through the shared route transition guard and the invoice continuation scenario; there is no separate browser case that clicks a workflow step while that same invoice draft is dirty. T16 reports a workflow role or a recorded task owner; it does not imply that the current persona can bypass the owning store command’s permission or independence checks.
+
+## 2. Module audit
+
+Legend for the “States verified” column: **R** role/SoD, **F** failure/denial, **W** rework/return, **S** stale,
+**T** terminal. “Regression” means the existing suite still exercises it after the redesign.
+
+| # | Module | UX issues found | Lifecycle surfaced | Changes implemented | Shared components | States verified | Responsive | A11y | Tests / evidence | Remaining |
 |---|---|---|---|---|---|---|---|---|---|---|
-| Practice Overview (`overview`) | metric cards stated a count with no confirmation of which records they covered; stage badge used an undefined class | deterministic projection, no journey | metric cards gained drill-through labels; stage shown via shared badge; cards reconcile metric → filtered list (existing behaviour retained) | StatusBadge, ListState, MetricCard | VP-005 scoped-manager / preparer / partner / billing sweeps | zero-scope and out-of-scope dashboards show explicit empty lists | Verified 1440/1024/390 by the route sweep | one `h1`, metric `aria-label` includes count and detail | `app.test.ts` VP-005; harness; MOD-UX-01 sweep | none added; dashboard is still a projection, not a work queue with assignment actions |
-| Client Portfolio (`clients`) | a filtered search could look like an empty practice | Prospect → Active → Suspended → Archived | shared header, status badge, and a list state that separates "no clients yet" from "no clients match these filters" with the count that exists in scope | StatusBadge, ListState, ModuleIdentityLine | relationship / manager / partner create; scope-filtered cards | suspended clients remain discoverable | Verified | labelled filter and status controls | `app.test.ts` AT-05/AT-06, VP-008-E01; harness | — |
-| Client 360 (`client-detail`) | no page title in the page anatomy (record header was an `h2` inside a panel); no context line | one legal relationship register; PBC requests follow `request-response` | proper record header with a single `h1`, status badge, client id/code line and a client-scoped identity line that refuses another client's selected engagement | StatusBadge, ModuleIdentityLine, ListState | full tab sweep per client (VP-008-E01) | nomination review recorded without creating access | Verified across all 12 tabs | header focus order, labelled tabs | `app.test.ts` VP-008-E01, AT-05/AT-06; MOD-UX-01 sweep | the identity line reports client-level facts when the selected engagement belongs elsewhere (by design) |
-| Acquisition & Pipeline (`acquisition`) | stage shown as raw text in the table; kanban columns had no "nothing here" state | Inquiry → … → Won / Lost / Unqualified | shared header, stage badges in list and detail, terminal stages carry the terminal tone, stage history readable | StatusBadge, ModuleIdentityLine | relationship / manager / partner | lost reason retained and displayed | Verified | kanban cards are buttons with accessible names | `app.test.ts` AT-07/AT-08; harness | — |
-| Proposals & Terms (`proposals`) | commercial-review state and client response were plain text; no lifecycle explanation | Draft → Approved to send → Presented → Accepted / Declined / Withdrawn | shared header and lifecycle hint; review and response states use the shared vocabulary; revision lineage retained | StatusBadge, ModuleIdentityLine, ModuleLifecycleHint | partner / manager review only; self-approval blocked | returned proposal records the reason and returns to Draft | Verified (1024px overflow regression found and fixed here) | labelled revision controls | `app.test.ts` AT-07/AT-08, AT-09, AT-56, AT-58; MOD-UX-01 sweep | — |
-| Engagements (`engagements`) | no context line; no explicit "no engagement in scope" distinction from a filtered list | Draft → Active → Suspended → Closed / Cancelled | shared header, lifecycle hint, status badges; an explicit no-match list state with the scope explanation | StatusBadge, ModuleIdentityLine, ModuleLifecycleHint, ListState | partner / manager / reviewer / preparer / client scope | suspension and cancellation keep history and block writes atomically | Verified | impact warnings are `role="status"` | `app.test.ts` AT-10, VP-012; MOD-UX-01 sweep | — |
-| Acceptance & KYC (`onboarding`) | consensus wording for screening states; the acceptance decision was not visually distinguished | Draft → partner decision → linked next-period draft | shared header, lifecycle hint, status badges for screening outcomes | StatusBadge, ModuleIdentityLine, ModuleLifecycleHint | onboarding / compliance / manager / partner | missing evidence and prohibited mandate refused with reasons | Verified | labelled screening fields | `app.test.ts`; harness | recommendation remains pending until a separately assigned partner decides (unchanged) |
-| Jobs & Tasks (`jobs`) | blocked jobs rendered the word "Blocked" with no reason emphasis | Not started → In progress → Blocked → Completed / Cancelled | shared header, job and task status badges, time-entry status badges, blocked tone now distinct | StatusBadge, ModuleIdentityLine | manager / preparer / assignee | parent cannot complete with open subtasks; reassignment recorded | Verified | labelled task controls | `app.test.ts` AT-11/AT-12, VP-003; MOD-UX-01 sweep | — |
-| Job Templates (`job-templates`) | template governance notice quoted the status inside a sentence | Draft → Published → Retired (revisioned) | shared header and status badges; governance notice reads from the shared vocabulary | StatusBadge, ModuleIdentityLine | manager / partner | retired templates cannot be applied; later edits never alter applied jobs | Verified | — | `app.test.ts` AT-13; harness | — |
-| Documents & SharePoint (`documents`) | availability and version state appeared as prose | register; availability with/without a file | shared header and status badges; replaced revisions keep lineage | StatusBadge, ModuleIdentityLine | manager / partner / records / client projection | unavailable file blocks new links atomically; replacement stales dependants | Verified | labelled upload controls | `app.test.ts` AT-20, AT-21, AT-22, VP-053 | original bytes remain in-session only (declared) |
-| Communications (`communications`) | simulation outcome shared the same styling as a real delivery | draft → recorded outcome | shared header and status badges; the simulation banner is now a defined style | StatusBadge, ModuleIdentityLine | relationship / manager / partner | outcomes are `Simulated accepted` / `failed` / `unknown` / `Recorded manually` | Verified | — | `app.test.ts` AT-26, AT-27, VP-026-AC04 | no live mail by design |
-| Time Tracking (`my-time`) | submitted/approved/returned states were plain text; correction lineage hard to read | draft → Submitted → Approved / Returned → correction revision | shared header and status badges on every entry and on the job time table | StatusBadge, ModuleIdentityLine | preparer submits, reviewer approves independently | returned time requires a reason; corrections supersede without double counting | Verified | labelled time fields | `app.test.ts` AT-28, VP-003 | — |
-| Budgets & Variances (`budgets`) | draft-context protection was explained only in a warning | versioned budget, reopened when the context changes | shared header; budget status through the shared vocabulary | StatusBadge, ModuleIdentityLine | billing / manager / partner | saving under a changed engagement context is refused | Verified | — | `app.test.ts`; harness | — |
-| Billing & Invoices (`billing`) | a filtered register and an empty practice showed the same message | Draft → Approved / Returned → Issued → Paid / Cancelled | shared header and lifecycle hint; list state separates "no invoices yet" from "none match these filters"; credit-note states shared | StatusBadge, ModuleIdentityLine, ModuleLifecycleHint, ListState | partner / manager / billing | return requires a note; issued invoices are never rewritten | Verified | labelled invoice fields | `app.test.ts` AT-30/AT-31 area, VP-003-E02, AT-51; MOD-UX-01 sweep | — |
-| Receivables & Receipts (`receivables`) | aging-empty and no-invoice states were one sentence | receipt → allocation → reversal; as-of aging | shared header and lifecycle hint; list state separates empty from filtered; allocation reversal retains history | StatusBadge, ModuleIdentityLine, ModuleLifecycleHint, ListState | billing / manager / partner | reversal is recorded, not deleted | Verified | labelled receipt fields | `app.test.ts`; harness | — |
-| Accounting Workbench (`accounting-setup`, `trial-balance`, `gl-transactions`, `account-mappings`, `adjustments`, `reconciliations`) | six routes share one view; status text for period books, mappings, journals, reconciliations and GL lines was unstructured; the GL account filter could return nothing with no explanation | import → validate → map → journal → reconcile → derive, with revision staleness throughout | shared header and lifecycle hint; every sub-register uses the shared status vocabulary; the GL list now distinguishes "no lines imported" from "no lines match this account filter" | StatusBadge, ModuleIdentityLine, ModuleLifecycleHint, ListState | manager / reviewer / preparer / billing / records by sub-route | unbalanced imports rejected atomically; replacement stales reconciliations; approved schedule revision retained | Verified by the route sweep and the reconciliation journeys | labelled account/date/amount fields | `app.test.ts` AT-35, AT-36, AT-38, VP-038, VP-039; MOD-UX-01 sweep | the view remains a single large component (see "Decomposition") |
-| Financial Statements (`financial-statements`) | staleness was one word beside a revision; the reason and the preserved review were not visible | source revision → derived → reviewed → staled → re-derived | shared header; `StaleNotice` names the exact drift (source / mapping / layout / comparative), the affected outputs, the preserved review and the recalculate action; established "Latest: v… · Stale" wording retained | StatusBadge, StaleNotice, ModuleIdentityLine | preparer builds, reviewer approves independently | layout/comparative change stales reviews and blocks re-review until re-derived | Verified | — | `app.test.ts` AT-37, statement staleness journeys; MOD-UX-01 sweep | the stepper is not yet shown on this page (see Partial in the lifecycle matrix) |
-| Financial Packages (`financial-packages`) | pinned-source notes were accurate but listed separately with no impact or preserved-history statement | Calculated → Validated → Management → Accounting → Partner → Released | shared header and lifecycle hint; `StaleNotice` beside the existing notes adds impact, preserved revision history and the assemble action | StatusBadge, StaleNotice, ModuleIdentityLine, ModuleLifecycleHint | manager / preparer assemble; partner approves | forced generation and second IndexedDB failure report errors without saving a revision | Verified 1440/1024/390 | — | `app.test.ts` AT-41/AT-42/AT-48, AT-38/AT-40; MOD-UX-01 sweep | — |
-| Group Consolidation (`consolidation`) | perimeter, FX, elimination and output states were prose; a stale pin warning did not state what to do | perimeter → pins → FX → eliminations → run → reviewed output | shared header; elimination and output review states use the shared vocabulary | StatusBadge, ModuleIdentityLine, ModuleLifecycleHint | manager / partner with group grant | missing role blocks output by name; minority ownership refused with no figures; stale pin keeps the old snapshot | Verified 1440/1024/390 | — | `app.test.ts` AT-43/44/45, F-SIGN-04; MOD-UX-01 sweep | — |
-| Audit Planning & Materiality (`audit-planning`) | plan revision history read as raw rows | draft → reviewed → superseded | shared header; plan status through the shared vocabulary | StatusBadge, ModuleIdentityLine, ModuleLifecycleHint | reviewer approves independently | scope/team change supersedes the plan review | Verified | labelled materiality fields | `app.test.ts`; MOD-UX-01 sweep | — |
-| Risks & Audit Programs (`audit-risks`) | template and procedure-fix history used inconsistent styling | Draft → Published → Retired; procedure revisions | shared header and status badges on templates, revisions and prior states | StatusBadge, ModuleIdentityLine, ModuleLifecycleHint | manager / reviewer / preparer | revised template keeps applied programs unchanged | Verified | — | `app.test.ts` AT-49-related coverage; harness | — |
-| Sampling & Populations (`sampling`) | no "population not loaded" state distinct from "no items match" | imported population → selection → testing → review | shared header; explicit empty state for a population with no items | StatusBadge, ModuleIdentityLine, ModuleLifecycleHint, ListState | manager / reviewer / preparer | unreconciled frame disables selection; exceptions link to findings | Verified | labelled sample controls | `app.test.ts`; MOD-UX-01 sweep | — |
-| Audit Workpapers (`audit`) | workpaper status and not-applicable decisions were plain text | Draft → Submitted → Cleared / Returned; Not applicable | shared header and lifecycle hint; status badges on workpapers and their revision history | StatusBadge, ModuleIdentityLine, ModuleLifecycleHint | reviewer clears independently; senior role for Not applicable | revision reopens dependent review notes | Verified | — | `app.test.ts` AT-46, VP-052-AC03; MOD-UX-01 sweep | — |
-| Evidence Catalogue (`evidence`) | adequacy state and digest absence were prose | registered reference → adequacy determination | shared header; adequacy through the shared vocabulary | StatusBadge, ModuleIdentityLine | manager / reviewer / preparer | unavailable document blocks adequacy and links | Verified | — | `app.test.ts` AT-46, VP-053; harness | — |
-| Findings & Differences (`findings`) | disposition and response states were inconsistent; the release-blocking flag was easy to miss | raised → responded → cleared → reopened; disposition | shared header; disposition and response states shared | StatusBadge, ModuleIdentityLine, ModuleLifecycleHint | independent response review | revision reopens review notes; blocking findings named | Verified | — | `app.test.ts` VP-054, VP-055, AT-55; MOD-UX-01 sweep | — |
-| Review Desk (`reviews`) | open/responded/cleared/reopened had no consistent visual weight | Open → Responded → Cleared → Reopened | shared header and lifecycle hint; review states shared | StatusBadge, ModuleIdentityLine, ModuleLifecycleHint | reviewer / preparer separation | reopened is a visible state, not an error | Verified | response form labelled | `app.test.ts` VP-055, AT-55; MOD-UX-01 sweep | — |
-| Sign-offs & EQR (`approvals`, `quality`) | four approval slots and EQR concerns read as plain lists | generation-bound approvals; EQR concerns open → responded → resolved | shared header; approval and concern states shared | StatusBadge, ModuleIdentityLine, ModuleLifecycleHint | partner / manager / client / EQR independence | self-approval blocked; basis change clears approvals and keeps history | Verified | — | `app.test.ts` AT-47; MOD-UX-01 sweep | — |
-| Release & Completion (`delivery`) | readiness gaps and dispatch simulation were described in prose | candidate → readiness → issued → amended | shared header and lifecycle hint; dispatch remains explicitly simulated | StatusBadge, ModuleIdentityLine, ModuleLifecycleHint | manager / partner issue | amendment creates a linked successor release | Verified | — | `app.test.ts` AT-48 area; MOD-UX-01 sweep | dispatch is a simulation (declared) |
-| Records & Archive (`records`) | terminal-engagement answers (`No Release to Archive`, `Cancelled`, `Suspended`) were unstructured | issued release → archived → handover | shared header; status badges; terminal wording retained verbatim | StatusBadge, ModuleIdentityLine | records / manager / partner | cancelled and closed engagements are labelled, not fabricated | Verified | — | `app.test.ts` archive journeys; MOD-UX-01 sweep | — |
-| Client Portal Preview (`portal`) | no page title in the page anatomy; the shared-records guarantee was implicit | mirrors shared record states only | proper `h1` page header, simulated-status badge, identity line with the shared-record count; internal state never rendered | StatusBadge, ModuleIdentityLine, ListState | client_admin / client_finance / client + superuser preview | disclosure filtering unchanged and asserted | Verified | — | `app.test.ts` AT-18, AT-25, AT-53, VP-025-AC01 | — |
-| Report Centre (`reports`) | "no records match this filter" was the only empty answer, even when no records existed at all | deterministic report | shared list state distinguishing no-records from client-filtered no-match | ListState | role-scoped reports | out-of-scope records never counted or listed | Verified | — | `app.test.ts` AT-49/AT-60; MOD-UX-01 sweep | — |
-| Firm Administration (`administration`) | identity status and grant lifecycle were plain text | grant → revoke; identity active → disabled | shared header and status badges on identities and grants | StatusBadge, ModuleIdentityLine | admin with a global grant only | revocation and disablement retain reasoned history | Verified | labelled controls | `app.test.ts` AT-17; harness | — |
-| Microsoft 365 Setup (`m365-setup`) | simulation status could read like a live connection | Not configured → Simulated verified / error / Disconnected | shared header; every simulation state carries the simulated tone and the `liveConnected=false` disclosure | StatusBadge, ModuleIdentityLine | admin; all personas see the simulation banner | simulated failure path exercised | Verified | — | `app.test.ts` AT-15/AT-16; harness | Simulation only, by design |
-| Requirements & PRD (`requirements`) | a search could return nothing with no distinction from an empty backlog | informational | shared list state with the story/module count that exists | ListState | all active personas | — | Verified | labelled search | `app.test.ts` VP-064-AC01; MOD-UX-01 sweep | historical requirements text is not indexed in global search (unchanged) |
-| Module Guide & Tour (`module-guide`) | no way to see the full supported route catalogue from one place | informational | route index built on demand (route, group, primary record, lifecycle model, next step, permission-aware open button) | ListState, route registry | presenter and all personas | — | Verified | summary is keyboard operable | `app.test.ts` DEMO journeys; MOD-UX-01 sweep | — |
+| 01 | Practice Dashboard | Marketing-sized headline, undefined badge classes, blank calendar icon, tall filter form, no role queues | Engagement stage badges | Work queues with drill-down lists, compact filter bar, persona/scope line, compact metrics, empty variants | StatusBadge, EmptyTableRow, queues | R F (scope), reconciliation | Verified (CLOSE-J12) | Partial | UX-ENT-01; VP-005 | Headline copy kept because it is an asserted contract |
+| 02 | CRM & Client 360 | Unstyled tabs and status text | Client status; PBC in Client 360 | Status badges, empty variants, styled tabs, guide | StatusBadge, EmptyTableRow | Regression | Verified | Partial | VP-008-E01 | No client-level lifecycle panel |
+| 03 | Leads & Opportunities | Stage as plain text | `lead` | Stage badge + stepper; terminal note for Lost/Unqualified | LifecycleStepper | Regression (AT-07) | Verified | Partial | AT-07/AT-08 | — |
+| 04 | Proposals & Engagements | Every proposal state in one blue badge; returned drafts looked new; `window.alert` errors | `proposal`, `engagement` (existing lifecycle bar) | Semantic states + Returned flag; consequence-stating lifecycle prompts; inline page/dialog errors; scope empty state | StatusBadge, Notice, EmptyState | R F W T (regression) | Verified | Partial | AT-58, AT-09, AT-10, VP-012 | Native prompt for reason text (see limitations) |
+| 05 | Jobs & Tasks | Cramped detail, bare filter selects, blocked reason as grey caption | `job` | Master/detail layout, compact filters, job status + overdue badges, distinct blocked lines, consequence prompts | StatusBadge | R F T (regression) | Verified | Partial | VP-014 regression, VP-003 guards | — |
+| 06 | Job Templates | Retire prompt without impact | `job-template` | Consequence prompt, notices | Notice | Regression | Verified | Partial | Regression | — |
+| 07 | Team Collaboration | — | Notes/mentions | Notices, guide | Notice | Regression | Verified | Partial | AT-14 | Local notices only (scope) |
+| 08 | Client Portal | Errors shown in teal success style | Portal requests | Error/success tones, empty rows | Notice, EmptyTableRow | R (portal disclosure regression) | Verified | Partial | VP-025 tests | Staff preview shows presenter guide; client personas do not |
+| 09 | Client Requests / PBC | Filtered vs none empty states conflated visually; no overdue marker | `pbc` | None/filtered empty states, overdue badge, consequence prompt on cancel | EmptyTableRow, StatusBadge | F W T (regression) | Verified | Partial | AT-23/AT-24 | — |
+| 10 | Document Management | Errors in green; bare sharing/unavailable prompts | Document availability | Correct notice tones; consequence prompts | Notice | Regression | Verified | Partial | VP-061-E02 | Originals remain in-session (scope) |
+| 11 | Communications | Simulation outcome as plain text | Mail outcome | Simulation kind (indigo, dashed) distinct from real completion | StatusBadge | Regression | Verified | Partial | AT-26 | Mail is simulated (scope) |
+| 12 | Time Tracking | Return reason in raw red text; KPI classes undefined | `time` | Returned badge + reviewer, correction revision chain, SoD reason, empty row | StatusBadge, ActionReason | R W (unit + AT-28) | Verified | Partial | AT-28; queue unit test | — |
+| 13 | Budgets | Authoring dialog rendered without overlay styles | `budget` | Styled dialog, tabs, KPI classes | Notice | Regression | Verified | Partial | AT-29, AT-59 | — |
+| 14 | Billing & Invoicing | **Register showed invoices outside the persona's grant**; statuses plain; SoD denial only after clicking | `invoice`, `credit-note` | Scope fix (shared `scopedInvoices`), lifecycle detail + history timeline, SoD reasons, revision/returned badges, numeric cells | LifecyclePanel, ActivityTimeline, ActionReason | R F W T | Verified | Partial | UX-ENT-02; AT-30/AT-31; unit scope test | — |
+| 15 | Receivables | KPI classes undefined | Aging | Notices, empty row | Notice, EmptyTableRow | Regression | Verified | Partial | AT-32/AT-33 | — |
+| 16 | Reporting & Analytics | Drill-down dialog unstyled | — | Styled dialog, KPI classes | — | Regression | Verified | Partial | AT-49/AT-60 | — |
+| 17 | Search & Client View | Crumb showed raw key | — | Breadcrumb; search unchanged (already scope-filtered) | — | Regression | Verified | Partial | F01, VP-061 | — |
+| 18 | Microsoft 365 Setup | — | `m365` | Guide, notices | — | Regression | Verified | Partial | AT-15/AT-16 | Simulation only (scope) |
+| 19 | Identity & Access | Dialogs unstyled; revoke prompt bare | `invitation` | Styled dialogs/tabs, consequence prompt | StatusBadge | Regression | Verified | Partial | AT-17/AT-18 | — |
+| 20 | Accounting | Tabs unstyled | — | Styled tabs, guide | — | Regression | Verified | Partial | Regression | — |
+| 21 | Trial Balance & GL | — | `mapping` | Guide, styled badges | — | Regression | Verified | Partial | AT-35, AT-36 | — |
+| 22 | Adjustments & Journals | **Journals of every engagement listed (and counted) under the selected engagement** | `adjustment` | Engagement-scoped list, lifecycle stepper and history timeline (review, management decision, amendments, reflection) per journal | LifecycleStepper | F S (regression) | Verified | Partial | UX-ENT-03; AT-38; VP-038 | — |
+| 23 | Reconciliations | Stale shown only as a status word | `reconciliation` | Stale banner (source vN → vM, affected, preserved, required) | StaleBanner | S W (regression) | Verified | Partial | VP-039 | — |
+| 24 | Financial Statements | Stale revision only in a status line | `statement-set` | Stale banner naming the moved source/mapping/layout | StaleBanner | S (regression) | Verified | Partial | AT-37, review F-01 | — |
+| 25 | Financial Packages | “TB vnot assembled” text bug; unstyled gate badges; stale as four paragraphs | `package`, `disclosure` | Lifecycle panel, stale banner, gate list with original gate wording, handoff links, assemble reason | LifecyclePanel, StaleBanner, GateList, ActionReason | F S (regression) | Verified | Partial | AT-41/AT-42/AT-48; AT-52 | — |
+| 26 | Consolidation | Tabs unstyled; rework note inline-coloured | `consolidation-elimination`, `consolidation-output` | Elimination stepper, rework note, styled tabs | LifecycleStepper | W S (regression) | Verified | Partial | AT-43/44/45 | One parent + one subsidiary (scope) |
+| 27 | Client Acceptance | — | `acceptance` | Notices, badges | Notice | Regression | Verified | Partial | AT-44/VP-047 | — |
+| 28 | Audit Planning | Tabs unstyled; plan state only as a badge | `audit-plan` | Lifecycle panel (version, reviewer, return notes), empty state, empty rows | LifecyclePanel, EmptyState | W (regression) | Verified | Partial | VP-048/VP-049 | — |
+| 29 | Risks & Audit Programs | Tabs unstyled | `audit-procedure`, `audit-program-template` | Styled tabs, consequence prompt for fieldwork return | — | W (regression) | Verified | Partial | VP-049 | — |
+| 30 | Audit Fieldwork | (shares 29) | `audit-procedure` | (shares 29) | — | Regression | Verified | Partial | VP-048 | — |
+| 31 | Populations & Sampling | — | `sample` | Guide, styled badges | — | Regression | Verified | Partial | VP-051 | — |
+| 32 | Workpapers | Detail squeezed into the narrow column; no “what changed” view | `workpaper` | Master/detail, lifecycle panel with blockers, deterministic changes-since-review, combined history timeline (submissions, clearances, reassignments, evidence links), handoff links, consequence prompts | LifecyclePanel, reviewDiff | R W S | Verified | Partial | UX-ENT-04; reviewDiff unit tests; VP-052 | — |
+| 33 | Evidence | — | `evidence` | Notices, badges | Notice | Regression | Verified | Partial | AT-46 | — |
+| 34 | Findings & Differences | Blank severity pill and empty Category/Condition/Recommendation fields | `finding` | Explicit “Unclassified / Not recorded”, linked-record navigation | — | Regression | Verified | Partial | VP-054 | — |
+| 35 | Review Points | **Author and Review Query columns blank for seeded notes**; subject not navigable | `review-note` | Author/query fallbacks, subject link to exact workpaper/finding, due/severity/overdue, history timeline, empty variants | ActivityTimeline, EmptyTableRow | R W | Verified | Partial | UX-ENT-04; AT-55; VP-055 | — |
+| 36 | Reviews & Approvals (EQR) | Sign-off chain only as separate cards | `approval` | Sign-off lifecycle panel: who is next, stale approvals kept in history | LifecyclePanel | S (regression) | Verified | Partial | AT-47 | Approvals are recorded decisions, not signatures (scope) |
+| 37 | Completion & Release | Gate state conveyed by icon colour only | `release` | Lifecycle panel; explicit Passed/Blocked per gate | LifecyclePanel, StatusBadge | F (regression) | Verified | Partial | VP-057-AC01 | Dispatch is simulated (scope) |
+| 38 | Records & Archive | Dialog unstyled | `archive` | Styled dialog/tabs, notices | Notice | Regression | Verified | Partial | VP-059 regression | Logical archive only (scope) |
+| 39 | Administration | Dialogs/tabs unstyled | `invitation` | (shares 19) | — | Regression | Verified | Partial | Regression | — |
 
-## Deliberate non-changes
+## 3. Defects fixed during the audit (not presentation-only)
 
-- **No business rule was relaxed.** Every guard, revision check and
-  segregation-of-duties gate is untouched; the shared layer renders state and
-  never writes it.
-- **Simulation honesty wording is unchanged.** Email, M365, payments, release
-  dispatch and client sharing keep their existing disclosures.
-- **Financial calculations are untouched.** The only calculation change in this
-  work is the previously recorded engagement-currency formatter default.
-- **The superuser contract is unchanged.** The banner, the labelled
-  `Prototype Superuser Override` events and its exclusion from independence
-  evidence all remain.
-- **`prototypeStore.ts` was not restructured.** No command, migration or
-  validation was moved or rewritten.
+1. **Billing register scope** — the register listed every invoice regardless of grant (e.g. the ENG-26001-only
+   persona saw an ENG-26002 invoice). Fixed with the shared `scopedInvoices` guard helper used by both the
+   register and the navigation count. Unit + E2E (UX-ENT-02) tests.
+2. **Adjustment journal context** — the workbench listed and counted journals from every engagement under the
+   selected engagement. Now scoped to the selected engagement. E2E UX-ENT-03.
+3. **Display defects** — “TB vnot assembled”, blank Review Desk author/query columns, blank finding fields,
+   error notices styled as success in Documents and Client Portal.
 
-## Decomposition assessment
+## 4. Cross-module journey matrix
 
-The task suggested splitting very large views where it clearly helps. Assessment
-after this work:
+| Journey | Path | Demonstrated by (executed) | Handoffs added | Status |
+|---|---|---|---|---|
+| A. Client → Engagement | Lead → Client → Proposal → Review → Client response → Engagement → Activation → Job → mapped statements → package | AT-52 is a continuous manually entered happy path; AT-07/AT-08, AT-58 and AT-09/AT-10 add separate conversion, denial/rework and response cases | Lead stage stepper; proposal Returned flag; engagement consequence prompts | Continuous happy path: AT-52; denial/rework: segmented AT-58 and related acceptance tests |
+| B. PBC / Evidence | Request → Present → Upload → Review → Clarification → Replacement → Acceptance → Evidence | AT-23/AT-24 walks draft, presentation, response, clarification, replacement and independent acceptance; VP-061-E02/AT-46 add separate linkage/view cases | Overdue flag; none/filtered empty states | Continuous request/rework/acceptance path: AT-23/AT-24; linkage and view coverage has separate segments |
+| C. Accounting | TB import → Validation → Mapping → Adjustments → Statements → Package → Review → Release | AT-35, AT-36, AT-37, AT-38, VP-039, AT-41/42/48, AT-52, VP-057 | Package → TB / mappings / statements / review / sign-offs / release links; stale banners | Demonstrated in segments; rework: AT-38, VP-038, stale package (AT-41) |
+| D. Audit | Acceptance → Planning → Risk → Program → Population → Sampling → Workpaper → Finding → Review → Completion | AT-44/VP-047, VP-048/049, VP-051, VP-052, VP-054, VP-055, AT-55, AT-47, VP-057 | Review point → exact workpaper; finding → workpaper/journal/evidence/procedure/sample; workpaper → reviews/evidence/findings/program | Demonstrated in segments; rework: VP-055 reopen, UX-ENT-04 |
+| E. Billing | Approved time → Draft invoice → Review → Return → Revision → Approval → Issue → Receipt → Allocation → Aging | AT-28, AT-30, AT-31, lifecycle closure (reasoned return), AT-32/AT-33 | Invoice detail → receivables / source time / proposal; SoD reasons | Demonstrated in segments; denial: AT-31 self-approval |
+| F. Consolidation | Perimeter → Components → FX → Intercompany → Eliminations → Run → Review → Output | AT-43 (4 tests), AT-44, AT-45, VP-045-AC03, VP-003-E02 | Elimination stepper + rework note | Demonstrated in segments; rework: AT-45 return + approve |
 
-| View | Size | Assessment |
-|---|---|---|
-| `AccountingWorkbenchView` | ~90 kB | Six routes in one component. Splitting it would move business wiring, not just presentation, so it is **not** done here: a behaviour-preserving split needs its own reviewed task. Recorded as a limitation rather than attempted. |
-| `ClientDetailView` | ~65 kB | Left intact. The tab structure already gives it visual locality. |
-| `ConsolidationView`, `JobsTasksView`, `ProposalsView`, `ClientPortalView` | 50–62 kB | Left intact; no maintainability problem was demonstrated by this work. |
-| `FinancialStatementsView`, `FinancialPackagesView` | 35–47 kB | Received the staleness notice without restructuring. |
-
-New code was placed in small, single-purpose files
-(`src/services/lifecycle.ts`, `src/services/routeRegistry.ts`,
-`src/components/common/Enterprise.tsx`, `src/enterprise.css`) rather than growing
-the existing large views.
-
-## Evidence summary
-
-| Check | Command | Result |
-|---|---|---|
-| Typecheck / lint | `npm run lint` | PASS |
-| Production build | `npm run build` | PASS |
-| Legacy bundle syntax | `npm run legacy:check` | PASS |
-| Unit suites | `npm run test:unit` | 321/321 PASS (14 new MOD-UX-01 tests) |
-| Browser acceptance | `npm run test:e2e` | 146/146 PASS (5 static + 141 Chrome, including the new MOD-UX-01 route sweep) |
-| Tracker validation | `py -3 tools/progress.py validate` | valid — 0 errors |
-| Diff hygiene | `git diff --check` | clean |
-
-The exact run window and outcome are recorded in [`verification.md`](verification.md).
-
-## Honest status of the whole objective
-
-**Implemented and Verified**: the shared status/lifecycle vocabulary, the route
-registry, the page anatomy with identity line, the status badges across the
-routed modules, the list-state distinction, the route index, the stale notices on
-the two accounting modules that carry source drift, and the derived workflow
-progress tracker on the two flagship journeys (Engagements and Financial
-Packages) with its counting rules, blocked explanations and step navigation.
-
-**Partial**: the derived tracker is rendered on two screens today; the remaining
-stateful modules show their own step or status indicators, which the shared
-vocabulary now tones consistently but which have not yet been moved onto the
-shared tracker. [`lifecycle-progress-matrix.md`](lifecycle-progress-matrix.md) —
-generated from the code — lists, per route, whether a screen renders the derived
-tracker, shows its own indicators, or has no workflow to track. Identical
-lifecycle depth in every module and record-level history panels rendering through
-the shared timeline are likewise Partial, listed per row in the
-[lifecycle matrix](lifecycle-matrix.md).
-
-**Outside scope, unchanged**: everything in [`scope.md`](scope.md) — no live
-integrations, no workflow automation, no production claim. This audit does not
-assert functional parity with the separate AuditSphere product, and it is not a
-statement that the prototype is "perfect": it is enterprise-grade, coherent and
-demo-ready in the respects listed above, and Partial where stated.
+Only journeys A and B have a continuous happy-path test across their principal listed transitions. Journeys C–F
+are evidenced by the listed segments. Denial, stale and rework branches remain separate tests where shown; the
+suite does not claim six continuous end-to-end journeys.

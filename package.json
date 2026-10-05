@@ -5,16 +5,22 @@
   "type": "module",
   "scripts": {
     "dev": "vite --host 0.0.0.0 --port 3000",
-    "build": "tsc --noEmit && vite build",
+    "build": "node tools/generate-requirements-deck.mjs && tsc --noEmit && vite build",
     "lint": "tsc --noEmit",
     "preview": "vite preview --host 0.0.0.0 --port 3000",
-    "legacy:build": "py -3 build.py",
-    "legacy:check": "node --check app.bundle.js",
     "test:unit": "tsx --test --test-concurrency=1 tests/unit/*.test.ts",
-    "test:e2e": "npm run build && tsx --test --test-concurrency=1 tests/e2e/*.test.ts"
+    "cloud:seed": "tsx tools/seed-cloud-workspace.ts",
+    "cloud:typecheck": "tsc --noEmit -p worker/tsconfig.json",
+    "cloud:migrate": "wrangler d1 migrations apply steaudit-prototype-demo --remote --config wrangler.jsonc",
+    "cloud:dev": "wrangler dev --config wrangler.jsonc",
+    "cloud:deploy": "npm run build && wrangler deploy --config wrangler.jsonc",
+    "test:cloud": "tsx --test tests/cloud/*.test.ts",
+    "test:e2e": "npm run build && tsx --test --test-concurrency=1 tests/e2e/*.test.ts",
+    "cf": "wrangler"
   },
   "dependencies": {
     "docx": "^9.7.1",
+    "fflate": "0.8.3",
     "jspdf": "^4.2.1",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
@@ -26,6 +32,7 @@
     "@vitejs/plugin-react": "^6.1.1",
     "tsx": "^4.23.15",
     "typescript": "^7.0.2",
-    "vite": "^8.3.0"
+    "vite": "^8.3.0",
+    "wrangler": "^4.147.0"
   }
 }

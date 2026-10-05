@@ -1,0 +1,294 @@
+import type { GeneratedArtifactRecord, RoleKey } from './index';
+
+export interface LifecycleHistory {
+  at: string;
+  actorUserId: string;
+  action: string;
+  reason: string;
+}
+export interface SourcePin {
+  proposalId: string;
+  revision: number;
+  engagementService?: string;
+  engagementPeriod?: string;
+  proposalPeriodEnd?: string;
+  proposalPeriodStart?: string;
+  currency?: string;
+  acceptedFee?: number;
+}
+export interface PhysicalEvidenceReference {
+  indexCode: string;
+  box?: string;
+  description: string;
+  locationNote?: string;
+}
+export type AuditOpinion = 'Clean' | 'Qualified' | 'Disclaimer' | 'Adverse';
+export type ConfirmationStatus =
+  | 'Draft'
+  | 'Requested'
+  | 'Awaiting'
+  | 'Received'
+  | 'Reviewed'
+  | 'Cleared'
+  | 'No Response'
+  | 'Exception'
+  | 'Cancelled';
+export const REQUIRED_CONFIRMATION_TYPES = ['Bank', 'Accounts Receivable', 'Accounts Payable', 'Inventory', 'Legal'] as const;
+export type RequiredConfirmationType = typeof REQUIRED_CONFIRMATION_TYPES[number];
+export type LegacyConfirmationType = 'Debtor' | 'Other';
+export interface ExternalConfirmation {
+  id: string;
+  clientId: string;
+  engagementId: string;
+  type: RequiredConfirmationType | LegacyConfirmationType;
+  counterparty: string;
+  relatedFsli: string;
+  ownerUserId: string;
+  status: ConfirmationStatus;
+  critical: boolean;
+  requestedAt?: string;
+  dueAt: string;
+  receivedAt?: string;
+  workpaperIds: string[];
+  evidenceRefs: string[];
+  notes: string;
+  revision: number;
+  history: LifecycleHistory[];
+}
+export interface StaffAllocation {
+  capacityHours?: number;
+  leaveHours?: number;
+  leaveNote?: string;
+  targetUtilizationPct?: number;
+  userId: string;
+  role: 'Partner' | 'Manager' | 'Senior/Reviewer' | 'Preparer/Staff';
+  phase: 'Planning' | 'Fieldwork' | 'Review' | 'Reporting';
+  plannedHours: number;
+  chargeRate: number | null;
+  costRate: number | null;
+  startDate: string;
+  endDate: string;
+}
+export interface ReviewBasisRecord {
+  revision: number;
+  basis: string;
+  actorUserId: string;
+  at: string;
+  notes: string;
+}
+export interface SRMRecord extends ReviewBasisRecord {
+  artifact: GeneratedArtifactRecord;
+  summary: string[];
+}
+export interface OpinionRecord {
+  reportingBasis?: string;
+  revision: number;
+  value: AuditOpinion;
+  focusArea: string;
+  basis: string;
+  selectedByUserId: string;
+  selectedAt: string;
+}
+export type TargetLifecycleState =
+  | 'LEAD_INGESTION'
+  | 'PROPOSAL_GENERATION'
+  | 'DUAL_KEY_PENDING'
+  | 'ADVANCE_BILLING'
+  | 'PORTAL_ACTIVE_PLANNING'
+  | 'FIELDWORK_EXECUTION'
+  | 'MANAGERIAL_REVIEW'
+  | 'PARTNER_APPROVAL'
+  | 'DELIVERABLE_RELEASE'
+  | 'COMPLIANCE_COUNTDOWN'
+  | 'ARCHIVED_READ_ONLY';
+
+export interface DeliverableSet {
+  signatureAuthorizationRevision?: number;
+  draftRepresentationArtifact?: GeneratedArtifactRecord;
+  id: string;
+  revision: number;
+  basis: string;
+  opinionRevision: number;
+  generatedAt: string;
+  generatedByUserId: string;
+  reportDate: string;
+  artifacts: Array<
+    GeneratedArtifactRecord & {
+      deliverable:
+        | 'Management Letter'
+        | 'Letter of Representation'
+        | 'Audit Report'
+        | 'Independent Auditor Report & Audited Financial Statements'
+        | 'Management Correspondences Audit Trail'
+        | 'Final Balance Fee Note'
+        | string;
+    }
+  >;
+  deliveredAt?: string;
+  deliveredByUserId?: string;
+  deliveryNote?: string;
+}
+export interface HoldingLetterRecord {
+  id: string;
+  revision: number;
+  engagementId: string;
+  generatedAt: string;
+  generatedByUserId: string;
+  recipientContactId?: string;
+  recipientName: string;
+  sourceBlockers: string[];
+  /** Identity of the blocked critical-confirmation set (ids) — letters refresh when the set changes, not on status wording. */
+  blockerKey?: string;
+  artifactId: string;
+  artifact?: import('./index').GeneratedArtifactRecord;
+  simulatedDispatchStatus: 'Issued (simulated)' | 'Pending';
+}
+
+export interface AnalyticalReviewRecord {
+  id: string;
+  engagementId: string;
+  fsli: string;
+  tbSourceVersion: number;
+  mappingRevision?: number;
+  planVersion?: number;
+  comparativeEngagementId?: string;
+  comparativeSourceVersion?: number;
+  comparativeMappingRevision?: number;
+  currentBalance: number;
+  priorBalance?: number;
+  varianceAmount?: number;
+  variancePct: number | null;
+  analysis: string;
+  isa570Checklist: {
+    operatingCashFlows: boolean | null;
+    debtCovenantsCompliant: boolean | null;
+    workingCapitalAdequate: boolean | null;
+    noMaterialDisruptions: boolean | null;
+    conclusion: string;
+  };
+  evidenceRef?: string;
+  signedOffBy: string;
+  signedOffByUserId: string;
+  signedOffAt: string;
+  procedureId?: string;
+}
+
+export interface TargetEngagementLifecycle {
+  onboarding?: { liaisonContactId: string; recipient: string; at: string; status: 'Invitation issued (simulated)'; requiresFirstLoginReset: boolean };
+  rowLocks?: Record<string, { actorUserId: string; revision: number; acquiredAt: string; expiresAt: string; releasedAt?: string }>;
+  commercialBasis?: SourcePin;
+  advancePayments: Array<{
+    receiptId: string;
+    proposalId: string;
+    revision: number;
+    recordedByUserId: string;
+    reversed?: boolean;
+    reversalReason?: string;
+  }>;
+  receiptDocuments: Array<{
+    receiptIds: string[];
+    basis: string;
+    generatedAt: string;
+    artifact: GeneratedArtifactRecord;
+  }>;
+  workspace?: {
+    path: string;
+    preparedAt: string;
+    preparedByUserId: string;
+    accessVerifiedAt?: string;
+    accessVerifiedByUserId?: string;
+  };
+  staffing: Array<{
+    revision: number;
+    allocations: StaffAllocation[];
+    byUserId: string;
+    at: string;
+    reason: string;
+  }>;
+  milestones?: Array<{ revision: number; cutoff: string; fieldwork: string; draft: string; final: string; reason: string; actorUserId: string; at: string }>;
+  managerReviews: ReviewBasisRecord[];
+  srms: SRMRecord[];
+  partnerClearances: ReviewBasisRecord[];
+  opinions: OpinionRecord[];
+  /** Authoritative partner signature/seal event pinning the reported basis and opinion revision. */
+  signatureAuthorizations?: Array<{
+    signaturePng?: string;
+    sealPng?: string;
+    revision: number;
+    basis: string;
+    opinionRevision: number;
+    signatureDate: string;
+    signedByUserId: string;
+    sealApplied: boolean;
+    at: string;
+    note: string;
+  }>;
+  deliverables: DeliverableSet[];
+  signedRepresentations?: Array<{ revision: number; deliverableSetId: string; basis: string; artifact: GeneratedArtifactRecord; executive: string; financeExecutive: string; note: string; actorUserId: string; at: string }>;
+  holdingLetters?: HoldingLetterRecord[];
+  analyticalReviews?: AnalyticalReviewRecord[];
+  balanceInvoices: Array<{
+    invoiceId: string;
+    deliverableId: string;
+    acceptedFee: number;
+    recognizedAdvance: number;
+    artifact: GeneratedArtifactRecord;
+  }>;
+  archiveControl: {
+    finalReportDate?: string;
+    freezeDueDate?: string;
+    freezeStatus: 'Not Started' | 'Counting Down' | 'Frozen';
+    frozenAt?: string;
+    frozenByUserId?: string;
+    asOfDate?: string;
+    reportSetId?: string;
+    history: LifecycleHistory[];
+  };
+  history: LifecycleHistory[];
+}
+export interface FirmLedgerEntry {
+  id: string;
+  date: string;
+  description: string;
+  reference: string;
+  currency: string;
+  actorUserId: string;
+  createdAt: string;
+  lines: Array<{
+    account:
+      | 'Cash'
+      | 'Office rent'
+      | 'Staff salaries'
+      | 'Petty cash'
+      | 'Other expenses'
+      | 'Partner withdrawals'
+      | 'Capital';
+    debit: number;
+    credit: number;
+  }>;
+  reversalOf?: string;
+}
+export interface PortalPasswordSimulation {
+  userId: string;
+  changedAt: string;
+  history: LifecycleHistory[];
+}
+export interface PortalDelegation {
+  clientId: string;
+  engagementId: string;
+  userId: string;
+  delegatedByUserId: string;
+  at: string;
+  revokedAt?: string;
+}
+export interface TargetStageDefinition {
+  id: string;
+  label: string;
+  route: import('./index').RouteKey;
+  owner: string;
+  roles: RoleKey[];
+  /** Legacy/shared routes that render the same operational step (e.g. audit-risks hosts fieldwork programs). */
+  aliases?: import('./index').RouteKey[];
+  /** Parallel operating lane: runs alongside the engagement lifecycle, not a sequential state handoff. */
+  parallel?: boolean;
+}

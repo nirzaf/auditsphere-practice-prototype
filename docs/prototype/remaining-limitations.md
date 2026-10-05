@@ -1,49 +1,19 @@
 # AuditSphere Visual Prototype — Remaining Limitations
 
-## Enterprise UX enhancement (MOD-UX-01, recorded 2026-09-27)
+**Current Codex candidate (2026-09-28):** source commit `98fbb6b`, fast-forward pushed to `origin/main` and deployed to [Cloudflare Pages production](https://prototype.steaudit.com) ([release](https://a4326fc0.steaudit-prototype.pages.dev); deployment ID `a4326fc0-4bff-40f7-9e13-21fc7bb6356c`). Its tested source identity is `base=0c030e4ac653f661bfafbfc84104565d4c0c9fa4; working-tree-overlay-sha256=36990019db1ea125b0c790fe661d25caf7b91df8a5a35775b3b672786f9acf83`. The overlay digest hashes sorted changed/untracked paths and file contents, excluding `verification.md`, this summary, and the generated criterion ledger to avoid self-reference. The `dist/` manifest SHA-256 is `d1ca4f8baa0687fe25a23ba5cd5e379b7833942e168654d5cf4f2d98760158ae`. The full unit suite passed 336/336 and the serialized Chrome suite passed 152/152 with no skips; the generated ledger records all 256 mapped criteria and 64 story test groups passing. Build, lint, progress validation, criterion-map check, and tool self-tests passed. See the current run in [verification.md](verification.md) and generated [criterion-evidence-ledger.md](criterion-evidence-ledger.md). Recommendation: **READY_FOR_DEMO_REVIEW**. No independent reviewer or human acceptance is recorded. The older Claude-specific approval below applies only to its historical source and does not transfer to this candidate.
 
-The shared enterprise UX layer adds one lifecycle/status vocabulary, a per-module
-identity and lifecycle line, and consistent empty/no-match/out-of-scope list
-states across the supported routes. What it does **not** claim:
-
-- **Presentation only.** No shared primitive reads or writes business state, so
-  nothing in this layer relaxes a guard, a revision check or a segregation-of-duties
-  rule. Where a module's lifecycle is shown, it is derived from fields the store
-  already owns.
-- **Lifecycle models are reported, not enforced.** `LIFECYCLE_MODELS` describes how
-  each module's work moves; it is not a workflow engine, and there is no scheduler,
-  rules engine or background process (an explicit product exclusion).
-- **Status badge accessibility is text + tone + accessible name.** The visible
-  status text is not duplicated into a hidden text node, because a status inside a
-  sentence must keep its exact inline text; the plain-language meaning is carried
-  by the accessible name and the tooltip instead. This is a deliberate trade-off
-  recorded here rather than an omission.
-- **Per-module lifecycle depth varies.** The vocabulary, identity line and list
-  states are applied across the routed modules; the interactive stepper is applied
-  where a module derives its own step states, and several modules still present
-  lifecycle detail as prose. `docs/prototype/lifecycle-matrix.md` records the
-  evidence status per claim, including the rows marked Partial.
-- **Two pre-existing harness limitations** were found and are recorded rather than
-  changed, because neither is a product defect: the criterion ledger `check` mode
-  reports 623 "mapped test moved files" findings at the 2026-09-27 baseline commit
-  as well as after this work, and the VP-039 browser journey depends on the journey
-  before it having restored the manager persona (it also fails under a filtered
-  `--test-name-pattern` run at the same baseline). Neither affects the full
-  serialized suite, which passes.
-
-**Current (measured at `b988be1edf010f3f47c3aea646b5ad6a99f3dffe`):** 256/256 original criteria, 64/64 stories and 39/39 modules pass with executed
-evidence ([ledger](criterion-evidence-ledger.md)); 0 open action rows; decision **APPROVED_FOR_DEMO** under PROTOTYPE-AGENT-ACCEPTANCE-001
-(AI-agent acceptance of a browser-only demo). What remains are **intentional boundaries**, not open work:
+The implementation is complete for the attached progress/lifecycle scope. Existing prototype and demo boundaries remain:
 
 - Microsoft 365 is simulated (`liveConnected` stays false): no OAuth, credentials, tenant provisioning, mail sending or Purview.
 - Browser storage is not a security boundary; the superuser is a presenter tool; approvals are recorded decisions, not signatures.
 - Library/workpaper originals are in-session only (metadata + SHA-256 persist); PBC response bytes and generated/archive artifacts persist in IndexedDB.
 - Group reporting supports one parent + one 100%-owned subsidiary with closing-rate translation and manual eliminations; other methods are refused.
 - No payments, tax/payroll engines, eSignature, recurrence/automation, AI features or non-Microsoft integrations.
-- Not production, not professional methodology or opinion, not legal retention; no deployment was part of this acceptance.
-- Review basis: separate fresh-context Claude review subagent (two rounds) and disclosed same-session AI self-review — not independent human assurance.
+- The Pages deployment hosts a browser-only synthetic demonstration; it does not provide production authentication, professional methodology or opinion, or legal retention.
+- `npm ci` reported one high-severity direct dependency advisory for `xlsx` 0.18.5 ([prototype pollution](https://github.com/advisories/GHSA-4r6h-8v6p-xvw6) and [ReDoS](https://github.com/advisories/GHSA-5pgg-2g8v-p4x9); the configured registry reports no available fix). The dependency was outside this UI/lifecycle scope and was not changed; review this risk before handling untrusted workbooks.
+- The recommendation is a candidate handoff for demo review, not human assurance or product acceptance.
 
-## Baseline (2026-09-27, before closure — historical)
+## Baseline (2026-09-27, historical)
 
 Updated 2026-09-27. Selected R01–R14 defects received code and regression
 coverage, but that does not constitute full acceptance. The canonical tracker
@@ -594,7 +564,50 @@ A module-by-module lifecycle audit closed the following genuine gaps (unit + Chr
 - **Role-gating drift:** time review, job creation/reassignment, budget authoring, finding dispositions, document rename/move/availability and portal uploads now hide or disable controls the store would reject, with explanatory text instead of guaranteed-failure buttons.
 - **Rendered history and empty states:** invoice revision/approval history, contact revision history, reassignment history, PBC submitted-file versions and acceptance history, and scope-reassessment history now render; empty states were added for templates, leads, proposals, invoices, time, adjustments, reconciliations, documents, communications, PBC and findings; the '/' shortcut now actually opens Global Search; MOD-29 gained a create-risk affordance (`createAuditRisk`) with reciprocal links.
 
-## Verification snapshot
+## Enterprise UX layer delta (2026-09-27)
+
+A presentation-layer enhancement was applied across all 39 modules (details:
+[enterprise-ux-audit.md](enterprise-ux-audit.md), vocabulary: [design-system.md](design-system.md), lifecycles:
+[lifecycle-matrix.md](lifecycle-matrix.md)). No store command, guard, calculation, migration or scenario was
+removed or weakened. Two display-scope defects found during the audit were fixed and tested: the billing register
+listed invoices outside the persona's grant, and the accounting workbench listed every engagement's adjustment
+journals under the selected engagement.
+
+Remaining limitations of the UX layer (intentional or not yet done — not claimed as complete):
+
+- **Reason capture for destructive/terminal actions still uses the browser's native prompt.** Each prompt now
+  states impact, what is kept and reversibility (`src/services/terminalActions.ts`), but an in-app reason dialog
+  was not introduced because the existing Chrome suite drives these prompts in 39 places; replacing them is a
+  separate change that must migrate those interactions without weakening assertions.
+- **Lifecycle panels are shown where a record detail exists** (financial package, invoice, workpaper, audit plan,
+  release, sign-offs) and **steppers** on journals, eliminations and leads. Other stateful records use the
+  shared status badge plus the collapsed module lifecycle guide rather than a full panel.
+- **Work queues are projections, not a workflow engine**: no assignment rules, reminders, scheduling or
+  notifications. Sign-off items in "Waiting for my review" only indicate that the assigned approver's sign-off
+  for the current generation is outstanding; the store still decides whether it can be recorded.
+- **History timelines** render through the shared `ActivityTimeline` for invoices, workpapers, adjustment journals, review points and lead/opportunity stage history; other records keep their existing history lists or the engagement event log.
+- **"What changed since last review" is implemented for workpapers only**, as deterministic field differences
+  against the last clearance or submission; other review-driven records show their revision history instead.
+- **SoD-protected actions stay clickable** and show an explanation beforehand; the enforced store denial remains
+  the authority (deliberately, so presenters can demonstrate it). Create actions are hidden only where the role
+  can never perform them (engagement creation, review-point raising, job creation).
+- **Scenario context in the context bar** is derived from the retained local event log ("Loaded scenario
+  preset"), not a stored field; after many later events it falls back to "Default baseline".
+- **Form validation** remains store-authored: guard/validation errors are shown as notices beside the failed action, and the finding form adds submit-attempt inline field errors (`.field-error`, `role=alert`, `aria-invalid`) for its required title. Field-by-field inline validation is not yet wired into every remaining dialog form.
+- **Accessibility** is practical, not certified: status text + glyph (never colour alone), `aria-pressed` tabs,
+  `aria-current` lifecycle steps, keyboard-operable selectable rows, scenario presets and workflow steps
+  (UIX-06 exercises 390/1024/1440 responsiveness plus Enter and Space on exact stepper destinations), and the existing
+  dialog focus-trap contract. No automated WCAG scanner was run and screen-reader testing was not performed.
+- **Journeys A and B** have a continuous happy-path browser test (AT-52 and AT-23/AT-24); denial and rework
+  branches are separately covered. **Journeys C–F** are demonstrated by executed segments, not one continuous
+  test each. See the journey matrix in `enterprise-ux-audit.md`.
+- **Next actor guidance** identifies the current role or a recorded task owner. It does not authorize a store
+  transition; each write still goes through its existing role, scope, lifecycle and independence guards. The
+  tracker does not claim a workflow engine or persist assignments.
+- Headline copy on the dashboard ("A clear view of every engagement.") was kept because the existing suite
+  asserts it.
+
+## Prior verification snapshot (2026-09-27 — historical)
 
 Latest local verification: 242/242 unit checks and full E2E 111/111 (5 static + 106 Chrome) passed. The earlier intermittent VP-003-E01 global-search focus assertion is fixed by focusing the input synchronously after modal mount; the focused case passed 3/3 and is also green in the full suite. VP-003 proposal-catalogue draft guards, F05 template lifecycle, and AT-35 route restoration are also green. VP-039 AT-36 known-opening and AT-39 missing-opening/display journeys, and PBC scenarios, are included in the full pass. On 2026-09-26 the then-current app bundle was deployed as Pages release `aa39d257` and verified at `https://prototype.steaudit.com`; this verification is against the current local worktree and is not evidence that these later changes are deployed. The built-in browser exercised PBC filters and submitted the synthetic fixture `synthetic_trial_balance.csv` to the seeded PBC-03 request; the request displayed Received/v1 and the timeline attributed the upload to Amal Nasser. This was a browser-local IndexedDB smoke, not external storage; demo state was reset afterward. MOD-17's Shell-search workspace now maps to `clients`; client-visible PBC conversation entries and replies display in a shared request timeline while staff-only entries remain hidden in the client projection. The review-guide findings F01–F05 (search authorization
 before projection, draft-safe destructive reset, truthful context header, unique

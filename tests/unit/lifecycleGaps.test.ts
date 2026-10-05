@@ -10,7 +10,7 @@ import { prototypeStore } from '../../src/store/prototypeStore.js';
 import { migratePersistedState } from '../../src/services/migrations.js';
 import { visibleClientIds, visibleEngagementIds, hasConsolidationGroupScope, canReadSearchRecord } from '../../src/services/guards.js';
 import { applyReportingAdjustments, calculateBalanceSheet, calculateBudgetVsActual, calculateIncomeStatement } from '../../src/services/calculations.js';
-import type { PrototypeState } from '../../src/types/index.js';
+import type { PrototypeState, RouteKey } from '../../src/types/index.js';
 
 let state: PrototypeState;
 
@@ -126,7 +126,7 @@ describe('invoice reasoned return and rework (MOD-14)', () => {
   });
 });
 
-describe('firm settings prospective save (MOD-39)', () => {
+describe('firm settings prospective save', () => {
   it('rejects non-admins and atomically rejects invalid patches', () => {
     setPersona(state, 'Layla Rahman');
     assert.throws(() => prototypeStore.updateFirmSettings({ firmName: 'X' }), /Only administrators/);
@@ -441,7 +441,7 @@ describe('elimination duplicate inclusion and remaining finance negatives (VP-03
     setPersona(migrated, 'Adam Khan');
     (prototypeStore as any).state = migrated;
     const rows = structuredClone(engagement.rows);
-    assert.throws(() => prototypeStore.updateTrialBalanceRows(engagement.id, rows, { fileName: 'basis.csv', format: 'CSV', sha256: 'a'.repeat(64), mapping: { code: 0, name: 1, debit: 2, credit: 3, signed: -1, convention: 'debit-credit' } }), /accounting setup/, 'TB intake stays blocked until the reporting basis is deliberately selected');
+    assert.throws(() => prototypeStore.updateTrialBalanceRows(engagement.id, rows, { fileName: 'basis.csv', format: 'CSV', sha256: 'a'.repeat(64), mapping: { code: 0, name: 1, debit: 2, credit: 3, signed: -1, convention: 'debit-credit' } }), /accounting setup|Engagement activation blocked/, 'TB intake stays blocked until the reporting basis is deliberately selected');
   });
 
   it('rejects reconciliation items in a foreign currency (VP-039-E01)', () => {
@@ -476,7 +476,7 @@ describe('workspace, document and communication matrices (VP-020/021/026/027)', 
     setPersona(state, 'Layla Rahman');
     prototypeStore.simulateM365Verification('sharepoint', 'success');
     prototypeStore.prepareClientWorkspace('CL-001', 2026, 'ENG-26001');
-    const path = '/ClientEngagements/2026/EXP-TRAD/2026/ENG-26001/02_Planning/';
+    const path = '/ClientEngagements/2026/EXP-TRAD/2026/ENG-26001/02_Trial Balance & Schedules/';
     const folder = state.folders!.find(item => item.path === path)!;
     assert.ok(folder, 'the exact engagement folder is prepared beneath the configured synthetic root');
     const document = state.documents.find(item => item.id === 'DOC-002')!;
@@ -502,7 +502,7 @@ describe('workspace, document and communication matrices (VP-020/021/026/027)', 
     prototypeStore.renameClientWorkspaceFolder(path, 'Planning - partner review');
     assert.equal(state.folders!.find(item => item.path === path)?.label, 'Planning - partner review', 'partner authority can perform the same scoped metadata update');
     prototypeStore.prepareClientWorkspace('CL-002', 2026, 'ENG-26002');
-    const siblingClientFolderPath = state.folders!.find(item => item.clientId === 'CL-002' && item.engagementId === 'ENG-26002' && item.label === '02 Audit Planning')!.path;
+    const siblingClientFolderPath = state.folders!.find(item => item.clientId === 'CL-002' && item.engagementId === 'ENG-26002' && item.path.includes('02_Trial Balance & Schedules'))!.path;
     setPersona(state, 'Mona Khalil');
     prototypeStore.renameClientWorkspaceFolder(path, 'Planning - narrow manager');
     assert.equal(state.folders!.find(item => item.path === path)?.label, 'Planning - narrow manager', 'an engagement-scoped manager can rename within the granted engagement');
@@ -605,10 +605,10 @@ describe('proposal response methods and search person/grant matrix (VP-010/011/0
     const seedClone = structuredClone(state.proposals.find(p => p.state === 'Accepted')!);
     const proposal = { ...seedClone, id: 'PROP-REHEARSAL', revision: 1, state: 'Draft' as any, predecessorId: undefined, presentedBy: undefined, presentedAt: undefined, presentedSnapshot: undefined, clientResponse: undefined, responseHistory: [] as any[] };
     state.proposals.unshift(proposal);
-    setPersona(state, 'Layla Rahman');
+    setPersona(state, 'Daniel James');
     prototypeStore.reviewProposal(proposal.id, true, 'Rehearsal approval');
     setPersona(state, 'Amira Qasim');
-    prototypeStore.presentProposal(proposal.id, 'Email presentation to the CFO', 'DOC-PROP-PRES');
+    prototypeStore.presentProposal(proposal.id, 'Email');
     setPersona(state, 'Omar Nasser');
     let active = proposal;
     for (const method of ['Email', 'Meeting', 'Letter'] as const) {
@@ -620,10 +620,10 @@ describe('proposal response methods and search person/grant matrix (VP-010/011/0
         setPersona(state, 'Amira Qasim');
         prototypeStore.createProposalRevision(active.id, `Re-present after the ${method} withdrawal with corrected fee wording`);
         active = state.proposals.find(p => p.predecessorId === active.id)!;
-        setPersona(state, 'Layla Rahman');
+        setPersona(state, 'Daniel James');
         prototypeStore.reviewProposal(active.id, true, `Rehearsal approval after the ${method} withdrawal`);
         setPersona(state, 'Amira Qasim');
-        prototypeStore.presentProposal(active.id, `Re-presented after the ${method} withdrawal`, `DOC-PROP-PRES-${method}`);
+        prototypeStore.presentProposal(active.id, 'Email');
         setPersona(state, 'Omar Nasser');
       }
     }
@@ -644,10 +644,10 @@ describe('proposal response methods and search person/grant matrix (VP-010/011/0
     const seedClone = structuredClone(state.proposals.find(p => p.state === 'Accepted')!);
     const draft = { ...seedClone, id: 'PROP-SNAPSHOT', revision: 1, state: 'Draft' as any, predecessorId: undefined, presentedBy: undefined, presentedAt: undefined, presentedSnapshot: undefined, clientResponse: undefined, responseHistory: [] as any[] };
     state.proposals.unshift(draft);
-    setPersona(state, 'Layla Rahman');
+    setPersona(state, 'Daniel James');
     prototypeStore.reviewProposal(draft.id, true, 'Rehearsal approval');
     setPersona(state, 'Amira Qasim');
-    prototypeStore.presentProposal(draft.id, 'Presented at the board meeting', 'DOC-PROP-PRES-2');
+    prototypeStore.presentProposal(draft.id, 'Email');
     const presented = state.proposals.find(p => p.id === draft.id)!;
     assert.ok(presented.presentedSnapshot, 'presentation pins a snapshot');
     const snapshotBefore = JSON.stringify(presented.presentedSnapshot);
@@ -669,16 +669,17 @@ describe('proposal response methods and search person/grant matrix (VP-010/011/0
     const clientState = { ...s, currentUserId: clientUser.id, currentRole: clientUser.role, currentPerson: clientUser.name };
     assert.equal(canReadSearchRecord(clientState as any, { route: 'portal', clientId: doc.clientId, objectId: doc.id, title: doc.name }), true, 'a client reads its shared document through the portal route');
     assert.equal(canReadSearchRecord(clientState as any, internalDoc as any), false, 'a client cannot open internal staff records through search');
-    // Narrow manager: granted engagement only.
+    // Narrow manager: granted engagement only, on a current staff route.
     const narrow = { ...s, currentUserId: 'group-user', currentRole: 'manager', currentPerson: 'Mona Khalil' };
-    assert.equal(canReadSearchRecord(narrow as any, { route: 'jobs', clientId: 'CL-001', engagementId: 'ENG-26001', objectId: 'JOB-2601', title: 'Granted job' }), true, 'the narrow manager reads granted-engagement records');
-    assert.equal(canReadSearchRecord(narrow as any, { route: 'jobs', clientId: 'CL-002', engagementId: 'ENG-26002', objectId: 'JOB-2602', title: 'Foreign job' }), false, 'the narrow manager cannot read sibling-engagement records');
+    assert.equal(canReadSearchRecord(narrow as any, { route: 'scheduling', clientId: 'CL-001', engagementId: 'ENG-26001', objectId: 'SCH-2601', title: 'Granted scheduling record' }), true, 'the narrow manager reads granted-engagement records');
+    assert.equal(canReadSearchRecord(narrow as any, { route: 'scheduling', clientId: 'CL-002', engagementId: 'ENG-26002', objectId: 'SCH-2602', title: 'Foreign scheduling record' }), false, 'the narrow manager cannot read sibling-engagement records');
     // Revoked scope: strip the narrow grant and the record becomes unreadable.
     const revoked = { ...narrow, roleGrants: s.roleGrants.filter(g => g.userId !== 'group-user') };
-    assert.equal(canReadSearchRecord(revoked as any, { route: 'jobs', clientId: 'CL-001', engagementId: 'ENG-26001', objectId: 'JOB-2601', title: 'Granted job' }), false, 'a revoked grant removes search readability');
-    // Superuser reads everything but overrides are labelled (checked elsewhere); admin reads staff records.
+    assert.equal(canReadSearchRecord(revoked as any, { route: 'scheduling', clientId: 'CL-001', engagementId: 'ENG-26001', objectId: 'SCH-2601', title: 'Granted scheduling record' }), false, 'a revoked grant removes search readability');
+    // Retired route identifiers are openable by no one, so a firm-settings record has no fake
+    // legacy search destination; the administrator reaches current workspaces only.
     const admin = { ...s, currentUserId: 'admin', currentRole: 'admin', currentPerson: 'Khalid Al-Nuaimi' };
-    assert.equal(canReadSearchRecord(admin as any, { route: 'administration', objectId: 'FIRM', title: 'Firm settings' }), true, 'an administrator reads administration records');
+    assert.equal(canReadSearchRecord(admin as any, { route: 'administration' as unknown as RouteKey, objectId: 'FIRM', title: 'Firm settings' }), false, 'a retired route is not a readable search destination for any persona');
   });
 });
 
@@ -723,7 +724,7 @@ describe('authentic historical fixture migration (VP-004-E01)', () => {
     const legacy = JSON.parse(readFileSync(join(process.cwd(), 'tests', 'fixtures', 'legacy-seed-f5f4f78.json'), 'utf8'));
     assert.equal(legacy.schema, 5, 'the fixture is the authentic schema-5 historical state');
     const { state: migrated, warnings } = migratePersistedState(legacy, createInitialState());
-    assert.equal(migrated.schema, 29, 'the fixture migrates to the current schema');
+    assert.equal(migrated.schema, 30, 'the fixture migrates to the current schema');
     assert.equal(migrated.clients.length, legacy.clients.length, 'every historical client survives');
     assert.equal(migrated.engagements.length, legacy.engagements.length, 'every historical engagement survives');
     assert.ok(warnings.length > 0, 'the migration records its warnings');

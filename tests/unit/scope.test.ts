@@ -31,13 +31,11 @@ describe('scope freeze AT-04: no excluded module is offered in target-facing cod
     /docusign/i, /hellosign/i, /recurring\s+invoic/i, /payment\s+gateway/i,
     /bank\s*feed/i, /vector\s+search/i, /embedding/i
   ];
-  // Allowlist: exclusion documentation and explicit "not in product" disclaimers.
-  // VP-001 requires Purview's removal from setup/navigation/gates; stating that it
-  // is NOT part of the product is the compliant disclosure, not an offering.
+  // Allowlist: current exclusion disclosures and seed metadata only.
+  // Removed historical screen text is never read as runtime/product evidence.
   const allowFiles = new Set([
     join(srcRoot, 'components/modules/RequirementsView.tsx'),
     join(srcRoot, 'components/modules/RecordsArchiveView.tsx'),
-    join(srcRoot, 'components/modules/M365SetupView.tsx'),
     join(srcRoot, 'store/initialState.ts')
   ]);
   const allowLine = /not current product scope|not part of|no .*adapter|without claiming|Historical source|excluded|hard exclusion|never|not offered|No .*integration|no .*purview|not in product|without |is not part/i;
@@ -72,13 +70,12 @@ describe('scope freeze AT-04: no excluded module is offered in target-facing cod
     assert.deepEqual(violations, []);
   });
 
-  it('M365 config keeps liveConnected=false and offers no Purview control', () => {
-    const setup = readFileSync(join(srcRoot, 'components/modules/M365SetupView.tsx'), 'utf8');
-    assert.match(setup, /liveConnected:\s*false/);
-    // No Purview setup control, toggle, input, or gate — only exclusion disclosures.
-    assert.doesNotMatch(setup, /purview.*(input|select|checkbox|toggle|enable|setup|gate|required)/i);
+  it('does not compile or import the retired Microsoft 365 setup screen', () => {
+    const app = readFileSync(join(srcRoot, 'App.tsx'), 'utf8');
+    assert.doesNotMatch(app, /M365SetupView|m365-setup/);
     const store = readFileSync(join(srcRoot, 'store/prototypeStore.ts'), 'utf8');
     assert.match(store, /liveConnected:\s*false/);
+    assert.doesNotMatch(store, /fetch\(.*(?:graph|sharepoint|microsoft)/i);
   });
 });
 

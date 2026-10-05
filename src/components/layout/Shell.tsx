@@ -4,10 +4,12 @@
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { RouteKey, RoleKey } from '../../types';
 import { prototypeStore } from '../../store/prototypeStore';
-import { canOpenRoute, canReadSearchRecord, visibleClientIds, visibleEngagementIds, isClientRole } from '../../services/guards';
+import { canOpenRoute, canReadSearchRecord, visibleClientIds, visibleEngagementIds, isClientRole, scopedInvoices } from '../../services/guards';
 import { SCENARIO_DEFINITIONS, ScenarioName } from '../../store/scenarios';
 import { getPackageContextDisplay } from '../../services/calculations';
 import { Icon } from '../common/Icons';
+import { ROUTE_CATALOG, routeCode } from '../../services/routeCatalog';
+import { CloudDemoControls, CloudWorkspaceLabel } from '../common/CloudDemoControls';
 
 interface ShellProps {
   currentRoute: RouteKey;
@@ -18,15 +20,22 @@ interface ShellProps {
 }
 
 export const Shell: React.FC<ShellProps> = ({ currentRoute, onRouteChange, onSelectClient, onBeforeContextChange, children }) => {
-  const state = prototypeStore.getSnapshot();
+  const state = prototypeStore.getReadSnapshot();
   const [showScenarioModal, setShowScenarioModal] = useState(false);
   const [showSearchModal, setShowSearchModal] = useState(false);
+  const [presenterMode, setPresenterMode] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [searchRecordType, setSearchRecordType] = useState('all');
   const [searchContext, setSearchContext] = useState('all');
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const mobileMenuTrigger = useRef<HTMLButtonElement>(null);
   const mobileNavigation = useRef<HTMLElement>(null);
+  const previousRoute = useRef(currentRoute);
+  useEffect(() => {
+    if (previousRoute.current === currentRoute) return;
+    previousRoute.current = currentRoute;
+    document.getElementById('main')?.focus();
+  }, [currentRoute]);
   const searchTrigger = useRef<HTMLButtonElement>(null);
   const searchInput = useRef<HTMLInputElement>(null);
   const searchOpener = useRef<HTMLElement | null>(null);
@@ -44,15 +53,16 @@ export const Shell: React.FC<ShellProps> = ({ currentRoute, onRouteChange, onSel
   };
   const closeMobileMenu = () => {
     setMobileMenuOpen(false);
-    if (window.matchMedia?.('(max-width: 760px)').matches) mobileMenuTrigger.current?.focus();
+    if (window.matchMedia?.('(max-width: 959px)').matches) mobileMenuTrigger.current?.focus();
   };
   useEffect(() => {
     if (!mobileMenuOpen) return;
     const drawer = mobileNavigation.current;
-    const focusable = () => Array.from(drawer?.querySelectorAll<HTMLElement>('a[href], button:not([disabled]), select:not([disabled]), input:not([disabled]), [tabindex]:not([tabindex="-1"])') ?? []);
+    const focusable = () => Array.from(drawer?.querySelectorAll<HTMLElement>('a[href], button:not([disabled]), select:not([disabled]), input:not([disabled]), [tabindex]:not([tabindex="-1"])') ?? [])
+      .filter(element => element.getClientRects().length > 0 && !element.closest('[hidden], [inert]'));
     window.requestAnimationFrame(() => focusable()[0]?.focus());
     const onKeyDown = (event: KeyboardEvent) => {
-      if (!window.matchMedia?.('(max-width: 760px)').matches) return;
+      if (!window.matchMedia?.('(max-width: 959px)').matches) return;
       if (event.key === 'Escape') {
         event.preventDefault();
         closeMobileMenu();
@@ -106,11 +116,11 @@ export const Shell: React.FC<ShellProps> = ({ currentRoute, onRouteChange, onSel
       if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT' || target.isContentEditable)) return;
       if (document.querySelector('.modal-backdrop, .modal-overlay, .modal')) return;
       event.preventDefault();
-      openSearch();
+      if (presenterMode) openSearch();
     };
     document.addEventListener('keydown', onKeyDown);
     return () => document.removeEventListener('keydown', onKeyDown);
-  }, []);
+  }, [presenterMode]);
   // Desktop sidebar collapse is a presenter preference, persisted separately from
   // the validated business state.
   const [sidebarCollapsed, setSidebarCollapsed] = useState<boolean>(() => {    try { return localStorage.getItem('ste-auditsphere-sidebar-collapsed') === '1'; } catch { return false; }
@@ -153,84 +163,66 @@ export const Shell: React.FC<ShellProps> = ({ currentRoute, onRouteChange, onSel
 
   const staffNavGroups: Array<[string, Array<{ key: RouteKey; label: string; icon: string; count?: number }>]> = [
     [
-      'PRACTICE',
+      "MODULE 1: COMMERCIAL & CRM",
       [
-        { key: 'overview', label: 'Practice Overview', icon: 'grid' },
-        { key: 'clients', label: 'Client Portfolio', icon: 'users', count: scopedClients.length },
-        { key: 'acquisition', label: 'Acquisition & Pipeline', icon: 'target', count: state.leads.filter(l => l.stage !== 'Won').length },
-        { key: 'proposals', label: 'Proposals & Terms', icon: 'receipt' },
-        { key: 'engagements', label: 'Engagements', icon: 'brief', count: scopedEngagements.length },
-        { key: 'onboarding', label: 'Acceptance & KYC', icon: 'shield' }
+        { key: "overview", label: "Lifecycle Overview", icon: "grid" },
+        { key: "acquisition", label: "Lead Ingestion", icon: "target" },
+        { key: "clients", label: "Client Profiles", icon: "users" },
+        { key: "proposals", label: "Quotes & Proposals", icon: "receipt" },
+        { key: "engagements", label: "Engagement Letter (ISA 210)", icon: "brief" },
+        { key: "billing", label: "50% Advance & Receipts", icon: "receipt" }
       ]
     ],
     [
-      'WORK & COLLABORATION',
+      "MODULE 2: GOVERNANCE & PLANNING",
       [
-        { key: 'jobs', label: 'Jobs & Tasks', icon: 'checkboard', count: state.jobs.filter(j => allowedEngagementIds === 'ALL' || allowedEngagementIds.includes(j.engagementId)).length },
-        { key: 'job-templates', label: 'Job Templates', icon: 'layers' },
-        { key: 'communications', label: 'Team & Client Comms', icon: 'message' },
-        { key: 'documents', label: 'Documents & SharePoint', icon: 'folder', count: state.documents.filter(d => d.clientId && (allowedClientIds === 'ALL' || allowedClientIds.includes(d.clientId))).length }
+        { key: "onboarding", label: "Dual-Key Gate & Acceptance", icon: "shield" },
+
+        { key: "documents", label: "Client PBC Portal Handoff", icon: "folder" },
+        { key: "trial-balance", label: "Trial Balance (TB)", icon: "calculator" },
+        { key: "audit-planning", label: "3-Tier Materiality (ISA 320)", icon: "target" },
+        { key: "scheduling", label: "Resource Scheduling & Milestones", icon: "clock" }
       ]
     ],
     [
-      'ECONOMICS & BILLING',
+      "MODULE 3: TECHNICAL FIELDWORK",
       [
-        { key: 'my-time', label: 'Time Tracking', icon: 'clock' },
-        { key: 'budgets', label: 'Budgets & Variances', icon: 'calculator' },
-        { key: 'billing', label: 'Billing & Invoices', icon: 'receipt', count: state.invoices.filter(i => {
-          const engagementId = i.engagementId || i.eng;
-          const engagement = state.engagements.find(item => item.id === engagementId);
-          return i.status === 'Issued' && Boolean(engagement) && engagement?.client === i.clientId
-            && (allowedClientIds === 'ALL' || allowedClientIds.includes(i.clientId))
-            && (allowedEngagementIds === 'ALL' || allowedEngagementIds.includes(engagementId));
-        }).length },
-        { key: 'receivables', label: 'Receivables & Receipts', icon: 'receipt' }
+        { key: "financial-statements", label: "Split Dashboard (P/L & B/S)", icon: "file" },
+        { key: "audit-fieldwork", label: "Workprograms & Evidence", icon: "checkboard" },
+        { key: "sampling", label: "Sampling & Physical Index (X-1)", icon: "checkboard" },
+        { key: "confirmations", label: "External Confirmations (ISA 505)", icon: "message" },
+        { key: "findings", label: "Findings & Differences", icon: "file" },
+        { key: "reviews", label: "Three-Tier Review & SRM", icon: "message" }
       ]
     ],
     [
-      'ACCOUNTING WORKBENCH',
+      "MODULE 4: REPORTING & ARCHIVE",
       [
-        { key: 'accounting-setup', label: 'Accounting Workbench', icon: 'calculator' },
-        { key: 'financial-statements', label: 'Financial Statements', icon: 'file' },
-        { key: 'financial-packages', label: 'Financial Packages', icon: 'archive' },
-        { key: 'consolidation', label: 'Group Consolidation', icon: 'layers' }
+        { key: "delivery", label: "Audit Opinion & 5-Part Bundle", icon: "archive" },
+        { key: "records", label: "60-Day Compliance Lock (ISA 230)", icon: "archive" }
       ]
     ],
     [
-      'AUDIT & ASSURANCE',
+      "MODULE 5: PRACTICE MANAGEMENT",
       [
-        { key: 'audit-planning', label: 'Audit Planning & Materiality', icon: 'target' },
-        { key: 'audit-risks', label: 'Risks & Audit Programs', icon: 'shield' },
-        { key: 'sampling', label: 'Sampling & Populations', icon: 'checkboard' },
-        { key: 'audit', label: 'Audit Workpapers', icon: 'checkboard', count: selectedEng?.workpapers?.length },
-        { key: 'evidence', label: 'Evidence Catalogue', icon: 'folder' },
-        { key: 'findings', label: 'Findings & Differences', icon: 'target', count: state.findings.filter(f => allowedEngagementIds === 'ALL' || allowedEngagementIds.includes(f.engagementId)).length },
-        { key: 'reviews', label: 'Review Desk', icon: 'message', count: selectedEng?.reviews?.filter(r => r.status !== 'Cleared').length },
-        { key: 'approvals', label: 'Sign-offs & EQR', icon: 'shield' },
-        { key: 'delivery', label: 'Release & Completion', icon: 'archive' },
-        { key: 'records', label: 'Records & Archive', icon: 'archive' }
-      ]
-    ],
-    [
-      'CLIENT SERVICES & ADMIN',
-      [
-        { key: 'portal', label: 'Client Portal Preview', icon: 'globe' },
-        { key: 'reports', label: 'Report Centre', icon: 'calculator' },
-        { key: 'administration', label: 'Firm Administration', icon: 'settings' },
-        { key: 'm365-setup', label: 'Microsoft 365 Setup', icon: 'settings' },
-        { key: 'requirements', label: 'Requirements & PRD', icon: 'book' },
-        { key: 'module-guide', label: 'Module Guide & Tour', icon: 'layers' }
+        { key: "my-time", label: "Daily Engagement / FSLI Time", icon: "clock" },
+        { key: "reports", label: "Real-Time Profitability & Rates", icon: "calculator" },
+        { key: "practice-ledger", label: "Firm Ledger, Monthly TB & AR Aging", icon: "calculator" },
+
       ]
     ]
   ];
 
+  staffNavGroups.push(['REFERENCE / SPECIFICATION', [
+    { key: 'client-requirements', label: 'Requirements Presentation', icon: 'book' },
+    { key: 'requirements', label: 'Functional Requirements', icon: 'book' }
+  ]]);
   const clientNavGroups: Array<[string, Array<{ key: RouteKey; label: string; icon: string; count?: number }>]> = [
     [
-      'CLIENT SECURE PORTAL',
+      'CLIENT SECURE PORTAL (PBC)',
       [
-        { key: 'portal', label: 'Client Experience Portal', icon: 'globe' },
-        { key: 'module-guide', label: 'Module Guide', icon: 'layers' },
-        { key: 'requirements', label: 'Specifications & PRD', icon: 'book' }
+        { key: 'portal', label: 'Client PBC Portal & Evidence', icon: 'globe' },
+        { key: 'requirements', label: 'Functional Requirements', icon: 'book' }
       ]
     ]
   ];
@@ -242,7 +234,7 @@ export const Shell: React.FC<ShellProps> = ({ currentRoute, onRouteChange, onSel
   const handleRoleChange = (userId: string) => {
     onBeforeContextChange(() => {
       prototypeStore.setPersona(userId);
-      const snap = prototypeStore.getSnapshot();
+      const snap = prototypeStore.getReadSnapshot();
       if (isClientRole(snap.currentRole)) onRouteChange('portal');
       triggerToast(`Switched simulated identity to ${snap.currentPerson} (${snap.currentRole})`);
     });
@@ -317,7 +309,7 @@ export const Shell: React.FC<ShellProps> = ({ currentRoute, onRouteChange, onSel
       state.engagements.filter(e => matches(e.service, e.id))
         .forEach(e => add({ title: `${e.id} · ${e.service}`, sub: `Engagement · FY ${e.year}`, route: 'engagements', objectId: e.id, clientId: e.client, engagementId: e.id, requiresEngagement: true }));
       state.jobs.filter(j => matches(j.title, j.id))
-        .forEach(j => add({ title: j.title, sub: `Job · ${j.id}`, route: 'jobs', objectId: j.id, clientId: j.clientId, engagementId: j.engagementId, requiresEngagement: true }));
+        .forEach(j => add({ title: j.title, sub: `Job · ${j.id}`, route: 'scheduling', objectId: j.id, clientId: j.clientId, engagementId: j.engagementId, requiresEngagement: true }));
     }
     if (!clientRole) {
       state.documents.filter(d => matches(d.name, d.id))
@@ -325,17 +317,17 @@ export const Shell: React.FC<ShellProps> = ({ currentRoute, onRouteChange, onSel
       state.jobTasks.filter(t => {
         const job = state.jobs.find(j => j.id === t.jobId);
         return job && matches(t.title, t.id);
-      }).forEach(t => { const j = state.jobs.find(x => x.id === t.jobId)!; add({ title: t.title, sub: `Task · ${t.id}`, route: 'jobs', objectId: t.id, clientId: j.clientId, engagementId: j.engagementId, requiresEngagement: true }); });
+      }).forEach(t => { const j = state.jobs.find(x => x.id === t.jobId)!; add({ title: t.title, sub: `Task · ${t.id}`, route: 'scheduling', objectId: t.id, clientId: j.clientId, engagementId: j.engagementId, requiresEngagement: true }); });
       state.invoices.filter(i => matches(i.invoiceNumber, i.id))
         .forEach(i => add({ title: i.invoiceNumber, sub: `Invoice · ${i.amount} ${i.currency}`, route: 'billing', objectId: i.id, clientId: i.clientId, engagementId: i.engagementId || i.eng, requiresEngagement: true }));
       state.communications.filter(c => matches(c.summary, c.participants, c.id))
-        .forEach(c => add({ title: c.summary, sub: `Communication · ${c.channel}`, route: 'communications', objectId: c.id, clientId: c.clientId, engagementId: c.engagementId, requiresEngagement: c.engagementId ? true : c.scopeKind !== 'Client', clientWide: !c.engagementId && c.scopeKind === 'Client' }));
+        .forEach(c => add({ title: c.summary, sub: `Communication · ${c.channel}`, route: 'documents', objectId: c.id, clientId: c.clientId, engagementId: c.engagementId, requiresEngagement: c.engagementId ? true : c.scopeKind !== 'Client', clientWide: !c.engagementId && c.scopeKind === 'Client' }));
       state.findings.filter(f => {
         return matches(f.title, f.id);
       }).forEach(f => add({ title: f.title, sub: `Finding · ${f.id}`, route: 'findings', objectId: f.id, engagementId: f.engagementId, requiresEngagement: true }));
       state.engagements.forEach(e => {
         e.workpapers.filter(w => matches(w.title, w.id))
-          .forEach(w => add({ title: w.title, sub: `Workpaper · ${w.id}`, route: 'audit', objectId: w.id, clientId: e.client, engagementId: e.id, requiresEngagement: true }));
+          .forEach(w => add({ title: w.title, sub: `Workpaper · ${w.id}`, route: 'audit-fieldwork', objectId: w.id, clientId: e.client, engagementId: e.id, requiresEngagement: true }));
         e.pbc.filter(p => matches(p.title, p.id))
           .forEach(p => add({ title: p.title, sub: `PBC · ${p.id}`, route: 'client-detail', objectId: p.id, clientId: e.client, engagementId: e.id, requiresEngagement: true }));
       });
@@ -411,7 +403,7 @@ export const Shell: React.FC<ShellProps> = ({ currentRoute, onRouteChange, onSel
             <Icon name="layers" />
           </div>
           <div className="brandname">
-            Audit<span>Sphere</span>
+            STE <span>Audit Tool</span>
           </div>
         </div>
 
@@ -419,13 +411,13 @@ export const Shell: React.FC<ShellProps> = ({ currentRoute, onRouteChange, onSel
           <span className="firmavatar">STE</span>
           <span>
             <b>STE Audit & Accounting</b>
-            <div style={{ fontSize: '10.5px', color: '#5d7175', marginTop: '1px' }}>
-              Practice Workspace · Doha, Qatar
+            <div style={{ fontSize: '10.5px', color: 'var(--chrome-muted)', marginTop: '1px' }}>
+              STE Audit Management Tool v2.1 · Doha, Qatar
             </div>
           </span>
         </div>
 
-        {state.currentRole === 'superuser' && <div className="banner amber" role="status" aria-label="Superuser full prototype access">
+        {presenterMode && state.currentRole === 'superuser' && <div className="banner amber" role="status" aria-label="Superuser full prototype access">
           <b>SUPERUSER · FULL PROTOTYPE ACCESS</b>
           <div className="caption mt4">Synthetic testing identity · overrides are logged</div>
         </div>}
@@ -438,6 +430,7 @@ export const Shell: React.FC<ShellProps> = ({ currentRoute, onRouteChange, onSel
                 <button
                   key={item.key}
                   className={`navitem ${currentRoute === item.key ? 'active' : ''}`}
+                  aria-current={currentRoute === item.key ? 'page' : undefined}
                   title={item.label}
                   aria-label={sidebarCollapsed ? item.label : undefined}
                   onClick={() => {
@@ -463,12 +456,13 @@ export const Shell: React.FC<ShellProps> = ({ currentRoute, onRouteChange, onSel
               Interactive Prototype
             </strong>
             <br />
-            Synthetic records. No live external integrations. Changes saved in this browser.
+            Synthetic records. Business services are simulated. Local or cloud demo storage.
           </div>
           <button
             className="navitem"
             aria-label={sidebarCollapsed ? 'Reset Demo State' : undefined}
             title="Reset Demo State"
+            hidden={!presenterMode}
             onClick={requestDemoReset}
           >
             <Icon name="refresh" />
@@ -479,7 +473,7 @@ export const Shell: React.FC<ShellProps> = ({ currentRoute, onRouteChange, onSel
 
       {/* Main Shell Content */}
       <div className="shell">
-        <header className="topbar">
+        <header className={presenterMode ? 'topbar presenter-topbar' : 'topbar'}>
           <div className="topbar-left">
             <button
               className="icon-btn sidebar-toggle"
@@ -501,34 +495,40 @@ export const Shell: React.FC<ShellProps> = ({ currentRoute, onRouteChange, onSel
             >
               <Icon name="menu" />
             </button>
-            <div className="crumb">
-              Workspace &nbsp;/&nbsp; <b>{currentRoute.toUpperCase().replace('-', ' ')}</b>
-            </div>
+            <nav className="crumb" aria-label="Breadcrumb">
+              <span className="crumb-section">{ROUTE_CATALOG[currentRoute]?.section || 'Workspace'}</span>
+              <span className="crumb-sep" aria-hidden="true">/</span>
+              <span className="crumb-module" aria-current="page">{ROUTE_CATALOG[currentRoute]?.label || currentRoute}</span>
+
+            </nav>
             <button
               ref={searchTrigger}
               className="search-trigger"
+              hidden={!presenterMode}
               aria-label="Open global search"
               onClick={openSearch}
             >
               <Icon name="search" />
-              <span>Search clients, jobs, workpapers, invoices…</span>
+              <span>Search clients, engagements, evidence, invoices…</span>
               <kbd>/</kbd>
             </button>
           </div>
 
           <div className="topbar-right">
+            <button className="btn sm" aria-pressed={presenterMode} onClick={() => setPresenterMode(v => !v)}>Presenter / Demo Controls</button>
             <span className="demo-pill">
               <span className="demo-dot" />
-              LOCAL DEMO
+              <CloudWorkspaceLabel />
             </span>
             <button
               className="btn sm tour-header"
+              hidden={!presenterMode}
               onClick={() => setShowScenarioModal(true)}
             >
               <Icon name="layers" />
               Explore Scenarios
             </button>
-            <div className="persona">
+            <div className="persona" hidden={!presenterMode}>
               <div className="firmavatar" style={{ width: 28, height: 28, fontSize: 11 }}>
                 {currentPersona.initials}
               </div>
@@ -539,11 +539,26 @@ export const Shell: React.FC<ShellProps> = ({ currentRoute, onRouteChange, onSel
                   value={state.currentUserId}
                   onChange={e => handleRoleChange(e.target.value)}
                 >
-                  {state.users.map(u => (
-                    <option key={u.id} value={u.id}>
-                      {u.label} — {u.name}{u.status !== 'Active' ? ' (disabled)' : ''}
-                    </option>
-                  ))}
+                  <optgroup label="Core User Personas (STE Specification 1.2)">
+                    {state.users.filter(u => ['preparer', 'reviewer', 'partner', 'client'].includes(u.id)).map(u => {
+                      const specLabel = u.id === 'preparer' ? 'PREPARER (Associate)' :
+                                        u.id === 'reviewer' ? 'REVIEWER (Senior / Manager)' :
+                                        u.id === 'partner' ? 'APPROVER (Partner)' :
+                                        'CLIENT (Coordinator / CFO)';
+                      return (
+                        <option key={u.id} value={u.id}>
+                          {specLabel} — {u.name}
+                        </option>
+                      );
+                    })}
+                  </optgroup>
+                  <optgroup label="Other Internal / Simulated Identities">
+                    {state.users.filter(u => !['preparer', 'reviewer', 'partner', 'client'].includes(u.id)).map(u => (
+                      <option key={u.id} value={u.id}>
+                        {u.label} — {u.name}{u.status !== 'Active' ? ' (disabled)' : ''}
+                      </option>
+                    ))}
+                  </optgroup>
                 </select>
               </div>
             </div>
@@ -583,9 +598,20 @@ export const Shell: React.FC<ShellProps> = ({ currentRoute, onRouteChange, onSel
             <label>Mode / Currency</label>
             <span>{selectedEng ? `${selectedEng.mode} · ${selectedEng.currency}` : 'Unavailable'}</span>
           </div>
-          <div className="context-item">
-            <label>Package Rev</label>
+          <div className="context-item" hidden={!presenterMode}>
+            <label hidden={!presenterMode}>Scenario</label>
             {(() => {
+              // Presentation only: the last "Loaded scenario preset" event in the local log (not a stored field).
+              const loaded = state.events.find(event => event.text.startsWith('Loaded scenario preset: '));
+              const id = loaded?.text.replace('Loaded scenario preset: ', '');
+              const title = SCENARIO_DEFINITIONS.find(item => item.id === id)?.title;
+              return <span title={loaded ? 'Most recent preset loaded in this browser; later edits are local changes' : 'No preset loaded in the retained event log'}>{title || id || 'Local audit lifecycle'}</span>;
+            })()}
+          </div>
+          <div className="context-item">
+            <label>Report set</label>
+            {(() => {
+              if (selectedEng?.auditLifecycle) { const set=selectedEng.auditLifecycle.deliverables.at(-1); return <span>{set ? `v${set.revision} · ${selectedEng.auditLifecycle.archiveControl.freezeStatus==='Frozen'?'Frozen':set.deliveredAt?'Delivered':'Generated'}` : 'Not generated'}</span>; }
               const display = getPackageContextDisplay(selectedEng);
               if (!display.revision) return <span>{display.status}</span>;
               return <>
@@ -598,6 +624,7 @@ export const Shell: React.FC<ShellProps> = ({ currentRoute, onRouteChange, onSel
 
         {/* Main Content Area */}
         <main className="main" id="main" tabIndex={-1}>
+          <CloudDemoControls visible={presenterMode} onBeforeContextChange={onBeforeContextChange} />
           {children}
         </main>
       </div>
@@ -612,22 +639,23 @@ export const Shell: React.FC<ShellProps> = ({ currentRoute, onRouteChange, onSel
             </div>
             <div className="modal-body">
               <p className="sub" style={{ marginBottom: 16 }}>
-                Switch between fully-realized synthetic scenarios to demonstrate different phases of the practice, accounting, audit, and consolidation lifecycles.
+                Start a fresh synthetic audit lifecycle. Existing local records are replaced only after confirming the scenario change.
               </p>
               <div className="stack" style={{ gap: 10 }}>
-                {SCENARIO_DEFINITIONS.map(scen => (
-                  <div
+                {SCENARIO_DEFINITIONS.filter(s => s.id === 'target-lifecycle' || s.id === 'empty-practice').map(scen => (
+                  <button
+                    type="button"
                     key={scen.id}
-                    className="borderbox"
-                    style={{ cursor: 'pointer', padding: '14px', borderRadius: 6 }}
+                    className="borderbox scenario-option"
+                    aria-label={`Load scenario preset: ${scen.title}`}
                     onClick={() => handleSelectScenario(scen.id)}
                   >
-                    <div className="between">
-                      <b style={{ color: 'var(--teal-dark)' }}>{scen.title}</b>
+                    <span className="between">
+                      <b>{scen.title}</b>
                       <span className="tag blue">Load Preset</span>
-                    </div>
-                    <p className="sub" style={{ marginTop: 6, fontSize: 12 }}>{scen.description}</p>
-                  </div>
+                    </span>
+                    <span className="sub block" style={{ marginTop: 6, fontSize: 12 }}>{scen.description}</span>
+                  </button>
                 ))}
               </div>
             </div>
@@ -679,7 +707,7 @@ export const Shell: React.FC<ShellProps> = ({ currentRoute, onRouteChange, onSel
                   className="input"
                   aria-label="Search practice records"
                   style={{ flex: 1 }}
-                  placeholder="Type to search clients, engagements, jobs, documents..."
+                  placeholder="Search clients, engagements, documents..."
                   value={searchQuery}
                   onChange={e => setSearchQuery(e.target.value)}
                   autoFocus
@@ -702,7 +730,7 @@ export const Shell: React.FC<ShellProps> = ({ currentRoute, onRouteChange, onSel
                 </select>
               </div>
               {filteredSearchResults.length === 0 ? (
-                <div style={{ textAlign: 'center', padding: '30px 10px', color: '#798e91' }}>
+                <div style={{ textAlign: 'center', padding: '30px 10px', color: 'var(--muted)' }}>
                   {searchQuery ? 'No matching records found in demo state.' : 'Type a query to search all practice records.'}
                 </div>
               ) : (
@@ -716,7 +744,7 @@ export const Shell: React.FC<ShellProps> = ({ currentRoute, onRouteChange, onSel
                         style={{ textAlign: 'left', width: '100%', cursor: 'pointer', padding: 10 }}
                         onClick={() => {
                           onBeforeContextChange(() => {
-                            const currentState = prototypeStore.getSnapshot();
+                            const currentState = prototypeStore.getReadSnapshot();
                             if (!canReadSearchRecord(currentState, item)) {
                               triggerToast('This search result is no longer available in your current access scope.', 'error');
                               return;

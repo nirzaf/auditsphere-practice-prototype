@@ -1,0 +1,355 @@
+{
+  "mode": "Chrome command-level lifecycle with rendered checkpoints; not a click-by-click user acceptance",
+  "checkpoints": [
+    "Lead created and won; client prospect created",
+    "Proposal / EL accepted with current revision and evidence",
+    "Dual-Key cleared, then 50% advance recorded and genuine receipt PDF persisted",
+    "Declined gate exercised, then Partner accepted independent recommendation",
+    "M365 five-folder workspace prepared and simulated access verified",
+    "PBC requested; scoped client uploads bytes; Manager accepts evidence",
+    "Planning PM/TE/SAD and four-role staffing/rates completed",
+    "TB uploaded / mapped; preliminary planning explicitly reconfirmed",
+    "P&L / BS generated with reconciled totals and FSLI drill-down rendered",
+    "Six fieldwork programs completed and independently cleared",
+    "Reproducible sample generated, tested and linked to X-1 / BOX-01",
+    "Critical bank confirmation tracked through independent clearance",
+    "Preparer ready → Manager return → revision → Manager clearance → genuine SRM",
+    "Partner clearance, explicit Clean opinion and genuine ML/LOR/Audit Report PDFs",
+    "Final 50% invoice generated from accepted fee less recognized advance",
+    "59-day negative and 60-day freeze, actual archive copies retained",
+    "Practice analytics and separate balanced firm ledger rendered"
+  ],
+  "engagementId": "ENG-TARGET",
+  "archive": {
+    "archivedAt": "2026-10-05T15:10:58.282Z",
+    "archivedBy": "Farooq Mansour",
+    "releaseId": "FINAL-ENG-TARGET-affd0e22-d923-4aad-a0ea-9eea04a20be9",
+    "manifest": [
+      "audit-evidence.txt: archive:ENG-TARGET:FINAL-ENG-TARGET-affd0e22-d923-4aad-a0ea-9eea04a20be9:DOC-PBC-TARGET / SHA-256 c84146a00f47e896bf8dd1e64c62c26ca0f062211cbf0d68ed7d1e7a3ce6fc8c",
+      "FINAL-ENG-TARGET-affd0e22-d923-4aad-a0ea-9eea04a20be9-1.pdf: archive:ENG-TARGET:FINAL-ENG-TARGET-affd0e22-d923-4aad-a0ea-9eea04a20be9:FINAL-ENG-TARGET-affd0e22-d923-4aad-a0ea-9eea04a20be9-1 / SHA-256 1a43198aa837a2434d90000e98be2b867c27733c3668a8c8356e68c4039cebb0",
+      "FINAL-ENG-TARGET-affd0e22-d923-4aad-a0ea-9eea04a20be9-2.pdf: archive:ENG-TARGET:FINAL-ENG-TARGET-affd0e22-d923-4aad-a0ea-9eea04a20be9:FINAL-ENG-TARGET-affd0e22-d923-4aad-a0ea-9eea04a20be9-2 / SHA-256 c9cdf67e92c78eba1ad3d2d614626aee3f5a12ef1573ba590fffe53979d3f2f0",
+      "Synthetic_signed_LOR.pdf: archive:ENG-TARGET:FINAL-ENG-TARGET-affd0e22-d923-4aad-a0ea-9eea04a20be9:SIGNED-FINAL-ENG-TARGET-affd0e22-d923-4aad-a0ea-9eea04a20be9 / SHA-256 19ae03108c3acd0e460ffd6dd060330e87d4b45f217ff6485fbc761b02dbcee3",
+      "FINAL-ENG-TARGET-affd0e22-d923-4aad-a0ea-9eea04a20be9-4.pdf: archive:ENG-TARGET:FINAL-ENG-TARGET-affd0e22-d923-4aad-a0ea-9eea04a20be9:FINAL-ENG-TARGET-affd0e22-d923-4aad-a0ea-9eea04a20be9-4 / SHA-256 f41eaa939f518f55d5159627bbec8ca77d3825e5d9bc794568709c8c4f4fb01d",
+      "FINAL-ENG-TARGET-affd0e22-d923-4aad-a0ea-9eea04a20be9-5.pdf: archive:ENG-TARGET:FINAL-ENG-TARGET-affd0e22-d923-4aad-a0ea-9eea04a20be9:FINAL-ENG-TARGET-affd0e22-d923-4aad-a0ea-9eea04a20be9-5 / SHA-256 9bd5a88beefc65bbb15f94f08b8568fa5792a5b838e899a8d69a9c3f4b625da7",
+      "FINAL-ENG-TARGET-affd0e22-d923-4aad-a0ea-9eea04a20be9-3.docx: archive:ENG-TARGET:FINAL-ENG-TARGET-affd0e22-d923-4aad-a0ea-9eea04a20be9:FINAL-ENG-TARGET-affd0e22-d923-4aad-a0ea-9eea04a20be9-3 / SHA-256 656b348ea65456ab76341542cf038c2a95cdea67d01425c64253516d103116c5",
+      "WORK-WP-ENG-TARGET-AUDIT-AP-ENG-TARGET-1-v3-69213fa3-e426-415c-ab7d-d995995e0c9b.xlsx: archive:ENG-TARGET:FINAL-ENG-TARGET-affd0e22-d923-4aad-a0ea-9eea04a20be9:WORK-WP-ENG-TARGET-AUDIT-AP-ENG-TARGET-1-v3-69213fa3-e426-415c-ab7d-d995995e0c9b / SHA-256 dbe0ee8a5f650a1a6b760caec065505b467e87821ee8640e46a2ed1defcd7594",
+      "WORK-WP-ENG-TARGET-AUDIT-AP-ENG-TARGET-1-v2-6de25f82-358a-44d7-a8fa-b2b8ab308bf4.xlsx: archive:ENG-TARGET:FINAL-ENG-TARGET-affd0e22-d923-4aad-a0ea-9eea04a20be9:WORK-WP-ENG-TARGET-AUDIT-AP-ENG-TARGET-1-v2-6de25f82-358a-44d7-a8fa-b2b8ab308bf4 / SHA-256 1f96850e0a043a5d05ab61b29b7cfdd847c3d56e006a8c92214568edf8b6c7e9",
+      "WORK-WP-ENG-TARGET-AUDIT-AP-ENG-TARGET-2-v2-638f3928-0f30-4d03-aedb-3b250bda510f.xlsx: archive:ENG-TARGET:FINAL-ENG-TARGET-affd0e22-d923-4aad-a0ea-9eea04a20be9:WORK-WP-ENG-TARGET-AUDIT-AP-ENG-TARGET-2-v2-638f3928-0f30-4d03-aedb-3b250bda510f / SHA-256 5a96b2b2be0342273797b6e1724e23df54c0d32c44ede67e8500c7fc488adc04",
+      "WORK-WP-ENG-TARGET-AUDIT-AP-ENG-TARGET-3-v2-a3e819fa-d302-4dc3-af09-56e883145297.xlsx: archive:ENG-TARGET:FINAL-ENG-TARGET-affd0e22-d923-4aad-a0ea-9eea04a20be9:WORK-WP-ENG-TARGET-AUDIT-AP-ENG-TARGET-3-v2-a3e819fa-d302-4dc3-af09-56e883145297 / SHA-256 db006ac7d74007bab43bf0a542343eaf78ab1e86d3da39789e04e6e1bf314483",
+      "WORK-WP-ENG-TARGET-AUDIT-AP-ENG-TARGET-4-v2-ab271b40-9612-49e4-8f97-863d0acf75a9.xlsx: archive:ENG-TARGET:FINAL-ENG-TARGET-affd0e22-d923-4aad-a0ea-9eea04a20be9:WORK-WP-ENG-TARGET-AUDIT-AP-ENG-TARGET-4-v2-ab271b40-9612-49e4-8f97-863d0acf75a9 / SHA-256 d985d4883f1fcc1d8fbd55ecb132ec98ffdd7c4d532ec0ce8461ecb4ba04c361",
+      "WORK-WP-ENG-TARGET-AUDIT-AP-ENG-TARGET-5-v2-3e57ae66-9386-471e-8adc-5c72d7fb426d.xlsx: archive:ENG-TARGET:FINAL-ENG-TARGET-affd0e22-d923-4aad-a0ea-9eea04a20be9:WORK-WP-ENG-TARGET-AUDIT-AP-ENG-TARGET-5-v2-3e57ae66-9386-471e-8adc-5c72d7fb426d / SHA-256 2e747396b4a572a77e2b1e69b1952c9ff7092fc5868b67c08bfd01e5c5e416b9",
+      "WORK-WP-ENG-TARGET-AUDIT-AP-ENG-TARGET-6-v2-e605258b-c0b3-4370-bcde-a0d489d275a6.xlsx: archive:ENG-TARGET:FINAL-ENG-TARGET-affd0e22-d923-4aad-a0ea-9eea04a20be9:WORK-WP-ENG-TARGET-AUDIT-AP-ENG-TARGET-6-v2-e605258b-c0b3-4370-bcde-a0d489d275a6 / SHA-256 e971426dd1c97abedaa9aff05bc606e01fb4ff6147259318416fba950ba35d1e",
+      "SRM-ENG-TARGET-b42d3c53-dc2f-42bd-923a-d96905499b5d.pdf: archive:ENG-TARGET:FINAL-ENG-TARGET-affd0e22-d923-4aad-a0ea-9eea04a20be9:SRM-ENG-TARGET-b42d3c53-dc2f-42bd-923a-d96905499b5d / SHA-256 b6d4f5aee5a1a3a3069f98aa702a5fcad2c4047af3b874ebbaf7fc9389a3cd95",
+      "RECEIPT-ENG-TARGET-93b8c37f-0f24-41fb-a6b6-9ebf94eabd24.pdf: archive:ENG-TARGET:FINAL-ENG-TARGET-affd0e22-d923-4aad-a0ea-9eea04a20be9:RECEIPT-ENG-TARGET-93b8c37f-0f24-41fb-a6b6-9ebf94eabd24 / SHA-256 a44223dfbaa69023dc6160ee6163bdaa2ef5cd4eea9f1127d799a5a9d0a32430",
+      "planning-tb.csv: archive:ENG-TARGET:FINAL-ENG-TARGET-affd0e22-d923-4aad-a0ea-9eea04a20be9:source:283a9531-6d87-4a2c-a18c-728cf7c548d2 / SHA-256 55e4651ccce92613a3424496eb02be38bbf5c2e337206d847dfea21a96427c88",
+      "target-tb.csv: archive:ENG-TARGET:FINAL-ENG-TARGET-affd0e22-d923-4aad-a0ea-9eea04a20be9:source:28d8fe4e-2514-42f2-b63e-10d3519b7332 / SHA-256 55e4651ccce92613a3424496eb02be38bbf5c2e337206d847dfea21a96427c88",
+      "population.csv: archive:ENG-TARGET:FINAL-ENG-TARGET-affd0e22-d923-4aad-a0ea-9eea04a20be9:source:7779137e-5274-443b-add7-c0d4e6d08042 / SHA-256 440fb16753961090494192aa1df798c4076072db0c7012d9f6763e0a1d3677f1",
+      "Complete scoped records/history: ENG-TARGET-full-audit-file.json / SHA-256 f8e65840fa13926d13b262714385a292dd56fabbc90dd56b2dc753935c3dc015"
+    ],
+    "artifacts": [
+      {
+        "id": "archive:ENG-TARGET:FINAL-ENG-TARGET-affd0e22-d923-4aad-a0ea-9eea04a20be9:DOC-PBC-TARGET",
+        "name": "audit-evidence.txt",
+        "kind": "PBC",
+        "mimeType": "text/plain",
+        "size": 96,
+        "sha256": "c84146a00f47e896bf8dd1e64c62c26ca0f062211cbf0d68ed7d1e7a3ce6fc8c",
+        "sourceArtifactId": "DOC-PBC-TARGET"
+      },
+      {
+        "id": "archive:ENG-TARGET:FINAL-ENG-TARGET-affd0e22-d923-4aad-a0ea-9eea04a20be9:FINAL-ENG-TARGET-affd0e22-d923-4aad-a0ea-9eea04a20be9-1",
+        "name": "FINAL-ENG-TARGET-affd0e22-d923-4aad-a0ea-9eea04a20be9-1.pdf",
+        "kind": "PDF",
+        "mimeType": "application/pdf",
+        "size": 8610,
+        "sha256": "1a43198aa837a2434d90000e98be2b867c27733c3668a8c8356e68c4039cebb0",
+        "deliverable": "Audit Report",
+        "sourceArtifactId": "FINAL-ENG-TARGET-affd0e22-d923-4aad-a0ea-9eea04a20be9-1"
+      },
+      {
+        "id": "archive:ENG-TARGET:FINAL-ENG-TARGET-affd0e22-d923-4aad-a0ea-9eea04a20be9:FINAL-ENG-TARGET-affd0e22-d923-4aad-a0ea-9eea04a20be9-2",
+        "name": "FINAL-ENG-TARGET-affd0e22-d923-4aad-a0ea-9eea04a20be9-2.pdf",
+        "kind": "PDF",
+        "mimeType": "application/pdf",
+        "size": 7104,
+        "sha256": "c9cdf67e92c78eba1ad3d2d614626aee3f5a12ef1573ba590fffe53979d3f2f0",
+        "deliverable": "Management Letter",
+        "sourceArtifactId": "FINAL-ENG-TARGET-affd0e22-d923-4aad-a0ea-9eea04a20be9-2"
+      },
+      {
+        "id": "archive:ENG-TARGET:FINAL-ENG-TARGET-affd0e22-d923-4aad-a0ea-9eea04a20be9:SIGNED-FINAL-ENG-TARGET-affd0e22-d923-4aad-a0ea-9eea04a20be9",
+        "name": "Synthetic_signed_LOR.pdf",
+        "kind": "PDF",
+        "mimeType": "application/pdf",
+        "size": 4221,
+        "sha256": "19ae03108c3acd0e460ffd6dd060330e87d4b45f217ff6485fbc761b02dbcee3",
+        "sourceArtifactId": "SIGNED-FINAL-ENG-TARGET-affd0e22-d923-4aad-a0ea-9eea04a20be9"
+      },
+      {
+        "id": "archive:ENG-TARGET:FINAL-ENG-TARGET-affd0e22-d923-4aad-a0ea-9eea04a20be9:FINAL-ENG-TARGET-affd0e22-d923-4aad-a0ea-9eea04a20be9-4",
+        "name": "FINAL-ENG-TARGET-affd0e22-d923-4aad-a0ea-9eea04a20be9-4.pdf",
+        "kind": "PDF",
+        "mimeType": "application/pdf",
+        "size": 7623,
+        "sha256": "f41eaa939f518f55d5159627bbec8ca77d3825e5d9bc794568709c8c4f4fb01d",
+        "deliverable": "Management Correspondences Audit Trail",
+        "sourceArtifactId": "FINAL-ENG-TARGET-affd0e22-d923-4aad-a0ea-9eea04a20be9-4"
+      },
+      {
+        "id": "archive:ENG-TARGET:FINAL-ENG-TARGET-affd0e22-d923-4aad-a0ea-9eea04a20be9:FINAL-ENG-TARGET-affd0e22-d923-4aad-a0ea-9eea04a20be9-5",
+        "name": "FINAL-ENG-TARGET-affd0e22-d923-4aad-a0ea-9eea04a20be9-5.pdf",
+        "kind": "PDF",
+        "mimeType": "application/pdf",
+        "size": 8100,
+        "sha256": "9bd5a88beefc65bbb15f94f08b8568fa5792a5b838e899a8d69a9c3f4b625da7",
+        "deliverable": "Final Balance Fee Note",
+        "sourceArtifactId": "FINAL-ENG-TARGET-affd0e22-d923-4aad-a0ea-9eea04a20be9-5"
+      },
+      {
+        "id": "archive:ENG-TARGET:FINAL-ENG-TARGET-affd0e22-d923-4aad-a0ea-9eea04a20be9:FINAL-ENG-TARGET-affd0e22-d923-4aad-a0ea-9eea04a20be9-3",
+        "name": "FINAL-ENG-TARGET-affd0e22-d923-4aad-a0ea-9eea04a20be9-3.docx",
+        "kind": "DOCX",
+        "mimeType": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "size": 9461,
+        "sha256": "656b348ea65456ab76341542cf038c2a95cdea67d01425c64253516d103116c5",
+        "deliverable": "Letter of Representation",
+        "sourceArtifactId": "FINAL-ENG-TARGET-affd0e22-d923-4aad-a0ea-9eea04a20be9-3"
+      },
+      {
+        "id": "archive:ENG-TARGET:FINAL-ENG-TARGET-affd0e22-d923-4aad-a0ea-9eea04a20be9:WORK-WP-ENG-TARGET-AUDIT-AP-ENG-TARGET-1-v3-69213fa3-e426-415c-ab7d-d995995e0c9b",
+        "name": "WORK-WP-ENG-TARGET-AUDIT-AP-ENG-TARGET-1-v3-69213fa3-e426-415c-ab7d-d995995e0c9b.xlsx",
+        "kind": "XLSX",
+        "mimeType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "size": 18925,
+        "sha256": "dbe0ee8a5f650a1a6b760caec065505b467e87821ee8640e46a2ed1defcd7594",
+        "sourceArtifactId": "WORK-WP-ENG-TARGET-AUDIT-AP-ENG-TARGET-1-v3-69213fa3-e426-415c-ab7d-d995995e0c9b"
+      },
+      {
+        "id": "archive:ENG-TARGET:FINAL-ENG-TARGET-affd0e22-d923-4aad-a0ea-9eea04a20be9:WORK-WP-ENG-TARGET-AUDIT-AP-ENG-TARGET-1-v2-6de25f82-358a-44d7-a8fa-b2b8ab308bf4",
+        "name": "WORK-WP-ENG-TARGET-AUDIT-AP-ENG-TARGET-1-v2-6de25f82-358a-44d7-a8fa-b2b8ab308bf4.xlsx",
+        "kind": "XLSX",
+        "mimeType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "size": 18918,
+        "sha256": "1f96850e0a043a5d05ab61b29b7cfdd847c3d56e006a8c92214568edf8b6c7e9",
+        "sourceArtifactId": "WORK-WP-ENG-TARGET-AUDIT-AP-ENG-TARGET-1-v2-6de25f82-358a-44d7-a8fa-b2b8ab308bf4"
+      },
+      {
+        "id": "archive:ENG-TARGET:FINAL-ENG-TARGET-affd0e22-d923-4aad-a0ea-9eea04a20be9:WORK-WP-ENG-TARGET-AUDIT-AP-ENG-TARGET-2-v2-638f3928-0f30-4d03-aedb-3b250bda510f",
+        "name": "WORK-WP-ENG-TARGET-AUDIT-AP-ENG-TARGET-2-v2-638f3928-0f30-4d03-aedb-3b250bda510f.xlsx",
+        "kind": "XLSX",
+        "mimeType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "size": 18901,
+        "sha256": "5a96b2b2be0342273797b6e1724e23df54c0d32c44ede67e8500c7fc488adc04",
+        "sourceArtifactId": "WORK-WP-ENG-TARGET-AUDIT-AP-ENG-TARGET-2-v2-638f3928-0f30-4d03-aedb-3b250bda510f"
+      },
+      {
+        "id": "archive:ENG-TARGET:FINAL-ENG-TARGET-affd0e22-d923-4aad-a0ea-9eea04a20be9:WORK-WP-ENG-TARGET-AUDIT-AP-ENG-TARGET-3-v2-a3e819fa-d302-4dc3-af09-56e883145297",
+        "name": "WORK-WP-ENG-TARGET-AUDIT-AP-ENG-TARGET-3-v2-a3e819fa-d302-4dc3-af09-56e883145297.xlsx",
+        "kind": "XLSX",
+        "mimeType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "size": 18901,
+        "sha256": "db006ac7d74007bab43bf0a542343eaf78ab1e86d3da39789e04e6e1bf314483",
+        "sourceArtifactId": "WORK-WP-ENG-TARGET-AUDIT-AP-ENG-TARGET-3-v2-a3e819fa-d302-4dc3-af09-56e883145297"
+      },
+      {
+        "id": "archive:ENG-TARGET:FINAL-ENG-TARGET-affd0e22-d923-4aad-a0ea-9eea04a20be9:WORK-WP-ENG-TARGET-AUDIT-AP-ENG-TARGET-4-v2-ab271b40-9612-49e4-8f97-863d0acf75a9",
+        "name": "WORK-WP-ENG-TARGET-AUDIT-AP-ENG-TARGET-4-v2-ab271b40-9612-49e4-8f97-863d0acf75a9.xlsx",
+        "kind": "XLSX",
+        "mimeType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "size": 18941,
+        "sha256": "d985d4883f1fcc1d8fbd55ecb132ec98ffdd7c4d532ec0ce8461ecb4ba04c361",
+        "sourceArtifactId": "WORK-WP-ENG-TARGET-AUDIT-AP-ENG-TARGET-4-v2-ab271b40-9612-49e4-8f97-863d0acf75a9"
+      },
+      {
+        "id": "archive:ENG-TARGET:FINAL-ENG-TARGET-affd0e22-d923-4aad-a0ea-9eea04a20be9:WORK-WP-ENG-TARGET-AUDIT-AP-ENG-TARGET-5-v2-3e57ae66-9386-471e-8adc-5c72d7fb426d",
+        "name": "WORK-WP-ENG-TARGET-AUDIT-AP-ENG-TARGET-5-v2-3e57ae66-9386-471e-8adc-5c72d7fb426d.xlsx",
+        "kind": "XLSX",
+        "mimeType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "size": 17455,
+        "sha256": "2e747396b4a572a77e2b1e69b1952c9ff7092fc5868b67c08bfd01e5c5e416b9",
+        "sourceArtifactId": "WORK-WP-ENG-TARGET-AUDIT-AP-ENG-TARGET-5-v2-3e57ae66-9386-471e-8adc-5c72d7fb426d"
+      },
+      {
+        "id": "archive:ENG-TARGET:FINAL-ENG-TARGET-affd0e22-d923-4aad-a0ea-9eea04a20be9:WORK-WP-ENG-TARGET-AUDIT-AP-ENG-TARGET-6-v2-e605258b-c0b3-4370-bcde-a0d489d275a6",
+        "name": "WORK-WP-ENG-TARGET-AUDIT-AP-ENG-TARGET-6-v2-e605258b-c0b3-4370-bcde-a0d489d275a6.xlsx",
+        "kind": "XLSX",
+        "mimeType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "size": 17445,
+        "sha256": "e971426dd1c97abedaa9aff05bc606e01fb4ff6147259318416fba950ba35d1e",
+        "sourceArtifactId": "WORK-WP-ENG-TARGET-AUDIT-AP-ENG-TARGET-6-v2-e605258b-c0b3-4370-bcde-a0d489d275a6"
+      },
+      {
+        "id": "archive:ENG-TARGET:FINAL-ENG-TARGET-affd0e22-d923-4aad-a0ea-9eea04a20be9:SRM-ENG-TARGET-b42d3c53-dc2f-42bd-923a-d96905499b5d",
+        "name": "SRM-ENG-TARGET-b42d3c53-dc2f-42bd-923a-d96905499b5d.pdf",
+        "kind": "PDF",
+        "mimeType": "application/pdf",
+        "size": 15803,
+        "sha256": "b6d4f5aee5a1a3a3069f98aa702a5fcad2c4047af3b874ebbaf7fc9389a3cd95",
+        "sourceArtifactId": "SRM-ENG-TARGET-b42d3c53-dc2f-42bd-923a-d96905499b5d"
+      },
+      {
+        "id": "archive:ENG-TARGET:FINAL-ENG-TARGET-affd0e22-d923-4aad-a0ea-9eea04a20be9:RECEIPT-ENG-TARGET-93b8c37f-0f24-41fb-a6b6-9ebf94eabd24",
+        "name": "RECEIPT-ENG-TARGET-93b8c37f-0f24-41fb-a6b6-9ebf94eabd24.pdf",
+        "kind": "PDF",
+        "mimeType": "application/pdf",
+        "size": 5038,
+        "sha256": "a44223dfbaa69023dc6160ee6163bdaa2ef5cd4eea9f1127d799a5a9d0a32430",
+        "sourceArtifactId": "RECEIPT-ENG-TARGET-93b8c37f-0f24-41fb-a6b6-9ebf94eabd24"
+      },
+      {
+        "id": "archive:ENG-TARGET:FINAL-ENG-TARGET-affd0e22-d923-4aad-a0ea-9eea04a20be9:source:283a9531-6d87-4a2c-a18c-728cf7c548d2",
+        "name": "planning-tb.csv",
+        "kind": "PBC",
+        "mimeType": "text/csv",
+        "size": 123,
+        "sha256": "55e4651ccce92613a3424496eb02be38bbf5c2e337206d847dfea21a96427c88",
+        "sourceArtifactId": "source:283a9531-6d87-4a2c-a18c-728cf7c548d2"
+      },
+      {
+        "id": "archive:ENG-TARGET:FINAL-ENG-TARGET-affd0e22-d923-4aad-a0ea-9eea04a20be9:source:28d8fe4e-2514-42f2-b63e-10d3519b7332",
+        "name": "target-tb.csv",
+        "kind": "PBC",
+        "mimeType": "text/csv",
+        "size": 123,
+        "sha256": "55e4651ccce92613a3424496eb02be38bbf5c2e337206d847dfea21a96427c88",
+        "sourceArtifactId": "source:28d8fe4e-2514-42f2-b63e-10d3519b7332"
+      },
+      {
+        "id": "archive:ENG-TARGET:FINAL-ENG-TARGET-affd0e22-d923-4aad-a0ea-9eea04a20be9:source:7779137e-5274-443b-add7-c0d4e6d08042",
+        "name": "population.csv",
+        "kind": "PBC",
+        "mimeType": "text/csv",
+        "size": 182,
+        "sha256": "440fb16753961090494192aa1df798c4076072db0c7012d9f6763e0a1d3677f1",
+        "sourceArtifactId": "source:7779137e-5274-443b-add7-c0d4e6d08042"
+      }
+    ],
+    "packagingStatus": "Verified",
+    "inspection": {
+      "id": "archive:ENG-TARGET:FINAL-ENG-TARGET-affd0e22-d923-4aad-a0ea-9eea04a20be9:inspection",
+      "name": "ENG-TARGET-full-audit-file.json",
+      "kind": "GROUP_JSON",
+      "mimeType": "application/json",
+      "size": 1011671,
+      "sha256": "f8e65840fa13926d13b262714385a292dd56fabbc90dd56b2dc753935c3dc015"
+    },
+    "unavailable": [],
+    "processedAt": "2026-10-05T15:10:58.437Z"
+  },
+  "progress": [
+    {
+      "id": "lead",
+      "status": "Completed"
+    },
+    {
+      "id": "proposal",
+      "status": "Completed"
+    },
+    {
+      "id": "acceptance",
+      "status": "Completed"
+    },
+    {
+      "id": "advance",
+      "status": "Completed"
+    },
+    {
+      "id": "workspace",
+      "status": "Completed"
+    },
+    {
+      "id": "pbc",
+      "status": "Completed"
+    },
+    {
+      "id": "staffing",
+      "status": "Completed"
+    },
+    {
+      "id": "tb",
+      "status": "Completed"
+    },
+    {
+      "id": "planning",
+      "status": "Completed"
+    },
+    {
+      "id": "financials",
+      "status": "Completed"
+    },
+    {
+      "id": "fieldwork",
+      "status": "Completed"
+    },
+    {
+      "id": "sampling",
+      "status": "Completed"
+    },
+    {
+      "id": "confirmations",
+      "status": "Completed"
+    },
+    {
+      "id": "review",
+      "status": "Completed"
+    },
+    {
+      "id": "srm",
+      "status": "Completed"
+    },
+    {
+      "id": "opinion",
+      "status": "Completed"
+    },
+    {
+      "id": "balance",
+      "status": "Completed"
+    },
+    {
+      "id": "archive",
+      "status": "Frozen"
+    },
+    {
+      "id": "analytics",
+      "status": "Completed"
+    }
+  ],
+  "artifacts": [
+    {
+      "id": "FINAL-ENG-TARGET-affd0e22-d923-4aad-a0ea-9eea04a20be9-1",
+      "name": "FINAL-ENG-TARGET-affd0e22-d923-4aad-a0ea-9eea04a20be9-1.pdf",
+      "size": 8610,
+      "sha256": "1a43198aa837a2434d90000e98be2b867c27733c3668a8c8356e68c4039cebb0"
+    },
+    {
+      "id": "FINAL-ENG-TARGET-affd0e22-d923-4aad-a0ea-9eea04a20be9-2",
+      "name": "FINAL-ENG-TARGET-affd0e22-d923-4aad-a0ea-9eea04a20be9-2.pdf",
+      "size": 7104,
+      "sha256": "c9cdf67e92c78eba1ad3d2d614626aee3f5a12ef1573ba590fffe53979d3f2f0"
+    },
+    {
+      "id": "SIGNED-FINAL-ENG-TARGET-affd0e22-d923-4aad-a0ea-9eea04a20be9",
+      "name": "Synthetic_signed_LOR.pdf",
+      "size": 4221,
+      "sha256": "19ae03108c3acd0e460ffd6dd060330e87d4b45f217ff6485fbc761b02dbcee3"
+    },
+    {
+      "id": "FINAL-ENG-TARGET-affd0e22-d923-4aad-a0ea-9eea04a20be9-4",
+      "name": "FINAL-ENG-TARGET-affd0e22-d923-4aad-a0ea-9eea04a20be9-4.pdf",
+      "size": 7623,
+      "sha256": "f41eaa939f518f55d5159627bbec8ca77d3825e5d9bc794568709c8c4f4fb01d"
+    },
+    {
+      "id": "FINAL-ENG-TARGET-affd0e22-d923-4aad-a0ea-9eea04a20be9-5",
+      "name": "FINAL-ENG-TARGET-affd0e22-d923-4aad-a0ea-9eea04a20be9-5.pdf",
+      "size": 8100,
+      "sha256": "9bd5a88beefc65bbb15f94f08b8568fa5792a5b838e899a8d69a9c3f4b625da7"
+    }
+  ],
+  "review": {
+    "manager": true,
+    "srm": true,
+    "partner": true
+  },
+  "blockers": []
+}

@@ -1,0 +1,14 @@
+{
+  "independentProfiles": 2,
+  "distinctFslis": [
+    "Cash",
+    "Capital"
+  ],
+  "independentEditsRetained": true,
+  "sameRowConflictExplicit": true,
+  "originalBytes": {
+    "profileA": true,
+    "profileB": false
+  },
+  "boundary": "D1 metadata snapshots; original bytes remain browser-local."
+}

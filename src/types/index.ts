@@ -1,5 +1,6 @@
-// AuditSphere Visual Prototype — Shared Types & Domain Models
-// Covers all 39 functional modules (VP-001 through VP-064)
+// STE Audit Management Tool v2.1 prototype — shared types & domain models.
+// Five required business modules plus supporting lifecycle records and migration compatibility.
+import type { TargetEngagementLifecycle, ExternalConfirmation, FirmLedgerEntry, PortalPasswordSimulation, PortalDelegation, PhysicalEvidenceReference } from './targetLifecycle';
 
 export type RoleKey =
   | 'relationship'
@@ -19,6 +20,8 @@ export type RoleKey =
   | 'superuser';
 
 export interface UserPersona {
+  credentialSummary?: string;
+  cvReference?: string;
   id: string;
   /** Stable natural-person key shared by a person's role personas. */
   personId?: string;
@@ -67,67 +70,32 @@ export type RouteKey =
   | 'acquisition'
   | 'proposals'
   | 'engagements'
-  | 'jobs'
-  | 'job-templates'
-  | 'documents'
-  | 'communications'
-  | 'my-time'
-  | 'budgets'
   | 'billing'
-  | 'receivables'
-  | 'accounting-setup'
-  | 'trial-balance'
-  | 'gl-transactions'
-  | 'account-mappings'
-  | 'adjustments'
-  | 'reconciliations'
-  | 'financial-statements'
-  | 'financial-packages'
-  | 'consolidation'
   | 'onboarding'
+  | 'documents'
+  | 'trial-balance'
   | 'audit-planning'
+  | 'scheduling'
+  | 'financial-statements'
   | 'audit-risks'
   | 'audit-fieldwork'
   | 'sampling'
-  | 'audit'
+  | 'confirmations'
   | 'evidence'
   | 'findings'
   | 'reviews'
-  | 'approvals'
-  | 'quality'
   | 'delivery'
   | 'records'
+  | 'my-time'
   | 'reports'
-  | 'administration'
-  | 'm365-setup'
+  | 'practice-ledger'
   | 'portal'
-  | 'services'
+  | 'requirements'
+  | 'client-requirements'
   | 'role-guide'
-  | 'module-guide'
-  | 'requirements';
+  | 'module-guide';
 
-/**
- * Exhaustive route list, typed against the union above so adding a RouteKey
- * without registering it fails type checking. Shared UI layers (lifecycle
- * models, the route registry and the static UX harness) iterate this instead of
- * hand-maintaining their own copy.
- */
-export const ROUTE_KEYS = [
-  'overview', 'clients', 'client-detail', 'acquisition', 'proposals', 'engagements', 'jobs',
-  'job-templates', 'documents', 'communications', 'my-time', 'budgets', 'billing', 'receivables',
-  'accounting-setup', 'trial-balance', 'gl-transactions', 'account-mappings', 'adjustments',
-  'reconciliations', 'financial-statements', 'financial-packages', 'consolidation', 'onboarding',
-  'audit-planning', 'audit-risks', 'audit-fieldwork', 'sampling', 'audit', 'evidence', 'findings',
-  'reviews', 'approvals', 'quality', 'delivery', 'records', 'reports', 'administration',
-  'm365-setup', 'portal', 'services', 'role-guide', 'module-guide', 'requirements'
-] as const satisfies readonly RouteKey[];
-
-/** True only when ROUTE_KEYS lists every RouteKey, so the list can never drift. */
-type MissingRouteKey = Exclude<RouteKey, typeof ROUTE_KEYS[number]>;
-const ROUTE_KEYS_ARE_EXHAUSTIVE: MissingRouteKey extends never ? true : never = true;
-void ROUTE_KEYS_ARE_EXHAUSTIVE;
-
-// Module 02: Clients & CRM
+// Historical schema grouping (migration compatibility): 02: Clients & CRM
 export interface ClientContactSnapshot {
   name: string;
   email: string;
@@ -163,6 +131,7 @@ export interface ClientContact {
   portalAccessRequested?: boolean;
   revision?: number;
   history?: ClientContactHistoryEntry[];
+  contactRole?: 'MD/GM' | 'CFO/Finance Director' | 'Chief Accountant/Audit Liaison' | 'Other';
 }
 
 export interface ClientContactNomination {
@@ -224,6 +193,8 @@ export interface ClientRecord {
   customFields?: Record<string, string | number>;
   relationshipGroupId?: string;
   accountingProfile?: ClientAccountingProfile;
+  entityRole?: 'Holding' | 'Subsidiary' | 'Affiliate' | 'Standalone';
+  parentClientId?: string;
 }
 
 export interface AccountingChartAccount {
@@ -267,7 +238,7 @@ export interface ClientAccountingProfile extends AccountingProfileSnapshot {
   history: Array<AccountingProfileSnapshot & { revision: number; chartRevision: number; savedAt: string; savedByUserId: string }>;
 }
 
-// Module 03: Leads & Opportunities
+// Historical schema grouping (migration compatibility): 03: Leads & Opportunities
 export interface LeadOpportunity {
   id: string;
   name: string;
@@ -279,6 +250,9 @@ export interface LeadOpportunity {
   stage: 'Inquiry' | 'Discovery' | 'Evaluation' | 'Proposal' | 'Won' | 'Lost' | 'Unqualified';
   owner: string;
   source?: string;
+  intakeChannel?: 'Phone' | 'WhatsApp' | 'Email' | 'Web Form' | 'Referral';
+  entityStructure?: 'Holding' | 'Subsidiary' | 'Affiliate' | 'Standalone';
+  parentEntity?: string;
   targetDate?: string;
   nextAction?: string;
   discoveryNotes?: string;
@@ -291,7 +265,7 @@ export interface LeadOpportunity {
   terms: boolean;
 }
 
-// Module 04: Proposals & Services
+// Historical schema grouping (migration compatibility): 04: Proposals & Services
 export interface ProposalItem {
   id: string;
   serviceName: string;
@@ -356,6 +330,15 @@ export interface ProposalContentTemplate {
   active: boolean;
 }
 
+export interface ProposalDispatchRecord {
+  recipientContactId?: string;
+  recipientName: string;
+  channel: 'Email' | 'WhatsApp' | 'Letter';
+  revision: number;
+  dispatchedAt: string;
+  simulatedOutcome: 'Delivered (simulated)' | 'Failed (simulated)';
+}
+
 export interface ProposalRecord {
   id: string;
   leadId?: string;
@@ -368,13 +351,42 @@ export interface ProposalRecord {
   totalAmount: number;
   items: ProposalItem[];
   terms: string;
+  proposalMode?: 'Brief Quotation' | 'Comprehensive Technical Proposal';
+  firmProfile?: string;
+  firmHistory?: string;
+  deliveryTimeline?: string;
+  regulatoryRegistrations?: string[];
+  teamCredentials?: Array<{ name: string; role: string; qualification: string; experience: string }> | string;
+  industryExperience?: string;
+  auditMethodology?: string;
   period?: string;
   periodStart?: string;
   periodEnd?: string;
   templateId?: string;
   templateRevision?: number;
   predecessorId?: string;
-  presentedSnapshot?: { revision: number; title: string; currency: string; totalAmount: number; items: ProposalItem[]; terms: string; presentedBy: string; presentedAt: string };
+  presentedSnapshot?: {
+    revision: number;
+    title: string;
+    currency: string;
+    totalAmount: number;
+    items: ProposalItem[];
+    terms: string;
+    presentedBy: string;
+    presentedAt: string;
+    proposalMode?: 'Brief Quotation' | 'Comprehensive Technical Proposal';
+    firmProfile?: string;
+    firmHistory?: string;
+    deliveryTimeline?: string;
+    regulatoryRegistrations?: string[];
+    teamCredentials?: any;
+    industryExperience?: string;
+    auditMethodology?: string;
+    period?: string;
+    periodStart?: string;
+    periodEnd?: string;
+  };
+  dispatchHistory?: ProposalDispatchRecord[];
   state:
     | 'Draft'
     | 'Internal review'
@@ -394,7 +406,7 @@ export interface ProposalRecord {
     responseType: 'Accepted' | 'Declined' | 'Withdrawn';
     contact: string;
     date: string;
-    method: 'Email' | 'Meeting' | 'Letter';
+    method: 'Email' | 'WhatsApp' | 'Meeting' | 'Letter';
     notes: string;
     evidenceRef?: string;
     /** Actor and proposal revision captured when the client response was recorded. */
@@ -405,7 +417,7 @@ export interface ProposalRecord {
   };
 }
 
-// Module 04 / Engagements
+// Historical schema grouping (migration compatibility): 04 / Engagements
 export interface GeneratedArtifactRecord {
   id: string;
   name: string;
@@ -526,6 +538,7 @@ export interface GLSourceRevision {
 
 export interface EngagementRecord {
   id: string;
+  auditLifecycle?: TargetEngagementLifecycle;
   continuanceFromEngagementId?: string;
   continuanceCaseId?: string;
   continuanceNotes?: string;
@@ -546,6 +559,19 @@ export interface EngagementRecord {
   agreedFee: number;
   currency: string;
   proposalId?: string;
+  engagementLetterHistory?: NonNullable<EngagementRecord['engagementLetter']>[];
+  engagementLetter?: {
+    revision?: number;
+    template: 'ISA 210 External Statutory Audit' | 'ISRS 4400 Agreed-Upon Procedures';
+    framework: string;
+    generatedAt: string;
+    generatedBy: string;
+    partnerSignature: string;
+    firmStamp: boolean;
+    signedCopyReceived?: boolean;
+    signedCopyRef?: string;
+    content: string;
+  };
   professionalAcceptance?: { by: string; at: string; evidenceRef: string; proposalRevision: number };
   acceptance: boolean;
   terms: boolean;
@@ -563,6 +589,7 @@ export interface EngagementRecord {
     importedAt: string;
     importedBy: string;
     fileName?: string;
+    originalArtifact?: GeneratedArtifactRecord;
     format?: 'CSV' | 'XLSX' | 'Legacy' | 'Manual';
     sha256?: string;
     mapping?: { code: number; name: number; debit: number; credit: number; signed: number; convention: 'signed-net' | 'debit-credit'; dimension?: { id: string; index: number } };
@@ -605,6 +632,10 @@ export interface EngagementRecord {
     manifest: Array<{ id: string; artifactId?: string; name: string; type: string; mimeType?: string; size?: number; sha?: string; sourceId?: string; sourceRevision?: number }>;
   }>;
   archive?: null | {
+    packagingStatus?: 'Pending' | 'Verified' | 'Incomplete — originals unavailable';
+    processedAt?: string;
+    unavailable?: string[];
+    inspection?: GeneratedArtifactRecord;
     archivedAt: string;
     archivedBy: string;
     releaseId: string;
@@ -653,7 +684,7 @@ export interface EngagementRecord {
   events: Array<{ text: string; ref: string; time: string; type: string }>;
 }
 
-// Module 05: Jobs & Tasks
+// Historical schema grouping (migration compatibility): 05: Jobs & Tasks
 export interface JobTaskItem {
   id: string;
   jobId: string;
@@ -692,7 +723,7 @@ export interface JobRecord {
   createdAt: string;
 }
 
-// Module 06: Job Templates
+// Historical schema grouping (migration compatibility): 06: Job Templates
 export interface JobTemplateItem {
   id: string;
   name: string;
@@ -711,7 +742,7 @@ export interface JobTemplateItem {
   }>;
 }
 
-// Module 07: Contextual Collaboration
+// Historical schema grouping (migration compatibility): 07: Contextual Collaboration
 export interface CommentItem {
   id: string;
   subjectType: 'client' | 'engagement' | 'job' | 'task';
@@ -736,7 +767,7 @@ export interface LocalNoticeItem {
   readAt?: string;
 }
 
-// Module 09: PBC
+// Historical schema grouping (migration compatibility): 09: PBC
 export interface PbcRequestItem {
   id: string;
   title: string;
@@ -758,6 +789,7 @@ export interface PbcRequestItem {
   requestLink?: string;
   clarificationNote?: string;
   sharedFiles?: Array<{
+    artifact?: GeneratedArtifactRecord;
     id: string;
     name: string;
     version: number;
@@ -775,6 +807,7 @@ export interface PbcRequestItem {
     text: string;
     time: string;
     file?: string;
+    fileId?: string;
     version?: number;
     clientVisible?: boolean;
   }>;
@@ -786,8 +819,9 @@ export interface PbcRequestItem {
   };
 }
 
-// Module 10 & 18: Documents & SharePoint
+// Historical schema grouping (migration compatibility): 10 & 18: Documents & SharePoint
 export interface DocumentItem {
+  mimeType?: string;
   id: string;
   clientId: string;
   engagementId?: string;
@@ -814,7 +848,7 @@ export interface DocumentItem {
   sharingHistory?: Array<{ from: 'Internal' | 'Client shared'; to: 'Internal' | 'Client shared'; by: string; byUserId: string; at: string; reason: string }>;
 }
 
-// Module 11: Communications
+// Historical schema grouping (migration compatibility): 11: Communications
 export interface CommunicationItem {
   id: string;
   clientId: string;
@@ -866,7 +900,7 @@ export interface EmailTemplateItem {
   placeholders: string[]; // e.g. ['{client_name}', '{request_title}', '{due_date}']
 }
 
-// Module 12: Time Tracking
+// Historical schema grouping (migration compatibility): 12: Time Tracking
 export interface TimeEntryItem {
   id: string;
   person: string;
@@ -884,6 +918,11 @@ export interface TimeEntryItem {
   currency?: string;
   billable: boolean;
   activity: string;
+  fsli?: string;
+  auditPhase?: 'Planning' | 'Fieldwork' | 'Review' | 'Reporting';
+  recordedByUserId?: string;
+  recordedAt?: string;
+  chargeOutRole?: 'Partner' | 'Manager' | 'Senior/Reviewer' | 'Preparer/Staff';
   narrative?: string;
   status: 'Draft' | 'Submitted' | 'Approved' | 'Returned' | 'Superseded';
   reviewedBy?: string;
@@ -894,7 +933,7 @@ export interface TimeEntryItem {
   billedInvoiceId?: string;
 }
 
-// Module 13: Budgets
+// Historical schema grouping (migration compatibility): 13: Budgets
 export interface BudgetRecord {
   id: string;
   engagementId: string;
@@ -913,7 +952,7 @@ export interface BudgetRecord {
   }>;
 }
 
-// Module 14: Billing & Invoicing
+// Historical schema grouping (migration compatibility): 14: Billing & Invoicing
 export interface InvoiceLineItem {
   id: string;
   description: string;
@@ -971,6 +1010,8 @@ export interface InvoiceRecord {
   }>;
   commercialApprovalHistory?: Array<{ revision: number; by: string; at: string; basis?: string }>;
   creditsApplied?: number;
+  /** Flag for 50% advance invoices generated alongside Engagement Letters per spec §4.1.5 */
+  isAdvanceInvoice?: boolean;
 }
 
 export interface CreditNoteRecord {
@@ -992,7 +1033,7 @@ export interface CreditNoteRecord {
   issuedBy?: string;
 }
 
-// Module 15: Receivables & Offline Receipts
+// Historical schema grouping (migration compatibility): 15: Receivables & Offline Receipts
 export interface ReceiptRecord {
   id: string;
   clientId: string;
@@ -1016,7 +1057,7 @@ export interface ReceiptRecord {
   }>;
 }
 
-// Module 20-25: Accounting
+// Historical schema grouping (migration compatibility): 20-25: Accounting
 export interface TrialBalanceRow {
   code: string;
   name: string;
@@ -1029,6 +1070,8 @@ export interface TrialBalanceRow {
 }
 
 export interface AccountMappingRevision {
+  sourceVersion?: number;
+  preparedByUserId?: string; preparedAt?: string; approvedByUserId?: string; approvedAt?: string;
   engagementId: string;
   revision: number;
   mappings: Array<{ accountCode: string; targets: Array<{ statementLine: string; percentage: number }> }>;
@@ -1056,6 +1099,7 @@ export interface GLTransactionItem {
 }
 
 export interface AdjustmentJournalItem {
+  managementResponses?: Array<{ journalRevision: number; accepted: boolean; respondent: string; reference: string; note: string; recordedByUserId: string; at: string }>;
   id: string;
   engagementId: string;
   revision?: number;
@@ -1148,7 +1192,7 @@ export interface ReconciliationSchedule {
   }>;
 }
 
-// Module 26: Consolidation
+// Historical schema grouping (migration compatibility): 26: Consolidation
 export interface ConsolidationPerimeterHistoryEntry {
   revision: number;
   changedBy: string;
@@ -1235,7 +1279,7 @@ export interface ConsolidationGroupRecord {
   outputPackages?: ConsolidationOutputPackage[];
 }
 
-// Module 27-36: Audit
+// Historical schema grouping (migration compatibility): 27-36: Audit
 export interface AuditRiskRevision {
   revision: number;
   title: string;
@@ -1343,6 +1387,7 @@ export interface AuditProcedureHistoryEntry {
 }
 
 export interface AuditProgramItem {
+  financialStatementLines?: string[];
   id: string;
   engagementId?: string;
   sourceTemplateId?: string;
@@ -1355,7 +1400,9 @@ export interface AuditProgramItem {
 }
 
 export interface SamplePopulationRow {
+  evidenceMode?: 'Digital' | 'Physical' | 'Hybrid';
   id: string;
+  physicalReference?: PhysicalEvidenceReference;
   itemRef: string;
   identifier?: string;
   date: string;
@@ -1379,10 +1426,13 @@ export interface SamplePopulationRow {
 
 export interface SamplePopulationItem {
   id: string;
+  tbSourceVersion?: number;
+  planVersion?: number;
   engagementId?: string;
   sourceRevision?: number;
   sourceFileName?: string;
   sourceSha256?: string;
+  sourceArtifact?: GeneratedArtifactRecord;
   sourceComplete?: boolean;
   sourceHistory?: Array<{ revision: number; fileName: string; sha256: string; importedAt: string; importedBy: string; totalPopulationCount: number; totalPopulationValue: number; items: SamplePopulationRow[] }>;
   area: string;
@@ -1398,6 +1448,12 @@ export interface SamplePopulationItem {
   selectedValue: number;
   selectionVersion?: number;
   selectionPreparedBy?: string;
+  /** Reviewer-recorded sampling basis: why this population and method are appropriate. */
+  samplingBasis?: string;
+  /** How the sample size was determined (firm method or documented professional override). */
+  sizeDetermination?: string;
+  /** Reviewer-defined applicable attributes/strata for attribute sampling. */
+  attributeDefinition?: string;
   selectionReviews?: Array<{ version: number; sourceRevision: number; reviewedBy: string; reviewedAt: string; selectedCount: number; testedCount: number; untestedCount: number; limitedCount: number; exceptionCount: number; evaluation: string }>;
   items: SamplePopulationRow[];
 }
@@ -1419,7 +1475,13 @@ export interface EvidenceItem {
 }
 
 export interface WorkpaperItem {
+  evidenceMode?: 'Digital' | 'Physical' | 'Hybrid';
   id: string;
+  physicalReference?: PhysicalEvidenceReference;
+  /** Recorded risk tier at preparation: RED files are manager-executed and partner-reviewed. */
+  executionRiskLevel?: 'RED' | 'AMBER' | 'GREEN';
+  generatedArtifact?: GeneratedArtifactRecord;
+  generatedArtifactHistory?: GeneratedArtifactRecord[];
   title: string;
   objective: string;
   assertion: string;
@@ -1502,6 +1564,8 @@ export interface WorkpaperTemplateItem {
 }
 
 export interface FindingItem {
+  managementLetterVisible?: boolean;
+  managementLetterHistory?: Array<{ at: string; actorUserId: string; included: boolean; reason: string }>;
   id: string;
   engagementId: string;
   type?: 'Monetary misstatement' | 'Internal control deficiency' | 'Disclosure omission';
@@ -1516,6 +1580,8 @@ export interface FindingItem {
   grossMisstatement?: number;
   netMisstatement?: number;
   condition?: string;
+  /** Substantive consequence of the deficiency; required for management-letter inclusion. */
+  impact?: string;
   recommendation?: string;
   currency?: string;
   disposition: 'Uncorrected' | 'Management agreed' | 'Corrected in TB' | 'Waived as immaterial' | 'Proposed for correction' | 'Corrected by client' | 'Uncorrected waived';
@@ -1555,10 +1621,13 @@ export interface ReviewNoteItem {
   responseEvidence?: string;
   version: number;
   subjectVersion?: number;
+  /** Client-bundle scope: review notes stay internal unless explicitly designated as formal client correspondence. */
+  externalVisibility?: 'Internal only' | 'Formal client correspondence';
+  correspondenceHistory?: Array<{ at: string; actorUserId: string; visibility: 'Internal only' | 'Formal client correspondence'; reason: string }>;
   history: Array<{ actor: string; action: string; time: string; text?: string }>;
 }
 
-// Module 18: Microsoft 365 Setup Simulation
+// Legacy Microsoft 365 simulation configuration retained for saved-state migration compatibility; not a current product module.
 export interface M365SimulationConfig {
   tenantName: string;
   tenantId: string;
@@ -1582,7 +1651,7 @@ export interface M365SimulationConfig {
   liveConnected: false; // Must strictly always be false!
 }
 
-// Module 39: Firm Administration
+// Historical schema grouping (migration compatibility): 39: Firm Administration
 export interface FirmSettings {
   firmName: string;
   firmLegalName: string;
@@ -1605,6 +1674,8 @@ export interface AcceptanceCaseRecord {
   engagementId?: string;
   changedFacts?: string;
   continuedToEngagementId?: string;
+  priorPeriodEngagementId?: string;
+  assessmentType?: 'Track A (Initial)' | 'Track B (Continuance)' | 'Continuance';
   clientId: string;
   year: number;
   service: string;
@@ -1614,7 +1685,31 @@ export interface AcceptanceCaseRecord {
   conflictsCleared: boolean;
   prohibitionsChecked: boolean;
   competenceConfirmed: boolean;
-  screeningEvidence?: Partial<Record<'amlKyc' | 'independence' | 'conflicts' | 'prohibitions' | 'competence', string>>;
+  managementIntegrityConfirmed?: boolean;
+  financialViabilityConfirmed?: boolean;
+  continuanceDeltaChecklist?: {
+    priorFeesSettled?: boolean | null;
+    /** @deprecated Use priorFeesSettled */
+    priorYearFeesSettled?: boolean | null;
+    managementShareholdingUnchanged?: boolean | null;
+    /** @deprecated Use managementShareholdingUnchanged */
+    managementChanges?: boolean;
+    noNewLoansCovenants?: boolean | null;
+    /** @deprecated Use noNewLoansCovenants */
+    newLoanCovenants?: boolean;
+    noPendingLitigation?: boolean | null;
+    /** @deprecated Use noPendingLitigation */
+    pendingLitigation?: boolean;
+    noFraudInvestigations?: boolean | null;
+    /** @deprecated Use noFraudInvestigations */
+    fraudOrInvestigations?: boolean;
+    noRegulatoryInquiries?: boolean | null;
+    /** @deprecated Use noRegulatoryInquiries */
+    regulatoryInquiries?: boolean;
+    deltaExplanations?: string;
+    notes?: string;
+  };
+  screeningEvidence?: Partial<Record<'amlKyc' | 'independence' | 'conflicts' | 'prohibitions' | 'competence' | 'managementIntegrity' | 'financialViability', string>>;
   conditions: string[];
   recommendationBy: string;
   recommendationDate: string;
@@ -1629,7 +1724,10 @@ export interface AcceptanceCaseRecord {
 }
 
 export interface AuditPlanRecord {
+  benchmarkProvenance?: { sourceVersion: number; accounts: Array<{ code: string; balance: number }>; rawValue: number; normalizations: Array<{ amount: number; rationale: string; accountCode: string }> };
   id: string;
+  sourceVersion?: number;
+  benchmarkSource?: 'TB' | 'Manual';
   engagementId: string;
   version: number;
   status: 'Draft' | 'Under review' | 'Approved' | 'Superseded';
@@ -1641,6 +1739,9 @@ export interface AuditPlanRecord {
   /** Omitted only on historical revisions that predate explicit rate capture. */
   clearlyTrivialRate?: number;
   overallMateriality: number;
+  rawOverallMateriality?: number;
+  managerRoundedPM?: number;
+  normalizedPbtAdjustments?: string;
   performanceMateriality: number;
   clearlyTrivialThreshold: number;
   rationales: string[];
@@ -1691,6 +1792,10 @@ export interface ArchiveHistoryEntry {
 // Whole Prototype State
 export interface PrototypeState {
   schema: number;
+  confirmations?: ExternalConfirmation[];
+  firmLedger?: FirmLedgerEntry[];
+  portalPasswordChanges?: PortalPasswordSimulation[];
+  portalDelegations?: PortalDelegation[];
   asOfDate: string;
   selectedEngagement: string;
   currentRole: RoleKey;

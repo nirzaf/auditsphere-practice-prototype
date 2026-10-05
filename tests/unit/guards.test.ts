@@ -7,7 +7,7 @@ import { createInitialState } from '../../src/store/initialState.js';
 import { prototypeStore } from '../../src/store/prototypeStore.js';
 import { visibleClientIds, visibleEngagementIds, requireEngagementScope, canOpenRoute, canReadSearchRecord, GuardError, hasConsolidationGroupScope, hasSelectedEngagementScope, eligibleAuditRiskOwners, requireIndependentActor } from '../../src/services/guards.js';
 import { validateFixtures, migratePersistedState } from '../../src/services/migrations.js';
-import type { PrototypeState } from '../../src/types/index.js';
+import type { PrototypeState, RouteKey } from '../../src/types/index.js';
 import { seedPackageDefinition, seedManagementAcknowledgement } from './packageFixture.js';
 
 let state: PrototypeState;
@@ -121,11 +121,13 @@ describe('client contact nomination (VP-025)', () => {
 });
 
 describe('prototype superuser access', () => {
-  it('opens every route, sees every client, engagement and supported consolidation group', () => {
+  it('opens every current route, sees every client, engagement and supported consolidation group', () => {
     setPersona(state, 'AuditSphere Superuser');
     state.roleGrants = state.roleGrants.filter(grant => grant.userId !== 'superuser');
-    const routes = ['overview','clients','client-detail','acquisition','proposals','engagements','jobs','job-templates','documents','communications','my-time','budgets','billing','receivables','accounting-setup','trial-balance','gl-transactions','account-mappings','adjustments','reconciliations','financial-statements','financial-packages','consolidation','onboarding','audit-planning','audit-risks','audit-fieldwork','sampling','audit','evidence','findings','reviews','approvals','quality','delivery','records','reports','search','administration','m365-setup','portal','services','role-guide','module-guide','requirements'] as const;
-    assert.ok(routes.every(route => canOpenRoute('superuser', route)), 'every declared product route is available');
+    // Every current route is open to the presenter identity. Retired identifiers no longer
+    // exist in RouteKey, so there is no retired complement left to enumerate.
+    const routes: RouteKey[] = ['overview','clients','client-detail','acquisition','proposals','engagements','billing','onboarding','documents','trial-balance','audit-planning','scheduling','financial-statements','audit-risks','audit-fieldwork','sampling','confirmations','evidence','findings','reviews','delivery','records','my-time','reports','practice-ledger','portal','requirements','client-requirements','role-guide','module-guide'];
+    assert.ok(routes.every(route => canOpenRoute('superuser', route)), 'every current route is available to the presenter identity');
     assert.deepEqual(visibleClientIds(state), 'ALL');
     assert.deepEqual(visibleEngagementIds(state), 'ALL');
     assert.ok(state.consolidationGroups.every(group => hasConsolidationGroupScope(state, group.id)));
@@ -172,9 +174,9 @@ describe('global search access projection (F01)', () => {
     assert.equal(canReadSearchRecord(state, invoice), false, 'a wide engagement grant does not grant the billing route');
 
     setPersona(state, 'Mona Khalil');
-    assert.equal(canReadSearchRecord(state, { route: 'communications', clientId: 'CL-001', clientWide: true }), true);
-    assert.equal(canReadSearchRecord(state, { route: 'communications', clientId: 'CL-001', requiresEngagement: true }), false, 'missing engagement ownership does not become a client-wide permission');
-    const communication = { route: 'communications' as const, clientId: 'CL-001', engagementId: 'ENG-26003', requiresEngagement: true };
+    assert.equal(canReadSearchRecord(state, { route: 'documents', clientId: 'CL-001', clientWide: true }), true);
+    assert.equal(canReadSearchRecord(state, { route: 'documents', clientId: 'CL-001', requiresEngagement: true }), false, 'missing engagement ownership does not become a client-wide permission');
+    const communication = { route: 'documents' as const, clientId: 'CL-001', engagementId: 'ENG-26003', requiresEngagement: true };
     assert.equal(canReadSearchRecord(state, communication), false, 'a stale or revoked sibling-scope click is rejected against current state');
   });
 });
@@ -541,7 +543,7 @@ describe('fixture integrity (AT-02/AT-54)', () => {
     assert.equal(migratedFrom, 2);
     assert.equal(migrated.engagements.length > 0, true);
     assert.equal(warnings.length > 0, true);
-    assert.equal(migrated.schema, 29);
+    assert.equal(migrated.schema, 30);
   });
   it('adds proposal catalogue and historical period/fee metadata when upgrading pre-v25 state', () => {
     const legacy = structuredClone(createInitialState()) as any;
@@ -619,7 +621,7 @@ describe('fixture integrity (AT-02/AT-54)', () => {
     delete currentButDamaged.invoices[0].clientId;
     delete currentButDamaged.invoices[0].lines;
     const { state: migrated, warnings } = migratePersistedState(currentButDamaged, createInitialState());
-    assert.equal(migrated.schema, 29);
+    assert.equal(migrated.schema, 30);
     assert.equal(migrated.invoices[0].clientId, 'CL-001');
     assert.deepEqual(migrated.invoices[0].lines, createInitialState().invoices[0].lines);
     assert.ok(warnings.some(warning => warning.includes('Restored missing client link for unchanged seeded invoice INV-26001')));
@@ -637,7 +639,7 @@ describe('fixture integrity (AT-02/AT-54)', () => {
     assert.ok(validateFixtures(unresolved).some(issue => issue.code === 'FK_INVOICE_CLIENT'));
     assert.ok(validateFixtures(unresolved).some(issue => issue.code === 'INVOICE_LINES'));
   });
-  it('upgrades each persisted schema revision through current v29 without losing histories', () => {
+  it('upgrades each persisted schema revision through current v30 without losing histories', () => {
     const seed = createInitialState();
     for (let version = 0; version <= 28; version++) {
       const legacy = structuredClone(seed) as any;
@@ -674,7 +676,7 @@ describe('fixture integrity (AT-02/AT-54)', () => {
       if (version < 21) legacy.archives?.forEach((archive: any) => { delete archive.history; delete archive.predecessorArchiveId; });
       if (version < 23) for (const group of legacy.consolidationGroups) { delete group.reportingBasis; group.components.forEach((component: any) => delete component.packageReview); }
       const { state: migrated } = migratePersistedState(legacy, createInitialState());
-      assert.equal(migrated.schema, 29, `schema ${version} should reach v29`);
+      assert.equal(migrated.schema, 30, `schema ${version} should reach v30`);
       assert.equal(migrated.users.some(user => user.id === 'superuser' && user.role === 'superuser'), true, 'the v28 upgrade adds the synthetic prototype superuser');
       assert.equal(migrated.consolidationGroups[0].components.find(item => item.componentId === 'ENG-26002')?.role, 'Subsidiary');
       assert.equal(migrated.consolidationGroups[0].components.find(item => item.componentId === 'ENG-26002')?.status, version < 23 ? 'Pending' : seed.consolidationGroups[0].components.find(item => item.componentId === 'ENG-26002')?.status);
@@ -775,7 +777,7 @@ describe('document reference lifecycle (VP-021)', () => {
     assert.equal(document.folderPath, '/Engagements/2026/Accounting/');
     assert.equal(originalEvidence.documentId, 'DOC-002');
     assert.throws(() => prototypeStore.updateDocumentReference(document.id, 'Bad path.pdf', '/outside/'), /existing folder in this client library/);
-    assert.throws(() => prototypeStore.updateDocumentReference(document.id, 'Wrong client.pdf', '/Clients/CL-003/2026/01_Acceptance/'), /existing folder in this client library/);
+    assert.throws(() => prototypeStore.updateDocumentReference(document.id, 'Wrong client.pdf', '/Clients/CL-003/2026/01_Administration & Planning/'), /existing folder in this client library/);
     assert.throws(() => prototypeStore.setDocumentAvailability(document.id, true), /why the document reference is unavailable/);
     prototypeStore.setDocumentAvailability(document.id, true, 'Source item deleted');
     assert.throws(() => prototypeStore.setEvidenceAdequacy(originalEvidence.id, 'Adequate'), /cannot be marked adequate/);
@@ -863,7 +865,7 @@ describe('simulated invitation expiry (VP-018)', () => {
 describe('internal comment editing (AT-14)', () => {
   it('limits edits to the author and records who and when changed the note', async () => {
     const { prototypeStore } = await import('../../src/store/prototypeStore.js');
-    prototypeStore.resetState();
+    prototypeStore.loadScenario('full-practice');
     const initial = prototypeStore.getSnapshot();
     prototypeStore.setPersona(initial.users.find(user => user.id === 'preparer')!.id);
     const author = prototypeStore.getSnapshot().currentPerson;
@@ -881,7 +883,7 @@ describe('internal comment editing (AT-14)', () => {
 describe('sampling workpaper guards (VP-051)', () => {
   it('requires selection and records a variance against the scoped population item', async () => {
     const { prototypeStore } = await import('../../src/store/prototypeStore.js');
-    prototypeStore.resetState();
+    prototypeStore.loadScenario('full-practice');
     prototypeStore.setPersona('preparer');
     prototypeStore.setSelectedEngagement('ENG-26001');
     assert.throws(() => prototypeStore.setSampleItemSelected('POP-01', 'SAMP-01', false), /complete population source/);
@@ -925,7 +927,7 @@ describe('sampling workpaper guards (VP-051)', () => {
 
   it('records a selected-item testing limitation and separates it in reviewer evaluation', async () => {
     const { prototypeStore } = await import('../../src/store/prototypeStore.js');
-    prototypeStore.resetState();
+    prototypeStore.loadScenario('full-practice');
     prototypeStore.setPersona('preparer');
     prototypeStore.setSelectedEngagement('ENG-26001');
     const row = { id: 'LIMIT-1', itemRef: 'LIMIT-1', date: '2026-09-20', period: 2026, currency: 'QAR', counterparty: 'Customer', amount: 500000, tested: false, selected: false, result: 'Untested' as const };
@@ -943,7 +945,7 @@ describe('sampling workpaper guards (VP-051)', () => {
 describe('workpaper template lifecycle (VP-052)', () => {
   it('creates a fresh scoped workpaper and requires reasoned eligible reassignment', async () => {
     const { prototypeStore } = await import('../../src/store/prototypeStore.js');
-    prototypeStore.resetState();
+    prototypeStore.loadScenario('full-practice');
     prototypeStore.setPersona('manager');
     prototypeStore.setSelectedEngagement('ENG-26001');
     const id = prototypeStore.createWorkpaperFromTemplate('ENG-26001', 'TPL-WP-CASH-01', 'preparer', 'reviewer');
@@ -960,7 +962,7 @@ describe('workpaper template lifecycle (VP-052)', () => {
 describe('access grant history (VP-018/019)', () => {
   it('retains grant and revocation actor, scope, timestamp and reason', async () => {
     const { prototypeStore } = await import('../../src/store/prototypeStore.js');
-    prototypeStore.resetState();
+    prototypeStore.loadScenario('full-practice');
     prototypeStore.setPersona('admin');
     assert.throws(() => prototypeStore.grantAccess('admin', 'admin', 'Global', undefined, 'Self promotion', { requestRef: 'AR-SELF' }), /cannot grant access to their own person/);
     assert.throws(() => prototypeStore.grantAccess('group-user', 'manager', 'Engagement', 'ENG-26002', 'Quarterly assignment'), /request reference/);
@@ -1237,7 +1239,7 @@ describe('separation of duties (AT-24/AT-31/AT-47)', () => {
 describe('review-note assignment (VP-055)', () => {
   it('limits assignees to active scoped preparers/managers and retains reassignment history', () => {
     assert.equal(canOpenRoute('preparer', 'reviews'), true, 'assigned preparers need access to their personal review queue');
-    assert.equal(canOpenRoute('preparer', 'financial-packages'), true, 'preparers must reach the package editor that permits them to assemble revisions');
+    assert.equal(canOpenRoute('preparer', 'financial-packages'), false, 'the retired package editor is no longer a product route');
     (prototypeStore as any).state = createInitialState();
     setPersona((prototypeStore as any).state, 'Layla Rahman');
     const note = {
@@ -1352,7 +1354,7 @@ describe('opportunity and proposal lifecycle (AT-07/AT-08)', () => {
     target.state = createInitialState();
     addAmiraManagerPersona(target.state);
     const id = 'PROP-AT07';
-    const validProposal = { id, title: 'Test proposal', revision: 1, preparedBy: 'Amira Qasim', preparedAt: '2026-09-23', currency: 'QAR', period: 'FY2026', periodStart: '2026-01-01', periodEnd: '2026-12-31', totalAmount: 100, items: [{ id: `${id}-1`, serviceName: 'Audit', description: 'Annual audit', scope: 'Audit of FY2026 statements', exclusions: 'Tax services', deliverables: 'Audit opinion', clientResponsibilities: 'Provide records', dependencies: 'Access to books', period: 'FY2026', periodStart: '2026-01-01', periodEnd: '2026-12-31', feeModel: 'Fixed', quantity: 1, rate: 100, amount: 100 }], terms: 'Payment within 30 days.', state: 'Draft' };
+    const validProposal = { id, deliveryTimeline: 'Draft within 30 days of complete records.', clientId: 'CL-001', title: 'Test proposal', revision: 1, preparedBy: 'Amira Qasim', preparedAt: '2026-09-23', currency: 'QAR', period: 'FY2026', periodStart: '2026-01-01', periodEnd: '2026-12-31', totalAmount: 100, items: [{ id: `${id}-1`, serviceName: 'Audit', description: 'Annual audit', scope: 'Audit of FY2026 statements', exclusions: 'Tax services', deliverables: 'Audit opinion', clientResponsibilities: 'Provide records', dependencies: 'Access to books', period: 'FY2026', periodStart: '2026-01-01', periodEnd: '2026-12-31', feeModel: 'Fixed', quantity: 1, rate: 100, amount: 100 }], terms: 'Payment within 30 days.', state: 'Draft' };
     assert.throws(() => target.addProposal({ ...validProposal, periodEnd: '2025-12-31' }), /period/i, 'reversed proposal dates are rejected');
     assert.throws(() => target.addProposal({ ...validProposal, items: [{ ...validProposal.items[0], periodEnd: '2025-12-31' }] }), /period/i, 'reversed service-line dates are rejected');
     target.addProposal(validProposal);
@@ -1362,6 +1364,7 @@ describe('opportunity and proposal lifecycle (AT-07/AT-08)', () => {
     target.reviewProposal(id, false, '  Clarify the period and deliverables.  ');
     assert.equal(target.state.proposals.find((item: any) => item.id === id).commercialReview.notes, 'Clarify the period and deliverables.');
     assert.equal(target.state.proposals.find((item: any) => item.id === id).commercialReview.approved, false);
+    setPersona(target.state, 'Daniel James');
     target.reviewProposal(id, true);
     target.presentProposal(id);
     const old = structuredClone(target.state.proposals.find((item: any) => item.id === id));
@@ -1634,6 +1637,7 @@ describe('proposal to engagement handoff (AT-10)', () => {
     assert.equal(created.id, 'ENG-AT10');
     assert.equal(duplicate.id, created.id);
     assert.equal(state.engagements.filter((item: any) => item.proposalId === proposal.id).length, 1);
+    delete created.auditLifecycle; // Legacy activation contract; canonical prerequisites are covered in targetLifecycle.test.
     assert.throws(() => target.addJob({ ...structuredClone(state.jobs[0]), id: 'JOB-BEFORE-AT10', clientId: created.client, engagementId: created.id }), /pending professional acceptance/);
     setPersona(state, 'Daniel James');
     assert.throws(() => target.activateEngagement(created.id, ''), /evidence reference/);
@@ -2343,7 +2347,7 @@ describe('money guards (AT-30/AT-31/AT-32)', () => {
     assert.equal(saved.issueDate, isolated.asOfDate, 'an omitted issue date uses the deterministic scenario date');
     assert.equal(saved.billingDetails?.accountName, isolated.clients.find(item => item.id === 'CL-001')?.name);
     assert.equal(saved.billingDetails?.contactName, isolated.clients.find(item => item.id === 'CL-001')?.contact);
-    prototypeStore.resetState();
+    prototypeStore.loadScenario('full-practice');
   });
 
   it('VP-030 invoices approved time at its pinned rate exactly once', async () => {
@@ -2499,11 +2503,11 @@ describe('money guards (AT-30/AT-31/AT-32)', () => {
     assert.equal(credit.returnReason, 'Provide supporting commercial calculation.');
     setPersona(isolated, 'Leila Hassan');
     prototypeStore.reviseCreditNote(credit.id, { amount: 1200, reason: 'Revised adjustment with calculation' });
-    assert.equal(credit.revision, 2);
+    assert.equal(credit.revision, 3, 'a returned revision advances its persisted credit-note revision');
     assert.equal(credit.reviewedBy, undefined);
     setPersona(isolated, 'Layla Rahman');
     prototypeStore.reviewCreditNote(credit.id, true);
-    assert.equal(credit.reviewedRevision, 2);
+    assert.equal(credit.reviewedRevision, 3, 'independent review pins the revised credit-note revision');
     assert.throws(() => prototypeStore.reviseCreditNote(credit.id, { amount: 1300, reason: 'Attempt after approval' }), /Only a returned draft/);
     assert.equal(invoice.creditsApplied || 0, 0, 'approval and revision do not move or settle money');
   });
@@ -3163,7 +3167,7 @@ describe('prototype workflow guards & lifecycle (F03, F04, F05, F06, F13)', () =
     const templateSnapshots = structuredClone(current.auditProgramTemplates || []);
     const engagement = current.engagements.find((item: any) => item.id === 'ENG-26001');
     prototypeStore.saveAuditPlan({ id: 'PLAN-ENG-26001-V1', engagementId: engagement.id, version: 1, status: 'Under review', benchmark: 'revenue', benchmarkValue: 2_000_000, materialityRate: 1.5, performanceMaterialityRate: 75, clearlyTrivialRate: 5, overallMateriality: 30_000, performanceMateriality: 22_500, clearlyTrivialThreshold: 1_500, rationales: ['Initial plan basis.'], teamAllocations: [{ person: 'Layla Rahman', role: 'Engagement Manager', scheduledStart: '2026-09-25', scheduledEnd: '2026-10-31' }], timingMilestones: [], significantAreas: ['Revenue & Receivables'] });
-    prototypeStore.setPersona('reviewer');
+    prototypeStore.setPersona('partner');
     prototypeStore.reviewAuditPlan('PLAN-ENG-26001-V1', true, 'Approved initial risk response.');
     prototypeStore.setPersona('manager');
     procedure.status = 'Cleared'; procedure.workPerformed = 'Prior approved testing'; procedure.conclusion = 'No exception'; procedure.evidenceLimitation = 'Current evidence requires reassessment.'; procedure.reviewedByUserId = 'reviewer'; procedure.reviewedAt = '2026-09-23T00:00:00.000Z';
@@ -3185,7 +3189,7 @@ describe('prototype workflow guards & lifecycle (F03, F04, F05, F06, F13)', () =
     assert.equal(procedure.reviewedByUserId, undefined);
     assert.equal(procedure.scopeReassessmentHistory[0].previousStatus, 'Cleared');
     assert.throws(() => prototypeStore.updateAuditProcedureStatus(engagement.id, procedure.id, 'Submitted'), /re-record this procedure/);
-    prototypeStore.setPersona('reviewer');
+    prototypeStore.setPersona('partner');
     prototypeStore.reviewAuditPlan('PLAN-ENG-26001-V2', true, 'Reviewed risk-driven plan revision.');
     assert.equal(current.auditPlans[1].status, 'Approved');
     assert.equal(engagement.planning, true);
@@ -3220,7 +3224,7 @@ describe('prototype workflow guards & lifecycle (F03, F04, F05, F06, F13)', () =
     assert.equal(procedure.scopeReassessmentHistory.length, 2, 'rework preserves prior reassessment history');
     assert.deepEqual({ id: procedure.id, title: procedure.title, instructions: procedure.instructions, requiredEvidence: procedure.requiredEvidence }, procedureSnapshot, 'risk reassessment does not rewrite the pinned procedure instructions');
     assert.deepEqual(current.auditProgramTemplates || [], templateSnapshots, 'risk reassessment does not rewrite reusable template revisions');
-    prototypeStore.resetState();
+    prototypeStore.loadScenario('full-practice');
   });
 
   it('VP-049-E02/AC04: risk owners must be active professional staff with selected-engagement access', async () => {
@@ -3254,7 +3258,7 @@ describe('prototype workflow guards & lifecycle (F03, F04, F05, F06, F13)', () =
 
     assert.deepEqual(risk, before, 'rejected owner assignments leave the risk and its links unchanged');
     assert.equal(state.auditPlans?.length ?? 0, 0, 'rejected owner assignments do not create or stale a plan');
-    prototypeStore.resetState();
+    prototypeStore.loadScenario('full-practice');
   });
 
   it('audit program templates preserve revisions and apply fresh work (VP-049-AC02/AC03/AC04)', async () => {
@@ -3363,6 +3367,7 @@ describe('prototype workflow guards & lifecycle (F03, F04, F05, F06, F13)', () =
     (prototypeStore as any).state = current;
     const eng = current.engagements[0];
     eng.acceptance = false;
+    current.acceptanceCases = [];
     setPersona(current, 'Hana Ali');
     assert.throws(() => prototypeStore.saveAcceptanceCase({
       id: `ACC-${eng.client}-${eng.year}`, clientId: eng.client, year: eng.year, service: eng.service,
@@ -3373,7 +3378,7 @@ describe('prototype workflow guards & lifecycle (F03, F04, F05, F06, F13)', () =
     prototypeStore.saveAcceptanceCase({
       id: `ACC-${eng.client}-${eng.year}`, clientId: eng.client, year: eng.year, service: eng.service,
       riskRating: 'Low', independenceConfirmed: true, amlKycCompleted: true, conflictsCleared: true,
-      prohibitionsChecked: true, competenceConfirmed: true, screeningEvidence: { amlKyc: 'KYC-101', independence: 'IND-101', conflicts: 'COI-101', prohibitions: 'ROT-101', competence: 'COMP-101' }, conditions: [], recommendationBy: '',
+      prohibitionsChecked: true, competenceConfirmed: true, managementIntegrityConfirmed: true, financialViabilityConfirmed: true, screeningEvidence: { managementIntegrity: 'INT-101', financialViability: 'FIN-101', amlKyc: 'KYC-101', independence: 'IND-101', conflicts: 'COI-101', prohibitions: 'ROT-101', competence: 'COMP-101' }, conditions: [], recommendationBy: '',
       recommendationDate: '', recommendationNotes: 'Checks reviewed; recommend acceptance.', decisionStatus: 'Accepted'
     });
     assert.equal(prototypeStore.getSnapshot().acceptanceCases?.[0].decisionStatus, 'Pending');
@@ -3478,7 +3483,7 @@ describe('prototype workflow guards & lifecycle (F03, F04, F05, F06, F13)', () =
 
     assert.throws(() => prototypeStore.saveAuditPlan({ ...plan, performanceMaterialityRate: undefined }), /explicit valid materiality rates/);
     assert.throws(() => prototypeStore.saveAuditPlan({ ...plan, clearlyTrivialRate: 101 }), /explicit valid materiality rates/);
-    assert.throws(() => prototypeStore.saveAuditPlan({ ...plan, clearlyTrivialThreshold: 1_499 }), /must match its saved benchmark and explicit rates/);
+    assert.throws(() => prototypeStore.saveAuditPlan({ ...plan, clearlyTrivialThreshold: 1_490 }), /must derive from selected PM/);
     assert.throws(() => prototypeStore.saveAuditPlan({ ...plan, teamAllocations: [] }), /Assign at least one in-scope staff member/);
     assert.throws(() => prototypeStore.saveAuditPlan({ ...plan, teamAllocations: [{ ...plan.teamAllocations[0], person: 'Unknown Person' }] }), /active staff user/);
     assert.throws(() => prototypeStore.saveAuditPlan({ ...plan, teamAllocations: [{ ...plan.teamAllocations[0], scheduledStart: '2026-02-30' }] }), /valid scheduled date range/);
@@ -3505,8 +3510,8 @@ describe('prototype workflow guards & lifecycle (F03, F04, F05, F06, F13)', () =
     setPersona(current, 'Layla Rahman');
     prototypeStore.saveAuditPlan(plan(1));
     assert.equal(eng.planning, false);
-    assert.throws(() => prototypeStore.reviewAuditPlan(`PLAN-${eng.id}-V1`, true, 'Reviewed.'), /same person/);
-    setPersona(current, 'Sara Malik');
+    assert.throws(() => prototypeStore.reviewAuditPlan(`PLAN-${eng.id}-V1`, true, 'Reviewed.'), /cannot review audit plans/);
+    setPersona(current, 'Daniel James');
     prototypeStore.reviewAuditPlan(`PLAN-${eng.id}-V1`, true, 'Reviewed and approved.');
     assert.equal(eng.planning, true);
     setPersona(current, 'Layla Rahman');
@@ -3757,11 +3762,11 @@ describe('prototype workflow guards & lifecycle (F03, F04, F05, F06, F13)', () =
     const clientCode = state.clients.find((client: any) => client.id === 'CL-001').code;
     const clientPrefix = `${state.m365Config.folderRoot}/${clientCode}/`;
     const clientFolders = state.folders.filter((f: any) => f.clientId === 'CL-001' && f.path.startsWith(clientPrefix));
-    assert.ok(clientFolders.some((f: any) => f.path.includes('01_Acceptance')));
-    assert.ok(clientFolders.some((f: any) => f.path.includes('02_Planning')));
-    assert.ok(clientFolders.some((f: any) => f.path.includes('03_Fieldwork')));
-    assert.ok(clientFolders.some((f: any) => f.path.includes('04_Deliverables')));
-    assert.ok(clientFolders.some((f: any) => f.path.includes('05_Correspondence')));
+    assert.ok(clientFolders.some((f: any) => f.path.includes('01_Administration & Planning')));
+    assert.ok(clientFolders.some((f: any) => f.path.includes('02_Trial Balance & Schedules')));
+    assert.ok(clientFolders.some((f: any) => f.path.includes('03_Fieldwork & Testing')));
+    assert.ok(clientFolders.some((f: any) => f.path.includes('04_Drafts & Deliverables')));
+    assert.ok(clientFolders.some((f: any) => f.path.includes('05_Final Signed Archive')));
     assert.equal(clientFolders.filter((f: any) => f.path === clientPrefix).length, 1);
     assert.equal(state.folders.length, beforeFolderCount + 8, 'the root, year, engagement and five standard subfolders are created once');
     assert.throws(() => prototypeStore.prepareClientWorkspace('CL-001', 2026, 'ENG-26002'), /does not match this client and year/);
