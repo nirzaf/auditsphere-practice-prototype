@@ -999,6 +999,8 @@ export async function getBusinessPracticeWorkspace(env:Env,workspaceId:string,co
     firmTrialBalance(env,workspaceId,from,to),firmProfitLoss(env,workspaceId,from,to)
   ]);
   const staffRows=staff.results??[],utilization=[] as Array<Record<string,unknown>>;
+  const fsliCatalog=await env.DB.prepare(`SELECT id,code,name,statement FROM fsli_catalog WHERE workspace_id=? AND active=1 ORDER BY presentation_order,code`)
+    .bind(workspaceId).all<Record<string,unknown>>();
   const payments=await env.DB.prepare(`SELECT p.id,p.client_id AS clientId,p.engagement_id AS engagementId,p.amount_minor AS amountMinor,p.received_on AS receivedOn,
       p.method,p.reference,p.reverses_payment_id AS reversesPaymentId,rv.number AS receiptNumber,rv.status AS receiptStatus,rv.file_version_id AS receiptFileId,
       (SELECT COALESCE(SUM(CASE WHEN source_payment.reverses_payment_id IS NULL THEN source_allocation.amount_minor ELSE -source_allocation.amount_minor END),0)
@@ -1043,7 +1045,7 @@ export async function getBusinessPracticeWorkspace(env:Env,workspaceId:string,co
   ]);
   return {period:{from,to},engagement:engagement?{id:engagement.id,version:engagement.version,clientId:engagement.client_id,code:engagement.code,
     lifecycleState:engagement.lifecycle_state,contractFeeMinor:String(engagement.contract_fee_minor),activeProposalVersionId:engagement.active_proposal_version_id}:null,
-    staff:staffRows,rates:rates.results??[],timeEntries:entryItems,utilization,
+    staff:staffRows,rates:rates.results??[],timeEntries:entryItems,utilization,fsliCatalog:fsliCatalog.results??[],
     utilizationNotes:{definition:'Approved billable minutes divided by explicitly scheduled capacity after approved leave. Missing daily capacity is shown, never assumed.',payrollCostAvailable:false},
     budget,profitability:profitabilityView,trialBalance,profitLoss,accounts:accounts.results??[],accountingPeriods:periods.results??[],journals:journals.results??[],expenses:expenses.results??[],
     revenuePolicies:policies.results??[],payments:paymentItems,arAging:agingView,reportSnapshots,partnerWithdrawals:withdrawals.results??[],
