@@ -132,7 +132,7 @@ export interface BusinessClientDetail {
     effective_from: string;
     effective_to: string | null;
   }>;
-  routes: Array<{ id: string; version: number; purpose: string; contact_id: string; is_primary: number; full_name: string; email: string | null; phone: string | null }>;
+  routes: Array<{ id: string; version: number; purpose: string; contact_id: string; is_primary: number; rationale: string | null; full_name: string; email: string | null; phone: string | null }>;
   children: Array<Record<string, unknown>>;
   affiliations: Array<Record<string, unknown>>;
 }

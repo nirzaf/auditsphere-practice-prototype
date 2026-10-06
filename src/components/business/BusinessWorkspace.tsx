@@ -267,6 +267,7 @@ export function BusinessWorkspaceConsole() {
   const [routePurpose, setRoutePurpose] = useState<'PROPOSAL' | 'EL' | 'FINAL_REPORT' | 'INVOICE' | 'RECEIPT' | 'PBC' | 'HOLDING_LETTER'>('PROPOSAL');
   const [routeContactId, setRouteContactId] = useState('');
   const [routeIsPrimary, setRouteIsPrimary] = useState(true);
+  const [routeRationale, setRouteRationale] = useState('');
   const [leadSource, setLeadSource] = useState<'PHONE' | 'WHATSAPP' | 'EMAIL' | 'WEB_FORM' | 'REFERRAL'>('REFERRAL');
   const [leadClientMode, setLeadClientMode] = useState<'NEW' | 'EXISTING'>('NEW');
   const [leadClientCode, setLeadClientCode] = useState('');
@@ -556,12 +557,15 @@ export function BusinessWorkspaceConsole() {
     const client = clientDetail?.client;
     if (!selected || !client || !routeContactId || !context?.allowedActions.includes('directory.manage')) return;
     const existing = clientDetail?.routes.find(route => route.purpose === routePurpose && route.contact_id === routeContactId);
-    const payload = { clientId: client.id, contactId: routeContactId, purpose: routePurpose, isPrimary: routeIsPrimary, expectedVersion: existing ? existing.version : null };
+    const replacedPrimary = routeIsPrimary && clientDetail?.routes.some(route => route.purpose === routePurpose && route.is_primary === 1 && route.contact_id !== routeContactId);
+    const rationale = !routeIsPrimary || replacedPrimary ? routeRationale.trim() : null;
+    const payload = { clientId: client.id, contactId: routeContactId, purpose: routePurpose, isPrimary: routeIsPrimary, rationale, expectedVersion: existing ? existing.version : null };
     setCommandBusy(true);
     setCommandMessage('');
     try {
       await runBusinessCommand(selected.workspaceId, selected, { type: 'contact.route', payload }, commandKeyFor(`contact.route.${routePurpose}.${routeContactId}`, payload));
       businessCommandKeys.current.delete(`contact.route.${routePurpose}.${routeContactId}`);
+      setRouteRationale('');
       setCommandMessage(`${routePurpose.replaceAll('_', ' ')} deliveries now route to the selected contact.`);
       setRecordsKey(value => value + 1);
     } catch (reason) {
@@ -1169,19 +1173,19 @@ export function BusinessWorkspaceConsole() {
             <h4>Active contacts</h4>
             {clientDetail.contacts.length ? <ul className="business-record-list">{clientDetail.contacts.map(contact => <li key={contact.id}><strong>{contact.full_name}</strong><span>{contact.role.replaceAll('_', ' ')}{contact.isPrimary ? ' · Primary' : ''}</span><small>{contact.email ?? contact.phone}</small></li>)}</ul> : <p className="business-muted">No active contact is available in this projection.</p>}
             <h4>Communication routes</h4>
-            {clientDetail.routes.length ? <ul className="business-route-list">{clientDetail.routes.map((route, index) => <li key={`${route.id}-${index}`}><span>{route.purpose.replaceAll('_', ' ')}{route.is_primary ? '' : ' · alternate'}</span><strong>{route.full_name}</strong><small>{route.email ?? route.phone} · v{route.version}</small></li>)}</ul> : <p className="business-muted">No configured routes.</p>}
+            {clientDetail.routes.length ? <ul className="business-route-list">{clientDetail.routes.map((route, index) => <li key={`${route.id}-${index}`}><span>{route.purpose.replaceAll('_', ' ')}{route.is_primary ? '' : ' · alternate'}</span><strong>{route.full_name}</strong><small>{route.email ?? route.phone} · v{route.version}</small>{!route.is_primary && <small>{route.rationale ?? 'Reason not recorded (legacy alternate route).'}</small>}</li>)}</ul> : <p className="business-muted">No configured routes.</p>}
             <h4>Maintain contacts and delivery recipients</h4>
             {context?.allowedActions.includes('directory.manage') ? <>
               <form className="business-form business-commercial-form" onSubmit={createContact}>
                 <h3>Add a contact</h3>
                 <div className="business-form-grid">
-                  <label className="business-field"><span>Full name</span><input required maxLength={200} value={contactDraft.fullName} onChange={event => setContactDraft(current => ({ ...current, fullName: event.target.value }))} /></label>
-                  <label className="business-field"><span>Title</span><input required maxLength={200} value={contactDraft.title} onChange={event => setContactDraft(current => ({ ...current, title: event.target.value }))} /></label>
-                  <label className="business-field"><span>Contact role</span><select value={contactDraft.role} onChange={event => setContactDraft(current => ({ ...current, role: event.target.value as typeof contactDraft.role }))}><option value="MD_GM">MD / General Manager</option><option value="CFO_FINANCE_DIRECTOR">CFO / Finance Director</option><option value="CHIEF_ACCOUNTANT_LIAISON">Chief Accountant / Audit Liaison</option><option value="OTHER">Other</option></select></label>
-                  <label className="business-field"><span>Email</span><input type="email" maxLength={254} value={contactDraft.email} onChange={event => setContactDraft(current => ({ ...current, email: event.target.value }))} /></label>
-                  <label className="business-field"><span>Phone</span><input maxLength={30} value={contactDraft.phone} onChange={event => setContactDraft(current => ({ ...current, phone: event.target.value }))} /></label>
-                  <label className="business-field"><span>Effective from</span><input type="date" required value={contactDraft.effectiveFrom} onChange={event => setContactDraft(current => ({ ...current, effectiveFrom: event.target.value }))} /></label>
-                  <label className="business-field"><span>Signatory</span><select value={contactDraft.isSignatory ? 'true' : 'false'} onChange={event => setContactDraft(current => ({ ...current, isSignatory: event.target.value === 'true' }))}><option value="false">Not a signatory</option><option value="true">May sign commercial acceptance</option></select></label>
+                  <label className="business-field" htmlFor="business-contact-name"><span>Full name</span><input id="business-contact-name" required maxLength={200} value={contactDraft.fullName} onChange={event => setContactDraft(current => ({ ...current, fullName: event.target.value }))} /></label>
+                  <label className="business-field" htmlFor="business-contact-title"><span>Title</span><input id="business-contact-title" required maxLength={200} value={contactDraft.title} onChange={event => setContactDraft(current => ({ ...current, title: event.target.value }))} /></label>
+                  <label className="business-field" htmlFor="business-contact-role"><span>Contact role</span><select id="business-contact-role" value={contactDraft.role} onChange={event => setContactDraft(current => ({ ...current, role: event.target.value as typeof contactDraft.role }))}><option value="MD_GM">MD / General Manager</option><option value="CFO_FINANCE_DIRECTOR">CFO / Finance Director</option><option value="CHIEF_ACCOUNTANT_LIAISON">Chief Accountant / Audit Liaison</option><option value="OTHER">Other</option></select></label>
+                  <label className="business-field" htmlFor="business-contact-email"><span>Email</span><input id="business-contact-email" type="email" maxLength={254} value={contactDraft.email} onChange={event => setContactDraft(current => ({ ...current, email: event.target.value }))} /></label>
+                  <label className="business-field" htmlFor="business-contact-phone"><span>Phone</span><input id="business-contact-phone" maxLength={30} value={contactDraft.phone} onChange={event => setContactDraft(current => ({ ...current, phone: event.target.value }))} /></label>
+                  <label className="business-field" htmlFor="business-contact-effective-from"><span>Effective from</span><input id="business-contact-effective-from" type="date" required value={contactDraft.effectiveFrom} onChange={event => setContactDraft(current => ({ ...current, effectiveFrom: event.target.value }))} /></label>
+                  <label className="business-field" htmlFor="business-contact-signatory"><span>Signatory</span><select id="business-contact-signatory" value={contactDraft.isSignatory ? 'true' : 'false'} onChange={event => setContactDraft(current => ({ ...current, isSignatory: event.target.value === 'true' }))}><option value="false">Not a signatory</option><option value="true">May sign commercial acceptance</option></select></label>
                 </div>
                 <div className="business-dialog-actions"><button className="btn sm" disabled={commandBusy}>Add contact to client</button></div>
                 <small>Provide an email or phone. Commercial acceptance needs an active signatory contact whose effective date has been reached.</small>
@@ -1189,12 +1193,13 @@ export function BusinessWorkspaceConsole() {
               <form className="business-form business-commercial-form" onSubmit={routeContact}>
                 <h3>Set a delivery recipient</h3>
                 <div className="business-form-grid">
-                  <label className="business-field"><span>Purpose</span><select value={routePurpose} onChange={event => setRoutePurpose(event.target.value as typeof routePurpose)}>{(['PROPOSAL', 'EL', 'FINAL_REPORT', 'INVOICE', 'RECEIPT', 'PBC', 'HOLDING_LETTER'] as const).map(purpose => <option key={purpose} value={purpose}>{purpose.replaceAll('_', ' ')}</option>)}</select></label>
-                  <label className="business-field"><span>Recipient contact</span><select required value={routeContactId} onChange={event => setRouteContactId(event.target.value)}><option value="">Select an active contact</option>{clientDetail.contacts.map(contact => <option key={contact.id} value={contact.id}>{contact.full_name} · {contact.role.replaceAll('_', ' ')}</option>)}</select></label>
-                  <label className="business-field"><span>Priority</span><select value={routeIsPrimary ? 'true' : 'false'} onChange={event => setRouteIsPrimary(event.target.value === 'true')}><option value="true">Primary recipient</option><option value="false">Alternate recipient</option></select></label>
+                  <label className="business-field" htmlFor="business-client-route-purpose"><span>Purpose</span><select id="business-client-route-purpose" value={routePurpose} onChange={event => setRoutePurpose(event.target.value as typeof routePurpose)}>{(['PROPOSAL', 'EL', 'FINAL_REPORT', 'INVOICE', 'RECEIPT', 'PBC', 'HOLDING_LETTER'] as const).map(purpose => <option key={purpose} value={purpose}>{purpose.replaceAll('_', ' ')}</option>)}</select></label>
+                  <label className="business-field" htmlFor="business-client-route-contact"><span>Recipient contact</span><select id="business-client-route-contact" required value={routeContactId} onChange={event => setRouteContactId(event.target.value)}><option value="">Select an active contact</option>{clientDetail.contacts.map(contact => <option key={contact.id} value={contact.id}>{contact.full_name} · {contact.role.replaceAll('_', ' ')}</option>)}</select></label>
+                  <label className="business-field" htmlFor="business-client-route-priority"><span>Priority</span><select id="business-client-route-priority" value={routeIsPrimary ? 'true' : 'false'} onChange={event => setRouteIsPrimary(event.target.value === 'true')}><option value="true">Primary recipient</option><option value="false">Alternate recipient</option></select></label>
+                  {(!routeIsPrimary || (routeContactId && clientDetail.routes.some(route => route.purpose === routePurpose && route.is_primary === 1 && route.contact_id !== routeContactId))) && <label className="business-field business-field-wide" htmlFor="business-client-route-rationale"><span>{routeIsPrimary ? 'Reason current primary will remain as an alternate' : 'Reason this contact is an alternate recipient'}</span><textarea id="business-client-route-rationale" required minLength={10} maxLength={1000} value={routeRationale} onChange={event => setRouteRationale(event.target.value)} /><small>Record the business reason. At least 10 characters are required.</small></label>}
                 </div>
-                <div className="business-dialog-actions"><button className="btn sm" disabled={commandBusy || !routeContactId}>Save recipient route</button></div>
-                <small>The selected contact must stay active and within its effective dates to receive this document type.</small>
+                <div className="business-dialog-actions"><button className="btn sm" disabled={commandBusy || !routeContactId || ((!routeIsPrimary || clientDetail.routes.some(route => route.purpose === routePurpose && route.is_primary === 1 && route.contact_id !== routeContactId)) && routeRationale.trim().length < 10)}>Save recipient route</button></div>
+                <small>The selected contact must stay active and within its effective dates to receive this document type. New contacts do not become alternates automatically.</small>
               </form>
               <ul className="business-record-list">{clientDetail.contacts.map(contact => <li key={contact.id}>
                 <strong>{contact.full_name}</strong>

@@ -376,3 +376,24 @@ suites; `npx tsc --noEmit` and `npm run cloud:typecheck` passed; and
 existing browser scenarios exercised the current engagement flows and
 responsive surfaces; the prior-only amount and blocked mapping assertion are
 covered by the Worker/D1 integration rather than a dedicated browser fixture.
+
+## Documented alternate recipient routes — 2026-10-06
+
+Migration `0029_contact_route_rationale.sql` adds a nullable rationale for
+historical routes and requires a 10–1000 character reason for every new or
+updated alternate route. Role-based contact creation now creates only purposes
+without an existing primary; it does not silently add another recipient.
+Changing a primary records why the former primary remains as an alternate in
+the same command transaction. The client directory shows stored reasons and
+labels historical alternates without a recorded reason as legacy. This closes
+the explicit-documentation subcase of **US-ENG-001** only; the full story and
+46-story epic remain open.
+
+The Worker/D1 integration verifies automatic alternate creation is suppressed,
+reasonless route commands are rejected, a documented alternate persists, and
+promotion transfers the rationale to the demoted primary atomically. A visible
+Chrome journey adds a second synthetic finance contact, enters the reason, and
+checks both the displayed route and stored row. On this working tree,
+`npm run test:unit` passed **484/484** checks across 104 suites and
+`npm run test:e2e` passed **24/24** browser scenarios; app and Worker
+typechecks and the production build passed.

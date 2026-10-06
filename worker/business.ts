@@ -315,7 +315,7 @@ export async function getBusinessClient(
     env.DB.prepare(`SELECT id,version,full_name,email,phone,title,role,is_primary,is_signatory,active,effective_from,effective_to
       FROM contacts WHERE workspace_id=? AND client_id=? AND active=1 ORDER BY is_primary DESC,full_name,id`)
       .bind(workspaceId, clientId).all<Record<string, unknown>>(),
-    env.DB.prepare(`SELECT cr.id,cr.version,cr.purpose,cr.contact_id,cr.is_primary,ct.full_name,ct.email,ct.phone
+    env.DB.prepare(`SELECT cr.id,cr.version,cr.purpose,cr.contact_id,cr.is_primary,cr.rationale,ct.full_name,ct.email,ct.phone
       FROM contact_routes cr JOIN contacts ct ON ct.workspace_id=cr.workspace_id AND ct.client_id=cr.client_id AND ct.id=cr.contact_id
       WHERE cr.workspace_id=? AND cr.client_id=? AND ct.active=1 ORDER BY cr.purpose,cr.is_primary DESC,ct.full_name`)
       .bind(workspaceId, clientId).all<Record<string, unknown>>(),
@@ -717,7 +717,10 @@ const contactRouteCommand = z.strictObject({
     contactId: clientIdSchema,
     purpose: contactPurposeSchema,
     isPrimary: z.boolean().default(true),
+    rationale: z.string().trim().min(10).max(1000).nullable().optional(),
     expectedVersion: z.number().int().positive().nullable()
+  }).refine(payload => payload.isPrimary || Boolean(payload.rationale), {
+    message: 'An alternate recipient requires a documented rationale.'
   })
 });
 const clientAffiliationCommand = z.strictObject({
@@ -2484,7 +2487,13 @@ async function buildCommercialMutation(
       .bind(workspaceId, payload.clientId).first<{ id: string }>();
     if (!client) throw new ApiError('NOT_FOUND', 'Active client not found.');
     const contactId = crypto.randomUUID();
-    const defaultRoutes = contactRoutePurposes(payload.contact.role);
+    const roleRoutes = contactRoutePurposes(payload.contact.role);
+    const currentPrimaryRoutes = await env.DB.prepare(`SELECT purpose FROM contact_routes
+      WHERE workspace_id=? AND client_id=? AND is_primary=1`).bind(workspaceId, payload.clientId).all<{ purpose: string }>();
+    const currentPrimaryPurposes = new Set((currentPrimaryRoutes.results ?? []).map(route => route.purpose));
+    // A new contact must not become an undocumented alternate by default. Purpose
+    // routes already owned by another contact require an explicit contact.route command.
+    const defaultRoutes = roleRoutes.filter(purpose => !currentPrimaryPurposes.has(purpose));
     const routeIds = defaultRoutes.map(() => crypto.randomUUID());
     return {
       statements: [
@@ -2501,9 +2510,9 @@ async function buildCommercialMutation(
         ),
         ...defaultRoutes.map((purpose, index) => env.DB.prepare(`INSERT INTO contact_routes(
           id,workspace_id,version,client_id,purpose,contact_id,is_primary,created_at,updated_at,created_by_actor_id,updated_by_actor_id
-        ) VALUES(?,?,1,?,?,?,CASE WHEN EXISTS(SELECT 1 FROM contact_routes WHERE workspace_id=? AND client_id=? AND purpose=? AND is_primary=1) THEN 0 ELSE 1 END,?,?,?,?)`)
+        ) SELECT ?,?,1,?,?,?,1,?,?,?,? WHERE NOT EXISTS(SELECT 1 FROM contact_routes WHERE workspace_id=? AND client_id=? AND purpose=? AND is_primary=1)`)
           .bind(routeIds[index], workspaceId, payload.clientId, purpose, contactId,
-            workspaceId, payload.clientId, purpose, now, now, actorId, actorId))
+            now, now, actorId, actorId, workspaceId, payload.clientId, purpose))
       ],
       result: { contactId, clientId: payload.clientId, version: 1, routePurposes: defaultRoutes },
       entityType: 'CONTACT', entityId: contactId, beforeVersion: null, afterVersion: 1
@@ -2570,31 +2579,48 @@ async function buildCommercialMutation(
     if ((existing?.version ?? null) !== payload.expectedVersion) {
       throw new ApiError('VERSION_CONFLICT', 'The contact route changed. Refresh routing and retry.');
     }
+    const replacedPrimary = payload.isPrimary
+      ? await env.DB.prepare(`SELECT id,version,contact_id FROM contact_routes WHERE workspace_id=? AND client_id=? AND purpose=? AND is_primary=1 AND contact_id<>?`)
+        .bind(workspaceId, payload.clientId, payload.purpose, payload.contactId).first<{ id: string; version: number; contact_id: string }>()
+      : null;
+    if (payload.isPrimary && replacedPrimary && !payload.rationale) {
+      throw new ApiError('VALIDATION_FAILED', 'Document why the current primary recipient will remain as an alternate.');
+    }
+    if (payload.isPrimary && !replacedPrimary && payload.rationale) {
+      throw new ApiError('VALIDATION_FAILED', 'A rationale is only needed when another primary recipient will become an alternate.');
+    }
     const routeId = existing?.id ?? crypto.randomUUID();
     const statements: D1PreparedStatement[] = [
       env.DB.prepare(`INSERT INTO command_assertions(workspace_id,seq,ok)
         SELECT ?,25,CASE WHEN EXISTS(SELECT 1 FROM contacts WHERE workspace_id=? AND client_id=? AND id=? AND active=1)
           AND ((? IS NULL AND NOT EXISTS(SELECT 1 FROM contact_routes WHERE workspace_id=? AND client_id=? AND purpose=? AND contact_id=?))
             OR (? IS NOT NULL AND EXISTS(SELECT 1 FROM contact_routes WHERE workspace_id=? AND client_id=? AND purpose=? AND contact_id=? AND version=?)))
+          AND (?=0 OR ((? IS NOT NULL AND EXISTS(SELECT 1 FROM contact_routes WHERE workspace_id=? AND id=? AND version=? AND is_primary=1 AND client_id=? AND purpose=?))
+            OR (? IS NULL AND NOT EXISTS(SELECT 1 FROM contact_routes WHERE workspace_id=? AND client_id=? AND purpose=? AND is_primary=1 AND contact_id<>?))))
+          AND (?=0 OR (SELECT COUNT(*) FROM contact_routes WHERE workspace_id=? AND client_id=? AND purpose=? AND is_primary=1 AND contact_id<>?)=?)
         THEN 1 ELSE 0 END`).bind(workspaceId, workspaceId, payload.clientId, payload.contactId,
         payload.expectedVersion, workspaceId, payload.clientId, payload.purpose, payload.contactId,
-        payload.expectedVersion, workspaceId, payload.clientId, payload.purpose, payload.contactId, payload.expectedVersion ?? 0),
-      ...(payload.isPrimary ? [env.DB.prepare(`UPDATE contact_routes SET is_primary=0,version=version+1,updated_at=?,updated_by_actor_id=?
-        WHERE workspace_id=? AND client_id=? AND purpose=? AND is_primary=1 AND contact_id<>?`)
-        .bind(now, actorId, workspaceId, payload.clientId, payload.purpose, payload.contactId)] : []),
+        payload.expectedVersion, workspaceId, payload.clientId, payload.purpose, payload.contactId, payload.expectedVersion ?? 0,
+        payload.isPrimary ? 1 : 0, replacedPrimary?.id ?? null, workspaceId, replacedPrimary?.id ?? '', replacedPrimary?.version ?? 0, payload.clientId, payload.purpose,
+        replacedPrimary?.id ?? null, workspaceId, payload.clientId, payload.purpose, payload.contactId,
+        payload.isPrimary ? 1 : 0, workspaceId, payload.clientId, payload.purpose, payload.contactId, replacedPrimary ? 1 : 0),
+      ...(replacedPrimary ? [env.DB.prepare(`UPDATE contact_routes SET is_primary=0,rationale=?,version=version+1,updated_at=?,updated_by_actor_id=?
+        WHERE workspace_id=? AND id=? AND version=? AND is_primary=1`)
+        .bind(payload.rationale, now, actorId, workspaceId, replacedPrimary.id, replacedPrimary.version)] : []),
       payload.expectedVersion === null
         ? env.DB.prepare(`INSERT INTO contact_routes(
-            id,workspace_id,version,client_id,purpose,contact_id,is_primary,created_at,updated_at,created_by_actor_id,updated_by_actor_id
-          ) VALUES(?,?,1,?,?,?,?,?,?,?,?)`).bind(routeId, workspaceId, payload.clientId, payload.purpose,
-            payload.contactId, payload.isPrimary ? 1 : 0, now, now, actorId, actorId)
-        : env.DB.prepare(`UPDATE contact_routes SET is_primary=?,version=version+1,updated_at=?,updated_by_actor_id=?
-            WHERE workspace_id=? AND id=? AND version=?`).bind(payload.isPrimary ? 1 : 0, now, actorId,
+            id,workspace_id,version,client_id,purpose,contact_id,is_primary,rationale,created_at,updated_at,created_by_actor_id,updated_by_actor_id
+          ) VALUES(?,?,1,?,?,?,?,?,?,?,?,?)`).bind(routeId, workspaceId, payload.clientId, payload.purpose,
+            payload.contactId, payload.isPrimary ? 1 : 0, payload.isPrimary ? null : payload.rationale ?? null, now, now, actorId, actorId)
+        : env.DB.prepare(`UPDATE contact_routes SET is_primary=?,rationale=?,version=version+1,updated_at=?,updated_by_actor_id=?
+            WHERE workspace_id=? AND id=? AND version=?`).bind(payload.isPrimary ? 1 : 0, payload.isPrimary ? null : payload.rationale ?? null, now, actorId,
             workspaceId, routeId, payload.expectedVersion)
     ];
     return {
       statements,
-      result: { contactRouteId: routeId, clientId: payload.clientId, contactId: payload.contactId, purpose: payload.purpose, isPrimary: payload.isPrimary, version: (payload.expectedVersion ?? 0) + 1 },
-      entityType: 'CONTACT_ROUTE', entityId: routeId, beforeVersion: payload.expectedVersion, afterVersion: (payload.expectedVersion ?? 0) + 1
+      result: { contactRouteId: routeId, clientId: payload.clientId, contactId: payload.contactId, purpose: payload.purpose, isPrimary: payload.isPrimary, rationale: payload.isPrimary ? null : payload.rationale ?? null, version: (payload.expectedVersion ?? 0) + 1 },
+      entityType: 'CONTACT_ROUTE', entityId: routeId, beforeVersion: payload.expectedVersion, afterVersion: (payload.expectedVersion ?? 0) + 1,
+      auditDetails: { purpose: payload.purpose, isPrimary: payload.isPrimary, rationale: payload.isPrimary ? null : payload.rationale ?? null, alternateRouteId: payload.isPrimary ? replacedPrimary?.id ?? null : routeId }
     };
   }
 

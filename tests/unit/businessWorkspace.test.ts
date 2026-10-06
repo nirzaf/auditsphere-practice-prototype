@@ -121,7 +121,7 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
   const ready = await call('/api/health/ready');
   assert.equal(ready.response.status, 200, JSON.stringify(ready.body));
   assert.equal(ready.body.status, 'ready');
-  assert.equal(ready.body.schemaVersion, 28);
+  assert.equal(ready.body.schemaVersion, 29);
   assert.deepEqual(ready.body.dependencyCodes, []);
   failNextR2Head = true;
   const degradedReady = await call('/api/health/ready');
@@ -154,7 +154,7 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
 
   const migrationStatus = await call(`/api/workspaces/${workspaceId}/migration-status`);
   assert.equal(migrationStatus.response.status, 200, JSON.stringify(migrationStatus.body));
-  assert.deepEqual(migrationStatus.body, { schemaVersion: 28, lastRunId: null, status: null });
+  assert.deepEqual(migrationStatus.body, { schemaVersion: 29, lastRunId: null, status: null });
   const missingMigrationWorkspace = await call(`/api/workspaces/${crypto.randomUUID()}/migration-status`);
   assert.equal(missingMigrationWorkspace.response.status, 404);
 
@@ -316,6 +316,48 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
   assert.equal(mdContact.response.status, 200, JSON.stringify(mdContact.body));
   assert.deepEqual(mdContact.body.result.routePurposes, ['PROPOSAL', 'EL', 'FINAL_REPORT', 'HOLDING_LETTER']);
   const mdContactId = mdContact.body.result.contactId as string;
+
+  const secondaryFinanceContact = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'contact.create', payload: {
+      clientId,
+      contact: { fullName: 'Finance Director', email: 'finance-director@example.invalid', title: 'Finance Director', role: 'CFO_FINANCE_DIRECTOR', effectiveFrom: '2026-01-01' }
+    } }
+  }, preparerHeaders);
+  assert.equal(secondaryFinanceContact.response.status, 200, JSON.stringify(secondaryFinanceContact.body));
+  assert.deepEqual(secondaryFinanceContact.body.result.routePurposes, [], 'creating a contact must not silently add alternate routes for existing purposes');
+  const secondaryFinanceContactId = secondaryFinanceContact.body.result.contactId as string;
+  const undocumentedAlternate = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'contact.route', payload: {
+      clientId, contactId: secondaryFinanceContactId, purpose: 'INVOICE', isPrimary: false, expectedVersion: null
+    } }
+  }, preparerHeaders);
+  assert.equal(undocumentedAlternate.response.status, 400);
+  assert.equal(undocumentedAlternate.body.code, 'BAD_REQUEST');
+  const documentedAlternate = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'contact.route', payload: {
+      clientId, contactId: secondaryFinanceContactId, purpose: 'INVOICE', isPrimary: false,
+      rationale: 'The finance director is the authorized backup when the CFO is unavailable.', expectedVersion: null
+    } }
+  }, preparerHeaders);
+  assert.equal(documentedAlternate.response.status, 200, JSON.stringify(documentedAlternate.body));
+  const alternateDetails = await call(`/api/workspaces/${workspaceId}/clients/${clientId}`, { headers: preparerHeaders });
+  assert.equal(alternateDetails.body.routes.find((route: any) => route.purpose === 'INVOICE' && route.contact_id === secondaryFinanceContactId)?.rationale,
+    'The finance director is the authorized backup when the CFO is unavailable.');
+  const promoteAlternate = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'contact.route', payload: {
+      clientId, contactId: secondaryFinanceContactId, purpose: 'INVOICE', isPrimary: true,
+      rationale: 'The CFO remains an approved alternate for invoice delivery.', expectedVersion: 1
+    } }
+  }, preparerHeaders);
+  assert.equal(promoteAlternate.response.status, 200, JSON.stringify(promoteAlternate.body));
+  const promotedDetails = await call(`/api/workspaces/${workspaceId}/clients/${clientId}`, { headers: preparerHeaders });
+  const invoiceRoutes = promotedDetails.body.routes.filter((route: any) => route.purpose === 'INVOICE');
+  assert.equal(invoiceRoutes.find((route: any) => route.contact_id === secondaryFinanceContactId)?.is_primary, 1);
+  assert.equal(invoiceRoutes.find((route: any) => route.contact_id === secondaryFinanceContactId)?.rationale, null);
+  assert.equal(invoiceRoutes.find((route: any) => route.contact_id === financeContactId)?.is_primary, 0);
+  assert.equal(invoiceRoutes.find((route: any) => route.contact_id === financeContactId)?.rationale,
+    'The CFO remains an approved alternate for invoice delivery.');
+
   const routeBeforeContactChange = await call(`/api/workspaces/${workspaceId}/clients/${clientId}`, { headers: preparerHeaders });
   assert.equal(routeBeforeContactChange.body.routes.find((route: any) => route.purpose === 'EL')?.contact_id, mdContactId);
   const contactUpdate = await post(`/api/workspaces/${workspaceId}/commands`, {

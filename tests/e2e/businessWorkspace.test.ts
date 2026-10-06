@@ -239,6 +239,41 @@ it('US-SYS-001/002/005 creates a real workspace, assigns all personas, persists 
   await clickButton('Retry');
   await waitFor('successful recovery without recreating records', `document.querySelector('.business-client-list')?.innerText.includes('QA ALPHA Services LLC') && !document.querySelector('[role="alert"]')`);
 
+  // Observe the restored record workspace, then use the visible directory and route forms.
+  await chooseOption('business-active-persona', `item.textContent?.includes('APPROVER · QA Partner')`);
+  await waitFor('the Partner directory with Alpha loaded', `document.querySelector('.business-actor-summary')?.innerText.includes('APPROVER') && [...document.querySelectorAll('#business-selected-client option')].some(option => option.textContent?.includes('QA ALPHA Services LLC'))`);
+  await chooseOption('business-selected-client', `item.textContent?.includes('QA ALPHA Services LLC')`);
+  await waitFor('Alpha directory controls', `!!document.querySelector('#business-contact-name') && !!document.querySelector('#business-client-route-purpose')`);
+  const routeFormBeforeInput = await tab.evaluate<{ rationaleVisible: boolean; saveDisabled: boolean }>(`({
+    rationaleVisible: !!document.querySelector('#business-client-route-rationale'),
+    saveDisabled: [...document.querySelectorAll('button')].find(button => button.innerText.trim() === 'Save recipient route')?.disabled ?? true
+  })`);
+  assert.equal(routeFormBeforeInput.rationaleVisible, false, 'a primary route without replacement does not ask for alternate rationale');
+  assert.equal(routeFormBeforeInput.saveDisabled, true, 'the route form waits for a contact selection');
+
+  await fillFields({
+    'business-contact-name': 'QA Finance Alternate',
+    'business-contact-title': 'Finance Director',
+    'business-contact-role': 'CFO_FINANCE_DIRECTOR',
+    'business-contact-email': 'finance.alternate@example.invalid',
+    'business-contact-effective-from': '2026-01-01'
+  });
+  await clickButton('Add contact to client');
+  await waitFor('the saved alternate contact', `document.querySelector('.business-record-list')?.innerText.includes('QA Finance Alternate')`);
+  await chooseOption('business-client-route-purpose', `item.value === 'INVOICE'`);
+  await chooseOption('business-client-route-contact', `item.textContent?.includes('QA Finance Alternate')`);
+  await chooseOption('business-client-route-priority', `item.value === 'false'`);
+  await waitFor('the required alternate rationale control', `document.querySelector('#business-client-route-rationale')?.required === true`);
+  await fillFields({ 'business-client-route-rationale': 'The finance director covers invoice delivery during the CFO absence.' });
+  await clickButton('Save recipient route');
+  await waitFor('the documented alternate route in the visible list', `document.querySelector('.business-route-list')?.innerText.includes('The finance director covers invoice delivery during the CFO absence.')`);
+  const persistedAlternate = server.db.prepare(`SELECT cr.is_primary,cr.rationale FROM contact_routes cr
+    JOIN contacts c ON c.workspace_id=cr.workspace_id AND c.id=cr.contact_id
+    WHERE cr.workspace_id=? AND cr.client_id=? AND cr.purpose='INVOICE' AND c.full_name='QA Finance Alternate'`)
+    .bind(preference.workspaceId, alphaId).first<{ is_primary: number; rationale: string | null }>();
+  assert.equal(persistedAlternate?.is_primary, 0);
+  assert.equal(persistedAlternate?.rationale, 'The finance director covers invoice delivery during the CFO absence.');
+
   assert.ok(tab.requests.some(url => new URL(url).pathname === '/api/workspaces'), 'the browser used the real Worker bootstrap endpoint');
   assert.ok(tab.requests.some(url => new URL(url).pathname.endsWith('/commands')), 'directory and commercial writes used the command API');
   assert.equal(tab.blockedExternalRequests.length, 0, 'the journey made no external HTTP requests');
@@ -436,6 +471,8 @@ it('US-ENG-003 renders and approves an exact quote revision, then fails closed w
   await addStaffProfile('QA Quote Preparer', 'PREPARER', 'ASSOCIATE');
   await chooseOption('business-active-persona', `item.textContent?.includes('PREPARER · QA Quote Preparer')`);
   await waitFor('the PREPARER context', `document.querySelector('.business-actor-summary')?.innerText.includes('PREPARER')`);
+  await chooseOption('business-lead-client-mode', `item.value === 'NEW'`);
+  await waitFor('new-prospect lead intake controls', `!!document.getElementById('business-lead-client-code')`);
 
   await fillFields({
     'business-lead-client-code': `QA-QUOTE-${unique}`,
