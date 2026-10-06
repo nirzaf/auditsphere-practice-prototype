@@ -34,9 +34,10 @@ class SqliteD1Statement {
 
 /** Minimal SQLite-backed D1 contract for exercising the real Worker route locally. */
 export class SqliteD1 {
-  private readonly database = new DatabaseSync(':memory:');
+  private readonly database: DatabaseSync;
 
-  constructor() {
+  constructor(databasePath = ':memory:') {
+    this.database = new DatabaseSync(databasePath);
     this.database.exec('PRAGMA foreign_keys=ON');
   }
 
