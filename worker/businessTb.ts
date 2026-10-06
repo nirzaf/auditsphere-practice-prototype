@@ -671,6 +671,13 @@ function bandFor(balance:number,pm:number,te:number,inherentRisk:string,critical
   return 'GREEN';
 }
 
+export function benchmarkContributingLines<T extends {code:string;statement:string;category:string}>(lines:T[],benchmark:string):T[]{
+  // PBT is profit BEFORE tax, so the income-tax FSLI must never reduce the benchmark.
+  return benchmark==='PBT'?lines.filter(row=>row.statement==='PROFIT_LOSS'&&row.code!=='INCOME_TAX')
+    :benchmark==='REVENUE'?lines.filter(row=>row.category==='REVENUE')
+      :benchmark==='TOTAL_ASSETS'?lines.filter(row=>row.category==='ASSET'):lines.filter(row=>row.category==='EQUITY');
+}
+
 async function calculateMateriality(env:Env,workspaceId:string,context:BusinessContext,
   command:Extract<BusinessTbCommand,{type:'materiality.calculate'}>,now:string):Promise<BusinessMutation>{
   requireTbWriter(context,true);
@@ -686,9 +693,7 @@ async function calculateMateriality(env:Env,workspaceId:string,context:BusinessC
   assertRateRanges(p.benchmark,p.benchmarkRateBps,p.performanceRateBps,p.sadRateBps);
   const lines=await mappedMaterialityLines(env,workspaceId,p.engagementId,p.tbVersionId,p.mappingVersionId);
   if(!lines.length)throw new ApiError('GATE_BLOCKED','An approved non-empty FSLI mapping is required to calculate materiality.');
-  const contributing=p.benchmark==='PBT'?lines.filter(row=>row.statement==='PROFIT_LOSS'):
-    p.benchmark==='REVENUE'?lines.filter(row=>row.category==='REVENUE'):
-      p.benchmark==='TOTAL_ASSETS'?lines.filter(row=>row.category==='ASSET'):lines.filter(row=>row.category==='EQUITY');
+  const contributing=benchmarkContributingLines(lines,p.benchmark);
   const signed=contributing.reduce((sum,row)=>sum+BigInt(row.balance_minor),0n);
   const rawBase=p.benchmark==='PBT'?-signed:(signed<0n?-signed:signed);
   let normalization=0n;
