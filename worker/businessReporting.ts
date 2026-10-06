@@ -630,7 +630,7 @@ async function buildReportRelease(env:Env,workspaceId:string,context:BusinessCon
   if(!opinion||!asset||reportDependency!==candidate.report_dependency_hash||asset.signature_sha256!==candidate.signature_sha256||asset.seal_sha256!==candidate.seal_sha256)
     throw new ApiError('STALE_DEPENDENCY','The Partner opinion, approved statements or exact signature asset changed after report preparation.');
   const representationHash=await currentRepresentationHash(env,workspaceId,candidate.engagement_id,candidate.proposed_report_date,candidate.representation_request_id);
-  if(representationHash!==candidate.representation_hash||candidate.return_sha256!==candidate.return_hash)throw new ApiError('STALE_DEPENDENCY','The signed representation no longer covers the current approved reporting sources.');
+  if(representationHash!==candidate.representation_hash)throw new ApiError('STALE_DEPENDENCY','The signed representation no longer covers the current approved reporting sources.');
   const critical=await criticalConfirmationBlockers(env,workspaceId,candidate.engagement_id);if(critical.length)throw new ApiError('GATE_BLOCKED','Critical confirmation clearance changed after bundle preparation.',{blockers:critical});
   const findings=(await env.DB.prepare(`SELECT id,version,source_hash FROM findings WHERE workspace_id=? AND engagement_id=?`).bind(workspaceId,candidate.engagement_id).all<{id:string;version:number;source_hash:string}>()).results??[];
   const findingById=new Map(findings.map(row=>[row.id,row]));
@@ -659,8 +659,11 @@ async function buildReportRelease(env:Env,workspaceId:string,context:BusinessCon
   const sourceParts=partsResult.results??[];
   if(sourceParts.length!==5||new Set(sourceParts.map(row=>row.kind)).size!==5)throw new ApiError('GATE_BLOCKED','Every one of the five semantic deliverable parts must be staged exactly once.');
   const signedReturn=await env.DB.prepare(`SELECT signed_file_id,file_sha256,source_hash FROM representation_returns WHERE workspace_id=? AND id=? AND request_id=?`)
-    .bind(workspaceId,candidate.signed_file_id,candidate.representation_request_id).first<{signed_file_id:string;file_sha256:string;source_hash:string}>();
-  if(!signedReturn||signedReturn.file_sha256!==candidate.return_sha256)throw new ApiError('STALE_DEPENDENCY','The signed representation attachment changed.');
+    .bind(workspaceId,candidate.current_return_id,candidate.representation_request_id).first<{signed_file_id:string;file_sha256:string;source_hash:string}>();
+  if(!signedReturn||signedReturn.signed_file_id!==candidate.signed_file_id)throw new ApiError('STALE_DEPENDENCY','The signed representation return no longer matches the prepared release candidate.');
+  const signedFile=await env.DB.prepare(`SELECT sha256 FROM file_versions WHERE workspace_id=? AND id=? AND state='COMMITTED' AND immutable=1`)
+    .bind(workspaceId,signedReturn.signed_file_id).first<{sha256:string}>();
+  if(!signedFile||signedFile.sha256!==signedReturn.file_sha256)throw new ApiError('STALE_DEPENDENCY','The signed representation attachment changed.');
   const verifiedParts=[] as Array<{kind:string;primary_file_id:string;sha256:string;size_bytes:number}>;
   for(const part of sourceParts){const file=await env.DB.prepare(`SELECT sha256,size_bytes,original_name FROM file_versions WHERE workspace_id=? AND id=?`).bind(workspaceId,part.primary_file_id).first<{sha256:string;size_bytes:number;original_name:string}>();
     if(!file||file.sha256!==part.sha256||file.size_bytes!==part.size_bytes)throw new ApiError('INTEGRITY_MISMATCH',`The staged ${part.kind} metadata no longer matches its manifest.`);
