@@ -494,3 +494,21 @@ journey, the remaining **US-SYS-003** criteria, and acceptance of the full
 46-story epic remain open. This change does not enable Cloudflare production
 deployment; the reviewer gate and pending remote migrations described above
 remain unresolved.
+
+## Production no-auth API boundary — 2026-10-06
+
+The retired seeded snapshot/session API is now opt-in through the Worker binding
+`TEST_SNAPSHOT_API_ENABLED=true`. It is disabled by default in the canonical
+`wrangler.jsonc`; the no-auth BUSINESS bootstrap, normalized command API, scoped
+reads, and versioned R2 file routes remain available under their existing
+trusted-deployment setup gate. Seed listing/creation, access-code resume,
+snapshot state/events, session persona/logout, snapshot commands, and legacy
+file handlers return not-found unless the explicit test flag is set.
+
+The `US-SYS-001/002` business browser journey confirms those legacy routes return
+404 while a real empty BUSINESS workspace can still be created and used. The
+focused browser suite passed **3/3**; the complete local suite passed
+**484/484** unit checks and **24/24** browser scenarios. App and Worker typechecks,
+production build, and `git diff --check` also passed. This removes a production
+demo/auth surface; it does not close the remaining foundation criteria or any
+claim of full 46-story acceptance.

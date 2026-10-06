@@ -4,9 +4,10 @@
 // JSON API under /api/*. Deployed same-origin, so there is no CORS surface and
 // the session cookie can be SameSite=Strict.
 //
-// Every mutating handler: authenticates the session, resolves the actor from
-// SERVER state, enforces scope/revision inside the shared domain guards, persists
-// only changed rows, and appends an audit event.
+// BUSINESS mutations resolve the self-selected actor profile on each request,
+// enforce scope/version inside the domain command, and append an audit event.
+// The retained seeded snapshot/session API is explicitly disabled unless an
+// isolated test environment opts into TEST_SNAPSHOT_API_ENABLED.
 
 import type { CommandEnvelope, CommandResponse, ChangesResponse, StateResponse } from '../src/shared/api/commands';
 import type { CreateWorkspaceRequest, CreateWorkspaceResponse, PersonaSwitchRequest, ResumeWorkspaceRequest, SessionInfo, WorkspaceSummary, SeedSummary } from '../src/shared/api/sessions';
@@ -194,6 +195,13 @@ const handleHealthReady = async (ctx: RouteContext): Promise<Response> => {
   return jsonResponse({ status: ready ? 'ready' : 'degraded', schemaVersion, dependencyCodes }, ready ? 200 : 503, ctx.requestId);
 };
 
+/** The seed/snapshot/session API is retained only for isolated legacy tests. */
+const requireTestSnapshotApi = (ctx: RouteContext): void => {
+  if (ctx.env.TEST_SNAPSHOT_API_ENABLED !== 'true') {
+    throw new ApiError('NOT_FOUND', 'The test snapshot API is disabled in this deployment.');
+  }
+};
+
 const handleMigrationStatus = async (ctx: RouteContext): Promise<Response> => {
   const workspace = await ctx.env.DB.prepare('SELECT id FROM workspaces WHERE id=?')
     .bind(ctx.params.workspaceId).first<{ id: string }>();
@@ -208,6 +216,7 @@ const handleMigrationStatus = async (ctx: RouteContext): Promise<Response> => {
 };
 
 const handleSeeds = async (ctx: RouteContext): Promise<Response> => {
+  requireTestSnapshotApi(ctx);
   // Seed catalog intentionally excludes state_json so a seed is never leaked.
   const result = await ctx.env.DB.prepare('SELECT id,title,description FROM workspace_seeds ORDER BY id').all<SeedSummary>();
   return jsonResponse({ seeds: result.results ?? [] }, 200, ctx.requestId);
@@ -237,6 +246,8 @@ const handleCreateWorkspace = async (ctx: RouteContext): Promise<Response> => {
     const created = await bootstrapBusinessWorkspace(ctx.env, input, setupKey);
     return jsonResponse(created, created.replayed ? 200 : 201, ctx.requestId);
   }
+
+  requireTestSnapshotApi(ctx);
 
   const body = requestBody as Partial<CreateWorkspaceRequest>;
   if (typeof body.seedId !== 'string') throw new ApiError('BAD_REQUEST', 'Choose an available seed.');
@@ -451,6 +462,7 @@ const handleBusinessPbcRequest = async (ctx: RouteContext): Promise<Response> =>
 
 const handleResumeWorkspace = async (ctx: RouteContext): Promise<Response> => {
   await assertSameOrigin(ctx.request, ctx.url);
+  requireTestSnapshotApi(ctx);
   await enforceRateLimit(ctx, 'workspace.resume', clientKey(ctx));
   const body = await readJson<ResumeWorkspaceRequest>(ctx.request, 16 * 1024);
   const [workspaceId, secret] = (body?.accessCode ?? '').trim().split('.');
@@ -490,6 +502,7 @@ const handleGetWorkspace = async (ctx: RouteContext): Promise<Response> => {
       timezone: directory.timezone
     } }, 200, ctx.requestId);
   }
+  requireTestSnapshotApi(ctx);
   const { session } = await resolveSession(ctx.env, ctx.request);
   if (session.workspace_id !== ctx.params.workspaceId) throw new ApiError('FORBIDDEN_SCOPE', 'Session does not match this workspace.');
   const row = await requireWorkspace(ctx.env, ctx.params.workspaceId);
@@ -499,6 +512,7 @@ const handleGetWorkspace = async (ctx: RouteContext): Promise<Response> => {
 
 const handleDeleteWorkspace = async (ctx: RouteContext): Promise<Response> => {
   await assertSameOrigin(ctx.request, ctx.url);
+  requireTestSnapshotApi(ctx);
   const { session } = await resolveSession(ctx.env, ctx.request);
   if (session.workspace_id !== ctx.params.workspaceId) throw new ApiError('FORBIDDEN_SCOPE', 'Session does not match this workspace.');
   await ctx.env.DB.prepare("UPDATE workspaces SET status='deleted', updated_at=? WHERE id=?")
@@ -511,6 +525,7 @@ const handleDeleteWorkspace = async (ctx: RouteContext): Promise<Response> => {
 
 const handlePersonaSwitch = async (ctx: RouteContext): Promise<Response> => {
   await assertSameOrigin(ctx.request, ctx.url);
+  requireTestSnapshotApi(ctx);
   const { session, state } = await resolveSession(ctx.env, ctx.request);
   const body = await readJson<PersonaSwitchRequest>(ctx.request, 8 * 1024);
   if (!body || typeof body.userId !== 'string') throw new ApiError('BAD_REQUEST', 'A persona userId is required.');
@@ -521,6 +536,7 @@ const handlePersonaSwitch = async (ctx: RouteContext): Promise<Response> => {
 
 const handleLogout = async (ctx: RouteContext): Promise<Response> => {
   await assertSameOrigin(ctx.request, ctx.url);
+  requireTestSnapshotApi(ctx);
   const { session } = await resolveSession(ctx.env, ctx.request);
   await revokeSession(ctx.env, session.id);
   return jsonResponse({ loggedOut: true }, 200, ctx.requestId, { 'Set-Cookie': clearedSessionCookie() });
@@ -529,6 +545,7 @@ const handleLogout = async (ctx: RouteContext): Promise<Response> => {
 // --- State & change feed ----------------------------------------------------
 
 const handleState = async (ctx: RouteContext): Promise<Response> => {
+  requireTestSnapshotApi(ctx);
   const { session, state } = await resolveSession(ctx.env, ctx.request);
   if (session.workspace_id !== ctx.params.workspaceId) throw new ApiError('FORBIDDEN_SCOPE', 'Session does not match this workspace.');
   const row = await requireWorkspace(ctx.env, ctx.params.workspaceId);
@@ -550,6 +567,7 @@ const handleChanges = async (ctx: RouteContext): Promise<Response> => {
     const changes = await getBusinessChanges(ctx.env, row.id, ctx.request, ctx.url);
     return jsonResponse(changes, 200, ctx.requestId);
   }
+  requireTestSnapshotApi(ctx);
   const { session } = await resolveSession(ctx.env, ctx.request);
   if (session.workspace_id !== ctx.params.workspaceId) throw new ApiError('FORBIDDEN_SCOPE', 'Session does not match this workspace.');
   const since = Number(ctx.url.searchParams.get('since'));
@@ -584,6 +602,7 @@ const handleChanges = async (ctx: RouteContext): Promise<Response> => {
 };
 
 const handleEvents = async (ctx: RouteContext): Promise<Response> => {
+  requireTestSnapshotApi(ctx);
   const { session } = await resolveSession(ctx.env, ctx.request);
   if (session.workspace_id !== ctx.params.workspaceId) throw new ApiError('FORBIDDEN_SCOPE', 'Session does not match this workspace.');
   await requireWorkspace(ctx.env, ctx.params.workspaceId);
@@ -626,6 +645,7 @@ const handleCommand = async (ctx: RouteContext): Promise<Response> => {
     return jsonResponse(result.body, result.status, ctx.requestId);
   }
 
+  requireTestSnapshotApi(ctx);
   const { session, state, actor } = await resolveSession(ctx.env, ctx.request);
   if (session.workspace_id !== workspaceId) throw new ApiError('FORBIDDEN_SCOPE', 'Session does not match this workspace.');
 
@@ -757,6 +777,7 @@ const handleFileInit = async (ctx: RouteContext): Promise<Response> => {
     const replayed = Boolean(result.replayed);
     return jsonResponse({ ...(result.result as Record<string, unknown>), commandId: result.commandId, replayed }, replayed ? 200 : 201, ctx.requestId);
   }
+  requireTestSnapshotApi(ctx);
   const { session, actor } = await resolveSession(ctx.env, ctx.request);
   if (session.workspace_id !== ctx.params.workspaceId) throw new ApiError('FORBIDDEN_SCOPE', 'Session does not match this workspace.');
   const body = await readJson<FileInitRequest>(ctx.request, 64 * 1024);
@@ -772,6 +793,7 @@ const handleFileContent = async (ctx: RouteContext): Promise<Response> => {
     const result = await runBusinessFileContent(ctx.env, ctx.params.workspaceId, ctx.request, ctx.params.fileId);
     return jsonResponse({ ...(result.result as Record<string, unknown>), commandId: result.commandId, replayed: result.replayed }, 200, ctx.requestId);
   }
+  requireTestSnapshotApi(ctx);
   const { session, actor } = await resolveSession(ctx.env, ctx.request);
   if (session.workspace_id !== ctx.params.workspaceId) throw new ApiError('FORBIDDEN_SCOPE', 'Session does not match this workspace.');
   const file = await writeFileContent(ctx.env, ctx.params.workspaceId, ctx.params.fileId, actor, ctx.request);
@@ -793,6 +815,7 @@ const handleFileComplete = async (ctx: RouteContext): Promise<Response> => {
     const result = await runBusinessDirectoryCommand(ctx.env, ctx.params.workspaceId, ctx.request, envelope);
     return jsonResponse({ ...(result.result as Record<string, unknown>), commandId: result.commandId, replayed: result.replayed }, 200, ctx.requestId);
   }
+  requireTestSnapshotApi(ctx);
   const { session, actor } = await resolveSession(ctx.env, ctx.request);
   if (session.workspace_id !== ctx.params.workspaceId) throw new ApiError('FORBIDDEN_SCOPE', 'Session does not match this workspace.');
   const body = await readJson<FileCompleteRequest>(ctx.request, 8 * 1024);
@@ -810,6 +833,7 @@ const handleFileDownload = async (ctx: RouteContext): Promise<Response> => {
     headers.set('Referrer-Policy', 'no-referrer');
     return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
   }
+  requireTestSnapshotApi(ctx);
   const { session, actor } = await resolveSession(ctx.env, ctx.request);
   if (session.workspace_id !== ctx.params.workspaceId) throw new ApiError('FORBIDDEN_SCOPE', 'Session does not match this workspace.');
   const response = await buildDownloadResponse(ctx.env, ctx.params.workspaceId, ctx.params.fileId, actor);
@@ -833,6 +857,7 @@ const handleFileDelete = async (ctx: RouteContext): Promise<Response> => {
     const result = await runBusinessDirectoryCommand(ctx.env, ctx.params.workspaceId, ctx.request, envelope);
     return jsonResponse(result.result, 200, ctx.requestId);
   }
+  requireTestSnapshotApi(ctx);
   const { session, actor } = await resolveSession(ctx.env, ctx.request);
   if (session.workspace_id !== ctx.params.workspaceId) throw new ApiError('FORBIDDEN_SCOPE', 'Session does not match this workspace.');
   await deleteFile(ctx.env, ctx.params.workspaceId, ctx.params.fileId, actor);
@@ -846,6 +871,7 @@ const handleFileList = async (ctx: RouteContext): Promise<Response> => {
     const result = await listBusinessFiles(ctx.env, ctx.params.workspaceId, ctx.request, limit);
     return jsonResponse({ files: result.items }, 200, ctx.requestId);
   }
+  requireTestSnapshotApi(ctx);
   const { session, actor } = await resolveSession(ctx.env, ctx.request);
   if (session.workspace_id !== ctx.params.workspaceId) throw new ApiError('FORBIDDEN_SCOPE', 'Session does not match this workspace.');
   const rows = await listFileRows(ctx.env, ctx.params.workspaceId, {
@@ -867,6 +893,7 @@ const handleFileMetadata = async (ctx: RouteContext): Promise<Response> => {
     const result = await getBusinessFileMetadata(ctx.env, ctx.params.workspaceId, ctx.request, ctx.params.fileId);
     return jsonResponse(result, 200, ctx.requestId);
   }
+  requireTestSnapshotApi(ctx);
   const { session, actor } = await resolveSession(ctx.env, ctx.request);
   if (session.workspace_id !== ctx.params.workspaceId) throw new ApiError('FORBIDDEN_SCOPE', 'Session does not match this workspace.');
   const row = await getFileRow(ctx.env, ctx.params.workspaceId, ctx.params.fileId);

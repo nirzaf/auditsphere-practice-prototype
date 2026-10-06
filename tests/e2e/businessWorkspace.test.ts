@@ -127,6 +127,30 @@ it('US-SYS-001/002/005 creates a real workspace, assigns all personas, persists 
   assert.ok(landing.buttons.includes('Create or connect workspace'));
   assert.equal(landing.preference, null, 'the isolated browser starts without business context');
 
+  // The shipped Worker exposes the no-auth BUSINESS contract. Legacy demo
+  // seeds, access-code resume, and snapshot state stay disabled by default.
+  const testOnlyHeaders = { origin: server.origin, 'content-type': 'application/json' };
+  const fakeWorkspaceId = '00000000-0000-4000-8000-000000000001';
+  const [seedCatalog, seededWorkspace, resume, snapshotState, snapshotEvents, snapshotCommands, snapshotFiles, personaSession, logoutSession] = await Promise.all([
+    fetch(`${server.origin}/api/seeds`),
+    fetch(`${server.origin}/api/workspaces`, {
+      method: 'POST', headers: testOnlyHeaders, body: JSON.stringify({ seedId: 'commercial', name: 'Must not be created' })
+    }),
+    fetch(`${server.origin}/api/workspaces/resume`, {
+      method: 'POST', headers: testOnlyHeaders, body: JSON.stringify({ accessCode: 'legacy.access-code' })
+    }),
+    fetch(`${server.origin}/api/workspaces/${fakeWorkspaceId}/state`),
+    fetch(`${server.origin}/api/workspaces/${fakeWorkspaceId}/events`),
+    fetch(`${server.origin}/api/workspaces/${fakeWorkspaceId}/commands`, {
+      method: 'POST', headers: testOnlyHeaders, body: JSON.stringify({ command: { type: 'workspace.rename', payload: { name: 'Must not be saved' } } })
+    }),
+    fetch(`${server.origin}/api/workspaces/${fakeWorkspaceId}/files`),
+    fetch(`${server.origin}/api/session/persona`, { method: 'POST', headers: testOnlyHeaders, body: '{}' }),
+    fetch(`${server.origin}/api/session/logout`, { method: 'POST', headers: testOnlyHeaders, body: '{}' })
+  ]);
+  assert.deepEqual([seedCatalog.status, seededWorkspace.status, resume.status, snapshotState.status, snapshotEvents.status,
+    snapshotCommands.status, snapshotFiles.status, personaSession.status, logoutSession.status], Array(9).fill(404));
+
   // Plan/Act/Verify: the setup action should open the required real Partner form.
   await clickButton('Create or connect workspace');
   await waitFor('the workspace setup form', `document.querySelector('#business-partner-email') !== null`);

@@ -87,6 +87,7 @@ describe('no legacy snapshot Worker usage', () => {
     const config = readSource(join(repoRoot, 'wrangler.jsonc'));
     assert.match(config, /"main":\s*"worker\/index\.ts"/, 'the root config points at the canonical worker entry');
     assert.doesNotMatch(config, /worker\/v2/, 'no v2 path remains in the Worker config');
+    assert.doesNotMatch(config, /TEST_SNAPSHOT_API_ENABLED/, 'production never opts into the retired demo/session API');
   });
 
   it('the browser holds no Bearer workspace token and sends no whole-state PUT', () => {
