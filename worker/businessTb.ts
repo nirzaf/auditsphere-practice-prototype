@@ -1148,7 +1148,7 @@ async function approvePlanning(env:Env,workspaceId:string,context:BusinessContex
         AND (SELECT COUNT(*) FROM engagement_folders f WHERE f.workspace_id=e.workspace_id AND f.engagement_id=e.id)=5
         AND NOT EXISTS(SELECT 1 FROM pbc_requests r WHERE r.workspace_id=e.workspace_id AND r.engagement_id=e.id AND r.required_for_planning=1 AND r.status<>'APPROVED')
         AND NOT EXISTS(SELECT 1 FROM tb_lines l LEFT JOIN tb_mappings m ON m.workspace_id=l.workspace_id AND m.tb_line_id=l.id AND m.mapping_version_id=p.mapping_version_id
-          WHERE l.workspace_id=e.workspace_id AND l.engagement_id=e.id AND l.tb_version_id=p.tb_version_id AND l.current_minor<>0 AND m.id IS NULL)
+          WHERE l.workspace_id=e.workspace_id AND l.engagement_id=e.id AND l.tb_version_id=p.tb_version_id AND (l.current_minor<>0 OR COALESCE(l.prior_minor,0)<>0) AND m.id IS NULL)
         AND (SELECT COUNT(DISTINCT m.fsli_id) FROM tb_mappings m WHERE m.workspace_id=e.workspace_id AND m.mapping_version_id=p.mapping_version_id)
           =(SELECT COUNT(DISTINCT r.fsli_id) FROM fsli_risks r WHERE r.workspace_id=e.workspace_id AND r.engagement_id=e.id AND r.materiality_version_id=p.materiality_version_id
             AND r.revision=(SELECT MAX(r2.revision) FROM fsli_risks r2 WHERE r2.workspace_id=r.workspace_id AND r2.engagement_id=r.engagement_id AND r2.fsli_id=r.fsli_id))
