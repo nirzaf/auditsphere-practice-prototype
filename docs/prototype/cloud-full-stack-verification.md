@@ -249,3 +249,17 @@ uninitialized selection state. The handler now uses the same default route as
 the control. Test records use `example.invalid`; no external HTTP request or
 real email provider is used. This is bounded US-ENG-003 browser evidence, not
 full acceptance of the 46-story epic or production email delivery.
+
+## Technical execution integration evidence — 2026-10-06
+
+`npx tsx --test tests/unit/businessWorkspace.test.ts` passed **1/1** against
+the isolated Worker, SQLite D1 adapter and in-memory R2 adapter. After the
+version-pinned planning handover, the journey reads and reconciles the current
+split statements, saves and reuses the exact immutable statement snapshot,
+rejects an analytical conclusion without adequate support, then links retained
+digital bytes and a physical locator as HYBRID evidence. A separate reviewer
+records adequacy before the preparer submits the analysis and the reviewer
+accepts it. A zero-denominator ratio remains explicitly undefined. This adds
+bounded API integration evidence for US-FLD-003, US-FLD-004, US-FLD-010 and
+US-FLD-011; the remaining FLD stories and their browser-level acceptance are
+still open.

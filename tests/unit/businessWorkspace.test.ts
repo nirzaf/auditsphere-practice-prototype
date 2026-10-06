@@ -75,6 +75,7 @@ async function call(path: string, options: {
                           || request.command.type === 'proposal.approve' || request.command.type === 'proposal.dispatch'
                           ? { entity: 'ProposalVersion', id: commandPayload.proposalVersionId }
                           : request.command.type === 'proposal.dispatch.retry' ? { entity: 'Dispatch', id: commandPayload.dispatchId }
+                          : request.command.type === 'analytical-review.submit' ? { entity: 'AnalyticalReview', id: commandPayload.analyticalReviewId }
                   : request.command.type === 'time.submit' || request.command.type === 'time.approve'
                     || request.command.type === 'time.return' || request.command.type === 'time.correct'
                     ? { entity: 'TimeEntry', id: commandPayload.timeEntryId }
@@ -1496,6 +1497,91 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
   assert.equal(planningApproved.body.result.state, 'FIELDWORK_EXECUTION');
   assert.equal(db.prepare(`SELECT approved_planning_version_id,lifecycle_state FROM engagements WHERE workspace_id=? AND id=?`)
     .bind(workspaceId, engagementId).first<any>()?.lifecycle_state, 'FIELDWORK_EXECUTION');
+
+  // Slice 4 — the current D1 statements, analytical review and mixed-mode
+  // evidence stay pinned to the approved planning and source revisions.
+  const technicalHeaders = makeRiskHeaders(preparerHeaders);
+  const statements = await call(`/api/workspaces/${workspaceId}/engagements/${engagementId}/financial-statements`, { headers: technicalHeaders });
+  assert.equal(statements.response.status, 200, JSON.stringify(statements.body));
+  assert.equal(statements.body.reconciliation.balanced, true, 'the live split statements reconcile without a suspense line');
+  const revenueLine = statements.body.profitLoss.find((line: any) => line.category === 'REVENUE');
+  assert.ok(revenueLine?.fsliId, 'the current mapped revenue source resolves to its FSLI');
+  const fieldworkWorkspace = await call(`/api/workspaces/${workspaceId}/engagements/${engagementId}/fieldwork-workspace`, { headers: technicalHeaders });
+  assert.equal(fieldworkWorkspace.response.status, 200, JSON.stringify(fieldworkWorkspace.body));
+  assert.equal(fieldworkWorkspace.body.statements.sourceHash, statements.body.sourceHash);
+
+  const statementSnapshot = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'statement.snapshot', payload: { engagementId } }
+  }, technicalHeaders);
+  assert.equal(statementSnapshot.response.status, 200, JSON.stringify(statementSnapshot.body));
+  assert.equal(statementSnapshot.body.result.lineCount, statements.body.profitLoss.length + statements.body.balanceSheet.length);
+  const reusedSnapshot = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'statement.snapshot', payload: { engagementId } }
+  }, technicalHeaders);
+  assert.equal(reusedSnapshot.response.status, 200, JSON.stringify(reusedSnapshot.body));
+  assert.equal(reusedSnapshot.body.result.statementSnapshotId, statementSnapshot.body.result.statementSnapshotId,
+    'an identical source hash reuses the immutable statement snapshot');
+
+  const analyticalReview = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'analytical-review.save', payload: {
+      engagementId, fsliId: revenueLine.fsliId, statementSnapshotId: statementSnapshot.body.result.statementSnapshotId,
+      expectationText: 'Revenue should reflect the approved statutory audit period and documented service activity.',
+      thresholdMinor: '250000', thresholdBps: 1000,
+      explanation: 'The recorded balance was compared with the period expectation and current underlying records.',
+      conclusion: 'The current revenue presentation is consistent with the retained source evidence.',
+      ratios: [{ name: 'Zero denominator control', numeratorMinor: '50000', denominatorMinor: '0',
+        numeratorSource: 'Current-period revenue workpaper', denominatorSource: 'No comparative value was reported.' }]
+    } }
+  }, technicalHeaders);
+  assert.equal(analyticalReview.response.status, 200, JSON.stringify(analyticalReview.body));
+  const ratio = db.prepare('SELECT result_numerator,result_denominator,undefined_reason FROM analytical_ratios WHERE workspace_id=? AND analytical_review_id=?')
+    .bind(workspaceId, analyticalReview.body.result.analyticalReviewId).first<any>();
+  assert.deepEqual({ ...ratio }, { result_numerator: null, result_denominator: null, undefined_reason: 'ZERO_DENOMINATOR' });
+  const blockedAnalysisSubmit = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'analytical-review.submit', payload: {
+      analyticalReviewId: analyticalReview.body.result.analyticalReviewId, expectedVersion: 1
+    } }
+  }, technicalHeaders);
+  assert.equal(blockedAnalysisSubmit.response.status, 422, JSON.stringify(blockedAnalysisSubmit.body));
+  assert.equal(blockedAnalysisSubmit.body.code, 'GATE_BLOCKED', 'an analytical conclusion needs independently reviewed current evidence');
+
+  const hybridEvidence = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'evidence.create', payload: {
+      engagementId, mode: 'HYBRID', title: 'Revenue source inspection record', fileVersionId: fileId,
+      physicalIndex: 'REV-01', physicalDescription: 'Original signed sales-register extract inspected at the client site.',
+      binder: 'Revenue binder A'
+    } }
+  }, technicalHeaders);
+  assert.equal(hybridEvidence.response.status, 200, JSON.stringify(hybridEvidence.body));
+  const evidenceLink = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'evidence.link', payload: {
+      evidenceId: hybridEvidence.body.result.evidenceId, evidenceVersion: 1, targetVersion: 1,
+      analyticalReviewId: analyticalReview.body.result.analyticalReviewId
+    } }
+  }, technicalHeaders);
+  assert.equal(evidenceLink.response.status, 200, JSON.stringify(evidenceLink.body));
+  const evidenceAdequacy = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'evidence.review', payload: {
+      evidenceId: hybridEvidence.body.result.evidenceId, evidenceVersion: 1, status: 'ADEQUATE',
+      rationale: 'The committed PDF matches the inspected physical revenue register and supports this conclusion.'
+    } }
+  }, makeRiskHeaders(reviewerHeaders));
+  assert.equal(evidenceAdequacy.response.status, 200, JSON.stringify(evidenceAdequacy.body));
+  const submittedAnalysis = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'analytical-review.submit', payload: {
+      analyticalReviewId: analyticalReview.body.result.analyticalReviewId, expectedVersion: 2
+    } }
+  }, technicalHeaders);
+  assert.equal(submittedAnalysis.response.status, 200, JSON.stringify(submittedAnalysis.body));
+  const acceptedAnalysis = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'review.decide', payload: {
+      submissionId: submittedAnalysis.body.result.submissionId, decision: 'ACCEPT',
+      comment: 'The submitted analytical review and its current evidence were independently inspected and accepted.'
+    } }
+  }, makeRiskHeaders(reviewerHeaders));
+  assert.equal(acceptedAnalysis.response.status, 200, JSON.stringify(acceptedAnalysis.body));
+  assert.equal(acceptedAnalysis.body.result.decision, 'ACCEPT');
+
   for (const file of [firstPbcFile, replacementPbcFile]) {
     const downloaded = await worker.fetch(new Request(`https://local.auditsphere.test/api/workspaces/${workspaceId}/files/${file.fileId}`, {
       headers: clientPbcHeaders
