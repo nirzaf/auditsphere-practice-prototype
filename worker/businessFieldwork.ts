@@ -63,6 +63,18 @@ const reviewCloseNote = z.strictObject({ type: z.literal('review.close-note'), p
 const partnerAreaClear = z.strictObject({ type: z.literal('partner.clear-area'), payload: z.strictObject({ workprogramId: id, submissionId: id, dependencyHash: z.string().regex(/^[a-f0-9]{64}$/), rationale: text(10,10000) }) });
 const managerHandover = z.strictObject({ type: z.literal('fieldwork.handover-manager'), payload: z.strictObject({ engagementId: id, expectedVersion: z.number().int().positive(), reason: text(10,10000) }) });
 const partnerHandover = z.strictObject({ type: z.literal('fieldwork.handover-partner'), payload: z.strictObject({ engagementId: id, expectedVersion: z.number().int().positive(), reason: text(10,10000) }) });
+const findingCreate = z.strictObject({ type: z.literal('finding.create'), payload: z.strictObject({ engagementId: id, fsliId: id, title: text(1,500), description: text(10,20000), severity: z.enum(['LOW','MODERATE','HIGH','CRITICAL']), qualitativeSignificance: z.boolean() }) });
+const findingRespond = z.strictObject({ type: z.literal('finding.respond'), payload: z.strictObject({ findingId: id, expectedVersion: z.number().int().positive(), clientResponse: text(10,10000) }) });
+const findingResolve = z.strictObject({ type: z.literal('finding.resolve'), payload: z.strictObject({ findingId: id, expectedVersion: z.number().int().positive(), resolution: text(10,10000) }) });
+const nonnegativeMinor = z.string().regex(/^(0|[1-9]\d{0,15})$/).refine(value=>Number.isSafeInteger(Number(value)),'Amount is outside safe QAR minor-unit precision.');
+const adjustmentLine = z.strictObject({ fsliId: id, accountCode: text(1,120).nullable().optional(), debitMinor: nonnegativeMinor, creditMinor: nonnegativeMinor }).refine(line => (BigInt(line.debitMinor)>0n)!==(BigInt(line.creditMinor)>0n), { message:'Exactly one positive debit or credit amount is required on each AJE line.' });
+const adjustmentCreate = z.strictObject({ type: z.literal('adjustment.create'), payload: z.strictObject({ engagementId: id, tbVersionId: id, findingId: id.nullable().optional(), description: text(10,10000), evidenceIds: z.array(id).min(1).max(100), lines: z.array(adjustmentLine).min(2).max(200) }) });
+const adjustmentPropose = z.strictObject({ type: z.literal('adjustment.propose'), payload: z.strictObject({ adjustmentId: id, expectedVersion: z.number().int().positive() }) });
+const adjustmentClientRespond = z.strictObject({ type: z.literal('adjustment.client-respond'), payload: z.strictObject({ adjustmentId: id, expectedVersion: z.number().int().positive(), decision: z.enum(['ACCEPTED','DECLINED']), responseText: text(10,10000), responseFileId: id.nullable().optional() }) });
+const adjustmentApprove = z.strictObject({ type: z.literal('adjustment.approve'), payload: z.strictObject({ adjustmentId: id, expectedVersion: z.number().int().positive(), sourceHash: z.string().regex(/^[a-f0-9]{64}$/), reflectedInSourceReason: text(10,10000).optional() }) });
+const differenceCreate = z.strictObject({ type: z.literal('difference.create'), payload: z.strictObject({ findingId: id, fsliId: id, amountMinor: minor, nature: z.enum(['FACTUAL','JUDGMENTAL','PROJECTED']), qualitativeSignificance: z.boolean(), disposition: z.enum(['UNADJUSTED','ADJUSTED','CLEARLY_TRIVIAL']), dispositionReason: text(10,10000), adjustmentId: id.nullable().optional() }).refine(value => BigInt(value.amountMinor)!==0n) });
+const srmCompile = z.strictObject({ type: z.literal('srm.compile'), payload: z.strictObject({ engagementId: id, managerRecommendation: text(10,10000), estimatesText: text(10,10000) }) });
+const srmClear = z.strictObject({ type: z.literal('srm.clear'), payload: z.strictObject({ srmVersionId: id, dependencyHash: z.string().regex(/^[a-f0-9]{64}$/), rationale: text(10,10000) }) });
 const samplingPolicyCreate = z.strictObject({ type: z.literal('sampling.policy.create'), payload: z.strictObject({
   name: text(1,300), method: z.enum(['MUS_BINOMIAL_PPS','SYSTEMATIC','STRATIFIED_ATTRIBUTE']), assumptions: text(10,10000)
 }) });
@@ -108,19 +120,19 @@ const evidenceUnlink = z.strictObject({ type: z.literal('evidence.unlink'), payl
 
 export const businessFieldworkCommands = [statementSnapshot, analyticalReviewSave, analyticalReviewSubmit, goingConcernSave,
   workprogramTemplateCreate, workprogramTemplateApprove, workprogramProvision, procedureInsert, procedureUpdate,
-  procedureNotApplicable, procedureSubmit, procedureReview, reviewSubmit, reviewDecide, reviewRespond, reviewCloseNote, partnerAreaClear, managerHandover, partnerHandover, samplingPolicyCreate, samplingPolicyApprove,
+  procedureNotApplicable, procedureSubmit, procedureReview, reviewSubmit, reviewDecide, reviewRespond, reviewCloseNote, partnerAreaClear, managerHandover, partnerHandover, findingCreate, findingRespond, findingResolve, adjustmentCreate, adjustmentPropose, adjustmentClientRespond, adjustmentApprove, differenceCreate, srmCompile, srmClear, samplingPolicyCreate, samplingPolicyApprove,
   samplingPopulationCreate, samplingPlan, samplingRecordTest, samplingEvaluate, evidenceCreate, evidenceLink,
   evidenceReview, evidenceUnlink] as const;
 export const businessFieldworkCommandSchema = z.discriminatedUnion('type', businessFieldworkCommands);
 export type BusinessFieldworkCommand = z.infer<typeof businessFieldworkCommandSchema>;
 export function isBusinessFieldworkCommand(command: { type: string }): command is BusinessFieldworkCommand {
   return command.type === 'statement.snapshot' || command.type.startsWith('analytical-review.') || command.type.startsWith('going-concern.')
-    || command.type.startsWith('workprogram.') || command.type.startsWith('procedure.') || command.type.startsWith('review.') || command.type==='partner.clear-area' || command.type.startsWith('fieldwork.handover-') || command.type.startsWith('sampling.')
+    || command.type.startsWith('workprogram.') || command.type.startsWith('procedure.') || command.type.startsWith('review.') || command.type==='partner.clear-area' || command.type.startsWith('fieldwork.handover-') || command.type.startsWith('finding.') || command.type.startsWith('adjustment.') || command.type.startsWith('difference.') || command.type.startsWith('srm.') || command.type.startsWith('sampling.')
     || command.type.startsWith('evidence.');
 }
 
 type Engagement = { id: string; version: number; client_id: string; lifecycle_state: string; period_start: string; period_end: string; locked_at: string | null; standards_profile_id: string; active_tb_version_id: string | null; active_mapping_version_id: string | null; active_materiality_version_id: string | null; approved_planning_version_id: string | null };
-type StatementLine = { fsliId: string; code: string; name: string; statement: string; category: string; displaySign: number; currentBaseMinor: number; currentAdjustedMinor: number; priorMinor: number | null; varianceNumerator: string | null; varianceDenominator: string | null; variancePercent: number | null; varianceReason: string; riskBand: string; sourceRows: Array<Record<string, unknown>> };
+type StatementLine = { fsliId: string; code: string; name: string; statement: string; category: string; displaySign: number; currentBaseMinor: number; currentAdjustmentMinor: number; currentAdjustedMinor: number; priorMinor: number | null; varianceNumerator: string | null; varianceDenominator: string | null; variancePercent: number | null; varianceReason: string; riskBand: string; sourceRows: Array<Record<string, unknown>> };
 
 function requireInternal(context: BusinessContext, action = 'fieldwork.read'): void {
   if (context.actor.persona === 'CLIENT' || !context.allowedActions.includes(action)) throw new ApiError('PERSONA_ACTION_DENIED', 'Internal fieldwork access is required for this action.');
@@ -246,6 +258,16 @@ async function financialStatements(env:Env,workspaceId:string,context:BusinessCo
       JOIN fsli_catalog c ON c.workspace_id=m.workspace_id AND c.id=m.fsli_id
     WHERE l.workspace_id=? AND l.tb_version_id=? AND l.engagement_id=? ORDER BY l.source_row_number,l.id`)
     .bind(engagement.active_mapping_version_id,workspaceId,engagement.active_tb_version_id,engagementId).all<Record<string,unknown>>();
+  const adjustmentRows=await env.DB.prepare(`SELECT a.id AS adjustmentId,a.number,a.tb_version_id AS tbVersionId,a.mapping_version_id AS mappingVersionId,a.source_hash AS sourceHash,
+      l.fsli_id AS fsliId,l.debit_minor AS debitMinor,l.credit_minor AS creditMinor
+    FROM audit_adjustments a JOIN audit_adjustment_lines l ON l.workspace_id=a.workspace_id AND l.adjustment_id=a.id
+    WHERE a.workspace_id=? AND a.engagement_id=? AND a.status='REVIEW_APPROVED' AND a.include_in_statements=1
+    ORDER BY a.number,l.id`).bind(workspaceId,engagementId).all<{adjustmentId:string;number:string;tbVersionId:string;mappingVersionId:string|null;sourceHash:string;fsliId:string;debitMinor:number;creditMinor:number}>();
+  const appliedAdjustments=adjustmentRows.results??[];
+  if(appliedAdjustments.some(row=>row.tbVersionId!==engagement.active_tb_version_id||row.mappingVersionId!==engagement.active_mapping_version_id))throw new ApiError('STALE_DEPENDENCY','An approved adjustment is pinned to a replaced trial-balance or mapping source and cannot be overlaid on the active statement. Record a reviewer disposition for the replacement source.');
+  const adjustmentByFsli=new Map<string,bigint>();
+  for(const row of appliedAdjustments){const key=row.fsliId;adjustmentByFsli.set(key,(adjustmentByFsli.get(key)??0n)+BigInt(row.debitMinor)-BigInt(row.creditMinor));}
+  const adjustmentSetHash=await rowHash(appliedAdjustments.map(row=>({id:row.adjustmentId,number:row.number,tbVersionId:row.tbVersionId,mappingVersionId:row.mappingVersionId,sourceHash:row.sourceHash,fsliId:row.fsliId,debitMinor:String(row.debitMinor),creditMinor:String(row.creditMinor)})));
   const risks=await env.DB.prepare(`SELECT r.fsli_id AS fsliId,r.band FROM fsli_risks r
     WHERE r.workspace_id=? AND r.engagement_id=? AND r.materiality_version_id=?
       AND r.revision=(SELECT MAX(r2.revision) FROM fsli_risks r2 WHERE r2.workspace_id=r.workspace_id AND r2.engagement_id=r.engagement_id AND r2.fsli_id=r.fsli_id AND r2.materiality_version_id=r.materiality_version_id)`)
@@ -257,12 +279,14 @@ async function financialStatements(env:Env,workspaceId:string,context:BusinessCo
     const fsliId=String(item.id);const sign=Number(item.display_sign);const contributors=rowsByFsli.get(fsliId)??[];
     const currentRaw=contributors.reduce((sum,row)=>sum+Number(row.currentRawMinor),0);
     const priorRaw=(tb.prior_present===1)?contributors.reduce((sum,row)=>sum+(row.priorRawMinor===null?0:Number(row.priorRawMinor)),0):null;
-    const current=currentRaw*sign;const prior=priorRaw===null?null:priorRaw*sign;
+    const currentBase=currentRaw*sign;const adjustment=Number(adjustmentByFsli.get(fsliId)??0n)*sign;
+    if(!Number.isSafeInteger(adjustment))throw new ApiError('CALCULATION_DOMAIN_EXCEEDED','The approved adjustment total exceeds safe QAR minor-unit precision for this statement line.');
+    const current=currentBase+adjustment;const prior=priorRaw===null?null:priorRaw*sign;
     const reason=prior===null?'NO_COMPARATIVE':prior===0?(current===0?'ZERO_BOTH':'NEW_BALANCE'):'CALCULATED';
     const numerator=prior===null||prior===0?null:String(current-prior);const denominator=prior===null||prior===0?null:String(Math.abs(prior));
     const percent=reason==='CALCULATED'&&prior!==null?(current-prior)/Math.abs(prior)*100:null;
     return {fsliId,code:String(item.code),name:String(item.name),statement:String(item.statement),category:String(item.category),displaySign:sign,
-      currentBaseMinor:current,currentAdjustedMinor:current,priorMinor:prior,varianceNumerator:numerator,varianceDenominator:denominator,
+      currentBaseMinor:currentBase,currentAdjustmentMinor:adjustment,currentAdjustedMinor:current,priorMinor:prior,varianceNumerator:numerator,varianceDenominator:denominator,
       variancePercent:percent===null?null:Math.round(percent*100)/100,varianceReason:reason,riskBand:riskMap.get(fsliId)??'GREEN',
       sourceRows:contributors.map(row=>({tbLineId:row.tbLineId,sourceRowNumber:row.sourceRowNumber,accountCode:row.accountCode,accountName:row.accountName,
         currentRawMinor:String(row.currentRawMinor),currentPresentedMinor:String(Number(row.currentRawMinor)*sign),priorRawMinor:row.priorRawMinor===null?null:String(row.priorRawMinor),
@@ -278,8 +302,8 @@ async function financialStatements(env:Env,workspaceId:string,context:BusinessCo
   const pins={tbVersionId:engagement.active_tb_version_id,tbRevision:tb.revision,tbSha256:tb.content_sha256,
     mappingVersionId:engagement.active_mapping_version_id,mappingRevision:mapping.revision,mappingSha256:mapping.content_sha256,
     standardsProfileId:engagement.standards_profile_id};
-  const sourceHash=await rowHash({engagementId,pins,lines:lines.map(line=>({fsliId:line.fsliId,current:line.currentBaseMinor,prior:line.priorMinor,riskBand:line.riskBand}))});
-  return {engagementId,sourcePins:pins,sourceHash,adjustmentSetHash:await rowHash([]),basis:'ADJUSTED',profitLoss,balanceSheet,
+  const sourceHash=await rowHash({engagementId,pins,adjustmentSetHash,lines:lines.map(line=>({fsliId:line.fsliId,currentBase:line.currentBaseMinor,currentAdjustment:line.currentAdjustmentMinor,currentAdjusted:line.currentAdjustedMinor,prior:line.priorMinor,riskBand:line.riskBand}))});
+  return {engagementId,sourcePins:pins,sourceHash,adjustmentSetHash,basis:'ADJUSTED',profitLoss,balanceSheet,
     reconciliation:{assetsMinor:String(assets),liabilitiesMinor:String(liabilities),equityMinor:String(equity),currentResultMinor:String(currentResult),
       equityIncludingCurrentResultMinor:String(equityIncludingResult),differenceMinor:String(difference),balanced:difference===0},
     blockers:difference===0?[]:[{code:'BALANCE_SHEET_OUT_OF_BALANCE',differenceMinor:String(difference),message:'Assets must equal liabilities, equity and current-period result. No suspense balance is created.'}]};
@@ -294,8 +318,13 @@ export async function getBusinessFsliSourceLines(env:Env,workspaceId:string,cont
   const line=[...statements.profitLoss,...statements.balanceSheet].find(item=>item.fsliId===fsliId);
   if(!line)throw new ApiError('NOT_FOUND','The financial statement line was not found in the current engagement.');
   const start=Math.max(0,Math.min(line.sourceRows.length,cursor));const page=line.sourceRows.slice(start,start+Math.max(1,Math.min(200,limit)));
+  const adjustmentRows=await env.DB.prepare(`SELECT a.id AS adjustmentId,a.number,a.tb_version_id AS tbVersionId,a.source_hash AS sourceHash,a.description,
+      l.debit_minor AS debitMinor,l.credit_minor AS creditMinor
+    FROM audit_adjustments a JOIN audit_adjustment_lines l ON l.workspace_id=a.workspace_id AND l.adjustment_id=a.id
+    WHERE a.workspace_id=? AND a.engagement_id=? AND a.status='REVIEW_APPROVED' AND a.include_in_statements=1 AND l.fsli_id=? ORDER BY a.number,l.id`)
+    .bind(workspaceId,engagementId,fsliId).all<Record<string,unknown>>();
   return {sourcePins:statements.sourcePins,sourceHash:statements.sourceHash,fsli:{id:line.fsliId,code:line.code,name:line.name},
-    rows:page,adjustments:[],nextCursor:start+page.length<line.sourceRows.length?String(start+page.length):null,totalRows:line.sourceRows.length};
+    rows:page,adjustments:adjustmentRows.results??[],nextCursor:start+page.length<line.sourceRows.length?String(start+page.length):null,totalRows:line.sourceRows.length};
 }
 
 export async function getBusinessFieldworkWorkspace(env:Env,workspaceId:string,context:BusinessContext,engagementId:string){
@@ -348,13 +377,51 @@ export async function getBusinessFieldworkWorkspace(env:Env,workspaceId:string,c
     env.DB.prepare(`SELECT n.id,n.version,n.submission_id AS submissionId,n.procedure_id AS procedureId,n.text,n.assigned_preparer_id AS assignedPreparerId,n.status,n.response_text AS responseText,n.response_at AS responseAt,n.closed_by_actor_id AS closedByActorId,n.closed_at AS closedAt,n.closure_reason AS closureReason,n.resubmission_id AS resubmissionId,n.created_at AS createdAt,s.target_kind AS targetKind,s.workprogram_id AS workprogramId,s.analytical_review_id AS analyticalReviewId,s.going_concern_id AS goingConcernId,s.srm_version_id AS srmVersionId,s.target_version AS targetVersion,json_extract(s.snapshot_json,'$.revision') AS targetRevision
       FROM review_notes n JOIN review_submissions s ON s.workspace_id=n.workspace_id AND s.id=n.submission_id WHERE s.workspace_id=? AND s.engagement_id=? ORDER BY n.created_at DESC LIMIT 500`).bind(workspaceId,engagementId).all<Record<string,unknown>>()
   ]);
+  const [findings,adjustmentHeads,adjustmentLineResult,adjustmentEvidenceResult,differences,srmVersions,materiality]=await Promise.all([
+    env.DB.prepare(`SELECT f.id,f.version,f.fsli_id AS fsliId,c.code AS fsliCode,c.name AS fsliName,f.tb_version_id AS tbVersionId,f.mapping_version_id AS mappingVersionId,
+      f.materiality_version_id AS materialityVersionId,f.title,f.description,f.severity,f.qualitative_significance AS qualitativeSignificance,f.status,f.client_response AS clientResponse,
+      f.client_responded_by_actor_id AS clientRespondedByActorId,f.client_responded_at AS clientRespondedAt,f.resolution,f.source_hash AS sourceHash,f.created_at AS createdAt,f.updated_at AS updatedAt
+      FROM findings f JOIN fsli_catalog c ON c.workspace_id=f.workspace_id AND c.id=f.fsli_id WHERE f.workspace_id=? AND f.engagement_id=? ORDER BY f.created_at DESC`).bind(workspaceId,engagementId).all<Record<string,unknown>>(),
+    env.DB.prepare(`SELECT a.id,a.version,a.number,a.tb_version_id AS tbVersionId,a.mapping_version_id AS mappingVersionId,a.materiality_version_id AS materialityVersionId,a.finding_id AS findingId,
+      a.description,a.status,a.reflected_in_source AS reflectedInSource,a.reflected_in_source_reason AS reflectedInSourceReason,a.include_in_statements AS includeInStatements,
+      a.client_response_decision AS clientResponse,a.client_response AS clientResponseText,a.client_response_file_id AS clientResponseFileId,a.client_responded_at AS clientRespondedAt,
+      a.source_hash AS sourceHash,a.created_by_actor_id AS createdByActorId,a.approved_by_actor_id AS approvedByActorId,a.created_at AS createdAt,a.updated_at AS updatedAt
+      FROM audit_adjustments a WHERE a.workspace_id=? AND a.engagement_id=? ORDER BY a.created_at DESC`).bind(workspaceId,engagementId).all<Record<string,unknown>>(),
+    env.DB.prepare(`SELECT l.id,l.adjustment_id AS adjustmentId,l.fsli_id AS fsliId,c.code AS fsliCode,c.name AS fsliName,l.account_code AS accountCode,l.debit_minor AS debitMinor,l.credit_minor AS creditMinor
+      FROM audit_adjustment_lines l JOIN audit_adjustments a ON a.workspace_id=l.workspace_id AND a.id=l.adjustment_id JOIN fsli_catalog c ON c.workspace_id=l.workspace_id AND c.id=l.fsli_id
+      WHERE l.workspace_id=? AND a.engagement_id=? ORDER BY a.number,l.id`).bind(workspaceId,engagementId).all<Record<string,unknown>>(),
+    env.DB.prepare(`SELECT l.id,l.adjustment_id AS adjustmentId,l.evidence_id AS evidenceId,l.evidence_version AS evidenceVersion,l.file_sha256 AS fileSha256,l.source_snapshot_json AS sourceSnapshotJson,
+      l.linked_by_actor_id AS linkedByActorId,l.linked_at AS linkedAt FROM audit_adjustment_evidence_links l JOIN audit_adjustments a ON a.workspace_id=l.workspace_id AND a.id=l.adjustment_id
+      WHERE l.workspace_id=? AND a.engagement_id=? ORDER BY a.number,l.id`).bind(workspaceId,engagementId).all<Record<string,unknown>>(),
+    env.DB.prepare(`SELECT d.id,d.version,d.finding_id AS findingId,d.fsli_id AS fsliId,c.code AS fsliCode,c.name AS fsliName,d.tb_version_id AS tbVersionId,d.mapping_version_id AS mappingVersionId,
+      d.materiality_version_id AS materialityVersionId,d.amount_minor AS amountMinor,d.nature,d.qualitative_significance AS qualitativeSignificance,d.disposition,
+      d.disposition_reason AS dispositionReason,d.adjustment_id AS adjustmentId,d.source_hash AS sourceHash,d.created_at AS createdAt
+      FROM audit_differences d JOIN fsli_catalog c ON c.workspace_id=d.workspace_id AND c.id=d.fsli_id WHERE d.workspace_id=? AND d.engagement_id=? ORDER BY d.created_at,d.id`).bind(workspaceId,engagementId).all<Record<string,unknown>>(),
+    env.DB.prepare(`SELECT s.id,s.revision,s.planning_version_id AS planningVersionId,s.statement_snapshot_id AS statementSnapshotId,s.signed_unadjusted_minor AS signedUnadjustedMinor,
+      s.gross_unadjusted_minor AS grossUnadjustedMinor,s.materiality_snapshot_json AS materialitySnapshotJson,s.findings_snapshot_json AS findingsSnapshotJson,
+      s.adjustments_snapshot_json AS adjustmentsSnapshotJson,s.review_snapshot_json AS reviewSnapshotJson,s.estimates_text AS estimatesText,s.going_concern_id AS goingConcernId,
+      s.manager_recommendation AS managerRecommendation,s.dependency_hash AS dependencyHash,s.compiled_by_actor_id AS compiledByActorId,s.compiled_at AS compiledAt,
+      c.id AS clearanceId,c.partner_actor_id AS partnerActorId,c.rationale AS clearanceRationale,c.signed_at AS clearedAt
+      FROM srm_versions s LEFT JOIN srm_clearances c ON c.workspace_id=s.workspace_id AND c.srm_version_id=s.id
+      WHERE s.workspace_id=? AND s.engagement_id=? ORDER BY s.revision DESC,c.signed_at DESC`).bind(workspaceId,engagementId).all<Record<string,unknown>>(),
+    engagement.active_materiality_version_id?env.DB.prepare(`SELECT id,revision,planning_minor AS planningMinor,performance_minor AS performanceMinor,sad_minor AS sadMinor,source_sha256 AS sourceHash
+      FROM materiality_versions WHERE workspace_id=? AND id=? AND engagement_id=?`).bind(workspaceId,engagement.active_materiality_version_id,engagementId).first<Record<string,unknown>>()
+      :Promise.resolve(null)
+  ]);
+  const adjustmentLineMap=new Map<string,Record<string,unknown>[]>();
+  for(const line of adjustmentLineResult.results??[]){const rows=adjustmentLineMap.get(String(line.adjustmentId))??[];rows.push(line);adjustmentLineMap.set(String(line.adjustmentId),rows);}
+  const adjustmentEvidenceMap=new Map<string,Record<string,unknown>[]>();
+  for(const link of adjustmentEvidenceResult.results??[]){const rows=adjustmentEvidenceMap.get(String(link.adjustmentId))??[];rows.push({...link,sourceSnapshot:JSON.parse(String(link.sourceSnapshotJson))});adjustmentEvidenceMap.set(String(link.adjustmentId),rows);}
+  const adjustmentRows=(adjustmentHeads.results??[]).map(row=>({...row,lines:adjustmentLineMap.get(String(row.id))??[],evidence:adjustmentEvidenceMap.get(String(row.id))??[]}));
+  const srmRows=(srmVersions.results??[]).map(row=>({...row,materialitySnapshot:JSON.parse(String(row.materialitySnapshotJson)),findingsSnapshot:JSON.parse(String(row.findingsSnapshotJson)),adjustmentsSnapshot:JSON.parse(String(row.adjustmentsSnapshotJson)),reviewSnapshot:JSON.parse(String(row.reviewSnapshotJson))}));
   const samplingPlanRows=(plans.results??[]) as unknown as Array<{id:string;populationId:string;policyId:string;policyVersion:number;seedHex:string;revision:number;method:string;confidenceBps:number|null;
     tolerableMinor:number|null;expectedTaintedBps:number|null;requestedCount:number|null;calculatedCount:number;parametersJson:string;inputHash:string;reason:string;createdAt:string;latestResult:string|null}>;
   return {engagement:{id:engagement.id,version:engagement.version,clientId:engagement.client_id,state:engagement.lifecycle_state,periodStart:engagement.period_start,periodEnd:engagement.period_end,standardsProfileId:engagement.standards_profile_id,
       activeTbVersionId:engagement.active_tb_version_id,activeMappingVersionId:engagement.active_mapping_version_id,approvedPlanningVersionId:engagement.approved_planning_version_id},
     staff:staff.results??[],evidenceLinks:evidenceLinks.results??[],
     statements,templates:templates.results??[],analyticalReviews:reviews.results??[],goingConcern:going?{...going,checklist:JSON.parse(String(going.checklistJson))}:null,
-    workprograms:programs.results??[],procedures:procedures.results??[],reviewSubmissions:reviewSubmissions.results??[],reviewNotes:reviewNotes.results??[],evidence:evidence.results??[],samplingPolicies:policies.results??[],populations:populations.results??[],samplingPlans:samplingPlanRows.map(row=>({...row,parameters:JSON.parse(String(row.parametersJson))})),changeCursor:changes?.cursor??0};
+    workprograms:programs.results??[],procedures:procedures.results??[],reviewSubmissions:reviewSubmissions.results??[],reviewNotes:reviewNotes.results??[],findings:findings.results??[],adjustments:adjustmentRows,
+    differences:differences.results??[],srmVersions:srmRows,materiality, evidence:evidence.results??[],samplingPolicies:policies.results??[],populations:populations.results??[],samplingPlans:samplingPlanRows.map(row=>({...row,parameters:JSON.parse(String(row.parametersJson))})),changeCursor:changes?.cursor??0};
 }
 
 export async function getBusinessSamplingPlan(env:Env,workspaceId:string,context:BusinessContext,engagementId:string,planId:string){
@@ -491,7 +558,7 @@ async function saveStatementSnapshot(env:Env,workspaceId:string,context:Business
     .bind(workspaceId,command.payload.engagementId,view.sourceHash).first<{id:string}>();
   if(existing)return commandMutation([],{statementSnapshotId:existing.id,sourceHash:view.sourceHash,lineCount:view.profitLoss.length+view.balanceSheet.length,reused:true},'STATEMENT_SNAPSHOT',existing.id,null,1);
   const engagement=await getEngagement(env,workspaceId,context,command.payload.engagementId);const snapshotId=crypto.randomUUID();
-  const lineRows=[...view.profitLoss,...view.balanceSheet].map(line=>[crypto.randomUUID(),workspaceId,snapshotId,line.fsliId,line.currentBaseMinor,0,line.currentAdjustedMinor,
+  const lineRows=[...view.profitLoss,...view.balanceSheet].map(line=>[crypto.randomUUID(),workspaceId,snapshotId,line.fsliId,line.currentBaseMinor,line.currentAdjustmentMinor,line.currentAdjustedMinor,
     line.priorMinor,line.varianceNumerator,line.varianceDenominator,line.varianceReason,line.riskBand]);
   const statements:D1PreparedStatement[]=[
     env.DB.prepare(`INSERT INTO statement_snapshots(id,workspace_id,client_id,engagement_id,tb_version_id,mapping_version_id,adjustment_set_hash,standards_profile_id,source_hash,generated_at,generated_by_actor_id)
@@ -1012,8 +1079,13 @@ async function handoverToPartner(env:Env,workspaceId:string,context:BusinessCont
   }
   const openNotes=await env.DB.prepare(`SELECT n.id,n.text FROM review_notes n JOIN review_submissions s ON s.workspace_id=n.workspace_id AND s.id=n.submission_id WHERE s.workspace_id=? AND s.engagement_id=? AND n.status<>'CLOSED' ORDER BY n.created_at`).bind(workspaceId,p.engagementId).all<Record<string,unknown>>();
   if(uncleared.length||(openNotes.results??[]).length)throw new ApiError('GATE_BLOCKED',`Partner approval is blocked by uncleared areas or rework notes: ${JSON.stringify({workprogramIds:uncleared,openNotes:openNotes.results??[]})}`);
+  const srm=await env.DB.prepare(`SELECT id,revision,dependency_hash AS dependencyHash,manager_recommendation AS managerRecommendation,estimates_text AS estimatesText FROM srm_versions WHERE workspace_id=? AND engagement_id=? ORDER BY revision DESC LIMIT 1`)
+    .bind(workspaceId,p.engagementId).first<{id:string;revision:number;dependencyHash:string;managerRecommendation:string;estimatesText:string}>();
+  if(!srm)throw new ApiError('GATE_BLOCKED','Compile the Manager SRM recommendation before Partner handover.');
+  const srmInputs=await collectSrmInputs(env,workspaceId,context,p.engagementId);const currentSrmHash=await rowHash({inputDependencyHash:srmInputs.inputDependencyHash,managerRecommendation:srm.managerRecommendation,estimatesText:srm.estimatesText});
+  if(currentSrmHash!==srm.dependencyHash)throw new ApiError('STALE_DEPENDENCY','The Manager SRM no longer matches current fieldwork, source pins, or clearances. Recompile before Partner handover.');
   const dependencyHash=await rowHash({engagementId:p.engagementId,tbVersionId:engagement.active_tb_version_id,mappingVersionId:engagement.active_mapping_version_id,materialityVersionId:engagement.active_materiality_version_id,
-    planningVersionId:engagement.approved_planning_version_id,managerialVersion:engagement.version,areaClearances:clearancePins});
+    planningVersionId:engagement.approved_planning_version_id,managerialVersion:engagement.version,areaClearances:clearancePins,srmVersionId:srm.id,srmDependencyHash:srm.dependencyHash});
   const transitionId=crypto.randomUUID();const nextVersion=engagement.version+1;
   return commandMutation([versionGuard(env,workspaceId,990,'engagements','id',p.engagementId,engagement.version),
     env.DB.prepare(`UPDATE engagements SET version=?,lifecycle_state='PARTNER_APPROVAL',updated_at=?,updated_by_actor_id=? WHERE workspace_id=? AND id=? AND version=? AND lifecycle_state='MANAGERIAL_REVIEW'`)
@@ -1459,6 +1531,398 @@ async function unlinkEvidence(env:Env,workspaceId:string,context:BusinessContext
   return commandMutation(statements,{unlinkId,evidenceLinkId:p.evidenceLinkId,targetId:targetId||null,reason:p.reason,affectedEntityVersion:afterVersion,requiresReassessment:Boolean(targetId)},entityType,targetId||unlinkId,beforeVersion,afterVersion);
 }
 
+type AdjustmentLineInput={fsliId:string;accountCode?:string|null;debitMinor:string;creditMinor:string};
+type AdjustmentRow={id:string;version:number;client_id:string;engagement_id:string;number:string;tb_version_id:string;finding_id:string|null;description:string;status:string;
+  mapping_version_id:string|null;materiality_version_id:string|null;
+  reflected_in_source:number;reflected_in_source_reason:string|null;include_in_statements:number;client_response:string|null;client_response_decision:string|null;client_response_file_id:string|null;
+  client_responded_by_actor_id:string|null;client_responded_at:string|null;source_hash:string;created_by_actor_id:string;approved_by_actor_id:string|null;created_at:string;updated_at:string};
+type AdjustmentLineRow={id:string;fsli_id:string;account_code:string|null;debit_minor:number;credit_minor:number};
+async function adjustmentLines(env:Env,workspaceId:string,adjustmentId:string):Promise<AdjustmentLineRow[]>{
+  const result=await env.DB.prepare(`SELECT id,fsli_id,account_code,debit_minor,credit_minor FROM audit_adjustment_lines WHERE workspace_id=? AND adjustment_id=? ORDER BY id`).bind(workspaceId,adjustmentId).all<AdjustmentLineRow>();
+  return result.results??[];
+}
+async function adjustmentEvidence(env:Env,workspaceId:string,adjustmentId:string):Promise<Array<Record<string,unknown>>>{
+  const result=await env.DB.prepare(`SELECT id,evidence_id AS evidenceId,evidence_version AS evidenceVersion,file_sha256 AS fileSha256,source_snapshot_json AS sourceSnapshotJson,linked_by_actor_id AS linkedByActorId,linked_at AS linkedAt
+    FROM audit_adjustment_evidence_links WHERE workspace_id=? AND adjustment_id=? ORDER BY id`).bind(workspaceId,adjustmentId).all<Record<string,unknown>>();
+  return (result.results??[]).map(row=>({...row,sourceSnapshot:JSON.parse(String(row.sourceSnapshotJson))}));
+}
+async function verifyAdjustmentEvidence(env:Env,workspaceId:string,engagement:Engagement,evidence:Array<Record<string,unknown>>){
+  for(const pin of evidence){const version=Number(pin.evidenceVersion);const current=await currentEvidenceRecord(env,workspaceId,engagement,String(pin.evidenceId),version,true);
+    const snapshot=pin.sourceSnapshot as Record<string,unknown>;if((current.sha256??null)!==(snapshot.fileSha256??null))throw new ApiError('STALE_DEPENDENCY','An AJE evidence file changed after it was pinned. Refresh evidence and revise the adjustment.');
+    const currentDecision=await env.DB.prepare(`SELECT id FROM evidence_adequacy_decisions WHERE workspace_id=? AND evidence_id=? ORDER BY reviewed_at DESC LIMIT 1`).bind(workspaceId,pin.evidenceId).first<{id:string}>();
+    if(currentDecision?.id!==snapshot.adequacyDecisionId)throw new ApiError('STALE_DEPENDENCY','An AJE evidence adequacy decision changed after it was pinned. Reassess the adjustment against the current review.');
+  }
+}
+function adjustmentRevision(env:Env,workspaceId:string,adjustmentId:string,revision:number,snapshot:unknown,sourceHash:string,actorId:string,now:string){
+  return env.DB.prepare(`INSERT INTO audit_adjustment_revisions(id,workspace_id,adjustment_id,revision,snapshot_json,source_hash,changed_by_actor_id,changed_at)
+    VALUES(?,?,?,?,?,?,?,?)`).bind(crypto.randomUUID(),workspaceId,adjustmentId,revision,JSON.stringify(snapshot),sourceHash,actorId,now);
+}
+function assertBalancedAdjustment(lines:Array<{debitMinor:string|number;creditMinor:string|number}>){
+  const debit=lines.reduce((sum,line)=>sum+BigInt(line.debitMinor),0n);const credit=lines.reduce((sum,line)=>sum+BigInt(line.creditMinor),0n);
+  if(debit!==credit)throw new ApiError('UNBALANCED_ADJUSTMENT',`The adjustment must balance in QAR minor units (debits ${debit}, credits ${credit}).`);
+  if(debit>BigInt(Number.MAX_SAFE_INTEGER))throw new ApiError('CALCULATION_DOMAIN_EXCEEDED','The adjustment total exceeds safe QAR minor-unit precision.');
+  return {debitMinor:debit.toString(),creditMinor:credit.toString()};
+}
+async function validateActiveFslis(env:Env,workspaceId:string,lines:AdjustmentLineInput[]){
+  const ids=[...new Set(lines.map(line=>line.fsliId))];const found=new Set<string>();
+  for(let offset=0;offset<ids.length;offset+=80){const part=ids.slice(offset,offset+80);const placeholders=part.map(()=>'?').join(',');
+    const rows=await env.DB.prepare(`SELECT id FROM fsli_catalog WHERE workspace_id=? AND active=1 AND id IN (${placeholders})`).bind(workspaceId,...part).all<{id:string}>();
+    for(const row of rows.results??[])found.add(row.id);
+  }
+  if(found.size!==ids.length)throw new ApiError('VALIDATION_FAILED','Every adjustment line must reference an active financial-statement line.');
+}
+function adjustmentSnapshot(header:Record<string,unknown>,lines:Array<Record<string,unknown>>){
+  return {adjustment:{id:header.id,version:header.version,number:header.number,clientId:header.client_id,engagementId:header.engagement_id,tbVersionId:header.tb_version_id,
+    mappingVersionId:header.mapping_version_id,materialityVersionId:header.materiality_version_id,
+    findingId:header.finding_id,description:header.description,status:header.status,reflectedInSource:header.reflected_in_source,reflectedInSourceReason:header.reflected_in_source_reason,
+    includeInStatements:header.include_in_statements,clientResponse:header.client_response_decision,clientResponseText:header.client_response,clientResponseFileId:header.client_response_file_id,
+    clientRespondedByActorId:header.client_responded_by_actor_id,clientRespondedAt:header.client_responded_at,sourceHash:header.source_hash,createdByActorId:header.created_by_actor_id,
+    approvedByActorId:header.approved_by_actor_id,createdAt:header.created_at,updatedAt:header.updated_at,evidence:header.evidence??[]},lines};
+}
+
+async function createFinding(env:Env,workspaceId:string,context:BusinessContext,command:Extract<BusinessFieldworkCommand,{type:'finding.create'}>,now:string):Promise<BusinessMutation>{
+  requireWriter(context);const p=command.payload;const engagement=await getEngagement(env,workspaceId,context,p.engagementId);
+  const fsli=await env.DB.prepare(`SELECT id,code FROM fsli_catalog WHERE workspace_id=? AND id=? AND active=1`).bind(workspaceId,p.fsliId).first<{id:string;code:string}>();
+  if(!fsli)throw new ApiError('NOT_FOUND','An active FSLI is required for a finding.');
+  const findingId=crypto.randomUUID();const sourceHash=await rowHash({engagementId:engagement.id,tbVersionId:engagement.active_tb_version_id,mappingVersionId:engagement.active_mapping_version_id,
+    materialityVersionId:engagement.active_materiality_version_id,fsliId:fsli.id,title:p.title,description:p.description,severity:p.severity,qualitativeSignificance:p.qualitativeSignificance});
+  return commandMutation([env.DB.prepare(`INSERT INTO findings(id,workspace_id,version,client_id,engagement_id,fsli_id,tb_version_id,mapping_version_id,materiality_version_id,title,description,severity,qualitative_significance,status,client_response,resolution,created_by_actor_id,source_hash,created_at,updated_at)
+      VALUES(?,?,1,?,?,?,?,?,?,?,?,?,?,'OPEN',NULL,NULL,?,?,?,?)`).bind(findingId,workspaceId,engagement.client_id,engagement.id,fsli.id,engagement.active_tb_version_id,engagement.active_mapping_version_id,engagement.active_materiality_version_id,p.title,p.description,p.severity,p.qualitativeSignificance?1:0,context.actor.id,sourceHash,now,now),
+    pushChange(env,workspaceId,engagement.id,'Finding',findingId,1,now)],{findingId,version:1,status:'OPEN',sourceHash,fsliCode:fsli.code},'FINDING',findingId,null,1,{fsliId:fsli.id,severity:p.severity,qualitativeSignificance:p.qualitativeSignificance});
+}
+
+async function respondFinding(env:Env,workspaceId:string,context:BusinessContext,command:Extract<BusinessFieldworkCommand,{type:'finding.respond'}>,now:string):Promise<BusinessMutation>{
+  const p=command.payload;
+  if(context.actor.persona!=='CLIENT')throw new ApiError('PERSONA_ACTION_DENIED','A finding response must come from the scoped CLIENT persona.');
+  const finding=await env.DB.prepare(`SELECT f.id,f.version,f.client_id,f.engagement_id,f.status,f.source_hash,e.lifecycle_state,e.locked_at
+    FROM findings f JOIN engagements e ON e.workspace_id=f.workspace_id AND e.id=f.engagement_id WHERE f.workspace_id=? AND f.id=?`).bind(workspaceId,p.findingId)
+    .first<{id:string;version:number;client_id:string;engagement_id:string;status:string;source_hash:string;lifecycle_state:string;locked_at:string|null}>();
+  if(!finding)throw new ApiError('NOT_FOUND','The finding was not found.');
+  if(context.actor.clientId!==finding.client_id||(context.scope.clientId&&context.scope.clientId!==finding.client_id)||(context.scope.engagementId&&context.scope.engagementId!==finding.engagement_id))throw new ApiError('FORBIDDEN_SCOPE','The finding is outside the selected client engagement.');
+  if(finding.locked_at||!['FIELDWORK_EXECUTION','MANAGERIAL_REVIEW'].includes(finding.lifecycle_state))throw new ApiError('WORKSPACE_FROZEN','Client finding responses are closed for this engagement stage.');
+  if(finding.status!=='OPEN')throw new ApiError('INVALID_STATE','Only an open finding can receive its first client response.');
+  if(Number(finding.version)!==p.expectedVersion)throw new ApiError('VERSION_CONFLICT',JSON.stringify({entity:'Finding',id:p.findingId,expectedVersion:p.expectedVersion,currentVersion:finding.version}));
+  const nextVersion=Number(finding.version)+1;const sourceHash=await rowHash({priorSourceHash:finding.source_hash,response:p.clientResponse,actorId:context.actor.id,respondedAt:now});
+  return commandMutation([versionGuard(env,workspaceId,990,'findings','id',p.findingId,Number(finding.version)),
+    env.DB.prepare(`UPDATE findings SET version=?,status='RESPONDED',client_response=?,client_responded_by_actor_id=?,client_responded_at=?,source_hash=?,updated_at=? WHERE workspace_id=? AND id=? AND version=?`)
+      .bind(nextVersion,p.clientResponse,context.actor.id,now,sourceHash,now,workspaceId,p.findingId,finding.version),
+    pushChange(env,workspaceId,finding.engagement_id,'Finding',p.findingId,nextVersion,now)],{findingId:p.findingId,version:nextVersion,status:'RESPONDED',sourceHash},'FINDING',p.findingId,Number(finding.version),nextVersion,{clientResponseRecorded:true});
+}
+
+async function resolveFinding(env:Env,workspaceId:string,context:BusinessContext,command:Extract<BusinessFieldworkCommand,{type:'finding.resolve'}>,now:string):Promise<BusinessMutation>{
+  requireReviewer(context);const p=command.payload;const finding=await env.DB.prepare(`SELECT id,version,engagement_id,status,client_response,source_hash,created_by_actor_id FROM findings WHERE workspace_id=? AND id=?`).bind(workspaceId,p.findingId)
+    .first<{id:string;version:number;engagement_id:string;status:string;client_response:string|null;source_hash:string;created_by_actor_id:string}>();
+  if(!finding)throw new ApiError('NOT_FOUND','The finding was not found.');const engagement=await getEngagement(env,workspaceId,context,finding.engagement_id);
+  if(finding.version!==p.expectedVersion)throw new ApiError('VERSION_CONFLICT',JSON.stringify({entity:'Finding',id:p.findingId,expectedVersion:p.expectedVersion,currentVersion:finding.version}));
+  if(finding.status!=='RESPONDED'||!finding.client_response)throw new ApiError('GATE_BLOCKED','A finding can be resolved only after the scoped client response is recorded.');
+  const reviewer=await actorStaff(env,workspaceId,context);const preparer=await actorNaturalPerson(env,workspaceId,finding.created_by_actor_id);
+  if(!preparer||reviewer.natural_person_key===preparer)throw new ApiError('SELF_REVIEW_BLOCKED','The finding preparer cannot independently resolve the same finding.');
+  const nextVersion=finding.version+1;const sourceHash=await rowHash({priorSourceHash:finding.source_hash,resolution:p.resolution,reviewerActorId:context.actor.id,resolvedAt:now});
+  return commandMutation([versionGuard(env,workspaceId,990,'findings','id',finding.id,finding.version),
+    env.DB.prepare(`UPDATE findings SET version=?,status='RESOLVED',resolution=?,source_hash=?,updated_at=? WHERE workspace_id=? AND id=? AND version=? AND status='RESPONDED'`)
+      .bind(nextVersion,p.resolution,sourceHash,now,workspaceId,finding.id,finding.version),pushChange(env,workspaceId,engagement.id,'Finding',finding.id,nextVersion,now)],
+    {findingId:finding.id,version:nextVersion,status:'RESOLVED',sourceHash,resolution:p.resolution},'FINDING',finding.id,finding.version,nextVersion,{resolution:p.resolution});
+}
+
+async function createAdjustment(env:Env,workspaceId:string,context:BusinessContext,command:Extract<BusinessFieldworkCommand,{type:'adjustment.create'}>,now:string):Promise<BusinessMutation>{
+  requireWriter(context);const p=command.payload;const engagement=await getEngagement(env,workspaceId,context,p.engagementId);
+  if(!engagement.active_mapping_version_id||!engagement.active_materiality_version_id)throw new ApiError('GATE_BLOCKED','A current approved mapping and materiality version are required before drafting an AJE.');
+  if(engagement.active_tb_version_id!==p.tbVersionId)throw new ApiError('STALE_DEPENDENCY','AJE lines must be prepared against the current accepted trial-balance version.');
+  const totals=assertBalancedAdjustment(p.lines);await validateActiveFslis(env,workspaceId,p.lines);
+  if(p.findingId){const finding=await env.DB.prepare(`SELECT id FROM findings WHERE workspace_id=? AND id=? AND engagement_id=?`).bind(workspaceId,p.findingId,engagement.id).first<{id:string}>();if(!finding)throw new ApiError('FORBIDDEN_SCOPE','The linked finding is outside this engagement.');}
+  const evidencePins:Array<{id:string;version:number;fileSha256:string|null;snapshot:Record<string,unknown>}>=[];
+  for(const evidenceId of [...new Set(p.evidenceIds)]){
+    const candidate=await env.DB.prepare(`SELECT e.id,e.family_id AS familyId,e.version,e.mode,e.title,e.file_version_id AS fileVersionId,e.physical_index AS physicalIndex,e.physical_description AS physicalDescription,
+        e.binder,e.box,e.shelf,e.external_source_url AS externalSourceUrl,e.retrieved_at AS retrievedAt,f.sha256 AS fileSha256,
+        (SELECT d.id FROM evidence_adequacy_decisions d WHERE d.workspace_id=e.workspace_id AND d.evidence_id=e.id ORDER BY d.reviewed_at DESC LIMIT 1) AS adequacyDecisionId,
+        (SELECT d.adequacy FROM evidence_adequacy_decisions d WHERE d.workspace_id=e.workspace_id AND d.evidence_id=e.id ORDER BY d.reviewed_at DESC LIMIT 1) AS adequacy,
+        (SELECT d.rationale FROM evidence_adequacy_decisions d WHERE d.workspace_id=e.workspace_id AND d.evidence_id=e.id ORDER BY d.reviewed_at DESC LIMIT 1) AS adequacyRationale
+      FROM evidence_records e LEFT JOIN file_versions f ON f.workspace_id=e.workspace_id AND f.id=e.file_version_id WHERE e.workspace_id=? AND e.id=? AND e.engagement_id=?`)
+      .bind(workspaceId,evidenceId,engagement.id).first<Record<string,unknown>>();
+    if(!candidate)throw new ApiError('FORBIDDEN_SCOPE','Every AJE evidence pin must belong to this engagement.');
+    await currentEvidenceRecord(env,workspaceId,engagement,evidenceId,Number(candidate.version),true);
+    const snapshot={id:candidate.id,familyId:candidate.familyId,version:candidate.version,mode:candidate.mode,title:candidate.title,fileVersionId:candidate.fileVersionId,fileSha256:candidate.fileSha256,
+      physicalIndex:candidate.physicalIndex,physicalDescription:candidate.physicalDescription,binder:candidate.binder,box:candidate.box,shelf:candidate.shelf,externalSourceUrl:candidate.externalSourceUrl,
+      retrievedAt:candidate.retrievedAt,adequacyDecisionId:candidate.adequacyDecisionId,adequacy:candidate.adequacy,adequacyRationale:candidate.adequacyRationale};
+    evidencePins.push({id:evidenceId,version:Number(candidate.version),fileSha256:candidate.fileSha256===null?null:String(candidate.fileSha256),snapshot});
+  }
+  const sequence=await env.DB.prepare(`SELECT COALESCE(MAX(CAST(substr(number,5) AS INTEGER)),0) AS value FROM audit_adjustments WHERE workspace_id=? AND engagement_id=?`).bind(workspaceId,engagement.id).first<{value:number}>();
+  const number=`AJE-${String(Number(sequence?.value??0)+1).padStart(4,'0')}`;const adjustmentId=crypto.randomUUID();
+  const lineSnapshot=p.lines.map(line=>({fsliId:line.fsliId,accountCode:line.accountCode??null,debitMinor:line.debitMinor,creditMinor:line.creditMinor}));
+  const sourceHash=await rowHash({engagementId:engagement.id,tbVersionId:p.tbVersionId,mappingVersionId:engagement.active_mapping_version_id,materialityVersionId:engagement.active_materiality_version_id,
+    findingId:p.findingId??null,description:p.description,lines:lineSnapshot,evidence:evidencePins.map(pin=>({evidenceId:pin.id,evidenceVersion:pin.version,fileSha256:pin.fileSha256,snapshot:pin.snapshot}))});
+  const header={id:adjustmentId,version:1,client_id:engagement.client_id,engagement_id:engagement.id,number,tb_version_id:p.tbVersionId,mapping_version_id:engagement.active_mapping_version_id,materiality_version_id:engagement.active_materiality_version_id,finding_id:p.findingId??null,description:p.description,status:'DRAFT',
+    reflected_in_source:0,reflected_in_source_reason:null,include_in_statements:0,client_response:null,client_response_decision:null,client_response_file_id:null,client_responded_by_actor_id:null,client_responded_at:null,
+    source_hash:sourceHash,created_by_actor_id:context.actor.id,approved_by_actor_id:null,created_at:now,updated_at:now,evidence:evidencePins};
+  const lines:AdjustmentLineRow[]=p.lines.map(line=>({id:crypto.randomUUID(),fsli_id:line.fsliId,account_code:line.accountCode??null,debit_minor:Number(line.debitMinor),credit_minor:Number(line.creditMinor)}));
+  const statements:D1PreparedStatement[]=[env.DB.prepare(`INSERT INTO audit_adjustments(id,workspace_id,version,client_id,engagement_id,number,tb_version_id,mapping_version_id,materiality_version_id,finding_id,description,status,source_hash,created_by_actor_id,created_at,updated_at)
+      VALUES(?,?,1,?,?,?,?,?,?,?,?, 'DRAFT',?,?,?,?)`).bind(adjustmentId,workspaceId,engagement.client_id,engagement.id,number,p.tbVersionId,engagement.active_mapping_version_id,engagement.active_materiality_version_id,p.findingId??null,p.description,sourceHash,context.actor.id,now,now),
+    ...makeMultiInsertStatements(env,'audit_adjustment_lines',['id','workspace_id','adjustment_id','fsli_id','account_code','debit_minor','credit_minor'],lines.map(line=>[line.id,workspaceId,adjustmentId,line.fsli_id,line.account_code,line.debit_minor,line.credit_minor])),
+    ...evidencePins.map(pin=>env.DB.prepare(`INSERT INTO audit_adjustment_evidence_links(id,workspace_id,adjustment_id,evidence_id,evidence_version,file_sha256,source_snapshot_json,linked_by_actor_id,linked_at)
+      VALUES(?,?,?,?,?,?,?,?,?)`).bind(crypto.randomUUID(),workspaceId,adjustmentId,pin.id,pin.version,pin.fileSha256,JSON.stringify(pin.snapshot),context.actor.id,now)),
+    adjustmentRevision(env,workspaceId,adjustmentId,1,adjustmentSnapshot(header,lines as unknown as Array<Record<string,unknown>>),sourceHash,context.actor.id,now),
+    pushChange(env,workspaceId,engagement.id,'Adjustment',adjustmentId,1,now)];
+  return commandMutation(statements,{adjustmentId,number,version:1,status:'DRAFT',sourceHash,evidenceCount:evidencePins.length,...totals},'AUDIT_ADJUSTMENT',adjustmentId,null,1,{tbVersionId:p.tbVersionId,findingId:p.findingId??null,lineCount:lines.length,evidenceCount:evidencePins.length,...totals});
+}
+
+async function proposeAdjustment(env:Env,workspaceId:string,context:BusinessContext,command:Extract<BusinessFieldworkCommand,{type:'adjustment.propose'}>,now:string):Promise<BusinessMutation>{
+  requireWriter(context);const p=command.payload;const row=await env.DB.prepare(`SELECT * FROM audit_adjustments WHERE workspace_id=? AND id=?`).bind(workspaceId,p.adjustmentId).first<AdjustmentRow>();
+  if(!row)throw new ApiError('NOT_FOUND','The audit adjustment was not found.');const engagement=await getEngagement(env,workspaceId,context,row.engagement_id);
+  if(row.version!==p.expectedVersion)throw new ApiError('VERSION_CONFLICT',JSON.stringify({entity:'AuditAdjustment',id:row.id,expectedVersion:p.expectedVersion,currentVersion:row.version}));
+  if(row.status!=='DRAFT')throw new ApiError('INVALID_STATE','Only a draft adjustment can be proposed to the client.');
+  if(row.tb_version_id!==engagement.active_tb_version_id||row.mapping_version_id!==engagement.active_mapping_version_id||row.materiality_version_id!==engagement.active_materiality_version_id)throw new ApiError('STALE_DEPENDENCY','The adjustment trial-balance, mapping, or materiality source has changed. Recreate the proposal against the active versions.');
+  const lines=await adjustmentLines(env,workspaceId,row.id);const evidence=await adjustmentEvidence(env,workspaceId,row.id);const totals=assertBalancedAdjustment(lines.map(line=>({debitMinor:line.debit_minor,creditMinor:line.credit_minor})));
+  await verifyAdjustmentEvidence(env,workspaceId,engagement,evidence);
+  if(lines.length<2)throw new ApiError('GATE_BLOCKED','An adjustment must retain at least two balanced FSLI lines.');
+  const nextVersion=row.version+1;const sourceHash=await rowHash({priorSourceHash:row.source_hash,transition:'PROPOSED',version:nextVersion});const header={...row,version:nextVersion,status:'PROPOSED',source_hash:sourceHash,updated_at:now,evidence};
+  const statements=[versionGuard(env,workspaceId,990,'audit_adjustments','id',row.id,row.version),
+    env.DB.prepare(`UPDATE audit_adjustments SET version=?,status='PROPOSED',source_hash=?,updated_at=? WHERE workspace_id=? AND id=? AND version=? AND status='DRAFT'`).bind(nextVersion,sourceHash,now,workspaceId,row.id,row.version),
+    adjustmentRevision(env,workspaceId,row.id,nextVersion,adjustmentSnapshot(header,lines as unknown as Array<Record<string,unknown>>),sourceHash,context.actor.id,now),pushChange(env,workspaceId,row.engagement_id,'Adjustment',row.id,nextVersion,now)];
+  return commandMutation(statements,{adjustmentId:row.id,version:nextVersion,status:'PROPOSED',sourceHash,...totals},'AUDIT_ADJUSTMENT',row.id,row.version,nextVersion,{clientDecisionRequested:true});
+}
+
+async function respondToAdjustment(env:Env,workspaceId:string,context:BusinessContext,command:Extract<BusinessFieldworkCommand,{type:'adjustment.client-respond'}>,now:string):Promise<BusinessMutation>{
+  const p=command.payload;if(context.actor.persona!=='CLIENT')throw new ApiError('PERSONA_ACTION_DENIED','An adjustment response must come from the scoped CLIENT persona.');
+  const row=await env.DB.prepare(`SELECT a.*,e.lifecycle_state,e.locked_at FROM audit_adjustments a JOIN engagements e ON e.workspace_id=a.workspace_id AND e.id=a.engagement_id WHERE a.workspace_id=? AND a.id=?`)
+    .bind(workspaceId,p.adjustmentId).first<AdjustmentRow&{lifecycle_state:string;locked_at:string|null}>();
+  if(!row)throw new ApiError('NOT_FOUND','The audit adjustment was not found.');
+  if(context.actor.clientId!==row.client_id||(context.scope.clientId&&context.scope.clientId!==row.client_id)||(context.scope.engagementId&&context.scope.engagementId!==row.engagement_id))throw new ApiError('FORBIDDEN_SCOPE','The adjustment is outside the selected client engagement.');
+  if(row.locked_at||!['FIELDWORK_EXECUTION','MANAGERIAL_REVIEW'].includes(row.lifecycle_state))throw new ApiError('WORKSPACE_FROZEN','Client adjustment responses are closed for this engagement stage.');
+  if(row.status!=='PROPOSED'||row.client_response_decision!==null)throw new ApiError('INVALID_STATE','Only a proposed adjustment awaiting the client can receive a response.');
+  if(row.version!==p.expectedVersion)throw new ApiError('VERSION_CONFLICT',JSON.stringify({entity:'AuditAdjustment',id:row.id,expectedVersion:p.expectedVersion,currentVersion:row.version}));
+  let fileSha256:string|null=null;
+  if(p.responseFileId){const file=await env.DB.prepare(`SELECT sha256 FROM file_versions WHERE workspace_id=? AND id=? AND client_id=? AND engagement_id=? AND state='COMMITTED' AND immutable=1 AND sha256 IS NOT NULL`)
+      .bind(workspaceId,p.responseFileId,row.client_id,row.engagement_id).first<{sha256:string}>();if(!file)throw new ApiError('FORBIDDEN_SCOPE','The response attachment must be committed, immutable, and belong to this engagement.');fileSha256=file.sha256;}
+  const nextVersion=row.version+1;const sourceHash=await rowHash({priorSourceHash:row.source_hash,decision:p.decision,responseText:p.responseText,responseFileId:p.responseFileId??null,responseFileSha256:fileSha256,actorId:context.actor.id,respondedAt:now});
+  const lines=await adjustmentLines(env,workspaceId,row.id);const evidence=await adjustmentEvidence(env,workspaceId,row.id);const status=p.decision==='ACCEPTED'?'CLIENT_ACCEPTED':'CLIENT_DECLINED';const header={...row,version:nextVersion,status,client_response:p.responseText,client_response_decision:p.decision,
+    client_response_file_id:p.responseFileId??null,client_responded_by_actor_id:context.actor.id,client_responded_at:now,source_hash:sourceHash,updated_at:now,evidence};
+  const statements=[versionGuard(env,workspaceId,990,'audit_adjustments','id',row.id,row.version),
+    env.DB.prepare(`UPDATE audit_adjustments SET version=?,status=?,client_response=?,client_response_decision=?,client_response_file_id=?,client_responded_by_actor_id=?,client_responded_at=?,source_hash=?,updated_at=? WHERE workspace_id=? AND id=? AND version=? AND status='PROPOSED'`)
+      .bind(nextVersion,status,p.responseText,p.decision,p.responseFileId??null,context.actor.id,now,sourceHash,now,workspaceId,row.id,row.version),
+    adjustmentRevision(env,workspaceId,row.id,nextVersion,adjustmentSnapshot(header,lines as unknown as Array<Record<string,unknown>>),sourceHash,context.actor.id,now),
+    pushChange(env,workspaceId,row.engagement_id,'Adjustment',row.id,nextVersion,now)];
+  return commandMutation(statements,{adjustmentId:row.id,version:nextVersion,status,decision:p.decision,sourceHash},'AUDIT_ADJUSTMENT',row.id,row.version,nextVersion,{clientResponseRecorded:true,responseFileSha256:fileSha256});
+}
+
+async function approveAdjustment(env:Env,workspaceId:string,context:BusinessContext,command:Extract<BusinessFieldworkCommand,{type:'adjustment.approve'}>,now:string):Promise<BusinessMutation>{
+  requireReviewer(context);const p=command.payload;const row=await env.DB.prepare(`SELECT * FROM audit_adjustments WHERE workspace_id=? AND id=?`).bind(workspaceId,p.adjustmentId).first<AdjustmentRow>();
+  if(!row)throw new ApiError('NOT_FOUND','The audit adjustment was not found.');const engagement=await getEngagement(env,workspaceId,context,row.engagement_id);
+  if(row.version!==p.expectedVersion)throw new ApiError('VERSION_CONFLICT',JSON.stringify({entity:'AuditAdjustment',id:row.id,expectedVersion:p.expectedVersion,currentVersion:row.version}));
+  if(row.source_hash!==p.sourceHash)throw new ApiError('STALE_DEPENDENCY','The adjustment changed after this reviewer opened it. Refresh the proposal.');
+  if(!['CLIENT_ACCEPTED','CLIENT_DECLINED'].includes(row.status)||!row.client_response_decision)throw new ApiError('GATE_BLOCKED','The client must accept or decline the proposed adjustment before independent review.');
+  const staff=await actorStaff(env,workspaceId,context);const preparer=await actorNaturalPerson(env,workspaceId,row.created_by_actor_id);
+  if(!preparer||preparer===staff.natural_person_key)throw new ApiError('SELF_REVIEW_BLOCKED','An adjustment must be approved by a different natural person from its preparer.');
+  const lines=await adjustmentLines(env,workspaceId,row.id);const evidence=await adjustmentEvidence(env,workspaceId,row.id);if(lines.length<2)throw new ApiError('GATE_BLOCKED','The adjustment does not contain a complete line set.');const totals=assertBalancedAdjustment(lines.map(line=>({debitMinor:line.debit_minor,creditMinor:line.credit_minor})));
+  if(!evidence.length)throw new ApiError('GATE_BLOCKED','At least one exact evidence pin is required to approve an adjustment.');
+  await verifyAdjustmentEvidence(env,workspaceId,engagement,evidence);
+  const sourceChanged=row.tb_version_id!==engagement.active_tb_version_id||row.mapping_version_id!==engagement.active_mapping_version_id;
+  if(row.materiality_version_id!==engagement.active_materiality_version_id)throw new ApiError('STALE_DEPENDENCY','The adjustment was prepared against an obsolete materiality version; refresh its classification before approval.');
+  if(sourceChanged&&!p.reflectedInSourceReason)throw new ApiError('GATE_BLOCKED','The active trial balance replaced the AJE source. Record a reasoned reviewer disposition before excluding the overlay.');
+  if(!sourceChanged&&p.reflectedInSourceReason)throw new ApiError('VALIDATION_FAILED','A reflected-in-source disposition is only valid when the active trial balance replaced the AJE source.');
+  const nextVersion=row.version+1;const reflected=sourceChanged?1:0;const include=sourceChanged?0:1;
+  const sourceHash=await rowHash({priorSourceHash:row.source_hash,reviewerActorId:context.actor.id,decision:'REVIEW_APPROVED',activeTbVersionId:engagement.active_tb_version_id,reflectedInSourceReason:p.reflectedInSourceReason??null});
+  const header={...row,version:nextVersion,status:'REVIEW_APPROVED',reflected_in_source:reflected,reflected_in_source_reason:p.reflectedInSourceReason??null,include_in_statements:include,source_hash:sourceHash,approved_by_actor_id:context.actor.id,updated_at:now,evidence};
+  const statements=[versionGuard(env,workspaceId,990,'audit_adjustments','id',row.id,row.version),
+    env.DB.prepare(`UPDATE audit_adjustments SET version=?,status='REVIEW_APPROVED',reflected_in_source=?,reflected_in_source_reason=?,include_in_statements=?,source_hash=?,approved_by_actor_id=?,updated_at=? WHERE workspace_id=? AND id=? AND version=?`)
+      .bind(nextVersion,reflected,p.reflectedInSourceReason??null,include,sourceHash,context.actor.id,now,workspaceId,row.id,row.version),
+    adjustmentRevision(env,workspaceId,row.id,nextVersion,adjustmentSnapshot(header,lines as unknown as Array<Record<string,unknown>>),sourceHash,context.actor.id,now),
+    pushChange(env,workspaceId,row.engagement_id,'Adjustment',row.id,nextVersion,now)];
+  return commandMutation(statements,{adjustmentId:row.id,version:nextVersion,status:'REVIEW_APPROVED',includeInStatements:Boolean(include),reflectedInSource:Boolean(reflected),sourceHash,...totals},'AUDIT_ADJUSTMENT',row.id,row.version,nextVersion,{clientDecision:row.client_response_decision,includeInStatements:Boolean(include),reflectedInSourceReason:p.reflectedInSourceReason??null});
+}
+
+async function createDifference(env:Env,workspaceId:string,context:BusinessContext,command:Extract<BusinessFieldworkCommand,{type:'difference.create'}>,now:string):Promise<BusinessMutation>{
+  requireWriter(context);const p=command.payload;const finding=await env.DB.prepare(`SELECT id,client_id,engagement_id,source_hash,tb_version_id,mapping_version_id,materiality_version_id FROM findings WHERE workspace_id=? AND id=?`).bind(workspaceId,p.findingId)
+    .first<{id:string;client_id:string;engagement_id:string;source_hash:string;tb_version_id:string|null;mapping_version_id:string|null;materiality_version_id:string|null}>();if(!finding)throw new ApiError('NOT_FOUND','The finding was not found.');
+  const engagement=await getEngagement(env,workspaceId,context,finding.engagement_id);const fsli=await env.DB.prepare(`SELECT id FROM fsli_catalog WHERE workspace_id=? AND id=? AND active=1`).bind(workspaceId,p.fsliId).first<{id:string}>();
+  if(!fsli)throw new ApiError('NOT_FOUND','An active FSLI is required for an unadjusted difference.');
+  const materiality=engagement.active_materiality_version_id?await env.DB.prepare(`SELECT sad_minor,performance_minor,planning_minor,source_sha256 FROM materiality_versions WHERE workspace_id=? AND id=? AND engagement_id=?`)
+    .bind(workspaceId,engagement.active_materiality_version_id,engagement.id).first<{sad_minor:number;performance_minor:number;planning_minor:number;source_sha256:string}>():null;
+  if(!materiality)throw new ApiError('GATE_BLOCKED','Current SAD, TE, and PM thresholds are required to classify a difference.');
+  if(finding.tb_version_id!==engagement.active_tb_version_id||finding.mapping_version_id!==engagement.active_mapping_version_id||finding.materiality_version_id!==engagement.active_materiality_version_id)throw new ApiError('STALE_DEPENDENCY','The finding source pins are stale. Reassess it against current TB, mapping and materiality before recording a difference.');
+  const amount=BigInt(p.amountMinor);const absolute=amount<0n?-amount:amount;const sad=BigInt(materiality.sad_minor);
+  if(p.disposition==='CLEARLY_TRIVIAL'&&(p.qualitativeSignificance||absolute>sad))throw new ApiError('GATE_BLOCKED','Only non-qualitative differences at or below the current SAD may be classified as clearly trivial.');
+  if(p.disposition==='ADJUSTED'){
+    const adjustmentId=p.adjustmentId;if(!adjustmentId)throw new ApiError('VALIDATION_FAILED','An adjusted difference must name its approved AJE.');
+    const adjustment=await env.DB.prepare(`SELECT id,finding_id,tb_version_id,status,reflected_in_source FROM audit_adjustments WHERE workspace_id=? AND id=? AND engagement_id=?`)
+      .bind(workspaceId,adjustmentId,engagement.id).first<{id:string;finding_id:string|null;tb_version_id:string;status:string;reflected_in_source:number}>();
+    if(!adjustment||adjustment.status!=='REVIEW_APPROVED'||(adjustment.finding_id&&adjustment.finding_id!==finding.id)||
+      (adjustment.tb_version_id!==engagement.active_tb_version_id&&!adjustment.reflected_in_source))throw new ApiError('GATE_BLOCKED','An adjusted difference must link to an approved, current or explicitly reflected AJE for its finding.');
+    const matching=await env.DB.prepare(`SELECT COUNT(*) AS count FROM audit_adjustment_lines WHERE workspace_id=? AND adjustment_id=? AND fsli_id=?`).bind(workspaceId,adjustmentId,p.fsliId).first<{count:number}>();
+    if(!Number(matching?.count??0))throw new ApiError('VALIDATION_FAILED','The linked AJE does not include this FSLI.');
+  }else if(p.adjustmentId)throw new ApiError('VALIDATION_FAILED','Only an adjusted difference may reference an AJE.');
+  const differenceId=crypto.randomUUID();const sourceHash=await rowHash({engagementId:engagement.id,tbVersionId:engagement.active_tb_version_id,mappingVersionId:engagement.active_mapping_version_id,
+    materialityVersionId:engagement.active_materiality_version_id,materialitySourceHash:materiality.source_sha256,findingSourceHash:finding.source_hash,fsliId:p.fsliId,amountMinor:p.amountMinor,
+    nature:p.nature,qualitativeSignificance:p.qualitativeSignificance,disposition:p.disposition,dispositionReason:p.dispositionReason,adjustmentId:p.adjustmentId??null});
+  return commandMutation([env.DB.prepare(`INSERT INTO audit_differences(id,workspace_id,version,client_id,engagement_id,finding_id,fsli_id,tb_version_id,mapping_version_id,materiality_version_id,amount_minor,nature,qualitative_significance,disposition,disposition_reason,adjustment_id,source_hash,created_by_actor_id,created_at,updated_at)
+      VALUES(?,?,1,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).bind(differenceId,workspaceId,finding.client_id,engagement.id,finding.id,p.fsliId,engagement.active_tb_version_id,engagement.active_mapping_version_id,engagement.active_materiality_version_id,Number(p.amountMinor),p.nature,p.qualitativeSignificance?1:0,p.disposition,p.dispositionReason,p.adjustmentId??null,sourceHash,context.actor.id,now,now),
+    pushChange(env,workspaceId,engagement.id,'Difference',differenceId,1,now)],{differenceId,version:1,sourceHash,disposition:p.disposition,amountMinor:p.amountMinor,sadMinor:materiality.sad_minor,performanceMaterialityMinor:materiality.performance_minor,planningMaterialityMinor:materiality.planning_minor},'AUDIT_DIFFERENCE',differenceId,null,1,
+    {findingId:finding.id,fsliId:p.fsliId,amountMinor:p.amountMinor,nature:p.nature,qualitativeSignificance:p.qualitativeSignificance,disposition:p.disposition,adjustmentId:p.adjustmentId??null});
+}
+
+type SrmInputs={engagement:Engagement;planning:Record<string,unknown>;materiality:Record<string,unknown>;statementView:Awaited<ReturnType<typeof financialStatements>>;
+  goingConcern:Record<string,unknown>;goingConcernSubmission:Record<string,unknown>;workprograms:Array<Record<string,unknown>>;procedures:Array<Record<string,unknown>>;
+  analyticalReviews:Array<Record<string,unknown>>;findings:Array<Record<string,unknown>>;adjustments:Array<Record<string,unknown>>;adjustmentLines:Array<Record<string,unknown>>;
+  adjustmentEvidence:Array<Record<string,unknown>>;adjustmentRevisions:Array<Record<string,unknown>>;differences:Array<Record<string,unknown>>;reviewSubmissions:Array<Record<string,unknown>>;reviewNotes:Array<Record<string,unknown>>;
+  areaClearances:Array<Record<string,unknown>>;signedUnadjustedMinor:string;grossUnadjustedMinor:string;thresholdAnalysis:Record<string,unknown>;inputDependencyHash:string};
+
+async function collectSrmInputs(env:Env,workspaceId:string,context:BusinessContext,engagementId:string):Promise<SrmInputs>{
+  const engagement=await getEngagement(env,workspaceId,context,engagementId);
+  if(!['MANAGERIAL_REVIEW','PARTNER_APPROVAL'].includes(engagement.lifecycle_state))throw new ApiError('INVALID_STATE','An SRM can be compiled in Managerial Review and cleared in Partner Approval.');
+  if(!engagement.active_materiality_version_id||!engagement.approved_planning_version_id)throw new ApiError('GATE_BLOCKED','Current materiality and approved planning pins are required for SRM.');
+  const statementView=await financialStatements(env,workspaceId,context,engagementId);
+  const [planning,materiality,going,workprogramResult,procedureResult,analyticalResult,findingResult,adjustmentResult,adjustmentLineResult,adjustmentEvidenceResult,adjustmentRevisionResult,differenceResult,reviewResult,noteResult,clearanceResult]=await Promise.all([
+    env.DB.prepare(`SELECT id,revision,tb_version_id AS tbVersionId,mapping_version_id AS mappingVersionId,materiality_version_id AS materialityVersionId,standards_profile_id AS standardsProfileId,source_sha256 AS sourceHash
+      FROM planning_versions WHERE workspace_id=? AND id=? AND engagement_id=?`).bind(workspaceId,engagement.approved_planning_version_id,engagementId).first<Record<string,unknown>>(),
+    env.DB.prepare(`SELECT id,revision,tb_version_id AS tbVersionId,mapping_version_id AS mappingVersionId,benchmark,benchmark_minor AS benchmarkMinor,normalization_minor AS normalizationMinor,
+      planning_minor AS planningMinor,performance_minor AS performanceMinor,sad_minor AS sadMinor,source_sha256 AS sourceHash FROM materiality_versions WHERE workspace_id=? AND id=? AND engagement_id=?`)
+      .bind(workspaceId,engagement.active_materiality_version_id,engagementId).first<Record<string,unknown>>(),
+    env.DB.prepare(`SELECT g.id,g.version,g.revision,g.source_hash AS sourceHash,g.status,g.conclusion,g.assessment_start AS assessmentStart,g.assessment_end AS assessmentEnd,
+      g.checklist_json AS checklistJson,g.events_text AS eventsText,g.mitigating_plans_text AS mitigatingPlansText,g.rationale,g.prepared_by_actor_id AS preparedByActorId,
+      s.id AS submissionId,s.target_version AS submittedVersion,s.dependency_hash AS dependencyHash,d.decision,d.reviewer_actor_id AS reviewerActorId,d.comment AS decisionComment,d.decided_at AS decidedAt
+      FROM going_concern_assessments g LEFT JOIN review_submissions s ON s.workspace_id=g.workspace_id AND s.going_concern_id=g.id AND s.target_kind='GOING_CONCERN'
+      LEFT JOIN review_decisions d ON d.workspace_id=s.workspace_id AND d.submission_id=s.id WHERE g.workspace_id=? AND g.engagement_id=? ORDER BY g.revision DESC,s.submitted_at DESC LIMIT 1`)
+      .bind(workspaceId,engagementId).first<Record<string,unknown>>(),
+    env.DB.prepare(`SELECT w.id,w.version,w.fsli_id AS fsliId,w.status,w.source_hash AS sourceHash,w.planning_version_id AS planningVersionId,
+      EXISTS(SELECT 1 FROM review_submissions s JOIN review_decisions d ON d.workspace_id=s.workspace_id AND d.submission_id=s.id WHERE s.workspace_id=w.workspace_id AND s.workprogram_id=w.id AND d.decision='ACCEPT' AND s.target_version+1=CASE WHEN w.status='PARTNER_CLEARED' THEN w.version-1 ELSE w.version END) AS managerAccepted
+      FROM workprograms w WHERE w.workspace_id=? AND w.engagement_id=? ORDER BY w.fsli_id`).bind(workspaceId,engagementId).all<Record<string,unknown>>(),
+    env.DB.prepare(`SELECT p.id,p.version,p.workprogram_id AS workprogramId,p.status,p.source_hash AS sourceHash,p.evidence_set_hash AS evidenceSetHash,p.mandatory,p.executed_by_staff_id AS executedByStaffId
+      FROM procedures p JOIN workprograms w ON w.workspace_id=p.workspace_id AND w.id=p.workprogram_id WHERE p.workspace_id=? AND w.engagement_id=? ORDER BY w.fsli_id,p.ordinal`).bind(workspaceId,engagementId).all<Record<string,unknown>>(),
+    env.DB.prepare(`SELECT a.id,a.version,a.fsli_id AS fsliId,a.statement_snapshot_id AS statementSnapshotId,a.status,a.source_hash AS sourceHash,a.prepared_by_actor_id AS preparedByActorId
+      FROM analytical_reviews a WHERE a.workspace_id=? AND a.engagement_id=? ORDER BY a.fsli_id,a.updated_at`).bind(workspaceId,engagementId).all<Record<string,unknown>>(),
+    env.DB.prepare(`SELECT id,version,fsli_id AS fsliId,tb_version_id AS tbVersionId,mapping_version_id AS mappingVersionId,materiality_version_id AS materialityVersionId,
+      title,description,severity,qualitative_significance AS qualitativeSignificance,status,client_response AS clientResponse,resolution,source_hash AS sourceHash,created_by_actor_id AS createdByActorId,created_at AS createdAt,updated_at AS updatedAt
+      FROM findings WHERE workspace_id=? AND engagement_id=? ORDER BY created_at,id`).bind(workspaceId,engagementId).all<Record<string,unknown>>(),
+    env.DB.prepare(`SELECT id,version,number,tb_version_id AS tbVersionId,mapping_version_id AS mappingVersionId,materiality_version_id AS materialityVersionId,finding_id AS findingId,description,status,
+      reflected_in_source AS reflectedInSource,reflected_in_source_reason AS reflectedInSourceReason,include_in_statements AS includeInStatements,client_response_decision AS clientResponse,
+      client_response AS clientResponseText,client_response_file_id AS clientResponseFileId,client_responded_by_actor_id AS clientRespondedByActorId,client_responded_at AS clientRespondedAt,
+      source_hash AS sourceHash,created_by_actor_id AS createdByActorId,approved_by_actor_id AS approvedByActorId,created_at AS createdAt,updated_at AS updatedAt
+      FROM audit_adjustments WHERE workspace_id=? AND engagement_id=? ORDER BY number`).bind(workspaceId,engagementId).all<Record<string,unknown>>(),
+    env.DB.prepare(`SELECT l.id,l.adjustment_id AS adjustmentId,l.fsli_id AS fsliId,l.account_code AS accountCode,l.debit_minor AS debitMinor,l.credit_minor AS creditMinor
+      FROM audit_adjustment_lines l JOIN audit_adjustments a ON a.workspace_id=l.workspace_id AND a.id=l.adjustment_id WHERE l.workspace_id=? AND a.engagement_id=? ORDER BY a.number,l.id`).bind(workspaceId,engagementId).all<Record<string,unknown>>(),
+    env.DB.prepare(`SELECT l.id,l.adjustment_id AS adjustmentId,l.evidence_id AS evidenceId,l.evidence_version AS evidenceVersion,l.file_sha256 AS fileSha256,l.source_snapshot_json AS sourceSnapshotJson,
+      l.linked_by_actor_id AS linkedByActorId,l.linked_at AS linkedAt FROM audit_adjustment_evidence_links l JOIN audit_adjustments a ON a.workspace_id=l.workspace_id AND a.id=l.adjustment_id
+      WHERE l.workspace_id=? AND a.engagement_id=? ORDER BY a.number,l.id`).bind(workspaceId,engagementId).all<Record<string,unknown>>(),
+    env.DB.prepare(`SELECT r.adjustment_id AS adjustmentId,r.revision,r.snapshot_json AS snapshotJson,r.source_hash AS sourceHash,r.changed_by_actor_id AS changedByActorId,r.changed_at AS changedAt
+      FROM audit_adjustment_revisions r JOIN audit_adjustments a ON a.workspace_id=r.workspace_id AND a.id=r.adjustment_id WHERE r.workspace_id=? AND a.engagement_id=? ORDER BY a.number,r.revision`).bind(workspaceId,engagementId).all<Record<string,unknown>>(),
+    env.DB.prepare(`SELECT id,version,finding_id AS findingId,fsli_id AS fsliId,tb_version_id AS tbVersionId,mapping_version_id AS mappingVersionId,materiality_version_id AS materialityVersionId,
+      amount_minor AS amountMinor,nature,qualitative_significance AS qualitativeSignificance,disposition,disposition_reason AS dispositionReason,adjustment_id AS adjustmentId,source_hash AS sourceHash,created_at AS createdAt
+      FROM audit_differences WHERE workspace_id=? AND engagement_id=? ORDER BY created_at,id`).bind(workspaceId,engagementId).all<Record<string,unknown>>(),
+    env.DB.prepare(`SELECT s.id,s.target_kind AS targetKind,s.target_version AS targetVersion,s.snapshot_json AS snapshotJson,s.dependency_hash AS dependencyHash,s.submitted_by_actor_id AS submittedByActorId,
+      s.submitted_natural_person_key AS submittedNaturalPersonKey,s.submitted_at AS submittedAt,d.decision,d.reviewer_actor_id AS reviewerActorId,d.reviewer_natural_person_key AS reviewerNaturalPersonKey,d.comment AS decisionComment,d.decided_at AS decidedAt
+      FROM review_submissions s LEFT JOIN review_decisions d ON d.workspace_id=s.workspace_id AND d.submission_id=s.id WHERE s.workspace_id=? AND s.engagement_id=? ORDER BY s.submitted_at,s.id`).bind(workspaceId,engagementId).all<Record<string,unknown>>(),
+    env.DB.prepare(`SELECT n.id,n.version,n.submission_id AS submissionId,n.procedure_id AS procedureId,n.status,n.text,n.response_text AS responseText,n.response_at AS responseAt,n.closed_at AS closedAt,n.closure_reason AS closureReason
+      FROM review_notes n JOIN review_submissions s ON s.workspace_id=n.workspace_id AND s.id=n.submission_id WHERE s.workspace_id=? AND s.engagement_id=? ORDER BY n.created_at,n.id`).bind(workspaceId,engagementId).all<Record<string,unknown>>(),
+    env.DB.prepare(`SELECT c.id,c.workprogram_id AS workprogramId,c.reviewed_submission_id AS reviewedSubmissionId,c.partner_actor_id AS partnerActorId,c.dependency_hash AS dependencyHash,c.rationale,c.signed_at AS signedAt
+      FROM partner_area_clearances c JOIN workprograms w ON w.workspace_id=c.workspace_id AND w.id=c.workprogram_id WHERE c.workspace_id=? AND w.engagement_id=? ORDER BY c.workprogram_id,c.signed_at`).bind(workspaceId,engagementId).all<Record<string,unknown>>()
+  ]);
+  if(!planning||!materiality||!going)throw new ApiError('GATE_BLOCKED','A pinned planning, materiality, and going-concern record are mandatory for SRM.');
+  if(planning.tbVersionId!==engagement.active_tb_version_id||planning.mappingVersionId!==engagement.active_mapping_version_id||planning.materialityVersionId!==engagement.active_materiality_version_id||
+    materiality.tbVersionId!==engagement.active_tb_version_id||materiality.mappingVersionId!==engagement.active_mapping_version_id)throw new ApiError('STALE_DEPENDENCY','Planning or materiality does not match the active TB, mapping, and materiality pins.');
+  const goingDependency=await rowHash({sourceHash:going.sourceHash,standardsProfileId:engagement.standards_profile_id,tbVersionId:engagement.active_tb_version_id,mappingVersionId:engagement.active_mapping_version_id});
+  if(going.status!=='REVIEWED'||going.decision!=='ACCEPT'||Number(going.submittedVersion)+1!==Number(going.version)||going.dependencyHash!==goingDependency)throw new ApiError('GATE_BLOCKED','The latest going-concern assessment must be independently accepted against current source pins.');
+  const workprograms=workprogramResult.results??[];const procedures=procedureResult.results??[];const analyticalReviews=analyticalResult.results??[];const findings=findingResult.results??[];const adjustments=adjustmentResult.results??[];
+  if(!workprograms.length||workprograms.some(row=>row.status!=='PARTNER_CLEARED'||Number(row.managerAccepted)!==1||row.planningVersionId!==engagement.approved_planning_version_id))throw new ApiError('GATE_BLOCKED','Every current workprogram must have Manager acceptance and Partner area clearance before the SRM can be compiled.');
+  if(!procedures.length||procedures.some(row=>row.status!=='REVIEWED'))throw new ApiError('GATE_BLOCKED','Every applicable procedure must be independently reviewed before the SRM can be compiled.');
+  if(analyticalReviews.some(row=>row.status!=='REVIEWED'))throw new ApiError('GATE_BLOCKED','Resolve every draft, returned, or pending analytical review before compiling the SRM.');
+  for(const review of analyticalReviews){const accepted=(reviewResult.results??[]).some(sub=>sub.targetKind==='ANALYTICAL_REVIEW'&&sub.snapshotJson&&sub.decision==='ACCEPT'&&Number(sub.targetVersion)+1===review.version&&JSON.parse(String(sub.snapshotJson)).id===review.id);
+    if(!accepted)throw new ApiError('GATE_BLOCKED','Every analytical review in the SRM must have an exact independently accepted submission.');
+    const snapshot=await env.DB.prepare(`SELECT source_hash FROM statement_snapshots WHERE workspace_id=? AND id=? AND engagement_id=?`).bind(workspaceId,review.statementSnapshotId,engagementId).first<{source_hash:string}>();
+    if(!snapshot||snapshot.source_hash!==statementView.sourceHash)throw new ApiError('STALE_DEPENDENCY','An analytical review uses an outdated statement snapshot.');
+  }
+  const submissions=reviewResult.results??[];const notes=noteResult.results??[];
+  if(submissions.some(row=>row.decision===null)||(notes.some(row=>row.status!=='CLOSED')))throw new ApiError('GATE_BLOCKED','Pending review submissions and open review notes must be resolved before compiling the SRM.');
+  if(findings.some(row=>row.tbVersionId!==engagement.active_tb_version_id||row.mappingVersionId!==engagement.active_mapping_version_id||row.materialityVersionId!==engagement.active_materiality_version_id))throw new ApiError('STALE_DEPENDENCY','A finding is pinned to obsolete TB, mapping, or materiality. Reassess it before compiling the SRM.');
+  const adjustmentLines=adjustmentLineResult.results??[];const adjustmentEvidence:Array<Record<string,unknown>>=(adjustmentEvidenceResult.results??[]).map(link=>({...link,sourceSnapshot:JSON.parse(String(link.sourceSnapshotJson))}));const adjustmentRevisions=adjustmentRevisionResult.results??[];
+  for(const adjustment of adjustments){
+    if(!['REVIEW_APPROVED','REVERSED'].includes(String(adjustment.status))||!adjustment.clientResponse||!adjustment.clientResponseText||!adjustment.approvedByActorId)throw new ApiError('GATE_BLOCKED',`Adjustment ${String(adjustment.number)} needs a recorded client response and independent approval before SRM compilation.`);
+    const lines=adjustmentLines.filter(line=>line.adjustmentId===adjustment.id);if(lines.length<2)throw new ApiError('GATE_BLOCKED',`Adjustment ${String(adjustment.number)} has no complete immutable line set.`);
+    assertBalancedAdjustment(lines.map(line=>({debitMinor:Number(line.debitMinor),creditMinor:Number(line.creditMinor)})));
+    const evidence=adjustmentEvidence.filter(link=>link.adjustmentId===adjustment.id);if(!evidence.length)throw new ApiError('GATE_BLOCKED',`Adjustment ${String(adjustment.number)} has no exact evidence pins.`);
+    await verifyAdjustmentEvidence(env,workspaceId,engagement,evidence);
+    if(Number(adjustment.includeInStatements)===1&&(adjustment.tbVersionId!==engagement.active_tb_version_id||adjustment.mappingVersionId!==engagement.active_mapping_version_id))throw new ApiError('STALE_DEPENDENCY',`Adjustment ${String(adjustment.number)} is overlaid on a replaced source.`);
+    if(adjustment.tbVersionId!==engagement.active_tb_version_id&&Number(adjustment.reflectedInSource)!==1)throw new ApiError('GATE_BLOCKED',`Adjustment ${String(adjustment.number)} has no reviewer disposition for the replacement TB.`);
+  }
+  const differences=differenceResult.results??[];const sad=BigInt(Number(materiality.sadMinor));const te=BigInt(Number(materiality.performanceMinor));const pm=BigInt(Number(materiality.planningMinor));
+  let signed=0n;let gross=0n;
+  for(const difference of differences){
+    if(difference.tbVersionId!==engagement.active_tb_version_id||difference.mappingVersionId!==engagement.active_mapping_version_id||difference.materialityVersionId!==engagement.active_materiality_version_id)throw new ApiError('STALE_DEPENDENCY','A difference is pinned to obsolete TB, mapping, or materiality. Reassess it before compiling the SRM.');
+    const amount=BigInt(String(difference.amountMinor));const absolute=amount<0n?-amount:amount;
+    if(difference.disposition==='CLEARLY_TRIVIAL'&&(Number(difference.qualitativeSignificance)!==0||absolute>sad))throw new ApiError('GATE_BLOCKED','A qualitative or above-SAD difference cannot be excluded as clearly trivial.');
+    if(difference.disposition==='UNADJUSTED'){signed+=amount;gross+=absolute;}
+  }
+  if(signed>BigInt(Number.MAX_SAFE_INTEGER)||signed<BigInt(Number.MIN_SAFE_INTEGER)||gross>BigInt(Number.MAX_SAFE_INTEGER))throw new ApiError('CALCULATION_DOMAIN_EXCEEDED','Unadjusted-difference totals exceed safe QAR minor-unit precision.');
+  const absoluteSigned=signed<0n?-signed:signed;
+  const thresholdAnalysis={perItem:differences.map(row=>{const amount=BigInt(String(row.amountMinor));const abs=amount<0n?-amount:amount;return {differenceId:row.id,amountMinor:String(amount),qualitativeSignificance:Boolean(row.qualitativeSignificance),
+      exceedsSAD:abs>sad,exceedsTE:abs>te,exceedsPM:abs>pm,disposition:row.disposition};}),aggregate:{signedMinor:signed.toString(),absoluteSignedMinor:absoluteSigned.toString(),grossMinor:gross.toString(),
+      signedExceedsSAD:absoluteSigned>sad,signedExceedsTE:absoluteSigned>te,signedExceedsPM:absoluteSigned>pm,grossExceedsSAD:gross>sad,grossExceedsTE:gross>te,grossExceedsPM:gross>pm}};
+  const areaClearances=clearanceResult.results??[];const clearancePins:Array<Record<string,unknown>>=[];
+  for(const program of workprograms){
+    const procedureItems=procedures.filter(row=>row.workprogramId===program.id).map(row=>({id:row.id,version:row.version,status:row.status,sourceHash:row.sourceHash,evidenceSetHash:row.evidenceSetHash}));
+    const dependencyHash=await rowHash({workprogramSourceHash:program.sourceHash,planningVersionId:program.planningVersionId,tbVersionId:engagement.active_tb_version_id,mappingVersionId:engagement.active_mapping_version_id,dependencies:procedureItems});
+    const clearance=areaClearances.find(row=>row.workprogramId===program.id&&row.dependencyHash===dependencyHash);
+    if(!clearance)throw new ApiError('STALE_DEPENDENCY',`Partner area clearance for workprogram ${String(program.id)} is stale.`);
+    clearancePins.push(clearance);
+  }
+  const inputDependencyHash=await rowHash({engagementId,sourcePins:{tbVersionId:engagement.active_tb_version_id,mappingVersionId:engagement.active_mapping_version_id,materialityVersionId:engagement.active_materiality_version_id,
+      planningVersionId:engagement.approved_planning_version_id,standardsProfileId:engagement.standards_profile_id},planning,materiality,statementSourceHash:statementView.sourceHash,adjustmentSetHash:statementView.adjustmentSetHash,
+    goingConcern:going,workprograms,procedures,analyticalReviews,findings,adjustments,adjustmentLines,adjustmentEvidence,adjustmentRevisions,differences,reviewSubmissions:submissions,reviewNotes:notes,areaClearances:clearancePins,
+    signedUnadjustedMinor:signed.toString(),grossUnadjustedMinor:gross.toString(),thresholdAnalysis});
+  return {engagement,planning,materiality,statementView,goingConcern:going,goingConcernSubmission:going,workprograms,procedures,analyticalReviews,findings,adjustments,adjustmentLines,adjustmentEvidence,adjustmentRevisions,differences,
+    reviewSubmissions:submissions,reviewNotes:notes,areaClearances:clearancePins,signedUnadjustedMinor:signed.toString(),grossUnadjustedMinor:gross.toString(),thresholdAnalysis,inputDependencyHash};
+}
+
+async function compileSrm(env:Env,workspaceId:string,context:BusinessContext,command:Extract<BusinessFieldworkCommand,{type:'srm.compile'}>,now:string):Promise<BusinessMutation>{
+  if(context.actor.persona!=='REVIEWER'||context.actor.staffGrade!=='MANAGER')throw new ApiError('PERSONA_ACTION_DENIED','Only a Manager-grade REVIEWER can compile the SRM recommendation.');
+  const p=command.payload;const inputs=await collectSrmInputs(env,workspaceId,context,p.engagementId);
+  if(inputs.engagement.lifecycle_state!=='MANAGERIAL_REVIEW')throw new ApiError('INVALID_STATE','The Manager recommendation must be compiled during Managerial Review.');
+  const dependencyHash=await rowHash({inputDependencyHash:inputs.inputDependencyHash,managerRecommendation:p.managerRecommendation,estimatesText:p.estimatesText});
+  const existing=await env.DB.prepare(`SELECT id FROM statement_snapshots WHERE workspace_id=? AND engagement_id=? AND source_hash=?`).bind(workspaceId,p.engagementId,inputs.statementView.sourceHash).first<{id:string}>();
+  const snapshotId=existing?.id??crypto.randomUUID();const revision=await env.DB.prepare(`SELECT COALESCE(MAX(revision),0) AS value FROM srm_versions WHERE workspace_id=? AND engagement_id=?`).bind(workspaceId,p.engagementId).first<{value:number}>();
+  const srmId=crypto.randomUUID();const nextRevision=Number(revision?.value??0)+1;const {statementView,materiality}=inputs;
+  const materialitySnapshot={id:materiality.id,revision:materiality.revision,benchmark:materiality.benchmark,benchmarkMinor:materiality.benchmarkMinor,normalizationMinor:materiality.normalizationMinor,
+    planningMinor:materiality.planningMinor,performanceMinor:materiality.performanceMinor,sadMinor:materiality.sadMinor,sourceHash:materiality.sourceHash};
+  const findingsSnapshot={findings:inputs.findings,differences:inputs.differences,thresholdAnalysis:inputs.thresholdAnalysis};
+  const adjustmentsSnapshot={adjustments:inputs.adjustments,lines:inputs.adjustmentLines,evidence:inputs.adjustmentEvidence,revisions:inputs.adjustmentRevisions};
+  const reviewSnapshot={workprograms:inputs.workprograms,procedures:inputs.procedures,analyticalReviews:inputs.analyticalReviews,goingConcern:inputs.goingConcern,goingConcernSubmission:inputs.goingConcernSubmission,
+    reviewSubmissions:inputs.reviewSubmissions,reviewNotes:inputs.reviewNotes,partnerAreaClearances:inputs.areaClearances,sourcePins:statementView.sourcePins,statementSourceHash:statementView.sourceHash,
+    statementAdjustmentSetHash:statementView.adjustmentSetHash,managerRecommendation:p.managerRecommendation};
+  const statements:D1PreparedStatement[]=[];
+  if(!existing){const lineRows=[...statementView.profitLoss,...statementView.balanceSheet].map(line=>[crypto.randomUUID(),workspaceId,snapshotId,line.fsliId,line.currentBaseMinor,line.currentAdjustmentMinor,line.currentAdjustedMinor,
+      line.priorMinor,line.varianceNumerator,line.varianceDenominator,line.varianceReason,line.riskBand]);
+    statements.push(env.DB.prepare(`INSERT INTO statement_snapshots(id,workspace_id,client_id,engagement_id,tb_version_id,mapping_version_id,adjustment_set_hash,standards_profile_id,source_hash,generated_at,generated_by_actor_id)
+      VALUES(?,?,?,?,?,?,?,?,?,?,?)`).bind(snapshotId,workspaceId,inputs.engagement.client_id,inputs.engagement.id,inputs.engagement.active_tb_version_id,inputs.engagement.active_mapping_version_id,statementView.adjustmentSetHash,
+      inputs.engagement.standards_profile_id,statementView.sourceHash,now,context.actor.id),
+      ...makeMultiInsertStatements(env,'statement_snapshot_lines',['id','workspace_id','snapshot_id','fsli_id','current_base_minor','current_adjustment_minor','current_adjusted_minor','prior_minor','variance_numerator','variance_denominator','variance_reason','risk_band'],lineRows));
+  }
+  statements.push(env.DB.prepare(`INSERT INTO srm_versions(id,workspace_id,client_id,engagement_id,revision,planning_version_id,statement_snapshot_id,signed_unadjusted_minor,gross_unadjusted_minor,
+      materiality_snapshot_json,findings_snapshot_json,adjustments_snapshot_json,review_snapshot_json,estimates_text,going_concern_id,manager_recommendation,dependency_hash,compiled_by_actor_id,compiled_at)
+    VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).bind(srmId,workspaceId,inputs.engagement.client_id,inputs.engagement.id,nextRevision,inputs.engagement.approved_planning_version_id,snapshotId,
+      Number(inputs.signedUnadjustedMinor),Number(inputs.grossUnadjustedMinor),JSON.stringify(materialitySnapshot),JSON.stringify(findingsSnapshot),JSON.stringify(adjustmentsSnapshot),JSON.stringify(reviewSnapshot),
+      p.estimatesText,String(inputs.goingConcern.id),p.managerRecommendation,dependencyHash,context.actor.id,now),
+    pushChange(env,workspaceId,p.engagementId,'SRM',srmId,1,now));
+  return commandMutation(statements,{srmVersionId:srmId,revision:nextRevision,statementSnapshotId:snapshotId,dependencyHash,signedUnadjustedMinor:inputs.signedUnadjustedMinor,
+    grossUnadjustedMinor:inputs.grossUnadjustedMinor,thresholdAnalysis:inputs.thresholdAnalysis,materialitySnapshot,reviewSnapshot,compiledAt:now},'SRM',srmId,null,1,{dependencyHash,revision:nextRevision});
+}
+
+async function clearSrm(env:Env,workspaceId:string,context:BusinessContext,command:Extract<BusinessFieldworkCommand,{type:'srm.clear'}>,now:string):Promise<BusinessMutation>{
+  requirePartner(context);const p=command.payload;
+  const srm=await env.DB.prepare(`SELECT * FROM srm_versions WHERE workspace_id=? AND id=?`).bind(workspaceId,p.srmVersionId).first<Record<string,unknown>>();
+  if(!srm)throw new ApiError('NOT_FOUND','The SRM version was not found.');const engagement=await getEngagement(env,workspaceId,context,String(srm.engagement_id));
+  if(engagement.lifecycle_state!=='PARTNER_APPROVAL')throw new ApiError('INVALID_STATE','Partner SRM clearance follows handover into Partner Approval.');
+  if(srm.dependency_hash!==p.dependencyHash)throw new ApiError('STALE_DEPENDENCY','The presented SRM hash does not match the immutable Manager recommendation.');
+  const latest=await env.DB.prepare(`SELECT id FROM srm_versions WHERE workspace_id=? AND engagement_id=? ORDER BY revision DESC LIMIT 1`).bind(workspaceId,engagement.id).first<{id:string}>();
+  if(latest?.id!==p.srmVersionId)throw new ApiError('STALE_DEPENDENCY','A newer SRM version exists. Clear only the current Manager recommendation.');
+  const inputs=await collectSrmInputs(env,workspaceId,context,engagement.id);const currentDependency=await rowHash({inputDependencyHash:inputs.inputDependencyHash,managerRecommendation:srm.manager_recommendation,estimatesText:srm.estimates_text});
+  if(currentDependency!==srm.dependency_hash)throw new ApiError('STALE_DEPENDENCY','An SRM source changed after Manager compilation. Recompile the current snapshot before Partner clearance.');
+  const managerPerson=await actorNaturalPerson(env,workspaceId,String(srm.compiled_by_actor_id));const partner=await actorStaff(env,workspaceId,context);
+  if(!managerPerson||partner.natural_person_key===managerPerson)throw new ApiError('SELF_REVIEW_BLOCKED','Partner clearance must come from a different natural person from the Manager compiler.');
+  const reused=await env.DB.prepare(`SELECT id FROM srm_clearances WHERE workspace_id=? AND srm_version_id=? AND dependency_hash=?`).bind(workspaceId,p.srmVersionId,p.dependencyHash).first<{id:string}>();
+  if(reused)return commandMutation([],{srmVersionId:p.srmVersionId,clearanceId:reused.id,dependencyHash:p.dependencyHash,reused:true},'SRM_CLEARANCE',reused.id,null,1);
+  const clearanceId=crypto.randomUUID();return commandMutation([env.DB.prepare(`INSERT INTO srm_clearances(id,workspace_id,srm_version_id,partner_actor_id,rationale,dependency_hash,signed_at) VALUES(?,?,?,?,?,?,?)`)
+      .bind(clearanceId,workspaceId,p.srmVersionId,context.actor.id,p.rationale,p.dependencyHash,now),pushChange(env,workspaceId,engagement.id,'SRMClearance',clearanceId,1,now)],
+    {srmVersionId:p.srmVersionId,clearanceId,dependencyHash:p.dependencyHash,clearedAt:now},'SRM_CLEARANCE',clearanceId,null,1,{srmVersionId:p.srmVersionId,dependencyHash:p.dependencyHash});
+}
+
 export async function buildBusinessFieldworkMutation(env:Env,workspaceId:string,context:BusinessContext,command:BusinessFieldworkCommand,commandId:string,now:string):Promise<BusinessMutation>{
   switch(command.type){
     case 'statement.snapshot':return saveStatementSnapshot(env,workspaceId,context,command,now);
@@ -1480,6 +1944,16 @@ export async function buildBusinessFieldworkMutation(env:Env,workspaceId:string,
     case 'partner.clear-area':return clearPartnerArea(env,workspaceId,context,command,now);
     case 'fieldwork.handover-manager':return handoverToManager(env,workspaceId,context,command,commandId,now);
     case 'fieldwork.handover-partner':return handoverToPartner(env,workspaceId,context,command,commandId,now);
+    case 'finding.create':return createFinding(env,workspaceId,context,command,now);
+    case 'finding.respond':return respondFinding(env,workspaceId,context,command,now);
+    case 'finding.resolve':return resolveFinding(env,workspaceId,context,command,now);
+    case 'adjustment.create':return createAdjustment(env,workspaceId,context,command,now);
+    case 'adjustment.propose':return proposeAdjustment(env,workspaceId,context,command,now);
+    case 'adjustment.client-respond':return respondToAdjustment(env,workspaceId,context,command,now);
+    case 'adjustment.approve':return approveAdjustment(env,workspaceId,context,command,now);
+    case 'difference.create':return createDifference(env,workspaceId,context,command,now);
+    case 'srm.compile':return compileSrm(env,workspaceId,context,command,now);
+    case 'srm.clear':return clearSrm(env,workspaceId,context,command,now);
     case 'sampling.policy.create':return createSamplingPolicy(env,workspaceId,context,command,now);
     case 'sampling.policy.approve':return approveSamplingPolicy(env,workspaceId,context,command,now);
     case 'sampling.population.create':return createSamplePopulation(env,workspaceId,context,command,now);

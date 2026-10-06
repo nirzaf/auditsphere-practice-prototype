@@ -55,6 +55,10 @@ function statusLabel(status: BusinessPbcRequest['status']): string {
   return 'Rejected / Re-upload Required';
 }
 
+function formatMinorAmount(value: unknown): string {
+  const amount=Number(value);return Number.isSafeInteger(amount)?`${new Intl.NumberFormat('en', {minimumFractionDigits:2,maximumFractionDigits:2}).format(amount/100)} QAR`:'Amount unavailable';
+}
+
 export function BusinessPbcPanel({
   workspaceId, selected, context, onChanged
 }: {
@@ -75,6 +79,8 @@ export function BusinessPbcPanel({
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
   const [clientComments, setClientComments] = useState<Record<string, string>>({});
+  const [findingResponses, setFindingResponses] = useState<Record<string, string>>({});
+  const [adjustmentResponses, setAdjustmentResponses] = useState<Record<string, string>>({});
   const [reviewComments, setReviewComments] = useState<Record<string, string>>({});
   const [pendingRequestIds, setPendingRequestIds] = useState<string[]>([]);
   const uploadAttempts = useRef(new Map<string, PendingUpload>());
@@ -279,6 +285,22 @@ export function BusinessPbcPanel({
     finally { setBusyRequestId(null); }
   };
 
+  const respondToFinding = async (finding: BusinessPbcPortal['findings'][number]) => {
+    if(!engagement||!requestContext)return;const clientResponse=findingResponses[finding.id]?.trim()??'';if(clientResponse.length<10)return;
+    const payload={findingId:finding.id,expectedVersion:finding.version,clientResponse};setBusyRequestId(finding.id);setError('');setMessage('');
+    try{await runBusinessCommand(workspaceId,requestContext,{type:'finding.respond',payload},commandKeyFor(`finding.respond:${finding.id}`,payload));
+      setMessage(`Response recorded for ${finding.fsliCode} finding.`);setFindingResponses(current=>({...current,[finding.id]:''}));await refreshNow();}
+    catch(reason){setError(reason instanceof Error?reason.message:'The finding response could not be saved.');}finally{setBusyRequestId(null);}
+  };
+
+  const respondToAdjustment = async (adjustment: BusinessPbcPortal['adjustments'][number], decision: 'ACCEPTED'|'DECLINED') => {
+    if(!engagement||!requestContext)return;const adjustmentId=String(adjustment.id);const responseText=adjustmentResponses[adjustmentId]?.trim()??'';if(responseText.length<10)return;
+    const payload={adjustmentId,expectedVersion:Number(adjustment.version),decision,responseText};setBusyRequestId(adjustmentId);setError('');setMessage('');
+    try{await runBusinessCommand(workspaceId,requestContext,{type:'adjustment.client-respond',payload},commandKeyFor(`adjustment.client-respond:${adjustmentId}`,payload));
+      setMessage(`${String(adjustment.number)} response recorded.`);setAdjustmentResponses(current=>({...current,[adjustmentId]:''}));await refreshNow();}
+    catch(reason){setError(reason instanceof Error?reason.message:'The adjustment response could not be saved.');}finally{setBusyRequestId(null);}
+  };
+
   const downloadSubmission = async (fileId: string, fileName: string) => {
     if (!requestContext || downloadingId) return;
     setDownloadingId(fileId);
@@ -376,6 +398,47 @@ export function BusinessPbcPanel({
       </ul>}
 
       {context.actor.persona === 'CLIENT' && <div className="business-pbc-documents">
+        <section className="business-pbc-fieldwork" aria-labelledby="business-pbc-fieldwork-heading">
+          <h3 id="business-pbc-fieldwork-heading">Audit findings and proposed adjustments</h3>
+          <p className="business-muted">Your response is saved with the selected client engagement and the proposal version shown here.</p>
+          {!portal.canRespondFieldwork && <p className="business-muted">Fieldwork responses are closed for this engagement stage.</p>}
+          <div className="business-pbc-fieldwork-list">
+            {portal.findings.map(finding=><article className="business-pbc-fieldwork-card" key={finding.id}>
+              <div className="business-pbc-card-head"><div><h4>{finding.fsliCode} · {finding.title}</h4><p>{finding.description}</p><small>{finding.severity.replaceAll('_',' ')}{finding.qualitativeSignificance?' · Qualitatively significant':''}</small></div>
+                <span className={`business-pbc-status status-${finding.status.toLowerCase()}`}>{finding.status.replaceAll('_',' ')}</span></div>
+              {finding.clientResponse&&<p><strong>Your response:</strong> {finding.clientResponse}</p>}
+              {finding.status==='OPEN'&&portal.canRespondFieldwork&&<div className="business-pbc-review-form">
+                <label className="business-field" htmlFor={`business-finding-response-${finding.id}`}><span>Your response</span><textarea id={`business-finding-response-${finding.id}`} rows={3} maxLength={10000} value={findingResponses[finding.id]??''}
+                  onChange={event=>setFindingResponses(current=>({...current,[finding.id]:event.target.value}))}/></label>
+                <button type="button" className="btn sm" disabled={Boolean(busyRequestId)||(findingResponses[finding.id]?.trim().length??0)<10} onClick={()=>void respondToFinding(finding)}>{busyRequestId===finding.id?'Saving…':'Submit finding response'}</button>
+              </div>}
+            </article>)}
+            {portal.adjustments.map(adjustment=>{
+              const adjustmentId=String(adjustment.id);const status=String(adjustment.status);const lines=adjustment.lines;
+              return <article className="business-pbc-fieldwork-card" key={adjustmentId}>
+                <div className="business-pbc-card-head"><div><h4>{String(adjustment.number)} · Proposed audit adjustment</h4><p>{String(adjustment.description)}</p></div>
+                  <span className={`business-pbc-status status-${status.toLowerCase()}`}>{status.replaceAll('_',' ')}</span></div>
+                <ul className="business-pbc-adjustment-lines">{lines.map((line,index)=><li key={`${adjustmentId}-${String(line.fsliId)}-${index}`}>
+                  <span>{String(line.fsliCode)} · {String(line.fsliName)}{line.accountCode?` · ${String(line.accountCode)}`:''}</span>
+                  <span>Dr {formatMinorAmount(line.debitMinor)} · Cr {formatMinorAmount(line.creditMinor)}</span>
+                </li>)}</ul>
+                {adjustment.evidence.length>0&&<details><summary>Supporting evidence ({adjustment.evidence.length})</summary><ul>{adjustment.evidence.map((item,index)=>{
+                  const source=item.sourceSnapshot as Record<string,unknown>;return <li key={`${adjustmentId}-evidence-${index}`}>{String(source.title??'Evidence')}
+                    {Boolean(source.fileSha256)&&<small> · SHA-256 {String(source.fileSha256).slice(0,12)}…</small>}
+                    <small> · version {String(source.version??item.evidenceVersion)} · {String(source.adequacy??'review pending')}</small></li>;
+                })}</ul></details>}
+                {Boolean(adjustment.clientResponseText)&&<p><strong>Your decision:</strong> {String(adjustment.clientResponse)} — {String(adjustment.clientResponseText)}</p>}
+                {status==='PROPOSED'&&portal.canRespondFieldwork&&<div className="business-pbc-review-form">
+                  <label className="business-field" htmlFor={`business-adjustment-response-${adjustmentId}`}><span>Decision rationale</span><textarea id={`business-adjustment-response-${adjustmentId}`} rows={3} maxLength={10000} value={adjustmentResponses[adjustmentId]??''}
+                    onChange={event=>setAdjustmentResponses(current=>({...current,[adjustmentId]:event.target.value}))}/></label>
+                  <div className="business-dialog-actions"><button type="button" className="btn sm" disabled={Boolean(busyRequestId)||(adjustmentResponses[adjustmentId]?.trim().length??0)<10} onClick={()=>void respondToAdjustment(adjustment,'ACCEPTED')}>{busyRequestId===adjustmentId?'Saving…':'Accept adjustment'}</button>
+                    <button type="button" className="btn sm" disabled={Boolean(busyRequestId)||(adjustmentResponses[adjustmentId]?.trim().length??0)<10} onClick={()=>void respondToAdjustment(adjustment,'DECLINED')}>Decline with reason</button></div>
+                </div>}
+              </article>;
+            })}
+            {!portal.findings.length&&!portal.adjustments.length&&<p className="business-muted">No findings or proposed audit adjustments need a client response.</p>}
+          </div>
+        </section>
         <section><h3>Commercial documents</h3>{portal.commercialDocuments.length ? <ul>{portal.commercialDocuments.map(file => <li key={file.id}><span>{file.originalName}</span><button type="button" className="btn sm" disabled={Boolean(downloadingId)} onClick={() => void downloadPortalFile(file.id, file.originalName)}>{downloadingId === file.id ? 'Checking bytes…' : 'Download'}</button></li>)}</ul> : <p className="business-muted">No current approved commercial documents are available.</p>}</section>
         <section><h3>Released deliverables</h3>{portal.releasedDeliverables.length ? <ul>{portal.releasedDeliverables.map(file => <li key={file.id}><span>{file.originalName}</span><button type="button" className="btn sm" disabled={Boolean(downloadingId)} onClick={() => void downloadPortalFile(file.id, file.originalName)}>{downloadingId === file.id ? 'Checking bytes…' : 'Download'}</button></li>)}</ul> : <p className="business-muted">No deliverables have been released.</p>}</section>
       </div>}

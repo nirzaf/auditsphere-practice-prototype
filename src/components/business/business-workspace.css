@@ -158,6 +158,10 @@
 .business-pbc-status.status-under_review { background: #eff6ff; color: #1e40af; }
 .business-pbc-status.status-approved { background: #f0fdf4; color: #166534; }
 .business-pbc-status.status-rejected_reupload_required { background: #fff7ed; color: #9a3412; }
+.business-pbc-status.status-open, .business-pbc-status.status-proposed { background: #fff7ed; color: #9a3412; }
+.business-pbc-status.status-responded, .business-pbc-status.status-client_accepted { background: #eff6ff; color: #1e40af; }
+.business-pbc-status.status-resolved, .business-pbc-status.status-review_approved { background: #f0fdf4; color: #166534; }
+.business-pbc-status.status-client_declined { background: #fef2f2; color: #991b1b; }
 .business-pbc-flags { display: flex; flex-wrap: wrap; gap: 6px; }
 .business-pbc-flags span { border-radius: 99px; padding: 4px 8px; background: var(--color-site-bg); color: var(--muted); font-size: 11px; font-weight: 600; }
 .business-pbc-submissions { display: grid; gap: 10px; margin: 0; padding-left: 24px; }
@@ -171,6 +175,15 @@
 .business-pbc-panel :is(button, input, select, textarea):focus-visible { outline: 3px solid #60a5fa; outline-offset: 2px; }
 .business-pbc-documents { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-top: 16px; }
 .business-pbc-documents > section { min-width: 0; padding: 12px; border: 1px solid var(--line); border-radius: 9px; }
+.business-pbc-documents > .business-pbc-fieldwork { grid-column: 1 / -1; display: grid; gap: 12px; }
+.business-pbc-fieldwork-list { min-width: 0; display: grid; gap: 10px; }
+.business-pbc-fieldwork-card { min-width: 0; display: grid; gap: 10px; padding: 14px; border: 1px solid var(--line); border-radius: 9px; background: #fff; }
+.business-pbc-fieldwork-card h4 { margin: 0 0 5px; overflow-wrap: anywhere; }
+.business-pbc-adjustment-lines { list-style: none; display: grid; gap: 7px; margin: 0; padding: 0; }
+.business-pbc-adjustment-lines li { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 4px 14px; padding: 8px 0; border-bottom: 1px solid var(--line); }
+.business-pbc-fieldwork-card details summary { min-height: 44px; display: flex; align-items: center; cursor: pointer; font-weight: 600; }
+.business-pbc-fieldwork-card details li { display: block; }
+.business-pbc-fieldwork :is(button,textarea) { min-height: 44px; }
 .business-pbc-documents h3 { margin: 0 0 8px; font-size: 1rem; }
 .business-pbc-documents ul { list-style: none; display: grid; gap: 8px; margin: 0; padding: 0; }
 .business-pbc-documents li { display: flex; align-items: center; justify-content: space-between; gap: 8px; overflow-wrap: anywhere; }
@@ -317,8 +330,13 @@
 .business-fieldwork-pagination { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 8px 14px; padding: 8px 0; color: var(--muted); font-size: .85rem; }
 .business-fieldwork-pagination button { min-height: 44px; }
 .business-fieldwork-review { display: grid; gap: 8px; min-width: min(100%, 300px); }
+.business-adjustment-draft-lines { min-width: 0; display: grid; gap: 10px; margin: 0; padding: 0; list-style: none; }
+.business-adjustment-draft-line { min-width: 0; display: grid; grid-template-columns: minmax(140px,1.5fr) repeat(3,minmax(110px,1fr)); gap: 10px; padding: 12px; border: 1px solid var(--line); border-radius: 8px; }
+.business-adjustment-draft-lines > li { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 5px 12px; padding: 8px 0; border-bottom: 1px solid var(--line); }
+.business-fieldwork-body :is(input,select,textarea) { max-width: 100%; }
 .business-fieldwork-review .business-field { margin: 0; }
 @media (max-width: 700px) {
+  .business-adjustment-draft-line { grid-template-columns: minmax(0,1fr); }
   .business-fieldwork-head, .business-fieldwork-panel .business-section-heading { align-items: stretch; flex-direction: column; }
   .business-fieldwork-reconciliation { grid-template-columns: minmax(0, 1fr); }
   .business-fieldwork-template-step { grid-template-columns: minmax(0,1fr); }

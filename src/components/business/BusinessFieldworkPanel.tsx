@@ -15,8 +15,9 @@ import {
 } from '../../services/businessWorkspace';
 
 type EngagementRef = { id: string; clientId: string; code: string; clientName: string; lifecycleState: string; periodStart: string; periodEnd: string };
-type Tab = 'statements' | 'workprograms' | 'sampling' | 'evidence' | 'reviews';
+type Tab = 'statements' | 'workprograms' | 'sampling' | 'evidence' | 'findings' | 'reviews';
 type Assertion = 'EXISTENCE' | 'RIGHTS_OBLIGATIONS' | 'COMPLETENESS' | 'VALUATION' | 'CUTOFF' | 'PRESENTATION';
+type AdjustmentDraftLine = { fsliId: string; accountCode: string; debit: string; credit: string };
 type PopulationPayload = {
   population: { id: string; name: string; rowCount: number; positiveTotalMinor: number; excludedCount: number; exclusionsReason: string; sourceHash: string; tbVersionId: string };
   rows: Array<{ id: string; sourceRowKey: string; ordinal: number; bookValueMinor: number; eligible: number; exclusionReason: string | null }>;
@@ -179,6 +180,30 @@ export function BusinessFieldworkPanel({ workspaceId, selected, context, engagem
   const [unlinkId, setUnlinkId] = useState('');
   const [unlinkReason, setUnlinkReason] = useState('');
   const [changeCursor, setChangeCursor] = useState(0);
+  const [findingFsliId, setFindingFsliId] = useState('');
+  const [findingTitle, setFindingTitle] = useState('');
+  const [findingDescription, setFindingDescription] = useState('');
+  const [findingSeverity, setFindingSeverity] = useState<'LOW'|'MODERATE'|'HIGH'|'CRITICAL'>('MODERATE');
+  const [findingQualitative, setFindingQualitative] = useState(false);
+  const [findingResolutions, setFindingResolutions] = useState<Record<string,string>>({});
+  const [adjustmentDescription, setAdjustmentDescription] = useState('');
+  const [adjustmentFindingId, setAdjustmentFindingId] = useState('');
+  const [adjustmentEvidenceIds, setAdjustmentEvidenceIds] = useState<string[]>([]);
+  const [adjustmentReflectedReasons, setAdjustmentReflectedReasons] = useState<Record<string,string>>({});
+  const [adjustmentLinesDraft, setAdjustmentLinesDraft] = useState<AdjustmentDraftLine[]>([
+    {fsliId:'',accountCode:'',debit:'',credit:''},{fsliId:'',accountCode:'',debit:'',credit:''}
+  ]);
+  const [differenceFindingId, setDifferenceFindingId] = useState('');
+  const [differenceFsliId, setDifferenceFsliId] = useState('');
+  const [differenceAmount, setDifferenceAmount] = useState('');
+  const [differenceNature, setDifferenceNature] = useState<'FACTUAL'|'JUDGMENTAL'|'PROJECTED'>('FACTUAL');
+  const [differenceQualitative, setDifferenceQualitative] = useState(false);
+  const [differenceDisposition, setDifferenceDisposition] = useState<'UNADJUSTED'|'ADJUSTED'|'CLEARLY_TRIVIAL'>('UNADJUSTED');
+  const [differenceAdjustmentId, setDifferenceAdjustmentId] = useState('');
+  const [differenceReason, setDifferenceReason] = useState('');
+  const [srmRecommendation, setSrmRecommendation] = useState('');
+  const [srmEstimates, setSrmEstimates] = useState('');
+  const [srmClearRationale, setSrmClearRationale] = useState('');
   const samplingPlanIdempotencyKey = useRef<string | null>(null);
 
   const canWrite = context.allowedActions.includes('fieldwork.manage') && context.actor.persona !== 'CLIENT';
@@ -193,6 +218,8 @@ export function BusinessFieldworkPanel({ workspaceId, selected, context, engagem
   const distinctSampleRows = planDetail ? [...new Set(planDetail.hits.map(hit => hit.populationRowId))] : [];
   const eligiblePopulationRows = population?.rows.filter(row => row.eligible === 1) ?? [];
   const selectedSourceRows = allLines.find(line => line.fsliId === sourceFsliId)?.sourceRows ?? [];
+  const currentSrm = workspace?.srmVersions[0];
+  const currentSrmFindingsSnapshot=currentSrm?.findingsSnapshot as {thresholdAnalysis?:{aggregate?:Record<string,unknown>;perItem?:Array<Record<string,unknown>>}}|undefined;
 
   useEffect(() => {
     if (!available) { setLoading(false); setWorkspace(null); return; }
@@ -203,6 +230,10 @@ export function BusinessFieldworkPanel({ workspaceId, selected, context, engagem
         setWorkspace(data); setChangeCursor(data.changeCursor);
         setSelectedFsliId(current => current || data.statements.profitLoss[0]?.fsliId || data.statements.balanceSheet[0]?.fsliId || '');
         setPopulationFsliId(current => current || data.statements.profitLoss[0]?.fsliId || data.statements.balanceSheet[0]?.fsliId || '');
+        setFindingFsliId(current => current || data.statements.profitLoss[0]?.fsliId || data.statements.balanceSheet[0]?.fsliId || '');
+        setDifferenceFsliId(current => current || data.statements.profitLoss[0]?.fsliId || data.statements.balanceSheet[0]?.fsliId || '');
+        setAdjustmentLinesDraft(current => current.map((line,index) => ({...line,fsliId:line.fsliId||data.statements.profitLoss[index]?.fsliId||data.statements.balanceSheet[index]?.fsliId||''})));
+        setAdjustmentEvidenceIds(current => current.length?current:data.evidence.filter(item=>item.adequacy==='ADEQUATE').slice(0,1).map(item=>item.id));
         setAssignedStaffId(current => current || data.staff.find(person => person.grade === 'MANAGER')?.id || data.staff[0]?.id || '');
         setSelectedPlanId(current => current || data.samplingPlans[0]?.id || '');
         setSelectedPopulationId(current => current || data.populations[0]?.id || '');
@@ -246,6 +277,32 @@ export function BusinessFieldworkPanel({ workspaceId, selected, context, engagem
       } else setError(reason instanceof Error ? reason.message : 'The fieldwork change could not be saved.');
       return null;
     } finally { setBusy(false); }
+  }
+
+  async function createFinding(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();const result=await command<{findingId?:string}>('finding.create',{engagementId:engagement.id,fsliId:findingFsliId,title:findingTitle,description:findingDescription,severity:findingSeverity,qualitativeSignificance:findingQualitative},'Finding and source pins were recorded.');
+    if(result?.findingId){setFindingTitle('');setFindingDescription('');setFindingQualitative(false);}
+  }
+
+  async function createAdjustment(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();if(!workspace)return;
+    try{
+      const lines=adjustmentLinesDraft.map(line=>({fsliId:line.fsliId,accountCode:line.accountCode.trim()||null,debitMinor:toMinor(line.debit),creditMinor:toMinor(line.credit)}));
+      for(const line of lines){if(BigInt(line.debitMinor)<0n||BigInt(line.creditMinor)<0n||(BigInt(line.debitMinor)>0n)===(BigInt(line.creditMinor)>0n))throw new Error('Each line needs exactly one positive, non-negative debit or credit.');}
+      const evidenceIds=adjustmentEvidenceIds;
+      const result=await command<{adjustmentId?:string}>('adjustment.create',{engagementId:engagement.id,tbVersionId:workspace.engagement.activeTbVersionId,
+        findingId:adjustmentFindingId||null,description:adjustmentDescription,evidenceIds,lines},'Balanced AJE draft and exact evidence pins were saved.');
+      if(result?.adjustmentId){setAdjustmentDescription('');setAdjustmentFindingId('');setAdjustmentLinesDraft([{fsliId:'',accountCode:'',debit:'',credit:''},{fsliId:'',accountCode:'',debit:'',credit:''}]);}
+    }catch(reason){setError(reason instanceof Error?reason.message:'Enter valid balanced adjustment lines and current evidence.');}
+  }
+
+  async function createDifference(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    try{const amountMinor=toMinor(differenceAmount);const payload={findingId:differenceFindingId,fsliId:differenceFsliId,amountMinor,nature:differenceNature,qualitativeSignificance:differenceQualitative,
+      disposition:differenceDisposition,dispositionReason:differenceReason,...(differenceDisposition==='ADJUSTED'?{adjustmentId:differenceAdjustmentId}: {})};
+      const result=await command<{differenceId?:string}>('difference.create',payload,'Signed audit difference and current thresholds were recorded.');
+      if(result?.differenceId){setDifferenceAmount('');setDifferenceReason('');setDifferenceAdjustmentId('');}
+    }catch(reason){setError(reason instanceof Error?reason.message:'The audit difference is incomplete.');}
   }
 
   async function createSnapshot(): Promise<string | null> {
@@ -392,7 +449,7 @@ export function BusinessFieldworkPanel({ workspaceId, selected, context, engagem
         <span><strong>Planning</strong>{workspace.engagement.approvedPlanningVersionId ?? 'Missing'}</span><span><strong>Statement source</strong>{workspace.statements.sourceHash.slice(0, 14)}</span>
       </div>
       <nav className="business-fieldwork-tabs" aria-label="Fieldwork sections">
-        {([['statements','Financial statements'],['workprograms','Workprograms'],['sampling','Sampling'],['evidence','Evidence'],['reviews','Review queue']] as Array<[Tab,string]>).map(([key,title]) =>
+        {([['statements','Financial statements'],['workprograms','Workprograms'],['sampling','Sampling'],['evidence','Evidence'],['findings','Findings & SRM'],['reviews','Review queue']] as Array<[Tab,string]>).map(([key,title]) =>
           <button type="button" key={key} className={tab === key ? 'selected' : ''} aria-pressed={tab === key} onClick={() => setTab(key)}>{title}</button>)}
       </nav>
 
@@ -667,6 +724,111 @@ export function BusinessFieldworkPanel({ workspaceId, selected, context, engagem
           <button className="btn sm" type="button" disabled={busy} onClick={async () => { try { const result = await getBusinessFieldworkChanges<{changes:unknown[];nextCursor:string;hasMore:boolean}>(workspaceId, engagement.id, scope, changeCursor); setChangeCursor(Number(result.nextCursor)); setMessage(`${result.changes.length} changes loaded${result.hasMore ? '; more are available' : ''}.`); } catch (reason) { setError(reason instanceof Error ? reason.message : 'Fieldwork changes could not be loaded.'); } }}>Read next events</button></div>
         </div>
       </div>}
+      {tab === 'findings' && <div className="business-fieldwork-body">
+        <section className="business-fieldwork-card">
+          <p className="business-eyebrow">US-FLD-012 · SOURCE-PINNED</p><h3>Findings, adjustments and unadjusted differences</h3>
+          <p className="business-note">Current SAD {qar(workspace.materiality?.sadMinor as number|null)} · TE {qar(workspace.materiality?.performanceMinor as number|null)} · PM {qar(workspace.materiality?.planningMinor as number|null)}. AJEs remain in the audit reporting layer and never post to the client TB.</p>
+        </section>
+        <form className="business-fieldwork-card business-form" onSubmit={createFinding}>
+          <h3>Record an audit finding</h3>
+          <div className="business-form-grid">
+            <label className="business-field"><span>Affected FSLI</span><select required value={findingFsliId} onChange={event=>setFindingFsliId(event.target.value)}><option value="">Choose a statement line…</option>{allLines.map(line=><option key={line.fsliId} value={line.fsliId}>{line.code} · {line.name}</option>)}</select></label>
+            <label className="business-field"><span>Severity</span><select value={findingSeverity} onChange={event=>setFindingSeverity(event.target.value as typeof findingSeverity)}><option value="LOW">Low</option><option value="MODERATE">Moderate</option><option value="HIGH">High</option><option value="CRITICAL">Critical</option></select></label>
+            <label className="business-field"><span>Finding title</span><input required maxLength={500} value={findingTitle} onChange={event=>setFindingTitle(event.target.value)}/></label>
+          </div>
+          <label className="business-field"><span>Condition, criteria and proposed correction</span><textarea required minLength={10} maxLength={20000} value={findingDescription} onChange={event=>setFindingDescription(event.target.value)}/></label>
+          <label className="business-check-field"><input type="checkbox" checked={findingQualitative} onChange={event=>setFindingQualitative(event.target.checked)}/>Qualitatively significant regardless of amount</label>
+          <button className="btn" type="submit" disabled={busy||!canWrite||!findingFsliId||findingDescription.trim().length<10}>Save finding</button>
+        </form>
+        <section className="business-fieldwork-card"><h3>Current findings</h3>
+          {workspace.findings.map(item=><article className="business-fieldwork-review" key={String(item.id)}><div className="business-section-heading"><div><strong>{String(item.fsliCode)} · {String(item.title)}</strong><span>{label(item.severity)} · {label(item.status)}{Boolean(item.qualitativeSignificance)?' · qualitative significance':''}</span></div><code>{String(item.sourceHash).slice(0,14)}</code></div>
+            <p>{String(item.description)}</p>{Boolean(item.clientResponse)&&<p className="business-note">Client response: {String(item.clientResponse)}</p>}
+            {item.status==='RESPONDED'&&canReview&&<div className="business-fieldwork-review"><label className="business-field"><span>Independent resolution rationale</span><textarea minLength={10} value={findingResolutions[String(item.id)]??''}
+              onChange={event=>setFindingResolutions(current=>({...current,[String(item.id)]:event.target.value}))}/></label>
+              <button type="button" className="btn sm" disabled={busy||(findingResolutions[String(item.id)]?.trim().length??0)<10} onClick={()=>void command('finding.resolve',{findingId:String(item.id),expectedVersion:Number(item.version),resolution:findingResolutions[String(item.id)]},'Finding resolved after independent review of the client response.')}>Resolve finding</button>
+            </div>}</article>)}
+          {!workspace.findings.length&&<p className="business-muted">No findings have been recorded.</p>}
+        </section>
+        <form className="business-fieldwork-card business-form" onSubmit={createAdjustment}>
+          <h3>Create a balanced audit adjustment</h3>
+          <p className="business-muted">Every line has one positive debit or credit. The total must balance exactly in QAR minor units. Include current ADEQUATE evidence before proposing to the client.</p>
+          <div className="business-form-grid">
+            <label className="business-field"><span>Related finding (optional)</span><select value={adjustmentFindingId} onChange={event=>setAdjustmentFindingId(event.target.value)}><option value="">No linked finding</option>{workspace.findings.map(item=><option key={String(item.id)} value={String(item.id)}>{String(item.fsliCode)} · {String(item.title)}</option>)}</select></label>
+            <label className="business-field"><span>Adjustment description</span><input required minLength={10} maxLength={10000} value={adjustmentDescription} onChange={event=>setAdjustmentDescription(event.target.value)}/></label>
+            <label className="business-field"><span>Exact adequate evidence pins</span><select required multiple size={Math.min(5,Math.max(2,workspace.evidence.filter(item=>item.adequacy==='ADEQUATE').length))} value={adjustmentEvidenceIds}
+              onChange={event=>setAdjustmentEvidenceIds(Array.from(event.currentTarget.selectedOptions,option=>option.value))}>{workspace.evidence.filter(item=>item.adequacy==='ADEQUATE').map(item=><option key={item.id} value={item.id}>{item.title} · v{item.version}{item.fileSha256?` · ${item.fileSha256.slice(0,10)}`:''}</option>)}</select><small>Use Ctrl/Command to select more than one supporting item.</small></label>
+          </div>
+          <div className="business-adjustment-draft-lines" role="group" aria-label="Audit adjustment lines">
+            {adjustmentLinesDraft.map((line,index)=><div className="business-adjustment-draft-line" key={index}>
+              <label className="business-field"><span>FSLI line {index+1}</span><select required value={line.fsliId} onChange={event=>setAdjustmentLinesDraft(current=>current.map((item,row)=>row===index?{...item,fsliId:event.target.value}:item))}><option value="">Choose…</option>{allLines.map(item=><option key={item.fsliId} value={item.fsliId}>{item.code} · {item.name}</option>)}</select></label>
+              <label className="business-field"><span>Account code (optional)</span><input value={line.accountCode} onChange={event=>setAdjustmentLinesDraft(current=>current.map((item,row)=>row===index?{...item,accountCode:event.target.value}:item))}/></label>
+              <label className="business-field"><span>Debit (QAR)</span><input required inputMode="decimal" value={line.debit} onChange={event=>setAdjustmentLinesDraft(current=>current.map((item,row)=>row===index?{...item,debit:event.target.value}:item))}/></label>
+              <label className="business-field"><span>Credit (QAR)</span><input required inputMode="decimal" value={line.credit} onChange={event=>setAdjustmentLinesDraft(current=>current.map((item,row)=>row===index?{...item,credit:event.target.value}:item))}/></label>
+              {adjustmentLinesDraft.length>2&&<button type="button" className="btn sm" aria-label={`Remove adjustment line ${index+1}`} onClick={()=>setAdjustmentLinesDraft(current=>current.filter((_,row)=>row!==index))}>Remove line</button>}
+            </div>)}
+          </div>
+          <div className="business-fieldwork-action-row"><button type="button" className="btn sm" disabled={adjustmentLinesDraft.length>=200} onClick={()=>setAdjustmentLinesDraft(current=>[...current,{fsliId:'',accountCode:'',debit:'',credit:''}])}>Add line</button>
+            <button className="btn" type="submit" disabled={busy||!canWrite||!adjustmentEvidenceIds.length||adjustmentDescription.trim().length<10}>Save draft</button></div>
+        </form>
+        <section className="business-fieldwork-card"><h3>Audit adjustments</h3>
+          {workspace.adjustments.map(item=>{const status=String(item.status);const id=String(item.id);const sourceChanged=String(item.tbVersionId)!==String(workspace.engagement.activeTbVersionId)||String(item.mappingVersionId)!==String(workspace.engagement.activeMappingVersionId);
+            return <article className="business-fieldwork-review" key={id}><div className="business-section-heading"><div><strong>{String(item.number)} · {String(item.description)}</strong><span>{label(status)} · {item.clientResponse?`Client ${label(item.clientResponse)}`:'awaiting client response'} · TB {String(item.tbVersionId).slice(0,12)}</span></div><code>{String(item.sourceHash).slice(0,14)}</code></div>
+              <ul className="business-adjustment-draft-lines">{item.lines.map((line,index)=><li key={`${id}-${index}`}><span>{String(line.fsliCode)} · {String(line.fsliName)}{line.accountCode?` · ${String(line.accountCode)}`:''}</span><span>Dr {qar(String(line.debitMinor))} · Cr {qar(String(line.creditMinor))}</span></li>)}</ul>
+              <p className="business-muted">{item.evidence.length} exact supporting evidence pin(s) · client response {item.clientResponseText?String(item.clientResponseText):'not recorded'}</p>
+              {status==='DRAFT'&&canWrite&&<button type="button" className="btn sm" disabled={busy} onClick={()=>void command('adjustment.propose',{adjustmentId:id,expectedVersion:Number(item.version)},'Balanced adjustment proposed to the client for a recorded decision.')}>Propose to client</button>}
+              {['CLIENT_ACCEPTED','CLIENT_DECLINED'].includes(status)&&canReview&&<div className="business-fieldwork-review"><p className="business-note">Independent reviewer decision is required. The approver must be a different natural person from the AJE preparer.</p>
+                {sourceChanged&&<label className="business-field"><span>Replacement TB / mapping disposition</span><textarea minLength={10} value={adjustmentReflectedReasons[id]??''} onChange={event=>setAdjustmentReflectedReasons(current=>({...current,[id]:event.target.value}))}/></label>}
+                <button type="button" className="btn sm" disabled={busy||sourceChanged&&(adjustmentReflectedReasons[id]?.trim().length??0)<10} onClick={()=>void command('adjustment.approve',{adjustmentId:id,expectedVersion:Number(item.version),sourceHash:String(item.sourceHash),...(sourceChanged?{reflectedInSourceReason:adjustmentReflectedReasons[id]}:{})},'Adjustment decision independently approved and version pinned.')}>Approve exact AJE version</button>
+              </div>}
+            </article>;
+          })}
+          {!workspace.adjustments.length&&<p className="business-muted">No audit adjustments have been drafted.</p>}
+        </section>
+        <form className="business-fieldwork-card business-form" onSubmit={createDifference}>
+          <h3>Record a misstatement or unadjusted difference</h3>
+          <div className="business-form-grid">
+            <label className="business-field"><span>Related finding</span><select required value={differenceFindingId} onChange={event=>setDifferenceFindingId(event.target.value)}><option value="">Choose a finding…</option>{workspace.findings.map(item=><option key={String(item.id)} value={String(item.id)}>{String(item.fsliCode)} · {String(item.title)}</option>)}</select></label>
+            <label className="business-field"><span>Affected FSLI</span><select required value={differenceFsliId} onChange={event=>setDifferenceFsliId(event.target.value)}><option value="">Choose a statement line…</option>{allLines.map(item=><option key={item.fsliId} value={item.fsliId}>{item.code} · {item.name}</option>)}</select></label>
+            <label className="business-field"><span>Signed amount (QAR)</span><input required inputMode="decimal" value={differenceAmount} onChange={event=>setDifferenceAmount(event.target.value)}/><small>Use a negative amount when the misstatement decreases the reported balance.</small></label>
+            <label className="business-field"><span>Nature</span><select value={differenceNature} onChange={event=>setDifferenceNature(event.target.value as typeof differenceNature)}><option value="FACTUAL">Factual</option><option value="JUDGMENTAL">Judgmental</option><option value="PROJECTED">Projected</option></select></label>
+            <label className="business-field"><span>Disposition</span><select value={differenceDisposition} onChange={event=>setDifferenceDisposition(event.target.value as typeof differenceDisposition)}><option value="UNADJUSTED">Unadjusted</option><option value="ADJUSTED">Adjusted by approved AJE</option><option value="CLEARLY_TRIVIAL">Clearly trivial</option></select></label>
+            {differenceDisposition==='ADJUSTED'&&<label className="business-field"><span>Approved AJE</span><select required value={differenceAdjustmentId} onChange={event=>setDifferenceAdjustmentId(event.target.value)}><option value="">Choose an approved adjustment…</option>{workspace.adjustments.filter(item=>item.status==='REVIEW_APPROVED').map(item=><option key={String(item.id)} value={String(item.id)}>{String(item.number)} · {String(item.description)}</option>)}</select></label>}
+          </div>
+          <label className="business-field"><span>Disposition rationale</span><textarea required minLength={10} value={differenceReason} onChange={event=>setDifferenceReason(event.target.value)}/></label>
+          <label className="business-check-field"><input type="checkbox" checked={differenceQualitative} onChange={event=>setDifferenceQualitative(event.target.checked)}/>Qualitatively significant; retain even below SAD</label>
+          {differenceDisposition==='CLEARLY_TRIVIAL'&&differenceQualitative&&<p className="business-alert" role="alert">A qualitative exception cannot be classified as clearly trivial.</p>}
+          <button className="btn" type="submit" disabled={busy||!canWrite||!differenceFindingId||differenceReason.trim().length<10||(differenceDisposition==='CLEARLY_TRIVIAL'&&differenceQualitative)}>Record difference</button>
+        </form>
+        <section className="business-fieldwork-card"><h3>Difference register</h3>
+          {workspace.differences.map(item=><article className="business-fieldwork-review" key={String(item.id)}><strong>{String(item.fsliCode)} · {qar(String(item.amountMinor))} · {label(item.disposition)}</strong><p>{String(item.dispositionReason)}</p><small>{label(item.nature)}{item.qualitativeSignificance?' · Qualitatively significant':''} · finding {String(item.findingId)}</small></article>)}
+          {!workspace.differences.length&&<p className="business-muted">No audit differences have been registered.</p>}
+        </section>
+        <section className="business-fieldwork-card"><p className="business-eyebrow">IMMUTABLE SUMMARY REVIEW MEMORANDUM</p><h3>Manager recommendation and Partner clearance</h3>
+          {currentSrm&&<article className="business-fieldwork-review"><div className="business-section-heading"><div><strong>SRM revision {String(currentSrm.revision)} · {currentSrm.clearanceId?'Partner cleared':'awaiting Partner clearance'}</strong><span>Signed unadjusted {qar(String(currentSrm.signedUnadjustedMinor))} · gross unadjusted {qar(String(currentSrm.grossUnadjustedMinor))}</span></div><code>{String(currentSrm.dependencyHash).slice(0,18)}</code></div>
+            <p>{String(currentSrm.managerRecommendation)}</p><p className="business-note">Estimates: {String(currentSrm.estimatesText)}</p>
+            {currentSrmFindingsSnapshot?.thresholdAnalysis?.aggregate&&<div className="business-fieldwork-card">
+              <h4>Unadjusted exposure against SAD, TE and PM</h4>
+              <div className="business-fieldwork-row"><div><strong>Signed total</strong><span>{qar(String(currentSrmFindingsSnapshot.thresholdAnalysis.aggregate.signedMinor))} · absolute signed {qar(String(currentSrmFindingsSnapshot.thresholdAnalysis.aggregate.absoluteSignedMinor))}</span></div>
+                <span>SAD {currentSrmFindingsSnapshot.thresholdAnalysis.aggregate.signedExceedsSAD?'exceeded':'not exceeded'} · TE {currentSrmFindingsSnapshot.thresholdAnalysis.aggregate.signedExceedsTE?'exceeded':'not exceeded'} · PM {currentSrmFindingsSnapshot.thresholdAnalysis.aggregate.signedExceedsPM?'exceeded':'not exceeded'}</span></div>
+              <div className="business-fieldwork-row"><div><strong>Gross absolute total</strong><span>{qar(String(currentSrmFindingsSnapshot.thresholdAnalysis.aggregate.grossMinor))}</span></div>
+                <span>SAD {currentSrmFindingsSnapshot.thresholdAnalysis.aggregate.grossExceedsSAD?'exceeded':'not exceeded'} · TE {currentSrmFindingsSnapshot.thresholdAnalysis.aggregate.grossExceedsTE?'exceeded':'not exceeded'} · PM {currentSrmFindingsSnapshot.thresholdAnalysis.aggregate.grossExceedsPM?'exceeded':'not exceeded'}</span></div>
+              {currentSrmFindingsSnapshot.thresholdAnalysis.perItem?.map(item=><p className="business-muted" key={String(item.differenceId)}>Item {String(item.differenceId).slice(0,8)} · {qar(String(item.amountMinor))} · SAD {item.exceedsSAD?'exceeded':'within'} · TE {item.exceedsTE?'exceeded':'within'} · PM {item.exceedsPM?'exceeded':'within'}{item.qualitativeSignificance?' · qualitative exception':''}</p>)}
+            </div>}
+            {workspace.engagement.state==='PARTNER_APPROVAL'&&canPartner&&!currentSrm.clearanceId&&<form className="business-fieldwork-review" onSubmit={event=>{event.preventDefault();void command('srm.clear',{srmVersionId:String(currentSrm.id),dependencyHash:String(currentSrm.dependencyHash),rationale:srmClearRationale},'Partner cleared the exact current SRM snapshot.');}}>
+              <label className="business-field"><span>Partner rationale for this exact snapshot</span><textarea required minLength={10} value={srmClearRationale} onChange={event=>setSrmClearRationale(event.target.value)}/></label>
+              <button className="btn" type="submit" disabled={busy||srmClearRationale.trim().length<10}>Clear SRM revision {String(currentSrm.revision)}</button>
+            </form>}
+          </article>}
+          {context.actor.persona==='REVIEWER'&&context.actor.staffGrade==='MANAGER'&&workspace.engagement.state==='MANAGERIAL_REVIEW'&&<form className="business-form" onSubmit={event=>{event.preventDefault();void command('srm.compile',{engagementId:engagement.id,managerRecommendation:srmRecommendation,estimatesText:srmEstimates},'A new versioned SRM snapshot and Manager recommendation were compiled.');}}>
+            <label className="business-field"><span>Current estimates and unresolved matters</span><textarea required minLength={10} value={srmEstimates} onChange={event=>setSrmEstimates(event.target.value)}/></label>
+            <label className="business-field"><span>Manager recommendation</span><textarea required minLength={10} value={srmRecommendation} onChange={event=>setSrmRecommendation(event.target.value)}/></label>
+            <button className="btn primary" type="submit" disabled={busy||srmRecommendation.trim().length<10||srmEstimates.trim().length<10}>Compile current SRM snapshot</button>
+          </form>}
+          {workspace.srmVersions.slice(1).map(item=><p className="business-muted" key={String(item.id)}>Historical SRM revision {String(item.revision)} · {String(item.clearanceId?'cleared':'not cleared')} · {String(item.dependencyHash).slice(0,14)}</p>)}
+          {!workspace.srmVersions.length&&<p className="business-muted">No SRM version has been compiled yet.</p>}
+        </section>
+      </div>}
+
       {tab === 'reviews' && <div className="business-fieldwork-body">
         {(workspace.engagement.state === 'FIELDWORK_EXECUTION' && context.actor.staffGrade === 'MANAGER' || workspace.engagement.state === 'MANAGERIAL_REVIEW' && canPartner) && <section className="business-fieldwork-card">
           <p className="business-eyebrow">LIFECYCLE GATE</p><h3>{workspace.engagement.state === 'FIELDWORK_EXECUTION' ? 'Hand over for Manager review' : 'Hand over for Partner approval'}</h3>

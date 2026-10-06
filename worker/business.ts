@@ -2046,9 +2046,30 @@ export async function getBusinessPbcPortal(env: Env, workspaceId: string, reques
           comments: review.comments, reviewedAt: review.reviewed_at, fileSha256: review.file_sha256 }))
       }))
     }));
+  const fieldworkFindings=context.actor.persona==='CLIENT'?await env.DB.prepare(`SELECT f.id,f.version,f.fsli_id AS fsliId,c.code AS fsliCode,c.name AS fsliName,f.title,f.description,f.severity,
+      f.qualitative_significance AS qualitativeSignificance,f.status,f.client_response AS clientResponse,f.source_hash AS sourceHash,f.created_at AS createdAt
+    FROM findings f JOIN fsli_catalog c ON c.workspace_id=f.workspace_id AND c.id=f.fsli_id WHERE f.workspace_id=? AND f.client_id=? AND f.engagement_id=? ORDER BY f.created_at DESC LIMIT 200`)
+    .bind(workspaceId,engagement.client_id,engagement.id).all<Record<string,unknown>>() : null;
+  const fieldworkAdjustmentRows=context.actor.persona==='CLIENT'?await env.DB.prepare(`SELECT a.id,a.version,a.number,a.finding_id AS findingId,a.description,a.status,a.client_response_decision AS clientResponse,
+      a.client_response AS clientResponseText,a.source_hash AS sourceHash,a.created_at AS createdAt
+    FROM audit_adjustments a WHERE a.workspace_id=? AND a.client_id=? AND a.engagement_id=? AND a.status IN ('PROPOSED','CLIENT_ACCEPTED','CLIENT_DECLINED','REVIEW_APPROVED')
+    ORDER BY a.created_at DESC LIMIT 80`).bind(workspaceId,engagement.client_id,engagement.id).all<Record<string,unknown>>() : null;
+  const fieldworkAdjustmentIds=(fieldworkAdjustmentRows?.results??[]).map(row=>String(row.id));
+  const fieldworkAdjustmentLines=fieldworkAdjustmentIds.length?await env.DB.prepare(`SELECT l.adjustment_id AS adjustmentId,l.fsli_id AS fsliId,c.code AS fsliCode,c.name AS fsliName,l.account_code AS accountCode,l.debit_minor AS debitMinor,l.credit_minor AS creditMinor
+    FROM audit_adjustment_lines l JOIN fsli_catalog c ON c.workspace_id=l.workspace_id AND c.id=l.fsli_id WHERE l.workspace_id=? AND l.adjustment_id IN (${fieldworkAdjustmentIds.map(()=>'?').join(',')}) ORDER BY l.adjustment_id,l.id`)
+    .bind(workspaceId,...fieldworkAdjustmentIds).all<Record<string,unknown>>() : null;
+  const fieldworkEvidence=fieldworkAdjustmentIds.length?await env.DB.prepare(`SELECT l.adjustment_id AS adjustmentId,l.evidence_id AS evidenceId,l.evidence_version AS evidenceVersion,l.file_sha256 AS fileSha256,l.source_snapshot_json AS sourceSnapshotJson
+    FROM audit_adjustment_evidence_links l WHERE l.workspace_id=? AND l.adjustment_id IN (${fieldworkAdjustmentIds.map(()=>'?').join(',')}) ORDER BY l.adjustment_id,l.id`)
+    .bind(workspaceId,...fieldworkAdjustmentIds).all<Record<string,unknown>>() : null;
+  const fieldworkLineMap=new Map<string,Record<string,unknown>[]>();for(const line of fieldworkAdjustmentLines?.results??[]){const rows=fieldworkLineMap.get(String(line.adjustmentId))??[];rows.push(line);fieldworkLineMap.set(String(line.adjustmentId),rows);}
+  const fieldworkEvidenceMap=new Map<string,Record<string,unknown>[]>();for(const link of fieldworkEvidence?.results??[]){const rows=fieldworkEvidenceMap.get(String(link.adjustmentId))??[];rows.push({...link,sourceSnapshot:JSON.parse(String(link.sourceSnapshotJson))});fieldworkEvidenceMap.set(String(link.adjustmentId),rows);}
+  const fieldworkAdjustments=(fieldworkAdjustmentRows?.results??[]).map(row=>({id:row.id,version:row.version,number:row.number,findingId:row.findingId,description:row.description,status:row.status,
+    clientResponse:row.clientResponse,clientResponseText:row.clientResponseText,sourceHash:row.sourceHash,createdAt:row.createdAt,
+    lines:fieldworkLineMap.get(String(row.id))??[],evidence:fieldworkEvidenceMap.get(String(row.id))??[]}));
   const allFiles = await listBusinessFiles(env, workspaceId, request, 100);
   const scopedFiles = allFiles.items.filter(file => file.engagementId === engagement.id);
-  const changeCursor = await sha256Hex(JSON.stringify(requests.map(item => [item.id, item.version])));
+  const changeCursor = await sha256Hex(JSON.stringify({requests:requests.map(item => [item.id,item.version]),findings:(fieldworkFindings?.results??[]).map(item=>[item.id,item.version,item.sourceHash]),
+    adjustments:fieldworkAdjustments.map(item=>[item.id,item.version,item.sourceHash])}));
   const mode = portalMode(engagement);
   return {
     engagement: { id: engagement.id, code: engagement.code, periodStart: engagement.period_start, periodEnd: engagement.period_end,
@@ -2056,6 +2077,8 @@ export async function getBusinessPbcPortal(env: Env, workspaceId: string, reques
     mode, canUpload: context.actor.persona === 'CLIENT' && mode === 'ACTIVE',
     ...(mode === 'NOT_ACTIVE' ? { uploadBlocker: 'Uploads open after the commercial handover is complete and the advance is fully settled with its committed receipt.' } : {}),
     requests,
+    findings:fieldworkFindings?.results??[],adjustments:fieldworkAdjustments,
+    canRespondFieldwork:context.actor.persona==='CLIENT'&&['FIELDWORK_EXECUTION','MANAGERIAL_REVIEW'].includes(engagement.lifecycle_state)&&!engagement.locked_at,
     commercialDocuments: scopedFiles.filter(file => file.purpose === 'GENERATED'),
     releasedDeliverables: scopedFiles.filter(file => file.purpose === 'RELEASE'),
     changeCursor

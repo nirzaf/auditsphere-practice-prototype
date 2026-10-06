@@ -328,6 +328,10 @@ export interface BusinessPbcPortal {
   canUpload: boolean;
   uploadBlocker?: string;
   requests: BusinessPbcRequest[];
+  findings: Array<{ id: string; version: number; fsliId: string; fsliCode: string; fsliName: string; title: string; description: string; severity: string;
+    qualitativeSignificance: number; status: string; clientResponse: string | null; sourceHash: string; createdAt: string }>;
+  adjustments: Array<Record<string, unknown> & { lines: Array<Record<string, unknown>>; evidence: Array<Record<string, unknown>> }>;
+  canRespondFieldwork: boolean;
   commercialDocuments: BusinessFileMetadata[];
   releasedDeliverables: BusinessFileMetadata[];
   changeCursor: string;
@@ -382,7 +386,7 @@ export interface BusinessTrialBalanceWorkspace {
 
 export interface BusinessStatementLine {
   fsliId: string; code: string; name: string; statement: 'PROFIT_LOSS' | 'BALANCE_SHEET'; category: string; displaySign: number;
-  currentBaseMinor: number; currentAdjustedMinor: number; priorMinor: number | null; varianceNumerator: string | null;
+  currentBaseMinor: number; currentAdjustmentMinor: number; currentAdjustedMinor: number; priorMinor: number | null; varianceNumerator: string | null;
   varianceDenominator: string | null; variancePercent: number | null; varianceReason: 'CALCULATED' | 'NEW_BALANCE' | 'ZERO_BOTH' | 'NO_COMPARATIVE';
   riskBand: 'GREEN' | 'AMBER' | 'RED'; sourceRows: Array<{ tbLineId: string; sourceRowNumber: number; accountCode: string; accountName: string;
     currentRawMinor: string; currentPresentedMinor: string; priorRawMinor: string | null; priorPresentedMinor: string | null; displaySign: number }>;
@@ -412,6 +416,11 @@ export interface BusinessFieldworkWorkspace {
   reviewNotes: Array<{ id: string; version: number; submissionId: string; procedureId: string | null; text: string; assignedPreparerId: string; status: 'OPEN' | 'RESPONDED' | 'CLOSED';
     responseText: string | null; responseAt: string | null; closedByActorId: string | null; closedAt: string | null; closureReason: string | null; resubmissionId: string | null;
     createdAt: string; targetKind: string; workprogramId: string | null; analyticalReviewId: string | null; goingConcernId: string | null; srmVersionId: string | null; targetVersion: number; targetRevision: number | null }>;
+  findings: Array<Record<string, unknown>>;
+  adjustments: Array<Record<string, unknown> & { lines: Array<Record<string, unknown>>; evidence: Array<Record<string, unknown>> }>;
+  differences: Array<Record<string, unknown>>;
+  srmVersions: Array<Record<string, unknown>>;
+  materiality: null | Record<string, unknown>;
   evidence: Array<{ id: string; familyId: string; version: number; mode: 'DIGITAL' | 'PHYSICAL' | 'HYBRID'; title: string; fileVersionId: string | null; physicalIndex: string | null;
     physicalDescription: string | null; binder: string | null; box: string | null; shelf: string | null; externalSourceUrl: string | null; retrievedAt: string | null;
     fileSha256: string | null; adequacy: 'ADEQUATE' | 'DEFICIENT' | null; adequacyRationale: string | null }>;
