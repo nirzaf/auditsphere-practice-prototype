@@ -101,11 +101,12 @@ const JSON_BODY_LIMIT = 1_000_000;
 /** Hard ceiling for a single command payload; the domain model is small. */
 const COMMAND_BODY_LIMIT = 512_000;
 /** Updated alongside the latest application schema migration. */
-const APPLICATION_SCHEMA_VERSION = 30;
+const APPLICATION_SCHEMA_VERSION = 31;
 
 const ASYNC_BUSINESS_COMMANDS = new Set([
   'proposal.generate', 'proposal.generate.retry', 'proposal.dispatch', 'proposal.dispatch.retry',
-  'engagementLetter.generate', 'engagementLetter.issue', 'invoice.issueAdvance', 'payment.record', 'payment.reverse'
+  'engagementLetter.generate', 'engagementLetter.issue', 'invoice.issueAdvance', 'payment.record', 'payment.reverse',
+  'confirmation.dispatch'
 ]);
 
 export function businessCommandHttpResult(

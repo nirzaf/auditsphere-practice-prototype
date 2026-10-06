@@ -368,6 +368,18 @@ unit tests, production build and browser E2E on `a0a5adb`. Its Cloudflare deploy
 job was skipped because production activation remains gated on the missing
 GitHub environment credentials, reviewer selection and explicit deploy switch.
 
+### Follow-up — 2026-10-07
+
+The Worker integration now runs the real confirmation request PDF/outbox/provider
+path, records an unverified response, proves that an alternate procedure does
+not waive the blocker, retries one outstanding set three times, and processes
+the resulting Holding Letter through PDF generation and email acceptance. It
+also verifies the response under a different actor and links Partner scope
+reassessment to an immutable approval decision. Full unit and browser suites
+passed (489/489 and 27/27). The test still does not submit a fully prepared
+Worker `report.release` candidate or reach the Manager handover gate; this
+follow-up strengthens but does not close US-FLD-013.
+
 ## Prior-period-only FSLI coverage — 2026-10-06
 
 The `businessWorkspace.test.ts` Worker/D1 integration now imports a balanced

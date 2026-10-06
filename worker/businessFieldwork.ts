@@ -418,6 +418,7 @@ export async function getBusinessFieldworkWorkspace(env:Env,workspaceId:string,c
       c.status,c.due_date AS dueDate,c.dispatch_id AS dispatchId,d.status AS dispatchStatus,j.status AS jobStatus,
       COALESCE(j.last_error_code,(SELECT q.last_error_code FROM outbox_jobs q WHERE q.workspace_id=c.workspace_id AND q.aggregate_id=c.id AND q.kind='GENERATE_DOCUMENT' ORDER BY q.created_at DESC LIMIT 1)) AS jobError,
       c.response_file_id AS responseFileId,c.returned_at AS returnedAt,c.verified_by_actor_id AS verifiedByActorId,c.verified_at AS verifiedAt,c.verification_rationale AS verificationRationale,
+      c.scope_approval_id AS scopeApprovalId,
       c.reliance_frozen AS relianceFrozen,c.source_hash AS sourceHash,c.created_by_actor_id AS createdByActorId,c.created_at AS createdAt,
       (SELECT json_object('id',h.id,'artifactId',h.artifact_id,'dispatchId',h.dispatch_id,'createdAt',h.created_at) FROM holding_letters h
         WHERE h.workspace_id=c.workspace_id AND h.engagement_id=c.engagement_id ORDER BY h.created_at DESC LIMIT 1) AS latestHoldingLetter
@@ -2028,6 +2029,7 @@ async function reassessConfirmationScope(env:Env,workspaceId:string,context:Busi
         replacementHash,context.actor.id,now,now);
   }
   const approvalId=crypto.randomUUID();const nextPriorVersion=prior.version+1;
+  const actorSnapshot=JSON.stringify({actorId:context.actor.id,persona:context.actor.persona,displayName:context.actor.displayName,staffGrade:context.actor.staffGrade});
   const statements:D1PreparedStatement[]=[
     env.DB.prepare(`INSERT INTO command_assertions(workspace_id,seq,ok)
       SELECT ?,988,CASE WHEN EXISTS(SELECT 1 FROM engagements WHERE workspace_id=? AND id=? AND version=? AND active_tb_version_id IS ? AND active_mapping_version_id IS ? AND active_materiality_version_id IS ?)
@@ -2037,11 +2039,20 @@ async function reassessConfirmationScope(env:Env,workspaceId:string,context:Busi
     versionGuard(env,workspaceId,990,'confirmations','id',prior.id,prior.version)
   ];
   if(replacementInsert)statements.push(replacementInsert);
+  statements.push(env.DB.prepare(`INSERT INTO approval_decisions(id,workspace_id,client_id,engagement_id,version,subject_type,subject_id,subject_version,decision,rationale,actor_snapshot_json,decided_at,supersedes_decision_id)
+      VALUES(?,?,?,?,1,'CONFIRMATION_SCOPE',?,?,'APPROVE',?,?,?,NULL)`)
+      .bind(approvalId,workspaceId,engagement.client_id,engagement.id,prior.id,nextPriorVersion,p.rationale,actorSnapshot,now),
+    env.DB.prepare(`INSERT INTO approval_dependencies(id,workspace_id,client_id,engagement_id,version,approval_id,entity_type,entity_id,entity_version,content_sha256)
+      VALUES(?,?,?, ?,1,?,'Confirmation',?,?,?)`)
+      .bind(crypto.randomUUID(),workspaceId,engagement.client_id,engagement.id,approvalId,prior.id,prior.version,prior.source_hash));
+  if(replacementId&&replacementHash)statements.push(env.DB.prepare(`INSERT INTO approval_dependencies(id,workspace_id,client_id,engagement_id,version,approval_id,entity_type,entity_id,entity_version,content_sha256)
+      VALUES(?,?,?, ?,1,?,'Confirmation',?,1,?)`)
+      .bind(crypto.randomUUID(),workspaceId,engagement.client_id,engagement.id,approvalId,replacementId,replacementHash));
   statements.push(env.DB.prepare(`INSERT INTO confirmation_scope_reassessments(id,workspace_id,client_id,engagement_id,prior_confirmation_id,replacement_confirmation_id,prior_source_hash,
       replacement_source_hash,prior_critical,replacement_critical,rationale,partner_actor_id,approved_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)`)
       .bind(approvalId,workspaceId,engagement.client_id,engagement.id,prior.id,replacementId,prior.source_hash,replacementHash,prior.critical,replacementCritical,p.rationale,context.actor.id,now),
-    env.DB.prepare(`UPDATE confirmations SET status='CANCELLED',version=?,updated_at=? WHERE workspace_id=? AND id=? AND version=? AND status=?`)
-      .bind(nextPriorVersion,now,workspaceId,prior.id,prior.version,prior.status),
+    env.DB.prepare(`UPDATE confirmations SET status='CANCELLED',version=?,scope_approval_id=?,updated_at=? WHERE workspace_id=? AND id=? AND version=? AND status=?`)
+      .bind(nextPriorVersion,approvalId,now,workspaceId,prior.id,prior.version,prior.status),
     pushChange(env,workspaceId,engagement.id,'Confirmation',prior.id,nextPriorVersion,now));
   if(replacementId)statements.push(pushChange(env,workspaceId,engagement.id,'Confirmation',replacementId,1,now));
   return commandMutation(statements,{reassessmentId:approvalId,confirmationId:prior.id,version:nextPriorVersion,status:'CANCELLED',replacementConfirmationId:replacementId,
@@ -2063,7 +2074,7 @@ async function recordConfirmationAlternative(env:Env,workspaceId:string,context:
   const file=await committedEvidenceFile(env,workspaceId,engagement,p.evidenceFileId);const idValue=crypto.randomUUID();
   return commandMutation([env.DB.prepare(`INSERT INTO confirmation_alternative_procedures(id,workspace_id,client_id,engagement_id,confirmation_id,evidence_file_id,rationale,recorded_by_actor_id,recorded_at)
       VALUES(?,?,?,?,?,?,?,?,?)`).bind(idValue,workspaceId,engagement.client_id,engagement.id,row.id,file.id,p.rationale,context.actor.id,now),
-    pushChange(env,workspaceId,engagement.id,'ConfirmationAlternativeProcedure',idValue,1,now)],{alternativeProcedureId:idValue,confirmationId:row.id,evidenceFileId:file.id},
+    pushChange(env,workspaceId,engagement.id,'ConfirmationAlternativeProcedure',idValue,1,now)],{alternativeProcedureId:idValue,confirmationId:row.id,evidenceFileId:file.id,criticalGateWaived:false},
     'CONFIRMATION_ALTERNATIVE_PROCEDURE',idValue,null,1,{confirmationId:row.id,evidenceFileId:file.id,rationale:p.rationale,criticalGateWaived:false});
 }
 

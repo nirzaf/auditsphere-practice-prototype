@@ -174,7 +174,7 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
   const ready = await call('/api/health/ready');
   assert.equal(ready.response.status, 200, JSON.stringify(ready.body));
   assert.equal(ready.body.status, 'ready');
-  assert.equal(ready.body.schemaVersion, 30);
+  assert.equal(ready.body.schemaVersion, 31);
   assert.deepEqual(ready.body.dependencyCodes, []);
   failNextR2Head = true;
   const degradedReady = await call('/api/health/ready');
@@ -207,7 +207,7 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
 
   const migrationStatus = await call(`/api/workspaces/${workspaceId}/migration-status`);
   assert.equal(migrationStatus.response.status, 200, JSON.stringify(migrationStatus.body));
-  assert.deepEqual(migrationStatus.body, { schemaVersion: 30, lastRunId: null, status: null });
+  assert.deepEqual(migrationStatus.body, { schemaVersion: 31, lastRunId: null, status: null });
   const missingMigrationWorkspace = await call(`/api/workspaces/${crypto.randomUUID()}/migration-status`);
   assert.equal(missingMigrationWorkspace.response.status, 404);
 
@@ -3746,8 +3746,9 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
     beforeAllocationReversal.body.arAging.reconciliationDifferenceMinor,
     'the appended allocation reversal increases both subledger AR and posted AR control by the same amount');
 
-  // FLD-013: a critical confirmation that becomes outstanding after handover
-  // blocks final release with HTTP 409 and queues one idempotent Holding Letter.
+  // FLD-013: exercise the durable confirmation dispatch and response lifecycle,
+  // retain an unverified return as a release blocker, and render/send one
+  // idempotent Holding Letter for the unchanged outstanding set.
   const criticalConfirmation = await post(`/api/workspaces/${workspaceId}/commands`, {
     idempotencyKey: crypto.randomUUID(), command: { type: 'confirmation.create', payload: {
       engagementId, type: 'BANK', fsliId: revenueLine.fsliId,
@@ -3757,10 +3758,79 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
     } }
   }, technicalHeaders);
   assert.equal(criticalConfirmation.response.status, 200, JSON.stringify(criticalConfirmation.body));
+  const confirmationId = criticalConfirmation.body.result.confirmationId as string;
+
+  const preparerScopeReassessment = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'confirmation.scope-reassess', payload: {
+      confirmationId, expectedVersion: 1, rationale: 'The preparer wants to remove a required independent confirmation.',
+      replacementCritical: false, replacementCriticalityReason: null
+    } }
+  }, technicalHeaders);
+  assert.equal(preparerScopeReassessment.response.status, 403, JSON.stringify(preparerScopeReassessment.body),
+    'a preparer cannot approve a relied-upon scope change');
+  assert.equal(db.prepare('SELECT critical FROM confirmations WHERE workspace_id=? AND id=?').bind(workspaceId, confirmationId).first<any>()?.critical, 1,
+    'a denied reassessment leaves criticality unchanged');
+
+  const confirmationDeliveries: Array<{ to: string; purpose: string; attachmentBytes: Uint8Array }> = [];
+  env.EMAIL_PROVIDER = { fetch: async (request: Request) => {
+    const form = await request.formData();
+    const message = JSON.parse(String(form.get('message')));
+    const attachment = form.get('attachment');
+    assert.ok(attachment && typeof attachment !== 'string');
+    confirmationDeliveries.push({ to: message.to, purpose: message.purpose, attachmentBytes: new Uint8Array(await attachment.arrayBuffer()) });
+    assert.ok(request.headers.get('Idempotency-Key'), 'provider calls use the durable outbox idempotency key');
+    return Response.json({ messageId: `local-confirmation-provider-${confirmationDeliveries.length}` }, { status: 202 });
+  } };
+
+  const queuedConfirmation = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'confirmation.dispatch', payload: { confirmationId, expectedVersion: 1 } }
+  }, technicalHeaders);
+  assert.equal(queuedConfirmation.response.status, 202, JSON.stringify(queuedConfirmation.body));
+  assert.equal(queuedConfirmation.body.result.status, 'QUEUED');
+  assert.ok(queuedConfirmation.body.result.dispatchId);
+  assert.throws(() => db.prepare('UPDATE confirmations SET critical=0 WHERE workspace_id=? AND id=?').bind(workspaceId, confirmationId).run(),
+    /relied-upon confirmation scope is frozen/, 'the database freezes relied-upon scope after queueing');
+
+  await worker.scheduled({ scheduledTime: Date.now(), cron: '*/5 * * * *' } as any, env);
+  const generatedConfirmation = db.prepare(`SELECT d.status AS dispatch_status,d.file_version_id,a.id AS artifact_id,f.media_type,f.sha256
+    FROM confirmations c JOIN dispatches d ON d.workspace_id=c.workspace_id AND d.id=c.dispatch_id
+    JOIN generated_artifacts a ON a.workspace_id=d.workspace_id AND a.file_version_id=d.file_version_id
+    JOIN file_versions f ON f.workspace_id=a.workspace_id AND f.id=a.file_version_id
+    WHERE c.workspace_id=? AND c.id=?`).bind(workspaceId, confirmationId).first<any>();
+  assert.equal(generatedConfirmation?.dispatch_status, 'QUEUED');
+  assert.equal(generatedConfirmation?.media_type, 'application/pdf');
+  assert.ok(generatedConfirmation?.artifact_id, 'the queued request generated a retained PDF artifact');
+  const generatedBytes = r2Objects.get(String(db.prepare('SELECT object_key FROM file_versions WHERE workspace_id=? AND id=?')
+    .bind(workspaceId, generatedConfirmation.file_version_id).first<any>()?.object_key));
+  assert.ok(new TextDecoder().decode(generatedBytes?.slice(0, 8)).startsWith('%PDF-'), 'the dispatched confirmation contains real generated PDF bytes');
+  await worker.scheduled({ scheduledTime: Date.now(), cron: '*/5 * * * *' } as any, env);
+  assert.equal(db.prepare('SELECT status FROM confirmations WHERE workspace_id=? AND id=?').bind(workspaceId, confirmationId).first<any>()?.status, 'SENT',
+    'the confirmation becomes SENT only after the email provider accepts the dispatch');
+  assert.ok(confirmationDeliveries.some(message => message.to === 'bank@example.invalid' && message.purpose === 'CONFIRMATION'),
+    'the real generated request is sent to the pinned third-party recipient');
+
+  const unverifiedResponse = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'confirmation.record-response', payload: {
+      confirmationId, expectedVersion: 3, responseFileId: fileId, returnedAt: new Date(Date.now() - 1000).toISOString()
+    } }
+  }, technicalHeaders);
+  assert.equal(unverifiedResponse.response.status, 200, JSON.stringify(unverifiedResponse.body));
+  assert.equal(unverifiedResponse.body.result.status, 'RETURNED_UNVERIFIED');
+
+  const alternativeProcedure = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'confirmation.alternative-procedure', payload: {
+      confirmationId, evidenceFileId: fileId,
+      rationale: 'The alternate bank-statement procedure is separately documented while the direct return awaits independent verification.'
+    } }
+  }, technicalHeaders);
+  assert.equal(alternativeProcedure.response.status, 200, JSON.stringify(alternativeProcedure.body));
+  assert.equal(alternativeProcedure.body.result.criticalGateWaived, false);
+
   const gateEngagement = db.prepare(`SELECT id,version,client_id,active_tb_version_id,active_mapping_version_id,active_materiality_version_id
     FROM engagements WHERE workspace_id=? AND id=?`).bind(workspaceId, engagementId).first<any>();
   const blockers = await criticalConfirmationBlockers(env, workspaceId, gateEngagement);
   assert.equal(blockers.length, 1, 'the outstanding critical confirmation is detected at release time');
+  assert.equal(blockers[0].status, 'RETURNED_UNVERIFIED', 'uploading a response without independent verification still blocks release');
 
   const queuedHoldingLetter = await queueHoldingLetterForBlockers(env, workspaceId, {} as any, gateEngagement,
     crypto.randomUUID(), new Date().toISOString(), blockers, 409);
@@ -3769,13 +3839,15 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
   assert.ok(queuedHoldingLetter.result.holdingLetterJobId);
   await db.batch([...queuedHoldingLetter.statements, db.prepare('DELETE FROM command_assertions WHERE workspace_id=?').bind(workspaceId)]);
 
-  const replayedHoldingLetter = await queueHoldingLetterForBlockers(env, workspaceId, {} as any, gateEngagement,
-    crypto.randomUUID(), new Date().toISOString(), blockers, 409);
-  assert.equal(replayedHoldingLetter.responseStatus, 409);
-  assert.equal(replayedHoldingLetter.result.holdingLetterJobId, queuedHoldingLetter.result.holdingLetterJobId,
-    'the same outstanding set reuses its Holding Letter outbox job');
-  assert.equal(replayedHoldingLetter.result.holdingLetterReused, true);
-  await db.batch([...replayedHoldingLetter.statements, db.prepare('DELETE FROM command_assertions WHERE workspace_id=?').bind(workspaceId)]);
+  for (let retry = 1; retry <= 3; retry += 1) {
+    const replayedHoldingLetter = await queueHoldingLetterForBlockers(env, workspaceId, {} as any, gateEngagement,
+      crypto.randomUUID(), new Date().toISOString(), blockers, 409);
+    assert.equal(replayedHoldingLetter.responseStatus, 409);
+    assert.equal(replayedHoldingLetter.result.holdingLetterJobId, queuedHoldingLetter.result.holdingLetterJobId,
+      `blocked release retry ${retry} reuses its Holding Letter job`);
+    assert.equal(replayedHoldingLetter.result.holdingLetterReused, true);
+    await db.batch([...replayedHoldingLetter.statements, db.prepare('DELETE FROM command_assertions WHERE workspace_id=?').bind(workspaceId)]);
+  }
   assert.equal(db.prepare(`SELECT COUNT(*) AS count FROM outbox_jobs WHERE workspace_id=? AND deduplication_key LIKE 'holding-letter:%'`)
     .bind(workspaceId).first<any>()?.count, 1);
   const httpBlockedRelease = businessCommandHttpResult({ commandId: crypto.randomUUID(), replayed: false, result: queuedHoldingLetter.result },
@@ -3787,6 +3859,62 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
       blockers: queuedHoldingLetter.result.blockers },
     requestId: 'test-request'
   });
+  await worker.scheduled({ scheduledTime: Date.now(), cron: '*/5 * * * *' } as any, env);
+  await worker.scheduled({ scheduledTime: Date.now(), cron: '*/5 * * * *' } as any, env);
+  const holdingLetter = db.prepare(`SELECT h.id,h.artifact_id,h.dispatch_id,a.file_version_id,f.object_key,f.media_type,f.immutable,d.status AS dispatch_status
+    FROM holding_letters h JOIN generated_artifacts a ON a.workspace_id=h.workspace_id AND a.id=h.artifact_id
+    JOIN file_versions f ON f.workspace_id=a.workspace_id AND f.id=a.file_version_id
+    JOIN dispatches d ON d.workspace_id=h.workspace_id AND d.id=h.dispatch_id
+    WHERE h.workspace_id=? AND h.engagement_id=?`).bind(workspaceId, engagementId).first<any>();
+  assert.ok(holdingLetter?.id, 'a Holding Letter record is created from the outstanding-set snapshot');
+  assert.equal(holdingLetter.media_type, 'application/pdf');
+  assert.equal(holdingLetter.immutable, 1);
+  assert.equal(holdingLetter.dispatch_status, 'ACCEPTED');
+  assert.ok(new TextDecoder().decode(r2Objects.get(holdingLetter.object_key)?.slice(0, 8)).startsWith('%PDF-'),
+    'the Holding Letter pipeline retains verified PDF bytes');
+  assert.ok(confirmationDeliveries.some(message => message.purpose === 'HOLDING_LETTER'),
+    'the generated Holding Letter is delivered through the email outbox');
+
+  const independentlyVerified = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'confirmation.verify', payload: {
+      confirmationId, expectedVersion: 4,
+      verificationRationale: 'The reviewer independently matched the returned bank confirmation to the verified recipient and retained evidence.'
+    } }
+  }, makeRiskHeaders(reviewerHeaders));
+  assert.equal(independentlyVerified.response.status, 200, JSON.stringify(independentlyVerified.body));
+  assert.equal(independentlyVerified.body.result.status, 'RETURNED_VERIFIED');
+  assert.equal((await criticalConfirmationBlockers(env, workspaceId, gateEngagement)).length, 0,
+    'independent verification satisfies the critical return gate');
+
+  const partnerReassessment = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'confirmation.scope-reassess', payload: {
+      confirmationId, expectedVersion: 5, rationale: 'Partner reassessed the confirmation scope and approved a noncritical replacement after reviewing the evidence.',
+      replacementCritical: false, replacementCriticalityReason: null
+    } }
+  }, makeRiskHeaders(approverHeaders));
+  assert.equal(partnerReassessment.response.status, 200, JSON.stringify(partnerReassessment.body));
+  assert.equal(partnerReassessment.body.result.status, 'CANCELLED');
+  const reassessedConfirmation = db.prepare('SELECT status,version,scope_approval_id FROM confirmations WHERE workspace_id=? AND id=?')
+    .bind(workspaceId, confirmationId).first<any>();
+  assert.equal(reassessedConfirmation.scope_approval_id, partnerReassessment.body.result.reassessmentId,
+    'the relied-upon confirmation retains its immutable Partner scope approval reference');
+  const scopeApproval = db.prepare(`SELECT subject_type,subject_id,subject_version,decision,rationale FROM approval_decisions WHERE workspace_id=? AND id=?`)
+    .bind(workspaceId, reassessedConfirmation.scope_approval_id).first<any>();
+  assert.deepEqual({ ...scopeApproval }, {
+    subject_type: 'CONFIRMATION_SCOPE', subject_id: confirmationId, subject_version: 6, decision: 'APPROVE',
+    rationale: 'Partner reassessed the confirmation scope and approved a noncritical replacement after reviewing the evidence.'
+  });
+  assert.equal(db.prepare('SELECT COUNT(*) AS count FROM approval_dependencies WHERE workspace_id=? AND approval_id=?')
+    .bind(workspaceId, reassessedConfirmation.scope_approval_id).first<any>()?.count, 2,
+    'the Partner decision pins both the prior and replacement confirmation scopes');
+  const reassessedWorkspace = await call(`/api/workspaces/${workspaceId}/engagements/${engagementId}/fieldwork-workspace`, { headers: technicalHeaders });
+  assert.equal(reassessedWorkspace.response.status, 200, JSON.stringify(reassessedWorkspace.body));
+  assert.equal(reassessedWorkspace.body.confirmations.find((row: any) => row.id === confirmationId)?.scopeApprovalId, reassessedConfirmation.scope_approval_id,
+    'the fieldwork workspace exposes the retained Partner approval reference');
+  assert.equal(reassessedWorkspace.body.confirmationReassessments.some((row: any) => row.id === reassessedConfirmation.scope_approval_id), true,
+    'the fieldwork workspace exposes the reasoned reassessment record');
+  assert.equal((await criticalConfirmationBlockers(env, workspaceId, gateEngagement)).length, 0,
+    'the reassessed noncritical replacement is not treated as a critical-return waiver');
   assert.equal(businessCommandHttpResult({ result: {} }, 'proposal.dispatch', 200, 'test-request').status, 202,
     'a legacy 200 receipt still receives the normal asynchronous command status');
 
