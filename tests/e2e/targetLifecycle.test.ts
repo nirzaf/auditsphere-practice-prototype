@@ -203,7 +203,7 @@ it('two real browser tabs preserve independent FSLI procedure edits after reload
     await other.command('Page.reload');
     for(let n=0;n<100;n++){if(await other.evaluate<boolean>('!!document.querySelector(".sidebar")'))break;await sleep(100);}
     assert.deepEqual(await other.evaluate(inspect),['Independent work in first tab','Independent work in second tab']);
-  } finally {other.close();await fetch(`http://127.0.0.1:${port}/json/close/${target.id}`);}
+  } finally {other.close();await fetch(`http://127.0.0.1:${browserPort}/json/close/${target.id}`);}
 }, {timeout:60000});
 it('A07 visible workbook forms enforce Digital, Physical and Hybrid evidence',async()=>{
   const result=await tab.evaluate<any>("import('/tests/helpers/targetJourney.ts').then(m=>m.runTargetJourney({stopBeforeManager:true}))");
@@ -483,7 +483,8 @@ it('checks US-UIUX-001 responsive scope and captures twelve required surfaces', 
   const folder = 'docs/prototype/evidence/visual-parity';
   mkdirSync(folder, { recursive: true });
   for (const width of [320,390,760,960,1000,1024,1440,1920]) {
-    await tab.command('Emulation.setDeviceMetricsOverride', { width, height: 1000, deviceScaleFactor: 1, mobile: false });
+    const height = width === 390 ? 844 : width === 1440 ? 900 : 1000;
+    await tab.command('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor: 1, mobile: false });
     for (const route of routes) {
       await tab.evaluate(`import('/src/store/prototypeStore.ts').then(({prototypeStore:s})=>{s.setPersona(${JSON.stringify(route==='portal'?'client_finance':'superuser')});location.hash=${JSON.stringify(route)}})`);
       await sleep(120);
@@ -497,7 +498,8 @@ it('checks US-UIUX-001 responsive scope and captures twelve required surfaces', 
       assert.equal(result.personaVisible,true,'the four-persona selector remains visible in the normal experience');
       assert.equal(result.hiddenSearch,true,'normal experience hides global search utility');
       if ([390,1440].includes(width)) {
-        const screenshot = await tab.command('Page.captureScreenshot',{format:'png',captureBeyondViewport:true});
+        await tab.evaluate('window.scrollTo(0,0)');
+        const screenshot = await tab.command('Page.captureScreenshot',{format:'png',captureBeyondViewport:false});
         await saveEvidence(`${folder}/${route}-${width}.png`,Buffer.from(screenshot.data,'base64'));
       }
     }
@@ -510,11 +512,12 @@ it('offers native workflow templates with working downloads and keeps source exa
   await tab.evaluate(`import('/src/store/prototypeStore.ts').then(({prototypeStore:s})=>{s.setPersona('superuser');location.hash='confirmations'})`);
   await sleep(150);
   assert.equal(await tab.evaluate<number>(`document.querySelectorAll('[data-testid=project-templates] a[download]').length`), 4);
-  await tab.command('Emulation.setDeviceMetricsOverride', { width: 390, height: 1000, deviceScaleFactor: 1, mobile: false });
+  await tab.command('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 1, mobile: false });
   await tab.evaluate(`document.querySelector('[data-testid=project-templates]').open=true`);
+  await tab.evaluate(`document.querySelector('[data-testid=project-templates]')?.scrollIntoView({block:'center'})`);
   await sleep(100);
   assert.equal(await tab.evaluate<boolean>(`document.documentElement.scrollWidth<=innerWidth+1`), true, 'expanded native template panel fits mobile');
-  const templateCapture = await tab.command('Page.captureScreenshot', { format: 'png', captureBeyondViewport: true });
+  const templateCapture = await tab.command('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false });
   writeFileSync('docs/prototype/evidence/visual-parity/confirmation-templates-390.png', Buffer.from(templateCapture.data, 'base64'));
   await tab.evaluate(`document.querySelector('[data-testid=project-templates]').open=true; const search=document.querySelector('[data-testid=project-templates] input'); const setter=Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set;setter.call(search,'Bank');search.dispatchEvent(new Event('input',{bubbles:true}));`);
   await sleep(100);
@@ -591,9 +594,22 @@ it('final alignment preserves mobile keyboard containment, route focus and modal
   await sleep(200);
   await tab.command('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:false});
   const key=async(key:string,code:string,vk:number,modifiers=0)=>{await tab.command('Input.dispatchKeyEvent',{type:'keyDown',key,code,windowsVirtualKeyCode:vk,modifiers});await tab.command('Input.dispatchKeyEvent',{type:'keyUp',key,code,windowsVirtualKeyCode:vk,modifiers});};
-  await tab.evaluate(`document.querySelector('[aria-label="Open navigation"]').click()`); await sleep(100);
+  const mobileNavigationBefore = await tab.evaluate<{ triggerVisible: boolean; expanded: string | null }>(`(() => {
+    const trigger = document.querySelector('[aria-label="Open navigation"]');
+    return { triggerVisible: Boolean(trigger?.getClientRects().length), expanded: trigger?.getAttribute('aria-expanded') ?? null };
+  })()`);
+  assert.equal(mobileNavigationBefore.triggerVisible, true, 'mobile navigation trigger is visible before opening');
+  assert.equal(mobileNavigationBefore.expanded, 'false', 'the drawer starts closed');
+  await tab.evaluate(`document.querySelector('[aria-label="Open navigation"]').click()`);
+  let mobileNavigationAfter = { open: false, focusWithin: false };
+  for (let attempt = 0; attempt < 40; attempt++) {
+    mobileNavigationAfter = await tab.evaluate(`({open:document.querySelector('[aria-label="Close navigation"]')?.getAttribute('aria-expanded')==='true',focusWithin:document.querySelector('#primary-sidebar')?.contains(document.activeElement) ?? false})`);
+    if (mobileNavigationAfter.open && mobileNavigationAfter.focusWithin) break;
+    await sleep(25);
+  }
+  assert.equal(mobileNavigationAfter.open, true, 'the menu action opens the mobile drawer');
+  assert.equal(mobileNavigationAfter.focusWithin, true, 'opening the drawer moves focus into its navigation');
   const targets=`Array.from(document.querySelector('#primary-sidebar').querySelectorAll('a[href],button:not([disabled]),select:not([disabled]),input:not([disabled]),[tabindex]:not([tabindex="-1"])')).filter(e=>e.getClientRects().length>0&&!e.closest('[hidden],[inert]'))`;
-  assert.equal(await tab.evaluate<boolean>(`document.querySelector('#primary-sidebar').contains(document.activeElement)`),true);
   await tab.evaluate(`${targets}.at(-1).focus()`); await key('Tab','Tab',9);
   assert.equal(await tab.evaluate<boolean>(`document.activeElement===${targets}[0]`),true,await tab.evaluate<string>(`JSON.stringify({active:document.activeElement.outerHTML,first:${targets}[0].outerHTML,last:${targets}.at(-1).outerHTML})`));
   await key('Tab','Tab',9,8);
