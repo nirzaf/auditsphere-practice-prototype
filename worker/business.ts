@@ -1611,7 +1611,11 @@ export async function listBusinessFiles(
   }
   if (context.scope.engagementId) {
     if (context.actor.persona === 'CLIENT') { clauses.push('engagement_id=?'); bindings.push(context.scope.engagementId); }
-    else { clauses.push('(engagement_id=? OR engagement_id IS NULL)'); bindings.push(context.scope.engagementId); }
+    else {
+      clauses.push(`(engagement_id=? OR engagement_id IS NULL OR engagement_id=(SELECT cr.prior_engagement_id FROM continuance_reviews cr
+        WHERE cr.workspace_id=file_versions.workspace_id AND cr.engagement_id=?))`);
+      bindings.push(context.scope.engagementId, context.scope.engagementId);
+    }
   }
   if (context.actor.persona === 'CLIENT') clauses.push(`(purpose IN ('PBC','TB') OR (purpose='GENERATED' AND (
     EXISTS(SELECT 1 FROM generated_artifacts ga JOIN proposal_artifacts pa ON pa.workspace_id=ga.workspace_id AND pa.artifact_id=ga.id
@@ -1635,7 +1639,14 @@ async function readableBusinessFile(env: Env, workspaceId: string, request: Requ
   const context = await resolveBusinessContext(env, workspaceId, request);
   const file = await businessFileRow(env, workspaceId, fileId);
   if (!file) throw new ApiError('NOT_FOUND', 'File not found.');
-  assertBusinessFileAction(context, file, 'read');
+  let fileContext = context;
+  if (context.actor.persona !== 'CLIENT' && context.scope.clientId && context.scope.engagementId && file.client_id === context.scope.clientId && file.engagement_id) {
+    const linkedPrior = await env.DB.prepare(`SELECT 1 AS found FROM continuance_reviews cr
+      WHERE cr.workspace_id=? AND cr.client_id=? AND cr.engagement_id=? AND cr.prior_engagement_id=?`)
+      .bind(workspaceId, context.scope.clientId, context.scope.engagementId, file.engagement_id).first<{ found: number }>();
+    if (linkedPrior) fileContext = { ...context, scope: { ...context.scope, engagementId: null } };
+  }
+  assertBusinessFileAction(fileContext, file, 'read');
   if (context.actor.persona === 'CLIENT' && file.purpose === 'GENERATED') {
     const issued = await env.DB.prepare(`SELECT 1 AS found WHERE EXISTS(SELECT 1 FROM generated_artifacts ga
       JOIN proposal_artifacts pa ON pa.workspace_id=ga.workspace_id AND pa.artifact_id=ga.id

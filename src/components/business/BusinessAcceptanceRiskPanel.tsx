@@ -14,9 +14,23 @@ import type {
 import { getBusinessAcceptanceGate, getBusinessRiskWorkspace, newBusinessIdempotencyKey, runBusinessCommand } from '../../services/businessWorkspace';
 
 const trackAChecks: BusinessRiskCheckCode[] = ['UBO', 'KYC', 'AML', 'INTEGRITY', 'VIABILITY', 'INDEPENDENCE', 'CONFLICTS'];
+const trackBChecks: BusinessRiskCheckCode[] = ['PRIOR_FEES', 'MANAGEMENT_CHANGE', 'OWNERSHIP_CHANGE', 'NEW_BORROWING', 'LITIGATION', 'FRAUD_REGULATORY'];
+const continuanceTopics = ['MANAGEMENT', 'OWNERSHIP', 'BORROWING', 'LITIGATION', 'FRAUD_REGULATORY'] as const;
+type ContinuanceTopic = typeof continuanceTopics[number];
+const continuanceTopicLabels: Record<ContinuanceTopic, string> = {
+  MANAGEMENT: 'Management', OWNERSHIP: 'Shareholding and UBO', BORROWING: 'Borrowing and covenants',
+  LITIGATION: 'Litigation', FRAUD_REGULATORY: 'Fraud or regulatory matters'
+};
+const todayInQatar = () => {
+  const parts = new Intl.DateTimeFormat('en', { timeZone: 'Asia/Qatar', year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(new Date());
+  const values = Object.fromEntries(parts.map(part => [part.type, part.value]));
+  return `${values.year}-${values.month}-${values.day}`;
+};
 const checkTitle: Record<BusinessRiskCheckCode, string> = {
   UBO: 'Beneficial ownership (UBO)', KYC: 'KYC documents', AML: 'AML background evidence', INTEGRITY: 'Management integrity',
-  VIABILITY: 'Client viability', INDEPENDENCE: 'Independence', CONFLICTS: 'Conflicts of interest'
+  VIABILITY: 'Client viability', INDEPENDENCE: 'Independence', CONFLICTS: 'Conflicts of interest', PRIOR_FEES: 'Prior engagement fees',
+  MANAGEMENT_CHANGE: 'Management changes', OWNERSHIP_CHANGE: 'Shareholding changes', NEW_BORROWING: 'New borrowing',
+  LITIGATION: 'Litigation changes', FRAUD_REGULATORY: 'Fraud or regulatory developments'
 };
 const blankCheck = (code: BusinessRiskCheckCode): BusinessRiskCheckDraft => ({
   code, outcome: '', findings: '', sourceReference: '', checkMethod: 'MANUAL', checkedOn: ''
@@ -65,6 +79,17 @@ export function BusinessAcceptanceRiskPanel({
   const [resolutionEscalationId, setResolutionEscalationId] = useState('');
   const [escalationResolution, setEscalationResolution] = useState('');
   const [resolutionEvidenceId, setResolutionEvidenceId] = useState('');
+  const [priorEngagementId, setPriorEngagementId] = useState('');
+  const [continuanceAsOfDate, setContinuanceAsOfDate] = useState(todayInQatar);
+  const [continuanceFlags, setContinuanceFlags] = useState<Record<ContinuanceTopic, boolean>>({
+    MANAGEMENT: false, OWNERSHIP: false, BORROWING: false, LITIGATION: false, FRAUD_REGULATORY: false
+  });
+  const [continuanceSummary, setContinuanceSummary] = useState('');
+  const [continuanceEvidence, setContinuanceEvidence] = useState<Record<ContinuanceTopic, string>>({
+    MANAGEMENT: '', OWNERSHIP: '', BORROWING: '', LITIGATION: '', FRAUD_REGULATORY: ''
+  });
+  const [confirmPriorReuse, setConfirmPriorReuse] = useState(false);
+  const [priorReuseRationale, setPriorReuseRationale] = useState('');
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
@@ -88,6 +113,21 @@ export function BusinessAcceptanceRiskPanel({
   const canResolveEscalation = context.allowedActions.includes('riskAssessment.resolveEscalation');
   const escalationCandidates = (riskWorkspace?.checks ?? []).filter((row: any) => row.outcome === 'ISSUE' ||
     (['UBO', 'KYC', 'AML'].includes(String(row.code)) && !row.evidence_file_id));
+  const continuation = riskWorkspace?.continuanceReview;
+  const continuityDetailedChecks = useMemo(() => {
+    const delta = continuation?.delta;
+    const required = new Set<BusinessRiskCheckCode>();
+    if (delta?.managementChanged) { required.add('KYC'); required.add('INTEGRITY'); }
+    if (delta?.ownershipChanged) required.add('UBO');
+    if (delta?.newBorrowing) required.add('VIABILITY');
+    if (delta?.litigationChanged) required.add('INTEGRITY');
+    if (delta?.fraudOrRegulatoryIssue) { required.add('AML'); required.add('INTEGRITY'); }
+    return [...required].sort();
+  }, [continuation?.delta]);
+  const reviewEvidenceFiles = eligibleFiles.filter(file => file.clientId === clientId &&
+    (!file.engagementId || file.engagementId === engagementId || file.engagementId === continuation?.priorEngagementId));
+  const selectedContinuanceEvidence = [...new Set(Object.values(continuanceEvidence).filter(Boolean))];
+  const selectedPriorEvidence = selectedContinuanceEvidence.filter(fileId => reviewEvidenceFiles.some(file => file.id === fileId && file.engagementId === continuation?.priorEngagementId));
 
   useEffect(() => {
     const controller = new AbortController();
@@ -108,11 +148,22 @@ export function BusinessAcceptanceRiskPanel({
       setRiskWorkspace(result);
       setGate(result.acceptanceGate);
       setOwners(result.beneficialOwners);
+      const track: BusinessRiskAssessmentDraft['track'] = result.assessment?.track ?? 'NEW_CLIENT';
+      const delta = result.continuanceReview?.delta;
+      const additional: BusinessRiskCheckCode[] = [];
+      if (delta?.managementChanged) additional.push('KYC', 'INTEGRITY');
+      if (delta?.ownershipChanged) additional.push('UBO');
+      if (delta?.newBorrowing) additional.push('VIABILITY');
+      if (delta?.litigationChanged) additional.push('INTEGRITY');
+      if (delta?.fraudOrRegulatoryIssue) additional.push('AML', 'INTEGRITY');
+      const requiredChecks = track === 'CONTINUANCE' ? [...new Set([...trackBChecks, ...additional])] : trackAChecks;
       if (result.assessment?.draft) {
-        setDraft({ ...result.assessment.draft, engagementId, expectedDraftVersion: result.assessment.draftVersion });
+        const stored = new Map(result.assessment.draft.checks.map(check => [check.code, check]));
+        setDraft({ ...result.assessment.draft, engagementId, track, expectedDraftVersion: result.assessment.draftVersion,
+          checks: requiredChecks.map(code => stored.get(code) ?? blankCheck(code)) });
       } else if (result.assessment && result.checks.length) {
         const current = new Map(result.checks.map((row: any) => [row.code, row]));
-        const checks = trackAChecks.map(code => {
+        const checks = requiredChecks.map(code => {
           const row = current.get(code) as any;
           return row ? { ...blankCheck(code), outcome: row.outcome, findings: row.findings, sourceReference: row.source_reference,
             checkMethod: row.check_method, providerName: row.provider_name ?? undefined, externalReference: row.external_reference ?? undefined,
@@ -126,6 +177,9 @@ export function BusinessAcceptanceRiskPanel({
       } else {
         setDraft(blankDraft(engagementId));
       }
+      setPriorEngagementId(current => result.continuanceReview?.priorEngagementId ??
+        (current && result.continuanceCandidates.some(candidate => candidate.id === current) ? current : result.continuanceCandidates[0]?.id ?? ''));
+      if (!result.continuanceReview) setContinuanceAsOfDate(current => current || todayInQatar());
       setSelectedOwnerId(current => current && result.beneficialOwners.some(owner => owner.id === current) ? current : '');
     }).catch(reason => {
       if (!controller.signal.aborted) setError(reason instanceof Error ? reason.message : 'The risk workspace could not be loaded.');
@@ -157,9 +211,29 @@ export function BusinessAcceptanceRiskPanel({
   const saveRiskDraft = (event: React.FormEvent) => {
     event.preventDefault();
     if (!draft.overallRisk) { setError('Select the reviewer’s overall risk conclusion.'); return; }
-    if (draft.checks.some(check => !check.outcome)) { setError('Select an outcome for each required Track A check.'); return; }
+    if (draft.checks.some(check => !check.outcome)) { setError(`Select an outcome for each required Track ${draft.track === 'CONTINUANCE' ? 'B' : 'A'} check.`); return; }
     const checks = draft.checks.map(({ outcome, ...check }) => ({ ...check, resolution: check.resolution?.trim() || undefined, outcome }));
     void command('riskAssessment.saveDraft', { ...draft, expectedDraftVersion: riskWorkspace?.assessment?.draftVersion ?? 0, checks }, 'Risk assessment draft saved with a new version.');
+  };
+  const startContinuance = (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!riskWorkspace || !priorEngagementId) return;
+    void command('riskAssessment.startContinuance', { engagementId, priorEngagementId, asOfDate: continuanceAsOfDate,
+      expectedEngagementVersion: riskWorkspace.engagement.version }, 'A new, independently versioned Track B continuance assessment was started.');
+  };
+  const recordDelta = (event: React.FormEvent) => {
+    event.preventDefault();
+    const assessment = riskWorkspace?.assessment;
+    if (!assessment?.id || !assessment.draftVersion) return;
+    const evidenceCoverage = continuanceTopics.map(topic => ({ topic, fileIds: [continuanceEvidence[topic]] }));
+    const priorEvidenceApplicability = selectedPriorEvidence.map(fileId => ({ fileId, confirmedApplicable: true as const, rationale: priorReuseRationale.trim() }));
+    void command('riskAssessment.recordDelta', {
+      assessmentId: assessment.id, expectedDraftVersion: assessment.draftVersion,
+      managementChanged: continuanceFlags.MANAGEMENT, ownershipChanged: continuanceFlags.OWNERSHIP,
+      newBorrowing: continuanceFlags.BORROWING, litigationChanged: continuanceFlags.LITIGATION,
+      fraudOrRegulatoryIssue: continuanceFlags.FRAUD_REGULATORY, changeSummary: continuanceSummary.trim(),
+      evidenceFileIds: selectedContinuanceEvidence, evidenceCoverage, priorEvidenceApplicability
+    }, 'A new immutable continuance delta revision and its evidence coverage were recorded.');
   };
   const submitRiskDraft = () => {
     const assessment = riskWorkspace?.assessment;
@@ -251,9 +325,47 @@ export function BusinessAcceptanceRiskPanel({
 
     {!isClient && riskWorkspace && <>
       <div className="business-risk-summary">
-        <strong>Track A · New client acceptance dossier</strong>
+        <strong>{riskWorkspace.assessment?.track === 'CONTINUANCE' ? 'Track B · Recurring-client continuance dossier' : 'Track A · New client acceptance dossier'}</strong>
         <span>{riskWorkspace.assessment ? `Assessment ${riskWorkspace.assessment.id.slice(0, 8)} · draft v${riskWorkspace.assessment.draftVersion} · ${riskWorkspace.assessment.currentVersionId ? `submitted revision ${riskWorkspace.assessment.revision}` : 'not submitted'}` : 'No risk assessment has been started.'}</span>
       </div>
+      {editable && context.actor.persona === 'REVIEWER' && !riskWorkspace.assessment && <form className="business-form business-commercial-form" onSubmit={startContinuance}>
+        <h3>Start a recurring-client continuance review</h3>
+        <p className="business-note">Only prior engagements with a current accepted proposal and a current Partner-cleared risk revision are eligible. The new assessment remains independent from that prior decision.</p>
+        {riskWorkspace.continuanceCandidates.length > 0 ? <div className="business-form-grid">
+          <label className="business-field" htmlFor={`continuance-prior-${engagementId}`}><span>Eligible prior engagement</span><select id={`continuance-prior-${engagementId}`} required value={priorEngagementId} onChange={event => setPriorEngagementId(event.target.value)}><option value="">Select prior engagement</option>{riskWorkspace.continuanceCandidates.map(prior => <option key={prior.id} value={prior.id}>{prior.code} · period ended {prior.periodEnd} · QAR {prior.feeMinor} minor units</option>)}</select></label>
+          <label className="business-field" htmlFor={`continuance-date-${engagementId}`}><span>Prior fee ledger as-of date · Asia/Qatar</span><input id={`continuance-date-${engagementId}`} type="date" required max={todayInQatar()} value={continuanceAsOfDate} onChange={event => setContinuanceAsOfDate(event.target.value)} /></label>
+        </div> : <p className="business-gate-blocker">No eligible prior engagement has current commercial acceptance and Partner clearance.</p>}
+        <button type="submit" className="btn primary" disabled={busy || !priorEngagementId || !continuanceAsOfDate || riskWorkspace.continuanceCandidates.length === 0}>Start Track B assessment</button>
+      </form>}
+      {continuation && <section className="business-form business-commercial-form" aria-label="Dated prior engagement baseline">
+        <h3>Prior-year baseline · {continuation.priorEngagementCode}</h3>
+        <p className="business-note">Prior period ended {continuation.priorPeriodEnd} · as of {continuation.asOfDate} · linked prior risk revision {continuation.priorRiskVersionId.slice(0, 8)} · prior approval is not copied.</p>
+        <p><strong>Outstanding prior fees:</strong> QAR {continuation.priorFeeOutstandingMinor} minor units</p>
+        {Number(continuation.priorFeeOutstandingMinor) > 0 && <p className="business-gate-blocker">The balance remains an issue until an APPROVER with PARTNER grade records a separate resolution with evidence.</p>}
+        {continuation.invoices.length > 0 ? <div className="business-table-scroll"><table className="business-table"><thead><tr><th>Prior invoice</th><th>Issued</th><th>Settled as of date</th><th>Outstanding</th></tr></thead><tbody>{continuation.invoices.map(invoice => <tr key={invoice.invoiceId}><td>{invoice.invoiceNumber}</td><td>QAR {invoice.issuedMinor}</td><td>QAR {invoice.settledMinor}</td><td>QAR {invoice.outstandingMinor}</td></tr>)}</tbody></table></div> : <p className="business-note">No issued prior invoices existed on the selected as-of date.</p>}
+        {continuation.delta && <div className="business-risk-summary"><strong>Latest recorded delta · revision {continuation.delta.revision}</strong><span>{continuation.delta.changeSummary}</span>
+          <span>Changed areas: {continuanceTopics.filter(topic => ({ MANAGEMENT: continuation.delta?.managementChanged, OWNERSHIP: continuation.delta?.ownershipChanged, BORROWING: continuation.delta?.newBorrowing, LITIGATION: continuation.delta?.litigationChanged, FRAUD_REGULATORY: continuation.delta?.fraudOrRegulatoryIssue }[topic])).map(topic => continuanceTopicLabels[topic]).join(', ') || 'No reported changes'}</span>
+        </div>}
+      </section>}
+      {riskWorkspace.assessment?.track === 'CONTINUANCE' && editable && context.actor.persona === 'REVIEWER' && continuation && <form className="business-form business-commercial-form" onSubmit={recordDelta}>
+        <h3>Record current changes and supported no-change conclusions</h3>
+        <p className="business-note">For every area, select committed evidence that supports the current assessment. A prior-year document can be reused only after confirming that it still applies and recording why.</p>
+        <div className="business-risk-check-list">
+          {continuanceTopics.map(topic => <fieldset className="business-risk-check" key={topic}>
+            <legend>{continuanceTopicLabels[topic]}</legend>
+            <label className="business-check-field"><input type="checkbox" checked={continuanceFlags[topic]} onChange={event => setContinuanceFlags(current => ({ ...current, [topic]: event.target.checked }))} /><span>A material change or development was identified</span></label>
+            <label className="business-field" htmlFor={`continuance-evidence-${topic}-${engagementId}`}><span>Current evidence for this area</span><select id={`continuance-evidence-${topic}-${engagementId}`} required value={continuanceEvidence[topic]} onChange={event => setContinuanceEvidence(current => ({ ...current, [topic]: event.target.value }))}>
+              <option value="">Select committed evidence</option>{reviewEvidenceFiles.map(file => <option key={file.id} value={file.id}>{fileLabel(file)}{file.engagementId === continuation.priorEngagementId ? ' · prior document, applicability confirmation required' : ''}</option>)}
+            </select></label>
+          </fieldset>)}
+        </div>
+        <label className="business-field" htmlFor={`continuance-summary-${engagementId}`}><span>Prior/current comparison and conclusion</span><textarea id={`continuance-summary-${engagementId}`} className="input" required minLength={10} maxLength={5000} rows={3} value={continuanceSummary} onChange={event => setContinuanceSummary(event.target.value)} placeholder="Explain each change or the evidence reviewed to support no change." /></label>
+        {selectedPriorEvidence.length > 0 && <div className="business-form">
+          <label className="business-check-field"><input type="checkbox" checked={confirmPriorReuse} onChange={event => setConfirmPriorReuse(event.target.checked)} /><span>I confirmed that each selected prior document still applies to this current engagement.</span></label>
+          <label className="business-field" htmlFor={`continuance-reuse-rationale-${engagementId}`}><span>Why those prior documents remain current</span><textarea id={`continuance-reuse-rationale-${engagementId}`} className="input" required minLength={10} maxLength={2000} rows={2} value={priorReuseRationale} onChange={event => setPriorReuseRationale(event.target.value)} /></label>
+        </div>}
+        <button type="submit" className="btn primary" disabled={busy || continuanceTopics.some(topic => !continuanceEvidence[topic]) || continuanceSummary.trim().length < 10 || (selectedPriorEvidence.length > 0 && (!confirmPriorReuse || priorReuseRationale.trim().length < 10))}>Record a new delta revision</button>
+      </form>}
       {editable && <>
         <form className="business-form business-commercial-form" onSubmit={saveOwner}>
           <h3>Beneficial ownership register</h3>
@@ -272,7 +384,7 @@ export function BusinessAcceptanceRiskPanel({
         </form>
 
         <form className="business-form business-commercial-form" onSubmit={saveRiskDraft}>
-          <h3>Track A questionnaire and reviewer conclusions</h3>
+          <h3>Track {draft.track === 'CONTINUANCE' ? 'B' : 'A'} questionnaire and reviewer conclusions</h3>
           <div className="business-form-grid">
             <label className="business-field" htmlFor={`risk-template-${engagementId}`}><span>Approved questionnaire template version</span><input id={`risk-template-${engagementId}`} required maxLength={200} value={draft.questionnaireTemplateVersion} onChange={event => setDraft(current => ({ ...current, questionnaireTemplateVersion: event.target.value }))} /></label>
             <label className="business-field" htmlFor={`risk-date-${engagementId}`}><span>Assessment date</span><input id={`risk-date-${engagementId}`} type="date" required value={draft.assessmentDate} onChange={event => setDraft(current => ({ ...current, assessmentDate: event.target.value }))} /></label>

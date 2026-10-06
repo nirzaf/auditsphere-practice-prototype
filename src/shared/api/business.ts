@@ -286,7 +286,8 @@ export interface BusinessDeliveryWorkspace {
   taxPolicies?: Array<{ id: string; revision: number; name: string; taxBasisPoints: number; rationale: string; approvedAt: string }>;
 }
 
-export type BusinessRiskCheckCode = 'UBO' | 'KYC' | 'AML' | 'INTEGRITY' | 'VIABILITY' | 'INDEPENDENCE' | 'CONFLICTS';
+export type BusinessRiskCheckCode = 'UBO' | 'KYC' | 'AML' | 'INTEGRITY' | 'VIABILITY' | 'INDEPENDENCE' | 'CONFLICTS'
+  | 'PRIOR_FEES' | 'MANAGEMENT_CHANGE' | 'OWNERSHIP_CHANGE' | 'NEW_BORROWING' | 'LITIGATION' | 'FRAUD_REGULATORY';
 export type BusinessRiskOutcome = 'CLEAR' | 'ISSUE' | 'NOT_APPLICABLE';
 export interface BusinessRiskCheckDraft {
   code: BusinessRiskCheckCode;
@@ -332,9 +333,9 @@ export interface BusinessRiskEscalation {
   resolvedAt: string | null;
 }
 export interface BusinessRiskWorkspace {
-  engagement: { id: string; clientId: string; clientName: string; lifecycleState: string };
+  engagement: { id: string; version: number; clientId: string; clientName: string; periodStart: string; periodEnd: string; lifecycleState: string };
   requiredTrackACodes: BusinessRiskCheckCode[];
-  requiredTrackBCodes: string[];
+  requiredTrackBCodes: BusinessRiskCheckCode[];
   assessment: null | {
     id: string; version: number; track: 'NEW_CLIENT' | 'CONTINUANCE'; currentVersionId: string | null;
     revision: number | null; overallRisk: string | null; questionnaireTemplateVersion: string | null;
@@ -344,6 +345,14 @@ export interface BusinessRiskWorkspace {
   checks: Array<Record<string, unknown>>;
   escalations: BusinessRiskEscalation[];
   beneficialOwners: Array<{ id: string; version: number; revisionId: string; fullName: string; ownershipBps: number; controlBasis: string; identityEvidenceFileId: string | null; effectiveFrom: string; effectiveTo: string | null; evidenceSha256: string | null }>;
+  continuanceCandidates: Array<{ id: string; code: string; periodStart: string; periodEnd: string; lifecycleState: string; acceptanceId: string; riskVersionId: string; clearanceId: string; feeMinor: string }>;
+  continuanceReview: null | {
+    id: string; priorEngagementId: string; priorEngagementCode: string; priorPeriodEnd: string; priorCommercialAcceptanceId: string;
+    priorRiskVersionId: string; priorRiskClearanceId: string; asOfDate: string; priorFeeOutstandingMinor: string;
+    invoices: Array<{ invoiceId: string; invoiceNumber: string; issuedMinor: string; settledMinor: string; outstandingMinor: string }>;
+    delta: null | { id: string; revision: number; managementChanged: boolean; ownershipChanged: boolean; newBorrowing: boolean;
+      litigationChanged: boolean; fraudOrRegulatoryIssue: boolean; changeSummary: string; evidence: Array<Record<string, unknown>> };
+  };
   acceptanceGate: BusinessAcceptanceGate;
 }
 export interface BusinessAcceptanceGate {

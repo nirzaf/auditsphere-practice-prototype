@@ -8,6 +8,7 @@ import { sha256Hex } from './http';
 const id = z.uuid();
 const date = z.iso.date();
 const riskTrack = z.enum(['NEW_CLIENT', 'CONTINUANCE']);
+const continuanceTopics = ['MANAGEMENT', 'OWNERSHIP', 'BORROWING', 'LITIGATION', 'FRAUD_REGULATORY'] as const;
 const checkCode = z.enum([
   'UBO', 'KYC', 'AML', 'INTEGRITY', 'VIABILITY', 'INDEPENDENCE', 'CONFLICTS',
   'PRIOR_FEES', 'MANAGEMENT_CHANGE', 'OWNERSHIP_CHANGE', 'NEW_BORROWING', 'LITIGATION', 'FRAUD_REGULATORY'
@@ -97,6 +98,52 @@ const riskResolveEscalation = z.strictObject({
   type: z.literal('riskAssessment.resolveEscalation'),
   payload: z.strictObject({ escalationId: id, expectedVersion: z.number().int().positive(), resolution: z.string().trim().min(10).max(5000), evidenceFileId: id })
 });
+const startContinuance = z.strictObject({
+  type: z.literal('riskAssessment.startContinuance'),
+  payload: z.strictObject({ engagementId: id, priorEngagementId: id, asOfDate: date, expectedEngagementVersion: z.number().int().positive() })
+});
+const recordContinuanceDelta = z.strictObject({
+  type: z.literal('riskAssessment.recordDelta'),
+  payload: z.strictObject({
+    assessmentId: id,
+    expectedDraftVersion: z.number().int().positive(),
+    managementChanged: z.boolean(),
+    ownershipChanged: z.boolean(),
+    newBorrowing: z.boolean(),
+    litigationChanged: z.boolean(),
+    fraudOrRegulatoryIssue: z.boolean(),
+    changeSummary: z.string().trim().min(10).max(5000),
+    evidenceFileIds: z.array(id).min(1).max(30),
+    evidenceCoverage: z.array(z.strictObject({ topic: z.enum(continuanceTopics), fileIds: z.array(id).min(1).max(10) })).length(5),
+    priorEvidenceApplicability: z.array(z.strictObject({
+      fileId: id,
+      confirmedApplicable: z.literal(true),
+      rationale: z.string().trim().min(10).max(2000)
+    })).max(30)
+  }).superRefine((payload, ctx) => {
+    if (new Set(payload.evidenceFileIds).size !== payload.evidenceFileIds.length) {
+      ctx.addIssue({ code: 'custom', path: ['evidenceFileIds'], message: 'Each evidence file may be selected once.' });
+    }
+    const topics = new Set(payload.evidenceCoverage.map(item => item.topic));
+    if (topics.size !== continuanceTopics.length || continuanceTopics.some(topic => !topics.has(topic))) {
+      ctx.addIssue({ code: 'custom', path: ['evidenceCoverage'], message: 'Provide evidence coverage for each continuance change area.' });
+    }
+    const coveredFiles = new Set(payload.evidenceCoverage.flatMap(item => item.fileIds));
+    if (coveredFiles.size !== payload.evidenceFileIds.length || payload.evidenceFileIds.some(fileId => !coveredFiles.has(fileId))) {
+      ctx.addIssue({ code: 'custom', path: ['evidenceCoverage'], message: 'Every selected evidence file must be assigned to at least one continuance change area.' });
+    }
+    payload.evidenceCoverage.forEach((item, index) => {
+      if (new Set(item.fileIds).size !== item.fileIds.length) ctx.addIssue({ code: 'custom', path: ['evidenceCoverage', index, 'fileIds'], message: 'A file may appear once per change area.' });
+    });
+    if (new Set(payload.priorEvidenceApplicability.map(item => item.fileId)).size !== payload.priorEvidenceApplicability.length) {
+      ctx.addIssue({ code: 'custom', path: ['priorEvidenceApplicability'], message: 'Each prior document needs one applicability confirmation.' });
+    }
+    const selected = new Set(payload.evidenceFileIds);
+    payload.priorEvidenceApplicability.forEach((item, index) => {
+      if (!selected.has(item.fileId)) ctx.addIssue({ code: 'custom', path: ['priorEvidenceApplicability', index, 'fileId'], message: 'A reused prior file must also be selected as delta evidence.' });
+    });
+  })
+});
 const commercialAccept = z.strictObject({
   type: z.literal('commercialAcceptance.record'),
   payload: z.strictObject({
@@ -112,7 +159,7 @@ const commercialRevoke = z.strictObject({
   payload: z.strictObject({ acceptanceId: id, rationale: z.string().trim().min(10).max(5000) })
 });
 
-export const businessRiskCommands = [saveRiskDraft, submitRisk, saveOwner, riskDecision, riskReject, riskRevoke, riskEscalate, riskResolveEscalation, commercialAccept, commercialRevoke] as const;
+export const businessRiskCommands = [saveRiskDraft, submitRisk, saveOwner, riskDecision, riskReject, riskRevoke, riskEscalate, riskResolveEscalation, startContinuance, recordContinuanceDelta, commercialAccept, commercialRevoke] as const;
 export const businessRiskCommandSchema = z.discriminatedUnion('type', businessRiskCommands);
 export type BusinessRiskCommand = z.infer<typeof businessRiskCommandSchema>;
 export function isBusinessRiskCommand(command: { type: string }): command is BusinessRiskCommand {
@@ -155,11 +202,11 @@ function requirePartner(context: RiskBusinessContext): void {
 }
 
 async function getEngagement(env: Env, workspaceId: string, context: RiskBusinessContext, engagementId: string) {
-  const engagement = await env.DB.prepare(`SELECT e.id,e.version,e.client_id,e.lifecycle_state,e.active_proposal_version_id,
+  const engagement = await env.DB.prepare(`SELECT e.id,e.version,e.client_id,e.lifecycle_state,e.active_proposal_version_id,e.period_start,e.period_end,
       c.active AS client_active,c.legal_name
     FROM engagements e JOIN clients c ON c.workspace_id=e.workspace_id AND c.id=e.client_id
     WHERE e.workspace_id=? AND e.id=?`).bind(workspaceId, engagementId)
-    .first<{ id: string; version: number; client_id: string; lifecycle_state: string; active_proposal_version_id: string | null; client_active: number; legal_name: string }>();
+    .first<{ id: string; version: number; client_id: string; lifecycle_state: string; active_proposal_version_id: string | null; period_start: string; period_end: string; client_active: number; legal_name: string }>();
   if (!engagement) throw new ApiError('NOT_FOUND', 'The engagement was not found.');
   assertEngagementScope(context, engagement.client_id, engagementId);
   if (engagement.client_active !== 1 || engagement.lifecycle_state === 'ARCHIVED_READ_ONLY') throw new ApiError('WORKSPACE_FROZEN', 'This engagement is not open for acceptance or risk changes.');
@@ -194,14 +241,26 @@ async function validateEvidenceFile(env: Env, workspaceId: string, clientId: str
 }
 
 async function riskDependencyHash(env: Env, workspaceId: string, assessmentVersionId: string, assessmentSourceVersion: number, clientId: string): Promise<{ dependencyHash: string; ownersHash: string }> {
-  const version = await env.DB.prepare(`SELECT dependency_hash,ownership_hash FROM risk_assessment_versions
-    WHERE workspace_id=? AND id=?`).bind(workspaceId, assessmentVersionId).first<{ dependency_hash: string; ownership_hash: string }>();
+  const version = await env.DB.prepare(`SELECT dependency_hash,ownership_hash,assessment_id FROM risk_assessment_versions
+    WHERE workspace_id=? AND id=?`).bind(workspaceId, assessmentVersionId).first<{ dependency_hash: string; ownership_hash: string; assessment_id: string }>();
   if (!version) throw new ApiError('NOT_FOUND', 'The submitted risk assessment revision was not found.');
   const ownersHash = await ownershipHash(env, workspaceId, clientId);
-  const assessment = await env.DB.prepare(`SELECT version FROM risk_assessments WHERE workspace_id=? AND current_version_id=?`)
-    .bind(workspaceId, assessmentVersionId).first<{ version: number }>();
+  const assessment = await env.DB.prepare(`SELECT version,track FROM risk_assessments WHERE workspace_id=? AND current_version_id=?`)
+    .bind(workspaceId, assessmentVersionId).first<{ version: number; track: 'NEW_CLIENT'|'CONTINUANCE' }>();
   if (!assessment || assessment.version !== assessmentSourceVersion || ownersHash !== version.ownership_hash) {
     throw new ApiError('STALE_APPROVAL', 'Risk facts or ownership changed after this dossier revision. Submit and approve a fresh revision.');
+  }
+  let continuanceHash: string | null = null;
+  if (assessment.track === 'CONTINUANCE') {
+    const baseline = await env.DB.prepare(`SELECT cb.id,src.delta_revision_id,src.snapshot_sha256 FROM continuance_baselines cb
+      JOIN continuance_baseline_sources src ON src.workspace_id=cb.workspace_id AND src.baseline_id=cb.id
+      WHERE cb.workspace_id=? AND cb.assessment_version_id=?`).bind(workspaceId, assessmentVersionId)
+      .first<{ id: string; delta_revision_id: string; snapshot_sha256: string }>();
+    if (!baseline) throw new ApiError('STALE_APPROVAL', 'The submitted continuance revision has no version-pinned baseline.');
+    continuanceHash = await continuanceSnapshotHash(env, workspaceId, version.assessment_id, baseline.delta_revision_id, baseline.id);
+    if (!continuanceHash || continuanceHash !== baseline.snapshot_sha256) {
+      throw new ApiError('STALE_APPROVAL', 'Continuance dates, prior fees, delta facts or evidence no longer match the submitted revision.');
+    }
   }
   const escalationRows = await env.DB.prepare(`SELECT re.id,re.version,re.check_id,re.check_code,re.reason,re.required_evidence,re.status,re.resolution,
       re.evidence_file_id,fv.sha256 AS evidence_sha256,re.resolved_by_actor_id,re.resolved_at
@@ -210,8 +269,286 @@ async function riskDependencyHash(env: Env, workspaceId: string, assessmentVersi
     .bind(workspaceId, assessmentVersionId).all<Record<string, unknown>>();
   return {
     ownersHash,
-    dependencyHash: await sha256Hex(JSON.stringify({ assessmentVersionId, assessmentSourceVersion, dossierHash: version.dependency_hash, ownersHash, escalations: escalationRows.results ?? [] }))
+    dependencyHash: await sha256Hex(JSON.stringify({ assessmentVersionId, assessmentSourceVersion, dossierHash: version.dependency_hash, ownersHash, continuanceHash, escalations: escalationRows.results ?? [] }))
   };
+}
+
+function qatarDate(now: string): string {
+  const parts = new Intl.DateTimeFormat('en', { timeZone: 'Asia/Qatar', year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(new Date(now));
+  const values = Object.fromEntries(parts.map(part => [part.type, part.value]));
+  return `${values.year}-${values.month}-${values.day}`;
+}
+
+interface ContinuanceDeltaFlags {
+  management_changed: number;
+  ownership_changed: number;
+  new_borrowing: number;
+  litigation_changed: number;
+  fraud_or_regulatory_issue: number;
+}
+
+function detailedContinuanceChecks(delta: ContinuanceDeltaFlags): string[] {
+  const required = new Set<string>();
+  if (delta.management_changed) { required.add('KYC'); required.add('INTEGRITY'); }
+  if (delta.ownership_changed) required.add('UBO');
+  if (delta.new_borrowing) required.add('VIABILITY');
+  if (delta.litigation_changed) required.add('INTEGRITY');
+  if (delta.fraud_or_regulatory_issue) { required.add('AML'); required.add('INTEGRITY'); }
+  return [...required].sort();
+}
+
+async function readPriorInvoiceSnapshot(env: Env, workspaceId: string, priorEngagementId: string, asOfDate: string) {
+  const rows = await env.DB.prepare(`SELECT i.id,i.number,i.total_minor,pa.amount_minor,p.id AS paid_payment_id,p.reverses_payment_id
+    FROM invoices i
+    LEFT JOIN payment_allocations pa ON pa.workspace_id=i.workspace_id AND pa.invoice_id=i.id AND pa.allocated_on<=?
+    LEFT JOIN payments p ON p.workspace_id=pa.workspace_id AND p.id=pa.payment_id AND p.received_on<=?
+    WHERE i.workspace_id=? AND i.engagement_id=? AND i.status='ISSUED' AND i.issue_date<=?
+    ORDER BY i.issue_date,i.number,i.id,pa.id`).bind(asOfDate, asOfDate, workspaceId, priorEngagementId, asOfDate)
+    .all<{ id: string; number: string; total_minor: number; amount_minor: number | null; paid_payment_id: string | null; reverses_payment_id: string | null }>();
+  const lines = new Map<string, { invoiceId: string; invoiceNumber: string; issued: bigint; settled: bigint }>();
+  for (const row of rows.results ?? []) {
+    if (!Number.isSafeInteger(row.total_minor) || row.total_minor < 0 || (row.amount_minor !== null && !Number.isSafeInteger(row.amount_minor))) {
+      throw new ApiError('CALCULATION_DOMAIN_EXCEEDED', 'The prior invoice ledger contains an amount outside the supported exact integer range.');
+    }
+    const line = lines.get(row.id) ?? { invoiceId: row.id, invoiceNumber: row.number, issued: BigInt(row.total_minor), settled: 0n };
+    if (row.paid_payment_id && row.amount_minor !== null) {
+      const amount = BigInt(row.amount_minor);
+      line.settled += row.reverses_payment_id ? -amount : amount;
+    }
+    lines.set(row.id, line);
+  }
+  const snapshots = [...lines.values()].map(line => {
+    const outstanding = line.issued - line.settled;
+    if (line.settled < 0n || outstanding < 0n || line.settled > line.issued || outstanding > BigInt(Number.MAX_SAFE_INTEGER)) {
+      throw new ApiError('CALCULATION_DOMAIN_EXCEEDED', `The dated ledger for invoice ${line.invoiceNumber} cannot be reconciled safely.`);
+    }
+    return { invoiceId: line.invoiceId, invoiceNumber: line.invoiceNumber, issuedMinor: Number(line.issued), settledMinor: Number(line.settled), outstandingMinor: Number(outstanding) };
+  });
+  const totalOutstanding = snapshots.reduce((total, line) => total + BigInt(line.outstandingMinor), 0n);
+  if (totalOutstanding > BigInt(Number.MAX_SAFE_INTEGER)) throw new ApiError('CALCULATION_DOMAIN_EXCEEDED', 'Prior fees exceed the supported exact integer range.');
+  return { snapshots, outstandingMinor: Number(totalOutstanding) };
+}
+
+async function continuanceSnapshotHash(env: Env, workspaceId: string, assessmentId: string, deltaRevisionId: string, baselineId?: string): Promise<string | null> {
+  const start = await env.DB.prepare(`SELECT id,client_id,engagement_id,prior_engagement_id,prior_commercial_acceptance_id,
+      prior_risk_version_id,prior_risk_clearance_id,as_of_date,prior_fee_outstanding_minor
+    FROM continuance_reviews WHERE workspace_id=? AND assessment_id=?`).bind(workspaceId, assessmentId)
+    .first<{ id: string; client_id: string; engagement_id: string; prior_engagement_id: string; prior_commercial_acceptance_id: string;
+      prior_risk_version_id: string; prior_risk_clearance_id: string; as_of_date: string; prior_fee_outstanding_minor: number }>();
+  const delta = await env.DB.prepare(`SELECT id,revision,management_changed,ownership_changed,new_borrowing,litigation_changed,
+      fraud_or_regulatory_issue,change_summary FROM continuance_delta_revisions WHERE workspace_id=? AND assessment_id=? AND id=?`)
+    .bind(workspaceId, assessmentId, deltaRevisionId)
+    .first<{ id: string; revision: number; management_changed: number; ownership_changed: number; new_borrowing: number; litigation_changed: number;
+      fraud_or_regulatory_issue: number; change_summary: string }>();
+  if (!start || !delta) return null;
+  const invoices = await env.DB.prepare(`SELECT prior_invoice_id,invoice_number,issued_minor,settled_minor,outstanding_minor
+    FROM continuance_invoice_snapshots WHERE workspace_id=? AND continuance_review_id=? ORDER BY prior_invoice_id`)
+    .bind(workspaceId, start.id).all<{ prior_invoice_id: string; invoice_number: string; issued_minor: number; settled_minor: number; outstanding_minor: number }>();
+  const evidence = baselineId
+    ? await env.DB.prepare(`SELECT topic,file_version_id,file_sha256,evidence_kind,applicability_rationale FROM continuance_baseline_evidence
+        WHERE workspace_id=? AND baseline_id=? ORDER BY topic,file_version_id`).bind(workspaceId, baselineId)
+      .all<{ topic: string; file_version_id: string; file_sha256: string; evidence_kind: string; applicability_rationale: string }>()
+    : await env.DB.prepare(`SELECT topic,file_version_id,file_sha256,evidence_kind,applicability_rationale FROM continuance_delta_evidence
+        WHERE workspace_id=? AND delta_revision_id=? ORDER BY topic,file_version_id`).bind(workspaceId, deltaRevisionId)
+      .all<{ topic: string; file_version_id: string; file_sha256: string; evidence_kind: string; applicability_rationale: string }>();
+  if (!evidence.results?.length) return null;
+  return sha256Hex(JSON.stringify({
+    start: { id: start.id, clientId: start.client_id, engagementId: start.engagement_id, priorEngagementId: start.prior_engagement_id,
+      priorCommercialAcceptanceId: start.prior_commercial_acceptance_id, priorRiskVersionId: start.prior_risk_version_id,
+      priorRiskClearanceId: start.prior_risk_clearance_id, asOfDate: start.as_of_date, priorFeeOutstandingMinor: String(start.prior_fee_outstanding_minor) },
+    invoices: (invoices.results ?? []).map(item => ({ invoiceId: item.prior_invoice_id, invoiceNumber: item.invoice_number,
+      issuedMinor: String(item.issued_minor), settledMinor: String(item.settled_minor), outstandingMinor: String(item.outstanding_minor) })),
+    delta: { id: delta.id, revision: delta.revision, managementChanged: Boolean(delta.management_changed), ownershipChanged: Boolean(delta.ownership_changed),
+      newBorrowing: Boolean(delta.new_borrowing), litigationChanged: Boolean(delta.litigation_changed), fraudOrRegulatoryIssue: Boolean(delta.fraud_or_regulatory_issue),
+      changeSummary: delta.change_summary },
+    evidence: (evidence.results ?? []).map(item => ({ topic: item.topic, fileId: item.file_version_id, sha256: item.file_sha256,
+      kind: item.evidence_kind, applicabilityRationale: item.applicability_rationale }))
+  }));
+}
+
+async function buildStartContinuance(
+  env: Env, workspaceId: string, context: RiskBusinessContext,
+  command: Extract<BusinessRiskCommand, { type: 'riskAssessment.startContinuance' }>, now: string
+): Promise<RiskBusinessMutation> {
+  requireRiskEditor(context);
+  if (context.actor.persona !== 'REVIEWER') throw new ApiError('PERSONA_ACTION_DENIED', 'A REVIEWER starts the current engagement continuance assessment.');
+  const payload = command.payload;
+  const engagement = await getEngagement(env, workspaceId, context, payload.engagementId);
+  if (engagement.version !== payload.expectedEngagementVersion) throw new ApiError('VERSION_CONFLICT', 'The current engagement changed. Refresh before starting continuance.');
+  if (payload.asOfDate > qatarDate(now)) throw new ApiError('VALIDATION_FAILED', 'The continuance as-of date cannot be in the future in Asia/Qatar.');
+  if (engagement.id === payload.priorEngagementId) throw new ApiError('VALIDATION_FAILED', 'Continuance requires a separate prior engagement.');
+  const prior = await env.DB.prepare(`SELECT e.id,e.period_end,e.client_id,ra.id AS assessment_id,ra.current_version_id,ra.version AS assessment_version,
+      rv.assessment_source_version,rv.id AS risk_version_id,rv.dependency_hash AS risk_version_hash,
+      pv.fee_minor,ca.id AS acceptance_id,ca.accepted_fee_minor,rc.id AS clearance_id,rc.dependency_hash AS clearance_hash
+    FROM engagements e
+    JOIN proposals p ON p.workspace_id=e.workspace_id AND p.engagement_id=e.id AND p.current_version_id=e.active_proposal_version_id
+    JOIN proposal_versions pv ON pv.workspace_id=p.workspace_id AND pv.id=p.current_version_id
+    JOIN commercial_acceptances ca ON ca.workspace_id=e.workspace_id AND ca.engagement_id=e.id AND ca.proposal_version_id=pv.id
+      AND ca.sequence=(SELECT MAX(last_ca.sequence) FROM commercial_acceptances last_ca WHERE last_ca.workspace_id=ca.workspace_id AND last_ca.proposal_version_id=ca.proposal_version_id)
+      AND ca.decision='ACCEPT' AND ca.accepted_fee_minor=pv.fee_minor
+    JOIN risk_assessments ra ON ra.workspace_id=e.workspace_id AND ra.engagement_id=e.id AND ra.current_version_id IS NOT NULL
+    JOIN risk_assessment_versions rv ON rv.workspace_id=ra.workspace_id AND rv.id=ra.current_version_id AND rv.assessment_id=ra.id
+    JOIN risk_clearances rc ON rc.workspace_id=e.workspace_id AND rc.engagement_id=e.id
+      AND rc.sequence=(SELECT MAX(last_rc.sequence) FROM risk_clearances last_rc WHERE last_rc.workspace_id=rc.workspace_id AND last_rc.engagement_id=rc.engagement_id)
+      AND rc.decision='CLEAR' AND rc.assessment_version_id=rv.id
+    WHERE e.workspace_id=? AND e.id=? AND e.client_id=? AND e.period_end<? AND ra.version=rv.assessment_source_version`)
+    .bind(workspaceId, payload.priorEngagementId, engagement.client_id, engagement.period_start)
+    .first<{ id: string; period_end: string; client_id: string; assessment_id: string; current_version_id: string; assessment_version: number; assessment_source_version: number; risk_version_id: string; dependency_hash?: string; risk_version_hash: string; fee_minor: number; acceptance_id: string; accepted_fee_minor: number; clearance_id: string; clearance_hash: string }>();
+  if (!prior || prior.current_version_id !== prior.risk_version_id || prior.assessment_source_version !== prior.assessment_version) {
+    throw new ApiError('GATE_BLOCKED', 'Select a same-client prior engagement with current commercial acceptance and Partner-cleared risk evidence.');
+  }
+  const priorRisk = await riskDependencyHash(env, workspaceId, prior.risk_version_id, prior.assessment_source_version, prior.client_id);
+  if (priorRisk.dependencyHash !== prior.clearance_hash) throw new ApiError('STALE_APPROVAL', 'The prior Partner risk clearance is stale and cannot be inherited by a continuance review.');
+  const priorLedger = await readPriorInvoiceSnapshot(env, workspaceId, prior.id, payload.asOfDate);
+  const existing = await env.DB.prepare(`SELECT id FROM risk_assessments WHERE workspace_id=? AND engagement_id=?`).bind(workspaceId, engagement.id).first<{ id: string }>();
+  if (existing) throw new ApiError('INVALID_STATE', 'This engagement already has a risk assessment; its track cannot be changed to continuance.');
+
+  const assessmentId = crypto.randomUUID();
+  const reviewId = crypto.randomUUID();
+  const draft = {
+    engagementId: engagement.id, track: 'CONTINUANCE', expectedDraftVersion: 1, questionnaireTemplateVersion: '',
+    assessmentDate: payload.asOfDate, overallRisk: '', managementIntegrityConclusion: '', viabilityConclusion: '', independenceConclusion: '',
+    checks: trackBCodes.map(code => ({ code, outcome: '', findings: '', sourceReference: '', checkMethod: 'MANUAL', checkedOn: '' }))
+  };
+  const statements: D1PreparedStatement[] = [
+    env.DB.prepare(`INSERT INTO command_assertions(workspace_id,seq,ok)
+      SELECT ?,78,CASE WHEN EXISTS(SELECT 1 FROM engagements current
+          JOIN engagements prior ON prior.workspace_id=current.workspace_id AND prior.client_id=current.client_id AND prior.id=?
+          JOIN proposals p ON p.workspace_id=prior.workspace_id AND p.engagement_id=prior.id AND p.current_version_id=prior.active_proposal_version_id
+          JOIN proposal_versions pv ON pv.workspace_id=p.workspace_id AND pv.id=p.current_version_id
+          JOIN commercial_acceptances ca ON ca.workspace_id=prior.workspace_id AND ca.proposal_version_id=pv.id
+            AND ca.sequence=(SELECT MAX(latest.sequence) FROM commercial_acceptances latest WHERE latest.workspace_id=ca.workspace_id AND latest.proposal_version_id=ca.proposal_version_id)
+            AND ca.decision='ACCEPT' AND ca.accepted_fee_minor=pv.fee_minor
+          JOIN risk_assessments ra ON ra.workspace_id=prior.workspace_id AND ra.engagement_id=prior.id AND ra.current_version_id=? AND ra.version=?
+          JOIN risk_assessment_versions rv ON rv.workspace_id=ra.workspace_id AND rv.id=ra.current_version_id AND rv.assessment_source_version=ra.version
+          JOIN risk_clearances rc ON rc.workspace_id=prior.workspace_id AND rc.engagement_id=prior.id AND rc.id=?
+            AND rc.assessment_version_id=rv.id AND rc.decision='CLEAR'
+          WHERE current.workspace_id=? AND current.id=? AND current.version=? AND current.client_id=prior.client_id
+            AND current.period_start>prior.period_end AND current.lifecycle_state<>'ARCHIVED_READ_ONLY'
+            AND rc.sequence=(SELECT MAX(latest.sequence) FROM risk_clearances latest WHERE latest.workspace_id=rc.workspace_id AND latest.engagement_id=rc.engagement_id)
+            AND NOT EXISTS(SELECT 1 FROM risk_assessments new_ra WHERE new_ra.workspace_id=current.workspace_id AND new_ra.engagement_id=current.id)
+            AND NOT EXISTS(SELECT 1 FROM continuance_reviews cr WHERE cr.workspace_id=current.workspace_id AND cr.engagement_id=current.id))
+        THEN 1 ELSE 0 END`).bind(workspaceId, prior.id, prior.risk_version_id, prior.assessment_version, prior.clearance_id,
+      workspaceId, engagement.id, payload.expectedEngagementVersion),
+    env.DB.prepare(`INSERT INTO risk_assessments(id,workspace_id,version,client_id,engagement_id,track,current_version_id,draft_version,
+      created_at,updated_at,created_by_actor_id,updated_by_actor_id) VALUES(?,?,1,?,?,'CONTINUANCE',NULL,1,?,?,?,?)`)
+      .bind(assessmentId, workspaceId, engagement.client_id, engagement.id, now, now, context.actor.id, context.actor.id),
+    env.DB.prepare(`INSERT INTO risk_assessment_drafts(workspace_id,assessment_id,version,draft_json,updated_at,updated_by_actor_id) VALUES(?,?,1,?,?,?)`)
+      .bind(workspaceId, assessmentId, JSON.stringify(draft), now, context.actor.id),
+    env.DB.prepare(`INSERT INTO continuance_reviews(id,workspace_id,version,client_id,engagement_id,assessment_id,prior_engagement_id,
+      prior_commercial_acceptance_id,prior_risk_version_id,prior_risk_clearance_id,as_of_date,prior_fee_outstanding_minor,created_at,created_by_actor_id)
+      VALUES(?,?,1,?,?,?,?,?,?,?,?,?,?,?)`).bind(reviewId, workspaceId, engagement.client_id, engagement.id, assessmentId, prior.id,
+      prior.acceptance_id, prior.risk_version_id, prior.clearance_id, payload.asOfDate, priorLedger.outstandingMinor, now, context.actor.id),
+    ...priorLedger.snapshots.map(line => env.DB.prepare(`INSERT INTO continuance_invoice_snapshots(id,workspace_id,version,continuance_review_id,prior_invoice_id,
+      invoice_number,issued_minor,settled_minor,outstanding_minor,created_at) VALUES(?,?,1,?,?,?,?,?,?,?)`)
+      .bind(crypto.randomUUID(), workspaceId, reviewId, line.invoiceId, line.invoiceNumber, line.issuedMinor, line.settledMinor, line.outstandingMinor, now))
+  ];
+  return { statements, result: { assessmentId, draftVersion: 1, requiredChecks: [...trackBCodes], priorBaseline: {
+    reviewId, priorEngagementId: prior.id, priorRiskVersionId: prior.risk_version_id, priorAcceptanceId: prior.acceptance_id,
+    asOfDate: payload.asOfDate, priorFeeOutstandingMinor: String(priorLedger.outstandingMinor), invoices: priorLedger.snapshots.map(line => ({
+      invoiceId: line.invoiceId, invoiceNumber: line.invoiceNumber, issuedMinor: String(line.issuedMinor), settledMinor: String(line.settledMinor), outstandingMinor: String(line.outstandingMinor)
+    }))
+  } }, entityType: 'CONTINUANCE_REVIEW', entityId: reviewId, beforeVersion: null, afterVersion: 1,
+  auditDetails: { engagementId: engagement.id, priorEngagementId: prior.id, priorRiskVersionId: prior.risk_version_id, asOfDate: payload.asOfDate, priorFeeOutstandingMinor: String(priorLedger.outstandingMinor) } };
+}
+
+async function buildRecordContinuanceDelta(
+  env: Env, workspaceId: string, context: RiskBusinessContext,
+  command: Extract<BusinessRiskCommand, { type: 'riskAssessment.recordDelta' }>, now: string
+): Promise<RiskBusinessMutation> {
+  requireRiskEditor(context);
+  if (context.actor.persona !== 'REVIEWER') throw new ApiError('PERSONA_ACTION_DENIED', 'A REVIEWER records current continuance change facts.');
+  const payload = command.payload;
+  const assessment = await env.DB.prepare(`SELECT ra.id,ra.version,ra.client_id,ra.engagement_id,ra.track,ra.current_version_id,ra.draft_version,
+      e.version AS engagement_version,cr.id AS review_id,cr.prior_engagement_id
+    FROM risk_assessments ra JOIN engagements e ON e.workspace_id=ra.workspace_id AND e.client_id=ra.client_id AND e.id=ra.engagement_id
+    JOIN continuance_reviews cr ON cr.workspace_id=ra.workspace_id AND cr.assessment_id=ra.id
+    WHERE ra.workspace_id=? AND ra.id=?`).bind(workspaceId, payload.assessmentId)
+    .first<{ id: string; version: number; client_id: string; engagement_id: string; track: string; current_version_id: string | null; draft_version: number; engagement_version: number; review_id: string; prior_engagement_id: string }>();
+  if (!assessment) throw new ApiError('NOT_FOUND', 'The current continuance assessment was not found.');
+  assertEngagementScope(context, assessment.client_id, assessment.engagement_id);
+  if (assessment.track !== 'CONTINUANCE') throw new ApiError('INVALID_STATE', 'Delta facts can only be recorded on a Track B continuance assessment.');
+  const currentDraft = await env.DB.prepare(`SELECT version,draft_json FROM risk_assessment_drafts WHERE workspace_id=? AND assessment_id=?`)
+    .bind(workspaceId, assessment.id).first<{ version: number; draft_json: string }>();
+  if (!currentDraft || currentDraft.version !== payload.expectedDraftVersion || assessment.draft_version !== payload.expectedDraftVersion) {
+    throw new ApiError('VERSION_CONFLICT', 'The continuance questionnaire changed. Refresh before recording delta facts.');
+  }
+  let draft: Record<string, unknown>;
+  try { draft = JSON.parse(currentDraft.draft_json) as Record<string, unknown>; }
+  catch { throw new ApiError('INVALID_STATE', 'The current continuance questionnaire draft is invalid.'); }
+  if (draft.track !== 'CONTINUANCE' || draft.engagementId !== assessment.engagement_id) throw new ApiError('INVALID_STATE', 'The draft no longer matches this continuance assessment.');
+
+  const priorApplicability = new Map(payload.priorEvidenceApplicability.map(item => [item.fileId, item.rationale]));
+  const evidenceResult = await env.DB.prepare(`SELECT id,engagement_id,client_id,sha256,state,immutable,purpose FROM file_versions
+    WHERE workspace_id=? AND id IN (${payload.evidenceFileIds.map(() => '?').join(',')})`).bind(workspaceId, ...payload.evidenceFileIds)
+    .all<{ id: string; engagement_id: string | null; client_id: string | null; sha256: string | null; state: string; immutable: number; purpose: string }>();
+  const evidenceById = new Map((evidenceResult.results ?? []).map(file => [file.id, file]));
+  const evidenceRows: Array<{ topic: typeof continuanceTopics[number]; fileId: string; sha256: string; kind: 'CURRENT_SUPPORT'|'PRIOR_SOURCE'; rationale: string }> = [];
+  for (const coverage of payload.evidenceCoverage) for (const fileId of coverage.fileIds) {
+    const file = evidenceById.get(fileId);
+    if (!file || file.client_id !== assessment.client_id || file.state !== 'COMMITTED' || file.immutable !== 1 || !file.sha256 || !['PBC', 'EVIDENCE'].includes(file.purpose)) {
+      throw new ApiError('GATE_BLOCKED', 'Continuance evidence must be a committed, immutable PBC or evidence file for this client.');
+    }
+    if (file.engagement_id === assessment.engagement_id || file.engagement_id === null) {
+      if (priorApplicability.has(fileId)) throw new ApiError('VALIDATION_FAILED', 'Prior-document applicability is only used for files from the prior engagement.');
+      evidenceRows.push({ topic: coverage.topic, fileId, sha256: file.sha256, kind: 'CURRENT_SUPPORT', rationale: payload.changeSummary });
+    } else if (file.engagement_id === assessment.prior_engagement_id) {
+      const rationale = priorApplicability.get(fileId);
+      if (!rationale) throw new ApiError('GATE_BLOCKED', 'A prior-engagement document can be reused only after its current applicability is explicitly confirmed.');
+      evidenceRows.push({ topic: coverage.topic, fileId, sha256: file.sha256, kind: 'PRIOR_SOURCE', rationale });
+    } else {
+      throw new ApiError('FORBIDDEN_SCOPE', 'The selected evidence belongs to a different engagement.');
+    }
+  }
+  for (const priorFileId of priorApplicability.keys()) {
+    if (!payload.evidenceFileIds.includes(priorFileId)) throw new ApiError('VALIDATION_FAILED', 'A prior applicability confirmation must refer to selected evidence.');
+  }
+  const nextRevision = await env.DB.prepare(`SELECT COALESCE(MAX(revision),0)+1 AS next_revision FROM continuance_delta_revisions WHERE workspace_id=? AND assessment_id=?`)
+    .bind(workspaceId, assessment.id).first<{ next_revision: number }>();
+  const deltaId = crypto.randomUUID();
+  const nextDraftVersion = payload.expectedDraftVersion + 1;
+  draft.expectedDraftVersion = nextDraftVersion;
+  const draftJson = JSON.stringify(draft);
+  const flags: ContinuanceDeltaFlags = {
+    management_changed: payload.managementChanged ? 1 : 0, ownership_changed: payload.ownershipChanged ? 1 : 0,
+    new_borrowing: payload.newBorrowing ? 1 : 0, litigation_changed: payload.litigationChanged ? 1 : 0,
+    fraud_or_regulatory_issue: payload.fraudOrRegulatoryIssue ? 1 : 0
+  };
+  const escalations = detailedContinuanceChecks(flags);
+  const statements: D1PreparedStatement[] = [
+    env.DB.prepare(`INSERT INTO command_assertions(workspace_id,seq,ok)
+      SELECT ?,79,CASE WHEN EXISTS(SELECT 1 FROM risk_assessments ra JOIN risk_assessment_drafts rd ON rd.workspace_id=ra.workspace_id AND rd.assessment_id=ra.id
+          JOIN engagements e ON e.workspace_id=ra.workspace_id AND e.id=ra.engagement_id
+          JOIN continuance_reviews cr ON cr.workspace_id=ra.workspace_id AND cr.assessment_id=ra.id
+        WHERE ra.workspace_id=? AND ra.id=? AND ra.track='CONTINUANCE' AND ra.version=? AND ra.draft_version=?
+          AND rd.version=? AND e.version=? AND e.lifecycle_state<>'ARCHIVED_READ_ONLY' AND cr.id=?)
+        AND (SELECT COALESCE(MAX(revision),0) FROM continuance_delta_revisions WHERE workspace_id=? AND assessment_id=?)=?
+        AND NOT EXISTS(SELECT 1 FROM json_each(?) selected LEFT JOIN file_versions fv ON fv.workspace_id=? AND fv.id=selected.value
+          WHERE fv.id IS NULL OR fv.client_id<>? OR fv.state<>'COMMITTED' OR fv.immutable<>1 OR fv.purpose NOT IN ('PBC','EVIDENCE')
+            OR NOT ((fv.engagement_id IS NULL OR fv.engagement_id=?) OR fv.engagement_id=?))
+      THEN 1 ELSE 0 END`).bind(workspaceId, workspaceId, assessment.id, assessment.version, payload.expectedDraftVersion,
+      payload.expectedDraftVersion, assessment.engagement_version, assessment.review_id, workspaceId, assessment.id, (nextRevision?.next_revision ?? 1) - 1,
+      JSON.stringify(payload.evidenceFileIds), workspaceId, assessment.client_id, assessment.engagement_id, assessment.prior_engagement_id),
+    env.DB.prepare(`INSERT INTO continuance_delta_revisions(id,workspace_id,version,client_id,engagement_id,assessment_id,revision,
+      management_changed,ownership_changed,new_borrowing,litigation_changed,fraud_or_regulatory_issue,change_summary,recorded_by_actor_id,recorded_at)
+      VALUES(?,?,1,?,?,?,?,?,?,?,?,?,?,?,?)`).bind(deltaId, workspaceId, assessment.client_id, assessment.engagement_id, assessment.id,
+      nextRevision?.next_revision ?? 1, flags.management_changed, flags.ownership_changed, flags.new_borrowing, flags.litigation_changed,
+      flags.fraud_or_regulatory_issue, payload.changeSummary, context.actor.id, now),
+    ...evidenceRows.map(item => env.DB.prepare(`INSERT INTO continuance_delta_evidence(id,workspace_id,version,delta_revision_id,topic,file_version_id,file_sha256,
+      evidence_kind,applicability_confirmed,applicability_rationale,created_at) VALUES(?,?,1,?,?,?,?,?,1,?,?)`)
+      .bind(crypto.randomUUID(), workspaceId, deltaId, item.topic, item.fileId, item.sha256, item.kind, item.rationale, now)),
+    env.DB.prepare(`UPDATE risk_assessment_drafts SET version=?,draft_json=?,updated_at=?,updated_by_actor_id=?
+      WHERE workspace_id=? AND assessment_id=? AND version=?`).bind(nextDraftVersion, draftJson, now, context.actor.id, workspaceId, assessment.id, payload.expectedDraftVersion),
+    env.DB.prepare(`UPDATE risk_assessments SET version=version+1,draft_version=?,updated_at=?,updated_by_actor_id=?
+      WHERE workspace_id=? AND id=? AND version=? AND draft_version=?`).bind(nextDraftVersion, now, context.actor.id, workspaceId, assessment.id, assessment.version, payload.expectedDraftVersion)
+  ];
+  return { statements, result: { assessmentId: assessment.id, deltaRevisionId: deltaId, revision: nextRevision?.next_revision ?? 1,
+    draftVersion: nextDraftVersion, requiredDetailedChecks: escalations }, entityType: 'CONTINUANCE_DELTA', entityId: deltaId,
+    beforeVersion: payload.expectedDraftVersion, afterVersion: nextDraftVersion,
+    auditDetails: { engagementId: assessment.engagement_id, assessmentId: assessment.id, revision: nextRevision?.next_revision ?? 1,
+      managementChanged: payload.managementChanged, ownershipChanged: payload.ownershipChanged, newBorrowing: payload.newBorrowing,
+      litigationChanged: payload.litigationChanged, fraudOrRegulatoryIssue: payload.fraudOrRegulatoryIssue, evidenceCount: evidenceRows.length,
+      requiredDetailedChecks: escalations } };
 }
 
 async function activeCommercialAcceptance(env: Env, workspaceId: string, engagementId: string, proposalVersionId: string | null) {
@@ -282,9 +619,9 @@ function blocked(message: string, details?: Record<string, unknown>): never {
   throw new ApiError('GATE_BLOCKED', message, details);
 }
 
-function currentRequiredCodes(track: 'NEW_CLIENT' | 'CONTINUANCE', checks: Array<z.infer<typeof riskCheck>>): string[] {
-  const required = track === 'NEW_CLIENT' ? trackACodes : trackBCodes;
-  const byCode = new Map(checks.map(check => [check.code, check]));
+function currentRequiredCodes(track: 'NEW_CLIENT' | 'CONTINUANCE', checks: Array<z.infer<typeof riskCheck>>, additional: string[] = []): string[] {
+  const required = [...(track === 'NEW_CLIENT' ? trackACodes : trackBCodes), ...additional];
+  const byCode = new Map<string, z.infer<typeof riskCheck>>(checks.map(check => [check.code, check]));
   const blockers: string[] = [];
   for (const code of required) {
     const check = byCode.get(code);
@@ -302,6 +639,13 @@ async function buildSaveRiskDraft(env: Env, workspaceId: string, context: RiskBu
   const prior = await env.DB.prepare(`SELECT id,version,track,draft_version FROM risk_assessments WHERE workspace_id=? AND engagement_id=?`)
     .bind(workspaceId, engagement.id).first<{ id: string; version: number; track: 'NEW_CLIENT'|'CONTINUANCE'; draft_version: number }>();
   if ((prior?.track ?? null) !== (prior ? payload.track : null) && prior) throw new ApiError('INVALID_STATE', 'The assessment track cannot change after an assessment is started.');
+  if (payload.track === 'CONTINUANCE') {
+    const review = prior ? await env.DB.prepare(`SELECT id FROM continuance_reviews WHERE workspace_id=? AND assessment_id=?`)
+      .bind(workspaceId, prior.id).first<{ id: string }>() : null;
+    if (!prior || prior.track !== 'CONTINUANCE' || !review) {
+      throw new ApiError('INVALID_STATE', 'Track B drafts must start with riskAssessment.startContinuance so the prior acceptance, risk decision and dated ledger are pinned.');
+    }
+  }
   const assessmentId = prior?.id ?? crypto.randomUUID();
   const assessmentVersion = prior?.version ?? 0;
   const draft = await env.DB.prepare(`SELECT version FROM risk_assessment_drafts WHERE workspace_id=? AND assessment_id=?`)
@@ -392,7 +736,27 @@ async function buildSubmitRisk(env: Env, workspaceId: string, context: RiskBusin
   if (!parsed.success) throw new ApiError('BAD_REQUEST', 'The stored risk draft needs correction before submission.');
   const value = parsed.data;
   if (value.track !== assessment.track || value.engagementId !== assessment.engagement_id) throw new ApiError('BAD_REQUEST', 'The stored risk draft does not match its assessment.');
-  const missing = currentRequiredCodes(value.track, value.checks);
+  let continuance: { reviewId: string; deltaId: string; revision: number; outstandingMinor: number; hash: string; flags: ContinuanceDeltaFlags } | null = null;
+  let requiredDetailedChecks: string[] = [];
+  if (value.track === 'CONTINUANCE') {
+    const current = await env.DB.prepare(`SELECT cr.id AS review_id,cr.prior_fee_outstanding_minor,dr.id AS delta_id,dr.revision,
+        dr.management_changed,dr.ownership_changed,dr.new_borrowing,dr.litigation_changed,dr.fraud_or_regulatory_issue
+      FROM continuance_reviews cr JOIN continuance_delta_revisions dr ON dr.workspace_id=cr.workspace_id AND dr.assessment_id=cr.assessment_id
+      WHERE cr.workspace_id=? AND cr.assessment_id=?
+        AND dr.revision=(SELECT MAX(latest.revision) FROM continuance_delta_revisions latest WHERE latest.workspace_id=dr.workspace_id AND latest.assessment_id=dr.assessment_id)`)
+      .bind(workspaceId, assessment.id).first<{ review_id: string; prior_fee_outstanding_minor: number; delta_id: string; revision: number } & ContinuanceDeltaFlags>();
+    if (!current) blocked('A Track B assessment needs a dated prior-engagement baseline and a recorded, evidence-backed delta review.');
+    const snapshotHash = await continuanceSnapshotHash(env, workspaceId, assessment.id, current.delta_id);
+    if (!snapshotHash) blocked('The current continuance delta has no supporting evidence coverage.');
+    requiredDetailedChecks = detailedContinuanceChecks(current);
+    const priorFeesCheck = value.checks.find(check => check.code === 'PRIOR_FEES');
+    if (current.prior_fee_outstanding_minor > 0 && priorFeesCheck?.outcome !== 'ISSUE') {
+      blocked('Outstanding prior fees must remain an identified issue for explicit Partner resolution.', { outstandingMinor: String(current.prior_fee_outstanding_minor) });
+    }
+    continuance = { reviewId: current.review_id, deltaId: current.delta_id, revision: current.revision,
+      outstandingMinor: current.prior_fee_outstanding_minor, hash: snapshotHash, flags: current };
+  }
+  const missing = currentRequiredCodes(value.track, value.checks, requiredDetailedChecks);
   if (missing.length) blocked('Complete the required checks and resolve identified issues before submitting.', { blockers: missing });
   const owners = await currentOwners(env, workspaceId, assessment.client_id);
   const ownersTotal = owners.reduce((total, owner) => total + BigInt(owner.ownership_bps), 0n);
@@ -405,15 +769,32 @@ async function buildSubmitRisk(env: Env, workspaceId: string, context: RiskBusin
     if (check.evidenceFileId) evidenceFiles.set(check.evidenceFileId, (await validateEvidenceFile(env, workspaceId, assessment.client_id, assessment.engagement_id, check.evidenceFileId, `${check.code} evidence`)).sha256);
   }
   for (const owner of owners) if (owner.identity_evidence_file_id) {
-    const file = await validateEvidenceFile(env, workspaceId, assessment.client_id, assessment.engagement_id, owner.identity_evidence_file_id, 'Owner identity evidence');
-    evidenceFiles.set(owner.identity_evidence_file_id, file.sha256);
+    if (value.track === 'CONTINUANCE' && continuance) {
+      const file = await env.DB.prepare(`SELECT sha256,engagement_id,client_id,state,immutable,purpose FROM file_versions
+        WHERE workspace_id=? AND id=?`).bind(workspaceId, owner.identity_evidence_file_id)
+        .first<{ sha256: string; engagement_id: string | null; client_id: string | null; state: string; immutable: number; purpose: string }>();
+      const isCurrentFile = file && file.client_id === assessment.client_id && file.state === 'COMMITTED' && file.immutable === 1
+        && ['PBC', 'EVIDENCE'].includes(file.purpose) && (file.engagement_id === assessment.engagement_id || file.engagement_id === null);
+      const applicability = file && file.engagement_id ? await env.DB.prepare(`SELECT 1 AS found FROM continuance_delta_evidence
+        WHERE workspace_id=? AND delta_revision_id=? AND file_version_id=? AND evidence_kind='PRIOR_SOURCE' AND applicability_confirmed=1`)
+        .bind(workspaceId, continuance.deltaId, owner.identity_evidence_file_id).first<{ found: number }>() : null;
+      if (!isCurrentFile && !(file && file.client_id === assessment.client_id && file.state === 'COMMITTED' && file.immutable === 1
+        && ['PBC', 'EVIDENCE'].includes(file.purpose) && applicability)) {
+        blocked('Prior owner identity evidence is reusable only when current applicability is explicitly confirmed in this continuance delta.', { ownerId: owner.id });
+      }
+      evidenceFiles.set(owner.identity_evidence_file_id, file!.sha256);
+    } else {
+      const file = await validateEvidenceFile(env, workspaceId, assessment.client_id, assessment.engagement_id, owner.identity_evidence_file_id, 'Owner identity evidence');
+      evidenceFiles.set(owner.identity_evidence_file_id, file.sha256);
+    }
   }
   const ownersHash = await ownershipHash(env, workspaceId, assessment.client_id);
   const dossierDependencyHash = await sha256Hex(JSON.stringify({
     assessmentId: assessment.id, assessmentVersion: assessment.version, engagementId: assessment.engagement_id,
     track: value.track, template: value.questionnaireTemplateVersion, date: value.assessmentDate, overallRisk: value.overallRisk,
     conclusions: [value.managementIntegrityConclusion, value.viabilityConclusion, value.independenceConclusion], ownersHash,
-    checks: value.checks.map(check => ({ ...check, evidenceSha256: check.evidenceFileId ? evidenceFiles.get(check.evidenceFileId) : null }))
+    checks: value.checks.map(check => ({ ...check, evidenceSha256: check.evidenceFileId ? evidenceFiles.get(check.evidenceFileId) : null })),
+    continuanceSnapshotHash: continuance?.hash ?? null
   }));
   const currentRevision = await env.DB.prepare(`SELECT COALESCE(MAX(revision),0)+1 AS revision FROM risk_assessment_versions WHERE workspace_id=? AND assessment_id=?`)
     .bind(workspaceId, assessment.id).first<{ revision: number }>();
@@ -425,8 +806,13 @@ async function buildSubmitRisk(env: Env, workspaceId: string, context: RiskBusin
           JOIN engagements e ON e.workspace_id=ra.workspace_id AND e.client_id=ra.client_id AND e.id=ra.engagement_id
         WHERE ra.workspace_id=? AND ra.id=? AND ra.version=? AND ra.draft_version=? AND rd.version=? AND e.version=? AND e.lifecycle_state<>'ARCHIVED_READ_ONLY')
         AND NOT EXISTS(SELECT 1 FROM risk_assessment_versions WHERE workspace_id=? AND assessment_id=? AND source_draft_version=?)
+        AND (?='NEW_CLIENT' OR EXISTS(SELECT 1 FROM continuance_reviews cr JOIN continuance_delta_revisions dr
+          ON dr.workspace_id=cr.workspace_id AND dr.assessment_id=cr.assessment_id
+          WHERE cr.workspace_id=? AND cr.assessment_id=? AND cr.id=? AND dr.id=? AND dr.revision=?
+            AND dr.revision=(SELECT MAX(latest.revision) FROM continuance_delta_revisions latest WHERE latest.workspace_id=dr.workspace_id AND latest.assessment_id=dr.assessment_id)))
       THEN 1 ELSE 0 END`).bind(workspaceId, workspaceId, assessment.id, assessment.version, command.payload.expectedDraftVersion,
-      command.payload.expectedDraftVersion, assessment.engagement_version, workspaceId, assessment.id, command.payload.expectedDraftVersion),
+      command.payload.expectedDraftVersion, assessment.engagement_version, workspaceId, assessment.id, command.payload.expectedDraftVersion,
+      value.track, workspaceId, assessment.id, continuance?.reviewId ?? '', continuance?.deltaId ?? '', continuance?.revision ?? 0),
     env.DB.prepare(`INSERT INTO risk_assessment_versions(id,workspace_id,version,client_id,engagement_id,assessment_id,revision,assessment_source_version,
       source_draft_version,questionnaire_template_version,assessment_date,overall_risk,management_integrity_conclusion,viability_conclusion,
       independence_conclusion,ownership_hash,dependency_hash,submitted_by_actor_id,submitted_at)
@@ -439,6 +825,28 @@ async function buildSubmitRisk(env: Env, workspaceId: string, context: RiskBusin
       VALUES(?,?,1,?,?,?,?,?,?,?,?,?,?,?,?,?)`).bind(checkId, workspaceId, assessment.client_id, assessment.engagement_id, versionId,
       check.code, check.outcome, check.findings, check.sourceReference, check.checkMethod, check.providerName ?? null, check.externalReference ?? null,
       check.checkedOn, check.evidenceFileId ?? null, check.resolution ?? null)),
+    ...(continuance ? [
+      env.DB.prepare(`INSERT INTO continuance_baselines(id,workspace_id,version,client_id,engagement_id,assessment_version_id,prior_engagement_id,
+        prior_risk_version_id,prior_fee_outstanding_minor,as_of_date,management_changed,ownership_changed,new_borrowing,litigation_changed,
+        fraud_or_regulatory_issue,change_summary,created_at,created_by_actor_id)
+        SELECT ?,?,1,cr.client_id,cr.engagement_id,rv.id,cr.prior_engagement_id,cr.prior_risk_version_id,cr.prior_fee_outstanding_minor,
+          cr.as_of_date,dr.management_changed,dr.ownership_changed,dr.new_borrowing,dr.litigation_changed,dr.fraud_or_regulatory_issue,
+          dr.change_summary,?,?
+        FROM continuance_reviews cr JOIN continuance_delta_revisions dr ON dr.workspace_id=cr.workspace_id AND dr.assessment_id=cr.assessment_id
+        JOIN risk_assessment_versions rv ON rv.workspace_id=cr.workspace_id AND rv.id=?
+        WHERE cr.workspace_id=? AND cr.id=? AND dr.id=? AND dr.revision=?`)
+        .bind(crypto.randomUUID(), workspaceId, now, context.actor.id, versionId, workspaceId, continuance.reviewId, continuance.deltaId, continuance.revision),
+      env.DB.prepare(`INSERT INTO continuance_baseline_sources(id,workspace_id,version,baseline_id,delta_revision_id,snapshot_sha256)
+        SELECT ?,?,1,cb.id,?,? FROM continuance_baselines cb WHERE cb.workspace_id=? AND cb.assessment_version_id=?`)
+        .bind(crypto.randomUUID(), workspaceId, continuance.deltaId, continuance.hash, workspaceId, versionId),
+      ...((await env.DB.prepare(`SELECT topic,file_version_id,file_sha256,evidence_kind,applicability_rationale FROM continuance_delta_evidence
+        WHERE workspace_id=? AND delta_revision_id=? ORDER BY topic,file_version_id`).bind(workspaceId, continuance.deltaId)
+        .all<{ topic: string; file_version_id: string; file_sha256: string; evidence_kind: string; applicability_rationale: string }>()).results ?? [])
+      .map(item => env.DB.prepare(`INSERT INTO continuance_baseline_evidence(id,workspace_id,version,baseline_id,topic,file_version_id,file_sha256,evidence_kind,applicability_rationale)
+        SELECT ?,?,1,cb.id,?,?,?,?,? FROM continuance_baselines cb WHERE cb.workspace_id=? AND cb.assessment_version_id=?`)
+        .bind(crypto.randomUUID(), workspaceId, item.topic, item.file_version_id, item.file_sha256, item.evidence_kind,
+          item.applicability_rationale, workspaceId, versionId))
+    ] : []),
     env.DB.prepare(`UPDATE risk_assessments SET current_version_id=?,updated_at=?,updated_by_actor_id=?
       WHERE workspace_id=? AND id=? AND version=? AND draft_version=?`).bind(versionId, now, context.actor.id, workspaceId, assessment.id, assessment.version, command.payload.expectedDraftVersion)
   ];
@@ -457,11 +865,11 @@ async function buildRiskDecision(env: Env, workspaceId: string, context: RiskBus
       .bind(workspaceId, engagement.id, revokePayload.clearanceId).first<{ assessment_version_id: string }>().then(row => row?.assessment_version_id ?? null)
     : command.type === 'risk.revoke' ? null : command.payload.riskAssessmentVersionId;
   if (!assessmentVersionId) throw new ApiError('NOT_FOUND', 'Risk assessment or clearance was not found for this engagement.');
-  const snapshot = await env.DB.prepare(`SELECT rv.id,rv.revision,rv.assessment_id,rv.assessment_source_version,rv.dependency_hash,rv.ownership_hash,
+  const snapshot = await env.DB.prepare(`SELECT rv.id,rv.revision,rv.assessment_id,rv.assessment_source_version,rv.dependency_hash,rv.ownership_hash,ra.track AS assessment_track,
       ra.version AS current_assessment_version,ra.current_version_id,rv.client_id,rv.engagement_id
     FROM risk_assessment_versions rv JOIN risk_assessments ra ON ra.workspace_id=rv.workspace_id AND ra.id=rv.assessment_id
     WHERE rv.workspace_id=? AND rv.id=? AND rv.engagement_id=?`).bind(workspaceId, assessmentVersionId, engagement.id)
-    .first<{ id: string; revision: number; assessment_id: string; assessment_source_version: number; dependency_hash: string; ownership_hash: string; current_assessment_version: number; current_version_id: string | null; client_id: string; engagement_id: string }>();
+    .first<{ id: string; revision: number; assessment_id: string; assessment_source_version: number; dependency_hash: string; ownership_hash: string; assessment_track: 'NEW_CLIENT'|'CONTINUANCE'; current_assessment_version: number; current_version_id: string | null; client_id: string; engagement_id: string }>();
   if (!snapshot) throw new ApiError('NOT_FOUND', 'Risk assessment revision was not found for this engagement.');
   if (snapshot.current_version_id !== snapshot.id) throw new ApiError('STALE_APPROVAL', 'Only the current submitted risk revision can receive a Partner decision.');
   const currentHash = await riskDependencyHash(env, workspaceId, snapshot.id, snapshot.assessment_source_version, snapshot.client_id);
@@ -475,10 +883,18 @@ async function buildRiskDecision(env: Env, workspaceId: string, context: RiskBus
     .bind(workspaceId, snapshot.id).all<{ id: string; check_id: string; check_code: string; status: 'OPEN'|'RESOLVED'; resolution: string | null; evidence_file_id: string | null; required_evidence: string }>();
   const escalationItems = escalationRows.results ?? [];
   const checkBlockers: string[] = [];
-  const required = snapshot.current_assessment_version > 0
-    ? (await env.DB.prepare(`SELECT track FROM risk_assessments WHERE workspace_id=? AND id=?`).bind(workspaceId, snapshot.assessment_id)
-      .first<{ track: 'NEW_CLIENT'|'CONTINUANCE' }>())?.track === 'CONTINUANCE' ? trackBCodes : trackACodes
-    : trackACodes;
+  let required: readonly string[] = snapshot.assessment_track === 'CONTINUANCE' ? trackBCodes : trackACodes;
+  let refreshedCheckCodes: string[] = [];
+  let priorFeeOutstandingMinor = 0;
+  if (snapshot.assessment_track === 'CONTINUANCE') {
+    const baseline = await env.DB.prepare(`SELECT id,prior_fee_outstanding_minor,management_changed,ownership_changed,new_borrowing,litigation_changed,fraud_or_regulatory_issue
+      FROM continuance_baselines WHERE workspace_id=? AND assessment_version_id=?`).bind(workspaceId, snapshot.id)
+      .first<{ id: string; prior_fee_outstanding_minor: number } & ContinuanceDeltaFlags>();
+    if (!baseline) throw new ApiError('STALE_APPROVAL', 'The submitted continuance revision has no immutable current-delta baseline.');
+    priorFeeOutstandingMinor = baseline.prior_fee_outstanding_minor;
+    refreshedCheckCodes = detailedContinuanceChecks(baseline);
+    required = [...trackBCodes, ...refreshedCheckCodes];
+  }
   const checkByCode = new Map(checkItems.map(check => [check.code, check]));
   for (const code of required) {
     const check = checkByCode.get(code);
@@ -487,9 +903,11 @@ async function buildRiskDecision(env: Env, workspaceId: string, context: RiskBus
     const resolvedEscalation = escalationsForCheck.find(item => item.status === 'RESOLVED');
     if (!check) checkBlockers.push(`${code}: assessment is missing`);
     else if (openEscalation) checkBlockers.push(`${code}: Partner escalation is still open; ${openEscalation.required_evidence}`);
+    else if (code === 'PRIOR_FEES' && priorFeeOutstandingMinor > 0 && check.outcome !== 'ISSUE') checkBlockers.push(`${code}: QAR ${priorFeeOutstandingMinor} remains outstanding and cannot be marked clear`);
+    else if (check.outcome === 'ISSUE' && snapshot.assessment_track === 'CONTINUANCE' && !resolvedEscalation?.resolution) checkBlockers.push(`${code}: continuance concerns require an explicit Partner resolution with evidence`);
     else if (check.outcome === 'ISSUE' && !check.resolution && !resolvedEscalation?.resolution) checkBlockers.push(`${code}: identified issue remains unresolved`);
     else if (check.outcome === 'NOT_APPLICABLE' && !check.resolution) checkBlockers.push(`${code}: non-applicability needs an explanation`);
-    else if (['UBO', 'KYC', 'AML'].includes(code) && check.outcome === 'CLEAR' && !check.evidence_file_id && !resolvedEscalation?.evidence_file_id) checkBlockers.push(`${code}: committed supporting evidence is missing`);
+    else if ((['UBO', 'KYC', 'AML'].includes(code) || refreshedCheckCodes.includes(code)) && check.outcome === 'CLEAR' && !check.evidence_file_id && !resolvedEscalation?.evidence_file_id) checkBlockers.push(`${code}: committed supporting evidence is missing`);
   }
   if (checkBlockers.length) blocked('The dossier has unresolved or incomplete required checks.', { blockers: checkBlockers });
   const prior = await env.DB.prepare(`SELECT id,sequence,decision,assessment_version_id,approval_decision_id,dependency_hash
@@ -734,6 +1152,8 @@ export async function buildBusinessRiskMutation(
   if (command.type === 'riskAssessment.submit') return buildSubmitRisk(env, workspaceId, context, command, now);
   if (command.type === 'riskAssessment.escalate') return buildRiskEscalation(env, workspaceId, context, command, now);
   if (command.type === 'riskAssessment.resolveEscalation') return buildResolveRiskEscalation(env, workspaceId, context, command, now);
+  if (command.type === 'riskAssessment.startContinuance') return buildStartContinuance(env, workspaceId, context, command, now);
+  if (command.type === 'riskAssessment.recordDelta') return buildRecordContinuanceDelta(env, workspaceId, context, command, now);
   if (command.type === 'risk.clear' || command.type === 'risk.reject' || command.type === 'risk.revoke') return buildRiskDecision(env, workspaceId, context, command, commandId, now);
   return buildCommercialAcceptance(env, workspaceId, context, command, commandId, now);
 }
@@ -843,8 +1263,71 @@ export async function getBusinessRiskWorkspace(env: Env, workspaceId: string, co
     escalations = rows.results ?? [];
   }
   const draft = assessment?.draft_json ? JSON.parse(assessment.draft_json) : null;
+  let continuanceReview: Record<string, unknown> | null = null;
+  if (assessment?.track === 'CONTINUANCE') {
+    const review = await env.DB.prepare(`SELECT cr.id,cr.prior_engagement_id,prior.code AS prior_engagement_code,prior.period_end AS prior_period_end,
+        cr.prior_commercial_acceptance_id,cr.prior_risk_version_id,cr.prior_risk_clearance_id,cr.as_of_date,cr.prior_fee_outstanding_minor
+      FROM continuance_reviews cr JOIN engagements prior ON prior.workspace_id=cr.workspace_id AND prior.id=cr.prior_engagement_id
+      WHERE cr.workspace_id=? AND cr.assessment_id=?`).bind(workspaceId, assessment.id)
+      .first<{ id: string; prior_engagement_id: string; prior_engagement_code: string; prior_period_end: string; prior_commercial_acceptance_id: string;
+        prior_risk_version_id: string; prior_risk_clearance_id: string; as_of_date: string; prior_fee_outstanding_minor: number }>();
+    if (review) {
+      const [invoices, delta] = await Promise.all([
+        env.DB.prepare(`SELECT prior_invoice_id,invoice_number,issued_minor,settled_minor,outstanding_minor FROM continuance_invoice_snapshots
+          WHERE workspace_id=? AND continuance_review_id=? ORDER BY invoice_number`).bind(workspaceId, review.id)
+          .all<{ prior_invoice_id: string; invoice_number: string; issued_minor: number; settled_minor: number; outstanding_minor: number }>(),
+        env.DB.prepare(`SELECT id,revision,management_changed,ownership_changed,new_borrowing,litigation_changed,fraud_or_regulatory_issue,change_summary
+          FROM continuance_delta_revisions WHERE workspace_id=? AND assessment_id=? ORDER BY revision DESC LIMIT 1`).bind(workspaceId, assessment.id)
+          .first<{ id: string; revision: number } & ContinuanceDeltaFlags & { change_summary: string }>()
+      ]);
+      const evidence = delta ? await env.DB.prepare(`SELECT topic,file_version_id,file_sha256,evidence_kind,applicability_rationale
+        FROM continuance_delta_evidence WHERE workspace_id=? AND delta_revision_id=? ORDER BY topic,file_version_id`).bind(workspaceId, delta.id)
+        .all<{ topic: string; file_version_id: string; file_sha256: string; evidence_kind: string; applicability_rationale: string }>() : { results: [] };
+      continuanceReview = {
+        id: review.id, priorEngagementId: review.prior_engagement_id, priorEngagementCode: review.prior_engagement_code,
+        priorPeriodEnd: review.prior_period_end, priorCommercialAcceptanceId: review.prior_commercial_acceptance_id,
+        priorRiskVersionId: review.prior_risk_version_id, priorRiskClearanceId: review.prior_risk_clearance_id,
+        asOfDate: review.as_of_date, priorFeeOutstandingMinor: String(review.prior_fee_outstanding_minor),
+        invoices: (invoices.results ?? []).map(item => ({ invoiceId: item.prior_invoice_id, invoiceNumber: item.invoice_number,
+          issuedMinor: String(item.issued_minor), settledMinor: String(item.settled_minor), outstandingMinor: String(item.outstanding_minor) })),
+        delta: delta ? { id: delta.id, revision: delta.revision, managementChanged: Boolean(delta.management_changed), ownershipChanged: Boolean(delta.ownership_changed),
+          newBorrowing: Boolean(delta.new_borrowing), litigationChanged: Boolean(delta.litigation_changed),
+          fraudOrRegulatoryIssue: Boolean(delta.fraud_or_regulatory_issue), changeSummary: delta.change_summary,
+          evidence: evidence.results ?? [] } : null
+      };
+    }
+  }
+  const priorRows = await env.DB.prepare(`SELECT e.id,e.code,e.period_start,e.period_end,e.lifecycle_state,ra.current_version_id,ra.version AS assessment_version,
+      rv.assessment_source_version,rv.id AS risk_version_id,ca.id AS acceptance_id,pv.fee_minor,rc.id AS clearance_id,rc.dependency_hash AS clearance_hash
+    FROM engagements e
+    JOIN proposals p ON p.workspace_id=e.workspace_id AND p.engagement_id=e.id AND p.current_version_id=e.active_proposal_version_id
+    JOIN proposal_versions pv ON pv.workspace_id=p.workspace_id AND pv.id=p.current_version_id
+    JOIN commercial_acceptances ca ON ca.workspace_id=e.workspace_id AND ca.engagement_id=e.id AND ca.proposal_version_id=pv.id
+      AND ca.sequence=(SELECT MAX(latest.sequence) FROM commercial_acceptances latest WHERE latest.workspace_id=ca.workspace_id AND latest.proposal_version_id=ca.proposal_version_id)
+      AND ca.decision='ACCEPT' AND ca.accepted_fee_minor=pv.fee_minor
+    JOIN risk_assessments ra ON ra.workspace_id=e.workspace_id AND ra.engagement_id=e.id AND ra.current_version_id IS NOT NULL
+    JOIN risk_assessment_versions rv ON rv.workspace_id=ra.workspace_id AND rv.id=ra.current_version_id
+    JOIN risk_clearances rc ON rc.workspace_id=e.workspace_id AND rc.engagement_id=e.id
+      AND rc.sequence=(SELECT MAX(latest.sequence) FROM risk_clearances latest WHERE latest.workspace_id=rc.workspace_id AND latest.engagement_id=rc.engagement_id)
+      AND rc.decision='CLEAR' AND rc.assessment_version_id=rv.id
+    WHERE e.workspace_id=? AND e.client_id=? AND e.id<>? AND e.period_end<? AND ra.version=rv.assessment_source_version
+    ORDER BY e.period_end DESC,e.code`).bind(workspaceId, engagement.client_id, engagement.id, engagement.period_start)
+    .all<{ id: string; code: string; period_start: string; period_end: string; lifecycle_state: string; current_version_id: string;
+      assessment_version: number; assessment_source_version: number; risk_version_id: string; acceptance_id: string; fee_minor: number;
+      clearance_id: string; clearance_hash: string }>();
+  const continuanceCandidates: Array<Record<string, unknown>> = [];
+  for (const prior of priorRows.results ?? []) {
+    if (prior.current_version_id !== prior.risk_version_id) continue;
+    try {
+      const currentHash = await riskDependencyHash(env, workspaceId, prior.risk_version_id, prior.assessment_source_version, engagement.client_id);
+      if (currentHash.dependencyHash === prior.clearance_hash) continuanceCandidates.push({ id: prior.id, code: prior.code,
+        periodStart: prior.period_start, periodEnd: prior.period_end, lifecycleState: prior.lifecycle_state,
+        acceptanceId: prior.acceptance_id, riskVersionId: prior.risk_version_id, clearanceId: prior.clearance_id, feeMinor: String(prior.fee_minor) });
+    } catch { /* Stale or incomplete prior files are not eligible for continuance. */ }
+  }
   return {
-    engagement: { id: engagement.id, clientId: engagement.client_id, clientName: engagement.legal_name, lifecycleState: engagement.lifecycle_state },
+    engagement: { id: engagement.id, version: engagement.version, clientId: engagement.client_id, clientName: engagement.legal_name,
+      periodStart: engagement.period_start, periodEnd: engagement.period_end, lifecycleState: engagement.lifecycle_state },
     requiredTrackACodes: trackACodes, requiredTrackBCodes: trackBCodes,
     assessment: assessment ? {
       id: assessment.id, version: assessment.version, track: assessment.track, currentVersionId: assessment.current_version_id,
@@ -865,6 +1348,7 @@ export async function getBusinessRiskWorkspace(env: Env, workspaceId: string, co
     beneficialOwners: owners.map(owner => ({ id: owner.id, version: owner.version, revisionId: owner.current_revision_id, fullName: owner.full_name,
       ownershipBps: owner.ownership_bps, controlBasis: owner.control_basis, identityEvidenceFileId: owner.identity_evidence_file_id,
       effectiveFrom: owner.effective_from, effectiveTo: owner.effective_to, evidenceSha256: owner.evidence_sha256 })),
+    continuanceCandidates, continuanceReview,
     acceptanceGate
   };
 }

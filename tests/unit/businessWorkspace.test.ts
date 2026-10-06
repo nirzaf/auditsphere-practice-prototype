@@ -1054,6 +1054,199 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
   });
   assert.equal(clientCannotReadDeliveryElsewhere.response.status, 403);
 
+  const priorEngagement = db.prepare(`SELECT id,period_end,standards_profile_id,created_by_actor_id FROM engagements WHERE workspace_id=? AND id=?`)
+    .bind(workspaceId, engagementId).first<any>();
+  assert.ok(priorEngagement);
+  const continuationEngagementId = crypto.randomUUID();
+  const continuationCreatedAt = new Date().toISOString();
+  db.prepare(`INSERT INTO engagements(id,workspace_id,version,client_id,code,period_start,period_end,engagement_type,lifecycle_state,contract_fee_minor,
+      active_proposal_version_id,active_tb_version_id,approved_planning_version_id,report_signed_at,report_date,released_at,archive_due_at,locked_at,
+      portal_frozen_at,standards_profile_id,created_at,updated_at,created_by_actor_id,updated_by_actor_id)
+    SELECT ?,workspace_id,1,client_id,'TEST-CONTINUANCE-2026','2026-01-01','2026-12-31','STATUTORY_AUDIT','LEAD_INGESTION',0,
+      NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,standards_profile_id,?,?,created_by_actor_id,created_by_actor_id
+    FROM engagements WHERE workspace_id=? AND id=?`)
+    .bind(continuationEngagementId, continuationCreatedAt, continuationCreatedAt, workspaceId, priorEngagement.id).run();
+  const asOfDate = new Intl.DateTimeFormat('en', { timeZone: 'Asia/Qatar', year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(new Date());
+  const qatarToday = `${asOfDate.find(part => part.type === 'year')?.value}-${asOfDate.find(part => part.type === 'month')?.value}-${asOfDate.find(part => part.type === 'day')?.value}`;
+  const priorInvoiceId = crypto.randomUUID();
+  const priorInvoiceNumber = 'TEST-PRIOR-FINAL-20000';
+  const ledgerIssueDate = priorEngagement.period_end as string;
+  const ledgerPaymentDate = new Date(`${qatarToday}T00:00:00Z`);
+  ledgerPaymentDate.setUTCDate(ledgerPaymentDate.getUTCDate() - 1);
+  const ledgerPaymentOn = ledgerPaymentDate.toISOString().slice(0, 10);
+  const continuanceTimestamp = new Date().toISOString();
+  db.prepare(`INSERT INTO invoices(id,workspace_id,version,client_id,engagement_id,engagement_letter_id,kind,number,fee_revision_id,tax_policy_version_id,
+      subtotal_minor,tax_minor,total_minor,currency,issue_date,due_date,contact_route_id,recipient_snapshot_json,status,artifact_id,file_version_id,
+      corrects_invoice_id,created_by_actor_id,issued_at,created_at,updated_at)
+    SELECT ?,workspace_id,1,client_id,engagement_id,engagement_letter_id,'FINAL',?,fee_revision_id,tax_policy_version_id,
+      20000,0,20000,currency,?, ?,contact_route_id,recipient_snapshot_json,'ISSUED',artifact_id,file_version_id,
+      NULL,created_by_actor_id,?,?,?
+    FROM invoices WHERE workspace_id=? AND id=?`)
+    .bind(priorInvoiceId, priorInvoiceNumber, ledgerIssueDate, `${ledgerIssueDate.slice(0, 4)}-12-31`, continuanceTimestamp, continuanceTimestamp,
+      continuanceTimestamp, workspaceId, issuedInvoice.id).run();
+  const partialPriorPaymentId = crypto.randomUUID();
+  db.prepare(`INSERT INTO payments(id,workspace_id,version,client_id,engagement_id,amount_minor,received_on,method,reference,evidence_file_id,
+      verified_by_actor_id,reverses_payment_id,created_at) VALUES(?,?,1,?,?,15000,?,'BANK_TRANSFER','TEST-PRIOR-PARTIAL',?,?,NULL,?)`)
+    .bind(partialPriorPaymentId, workspaceId, clientId, engagementId, ledgerPaymentOn, evidenceFileId, reviewerHeaders['X-Actor-Id'], continuanceTimestamp).run();
+  db.prepare(`INSERT INTO payment_allocations(id,workspace_id,version,client_id,engagement_id,payment_id,invoice_id,amount_minor,allocated_on)
+    VALUES(?,?,1,?,?,?,?,15000,?)`).bind(crypto.randomUUID(), workspaceId, clientId, engagementId, partialPriorPaymentId, priorInvoiceId, ledgerPaymentOn).run();
+  const continuanceHeaders = { ...reviewerHeaders, 'X-Client-Id': clientId, 'X-Engagement-Id': continuationEngagementId };
+  const continuanceWorkspacePath = `/api/workspaces/${workspaceId}/engagements/${continuationEngagementId}/risk-workspace`;
+  const bypassContinuanceStart = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'riskAssessment.saveDraft', payload: {
+      ...riskDraftPayload, engagementId: continuationEngagementId, track: 'CONTINUANCE', expectedDraftVersion: 0,
+      questionnaireTemplateVersion: 'track-b-v1', assessmentDate: qatarToday
+    } }
+  }, continuanceHeaders);
+  assert.equal(bypassContinuanceStart.response.status, 422, 'a Track B draft cannot bypass the immutable prior baseline command');
+  assert.equal(bypassContinuanceStart.body.code, 'INVALID_STATE');
+  const continuanceBefore = await call(continuanceWorkspacePath, { headers: continuanceHeaders });
+  assert.equal(continuanceBefore.response.status, 200, JSON.stringify(continuanceBefore.body));
+  assert.ok(continuanceBefore.body.continuanceCandidates.some((candidate: any) => candidate.id === engagementId),
+    'the previous engagement is offered only after its current commercial key and Partner risk clearance are verified');
+  const startContinuance = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'riskAssessment.startContinuance', payload: {
+      engagementId: continuationEngagementId, priorEngagementId: engagementId, asOfDate: qatarToday, expectedEngagementVersion: 1
+    } }
+  }, continuanceHeaders);
+  assert.equal(startContinuance.response.status, 200, JSON.stringify(startContinuance.body));
+  assert.equal(startContinuance.body.result.priorBaseline.priorFeeOutstandingMinor, '5000',
+    'the immutable baseline derives QAR 5,000 from a QAR 20,000 prior invoice and QAR 15,000 in dated allocations');
+  assert.equal(startContinuance.body.result.priorBaseline.invoices.find((invoice: any) => invoice.invoiceId === priorInvoiceId).outstandingMinor, '5000');
+  const duplicateContinuanceStart = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'riskAssessment.startContinuance', payload: {
+      engagementId: continuationEngagementId, priorEngagementId: engagementId, asOfDate: ledgerPaymentOn, expectedEngagementVersion: 1
+    } }
+  }, continuanceHeaders);
+  assert.equal(duplicateContinuanceStart.response.status, 422, 'a second as-of date cannot rewrite the signed initial ledger baseline');
+  const currentEvidenceId = await storeCommittedFile('EVIDENCE', 'current-continuance-review.pdf', 'application/pdf', pdf,
+    continuanceHeaders, { clientId, engagementId: continuationEngagementId });
+  const listedContinuanceFiles = await call(`/api/workspaces/${workspaceId}/files?limit=100`, { headers: continuanceHeaders });
+  assert.equal(listedContinuanceFiles.response.status, 200, JSON.stringify(listedContinuanceFiles.body));
+  assert.ok(listedContinuanceFiles.body.files.some((file: any) => file.id === fileId), 'internal reviewers can inspect linked prior evidence for current applicability');
+  const deltaEvidenceCoverage = [
+    { topic: 'MANAGEMENT', fileIds: [currentEvidenceId] },
+    { topic: 'OWNERSHIP', fileIds: [fileId] },
+    { topic: 'BORROWING', fileIds: [currentEvidenceId] },
+    { topic: 'LITIGATION', fileIds: [currentEvidenceId] },
+    { topic: 'FRAUD_REGULATORY', fileIds: [currentEvidenceId] }
+  ];
+  const recordContinuanceDelta = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'riskAssessment.recordDelta', payload: {
+      assessmentId: startContinuance.body.result.assessmentId, expectedDraftVersion: 1,
+      managementChanged: false, ownershipChanged: true, newBorrowing: false, litigationChanged: false, fraudOrRegulatoryIssue: false,
+      changeSummary: 'Current management and litigation searches found no change; the reviewed register documents a shareholder transfer.',
+      evidenceFileIds: [currentEvidenceId, fileId], evidenceCoverage: deltaEvidenceCoverage,
+      priorEvidenceApplicability: [{ fileId, confirmedApplicable: true, rationale: 'The prior identity evidence was compared with the current shareholder register and remains applicable.' }]
+    } }
+  }, continuanceHeaders);
+  assert.equal(recordContinuanceDelta.response.status, 200, JSON.stringify(recordContinuanceDelta.body));
+  assert.deepEqual(recordContinuanceDelta.body.result.requiredDetailedChecks, ['UBO']);
+  assert.equal(db.prepare(`SELECT COUNT(*) AS count FROM continuance_delta_evidence WHERE workspace_id=? AND delta_revision_id=?`)
+    .bind(workspaceId, recordContinuanceDelta.body.result.deltaRevisionId).first<any>()?.count, 5,
+    'every change area receives a committed evidence reference');
+  const buildContinuanceRiskChecks = (includeUbo: boolean) => [
+    ...['PRIOR_FEES', 'MANAGEMENT_CHANGE', 'OWNERSHIP_CHANGE', 'NEW_BORROWING', 'LITIGATION', 'FRAUD_REGULATORY'].map(code => ({
+      code, outcome: code === 'PRIOR_FEES' ? 'ISSUE' : 'CLEAR',
+      findings: code === 'PRIOR_FEES' ? 'QAR 5,000 remains due as of the dated prior ledger snapshot.' : `${code} was assessed against the current-year evidence set.`,
+      sourceReference: code === 'PRIOR_FEES' ? `Continuance baseline as of ${qatarToday}` : `Current continuance review ${recordContinuanceDelta.body.result.deltaRevisionId}`,
+      checkMethod: 'MANUAL', checkedOn: qatarToday
+    })),
+    ...(includeUbo ? [{ code: 'UBO', outcome: 'CLEAR', findings: 'The current register and shareholder transfer evidence were reassessed.',
+      sourceReference: 'Current shareholder register and transfer evidence', checkMethod: 'MANUAL', checkedOn: qatarToday, evidenceFileId: currentEvidenceId }] : [])
+  ];
+  const incompleteContinuanceDraft = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'riskAssessment.saveDraft', payload: {
+      engagementId: continuationEngagementId, track: 'CONTINUANCE', expectedDraftVersion: 2, questionnaireTemplateVersion: 'track-b-v1',
+      assessmentDate: qatarToday, overallRisk: 'MODERATE', managementIntegrityConclusion: 'Management change and integrity were reviewed against current evidence.',
+      viabilityConclusion: 'Current client viability was reviewed with borrowing and fee exposure considered.',
+      independenceConclusion: 'Current independence and conflicts were assessed for this separate period.', checks: buildContinuanceRiskChecks(false)
+    } }
+  }, continuanceHeaders);
+  assert.equal(incompleteContinuanceDraft.response.status, 200, JSON.stringify(incompleteContinuanceDraft.body));
+  const blockedContinuanceSubmit = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'riskAssessment.submit', payload: {
+      assessmentId: startContinuance.body.result.assessmentId, expectedDraftVersion: 3
+    } }
+  }, continuanceHeaders);
+  assert.equal(blockedContinuanceSubmit.response.status, 422);
+  assert.ok(blockedContinuanceSubmit.body.details.blockers.some((item: string) => item.startsWith('UBO:')),
+    'an ownership change requires a refreshed UBO assessment before submission');
+  const completeContinuanceDraft = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'riskAssessment.saveDraft', payload: {
+      engagementId: continuationEngagementId, track: 'CONTINUANCE', expectedDraftVersion: 3, questionnaireTemplateVersion: 'track-b-v1',
+      assessmentDate: qatarToday, overallRisk: 'MODERATE', managementIntegrityConclusion: 'Management change and integrity were reviewed against current evidence.',
+      viabilityConclusion: 'Current client viability was reviewed with borrowing and fee exposure considered.',
+      independenceConclusion: 'Current independence and conflicts were assessed for this separate period.', checks: buildContinuanceRiskChecks(true)
+    } }
+  }, continuanceHeaders);
+  assert.equal(completeContinuanceDraft.response.status, 200, JSON.stringify(completeContinuanceDraft.body));
+  const submitContinuance = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'riskAssessment.submit', payload: {
+      assessmentId: startContinuance.body.result.assessmentId, expectedDraftVersion: 4
+    } }
+  }, continuanceHeaders);
+  assert.equal(submitContinuance.response.status, 200, JSON.stringify(submitContinuance.body));
+  const submittedContinuanceVersion = submitContinuance.body.result.assessmentVersionId as string;
+  const pinnedContinuanceBaseline = db.prepare(`SELECT prior_fee_outstanding_minor,as_of_date,ownership_changed,prior_risk_version_id
+    FROM continuance_baselines WHERE workspace_id=? AND assessment_version_id=?`).bind(workspaceId, submittedContinuanceVersion).first<any>();
+  assert.equal(pinnedContinuanceBaseline?.prior_fee_outstanding_minor, 5000);
+  assert.equal(pinnedContinuanceBaseline?.as_of_date, qatarToday);
+  assert.equal(pinnedContinuanceBaseline?.ownership_changed, 1);
+  assert.equal(pinnedContinuanceBaseline?.prior_risk_version_id, renewedGate.body.riskKey.assessmentVersionId);
+  assert.ok(db.prepare(`SELECT snapshot_sha256 FROM continuance_baseline_sources WHERE workspace_id=? AND baseline_id=(
+    SELECT id FROM continuance_baselines WHERE workspace_id=? AND assessment_version_id=?)`).bind(workspaceId, workspaceId, submittedContinuanceVersion).first<any>()?.snapshot_sha256);
+  const continuanceCheck = db.prepare(`SELECT id FROM risk_checks WHERE workspace_id=? AND assessment_version_id=? AND code='PRIOR_FEES'`)
+    .bind(workspaceId, submittedContinuanceVersion).first<any>();
+  const cannotSelfResolvePriorFees = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'risk.clear', payload: {
+      engagementId: continuationEngagementId, riskAssessmentVersionId: submittedContinuanceVersion,
+      rationale: 'The current review is complete and the fee balance was considered.'
+    } }
+  }, { ...approverHeaders, 'X-Client-Id': clientId, 'X-Engagement-Id': continuationEngagementId });
+  assert.equal(cannotSelfResolvePriorFees.response.status, 422, 'the Partner must resolve the outstanding prior fee concern with evidence');
+  const escalatePriorFees = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'riskAssessment.escalate', payload: {
+      assessmentVersionId: submittedContinuanceVersion, checkId: continuanceCheck.id,
+      reason: 'QAR 5,000 is still outstanding from the prior engagement and needs Partner disposition.',
+      requiredEvidence: 'Document the Partner decision and current settlement or recovery evidence.'
+    } }
+  }, continuanceHeaders);
+  assert.equal(escalatePriorFees.response.status, 200, JSON.stringify(escalatePriorFees.body));
+  const reviewerCannotResolvePriorFees = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'riskAssessment.resolveEscalation', payload: {
+      escalationId: escalatePriorFees.body.result.escalationId, expectedVersion: 1,
+      resolution: 'Reviewer attempts to resolve the prior-fee escalation without Partner authority.', evidenceFileId: currentEvidenceId
+    } }
+  }, continuanceHeaders);
+  assert.equal(reviewerCannotResolvePriorFees.response.status, 403, 'only the Partner persona may resolve a risk escalation');
+  const pendingPriorFeeClearance = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'risk.clear', payload: {
+      engagementId: continuationEngagementId, riskAssessmentVersionId: submittedContinuanceVersion,
+      rationale: 'The current review is complete and the fee balance was considered.'
+    } }
+  }, { ...approverHeaders, 'X-Client-Id': clientId, 'X-Engagement-Id': continuationEngagementId });
+  assert.equal(pendingPriorFeeClearance.response.status, 422, 'an open prior-fee escalation blocks Partner clearance');
+  const resolvePriorFees = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'riskAssessment.resolveEscalation', payload: {
+      escalationId: escalatePriorFees.body.result.escalationId, expectedVersion: 1,
+      resolution: 'Partner reviewed the signed recovery plan and approved continuance with the prior balance monitored.', evidenceFileId: currentEvidenceId
+    } }
+  }, { ...approverHeaders, 'X-Client-Id': clientId, 'X-Engagement-Id': continuationEngagementId });
+  assert.equal(resolvePriorFees.response.status, 200, JSON.stringify(resolvePriorFees.body));
+  const clearContinuance = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'risk.clear', payload: {
+      engagementId: continuationEngagementId, riskAssessmentVersionId: submittedContinuanceVersion,
+      rationale: 'Partner accepted the documented continuance concerns and the current refreshed checks.'
+    } }
+  }, { ...approverHeaders, 'X-Client-Id': clientId, 'X-Engagement-Id': continuationEngagementId });
+  assert.equal(clearContinuance.response.status, 200, JSON.stringify(clearContinuance.body));
+  const continuanceGate = await call(`/api/workspaces/${workspaceId}/engagements/${continuationEngagementId}/acceptance-gate`, {
+    headers: { ...approverHeaders, 'X-Client-Id': clientId, 'X-Engagement-Id': continuationEngagementId }
+  });
+  assert.equal(continuanceGate.body.riskKey.status, 'ACTIVE');
+  assert.equal(continuanceGate.body.lifecycleState, 'LEAD_INGESTION', 'continuance clearance does not automatically advance the current engagement lifecycle');
+
   const changedOwner = await post(`/api/workspaces/${workspaceId}/commands`, {
     idempotencyKey: crypto.randomUUID(), command: { type: 'riskAssessment.owner.save', payload: {
       engagementId, ownerId: owner.body.result.ownerId, expectedVersion: 1, fullName: 'Test beneficial owner revised', ownershipBps: 10000,
