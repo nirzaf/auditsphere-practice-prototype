@@ -67,6 +67,33 @@ it('A07 Digital, Physical and Hybrid workbook modes share submission readiness a
   doc.brokenLink=true;await assert.rejects(()=>commands.saveFieldworkWorkbook(e.id,wp.id,'Hybrid scope','Inspected physical and digital supporting documentation.','Both evidence modes support the conclusion.','Hybrid'),/stale/);
 });
 
+it('fieldwork workbook generation tolerates unrelated workpaper changes and rejects edits to its own inputs', async () => {
+  const runDuringPersistence = async (change: (state: any, engagement: any, workpaper: any) => void, shouldReject: boolean) => {
+    const state=captured(),e=state.engagements.find((item: any)=>item.id===state.selectedEngagement),wp=e.workpapers.find((item: any)=>item.applicable);
+    wp.physicalReference={indexCode:'X-1',description:'Synthetic physical invoice inspection',box:'Demo cabinet'};
+    wp.evidenceRefs=[];wp.evidenceRevisions={};wp.evidenceMode='Physical';
+    (store as any).state=state;act(state,'manager');
+    let release!:()=>void, markStarted!:()=>void;
+    const blocked=new Promise<void>(resolve=>{release=resolve;});
+    const started=new Promise<void>(resolve=>{markStarted=resolve;});
+    const commands=new TargetLifecycleCommands(()=>state,()=>{},undefined,async()=>{markStarted();await blocked;});
+    const saving=commands.saveFieldworkWorkbook(e.id,wp.id,'Recorded invoice scope','Inspected original invoice and agreed it to the ledger.','Physical evidence supports the recorded conclusion.','Physical');
+    await started;
+    change(state,e,wp);
+    release();
+    if(shouldReject) await assert.rejects(saving,/Fieldwork changed during workbook generation/);
+    else await saving;
+    return {e,wp};
+  };
+
+  const {wp}=await runDuringPersistence((_state: any,e: any)=>{
+    const other=e.workpapers.find((item: any)=>item.id!==e.workpapers.find((candidate: any)=>candidate.applicable)?.id);
+    other.version+=1;other.status='In progress';
+  },false);
+  assert.equal(wp.scope,'Recorded invoice scope');
+  await runDuringPersistence((_state: any,_e: any,wp: any)=>{wp.scope='Concurrent scope edit';},true);
+});
+
 it('R14 statutory and AUP engagement letters produce distinct genuine DOCX outputs with shared terms', async () => {
   for(const template of ['ISA 210 External Statutory Audit','ISRS 4400 Agreed-Upon Procedures'] as const){
     const state=targetFixture(),e=state.engagements[0];(store as any).state=state;

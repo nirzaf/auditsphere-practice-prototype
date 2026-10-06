@@ -39,12 +39,12 @@ beforeEach(() => {
 
 describe('STE Audit Management Tool v2.1 Requirements Conformance (All 17 Gaps)', () => {
   // Gap 1: Client Requirements presentation route
-  it('Gap 1: client-requirements route renders ClientRequirementsPresentationView in App.tsx', () => {
-    const appTsx = readFileSync(join(process.cwd(), 'src/App.tsx'), 'utf-8');
+  it('Gap 1: development prototype retains the client-requirements presentation route', () => {
+    const appTsx = readFileSync(join(process.cwd(), 'src/PrototypeApp.tsx'), 'utf-8');
     assert.match(
       appTsx,
       /case 'client-requirements':\s*return <ClientRequirementsPresentationView/,
-      'client-requirements route must directly return ClientRequirementsPresentationView'
+      'development prototype must directly return ClientRequirementsPresentationView'
     );
   });
 

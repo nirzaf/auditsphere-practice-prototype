@@ -1,180 +1,109 @@
-# Cloud full-stack architecture
+# AuditSphere production architecture
 
-Status: **implemented and verified** for the foundation plus the first migrated
-command slice. Read "Remaining limitations" before assuming broader coverage.
+Status: the production entry point uses the normalized business workspace and
+the same-origin Cloudflare Worker API. The legacy prototype remains available
+only in development and test builds. This document describes the implementation
+boundary; the epic's per-story and release-gate evidence remains authoritative.
 
-This document describes the Cloudflare-native architecture that turns the
-browser-only visual prototype into a cloud-backed functional prototype while
-preserving the existing React UI, routes, lifecycle rules, personas, deterministic
-calculations, generated documents and the existing test suites.
+## Runtime and trust boundary
 
-## 1. Services used, and why
+The app uses React, TypeScript and Vite. Workers Static Assets serves the
+production bundle and `worker/index.ts` serves `/api/*` from the same origin.
+Production builds do not include the seeded prototype state or fixture loader.
+The browser stores only its selected workspace and persona; business records
+are read from and written to D1 through typed Worker commands.
 
-| Service | Used for | Why this one |
-| --- | --- | --- |
-| **Cloudflare Workers + Static Assets** | Serves the built React app (`dist/`) and the `/api/*` JSON API from one same-origin deployment | Same-origin removes the CORS surface entirely and lets the session cookie be `SameSite=Strict` |
-| **D1** | Authoritative structured workspace state (root documents + entities + sessions + audit) | SQL, migrations, transactions/batches and indexes; the prototype already reasoned in relational-ish terms |
-| **R2** | Exact uploaded/generated file bytes | Canonical cloud location for bytes; objects are private and only reachable through authorized Worker routes |
-| **Workers Cron Triggers** | Expired workspace/session/idempotency cleanup and abandoned staged uploads | Reuses the existing `0 2 * * *` schedule |
-| **Worker Rate Limiting binding** | Workspace create, resume, command, if the account provides it | Applied only when the binding is present, so it is never a hard dependency |
+The requested operating profile has no authentication. Four selectable personas
+control workflow behavior, but do not verify a human's identity or provide
+security-grade segregation of duties. Run it only in a trusted environment and
+do not put confidential client data on an unrestricted public deployment.
 
-Deliberately **not** used: KV, Queues, Vectorize, external search, a separate API
-domain, or a Node server framework.
+## Services and data ownership
 
-## 2. Request flow
-
-```
-React/Vite build (dist/)
-        |
-        v
-Cloudflare Worker "auditsphere-visual-prototype"
-  |            |              |
-  |            |              +--> R2  (FILES)   exact bytes, two-phase commit
-  |            +-----------------> D1  (DB)      state, sessions, audit, idempotency
-  +------------------------------> ASSETS        SPA + static assets
-```
-
-`assets.run_worker_first: ["/api/*"]` routes API traffic to the Worker first;
-everything else falls through to the static-asset handler with
-`not_found_handling: "single-page-application"` so deep links (`/delivery`,
-`/records`, ...) resolve to the SPA.
-
-## 3. D1 schema (migration `0003_cloud_full_stack.sql`)
-
-Additive only. The v1 tables (`demo_seeds`, `demo_workspaces`,
-`demo_creation_limits`) are untouched so the legacy snapshot API keeps working.
-
-| Table | Purpose | Notes |
-| --- | --- | --- |
-| `workspaces` | Workspace header + **workspace revision** | `status` is `active`/`frozen`/`deleted` |
-| `workspace_sessions` | Server sessions | Stores only `token_hash` (SHA-256), `mode` (`demo` enrollment vs `cloud` request session), and the server-held actor |
-| `workspace_root_documents` | Singleton/object parts of `PrototypeState` | `PRIMARY KEY(workspace_id, document_key)`, own `version` |
-| `workspace_entities` | Per-record rows | `PRIMARY KEY(workspace_id, entity_kind, entity_id)`, own `version`, indexed scope columns |
-| `file_objects` | File metadata + lifecycle state | Never stores bytes; holds `r2_key`, size, `sha256`, `state`, `immutable` |
-| `audit_events` | Append-only trail | Sequence allocated in SQL (`COALESCE(MAX(sequence),0)+1`) so it cannot race |
-| `idempotency_keys` | Retry safety | `PRIMARY KEY(workspace_id, idempotency_key)` + `request_hash` |
-
-Indexes exist on workspace expiry/status, session token hash/expiry, entity
-kind/client/engagement, file state/logical record/scope, audit sequence/entity,
-and idempotency expiry.
-
-### Why a hybrid entity/document model
-
-The prototype has a coherent in-memory `PrototypeState` with dozens of
-collections. Normalising every interface into its own table would have rewritten
-the domain. Instead the adapter **discovers** the layout once and records it:
-
-* every top-level array whose items all carry a non-empty string `id` becomes an
-  **entity collection**;
-* every top-level plain object becomes a **root document**;
-* scalars (`currentUserId`, `asOfDate`, ...) go into the `__scalars__` document.
-
-The discovered layout is stored in the `__manifest__` root document, so an empty
-collection round-trips with the exact same shape instead of vanishing. This keeps
-`PrototypeState` as the UI-boundary compatibility contract (`loadWorkspaceState`,
-`persistCommandChanges`, `createSeededWorkspace` in `worker/v2/state.ts` / `db.ts`).
-
-## 4. R2 key layout
-
-```
-workspaces/{workspaceId}/clients/{clientId|_}/engagements/{engagementId|_}/{folder}/{logicalRecordId?}/{fileId}
-```
-
-`folder` comes from the category (`pbc`, `sources/tb`, `sources/gl`, `evidence`,
-`workpapers`, `generated`, `releases`, `archive`, `generated/representation`). The
-object name is an opaque UUID `fileId`; the original display filename is
-sanitised and stored in D1 metadata only, never used as an object path. The bucket
-is private and is never exposed publicly.
-
-## 5. Two-phase file commit
-
-D1 and R2 have no shared transaction, so the lifecycle is explicit:
-
-```
-INITIALIZED -> UPLOADING -> STAGED -> VERIFIED -> COMMITTED
-```
-
-| Phase | Endpoint | What is enforced |
-| --- | --- | --- |
-| Reserve | `POST /api/workspaces/:id/files` | category allowlist, per-workflow MIME allowlist, size ceiling, client/engagement scope |
-| Store | `PUT /api/workspaces/:id/files/:fileId/content` | streams bytes straight to the R2 binding (never base64 through JSON), marks `STAGED` |
-| Verify | `POST /api/workspaces/:id/files/:fileId/complete` | object exists, size matches reservation **and** declared size, SHA-256 recomputed and compared, then `COMMITTED` |
-| Read | `GET /api/workspaces/:id/files/:fileId` | scope check before fetch, size reconciled, immutable objects re-verified against the recorded digest, safe `Content-Disposition`, `nosniff`, `no-store` |
-
-Domain records may only reference `COMMITTED` files. If verification fails the
-object stays `STAGED` and is removed by scheduled cleanup; if the R2 write fails no
-committed record is created. A missing object surfaces as an explicit `NOT_FOUND`
-and is never silently recreated.
-
-## 6. Server-authoritative commands
-
-`POST /api/workspaces/:workspaceId/commands` is the **only** structured-state
-mutation path. No API accepts arbitrary `state_json`; the closed typed union in
-`src/shared/api/commands.ts` is the entire surface.
-
-Worker flow: authenticate session -> resolve actor from **server** state ->
-validate workspace/session expiry -> load authoritative state -> fail closed on a
-stale workspace revision -> execute the shared domain command (running the
-existing `GuardError` guards) -> persist only the changed entities and changed
-root documents -> append an audit event -> return the new revision and changed
-records.
-
-Commands implemented in this slice (bodies live in `src/domain/`, are browser-free
-and are the **single** implementation shared with the browser):
-
-| Command | Rules enforced |
+| Service | Responsibility |
 | --- | --- |
-| `workspace.rename` | name length |
-| `client.create` | active identity, role, Global client scope, full profile validation, duplicate id/code, primary-contact materialisation |
-| `client.update` | active identity, role, client scope, **profile-revision check** (`STALE_REVISION`), validation |
-| `lead.create` / `lead.update` | active identity, role, money/date/stage validation, converted-lead immutability |
-| `lead.convert` | role, `Won` stage requirement, client scope, client creation |
+| Cloudflare Workers + Static Assets | Same-origin React app and JSON API |
+| D1 | Normalized business rows, command receipts, approvals, audit events, migration metadata and workflow projections |
+| R2 | Private original and generated file bytes; D1 retains metadata, SHA-256 and lifecycle state |
+| Worker Cron | Outbox processing, due archive work and cleanup restricted to staged files or expired test-only state |
+| Optional rate-limit binding | Limits request bursts when configured |
 
-Every other mutation family is **not yet migrated** — see section 9.
+Business workspaces have no expiry gate. Synthetic seed workspaces are marked
+`TEST`; their expiry policy does not apply to `BUSINESS` records.
 
-## 7. Session, persona and conflict model
+## Worker and persistence
 
-* A workspace **access code** is an *enrollment* secret (`<workspaceId>.<64-hex>`).
-  Its SHA-256 is stored on a long-lived `demo` session row. Redeeming it issues a
-  fresh short-lived `cloud` session; the `demo` row is never itself accepted as a
-  request session.
-* The cookie is `HttpOnly`, `Secure`, `SameSite=Strict`. Only the token hash is
-  persisted, so a D1 read cannot replay a session.
-* The **actor** (user id + role) lives on the session row and is written into state
-  before guards run. The browser can only ask to switch to a persona that already
-  exists and is active inside the workspace.
-* Concurrency: a stale workspace revision returns **409 `STALE_REVISION`** with
-  `details.currentRevision`. Professional decisions are never merged
-  last-write-wins. `idempotencyKey` makes retries safe — a replay returns the
-  original response, and reusing a key with a different body is 409
-  `IDEMPOTENCY_MISMATCH`.
-* `/changes?since=<revision>` returns the full entity set flagged
-  `fullResync: true` when the caller is stale, rather than pretending to be a
-  precise delta.
+`worker/index.ts` is the canonical entry point. `worker/migrations/` contains
+forward-only SQL migrations; the installed relational schema marker is version
+27. The business schema is split across commercial, governance, planning,
+fieldwork, review, reporting, release/archive, practice and bookkeeping modules.
+The older `workspace_entities` and `workspace_root_documents` tables remain for
+legacy and test snapshots; they are not the production business write model.
 
-## 8. Security posture
+Business commands use closed runtime-validated envelopes. D1 batches keep each
+command's guard, domain writes, audit event and idempotency receipt together.
+Approval decisions capture content dependencies and provenance; stale data
+blocks later gates. Retried command keys replay the original response, while
+key reuse with different content is rejected. Reports and lifecycle readiness
+are projections of current normalized rows, not manually set completion flags.
 
-Same-origin `Origin` validation on every mutation; no wildcard CORS; bounded JSON
-bodies enforced while streaming; parameterised SQL only; `nosniff`,
-`Referrer-Policy`, `Permissions-Policy` and `Cache-Control: no-store` on API and
-authenticated file responses; correlated request ids on responses and in
-structured logs; logs never contain access codes, session secrets or file bytes;
-errors map to stable `ApiErrorCode` values so no raw D1/R2 exception reaches the UI.
+`/api/health/live` reports process liveness. `/api/health/ready` checks D1,
+the exact installed schema version and R2 binding availability. Readiness errors
+return stable dependency codes. `GET /api/workspaces/{w}/migration-status`
+returns installed schema and the most recent operator audit status.
 
-## 9. Remaining limitations (real, not planned-as-done)
+## File lifecycle
 
-1. **Only the clients/leads command slice is server-authoritative.** Other
-   `PrototypeState` mutations still run in the browser. The migration mechanism is
-   established (extract a browser-free body into `src/domain/`, add it to the
-   union, delegate from `prototypeStore`); the remaining slice work is not done.
-2. `prototypeStore` delegates migrated commands to the shared `src/domain/` bodies and
-   posts them to the same-origin API when a cloud workspace is connected
-   (`src/services/cloudWorkspace.ts`); the retired snapshot client has been removed.
-3. No Durable Objects. Write serialization is `batch()` plus the conditional
-   revision `UPDATE`. A narrow window exists where a revision could advance before
-   entity writes fail; this fails closed (the client sees an error and must reload)
-   but is not yet transactionally atomic.
-4. Large uploads use the bounded single-request path only; presigned/multipart
-   upload is not implemented.
-5. `/changes` is a full-resync feed, not a precise delta feed.
-6. Rate limiting is wired but only active if the account supplies the binding.
+R2 keys are workspace-scoped and use opaque file IDs. Browser uploads stream to
+R2; the Worker verifies size and SHA-256 before a domain record may reference a
+committed object. Normalized `file_versions` retain purpose, scope, immutable
+state, version lineage and digest. Missing or altered bytes produce an explicit
+failure; the service never fabricates a replacement.
+
+## Lifecycle coverage
+
+The normalized workspace implements the eleven lifecycle states in the epic:
+
+`LEAD_INGESTION` → `PROPOSAL_GENERATION` → `DUAL_KEY_PENDING` →
+`ADVANCE_BILLING` → `PORTAL_ACTIVE_PLANNING` → `FIELDWORK_EXECUTION` →
+`MANAGERIAL_REVIEW` → `PARTNER_APPROVAL` → `DELIVERABLE_RELEASE` →
+`COMPLIANCE_COUNTDOWN` → `ARCHIVED_READ_ONLY`.
+
+The eight business workspace panels cover commercial pipeline, acceptance,
+planning, fieldwork, review, reporting/release and practice/bookkeeping. Server
+commands enforce workflow prerequisites and explicit rework paths; self-selected
+personas are workflow controls only.
+
+## Migration audit and cutover
+
+Run the operator audit with `npm run migration:audit -- --workspace <uuid>
+--dry-run`; add `--remote` only when auditing the configured remote account.
+The tool checks entity/root-document counts, explicit source-to-target ID maps,
+normalized target counts, known relationships, monetary totals, R2 byte size and
+SHA-256. It records a compact `MigrationRun` status row but does not modify
+business records, source snapshots or file objects. Details are in
+`business-data-migration-audit.md`.
+
+Cutover remains blocked until every source row has a reviewed mapping, all
+target fields, counts and monetary totals reconcile, referenced bytes are
+present and hashes match, and no orphan is reported. The current tool does not
+compare every target field or apply transformed records; any non-empty source
+is marked `TARGET_FIELD_RECONCILIATION_NOT_VERIFIED`. It intentionally has no
+persona-accessible migration API or automatic data-apply mode. Retaining the
+old snapshot tables and files is the safe state until a reviewed deployment
+operation performs and verifies any needed transformation.
+
+## Operational boundaries
+
+- Cloud migrations are forward-only. Dropping historical tables, deleting
+  source snapshots or changing remote data retention requires a separate
+  explicitly reviewed operation.
+- R2 and D1 cannot share a transaction. The file state machine and command
+  reservation/verification steps expose that boundary instead of claiming a
+  cross-service atomic commit.
+- External mail, banking and confirmation providers are not represented as
+  successful when they are unavailable. Outbox jobs retain retryable or
+  blocked status and expose stable failure codes.
+- A successful local build or unit suite does not establish a remote migration,
+  browser-wide acceptance, deployment, professional-standard compliance or
+  certification.

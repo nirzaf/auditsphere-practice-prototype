@@ -97,6 +97,8 @@ import { getBusinessReportingWorkspace } from './businessReportingQuery';
 const JSON_BODY_LIMIT = 1_000_000;
 /** Hard ceiling for a single command payload; the domain model is small. */
 const COMMAND_BODY_LIMIT = 512_000;
+/** Updated alongside worker/migrations/0027_application_schema_version.sql. */
+const APPLICATION_SCHEMA_VERSION = 27;
 
 /** Per-IP/route rate limit using the optional Worker Rate Limiting binding. */
 async function enforceRateLimit(ctx: RouteContext, bucket: string, key: string): Promise<void> {
@@ -125,6 +127,51 @@ const workspaceSummary = (row: { id: string; name: string; seed_id: string | nul
 const handleHealth = async (ctx: RouteContext): Promise<Response> => {
   await ctx.env.DB.prepare('SELECT 1').first();
   return jsonResponse({ ok: true, storage: 'D1+R2', mode: 'cloud-workspace', version: 2 }, 200, ctx.requestId);
+};
+
+const handleHealthLive = async (ctx: RouteContext): Promise<Response> =>
+  jsonResponse({ status: 'ok' }, 200, ctx.requestId);
+
+const handleHealthReady = async (ctx: RouteContext): Promise<Response> => {
+  const dependencyCodes: string[] = [];
+  let schemaVersion: number | null = null;
+  try {
+    await ctx.env.DB.prepare('SELECT 1 AS ok').first();
+  } catch {
+    dependencyCodes.push('D1_UNAVAILABLE');
+  }
+  if (!dependencyCodes.includes('D1_UNAVAILABLE')) {
+    try {
+      const schema = await ctx.env.DB.prepare('SELECT version FROM application_schema_version WHERE singleton=1')
+        .first<{ version: number }>();
+      if (!schema || !Number.isInteger(schema.version) || schema.version < 1) throw new Error('schema');
+      schemaVersion = schema.version;
+      if (schema.version !== APPLICATION_SCHEMA_VERSION) dependencyCodes.push('SCHEMA_VERSION_MISMATCH');
+    } catch {
+      dependencyCodes.push('SCHEMA_VERSION_UNAVAILABLE');
+    }
+  }
+  try {
+    // head() checks the configured binding without requiring or creating a probe object.
+    await ctx.env.FILES.head('__auditsphere_readiness_probe__');
+  } catch {
+    dependencyCodes.push('R2_UNAVAILABLE');
+  }
+  const ready = dependencyCodes.length === 0;
+  return jsonResponse({ status: ready ? 'ready' : 'degraded', schemaVersion, dependencyCodes }, ready ? 200 : 503, ctx.requestId);
+};
+
+const handleMigrationStatus = async (ctx: RouteContext): Promise<Response> => {
+  const workspace = await ctx.env.DB.prepare('SELECT id FROM workspaces WHERE id=?')
+    .bind(ctx.params.workspaceId).first<{ id: string }>();
+  if (!workspace) throw new ApiError('NOT_FOUND', 'Workspace not found.');
+  const [schema, run] = await Promise.all([
+    ctx.env.DB.prepare('SELECT version FROM application_schema_version WHERE singleton=1').first<{ version: number }>(),
+    ctx.env.DB.prepare(`SELECT id,status FROM migration_runs WHERE workspace_id=? ORDER BY started_at DESC,id DESC LIMIT 1`)
+      .bind(ctx.params.workspaceId).first<{ id: string; status: string }>()
+  ]);
+  if (!schema) throw new ApiError('UNAVAILABLE', 'The installed application schema version is unavailable.');
+  return jsonResponse({ schemaVersion: schema.version, lastRunId: run?.id ?? null, status: run?.status ?? null }, 200, ctx.requestId);
 };
 
 const handleSeeds = async (ctx: RouteContext): Promise<Response> => {
@@ -789,11 +836,14 @@ const handleFileMetadata = async (ctx: RouteContext): Promise<Response> => {
 
 const router = createRouter()
   .get('/api/health', handleHealth)
+  .get('/api/health/live', handleHealthLive)
+  .get('/api/health/ready', handleHealthReady)
   .get('/api/seeds', handleSeeds)
   .post('/api/workspaces', handleCreateWorkspace)
   .post('/api/workspaces/resume', handleResumeWorkspace)
   .get('/api/workspaces/:workspaceId/actor-profiles', handleBusinessActorProfiles)
   .get('/api/workspaces/:workspaceId/context', handleBusinessContext)
+  .get('/api/workspaces/:workspaceId/migration-status', handleMigrationStatus)
   .get('/api/workspaces/:workspaceId/clients', handleBusinessClients)
   .get('/api/workspaces/:workspaceId/clients/:clientId', handleBusinessClient)
   .get('/api/workspaces/:workspaceId/leads', handleBusinessLeads)

@@ -117,6 +117,54 @@ const requireMoney = (value: number, allowZero = false) => {
 function fail(blockers: string[]) {
   if (blockers.length) throw new GuardError('INVALID_STATE', blockers.join(' '));
 }
+/** Fingerprint only the inputs used by one generated fieldwork workbook. */
+function workpaperGenerationBasis(
+  state: PrototypeState,
+  engagement: EngagementRecord,
+  workpaperId: string
+): string {
+  const workpaper = engagement.workpapers.find((item) => item.id === workpaperId),
+    evidenceIds = new Set(workpaper?.evidenceRefs || []),
+    programs = state.auditPrograms
+      .filter(
+        (program) =>
+          program.engagementId === engagement.id &&
+          program.procedures.some((procedure) => procedure.linkedWorkpaperId === workpaperId)
+      )
+      .map((program) => ({
+        id: program.id,
+        area: program.area,
+        procedures: program.procedures.map((procedure) => ({
+          id: procedure.id,
+          title: procedure.title,
+          linkedWorkpaperId: procedure.linkedWorkpaperId,
+          workPerformed: procedure.workPerformed,
+          conclusion: procedure.conclusion,
+          status: procedure.status
+        }))
+      })),
+    evidenceDocuments = state.documents
+      .filter(
+        (document) =>
+          evidenceIds.has(document.id) ||
+          Boolean(document.supersedesDocumentId && evidenceIds.has(document.supersedesDocumentId))
+      )
+      .map((document) => ({
+        id: document.id,
+        engagementId: document.engagementId,
+        version: document.version,
+        sha: document.sha,
+        brokenLink: document.brokenLink,
+        supersedesDocumentId: document.supersedesDocumentId
+      }));
+  return JSON.stringify({
+    engagementId: engagement.id,
+    sourceVersion: engagement.sourceVersion,
+    workpaper: workpaper || null,
+    programs,
+    evidenceDocuments
+  });
+}
 /** Compact non-cryptographic display digest for printed lineage lines (FNV-1a). */
 function fingerprintDigest(value: string): string {
   let hash = 0x811c9dc5;
@@ -132,7 +180,8 @@ export class TargetLifecycleCommands {
   constructor(
     private getState: () => PrototypeState,
     private notify: () => void,
-    private artifactWriter: ArtifactWriter = writeLifecyclePDF
+    private artifactWriter: ArtifactWriter = writeLifecyclePDF,
+    private readonly artifactPersister: typeof persistArtifact = persistArtifact
   ) {}
   private get state() {
     return this.getState();
@@ -1159,7 +1208,7 @@ export class TargetLifecycleCommands {
         p.engagementId === engagementId &&
         p.procedures.some((s) => s.linkedWorkpaperId === workpaperId)
     );
-    const basis = reviewBasis(this.state, engagement),
+    const basis = workpaperGenerationBasis(this.state, engagement, workpaperId),
       actor = this.state.currentUserId;
     const version = wp.workingPaper ? wp.version + 1 : wp.version;
     const id = uniqueId(`WORK-${workpaperId}-v${version}`);
@@ -1190,10 +1239,13 @@ export class TargetLifecycleCommands {
       size: blob.size,
       sha256: await artifactSha256(blob)
     };
-    await persistArtifact(artifact, blob);
+    await this.artifactPersister(artifact, blob);
     engagement = this.engagement(engagementId, ['preparer', 'manager'], true);
     wp = engagement.workpapers.find((w) => w.id === workpaperId)!;
-    if (actor !== this.state.currentUserId || basis !== reviewBasis(this.state, engagement))
+    if (
+      actor !== this.state.currentUserId ||
+      basis !== workpaperGenerationBasis(this.state, engagement, workpaperId)
+    )
       throw new GuardError('STALE_REVISION', 'Fieldwork changed during workbook generation.');
     if (wp.generatedArtifact) (wp.generatedArtifactHistory ||= []).push(wp.generatedArtifact);
     wp.version = version;

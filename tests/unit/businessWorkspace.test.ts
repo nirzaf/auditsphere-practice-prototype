@@ -10,6 +10,7 @@ const db = new SqliteD1();
 db.migrate(repositoryRoot);
 const r2Objects = new Map<string, Uint8Array>();
 let failNextR2Write = false;
+let failNextR2Head = false;
 const fakeR2 = {
   async put(key: string, body: BodyInit) {
     if (failNextR2Write) { failNextR2Write = false; throw new Error('Simulated transient object store write failure'); }
@@ -29,6 +30,11 @@ const fakeR2 = {
       json: async () => JSON.parse(new TextDecoder().decode(copy)),
       httpMetadata: {}, customMetadata: {}
     };
+  },
+  async head(key: string) {
+    if (failNextR2Head) { failNextR2Head = false; throw new Error('Simulated transient object store head failure'); }
+    const bytes = r2Objects.get(key);
+    return bytes ? { key, size: bytes.length, etag: 'test-etag', httpEtag: 'test-etag', uploaded: new Date(), httpMetadata: {}, customMetadata: {} } : null;
   }
 };
 const env = {
@@ -69,6 +75,10 @@ async function call(path: string, options: {
                           || request.command.type === 'proposal.approve' || request.command.type === 'proposal.dispatch'
                           ? { entity: 'ProposalVersion', id: commandPayload.proposalVersionId }
                           : request.command.type === 'proposal.dispatch.retry' ? { entity: 'Dispatch', id: commandPayload.dispatchId }
+                  : request.command.type === 'time.submit' || request.command.type === 'time.approve'
+                    || request.command.type === 'time.return' || request.command.type === 'time.correct'
+                    ? { entity: 'TimeEntry', id: commandPayload.timeEntryId }
+                    : request.command.type === 'ledger.post' ? { entity: 'FirmJournal', id: commandPayload.journalId }
                   : null
       : null;
     payload = {
@@ -97,6 +107,19 @@ const post = (path: string, payload: unknown, headers: Record<string, string> = 
   call(path, { method: 'POST', payload, headers });
 
 it('bootstraps a no-session BUSINESS workspace and maintains atomic directory profiles', async () => {
+  const live = await call('/api/health/live');
+  assert.equal(live.response.status, 200);
+  assert.deepEqual(live.body, { status: 'ok' });
+  const ready = await call('/api/health/ready');
+  assert.equal(ready.response.status, 200, JSON.stringify(ready.body));
+  assert.equal(ready.body.status, 'ready');
+  assert.equal(ready.body.schemaVersion, 27);
+  assert.deepEqual(ready.body.dependencyCodes, []);
+  failNextR2Head = true;
+  const degradedReady = await call('/api/health/ready');
+  assert.equal(degradedReady.response.status, 503);
+  assert.deepEqual(degradedReady.body.dependencyCodes, ['R2_UNAVAILABLE']);
+
   const input = {
     name: 'AuditSphere local business test',
     currency: 'QAR',
@@ -120,6 +143,12 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
   assert.match(created.body.staffMemberId, /^[a-f0-9-]{36}$/);
   assert.match(created.body.actorProfileId, /^[a-f0-9-]{36}$/);
   const workspaceId = created.body.workspaceId as string;
+
+  const migrationStatus = await call(`/api/workspaces/${workspaceId}/migration-status`);
+  assert.equal(migrationStatus.response.status, 200, JSON.stringify(migrationStatus.body));
+  assert.deepEqual(migrationStatus.body, { schemaVersion: 27, lastRunId: null, status: null });
+  const missingMigrationWorkspace = await call(`/api/workspaces/${crypto.randomUUID()}/migration-status`);
+  assert.equal(missingMigrationWorkspace.response.status, 404);
 
   const replay = await post('/api/workspaces', input, { 'Idempotency-Key': bootstrapKey });
   assert.equal(replay.response.status, 200);
@@ -1700,4 +1729,224 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
   assert.equal(staleGate.body.ready, false, 'an ownership revision makes the previous risk key stale without rewriting its history');
   assert.equal(db.prepare(`SELECT COUNT(*) AS count FROM risk_clearances WHERE workspace_id=? AND engagement_id=? AND decision='CLEAR'`)
     .bind(workspaceId, engagementId).first<any>()?.count, 1, 'ownership changes preserve the prior Partner decision as immutable history');
+
+  // --- Slice 7 — Practice and bookkeeping (US-PRC-001..007 exit evidence) ------
+  const practicePath = `/api/workspaces/${workspaceId}/practice`;
+  const practiceHeaders = { ...approverHeaders, 'X-Client-Id': clientId, 'X-Engagement-Id': engagementId };
+  const accountId = (code: string) => db.prepare('SELECT id FROM firm_accounts WHERE workspace_id=? AND code=?')
+    .bind(workspaceId, code).first<any>()?.id as string;
+
+  // PRC scope: CLIENT personas never reach firm practice records or bookkeeping.
+  const clientPracticeDenied = await call(practicePath, { headers: clientHeaders });
+  assert.equal(clientPracticeDenied.response.status, 403, JSON.stringify(clientPracticeDenied.body));
+  const clientTimeDenied = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'time.create', payload: {
+      engagementId, staffMemberId: preparerStaff.body.result.staffMemberId, workDate: planDate, phase: 'FIELDWORK',
+      minutes: 60, description: 'A client persona must never record firm audit time entries.', billable: true } }
+  }, clientHeaders);
+  assert.equal(clientTimeDenied.response.status, 403);
+
+  // PRC-001: approved grade rate changes are future-effective; recorded work keeps the
+  // rate that was effective on its work date.
+  const rateUpdate = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'practice.rate.set', payload: {
+      grade: 'ASSOCIATE', hourlyMinor: '22000', effectiveFrom: '2027-01-01' } }
+  }, approverHeaders);
+  assert.equal(rateUpdate.response.status, 200, JSON.stringify(rateUpdate.body));
+  const historicalRateEdit = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'practice.rate.set', payload: {
+      grade: 'ASSOCIATE', hourlyMinor: '22000', effectiveFrom: planDate } }
+  }, approverHeaders);
+  assert.equal(historicalRateEdit.response.status, 422, 'a new rate cannot rewrite the effective rate of recorded work');
+
+  const timeDraft = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'time.create', payload: {
+      engagementId, staffMemberId: preparerStaff.body.result.staffMemberId, workDate: planDate, phase: 'FIELDWORK',
+      minutes: 420, description: 'Executed assigned fieldwork procedures for the scoped engagement.', billable: true } }
+  }, preparerHeaders);
+  assert.equal(timeDraft.response.status, 200, JSON.stringify(timeDraft.body));
+  assert.equal(timeDraft.body.result.status, 'DRAFT');
+  const timeEntryId = timeDraft.body.result.timeEntryId as string;
+
+  const submitTime = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'time.submit', payload: { timeEntryId, expectedVersion: 1 } }
+  }, preparerHeaders);
+  assert.equal(submitTime.response.status, 200, JSON.stringify(submitTime.body));
+  const selfApproval = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'time.approve', payload: { timeEntryId, expectedVersion: 2 } }
+  }, preparerHeaders);
+  assert.equal(selfApproval.response.status, 403, 'a preparer can neither approve nor return their own time entry');
+  const returnTime = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'time.return', payload: {
+      timeEntryId, expectedVersion: 2, reason: 'Clarify the procedure reference and phase before independent approval.' } }
+  }, reviewerHeaders);
+  assert.equal(returnTime.response.status, 200, JSON.stringify(returnTime.body));
+  const resubmitTime = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'time.submit', payload: { timeEntryId, expectedVersion: 3 } }
+  }, preparerHeaders);
+  assert.equal(resubmitTime.response.status, 200, JSON.stringify(resubmitTime.body));
+  const approveTime = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'time.approve', payload: { timeEntryId, expectedVersion: 4 } }
+  }, reviewerHeaders);
+  assert.equal(approveTime.response.status, 200, JSON.stringify(approveTime.body));
+  const approvedTimeRow = db.prepare('SELECT status,hourly_minor_snapshot,charge_numerator,charge_denominator,approved_by_actor_id FROM firm_time_entries WHERE workspace_id=? AND id=?')
+    .bind(workspaceId, timeEntryId).first<any>();
+  assert.equal(approvedTimeRow?.status, 'APPROVED');
+  assert.equal(approvedTimeRow?.hourly_minor_snapshot, 20000, 'approval freezes the rate effective on the work date, not a later revision');
+  assert.equal(approvedTimeRow?.charge_denominator, 60, 'charge-out is stored as a rational minutes/hour fraction');
+
+  // PRC-003: engagement budget approved against the accepted fee proposal version.
+  const budgetApprove = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'budget.approve', payload: {
+      engagementId, feeProposalVersionId: renewedGate.body.commercialKey.proposalVersionId,
+      phases: [{ phase: 'FIELDWORK', grade: 'ASSOCIATE', plannedMinutes: 420 }] } }
+  }, approverHeaders);
+  assert.equal(budgetApprove.response.status, 200, JSON.stringify(budgetApprove.body));
+
+  // PRC-005: expense draft with an approved support exception, posted independently.
+  const expenseCreate = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'expense.create', payload: {
+      date: planDate, payee: 'West Bay Facilities LLC', category: 'RENT', amountMinor: '50000',
+      description: 'Monthly engagement-period office rent for the practice.',
+      missingSupportReason: 'The landlord invoice arrives after the month-end closing cut-off.',
+      debitAccountId: accountId('5000'), settlementAccountId: accountId('1000'), paymentMethod: 'BANK' } }
+  }, preparerHeaders);
+  assert.equal(expenseCreate.response.status, 200, JSON.stringify(expenseCreate.body));
+  const preparerExpensePost = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'expense.approve-and-post', payload: { expenseId: expenseCreate.body.result.expenseId } }
+  }, preparerHeaders);
+  assert.equal(preparerExpensePost.response.status, 403, 'expense posting requires independent review');
+  const expensePost = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'expense.approve-and-post', payload: { expenseId: expenseCreate.body.result.expenseId } }
+  }, reviewerHeaders);
+  assert.equal(expensePost.response.status, 200, JSON.stringify(expensePost.body));
+
+  // PRC-004: atomic double-entry journals posted independently and reversed immutably.
+  const journalDraft = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'ledger.create-draft', payload: {
+      postingDate: planDate, description: 'Recorded practice salaries for the engagement period.',
+      sourceType: 'MANUAL',
+      lines: [
+        { accountId: accountId('5100'), debitMinor: '100000', creditMinor: '0' },
+        { accountId: accountId('1000'), debitMinor: '0', creditMinor: '100000' }
+      ] } }
+  }, reviewerHeaders);
+  assert.equal(journalDraft.response.status, 200, JSON.stringify(journalDraft.body));
+  const unbalancedDraft = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'ledger.create-draft', payload: {
+      postingDate: planDate, description: 'An unbalanced journal must never be accepted.',
+      sourceType: 'MANUAL',
+      lines: [
+        { accountId: accountId('5100'), debitMinor: '100000', creditMinor: '0' },
+        { accountId: accountId('1000'), debitMinor: '0', creditMinor: '99999' }
+      ] } }
+  }, reviewerHeaders);
+  assert.equal(unbalancedDraft.response.status, 422, JSON.stringify(unbalancedDraft.body));
+  const creatorCannotPost = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'ledger.post', payload: { journalId: journalDraft.body.result.journalId, expectedVersion: 1 } }
+  }, reviewerHeaders);
+  assert.equal(creatorCannotPost.response.status, 403, 'a journal creator cannot post their own journal');
+  const journalPost = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'ledger.post', payload: { journalId: journalDraft.body.result.journalId, expectedVersion: 1 } }
+  }, approverHeaders);
+  assert.equal(journalPost.response.status, 200, JSON.stringify(journalPost.body));
+  const journalReverse = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'ledger.reverse', payload: {
+      journalId: journalDraft.body.result.journalId, postingDate: planDate,
+      reason: 'The recorded payroll figure was corrected; the posted original stays immutable.' } }
+  }, reviewerHeaders);
+  assert.equal(journalReverse.response.status, 200, JSON.stringify(journalReverse.body));
+
+  // PRC-005: partner withdrawals are equity movements, never operating expenses. A second
+  // Partner approves the withdrawal because a Partner cannot approve their own.
+  const secondPartnerStaff = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'staff.create', payload: {
+      displayName: 'Second Engagement Partner', naturalPersonKey: `TEST-PERSON-${crypto.randomUUID()}`,
+      email: 'second.partner@example.invalid', grade: 'PARTNER' } }
+  }, approverHeaders);
+  assert.equal(secondPartnerStaff.response.status, 200, JSON.stringify(secondPartnerStaff.body));
+  const secondPartnerProfile = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'actor-profile.assign', payload: {
+      persona: 'APPROVER', staffMemberId: secondPartnerStaff.body.result.staffMemberId } }
+  }, approverHeaders);
+  assert.equal(secondPartnerProfile.response.status, 200, JSON.stringify(secondPartnerProfile.body));
+  const secondPartnerHeaders = { 'X-Actor-Id': secondPartnerProfile.body.result.actorProfileId as string, 'X-Active-Persona': 'APPROVER' };
+  const secondPartnerCapacity = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'staffing.availability.set', payload: {
+      staffMemberId: secondPartnerStaff.body.result.staffMemberId, workDate: planDate, scheduledMinutes: 480 } }
+  }, approverHeaders);
+  assert.equal(secondPartnerCapacity.response.status, 200, JSON.stringify(secondPartnerCapacity.body));
+  const selfWithdrawal = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'partner-withdrawal.post', payload: {
+      partnerStaffId, date: planDate, amountMinor: '10000',
+      equityAccountId: accountId('3100'), bankAccountId: accountId('1000'),
+      reason: 'A Partner must never approve their own profit withdrawal.' } }
+  }, approverHeaders);
+  assert.equal(selfWithdrawal.response.status, 403, JSON.stringify(selfWithdrawal.body));
+  const withdrawal = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'partner-withdrawal.post', payload: {
+      partnerStaffId, date: planDate, amountMinor: '30000',
+      equityAccountId: accountId('3100'), bankAccountId: accountId('1000'),
+      reason: 'Approved Partner profit withdrawal recorded against partner capital.' } }
+  }, secondPartnerHeaders);
+  assert.equal(withdrawal.response.status, 200, JSON.stringify(withdrawal.body));
+
+  // PRC-002/003/006: capacity, profitability and bookkeeping report snapshots.
+  const utilization = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'practice.capture-utilization-report', payload: {
+      from: planDate, to: planDate, staffMemberIds: [preparerStaff.body.result.staffMemberId]
+    } }
+  }, approverHeaders);
+  assert.equal(utilization.response.status, 200, JSON.stringify(utilization.body));
+  assert.equal(utilization.body.result.staffCount, 1);
+  const profitability = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'practice.capture-profitability-report', payload: {
+      engagementId, asOf: `${planDate}T12:00:00.000Z` } }
+  }, approverHeaders);
+  assert.equal(profitability.response.status, 200, JSON.stringify(profitability.body));
+  const arAging = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'practice.capture-ar-aging-report', payload: { asOf: planDate, clientId } }
+  }, approverHeaders);
+  assert.equal(arAging.response.status, 200, JSON.stringify(arAging.body));
+  const profitabilityRows = db.prepare(`SELECT charge_out_value_minor FROM profitability_snapshots WHERE workspace_id=? AND engagement_id=? ORDER BY calculated_at DESC LIMIT 1`)
+    .bind(workspaceId, engagementId).first<any>();
+  assert.ok(profitabilityRows, 'the profitability snapshot persists against the engagement');
+  const practiceData = await call(practicePath, { headers: practiceHeaders });
+  assert.equal(practiceData.response.status, 200, JSON.stringify(practiceData.body));
+
+  // PRC-006: the firm trial-balance export renders from an immutable source snapshot.
+  const exportRequest = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'practice.export-report', payload: {
+      kind: 'TRIAL_BALANCE', periodStart: planDate, periodEnd: planDate, format: 'CSV' } }
+  }, approverHeaders);
+  assert.equal(exportRequest.response.status, 200, JSON.stringify(exportRequest.body));
+  await worker.scheduled({ scheduledTime: Date.now(), cron: '*/5 * * * *' } as any, env);
+  const exportJob = db.prepare('SELECT status,result_file_id,last_error_code FROM outbox_jobs WHERE workspace_id=? AND id=?')
+    .bind(workspaceId, exportRequest.body.result.jobId).first<any>();
+  assert.equal(exportJob?.status, 'SUCCEEDED', JSON.stringify(exportJob));
+  assert.ok(exportJob?.result_file_id, 'the export commits a real downloadable artifact');
+
+  // PRC-007: a partial allocation reversal increases invoice AR and returns the same
+  // verified amount to unallocated cash without touching the issued commercial record.
+  const settlementAllocation = db.prepare('SELECT id FROM payment_allocations WHERE workspace_id=? AND payment_id=? ORDER BY allocated_on DESC,id DESC LIMIT 1')
+    .bind(workspaceId, settlement.body.result.paymentId).first<any>();
+  assert.ok(settlementAllocation?.id, 'the settled advance payment carries an active allocation');
+  const partialReversal = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'payment.reverse-allocation', payload: {
+      allocationId: settlementAllocation.id, effectiveDate: planDate, amountMinor: '50000',
+      reason: 'The client overpaid the advance; part of the receipt is re-applied after review.' } }
+  }, approverHeaders);
+  assert.equal(partialReversal.response.status, 200, JSON.stringify(partialReversal.body));
+  const afterAllocationReversal = await call(`${practicePath}?asOfDate=${planDate}`, { headers: practiceHeaders });
+  assert.equal(afterAllocationReversal.response.status, 200, JSON.stringify(afterAllocationReversal.body));
+  const priorOutstanding = BigInt(practiceData.body.arAging.invoices.find((row: any) => row.invoiceId === issuedInvoice.id).outstandingMinor);
+  const nextOutstanding = BigInt(afterAllocationReversal.body.arAging.invoices.find((row: any) => row.invoiceId === issuedInvoice.id).outstandingMinor);
+  assert.equal(nextOutstanding - priorOutstanding, 50000n, 'the original invoice shows the appended allocation reversal');
+  assert.equal(BigInt(afterAllocationReversal.body.arAging.unallocatedMinor) - BigInt(practiceData.body.arAging.unallocatedMinor), 50000n,
+    'the reversed amount returns to unallocated verified cash');
+  assert.equal(afterAllocationReversal.body.arAging.reconciliationStatus, 'INTEGRATION_EXCEPTION',
+    'the seeded historical invoice has no opening ledger journal, so the pre-existing difference remains visible');
+  assert.equal(afterAllocationReversal.body.arAging.reconciliationDifferenceMinor,
+    practiceData.body.arAging.reconciliationDifferenceMinor,
+    'the appended allocation reversal increases both subledger AR and posted AR control by the same amount');
 });

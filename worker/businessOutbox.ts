@@ -104,6 +104,20 @@ function parsePayload(job: OutboxJob): JobPayload {
 function parseRawPayload(job: OutboxJob): Record<string, any> {
   try {
     const payload = JSON.parse(job.payload_json) as Record<string, unknown>;
+    if (job.kind === 'GENERATE_DOCUMENT' && payload?.documentType === 'PRACTICE_REPORT') {
+      if (typeof payload.reportSnapshotId !== 'string' || payload.reportSnapshotId !== job.aggregate_id
+        || !['TRIAL_BALANCE','MONTHLY_PROFIT_LOSS'].includes(String(payload.kind))
+        || !['CSV','XLSX','PDF'].includes(String(payload.format))
+        || typeof payload.periodStart !== 'string' || typeof payload.periodEnd !== 'string'
+        || typeof payload.asOf !== 'string' || typeof payload.generatedByActorId !== 'string'
+        || typeof payload.sourceHash !== 'string' || !/^[a-f0-9]{64}$/.test(payload.sourceHash)
+        || typeof payload.rowsJson !== 'string') throw new Error('practice report shape');
+      const snapshot = JSON.parse(payload.rowsJson) as Record<string, unknown>;
+      if (!snapshot || typeof snapshot !== 'object' || snapshot.sourceHash !== payload.sourceHash
+        || snapshot.kind !== payload.kind || snapshot.periodStart !== payload.periodStart
+        || snapshot.periodEnd !== payload.periodEnd) throw new Error('practice report snapshot');
+      return payload;
+    }
     if (!payload || typeof payload !== 'object' || typeof payload.commandId !== 'string'
       || typeof payload.engagementId !== 'string' || typeof payload.clientId !== 'string') throw new Error('shape');
     return payload as Record<string, any>;

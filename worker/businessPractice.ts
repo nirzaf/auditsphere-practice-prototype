@@ -757,9 +757,10 @@ async function arAging(env:Env,workspaceId:string,context:BusinessContext,asOf:s
   const reversedById=new Map(reversals.map(row=>[row.allocation_id,BigInt(row.amount)]));
   const allocated=new Map<string,bigint>();
   for(let index=0;index<allocRows.length;index++){
-    const row=allocRows[index],sign=row.reverses_payment_id?-1n:1n;
-    const net=BigInt(row.amount_minor)*sign-(reversedById.get(row.allocation_id)??0n);
-    if(net<0n)throw new ApiError('VALIDATION_FAILED','An allocation reversal exceeds its effective allocation.');
+    const row=allocRows[index],isPaymentReversal=Boolean(row.reverses_payment_id),amount=BigInt(row.amount_minor),
+      reversed=isPaymentReversal?0n:(reversedById.get(row.allocation_id)??0n);
+    if(reversed>amount)throw new ApiError('VALIDATION_FAILED','An allocation reversal exceeds its effective allocation.');
+    const net=(amount-reversed)*(isPaymentReversal?-1n:1n);
     allocated.set(row.invoice_id,(allocated.get(row.invoice_id)??0n)+net);
   }
   const credits=invoices.length?((await env.DB.prepare(`SELECT invoice_id,SUM(amount_minor) AS amount FROM firm_credit_notes WHERE workspace_id=? AND credit_date<=? AND invoice_id IN (${invoiceSlots}) GROUP BY invoice_id`)
