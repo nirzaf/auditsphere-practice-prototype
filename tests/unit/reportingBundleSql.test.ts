@@ -1,0 +1,52 @@
+// US-GAP-16 (P0) regression: the five-part bundle candidate job must prepare
+// against the real D1 schema.
+//
+// At the reviewed commit the bundle candidate query selected
+// `rr.template_file_id` while `representation_requests` is joined with the alias
+// `rep`, so D1 rejected the whole job with
+// "no such column: rr.template_file_id" and every five-part release failed at
+// preparation. These tests extract the exact query text from the Worker source,
+// run it against every repository migration, and fail if the alias regresses.
+import { describe, it } from 'node:test';
+import assert from 'node:assert/strict';
+import { readFileSync, readdirSync } from 'node:fs';
+import { dirname, join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { SqliteD1 } from '../helpers/sqliteD1.js';
+
+const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
+
+/** Extracts the first statement of the `bundleCandidate` job handler verbatim. */
+function bundleCandidateSql(): string {
+  const source = readFileSync(join(repositoryRoot, 'worker', 'businessReportingJobs.ts'), 'utf8');
+  const body = source.split('async function bundleCandidate(', 2)[1];
+  assert.ok(body, 'the bundleCandidate job handler was found in the Worker source');
+  const afterPrepare = body.split('env.DB.prepare(`', 2)[1];
+  assert.ok(afterPrepare, 'the bundle candidate query was found');
+  const query = afterPrepare.split('`', 2)[0];
+  assert.ok(query.includes('FROM bundle_candidates'), 'the extracted text is the bundle candidate query');
+  return query;
+}
+
+describe('US-GAP-16 five-part bundle candidate SQL', () => {
+  it('reads the representation template through the joined request alias', () => {
+    const query = bundleCandidateSql();
+    assert.match(query, /\brep\.template_file_id\b/, 'the template file must be read from the representation_requests alias');
+    assert.doesNotMatch(query, /\brr\.template_file_id\b/, 'no statement may reference the undefined rr alias');
+  });
+
+  it('prepares and executes against the full migration history without an unknown alias', () => {
+    const migrations = readdirSync(join(repositoryRoot, 'worker', 'migrations')).filter(name => name.endsWith('.sql'));
+    assert.ok(migrations.length >= 28, `expected the full migration history, found ${migrations.length}`);
+
+    const db = new SqliteD1(':memory:');
+    try {
+      db.migrate(repositoryRoot);
+      const statement = db.prepare(bundleCandidateSql()); // must not throw "no such column: rr.template_file_id"
+      const row = statement.bind('diagnostic-workspace', 'diagnostic-candidate').first<Record<string, unknown>>();
+      assert.equal(row, null, 'an empty workspace returns no candidate instead of failing');
+    } finally {
+      db.close();
+    }
+  });
+});

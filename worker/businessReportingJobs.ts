@@ -227,7 +227,7 @@ export async function processBusinessReportingDocument(env:Env,job:Job,payload:P
 
 async function bundleCandidate(env:Env,job:Job,p:Payload,commit:Commit){
   const candidate=await env.DB.prepare(`SELECT b.*,el.fee_minor AS original_fee_minor,e.code,e.period_start,e.period_end,e.engagement_type,c.legal_name AS client_name,fp.legal_name AS firm_name,
-      ml.file_version_id AS management_file,ml.artifact_id AS management_artifact,rr.template_file_id,ret.signed_file_id,ret.file_sha256 AS return_hash,ret.source_hash AS return_source_hash,
+      ml.file_version_id AS management_file,ml.artifact_id AS management_artifact,rep.template_file_id,ret.signed_file_id,ret.file_sha256 AS return_hash,ret.source_hash AS return_source_hash,
       rp.file_version_id AS report_file,rp.content_sha256 AS report_hash,rp.size_bytes AS report_size,ra.id AS report_artifact,rep.proposed_report_date
     FROM bundle_candidates b JOIN engagements e ON e.workspace_id=b.workspace_id AND e.id=b.engagement_id JOIN clients c ON c.workspace_id=e.workspace_id AND c.id=e.client_id
     JOIN firm_profiles fp ON fp.workspace_id=e.workspace_id JOIN engagement_letters el ON el.workspace_id=b.workspace_id AND el.id=b.engagement_letter_id
