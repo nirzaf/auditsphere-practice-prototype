@@ -260,6 +260,7 @@ export function BusinessWorkspaceConsole() {
   const [primaryContactName, setPrimaryContactName] = useState('');
   const [primaryContactEmail, setPrimaryContactEmail] = useState('');
   const [primaryContactRole, setPrimaryContactRole] = useState<'MD_GM' | 'CFO_FINANCE_DIRECTOR' | 'CHIEF_ACCOUNTANT_LIAISON' | 'OTHER'>('CFO_FINANCE_DIRECTOR');
+  const [clientProfileContactId, setClientProfileContactId] = useState('');
   const [leadSource, setLeadSource] = useState<'PHONE' | 'WHATSAPP' | 'EMAIL' | 'WEB_FORM' | 'REFERRAL'>('REFERRAL');
   const [leadClientMode, setLeadClientMode] = useState<'NEW' | 'EXISTING'>('NEW');
   const [leadClientCode, setLeadClientCode] = useState('');
@@ -343,7 +344,7 @@ export function BusinessWorkspaceConsole() {
       }
     });
     return () => controller.abort();
-  }, [preference?.workspaceId, preference?.actorId, preference?.persona, preference?.clientId, preference?.engagementId]);
+  }, [preference?.workspaceId, preference?.actorId, preference?.persona, preference?.clientId, preference?.engagementId, retryKey]);
 
   useEffect(() => {
     if (!preference?.workspaceId || !preference.actorId || !context || context.actor.id !== preference.actorId) {
@@ -471,6 +472,34 @@ export function BusinessWorkspaceConsole() {
     setCommandMessage(`${pending.displayName} was added to the ${pending.persona} directory.`);
     await refreshProfiles();
     return result;
+  };
+
+  const assignClientPersona = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const selected = currentSelection();
+    const client = clientDetail?.client;
+    const contact = clientDetail?.contacts.find(item => item.id === clientProfileContactId && item.active);
+    if (!selected || !client || !contact || !context?.allowedActions.includes('directory.manage')) return;
+
+    const payload = { persona: 'CLIENT' as const, contactId: contact.id };
+    setCommandBusy(true);
+    setCommandMessage('');
+    try {
+      await runBusinessCommand<{ actorProfileId: string }>(
+        selected.workspaceId,
+        selected,
+        { type: 'actor-profile.assign', payload },
+        commandKeyFor('actor-profile.assign.client', payload)
+      );
+      businessCommandKeys.current.delete('actor-profile.assign.client');
+      setProfiles(await getBusinessActorProfiles(selected.workspaceId));
+      setClientProfileContactId('');
+      setCommandMessage(`${contact.full_name} was added as a CLIENT profile for ${client.legalName}.`);
+    } catch (reason) {
+      setCommandMessage(reason instanceof Error ? reason.message : 'The CLIENT profile could not be assigned. Retry with the same contact.');
+    } finally {
+      setCommandBusy(false);
+    }
   };
 
   const addStaffPersona = async (event: React.FormEvent<HTMLFormElement>) => {
@@ -923,6 +952,10 @@ export function BusinessWorkspaceConsole() {
   };
 
   const riskEngagement = proposalWorkspace?.engagements.find(item => item.id === riskEngagementId) ?? null;
+  const assignedClientContactIds = new Set(profiles
+    .filter(profile => profile.persona === 'CLIENT' && profile.contactId)
+    .map(profile => profile.contactId));
+  const availableClientContacts = clientDetail?.contacts.filter(contact => contact.active && !assignedClientContactIds.has(contact.id)) ?? [];
 
   return <main className="business-console">
     <header className="business-console-header">
@@ -1015,7 +1048,23 @@ export function BusinessWorkspaceConsole() {
             {commandMessage && <p className="business-command-message" role="status">{commandMessage}</p>}
             <div className="business-dialog-actions"><button className="btn primary" type="submit" disabled={commandBusy || !selectedProfile || !gradeAllowsPersona(staffGrade, staffPersona)}>{commandBusy ? 'Saving…' : pendingAssignment ? `Retry ${pendingAssignment.persona} assignment` : `Add ${staffPersona.toLowerCase()} profile`}</button></div>
           </form>
-          {!profiles.some(profile => profile.persona === 'CLIENT') && <p className="business-muted">CLIENT profiles become available after a client and contact are created in the commercial workflow.</p>}
+          <div className="business-client-profile-assignment" aria-labelledby="business-client-profile-heading">
+            <h3 id="business-client-profile-heading">Assign a CLIENT profile</h3>
+            {!preference?.clientId && <p className="business-muted">Select a client context to assign one of its active contacts.</p>}
+            {preference?.clientId && !clientDetail && <p className="business-muted" role="status">Loading contacts for the selected client…</p>}
+            {preference?.clientId && clientDetail && availableClientContacts.length === 0 && <p className="business-muted">Every active contact for this client already has a CLIENT profile.</p>}
+            {preference?.clientId && clientDetail && availableClientContacts.length > 0 && <form className="business-form business-client-profile-form" onSubmit={assignClientPersona}>
+              <label className="business-field" htmlFor="business-client-profile-contact">
+                <span>Client contact</span>
+                <select id="business-client-profile-contact" required value={clientProfileContactId} onChange={event => setClientProfileContactId(event.target.value)}>
+                  <option value="">Choose an active contact</option>
+                  {availableClientContacts.map(contact => <option key={contact.id} value={contact.id}>{contact.full_name} · {contact.role.replaceAll('_', ' ')}</option>)}
+                </select>
+              </label>
+              <p className="business-note">The profile is scoped to this contact and client. It grants no staff approval or directory permissions.</p>
+              <div className="business-dialog-actions"><button className="btn primary" type="submit" disabled={commandBusy || !selectedProfile || !clientProfileContactId}>{commandBusy ? 'Assigning…' : 'Add CLIENT profile'}</button></div>
+            </form>}
+          </div>
         </section>}
 
         {context?.allowedActions.includes('client.read') && <section className="business-directory-card" aria-labelledby="business-clients-heading">

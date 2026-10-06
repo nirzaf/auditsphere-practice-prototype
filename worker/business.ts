@@ -152,6 +152,7 @@ export interface BusinessActorProfileSummary {
   staffGrade: 'PARTNER' | 'MANAGER' | 'SENIOR' | 'ASSOCIATE' | null;
   clientId: string | null;
   staffMemberId?: string | null;
+  contactId?: string | null;
 }
 
 interface BusinessActorProfileRow extends BusinessActorProfileSummary {
@@ -198,7 +199,8 @@ export async function listBusinessActorProfiles(env: Env, workspaceId: string): 
     displayName: row.displayName,
     staffGrade: row.persona === 'CLIENT' ? null : row.staffGrade,
     clientId: row.persona === 'CLIENT' ? row.clientId : null,
-    staffMemberId: row.persona === 'CLIENT' ? null : row.staffMemberId
+    staffMemberId: row.persona === 'CLIENT' ? null : row.staffMemberId,
+    ...(row.persona === 'CLIENT' ? { contactId: row.contactId } : {})
   }));
   return { items, nextCursor: null };
 }

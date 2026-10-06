@@ -78,6 +78,9 @@ before(
     await tab.command('Page.enable');
     await tab.command('Network.enable');
     await tab.blockExternalHttp();
+    // Chrome on Windows can ignore the initial URL passed to /json/new; make
+    // the harness navigation explicit before waiting for the React shell.
+    await tab.command('Page.navigate', { url: origin });
     for (let n = 0; n < 100; n++) {
       if (await tab.evaluate<boolean>('!!document.querySelector(".sidebar")')) return;
       await sleep(100);

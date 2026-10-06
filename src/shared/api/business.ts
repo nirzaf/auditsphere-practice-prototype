@@ -32,6 +32,7 @@ export interface BusinessActorProfile {
   staffGrade: StaffGrade | null;
   clientId: string | null;
   staffMemberId?: string | null;
+  contactId?: string | null;
 }
 
 export interface BusinessWorkspaceSummary {
