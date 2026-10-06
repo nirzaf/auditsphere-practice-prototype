@@ -1,8 +1,67 @@
 import type { Env } from './env';
 import { ApiError } from './errors';
 import type { BusinessContext } from './business';
+import { buildOpinionReportSections, opinionReportingBlockers, type OpinionAffectedFsli } from './reportingOpinion';
 
 type Row = Record<string, unknown>;
+
+/** Exact, Partner-only projection used before report preparation. */
+export async function getBusinessOpinionPreview(env: Env, workspaceId: string, context: BusinessContext, engagementId: string, opinionVersionId: string): Promise<Row> {
+  if (context.actor.persona !== 'APPROVER' || context.actor.staffGrade !== 'PARTNER' || !context.allowedActions.includes('reporting.read')) {
+    throw new ApiError('PERSONA_ACTION_DENIED', 'Only a Partner approver can preview an internal reporting opinion.');
+  }
+  const engagement = await env.DB.prepare(`SELECT id,client_id,standards_profile_id FROM engagements WHERE workspace_id=? AND id=?`)
+    .bind(workspaceId, engagementId).first<{ id: string; client_id: string; standards_profile_id: string }>();
+  if (!engagement) throw new ApiError('NOT_FOUND', 'The engagement was not found.');
+  if ((context.scope.clientId && context.scope.clientId !== engagement.client_id)
+    || (context.scope.engagementId && context.scope.engagementId !== engagementId)) {
+    throw new ApiError('FORBIDDEN_SCOPE', 'The engagement is outside the selected scope.');
+  }
+  const opinion = await env.DB.prepare(`SELECT id,revision,srm_version_id,standards_profile_id,report_type,category,aup_report_type,aup_procedure_summary,
+      rationale,materiality_assessment,pervasiveness_assessment,basis_heading,basis_text,going_concern_reporting_text,additional_sections_json,dependency_hash
+    FROM opinion_versions WHERE workspace_id=? AND engagement_id=? AND id=?`)
+    .bind(workspaceId, engagementId, opinionVersionId).first<Row>();
+  if (!opinion) throw new ApiError('NOT_FOUND', 'The opinion version was not found for this engagement.');
+  const [affected, currentSrm, going, latestGoing] = await Promise.all([
+    env.DB.prepare(`SELECT f.code,f.name,a.amount_minor AS amountMinor,a.explanation
+      FROM opinion_affected_fslis a JOIN fsli_catalog f ON f.workspace_id=a.workspace_id AND f.id=a.fsli_id
+      WHERE a.workspace_id=? AND a.opinion_version_id=? ORDER BY f.presentation_order,f.code`)
+      .bind(workspaceId, opinionVersionId).all<OpinionAffectedFsli>(),
+    env.DB.prepare(`SELECT s.id,s.dependency_hash,s.going_concern_id,c.dependency_hash AS clearance_hash
+      FROM srm_versions s LEFT JOIN srm_clearances c ON c.workspace_id=s.workspace_id AND c.srm_version_id=s.id
+      WHERE s.workspace_id=? AND s.engagement_id=? ORDER BY s.revision DESC,c.signed_at DESC LIMIT 1`)
+      .bind(workspaceId, engagementId).first<{ id: string; dependency_hash: string; going_concern_id: string; clearance_hash: string | null }>(),
+    env.DB.prepare(`SELECT g.id,g.status,g.conclusion FROM opinion_versions o
+      JOIN srm_versions s ON s.workspace_id=o.workspace_id AND s.id=o.srm_version_id
+      JOIN going_concern_assessments g ON g.workspace_id=s.workspace_id AND g.id=s.going_concern_id
+      WHERE o.workspace_id=? AND o.id=?`).bind(workspaceId, opinionVersionId).first<{ id: string; status: string; conclusion: string }>(),
+    env.DB.prepare(`SELECT id,status FROM going_concern_assessments WHERE workspace_id=? AND engagement_id=? ORDER BY revision DESC LIMIT 1`)
+      .bind(workspaceId, engagementId).first<{ id: string; status: string }>()
+  ]);
+  const additionalSections = JSON.parse(String(opinion.additional_sections_json)) as Array<{ heading: string; body: string }>;
+  const sections = buildOpinionReportSections({
+    reportType: String(opinion.report_type), category: opinion.category === null ? null : String(opinion.category),
+    aupReportType: opinion.aup_report_type === null ? null : String(opinion.aup_report_type),
+    aupProcedureSummary: opinion.aup_procedure_summary === null ? null : String(opinion.aup_procedure_summary),
+    rationale: String(opinion.rationale), materialityAssessment: String(opinion.materiality_assessment),
+    pervasivenessAssessment: String(opinion.pervasiveness_assessment), basisHeading: opinion.basis_heading === null ? null : String(opinion.basis_heading),
+    basisText: opinion.basis_text === null ? null : String(opinion.basis_text),
+    goingConcernReportingText: opinion.going_concern_reporting_text === null ? null : String(opinion.going_concern_reporting_text), additionalSections
+  }, affected.results ?? []);
+  const isCurrentForSrm = Boolean(currentSrm && currentSrm.id === opinion.srm_version_id
+    && currentSrm.clearance_hash === currentSrm.dependency_hash && opinion.standards_profile_id === engagement.standards_profile_id
+    && going && going.status === 'REVIEWED' && latestGoing?.id === going.id);
+  const reportingBlockers = opinionReportingBlockers(String(opinion.report_type), going?.conclusion ?? null,
+    opinion.going_concern_reporting_text === null ? null : String(opinion.going_concern_reporting_text));
+  if (!going || going.status !== 'REVIEWED' || latestGoing?.id !== going.id) {
+    reportingBlockers.unshift('The going-concern assessment pinned to this SRM is no longer the current independently reviewed assessment.');
+  }
+  if (!isCurrentForSrm) reportingBlockers.unshift('This opinion is not pinned to the current cleared SRM and standards profile; select a new version before report preparation.');
+  return {
+    engagementId, opinionVersionId, revision: opinion.revision, reportType: opinion.report_type, category: opinion.category,
+    aupReportType: opinion.aup_report_type, dependencyHash: opinion.dependency_hash, isCurrentForSrm, sections, reportingBlockers
+  };
+}
 
 /** Reporting projection with an intentionally narrow CLIENT shape. */
 export async function getBusinessReportingWorkspace(env: Env, workspaceId: string, context: BusinessContext, engagementId: string): Promise<Row> {

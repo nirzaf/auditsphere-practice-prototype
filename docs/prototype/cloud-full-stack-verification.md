@@ -552,3 +552,23 @@ passed. Existing API integration covers independent-row success and a
 single-winner same-row race. This turn did not exercise the new conflict choices
 in a real two-browser BUSINESS fieldwork session; full **US-FLD-006** and
 **US-SYS-003** acceptance, and the 46-story epic, remain open.
+
+## Partner opinion validation and exact preview projection — 2026-10-07
+
+US-REP-001 now has category-discriminated Worker command schemas for the four
+audit opinions plus a separate AUP shape. An incomplete modified opinion sent
+to the HTTP command route returns 422 VALIDATION_FAILED and leaves no opinion
+row; a Reviewer cannot write an opinion or access the Partner-only preview.
+The preview and Worker PDF candidate share one structured report-section
+builder, including category-specific basis headings, affected FSLI amounts and
+explanations, additional sections and conditional going-concern blockers.
+
+Verification passed: focused opinion/schema tests 11/11; focused Worker
+command integration 1/1; full unit suite 500/500; production build; app and
+Worker typechecks; full serialized Chromium suite 27/27; and git diff --check.
+The Chromium reporting journey in this suite exercises the older prototype
+store, not the new database-backed reporting form. The successful Worker
+preview projection is covered by focused query tests, but this run did not
+drive a complete Worker reporting UI or candidate-PDF journey. US-REP-001’s
+full browser acceptance, all remaining stories, and the 46-story epic remain
+open. No Cloudflare deployment or external provider was used.

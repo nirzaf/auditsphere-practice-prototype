@@ -94,7 +94,7 @@ import { getBusinessCapacity, getBusinessPlanningWorkspace, listBusinessEngageme
 import { getBusinessPlanningReadiness, getBusinessTrialBalanceImport, getBusinessTrialBalancePreview, getBusinessTrialBalanceWorkspace } from './businessTb';
 import { getBusinessFinancialStatements, getBusinessFsliSourceLines, getBusinessFieldworkWorkspace, getBusinessSamplingPlan, getBusinessSamplingPopulation, getBusinessFieldworkChanges } from './businessFieldwork';
 import { getBusinessPracticeWorkspace } from './businessPractice';
-import { getBusinessReportingWorkspace } from './businessReportingQuery';
+import { getBusinessOpinionPreview, getBusinessReportingWorkspace } from './businessReportingQuery';
 import { getBusinessWorkflow } from './businessWorkflow';
 
 const JSON_BODY_LIMIT = 1_000_000;
@@ -437,6 +437,14 @@ const handleBusinessPracticeWorkspace = async (ctx: RouteContext): Promise<Respo
 const handleBusinessReportingWorkspace = async (ctx: RouteContext): Promise<Response> => {
   const context = await resolveBusinessContext(ctx.env, ctx.params.workspaceId, ctx.request);
   const result = await getBusinessReportingWorkspace(ctx.env, ctx.params.workspaceId, context, ctx.params.engagementId);
+  return jsonResponse(result, 200, ctx.requestId);
+};
+
+const handleBusinessOpinionPreview = async (ctx: RouteContext): Promise<Response> => {
+  const context = await resolveBusinessContext(ctx.env, ctx.params.workspaceId, ctx.request);
+  const opinionVersionId = ctx.url.searchParams.get('versionId')?.trim();
+  if (!opinionVersionId) throw new ApiError('BAD_REQUEST', 'Provide the opinion version to preview.');
+  const result = await getBusinessOpinionPreview(ctx.env, ctx.params.workspaceId, context, ctx.params.engagementId, opinionVersionId);
   return jsonResponse(result, 200, ctx.requestId);
 };
 
@@ -940,6 +948,7 @@ const router = createRouter()
   .get('/api/workspaces/:workspaceId/capacity', handleBusinessCapacity)
   .get('/api/workspaces/:workspaceId/practice', handleBusinessPracticeWorkspace)
   .get('/api/workspaces/:workspaceId/engagements/:engagementId/reporting-workspace', handleBusinessReportingWorkspace)
+  .get('/api/workspaces/:workspaceId/engagements/:engagementId/opinion-preview', handleBusinessOpinionPreview)
   .get('/api/workspaces/:workspaceId/pbc-engagements', handleBusinessPbcEngagements)
   .get('/api/workspaces/:workspaceId/engagements/:engagementId/pbc/:requestId', handleBusinessPbcRequest)
   .get('/api/workspaces/:workspaceId/engagements/:engagementId/portal', handleBusinessPbcPortal)

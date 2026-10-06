@@ -333,6 +333,17 @@ export async function getBusinessReportingWorkspace(
   return requestJson(`/api/workspaces/${encodeURIComponent(workspaceId)}/engagements/${encodeURIComponent(engagementId)}/reporting-workspace`, { context: selected, signal });
 }
 
+export async function getBusinessOpinionPreview(
+  workspaceId: string,
+  engagementId: string,
+  opinionVersionId: string,
+  selected: BusinessWorkspacePreference,
+  signal?: AbortSignal
+): Promise<Record<string, unknown>> {
+  const query = new URLSearchParams({ versionId: opinionVersionId });
+  return requestJson(`/api/workspaces/${encodeURIComponent(workspaceId)}/engagements/${encodeURIComponent(engagementId)}/opinion-preview?${query}`, { context: selected, signal });
+}
+
 export async function getBusinessPlanningWorkspace(
   workspaceId: string,
   engagementId: string,

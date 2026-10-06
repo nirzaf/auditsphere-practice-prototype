@@ -1,6 +1,7 @@
 import type { Env } from './env';
 import { sha256Hex } from './http';
 import { renderReportingPdf, type ReportingPdfInput, type ReportPdfSection } from './reportingDocument';
+import { buildOpinionReportSections, opinionReportingBlockers, type OpinionAffectedFsli } from './reportingOpinion';
 import { strToU8, zipSync } from 'fflate';
 import * as XLSX from 'xlsx';
 
@@ -46,7 +47,7 @@ async function storePdf(env:Env,job:Job,payload:Payload,input:ReportingPdfInput,
 async function reportCandidate(env:Env,job:Job,p:Payload,commit:Commit){
   const row=await env.DB.prepare(`SELECT c.id,c.client_id,c.engagement_id,c.opinion_version_id,c.financial_statement_approval_id,c.signature_asset_id,c.proposed_report_date,c.dependency_hash,c.status,
       e.code,e.period_start,e.period_end,e.engagement_type,e.lifecycle_state,e.active_tb_version_id,e.active_mapping_version_id,e.active_materiality_version_id,e.approved_planning_version_id,e.standards_profile_id,
-      c0.legal_name AS client_name,fp.legal_name AS firm_name,o.report_type,o.category,o.aup_report_type,o.aup_procedure_summary,o.rationale,o.materiality_assessment,o.pervasiveness_assessment,o.basis_heading,o.basis_text,o.going_concern_reporting_text,o.additional_sections_json,
+      c0.legal_name AS client_name,fp.legal_name AS firm_name,o.srm_version_id AS opinion_srm_version_id,o.report_type,o.category,o.aup_report_type,o.aup_procedure_summary,o.rationale,o.materiality_assessment,o.pervasiveness_assessment,o.basis_heading,o.basis_text,o.going_concern_reporting_text,o.additional_sections_json,
       fs.statement_snapshot_id,a.draft_id,a.source_hash AS approval_hash,d.version AS draft_version,d.status AS draft_status,d.source_hash AS draft_hash,d.accounting_policies,d.oci_applicable,d.completeness_checklist_json,d.id AS draft_id
     FROM report_candidates c JOIN engagements e ON e.workspace_id=c.workspace_id AND e.id=c.engagement_id JOIN clients c0 ON c0.workspace_id=e.workspace_id AND c0.id=e.client_id
     JOIN firm_profiles fp ON fp.workspace_id=e.workspace_id JOIN opinion_versions o ON o.workspace_id=c.workspace_id AND o.id=c.opinion_version_id
@@ -57,13 +58,22 @@ async function reportCandidate(env:Env,job:Job,p:Payload,commit:Commit){
   if(!row||row.status!=='PREPARING'||row.engagement_id!==p.engagementId||row.client_id!==p.clientId||row.lifecycle_state!=='PARTNER_APPROVAL'
     ||row.draft_status!=='APPROVED'||row.draft_version!==Number((await env.DB.prepare(`SELECT draft_version FROM financial_statement_approvals WHERE workspace_id=? AND id=?`).bind(job.workspace_id,row.financial_statement_approval_id).first<{draft_version:number}>())?.draft_version))
     throw new Error('The report candidate source is no longer eligible for rendering.');
-  const pins=await env.DB.prepare(`SELECT s.id,s.dependency_hash,s.statement_snapshot_id,s.statement_snapshot_id AS snapshot_id,t.source_hash,t.tb_version_id,t.mapping_version_id,t.standards_profile_id
+  const pins=await env.DB.prepare(`SELECT s.id,s.dependency_hash,s.going_concern_id,s.statement_snapshot_id,s.statement_snapshot_id AS snapshot_id,t.source_hash,t.tb_version_id,t.mapping_version_id,t.standards_profile_id
     FROM srm_versions s JOIN statement_snapshots t ON t.workspace_id=s.workspace_id AND t.id=s.statement_snapshot_id
     JOIN srm_clearances c ON c.workspace_id=s.workspace_id AND c.srm_version_id=s.id AND c.dependency_hash=s.dependency_hash
     WHERE s.workspace_id=? AND s.engagement_id=? ORDER BY s.revision DESC,c.signed_at DESC LIMIT 1`).bind(job.workspace_id,row.engagement_id)
-    .first<{id:string;dependency_hash:string;snapshot_id:string;source_hash:string;tb_version_id:string;mapping_version_id:string;standards_profile_id:string}>();
-  if(!pins||pins.tb_version_id!==row.active_tb_version_id||pins.mapping_version_id!==row.active_mapping_version_id||pins.standards_profile_id!==row.standards_profile_id
-    ||pins.snapshot_id!==row.statement_snapshot_id||row.approval_hash!==row.draft_hash)throw new Error('The report candidate pins are stale. Prepare a new Partner-cleared statement and approval.');
+    .first<{id:string;dependency_hash:string;going_concern_id:string;snapshot_id:string;source_hash:string;tb_version_id:string;mapping_version_id:string;standards_profile_id:string}>();
+  if(!pins||pins.id!==row.opinion_srm_version_id||pins.tb_version_id!==row.active_tb_version_id||pins.mapping_version_id!==row.active_mapping_version_id||pins.standards_profile_id!==row.standards_profile_id
+    ||pins.snapshot_id!==row.statement_snapshot_id||row.approval_hash!==row.draft_hash)throw new Error('The report candidate pins are stale. Prepare a new Partner-cleared statement, opinion and approval.');
+  const [going,latestGoing]=await Promise.all([
+    env.DB.prepare(`SELECT id,status,conclusion FROM going_concern_assessments WHERE workspace_id=? AND id=? AND engagement_id=?`).bind(job.workspace_id,pins.going_concern_id,row.engagement_id)
+      .first<{id:string;status:string;conclusion:string}>(),
+    env.DB.prepare(`SELECT id,status FROM going_concern_assessments WHERE workspace_id=? AND engagement_id=? ORDER BY revision DESC LIMIT 1`).bind(job.workspace_id,row.engagement_id)
+      .first<{id:string;status:string}>()
+  ]);
+  if(!going||going.status!=='REVIEWED'||latestGoing?.id!==going.id)throw new Error('The report candidate no longer uses the current independently reviewed going-concern assessment.');
+  const reportingBlockers=opinionReportingBlockers(String(row.report_type),going.conclusion,row.going_concern_reporting_text===null?null:String(row.going_concern_reporting_text));
+  if(reportingBlockers.length)throw new Error(reportingBlockers.join(' '));
   const statement=await env.DB.prepare(`SELECT l.fsli_id,c.code,c.name,c.statement,c.category,l.current_adjusted_minor,l.prior_minor,c.display_sign
     FROM statement_snapshot_lines l JOIN fsli_catalog c ON c.workspace_id=l.workspace_id AND c.id=l.fsli_id
     WHERE l.workspace_id=? AND l.snapshot_id=? ORDER BY c.presentation_order,c.code`).bind(job.workspace_id,pins.snapshot_id).all<Record<string,any>>();
@@ -79,6 +89,13 @@ async function reportCandidate(env:Env,job:Job,p:Payload,commit:Commit){
   if(!assets)throw new Error('The approved report signature asset is missing or retired.');
   const [signature,seal]=await Promise.all([exactFile(env,job.workspace_id,assets.signature_file_id),exactFile(env,job.workspace_id,assets.seal_file_id)]);
   if(signature.sha256!==assets.signature_sha256||seal.sha256!==assets.seal_sha256||signature.purpose!=='SIGNATURE'||seal.purpose!=='SEAL')throw new Error('The approved signature or seal no longer matches its immutable source hash.');
+  const affected=(await env.DB.prepare(`SELECT f.code,f.name,a.amount_minor AS amountMinor,a.explanation
+    FROM opinion_affected_fslis a JOIN fsli_catalog f ON f.workspace_id=a.workspace_id AND f.id=a.fsli_id
+    WHERE a.workspace_id=? AND a.opinion_version_id=? ORDER BY f.presentation_order,f.code`).bind(job.workspace_id,row.opinion_version_id).all<OpinionAffectedFsli>()).results??[];
+  const opinionSections=buildOpinionReportSections({reportType:String(row.report_type),category:row.category===null?null:String(row.category),aupReportType:row.aup_report_type===null?null:String(row.aup_report_type),
+    aupProcedureSummary:row.aup_procedure_summary===null?null:String(row.aup_procedure_summary),rationale:String(row.rationale),materialityAssessment:String(row.materiality_assessment),
+    pervasivenessAssessment:String(row.pervasiveness_assessment),basisHeading:row.basis_heading===null?null:String(row.basis_heading),basisText:row.basis_text===null?null:String(row.basis_text),
+    goingConcernReportingText:row.going_concern_reporting_text===null?null:String(row.going_concern_reporting_text),additionalSections:JSON.parse(String(row.additional_sections_json))},affected);
   const byStatement=(name:string)=>lines.filter(line=>line.statement===name).map(line=>({label:`${line.code} · ${line.name}`,current:money(line.current_adjusted_minor),comparative:line.prior_minor===null?undefined:money(line.prior_minor)}));
   const assetEquity=lines.filter(line=>line.statement==='BALANCE_SHEET'&&line.category==='ASSET').reduce((n,line)=>n+BigInt(line.current_adjusted_minor),0n);
   const liabilities=lines.filter(line=>line.statement==='BALANCE_SHEET'&&line.category==='LIABILITY').reduce((n,line)=>n+BigInt(line.current_adjusted_minor),0n);
@@ -86,9 +103,7 @@ async function reportCandidate(env:Env,job:Job,p:Payload,commit:Commit){
   const revenue=lines.filter(line=>line.statement==='PROFIT_LOSS'&&line.category==='REVENUE').reduce((n,line)=>n+BigInt(line.current_adjusted_minor),0n);
   const expenses=lines.filter(line=>line.statement==='PROFIT_LOSS'&&line.category==='EXPENSE').reduce((n,line)=>n+BigInt(line.current_adjusted_minor),0n);
   if(assetEquity!==liabilities+equity+revenue-expenses)throw new Error('The approved financial statement snapshot does not cross-cast to zero.');
-  const sections:ReportPdfSection[]=[{heading:row.report_type==='ISRS_4400_AUP'?String(row.aup_report_type):`Independent Auditor’s Report · ${String(row.category).replaceAll('_',' ')}`,
-    paragraphs:[String(row.rationale),...(row.basis_heading?[String(row.basis_heading),String(row.basis_text)]:[]),String(row.materiality_assessment),String(row.pervasiveness_assessment),
-      ...(row.going_concern_reporting_text?[String(row.going_concern_reporting_text)]:[]),...(row.aup_procedure_summary?[String(row.aup_procedure_summary)]:[]),...JSON.parse(String(row.additional_sections_json)).map((item:any)=>`${item.heading}\n${item.body}`)]},
+  const sections:ReportPdfSection[]=[...opinionSections,
     {heading:'Statement of Financial Position',rows:byStatement('BALANCE_SHEET')},
     {heading:'Statement of Profit or Loss and Other Comprehensive Income',rows:byStatement('PROFIT_LOSS')},
     ...['CASH_FLOW','EQUITY_CHANGE','OCI'].filter(section=>supplements.some(line=>line.section===section)).map(section=>({heading:section.replaceAll('_',' '),rows:supplements.filter(line=>line.section===section).map(line=>({label:`${line.code} · ${line.label}`,current:money(line.current_minor),comparative:line.prior_minor===null?undefined:money(line.prior_minor),detail:String(line.rationale)}))})),
@@ -96,7 +111,8 @@ async function reportCandidate(env:Env,job:Job,p:Payload,commit:Commit){
     ...notes.map(note=>({heading:`Note ${note.note_number} · ${note.title}`,paragraphs:[String(note.body),...(note.amount_minor===null?[]:[money(note.amount_minor)])]})),
     {heading:'Source and completeness',paragraphs:[`Statement snapshot ${row.statement_snapshot_id} · source ${pins.source_hash}.`,
       `Presentation profile ${row.standards_profile_id}. The statement set uses approved disclosures and supporting schedules; professional review remains required.`]}];
-  const input:ReportingPdfInput={number:`REPORT-${row.code}-${String(p.proposedReportDate).replaceAll('-','')}`,title:'Independent Auditor’s Report and Financial Statements',firmName:row.firm_name,clientName:row.client_name,
+  const input:ReportingPdfInput={number:`REPORT-${row.code}-${String(p.proposedReportDate).replaceAll('-','')}`,
+    title:row.report_type==='ISRS_4400_AUP'?String(row.aup_report_type):'Independent Auditor’s Report and Financial Statements',firmName:row.firm_name,clientName:row.client_name,
     engagementCode:row.code,serviceType:row.engagement_type,periodStart:row.period_start,periodEnd:row.period_end,reportDate:p.proposedReportDate,sections,signatureBytes:signature.bytes,sealBytes:seal.bytes,partnerName:assets.display_name};
   const output=await storePdf(env,job,p,input,'REPORT','REPORT_CANDIDATE',String(row.id),1,'reports');
   await commit({entityType:'REPORT_CANDIDATE',entityId:row.id,clientId:row.client_id,engagementId:row.engagement_id,details:{contentSha256:output.digest,dependencyHash:p.dependencyHash},

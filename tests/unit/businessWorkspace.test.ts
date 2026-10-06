@@ -968,6 +968,22 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
   assert.equal(reviewerOpinionAttempt.body.code, 'PERSONA_ACTION_DENIED');
   assert.equal(db.prepare('SELECT COUNT(*) AS count FROM opinion_versions WHERE workspace_id=? AND engagement_id=?')
     .bind(workspaceId, engagementId).first<any>()?.count, 0, 'a denied direct API call leaves no opinion version');
+  const invalidModifiedOpinion = await post('/api/workspaces/' + workspaceId + '/commands', {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'opinion.select', payload: {
+      engagementId, category: 'QUALIFIED', affectedFslis: [],
+      rationale: 'The Partner conclusion is recorded for this synthetic audit.',
+      materialityAssessment: 'The amount is evaluated against overall materiality.',
+      pervasivenessAssessment: 'The effect is assessed across the financial statements.'
+    } }
+  }, makeRiskHeaders(approverHeaders));
+  assert.equal(invalidModifiedOpinion.response.status, 422, JSON.stringify(invalidModifiedOpinion.body));
+  assert.equal(invalidModifiedOpinion.body.code, 'VALIDATION_FAILED', 'the HTTP command boundary rejects incomplete modified opinions');
+  assert.equal(db.prepare('SELECT COUNT(*) AS count FROM opinion_versions WHERE workspace_id=? AND engagement_id=?')
+    .bind(workspaceId, engagementId).first<any>()?.count, 0, 'invalid category-specific input cannot persist an opinion');
+  const reviewerOpinionPreview = await call(`/api/workspaces/${workspaceId}/engagements/${engagementId}/opinion-preview?versionId=${crypto.randomUUID()}`,
+    { headers: makeRiskHeaders(reviewerHeaders) });
+  assert.equal(reviewerOpinionPreview.response.status, 403, JSON.stringify(reviewerOpinionPreview.body));
+  assert.equal(reviewerOpinionPreview.body.code, 'PERSONA_ACTION_DENIED', 'a Reviewer cannot read the Partner-only opinion preview');
 
   const signatory = await post(`/api/workspaces/${workspaceId}/commands`, {
     idempotencyKey: crypto.randomUUID(), command: { type: 'contact.update', payload: { contactId: financeContactId, expectedVersion: 1, isSignatory: true } }

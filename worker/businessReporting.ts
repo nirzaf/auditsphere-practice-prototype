@@ -8,15 +8,22 @@ import type { BusinessContext, BusinessMutation } from './business';
 import { renderReportingPdf, type ReportingPdfInput } from './reportingDocument';
 import { prepareBusinessInvoiceJournal } from './businessPractice';
 import { criticalConfirmationBlockers as currentCriticalConfirmationBlockers, queueHoldingLetterForBlockers, type ConfirmationGateEngagement } from './businessFieldwork';
+import { opinionReportingBlockers, validateOpinionSelection } from './reportingOpinion';
 
 const id=z.uuid(),date=z.iso.date(),hash=z.string().regex(/^[a-f0-9]{64}$/);
 const text=(min=10,max=10000)=>z.string().trim().min(min).max(max);
 const phases=['COMMERCIAL','PLANNING','FIELDWORK','REVIEW','REPORTING','ARCHIVE'] as const;
 const affected=z.strictObject({fsliId:id,amountMinor:z.string().regex(/^-?(0|[1-9]\d{0,15})$/).nullable().optional(),explanation:text(10)});
-const opinionSelect=z.strictObject({type:z.literal('opinion.select'),payload:z.strictObject({engagementId:id,category:z.enum(['UNMODIFIED','QUALIFIED','DISCLAIMER','ADVERSE']).optional(),
-  affectedFslis:z.array(affected).max(100).default([]),rationale:text(10),materialityAssessment:text(10),pervasivenessAssessment:text(10),basisText:z.string().trim().max(10000).optional(),
+const opinionCommon={engagementId:id,rationale:text(10),materialityAssessment:text(10),pervasivenessAssessment:text(10),
   goingConcernReportingText:z.string().trim().max(10000).optional(),additionalSections:z.array(z.strictObject({heading:text(1,200),body:text(10,5000)})).max(30).default([]),
-  aupReportType:z.string().trim().min(1).max(200).optional(),aupProcedureSummary:text(20).optional()})});
+  aupReportType:z.never().optional(),aupProcedureSummary:z.never().optional()};
+const cleanOpinion=z.strictObject({...opinionCommon,category:z.literal('UNMODIFIED'),affectedFslis:z.array(z.never()).max(0).default([]),basisText:z.never().optional()});
+const modifiedOpinion=(category:'QUALIFIED'|'DISCLAIMER'|'ADVERSE')=>z.strictObject({...opinionCommon,category:z.literal(category),affectedFslis:z.array(affected).min(1).max(100),basisText:text(20)});
+const aupOpinion=z.strictObject({...opinionCommon,category:z.null(),affectedFslis:z.array(z.never()).max(0).default([]),basisText:z.never().optional(),
+  aupReportType:z.string().trim().min(1).max(200),aupProcedureSummary:text(20)});
+const opinionSelect=z.strictObject({type:z.literal('opinion.select'),payload:z.discriminatedUnion('category',[
+  cleanOpinion,modifiedOpinion('QUALIFIED'),modifiedOpinion('DISCLAIMER'),modifiedOpinion('ADVERSE'),aupOpinion
+])});
 const signatureRegister=z.strictObject({type:z.literal('signature-asset.register'),payload:z.strictObject({staffMemberId:id,signatureFileId:id,sealFileId:id,label:z.string().trim().min(1).max(200)})});
 const fsSave=z.strictObject({type:z.literal('financial-statements.save-disclosures'),payload:z.strictObject({engagementId:id,statementSnapshotId:id,accountingPolicies:text(20,30000),ociApplicable:z.boolean(),
   notes:z.array(z.strictObject({noteNumber:z.string().trim().min(1).max(40),title:z.string().trim().min(1).max(300),body:text(10,30000),amountMinor:z.string().regex(/^-?(0|[1-9]\d{0,15})$/).nullable().optional(),supportingFileId:id.nullable().optional(),sortOrder:z.number().int().min(0).max(5000)})).max(200),
@@ -132,12 +139,15 @@ async function buildOpinionSelect(env:Env,workspaceId:string,context:BusinessCon
   partner(context);const p=command.payload,engagement=await engagementRow(env,workspaceId,context,p.engagementId);
   if(engagement.lifecycle_state!=='PARTNER_APPROVAL'||engagement.locked_at)throw new ApiError('INVALID_STATE','An opinion can be selected only during unlocked Partner Approval.');
   const pins=await reportPins(env,workspaceId,engagement.id),reportType=engagement.engagement_type==='AGREED_UPON_PROCEDURES'?'ISRS_4400_AUP':'ISA_AUDIT';
-  if(reportType==='ISRS_4400_AUP'&&(!p.aupReportType||!p.aupProcedureSummary))throw new ApiError('VALIDATION_FAILED','An AUP engagement needs its approved report type and actual procedure summary; an ISA audit opinion is not available.');
-  if(reportType==='ISA_AUDIT'&&!p.category)throw new ApiError('VALIDATION_FAILED','Choose one of the four supported audit opinion categories.');
-  if(reportType==='ISA_AUDIT'&&p.category!=='UNMODIFIED'&&(!p.affectedFslis.length||!p.basisText||p.basisText.trim().length<20))throw new ApiError('VALIDATION_FAILED','A modified opinion requires at least one affected FSLI and substantive basis text.');
-  if(reportType==='ISA_AUDIT'&&p.category==='UNMODIFIED'&&(p.affectedFslis.length||p.basisText))throw new ApiError('VALIDATION_FAILED','An unmodified opinion cannot contain a modified-opinion basis or affected FSLI.');
-  const going=await env.DB.prepare(`SELECT conclusion FROM going_concern_assessments WHERE workspace_id=? AND engagement_id=? ORDER BY revision DESC LIMIT 1`).bind(workspaceId,engagement.id).first<{conclusion:string}>();
-  if(going?.conclusion==='MATERIAL_UNCERTAINTY'&&!p.goingConcernReportingText?.trim())throw new ApiError('GATE_BLOCKED','The assessed material going-concern uncertainty needs a Partner-completed reporting section.');
+  const selectionError=validateOpinionSelection({reportType,category:p.category??null,affectedFsliCount:p.affectedFslis.length,basisText:p.basisText??null,
+    aupReportType:p.aupReportType??null,aupProcedureSummary:p.aupProcedureSummary??null});
+  if(selectionError)throw new ApiError('VALIDATION_FAILED',selectionError);
+  const going=await env.DB.prepare(`SELECT id,status,conclusion FROM going_concern_assessments WHERE workspace_id=? AND id=? AND engagement_id=?`)
+    .bind(workspaceId,pins.srm.going_concern_id,engagement.id).first<{id:string;status:string;conclusion:string}>();
+  const latestGoing=await env.DB.prepare(`SELECT id,status FROM going_concern_assessments WHERE workspace_id=? AND engagement_id=? ORDER BY revision DESC LIMIT 1`)
+    .bind(workspaceId,engagement.id).first<{id:string;status:string}>();
+  const reportingBlockers=opinionReportingBlockers(reportType,going?.conclusion??null,p.goingConcernReportingText??null);
+  if(!going||going.status!=='REVIEWED'||latestGoing?.id!==going.id)reportingBlockers.unshift('The going-concern assessment pinned to this SRM is no longer the current independently reviewed assessment.');
   const fsliRows=p.affectedFslis.length?await env.DB.prepare(`SELECT id FROM fsli_catalog WHERE workspace_id=? AND active=1 AND id IN (${p.affectedFslis.map(()=>'?').join(',')})`)
     .bind(workspaceId,...p.affectedFslis.map(item=>item.fsliId)).all<{id:string}>():{results:[] as Array<{id:string}>};
   if((fsliRows.results??[]).length!==p.affectedFslis.length||new Set(p.affectedFslis.map(row=>row.fsliId)).size!==p.affectedFslis.length)throw new ApiError('VALIDATION_FAILED','Each affected FSLI must be active and appear once.');
@@ -155,7 +165,7 @@ async function buildOpinionSelect(env:Env,workspaceId:string,context:BusinessCon
   for(const item of p.affectedFslis)statements.push(env.DB.prepare(`INSERT INTO opinion_affected_fslis(id,workspace_id,opinion_version_id,fsli_id,amount_minor,explanation) VALUES(?,?,?,?,?,?)`)
     .bind(crypto.randomUUID(),workspaceId,idValue,item.fsliId,item.amountMinor===undefined||item.amountMinor===null?null:Number(item.amountMinor),item.explanation));
   return mut(statements,{opinionVersionId:idValue,revision:Number(revision?.value??1),reportType,category,basisHeading:heading,dependencyHash,
-    reportingBlockers:going?.conclusion==='MATERIAL_UNCERTAINTY'&&!p.goingConcernReportingText?.trim()?['Partner going-concern reporting section is incomplete.']:[]},'OPINION_VERSION',idValue,null,1,{dependencyHash,reportType,category,affectedFsliCount:p.affectedFslis.length});
+    reportingBlockers},'OPINION_VERSION',idValue,null,1,{dependencyHash,reportType,category,affectedFsliCount:p.affectedFslis.length});
 }
 
 async function buildSignatureRegister(env:Env,workspaceId:string,context:BusinessContext,command:Extract<BusinessReportingCommand,{type:'signature-asset.register'}>,now:string){
@@ -248,6 +258,13 @@ async function buildReportPrepare(env:Env,workspaceId:string,context:BusinessCon
   const opinion=await env.DB.prepare(`SELECT id,revision,srm_version_id,standards_profile_id,report_type,category,dependency_hash,going_concern_reporting_text FROM opinion_versions WHERE workspace_id=? AND id=? AND engagement_id=?`)
     .bind(workspaceId,p.opinionVersionId,engagement.id).first<{id:string;revision:number;srm_version_id:string;standards_profile_id:string;report_type:string;category:string|null;dependency_hash:string;going_concern_reporting_text:string|null}>();
   if(!opinion||opinion.srm_version_id!==pins.srm.id||opinion.standards_profile_id!==engagement.standards_profile_id)throw new ApiError('STALE_DEPENDENCY','Select an opinion tied to the current SRM and standards profile.');
+  const going=await env.DB.prepare(`SELECT id,status,conclusion FROM going_concern_assessments WHERE workspace_id=? AND id=? AND engagement_id=?`)
+    .bind(workspaceId,pins.srm.going_concern_id,engagement.id).first<{id:string;status:string;conclusion:string}>();
+  const latestGoing=await env.DB.prepare(`SELECT id,status FROM going_concern_assessments WHERE workspace_id=? AND engagement_id=? ORDER BY revision DESC LIMIT 1`)
+    .bind(workspaceId,engagement.id).first<{id:string;status:string}>();
+  const reportingBlockers=opinionReportingBlockers(opinion.report_type,going?.conclusion??null,opinion.going_concern_reporting_text);
+  if(!going||going.status!=='REVIEWED'||latestGoing?.id!==going.id)reportingBlockers.unshift('The going-concern assessment pinned to this SRM is no longer the current independently reviewed assessment.');
+  if(reportingBlockers.length)throw new ApiError('GATE_BLOCKED',reportingBlockers.join(' '));
   const approval=await env.DB.prepare(`SELECT a.id,a.draft_id,a.draft_version,a.statement_snapshot_id,a.notes_hash,a.supplement_hash,a.source_hash,d.status,d.version,d.source_hash AS draft_hash
     FROM financial_statement_approvals a JOIN financial_statement_drafts d ON d.workspace_id=a.workspace_id AND d.id=a.draft_id
     WHERE a.workspace_id=? AND a.id=? AND a.engagement_id=?`).bind(workspaceId,p.financialStatementApprovalId,engagement.id)

@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import type { BusinessContextResponse, BusinessEngagementOption, BusinessFileMetadata, BusinessWorkspacePreference } from '../../shared/api/business';
-import { completeBusinessFile, downloadBusinessFileVersion, getBusinessReportingWorkspace, initializeBusinessFile,
+import { completeBusinessFile, downloadBusinessFileVersion, getBusinessOpinionPreview, getBusinessReportingWorkspace, initializeBusinessFile,
   newBusinessIdempotencyKey, runBusinessCommand, uploadBusinessFile } from '../../services/businessWorkspace';
 
 type ReportRow = Record<string, unknown>;
@@ -27,6 +27,15 @@ type ReportingWorkspace = {
   readOnly?: boolean;
   releasedBundle?: ReportRow | null;
 };
+type OpinionPreview = ReportRow & {
+  revision: number;
+  dependencyHash: string;
+  isCurrentForSrm: boolean;
+  reportingBlockers: string[];
+  sections: Array<{ heading: string; paragraphs?: string[]; rows?: Array<{ label: string; current?: string; detail?: string }> }>;
+};
+type OpinionAffectedInput = { key: string; fsliId: string; amount: string; explanation: string };
+type OpinionAdditionalInput = { key: string; heading: string; body: string };
 
 interface Props {
   workspaceId: string;
@@ -82,9 +91,10 @@ export function BusinessReportingPanel({ workspaceId, selected, context, engagem
   const [pervasivenessAssessment, setPervasivenessAssessment] = useState('');
   const [basisText, setBasisText] = useState('');
   const [goingConcernText, setGoingConcernText] = useState('');
-  const [affectedFsliId, setAffectedFsliId] = useState('');
-  const [affectedAmount, setAffectedAmount] = useState('');
-  const [affectedExplanation, setAffectedExplanation] = useState('');
+  const [affectedFslis, setAffectedFslis] = useState<OpinionAffectedInput[]>([{ key: 'affected-0', fsliId: '', amount: '', explanation: '' }]);
+  const [additionalSections, setAdditionalSections] = useState<OpinionAdditionalInput[]>([]);
+  const [opinionPreview, setOpinionPreview] = useState<OpinionPreview | null>(null);
+  const [opinionPreviewError, setOpinionPreviewError] = useState('');
   const [aupReportType, setAupReportType] = useState('');
   const [aupProcedureSummary, setAupProcedureSummary] = useState('');
 
@@ -145,9 +155,9 @@ export function BusinessReportingPanel({ workspaceId, selected, context, engagem
   const perform = async (type: string, payload: Record<string, unknown>, success: string) => {
     setBusy(true); setError(''); setMessage('');
     try {
-      await runBusinessCommand(workspaceId, selected, { type, payload }, newBusinessIdempotencyKey());
-      setMessage(success); setRefresh(value => value + 1); onChanged(); return true;
-    } catch (reason) { setError(reason instanceof Error ? reason.message : 'The reporting command was rejected.'); return false; }
+      const response = await runBusinessCommand<Record<string, unknown>>(workspaceId, selected, { type, payload }, newBusinessIdempotencyKey());
+      setMessage(success); setRefresh(value => value + 1); onChanged(); return response.result;
+    } catch (reason) { setError(reason instanceof Error ? reason.message : 'The reporting command was rejected.'); return null; }
     finally { setBusy(false); }
   };
   const uploadSignedRepresentation = async (requestId: string) => {
@@ -203,6 +213,16 @@ export function BusinessReportingPanel({ workspaceId, selected, context, engagem
   const currentOpinion = opinions.find(row => row.id === selectedOpinionId) ?? opinions[0];
   const currentApproval = approvals.find(row => row.id === selectedApprovalId) ?? approvals[0];
   const isAup = rowText(data?.engagement, 'engagementType') === 'AGREED_UPON_PROCEDURES';
+  const previewVersionId = rowText(currentOpinion, 'id');
+  useEffect(() => {
+    if (!isPartner || !previewVersionId) { setOpinionPreview(null); setOpinionPreviewError(''); return; }
+    const controller = new AbortController();
+    setOpinionPreview(null); setOpinionPreviewError('');
+    getBusinessOpinionPreview(workspaceId, engagement.id, previewVersionId, selected, controller.signal)
+      .then(result => { if (!controller.signal.aborted) setOpinionPreview(result as OpinionPreview); })
+      .catch(reason => { if (!controller.signal.aborted) setOpinionPreviewError(reason instanceof Error ? reason.message : 'The exact opinion preview could not be loaded.'); });
+    return () => controller.abort();
+  }, [workspaceId, engagement.id, selected.actorId, selected.persona, selected.clientId, selected.engagementId, previewVersionId, isPartner, refresh]);
   const pendingJobs = (data?.jobs ?? []).some(job => ['PENDING', 'RUNNING', 'RETRYABLE_FAILED'].includes(String(job.status)));
   useEffect(() => {
     if (!pendingJobs) return;
@@ -286,27 +306,83 @@ export function BusinessReportingPanel({ workspaceId, selected, context, engagem
           <small>Deadline is derived from the report signature timestamp and does not move when email or downloads are retried.</small></div>
       </div>
 
-      {isPartner && <form className="business-form business-commercial-form" onSubmit={event => { event.preventDefault();
-        const modified = opinionCategory !== 'UNMODIFIED';
-        const affectedFslis = modified && affectedFsliId ? [{ fsliId: affectedFsliId, amountMinor: affectedAmount.trim() ? minorFromQar(affectedAmount) : null, explanation: affectedExplanation }] : [];
-        void perform('opinion.select', { engagementId: engagement.id, ...(!isAup ? { category: opinionCategory } : {}),
-          affectedFslis, rationale: opinionRationale, materialityAssessment, pervasivenessAssessment, ...(basisText.trim() ? { basisText } : {}),
-          ...(goingConcernText.trim() ? { goingConcernReportingText: goingConcernText } : {}), additionalSections: [],
-          ...(isAup ? { aupReportType, aupProcedureSummary } : {}) }, 'Versioned Partner opinion saved against the current cleared SRM.'); }}>
+      {isPartner && <form className="business-form business-commercial-form" onSubmit={event => { event.preventDefault(); try {
+        const modified = !isAup && opinionCategory !== 'UNMODIFIED';
+        const affectedValues = modified ? affectedFslis.map(item => ({ fsliId: item.fsliId,
+          amountMinor: item.amount.trim() ? minorFromQar(item.amount) : null, explanation: item.explanation })) : [];
+        const additionalValues = additionalSections.map(({ heading, body }) => ({ heading, body }));
+        void perform('opinion.select', { engagementId: engagement.id, category: isAup ? null : opinionCategory,
+          affectedFslis: affectedValues,
+          rationale: isAup ? 'AUP report. No ISA audit opinion is expressed.' : opinionRationale,
+          materialityAssessment: isAup ? 'Not applicable to an agreed-upon procedures report.' : materialityAssessment,
+          pervasivenessAssessment: isAup ? 'Not applicable to an agreed-upon procedures report.' : pervasivenessAssessment,
+          ...(!isAup && opinionCategory !== 'UNMODIFIED' && basisText.trim() ? { basisText } : {}),
+          ...(!isAup && goingConcernText.trim() ? { goingConcernReportingText: goingConcernText } : {}), additionalSections: additionalValues,
+          ...(isAup ? { aupReportType, aupProcedureSummary } : {}) }, 'Versioned Partner opinion saved against the current cleared SRM.')
+          .then(result => { if (result && typeof result.opinionVersionId === 'string') setSelectedOpinionId(result.opinionVersionId); });
+        } catch (reason) { setError(reason instanceof Error ? reason.message : 'Review the opinion fields and try again.'); } }}>
         <h3>Partner opinion and conditional basis</h3>
         {isAup ? <div className="business-form-grid"><label className="business-field"><span>Approved AUP report type</span><input required value={aupReportType} onChange={event => setAupReportType(event.target.value)} /></label>
           <label className="business-field"><span>Procedures and factual findings summary</span><textarea required minLength={20} value={aupProcedureSummary} onChange={event => setAupProcedureSummary(event.target.value)} /></label></div> : <label className="business-field"><span>Audit opinion</span><select value={opinionCategory} onChange={event => setOpinionCategory(event.target.value)}>
           <option value="UNMODIFIED">Clean / unqualified</option><option value="QUALIFIED">Qualified</option><option value="DISCLAIMER">Disclaimer</option><option value="ADVERSE">Adverse</option></select></label>}
-        <div className="business-form-grid"><label className="business-field"><span>Partner rationale</span><textarea required minLength={10} value={opinionRationale} onChange={event => setOpinionRationale(event.target.value)} /></label>
-          <label className="business-field"><span>Materiality assessment</span><textarea required minLength={10} value={materialityAssessment} onChange={event => setMaterialityAssessment(event.target.value)} /></label>
-          <label className="business-field"><span>Pervasiveness assessment</span><textarea required minLength={10} value={pervasivenessAssessment} onChange={event => setPervasivenessAssessment(event.target.value)} /></label>
-          {(opinionCategory !== 'UNMODIFIED' || isAup) && <label className="business-field"><span>Basis text</span><textarea required minLength={20} value={basisText} onChange={event => setBasisText(event.target.value)} /></label>}
-          <label className="business-field"><span>Going-concern / other required reporting section, if applicable</span><textarea value={goingConcernText} onChange={event => setGoingConcernText(event.target.value)} /></label></div>
-        {!isAup && opinionCategory !== 'UNMODIFIED' && <div className="business-form-grid"><label className="business-field"><span>Affected financial statement line</span><select required value={affectedFsliId} onChange={event => setAffectedFsliId(event.target.value)}><option value="">Choose an FSLI</option>{rows(snapshot?.fsliCatalog).map(item => <option key={String(item.id)} value={String(item.id)}>{rowText(item, 'code')} · {rowText(item, 'name')}</option>)}</select></label>
-          <label className="business-field"><span>Quantifiable amount (QAR, optional)</span><input inputMode="decimal" value={affectedAmount} onChange={event => setAffectedAmount(event.target.value)} /></label>
-          <label className="business-field"><span>Nature and explanation</span><textarea required minLength={10} value={affectedExplanation} onChange={event => setAffectedExplanation(event.target.value)} /></label></div>}
+        {isAup ? <p role="status" className="business-note">This engagement uses its approved AUP report type and factual findings. No ISA audit opinion or modified-opinion basis is selected.</p>
+          : <div className="business-form-grid"><label className="business-field"><span>Partner rationale</span><textarea required minLength={10} value={opinionRationale} onChange={event => setOpinionRationale(event.target.value)} /></label>
+            <label className="business-field"><span>Materiality assessment</span><textarea required minLength={10} value={materialityAssessment} onChange={event => setMaterialityAssessment(event.target.value)} /></label>
+            <label className="business-field"><span>Pervasiveness assessment</span><textarea required minLength={10} value={pervasivenessAssessment} onChange={event => setPervasivenessAssessment(event.target.value)} /></label>
+            {opinionCategory !== 'UNMODIFIED' && <label className="business-field"><span>Basis text</span><textarea required minLength={20} value={basisText} onChange={event => setBasisText(event.target.value)} /></label>}
+            <label className="business-field"><span>Going-concern / other required reporting section, if applicable</span><textarea value={goingConcernText} onChange={event => setGoingConcernText(event.target.value)} /></label></div>}
+        {!isAup && opinionCategory !== 'UNMODIFIED' && <fieldset className="business-form-grid">
+          <legend>Affected financial statement lines</legend>
+          {affectedFslis.map((item, index) => <div className="business-form-grid" key={item.key}>
+            <label className="business-field" htmlFor={`opinion-fsli-${item.key}`}><span>FSLI {index + 1}</span><select id={`opinion-fsli-${item.key}`} required value={item.fsliId}
+              onChange={event => setAffectedFslis(current => current.map(line => line.key === item.key ? { ...line, fsliId: event.target.value } : line))}>
+              <option value="">Choose an FSLI</option>{rows(snapshot?.fsliCatalog).map(option => <option key={String(option.id)} value={String(option.id)}>{rowText(option, 'code')} · {rowText(option, 'name')}</option>)}</select></label>
+            <label className="business-field" htmlFor={`opinion-amount-${item.key}`}><span>Quantifiable amount (QAR, optional)</span><input id={`opinion-amount-${item.key}`} inputMode="decimal"
+              pattern="-?(0|[1-9][0-9]{0,12})([.][0-9]{1,2})?" title="Use a QAR amount with up to two decimal places." value={item.amount}
+              onChange={event => setAffectedFslis(current => current.map(line => line.key === item.key ? { ...line, amount: event.target.value } : line))} /></label>
+            <label className="business-field" htmlFor={`opinion-explanation-${item.key}`}><span>Nature and explanation</span><textarea id={`opinion-explanation-${item.key}`} required minLength={10} value={item.explanation}
+              onChange={event => setAffectedFslis(current => current.map(line => line.key === item.key ? { ...line, explanation: event.target.value } : line))} /></label>
+            {affectedFslis.length > 1 && <button type="button" className="btn sm" aria-label={`Remove affected FSLI ${index + 1}`}
+              onClick={() => setAffectedFslis(current => current.filter(line => line.key !== item.key))}>Remove line</button>}
+          </div>)}
+          <button type="button" className="btn sm" disabled={affectedFslis.length >= 100}
+            onClick={() => setAffectedFslis(current => [...current, { key: crypto.randomUUID(), fsliId: '', amount: '', explanation: '' }])}>Add affected FSLI</button>
+        </fieldset>}
+        <fieldset className="business-form-grid"><legend>Additional explanatory report sections</legend>
+          <p className="business-note">Add any other required report section as a separate heading and text. The preview preserves both exactly.</p>
+          {additionalSections.map((section, index) => <div className="business-form-grid" key={section.key}>
+            <label className="business-field" htmlFor={`opinion-additional-heading-${section.key}`}><span>Section heading {index + 1}</span><input id={`opinion-additional-heading-${section.key}`} required maxLength={200} value={section.heading}
+              onChange={event => setAdditionalSections(current => current.map(item => item.key === section.key ? { ...item, heading: event.target.value } : item))} /></label>
+            <label className="business-field" htmlFor={`opinion-additional-body-${section.key}`}><span>Section text {index + 1}</span><textarea id={`opinion-additional-body-${section.key}`} required minLength={10} value={section.body}
+              onChange={event => setAdditionalSections(current => current.map(item => item.key === section.key ? { ...item, body: event.target.value } : item))} /></label>
+            <button type="button" className="btn sm" aria-label={`Remove explanatory section ${index + 1}`}
+              onClick={() => setAdditionalSections(current => current.filter(item => item.key !== section.key))}>Remove section</button>
+          </div>)}
+          <button type="button" className="btn sm" disabled={additionalSections.length >= 30}
+            onClick={() => setAdditionalSections(current => [...current, { key: crypto.randomUUID(), heading: '', body: '' }])}>Add explanatory section</button>
+        </fieldset>
         <button className="btn sm" disabled={busy || !isPartner}>Save new opinion version</button>
       </form>}
+      {isPartner && opinions.length > 0 && <section className="business-record-list" aria-labelledby="opinion-preview-title" aria-live="polite">
+        <h3 id="opinion-preview-title">Exact report text preview</h3>
+        <label className="business-field" htmlFor="opinion-preview-version"><span>Opinion version used for preview and report preparation</span>
+          <select id="opinion-preview-version" value={previewVersionId} onChange={event => setSelectedOpinionId(event.target.value)}>
+            {opinions.map(item => <option key={String(item.id)} value={String(item.id)}>v{rowText(item, 'revision')} · {rowText(item, 'category', rowText(item, 'aup_report_type'))}</option>)}
+          </select>
+        </label>
+        {opinionPreviewError && <p role="alert" className="business-note">{opinionPreviewError}</p>}
+        {opinionPreview && <>
+          <p role="status">Version {opinionPreview.revision} · SHA-256 source {opinionPreview.dependencyHash} · {opinionPreview.isCurrentForSrm ? 'Current cleared SRM' : 'Stale source; a new opinion version is required'}.</p>
+          {opinionPreview.reportingBlockers.length > 0 && <div role="alert" className="business-note"><strong>Report preparation is blocked until these items are resolved:</strong>
+            <ul>{opinionPreview.reportingBlockers.map(blocker => <li key={blocker}>{blocker}</li>)}</ul></div>}
+          {opinionPreview.sections.map((section, index) => <section key={`${index}-${section.heading}`} aria-labelledby={`opinion-preview-section-${index}`}>
+            <h4 id={`opinion-preview-section-${index}`}>{section.heading}</h4>
+            {(section.paragraphs ?? []).map((paragraph, paragraphIndex) => <p key={paragraphIndex} style={{ whiteSpace: 'pre-wrap' }}>{paragraph}</p>)}
+            {section.rows && <table><thead><tr><th scope="col">Financial statement line</th><th scope="col">Amount</th><th scope="col">Nature and explanation</th></tr></thead>
+              <tbody>{section.rows.map((line, lineIndex) => <tr key={`${line.label}-${lineIndex}`}><th scope="row">{line.label}</th><td>{line.current ?? '—'}</td><td>{line.detail ?? ''}</td></tr>)}</tbody></table>}
+          </section>)}
+        </>}
+      </section>}
       {opinions.length > 0 && <div className="business-record-list"><h3>Opinion history</h3>{opinions.map(item => <p key={String(item.id)}>v{rowText(item, 'revision')} · {rowText(item, 'report_type')} · {rowText(item, 'category', rowText(item, 'aup_report_type'))} · {rowText(item, 'basis_heading', 'AUP findings')} · {rowText(item, 'dependency_hash').slice(0, 16)}…</p>)}</div>}
 
       {isPartner && <form className="business-form business-commercial-form" onSubmit={event => { event.preventDefault(); void perform('signature-asset.register', { staffMemberId: signatureOwnerId || context.actor.staffMemberId,
@@ -352,12 +428,12 @@ export function BusinessReportingPanel({ workspaceId, selected, context, engagem
       {isPartner && <form className="business-form business-commercial-form" onSubmit={event => { event.preventDefault(); void perform('report.prepare', { engagementId: engagement.id,
         opinionVersionId: selectedOpinionId || rowText(currentOpinion, 'id'), financialStatementApprovalId: selectedApprovalId || rowText(currentApproval, 'id'),
         signatureAssetId: selectedSignatureAssetId || rowText(assets[0], 'id'), proposedReportDate: today }, 'Report candidate queued for PDF generation.'); }}>
-        <h3>Prepare exact auditor-report and statement candidate</h3><div className="business-form-grid">
+        <h3>{isAup ? 'Prepare exact AUP report candidate' : 'Prepare exact auditor-report and statement candidate'}</h3><div className="business-form-grid">
           <label className="business-field"><span>Partner opinion</span><select required value={selectedOpinionId} onChange={event => setSelectedOpinionId(event.target.value)}><option value="">Choose opinion</option>{opinions.map(item => <option key={String(item.id)} value={String(item.id)}>v{rowText(item, 'revision')} · {rowText(item, 'category', rowText(item, 'aup_report_type'))}</option>)}</select></label>
           <label className="business-field"><span>Approved statement draft</span><select required value={selectedApprovalId} onChange={event => setSelectedApprovalId(event.target.value)}><option value="">Choose approved statements</option>{approvals.map(item => <option key={String(item.id)} value={String(item.id)}>Draft v{rowText(item, 'draftVersion')} · {rowText(item, 'approvedAt')}</option>)}</select></label>
           <label className="business-field"><span>Signature and seal asset</span><select required value={selectedSignatureAssetId} onChange={event => setSelectedSignatureAssetId(event.target.value)}><option value="">Choose registered asset</option>{assets.map(item => <option key={String(item.id)} value={String(item.id)}>{rowText(item, 'label')} · {rowText(item, 'staffName')}</option>)}</select></label>
           <label className="business-field"><span>Proposed Qatar report date</span><input type="date" readOnly value={today} /></label></div>
-        <button className="btn sm" disabled={busy || !isPartner}>Generate report candidate</button>
+        <button className="btn sm" disabled={busy || !isPartner || !opinionPreview || opinionPreview.opinionVersionId !== selectedOpinionId || opinionPreview.reportingBlockers.length > 0}>Generate report candidate</button>
       </form>}
       {candidates.length > 0 && <div className="business-record-list"><h3>Report candidates and explicit signature consent</h3>{candidates.map(candidate => {
         const id = rowText(candidate, 'id');

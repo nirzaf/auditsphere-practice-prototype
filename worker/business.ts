@@ -1277,7 +1277,16 @@ export function parseBusinessCommandEnvelope(value: unknown, idempotencyKey: str
     }
   }
   const parsed = businessCommandEnvelopeSchema.safeParse(value);
-  if (!parsed.success) throw invalidInput(parsed.error.issues);
+  if (!parsed.success) {
+    const commandType = value && typeof value === 'object' && 'command' in value
+      ? (value as { command?: { type?: unknown } }).command?.type : undefined;
+    if (commandType === 'opinion.select') {
+      throw new ApiError('VALIDATION_FAILED', 'The opinion selection is incomplete or inconsistent with its selected category.', {
+        issues: parsed.error.issues.map(issue => ({ path: issue.path.map(String), message: issue.message }))
+      });
+    }
+    throw invalidInput(parsed.error.issues);
+  }
   const command = parsed.data.command;
   const versionTarget = command.type === 'staff.update' ? { entity: 'StaffMember', id: command.payload.staffMemberId, version: command.payload.expectedVersion }
     : command.type === 'actor-profile.deactivate' ? { entity: 'ActorProfile', id: command.payload.actorProfileId, version: command.payload.expectedVersion }
