@@ -512,3 +512,21 @@ focused browser suite passed **3/3**; the complete local suite passed
 production build, and `git diff --check` also passed. This removes a production
 demo/auth surface; it does not close the remaining foundation criteria or any
 claim of full 46-story acceptance.
+
+## Procedure draft conflict resolution — 2026-10-06
+
+The BUSINESS fieldwork editor now pins a procedure draft to the row version the
+user first edited. A refresh cannot silently retarget that draft to a newer
+version. When the server row advances, the editor preserves unsaved text and
+shows base, local and server values for both work performed and conclusion. A
+user must explicitly rebase and save against the displayed server version or
+discard the draft; non-editable or unauthorized revisions cannot be rebased.
+
+The focused unit checks passed **2/2**, including original-version retention,
+explicit-rebase version selection, three-value conflict rendering and escaped
+user text. The full unit suite passed **486/486** and the browser suite passed
+**24/24**; app and Worker typechecks, production build and `git diff --check`
+passed. Existing API integration covers independent-row success and a
+single-winner same-row race. This turn did not exercise the new conflict choices
+in a real two-browser BUSINESS fieldwork session; full **US-FLD-006** and
+**US-SYS-003** acceptance, and the 46-story epic, remain open.

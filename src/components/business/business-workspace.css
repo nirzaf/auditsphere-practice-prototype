@@ -342,6 +342,13 @@
 .business-fieldwork-procedure .business-section-heading > div { display: grid; gap: 3px; }
 .business-fieldwork-procedure .business-section-heading span, .business-fieldwork-procedure small { color: var(--muted); font-size: 12px; }
 .business-fieldwork-procedure p { margin: 0; line-height: 1.45; }
+.business-fieldwork-conflict { display: grid; gap: 10px; min-width: 0; padding: 12px; border: 1px solid #dc7b18; border-radius: 9px; background: #fff7ed; color: #7c2d12; }
+.business-fieldwork-conflict > div:first-child { display: grid; gap: 5px; }
+.business-fieldwork-conflict-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.business-fieldwork-conflict-grid > div { min-width: 0; display: grid; align-content: start; gap: 7px; padding: 10px; border: 1px solid #fed7aa; border-radius: 7px; background: #fff; }
+.business-fieldwork-conflict-grid h4 { margin: 0; }
+.business-fieldwork-conflict-grid p { overflow-wrap: anywhere; white-space: pre-wrap; }
+.business-fieldwork-conflict .business-fieldwork-action-row { align-items: center; }
 .business-fieldwork-action-row { justify-content: flex-start; }
 .business-fieldwork-sample-test { display: grid; gap: 9px; padding: 12px; border: 1px solid var(--line); border-radius: 9px; }
 .business-fieldwork-sample-test > div:first-child { display: grid; gap: 3px; }
@@ -360,6 +367,7 @@
   .business-adjustment-draft-line { grid-template-columns: minmax(0,1fr); }
   .business-fieldwork-head, .business-fieldwork-panel .business-section-heading { align-items: stretch; flex-direction: column; }
   .business-fieldwork-reconciliation { grid-template-columns: minmax(0, 1fr); }
+  .business-fieldwork-conflict-grid { grid-template-columns: minmax(0, 1fr); }
   .business-fieldwork-template-step { grid-template-columns: minmax(0,1fr); }
   .business-fieldwork-template-step .business-field:nth-child(3) { grid-column: auto; }
   .business-fieldwork-row { align-items: flex-start; }

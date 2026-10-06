@@ -5,6 +5,8 @@ import type {
   BusinessFileMetadata,
   BusinessWorkspacePreference
 } from '../../shared/api/business';
+import { ProcedureConflictReview, type ProcedureDraftValues } from './ProcedureConflictReview';
+import { hasProcedureVersionConflict, procedureExpectedVersion } from '../../domain/procedureConflict';
 import {
   getBusinessFieldworkWorkspace,
   getBusinessFieldworkChanges,
@@ -17,6 +19,8 @@ import {
 type EngagementRef = { id: string; clientId: string; code: string; clientName: string; lifecycleState: string; periodStart: string; periodEnd: string };
 type Tab = 'statements' | 'workprograms' | 'sampling' | 'evidence' | 'confirmations' | 'findings' | 'reviews';
 type Assertion = 'EXISTENCE' | 'RIGHTS_OBLIGATIONS' | 'COMPLETENESS' | 'VALUATION' | 'CUTOFF' | 'PRESENTATION';
+type ProcedureDraft = ProcedureDraftValues;
+type ProcedureDraftBase = ProcedureDraft & { version: number };
 type AdjustmentDraftLine = { fsliId: string; accountCode: string; debit: string; credit: string };
 type PopulationPayload = {
   population: { id: string; name: string; rowCount: number; positiveTotalMinor: number; excludedCount: number; exclusionsReason: string; sourceHash: string; tbVersionId: string };
@@ -121,7 +125,8 @@ export function BusinessFieldworkPanel({ workspaceId, selected, context, engagem
   const [templateTitle, setTemplateTitle] = useState('Substantive audit procedures');
   const [assignedStaffId, setAssignedStaffId] = useState('');
   const [adhocDrafts, setAdhocDrafts] = useState<Record<string, { title: string; instructions: string; assertion: Assertion; scopeReason: string }>>({});
-  const [procedureDrafts, setProcedureDrafts] = useState<Record<string, { workPerformed: string; conclusion: string }>>({});
+  const [procedureDrafts, setProcedureDrafts] = useState<Record<string, ProcedureDraft>>({});
+  const [procedureDraftBases, setProcedureDraftBases] = useState<Record<string, ProcedureDraftBase>>({});
   const [procedureReviewDrafts, setProcedureReviewDrafts] = useState<Record<string, string>>({});
   const [procedureReworkReasons, setProcedureReworkReasons] = useState<Record<string, string>>({});
   const [workprogramReviewDrafts, setWorkprogramReviewDrafts] = useState<Record<string, string>>({});
@@ -299,6 +304,38 @@ export function BusinessFieldworkPanel({ workspaceId, selected, context, engagem
       } else setError(reason instanceof Error ? reason.message : 'The fieldwork change could not be saved.');
       return null;
     } finally { setBusy(false); }
+  }
+
+  function updateProcedureDraft(procedure: BusinessFieldworkWorkspace['procedures'][number], field: keyof ProcedureDraft, value: string) {
+    const base = { version: procedure.version, workPerformed: procedure.workPerformed ?? '', conclusion: procedure.conclusion ?? '' };
+    setProcedureDraftBases(current => current[procedure.id] ? current : { ...current, [procedure.id]: base });
+    setProcedureDrafts(current => {
+      const draft = current[procedure.id] ?? { workPerformed: base.workPerformed, conclusion: base.conclusion };
+      return { ...current, [procedure.id]: { ...draft, [field]: value } };
+    });
+  }
+
+  async function saveProcedureDraft(procedure: BusinessFieldworkWorkspace['procedures'][number], rebase = false) {
+    const draft = procedureDrafts[procedure.id] ?? {
+      workPerformed: procedure.workPerformed ?? '', conclusion: procedure.conclusion ?? ''
+    };
+    const base = procedureDraftBases[procedure.id];
+    const result = await command('procedure.update', {
+      procedureId: procedure.id,
+      expectedVersion: procedureExpectedVersion(base?.version, procedure.version, rebase),
+      workPerformed: draft.workPerformed,
+      conclusion: draft.conclusion,
+      ...(procedure.status === 'UNDER_REWORK' ? { reworkReason: procedureReworkReasons[procedure.id] } : {})
+    }, rebase ? 'Your draft was saved against the server version you reviewed.' : 'Procedure work and conclusion saved as a new revision.');
+    if (!result) return;
+    setProcedureDrafts(current => { const next = { ...current }; delete next[procedure.id]; return next; });
+    setProcedureDraftBases(current => { const next = { ...current }; delete next[procedure.id]; return next; });
+  }
+
+  function discardProcedureDraft(procedureId: string) {
+    setProcedureDrafts(current => { const next = { ...current }; delete next[procedureId]; return next; });
+    setProcedureDraftBases(current => { const next = { ...current }; delete next[procedureId]; return next; });
+    setError('');
   }
 
   async function createFinding(event: FormEvent<HTMLFormElement>) {
@@ -576,17 +613,27 @@ export function BusinessFieldworkPanel({ workspaceId, selected, context, engagem
             <p className="business-note">Assigned executor: {workspace.staff.find(staff => staff.id === selectedWorkprogram.assignedStaffId)?.displayName ?? selectedWorkprogram.assignedStaffId}. Assignment is frozen with this workprogram revision.</p>
             {['DRAFT','IN_PROGRESS','UNDER_REWORK'].includes(selectedWorkprogram.status) && !workspace.reviewNotes.some(note => note.status !== 'CLOSED' && (note.workprogramId === selectedWorkprogram.id || Boolean(note.procedureId && workspace.procedures.some(procedure => procedure.id === note.procedureId && procedure.workprogramId === selectedWorkprogram.id)))) && workspace.procedures.filter(item => item.workprogramId === selectedWorkprogram.id).length > 0 && workspace.procedures.filter(item => item.workprogramId === selectedWorkprogram.id).every(item => item.status === 'REVIEWED') &&
               <button className="btn primary" type="button" disabled={busy || !canWrite} onClick={() => void command('review.submit', { targetKind: 'WORKPROGRAM', targetId: selectedWorkprogram.id, targetVersion: selectedWorkprogram.version }, 'Current workprogram snapshot submitted for independent Manager review.')}>Submit workprogram for Manager review</button>}
-            {workspace.procedures.filter(item => item.workprogramId === selectedWorkprogram.id).map(procedure => <article className="business-fieldwork-procedure" key={procedure.id}>
+            {workspace.procedures.filter(item => item.workprogramId === selectedWorkprogram.id).map(procedure => {
+              const draftBase = procedureDraftBases[procedure.id];
+              const draft = procedureDrafts[procedure.id];
+              const versionConflict = Boolean(draft && hasProcedureVersionConflict(draftBase?.version, procedure.version));
+              const canRebase = canWrite && ['NOT_STARTED', 'IN_PROGRESS', 'UNDER_REWORK'].includes(procedure.status)
+                && (procedure.status !== 'UNDER_REWORK' || (procedureReworkReasons[procedure.id] ?? '').trim().length >= 10);
+              return <article className="business-fieldwork-procedure" key={procedure.id}>
               <div className="business-section-heading"><div><strong>{procedure.ordinal}. {procedure.title}</strong><span>{procedure.assertion} · {procedure.origin} · {label(procedure.status)}</span></div><span>v{procedure.version}</span></div>
               <p>{procedure.instructions}</p>{procedure.scopeReason && <p className="business-muted">Scope: {procedure.scopeReason}</p>}
-              <label className="business-field"><span>Work performed</span><textarea minLength={10} value={procedureDrafts[procedure.id]?.workPerformed ?? procedure.workPerformed ?? ''} onChange={event => setProcedureDrafts(current => ({ ...current, [procedure.id]: { workPerformed: event.target.value, conclusion: current[procedure.id]?.conclusion ?? procedure.conclusion ?? '' } }))} /></label>
-              <label className="business-field"><span>Conclusion</span><textarea minLength={10} value={procedureDrafts[procedure.id]?.conclusion ?? procedure.conclusion ?? ''} onChange={event => setProcedureDrafts(current => ({ ...current, [procedure.id]: { workPerformed: current[procedure.id]?.workPerformed ?? procedure.workPerformed ?? '', conclusion: event.target.value } }))} /></label>
+              <label className="business-field"><span>Work performed</span><textarea minLength={10} value={draft?.workPerformed ?? procedure.workPerformed ?? ''} onChange={event => updateProcedureDraft(procedure, 'workPerformed', event.target.value)} /></label>
+              <label className="business-field"><span>Conclusion</span><textarea minLength={10} value={draft?.conclusion ?? procedure.conclusion ?? ''} onChange={event => updateProcedureDraft(procedure, 'conclusion', event.target.value)} /></label>
+              {versionConflict && draftBase && draft && <ProcedureConflictReview title={procedure.title} baseVersion={draftBase.version} serverVersion={procedure.version}
+                base={draftBase} local={draft} server={{ workPerformed: procedure.workPerformed ?? '', conclusion: procedure.conclusion ?? '' }} canRebase={canRebase}
+                rebaseUnavailableMessage={!canWrite ? 'Your current role cannot save a rebased procedure draft.'
+                  : !['NOT_STARTED', 'IN_PROGRESS', 'UNDER_REWORK'].includes(procedure.status) ? 'This server revision is no longer editable. Discard the draft to continue.'
+                    : 'Enter at least ten characters explaining the rework before rebasing.'} busy={busy}
+                onDiscard={() => discardProcedureDraft(procedure.id)} onRebase={() => void saveProcedureDraft(procedure, true)} />}
               {procedure.status === 'UNDER_REWORK' && <label className="business-field"><span>How this revision addresses the review note</span><textarea required minLength={10} value={procedureReworkReasons[procedure.id] ?? ''} onChange={event => setProcedureReworkReasons(current => ({ ...current, [procedure.id]: event.target.value }))} /></label>}
               {procedure.status === 'NOT_STARTED' || procedure.status === 'IN_PROGRESS' || procedure.status === 'UNDER_REWORK' ? <>
-                <button className="btn sm" type="button" disabled={busy || !canWrite || !(procedureDrafts[procedure.id]?.workPerformed ?? procedure.workPerformed) || !(procedureDrafts[procedure.id]?.conclusion ?? procedure.conclusion) || (procedure.status === 'UNDER_REWORK' && (procedureReworkReasons[procedure.id] ?? '').trim().length < 10)} onClick={() => void command('procedure.update', { procedureId: procedure.id, expectedVersion: procedure.version,
-                  workPerformed: procedureDrafts[procedure.id]?.workPerformed ?? procedure.workPerformed, conclusion: procedureDrafts[procedure.id]?.conclusion ?? procedure.conclusion,
-                  ...(procedure.status === 'UNDER_REWORK' ? { reworkReason: procedureReworkReasons[procedure.id] } : {}) }, 'Procedure work and conclusion saved as a new revision.')}>Save work</button>
-                <button className="btn sm" type="button" disabled={busy || !canWrite} onClick={() => void command('procedure.submit', { procedureId: procedure.id, expectedVersion: procedure.version }, 'Exact procedure revision submitted for independent review.')}>Submit</button>
+                <button className="btn sm" type="button" disabled={busy || !canWrite || versionConflict || !(draft?.workPerformed ?? procedure.workPerformed) || !(draft?.conclusion ?? procedure.conclusion) || (procedure.status === 'UNDER_REWORK' && (procedureReworkReasons[procedure.id] ?? '').trim().length < 10)} onClick={() => void saveProcedureDraft(procedure)}>Save work</button>
+                <button className="btn sm" type="button" disabled={busy || !canWrite || versionConflict} onClick={() => void command('procedure.submit', { procedureId: procedure.id, expectedVersion: procedure.version }, 'Exact procedure revision submitted for independent review.')}>Submit</button>
                 <label className="business-field"><span>Reason this step is not applicable</span><textarea minLength={10} value={procedureNaReasons[procedure.id] ?? ''} onChange={event => setProcedureNaReasons(current => ({ ...current, [procedure.id]: event.target.value }))} /></label>
                 <button className="btn sm" type="button" disabled={busy || !canWrite || (procedureNaReasons[procedure.id] ?? '').trim().length < 10} onClick={() => void command('procedure.mark-not-applicable', { procedureId: procedure.id, expectedVersion: procedure.version, reason: procedureNaReasons[procedure.id] }, 'Not-applicable decision submitted for independent approval.')}>Propose N/A</button>
               </> : null}
@@ -597,7 +644,8 @@ export function BusinessFieldworkPanel({ workspaceId, selected, context, engagem
                   {procedure.applicable === 0 && <button className="btn sm" type="button" disabled={busy || (procedureReviewDrafts[procedure.id] ?? '').trim().length < 10} onClick={() => void reviewProcedure(procedure,'NOT_APPLICABLE_APPROVED')}>Approve N/A</button>}</div>
               </div>}
               <small>Evidence pins: {workspace.evidenceLinks.filter(link => link.targetType === 'PROCEDURE' && link.targetId === procedure.id && !link.unlinkReason).length} · {procedure.evidenceSetHash.slice(0, 12)}</small>
-            </article>)}
+            </article>;
+            })}
             {workspace.reviewSubmissions.filter(item => item.targetKind === 'WORKPROGRAM' && item.workprogramId === selectedWorkprogram.id).map(submission => <div className="business-fieldwork-review" key={submission.id}>
               <p className="business-note">Manager submission v{submission.targetVersion} · {submission.decision ? `${label(submission.decision)}${submission.decidedAt ? ` · ${new Date(submission.decidedAt).toLocaleString()}` : ''}` : 'Awaiting independent decision'} · dependency {submission.dependencyHash.slice(0, 12)}</p>
               {submission.decisionComment && <p className="business-note">Review rationale: {submission.decisionComment}</p>}
