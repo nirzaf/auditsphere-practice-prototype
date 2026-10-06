@@ -286,6 +286,52 @@ export interface BusinessDeliveryWorkspace {
   taxPolicies?: Array<{ id: string; revision: number; name: string; taxBasisPoints: number; rationale: string; approvedAt: string }>;
 }
 
+export type BusinessPbcStatus = 'PENDING_UPLOAD' | 'UNDER_REVIEW' | 'APPROVED' | 'REJECTED_REUPLOAD_REQUIRED';
+export interface BusinessPbcEngagement {
+  id: string;
+  clientId: string;
+  code: string;
+  periodStart: string;
+  periodEnd: string;
+  lifecycleState: string;
+  mode: 'NOT_ACTIVE' | 'ACTIVE' | 'FROZEN';
+  canUpload: boolean;
+}
+export interface BusinessPbcRequest {
+  id: string;
+  version: number;
+  title: string;
+  description: string;
+  dueDate: string;
+  assignedContact: string;
+  category: 'GENERAL' | 'TRIAL_BALANCE' | 'BANK_STATEMENT' | 'CONTRACTS' | 'INVOICES' | 'PAYROLL' | 'LEGAL' | 'OTHER';
+  requiredForPlanning: boolean;
+  requiredForRelease: boolean;
+  status: BusinessPbcStatus;
+  currentSubmissionId: string | null;
+  submissions: Array<{
+    id: string;
+    sequence: number;
+    fileVersionId: string;
+    originalName: string;
+    sha256: string;
+    submittedAt: string;
+    clientComment: string | null;
+    supersedesSubmissionId: string | null;
+    reviews: Array<{ id: string; decision: 'APPROVE' | 'REJECT'; comments: string | null; reviewedAt: string; fileSha256: string }>;
+  }>;
+}
+export interface BusinessPbcPortal {
+  engagement: { id: string; code: string; periodStart: string; periodEnd: string; lifecycleState: string };
+  mode: 'NOT_ACTIVE' | 'ACTIVE' | 'FROZEN';
+  canUpload: boolean;
+  uploadBlocker?: string;
+  requests: BusinessPbcRequest[];
+  commercialDocuments: BusinessFileMetadata[];
+  releasedDeliverables: BusinessFileMetadata[];
+  changeCursor: string;
+}
+
 export type BusinessRiskCheckCode = 'UBO' | 'KYC' | 'AML' | 'INTEGRITY' | 'VIABILITY' | 'INDEPENDENCE' | 'CONFLICTS'
   | 'PRIOR_FEES' | 'MANAGEMENT_CHANGE' | 'OWNERSHIP_CHANGE' | 'NEW_BORROWING' | 'LITIGATION' | 'FRAUD_REGULATORY';
 export type BusinessRiskOutcome = 'CLEAR' | 'ISSUE' | 'NOT_APPLICABLE';

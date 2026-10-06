@@ -52,7 +52,8 @@ async function call(path: string, options: {
     const request = payload as { command: { type?: string; payload?: Record<string, unknown> }; idempotencyKey?: string };
     if (request.idempotencyKey) headers.set('Idempotency-Key', request.idempotencyKey);
     const commandPayload = request.command.payload ?? {};
-    const commandVersion = request.command.type === 'proposal.create' ? commandPayload.expectedEngagementVersion : commandPayload.expectedVersion;
+    const commandVersion = request.command.type === 'proposal.create' ? commandPayload.expectedEngagementVersion
+      : request.command.type === 'pbc.submit' || request.command.type === 'pbc.review' ? commandPayload.expectedRequestVersion : commandPayload.expectedVersion;
     const versionTarget = typeof commandVersion === 'number'
       ? request.command.type === 'staff.update' ? { entity: 'StaffMember', id: commandPayload.staffMemberId }
         : request.command.type === 'actor-profile.deactivate' ? { entity: 'ActorProfile', id: commandPayload.actorProfileId }
@@ -61,7 +62,8 @@ async function call(path: string, options: {
               : request.command.type === 'lead.update' || request.command.type === 'lead.lose' || request.command.type === 'lead.convert' ? { entity: 'Lead', id: commandPayload.leadId }
                 : request.command.type === 'engagement.advance' ? { entity: 'Engagement', id: commandPayload.engagementId }
                   : request.command.type === 'team-cv.approve' ? { entity: 'TeamCv', id: commandPayload.teamCvId }
-                    : request.command.type === 'proposal.create' ? { entity: 'Engagement', id: commandPayload.engagementId }
+                      : request.command.type === 'pbc.submit' || request.command.type === 'pbc.review' ? { entity: 'PbcRequest', id: commandPayload.requestId }
+                        : request.command.type === 'proposal.create' ? { entity: 'Engagement', id: commandPayload.engagementId }
                       : request.command.type === 'proposal.revise' ? { entity: 'Proposal', id: commandPayload.proposalId }
                         : request.command.type === 'proposal.generate' || request.command.type === 'proposal.generate.retry'
                           || request.command.type === 'proposal.approve' || request.command.type === 'proposal.dispatch'
@@ -154,7 +156,7 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
   const approverContext = await call(`/api/workspaces/${workspaceId}/context`, { headers: approverHeaders });
   assert.equal(approverContext.response.status, 200, JSON.stringify(approverContext.body));
   assert.deepEqual(approverContext.body.allowedActions, [
-    'directory.manage', 'client.read', 'client.manage', 'lead.read', 'lead.manage', 'lead.convert', 'engagement.read', 'engagement.advance', 'standards.read', 'standards.manage', 'file.read', 'file.upload', 'proposal.read', 'proposal.create', 'proposal.generate', 'proposal.approve', 'proposal.dispatch', 'firm.manage', 'risk.read', 'riskAssessment.draft', 'riskAssessment.submit', 'riskAssessment.resolveEscalation', 'risk.clear', 'commercialAcceptance.read', 'engagementLetter.manage', 'invoice.issue', 'payment.record', 'payment.reverse', 'billing.read'
+    'directory.manage', 'client.read', 'client.manage', 'lead.read', 'lead.manage', 'lead.convert', 'engagement.read', 'engagement.advance', 'standards.read', 'standards.manage', 'file.read', 'file.upload', 'proposal.read', 'proposal.create', 'proposal.generate', 'proposal.approve', 'proposal.dispatch', 'firm.manage', 'risk.read', 'riskAssessment.draft', 'riskAssessment.submit', 'riskAssessment.resolveEscalation', 'risk.clear', 'commercialAcceptance.read', 'engagementLetter.manage', 'invoice.issue', 'payment.record', 'payment.reverse', 'billing.read', 'pbc.read', 'pbc.manage', 'pbc.review'
   ]);
 
   const staffKey = crypto.randomUUID();
@@ -405,9 +407,9 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
 
   const pdf = new TextEncoder().encode('%PDF-1.4\n1 0 obj\n<< /Type /Catalog >>\nendobj\n%%EOF\n');
   const fileReservation = await post(`/api/workspaces/${workspaceId}/files`, {
-    clientId, engagementId: conversion.body.result.engagementId, purpose: 'PBC', originalName: 'audit-evidence.pdf',
+    clientId, engagementId: conversion.body.result.engagementId, purpose: 'EVIDENCE', originalName: 'internal-evidence.pdf',
     mediaType: 'application/pdf', sizeBytes: pdf.length
-  }, { ...clientHeaders, 'Idempotency-Key': crypto.randomUUID() });
+  }, { ...preparerHeaders, 'Idempotency-Key': crypto.randomUUID() });
   assert.equal(fileReservation.response.status, 201, JSON.stringify(fileReservation.body));
   assert.equal(fileReservation.body.state, 'INITIALIZED');
   const fileId = fileReservation.body.fileId as string;
@@ -416,7 +418,7 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
     const uploadRequest = new Request(`https://local.auditsphere.test/api/workspaces/${workspaceId}/files/${fileId}/content`, {
       method: 'PUT',
       headers: {
-        Origin: 'https://local.auditsphere.test', ...clientHeaders, 'Idempotency-Key': idempotencyKey,
+        Origin: 'https://local.auditsphere.test', ...preparerHeaders, 'Idempotency-Key': idempotencyKey,
         'X-File-Version': '1', 'Content-Type': 'application/pdf'
       },
       body: bytes
@@ -447,13 +449,13 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
 
   const staleCommit = await post(`/api/workspaces/${workspaceId}/files/${fileId}/complete`, {
     expectedVersion: 1, sizeBytes: stagedFile.body.sizeBytes, sha256: stagedFile.body.sha256
-  }, { ...clientHeaders, 'Idempotency-Key': crypto.randomUUID() });
+  }, { ...preparerHeaders, 'Idempotency-Key': crypto.randomUUID() });
   assert.equal(staleCommit.response.status, 409);
   assert.equal(staleCommit.body.code, 'VERSION_CONFLICT');
   const commitKey = crypto.randomUUID();
   const committedFile = await post(`/api/workspaces/${workspaceId}/files/${fileId}/complete`, {
     expectedVersion: 2, sizeBytes: stagedFile.body.sizeBytes, sha256: stagedFile.body.sha256
-  }, { ...clientHeaders, 'Idempotency-Key': commitKey });
+  }, { ...preparerHeaders, 'Idempotency-Key': commitKey });
   assert.equal(committedFile.response.status, 200, JSON.stringify(committedFile.body));
   assert.equal(committedFile.body.state, 'COMMITTED');
   const committedRow = db.prepare('SELECT version,state,immutable,sha256,object_key FROM file_versions WHERE workspace_id=? AND id=?')
@@ -462,14 +464,14 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
   assert.equal(committedRow.sha256, stagedFile.body.sha256);
   assert.equal(db.prepare('SELECT COUNT(*) AS count FROM audit_events WHERE workspace_id=? AND entity_id=?')
     .bind(workspaceId, fileId).first<any>()?.count, 3, 'reservation, staging and commitment are individually audited');
-  const listedFiles = await call(`/api/workspaces/${workspaceId}/files`, { headers: clientHeaders });
+  const listedFiles = await call(`/api/workspaces/${workspaceId}/files`, { headers: preparerHeaders });
   assert.equal(listedFiles.response.status, 200, JSON.stringify(listedFiles.body));
   assert.equal(listedFiles.body.files.length, 1);
   assert.equal(listedFiles.body.files[0].id, fileId);
-  const download = await worker.fetch(new Request(`https://local.auditsphere.test/api/workspaces/${workspaceId}/files/${fileId}`, { headers: clientHeaders }), env, {} as any);
+  const download = await worker.fetch(new Request(`https://local.auditsphere.test/api/workspaces/${workspaceId}/files/${fileId}`, { headers: preparerHeaders }), env, {} as any);
   assert.equal(download.status, 200);
   assert.deepEqual(new Uint8Array(await download.arrayBuffer()), pdf, 'download returns the verified committed bytes');
-  const otherClientFile = await call(`/api/workspaces/${workspaceId}/files/${crypto.randomUUID()}/metadata`, { headers: clientHeaders });
+  const otherClientFile = await call(`/api/workspaces/${workspaceId}/files/${crypto.randomUUID()}/metadata`, { headers: preparerHeaders });
   assert.equal(otherClientFile.response.status, 404);
   const selectedClientTemplate = await post(`/api/workspaces/${workspaceId}/files`, {
     purpose: 'TEMPLATE', originalName: 'firm-template.txt', mediaType: 'text/plain', sizeBytes: 4
@@ -992,6 +994,37 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
   assert.equal(issuedInvoice?.status, 'ISSUED');
   assert.ok(issuedInvoice?.fileVersionId);
 
+  const pbcRequestCreated = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'pbc.request.create', payload: {
+      clientId, engagementId, title: 'Year-end trial balance', description: 'Provide the complete debit and credit export for the audit period.',
+      dueDate: '2026-10-15', assignedContactId: financeContactId, category: 'TRIAL_BALANCE',
+      requiredForPlanning: true, requiredForRelease: true
+    } }
+  }, makeRiskHeaders(preparerHeaders));
+  assert.equal(pbcRequestCreated.response.status, 200, JSON.stringify(pbcRequestCreated.body));
+  assert.equal(pbcRequestCreated.body.result.status, 'PENDING_UPLOAD');
+  const pbcRequestId = pbcRequestCreated.body.result.requestId as string;
+  const clientPbcHeaders = makeRiskHeaders(clientHeaders);
+  const pbcEngagementList = await call(`/api/workspaces/${workspaceId}/pbc-engagements`, { headers: clientPbcHeaders });
+  assert.equal(pbcEngagementList.response.status, 200, JSON.stringify(pbcEngagementList.body));
+  assert.equal(pbcEngagementList.body.engagements.find((item: any) => item.id === engagementId)?.clientId, clientId);
+  const pbcPortalPath = `/api/workspaces/${workspaceId}/engagements/${engagementId}/portal`;
+  const pbcBeforeHandover = await call(pbcPortalPath, { headers: clientPbcHeaders });
+  assert.equal(pbcBeforeHandover.response.status, 200, JSON.stringify(pbcBeforeHandover.body));
+  assert.equal(pbcBeforeHandover.body.mode, 'NOT_ACTIVE');
+  assert.equal(pbcBeforeHandover.body.canUpload, false);
+  assert.equal(pbcBeforeHandover.body.requests[0].status, 'PENDING_UPLOAD');
+  for (const forbiddenField of ['risk', 'srm', 'firmLedger', 'staffRates', 'otherClients']) {
+    assert.equal(forbiddenField in pbcBeforeHandover.body, false, `client PBC projection excludes ${forbiddenField}`);
+  }
+  const blockedPbcReservation = await post(`/api/workspaces/${workspaceId}/files`, {
+    clientId, engagementId, pbcRequestId, expectedPbcRequestVersion: 1, purpose: 'PBC', originalName: 'year-end-tb.pdf',
+    mediaType: 'application/pdf', sizeBytes: pdf.length
+  }, { ...clientPbcHeaders, 'Idempotency-Key': crypto.randomUUID() });
+  assert.equal(blockedPbcReservation.body.code, 'GATE_BLOCKED', JSON.stringify(blockedPbcReservation.body));
+  assert.equal(db.prepare('SELECT COUNT(*) AS count FROM file_versions WHERE workspace_id=? AND pbc_request_id=?')
+    .bind(workspaceId, pbcRequestId).first<any>()?.count, 0, 'the unsettled advance blocks PBC reservation before a file row is created');
+
   const evidenceFileId = await storeCommittedFile('EVIDENCE', 'bank-transfer-evidence.pdf', 'application/pdf', pdf,
     makeRiskHeaders(reviewerHeaders), { clientId, engagementId });
   const partialPayment = await post(`/api/workspaces/${workspaceId}/commands`, {
@@ -1036,6 +1069,119 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
   const settledView = await call(deliveryPath, { headers: makeRiskHeaders(reviewerHeaders) });
   assert.equal(settledView.body.engagement.lifecycleState, 'PORTAL_ACTIVE_PLANNING', 'planning unlocks only when the full advance and committed final receipt exist');
   assert.equal(settledView.body.invoices.find((invoice: any) => invoice.id === issuedInvoice.id).outstandingMinor, '0');
+  const activePbcPortal = await call(pbcPortalPath, { headers: clientPbcHeaders });
+  assert.equal(activePbcPortal.body.mode, 'ACTIVE');
+  assert.equal(activePbcPortal.body.canUpload, true);
+
+  const uploadPbcResponse = async (originalName: string, bytes: Uint8Array, requestVersion: number) => {
+    const reservation = await post(`/api/workspaces/${workspaceId}/files`, {
+      clientId, engagementId, pbcRequestId, expectedPbcRequestVersion: requestVersion, purpose: 'PBC', originalName,
+      mediaType: 'application/pdf', sizeBytes: bytes.length
+    }, { ...clientPbcHeaders, 'Idempotency-Key': crypto.randomUUID() });
+    assert.equal(reservation.response.status, 201, JSON.stringify(reservation.body));
+    const fileId = reservation.body.fileId as string;
+    const staged = await worker.fetch(new Request(`https://local.auditsphere.test/api/workspaces/${workspaceId}/files/${fileId}/content`, {
+      method: 'PUT', headers: { Origin: 'https://local.auditsphere.test', ...clientPbcHeaders,
+        'Idempotency-Key': crypto.randomUUID(), 'X-File-Version': '1', 'Content-Type': 'application/pdf' }, body: bytes
+    }), env, {} as any);
+    const stagedBody = await staged.json() as any;
+    assert.equal(staged.status, 200, JSON.stringify(stagedBody));
+    const committed = await post(`/api/workspaces/${workspaceId}/files/${fileId}/complete`, {
+      expectedVersion: 2, sizeBytes: stagedBody.sizeBytes, sha256: stagedBody.sha256
+    }, { ...clientPbcHeaders, 'Idempotency-Key': crypto.randomUUID() });
+    assert.equal(committed.response.status, 200, JSON.stringify(committed.body));
+    return { fileId, sha256: stagedBody.sha256 as string };
+  };
+  const firstPbcFile = await uploadPbcResponse('year-end-tb.pdf', pdf, 1);
+  const wrongPbcFile = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'pbc.submit', payload: {
+      requestId: pbcRequestId, expectedRequestVersion: 1, fileVersionId: evidenceFileId
+    } }
+  }, clientPbcHeaders);
+  assert.equal(wrongPbcFile.response.status, 422);
+  assert.equal(wrongPbcFile.body.code, 'GATE_BLOCKED');
+  const firstPbcSubmission = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'pbc.submit', payload: {
+      requestId: pbcRequestId, expectedRequestVersion: 1, fileVersionId: firstPbcFile.fileId, clientComment: 'Year-end export attached.'
+    } }
+  }, clientPbcHeaders);
+  assert.equal(firstPbcSubmission.response.status, 200, JSON.stringify(firstPbcSubmission.body));
+  assert.equal(firstPbcSubmission.body.result.status, 'UNDER_REVIEW');
+  const firstSubmissionId = firstPbcSubmission.body.result.submissionId as string;
+  const clientUnderReview = await call(pbcPortalPath, { headers: clientPbcHeaders });
+  assert.equal(clientUnderReview.body.requests[0].status, 'UNDER_REVIEW');
+  assert.equal(clientUnderReview.body.requests[0].submissions[0].sha256, firstPbcFile.sha256);
+  const directPbcRequest = await call(`/api/workspaces/${workspaceId}/engagements/${engagementId}/pbc/${pbcRequestId}`, { headers: clientPbcHeaders });
+  assert.equal(directPbcRequest.response.status, 200, JSON.stringify(directPbcRequest.body));
+  assert.equal(directPbcRequest.body.request.currentSubmissionId, firstSubmissionId);
+
+  const reviewerPbcHeaders = makeRiskHeaders(reviewerHeaders);
+  const whitespaceRejection = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'pbc.review', payload: {
+      requestId: pbcRequestId, expectedRequestVersion: 2, submissionId: firstSubmissionId, decision: 'REJECT', comments: '        '
+    } }
+  }, reviewerPbcHeaders);
+  assert.equal(whitespaceRejection.response.status, 422);
+  assert.equal(whitespaceRejection.body.code, 'VALIDATION_FAILED');
+  const stillUnderReview = await call(pbcPortalPath, { headers: reviewerPbcHeaders });
+  assert.equal(stillUnderReview.body.requests[0].status, 'UNDER_REVIEW');
+  const rejection = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'pbc.review', payload: {
+      requestId: pbcRequestId, expectedRequestVersion: 2, submissionId: firstSubmissionId, decision: 'REJECT',
+      comments: 'The trial balance is missing the final credit total.'
+    } }
+  }, reviewerPbcHeaders);
+  assert.equal(rejection.response.status, 200, JSON.stringify(rejection.body));
+  assert.equal(rejection.body.result.status, 'REJECTED_REUPLOAD_REQUIRED');
+  const rejectedForClient = await call(pbcPortalPath, { headers: clientPbcHeaders });
+  assert.equal(rejectedForClient.body.requests[0].status, 'REJECTED_REUPLOAD_REQUIRED');
+  assert.equal(rejectedForClient.body.requests[0].submissions[0].reviews[0].comments, 'The trial balance is missing the final credit total.');
+
+  const replacementBytes = pdf.slice();
+  replacementBytes[5] = '2'.charCodeAt(0);
+  const replacementPbcFile = await uploadPbcResponse('year-end-tb-corrected.pdf', replacementBytes, 3);
+  assert.equal(db.prepare('SELECT previous_version_id FROM file_versions WHERE workspace_id=? AND id=?')
+    .bind(workspaceId, replacementPbcFile.fileId).first<any>()?.previous_version_id, firstPbcFile.fileId,
+    'a corrected upload is linked to the rejected file version');
+  const replacementSubmission = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'pbc.submit', payload: {
+      requestId: pbcRequestId, expectedRequestVersion: 3, fileVersionId: replacementPbcFile.fileId
+    } }
+  }, clientPbcHeaders);
+  assert.equal(replacementSubmission.response.status, 200, JSON.stringify(replacementSubmission.body));
+  assert.equal(replacementSubmission.body.result.sequence, 2);
+  const secondSubmissionId = replacementSubmission.body.result.submissionId as string;
+  const historyAfterReplacement = await call(pbcPortalPath, { headers: clientPbcHeaders });
+  assert.equal(historyAfterReplacement.body.requests[0].submissions.length, 2);
+  assert.equal(historyAfterReplacement.body.requests[0].submissions[1].supersedesSubmissionId, firstSubmissionId);
+  assert.equal(historyAfterReplacement.body.requests[0].submissions[0].reviews[0].decision, 'REJECT');
+
+  const obsoleteApproval = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'pbc.review', payload: {
+      requestId: pbcRequestId, expectedRequestVersion: 4, submissionId: firstSubmissionId, decision: 'APPROVE'
+    } }
+  }, reviewerPbcHeaders);
+  assert.equal(obsoleteApproval.response.status, 409);
+  assert.equal(obsoleteApproval.body.code, 'VERSION_CONFLICT');
+  const pbcApproval = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'pbc.review', payload: {
+      requestId: pbcRequestId, expectedRequestVersion: 4, submissionId: secondSubmissionId, decision: 'APPROVE'
+    } }
+  }, reviewerPbcHeaders);
+  assert.equal(pbcApproval.response.status, 200, JSON.stringify(pbcApproval.body));
+  assert.equal(pbcApproval.body.result.status, 'APPROVED');
+  const approvedForClient = await call(pbcPortalPath, { headers: clientPbcHeaders });
+  assert.equal(approvedForClient.body.requests[0].status, 'APPROVED');
+  assert.equal(approvedForClient.body.requests[0].submissions.length, 2, 'approval preserves both exact submitted files');
+  assert.equal(approvedForClient.body.requests[0].submissions[1].reviews[0].fileSha256, replacementPbcFile.sha256);
+  for (const file of [firstPbcFile, replacementPbcFile]) {
+    const downloaded = await worker.fetch(new Request(`https://local.auditsphere.test/api/workspaces/${workspaceId}/files/${file.fileId}`, {
+      headers: clientPbcHeaders
+    }), env, {} as any);
+    const downloadedBytes = new Uint8Array(await downloaded.arrayBuffer());
+    assert.equal(downloaded.status, 200, 'the assigned contact can download each exact response in history');
+    assert.equal(downloadedBytes.length > 0, true);
+  }
   assert.ok(deliveredRecipients.includes('md-new@example.invalid'));
   assert.ok(deliveredRecipients.includes('c001-finance@example.invalid'));
   const clientDelivery = await call(deliveryPath, { headers: makeRiskHeaders(clientHeaders) });

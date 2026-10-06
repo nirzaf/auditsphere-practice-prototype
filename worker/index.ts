@@ -72,6 +72,9 @@ import {
   listBusinessLeads,
   listBusinessStandardsProfiles,
   getBusinessProposalWorkspace,
+  getBusinessPbcRequestPortal,
+  getBusinessPbcPortal,
+  listBusinessPbcEngagements,
   businessEnvelopeFromRequest,
   getBusinessFileDownload,
   getBusinessFileMetadata,
@@ -239,6 +242,21 @@ const handleBusinessRiskWorkspace = async (ctx: RouteContext): Promise<Response>
 const handleBusinessDeliveryWorkspace = async (ctx: RouteContext): Promise<Response> => {
   const context = await resolveBusinessContext(ctx.env, ctx.params.workspaceId, ctx.request);
   const result = await getBusinessDeliveryWorkspace(ctx.env, ctx.params.workspaceId, context, ctx.params.engagementId);
+  return jsonResponse(result, 200, ctx.requestId);
+};
+
+const handleBusinessPbcEngagements = async (ctx: RouteContext): Promise<Response> => {
+  const result = await listBusinessPbcEngagements(ctx.env, ctx.params.workspaceId, ctx.request);
+  return jsonResponse(result, 200, ctx.requestId);
+};
+
+const handleBusinessPbcPortal = async (ctx: RouteContext): Promise<Response> => {
+  const result = await getBusinessPbcPortal(ctx.env, ctx.params.workspaceId, ctx.request, ctx.params.engagementId);
+  return jsonResponse(result, 200, ctx.requestId);
+};
+
+const handleBusinessPbcRequest = async (ctx: RouteContext): Promise<Response> => {
+  const result = await getBusinessPbcRequestPortal(ctx.env, ctx.params.workspaceId, ctx.request, ctx.params.engagementId, ctx.params.requestId);
   return jsonResponse(result, 200, ctx.requestId);
 };
 
@@ -681,6 +699,9 @@ const router = createRouter()
   .get('/api/workspaces/:workspaceId/engagements/:engagementId/acceptance-gate', handleBusinessAcceptanceGate)
   .get('/api/workspaces/:workspaceId/engagements/:engagementId/risk-workspace', handleBusinessRiskWorkspace)
   .get('/api/workspaces/:workspaceId/engagements/:engagementId/delivery-workspace', handleBusinessDeliveryWorkspace)
+  .get('/api/workspaces/:workspaceId/pbc-engagements', handleBusinessPbcEngagements)
+  .get('/api/workspaces/:workspaceId/engagements/:engagementId/pbc/:requestId', handleBusinessPbcRequest)
+  .get('/api/workspaces/:workspaceId/engagements/:engagementId/portal', handleBusinessPbcPortal)
   .get('/api/workspaces/:workspaceId/state', handleState)
   .get('/api/workspaces/:workspaceId/changes', handleChanges)
   .get('/api/workspaces/:workspaceId/events', handleEvents)

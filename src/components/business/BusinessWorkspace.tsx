@@ -42,6 +42,7 @@ import {
 import './business-workspace.css';
 import { BusinessAcceptanceRiskPanel } from './BusinessAcceptanceRiskPanel';
 import { BusinessDeliveryPanel } from './BusinessDeliveryPanel';
+import { BusinessPbcPanel } from './BusinessPbcPanel';
 
 type SetupMode = 'create' | 'connect';
 
@@ -1226,7 +1227,10 @@ export function BusinessWorkspaceConsole() {
             engagement={riskEngagement} files={files} onChanged={() => setRecordsKey(value => value + 1)} />}
         </section>}
 
-        {context?.allowedActions.includes('file.read') && <section className="business-directory-card" aria-labelledby="business-files-heading">
+        {context?.allowedActions.includes('pbc.read') && preference && <BusinessPbcPanel workspaceId={preference.workspaceId}
+          selected={preference} context={context} onChanged={() => setRecordsKey(value => value + 1)} />}
+
+        {context?.allowedActions.includes('file.read') && context.actor.persona !== 'CLIENT' && <section className="business-directory-card" aria-labelledby="business-files-heading">
           <div className="business-section-heading">
             <div><p className="business-eyebrow">PRIVATE R2 OBJECT STORE · VERIFIED BYTES</p><h2 id="business-files-heading">Stored files</h2></div>
             <button type="button" className="btn sm" disabled={fileBusy} onClick={() => setRecordsKey(value => value + 1)}>Refresh files</button>
@@ -1241,7 +1245,7 @@ export function BusinessWorkspaceConsole() {
             </div>
             <p className="business-note">The file remains a draft until the server verifies its byte count, digest and declared document type, then commits an immutable file version.</p>
             <div className="business-dialog-actions"><button className="btn primary" type="submit" disabled={fileBusy || !selectedUploadFile}>{fileBusy ? 'Verifying and storing…' : 'Store file'}</button></div>
-          </form> : context.actor.persona === 'CLIENT' ? <p className="business-note">Client files are limited to committed PBC and trial-balance records for this contact. Select an engagement request to upload; that scoped request selector is part of the next commercial and planning slice.</p> : <p className="business-note">Internal PBC, TB and evidence uploads require a selected engagement. This view has no engagement selected.</p>}
+          </form> : <p className="business-note">Internal PBC, TB and evidence uploads require a selected engagement. This view has no engagement selected.</p>}
           {files.length ? <ul className="business-record-list business-file-list">{files.map(file => <li key={file.id}>
             <strong>{file.originalName}</strong><span>{file.purpose} · {file.mediaType} · {(file.sizeBytes / 1024).toFixed(1)} KiB · v{file.version}</span><small>SHA-256 {file.sha256?.slice(0, 16)}… · committed {file.committedAt}</small>
             <button type="button" className="btn sm" disabled={downloadingFileId === file.id} onClick={() => void downloadStoredFile(file)}>{downloadingFileId === file.id ? 'Checking…' : 'Download verified bytes'}</button>

@@ -8,6 +8,8 @@ import type {
   BusinessFileMediaType,
   BusinessFileMetadata,
   BusinessFilePurpose,
+  BusinessPbcEngagement,
+  BusinessPbcPortal,
   BusinessFileReservation,
   BusinessAcceptanceGate,
   BusinessRiskWorkspace,
@@ -276,6 +278,26 @@ export async function getBusinessDeliveryWorkspace(
   return requestJson(`/api/workspaces/${encodeURIComponent(workspaceId)}/engagements/${encodeURIComponent(engagementId)}/delivery-workspace`, { context: selected, signal });
 }
 
+export async function getBusinessPbcEngagements(
+  workspaceId: string,
+  selected: BusinessWorkspacePreference,
+  signal?: AbortSignal
+): Promise<BusinessPbcEngagement[]> {
+  const result = await requestJson<{ engagements: BusinessPbcEngagement[] }>(
+    `/api/workspaces/${encodeURIComponent(workspaceId)}/pbc-engagements`, { context: selected, signal }
+  );
+  return result.engagements;
+}
+
+export async function getBusinessPbcPortal(
+  workspaceId: string,
+  engagementId: string,
+  selected: BusinessWorkspacePreference,
+  signal?: AbortSignal
+): Promise<BusinessPbcPortal> {
+  return requestJson(`/api/workspaces/${encodeURIComponent(workspaceId)}/engagements/${encodeURIComponent(engagementId)}/portal`, { context: selected, signal });
+}
+
 export async function getBusinessFiles(
   workspaceId: string,
   selected: BusinessWorkspacePreference,
@@ -290,7 +312,8 @@ export async function getBusinessFiles(
 export function initializeBusinessFile(
   workspaceId: string,
   selected: BusinessWorkspacePreference,
-  input: { purpose: BusinessFilePurpose; originalName: string; mediaType: BusinessFileMediaType; sizeBytes: number; clientId?: string; engagementId?: string },
+  input: { purpose: BusinessFilePurpose; originalName: string; mediaType: BusinessFileMediaType; sizeBytes: number; clientId?: string; engagementId?: string;
+    pbcRequestId?: string; expectedPbcRequestVersion?: number },
   idempotencyKey: string
 ): Promise<BusinessFileReservation> {
   return requestJson(`/api/workspaces/${encodeURIComponent(workspaceId)}/files`, {
@@ -331,10 +354,18 @@ export async function downloadBusinessFile(
   file: BusinessFileMetadata,
   selected: BusinessWorkspacePreference
 ): Promise<Blob> {
+  return downloadBusinessFileVersion(workspaceId, file.id, selected);
+}
+
+export async function downloadBusinessFileVersion(
+  workspaceId: string,
+  fileId: string,
+  selected: BusinessWorkspacePreference
+): Promise<Blob> {
   const headers = contextHeaders(selected);
   let response: Response;
   try {
-    response = await fetch(getBusinessFileDownloadUrl(workspaceId, file.id), {
+    response = await fetch(getBusinessFileDownloadUrl(workspaceId, fileId), {
       headers, credentials: 'omit', cache: 'no-store'
     });
   } catch {
@@ -358,7 +389,8 @@ export async function runBusinessCommand<T = Record<string, unknown>>(
   if (!selected.actorId || !selected.persona) throw new Error('Select an active actor profile before making a business change.');
   const value = command && typeof command === 'object' ? command as { type?: string; payload?: Record<string, unknown> } : {};
   const payload = value.payload ?? {};
-  const commandVersion = value.type === 'proposal.create' ? payload.expectedEngagementVersion : payload.expectedVersion;
+  const commandVersion = value.type === 'proposal.create' ? payload.expectedEngagementVersion
+    : value.type === 'pbc.submit' || value.type === 'pbc.review' ? payload.expectedRequestVersion : payload.expectedVersion;
   const versionTarget = typeof commandVersion === 'number'
     ? value.type === 'staff.update' ? { entity: 'StaffMember', id: payload.staffMemberId }
       : value.type === 'actor-profile.deactivate' ? { entity: 'ActorProfile', id: payload.actorProfileId }
@@ -367,7 +399,8 @@ export async function runBusinessCommand<T = Record<string, unknown>>(
             : value.type === 'lead.update' || value.type === 'lead.lose' || value.type === 'lead.convert' ? { entity: 'Lead', id: payload.leadId }
               : value.type === 'engagement.advance' ? { entity: 'Engagement', id: payload.engagementId }
             : value.type === 'team-cv.approve' ? { entity: 'TeamCv', id: payload.teamCvId }
-              : value.type === 'proposal.create' ? { entity: 'Engagement', id: payload.engagementId }
+                : value.type === 'pbc.submit' || value.type === 'pbc.review' ? { entity: 'PbcRequest', id: payload.requestId }
+                  : value.type === 'proposal.create' ? { entity: 'Engagement', id: payload.engagementId }
                 : value.type === 'proposal.revise' ? { entity: 'Proposal', id: payload.proposalId }
               : value.type === 'proposal.generate' || value.type === 'proposal.generate.retry' || value.type === 'proposal.approve' || value.type === 'proposal.dispatch' ? { entity: 'ProposalVersion', id: payload.proposalVersionId }
                 : value.type === 'proposal.dispatch.retry' ? { entity: 'Dispatch', id: payload.dispatchId }

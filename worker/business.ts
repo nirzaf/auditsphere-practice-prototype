@@ -571,10 +571,10 @@ export async function resolveBusinessContext(env: Env, workspaceId: string, requ
     },
     scope: { clientId, engagementId: requestedEngagementId },
     allowedActions: row.persona === 'APPROVER' && row.staffGrade === 'PARTNER'
-      ? ['directory.manage', 'client.read', 'client.manage', 'lead.read', 'lead.manage', 'lead.convert', 'engagement.read', 'engagement.advance', 'standards.read', 'standards.manage', 'file.read', 'file.upload', 'proposal.read', 'proposal.create', 'proposal.generate', 'proposal.approve', 'proposal.dispatch', 'firm.manage', 'risk.read', 'riskAssessment.draft', 'riskAssessment.submit', 'riskAssessment.resolveEscalation', 'risk.clear', 'commercialAcceptance.read', 'engagementLetter.manage', 'invoice.issue', 'payment.record', 'payment.reverse', 'billing.read']
-      : row.persona === 'PREPARER' ? ['client.read', 'client.manage', 'lead.read', 'lead.manage', 'lead.convert', 'engagement.read', 'engagement.advance', 'standards.read', 'file.read', 'file.upload', 'proposal.read', 'proposal.create', 'proposal.generate', 'risk.read', 'riskAssessment.draft', 'riskAssessment.submit', 'commercialAcceptance.read', 'billing.read']
-        : row.persona === 'REVIEWER' ? ['client.read', 'lead.read', 'engagement.read', 'standards.read', 'file.read', 'file.upload', 'proposal.read', 'proposal.create', 'proposal.generate', 'risk.read', 'riskAssessment.draft', 'riskAssessment.submit', 'riskAssessment.escalate', 'commercialAcceptance.read', 'invoice.issue', 'payment.record', 'payment.reverse', 'billing.read']
-          : ['client.read', 'file.read', 'file.upload', 'proposal.read', 'commercialAcceptance.read', 'commercialAcceptance.record', 'commercialAcceptance.revoke', 'billing.read'],
+      ? ['directory.manage', 'client.read', 'client.manage', 'lead.read', 'lead.manage', 'lead.convert', 'engagement.read', 'engagement.advance', 'standards.read', 'standards.manage', 'file.read', 'file.upload', 'proposal.read', 'proposal.create', 'proposal.generate', 'proposal.approve', 'proposal.dispatch', 'firm.manage', 'risk.read', 'riskAssessment.draft', 'riskAssessment.submit', 'riskAssessment.resolveEscalation', 'risk.clear', 'commercialAcceptance.read', 'engagementLetter.manage', 'invoice.issue', 'payment.record', 'payment.reverse', 'billing.read', 'pbc.read', 'pbc.manage', 'pbc.review']
+      : row.persona === 'PREPARER' ? ['client.read', 'client.manage', 'lead.read', 'lead.manage', 'lead.convert', 'engagement.read', 'engagement.advance', 'standards.read', 'file.read', 'file.upload', 'proposal.read', 'proposal.create', 'proposal.generate', 'risk.read', 'riskAssessment.draft', 'riskAssessment.submit', 'commercialAcceptance.read', 'billing.read', 'pbc.read', 'pbc.manage']
+        : row.persona === 'REVIEWER' ? ['client.read', 'lead.read', 'engagement.read', 'standards.read', 'file.read', 'file.upload', 'proposal.read', 'proposal.create', 'proposal.generate', 'risk.read', 'riskAssessment.draft', 'riskAssessment.submit', 'riskAssessment.escalate', 'commercialAcceptance.read', 'invoice.issue', 'payment.record', 'payment.reverse', 'billing.read', 'pbc.read', 'pbc.manage', 'pbc.review']
+          : ['client.read', 'file.read', 'file.upload', 'proposal.read', 'commercialAcceptance.read', 'commercialAcceptance.record', 'commercialAcceptance.revoke', 'billing.read', 'pbc.read', 'pbc.submit'],
     readOnlyReasons: isClient ? ['CLIENT_PROJECTION_ONLY'] : []
   };
 }
@@ -815,12 +815,18 @@ const businessFileReserveCommand = z.strictObject({
   payload: z.strictObject({
     clientId: clientIdSchema.optional(),
     engagementId: clientIdSchema.optional(),
+    pbcRequestId: clientIdSchema.optional(),
+    expectedPbcRequestVersion: z.number().int().positive().optional(),
     purpose: businessFilePurposeSchema,
     originalName: z.string().trim().min(1).max(200),
     mediaType: businessFileMediaTypeSchema,
     sizeBytes: z.number().int().positive().max(25 * 1024 * 1024)
   }).refine(payload => !payload.engagementId || Boolean(payload.clientId), {
     message: 'An engagement-scoped file must also identify its client.'
+  }).refine(payload => payload.purpose !== 'PBC' || Boolean(payload.pbcRequestId && payload.expectedPbcRequestVersion), {
+    message: 'A PBC upload reservation must name its current request and request version.'
+  }).refine(payload => payload.purpose === 'PBC' || (!payload.pbcRequestId && !payload.expectedPbcRequestVersion), {
+    message: 'Only PBC file reservations may include a PBC request binding.'
   })
 });
 const businessFileStageCommand = z.strictObject({
@@ -844,6 +850,33 @@ const businessFileCommitCommand = z.strictObject({
 const businessFileRejectCommand = z.strictObject({
   type: z.literal('file.reject'),
   payload: z.strictObject({ fileId: clientIdSchema, expectedVersion: z.number().int().positive(), reason: z.string().trim().min(10).max(1000) })
+});
+const pbcCategorySchema = z.enum(['GENERAL','TRIAL_BALANCE','BANK_STATEMENT','CONTRACTS','INVOICES','PAYROLL','LEGAL','OTHER']);
+const pbcRequestCreateCommand = z.strictObject({
+  type: z.literal('pbc.request.create'),
+  payload: z.strictObject({
+    clientId: clientIdSchema, engagementId: clientIdSchema, title: z.string().trim().min(1).max(240),
+    description: z.string().trim().min(1).max(5000), dueDate: dateSchema, assignedContactId: clientIdSchema,
+    category: pbcCategorySchema, requiredForPlanning: z.boolean(), requiredForRelease: z.boolean()
+  })
+});
+const pbcSubmitCommand = z.strictObject({
+  type: z.literal('pbc.submit'),
+  payload: z.strictObject({
+    requestId: clientIdSchema, expectedRequestVersion: z.number().int().positive(), fileVersionId: clientIdSchema,
+    clientComment: z.string().trim().max(2000).optional()
+  })
+});
+const pbcReviewCommand = z.strictObject({
+  type: z.literal('pbc.review'),
+  payload: z.strictObject({
+    requestId: clientIdSchema, expectedRequestVersion: z.number().int().positive(), submissionId: clientIdSchema,
+    decision: z.enum(['APPROVE','REJECT']), comments: z.string().trim().max(10000).optional()
+  }).superRefine((payload, ctx) => {
+    if (payload.decision === 'REJECT' && (!payload.comments || payload.comments.length < 10)) {
+      ctx.addIssue({ code: 'custom', path: ['comments'], message: 'A rejection needs a meaningful reason of at least 10 characters.' });
+    }
+  })
 });
 const timelineMilestoneSchema = z.strictObject({ name: z.string().trim().min(1).max(160), date: dateSchema });
 const proposalTermsSchema = z.strictObject({
@@ -924,6 +957,9 @@ export const businessCommandSchema = z.discriminatedUnion('type', [
   businessFileStageCommand,
   businessFileCommitCommand,
   businessFileRejectCommand,
+  pbcRequestCreateCommand,
+  pbcSubmitCommand,
+  pbcReviewCommand,
   firmProfileSaveCommand,
   teamCvAttachCommand,
   teamCvApproveCommand,
@@ -956,8 +992,9 @@ export type BusinessCommandEnvelope = BusinessCommandBody & { idempotencyKey: st
 type BusinessCommand = BusinessCommandBody['command'];
 type BusinessDirectoryCommand = Extract<BusinessCommand, { type: 'staff.create' | 'staff.update' | 'actor-profile.assign' | 'actor-profile.deactivate' }>;
 type BusinessFileCommand = Extract<BusinessCommand, { type: 'file.reserve' | 'file.stage' | 'file.commit' | 'file.reject' }>;
+type BusinessPbcCommand = Extract<BusinessCommand, { type: 'pbc.request.create' | 'pbc.submit' | 'pbc.review' }>;
 type BusinessProposalCommand = Extract<BusinessCommand, { type: 'firm-profile.save' | 'team-cv.attach' | 'team-cv.approve' | 'proposal.create' | 'proposal.revise' | 'proposal.generate' | 'proposal.generate.retry' | 'proposal.approve' | 'proposal.dispatch' | 'proposal.dispatch.retry' }>;
-type BusinessCommercialCommand = Exclude<BusinessCommand, BusinessDirectoryCommand | BusinessFileCommand | BusinessProposalCommand | import('./businessRisk').BusinessRiskCommand | import('./businessDelivery').BusinessDeliveryCommand>;
+type BusinessCommercialCommand = Exclude<BusinessCommand, BusinessDirectoryCommand | BusinessFileCommand | BusinessPbcCommand | BusinessProposalCommand | import('./businessRisk').BusinessRiskCommand | import('./businessDelivery').BusinessDeliveryCommand>;
 
 function isBusinessDirectoryCommand(command: BusinessCommand): command is BusinessDirectoryCommand {
   return command.type === 'staff.create' || command.type === 'staff.update'
@@ -969,6 +1006,10 @@ function isBusinessFileCommand(command: BusinessCommand): command is BusinessFil
     || command.type === 'file.commit' || command.type === 'file.reject';
 }
 
+function isBusinessPbcCommand(command: BusinessCommand): command is BusinessPbcCommand {
+  return command.type === 'pbc.request.create' || command.type === 'pbc.submit' || command.type === 'pbc.review';
+}
+
 function isBusinessProposalCommand(command: BusinessCommand): command is BusinessProposalCommand {
   return command.type.startsWith('proposal.') || command.type === 'firm-profile.save'
     || command.type === 'team-cv.attach' || command.type === 'team-cv.approve';
@@ -977,6 +1018,13 @@ function isBusinessProposalCommand(command: BusinessCommand): command is Busines
 export function parseBusinessCommandEnvelope(value: unknown, idempotencyKey: string | null): BusinessCommandEnvelope {
   if (!idempotencyKey || idempotencyKey.trim().length < 8 || idempotencyKey.trim().length > 200) {
     throw new ApiError('BAD_REQUEST', 'A valid Idempotency-Key header is required for every BUSINESS command.');
+  }
+  if (value && typeof value === 'object' && 'command' in value) {
+    const candidate = (value as { command?: { type?: unknown; payload?: Record<string, unknown> } }).command;
+    if (candidate?.type === 'pbc.review' && candidate.payload?.decision === 'REJECT'
+      && (typeof candidate.payload.comments !== 'string' || candidate.payload.comments.trim().length < 10)) {
+      throw new ApiError('VALIDATION_FAILED', 'A rejection needs a meaningful reason of at least 10 characters.');
+    }
   }
   const parsed = businessCommandEnvelopeSchema.safeParse(value);
   if (!parsed.success) throw invalidInput(parsed.error.issues);
@@ -988,9 +1036,11 @@ export function parseBusinessCommandEnvelope(value: unknown, idempotencyKey: str
           : command.type === 'lead.update' || command.type === 'lead.lose' || command.type === 'lead.convert'
             ? { entity: 'Lead', id: command.payload.leadId, version: command.payload.expectedVersion }
             : command.type === 'engagement.advance' ? { entity: 'Engagement', id: command.payload.engagementId, version: command.payload.expectedVersion }
-              : command.type === 'file.stage' || command.type === 'file.commit' || command.type === 'file.reject'
+        : command.type === 'file.stage' || command.type === 'file.commit' || command.type === 'file.reject'
                 ? { entity: 'FileVersion', id: command.payload.fileId, version: command.payload.expectedVersion }
-                : command.type === 'team-cv.approve' ? { entity: 'TeamCv', id: command.payload.teamCvId, version: command.payload.expectedVersion }
+                 : command.type === 'pbc.submit' || command.type === 'pbc.review'
+                   ? { entity: 'PbcRequest', id: command.payload.requestId, version: command.payload.expectedRequestVersion }
+                   : command.type === 'team-cv.approve' ? { entity: 'TeamCv', id: command.payload.teamCvId, version: command.payload.expectedVersion }
                   : command.type === 'proposal.create' ? { entity: 'Engagement', id: command.payload.engagementId, version: command.payload.expectedEngagementVersion }
                     : command.type === 'proposal.revise' ? { entity: 'Proposal', id: command.payload.proposalId, version: command.payload.expectedVersion }
                       : command.type === 'proposal.generate' || command.type === 'proposal.generate.retry' || command.type === 'proposal.approve' || command.type === 'proposal.dispatch'
@@ -1242,6 +1292,8 @@ type BusinessFileRow = {
   version: number;
   client_id: string | null;
   engagement_id: string | null;
+  pbc_request_id: string | null;
+  pbc_request_version: number | null;
   original_name: string;
   media_type: string;
   size_bytes: number;
@@ -1254,7 +1306,7 @@ type BusinessFileRow = {
 };
 
 async function businessFileRow(env: Env, workspaceId: string, fileId: string): Promise<BusinessFileRow | null> {
-  return env.DB.prepare(`SELECT id,version,client_id,engagement_id,original_name,media_type,size_bytes,sha256,
+  return env.DB.prepare(`SELECT id,version,client_id,engagement_id,pbc_request_id,pbc_request_version,original_name,media_type,size_bytes,sha256,
       object_key,purpose,state,committed_at,immutable
     FROM file_versions WHERE workspace_id=? AND id=?`).bind(workspaceId, fileId).first<BusinessFileRow>();
 }
@@ -1339,7 +1391,7 @@ function assertBusinessFileAction(context: BusinessContext, file: Pick<BusinessF
     if (action === 'upload' && !['PBC', 'TB'].includes(file.purpose)) {
       throw new ApiError('PERSONA_ACTION_DENIED', 'CLIENT profiles can upload only to their own PBC or trial-balance request.');
     }
-    if (action === 'read' && !['PBC', 'TB', 'GENERATED'].includes(file.purpose)) {
+    if (action === 'read' && !['PBC', 'GENERATED', 'RELEASE'].includes(file.purpose)) {
       throw new ApiError('FORBIDDEN_SCOPE', 'This file is not part of the client-facing projection.');
     }
     if (!context.actor.clientId || file.client_id !== context.actor.clientId || !file.engagement_id) {
@@ -1361,16 +1413,51 @@ function assertBusinessFileAction(context: BusinessContext, file: Pick<BusinessF
 }
 
 async function assertFileEngagementWritable(env: Env, workspaceId: string, clientId: string, engagementId: string, clientActor: boolean): Promise<void> {
-  const engagement = await env.DB.prepare(`SELECT lifecycle_state,locked_at,portal_frozen_at FROM engagements
+  const engagement = await env.DB.prepare(`SELECT lifecycle_state,locked_at,portal_activated_at,portal_frozen_at FROM engagements
     WHERE workspace_id=? AND client_id=? AND id=?`).bind(workspaceId, clientId, engagementId)
-    .first<{ lifecycle_state: string; locked_at: string | null; portal_frozen_at: string | null }>();
+    .first<{ lifecycle_state: string; locked_at: string | null; portal_activated_at: string | null; portal_frozen_at: string | null }>();
   if (!engagement) throw new ApiError('FORBIDDEN_SCOPE', 'The file engagement does not belong to the selected client.');
   if (engagement.locked_at || engagement.lifecycle_state === 'ARCHIVED_READ_ONLY') {
     throw new ApiError('WORKSPACE_FROZEN', 'This engagement is read-only.');
   }
+  if (clientActor && !engagement.portal_activated_at) {
+    throw new ApiError('GATE_BLOCKED', 'Client uploads open only after the commercial handover is complete and the advance is settled with its committed receipt.');
+  }
   if (clientActor && engagement.portal_frozen_at) {
     throw new ApiError('WORKSPACE_FROZEN', 'Client uploads are frozen for this engagement.');
   }
+}
+
+async function assertPbcFileRequestCurrent(env: Env, workspaceId: string, context: BusinessContext, file: BusinessFileRow): Promise<void> {
+  if (file.purpose !== 'PBC' || context.actor.persona !== 'CLIENT') return;
+  if (!file.pbc_request_id || !file.pbc_request_version || !file.client_id || !file.engagement_id) {
+    throw new ApiError('GATE_BLOCKED', 'A PBC upload must be reserved against a current request in this engagement.');
+  }
+  const actor = await env.DB.prepare(`SELECT contact_id FROM actor_profiles WHERE workspace_id=? AND id=? AND persona='CLIENT' AND active=1`)
+    .bind(workspaceId, context.actor.id).first<{ contact_id: string | null }>();
+  const request = await env.DB.prepare(`SELECT version,status,client_id,engagement_id,assigned_contact_id FROM pbc_requests
+    WHERE workspace_id=? AND id=?`).bind(workspaceId, file.pbc_request_id)
+    .first<{ version: number; status: string; client_id: string; engagement_id: string; assigned_contact_id: string }>();
+  if (!request || request.client_id !== file.client_id || request.engagement_id !== file.engagement_id
+    || request.assigned_contact_id !== actor?.contact_id) {
+    throw new ApiError('FORBIDDEN_SCOPE', 'This PBC request is not assigned to the selected client contact.');
+  }
+  if (request.version !== file.pbc_request_version || !['PENDING_UPLOAD','REJECTED_REUPLOAD_REQUIRED'].includes(request.status)) {
+    throw new ApiError('VERSION_CONFLICT', 'The PBC request changed after this file was reserved. Refresh the request and upload against its current version.');
+  }
+}
+
+async function assertClientPbcDownloadScope(env: Env, workspaceId: string, context: BusinessContext, file: BusinessFileRow): Promise<void> {
+  if (context.actor.persona !== 'CLIENT' || file.purpose !== 'PBC') return;
+  if (!file.pbc_request_id || !file.client_id || !file.engagement_id) {
+    throw new ApiError('FORBIDDEN_SCOPE', 'This PBC file is not linked to a request assigned to this client contact.');
+  }
+  const assigned = await env.DB.prepare(`SELECT 1 AS found FROM pbc_requests r JOIN actor_profiles ap
+    ON ap.workspace_id=r.workspace_id AND ap.id=? AND ap.persona='CLIENT' AND ap.active=1
+    WHERE r.workspace_id=? AND r.id=? AND r.client_id=? AND r.engagement_id=? AND r.assigned_contact_id=ap.contact_id`)
+    .bind(context.actor.id, workspaceId, file.pbc_request_id, file.client_id, file.engagement_id)
+    .first<{ found: number }>();
+  if (!assigned) throw new ApiError('FORBIDDEN_SCOPE', 'This PBC response is outside the requests assigned to this client contact.');
 }
 
 export async function getBusinessFileForUpload(
@@ -1386,6 +1473,7 @@ export async function getBusinessFileForUpload(
   if (file.client_id && file.engagement_id) {
     await assertFileEngagementWritable(env, workspaceId, file.client_id, file.engagement_id, context.actor.persona === 'CLIENT');
   }
+  await assertPbcFileRequestCurrent(env, workspaceId, context, file);
   return { context, file };
 }
 
@@ -1418,6 +1506,30 @@ async function buildBusinessFileMutation(
       }
       await assertFileEngagementWritable(env, workspaceId, payload.clientId, payload.engagementId, context.actor.persona === 'CLIENT');
     }
+    let priorPbcFileId: string | null = null;
+    if (payload.purpose === 'PBC') {
+      if (context.actor.persona !== 'CLIENT') throw new ApiError('PERSONA_ACTION_DENIED', 'PBC responses are uploaded by the assigned CLIENT contact.');
+      if (!payload.pbcRequestId || !payload.expectedPbcRequestVersion || !payload.clientId || !payload.engagementId) {
+        throw new ApiError('VALIDATION_FAILED', 'Choose the current PBC request before reserving a response upload.');
+      }
+      const actor = await env.DB.prepare(`SELECT contact_id FROM actor_profiles WHERE workspace_id=? AND id=? AND persona='CLIENT' AND active=1`)
+        .bind(workspaceId, context.actor.id).first<{ contact_id: string | null }>();
+      const pbcRequest = await env.DB.prepare(`SELECT version,status,client_id,engagement_id,assigned_contact_id,current_submission_id
+        FROM pbc_requests WHERE workspace_id=? AND id=?`).bind(workspaceId, payload.pbcRequestId)
+        .first<{ version: number; status: string; client_id: string; engagement_id: string; assigned_contact_id: string; current_submission_id: string | null }>();
+      if (!pbcRequest || pbcRequest.client_id !== payload.clientId || pbcRequest.engagement_id !== payload.engagementId
+        || pbcRequest.assigned_contact_id !== actor?.contact_id) {
+        throw new ApiError('FORBIDDEN_SCOPE', 'The PBC request is outside the assigned client contact and engagement.');
+      }
+      if (pbcRequest.version !== payload.expectedPbcRequestVersion || !['PENDING_UPLOAD','REJECTED_REUPLOAD_REQUIRED'].includes(pbcRequest.status)) {
+        throw new ApiError('VERSION_CONFLICT', 'This request is no longer open for an upload. Refresh its current status.');
+      }
+      if (pbcRequest.current_submission_id && pbcRequest.status === 'REJECTED_REUPLOAD_REQUIRED') {
+        const previous = await env.DB.prepare(`SELECT file_version_id FROM pbc_submissions WHERE workspace_id=? AND id=? AND request_id=?`)
+          .bind(workspaceId, pbcRequest.current_submission_id, payload.pbcRequestId).first<{ file_version_id: string }>();
+        priorPbcFileId = previous?.file_version_id ?? null;
+      }
+    }
     const id = crypto.randomUUID();
     const key = `workspaces/${workspaceId}/files/${id}`;
     return {
@@ -1425,16 +1537,25 @@ async function buildBusinessFileMutation(
         env.DB.prepare(`INSERT INTO command_assertions(workspace_id,seq,ok)
           SELECT ?,71,CASE WHEN (? IS NULL OR EXISTS(SELECT 1 FROM clients WHERE workspace_id=? AND id=? AND active=1))
             AND (? IS NULL OR EXISTS(SELECT 1 FROM engagements WHERE workspace_id=? AND client_id=? AND id=? AND locked_at IS NULL AND lifecycle_state<>'ARCHIVED_READ_ONLY'
-              AND (?=0 OR portal_frozen_at IS NULL))) THEN 1 ELSE 0 END`)
+              AND (?=0 OR (portal_activated_at IS NOT NULL AND portal_frozen_at IS NULL))))
+            AND (?=0 OR EXISTS(SELECT 1 FROM pbc_requests r JOIN actor_profiles ap ON ap.workspace_id=r.workspace_id AND ap.id=?
+              JOIN engagements pe ON pe.workspace_id=r.workspace_id AND pe.client_id=r.client_id AND pe.id=r.engagement_id
+              WHERE r.workspace_id=? AND r.id=? AND r.client_id=? AND r.engagement_id=? AND r.version=?
+                AND r.status IN ('PENDING_UPLOAD','REJECTED_REUPLOAD_REQUIRED') AND r.assigned_contact_id=ap.contact_id
+                AND ap.persona='CLIENT' AND ap.active=1 AND pe.portal_activated_at IS NOT NULL AND pe.portal_frozen_at IS NULL AND pe.locked_at IS NULL))
+            THEN 1 ELSE 0 END`)
           .bind(workspaceId, payload.clientId ?? null, workspaceId, payload.clientId ?? null,
             payload.engagementId ?? null, workspaceId, payload.clientId ?? null, payload.engagementId ?? null,
-            context.actor.persona === 'CLIENT' ? 1 : 0),
+            context.actor.persona === 'CLIENT' ? 1 : 0, payload.purpose === 'PBC' ? 1 : 0, actorId,
+            workspaceId, payload.pbcRequestId ?? null, payload.clientId ?? null, payload.engagementId ?? null,
+            payload.expectedPbcRequestVersion ?? null),
         env.DB.prepare(`INSERT INTO file_versions(
-          id,workspace_id,version,client_id,engagement_id,original_name,media_type,size_bytes,object_key,purpose,state,
-          immutable,created_at,updated_at,created_by_actor_id,updated_by_actor_id
-        ) VALUES(?,?,1,?,?,?,?,?,?,?,'INITIALIZED',0,?,?,?,?)`).bind(
+          id,workspace_id,version,client_id,engagement_id,original_name,media_type,size_bytes,object_key,previous_version_id,purpose,
+          pbc_request_id,pbc_request_version,state,immutable,created_at,updated_at,created_by_actor_id,updated_by_actor_id
+        ) VALUES(?,?,1,?,?,?,?,?,?,?,?,?,?,'INITIALIZED',0,?,?,?,?)`).bind(
           id, workspaceId, payload.clientId ?? null, payload.engagementId ?? null, payload.originalName,
-          payload.mediaType, payload.sizeBytes, key, payload.purpose, now, now, actorId, actorId
+          payload.mediaType, payload.sizeBytes, key, priorPbcFileId, payload.purpose, payload.pbcRequestId ?? null,
+          payload.expectedPbcRequestVersion ?? null, now, now, actorId, actorId
         )
       ],
       result: { fileId: id, version: 1, state: 'INITIALIZED', uploadPath: `/api/workspaces/${workspaceId}/files/${id}/content` },
@@ -1449,6 +1570,7 @@ async function buildBusinessFileMutation(
   if (file.client_id && file.engagement_id) {
     await assertFileEngagementWritable(env, workspaceId, file.client_id, file.engagement_id, context.actor.persona === 'CLIENT');
   }
+  await assertPbcFileRequestCurrent(env, workspaceId, context, file);
 
   if (command.type === 'file.stage') {
     const payload = command.payload;
@@ -1468,7 +1590,10 @@ async function buildBusinessFileMutation(
     return {
       statements: [
         env.DB.prepare(`INSERT INTO command_assertions(workspace_id,seq,ok)
-          SELECT ?,72,CASE WHEN EXISTS(SELECT 1 FROM file_versions WHERE workspace_id=? AND id=? AND version=? AND state='INITIALIZED')
+          SELECT ?,72,CASE WHEN EXISTS(SELECT 1 FROM file_versions fv WHERE fv.workspace_id=? AND fv.id=? AND fv.version=? AND fv.state='INITIALIZED'
+            AND (fv.pbc_request_id IS NULL OR EXISTS(SELECT 1 FROM pbc_requests r JOIN engagements e ON e.workspace_id=r.workspace_id AND e.client_id=r.client_id AND e.id=r.engagement_id
+              WHERE r.workspace_id=fv.workspace_id AND r.id=fv.pbc_request_id AND r.version=fv.pbc_request_version
+                AND r.status IN ('PENDING_UPLOAD','REJECTED_REUPLOAD_REQUIRED') AND e.portal_activated_at IS NOT NULL AND e.portal_frozen_at IS NULL AND e.locked_at IS NULL)))
             THEN 1 ELSE 0 END`).bind(workspaceId, workspaceId, file.id, payload.expectedVersion),
         env.DB.prepare(`UPDATE file_versions SET version=version+1,size_bytes=?,sha256=?,object_key=?,state='STAGED',updated_at=?,updated_by_actor_id=?
           WHERE workspace_id=? AND id=? AND version=? AND state='INITIALIZED'`)
@@ -1500,7 +1625,11 @@ async function buildBusinessFileMutation(
           SELECT ?,73,CASE WHEN EXISTS(SELECT 1 FROM file_versions fv WHERE fv.workspace_id=? AND fv.id=? AND fv.version=? AND fv.state='STAGED'
             AND fv.sha256=? AND fv.size_bytes=? AND (? IS NULL OR EXISTS(SELECT 1 FROM engagements e WHERE e.workspace_id=fv.workspace_id
               AND e.client_id=fv.client_id AND e.id=fv.engagement_id AND e.locked_at IS NULL AND e.lifecycle_state<>'ARCHIVED_READ_ONLY'
-              AND (?=0 OR e.portal_frozen_at IS NULL)))) THEN 1 ELSE 0 END`)
+              AND (?=0 OR (e.portal_activated_at IS NOT NULL AND e.portal_frozen_at IS NULL))))
+            AND (fv.pbc_request_id IS NULL OR EXISTS(SELECT 1 FROM pbc_requests r JOIN engagements pe ON pe.workspace_id=r.workspace_id AND pe.client_id=r.client_id AND pe.id=r.engagement_id
+              WHERE r.workspace_id=fv.workspace_id AND r.id=fv.pbc_request_id AND r.version=fv.pbc_request_version
+                AND r.status IN ('PENDING_UPLOAD','REJECTED_REUPLOAD_REQUIRED') AND pe.portal_activated_at IS NOT NULL AND pe.portal_frozen_at IS NULL AND pe.locked_at IS NULL)))
+            THEN 1 ELSE 0 END`)
           .bind(workspaceId, workspaceId, file.id, payload.expectedVersion, digest, bytes.length, file.engagement_id,
             context.actor.persona === 'CLIENT' ? 1 : 0),
         env.DB.prepare(`UPDATE file_versions SET version=version+1,state='COMMITTED',immutable=1,committed_at=?,updated_at=?,updated_by_actor_id=?
@@ -1529,6 +1658,165 @@ async function buildBusinessFileMutation(
     result: { fileId: file.id, version: rejectPayload.expectedVersion + 1, state: 'REJECTED', reason: rejectPayload.reason },
     entityType: 'FILE_VERSION', entityId: file.id, beforeVersion: rejectPayload.expectedVersion, afterVersion: rejectPayload.expectedVersion + 1,
     auditDetails: { rejectionReason: rejectPayload.reason }
+  };
+}
+
+function assertPbcContext(context: BusinessContext, clientId: string, engagementId: string): void {
+  if (context.actor.persona === 'CLIENT' && context.actor.clientId !== clientId) {
+    throw new ApiError('FORBIDDEN_SCOPE', 'The PBC request belongs to another client.');
+  }
+  if (context.scope.clientId && context.scope.clientId !== clientId) {
+    throw new ApiError('FORBIDDEN_SCOPE', 'The PBC request does not match the selected client context.');
+  }
+  if (context.scope.engagementId && context.scope.engagementId !== engagementId) {
+    throw new ApiError('FORBIDDEN_SCOPE', 'The PBC request does not match the selected engagement context.');
+  }
+}
+
+async function buildBusinessPbcMutation(
+  env: Env, workspaceId: string, context: BusinessContext, command: BusinessPbcCommand, now: string
+): Promise<BusinessMutation> {
+  const actorId = context.actor.id;
+  if (command.type === 'pbc.request.create') {
+    if (!context.allowedActions.includes('pbc.manage') || context.actor.persona === 'CLIENT') {
+      throw new ApiError('PERSONA_ACTION_DENIED', 'Only internal PREPARER, REVIEWER or Partner APPROVER profiles may create PBC requests.');
+    }
+    const payload = command.payload;
+    assertPbcContext(context, payload.clientId, payload.engagementId);
+    const engagement = await env.DB.prepare(`SELECT lifecycle_state,locked_at,portal_frozen_at FROM engagements
+      WHERE workspace_id=? AND client_id=? AND id=?`).bind(workspaceId, payload.clientId, payload.engagementId)
+      .first<{ lifecycle_state: string; locked_at: string | null; portal_frozen_at: string | null }>();
+    if (!engagement) throw new ApiError('FORBIDDEN_SCOPE', 'The PBC engagement is not in the selected client scope.');
+    if (!['ADVANCE_BILLING','PORTAL_ACTIVE_PLANNING','FIELDWORK_EXECUTION','MANAGERIAL_REVIEW','PARTNER_APPROVAL','DELIVERABLE_RELEASE'].includes(engagement.lifecycle_state)) {
+      throw new ApiError('INVALID_TRANSITION', 'PBC requests can be created after the engagement letter and risk handover enter advance billing.');
+    }
+    if (engagement.locked_at || engagement.portal_frozen_at) throw new ApiError('WORKSPACE_FROZEN', 'No PBC requests can be changed after the portal is frozen.');
+    const contact = await env.DB.prepare(`SELECT id FROM contacts WHERE workspace_id=? AND client_id=? AND id=? AND active=1`)
+      .bind(workspaceId, payload.clientId, payload.assignedContactId).first<{ id: string }>();
+    if (!contact) throw new ApiError('NOT_FOUND', 'Choose an active contact for this client.');
+    const requestId = crypto.randomUUID();
+    return {
+      statements: [
+        env.DB.prepare(`INSERT INTO command_assertions(workspace_id,seq,ok)
+          SELECT ?,88,CASE WHEN EXISTS(SELECT 1 FROM engagements WHERE workspace_id=? AND client_id=? AND id=?
+            AND locked_at IS NULL AND portal_frozen_at IS NULL AND lifecycle_state IN ('ADVANCE_BILLING','PORTAL_ACTIVE_PLANNING','FIELDWORK_EXECUTION','MANAGERIAL_REVIEW','PARTNER_APPROVAL','DELIVERABLE_RELEASE'))
+            AND EXISTS(SELECT 1 FROM contacts WHERE workspace_id=? AND client_id=? AND id=? AND active=1) THEN 1 ELSE 0 END`)
+          .bind(workspaceId, workspaceId, payload.clientId, payload.engagementId, workspaceId, payload.clientId, payload.assignedContactId),
+        env.DB.prepare(`INSERT INTO pbc_requests(id,workspace_id,version,client_id,engagement_id,title,description,due_date,requested_by_actor_id,
+          assigned_contact_id,category,required_for_planning,required_for_release,status,current_submission_id,created_at,updated_at,created_by_actor_id,updated_by_actor_id)
+          VALUES(?,?,1,?,?,?,?,?,?,?,?,?,?,'PENDING_UPLOAD',NULL,?,?,?,?)`)
+          .bind(requestId, workspaceId, payload.clientId, payload.engagementId, payload.title, payload.description, payload.dueDate, actorId,
+            payload.assignedContactId, payload.category, payload.requiredForPlanning ? 1 : 0, payload.requiredForRelease ? 1 : 0, now, now, actorId, actorId)
+      ],
+      result: { requestId, version: 1, status: 'PENDING_UPLOAD' }, entityType: 'PBC_REQUEST', entityId: requestId,
+      beforeVersion: null, afterVersion: 1, auditDetails: { clientId: payload.clientId, engagementId: payload.engagementId, category: payload.category }
+    };
+  }
+
+  if (command.type === 'pbc.submit') {
+    if (!context.allowedActions.includes('pbc.submit') || context.actor.persona !== 'CLIENT') {
+      throw new ApiError('PERSONA_ACTION_DENIED', 'Only the assigned CLIENT contact may submit a PBC response.');
+    }
+    const payload = command.payload;
+    const actor = await env.DB.prepare(`SELECT contact_id FROM actor_profiles WHERE workspace_id=? AND id=? AND persona='CLIENT' AND active=1`)
+      .bind(workspaceId, actorId).first<{ contact_id: string | null }>();
+    const request = await env.DB.prepare(`SELECT id,version,client_id,engagement_id,assigned_contact_id,status,current_submission_id
+      FROM pbc_requests WHERE workspace_id=? AND id=?`).bind(workspaceId, payload.requestId)
+      .first<{ id: string; version: number; client_id: string; engagement_id: string; assigned_contact_id: string; status: string; current_submission_id: string | null }>();
+    if (!request) throw new ApiError('NOT_FOUND', 'PBC request not found.');
+    assertPbcContext(context, request.client_id, request.engagement_id);
+    if (request.assigned_contact_id !== actor?.contact_id) throw new ApiError('FORBIDDEN_SCOPE', 'This request is assigned to a different client contact.');
+    if (request.version !== payload.expectedRequestVersion || !['PENDING_UPLOAD','REJECTED_REUPLOAD_REQUIRED'].includes(request.status)) {
+      throw new ApiError('VERSION_CONFLICT', 'This PBC request changed. Refresh before submitting another response.');
+    }
+    await assertFileEngagementWritable(env, workspaceId, request.client_id, request.engagement_id, true);
+    const file = await env.DB.prepare(`SELECT id,sha256,created_by_actor_id,previous_version_id,pbc_request_id,pbc_request_version,state,immutable,client_id,engagement_id,purpose
+      FROM file_versions WHERE workspace_id=? AND id=?`).bind(workspaceId, payload.fileVersionId)
+      .first<{ id: string; sha256: string | null; created_by_actor_id: string | null; previous_version_id: string | null; pbc_request_id: string | null;
+        pbc_request_version: number | null; state: string; immutable: number; client_id: string | null; engagement_id: string | null; purpose: string }>();
+    if (!file || file.client_id !== request.client_id || file.engagement_id !== request.engagement_id || file.purpose !== 'PBC'
+      || file.pbc_request_id !== request.id || file.pbc_request_version !== request.version || file.state !== 'COMMITTED' || file.immutable !== 1 || !file.sha256
+      || file.created_by_actor_id !== actorId) {
+      throw new ApiError('GATE_BLOCKED', 'Submit the exact verified and committed file reserved for this current PBC request.');
+    }
+    const supersedesSubmissionId = request.status === 'REJECTED_REUPLOAD_REQUIRED' ? request.current_submission_id : null;
+    if (supersedesSubmissionId) {
+      const previous = await env.DB.prepare(`SELECT file_version_id FROM pbc_submissions WHERE workspace_id=? AND id=? AND request_id=?`)
+        .bind(workspaceId, supersedesSubmissionId, request.id).first<{ file_version_id: string }>();
+      if (!previous || file.previous_version_id !== previous.file_version_id) {
+        throw new ApiError('GATE_BLOCKED', 'A replacement must preserve the rejected response as its file predecessor.');
+      }
+    }
+    const sequenceRow = await env.DB.prepare(`SELECT COALESCE(MAX(sequence),0)+1 AS next FROM pbc_submissions WHERE workspace_id=? AND request_id=?`)
+      .bind(workspaceId, request.id).first<{ next: number }>();
+    const sequence = sequenceRow?.next ?? 1;
+    const submissionId = crypto.randomUUID();
+    const nextStatus = 'UNDER_REVIEW';
+    return {
+      statements: [
+        env.DB.prepare(`INSERT INTO command_assertions(workspace_id,seq,ok)
+          SELECT ?,88,CASE WHEN EXISTS(SELECT 1 FROM pbc_requests r JOIN actor_profiles ap ON ap.workspace_id=r.workspace_id AND ap.id=?
+            JOIN engagements e ON e.workspace_id=r.workspace_id AND e.client_id=r.client_id AND e.id=r.engagement_id
+            JOIN file_versions f ON f.workspace_id=r.workspace_id AND f.id=? AND f.client_id=r.client_id AND f.engagement_id=r.engagement_id
+              AND f.purpose='PBC' AND f.state='COMMITTED' AND f.immutable=1 AND f.sha256 IS NOT NULL
+              AND f.pbc_request_id=r.id AND f.pbc_request_version=r.version AND f.created_by_actor_id=ap.id
+            WHERE r.workspace_id=? AND r.id=? AND r.version=? AND r.status IN ('PENDING_UPLOAD','REJECTED_REUPLOAD_REQUIRED')
+              AND r.assigned_contact_id=ap.contact_id AND ap.persona='CLIENT' AND ap.active=1
+              AND e.portal_activated_at IS NOT NULL AND e.portal_frozen_at IS NULL AND e.locked_at IS NULL
+              AND (? IS NULL OR f.previous_version_id=(SELECT old.file_version_id FROM pbc_submissions old WHERE old.workspace_id=r.workspace_id AND old.id=? AND old.request_id=r.id)))
+            THEN 1 ELSE 0 END`)
+          .bind(workspaceId, actorId, payload.fileVersionId, workspaceId, request.id, payload.expectedRequestVersion,
+            supersedesSubmissionId, supersedesSubmissionId),
+        env.DB.prepare(`INSERT INTO pbc_submissions(id,workspace_id,version,request_id,sequence,file_version_id,uploaded_by_contact_id,submitted_at,client_comment,supersedes_submission_id)
+          VALUES(?,?,1,?,?,?,?,?,?,?)`)
+          .bind(submissionId, workspaceId, request.id, sequence, file.id, actor?.contact_id, now, payload.clientComment ?? null, supersedesSubmissionId),
+        env.DB.prepare(`UPDATE pbc_requests SET version=version+1,status=?,current_submission_id=?,updated_at=?,updated_by_actor_id=?
+          WHERE workspace_id=? AND id=? AND version=? AND status IN ('PENDING_UPLOAD','REJECTED_REUPLOAD_REQUIRED')`)
+          .bind(nextStatus, submissionId, now, actorId, workspaceId, request.id, payload.expectedRequestVersion)
+      ],
+      result: { requestId: request.id, submissionId, sequence, status: nextStatus, version: payload.expectedRequestVersion + 1, fileSha256: file.sha256 },
+      entityType: 'PBC_SUBMISSION', entityId: submissionId, beforeVersion: payload.expectedRequestVersion, afterVersion: payload.expectedRequestVersion + 1,
+      auditDetails: { requestId: request.id, submissionId, fileVersionId: file.id, fileSha256: file.sha256, supersedesSubmissionId }
+    };
+  }
+
+  if (!context.allowedActions.includes('pbc.review') || context.actor.persona !== 'REVIEWER') {
+    throw new ApiError('PERSONA_ACTION_DENIED', 'PBC evidence is reviewed by a REVIEWER profile.');
+  }
+  const payload = command.payload;
+  const request = await env.DB.prepare(`SELECT id,version,client_id,engagement_id,status,current_submission_id
+    FROM pbc_requests WHERE workspace_id=? AND id=?`).bind(workspaceId, payload.requestId)
+    .first<{ id: string; version: number; client_id: string; engagement_id: string; status: string; current_submission_id: string | null }>();
+  if (!request) throw new ApiError('NOT_FOUND', 'PBC request not found.');
+  assertPbcContext(context, request.client_id, request.engagement_id);
+  if (request.version !== payload.expectedRequestVersion || request.status !== 'UNDER_REVIEW' || request.current_submission_id !== payload.submissionId) {
+    throw new ApiError('VERSION_CONFLICT', 'Only the exact current PBC submission can be reviewed. Refresh the request before deciding.');
+  }
+  const submission = await env.DB.prepare(`SELECT s.id,s.file_version_id,f.sha256 FROM pbc_submissions s
+    JOIN file_versions f ON f.workspace_id=s.workspace_id AND f.id=s.file_version_id
+    WHERE s.workspace_id=? AND s.id=? AND s.request_id=? AND f.state='COMMITTED' AND f.immutable=1`)
+    .bind(workspaceId, payload.submissionId, request.id).first<{ id: string; file_version_id: string; sha256: string | null }>();
+  if (!submission?.sha256) throw new ApiError('GATE_BLOCKED', 'The current committed PBC bytes could not be verified for review.');
+  const reviewId = crypto.randomUUID();
+  const status = payload.decision === 'APPROVE' ? 'APPROVED' : 'REJECTED_REUPLOAD_REQUIRED';
+  return {
+    statements: [
+      env.DB.prepare(`INSERT INTO command_assertions(workspace_id,seq,ok)
+        SELECT ?,88,CASE WHEN EXISTS(SELECT 1 FROM pbc_requests r JOIN pbc_submissions s ON s.workspace_id=r.workspace_id AND s.id=r.current_submission_id
+          JOIN file_versions f ON f.workspace_id=s.workspace_id AND f.id=s.file_version_id
+          WHERE r.workspace_id=? AND r.id=? AND r.version=? AND r.status='UNDER_REVIEW' AND r.current_submission_id=?
+            AND s.id=? AND f.state='COMMITTED' AND f.immutable=1 AND f.sha256=? AND f.sha256 IS NOT NULL) THEN 1 ELSE 0 END`)
+        .bind(workspaceId, workspaceId, request.id, payload.expectedRequestVersion, payload.submissionId, payload.submissionId, submission.sha256),
+      env.DB.prepare(`INSERT INTO pbc_reviews(id,workspace_id,version,submission_id,request_id,decision,comments,reviewed_by_actor_id,reviewed_at,file_sha256)
+        VALUES(?,?,1,?,?,?,?,?,?,?)`)
+        .bind(reviewId, workspaceId, submission.id, request.id, payload.decision, payload.comments ?? null, actorId, now, submission.sha256),
+      env.DB.prepare(`UPDATE pbc_requests SET version=version+1,status=?,updated_at=?,updated_by_actor_id=?
+        WHERE workspace_id=? AND id=? AND version=? AND status='UNDER_REVIEW' AND current_submission_id=?`)
+        .bind(status, now, actorId, workspaceId, request.id, payload.expectedRequestVersion, payload.submissionId)
+    ],
+    result: { requestId: request.id, reviewId, submissionId: submission.id, status, version: payload.expectedRequestVersion + 1 },
+    entityType: 'PBC_REVIEW', entityId: reviewId, beforeVersion: payload.expectedRequestVersion, afterVersion: payload.expectedRequestVersion + 1,
+    auditDetails: { requestId: request.id, submissionId: submission.id, decision: payload.decision, comments: payload.comments ?? null, fileSha256: submission.sha256 }
   };
 }
 
@@ -1617,7 +1905,13 @@ export async function listBusinessFiles(
       bindings.push(context.scope.engagementId, context.scope.engagementId);
     }
   }
-  if (context.actor.persona === 'CLIENT') clauses.push(`(purpose IN ('PBC','TB') OR (purpose='GENERATED' AND (
+  if (context.actor.persona === 'CLIENT') clauses.push(`(
+    (purpose='PBC' AND pbc_request_id IS NOT NULL AND EXISTS(SELECT 1 FROM pbc_requests pr JOIN actor_profiles ap
+      ON ap.workspace_id=pr.workspace_id AND ap.id=? WHERE pr.workspace_id=file_versions.workspace_id AND pr.id=file_versions.pbc_request_id
+        AND pr.client_id=file_versions.client_id AND pr.engagement_id=file_versions.engagement_id AND pr.assigned_contact_id=ap.contact_id))
+    OR (purpose='RELEASE' AND EXISTS(SELECT 1 FROM engagements e WHERE e.workspace_id=file_versions.workspace_id
+      AND e.client_id=file_versions.client_id AND e.id=file_versions.engagement_id AND e.released_at IS NOT NULL))
+    OR (purpose='GENERATED' AND (
     EXISTS(SELECT 1 FROM generated_artifacts ga JOIN proposal_artifacts pa ON pa.workspace_id=ga.workspace_id AND pa.artifact_id=ga.id
       JOIN proposals p ON p.workspace_id=pa.workspace_id AND p.current_version_id=pa.proposal_version_id
       JOIN proposal_approvals a ON a.workspace_id=pa.workspace_id AND a.proposal_version_id=pa.proposal_version_id AND a.decision='APPROVE'
@@ -1627,12 +1921,130 @@ export async function listBusinessFiles(
     OR EXISTS(SELECT 1 FROM engagement_letters l WHERE l.workspace_id=file_versions.workspace_id AND l.client_id=? AND l.file_version_id=file_versions.id)
     OR EXISTS(SELECT 1 FROM invoices i WHERE i.workspace_id=file_versions.workspace_id AND i.client_id=? AND i.file_version_id=file_versions.id AND i.status='ISSUED')
     OR EXISTS(SELECT 1 FROM receipt_vouchers rv WHERE rv.workspace_id=file_versions.workspace_id AND rv.client_id=? AND rv.file_version_id=file_versions.id AND rv.status='ISSUED')
-  )))`), bindings.push(clientId, clientId, clientId, clientId);
+   )))`), bindings.push(context.actor.id, clientId, clientId, clientId, clientId);
   const result = await env.DB.prepare(`SELECT id,version,client_id,engagement_id,original_name,media_type,size_bytes,
-      sha256,object_key,purpose,state,committed_at,immutable FROM file_versions
+      pbc_request_id,pbc_request_version,sha256,object_key,purpose,state,committed_at,immutable FROM file_versions
     WHERE ${clauses.join(' AND ')} ORDER BY created_at DESC,id DESC LIMIT ?`)
     .bind(...bindings, safeLimit).all<BusinessFileRow>();
   return { items: (result.results ?? []).map(businessFileMetadata) };
+}
+
+function portalMode(row: { portal_activated_at: string | null; portal_frozen_at: string | null; locked_at: string | null }): 'NOT_ACTIVE' | 'ACTIVE' | 'FROZEN' {
+  if (row.portal_frozen_at || row.locked_at) return 'FROZEN';
+  return row.portal_activated_at ? 'ACTIVE' : 'NOT_ACTIVE';
+}
+
+export async function listBusinessPbcEngagements(env: Env, workspaceId: string, request: Request): Promise<{ engagements: Array<Record<string, unknown>> }> {
+  const context = await resolveBusinessContext(env, workspaceId, request);
+  if (!context.allowedActions.includes('pbc.read')) throw new ApiError('PERSONA_ACTION_DENIED', 'This persona cannot read the client PBC workspace.');
+  const clientId = context.actor.persona === 'CLIENT' ? context.actor.clientId : context.scope.clientId;
+  const clauses = ['e.workspace_id=?'];
+  const bindings: unknown[] = [workspaceId];
+  if (clientId) { clauses.push('e.client_id=?'); bindings.push(clientId); }
+  if (context.scope.engagementId) { clauses.push('e.id=?'); bindings.push(context.scope.engagementId); }
+  const result = await env.DB.prepare(`SELECT e.id,e.client_id,e.code,e.period_start,e.period_end,e.lifecycle_state,e.portal_activated_at,e.portal_frozen_at,e.locked_at
+    FROM engagements e WHERE ${clauses.join(' AND ')} ORDER BY e.period_end DESC,e.code,e.id LIMIT 100`)
+    .bind(...bindings).all<{ id: string; code: string; period_start: string; period_end: string; lifecycle_state: string;
+      client_id: string; portal_activated_at: string | null; portal_frozen_at: string | null; locked_at: string | null }>();
+  return { engagements: (result.results ?? []).map(row => {
+    const mode = portalMode(row);
+    return { id: row.id, clientId: row.client_id, code: row.code, periodStart: row.period_start, periodEnd: row.period_end,
+      lifecycleState: row.lifecycle_state, mode, canUpload: context.actor.persona === 'CLIENT' && mode === 'ACTIVE' };
+  }) };
+}
+
+export async function getBusinessPbcPortal(env: Env, workspaceId: string, request: Request, engagementId: string): Promise<Record<string, unknown>> {
+  const context = await resolveBusinessContext(env, workspaceId, request);
+  if (!context.allowedActions.includes('pbc.read')) throw new ApiError('PERSONA_ACTION_DENIED', 'This persona cannot read the client PBC workspace.');
+  const engagement = await env.DB.prepare(`SELECT e.id,e.client_id,e.code,e.period_start,e.period_end,e.lifecycle_state,e.portal_activated_at,e.portal_frozen_at,e.locked_at
+    FROM engagements e WHERE e.workspace_id=? AND e.id=?`).bind(workspaceId, engagementId)
+    .first<{ id: string; client_id: string; code: string; period_start: string; period_end: string; lifecycle_state: string;
+      portal_activated_at: string | null; portal_frozen_at: string | null; locked_at: string | null }>();
+  if (!engagement) throw new ApiError('NOT_FOUND', 'The engagement portal was not found.');
+  assertPbcContext(context, engagement.client_id, engagement.id);
+  const actorContact = context.actor.persona === 'CLIENT'
+    ? await env.DB.prepare(`SELECT contact_id FROM actor_profiles WHERE workspace_id=? AND id=? AND persona='CLIENT' AND active=1`)
+      .bind(workspaceId, context.actor.id).first<{ contact_id: string | null }>()
+    : null;
+  if (context.actor.persona === 'CLIENT' && !actorContact?.contact_id) throw new ApiError('FORBIDDEN_SCOPE', 'The client profile has no active contact assignment.');
+  const contactFilter = context.actor.persona === 'CLIENT' ? 'AND r.assigned_contact_id=?' : '';
+  const requestBindings: unknown[] = [workspaceId, engagement.client_id, engagement.id];
+  if (context.actor.persona === 'CLIENT') requestBindings.push(actorContact?.contact_id);
+  const requestRows = await env.DB.prepare(`SELECT r.id,r.version,r.title,r.description,r.due_date,r.assigned_contact_id,c.full_name AS contact_name,
+      r.category,r.required_for_planning,r.required_for_release,r.status,r.current_submission_id
+    FROM pbc_requests r JOIN contacts c ON c.workspace_id=r.workspace_id AND c.id=r.assigned_contact_id
+    WHERE r.workspace_id=? AND r.client_id=? AND r.engagement_id=? ${contactFilter}
+    ORDER BY r.due_date,r.title,r.id LIMIT 100`).bind(...requestBindings)
+    .all<{ id: string; version: number; title: string; description: string; due_date: string; assigned_contact_id: string; contact_name: string;
+      category: string; required_for_planning: number; required_for_release: number; status: string; current_submission_id: string | null }>();
+  const requestList = requestRows.results ?? [];
+  const requestIds = requestList.map(row => row.id);
+  const requestPlaceholders = requestIds.map(() => '?').join(',');
+  const submissionQuery = requestIds.length ? await env.DB.prepare(`SELECT s.id,s.request_id,s.sequence,s.file_version_id,s.submitted_at,s.client_comment,s.supersedes_submission_id,
+      f.original_name,f.sha256
+    FROM pbc_submissions s JOIN file_versions f ON f.workspace_id=s.workspace_id AND f.id=s.file_version_id
+    WHERE s.workspace_id=? AND s.request_id IN (${requestPlaceholders}) ORDER BY s.request_id,s.sequence`)
+    .bind(workspaceId, ...requestIds).all<{ id: string; request_id: string; sequence: number; file_version_id: string; submitted_at: string;
+      client_comment: string | null; supersedes_submission_id: string | null; original_name: string; sha256: string }>() : null;
+  const reviewQuery = requestIds.length ? await env.DB.prepare(`SELECT id,request_id,submission_id,decision,comments,reviewed_at,file_sha256 FROM pbc_reviews
+    WHERE workspace_id=? AND request_id IN (${requestPlaceholders}) ORDER BY request_id,reviewed_at,id`)
+    .bind(workspaceId, ...requestIds).all<{ id: string; request_id: string; submission_id: string; decision: string; comments: string | null;
+      reviewed_at: string; file_sha256: string }>() : null;
+  const submissionRows = submissionQuery?.results ?? [];
+  const reviewRows = reviewQuery?.results ?? [];
+  const submissionsByRequest = new Map<string, typeof submissionRows>();
+  for (const item of submissionRows) {
+    const items = submissionsByRequest.get(item.request_id) ?? [];
+    items.push(item);
+    submissionsByRequest.set(item.request_id, items);
+  }
+  const reviewsBySubmission = new Map<string, typeof reviewRows>();
+  for (const review of reviewRows) {
+    const items = reviewsBySubmission.get(review.submission_id) ?? [];
+    items.push(review);
+    reviewsBySubmission.set(review.submission_id, items);
+  }
+  const requests = requestList.map(row => ({
+      id: row.id, version: row.version, title: row.title, description: row.description, dueDate: row.due_date,
+      assignedContact: row.contact_name, category: row.category, requiredForPlanning: row.required_for_planning === 1,
+      requiredForRelease: row.required_for_release === 1, status: row.status, currentSubmissionId: row.current_submission_id,
+      submissions: (submissionsByRequest.get(row.id) ?? []).map(item => ({ id: item.id, sequence: item.sequence, fileVersionId: item.file_version_id,
+        originalName: item.original_name, sha256: item.sha256, submittedAt: item.submitted_at, clientComment: item.client_comment,
+        supersedesSubmissionId: item.supersedes_submission_id,
+        reviews: (reviewsBySubmission.get(item.id) ?? []).map(review => ({ id: review.id, decision: review.decision,
+          comments: review.comments, reviewedAt: review.reviewed_at, fileSha256: review.file_sha256 }))
+      }))
+    }));
+  const allFiles = await listBusinessFiles(env, workspaceId, request, 100);
+  const scopedFiles = allFiles.items.filter(file => file.engagementId === engagement.id);
+  const changeCursor = await sha256Hex(JSON.stringify(requests.map(item => [item.id, item.version])));
+  const mode = portalMode(engagement);
+  return {
+    engagement: { id: engagement.id, code: engagement.code, periodStart: engagement.period_start, periodEnd: engagement.period_end,
+      lifecycleState: engagement.lifecycle_state },
+    mode, canUpload: context.actor.persona === 'CLIENT' && mode === 'ACTIVE',
+    ...(mode === 'NOT_ACTIVE' ? { uploadBlocker: 'Uploads open after the commercial handover is complete and the advance is fully settled with its committed receipt.' } : {}),
+    requests,
+    commercialDocuments: scopedFiles.filter(file => file.purpose === 'GENERATED'),
+    releasedDeliverables: scopedFiles.filter(file => file.purpose === 'RELEASE'),
+    changeCursor
+  };
+}
+
+export async function getBusinessPbcRequestPortal(
+  env: Env, workspaceId: string, request: Request, engagementId: string, requestId: string
+): Promise<Record<string, unknown>> {
+  const portal = await getBusinessPbcPortal(env, workspaceId, request, engagementId);
+  const requestRecord = (portal.requests as Array<Record<string, unknown>>).find(item => item.id === requestId);
+  if (!requestRecord) throw new ApiError('NOT_FOUND', 'The PBC request was not found in this engagement scope.');
+  return {
+    engagement: portal.engagement,
+    mode: portal.mode,
+    canUpload: portal.canUpload,
+    ...(portal.uploadBlocker ? { uploadBlocker: portal.uploadBlocker } : {}),
+    request: requestRecord,
+    changeCursor: portal.changeCursor
+  };
 }
 
 async function readableBusinessFile(env: Env, workspaceId: string, request: Request, fileId: string): Promise<BusinessFileRow> {
@@ -1647,6 +2059,7 @@ async function readableBusinessFile(env: Env, workspaceId: string, request: Requ
     if (linkedPrior) fileContext = { ...context, scope: { ...context.scope, engagementId: null } };
   }
   assertBusinessFileAction(fileContext, file, 'read');
+  await assertClientPbcDownloadScope(env, workspaceId, context, file);
   if (context.actor.persona === 'CLIENT' && file.purpose === 'GENERATED') {
     const issued = await env.DB.prepare(`SELECT 1 AS found WHERE EXISTS(SELECT 1 FROM generated_artifacts ga
       JOIN proposal_artifacts pa ON pa.workspace_id=ga.workspace_id AND pa.artifact_id=ga.id
@@ -2826,13 +3239,15 @@ export async function runBusinessDirectoryCommand(
       ? await buildDirectoryMutation(env, workspaceId, context, envelope.command, commandId, timestamp)
       : isBusinessFileCommand(envelope.command)
         ? await buildBusinessFileMutation(env, workspaceId, context, envelope.command, timestamp)
-        : isBusinessProposalCommand(envelope.command)
-          ? await buildBusinessProposalMutation(env, workspaceId, context, envelope.command, commandId, timestamp)
-          : isBusinessRiskCommand(envelope.command)
-            ? await buildBusinessRiskMutation(env, workspaceId, context, envelope.command, commandId, timestamp)
-            : isBusinessDeliveryCommand(envelope.command)
-              ? await buildBusinessDeliveryMutation(env, workspaceId, context, envelope.command, commandId, timestamp)
-              : await buildCommercialMutation(env, workspaceId, context, envelope.command, commandId, timestamp);
+        : isBusinessPbcCommand(envelope.command)
+          ? await buildBusinessPbcMutation(env, workspaceId, context, envelope.command, timestamp)
+          : isBusinessProposalCommand(envelope.command)
+            ? await buildBusinessProposalMutation(env, workspaceId, context, envelope.command, commandId, timestamp)
+            : isBusinessRiskCommand(envelope.command)
+              ? await buildBusinessRiskMutation(env, workspaceId, context, envelope.command, commandId, timestamp)
+              : isBusinessDeliveryCommand(envelope.command)
+                ? await buildBusinessDeliveryMutation(env, workspaceId, context, envelope.command, commandId, timestamp)
+                : await buildCommercialMutation(env, workspaceId, context, envelope.command, commandId, timestamp);
     const sequence = head.last_sequence + 1;
     const eventDetails = JSON.stringify({
       commandId,

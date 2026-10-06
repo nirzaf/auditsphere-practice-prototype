@@ -498,8 +498,8 @@ async function renderAndStoreCommercialDocument(env: Env, job: OutboxJob): Promi
             env.DB.prepare(`INSERT INTO command_assertions(workspace_id,seq,ok)
               SELECT ?,993,CASE WHEN EXISTS(SELECT 1 FROM engagements WHERE workspace_id=? AND id=? AND version=? AND lifecycle_state='ADVANCE_BILLING')
                 THEN 1 ELSE 0 END`).bind(job.workspace_id, job.workspace_id, payload.engagementId, engagement.version),
-            env.DB.prepare(`UPDATE engagements SET lifecycle_state='PORTAL_ACTIVE_PLANNING',version=version+1,updated_at=?,updated_by_actor_id=NULL
-              WHERE workspace_id=? AND id=? AND version=? AND lifecycle_state='ADVANCE_BILLING'`).bind(generatedAt, job.workspace_id, payload.engagementId, engagement.version),
+            env.DB.prepare(`UPDATE engagements SET lifecycle_state='PORTAL_ACTIVE_PLANNING',portal_activated_at=COALESCE(portal_activated_at,?),version=version+1,updated_at=?,updated_by_actor_id=NULL
+              WHERE workspace_id=? AND id=? AND version=? AND lifecycle_state='ADVANCE_BILLING'`).bind(generatedAt, generatedAt, job.workspace_id, payload.engagementId, engagement.version),
             env.DB.prepare(`INSERT INTO state_transitions(id,workspace_id,client_id,engagement_id,version,from_state,to_state,command_id,reason,dependency_hash,transitioned_at)
               VALUES(?,?,?, ?,1,'ADVANCE_BILLING','PORTAL_ACTIVE_PLANNING',?,?,?,?)`)
               .bind(transitionId, job.workspace_id, payload.clientId, payload.engagementId, payload.commandId, reason, dependencyHash, generatedAt)
