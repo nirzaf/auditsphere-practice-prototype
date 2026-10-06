@@ -1843,16 +1843,23 @@ async function buildBusinessPbcMutation(
       throw new ApiError('INVALID_TRANSITION', 'PBC requests can be created after the engagement letter and risk handover enter advance billing.');
     }
     if (engagement.locked_at || engagement.portal_frozen_at) throw new ApiError('WORKSPACE_FROZEN', 'No PBC requests can be changed after the portal is frozen.');
-    const contact = await env.DB.prepare(`SELECT id FROM contacts WHERE workspace_id=? AND client_id=? AND id=? AND active=1`)
-      .bind(workspaceId, payload.clientId, payload.assignedContactId).first<{ id: string }>();
-    if (!contact) throw new ApiError('NOT_FOUND', 'Choose an active contact for this client.');
+    const pbcRoute = await env.DB.prepare(`SELECT cr.id,cr.version FROM contact_routes cr
+      JOIN contacts ct ON ct.workspace_id=cr.workspace_id AND ct.client_id=cr.client_id AND ct.id=cr.contact_id
+      WHERE cr.workspace_id=? AND cr.client_id=? AND cr.contact_id=? AND cr.purpose='PBC' AND ct.active=1
+        AND ((cr.is_primary=1 AND ct.role='CHIEF_ACCOUNTANT_LIAISON') OR
+          (cr.is_primary=0 AND length(trim(COALESCE(cr.rationale,''))) BETWEEN 10 AND 1000))`)
+      .bind(workspaceId, payload.clientId, payload.assignedContactId).first<{ id: string; version: number }>();
+    if (!pbcRoute) throw new ApiError('GATE_BLOCKED', 'Choose an active primary PBC recipient route or a documented PBC alternate.');
     const requestId = crypto.randomUUID();
     return {
       statements: [
         env.DB.prepare(`INSERT INTO command_assertions(workspace_id,seq,ok)
           SELECT ?,88,CASE WHEN EXISTS(SELECT 1 FROM engagements WHERE workspace_id=? AND client_id=? AND id=?
             AND locked_at IS NULL AND portal_frozen_at IS NULL AND lifecycle_state IN ('ADVANCE_BILLING','PORTAL_ACTIVE_PLANNING','FIELDWORK_EXECUTION','MANAGERIAL_REVIEW','PARTNER_APPROVAL','DELIVERABLE_RELEASE'))
-            AND EXISTS(SELECT 1 FROM contacts WHERE workspace_id=? AND client_id=? AND id=? AND active=1) THEN 1 ELSE 0 END`)
+            AND EXISTS(SELECT 1 FROM contact_routes cr JOIN contacts ct ON ct.workspace_id=cr.workspace_id AND ct.client_id=cr.client_id AND ct.id=cr.contact_id
+              WHERE cr.workspace_id=? AND cr.client_id=? AND cr.contact_id=? AND cr.purpose='PBC' AND ct.active=1
+                AND ((cr.is_primary=1 AND ct.role='CHIEF_ACCOUNTANT_LIAISON') OR
+                  (cr.is_primary=0 AND length(trim(COALESCE(cr.rationale,''))) BETWEEN 10 AND 1000))) THEN 1 ELSE 0 END`)
           .bind(workspaceId, workspaceId, payload.clientId, payload.engagementId, workspaceId, payload.clientId, payload.assignedContactId),
         env.DB.prepare(`INSERT INTO pbc_requests(id,workspace_id,version,client_id,engagement_id,title,description,due_date,requested_by_actor_id,
           assigned_contact_id,category,required_for_planning,required_for_release,status,current_submission_id,created_at,updated_at,created_by_actor_id,updated_by_actor_id)
@@ -2333,6 +2340,12 @@ function contactRoutePurposes(role: z.infer<typeof contactRoleSchema>): Array<z.
   return [];
 }
 
+function primaryContactRoleForPurpose(purpose: z.infer<typeof contactPurposeSchema>): z.infer<typeof contactRoleSchema> {
+  if (['PROPOSAL', 'EL', 'FINAL_REPORT', 'HOLDING_LETTER'].includes(purpose)) return 'MD_GM';
+  if (purpose === 'INVOICE' || purpose === 'RECEIPT') return 'CFO_FINANCE_DIRECTOR';
+  return 'CHIEF_ACCOUNTANT_LIAISON';
+}
+
 async function buildCommercialMutation(
   env: Env,
   workspaceId: string,
@@ -2521,9 +2534,9 @@ async function buildCommercialMutation(
 
   if (command.type === 'contact.update') {
     const payload = command.payload;
-    const before = await env.DB.prepare(`SELECT version,client_id,email,phone,is_primary,active FROM contacts
+    const before = await env.DB.prepare(`SELECT version,client_id,email,phone,is_primary,active,role FROM contacts
       WHERE workspace_id=? AND id=? AND active=1`).bind(workspaceId, payload.contactId)
-      .first<{ version: number; client_id: string; email: string | null; phone: string | null; is_primary: number; active: number }>();
+      .first<{ version: number; client_id: string; email: string | null; phone: string | null; is_primary: number; active: number; role: z.infer<typeof contactRoleSchema> }>();
     if (!before) throw new ApiError('NOT_FOUND', 'Active client contact not found.');
     requireClientScope(context, before.client_id);
     if (before.version !== payload.expectedVersion) throw new ApiError('VERSION_CONFLICT', 'The contact changed. Reload it before editing.');
@@ -2532,12 +2545,26 @@ async function buildCommercialMutation(
     const nextActive = payload.active ?? Boolean(before.active);
     const nextPrimary = payload.active === false ? false : payload.isPrimary ?? Boolean(before.is_primary);
     const changePrimary = Object.hasOwn(payload, 'isPrimary') || payload.active === false;
+    const nextRole = payload.role ?? before.role;
     if (nextActive && !nextEmail && !nextPhone) throw new ApiError('VALIDATION_FAILED', 'An active contact must keep an email address or phone number.');
     if (nextPrimary && !nextActive) throw new ApiError('VALIDATION_FAILED', 'An inactive contact cannot be the primary contact.');
+    const primaryRoutes = await env.DB.prepare(`SELECT purpose FROM contact_routes
+      WHERE workspace_id=? AND client_id=? AND contact_id=? AND is_primary=1`)
+      .bind(workspaceId, before.client_id, payload.contactId).all<{ purpose: z.infer<typeof contactPurposeSchema> }>();
+    const allowedPrimaryPurposes = contactRoutePurposes(nextRole);
+    const incompatiblePrimaryRoutes = (primaryRoutes.results ?? []).filter(route => !allowedPrimaryPurposes.includes(route.purpose));
+    if (incompatiblePrimaryRoutes.length) {
+      throw new ApiError('GATE_BLOCKED', `Move these primary routes to role-matched contacts before changing this contact's role: ${incompatiblePrimaryRoutes.map(route => route.purpose).join(', ')}.`);
+    }
+    const routeRoleGuard = allowedPrimaryPurposes.length
+      ? `AND NOT EXISTS(SELECT 1 FROM contact_routes WHERE workspace_id=? AND client_id=? AND contact_id=? AND is_primary=1 AND purpose NOT IN (${allowedPrimaryPurposes.map(() => '?').join(',')}))`
+      : `AND NOT EXISTS(SELECT 1 FROM contact_routes WHERE workspace_id=? AND client_id=? AND contact_id=? AND is_primary=1)`;
     const statements: D1PreparedStatement[] = [
       env.DB.prepare(`INSERT INTO command_assertions(workspace_id,seq,ok)
         SELECT ?,24,CASE WHEN EXISTS(SELECT 1 FROM contacts WHERE workspace_id=? AND id=? AND version=? AND active=1)
-        THEN 1 ELSE 0 END`).bind(workspaceId, workspaceId, payload.contactId, payload.expectedVersion),
+          ${routeRoleGuard}
+        THEN 1 ELSE 0 END`).bind(workspaceId, workspaceId, payload.contactId, payload.expectedVersion,
+          workspaceId, before.client_id, payload.contactId, ...allowedPrimaryPurposes),
       ...(nextPrimary ? [env.DB.prepare(`UPDATE contacts SET is_primary=0,version=version+1,updated_at=?,updated_by_actor_id=?
         WHERE workspace_id=? AND client_id=? AND is_primary=1 AND active=1 AND id<>?`)
         .bind(now, actorId, workspaceId, before.client_id, payload.contactId)] : []),
@@ -2570,9 +2597,13 @@ async function buildCommercialMutation(
   if (command.type === 'contact.route') {
     const payload = command.payload;
     requireClientScope(context, payload.clientId);
-    const contact = await env.DB.prepare(`SELECT id FROM contacts WHERE workspace_id=? AND client_id=? AND id=? AND active=1`)
-      .bind(workspaceId, payload.clientId, payload.contactId).first<{ id: string }>();
+    const contact = await env.DB.prepare(`SELECT id,role FROM contacts WHERE workspace_id=? AND client_id=? AND id=? AND active=1`)
+      .bind(workspaceId, payload.clientId, payload.contactId).first<{ id: string; role: z.infer<typeof contactRoleSchema> }>();
     if (!contact) throw new ApiError('VALIDATION_FAILED', 'Routing requires an active contact on the same client.');
+    const expectedPrimaryRole = primaryContactRoleForPurpose(payload.purpose);
+    if (payload.isPrimary && contact.role !== expectedPrimaryRole) {
+      throw new ApiError('GATE_BLOCKED', `The primary ${payload.purpose} route must use a contact recorded as ${expectedPrimaryRole.replaceAll('_', ' ')}. Add this contact as a documented alternate if the business combines roles.`);
+    }
     const existing = await env.DB.prepare(`SELECT id,version FROM contact_routes
       WHERE workspace_id=? AND client_id=? AND purpose=? AND contact_id=?`)
       .bind(workspaceId, payload.clientId, payload.purpose, payload.contactId).first<{ id: string; version: number }>();
@@ -2598,12 +2629,14 @@ async function buildCommercialMutation(
           AND (?=0 OR ((? IS NOT NULL AND EXISTS(SELECT 1 FROM contact_routes WHERE workspace_id=? AND id=? AND version=? AND is_primary=1 AND client_id=? AND purpose=?))
             OR (? IS NULL AND NOT EXISTS(SELECT 1 FROM contact_routes WHERE workspace_id=? AND client_id=? AND purpose=? AND is_primary=1 AND contact_id<>?))))
           AND (?=0 OR (SELECT COUNT(*) FROM contact_routes WHERE workspace_id=? AND client_id=? AND purpose=? AND is_primary=1 AND contact_id<>?)=?)
+          AND (?=0 OR EXISTS(SELECT 1 FROM contacts WHERE workspace_id=? AND client_id=? AND id=? AND active=1 AND role=?))
         THEN 1 ELSE 0 END`).bind(workspaceId, workspaceId, payload.clientId, payload.contactId,
         payload.expectedVersion, workspaceId, payload.clientId, payload.purpose, payload.contactId,
         payload.expectedVersion, workspaceId, payload.clientId, payload.purpose, payload.contactId, payload.expectedVersion ?? 0,
         payload.isPrimary ? 1 : 0, replacedPrimary?.id ?? null, workspaceId, replacedPrimary?.id ?? '', replacedPrimary?.version ?? 0, payload.clientId, payload.purpose,
         replacedPrimary?.id ?? null, workspaceId, payload.clientId, payload.purpose, payload.contactId,
-        payload.isPrimary ? 1 : 0, workspaceId, payload.clientId, payload.purpose, payload.contactId, replacedPrimary ? 1 : 0),
+        payload.isPrimary ? 1 : 0, workspaceId, payload.clientId, payload.purpose, payload.contactId, replacedPrimary ? 1 : 0,
+        payload.isPrimary ? 1 : 0, workspaceId, payload.clientId, payload.contactId, expectedPrimaryRole),
       ...(replacedPrimary ? [env.DB.prepare(`UPDATE contact_routes SET is_primary=0,rationale=?,version=version+1,updated_at=?,updated_by_actor_id=?
         WHERE workspace_id=? AND id=? AND version=? AND is_primary=1`)
         .bind(payload.rationale, now, actorId, workspaceId, replacedPrimary.id, replacedPrimary.version)] : []),

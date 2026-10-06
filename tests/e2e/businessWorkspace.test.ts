@@ -471,6 +471,7 @@ it('US-ENG-003 renders and approves an exact quote revision, then fails closed w
   await addStaffProfile('QA Quote Preparer', 'PREPARER', 'ASSOCIATE');
   await chooseOption('business-active-persona', `item.textContent?.includes('PREPARER · QA Quote Preparer')`);
   await waitFor('the PREPARER context', `document.querySelector('.business-actor-summary')?.innerText.includes('PREPARER')`);
+  await waitFor('the new-versus-existing client selector', `document.getElementById('business-lead-client-mode')?.getClientRects().length > 0 && [...document.querySelectorAll('#business-lead-client-mode option')].some(option => option.value === 'NEW')`);
   await chooseOption('business-lead-client-mode', `item.value === 'NEW'`);
   await waitFor('new-prospect lead intake controls', `!!document.getElementById('business-lead-client-code')`);
 

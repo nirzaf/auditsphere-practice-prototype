@@ -47,6 +47,8 @@ export async function runVisibleAlignmentJourney(tab: CdpTab) {
     await tab.evaluate(`Array.from(document.querySelectorAll('form')).find(f=>f.querySelector('h3')?.textContent.startsWith(${JSON.stringify(title)})).dataset.visibleTestForm='active'`);
     return '[data-visible-test-form="active"]';
   };
+  const waitForCurrentWorkbook = (workpaperId: string) => wait(`import('/src/store/prototypeStore.ts').then(({prototypeStore:s})=>{const state=s.getSnapshot(),engagement=state.engagements.find(e=>e.id===state.selectedEngagement),workpaper=engagement?.workpapers.find(w=>w.id===${JSON.stringify(workpaperId)});return Boolean(workpaper?.workingPaper&&workpaper.workingPaper.version===workpaper.version)})`);
+  const waitForWorkpaperStatus = (workpaperId: string, status: string) => wait(`import('/src/store/prototypeStore.ts').then(({prototypeStore:s})=>{const state=s.getSnapshot(),engagement=state.engagements.find(e=>e.id===state.selectedEngagement),workpaper=engagement?.workpapers.find(w=>w.id===${JSON.stringify(workpaperId)});return workpaper?.status===${JSON.stringify(status)}&&workpaper.submittedVersion===workpaper.version})`);
   const row = (id: string) => `Array.from(document.querySelectorAll('tr')).find(r=>r.innerText.includes(${JSON.stringify(id)}))`;
   const checkpoints: string[] = [];
   const state = async (expected: string) => {
@@ -235,12 +237,16 @@ export async function runVisibleAlignmentJourney(tab: CdpTab) {
   for(const wp of workpapers) {
     selectedForm=await form(`Link accepted evidence to ${wp.id}`); await fill(`${selectedForm} [name="document"]`,documentId); await submit(selectedForm);
     selectedForm=await form(`Prepare / revise ${wp.id}`); await fill(`${selectedForm} [name="work"]`,'Recorded current procedures, digital source verification and current supporting evidence.'); await fill(`${selectedForm} [name="conclusion"]`,'The current evidence supports the recorded audit area conclusion without unresolved exceptions.'); await submit(selectedForm);
+    await waitForCurrentWorkbook(wp.id);
     await button('Mark ready for independent review',`Array.from(document.querySelectorAll('form[data-target-form="workpaper"]')).find(f=>f.innerText.includes(${JSON.stringify(wp.id)})).closest('section')`);
+    await waitForWorkpaperStatus(wp.id,'Submitted');
   }
   selectedForm=await form(`Return a review point on ${workpapers[0].id}`); await fill(`${selectedForm} [name="title"]`,'Clarify current evidence basis'); await fill(`${selectedForm} [name="note"]`,'Expand the source verification and cross-reference the current digital evidence.'); await submit(selectedForm);
   selectedForm=await form(`Prepare / revise ${workpapers[0].id}`); await fill(`${selectedForm} [name="work"]`,'Revised source verification explicitly cross-references the current accepted digital source and sample tests.'); await fill(`${selectedForm} [name="conclusion"]`,'Current source corroboration supports the revised conclusion without exceptions.'); await submit(selectedForm);
+  await waitForCurrentWorkbook(workpapers[0].id);
   selectedForm=await form('Preparer response:'); await fill(`${selectedForm} [name="response"]`,'Revised workpaper source verification and linked current digital evidence address the returned point.'); await submit(selectedForm);
   await button('Mark ready for independent review',`Array.from(document.querySelectorAll('form[data-target-form="workpaper"]')).find(f=>f.innerText.includes(${JSON.stringify(workpapers[0].id)})).closest('section')`);
+  await waitForWorkpaperStatus(workpapers[0].id,'Submitted');
   await actor('partner'); await route('reviews','Preparer → Manager'); await button('Independent clearance of review point');
   for(const wp of workpapers) await button('Partner reviewer clears RED workpaper',`Array.from(document.querySelectorAll('form[data-target-form="workpaper"]')).find(f=>f.innerText.includes(${JSON.stringify(wp.id)})).closest('section')`);
   await actor('manager'); await route('reviews','Preparer → Manager');

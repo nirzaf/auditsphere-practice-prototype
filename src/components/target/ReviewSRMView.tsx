@@ -12,6 +12,7 @@ import {
 } from './TargetCommon';
 
 export function ReviewSRMView(props: TargetViewProps) {
+  const [savingWorkpaperIds, setSavingWorkpaperIds] = React.useState<string[]>([]);
   const state = prototypeStore.getReadSnapshot(),
     eng = state.engagements.find((e) => e.id === state.selectedEngagement);
   if (!eng) return null;
@@ -98,16 +99,21 @@ export function ReviewSRMView(props: TargetViewProps) {
             button="Generate workpaper workbook revision"
             disabled={!hasAnyRole(state, ['preparer', 'manager']) || frozen}
             onRegisterUnsavedForm={props.onRegisterUnsavedForm}
-            onCommit={(data) =>
-              prototypeStore.lifecycle.saveFieldworkWorkbook(
+            onCommit={async data => {
+              setSavingWorkpaperIds(current => current.includes(w.id) ? current : [...current, w.id]);
+              try {
+                return await prototypeStore.lifecycle.saveFieldworkWorkbook(
                 eng.id,
                 w.id,
                 value(data, 'scope'),
                 value(data, 'work'),
                 value(data, 'conclusion'),
                 value(data, 'evidenceMode') as 'Digital' | 'Physical' | 'Hybrid'
-              )
-            }
+                );
+              } finally {
+                setSavingWorkpaperIds(current => current.filter(id => id !== w.id));
+              }
+            }}
           >
             <Field label="Workpaper scope" name="scope" defaultValue={w.scope || eng.period} />
             <Field label="Workpaper evidence mode" name="evidenceMode" defaultValue={w.evidenceMode || (w.physicalReference ? (w.evidenceRefs?.length ? 'Hybrid' : 'Physical') : 'Digital')}>
@@ -132,6 +138,9 @@ export function ReviewSRMView(props: TargetViewProps) {
               disabled={
                 !hasAnyRole(state, ['preparer', 'manager']) ||
                 frozen ||
+                savingWorkpaperIds.includes(w.id) ||
+                !w.workingPaper ||
+                w.workingPaper.version !== w.version ||
                 w.status === 'Submitted' ||
                 w.status === 'Cleared'
               }

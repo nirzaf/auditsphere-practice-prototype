@@ -19,7 +19,7 @@ import {
   uploadBusinessFile
 } from '../../services/businessWorkspace';
 
-interface ContactChoice { id: string; full_name: string; active: boolean }
+interface ContactChoice { id: string; full_name: string; active: boolean; is_primary: boolean; rationale: string | null }
 interface PendingUpload {
   requestId: string;
   requestVersion: number;
@@ -128,7 +128,13 @@ export function BusinessPbcPanel({
     const requestedContactsScopeKey = [context.actor.id, engagement.clientId].join('|');
     getBusinessClient(workspaceId, engagement.clientId, clientContext).then(detail => {
       if (!controller.signal.aborted) {
-        setContacts(detail.contacts.map(contact => ({ id: contact.id, full_name: contact.full_name, active: contact.active })));
+        const contactRoles = new Map(detail.contacts.map(contact => [contact.id, contact.role]));
+        setContacts(detail.routes
+          .filter(route => route.purpose === 'PBC' && (
+            (route.is_primary === 1 && contactRoles.get(route.contact_id) === 'CHIEF_ACCOUNTANT_LIAISON')
+            || (route.is_primary === 0 && Boolean(route.rationale?.trim()))
+          ))
+          .map(route => ({ id: route.contact_id, full_name: route.full_name, active: true, is_primary: route.is_primary === 1, rationale: route.rationale })));
         setContactsScopeKey(requestedContactsScopeKey);
       }
     }).catch(() => {
@@ -344,12 +350,12 @@ export function BusinessPbcPanel({
           <label className="business-field" htmlFor="business-pbc-title"><span>Requested item</span><input id="business-pbc-title" name="title" required maxLength={240} /></label>
           <label className="business-field" htmlFor="business-pbc-category"><span>Category</span><select id="business-pbc-category" name="category"><option value="GENERAL">General</option><option value="TRIAL_BALANCE">Trial balance</option><option value="BANK_STATEMENT">Bank statement</option><option value="CONTRACTS">Contracts</option><option value="INVOICES">Invoices</option><option value="PAYROLL">Payroll</option><option value="LEGAL">Legal</option><option value="OTHER">Other</option></select></label>
           <label className="business-field" htmlFor="business-pbc-due"><span>Due date</span><input id="business-pbc-due" name="dueDate" type="date" required /></label>
-          <label className="business-field" htmlFor="business-pbc-contact"><span>Assigned client contact</span><select id="business-pbc-contact" name="assignedContactId" required defaultValue=""><option value="">Select an active contact</option>{visibleContacts.filter(contact => contact.active).map(contact => <option key={contact.id} value={contact.id}>{contact.full_name}</option>)}</select></label>
+          <label className="business-field" htmlFor="business-pbc-contact"><span>Assigned PBC recipient</span><select id="business-pbc-contact" name="assignedContactId" required defaultValue=""><option value="">Select a configured PBC route</option>{visibleContacts.filter(contact => contact.active).map(contact => <option key={contact.id} value={contact.id}>{contact.full_name}{contact.is_primary ? ' · Primary PBC route' : ` · Documented alternate${contact.rationale ? ` — ${contact.rationale}` : ''}`}</option>)}</select></label>
           <label className="business-field business-pbc-checkbox" htmlFor="business-pbc-planning"><input id="business-pbc-planning" name="requiredForPlanning" type="checkbox" /> Required for planning handover</label>
           <label className="business-field business-pbc-checkbox" htmlFor="business-pbc-release"><input id="business-pbc-release" name="requiredForRelease" type="checkbox" /> Required before final release</label>
         </div>
         <label className="business-field" htmlFor="business-pbc-description"><span>Instructions</span><textarea id="business-pbc-description" name="description" required minLength={1} maxLength={5000} rows={3} /></label>
-        {visibleContacts.filter(contact => contact.active).length === 0 && <p className="business-alert" role="alert">Select a client with an active contact before creating a request.</p>}
+        {visibleContacts.filter(contact => contact.active).length === 0 && <p className="business-alert" role="alert">Add an active Chief Accountant / Audit Liaison PBC route, or document an approved alternate route, before creating a request.</p>}
         <div className="business-dialog-actions"><button className="btn primary" type="submit" disabled={!engagement || !requestContext || !visibleContacts.some(contact => contact.active) || busyRequestId === 'create'}>{busyRequestId === 'create' ? 'Saving request…' : 'Create request'}</button></div>
       </form>}
 

@@ -397,3 +397,30 @@ checks both the displayed route and stored row. On this working tree,
 `npm run test:unit` passed **484/484** checks across 104 suites and
 `npm run test:e2e` passed **24/24** browser scenarios; app and Worker
 typechecks and the production build passed.
+
+## PBC route enforcement and fieldwork readiness regression — 2026-10-06
+
+PBC requests now require an active contact on the same client with either the
+primary Chief Accountant / Audit Liaison route or a documented alternate PBC
+route. The Worker checks this before preparing the command and again in the
+atomic D1 assertion; contact role changes and primary-route creation also keep
+the route role-compatible. The request form lists only configured PBC routes
+and labels primary versus documented alternate recipients. Worker/D1 tests
+reject route-less CFO assignment without persisting a request, reject role
+changes that strand primary routes, and accept the configured recipient.
+
+The shared HTTP error map now follows epic §1.6 for `GATE_BLOCKED` and
+`INVALID_TRANSITION` (409). The SRM view disables submission while its workbook
+save is in flight or its workbook revision is missing/stale; the visible
+fieldwork journey waits for both the saved workbook and submitted revision.
+
+On the working tree, `npm run test:unit` passed **484/484** checks across 104
+suites; `npm run test:e2e` passed **24/24** browser scenarios, including the
+previously failing visible fieldwork journey; `npx tsc --noEmit` and
+`npm run cloud:typecheck` passed, and the E2E command's production build passed.
+These runs do not include a browser journey through the PBC route selector, so
+that UI subcase still lacks browser evidence. Full acceptance of **US-ENG-001**,
+**US-ENG-007**, the other story criteria, and the 46-story epic remains open.
+The latest hosted run before these changes (`37463953487`) still records the
+earlier workpaper-readiness failure; only a new hosted run can verify the fix
+against GitHub CI.

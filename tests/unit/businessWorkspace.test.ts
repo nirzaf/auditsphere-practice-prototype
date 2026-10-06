@@ -307,6 +307,30 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
   assert.deepEqual(clientDetail.body.routes.map((route: any) => route.purpose), ['INVOICE', 'RECEIPT']);
   assert.equal(clientDetail.body.routes.every((route: any) => route.contact_id === financeContactId), true);
 
+  const pbcContact = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'contact.create', payload: {
+      clientId,
+      contact: { fullName: 'Chief Accountant', email: 'chief-accountant@example.invalid', title: 'Chief Accountant', role: 'CHIEF_ACCOUNTANT_LIAISON', effectiveFrom: '2026-01-01' }
+    } }
+  }, preparerHeaders);
+  assert.equal(pbcContact.response.status, 200, JSON.stringify(pbcContact.body));
+  assert.deepEqual(pbcContact.body.result.routePurposes, ['PBC']);
+  const pbcContactId = pbcContact.body.result.contactId as string;
+  const wrongPrimaryPbcRoute = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'contact.route', payload: {
+      clientId, contactId: financeContactId, purpose: 'PBC', isPrimary: true, expectedVersion: null
+    } }
+  }, preparerHeaders);
+  assert.equal(wrongPrimaryPbcRoute.response.status, 409, JSON.stringify(wrongPrimaryPbcRoute.body));
+  assert.equal(wrongPrimaryPbcRoute.body.code, 'GATE_BLOCKED');
+  const mismatchedPbcContactRole = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'contact.update', payload: {
+      contactId: pbcContactId, expectedVersion: 1, role: 'CFO_FINANCE_DIRECTOR'
+    } }
+  }, preparerHeaders);
+  assert.equal(mismatchedPbcContactRole.response.status, 409, JSON.stringify(mismatchedPbcContactRole.body));
+  assert.equal(mismatchedPbcContactRole.body.code, 'GATE_BLOCKED');
+
   const mdContact = await post(`/api/workspaces/${workspaceId}/commands`, {
     idempotencyKey: crypto.randomUUID(), command: { type: 'contact.create', payload: {
       clientId,
@@ -416,6 +440,11 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
   }, approverHeaders);
   assert.equal(clientProfile.response.status, 200, JSON.stringify(clientProfile.body));
   const clientHeaders = { 'X-Actor-Id': clientProfile.body.result.actorProfileId as string, 'X-Active-Persona': 'CLIENT' };
+  const pbcClientProfile = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'actor-profile.assign', payload: { persona: 'CLIENT', contactId: pbcContactId } }
+  }, approverHeaders);
+  assert.equal(pbcClientProfile.response.status, 200, JSON.stringify(pbcClientProfile.body));
+  const pbcClientIdentity = { 'X-Actor-Id': pbcClientProfile.body.result.actorProfileId as string, 'X-Active-Persona': 'CLIENT' };
 
   const clientProjection = await call(`/api/workspaces/${workspaceId}/clients`, { headers: clientHeaders });
   assert.equal(clientProjection.response.status, 200, JSON.stringify(clientProjection.body));
@@ -625,7 +654,7 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
   const blockedFullProposal = await post(`/api/workspaces/${workspaceId}/commands`, {
     idempotencyKey: crypto.randomUUID(), command: { type: 'proposal.create', payload: { ...proposalTerms, expectedEngagementVersion: advance.body.result.version } }
   }, reviewerHeaders);
-  assert.equal(blockedFullProposal.response.status, 422, JSON.stringify(blockedFullProposal.body));
+  assert.equal(blockedFullProposal.response.status, 409, JSON.stringify(blockedFullProposal.body));
   assert.equal(blockedFullProposal.body.code, 'GATE_BLOCKED');
   assert.match(blockedFullProposal.body.message, /approved.*CV.*Partner/i);
 
@@ -882,7 +911,7 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
       rationale: 'Attempted Partner clearance while the AML issue still needs review.'
     } }
   }, makeRiskHeaders(approverHeaders));
-  assert.equal(unresolvedIssueClear.response.status, 422);
+  assert.equal(unresolvedIssueClear.response.status, 409);
   assert.equal(unresolvedIssueClear.body.code, 'GATE_BLOCKED');
   assert.equal(db.prepare(`SELECT COUNT(*) AS count FROM risk_clearances WHERE workspace_id=? AND engagement_id=?`)
     .bind(workspaceId, engagementId).first<any>()?.count, 0, 'blocked clearance writes no decision history');
@@ -901,7 +930,7 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
       rationale: 'Attempted Partner clearance while the escalation remains open.'
     } }
   }, makeRiskHeaders(approverHeaders));
-  assert.equal(clearWhileEscalated.response.status, 422);
+  assert.equal(clearWhileEscalated.response.status, 409);
   assert.equal(clearWhileEscalated.body.code, 'GATE_BLOCKED');
   const unqualifiedResolution = await post(`/api/workspaces/${workspaceId}/commands`, {
     idempotencyKey: crypto.randomUUID(), command: { type: 'riskAssessment.resolveEscalation', payload: {
@@ -1054,7 +1083,7 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
       engagementId, templateVersionId: wrongServiceTemplate.body.result.templateVersionId, signatureFileVersionId: signatureFileId, sealFileVersionId: sealFileId
     } }
   }, makeRiskHeaders(approverHeaders));
-  assert.equal(wrongTemplateLetter.response.status, 422);
+  assert.equal(wrongTemplateLetter.response.status, 409);
   assert.equal(wrongTemplateLetter.body.code, 'GATE_BLOCKED');
   const generatedLetter = await post(`/api/workspaces/${workspaceId}/commands`, {
     idempotencyKey: crypto.randomUUID(), command: { type: 'engagementLetter.generate', payload: {
@@ -1097,17 +1126,29 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
   assert.equal(issuedInvoice?.status, 'ISSUED');
   assert.ok(issuedInvoice?.fileVersionId);
 
+  const wrongPbcRecipient = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'pbc.request.create', payload: {
+      clientId, engagementId, title: 'Misrouted trial balance', description: 'This should require a purpose-specific PBC recipient route.',
+      dueDate: '2026-10-15', assignedContactId: financeContactId, category: 'TRIAL_BALANCE',
+      requiredForPlanning: true, requiredForRelease: true
+    } }
+  }, makeRiskHeaders(preparerHeaders));
+  assert.equal(wrongPbcRecipient.response.status, 409, JSON.stringify(wrongPbcRecipient.body));
+  assert.equal(wrongPbcRecipient.body.code, 'GATE_BLOCKED');
+  assert.equal(db.prepare(`SELECT COUNT(*) AS count FROM pbc_requests WHERE workspace_id=? AND engagement_id=? AND title='Misrouted trial balance'`)
+    .bind(workspaceId, engagementId).first<any>()?.count, 0, 'a request cannot persist when its assignee lacks a valid PBC route');
+
   const pbcRequestCreated = await post(`/api/workspaces/${workspaceId}/commands`, {
     idempotencyKey: crypto.randomUUID(), command: { type: 'pbc.request.create', payload: {
       clientId, engagementId, title: 'Year-end trial balance', description: 'Provide the complete debit and credit export for the audit period.',
-      dueDate: '2026-10-15', assignedContactId: financeContactId, category: 'TRIAL_BALANCE',
+      dueDate: '2026-10-15', assignedContactId: pbcContactId, category: 'TRIAL_BALANCE',
       requiredForPlanning: true, requiredForRelease: true
     } }
   }, makeRiskHeaders(preparerHeaders));
   assert.equal(pbcRequestCreated.response.status, 200, JSON.stringify(pbcRequestCreated.body));
   assert.equal(pbcRequestCreated.body.result.status, 'PENDING_UPLOAD');
   const pbcRequestId = pbcRequestCreated.body.result.requestId as string;
-  const clientPbcHeaders = makeRiskHeaders(clientHeaders);
+  const clientPbcHeaders = makeRiskHeaders(pbcClientIdentity);
   const pbcEngagementList = await call(`/api/workspaces/${workspaceId}/pbc-engagements`, { headers: clientPbcHeaders });
   assert.equal(pbcEngagementList.response.status, 200, JSON.stringify(pbcEngagementList.body));
   assert.equal(pbcEngagementList.body.engagements.find((item: any) => item.id === engagementId)?.clientId, clientId);
@@ -1192,7 +1233,7 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
   const overCapacity = await post(`/api/workspaces/${workspaceId}/commands`, {
     idempotencyKey: crypto.randomUUID(), command: { type: 'staffing.assign', payload: assignmentPayload }
   }, makeRiskHeaders(reviewerHeaders));
-  assert.equal(overCapacity.response.status, 422, JSON.stringify(overCapacity.body));
+  assert.equal(overCapacity.response.status, 409, JSON.stringify(overCapacity.body));
   assert.equal(overCapacity.body.code, 'GATE_BLOCKED');
   assert.equal(db.prepare('SELECT COUNT(*) AS count FROM engagement_assignments WHERE workspace_id=? AND engagement_id=?')
     .bind(workspaceId, engagementId).first<any>()?.count, 0, 'over-capacity assignment does not persist a partial row');
@@ -1277,7 +1318,7 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
       requestId: pbcRequestId, expectedRequestVersion: 1, fileVersionId: evidenceFileId
     } }
   }, clientPbcHeaders);
-  assert.equal(wrongPbcFile.response.status, 422);
+  assert.equal(wrongPbcFile.response.status, 409);
   assert.equal(wrongPbcFile.body.code, 'GATE_BLOCKED');
   const firstPbcSubmission = await post(`/api/workspaces/${workspaceId}/commands`, {
     idempotencyKey: crypto.randomUUID(), command: { type: 'pbc.submit', payload: {
@@ -1390,7 +1431,8 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
     idempotencyKey: crypto.randomUUID(), command: { type: 'tb.activate', payload: { engagementId,
       importId: unbalancedImportStarted.body.result.importId, contentSha256: unbalancedImport.body.sourceSha256 } }
   }, makeRiskHeaders(reviewerHeaders));
-  assert.equal(rejectedUnbalancedActivation.response.status, 422);
+  assert.equal(rejectedUnbalancedActivation.response.status, 409);
+  assert.equal(rejectedUnbalancedActivation.body.code, 'GATE_BLOCKED');
   assert.equal(db.prepare(`SELECT active_tb_version_id FROM engagements WHERE workspace_id=? AND id=?`).bind(workspaceId, engagementId).first<any>()?.active_tb_version_id, null,
     'an invalid replacement cannot change the active TB source');
   const tbFileId = await storeCommittedFile('TB', 'accepted-trial-balance.csv', 'text/csv', tbCsv, makeRiskHeaders(reviewerHeaders),
@@ -1462,7 +1504,7 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
       engagementId, draftId: mappingDraft.id, draftHash: (await call(tbWorkspacePath, { headers: makeRiskHeaders(reviewerHeaders) })).body.mappingDraft.draftHash
     } }
   }, makeRiskHeaders(reviewerHeaders));
-  assert.equal(unmappedPriorApproval.response.status, 422);
+  assert.equal(unmappedPriorApproval.response.status, 409);
   assert.equal(unmappedPriorApproval.body.code, 'GATE_BLOCKED');
   assert.deepEqual(unmappedPriorApproval.body.details.blockers.map((blocker: any) => ({ accountCode: blocker.accountCode,
     currentMinor: blocker.currentMinor, priorMinor: blocker.priorMinor })), [{ accountCode: '1299', currentMinor: '0', priorMinor: '50000' }],
@@ -1636,7 +1678,7 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
       analyticalReviewId: analyticalReview.body.result.analyticalReviewId, expectedVersion: 1
     } }
   }, technicalHeaders);
-  assert.equal(blockedAnalysisSubmit.response.status, 422, JSON.stringify(blockedAnalysisSubmit.body));
+  assert.equal(blockedAnalysisSubmit.response.status, 409, JSON.stringify(blockedAnalysisSubmit.body));
   assert.equal(blockedAnalysisSubmit.body.code, 'GATE_BLOCKED', 'an analytical conclusion needs independently reviewed current evidence');
 
   const hybridEvidence = await post(`/api/workspaces/${workspaceId}/commands`, {
@@ -2255,7 +2297,8 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
       assessmentId: startContinuance.body.result.assessmentId, expectedDraftVersion: 3
     } }
   }, continuanceHeaders);
-  assert.equal(blockedContinuanceSubmit.response.status, 422);
+  assert.equal(blockedContinuanceSubmit.response.status, 409);
+  assert.equal(blockedContinuanceSubmit.body.code, 'GATE_BLOCKED');
   assert.ok(blockedContinuanceSubmit.body.details.blockers.some((item: string) => item.startsWith('UBO:')),
     'an ownership change requires a refreshed UBO assessment before submission');
   const completeContinuanceDraft = await post(`/api/workspaces/${workspaceId}/commands`, {
@@ -2290,7 +2333,8 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
       rationale: 'The current review is complete and the fee balance was considered.'
     } }
   }, { ...approverHeaders, 'X-Client-Id': clientId, 'X-Engagement-Id': continuationEngagementId });
-  assert.equal(cannotSelfResolvePriorFees.response.status, 422, 'the Partner must resolve the outstanding prior fee concern with evidence');
+  assert.equal(cannotSelfResolvePriorFees.response.status, 409, 'the Partner must resolve the outstanding prior fee concern with evidence');
+  assert.equal(cannotSelfResolvePriorFees.body.code, 'GATE_BLOCKED');
   const escalatePriorFees = await post(`/api/workspaces/${workspaceId}/commands`, {
     idempotencyKey: crypto.randomUUID(), command: { type: 'riskAssessment.escalate', payload: {
       assessmentVersionId: submittedContinuanceVersion, checkId: continuanceCheck.id,
@@ -2312,7 +2356,8 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
       rationale: 'The current review is complete and the fee balance was considered.'
     } }
   }, { ...approverHeaders, 'X-Client-Id': clientId, 'X-Engagement-Id': continuationEngagementId });
-  assert.equal(pendingPriorFeeClearance.response.status, 422, 'an open prior-fee escalation blocks Partner clearance');
+  assert.equal(pendingPriorFeeClearance.response.status, 409, 'an open prior-fee escalation blocks Partner clearance');
+  assert.equal(pendingPriorFeeClearance.body.code, 'GATE_BLOCKED');
   const resolvePriorFees = await post(`/api/workspaces/${workspaceId}/commands`, {
     idempotencyKey: crypto.randomUUID(), command: { type: 'riskAssessment.resolveEscalation', payload: {
       escalationId: escalatePriorFees.body.result.escalationId, expectedVersion: 1,
