@@ -651,8 +651,16 @@ it('US-SYS-001 keeps exactly four self-selected personas visible and persistent 
   assert.match(desktop.warning, /do not verify identity/i);
   assert.equal(desktop.width, 1440);
 
-  await tab.evaluate(`(() => { const select = document.querySelector('#role-select'); select.value = 'PREPARER'; select.dispatchEvent(new Event('change', { bubbles: true })); })()`);
-  await sleep(160);
+  await tab.evaluate(`(() => {
+    const select = document.querySelector('#role-select');
+    Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')?.set?.call(select, 'PREPARER');
+    select.dispatchEvent(new Event('change', { bubbles: true }));
+  })()`);
+  for (let attempt = 0; attempt < 60; attempt++) {
+    if (await tab.evaluate<string>(`JSON.parse(localStorage.getItem('ste-auditsphere-role-portals-v2') ?? '{}').currentRole ?? ''`) === 'preparer') break;
+    await sleep(50);
+  }
+  assert.equal(await tab.evaluate<string>(`JSON.parse(localStorage.getItem('ste-auditsphere-role-portals-v2') ?? '{}').currentRole ?? ''`), 'preparer');
   await tab.command('Page.reload');
   for (let attempt = 0; attempt < 60; attempt++) {
     if (await tab.evaluate<string>(`document.querySelector('#role-select')?.value ?? ''`) === 'PREPARER') break;
