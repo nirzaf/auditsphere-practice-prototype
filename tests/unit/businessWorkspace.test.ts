@@ -156,7 +156,7 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
   const approverContext = await call(`/api/workspaces/${workspaceId}/context`, { headers: approverHeaders });
   assert.equal(approverContext.response.status, 200, JSON.stringify(approverContext.body));
   assert.deepEqual(approverContext.body.allowedActions, [
-    'directory.manage', 'client.read', 'client.manage', 'lead.read', 'lead.manage', 'lead.convert', 'engagement.read', 'engagement.advance', 'standards.read', 'standards.manage', 'file.read', 'file.upload', 'proposal.read', 'proposal.create', 'proposal.generate', 'proposal.approve', 'proposal.dispatch', 'firm.manage', 'risk.read', 'riskAssessment.draft', 'riskAssessment.submit', 'riskAssessment.resolveEscalation', 'risk.clear', 'commercialAcceptance.read', 'engagementLetter.manage', 'invoice.issue', 'payment.record', 'payment.reverse', 'billing.read', 'pbc.read', 'pbc.manage', 'pbc.review'
+    'directory.manage', 'client.read', 'client.manage', 'lead.read', 'lead.manage', 'lead.convert', 'engagement.read', 'engagement.advance', 'standards.read', 'standards.manage', 'file.read', 'file.upload', 'proposal.read', 'proposal.create', 'proposal.generate', 'proposal.approve', 'proposal.dispatch', 'firm.manage', 'risk.read', 'riskAssessment.draft', 'riskAssessment.submit', 'riskAssessment.resolveEscalation', 'risk.clear', 'commercialAcceptance.read', 'engagementLetter.manage', 'invoice.issue', 'payment.record', 'payment.reverse', 'billing.read', 'pbc.read', 'pbc.manage', 'pbc.review', 'planning.read', 'staffing.manage'
   ]);
 
   const staffKey = crypto.randomUUID();
@@ -834,6 +834,16 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
     } }
   }, makeRiskHeaders(approverHeaders));
   assert.equal(clearedRisk.response.status, 200, JSON.stringify(clearedRisk.body));
+  assert.equal(clearedRisk.body.result.folderProvision.createdCount, 5);
+  const foldersAfterClearance = await call(`/api/workspaces/${workspaceId}/engagements/${engagementId}/folders`, { headers: makeRiskHeaders(reviewerHeaders) });
+  assert.equal(foldersAfterClearance.response.status, 200, JSON.stringify(foldersAfterClearance.body));
+  assert.deepEqual(foldersAfterClearance.body.folders.map((folder: any) => [folder.ordinal, folder.code, folder.displayName]), [
+    [1, 'ADMIN_PLANNING', '01_Administration & Planning'], [2, 'TB_SCHEDULES', '02_Trial Balance & Schedules'],
+    [3, 'FIELDWORK_TESTING', '03_Fieldwork & Testing'], [4, 'DRAFTS_DELIVERABLES', '04_Drafts & Deliverables'],
+    [5, 'FINAL_SIGNED_ARCHIVE', '05_Final Signed Archive']
+  ]);
+  assert.equal(foldersAfterClearance.body.folders.reduce((total: number, folder: any) => total + folder.fileCount, 0), 0,
+    'automatic folder provisioning creates no placeholder documents');
   const oneKeyGate = await call(`/api/workspaces/${workspaceId}/engagements/${engagementId}/acceptance-gate`, { headers: makeRiskHeaders(approverHeaders) });
   assert.equal(oneKeyGate.body.commercialKey.status, 'PENDING');
   assert.equal(oneKeyGate.body.riskKey.status, 'ACTIVE');
@@ -1069,9 +1079,85 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
   const settledView = await call(deliveryPath, { headers: makeRiskHeaders(reviewerHeaders) });
   assert.equal(settledView.body.engagement.lifecycleState, 'PORTAL_ACTIVE_PLANNING', 'planning unlocks only when the full advance and committed final receipt exist');
   assert.equal(settledView.body.invoices.find((invoice: any) => invoice.id === issuedInvoice.id).outstandingMinor, '0');
+  const planDate = '2026-10-06';
+  const availability = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'staffing.availability.set', payload: {
+      staffMemberId: preparerStaff.body.result.staffMemberId, workDate: planDate, scheduledMinutes: 480
+    } }
+  }, makeRiskHeaders(reviewerHeaders));
+  assert.equal(availability.response.status, 200, JSON.stringify(availability.body));
+  const approvedLeave = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'staffing.leave.record', payload: {
+      staffMemberId: preparerStaff.body.result.staffMemberId, workDate: planDate, minutes: 120,
+      reason: 'Approved personal leave is documented against this scheduled working date.'
+    } }
+  }, makeRiskHeaders(approverHeaders));
+  assert.equal(approvedLeave.response.status, 200, JSON.stringify(approvedLeave.body));
+  assert.equal(approvedLeave.body.result.availableMinutes, 360);
+  const assignmentPayload = { engagementId, staffMemberId: preparerStaff.body.result.staffMemberId, persona: 'PREPARER', phase: 'FIELDWORK',
+    startDate: planDate, endDate: planDate, plannedMinutes: 420, dailyMinutes: [{ date: planDate, minutes: 420 }] };
+  const overCapacity = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'staffing.assign', payload: assignmentPayload }
+  }, makeRiskHeaders(reviewerHeaders));
+  assert.equal(overCapacity.response.status, 422, JSON.stringify(overCapacity.body));
+  assert.equal(overCapacity.body.code, 'GATE_BLOCKED');
+  assert.equal(db.prepare('SELECT COUNT(*) AS count FROM engagement_assignments WHERE workspace_id=? AND engagement_id=?')
+    .bind(workspaceId, engagementId).first<any>()?.count, 0, 'over-capacity assignment does not persist a partial row');
+  const capacityException = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'staffing.capacityException.approve', payload: {
+      staffMemberId: preparerStaff.body.result.staffMemberId, workDate: planDate, excessMinutes: 60,
+      reason: 'Partner approves the documented sixty-minute peak workload exception for this day.'
+    } }
+  }, makeRiskHeaders(approverHeaders));
+  assert.equal(capacityException.response.status, 200, JSON.stringify(capacityException.body));
+  const assignedPreparer = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'staffing.assign', payload: assignmentPayload }
+  }, makeRiskHeaders(reviewerHeaders));
+  assert.equal(assignedPreparer.response.status, 200, JSON.stringify(assignedPreparer.body));
+  assert.equal(assignedPreparer.body.result.capacityWarnings.length, 1);
+  const capacityView = await call(`/api/workspaces/${workspaceId}/capacity?from=${planDate}&to=${planDate}`, { headers: makeRiskHeaders(reviewerHeaders) });
+  assert.equal(capacityView.response.status, 200, JSON.stringify(capacityView.body));
+  assert.deepEqual({ scheduled: capacityView.body.staffDays[0].scheduledMinutes, leave: capacityView.body.staffDays[0].approvedLeaveMinutes,
+    available: capacityView.body.staffDays[0].availableMinutes, assigned: capacityView.body.staffDays[0].assignedMinutes,
+    exception: capacityView.body.staffDays[0].approvedExceptionMinutes, status: capacityView.body.staffDays[0].capacityStatus },
+    { scheduled: 480, leave: 120, available: 360, assigned: 420, exception: 60, status: 'EXCEPTION_APPROVED' });
+  const cutoffByReviewer = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'milestone.set', payload: {
+      engagementId, code: 'STATUTORY_CUTOFF', targetDate: '2027-03-15', sourceReference: 'Firm-supplied statutory timetable for QA.'
+    } }
+  }, makeRiskHeaders(reviewerHeaders));
+  assert.equal(cutoffByReviewer.response.status, 403);
+  const cutoff = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'milestone.set', payload: {
+      engagementId, code: 'STATUTORY_CUTOFF', targetDate: '2027-03-15', sourceReference: 'Firm-supplied statutory timetable for QA.'
+    } }
+  }, makeRiskHeaders(approverHeaders));
+  assert.equal(cutoff.response.status, 200, JSON.stringify(cutoff.body));
+  const lateFinalTarget = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'milestone.set', payload: {
+      engagementId, code: 'FINAL_REPORT', targetDate: '2027-03-16', sourceReference: 'Firm-approved engagement timetable.'
+    } }
+  }, makeRiskHeaders(reviewerHeaders));
+  assert.equal(lateFinalTarget.response.status, 422);
+  assert.equal(lateFinalTarget.body.code, 'VALIDATION_FAILED');
+  assert.equal(db.prepare(`SELECT COUNT(*) AS count FROM milestones WHERE workspace_id=? AND engagement_id=? AND code='FINAL_REPORT'`)
+    .bind(workspaceId, engagementId).first<any>()?.count, 0, 'late report milestone fails without leaving a partial row');
+  const finalTarget = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'milestone.set', payload: {
+      engagementId, code: 'FINAL_REPORT', targetDate: '2027-03-10', sourceReference: 'Firm-approved engagement timetable.'
+    } }
+  }, makeRiskHeaders(reviewerHeaders));
+  assert.equal(finalTarget.response.status, 200, JSON.stringify(finalTarget.body));
   const activePbcPortal = await call(pbcPortalPath, { headers: clientPbcHeaders });
   assert.equal(activePbcPortal.body.mode, 'ACTIVE');
   assert.equal(activePbcPortal.body.canUpload, true);
+  const finalArchiveFolderId = foldersAfterClearance.body.folders.find((folder: any) => folder.code === 'FINAL_SIGNED_ARCHIVE').id;
+  const clientArchiveUpload = await post(`/api/workspaces/${workspaceId}/files`, {
+    clientId, engagementId, pbcRequestId, expectedPbcRequestVersion: 1, folderId: finalArchiveFolderId, purpose: 'PBC',
+    originalName: 'direct-archive-attempt.pdf', mediaType: 'application/pdf', sizeBytes: pdf.length
+  }, { ...clientPbcHeaders, 'Idempotency-Key': crypto.randomUUID() });
+  assert.equal(clientArchiveUpload.response.status, 403, JSON.stringify(clientArchiveUpload.body));
+  assert.equal(clientArchiveUpload.body.code, 'PERSONA_ACTION_DENIED');
 
   const uploadPbcResponse = async (originalName: string, bytes: Uint8Array, requestVersion: number) => {
     const reservation = await post(`/api/workspaces/${workspaceId}/files`, {

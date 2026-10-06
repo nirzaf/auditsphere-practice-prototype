@@ -176,9 +176,20 @@
 .business-pbc-documents li { display: flex; align-items: center; justify-content: space-between; gap: 8px; overflow-wrap: anywhere; }
 .business-pbc-documents li span { min-width: 0; }
 .business-pbc-panel .business-form { margin-top: 14px; }
+.business-planning-panel { display: grid; gap: 14px; margin-top: 16px; }
+.business-planning-panel .business-section-heading { align-items: flex-start; }
+.business-planning-panel .business-form { margin-top: 0; }
+.business-planning-panel h3 { margin: 0 0 8px; }
+.business-planning-panel textarea { width: 100%; min-width: 0; border: 1px solid var(--ui-control-border); border-radius: 7px; padding: 9px 11px; color: var(--ink); font: inherit; resize: vertical; }
+.business-planning-panel :is(button, input, select, textarea):focus-visible { outline: 3px solid #60a5fa; outline-offset: 2px; }
+.business-folder-list { display: grid; gap: 8px; padding-left: 28px; }
+.business-folder-list li { padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; }
+.business-folder-list li strong, .business-folder-list li span { display: block; }
+.business-folder-list li span { color: var(--muted); font-size: 12px; margin-top: 3px; }
 @media (max-width: 700px) {
   .business-pbc-panel .business-section-heading { align-items: stretch; flex-direction: column; }
   .business-pbc-panel .business-section-heading .business-field { width: 100%; }
   .business-pbc-card-head { flex-direction: column; }
   .business-pbc-documents { grid-template-columns: minmax(0, 1fr); }
+  .business-planning-panel .business-form-grid { grid-template-columns: minmax(0, 1fr); }
 }

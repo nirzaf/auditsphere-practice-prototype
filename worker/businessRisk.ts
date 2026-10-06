@@ -4,6 +4,7 @@ import * as z from 'zod';
 import type { Env } from './env';
 import { ApiError } from './errors';
 import { sha256Hex } from './http';
+import { provisionEngagementFolders } from './businessPlanning';
 
 const id = z.uuid();
 const date = z.iso.date();
@@ -955,6 +956,11 @@ async function buildRiskDecision(env: Env, workspaceId: string, context: RiskBus
       VALUES(?,?,?,?,?,?,?,?,?,?,NULL,?,?,?)`).bind(clearanceId, workspaceId, sequence, engagement.client_id, engagement.id, snapshot.id,
       approvalId, decision, reason, context.actor.id, currentHash.dependencyHash, prior?.id ?? null, now)
   ];
+  let folderProvision = { statements: [] as D1PreparedStatement[], folders: [] as Array<{ id: string; code: string; displayName: string; ordinal: number }> };
+  if (decision === 'CLEAR') {
+    folderProvision = await provisionEngagementFolders(env, workspaceId, engagement.client_id, engagement.id, clearanceId, now);
+    statements.push(...folderProvision.statements);
+  }
   let transitionStatements: D1PreparedStatement[] = [];
   if (decision === 'CLEAR' && engagement.active_proposal_version_id) {
     const commercial = await activeCommercialAcceptance(env, workspaceId, engagement.id, engagement.active_proposal_version_id);
@@ -969,7 +975,12 @@ async function buildRiskDecision(env: Env, workspaceId: string, context: RiskBus
     }
   }
   statements.push(...transitionStatements);
-  return { statements, result: { clearanceId, approvalDecisionId: approvalId, decision, riskKey: decision === 'CLEAR' ? 'ACTIVE' : decision === 'REVOKE' ? 'REVOKED' : 'REJECTED', dependencyHash: currentHash.dependencyHash }, entityType: 'RISK_CLEARANCE', entityId: clearanceId, beforeVersion: prior?.sequence ?? null, afterVersion: sequence, auditDetails: { engagementId: engagement.id, assessmentVersionId: snapshot.id, decision, dependencyHash: currentHash.dependencyHash } };
+  return { statements, result: { clearanceId, approvalDecisionId: approvalId, decision, riskKey: decision === 'CLEAR' ? 'ACTIVE' : decision === 'REVOKE' ? 'REVOKED' : 'REJECTED', dependencyHash: currentHash.dependencyHash,
+    ...(decision === 'CLEAR' ? { folderProvision: { createdCount: folderProvision.statements.length,
+      existingCount: folderProvision.folders.length - folderProvision.statements.length, folders: folderProvision.folders } } : {}) },
+    entityType: 'RISK_CLEARANCE', entityId: clearanceId, beforeVersion: prior?.sequence ?? null, afterVersion: sequence,
+    auditDetails: { engagementId: engagement.id, assessmentVersionId: snapshot.id, decision, dependencyHash: currentHash.dependencyHash,
+      ...(decision === 'CLEAR' ? { folderIds: folderProvision.folders.map(folder => folder.id) } : {}) } };
 }
 
 async function buildCommercialAcceptance(env: Env, workspaceId: string, context: RiskBusinessContext, command: Extract<BusinessRiskCommand,{type:'commercialAcceptance.record'|'commercialAcceptance.revoke'}>, commandId: string, now: string): Promise<RiskBusinessMutation> {

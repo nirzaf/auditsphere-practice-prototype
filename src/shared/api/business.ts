@@ -332,6 +332,24 @@ export interface BusinessPbcPortal {
   changeCursor: string;
 }
 
+export interface BusinessPlanningWorkspace {
+  engagement: { id: string; clientId: string; lifecycleState: string; periodStart: string; periodEnd: string };
+  staff: Array<{ id: string; displayName: string; grade: 'PARTNER' | 'MANAGER' | 'SENIOR' | 'ASSOCIATE' }>;
+  assignments: Array<{ id: string; version: number; staffMemberId: string; displayName: string; grade: string; persona: string; phase: string;
+    startDate: string; endDate: string; plannedMinutes: number; dailyMinutes: Array<{ date: string; minutes: number }> }>;
+  milestones: Array<{ id: string; version: number; code: 'FIELDWORK_START' | 'DRAFT_REPORT' | 'FINAL_REPORT' | 'STATUTORY_CUTOFF';
+    targetDate: string; actualDate: string | null; sourceReference: string; approvedByActorId: string | null }>;
+  folders: Array<{ id: string; code: string; displayName: string; ordinal: number; fileCount: number; readOnly: number }>;
+}
+export interface BusinessCapacity {
+  from: string;
+  to: string;
+  staffDays: Array<{ staffMemberId: string; displayName: string; grade: string; workDate: string; availabilityId: string | null;
+    availabilityVersion: number | null; scheduledMinutes: number | null; approvedLeaveMinutes: number; availableMinutes: number | null;
+    assignedMinutes: number; approvedExceptionMinutes: number; overbookedMinutes: number | null; capacityStatus: 'MISSING_CAPACITY' | 'OVERBOOKED' | 'EXCEPTION_APPROVED' | 'AVAILABLE' }>;
+  overbookings: BusinessCapacity['staffDays'];
+}
+
 export type BusinessRiskCheckCode = 'UBO' | 'KYC' | 'AML' | 'INTEGRITY' | 'VIABILITY' | 'INDEPENDENCE' | 'CONFLICTS'
   | 'PRIOR_FEES' | 'MANAGEMENT_CHANGE' | 'OWNERSHIP_CHANGE' | 'NEW_BORROWING' | 'LITIGATION' | 'FRAUD_REGULATORY';
 export type BusinessRiskOutcome = 'CLEAR' | 'ISSUE' | 'NOT_APPLICABLE';

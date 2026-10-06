@@ -8,8 +8,9 @@ import { sha256Hex } from './http';
 import { requireWorkspace } from './db';
 import { businessRiskCommands, buildBusinessRiskMutation, isBusinessRiskCommand } from './businessRisk';
 import { businessDeliveryCommands, buildBusinessDeliveryMutation, isBusinessDeliveryCommand } from './businessDelivery';
+import { businessPlanningCommands, buildBusinessPlanningMutation, isBusinessPlanningCommand } from './businessPlanning';
 
-export const BUSINESS_SCHEMA_VERSION = 9;
+export const BUSINESS_SCHEMA_VERSION = 10;
 
 const emailSchema = z.string().trim().toLowerCase().max(254).pipe(z.email());
 
@@ -571,9 +572,9 @@ export async function resolveBusinessContext(env: Env, workspaceId: string, requ
     },
     scope: { clientId, engagementId: requestedEngagementId },
     allowedActions: row.persona === 'APPROVER' && row.staffGrade === 'PARTNER'
-      ? ['directory.manage', 'client.read', 'client.manage', 'lead.read', 'lead.manage', 'lead.convert', 'engagement.read', 'engagement.advance', 'standards.read', 'standards.manage', 'file.read', 'file.upload', 'proposal.read', 'proposal.create', 'proposal.generate', 'proposal.approve', 'proposal.dispatch', 'firm.manage', 'risk.read', 'riskAssessment.draft', 'riskAssessment.submit', 'riskAssessment.resolveEscalation', 'risk.clear', 'commercialAcceptance.read', 'engagementLetter.manage', 'invoice.issue', 'payment.record', 'payment.reverse', 'billing.read', 'pbc.read', 'pbc.manage', 'pbc.review']
-      : row.persona === 'PREPARER' ? ['client.read', 'client.manage', 'lead.read', 'lead.manage', 'lead.convert', 'engagement.read', 'engagement.advance', 'standards.read', 'file.read', 'file.upload', 'proposal.read', 'proposal.create', 'proposal.generate', 'risk.read', 'riskAssessment.draft', 'riskAssessment.submit', 'commercialAcceptance.read', 'billing.read', 'pbc.read', 'pbc.manage']
-        : row.persona === 'REVIEWER' ? ['client.read', 'lead.read', 'engagement.read', 'standards.read', 'file.read', 'file.upload', 'proposal.read', 'proposal.create', 'proposal.generate', 'risk.read', 'riskAssessment.draft', 'riskAssessment.submit', 'riskAssessment.escalate', 'commercialAcceptance.read', 'invoice.issue', 'payment.record', 'payment.reverse', 'billing.read', 'pbc.read', 'pbc.manage', 'pbc.review']
+      ? ['directory.manage', 'client.read', 'client.manage', 'lead.read', 'lead.manage', 'lead.convert', 'engagement.read', 'engagement.advance', 'standards.read', 'standards.manage', 'file.read', 'file.upload', 'proposal.read', 'proposal.create', 'proposal.generate', 'proposal.approve', 'proposal.dispatch', 'firm.manage', 'risk.read', 'riskAssessment.draft', 'riskAssessment.submit', 'riskAssessment.resolveEscalation', 'risk.clear', 'commercialAcceptance.read', 'engagementLetter.manage', 'invoice.issue', 'payment.record', 'payment.reverse', 'billing.read', 'pbc.read', 'pbc.manage', 'pbc.review', 'planning.read', 'staffing.manage']
+      : row.persona === 'PREPARER' ? ['client.read', 'client.manage', 'lead.read', 'lead.manage', 'lead.convert', 'engagement.read', 'engagement.advance', 'standards.read', 'file.read', 'file.upload', 'proposal.read', 'proposal.create', 'proposal.generate', 'risk.read', 'riskAssessment.draft', 'riskAssessment.submit', 'commercialAcceptance.read', 'billing.read', 'pbc.read', 'pbc.manage', 'planning.read']
+        : row.persona === 'REVIEWER' ? ['client.read', 'lead.read', 'engagement.read', 'standards.read', 'file.read', 'file.upload', 'proposal.read', 'proposal.create', 'proposal.generate', 'risk.read', 'riskAssessment.draft', 'riskAssessment.submit', 'riskAssessment.escalate', 'commercialAcceptance.read', 'invoice.issue', 'payment.record', 'payment.reverse', 'billing.read', 'pbc.read', 'pbc.manage', 'pbc.review', 'planning.read', 'staffing.manage']
           : ['client.read', 'file.read', 'file.upload', 'proposal.read', 'commercialAcceptance.read', 'commercialAcceptance.record', 'commercialAcceptance.revoke', 'billing.read', 'pbc.read', 'pbc.submit'],
     readOnlyReasons: isClient ? ['CLIENT_PROJECTION_ONLY'] : []
   };
@@ -815,6 +816,7 @@ const businessFileReserveCommand = z.strictObject({
   payload: z.strictObject({
     clientId: clientIdSchema.optional(),
     engagementId: clientIdSchema.optional(),
+    folderId: clientIdSchema.optional(),
     pbcRequestId: clientIdSchema.optional(),
     expectedPbcRequestVersion: z.number().int().positive().optional(),
     purpose: businessFilePurposeSchema,
@@ -971,7 +973,8 @@ export const businessCommandSchema = z.discriminatedUnion('type', [
   proposalDispatchCommand,
   proposalDispatchRetryCommand,
   ...businessRiskCommands,
-  ...businessDeliveryCommands
+  ...businessDeliveryCommands,
+  ...businessPlanningCommands
 ]);
 
 const expectedVersionSchema = z.strictObject({
@@ -994,7 +997,8 @@ type BusinessDirectoryCommand = Extract<BusinessCommand, { type: 'staff.create' 
 type BusinessFileCommand = Extract<BusinessCommand, { type: 'file.reserve' | 'file.stage' | 'file.commit' | 'file.reject' }>;
 type BusinessPbcCommand = Extract<BusinessCommand, { type: 'pbc.request.create' | 'pbc.submit' | 'pbc.review' }>;
 type BusinessProposalCommand = Extract<BusinessCommand, { type: 'firm-profile.save' | 'team-cv.attach' | 'team-cv.approve' | 'proposal.create' | 'proposal.revise' | 'proposal.generate' | 'proposal.generate.retry' | 'proposal.approve' | 'proposal.dispatch' | 'proposal.dispatch.retry' }>;
-type BusinessCommercialCommand = Exclude<BusinessCommand, BusinessDirectoryCommand | BusinessFileCommand | BusinessPbcCommand | BusinessProposalCommand | import('./businessRisk').BusinessRiskCommand | import('./businessDelivery').BusinessDeliveryCommand>;
+type BusinessPlanningCommandType = import('./businessPlanning').BusinessPlanningCommand;
+type BusinessCommercialCommand = Exclude<BusinessCommand, BusinessDirectoryCommand | BusinessFileCommand | BusinessPbcCommand | BusinessProposalCommand | BusinessPlanningCommandType | import('./businessRisk').BusinessRiskCommand | import('./businessDelivery').BusinessDeliveryCommand>;
 
 function isBusinessDirectoryCommand(command: BusinessCommand): command is BusinessDirectoryCommand {
   return command.type === 'staff.create' || command.type === 'staff.update'
@@ -1506,6 +1510,15 @@ async function buildBusinessFileMutation(
       }
       await assertFileEngagementWritable(env, workspaceId, payload.clientId, payload.engagementId, context.actor.persona === 'CLIENT');
     }
+    if (payload.folderId) {
+      if (!payload.clientId || !payload.engagementId) throw new ApiError('VALIDATION_FAILED', 'A folder-bound file must identify its client and engagement.');
+      const folder = await env.DB.prepare(`SELECT code FROM engagement_folders WHERE workspace_id=? AND id=? AND client_id=? AND engagement_id=?`)
+        .bind(workspaceId, payload.folderId, payload.clientId, payload.engagementId).first<{ code: string }>();
+      if (!folder) throw new ApiError('FORBIDDEN_SCOPE', 'The selected filing folder is outside this client engagement.');
+      if (folder.code === 'FINAL_SIGNED_ARCHIVE') {
+        throw new ApiError('PERSONA_ACTION_DENIED', 'The final signed archive accepts only artifacts created by the release workflow.');
+      }
+    }
     let priorPbcFileId: string | null = null;
     if (payload.purpose === 'PBC') {
       if (context.actor.persona !== 'CLIENT') throw new ApiError('PERSONA_ACTION_DENIED', 'PBC responses are uploaded by the assigned CLIENT contact.');
@@ -1538,6 +1551,7 @@ async function buildBusinessFileMutation(
           SELECT ?,71,CASE WHEN (? IS NULL OR EXISTS(SELECT 1 FROM clients WHERE workspace_id=? AND id=? AND active=1))
             AND (? IS NULL OR EXISTS(SELECT 1 FROM engagements WHERE workspace_id=? AND client_id=? AND id=? AND locked_at IS NULL AND lifecycle_state<>'ARCHIVED_READ_ONLY'
               AND (?=0 OR (portal_activated_at IS NOT NULL AND portal_frozen_at IS NULL))))
+            AND (? IS NULL OR EXISTS(SELECT 1 FROM engagement_folders f WHERE f.workspace_id=? AND f.id=? AND f.client_id=? AND f.engagement_id=? AND f.code<>'FINAL_SIGNED_ARCHIVE'))
             AND (?=0 OR EXISTS(SELECT 1 FROM pbc_requests r JOIN actor_profiles ap ON ap.workspace_id=r.workspace_id AND ap.id=?
               JOIN engagements pe ON pe.workspace_id=r.workspace_id AND pe.client_id=r.client_id AND pe.id=r.engagement_id
               WHERE r.workspace_id=? AND r.id=? AND r.client_id=? AND r.engagement_id=? AND r.version=?
@@ -1546,14 +1560,16 @@ async function buildBusinessFileMutation(
             THEN 1 ELSE 0 END`)
           .bind(workspaceId, payload.clientId ?? null, workspaceId, payload.clientId ?? null,
             payload.engagementId ?? null, workspaceId, payload.clientId ?? null, payload.engagementId ?? null,
-            context.actor.persona === 'CLIENT' ? 1 : 0, payload.purpose === 'PBC' ? 1 : 0, actorId,
+            context.actor.persona === 'CLIENT' ? 1 : 0,
+            payload.folderId ?? null, workspaceId, payload.folderId ?? null, payload.clientId ?? null, payload.engagementId ?? null,
+            payload.purpose === 'PBC' ? 1 : 0, actorId,
             workspaceId, payload.pbcRequestId ?? null, payload.clientId ?? null, payload.engagementId ?? null,
             payload.expectedPbcRequestVersion ?? null),
         env.DB.prepare(`INSERT INTO file_versions(
-          id,workspace_id,version,client_id,engagement_id,original_name,media_type,size_bytes,object_key,previous_version_id,purpose,
+          id,workspace_id,version,client_id,engagement_id,folder_id,original_name,media_type,size_bytes,object_key,previous_version_id,purpose,
           pbc_request_id,pbc_request_version,state,immutable,created_at,updated_at,created_by_actor_id,updated_by_actor_id
-        ) VALUES(?,?,1,?,?,?,?,?,?,?,?,?,?,'INITIALIZED',0,?,?,?,?)`).bind(
-          id, workspaceId, payload.clientId ?? null, payload.engagementId ?? null, payload.originalName,
+        ) VALUES(?,?,1,?,?,?,?,?,?,?,?,?,?,?,'INITIALIZED',0,?,?,?,?)`).bind(
+          id, workspaceId, payload.clientId ?? null, payload.engagementId ?? null, payload.folderId ?? null, payload.originalName,
           payload.mediaType, payload.sizeBytes, key, priorPbcFileId, payload.purpose, payload.pbcRequestId ?? null,
           payload.expectedPbcRequestVersion ?? null, now, now, actorId, actorId
         )
@@ -3247,6 +3263,8 @@ export async function runBusinessDirectoryCommand(
               ? await buildBusinessRiskMutation(env, workspaceId, context, envelope.command, commandId, timestamp)
               : isBusinessDeliveryCommand(envelope.command)
                 ? await buildBusinessDeliveryMutation(env, workspaceId, context, envelope.command, commandId, timestamp)
+              : isBusinessPlanningCommand(envelope.command)
+                ? await buildBusinessPlanningMutation(env, workspaceId, context, envelope.command, commandId, timestamp)
                 : await buildCommercialMutation(env, workspaceId, context, envelope.command, commandId, timestamp);
     const sequence = head.last_sequence + 1;
     const eventDetails = JSON.stringify({

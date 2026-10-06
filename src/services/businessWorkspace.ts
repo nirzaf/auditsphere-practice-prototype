@@ -10,6 +10,8 @@ import type {
   BusinessFilePurpose,
   BusinessPbcEngagement,
   BusinessPbcPortal,
+  BusinessPlanningWorkspace,
+  BusinessCapacity,
   BusinessFileReservation,
   BusinessAcceptanceGate,
   BusinessRiskWorkspace,
@@ -276,6 +278,26 @@ export async function getBusinessDeliveryWorkspace(
   signal?: AbortSignal
 ): Promise<BusinessDeliveryWorkspace> {
   return requestJson(`/api/workspaces/${encodeURIComponent(workspaceId)}/engagements/${encodeURIComponent(engagementId)}/delivery-workspace`, { context: selected, signal });
+}
+
+export async function getBusinessPlanningWorkspace(
+  workspaceId: string,
+  engagementId: string,
+  selected: BusinessWorkspacePreference,
+  signal?: AbortSignal
+): Promise<BusinessPlanningWorkspace> {
+  return requestJson(`/api/workspaces/${encodeURIComponent(workspaceId)}/engagements/${encodeURIComponent(engagementId)}/planning-workspace`, { context: selected, signal });
+}
+
+export async function getBusinessCapacity(
+  workspaceId: string,
+  selected: BusinessWorkspacePreference,
+  from: string,
+  to: string,
+  signal?: AbortSignal
+): Promise<BusinessCapacity> {
+  const query = new URLSearchParams({ from, to });
+  return requestJson(`/api/workspaces/${encodeURIComponent(workspaceId)}/capacity?${query}`, { context: selected, signal });
 }
 
 export async function getBusinessPbcEngagements(

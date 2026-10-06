@@ -87,6 +87,7 @@ import {
 } from './business';
 import { getBusinessAcceptanceGate, getBusinessRiskWorkspace } from './businessRisk';
 import { getBusinessDeliveryWorkspace } from './businessDelivery';
+import { getBusinessCapacity, getBusinessPlanningWorkspace, listBusinessEngagementFolders } from './businessPlanning';
 
 const JSON_BODY_LIMIT = 1_000_000;
 /** Hard ceiling for a single command payload; the domain model is small. */
@@ -242,6 +243,25 @@ const handleBusinessRiskWorkspace = async (ctx: RouteContext): Promise<Response>
 const handleBusinessDeliveryWorkspace = async (ctx: RouteContext): Promise<Response> => {
   const context = await resolveBusinessContext(ctx.env, ctx.params.workspaceId, ctx.request);
   const result = await getBusinessDeliveryWorkspace(ctx.env, ctx.params.workspaceId, context, ctx.params.engagementId);
+  return jsonResponse(result, 200, ctx.requestId);
+};
+
+const handleBusinessPlanningWorkspace = async (ctx: RouteContext): Promise<Response> => {
+  const context = await resolveBusinessContext(ctx.env, ctx.params.workspaceId, ctx.request);
+  const result = await getBusinessPlanningWorkspace(ctx.env, ctx.params.workspaceId, context, ctx.params.engagementId);
+  return jsonResponse(result, 200, ctx.requestId);
+};
+
+const handleBusinessCapacity = async (ctx: RouteContext): Promise<Response> => {
+  const context = await resolveBusinessContext(ctx.env, ctx.params.workspaceId, ctx.request);
+  const result = await getBusinessCapacity(ctx.env, ctx.params.workspaceId, context,
+    ctx.url.searchParams.get('from') ?? '', ctx.url.searchParams.get('to') ?? '');
+  return jsonResponse(result, 200, ctx.requestId);
+};
+
+const handleBusinessEngagementFolders = async (ctx: RouteContext): Promise<Response> => {
+  const context = await resolveBusinessContext(ctx.env, ctx.params.workspaceId, ctx.request);
+  const result = await listBusinessEngagementFolders(ctx.env, ctx.params.workspaceId, context, ctx.params.engagementId);
   return jsonResponse(result, 200, ctx.requestId);
 };
 
@@ -699,6 +719,9 @@ const router = createRouter()
   .get('/api/workspaces/:workspaceId/engagements/:engagementId/acceptance-gate', handleBusinessAcceptanceGate)
   .get('/api/workspaces/:workspaceId/engagements/:engagementId/risk-workspace', handleBusinessRiskWorkspace)
   .get('/api/workspaces/:workspaceId/engagements/:engagementId/delivery-workspace', handleBusinessDeliveryWorkspace)
+  .get('/api/workspaces/:workspaceId/engagements/:engagementId/planning-workspace', handleBusinessPlanningWorkspace)
+  .get('/api/workspaces/:workspaceId/engagements/:engagementId/folders', handleBusinessEngagementFolders)
+  .get('/api/workspaces/:workspaceId/capacity', handleBusinessCapacity)
   .get('/api/workspaces/:workspaceId/pbc-engagements', handleBusinessPbcEngagements)
   .get('/api/workspaces/:workspaceId/engagements/:engagementId/pbc/:requestId', handleBusinessPbcRequest)
   .get('/api/workspaces/:workspaceId/engagements/:engagementId/portal', handleBusinessPbcPortal)
