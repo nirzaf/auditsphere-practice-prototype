@@ -292,3 +292,18 @@ bounded API acceptance for:
 The evidence is an API integration pass, not browser-level acceptance of these
 stories and not completion of the 46-story epic. Full requirement-by-requirement
 closure remains open.
+
+## Reporting authorization and release-candidate SQL evidence — 2026-10-06
+
+`npx tsx --test tests/unit/businessWorkspace.test.ts` passed **1/1** after
+adding a direct API attempt to create an unmodified audit opinion as REVIEWER.
+The Worker returns `403 PERSONA_ACTION_DENIED`, and the database retains no
+opinion row. This closes only the Partner-only command-boundary subcase of
+**US-REP-001**.
+
+`npx tsx --test tests/unit/reportingBundleSql.test.ts` passed **2/2** against
+the complete repository migration history. It executes the exact five-part
+bundle candidate SELECT and catches the previously undefined representation
+request alias. This removes a report-bundle preparation blocker in **US-REP-005**;
+it does not verify the full report, atomic release, portal freeze, delivery, or
+archive lifecycle. Both reporting stories remain open for their other criteria.

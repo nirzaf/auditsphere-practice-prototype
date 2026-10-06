@@ -758,6 +758,20 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
 
   const engagementId = conversion.body.result.engagementId as string;
   const makeRiskHeaders = (headers: Record<string, string>) => ({ ...headers, 'X-Client-Id': clientId, 'X-Engagement-Id': engagementId });
+  // US-REP-001 — a visible Partner opinion control is not an authorization boundary.
+  const reviewerOpinionAttempt = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'opinion.select', payload: {
+      engagementId, category: 'UNMODIFIED', affectedFslis: [],
+      rationale: 'This reviewer must not create a Partner-only audit opinion.',
+      materialityAssessment: 'The reviewer has no authority to approve materiality for the report.',
+      pervasivenessAssessment: 'The reviewer has no authority to approve report pervasiveness.'
+    } }
+  }, makeRiskHeaders(reviewerHeaders));
+  assert.equal(reviewerOpinionAttempt.response.status, 403, JSON.stringify(reviewerOpinionAttempt.body));
+  assert.equal(reviewerOpinionAttempt.body.code, 'PERSONA_ACTION_DENIED');
+  assert.equal(db.prepare('SELECT COUNT(*) AS count FROM opinion_versions WHERE workspace_id=? AND engagement_id=?')
+    .bind(workspaceId, engagementId).first<any>()?.count, 0, 'a denied direct API call leaves no opinion version');
+
   const signatory = await post(`/api/workspaces/${workspaceId}/commands`, {
     idempotencyKey: crypto.randomUUID(), command: { type: 'contact.update', payload: { contactId: financeContactId, expectedVersion: 1, isSignatory: true } }
   }, preparerHeaders);
