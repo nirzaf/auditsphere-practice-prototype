@@ -2465,8 +2465,13 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
   const stratifiedPlanPath = `/api/workspaces/${workspaceId}/engagements/${engagementId}/sampling-plans/${stratifiedPlan.body.result.planId}`;
   const stratifiedPlanView = await call(stratifiedPlanPath, { headers: technicalHeaders });
   assert.equal(stratifiedPlanView.body.plan.parameters.familywiseMethod, 'BONFERRONI');
+  assert.equal(stratifiedPlanView.body.plan.parameters.selectionAlgorithm, 'HMAC_SHA256_REJECTION_PARTIAL_FISHER_YATES_V1');
   assert.deepEqual(stratifiedPlanView.body.plan.parameters.strata.map((item: any) => [item.alphaNumerator, item.alphaDenominator]),
     [['500', '20000'], ['500', '20000']], 'each stratum receives alpha 0.025 for the joint 95% policy');
+  assert.deepEqual(stratifiedPlanView.body.plan.parameters.strata.map((item: any) => item.rationale), [
+    'Evaluate control deviations independently in the first source stratum.',
+    'Evaluate control deviations independently in the second source stratum.'
+  ], 'the frozen plan retains each stratum rationale separately');
   assert.equal(stratifiedPlanView.body.hits.length, 56);
   assert.equal(new Set(stratifiedPlanView.body.hits.map((hit: any) => hit.populationRowId)).size, 56,
     'attribute selections are unique across disjoint strata');
@@ -2498,6 +2503,56 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
     .map((item: any) => [stratumKeyById.get(item.stratumId), item.result]));
   assert.equal(perStratumResults.get('A'), 'WITHIN_TOLERANCE', 'the completely tested first stratum can be evaluated independently');
   assert.equal(perStratumResults.get('B'), 'INCOMPLETE', 'an incomplete second stratum keeps the overall result incomplete');
+  const incompletePerStratum = incompleteStratifiedEvaluation.body.result.details.perStratum as Array<Record<string, any>>;
+  assert.deepEqual(incompletePerStratum.map(item => [item.key, item.testedCount, item.selectedCount, item.populationCount]), [['A', 28, 28, 100], ['B', 1, 28, 100]],
+    'the result reports tested item counts instead of treating selected items as completed tests');
+
+  const remainingStratumBHits = stratifiedPlanView.body.hits.filter((hit: any) => hit.stratumKey === 'B').slice(1);
+  for (const hit of remainingStratumBHits) {
+    const completedTest = await post(`/api/workspaces/${workspaceId}/commands`, {
+      idempotencyKey: crypto.randomUUID(), command: { type: 'sampling.record-test', payload: {
+        planId: stratifiedPlan.body.result.planId, populationRowId: hit.populationRowId, expectedVersion: 0, tested: true,
+        deviation: false, conclusion: 'The selected control item was inspected and no deviation was identified.',
+        evidenceId: hybridEvidence.body.result.evidenceId, evidenceVersion: 1
+      } }
+    }, technicalHeaders);
+    assert.equal(completedTest.response.status, 200, JSON.stringify(completedTest.body));
+  }
+  const fullyTestedStratifiedPlan = await call(stratifiedPlanPath, { headers: technicalHeaders });
+  const withinToleranceEvaluation = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'sampling.evaluate', payload: {
+      planId: stratifiedPlan.body.result.planId, testSetHash: fullyTestedStratifiedPlan.body.testSetHash
+    } }
+  }, samplingReviewerHeaders);
+  assert.equal(withinToleranceEvaluation.response.status, 200, JSON.stringify(withinToleranceEvaluation.body));
+  assert.equal(withinToleranceEvaluation.body.result.testedHitCount, 56);
+  assert.equal(withinToleranceEvaluation.body.result.result, 'WITHIN_TOLERANCE');
+  const cleanStratumResults = withinToleranceEvaluation.body.result.details.perStratum as Array<Record<string, any>>;
+  assert.deepEqual(cleanStratumResults.map(item => [item.key, item.testedCount, item.upperDeviationRate.denominator]), [['A', 28, '100'], ['B', 28, '100']]);
+  assert.ok(cleanStratumResults.every(item => Number(item.upperDeviationRate.numerator) <= 10),
+    'the one-sided finite-population upper rate for each clean 28/100 stratum remains within the 10% tolerable rate');
+
+  const firstStratumATest = fullyTestedStratifiedPlan.body.tests.find((item: any) => item.populationRowId === stratumASelectedHits[0].populationRowId);
+  const highRiskDeviation = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'sampling.record-test', payload: {
+      planId: stratifiedPlan.body.result.planId, populationRowId: stratumASelectedHits[0].populationRowId, expectedVersion: firstStratumATest.version, tested: true,
+      deviation: true, conclusion: 'A control deviation was identified and evaluated as an exception.',
+      evidenceId: hybridEvidence.body.result.evidenceId, evidenceVersion: 1
+    } }
+  }, technicalHeaders);
+  assert.equal(highRiskDeviation.response.status, 200, JSON.stringify(highRiskDeviation.body));
+  const deviationPlanView = await call(stratifiedPlanPath, { headers: technicalHeaders });
+  const failingStratumEvaluation = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'sampling.evaluate', payload: {
+      planId: stratifiedPlan.body.result.planId, testSetHash: deviationPlanView.body.testSetHash
+    } }
+  }, samplingReviewerHeaders);
+  assert.equal(failingStratumEvaluation.response.status, 200, JSON.stringify(failingStratumEvaluation.body));
+  assert.equal(failingStratumEvaluation.body.result.result, 'EXCEEDS_TOLERANCE',
+    'a failing high-risk stratum cannot be averaged with another clean stratum');
+  const failingStratumResults = failingStratumEvaluation.body.result.details.perStratum as Array<Record<string, any>>;
+  assert.equal(failingStratumResults.find(item => item.key === 'A')?.result, 'EXCEEDS_TOLERANCE');
+  assert.equal(failingStratumResults.find(item => item.key === 'B')?.result, 'WITHIN_TOLERANCE');
 
   for (const file of [firstPbcFile, replacementPbcFile]) {
     const downloaded = await worker.fetch(new Request(`https://local.auditsphere.test/api/workspaces/${workspaceId}/files/${file.fileId}`, {

@@ -604,7 +604,7 @@ it('US-FLD-006 preserves same-procedure drafts across a two-browser version conf
   assert.deepEqual(tabB.blockedExternalRequests, []);
 });
 
-it('US-FLD-007 and US-FLD-008 verify MUS evaluation and systematic sampling with periodicity review', { timeout: 120000 }, async () => {
+it('US-FLD-007, US-FLD-008 and US-FLD-009 verify MUS, systematic and stratified sampling', { timeout: 120000 }, async () => {
   assert.ok(server && tabA);
   const fixture = await createFieldworkFixture();
   await selectWorkspace(tabA, fixture, fixture.actorProfileId);
@@ -765,5 +765,93 @@ it('US-FLD-007 and US-FLD-008 verify MUS evaluation and systematic sampling with
   assert.ok(systematicPlanUi.details.includes('no statistical confidence is inferred'));
   assert.ok(systematicPlanUi.details.includes('Ordering: SERVER_SEEDED_SHUFFLE'));
   assert.deepEqual(tabA.exceptions, [], 'the periodicity review screen has no unhandled JavaScript exceptions');
+  assert.deepEqual(tabA.blockedExternalRequests, []);
+
+  // Continue through US-FLD-009 with separate assumptions and a visible partial-stratum evaluation.
+  await setVisibleFieldByLabel(tabA, 'Sampling method', '', 'Stratified attribute');
+  await clickVisibleButton(tabA, 'Create draft policy');
+  await waitFor(tabA, 'the draft stratified attribute policy approval control', `document.body.innerText.includes('STRATIFIED ATTRIBUTE') && !![...document.querySelectorAll('label.business-field span')].find(item => item.textContent?.trim() === 'Partner methodology approval rationale')`);
+  await setVisibleFieldByLabel(tabA, 'Partner methodology approval rationale', 'Partner approved finite-population attribute testing with separate justified strata and Bonferroni family confidence.');
+  await clickVisibleButton(tabA, 'Partner approve');
+  await waitFor(tabA, 'the Partner-approved stratified attribute policy', `document.body.innerText.includes('STRATIFIED ATTRIBUTE') && document.body.innerText.includes('APPROVED') && ![...document.querySelectorAll('label.business-field span')].find(item => item.textContent?.trim() === 'Partner methodology approval rationale')`);
+
+  for (let index = 1; index <= 12; index++) {
+    const sourceKey = `SYS-${String(index).padStart(2, '0')}`;
+    const stratumKey = index <= 6 ? 'A' : 'B';
+    const assigned = await tabA.evaluate<boolean>(`(() => {
+      const input = document.querySelector('input[aria-label="Stratum for ${sourceKey}"]');
+      if (!(input instanceof HTMLInputElement)) return false;
+      const setter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(input), 'value')?.set;
+      setter?.call(input, '${stratumKey}'); input.dispatchEvent(new Event('input', { bubbles: true })); input.dispatchEvent(new Event('change', { bubbles: true })); return true;
+    })()`);
+    assert.equal(assigned, true, `the visible population row ${sourceKey} can be assigned to stratum ${stratumKey}`);
+    await waitFor(tabA, `the ${sourceKey} stratum assignment`, `document.querySelector('input[aria-label="Stratum for ${sourceKey}"]')?.value === '${stratumKey}'`);
+  }
+  await waitFor(tabA, 'two independent assumption groups', `!![...document.querySelectorAll('label.business-field span')].find(item => item.textContent?.trim() === 'Expected deviation (%) · Stratum A') && !![...document.querySelectorAll('label.business-field span')].find(item => item.textContent?.trim() === 'Expected deviation (%) · Stratum B')`);
+  const disabledUntilStrataAreJustified = await tabA.evaluate<boolean>(`[...document.querySelectorAll('button')].find(item => item.textContent?.trim() === 'Create sample plan')?.disabled ?? false`);
+  assert.equal(disabledUntilStrataAreJustified, true, 'sample planning stays disabled until each stratum has rates and a reviewer rationale');
+  await setVisibleFieldByLabel(tabA, 'Expected deviation (%) · Stratum A', '0');
+  await setVisibleFieldByLabel(tabA, 'Tolerable deviation (%) · Stratum A', '10');
+  await setVisibleFieldByLabel(tabA, 'Rationale · Stratum A', 'Low-risk revenue items have a justified zero expected deviation and 10% tolerance.');
+  await setVisibleFieldByLabel(tabA, 'Expected deviation (%) · Stratum B', '5');
+  await setVisibleFieldByLabel(tabA, 'Tolerable deviation (%) · Stratum B', '25');
+  await setVisibleFieldByLabel(tabA, 'Rationale · Stratum B', 'Higher expected and tolerable deviation rates are justified by this higher-risk transaction group.');
+  const stratifiedButtonEnabled = await tabA.evaluate<boolean>(`[...document.querySelectorAll('button')].find(item => item.textContent?.trim() === 'Create sample plan')?.disabled === false`);
+  assert.equal(stratifiedButtonEnabled, true, 'separate, valid rationale and rate assumptions enable stratified planning');
+  await clickVisibleButton(tabA, 'Create sample plan');
+  await waitFor(tabA, 'the finite-population plan with independent stratum counts', `document.body.innerText.includes('11 selected draws') && document.body.innerText.includes('Frozen stratum assumptions') && document.body.innerText.includes('Higher expected and tolerable deviation rates are justified')`);
+  const stratifiedDesignUi = await tabA.evaluate<{ text: string; rows: number; assumptions: string[][]; alert: string | null }>(`({
+    text: document.body.innerText,
+    rows: [...document.querySelectorAll('.business-fieldwork-scroll')].find(section => section.innerText.includes('Frozen stratum assumptions'))?.querySelectorAll('tbody tr').length ?? 0,
+    assumptions: [...([...document.querySelectorAll('.business-fieldwork-scroll')].find(section => section.innerText.includes('Frozen stratum assumptions'))?.querySelectorAll('tbody tr') ?? [])]
+      .map(row => [...row.querySelectorAll('td')].map(cell => cell.innerText.trim())),
+    alert: document.querySelector('.business-fieldwork-panel > .business-alert')?.textContent?.trim() ?? null
+  })`);
+  assert.equal(stratifiedDesignUi.alert, null);
+  assert.equal(stratifiedDesignUi.rows, 2);
+  assert.deepEqual(stratifiedDesignUi.assumptions.map(row => row.slice(0, 6)), [
+    ['A', '6', '0%', '10%', '500/20000 (2.50%)', '6'],
+    ['B', '6', '5%', '25%', '500/20000 (2.50%)', '5']
+  ]);
+  assert.ok(stratifiedDesignUi.text.includes('Stratum A'));
+  assert.ok(stratifiedDesignUi.text.includes('Stratum B'));
+  assert.ok(stratifiedDesignUi.text.includes('Expected deviation (%) · Stratum B'));
+
+  const stratumAEvidence = await tabA.evaluate<{ id: string | null; rows: string[] }>(`(() => {
+    const form = [...document.querySelectorAll('.business-fieldwork-sample-test')].find(item => item.querySelector('strong')?.textContent?.trim() === 'SYS-01');
+    const select = form?.querySelector('select');
+    const option = [...(select?.options ?? [])].find(item => item.textContent?.includes(${JSON.stringify(evidenceTitle)}));
+    return { id: option?.value ?? null, rows: [...document.querySelectorAll('.business-fieldwork-sample-test strong')].map(item => item.textContent?.trim() ?? '') };
+  })()`);
+  assert.ok(stratumAEvidence.id, `an adequate retained evidence item is available for attribute tests: ${JSON.stringify(stratumAEvidence)}`);
+  for (let index = 1; index <= 6; index++) {
+    const sourceKey = `SYS-${String(index).padStart(2, '0')}`;
+    const saved = await tabA.evaluate<boolean>(`(() => {
+      const form = [...document.querySelectorAll('.business-fieldwork-sample-test')].find(item => item.querySelector('strong')?.textContent?.trim() === '${sourceKey}');
+      const conclusion = form?.querySelector('textarea'); const evidence = form?.querySelector('select'); const submit = form?.querySelector('button[type="submit"]');
+      if (!(conclusion instanceof HTMLTextAreaElement) || !(evidence instanceof HTMLSelectElement) || !(submit instanceof HTMLButtonElement) || submit.disabled) return false;
+      const setter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(conclusion), 'value')?.set;
+      setter?.call(conclusion, 'The selected control evidence supports the recorded attribute conclusion.');
+      conclusion.dispatchEvent(new Event('input', { bubbles: true }));
+      const selectSetter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(evidence), 'value')?.set;
+      selectSetter?.call(evidence, ${JSON.stringify(stratumAEvidence.id)}); evidence.dispatchEvent(new Event('change', { bubbles: true }));
+      submit.click(); return true;
+    })()`);
+    assert.equal(saved, true, `the visible selected item ${sourceKey} accepts a conclusion and adequate evidence`);
+    await waitFor(tabA, `the saved attribute test for ${sourceKey}`, `(() => { const form = [...document.querySelectorAll('.business-fieldwork-sample-test')].find(item => item.querySelector('strong')?.textContent?.trim() === '${sourceKey}'); return form?.innerText.includes('test v1') ?? false; })()`);
+  }
+  await clickWhenEnabled(tabA, 'Evaluate current tests');
+  await waitFor(tabA, 'the incomplete stratum outcome and finite-population table', `document.body.innerText.includes('INCOMPLETE') && document.body.innerText.includes('Finite-population result by stratum') && document.body.innerText.includes('6/6') && document.body.innerText.includes('0/5')`);
+  const stratifiedEvaluationUi = await tabA.evaluate<{ text: string; alert: string | null }>(`({
+    text: document.body.innerText,
+    alert: document.querySelector('.business-fieldwork-panel > .business-alert')?.textContent?.trim() ?? null
+  })`);
+  assert.equal(stratifiedEvaluationUi.alert, null);
+  assert.ok(stratifiedEvaluationUi.text.includes('Stratum A'));
+  assert.ok(stratifiedEvaluationUi.text.includes('Stratum B'));
+  assert.ok(stratifiedEvaluationUi.text.includes('WITHIN TOLERANCE'));
+  assert.ok(stratifiedEvaluationUi.text.includes('0/6 (0.00%)'), 'the fully tested census stratum reports its observed finite-population deviation rate directly');
+  assert.ok(stratifiedEvaluationUi.text.includes('Not computed while incomplete'));
+  assert.deepEqual(tabA.exceptions, [], 'the stratified finite-population workflow has no unhandled JavaScript exceptions');
   assert.deepEqual(tabA.blockedExternalRequests, []);
 });

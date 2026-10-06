@@ -289,16 +289,19 @@ bounded API acceptance for:
   segments raise a reviewer prompt; a periodicity assessment is mandatory before
   freezing that order, and the server-seeded Fisher–Yates shuffle retains its
   algorithm, seed and resulting order hash.
-* **US-FLD-009:** Disjoint strata retain separate confidence assumptions and
-  results; overlapping or omitted source rows are rejected, and a partial test
-  reports each stratum while keeping the overall plan INCOMPLETE.
+* **US-FLD-009:** Disjoint strata retain independent EDR/TDR assumptions and
+  rationales; Bonferroni alpha is frozen per stratum; exact finite-population
+  bounds report an upper deviation rate; overlap and omitted rows are rejected;
+  incomplete and failing strata cannot be averaged into a pass.
 
 The API integration uses isolated local Worker/SQLite adapters and synthetic
 audit data. A separate Chromium journey covers the visible US-FLD-007/008
 evidence, methodology approval, periodicity warning, required assessment and
-shuffled plan details. US-FLD-009 remains API-level evidence here. These checks
-do not constitute firm methodology sign-off or completion of the 46-story epic;
-full requirement-by-requirement closure remains open.
+shuffled plan details. It also covers the US-FLD-009 per-stratum assumptions,
+separate rates and rationales, exact sample counts, a census result and an
+incomplete second stratum. These checks do not constitute firm methodology
+sign-off or completion of the 46-story epic; full requirement-by-requirement
+closure remains open.
 
 ## Reporting authorization and release-candidate SQL evidence — 2026-10-06
 

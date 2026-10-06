@@ -39,6 +39,10 @@ type SamplingPlanPayload = {
   strata: Array<Record<string, unknown>>;
   evaluations: Array<Record<string, unknown>>;
 };
+type AttributeStratumCriteria = { expectedDeviationPercent: string; tolerableDeviationPercent: string; rationale: string };
+const defaultAttributeStratumCriteria: AttributeStratumCriteria = {
+  expectedDeviationPercent: '', tolerableDeviationPercent: '', rationale: ''
+};
 
 const activeStates = new Set(['FIELDWORK_EXECUTION', 'MANAGERIAL_REVIEW', 'PARTNER_APPROVAL', 'DELIVERABLE_RELEASE', 'COMPLIANCE_COUNTDOWN']);
 const assertions: Assertion[] = ['EXISTENCE', 'RIGHTS_OBLIGATIONS', 'COMPLETENESS', 'VALUATION', 'CUTOFF', 'PRESENTATION'];
@@ -148,6 +152,7 @@ export function BusinessFieldworkPanel({ workspaceId, selected, context, engagem
   const [selectedPopulationId, setSelectedPopulationId] = useState('');
   const [population, setPopulation] = useState<PopulationPayload | null>(null);
   const [stratumByRow, setStratumByRow] = useState<Record<string, string>>({});
+  const [stratumCriteriaByKey, setStratumCriteriaByKey] = useState<Record<string, AttributeStratumCriteria>>({});
   const [method, setMethod] = useState<'MUS_BINOMIAL_PPS'|'SYSTEMATIC'|'STRATIFIED_ATTRIBUTE'>('MUS_BINOMIAL_PPS');
   const [confidencePercent, setConfidencePercent] = useState('95');
   const [tolerableAmount, setTolerableAmount] = useState('500.00');
@@ -156,9 +161,6 @@ export function BusinessFieldworkPanel({ workspaceId, selected, context, engagem
   const [sampleRationale, setSampleRationale] = useState('Reviewer-selected systematic sample size based on engagement risk and available population coverage.');
   const [systematicOrdering, setSystematicOrdering] = useState<'SOURCE_ROW_ASC'|'REFERENCE_ASC'|'SERVER_SEEDED_SHUFFLE'>('SOURCE_ROW_ASC');
   const [periodicityAssessment, setPeriodicityAssessment] = useState('');
-  const [attributeExpected, setAttributeExpected] = useState('0');
-  const [attributeTolerable, setAttributeTolerable] = useState('10');
-  const [attributeRationale, setAttributeRationale] = useState('Risk-based tolerable deviation rate approved for this population.');
   const [selectedPlanId, setSelectedPlanId] = useState('');
   const [planDetail, setPlanDetail] = useState<SamplingPlanPayload | null>(null);
   const [attributePage, setAttributePage] = useState(0);
@@ -241,6 +243,21 @@ export function BusinessFieldworkPanel({ workspaceId, selected, context, engagem
   const distinctSampleRows = planDetail ? [...new Set(planDetail.hits.map(hit => hit.populationRowId))] : [];
   const eligiblePopulationRows = population?.rows.filter(row => row.eligible === 1) ?? [];
   const sourceOrderPeriodicityFlags = population?.sourceOrderPeriodicityFlags ?? [];
+  const attributeStratumRows = new Map<string, PopulationPayload['rows']>();
+  for (const row of eligiblePopulationRows) {
+    const key = (stratumByRow[row.id] ?? 'A').trim();
+    if (key) attributeStratumRows.set(key, [...(attributeStratumRows.get(key) ?? []), row]);
+  }
+  const attributeStratumKeys = [...attributeStratumRows.keys()].sort((left, right) => left < right ? -1 : left > right ? 1 : 0);
+  const hasUnassignedAttributeRows = eligiblePopulationRows.some(row => !(stratumByRow[row.id] ?? 'A').trim());
+  const attributeCriteriaValid = attributeStratumKeys.length > 0 && !hasUnassignedAttributeRows && attributeStratumKeys.every(key => {
+    const criteria = stratumCriteriaByKey[key] ?? defaultAttributeStratumCriteria;
+    const expected = Number(criteria.expectedDeviationPercent); const tolerable = Number(criteria.tolerableDeviationPercent);
+    return criteria.expectedDeviationPercent.trim().length > 0 && criteria.tolerableDeviationPercent.trim().length > 0 &&
+      Number.isFinite(expected) && Number.isFinite(tolerable) && expected >= 0 && expected < tolerable && tolerable < 100 && criteria.rationale.trim().length >= 10;
+  });
+  const savedStratumParameters = Array.isArray(planDetail?.plan.parameters.strata)
+    ? planDetail.plan.parameters.strata as Array<Record<string, unknown>> : [];
   const selectedSourceRows = allLines.find(line => line.fsliId === sourceFsliId)?.sourceRows ?? [];
   const currentSrm = workspace?.srmVersions[0];
   const currentSrmFindingsSnapshot=currentSrm?.findingsSnapshot as {thresholdAnalysis?:{aggregate?:Record<string,unknown>;perItem?:Array<Record<string,unknown>>}}|undefined;
@@ -446,8 +463,12 @@ export function BusinessFieldworkPanel({ workspaceId, selected, context, engagem
           if (!key) throw new Error(`Assign eligible row ${row.sourceRowKey} to a stratum.`);
           groups.set(key, [...(groups.get(key) ?? []), row.id]);
         }
-        return [...groups.entries()].map(([key, populationRowIds]) => ({ key, description: `Reviewer-defined stratum ${key}`,
-          populationRowIds, expectedDeviationBps: percentBps(attributeExpected), tolerableDeviationBps: percentBps(attributeTolerable), rationale: attributeRationale }));
+        return [...groups.entries()].map(([key, populationRowIds]) => {
+          const criteria = stratumCriteriaByKey[key] ?? defaultAttributeStratumCriteria;
+          return { key, description: `Reviewer-defined stratum ${key}`, populationRowIds,
+            expectedDeviationBps: percentBps(criteria.expectedDeviationPercent), tolerableDeviationBps: percentBps(criteria.tolerableDeviationPercent),
+            rationale: criteria.rationale.trim() };
+        });
       })() : undefined;
       const payload: Record<string, unknown> = { engagementId: engagement.id, populationId: population.population.id, policyId: policy.id, method,
         ...(method === 'SYSTEMATIC' ? { requestedCount: Number(requestedCount), sampleSizeRationale: sampleRationale, orderingRule: systematicOrdering,
@@ -769,15 +790,25 @@ export function BusinessFieldworkPanel({ workspaceId, selected, context, engagem
             </div>
             {sourceOrderPeriodicityFlags.length > 0 && <p id="systematic-periodicity-help" className="business-note">Record the source-order risk you assessed and why the chosen ordering is appropriate. The plan will retain this assessment.</p>}
           </>}
-          {method === 'STRATIFIED_ATTRIBUTE' && <><div className="business-form-grid"><label className="business-field"><span>Joint confidence (%)</span><input type="number" min="50" max="99.99" step="0.01" value={confidencePercent} onChange={event => setConfidencePercent(event.target.value)} /></label>
-            <label className="business-field"><span>Expected deviation (%)</span><input type="number" min="0" max="99.99" step="0.01" value={attributeExpected} onChange={event => setAttributeExpected(event.target.value)} /></label>
-            <label className="business-field"><span>Tolerable deviation (%)</span><input type="number" min="0.01" max="99.99" step="0.01" value={attributeTolerable} onChange={event => setAttributeTolerable(event.target.value)} /></label>
-            <label className="business-field"><span>Stratum rationale</span><textarea required minLength={10} value={attributeRationale} onChange={event => setAttributeRationale(event.target.value)} /></label></div>
-            <div className="business-fieldwork-scroll"><table><thead><tr><th>Row</th><th>Reference</th><th>Book value</th><th>Eligible</th><th>Stratum key</th></tr></thead><tbody>{eligiblePopulationRows.slice(attributePage * 100, (attributePage + 1) * 100).map(row => <tr key={row.id}><td>{row.ordinal}</td><td>{row.sourceRowKey}</td><td>{qar(row.bookValueMinor)}</td><td>Yes</td><td><input aria-label={`Stratum for ${row.sourceRowKey}`} value={stratumByRow[row.id] ?? 'A'} onChange={event => setStratumByRow(current => ({ ...current, [row.id]: event.target.value }))} /></td></tr>)}</tbody></table></div>
+          {method === 'STRATIFIED_ATTRIBUTE' && <><div className="business-form-grid"><label className="business-field"><span>Joint confidence (%)</span><input type="number" min="50" max="99.99" step="0.01" value={confidencePercent} onChange={event => setConfidencePercent(event.target.value)} /></label></div>
+            {hasUnassignedAttributeRows && <p className="business-note" role="alert">Every eligible source row needs a non-empty stratum key before planning.</p>}
+            {attributeStratumKeys.map(key => {
+              const criteria = stratumCriteriaByKey[key] ?? defaultAttributeStratumCriteria;
+              const updateCriteria = (field: keyof AttributeStratumCriteria, value: string) => setStratumCriteriaByKey(current => ({
+                ...current, [key]: { ...(current[key] ?? defaultAttributeStratumCriteria), [field]: value }
+              }));
+              return <section className="business-form-grid" key={key} aria-label={`Stratum ${key} assumptions`}>
+                <div className="business-fieldwork-row"><div><strong>Stratum {key}</strong></div><span>{attributeStratumRows.get(key)?.length ?? 0} eligible rows</span></div>
+                <label className="business-field"><span>Expected deviation (%) · Stratum {key}</span><input type="number" required min="0" max="99.99" step="0.01" value={criteria.expectedDeviationPercent} onChange={event => updateCriteria('expectedDeviationPercent', event.target.value)} /></label>
+                <label className="business-field"><span>Tolerable deviation (%) · Stratum {key}</span><input type="number" required min="0.01" max="99.99" step="0.01" value={criteria.tolerableDeviationPercent} onChange={event => updateCriteria('tolerableDeviationPercent', event.target.value)} /></label>
+                <label className="business-field"><span>Rationale · Stratum {key}</span><textarea required minLength={10} value={criteria.rationale} onChange={event => updateCriteria('rationale', event.target.value)} /></label>
+              </section>;
+            })}
+            <div className="business-fieldwork-scroll"><table><thead><tr><th>Row</th><th>Reference</th><th>Book value</th><th>Eligible</th><th>Stratum key</th></tr></thead><tbody>{eligiblePopulationRows.slice(attributePage * 100, (attributePage + 1) * 100).map(row => <tr key={row.id}><td>{row.ordinal}</td><td>{row.sourceRowKey}</td><td>{qar(row.bookValueMinor)}</td><td>Yes</td><td><input aria-label={`Stratum for ${row.sourceRowKey}`} maxLength={120} value={stratumByRow[row.id] ?? 'A'} onChange={event => setStratumByRow(current => ({ ...current, [row.id]: event.target.value }))} /></td></tr>)}</tbody></table></div>
             <PaginationControls page={attributePage} pageSize={100} total={eligiblePopulationRows.length} label="Eligible population rows" onPage={setAttributePage} />
-            <p className="business-note">Each eligible source row must be assigned exactly once. Confidence is split by the approved Bonferroni method; no averaging can make an incomplete stratum pass.</p></>}
+            <p className="business-note">Each eligible source row belongs to one non-empty stratum. Expected rate, tolerable rate and rationale are recorded per stratum. Joint confidence is split by Bonferroni; one stratum cannot offset another.</p></>}
           <label className="business-field"><span>Reviewer sampling rationale</span><textarea required minLength={10} value={sampleRationale} onChange={event => setSampleRationale(event.target.value)} /></label>
-          <button className="btn primary" type="button" disabled={busy || !canReview || !workspace.samplingPolicies.some(item => item.method === method && item.status === 'APPROVED') || (method === 'SYSTEMATIC' && sourceOrderPeriodicityFlags.length > 0 && periodicityAssessment.trim().length < 10)} onClick={() => void createSamplingPlan()}>Create sample plan</button>
+          <button className="btn primary" type="button" disabled={busy || !canReview || !workspace.samplingPolicies.some(item => item.method === method && item.status === 'APPROVED') || (method === 'SYSTEMATIC' && sourceOrderPeriodicityFlags.length > 0 && periodicityAssessment.trim().length < 10) || (method === 'STRATIFIED_ATTRIBUTE' && !attributeCriteriaValid)} onClick={() => void createSamplingPlan()}>Create sample plan</button>
         </section>}
         {workspace.samplingPlans.map(plan => <div className="business-fieldwork-row" key={plan.id}><div><strong>{label(plan.method)} · {plan.calculatedCount} draws</strong><span>{plan.populationId} · revision {plan.revision} · {plan.latestResult ? label(plan.latestResult) : 'Not evaluated'} · {plan.inputHash.slice(0,12)}</span></div>
           <button type="button" className="btn sm" aria-pressed={selectedPlanId === plan.id} onClick={() => { setHitPage(0); setSamplePage(0); setSelectedPlanId(plan.id); }}>Open exact plan</button></div>)}
@@ -791,7 +822,29 @@ export function BusinessFieldworkPanel({ workspaceId, selected, context, engagem
             {' '}Ordering: {String(planDetail.plan.parameters.orderingRule)} · order hash {String(planDetail.plan.parameters.orderingHash)}.
           </p>}
           {planDetail.plan.method === 'SYSTEMATIC' && typeof planDetail.plan.parameters.periodicityAssessment === 'string' && <p className="business-note">Periodicity assessment: {planDetail.plan.parameters.periodicityAssessment}</p>}
-          {planDetail.evaluations.map((evaluation,index) => <p className="business-fieldwork-result" key={String(evaluation.id ?? index)}><strong>{label(evaluation.result)}</strong> · {String(evaluation.reviewedAt ?? '')} · {String(evaluation.upperBoundMinor ? qar(String(evaluation.upperBoundMinor)) : 'No monetary upper bound')}</p>)}
+          {planDetail.plan.method === 'STRATIFIED_ATTRIBUTE' && <div className="business-fieldwork-scroll"><h4>Frozen stratum assumptions</h4><table><thead><tr><th>Stratum</th><th>Population</th><th>Expected deviation</th><th>Tolerable deviation</th><th>Allocated alpha</th><th>Sample count</th><th>Rationale</th></tr></thead><tbody>{planDetail.strata.map((stratum,index) => {
+            const parameters = savedStratumParameters.find(item => item.key === stratum.key) ?? {};
+            const alphaNumerator = Number(parameters.alphaNumerator); const alphaDenominator = Number(parameters.alphaDenominator);
+            return <tr key={String(stratum.id ?? index)}><td>{String(stratum.key)}</td><td>{String(stratum.populationCount)}</td>
+              <td>{Number(stratum.expectedDeviationBps) / 100}%</td><td>{Number(stratum.tolerableDeviationBps) / 100}%</td>
+              <td>{String(parameters.alphaNumerator ?? '—')}/{String(parameters.alphaDenominator ?? '—')}{alphaDenominator ? ` (${(alphaNumerator * 100 / alphaDenominator).toFixed(2)}%)` : ''}</td>
+              <td>{String(stratum.sampleCount)}</td><td>{String(parameters.rationale ?? '')}</td></tr>;
+          })}</tbody></table></div>}
+          {planDetail.plan.method === 'STRATIFIED_ATTRIBUTE' && <p className="business-note">Uniform without-replacement selection: {String(planDetail.plan.parameters.selectionAlgorithm ?? 'versioned policy algorithm')} · seed {planDetail.plan.seedHex ?? 'server-held'} · exact finite-population hypergeometric bounds.</p>}
+          {planDetail.evaluations.map((evaluation,index) => {
+            const details = evaluation.details as Record<string, unknown> | undefined;
+            const perStratum = Array.isArray(details?.perStratum) ? details.perStratum as Array<Record<string, unknown>> : [];
+            return <div key={String(evaluation.id ?? index)}>
+              <p className="business-fieldwork-result"><strong>{label(evaluation.result)}</strong> · {String(evaluation.reviewedAt ?? '')} · {String(evaluation.upperBoundMinor ? qar(String(evaluation.upperBoundMinor)) : 'No monetary upper bound')}</p>
+              {planDetail.plan.method === 'STRATIFIED_ATTRIBUTE' && perStratum.length > 0 && <div className="business-fieldwork-scroll"><h4>Finite-population result by stratum · joint confidence {((Number(details?.confidenceBps ?? planDetail.plan.confidenceBps) || 0) / 100).toFixed(2)}%</h4><table><thead><tr><th>Stratum</th><th>Tested / selected</th><th>Observed deviations</th><th>Upper deviation rate</th><th>Result</th></tr></thead><tbody>{perStratum.map((item,stratumIndex) => {
+                const rate = item.upperDeviationRate && typeof item.upperDeviationRate === 'object' ? item.upperDeviationRate as Record<string, unknown> : null;
+                const numerator = rate ? Number(rate.numerator) : null; const denominator = rate ? Number(rate.denominator) : null;
+                const rateText = numerator !== null && denominator ? `${numerator}/${denominator} (${(numerator * 100 / denominator).toFixed(2)}%)` : 'Not computed while incomplete';
+                return <tr key={String(item.stratumId ?? stratumIndex)}><td>{String(item.key)}</td><td>{String(item.testedCount)}/{String(item.selectedCount)}</td>
+                  <td>{String(item.deviationCount)}</td><td>{rateText}</td><td>{label(item.result)}</td></tr>;
+              })}</tbody></table></div>}
+            </div>;
+          })}
           <div className="business-fieldwork-scroll"><table><thead><tr><th>Draw</th><th>Reference</th><th>Book value</th><th>Monetary unit</th><th>Stratum</th></tr></thead><tbody>{planDetail.hits.slice(hitPage * 100, (hitPage + 1) * 100).map(hit => <tr key={`${hit.drawNumber}-${hit.populationRowId}`}><td>{hit.drawNumber}</td><td>{hit.sourceRowKey}</td><td>{qar(planDetail.rows.find(row => row.id === hit.populationRowId)?.bookValueMinor)}</td><td>{hit.monetaryUnitMinor ? qar(hit.monetaryUnitMinor) : '—'}</td><td>{hit.stratumKey ?? '—'}</td></tr>)}</tbody></table></div>
           <PaginationControls page={hitPage} pageSize={100} total={planDetail.hits.length} label="Sample draws" onPage={setHitPage} />
           <h4>Record tests against selected population items</h4>{distinctSampleRows.slice(samplePage * 50, (samplePage + 1) * 50).map(rowId => {

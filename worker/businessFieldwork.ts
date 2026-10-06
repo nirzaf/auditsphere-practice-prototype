@@ -1313,17 +1313,21 @@ async function evaluateSampling(env:Env,workspaceId:string,context:BusinessConte
   }else{
     const stratumResult=await env.DB.prepare(`SELECT id,key,population_count AS populationCount,expected_deviation_bps AS expectedDeviationBps,tolerable_deviation_bps AS tolerableDeviationBps,sample_count AS sampleCount,alpha_numerator AS alphaNumerator,alpha_denominator AS alphaDenominator
       FROM sampling_strata WHERE workspace_id=? AND plan_id=? ORDER BY key`).bind(workspaceId,p.planId).all<Record<string,unknown>>();
-    const alpha=(10000-Number(plan.confidence_bps))/10000;const evaluations:Array<{id:string;tested:number;deviations:number;upper:number|null;result:'WITHIN_TOLERANCE'|'EXCEEDS_TOLERANCE'|'INCOMPLETE'}>=[];
+    const alpha=(10000-Number(plan.confidence_bps))/10000;const evaluations:Array<{id:string;key:string;population:number;selected:number;tested:number;deviations:number;upper:number|null;result:'WITHIN_TOLERANCE'|'EXCEEDS_TOLERANCE'|'INCOMPLETE'}>=[];
     for(const stratum of stratumResult.results??[]){
-      const selected=hits.filter(hit=>hit.stratumKey===stratum.key);const outstanding=selected.some(hit=>Number(testMap.get(hit.populationRowId)?.tested)!==1);const deviations=selected.filter(hit=>Number(testMap.get(hit.populationRowId)?.deviation)===1).length;
+      const selected=hits.filter(hit=>hit.stratumKey===stratum.key);const selectedTests=selected.map(hit=>testMap.get(hit.populationRowId));const outstanding=selectedTests.some(test=>Number(test?.tested)!==1);
+      const tested=selectedTests.filter(test=>Number(test?.tested)===1).length;const deviations=selectedTests.filter(test=>Number(test?.tested)===1&&Number(test?.deviation)===1).length;
+      const populationCount=Number(stratum.populationCount);
       let upper:number|null=null;let stratumOutcome:'WITHIN_TOLERANCE'|'EXCEEDS_TOLERANCE'|'INCOMPLETE';
-      if(outstanding)stratumOutcome='INCOMPLETE';else if(selected.length===Number(stratum.populationCount)) {upper=deviations;stratumOutcome=deviations*10000<=Number(stratum.populationCount)*Number(stratum.tolerableDeviationBps)?'WITHIN_TOLERANCE':'EXCEEDS_TOLERANCE';}
-      else{upper=upperHypergeometricDeviation(deviations,Number(stratum.populationCount),selected.length,alpha/(stratumResult.results??[]).length);stratumOutcome=upper*10000<=Number(stratum.populationCount)*Number(stratum.tolerableDeviationBps)?'WITHIN_TOLERANCE':'EXCEEDS_TOLERANCE';}
-      evaluations.push({id:String(stratum.id),tested:selected.length,deviations,upper,result:stratumOutcome});
+      if(outstanding)stratumOutcome='INCOMPLETE';else if(selected.length===populationCount) {upper=deviations;stratumOutcome=deviations*10000<=populationCount*Number(stratum.tolerableDeviationBps)?'WITHIN_TOLERANCE':'EXCEEDS_TOLERANCE';}
+      else{upper=upperHypergeometricDeviation(deviations,populationCount,selected.length,alpha/(stratumResult.results??[]).length);stratumOutcome=upper*10000<=populationCount*Number(stratum.tolerableDeviationBps)?'WITHIN_TOLERANCE':'EXCEEDS_TOLERANCE';}
+      evaluations.push({id:String(stratum.id),key:String(stratum.key),population:populationCount,selected:selected.length,tested,deviations,upper,result:stratumOutcome});
     }
-    testedHitCount=hits.length;taintedHitCount=evaluations.reduce((sum,item)=>sum+item.deviations,0);
+    testedHitCount=evaluations.reduce((sum,item)=>sum+item.tested,0);taintedHitCount=evaluations.reduce((sum,item)=>sum+item.deviations,0);
     result=evaluations.some(item=>item.result==='INCOMPLETE')?'INCOMPLETE':evaluations.some(item=>item.result==='EXCEEDS_TOLERANCE')?'EXCEEDS_TOLERANCE':'WITHIN_TOLERANCE';
-    details={...details,confidenceBps:plan.confidence_bps,familywiseMethod:'BONFERRONI',perStratum:evaluations.map(item=>({stratumId:item.id,testedCount:item.tested,deviationCount:item.deviations,upperPopulationDeviationCount:item.upper,result:item.result}))};
+    details={...details,confidenceBps:plan.confidence_bps,familywiseMethod:'BONFERRONI',perStratum:evaluations.map(item=>({stratumId:item.id,key:item.key,populationCount:item.population,
+      selectedCount:item.selected,testedCount:item.tested,deviationCount:item.deviations,upperPopulationDeviationCount:item.upper,
+      upperDeviationRate:item.upper===null?null:{numerator:String(item.upper),denominator:String(item.population)},result:item.result}))};
     upperBound=null;
     // Stratum evaluations are inserted after the parent evaluation below.
   }
@@ -1480,7 +1484,8 @@ async function createSamplingPlan(env:Env,workspaceId:string,context:BusinessCon
       const shuffled=[...stratum.rows];for(let index=0;index<stratum.sampleCount;index++){const swap=index+Number(await random(counter++,BigInt(shuffled.length-index)));[shuffled[index],shuffled[swap]]=[shuffled[swap],shuffled[index]];}
       for(let index=0;index<stratum.sampleCount;index++)hits.push({drawNumber:hits.length+1,rowId:shuffled[index].id,monetaryUnitMinor:null,stratumKey:stratum.key});
     }
-    parameters={confidenceBps,alpha:{numerator:String(10000-confidenceBps),denominator:'10000'},familywiseMethod:'BONFERRONI',strata:strataParams,algorithmVersion:policy.algorithmVersion};
+    parameters={confidenceBps,alpha:{numerator:String(10000-confidenceBps),denominator:'10000'},familywiseMethod:'BONFERRONI',
+      selectionAlgorithm:'HMAC_SHA256_REJECTION_PARTIAL_FISHER_YATES_V1',strata:strataParams,algorithmVersion:policy.algorithmVersion};
   }
   const inputHash=await rowHash({method:p.method,populationId:population.id,sourceHash:population.source_hash,orderHash:population.order_hash,policyId:policy.id,policyVersion:policy.version,policyAlgorithm:policy.algorithmVersion,parameters,reason:p.reason});
   const planRow=env.DB.prepare(`INSERT INTO sampling_plans(id,workspace_id,population_id,policy_id,policy_version,revision,method,confidence_bps,tolerable_minor,expected_tainted_bps,requested_count,seed_hex,input_hash,calculated_count,parameters_json,created_by_reviewer_id,reason,created_at)
