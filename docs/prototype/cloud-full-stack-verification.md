@@ -324,9 +324,11 @@ stories remain open:
   when a current mapped FSLI lacks a workprogram (**US-FLD-004 / US-FLD-012**).
   The focused helper tests exercise both guards; they do not establish full SRM
   compilation, Partner clearance, or the complete release chain.
-* Planning approval now requires every nonzero current or prior TB balance to
-  have an FSLI mapping (**US-FLD-001 / US-FLD-002**). This change still needs a
-  direct regression case for a prior-year-only unmapped row.
+* Planning and mapping gates now require every nonzero current or prior TB
+  balance to have an FSLI mapping (**US-FLD-001 / US-FLD-002**). The regression
+  below imports a balanced comparative TB with a zero-current / nonzero-prior
+  receivable, verifies that mapping approval returns `GATE_BLOCKED` with both
+  balances, then maps it and continues the integration workflow.
 * The practice time-entry UI can optionally select an active FSLI, and the
   workspace query supplies the active catalog (**US-PRC-001**). No browser
   interaction evidence for this new field is recorded yet.
@@ -355,3 +357,22 @@ The latest hosted CI run before this change (`37457806609`) passed typechecks,
 unit tests, production build and browser E2E on `a0a5adb`. Its Cloudflare deploy
 job was skipped because production activation remains gated on the missing
 GitHub environment credentials, reviewer selection and explicit deploy switch.
+
+## Prior-period-only FSLI coverage — 2026-10-06
+
+The `businessWorkspace.test.ts` Worker/D1 integration now imports a balanced
+comparative TB containing account `1299` with current balance zero and prior
+balance QAR 500.00. Mapping approval fails with `422 GATE_BLOCKED`, reports the
+account and both amounts, and leaves the active mapping unchanged. After the
+row is mapped to the appropriate FSLI, the mapping is approved and the existing
+planning workflow continues. The mapping workspace exposes current and prior
+amounts together, and its approval control remains disabled for an unmapped
+material balance in either period. This closes the prior-year-only mapping
+subcase; the wider **US-FLD-001 / US-FLD-002** criteria remain open.
+
+After this change, `npm run test:unit` passed **484/484** checks across 104
+suites; `npx tsc --noEmit` and `npm run cloud:typecheck` passed; and
+`npm run test:e2e` passed **24/24** browser scenarios on the working tree. The
+existing browser scenarios exercised the current engagement flows and
+responsive surfaces; the prior-only amount and blocked mapping assertion are
+covered by the Worker/D1 integration rather than a dedicated browser fixture.

@@ -465,10 +465,10 @@ export async function activateTrialBalance(env: Env, workspaceId: string, contex
     auditDetails: { importId: imported.id, fileVersionId: imported.file_version_id, contentSha256: contentHash, invalidatedPlanningVersionId: sources.approved_planning_version_id } };
 }
 
-type MappingDraftRow = { id: string; version: number; tb_line_id: string; account_code: string; account_name: string; current_minor: number;
+type MappingDraftRow = { id: string; version: number; tb_line_id: string; account_code: string; account_name: string; current_minor: number; prior_minor: number | null;
   fsli_id: string | null; origin: string | null; source_historical_mapping_id: string | null; confirmed: number; reason: string | null };
 async function mappingDraftRows(env: Env, workspaceId: string, draftId: string): Promise<MappingDraftRow[]> {
-  const result = await env.DB.prepare(`SELECT d.id,d.version,d.tb_line_id,l.account_code,l.account_name,l.current_minor,d.fsli_id,d.origin,
+  const result = await env.DB.prepare(`SELECT d.id,d.version,d.tb_line_id,l.account_code,l.account_name,l.current_minor,l.prior_minor,d.fsli_id,d.origin,
       d.source_historical_mapping_id,d.confirmed,d.reason
     FROM mapping_draft_lines d JOIN tb_lines l ON l.workspace_id=d.workspace_id AND l.id=d.tb_line_id
     WHERE d.workspace_id=? AND d.draft_id=? ORDER BY l.source_row_number,l.account_code`)
@@ -581,9 +581,10 @@ async function approveMapping(env: Env, workspaceId: string, context: BusinessCo
   const rows=await mappingDraftRows(env,workspaceId,draft.id);const draftHash=await hashMappingDraft(rows);
   if(draftHash!==command.payload.draftHash||draft.content_sha256!==draftHash)throw new ApiError('VERSION_CONFLICT','Mapping inputs changed. Reload the draft and approve its current hash.');
   const unmapped=rows.filter(row=>!row.confirmed||!row.fsli_id);
-  const material=unmapped.filter(row=>row.current_minor!==0);
-  if(material.length)throw new ApiError('GATE_BLOCKED',`Map each nonzero TB account before approving the mapping. Unmapped: ${material.slice(0,20).map(row=>`${row.account_code} (${row.current_minor} minor units)`).join(', ')}.`,
-    {blockers:material.slice(0,50).map(row=>({code:'UNMAPPED_TB_ACCOUNT',entityId:row.tb_line_id,accountCode:row.account_code,balanceMinor:String(row.current_minor),route:'trial-balance'}))});
+  const material=unmapped.filter(row=>row.current_minor!==0||(row.prior_minor??0)!==0);
+  if(material.length)throw new ApiError('GATE_BLOCKED',`Map each nonzero current- or prior-period TB account before approving the mapping. Unmapped: ${material.slice(0,20).map(row=>`${row.account_code} (current ${row.current_minor}; prior ${row.prior_minor??'not supplied'} minor units)`).join(', ')}.`,
+    {blockers:material.slice(0,50).map(row=>({code:'UNMAPPED_TB_ACCOUNT',entityId:row.tb_line_id,accountCode:row.account_code,balanceMinor:String(row.current_minor),
+      currentMinor:String(row.current_minor),priorMinor:row.prior_minor==null?null:String(row.prior_minor),route:'trial-balance'}))});
   const revision=(await env.DB.prepare(`SELECT COALESCE(MAX(revision),0)+1 AS revision FROM mapping_versions WHERE workspace_id=? AND engagement_id=?`)
     .bind(workspaceId,draft.engagement_id).first<{revision:number}>())?.revision??1;
   const mappingVersionId=crypto.randomUUID();const nowIso=new Date(now).toISOString();
@@ -594,7 +595,8 @@ async function approveMapping(env: Env, workspaceId: string, context: BusinessCo
       ON e.workspace_id=d.workspace_id AND e.id=d.engagement_id WHERE d.workspace_id=? AND d.id=? AND d.status='DRAFT' AND d.content_sha256=?
         AND e.lifecycle_state='PORTAL_ACTIVE_PLANNING' AND e.active_tb_version_id=d.tb_version_id AND e.locked_at IS NULL
         AND NOT EXISTS(SELECT 1 FROM mapping_draft_lines ml JOIN tb_lines tl ON tl.workspace_id=ml.workspace_id AND tl.id=ml.tb_line_id
-          WHERE ml.workspace_id=d.workspace_id AND ml.draft_id=d.id AND (ml.confirmed=0 OR ml.fsli_id IS NULL) AND tl.current_minor<>0))
+          WHERE ml.workspace_id=d.workspace_id AND ml.draft_id=d.id AND (ml.confirmed=0 OR ml.fsli_id IS NULL)
+            AND (tl.current_minor<>0 OR COALESCE(tl.prior_minor,0)<>0)))
       THEN 1 ELSE 0 END`).bind(workspaceId,workspaceId,draft.id,draftHash),
     env.DB.prepare(`INSERT INTO mapping_versions(id,workspace_id,client_id,engagement_id,tb_version_id,draft_id,revision,reporting_framework,content_sha256,approved_by_actor_id,approved_at)
       VALUES(?,?,?,?,?,?,?,?,?,?,?)`).bind(mappingVersionId,workspaceId,draft.client_id,draft.engagement_id,draft.tb_version_id,draft.id,revision,draft.reporting_framework,mappingHash,context.actor.id,nowIso),
@@ -835,7 +837,7 @@ type PlanningDependencySnapshot={
   engagementId:string;clientId:string;lifecycleState:string;tbVersionId:string|null;mappingVersionId:string|null;materialityVersionId:string|null;
   standardsProfileId:string;tbHash:string|null;mappingHash:string|null;materialityHash:string|null;
   tb:{rowCount:number;debitsMinor:number;creditsMinor:number;priorPresent:boolean}|null;
-  mapping:{mappedCount:number;unmappedCount:number;nonzeroUnmapped:Array<{id:string;accountCode:string;balanceMinor:string}>}|null;
+  mapping:{mappedCount:number;unmappedCount:number;nonzeroUnmapped:Array<{id:string;accountCode:string;balanceMinor:string;priorBalanceMinor:string|null}>}|null;
   materiality:{benchmark:string;benchmarkMinor:string;planningMinor:string;performanceMinor:string;sadMinor:string;sourceHash:string}|null;
   staffing:Array<Record<string,unknown>>;milestones:Array<Record<string,unknown>>;pbc:Array<Record<string,unknown>>;folders:Array<Record<string,unknown>>;risks:Array<Record<string,unknown>>;
   blockers:Array<{code:string;entityId?:string;description:string;route:string;details?:Record<string,unknown>}>;dependencyHash:string;
@@ -861,17 +863,19 @@ async function collectPlanningDependencies(env:Env,workspaceId:string,context:Bu
     if(!version||version.tb_version_id!==sources.active_tb_version_id)blockers.push({code:'STALE_MAPPING',description:'The mapping is not pinned to the active TB version.',route:'trial-balance'});
     else{
       mappingHash=version.content_sha256;
-      const unmapped=await env.DB.prepare(`SELECT l.id,l.account_code,l.current_minor FROM tb_lines l LEFT JOIN tb_mappings m
+      const unmapped=await env.DB.prepare(`SELECT l.id,l.account_code,l.current_minor,l.prior_minor FROM tb_lines l LEFT JOIN tb_mappings m
         ON m.workspace_id=l.workspace_id AND m.tb_line_id=l.id AND m.mapping_version_id=?
         WHERE l.workspace_id=? AND l.engagement_id=? AND l.tb_version_id=? AND (m.id IS NULL OR m.fsli_id IS NULL)
         ORDER BY l.source_row_number,l.account_code`).bind(sources.active_mapping_version_id,workspaceId,engagementId,sources.active_tb_version_id)
-        .all<{id:string;account_code:string;current_minor:number}>();
+        .all<{id:string;account_code:string;current_minor:number;prior_minor:number|null}>();
       const allMapped=await env.DB.prepare(`SELECT COUNT(*) AS count FROM tb_mappings WHERE workspace_id=? AND mapping_version_id=?`)
         .bind(workspaceId,sources.active_mapping_version_id).first<{count:number}>();
-      const nonzero=(unmapped.results??[]).filter(line=>line.current_minor!==0);
-      mapping={mappedCount:allMapped?.count??0,unmappedCount:unmapped.results?.length??0,nonzeroUnmapped:nonzero.slice(0,50).map(line=>({id:line.id,accountCode:line.account_code,balanceMinor:String(line.current_minor)}))};
-      if(nonzero.length)blockers.push({code:'UNMAPPED_TB_ACCOUNTS',description:`${nonzero.length} nonzero TB accounts have no approved FSLI mapping: ${nonzero.slice(0,10).map(line=>line.account_code).join(', ')}.`,route:'trial-balance',
-        details:{accounts:nonzero.slice(0,50).map(line=>({id:line.id,accountCode:line.account_code,balanceMinor:String(line.current_minor)}))}});
+      const nonzero=(unmapped.results??[]).filter(line=>line.current_minor!==0||(line.prior_minor??0)!==0);
+      mapping={mappedCount:allMapped?.count??0,unmappedCount:unmapped.results?.length??0,nonzeroUnmapped:nonzero.slice(0,50).map(line=>({id:line.id,accountCode:line.account_code,
+        balanceMinor:String(line.current_minor),priorBalanceMinor:line.prior_minor==null?null:String(line.prior_minor)}))};
+      if(nonzero.length)blockers.push({code:'UNMAPPED_TB_ACCOUNTS',description:`${nonzero.length} current- or prior-period TB accounts have no approved FSLI mapping: ${nonzero.slice(0,10).map(line=>line.account_code).join(', ')}.`,route:'trial-balance',
+        details:{accounts:nonzero.slice(0,50).map(line=>({id:line.id,accountCode:line.account_code,balanceMinor:String(line.current_minor),currentMinor:String(line.current_minor),
+          priorMinor:line.prior_minor==null?null:String(line.prior_minor)}))}});
     }
   }
   let materiality:PlanningDependencySnapshot['materiality']=null;let materialityHash:string|null=null;
@@ -1006,7 +1010,7 @@ export async function getBusinessTrialBalanceWorkspace(env:Env,workspaceId:strin
       const draftLines=await mappingDraftRows(env,workspaceId,String(mappingDraft.id));
       const actualHash=await hashMappingDraft(draftLines);
       mappingDraft={...mappingDraft,draftHash:actualHash,lines:draftLines.map(row=>({id:row.id,version:row.version,tbLineId:row.tb_line_id,accountCode:row.account_code,
-        accountName:row.account_name,balanceMinor:String(row.current_minor),fsliId:row.fsli_id,origin:row.origin,sourceHistoricalMappingId:row.source_historical_mapping_id,
+        accountName:row.account_name,balanceMinor:String(row.current_minor),priorBalanceMinor:row.prior_minor==null?null:String(row.prior_minor),fsliId:row.fsli_id,origin:row.origin,sourceHistoricalMappingId:row.source_historical_mapping_id,
         confirmed:Boolean(row.confirmed),reason:row.reason}))};
     }
   }

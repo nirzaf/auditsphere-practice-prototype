@@ -381,9 +381,10 @@ export function BusinessTrialBalancePanel({
         {mappingDraft && <>
           <p className="business-note">Historical matches are suggestions scoped to this client and reporting framework. Confirm each row and add a reason when changing an approved prior mapping.</p>
           <div className="business-tb-table-wrap"><table className="business-tb-data-table"><caption>Trial-balance account mapping draft</caption>
-            <thead><tr><th scope="col">Account</th><th scope="col">Current balance</th><th scope="col">Suggested FSLI</th><th scope="col">Change reason</th><th scope="col">Confirmed</th></tr></thead>
+            <thead><tr><th scope="col">Account</th><th scope="col">Current / prior balance</th><th scope="col">Suggested FSLI</th><th scope="col">Change reason</th><th scope="col">Confirmed</th></tr></thead>
             <tbody>{mappingDraft.lines.map(line => <tr key={line.tbLineId}><th scope="row"><strong>{line.accountCode}</strong><small>{line.accountName}</small></th>
-              <td>QAR {qarFromMinor(line.balanceMinor)}</td><td><label className="business-sr-only" htmlFor={`mapping-${line.tbLineId}`}>Financial statement line for {line.accountCode} {line.accountName}</label>
+              <td>Current QAR {qarFromMinor(line.balanceMinor)}<small>{line.priorBalanceMinor === null ? 'Prior period not supplied' : `Prior QAR ${qarFromMinor(line.priorBalanceMinor)}`}</small></td>
+              <td><label className="business-sr-only" htmlFor={`mapping-${line.tbLineId}`}>Financial statement line for {line.accountCode} {line.accountName}</label>
                 <select id={`mapping-${line.tbLineId}`} disabled={busy || !canWrite || !canPlan} value={line.fsliId ?? ''} onChange={event => void setMapping(line, event.target.value)}>
                   <option value="">Unmapped</option>{workspace.fsliCatalog.map(item => <option key={item.id} value={item.id}>{item.code} · {item.name}</option>)}</select>
                 <small>{line.origin === 'EXACT_HISTORY' ? 'Historical suggestion · confirm or change' : line.confirmed ? 'Manual selection' : 'Needs mapping confirmation'}</small></td>
@@ -392,7 +393,8 @@ export function BusinessTrialBalancePanel({
                   disabled={busy || !canWrite || !canPlan} placeholder="Required when changing history" onChange={event => setMappingReasons(current => ({ ...current, [line.tbLineId]: event.target.value }))} /></td>
               <td>{line.confirmed ? 'Confirmed' : 'Pending'}</td></tr>)}</tbody></table></div>
           <p className="business-tb-hash">Draft source hash · {mappingDraft.draftHash}</p>
-          <button type="button" className="btn primary" disabled={busy || !canReview || !canPlan || mappingDraft.lines.some(line => !line.confirmed && Number(line.balanceMinor) !== 0)}
+          <button type="button" className="btn primary" disabled={busy || !canReview || !canPlan || mappingDraft.lines.some(line => !line.confirmed
+            && (Number(line.balanceMinor) !== 0 || Number(line.priorBalanceMinor ?? 0) !== 0))}
             onClick={() => void approveMapping()}>{busy ? 'Approving…' : 'Approve confirmed mapping version'}</button>
         </>}
         {workspace.engagement.activeMappingVersionId && !mappingDraft && <div className="business-tb-reconciliation"><strong>FSLI mapping is approved</strong>

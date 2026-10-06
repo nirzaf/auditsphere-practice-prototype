@@ -1314,16 +1314,17 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
 
   const tbFolderId = foldersAfterClearance.body.folders.find((folder: any) => folder.code === 'TB_SCHEDULES').id as string;
   const tbCsv = new TextEncoder().encode([
-    'Account Code,Account Name,Current Balance',
-    '1000,Cash,22861400.01',
-    '1100,Trade receivables,63000.00',
-    '1500,Equipment,37800.00',
-    '1200,Other current assets,37799.99',
-    '5000,Administrative expense,3000000.00',
-    '2000,Trade payables,-3000000.00',
-    '2500,Borrowings,-7000000.00',
-    '3000,Equity,-10000000.00',
-    '4000,Revenue,-6000000.00'
+    'Account Code,Account Name,Current Balance,Prior Balance',
+    '1000,Cash,22861400.01,0.00',
+    '1100,Trade receivables,63000.00,0.00',
+    '1500,Equipment,37800.00,0.00',
+    '1200,Other current assets,37799.99,0.00',
+    '5000,Administrative expense,3000000.00,0.00',
+    '2000,Trade payables,-3000000.00,0.00',
+    '2500,Borrowings,-7000000.00,0.00',
+    '3000,Equity,-10000000.00,-500.00',
+    '4000,Revenue,-6000000.00,0.00',
+    '1299,Prior-period-only receivable,0.00,500.00'
   ].join('\n'));
   const unbalancedTbCsv = new TextEncoder().encode(new TextDecoder().decode(tbCsv).replace('Cash,22861400.01', 'Cash,22861400.02'));
   const unbalancedTbFileId = await storeCommittedFile('TB', 'unbalanced-trial-balance.csv', 'text/csv', unbalancedTbCsv,
@@ -1334,7 +1335,7 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
   const unbalancedImportStarted = await post(`/api/workspaces/${workspaceId}/commands`, {
     idempotencyKey: crypto.randomUUID(), command: { type: 'tb.import', payload: {
       engagementId, fileVersionId: unbalancedTbFileId, worksheet: unbalancedPreview.body.selectedWorksheet,
-      columnMap: { headerRow: 1, accountCodeColumn: 0, accountNameColumn: 1, balanceColumn: 2 }
+      columnMap: { headerRow: 1, accountCodeColumn: 0, accountNameColumn: 1, balanceColumn: 2, priorBalanceColumn: 3 }
     } }
   }, makeRiskHeaders(reviewerHeaders));
   assert.equal(unbalancedImportStarted.response.status, 200, JSON.stringify(unbalancedImportStarted.body));
@@ -1359,7 +1360,7 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
   const tbImportStarted = await post(`/api/workspaces/${workspaceId}/commands`, {
     idempotencyKey: crypto.randomUUID(), command: { type: 'tb.import', payload: {
       engagementId, fileVersionId: tbFileId, worksheet: tbPreview.body.selectedWorksheet,
-      columnMap: { headerRow: 1, accountCodeColumn: 0, accountNameColumn: 1, balanceColumn: 2 }
+      columnMap: { headerRow: 1, accountCodeColumn: 0, accountNameColumn: 1, balanceColumn: 2, priorBalanceColumn: 3 }
     } }
   }, makeRiskHeaders(reviewerHeaders));
   assert.equal(tbImportStarted.response.status, 200, JSON.stringify(tbImportStarted.body));
@@ -1368,16 +1369,19 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
     { headers: makeRiskHeaders(reviewerHeaders) });
   assert.equal(tbImportReady.response.status, 200, JSON.stringify(tbImportReady.body));
   assert.equal(tbImportReady.body.status, 'READY');
-  assert.equal(tbImportReady.body.rowCount, 9);
+  assert.equal(tbImportReady.body.rowCount, 10);
   assert.equal(tbImportReady.body.currentDebitsMinor, 2600000000);
   assert.equal(tbImportReady.body.currentCreditsMinor, 2600000000);
+  assert.equal(tbImportReady.body.priorDebitsMinor, 50000);
+  assert.equal(tbImportReady.body.priorCreditsMinor, 50000);
   const tbActivated = await post(`/api/workspaces/${workspaceId}/commands`, {
     idempotencyKey: crypto.randomUUID(), command: { type: 'tb.activate', payload: {
       engagementId, importId: tbImportStarted.body.result.importId, contentSha256: tbImportReady.body.sourceSha256
     } }
   }, makeRiskHeaders(reviewerHeaders));
   assert.equal(tbActivated.response.status, 200, JSON.stringify(tbActivated.body));
-  assert.equal(tbActivated.body.result.rowCount, 9);
+  assert.equal(tbActivated.body.result.rowCount, 10);
+  assert.equal(tbActivated.body.result.priorPresent, true);
 
   const tbWorkspacePath = `/api/workspaces/${workspaceId}/engagements/${engagementId}/trial-balance-workspace`;
   const tbWorkspace = await call(tbWorkspacePath, { headers: makeRiskHeaders(reviewerHeaders) });
@@ -1391,9 +1395,16 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
   const mappingDraft = (await call(tbWorkspacePath, { headers: makeRiskHeaders(reviewerHeaders) })).body.mappingDraft;
   const accountFsli = new Map<string, string>([
     ['1000','CASH'],['1100','RECEIVABLES'],['1500','PROPERTY_EQUIPMENT'],['1200','OTHER_CURRENT_ASSETS'],
-    ['5000','ADMIN_EXPENSE'],['2000','PAYABLES'],['2500','BORROWINGS'],['3000','EQUITY'],['4000','REVENUE']
+    ['5000','ADMIN_EXPENSE'],['2000','PAYABLES'],['2500','BORROWINGS'],['3000','EQUITY'],['4000','REVENUE'],['1299','OTHER_CURRENT_ASSETS']
   ]);
+  let priorOnlyDraftRow: any = null;
   for (const row of mappingDraft.lines) {
+    if (row.accountCode === '1299') {
+      priorOnlyDraftRow = row;
+      assert.equal(row.balanceMinor, '0');
+      assert.equal(row.priorBalanceMinor, '50000');
+      continue;
+    }
     const definition = tbWorkspace.body.fsliCatalog.find((item: any) => item.code === accountFsli.get(row.accountCode));
     assert.ok(definition, `FSLI definition exists for ${row.accountCode}`);
     const mapped = await post(`/api/workspaces/${workspaceId}/commands`, {
@@ -1403,6 +1414,26 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
     }, makeRiskHeaders(reviewerHeaders));
     assert.equal(mapped.response.status, 200, JSON.stringify(mapped.body));
   }
+  assert.ok(priorOnlyDraftRow, 'the imported comparative balance remains individually mappable');
+  const unmappedPriorApproval = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'tb.mapping.approve', payload: {
+      engagementId, draftId: mappingDraft.id, draftHash: (await call(tbWorkspacePath, { headers: makeRiskHeaders(reviewerHeaders) })).body.mappingDraft.draftHash
+    } }
+  }, makeRiskHeaders(reviewerHeaders));
+  assert.equal(unmappedPriorApproval.response.status, 422);
+  assert.equal(unmappedPriorApproval.body.code, 'GATE_BLOCKED');
+  assert.deepEqual(unmappedPriorApproval.body.details.blockers.map((blocker: any) => ({ accountCode: blocker.accountCode,
+    currentMinor: blocker.currentMinor, priorMinor: blocker.priorMinor })), [{ accountCode: '1299', currentMinor: '0', priorMinor: '50000' }],
+  'mapping approval identifies a nonzero prior-only row even though its current balance is zero');
+  assert.equal(db.prepare(`SELECT active_mapping_version_id FROM engagements WHERE workspace_id=? AND id=?`).bind(workspaceId, engagementId).first<any>()?.active_mapping_version_id, null,
+    'a prior-only unmapped balance cannot partially activate a mapping version');
+  const priorOnlyDefinition = tbWorkspace.body.fsliCatalog.find((item: any) => item.code === accountFsli.get('1299'));
+  const mappedPriorOnly = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'tb.mapping.set', payload: {
+      draftId: mappingDraft.id, tbLineId: priorOnlyDraftRow.tbLineId, expectedVersion: priorOnlyDraftRow.version, fsliId: priorOnlyDefinition.id
+    } }
+  }, makeRiskHeaders(reviewerHeaders));
+  assert.equal(mappedPriorOnly.response.status, 200, JSON.stringify(mappedPriorOnly.body));
   const readyMappingDraft = (await call(tbWorkspacePath, { headers: makeRiskHeaders(reviewerHeaders) })).body.mappingDraft;
   const mappingApproved = await post(`/api/workspaces/${workspaceId}/commands`, {
     idempotencyKey: crypto.randomUUID(), command: { type: 'tb.mapping.approve', payload: {
@@ -1410,7 +1441,7 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
     } }
   }, makeRiskHeaders(reviewerHeaders));
   assert.equal(mappingApproved.response.status, 200, JSON.stringify(mappingApproved.body));
-  assert.equal(mappingApproved.body.result.mappedCount, 9);
+  assert.equal(mappingApproved.body.result.mappedCount, 10);
   const materialityCalculated = await post(`/api/workspaces/${workspaceId}/commands`, {
     idempotencyKey: crypto.randomUUID(), command: { type: 'materiality.calculate', payload: {
       engagementId, tbVersionId: tbActivated.body.result.tbVersionId, mappingVersionId: mappingApproved.body.result.mappingVersionId,
