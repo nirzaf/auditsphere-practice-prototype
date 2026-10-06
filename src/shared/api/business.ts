@@ -341,6 +341,67 @@ export interface BusinessPlanningWorkspace {
     targetDate: string; actualDate: string | null; sourceReference: string; approvedByActorId: string | null }>;
   folders: Array<{ id: string; code: string; displayName: string; ordinal: number; fileCount: number; readOnly: number }>;
 }
+export interface BusinessPlanningReadiness {
+  ready: boolean;
+  blockers: Array<{ code: string; entityId?: string; description: string; route: string; details?: Record<string, unknown> }>;
+  dependencyHash: string;
+  dependencies: Record<string, unknown>;
+}
+export interface BusinessTrialBalanceWorkspace {
+  engagement: { id: string; clientId: string; code: string; lifecycleState: string; periodStart: string; periodEnd: string;
+    activeTbVersionId: string | null; activeMappingVersionId: string | null; activeMaterialityVersionId: string | null; approvedPlanningVersionId: string | null };
+  imports: Array<{ id: string; fileVersionId: string; fileName: string; status: 'STAGED' | 'VALIDATING' | 'INVALID' | 'READY' | 'ACTIVATED';
+    worksheet: string | null; columnMap: Record<string, number>; rowCount: number; sourceSha256: string; errorCount: number;
+    currentDebitsMinor: number; currentCreditsMinor: number; priorDebitsMinor: number | null; priorCreditsMinor: number | null;
+    errors: Array<{ row: number; code: string; message: string }>; createdAt: string }>;
+  folders: Array<{ id: string; code: string; displayName: string; ordinal: number }>;
+  tbVersion: null | { id: string; revision: number; periodStart: string; periodEnd: string; currency: string; currentDebitsMinor: number;
+    currentCreditsMinor: number; priorDebitsMinor: number | null; priorCreditsMinor: number | null; priorPresent: number; rowCount: number; contentSha256: string };
+  tbLines: Array<{ id: string; sourceRowNumber: number; accountCode: string; accountName: string; currentMinor: number; priorMinor: number | null;
+    fsliId: string | null; fsliCode: string | null; fsliName: string | null; draftFsliId: string | null; mappingConfirmed: number | null; mappingRowVersion: number | null;
+    mappingOrigin: string | null; mappingReason: string | null }>;
+  mappingDraft: null | { id: string; revision: number; draftHash: string; lines: Array<{ id: string; version: number; tbLineId: string;
+    accountCode: string; accountName: string; balanceMinor: string; fsliId: string | null; origin: string | null; confirmed: boolean; reason: string | null }> };
+  fsliCatalog: Array<{ id: string; code: string; name: string; statement: string; category: string; normalSide: string; displaySign: number; presentationOrder: number }>;
+  materiality: null | {
+    id: string; revision: number; tbVersionId: string; mappingVersionId: string;
+    benchmark: 'PBT' | 'REVENUE' | 'TOTAL_ASSETS' | 'EQUITY'; benchmarkMinor: number; normalizationMinor: number;
+    normalizationReason: string | null; benchmarkRateBps: number; performanceRateBps: number; sadRateBps: number;
+    pmRawNumerator: string; pmRawDenominator: string; teRawNumerator: string; teRawDenominator: string;
+    sadRawNumerator: string; sadRawDenominator: string; planningMinor: number; performanceMinor: number; sadMinor: number;
+    roundingReason: string | null; sourceHash: string; calculatedAt: string;
+    risks: Array<{ id: string; revision: number; fsliId: string; code: string; name: string; balanceMinor: string;
+      inherentRisk: 'LOW' | 'MODERATE' | 'HIGH'; criticalEstimate: number; band: 'GREEN' | 'AMBER' | 'RED'; rationale: string; sourceHash: string }>;
+  };
+  planning: null | { id: string; revision: number; tbVersionId: string; mappingVersionId: string; materialityVersionId: string;
+    scopeText: string; strategyText: string; sourceHash: string; preparedAt: string; signoffId: string | null;
+    approvedAt: string | null; signoffRationale: string | null; staleEventCount: number };
+  readiness: BusinessPlanningReadiness;
+}
+export interface BusinessTrialBalancePreview {
+  file: { id: string; name: string; mediaType: BusinessFileMediaType; sizeBytes: number; sha256: string };
+  worksheetNames: string[];
+  selectedWorksheet: string;
+  preview: string[][];
+  previewStartsAtRow: number;
+  maxColumns: number;
+}
+export interface BusinessTrialBalanceImport {
+  id: string;
+  fileVersionId: string;
+  status: 'STAGED' | 'VALIDATING' | 'INVALID' | 'READY' | 'ACTIVATED';
+  rowCount: number;
+  errorCount: number;
+  sourceSha256: string;
+  worksheet: string | null;
+  columnMap: Record<string, number>;
+  currentDebitsMinor: number;
+  currentCreditsMinor: number;
+  priorDebitsMinor: number | null;
+  priorCreditsMinor: number | null;
+  errors: Array<{ row: number; code: string; message: string }>;
+  preview: Array<{ sourceRowNumber: number; accountCode: string | null; accountName: string | null; currentMinor: string | null; priorMinor: string | null; errors: string[] }>;
+}
 export interface BusinessCapacity {
   from: string;
   to: string;

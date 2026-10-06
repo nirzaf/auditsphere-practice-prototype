@@ -11,6 +11,10 @@ import type {
   BusinessPbcEngagement,
   BusinessPbcPortal,
   BusinessPlanningWorkspace,
+  BusinessPlanningReadiness,
+  BusinessTrialBalanceWorkspace,
+  BusinessTrialBalancePreview,
+  BusinessTrialBalanceImport,
   BusinessCapacity,
   BusinessFileReservation,
   BusinessAcceptanceGate,
@@ -289,6 +293,46 @@ export async function getBusinessPlanningWorkspace(
   return requestJson(`/api/workspaces/${encodeURIComponent(workspaceId)}/engagements/${encodeURIComponent(engagementId)}/planning-workspace`, { context: selected, signal });
 }
 
+export async function getBusinessTrialBalanceWorkspace(
+  workspaceId: string,
+  engagementId: string,
+  selected: BusinessWorkspacePreference,
+  signal?: AbortSignal
+): Promise<BusinessTrialBalanceWorkspace> {
+  return requestJson(`/api/workspaces/${encodeURIComponent(workspaceId)}/engagements/${encodeURIComponent(engagementId)}/trial-balance-workspace`, { context: selected, signal });
+}
+
+export async function getBusinessTrialBalancePreview(
+  workspaceId: string,
+  engagementId: string,
+  fileId: string,
+  selected: BusinessWorkspacePreference,
+  worksheet?: string,
+  signal?: AbortSignal
+): Promise<BusinessTrialBalancePreview> {
+  const query = new URLSearchParams({ fileId, ...(worksheet ? { worksheet } : {}) });
+  return requestJson(`/api/workspaces/${encodeURIComponent(workspaceId)}/engagements/${encodeURIComponent(engagementId)}/trial-balance-preview?${query}`, { context: selected, signal });
+}
+
+export async function getBusinessTrialBalanceImport(
+  workspaceId: string,
+  engagementId: string,
+  importId: string,
+  selected: BusinessWorkspacePreference,
+  signal?: AbortSignal
+): Promise<BusinessTrialBalanceImport> {
+  return requestJson(`/api/workspaces/${encodeURIComponent(workspaceId)}/engagements/${encodeURIComponent(engagementId)}/tb-imports/${encodeURIComponent(importId)}`, { context: selected, signal });
+}
+
+export async function getBusinessPlanningReadiness(
+  workspaceId: string,
+  engagementId: string,
+  selected: BusinessWorkspacePreference,
+  signal?: AbortSignal
+): Promise<BusinessPlanningReadiness> {
+  return requestJson(`/api/workspaces/${encodeURIComponent(workspaceId)}/engagements/${encodeURIComponent(engagementId)}/planning-readiness`, { context: selected, signal });
+}
+
 export async function getBusinessCapacity(
   workspaceId: string,
   selected: BusinessWorkspacePreference,
@@ -335,7 +379,7 @@ export function initializeBusinessFile(
   workspaceId: string,
   selected: BusinessWorkspacePreference,
   input: { purpose: BusinessFilePurpose; originalName: string; mediaType: BusinessFileMediaType; sizeBytes: number; clientId?: string; engagementId?: string;
-    pbcRequestId?: string; expectedPbcRequestVersion?: number },
+    folderId?: string; pbcRequestId?: string; expectedPbcRequestVersion?: number },
   idempotencyKey: string
 ): Promise<BusinessFileReservation> {
   return requestJson(`/api/workspaces/${encodeURIComponent(workspaceId)}/files`, {

@@ -3,8 +3,9 @@ import { sha256Hex } from './http';
 import { ProposalDocumentError, renderProposalPdf, type ProposalDocumentInput } from './proposalDocument';
 import { CommercialDocumentError, renderCommercialPdf, type CommercialDocumentInput } from './commercialDocument';
 import { getBusinessAcceptanceGate } from './businessRisk';
+import { prepareTrialBalanceImport } from './businessTb';
 
-type JobKind = 'GENERATE_DOCUMENT' | 'EMAIL';
+type JobKind = 'GENERATE_DOCUMENT' | 'EMAIL' | 'IMPORT_TB';
 interface OutboxJob {
   id: string;
   workspace_id: string;
@@ -110,9 +111,9 @@ function parseRawPayload(job: OutboxJob): Record<string, any> {
 
 async function claimJob(env: Env, id: string, now: string): Promise<OutboxJob | null> {
   return env.DB.prepare(`UPDATE outbox_jobs SET status='RUNNING',attempts=attempts+1,lease_until=?,updated_at=?,version=version+1
-    WHERE id=? AND kind IN ('GENERATE_DOCUMENT','EMAIL') AND (
+    WHERE id=? AND kind IN ('GENERATE_DOCUMENT','EMAIL','IMPORT_TB') AND (
       (status IN ('PENDING','RETRYABLE_FAILED') AND next_attempt_at<=?)
-      OR (status='RUNNING' AND kind='GENERATE_DOCUMENT' AND lease_until IS NOT NULL AND lease_until<=?)
+      OR (status='RUNNING' AND kind IN ('GENERATE_DOCUMENT','IMPORT_TB') AND lease_until IS NOT NULL AND lease_until<=?)
     ) RETURNING id,workspace_id,version,kind,aggregate_id,aggregate_version,payload_json,deduplication_key,status,attempts,lease_until,last_error_code,result_file_id`)
     .bind(new Date(Date.parse(now) + JOB_LEASE_MS).toISOString(), now, id, now, now).first<OutboxJob>();
 }
@@ -787,7 +788,7 @@ async function recordJobFailure(env: Env, job: OutboxJob, error: unknown): Promi
   const documentEntity = documentType === 'ENGAGEMENT_LETTER' && typeof payload.draftId === 'string' ? { type: 'ENGAGEMENT_LETTER_DRAFT', id: payload.draftId }
     : documentType === 'ADVANCE_INVOICE' && typeof payload.invoiceId === 'string' ? { type: 'INVOICE', id: payload.invoiceId }
       : documentType === 'RECEIPT' && typeof payload.receiptId === 'string' ? { type: 'RECEIPT_VOUCHER', id: payload.receiptId } : null;
-  const failureEntityType = job.kind === 'EMAIL' ? 'DISPATCH' : documentEntity?.type ?? 'PROPOSAL_VERSION';
+  const failureEntityType = job.kind === 'IMPORT_TB' ? 'TB_IMPORT' : job.kind === 'EMAIL' ? 'DISPATCH' : documentEntity?.type ?? 'PROPOSAL_VERSION';
   const failureEntityId = dispatchId ?? documentEntity?.id ?? job.aggregate_id;
   await commitJobMutation(env, job, {
     entityType: failureEntityType,
@@ -804,7 +805,12 @@ async function recordJobFailure(env: Env, job: OutboxJob, error: unknown): Promi
         .bind(dispatchStatus, now, job.workspace_id, dispatchId, job.id)] : []),
       ...(documentType === 'ENGAGEMENT_LETTER' && typeof payload.draftId === 'string' ? [env.DB.prepare(`UPDATE engagement_letter_drafts SET status=?,error_code=?,version=version+1,updated_at=?
           WHERE workspace_id=? AND id=? AND job_id=? AND status IN ('PENDING','RETRYABLE_FAILED')`)
-        .bind(status, failure.code, now, job.workspace_id, payload.draftId, job.id)] : [])
+        .bind(status, failure.code, now, job.workspace_id, payload.draftId, job.id)] : []),
+      ...(job.kind === 'IMPORT_TB' ? [env.DB.prepare(`UPDATE tb_imports SET status=CASE WHEN ?='PERMANENT_FAILED' THEN 'INVALID' ELSE 'VALIDATING' END,
+          error_count=error_count+CASE WHEN ?='PERMANENT_FAILED' THEN 1 ELSE 0 END,
+          errors_json=CASE WHEN ?='PERMANENT_FAILED' THEN json_array(json_object('row',0,'code',?,'message',?)) ELSE errors_json END,updated_at=?
+        WHERE workspace_id=? AND id=? AND status IN ('STAGED','VALIDATING')`)
+        .bind(status,status,status,failure.code,failure.message,now,job.workspace_id,job.aggregate_id)] : [])
     ],
     result: { status, errorCode: failure.code }
   });
@@ -841,9 +847,9 @@ export async function processBusinessOutbox(env: Env, limit = 20): Promise<numbe
   const safeLimit = Math.min(Math.max(Math.trunc(limit) || 20, 1), 50);
   const [ready, expiredEmail] = await Promise.all([
     env.DB.prepare(`SELECT j.id FROM outbox_jobs j JOIN workspaces w ON w.id=j.workspace_id AND w.data_mode='BUSINESS'
-      WHERE j.kind IN ('GENERATE_DOCUMENT','EMAIL') AND (
+      WHERE j.kind IN ('GENERATE_DOCUMENT','EMAIL','IMPORT_TB') AND (
         (j.status IN ('PENDING','RETRYABLE_FAILED') AND j.next_attempt_at<=?)
-        OR (j.status='RUNNING' AND j.kind='GENERATE_DOCUMENT' AND j.lease_until IS NOT NULL AND j.lease_until<=?)
+        OR (j.status='RUNNING' AND j.kind IN ('GENERATE_DOCUMENT','IMPORT_TB') AND j.lease_until IS NOT NULL AND j.lease_until<=?)
       ) ORDER BY j.next_attempt_at,j.created_at,j.id LIMIT ?`)
       .bind(now, now, safeLimit).all<{ id: string }>(),
     env.DB.prepare(`SELECT j.id,j.workspace_id,j.lease_until,j.aggregate_id,j.payload_json FROM outbox_jobs j
@@ -861,7 +867,9 @@ export async function processBusinessOutbox(env: Env, limit = 20): Promise<numbe
     if (!job) continue;
     try {
       const payload = parseRawPayload(job);
-      if (job.kind === 'GENERATE_DOCUMENT') {
+      if (job.kind === 'IMPORT_TB') {
+        await commitJobMutation(env, job, await prepareTrialBalanceImport(env, job));
+      } else if (job.kind === 'GENERATE_DOCUMENT') {
         if (typeof payload.documentType === 'string') await renderAndStoreCommercialDocument(env, job);
         else await renderAndStoreProposal(env, job);
       } else if (payload.documentType === 'COMMERCIAL_EMAIL') await dispatchCommercial(env, job);

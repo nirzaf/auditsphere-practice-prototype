@@ -156,7 +156,7 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
   const approverContext = await call(`/api/workspaces/${workspaceId}/context`, { headers: approverHeaders });
   assert.equal(approverContext.response.status, 200, JSON.stringify(approverContext.body));
   assert.deepEqual(approverContext.body.allowedActions, [
-    'directory.manage', 'client.read', 'client.manage', 'lead.read', 'lead.manage', 'lead.convert', 'engagement.read', 'engagement.advance', 'standards.read', 'standards.manage', 'file.read', 'file.upload', 'proposal.read', 'proposal.create', 'proposal.generate', 'proposal.approve', 'proposal.dispatch', 'firm.manage', 'risk.read', 'riskAssessment.draft', 'riskAssessment.submit', 'riskAssessment.resolveEscalation', 'risk.clear', 'commercialAcceptance.read', 'engagementLetter.manage', 'invoice.issue', 'payment.record', 'payment.reverse', 'billing.read', 'pbc.read', 'pbc.manage', 'pbc.review', 'planning.read', 'staffing.manage'
+    'directory.manage', 'client.read', 'client.manage', 'lead.read', 'lead.manage', 'lead.convert', 'engagement.read', 'engagement.advance', 'standards.read', 'standards.manage', 'file.read', 'file.upload', 'proposal.read', 'proposal.create', 'proposal.generate', 'proposal.approve', 'proposal.dispatch', 'firm.manage', 'risk.read', 'riskAssessment.draft', 'riskAssessment.submit', 'riskAssessment.resolveEscalation', 'risk.clear', 'commercialAcceptance.read', 'engagementLetter.manage', 'invoice.issue', 'payment.record', 'payment.reverse', 'billing.read', 'pbc.read', 'pbc.manage', 'pbc.review', 'planning.read', 'staffing.manage', 'tb.manage'
   ]);
 
   const staffKey = crypto.randomUUID();
@@ -1260,6 +1260,213 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
   assert.equal(approvedForClient.body.requests[0].status, 'APPROVED');
   assert.equal(approvedForClient.body.requests[0].submissions.length, 2, 'approval preserves both exact submitted files');
   assert.equal(approvedForClient.body.requests[0].submissions[1].reviews[0].fileSha256, replacementPbcFile.sha256);
+
+  const tbFolderId = foldersAfterClearance.body.folders.find((folder: any) => folder.code === 'TB_SCHEDULES').id as string;
+  const tbCsv = new TextEncoder().encode([
+    'Account Code,Account Name,Current Balance',
+    '1000,Cash,22861400.01',
+    '1100,Trade receivables,63000.00',
+    '1500,Equipment,37800.00',
+    '1200,Other current assets,37799.99',
+    '5000,Administrative expense,3000000.00',
+    '2000,Trade payables,-3000000.00',
+    '2500,Borrowings,-7000000.00',
+    '3000,Equity,-10000000.00',
+    '4000,Revenue,-6000000.00'
+  ].join('\n'));
+  const unbalancedTbCsv = new TextEncoder().encode(new TextDecoder().decode(tbCsv).replace('Cash,22861400.01', 'Cash,22861400.02'));
+  const unbalancedTbFileId = await storeCommittedFile('TB', 'unbalanced-trial-balance.csv', 'text/csv', unbalancedTbCsv,
+    makeRiskHeaders(reviewerHeaders), { clientId, engagementId, folderId: tbFolderId });
+  const unbalancedPreview = await call(`/api/workspaces/${workspaceId}/engagements/${engagementId}/trial-balance-preview?fileId=${unbalancedTbFileId}`,
+    { headers: makeRiskHeaders(reviewerHeaders) });
+  assert.equal(unbalancedPreview.response.status, 200, JSON.stringify(unbalancedPreview.body));
+  const unbalancedImportStarted = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'tb.import', payload: {
+      engagementId, fileVersionId: unbalancedTbFileId, worksheet: unbalancedPreview.body.selectedWorksheet,
+      columnMap: { headerRow: 1, accountCodeColumn: 0, accountNameColumn: 1, balanceColumn: 2 }
+    } }
+  }, makeRiskHeaders(reviewerHeaders));
+  assert.equal(unbalancedImportStarted.response.status, 200, JSON.stringify(unbalancedImportStarted.body));
+  await worker.scheduled({ scheduledTime: Date.now(), cron: '*/5 * * * *' } as any, env);
+  const unbalancedImport = await call(`/api/workspaces/${workspaceId}/engagements/${engagementId}/tb-imports/${unbalancedImportStarted.body.result.importId}`,
+    { headers: makeRiskHeaders(reviewerHeaders) });
+  assert.equal(unbalancedImport.body.status, 'INVALID');
+  assert.ok(unbalancedImport.body.errors.some((item: any) => item.code === 'UNBALANCED_TB'), 'one minor-unit imbalance is rejected');
+  const rejectedUnbalancedActivation = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'tb.activate', payload: { engagementId,
+      importId: unbalancedImportStarted.body.result.importId, contentSha256: unbalancedImport.body.sourceSha256 } }
+  }, makeRiskHeaders(reviewerHeaders));
+  assert.equal(rejectedUnbalancedActivation.response.status, 422);
+  assert.equal(db.prepare(`SELECT active_tb_version_id FROM engagements WHERE workspace_id=? AND id=?`).bind(workspaceId, engagementId).first<any>()?.active_tb_version_id, null,
+    'an invalid replacement cannot change the active TB source');
+  const tbFileId = await storeCommittedFile('TB', 'accepted-trial-balance.csv', 'text/csv', tbCsv, makeRiskHeaders(reviewerHeaders),
+    { clientId, engagementId, folderId: tbFolderId });
+  const tbPreview = await call(`/api/workspaces/${workspaceId}/engagements/${engagementId}/trial-balance-preview?fileId=${tbFileId}`,
+    { headers: makeRiskHeaders(reviewerHeaders) });
+  assert.equal(tbPreview.response.status, 200, JSON.stringify(tbPreview.body));
+  assert.equal(tbPreview.body.preview[0][0], 'Account Code');
+  const tbImportStarted = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'tb.import', payload: {
+      engagementId, fileVersionId: tbFileId, worksheet: tbPreview.body.selectedWorksheet,
+      columnMap: { headerRow: 1, accountCodeColumn: 0, accountNameColumn: 1, balanceColumn: 2 }
+    } }
+  }, makeRiskHeaders(reviewerHeaders));
+  assert.equal(tbImportStarted.response.status, 200, JSON.stringify(tbImportStarted.body));
+  await worker.scheduled({ scheduledTime: Date.now(), cron: '*/5 * * * *' } as any, env);
+  const tbImportReady = await call(`/api/workspaces/${workspaceId}/engagements/${engagementId}/tb-imports/${tbImportStarted.body.result.importId}`,
+    { headers: makeRiskHeaders(reviewerHeaders) });
+  assert.equal(tbImportReady.response.status, 200, JSON.stringify(tbImportReady.body));
+  assert.equal(tbImportReady.body.status, 'READY');
+  assert.equal(tbImportReady.body.rowCount, 9);
+  assert.equal(tbImportReady.body.currentDebitsMinor, 2600000000);
+  assert.equal(tbImportReady.body.currentCreditsMinor, 2600000000);
+  const tbActivated = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'tb.activate', payload: {
+      engagementId, importId: tbImportStarted.body.result.importId, contentSha256: tbImportReady.body.sourceSha256
+    } }
+  }, makeRiskHeaders(reviewerHeaders));
+  assert.equal(tbActivated.response.status, 200, JSON.stringify(tbActivated.body));
+  assert.equal(tbActivated.body.result.rowCount, 9);
+
+  const tbWorkspacePath = `/api/workspaces/${workspaceId}/engagements/${engagementId}/trial-balance-workspace`;
+  const tbWorkspace = await call(tbWorkspacePath, { headers: makeRiskHeaders(reviewerHeaders) });
+  assert.equal(tbWorkspace.response.status, 200, JSON.stringify(tbWorkspace.body));
+  const mappingProposed = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'tb.mapping.propose', payload: {
+      engagementId, tbVersionId: tbActivated.body.result.tbVersionId
+    } }
+  }, makeRiskHeaders(reviewerHeaders));
+  assert.equal(mappingProposed.response.status, 200, JSON.stringify(mappingProposed.body));
+  const mappingDraft = (await call(tbWorkspacePath, { headers: makeRiskHeaders(reviewerHeaders) })).body.mappingDraft;
+  const accountFsli = new Map<string, string>([
+    ['1000','CASH'],['1100','RECEIVABLES'],['1500','PROPERTY_EQUIPMENT'],['1200','OTHER_CURRENT_ASSETS'],
+    ['5000','ADMIN_EXPENSE'],['2000','PAYABLES'],['2500','BORROWINGS'],['3000','EQUITY'],['4000','REVENUE']
+  ]);
+  for (const row of mappingDraft.lines) {
+    const definition = tbWorkspace.body.fsliCatalog.find((item: any) => item.code === accountFsli.get(row.accountCode));
+    assert.ok(definition, `FSLI definition exists for ${row.accountCode}`);
+    const mapped = await post(`/api/workspaces/${workspaceId}/commands`, {
+      idempotencyKey: crypto.randomUUID(), command: { type: 'tb.mapping.set', payload: {
+        draftId: mappingDraft.id, tbLineId: row.tbLineId, expectedVersion: row.version, fsliId: definition.id
+      } }
+    }, makeRiskHeaders(reviewerHeaders));
+    assert.equal(mapped.response.status, 200, JSON.stringify(mapped.body));
+  }
+  const readyMappingDraft = (await call(tbWorkspacePath, { headers: makeRiskHeaders(reviewerHeaders) })).body.mappingDraft;
+  const mappingApproved = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'tb.mapping.approve', payload: {
+      engagementId, draftId: readyMappingDraft.id, draftHash: readyMappingDraft.draftHash
+    } }
+  }, makeRiskHeaders(reviewerHeaders));
+  assert.equal(mappingApproved.response.status, 200, JSON.stringify(mappingApproved.body));
+  assert.equal(mappingApproved.body.result.mappedCount, 9);
+  const materialityCalculated = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'materiality.calculate', payload: {
+      engagementId, tbVersionId: tbActivated.body.result.tbVersionId, mappingVersionId: mappingApproved.body.result.mappingVersionId,
+      benchmark: 'REVENUE', benchmarkRateBps: 100, performanceRateBps: 6000, sadRateBps: 400, adjustments: []
+    } }
+  }, makeRiskHeaders(reviewerHeaders));
+  assert.equal(materialityCalculated.response.status, 200, JSON.stringify(materialityCalculated.body));
+  assert.equal(materialityCalculated.body.result.benchmarkMinor, '600000000');
+  assert.equal(materialityCalculated.body.result.planningMinor, '6000000');
+  assert.equal(materialityCalculated.body.result.performanceMinor, '3600000');
+  assert.equal(materialityCalculated.body.result.sadMinor, '240000');
+  const roundedMateriality = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'materiality.adjust', payload: {
+      materialityVersionId: materialityCalculated.body.result.materialityVersionId, planningMinor: '6300000', performanceMinor: '3780000', sadMinor: '252000',
+      reason: 'The partner reviewed compatible tier rounding at the inclusive five percent boundary.'
+    } }
+  }, makeRiskHeaders(reviewerHeaders));
+  assert.equal(roundedMateriality.response.status, 200, JSON.stringify(roundedMateriality.body));
+  const excessiveRounding = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'materiality.adjust', payload: {
+      materialityVersionId: roundedMateriality.body.result.materialityVersionId, planningMinor: '6300001', performanceMinor: '3780000', sadMinor: '252000',
+      reason: 'This amount is one minor unit above the inclusive five percent boundary.'
+    } }
+  }, makeRiskHeaders(reviewerHeaders));
+  assert.equal(excessiveRounding.response.status, 422);
+  assert.equal(excessiveRounding.body.code, 'VALIDATION_FAILED');
+  const currentTbWorkspace = await call(tbWorkspacePath, { headers: makeRiskHeaders(reviewerHeaders) });
+  const activeMaterialityId = currentTbWorkspace.body.engagement.activeMaterialityVersionId;
+  const riskAssessments = [
+    ['CASH','LOW'],['RECEIVABLES','LOW'],['PROPERTY_EQUIPMENT','LOW'],['OTHER_CURRENT_ASSETS','LOW'],['ADMIN_EXPENSE','LOW'],
+    ['PAYABLES','LOW'],['BORROWINGS','LOW'],['EQUITY','LOW'],['REVENUE','HIGH']
+  ] as const;
+  for (const [fsliCode,inherentRisk] of riskAssessments) {
+    const definition = currentTbWorkspace.body.fsliCatalog.find((item: any) => item.code === fsliCode);
+    const risk = await post(`/api/workspaces/${workspaceId}/commands`, {
+      idempotencyKey: crypto.randomUUID(), command: { type: 'fsli.risk.set', payload: {
+        engagementId, materialityVersionId: activeMaterialityId, fsliId: definition.id, inherentRisk, criticalEstimate: false,
+        rationale: `The ${fsliCode} classification was assessed against the current audit evidence and planning threshold.`
+      } }
+    }, makeRiskHeaders(reviewerHeaders));
+    assert.equal(risk.response.status, 200, JSON.stringify(risk.body));
+  }
+  const riskView = await call(tbWorkspacePath, { headers: makeRiskHeaders(reviewerHeaders) });
+  const riskBands = Object.fromEntries(riskView.body.materiality.risks.map((risk: any) => [risk.code,risk.band]));
+  assert.equal(riskBands.PROPERTY_EQUIPMENT, 'AMBER', 'absolute FSLI exposure exactly at TE is Amber');
+  assert.equal(riskBands.RECEIVABLES, 'AMBER', 'absolute FSLI exposure exactly at PM remains Amber');
+  assert.equal(riskBands.OTHER_CURRENT_ASSETS, 'GREEN', 'an absolute balance one minor unit below TE is Green for low inherent risk');
+  assert.equal(riskBands.REVENUE, 'RED', 'high inherent risk remains Red regardless of the selected benchmark');
+
+  for (const staffMemberId of [staff.body.result.staffMemberId, partnerStaffId]) {
+    const savedCapacity = await post(`/api/workspaces/${workspaceId}/commands`, {
+      idempotencyKey: crypto.randomUUID(), command: { type: 'staffing.availability.set', payload: { staffMemberId, workDate: planDate, scheduledMinutes: 480 } }
+    }, makeRiskHeaders(reviewerHeaders));
+    assert.equal(savedCapacity.response.status, 200, JSON.stringify(savedCapacity.body));
+  }
+  const reviewerAssignment = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'staffing.assign', payload: { engagementId, staffMemberId: staff.body.result.staffMemberId,
+      persona: 'REVIEWER', phase: 'FIELDWORK', startDate: planDate, endDate: planDate, plannedMinutes: 240, dailyMinutes: [{ date: planDate, minutes: 240 }] } }
+  }, makeRiskHeaders(reviewerHeaders));
+  assert.equal(reviewerAssignment.response.status, 200, JSON.stringify(reviewerAssignment.body));
+  const partnerAssignment = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'staffing.assign', payload: { engagementId, staffMemberId: partnerStaffId,
+      persona: 'APPROVER', phase: 'PLANNING', startDate: planDate, endDate: planDate, plannedMinutes: 60, dailyMinutes: [{ date: planDate, minutes: 60 }] } }
+  }, makeRiskHeaders(reviewerHeaders));
+  assert.equal(partnerAssignment.response.status, 200, JSON.stringify(partnerAssignment.body));
+  const readyForPlanning = await call(`/api/workspaces/${workspaceId}/engagements/${engagementId}/planning-readiness`, { headers: makeRiskHeaders(reviewerHeaders) });
+  assert.equal(readyForPlanning.response.status, 200, JSON.stringify(readyForPlanning.body));
+  assert.equal(readyForPlanning.body.ready, true, JSON.stringify(readyForPlanning.body.blockers));
+  const planningCompiled = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'planning.compile', payload: {
+      engagementId, tbVersionId: tbActivated.body.result.tbVersionId, mappingVersionId: mappingApproved.body.result.mappingVersionId,
+      materialityVersionId: activeMaterialityId, scopeText: 'Perform the statutory audit for the approved reporting period using the accepted source records.',
+      strategyText: 'Focus fieldwork on current revenue, property and receivables while retaining independent review and evidence tracing.'
+    } }
+  }, makeRiskHeaders(reviewerHeaders));
+  assert.equal(planningCompiled.response.status, 200, JSON.stringify(planningCompiled.body));
+  assert.deepEqual(planningCompiled.body.result.blockers, []);
+  const changedRiskAfterCompile = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'fsli.risk.set', payload: { engagementId, materialityVersionId: activeMaterialityId,
+      fsliId: riskView.body.materiality.risks[0].fsliId, inherentRisk: riskView.body.materiality.risks[0].inherentRisk,
+      criticalEstimate: Boolean(riskView.body.materiality.risks[0].criticalEstimate), rationale: 'Reconfirmed after compiling the prior planning snapshot.' } }
+  }, makeRiskHeaders(reviewerHeaders));
+  assert.equal(changedRiskAfterCompile.response.status, 200, JSON.stringify(changedRiskAfterCompile.body));
+  const stalePlanApproval = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'planning.approve', payload: {
+      engagementId, planningVersionId: planningCompiled.body.result.planningVersionId, dependencyHash: planningCompiled.body.result.sourceHash,
+      rationale: 'The Partner reviewed the exact current trial balance, mapping, materiality, capacity, PBC status and risk assessment.'
+    } }
+  }, makeRiskHeaders(approverHeaders));
+  assert.equal(stalePlanApproval.response.status, 409, 'a change after plan compilation blocks stale sign-off');
+  const refreshedPlanningCompile = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'planning.compile', payload: { engagementId,
+      tbVersionId: tbActivated.body.result.tbVersionId, mappingVersionId: mappingApproved.body.result.mappingVersionId,
+      materialityVersionId: activeMaterialityId, scopeText: 'Perform the statutory audit for the approved reporting period using the accepted source records.',
+      strategyText: 'Focus fieldwork on current revenue, property and receivables while retaining independent review and evidence tracing.' } }
+  }, makeRiskHeaders(reviewerHeaders));
+  assert.equal(refreshedPlanningCompile.response.status, 200, JSON.stringify(refreshedPlanningCompile.body));
+  const planningApproved = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'planning.approve', payload: {
+      engagementId, planningVersionId: refreshedPlanningCompile.body.result.planningVersionId, dependencyHash: refreshedPlanningCompile.body.result.sourceHash,
+      rationale: 'The Partner reviewed the exact current trial balance, mapping, materiality, capacity, PBC status and risk assessment.'
+    } }
+  }, makeRiskHeaders(approverHeaders));
+  assert.equal(planningApproved.response.status, 200, JSON.stringify(planningApproved.body));
+  assert.equal(planningApproved.body.result.state, 'FIELDWORK_EXECUTION');
+  assert.equal(db.prepare(`SELECT approved_planning_version_id,lifecycle_state FROM engagements WHERE workspace_id=? AND id=?`)
+    .bind(workspaceId, engagementId).first<any>()?.lifecycle_state, 'FIELDWORK_EXECUTION');
   for (const file of [firstPbcFile, replacementPbcFile]) {
     const downloaded = await worker.fetch(new Request(`https://local.auditsphere.test/api/workspaces/${workspaceId}/files/${file.fileId}`, {
       headers: clientPbcHeaders

@@ -88,6 +88,7 @@ import {
 import { getBusinessAcceptanceGate, getBusinessRiskWorkspace } from './businessRisk';
 import { getBusinessDeliveryWorkspace } from './businessDelivery';
 import { getBusinessCapacity, getBusinessPlanningWorkspace, listBusinessEngagementFolders } from './businessPlanning';
+import { getBusinessPlanningReadiness, getBusinessTrialBalanceImport, getBusinessTrialBalancePreview, getBusinessTrialBalanceWorkspace } from './businessTb';
 
 const JSON_BODY_LIMIT = 1_000_000;
 /** Hard ceiling for a single command payload; the domain model is small. */
@@ -249,6 +250,32 @@ const handleBusinessDeliveryWorkspace = async (ctx: RouteContext): Promise<Respo
 const handleBusinessPlanningWorkspace = async (ctx: RouteContext): Promise<Response> => {
   const context = await resolveBusinessContext(ctx.env, ctx.params.workspaceId, ctx.request);
   const result = await getBusinessPlanningWorkspace(ctx.env, ctx.params.workspaceId, context, ctx.params.engagementId);
+  return jsonResponse(result, 200, ctx.requestId);
+};
+
+const handleBusinessTrialBalanceWorkspace = async (ctx: RouteContext): Promise<Response> => {
+  const context = await resolveBusinessContext(ctx.env, ctx.params.workspaceId, ctx.request);
+  const result = await getBusinessTrialBalanceWorkspace(ctx.env, ctx.params.workspaceId, context, ctx.params.engagementId);
+  return jsonResponse(result, 200, ctx.requestId);
+};
+
+const handleBusinessTrialBalancePreview = async (ctx: RouteContext): Promise<Response> => {
+  const context = await resolveBusinessContext(ctx.env, ctx.params.workspaceId, ctx.request);
+  const fileId = ctx.url.searchParams.get('fileId') ?? '';
+  const result = await getBusinessTrialBalancePreview(ctx.env, ctx.params.workspaceId, context, fileId,
+    ctx.url.searchParams.get('worksheet') ?? undefined);
+  return jsonResponse(result, 200, ctx.requestId);
+};
+
+const handleBusinessTrialBalanceImport = async (ctx: RouteContext): Promise<Response> => {
+  const context = await resolveBusinessContext(ctx.env, ctx.params.workspaceId, ctx.request);
+  const result = await getBusinessTrialBalanceImport(ctx.env, ctx.params.workspaceId, context, ctx.params.engagementId, ctx.params.importId);
+  return jsonResponse(result, 200, ctx.requestId);
+};
+
+const handleBusinessPlanningReadiness = async (ctx: RouteContext): Promise<Response> => {
+  const context = await resolveBusinessContext(ctx.env, ctx.params.workspaceId, ctx.request);
+  const result = await getBusinessPlanningReadiness(ctx.env, ctx.params.workspaceId, context, ctx.params.engagementId);
   return jsonResponse(result, 200, ctx.requestId);
 };
 
@@ -720,6 +747,10 @@ const router = createRouter()
   .get('/api/workspaces/:workspaceId/engagements/:engagementId/risk-workspace', handleBusinessRiskWorkspace)
   .get('/api/workspaces/:workspaceId/engagements/:engagementId/delivery-workspace', handleBusinessDeliveryWorkspace)
   .get('/api/workspaces/:workspaceId/engagements/:engagementId/planning-workspace', handleBusinessPlanningWorkspace)
+  .get('/api/workspaces/:workspaceId/engagements/:engagementId/trial-balance-workspace', handleBusinessTrialBalanceWorkspace)
+  .get('/api/workspaces/:workspaceId/engagements/:engagementId/trial-balance-preview', handleBusinessTrialBalancePreview)
+  .get('/api/workspaces/:workspaceId/engagements/:engagementId/tb-imports/:importId', handleBusinessTrialBalanceImport)
+  .get('/api/workspaces/:workspaceId/engagements/:engagementId/planning-readiness', handleBusinessPlanningReadiness)
   .get('/api/workspaces/:workspaceId/engagements/:engagementId/folders', handleBusinessEngagementFolders)
   .get('/api/workspaces/:workspaceId/capacity', handleBusinessCapacity)
   .get('/api/workspaces/:workspaceId/pbc-engagements', handleBusinessPbcEngagements)

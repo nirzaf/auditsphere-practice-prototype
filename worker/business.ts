@@ -9,6 +9,7 @@ import { requireWorkspace } from './db';
 import { businessRiskCommands, buildBusinessRiskMutation, isBusinessRiskCommand } from './businessRisk';
 import { businessDeliveryCommands, buildBusinessDeliveryMutation, isBusinessDeliveryCommand } from './businessDelivery';
 import { businessPlanningCommands, buildBusinessPlanningMutation, isBusinessPlanningCommand } from './businessPlanning';
+import { businessTbCommands, buildBusinessTbMutation, isBusinessTbCommand } from './businessTb';
 
 export const BUSINESS_SCHEMA_VERSION = 10;
 
@@ -572,9 +573,9 @@ export async function resolveBusinessContext(env: Env, workspaceId: string, requ
     },
     scope: { clientId, engagementId: requestedEngagementId },
     allowedActions: row.persona === 'APPROVER' && row.staffGrade === 'PARTNER'
-      ? ['directory.manage', 'client.read', 'client.manage', 'lead.read', 'lead.manage', 'lead.convert', 'engagement.read', 'engagement.advance', 'standards.read', 'standards.manage', 'file.read', 'file.upload', 'proposal.read', 'proposal.create', 'proposal.generate', 'proposal.approve', 'proposal.dispatch', 'firm.manage', 'risk.read', 'riskAssessment.draft', 'riskAssessment.submit', 'riskAssessment.resolveEscalation', 'risk.clear', 'commercialAcceptance.read', 'engagementLetter.manage', 'invoice.issue', 'payment.record', 'payment.reverse', 'billing.read', 'pbc.read', 'pbc.manage', 'pbc.review', 'planning.read', 'staffing.manage']
-      : row.persona === 'PREPARER' ? ['client.read', 'client.manage', 'lead.read', 'lead.manage', 'lead.convert', 'engagement.read', 'engagement.advance', 'standards.read', 'file.read', 'file.upload', 'proposal.read', 'proposal.create', 'proposal.generate', 'risk.read', 'riskAssessment.draft', 'riskAssessment.submit', 'commercialAcceptance.read', 'billing.read', 'pbc.read', 'pbc.manage', 'planning.read']
-        : row.persona === 'REVIEWER' ? ['client.read', 'lead.read', 'engagement.read', 'standards.read', 'file.read', 'file.upload', 'proposal.read', 'proposal.create', 'proposal.generate', 'risk.read', 'riskAssessment.draft', 'riskAssessment.submit', 'riskAssessment.escalate', 'commercialAcceptance.read', 'invoice.issue', 'payment.record', 'payment.reverse', 'billing.read', 'pbc.read', 'pbc.manage', 'pbc.review', 'planning.read', 'staffing.manage']
+      ? ['directory.manage', 'client.read', 'client.manage', 'lead.read', 'lead.manage', 'lead.convert', 'engagement.read', 'engagement.advance', 'standards.read', 'standards.manage', 'file.read', 'file.upload', 'proposal.read', 'proposal.create', 'proposal.generate', 'proposal.approve', 'proposal.dispatch', 'firm.manage', 'risk.read', 'riskAssessment.draft', 'riskAssessment.submit', 'riskAssessment.resolveEscalation', 'risk.clear', 'commercialAcceptance.read', 'engagementLetter.manage', 'invoice.issue', 'payment.record', 'payment.reverse', 'billing.read', 'pbc.read', 'pbc.manage', 'pbc.review', 'planning.read', 'staffing.manage', 'tb.manage']
+      : row.persona === 'PREPARER' ? ['client.read', 'client.manage', 'lead.read', 'lead.manage', 'lead.convert', 'engagement.read', 'engagement.advance', 'standards.read', 'file.read', 'file.upload', 'proposal.read', 'proposal.create', 'proposal.generate', 'risk.read', 'riskAssessment.draft', 'riskAssessment.submit', 'commercialAcceptance.read', 'billing.read', 'pbc.read', 'pbc.manage', 'planning.read', 'tb.manage']
+        : row.persona === 'REVIEWER' ? ['client.read', 'lead.read', 'engagement.read', 'standards.read', 'file.read', 'file.upload', 'proposal.read', 'proposal.create', 'proposal.generate', 'risk.read', 'riskAssessment.draft', 'riskAssessment.submit', 'riskAssessment.escalate', 'commercialAcceptance.read', 'invoice.issue', 'payment.record', 'payment.reverse', 'billing.read', 'pbc.read', 'pbc.manage', 'pbc.review', 'planning.read', 'staffing.manage', 'tb.manage']
           : ['client.read', 'file.read', 'file.upload', 'proposal.read', 'commercialAcceptance.read', 'commercialAcceptance.record', 'commercialAcceptance.revoke', 'billing.read', 'pbc.read', 'pbc.submit'],
     readOnlyReasons: isClient ? ['CLIENT_PROJECTION_ONLY'] : []
   };
@@ -974,7 +975,8 @@ export const businessCommandSchema = z.discriminatedUnion('type', [
   proposalDispatchRetryCommand,
   ...businessRiskCommands,
   ...businessDeliveryCommands,
-  ...businessPlanningCommands
+  ...businessPlanningCommands,
+  ...businessTbCommands
 ]);
 
 const expectedVersionSchema = z.strictObject({
@@ -998,7 +1000,8 @@ type BusinessFileCommand = Extract<BusinessCommand, { type: 'file.reserve' | 'fi
 type BusinessPbcCommand = Extract<BusinessCommand, { type: 'pbc.request.create' | 'pbc.submit' | 'pbc.review' }>;
 type BusinessProposalCommand = Extract<BusinessCommand, { type: 'firm-profile.save' | 'team-cv.attach' | 'team-cv.approve' | 'proposal.create' | 'proposal.revise' | 'proposal.generate' | 'proposal.generate.retry' | 'proposal.approve' | 'proposal.dispatch' | 'proposal.dispatch.retry' }>;
 type BusinessPlanningCommandType = import('./businessPlanning').BusinessPlanningCommand;
-type BusinessCommercialCommand = Exclude<BusinessCommand, BusinessDirectoryCommand | BusinessFileCommand | BusinessPbcCommand | BusinessProposalCommand | BusinessPlanningCommandType | import('./businessRisk').BusinessRiskCommand | import('./businessDelivery').BusinessDeliveryCommand>;
+type BusinessTbCommandType = import('./businessTb').BusinessTbCommand;
+type BusinessCommercialCommand = Exclude<BusinessCommand, BusinessDirectoryCommand | BusinessFileCommand | BusinessPbcCommand | BusinessProposalCommand | BusinessPlanningCommandType | BusinessTbCommandType | import('./businessRisk').BusinessRiskCommand | import('./businessDelivery').BusinessDeliveryCommand>;
 
 function isBusinessDirectoryCommand(command: BusinessCommand): command is BusinessDirectoryCommand {
   return command.type === 'staff.create' || command.type === 'staff.update'
@@ -3265,7 +3268,9 @@ export async function runBusinessDirectoryCommand(
                 ? await buildBusinessDeliveryMutation(env, workspaceId, context, envelope.command, commandId, timestamp)
               : isBusinessPlanningCommand(envelope.command)
                 ? await buildBusinessPlanningMutation(env, workspaceId, context, envelope.command, commandId, timestamp)
-                : await buildCommercialMutation(env, workspaceId, context, envelope.command, commandId, timestamp);
+                : isBusinessTbCommand(envelope.command)
+                  ? await buildBusinessTbMutation(env, workspaceId, context, envelope.command, commandId, timestamp)
+                  : await buildCommercialMutation(env, workspaceId, context, envelope.command, commandId, timestamp);
     const sequence = head.last_sequence + 1;
     const eventDetails = JSON.stringify({
       commandId,
