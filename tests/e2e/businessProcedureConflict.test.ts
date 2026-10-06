@@ -675,9 +675,27 @@ it('US-FLD-007, US-FLD-008 and US-FLD-009 verify MUS, systematic and stratified 
   await clickVisibleButton(tabA, 'Assign and select');
   await waitFor(tabA, 'the selected population and MUS inputs', `!![...document.querySelectorAll('.business-fieldwork-card h3')].find(item => item.textContent?.includes(${JSON.stringify(populationName)})) && !![...document.querySelectorAll('label.business-field span')].find(item => item.textContent?.trim() === 'Expected tainted book-value (%)')`);
 
+  // Observe: a matching editable procedure is available before linking a plan.
+  const sampleProcedureOptions = await tabA.evaluate<{ options: string[]; selected: string }>(`(() => {
+    const label = [...document.querySelectorAll('label.business-field')].find(item => item.querySelector('span')?.textContent?.trim() === 'Procedure supported by this sample plan (optional)');
+    const select = label?.querySelector('select');
+    return { options: [...(select?.options ?? [])].map(option => option.textContent?.trim() ?? ''), selected: select?.value ?? '' };
+  })()`);
+  assert.ok(sampleProcedureOptions.options.some(option => option.includes('Same-row concurrent edits')),
+    `the compatible editable procedure is offered: ${JSON.stringify(sampleProcedureOptions)}`);
+  assert.equal(sampleProcedureOptions.selected, '', 'the plan starts unlinked');
+  // Plan: link this sample to the matching FSLI procedure. Act: choose its visible label.
+  await setVisibleFieldByLabel(tabA, 'Procedure supported by this sample plan (optional)', '', 'Same-row concurrent edits');
+  // Verify the control reflects that selection before the plan is created.
+  const selectedSampleProcedure = await tabA.evaluate<string>(`[...document.querySelectorAll('label.business-field')]
+    .find(item => item.querySelector('span')?.textContent?.trim() === 'Procedure supported by this sample plan (optional)')?.querySelector('select')?.value ?? ''`);
+  assert.ok(selectedSampleProcedure, 'the sample plan is linked to the selected procedure');
+
   await setVisibleFieldByLabel(tabA, 'Tolerable misstatement (QAR)', '50000.00');
   await clickVisibleButton(tabA, 'Create sample plan');
   await waitFor(tabA, 'the 59-draw immutable MUS plan', `document.body.innerText.includes('59 selected draws') && document.body.innerText.includes('server seed')`);
+  const linkedProcedureVisible = await tabA.evaluate<boolean>(`document.body.innerText.includes('Procedure Same-row concurrent edits')`);
+  assert.equal(linkedProcedureVisible, true, 'the persisted plan summary shows its supported procedure');
   const visiblePlan = await tabA.evaluate<{ distinctRows: number; draws: number; selectedEvidenceLabel: string }>(`(() => ({
     distinctRows: document.querySelectorAll('.business-fieldwork-sample-test').length,
     draws: document.querySelectorAll('.business-fieldwork-scroll table tbody tr').length,

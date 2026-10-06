@@ -100,7 +100,7 @@ const samplingPopulationCreate = z.strictObject({ type: z.literal('sampling.popu
 }) });
 const stratumInput = z.strictObject({ key: text(1,120), description: text(1,1000), populationRowIds: z.array(id).min(1).max(100000), expectedDeviationBps: z.number().int().min(0).max(9999), tolerableDeviationBps: z.number().int().min(1).max(10000), rationale: text(10,5000) });
 const samplingPlan = z.strictObject({ type: z.literal('sampling.plan'), payload: z.strictObject({
-  engagementId: id, populationId: id, policyId: id, method: z.enum(['MUS_BINOMIAL_PPS','SYSTEMATIC','STRATIFIED_ATTRIBUTE']),
+  engagementId: id, populationId: id, policyId: id, procedureId: id.optional(), method: z.enum(['MUS_BINOMIAL_PPS','SYSTEMATIC','STRATIFIED_ATTRIBUTE']),
   confidenceBps: z.number().int().min(5000).max(9999).nullable().optional(), tolerableMinor: minor.nullable().optional(),
   expectedTaintedBps: z.number().int().min(0).max(9999).nullable().optional(), requestedCount: z.number().int().positive().nullable().optional(),
   sampleSizeRationale: text(10,5000).nullable().optional(), periodicityAssessment: text(10,5000).nullable().optional(),
@@ -385,8 +385,11 @@ export async function getBusinessFieldworkWorkspace(env:Env,workspaceId:string,c
       positive_total_minor AS positiveTotalMinor,excluded_count AS excludedCount,exclusions_reason AS exclusionsReason FROM sample_populations WHERE workspace_id=? AND engagement_id=? ORDER BY created_at DESC`).bind(workspaceId,engagementId).all<Record<string,unknown>>(),
     env.DB.prepare(`SELECT p.id,p.population_id AS populationId,p.policy_id AS policyId,p.policy_version AS policyVersion,p.seed_hex AS seedHex,p.revision,p.method,p.confidence_bps AS confidenceBps,p.tolerable_minor AS tolerableMinor,
       p.expected_tainted_bps AS expectedTaintedBps,p.requested_count AS requestedCount,p.calculated_count AS calculatedCount,p.parameters_json AS parametersJson,
-      p.input_hash AS inputHash,p.reason,p.created_at AS createdAt,(SELECT e.result FROM sampling_evaluations e WHERE e.workspace_id=p.workspace_id AND e.plan_id=p.id ORDER BY e.revision DESC LIMIT 1) AS latestResult
-      FROM sampling_plans p JOIN sample_populations s ON s.workspace_id=p.workspace_id AND s.id=p.population_id WHERE p.workspace_id=? AND s.engagement_id=? ORDER BY p.created_at DESC`).bind(workspaceId,engagementId).all<Record<string,unknown>>(),
+      p.input_hash AS inputHash,p.reason,p.created_at AS createdAt,link.procedure_id AS procedureId,
+      (SELECT e.result FROM sampling_evaluations e WHERE e.workspace_id=p.workspace_id AND e.plan_id=p.id ORDER BY e.revision DESC LIMIT 1) AS latestResult
+      FROM sampling_plans p JOIN sample_populations s ON s.workspace_id=p.workspace_id AND s.id=p.population_id
+      LEFT JOIN sampling_plan_procedure_links link ON link.workspace_id=p.workspace_id AND link.plan_id=p.id
+      WHERE p.workspace_id=? AND s.engagement_id=? ORDER BY p.created_at DESC`).bind(workspaceId,engagementId).all<Record<string,unknown>>(),
     env.DB.prepare(`SELECT COALESCE(MAX(sequence),0) AS cursor FROM fieldwork_change_feed WHERE workspace_id=? AND engagement_id=?`).bind(workspaceId,engagementId).first<{cursor:number}>()
   ] as const);
   const [staff,evidenceLinks]=await Promise.all([
@@ -404,7 +407,9 @@ export async function getBusinessFieldworkWorkspace(env:Env,workspaceId:string,c
   const [reviewSubmissions,reviewNotes]=await Promise.all([
     env.DB.prepare(`SELECT s.id,s.target_kind AS targetKind,s.procedure_id AS procedureId,s.workprogram_id AS workprogramId,s.analytical_review_id AS analyticalReviewId,s.going_concern_id AS goingConcernId,s.srm_version_id AS srmVersionId,s.target_version AS targetVersion,json_extract(s.snapshot_json,'$.revision') AS subjectRevision,s.dependency_hash AS dependencyHash,s.submitted_by_actor_id AS submittedByActorId,s.submitted_at AS submittedAt,d.decision,d.comment AS decisionComment,d.decided_at AS decidedAt
       FROM review_submissions s LEFT JOIN review_decisions d ON d.workspace_id=s.workspace_id AND d.submission_id=s.id WHERE s.workspace_id=? AND s.engagement_id=? ORDER BY s.submitted_at DESC LIMIT 500`).bind(workspaceId,engagementId).all<Record<string,unknown>>(),
-    env.DB.prepare(`SELECT n.id,n.version,n.submission_id AS submissionId,n.procedure_id AS procedureId,n.text,n.assigned_preparer_id AS assignedPreparerId,n.status,n.response_text AS responseText,n.response_at AS responseAt,n.closed_by_actor_id AS closedByActorId,n.closed_at AS closedAt,n.closure_reason AS closureReason,n.resubmission_id AS resubmissionId,n.created_at AS createdAt,s.target_kind AS targetKind,s.workprogram_id AS workprogramId,s.analytical_review_id AS analyticalReviewId,s.going_concern_id AS goingConcernId,s.srm_version_id AS srmVersionId,s.target_version AS targetVersion,json_extract(s.snapshot_json,'$.revision') AS targetRevision
+    env.DB.prepare(`SELECT n.id,n.version,n.submission_id AS submissionId,n.procedure_id AS procedureId,n.text,n.assigned_preparer_id AS assignedPreparerId,n.status,n.response_text AS responseText,n.response_at AS responseAt,n.closed_by_actor_id AS closedByActorId,n.closed_at AS closedAt,n.closure_reason AS closureReason,n.resubmission_id AS resubmissionId,n.created_at AS createdAt,s.target_kind AS targetKind,s.workprogram_id AS workprogramId,s.analytical_review_id AS analyticalReviewId,s.going_concern_id AS goingConcernId,s.srm_version_id AS srmVersionId,s.target_version AS targetVersion,
+        CASE WHEN n.procedure_id IS NOT NULL AND s.target_kind='WORKPROGRAM' THEN (SELECT json_extract(item.value,'$.version') FROM json_each(s.snapshot_json,'$.procedures') item WHERE json_extract(item.value,'$.id')=n.procedure_id LIMIT 1) ELSE s.target_version END AS procedureTargetVersion,
+        json_extract(s.snapshot_json,'$.revision') AS targetRevision
       FROM review_notes n JOIN review_submissions s ON s.workspace_id=n.workspace_id AND s.id=n.submission_id WHERE s.workspace_id=? AND s.engagement_id=? ORDER BY n.created_at DESC LIMIT 500`).bind(workspaceId,engagementId).all<Record<string,unknown>>()
   ]);
   const [confirmations,confirmationFollowups,confirmationAlternatives,confirmationReassessments]=await Promise.all([
@@ -637,6 +642,57 @@ async function assertProcedureEvidenceCurrent(env:Env,workspaceId:string,procedu
   if(current.hash!==String(recordedEvidenceHash))throw new ApiError('STALE_DEPENDENCY','Procedure evidence changed after review. Reassess the evidence and procedure before clearance.');
   return current;
 }
+type ProcedureSamplingPin={planId:string;planRevision:number;populationId:string;populationSourceHash:string;populationTbVersionId:string;policyId:string;policyVersion:number;
+  inputHash:string;evaluationId:string;evaluationRevision:number;testSetHash:string;result:string;selectedDrawCount:number;testedHitCount:number};
+async function procedureSamplingPins(env:Env,workspaceId:string,procedureId:string,activeTbVersionId:string,requireComplete:boolean):Promise<ProcedureSamplingPin[]>{
+  const plans=await env.DB.prepare(`SELECT p.id AS planId,p.revision AS planRevision,p.policy_id AS policyId,p.policy_version AS policyVersion,p.input_hash AS inputHash,
+      pop.id AS populationId,pop.source_hash AS populationSourceHash,pop.tb_version_id AS populationTbVersionId,
+      (SELECT e.id FROM sampling_evaluations e WHERE e.workspace_id=p.workspace_id AND e.plan_id=p.id ORDER BY e.revision DESC LIMIT 1) AS evaluationId,
+      (SELECT e.revision FROM sampling_evaluations e WHERE e.workspace_id=p.workspace_id AND e.plan_id=p.id ORDER BY e.revision DESC LIMIT 1) AS evaluationRevision,
+      (SELECT e.result FROM sampling_evaluations e WHERE e.workspace_id=p.workspace_id AND e.plan_id=p.id ORDER BY e.revision DESC LIMIT 1) AS result,
+      (SELECT e.details_json FROM sampling_evaluations e WHERE e.workspace_id=p.workspace_id AND e.plan_id=p.id ORDER BY e.revision DESC LIMIT 1) AS evaluationDetails,
+      (SELECT COUNT(*) FROM sample_hits h WHERE h.workspace_id=p.workspace_id AND h.plan_id=p.id) AS selectedDrawCount,
+      (SELECT e.tested_hit_count FROM sampling_evaluations e WHERE e.workspace_id=p.workspace_id AND e.plan_id=p.id ORDER BY e.revision DESC LIMIT 1) AS testedHitCount
+    FROM sampling_plan_procedure_links l JOIN sampling_plans p ON p.workspace_id=l.workspace_id AND p.id=l.plan_id
+      JOIN sample_populations pop ON pop.workspace_id=p.workspace_id AND pop.id=p.population_id
+    WHERE l.workspace_id=? AND l.procedure_id=? ORDER BY p.created_at,p.id`).bind(workspaceId,procedureId).all<Record<string,unknown>>();
+  const pins:ProcedureSamplingPin[]=[];
+  for(const plan of plans.results??[]){
+    if(String(plan.populationTbVersionId)!==activeTbVersionId)throw new ApiError('STALE_DEPENDENCY','A linked sample plan uses a replaced trial-balance population. Re-import and retest the current population before submission.');
+    const [hitRows,testRows]=await Promise.all([
+      env.DB.prepare(`SELECT population_row_id AS populationRowId FROM sample_hits WHERE workspace_id=? AND plan_id=? ORDER BY draw_number`).bind(workspaceId,plan.planId).all<{populationRowId:string}>(),
+      env.DB.prepare(`SELECT id,version,population_row_id AS populationRowId,tested,audited_value_minor AS auditedValueMinor,misstated,deviation,conclusion,evidence_id AS evidenceId,evidence_version AS evidenceVersion,source_hash AS sourceHash
+        FROM sample_tests WHERE workspace_id=? AND plan_id=? ORDER BY population_row_id`).bind(workspaceId,plan.planId).all<Record<string,unknown>>()
+    ]);
+    const tests=testRows.results??[];const hits=hitRows.results??[];
+    const testSetHash=await rowHash(tests.map(row=>({id:row.id,version:row.version,populationRowId:row.populationRowId,tested:row.tested,auditedValueMinor:row.auditedValueMinor,
+      misstated:row.misstated,deviation:row.deviation,conclusion:row.conclusion,evidenceId:row.evidenceId,evidenceVersion:row.evidenceVersion,sourceHash:row.sourceHash})));
+    const testByPopulationRow=new Map(tests.map(row=>[String(row.populationRowId),row]));
+    const missing=[...new Set(hits.map(row=>row.populationRowId))].filter(row=>Number(testByPopulationRow.get(row)?.tested)!==1);
+    const evaluationDetails=plan.evaluationDetails?JSON.parse(String(plan.evaluationDetails)) as {testSetHash?:string}:null;
+    if(requireComplete){
+      if(missing.length||!plan.evaluationId||!evaluationDetails||evaluationDetails.testSetHash!==testSetHash||plan.result==='INCOMPLETE')
+        throw new ApiError('GATE_BLOCKED',`Complete and evaluate every selected sample in linked plan ${String(plan.planId)} before procedure submission.`);
+      if(String(plan.result)==='OUTSIDE_ASSUMPTIONS')throw new ApiError('GATE_BLOCKED',`Linked sample plan ${String(plan.planId)} is outside its approved assumptions and needs reviewer disposition before procedure submission.`);
+    }else if(!plan.evaluationId||!evaluationDetails||evaluationDetails.testSetHash!==testSetHash){
+      throw new ApiError('STALE_DEPENDENCY',`The completed sample set in plan ${String(plan.planId)} changed after its evaluation.`);
+    }
+    const staleEvidence=await env.DB.prepare(`SELECT t.id FROM sample_tests t LEFT JOIN evidence_records e ON e.workspace_id=t.workspace_id AND e.id=t.evidence_id
+        LEFT JOIN evidence_adequacy_decisions d ON d.workspace_id=t.workspace_id AND d.evidence_id=t.evidence_id AND d.evidence_version=t.evidence_version
+          AND d.id=(SELECT d2.id FROM evidence_adequacy_decisions d2 WHERE d2.workspace_id=t.workspace_id AND d2.evidence_id=t.evidence_id AND d2.evidence_version=t.evidence_version ORDER BY d2.reviewed_at DESC LIMIT 1)
+      WHERE t.workspace_id=? AND t.plan_id=? AND t.tested=1 AND (
+        t.evidence_id IS NULL OR t.evidence_version IS NULL OR e.id IS NULL OR e.version<>t.evidence_version OR
+        e.version<>(SELECT MAX(e2.version) FROM evidence_records e2 WHERE e2.workspace_id=e.workspace_id AND e2.family_id=e.family_id) OR COALESCE(d.adequacy,'')<>'ADEQUATE' OR
+        NOT EXISTS(SELECT 1 FROM evidence_links el LEFT JOIN evidence_unlinks eu ON eu.workspace_id=el.workspace_id AND eu.evidence_link_id=el.id
+          WHERE el.workspace_id=t.workspace_id AND el.sample_test_id=t.id AND el.evidence_id=t.evidence_id AND el.evidence_version=t.evidence_version AND el.target_version=t.version AND eu.id IS NULL)
+      ) LIMIT 1`).bind(workspaceId,plan.planId).first<{id:string}>();
+    if(staleEvidence)throw new ApiError('STALE_DEPENDENCY',`Sample test ${staleEvidence.id} no longer has current adequate evidence.`);
+    pins.push({planId:String(plan.planId),planRevision:Number(plan.planRevision),populationId:String(plan.populationId),populationSourceHash:String(plan.populationSourceHash),
+      populationTbVersionId:String(plan.populationTbVersionId),policyId:String(plan.policyId),policyVersion:Number(plan.policyVersion),inputHash:String(plan.inputHash),
+      evaluationId:String(plan.evaluationId),evaluationRevision:Number(plan.evaluationRevision),testSetHash,result:String(plan.result),selectedDrawCount:Number(plan.selectedDrawCount),testedHitCount:Number(plan.testedHitCount)});
+  }
+  return pins;
+}
 function pushChange(env:Env,workspaceId:string,engagementId:string,entityType:string,entityId:string,rowVersion:number,now:string){
   return env.DB.prepare(`INSERT INTO fieldwork_change_feed(workspace_id,sequence,entity_type,entity_id,row_version,engagement_id,changed_at)
     SELECT ?,COALESCE(MAX(sequence),0)+1,?,?,?,?,? FROM fieldwork_change_feed WHERE workspace_id=?`)
@@ -644,7 +700,8 @@ function pushChange(env:Env,workspaceId:string,engagementId:string,entityType:st
 }
 async function currentProcedure(env:Env,workspaceId:string,procedureId:string){
   const row=await env.DB.prepare(`SELECT p.id,p.version,p.workprogram_id,p.ordinal,p.title,p.instructions,p.assertion,p.origin,p.mandatory,p.scope_reason,p.work_performed,p.conclusion,p.applicable,
-      p.not_applicable_reason,p.status,p.source_hash,p.evidence_set_hash,w.client_id,w.engagement_id,w.risk_band,w.assigned_staff_id,w.planning_version_id,e.approved_planning_version_id,e.lifecycle_state,e.active_tb_version_id,e.active_mapping_version_id,e.active_materiality_version_id
+      p.prepared_by_staff_id,p.executed_by_staff_id,
+      p.not_applicable_reason,p.status,p.source_hash,p.evidence_set_hash,w.client_id,w.engagement_id,w.fsli_id,w.risk_band,w.assigned_staff_id,w.planning_version_id,e.approved_planning_version_id,e.lifecycle_state,e.active_tb_version_id,e.active_mapping_version_id,e.active_materiality_version_id
     FROM procedures p JOIN workprograms w ON w.workspace_id=p.workspace_id AND w.id=p.workprogram_id
       JOIN engagements e ON e.workspace_id=w.workspace_id AND e.id=w.engagement_id WHERE p.workspace_id=? AND p.id=?`)
     .bind(workspaceId,procedureId).first<Record<string,unknown>>();
@@ -878,10 +935,12 @@ async function submitProcedure(env:Env,workspaceId:string,context:BusinessContex
   const evidence=await evidenceSet(env,workspaceId,'procedure_id',p.procedureId,false);
   if(evidence.rows.some(item=>item.target_version!==p.expectedVersion))throw new ApiError('STALE_DEPENDENCY','Procedure evidence is linked to an older row version. Re-link it to the current procedure revision.');
   if(evidence.hash!==row.evidence_set_hash)throw new ApiError('STALE_DEPENDENCY','Evidence changed after the current procedure revision. Re-save and review the current source pins.');
-  const submissionId=crypto.randomUUID();const reviewSubmissionId=crypto.randomUUID();const nextVersion=p.expectedVersion+1;const content={procedureId:p.procedureId,version:nextVersion,sourceVersion:p.expectedVersion,sourceHash:row.source_hash,evidenceSetHash:evidence.hash,workPerformed:row.work_performed,conclusion:row.conclusion,applicable:Boolean(row.applicable),notApplicableReason:row.not_applicable_reason};
+  const samplingPins=await procedureSamplingPins(env,workspaceId,p.procedureId,String(row.active_tb_version_id),true);
+  const submissionId=crypto.randomUUID();const reviewSubmissionId=crypto.randomUUID();const nextVersion=p.expectedVersion+1;const content={procedureId:p.procedureId,version:nextVersion,sourceVersion:p.expectedVersion,sourceHash:row.source_hash,evidenceSetHash:evidence.hash,
+    samplingPins,workPerformed:row.work_performed,conclusion:row.conclusion,applicable:Boolean(row.applicable),notApplicableReason:row.not_applicable_reason};
   const submittingStaff=await actorStaff(env,workspaceId,context);const contributorIds=[row.prepared_by_staff_id,row.executed_by_staff_id,submittingStaff.id].filter((value):value is string=>typeof value==='string');
   const contributorRows=contributorIds.length?await env.DB.prepare(`SELECT id,natural_person_key AS naturalPersonKey FROM staff_members WHERE workspace_id=? AND id IN (${contributorIds.map(()=>'?').join(',')})`).bind(workspaceId,...contributorIds).all<{id:string;naturalPersonKey:string}>():{results:[]};
-  const contributorKeys=[...new Set((contributorRows.results??[]).map(item=>item.naturalPersonKey))];const dependencyHash=await rowHash({sourceHash:row.source_hash,evidenceHash:evidence.hash,targetVersion:nextVersion});
+  const contributorKeys=[...new Set((contributorRows.results??[]).map(item=>item.naturalPersonKey))];const dependencyHash=await rowHash({sourceHash:row.source_hash,evidenceHash:evidence.hash,targetVersion:nextVersion,samplingPins});
   const statements=[versionGuard(env,workspaceId,990,'procedures','id',p.procedureId,p.expectedVersion),
     env.DB.prepare(`UPDATE procedures SET version=?,status='SUBMITTED',updated_at=? WHERE workspace_id=? AND id=? AND version=?`).bind(nextVersion,now,workspaceId,p.procedureId,p.expectedVersion),
     env.DB.prepare(`INSERT INTO procedure_revisions(id,workspace_id,procedure_id,row_version,content_snapshot_json,evidence_set_hash,changed_by_actor_id,changed_at,reason) VALUES(?,?,?,?,?,?,?,?,NULL)`)
@@ -901,8 +960,8 @@ async function reviewProcedure(env:Env,workspaceId:string,context:BusinessContex
   const submission=await env.DB.prepare(`SELECT id,row_version,content_version,evidence_set_hash,source_hash,status,submitted_by_actor_id FROM procedure_submissions WHERE workspace_id=? AND procedure_id=? ORDER BY submitted_at DESC LIMIT 1`).bind(workspaceId,p.procedureId).first<Record<string,unknown>>();
   if(!submission||Number(submission.row_version)!==p.expectedVersion||submission.status!=='SUBMITTED')throw new ApiError('STALE_DEPENDENCY','The submitted procedure revision is no longer current.');
   const [reviewSubmission,reviewer]=await Promise.all([
-    env.DB.prepare(`SELECT id,submitted_natural_person_key,contributor_natural_person_keys_json,dependency_hash FROM review_submissions WHERE workspace_id=? AND procedure_id=? AND target_version=? ORDER BY submitted_at DESC LIMIT 1`)
-      .bind(workspaceId,p.procedureId,p.expectedVersion).first<{id:string;submitted_natural_person_key:string;contributor_natural_person_keys_json:string;dependency_hash:string}>(),
+    env.DB.prepare(`SELECT id,submitted_natural_person_key,contributor_natural_person_keys_json,dependency_hash,snapshot_json FROM review_submissions WHERE workspace_id=? AND procedure_id=? AND target_version=? ORDER BY submitted_at DESC LIMIT 1`)
+      .bind(workspaceId,p.procedureId,p.expectedVersion).first<{id:string;submitted_natural_person_key:string;contributor_natural_person_keys_json:string;dependency_hash:string;snapshot_json:string}>(),
     actorStaff(env,workspaceId,context)
   ]);
   if(!reviewSubmission)throw new ApiError('STALE_DEPENDENCY','The exact submitted review snapshot is missing; resubmit the current procedure revision.');
@@ -912,6 +971,12 @@ async function reviewProcedure(env:Env,workspaceId:string,context:BusinessContex
     const evidence=await evidenceSet(env,workspaceId,'procedure_id',p.procedureId,p.decision==='ACCEPT');
     if(evidence.rows.some(item=>item.target_version!==submission.content_version))throw new ApiError('STALE_DEPENDENCY','A linked evidence target pin does not match the submitted procedure content revision.');
     if(evidence.hash!==submission.evidence_set_hash||row.source_hash!==submission.source_hash)throw new ApiError('STALE_DEPENDENCY','Procedure or evidence content changed after submission.');
+    const samplingPins=await procedureSamplingPins(env,workspaceId,p.procedureId,String(row.active_tb_version_id),true);
+    const exactSnapshot=JSON.parse(String(reviewSubmission.snapshot_json)) as {samplingPins?:ProcedureSamplingPin[]};
+    const submittedPins=exactSnapshot.samplingPins??[];
+    if(await rowHash(samplingPins)!==await rowHash(submittedPins))throw new ApiError('STALE_DEPENDENCY','A linked sample test, evaluation, policy or source pin changed after procedure submission.');
+    const dependencyHash=await rowHash({sourceHash:submission.source_hash,evidenceHash:evidence.hash,targetVersion:p.expectedVersion,samplingPins});
+    if(dependencyHash!==reviewSubmission.dependency_hash)throw new ApiError('STALE_DEPENDENCY','Procedure, evidence or sample dependencies changed after submission.');
   }
   if(row.risk_band==='RED'){
     const executor=await env.DB.prepare(`SELECT grade FROM staff_members WHERE workspace_id=? AND id=?`).bind(workspaceId,row.executed_by_staff_id).first<{grade:string}>();
@@ -978,20 +1043,28 @@ async function submitReview(env:Env,workspaceId:string,context:BusinessContext,c
     const engagement=await getEngagement(env,workspaceId,context,String(row.engagement_id));if(Number(row.version)!==p.targetVersion)throw new ApiError('VERSION_CONFLICT',JSON.stringify({entity:'Workprogram',id:p.targetId,expectedVersion:p.targetVersion,currentVersion:row.version}));
     if(row.planning_version_id!==row.approved_planning_version_id)throw new ApiError('STALE_DEPENDENCY','The workprogram uses a stale planning version.');
     if(!['DRAFT','IN_PROGRESS','UNDER_REWORK'].includes(String(row.status)))throw new ApiError('INVALID_STATE','This workprogram has already been submitted or reviewed.');
-    const procedures=await env.DB.prepare(`SELECT id,version,ordinal,title,mandatory,applicable,status,source_hash,evidence_set_hash,prepared_by_staff_id,executed_by_staff_id FROM procedures WHERE workspace_id=? AND workprogram_id=? ORDER BY ordinal`).bind(workspaceId,p.targetId).all<Record<string,unknown>>();
+    const procedures=await env.DB.prepare(`SELECT id,version,ordinal,title,instructions,assertion,origin,mandatory,scope_reason AS scopeReason,work_performed AS workPerformed,
+        conclusion,applicable,not_applicable_reason AS notApplicableReason,status,source_hash AS sourceHash,evidence_set_hash AS evidenceSetHash,
+        prepared_by_staff_id AS preparedByStaffId,executed_by_staff_id AS executedByStaffId
+      FROM procedures WHERE workspace_id=? AND workprogram_id=? ORDER BY ordinal`).bind(workspaceId,p.targetId).all<Record<string,unknown>>();
     const procedureRows=procedures.results??[];if(!procedureRows.length)throw new ApiError('GATE_BLOCKED','A workprogram needs procedure rows before submission.');
-    for(const item of procedureRows)await assertProcedureEvidenceCurrent(env,workspaceId,String(item.id),item.evidence_set_hash);
+    for(const item of procedureRows){
+      await assertProcedureEvidenceCurrent(env,workspaceId,String(item.id),item.evidenceSetHash);
+      await procedureSamplingPins(env,workspaceId,String(item.id),String(row.active_tb_version_id),true);
+    }
     const incomplete=procedureRows.filter(item=>item.status!=='REVIEWED');if(incomplete.length)throw new ApiError('GATE_BLOCKED',`${incomplete.length} applicable or not-applicable procedure rows remain unreviewed.`);
     const openNotes=await env.DB.prepare(`SELECT COUNT(*) AS count FROM review_notes n JOIN review_submissions s ON s.workspace_id=n.workspace_id AND s.id=n.submission_id
-      WHERE s.workspace_id=? AND s.workprogram_id=? AND n.status<>'CLOSED'`).bind(workspaceId,p.targetId).first<{count:number}>();
+      WHERE s.workspace_id=? AND n.status='OPEN' AND (s.workprogram_id=? OR s.procedure_id IN
+        (SELECT p.id FROM procedures p WHERE p.workspace_id=? AND p.workprogram_id=?))`).bind(workspaceId,p.targetId,workspaceId,p.targetId).first<{count:number}>();
     if(Number(openNotes?.count??0)>0)throw new ApiError('GATE_BLOCKED','Resolve every open rework note before workprogram submission.');
-    const dependencies=procedureRows.map(item=>({id:item.id,version:item.version,status:item.status,sourceHash:item.source_hash,evidenceSetHash:item.evidence_set_hash}));
+    const procedureSnapshots=await Promise.all(procedureRows.map(async item=>({...item,samplingPins:await procedureSamplingPins(env,workspaceId,String(item.id),String(row.active_tb_version_id),true)})));
+    const dependencies=procedureRows.map(item=>({id:item.id,version:item.version,status:item.status,sourceHash:item.sourceHash,evidenceSetHash:item.evidenceSetHash}));
     const dependencyHash=await rowHash({workprogramSourceHash:row.source_hash,planningVersionId:row.planning_version_id,tbVersionId:engagement.active_tb_version_id,mappingVersionId:engagement.active_mapping_version_id,dependencies});
     if(p.dependencyHash&&p.dependencyHash!==dependencyHash)throw new ApiError('STALE_DEPENDENCY','The workprogram or its source dependencies changed. Refresh and review the current versions.');
-    const contributors=procedureRows.flatMap(item=>[item.prepared_by_staff_id,item.executed_by_staff_id]).filter((value):value is string=>typeof value==='string');const nextVersion=p.targetVersion+1;
+    const contributors=procedureRows.flatMap(item=>[item.preparedByStaffId,item.executedByStaffId]).filter((value):value is string=>typeof value==='string');const nextVersion=p.targetVersion+1;
     const extra=[versionGuard(env,workspaceId,990,'workprograms','id',p.targetId,p.targetVersion),env.DB.prepare(`UPDATE workprograms SET version=?,status='SUBMITTED',updated_at=? WHERE workspace_id=? AND id=? AND version=?`)
       .bind(nextVersion,now,workspaceId,p.targetId,p.targetVersion),pushChange(env,workspaceId,engagement.id,'Workprogram',p.targetId,nextVersion,now)];
-    return createReviewSubmission(env,workspaceId,context,'WORKPROGRAM',p.targetId,nextVersion,dependencyHash,{workprogram:{id:p.targetId,version:nextVersion,sourceHash:row.source_hash,riskBand:row.risk_band,planningVersionId:row.planning_version_id},procedures:procedureRows},contributors,engagement,now,extra);
+    return createReviewSubmission(env,workspaceId,context,'WORKPROGRAM',p.targetId,nextVersion,dependencyHash,{workprogram:{id:p.targetId,version:nextVersion,sourceHash:row.source_hash,riskBand:row.risk_band,planningVersionId:row.planning_version_id},procedures:procedureSnapshots},contributors,engagement,now,extra);
   }
   if(p.targetKind==='ANALYTICAL_REVIEW'){
     const row=await env.DB.prepare(`SELECT a.id,a.version,a.client_id,a.engagement_id,a.fsli_id,a.statement_snapshot_id,a.source_hash,a.status,a.prepared_by_actor_id,e.active_tb_version_id,e.active_mapping_version_id
@@ -1045,7 +1118,10 @@ async function decideReview(env:Env,workspaceId:string,context:BusinessContext,c
     if(p.decision==='ACCEPT'){
       const procedures=await env.DB.prepare(`SELECT id,version,status,source_hash AS sourceHash,evidence_set_hash AS evidenceSetHash FROM procedures WHERE workspace_id=? AND workprogram_id=? ORDER BY ordinal`).bind(workspaceId,entityId).all<Record<string,unknown>>();
       const currentProcedures=procedures.results??[];
-      for(const procedure of currentProcedures)await assertProcedureEvidenceCurrent(env,workspaceId,String(procedure.id),procedure.evidenceSetHash);
+      for(const procedure of currentProcedures){
+        await assertProcedureEvidenceCurrent(env,workspaceId,String(procedure.id),procedure.evidenceSetHash);
+        await procedureSamplingPins(env,workspaceId,String(procedure.id),String(row.tbVersionId),true);
+      }
       if(currentProcedures.some(procedure=>procedure.status!=='REVIEWED'))throw new ApiError('STALE_DEPENDENCY','Procedure review status changed after the workprogram was submitted. Return and resubmit the current workprogram.');
       const dependencyHash=await rowHash({workprogramSourceHash:row.sourceHash,planningVersionId:row.planningVersionId,tbVersionId:row.tbVersionId,mappingVersionId:row.mappingVersionId,
         dependencies:currentProcedures.map(procedure=>({id:procedure.id,version:procedure.version,status:procedure.status,sourceHash:procedure.sourceHash,evidenceSetHash:procedure.evidenceSetHash}))});
@@ -1087,13 +1163,14 @@ async function decideReview(env:Env,workspaceId:string,context:BusinessContext,c
     const affected=kind==='WORKPROGRAM'?[...new Set(p.procedureIds.length?p.procedureIds:mandatorySteps.map(row=>row.id))]:[];
     if(kind==='WORKPROGRAM'&&!affected.length)throw new ApiError('VALIDATION_FAILED','Select the affected procedure step or retain at least one mandatory step in the note.');
     const notedProcedures:Array<string|null>=kind==='WORKPROGRAM'?affected:[null];
+    let procedureGuardSequence=991;
     for(const procedureId of notedProcedures){
       if(procedureId){
         const procedure=await currentProcedure(env,workspaceId,procedureId);if(procedure.workprogram_id!==entityId)throw new ApiError('FORBIDDEN_SCOPE','A review note step must belong to the returned workprogram.');
         const nextProcedureVersion=Number(procedure.version)+1;const content={procedureId,workprogramId:procedure.workprogram_id,ordinal:procedure.ordinal,title:procedure.title,instructions:procedure.instructions,
           assertion:procedure.assertion,origin:procedure.origin,mandatory:procedure.mandatory,scopeReason:procedure.scope_reason,workPerformed:procedure.work_performed,conclusion:procedure.conclusion,
           applicable:Boolean(procedure.applicable),notApplicableReason:procedure.not_applicable_reason,status:'UNDER_REWORK',version:nextProcedureVersion};
-        statements.push(versionGuard(env,workspaceId,990,'procedures','id',procedureId,Number(procedure.version)),
+        statements.push(versionGuard(env,workspaceId,procedureGuardSequence++,'procedures','id',procedureId,Number(procedure.version)),
           env.DB.prepare(`UPDATE procedures SET version=?,status='UNDER_REWORK',updated_at=? WHERE workspace_id=? AND id=? AND version=?`).bind(nextProcedureVersion,now,workspaceId,procedureId,procedure.version),
           env.DB.prepare(`INSERT INTO procedure_revisions(id,workspace_id,procedure_id,row_version,content_snapshot_json,evidence_set_hash,changed_by_actor_id,changed_at,reason) VALUES(?,?,?,?,?,?,?,?,?)`)
             .bind(crypto.randomUUID(),workspaceId,procedureId,nextProcedureVersion,JSON.stringify(content),procedure.evidence_set_hash,context.actor.id,now,p.comment),
@@ -1130,17 +1207,21 @@ async function closeReviewNote(env:Env,workspaceId:string,context:BusinessContex
   if(note.procedure_id&&note.target_kind==='WORKPROGRAM'){
     const original=JSON.parse(String(note.snapshot_json)) as {procedures?:Array<{id:string;version:number}>};
     const originalProcedureVersion=original.procedures?.find(item=>item.id===note.procedure_id)?.version;
-    laterVersion=Boolean(originalProcedureVersion&&Number(resubmission?.target_version??0)>originalProcedureVersion);
+    const current=JSON.parse(String(resubmission?.snapshot_json??'{}')) as {procedures?:Array<{id:string;version:number}>};
+    const resubmittedProcedureVersion=current.procedures?.find(item=>item.id===note.procedure_id)?.version;
+    laterVersion=Boolean(originalProcedureVersion&&resubmittedProcedureVersion&&resubmittedProcedureVersion>originalProcedureVersion);
   }else if(note.target_kind==='GOING_CONCERN'){
     const original=JSON.parse(String(note.snapshot_json)) as {revision?:number};const current=JSON.parse(String(resubmission?.snapshot_json??'{}')) as {revision?:number};
     laterVersion=Boolean(original.revision&&current.revision&&current.revision>original.revision);
   }
   const targetMatches=note.procedure_id
-    ? resubmission?.target_kind==='PROCEDURE'&&resubmission.procedure_id===note.procedure_id
+    ? note.target_kind==='WORKPROGRAM'
+      ? resubmission?.target_kind==='WORKPROGRAM'&&resubmission.workprogram_id===note.workprogram_id
+      : resubmission?.target_kind==='PROCEDURE'&&resubmission.procedure_id===note.procedure_id
     : note.target_kind==='GOING_CONCERN'
       ? resubmission?.target_kind==='GOING_CONCERN'&&resubmission.engagement_id===note.engagement_id
       : resubmission?.target_kind===note.target_kind&&resubmission?.workprogram_id===note.workprogram_id&&resubmission?.analytical_review_id===note.analytical_review_id&&resubmission?.going_concern_id===note.going_concern_id&&resubmission?.srm_version_id===note.srm_version_id;
-  if(!resubmission||!targetMatches||!laterVersion||String(resubmission.submitted_at)<=String(note.response_at)||resubmission.decision!=='ACCEPT')throw new ApiError('GATE_BLOCKED','Close the note only after a later exact resubmission has been independently accepted.');
+  if(!resubmission||!targetMatches||!laterVersion||String(resubmission.submitted_at)<String(note.response_at)||resubmission.decision!=='ACCEPT')throw new ApiError('GATE_BLOCKED','Close the note only after a later exact resubmission has been independently accepted.');
   const nextVersion=Number(note.version)+1;const statements=[versionGuard(env,workspaceId,990,'review_notes','id',p.noteId,Number(note.version)),
     env.DB.prepare(`UPDATE review_notes SET version=?,status='CLOSED',closed_by_actor_id=?,closed_at=?,closure_reason=?,resubmission_id=? WHERE workspace_id=? AND id=? AND version=?`)
       .bind(nextVersion,context.actor.id,now,p.closureReason,p.resubmissionId,workspaceId,p.noteId,note.version),
@@ -1160,7 +1241,10 @@ async function clearPartnerArea(env:Env,workspaceId:string,context:BusinessConte
   if(!submission||submission.decision!=='ACCEPT'||submission.dependency_hash!==p.dependencyHash||Number(submission.target_version)+1!==Number(workprogram.version))throw new ApiError('STALE_DEPENDENCY','Partner clearance must pin the Manager-accepted current workprogram snapshot and exact dependency hash.');
   const procedures=await env.DB.prepare(`SELECT p.id,p.version,p.status,w.risk_band,p.executed_by_staff_id,p.source_hash,p.evidence_set_hash,p.ordinal FROM procedures p JOIN workprograms w ON w.workspace_id=p.workspace_id AND w.id=p.workprogram_id WHERE p.workspace_id=? AND p.workprogram_id=? ORDER BY p.ordinal`).bind(workspaceId,p.workprogramId).all<Record<string,unknown>>();
   const items=procedures.results??[];if(items.some(row=>row.status!=='REVIEWED'))throw new ApiError('GATE_BLOCKED','Every procedure must be independently reviewed before Partner area clearance.');
-  for(const item of items)await assertProcedureEvidenceCurrent(env,workspaceId,String(item.id),item.evidence_set_hash);
+  for(const item of items){
+    await assertProcedureEvidenceCurrent(env,workspaceId,String(item.id),item.evidence_set_hash);
+    await procedureSamplingPins(env,workspaceId,String(item.id),String(engagement.active_tb_version_id),true);
+  }
   const redIds=items.filter(row=>row.risk_band==='RED').map(row=>row.executed_by_staff_id).filter((value):value is string=>typeof value==='string');
   if(redIds.length){const people=await env.DB.prepare(`SELECT id,grade FROM staff_members WHERE workspace_id=? AND id IN (${redIds.map(()=>'?').join(',')})`).bind(workspaceId,...redIds).all<{id:string;grade:string}>();if((people.results??[]).some(person=>!['MANAGER','PARTNER'].includes(person.grade)))throw new ApiError('GATE_BLOCKED','Red-risk area work must be executed by Manager-grade staff before Partner clearance.');}
   const openNotes=await env.DB.prepare(`SELECT COUNT(*) AS count FROM review_notes n JOIN review_submissions s ON s.workspace_id=n.workspace_id AND s.id=n.submission_id
@@ -1192,7 +1276,10 @@ async function handoverToManager(env:Env,workspaceId:string,context:BusinessCont
   const procedureRows=await env.DB.prepare(`SELECT p.id,p.version,p.status,p.source_hash,p.evidence_set_hash,p.mandatory,
       EXISTS(SELECT 1 FROM review_submissions s JOIN review_decisions d ON d.workspace_id=s.workspace_id AND d.submission_id=s.id WHERE s.workspace_id=p.workspace_id AND s.procedure_id=p.id AND s.target_kind='PROCEDURE' AND d.decision='ACCEPT' AND s.target_version+1=p.version) AS independently_accepted
     FROM procedures p JOIN workprograms w ON w.workspace_id=p.workspace_id AND w.id=p.workprogram_id WHERE p.workspace_id=? AND w.engagement_id=? ORDER BY w.fsli_id,p.ordinal`).bind(workspaceId,p.engagementId).all<Record<string,unknown>>();
-  for(const procedure of procedureRows.results??[])await assertProcedureEvidenceCurrent(env,workspaceId,String(procedure.id),procedure.evidence_set_hash);
+  for(const procedure of procedureRows.results??[]){
+    await assertProcedureEvidenceCurrent(env,workspaceId,String(procedure.id),procedure.evidence_set_hash);
+    await procedureSamplingPins(env,workspaceId,String(procedure.id),String(engagement.active_tb_version_id),true);
+  }
   const procedureBlockers=(procedureRows.results??[]).filter(row=>row.status!=='REVIEWED'||Number(row.independently_accepted)!==1);
   const pendingReviews=await env.DB.prepare(`SELECT s.id,s.target_kind AS targetKind,s.target_version AS targetVersion FROM review_submissions s LEFT JOIN review_decisions d ON d.workspace_id=s.workspace_id AND d.submission_id=s.id
     WHERE s.workspace_id=? AND s.engagement_id=? AND s.target_kind IN ('ANALYTICAL_REVIEW','GOING_CONCERN') AND d.id IS NULL ORDER BY s.submitted_at`).bind(workspaceId,p.engagementId).all<Record<string,unknown>>();
@@ -1228,7 +1315,10 @@ async function handoverToPartner(env:Env,workspaceId:string,context:BusinessCont
     if(workprogram.status!=='PARTNER_CLEARED'||workprogram.planning_version_id!==engagement.approved_planning_version_id){uncleared.push(String(workprogram.id));continue;}
     const procedures=await env.DB.prepare(`SELECT p.id,p.version,p.status,p.source_hash,p.evidence_set_hash,p.ordinal,w.risk_band,p.executed_by_staff_id FROM procedures p JOIN workprograms w ON w.workspace_id=p.workspace_id AND w.id=p.workprogram_id WHERE p.workspace_id=? AND p.workprogram_id=? ORDER BY p.ordinal`).bind(workspaceId,workprogram.id).all<Record<string,unknown>>();
     const items=procedures.results??[];if(!items.length||items.some(row=>row.status!=='REVIEWED')){uncleared.push(String(workprogram.id));continue;}
-    for(const item of items)await assertProcedureEvidenceCurrent(env,workspaceId,String(item.id),item.evidence_set_hash);
+    for(const item of items){
+      await assertProcedureEvidenceCurrent(env,workspaceId,String(item.id),item.evidence_set_hash);
+      await procedureSamplingPins(env,workspaceId,String(item.id),String(engagement.active_tb_version_id),true);
+    }
     const dependencyHash=await rowHash({workprogramSourceHash:workprogram.source_hash,planningVersionId:workprogram.planning_version_id,tbVersionId:engagement.active_tb_version_id,mappingVersionId:engagement.active_mapping_version_id,
       dependencies:items.map(row=>({id:row.id,version:row.version,status:row.status,sourceHash:row.source_hash,evidenceSetHash:row.evidence_set_hash}))});
     const clearance=await env.DB.prepare(`SELECT id FROM partner_area_clearances WHERE workspace_id=? AND workprogram_id=? AND dependency_hash=?`).bind(workspaceId,workprogram.id,dependencyHash).first<{id:string}>();
@@ -1264,12 +1354,20 @@ async function currentEvidenceRecord(env:Env,workspaceId:string,engagement:Engag
   return row;
 }
 
+async function assertLinkedSamplingPlanEditable(env:Env,workspaceId:string,planId:string){
+  const linked=await env.DB.prepare(`SELECT p.status FROM sampling_plan_procedure_links l JOIN procedures p ON p.workspace_id=l.workspace_id AND p.id=l.procedure_id
+    WHERE l.workspace_id=? AND l.plan_id=?`).bind(workspaceId,planId).first<{status:string}>();
+  if(linked&&!['NOT_STARTED','IN_PROGRESS','UNDER_REWORK'].includes(linked.status))
+    throw new ApiError('INVALID_STATE','Sample tests and evaluations are frozen while the linked procedure is submitted or independently reviewed.');
+}
+
 async function recordSampleTest(env:Env,workspaceId:string,context:BusinessContext,command:Extract<BusinessFieldworkCommand,{type:'sampling.record-test'}>,now:string):Promise<BusinessMutation>{
   requireWriter(context);const p=command.payload;
   const target=await env.DB.prepare(`SELECT p.id,p.method,p.population_id,s.engagement_id,s.client_id,s.tb_version_id,e.active_tb_version_id,e.locked_at,e.lifecycle_state
     FROM sampling_plans p JOIN sample_populations s ON s.workspace_id=p.workspace_id AND s.id=p.population_id JOIN engagements e ON e.workspace_id=s.workspace_id AND e.id=s.engagement_id
     WHERE p.workspace_id=? AND p.id=?`).bind(workspaceId,p.planId).first<Record<string,unknown>>();
   if(!target)throw new ApiError('NOT_FOUND','Sampling plan was not found.');if((context.scope.clientId&&context.scope.clientId!==target.client_id)||(context.scope.engagementId&&context.scope.engagementId!==target.engagement_id))throw new ApiError('FORBIDDEN_SCOPE','Sampling plan is outside the selected engagement.');
+  await assertLinkedSamplingPlanEditable(env,workspaceId,p.planId);
   if(target.locked_at||target.lifecycle_state==='ARCHIVED_READ_ONLY')throw new ApiError('WORKSPACE_FROZEN','Archived sampling plans are read-only.');
   if(target.tb_version_id!==target.active_tb_version_id)throw new ApiError('STALE_DEPENDENCY','Sampling population source TB has changed.');
   const hit=await env.DB.prepare(`SELECT 1 AS ok FROM sample_hits WHERE workspace_id=? AND plan_id=? AND population_row_id=? LIMIT 1`).bind(workspaceId,p.planId,p.populationRowId).first<{ok:number}>();
@@ -1314,6 +1412,7 @@ async function evaluateSampling(env:Env,workspaceId:string,context:BusinessConte
       pop.id AS population_id,pop.engagement_id,pop.positive_total_minor,pop.source_hash,pop.client_id,pop.tb_version_id
     FROM sampling_plans sp JOIN sample_populations pop ON pop.workspace_id=sp.workspace_id AND pop.id=sp.population_id WHERE sp.workspace_id=? AND sp.id=?`).bind(workspaceId,p.planId).first<Record<string,unknown>>();
   if(!plan)throw new ApiError('NOT_FOUND','Sampling plan was not found.');if((context.scope.clientId&&context.scope.clientId!==plan.client_id)||(context.scope.engagementId&&context.scope.engagementId!==plan.engagement_id))throw new ApiError('FORBIDDEN_SCOPE','Sampling plan is outside the selected scope.');
+  await assertLinkedSamplingPlanEditable(env,workspaceId,p.planId);
   const engagement=await getEngagement(env,workspaceId,context,String(plan.engagement_id));
   if(plan.tb_version_id!==engagement.active_tb_version_id)throw new ApiError('STALE_DEPENDENCY','The population TB version changed after sample selection. Create a current population and plan before evaluation.');
   const [hitResult,testResult]=await Promise.all([
@@ -1456,6 +1555,11 @@ async function createSamplingPlan(env:Env,workspaceId:string,context:BusinessCon
   if(!population||population.engagement_id!==engagement.id||population.client_id!==engagement.client_id)throw new ApiError('FORBIDDEN_SCOPE','The sampling population is outside this engagement.');
   if(population.tb_version_id!==engagement.active_tb_version_id)throw new ApiError('STALE_DEPENDENCY','The population was imported from a prior TB version. Re-import the population before sampling.');
   if(!policy||policy.status!=='APPROVED'||policy.method!==p.method)throw new ApiError('GATE_BLOCKED','An approved firm sampling policy for the selected method is required before operational use.');
+  if(p.procedureId){
+    const procedure=await currentProcedure(env,workspaceId,p.procedureId);await verifyProcedureScope(context,procedure);
+    if(procedure.engagement_id!==engagement.id||procedure.fsli_id!==population.fsli_id)throw new ApiError('FORBIDDEN_SCOPE','A sample plan must use a population for the linked procedure FSLI and engagement.');
+    if(!['NOT_STARTED','IN_PROGRESS','UNDER_REWORK'].includes(String(procedure.status)))throw new ApiError('INVALID_STATE','A sample plan can be linked only while its procedure is editable.');
+  }
   const rowResult=await env.DB.prepare(`SELECT id,source_row_key,ordinal,book_value_minor,eligible,source_data_json FROM population_rows WHERE workspace_id=? AND population_id=? ORDER BY ordinal`)
     .bind(workspaceId,p.populationId).all<{id:string;source_row_key:string;ordinal:number;book_value_minor:number;eligible:number;source_data_json:string}>();
   const allRows=rowResult.results??[];const revisionRow=await env.DB.prepare(`SELECT COALESCE(MAX(revision),0) AS revision FROM sampling_plans WHERE workspace_id=? AND population_id=?`).bind(workspaceId,p.populationId).first<{revision:number}>();
@@ -1525,10 +1629,13 @@ async function createSamplingPlan(env:Env,workspaceId:string,context:BusinessCon
     parameters={confidenceBps,alpha:{numerator:String(10000-confidenceBps),denominator:'10000'},familywiseMethod:'BONFERRONI',
       selectionAlgorithm:'HMAC_SHA256_REJECTION_PARTIAL_FISHER_YATES_V1',strata:strataParams,algorithmVersion:policy.algorithmVersion};
   }
-  const inputHash=await rowHash({method:p.method,populationId:population.id,sourceHash:population.source_hash,orderHash:population.order_hash,policyId:policy.id,policyVersion:policy.version,policyAlgorithm:policy.algorithmVersion,parameters,reason:p.reason});
+  const inputHash=await rowHash({method:p.method,populationId:population.id,sourceHash:population.source_hash,orderHash:population.order_hash,policyId:policy.id,policyVersion:policy.version,policyAlgorithm:policy.algorithmVersion,
+    procedureId:p.procedureId??null,parameters,reason:p.reason});
   const planRow=env.DB.prepare(`INSERT INTO sampling_plans(id,workspace_id,population_id,policy_id,policy_version,revision,method,confidence_bps,tolerable_minor,expected_tainted_bps,requested_count,seed_hex,input_hash,calculated_count,parameters_json,created_by_reviewer_id,reason,created_at)
     VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).bind(planId,workspaceId,population.id,policy.id,policy.version,revision,p.method,confidenceBps,tolerableMinor,expectedBps,requestedCount,seedHex,inputHash,hits.length,JSON.stringify(parameters),context.actor.id,p.reason,now);
   const statements:D1PreparedStatement[]=[planRow];
+  if(p.procedureId)statements.push(env.DB.prepare(`INSERT INTO sampling_plan_procedure_links(id,workspace_id,plan_id,procedure_id,linked_by_actor_id,linked_at) VALUES(?,?,?,?,?,?)`)
+    .bind(crypto.randomUUID(),workspaceId,planId,p.procedureId,context.actor.id,now));
   if(strataRows.length){
     for(const stratum of strataRows)statements.push(env.DB.prepare(`INSERT INTO sampling_strata(id,workspace_id,plan_id,key,description,population_count,expected_deviation_bps,tolerable_deviation_bps,alpha_numerator,alpha_denominator,sample_count)
       VALUES(?,?,?,?,?,?,?,?,?,?,?)`).bind(stratum.id,workspaceId,planId,stratum.key,stratum.description,stratum.rows.length,
@@ -1541,7 +1648,8 @@ async function createSamplingPlan(env:Env,workspaceId:string,context:BusinessCon
   return commandMutation(statements,{planId,revision,method:p.method,calculatedCount:hits.length,distinctRowCount:new Set(hits.map(hit=>hit.rowId)).size,populationCount:p.method==='MUS_BINOMIAL_PPS'
     ?allRows.filter(row=>row.eligible===1&&row.book_value_minor>0).length:allRows.filter(row=>row.eligible===1).length,
     ...(p.method==='SYSTEMATIC'?{interval:{numerator:parameters.intervalNumerator,denominator:parameters.intervalDenominator},start:{numerator:parameters.startNumerator,denominator:parameters.startDenominator},selectionMode:parameters.selectionMode,confidenceClaim:null}:{}),
-    ...(strataRows.length?{strata:strataRows.map(row=>({key:row.key,populationCount:row.rows.length,sampleCount:row.sampleCount}))}:{}),inputHash},'SAMPLING_PLAN',planId,null,1,{populationId:population.id,policyId:policy.id,method:p.method,seedHex,parameters,reason:p.reason});
+    ...(strataRows.length?{strata:strataRows.map(row=>({key:row.key,populationCount:row.rows.length,sampleCount:row.sampleCount}))}:{}),inputHash,procedureId:p.procedureId??null},'SAMPLING_PLAN',planId,null,1,
+    {populationId:population.id,policyId:policy.id,procedureId:p.procedureId??null,method:p.method,seedHex,parameters,reason:p.reason});
 }
 
 function upperBinomialProbability(tainted:number,draws:number,alpha:number):number{
@@ -2204,7 +2312,10 @@ async function collectSrmInputs(env:Env,workspaceId:string,context:BusinessConte
   const goingDependency=await rowHash({sourceHash:going.sourceHash,standardsProfileId:engagement.standards_profile_id,tbVersionId:engagement.active_tb_version_id,mappingVersionId:engagement.active_mapping_version_id});
   if(going.status!=='REVIEWED'||going.decision!=='ACCEPT'||Number(going.submittedVersion)+1!==Number(going.version)||going.dependencyHash!==goingDependency)throw new ApiError('GATE_BLOCKED','The latest going-concern assessment must be independently accepted against current source pins.');
   const workprograms=workprogramResult.results??[];const procedures=procedureResult.results??[];const analyticalReviews=analyticalResult.results??[];const findings=findingResult.results??[];const adjustments=adjustmentResult.results??[];
-  for(const procedure of procedures)await assertProcedureEvidenceCurrent(env,workspaceId,String(procedure.id),procedure.evidenceSetHash);
+  for(const procedure of procedures){
+    await assertProcedureEvidenceCurrent(env,workspaceId,String(procedure.id),procedure.evidenceSetHash);
+    await procedureSamplingPins(env,workspaceId,String(procedure.id),String(engagement.active_tb_version_id),true);
+  }
   for(const review of analyticalReviews){
     const support=await evidenceSet(env,workspaceId,'analytical_review_id',String(review.id),false);
     const acceptedSubmission=(reviewResult.results??[]).find(sub=>sub.targetKind==='ANALYTICAL_REVIEW'&&sub.snapshotJson&&sub.decision==='ACCEPT'&&Number(sub.targetVersion)+1===Number(review.version)&&JSON.parse(String(sub.snapshotJson)).id===review.id);

@@ -23,14 +23,14 @@ type ProcedureDraft = ProcedureDraftValues;
 type ProcedureDraftBase = ProcedureDraft & { version: number };
 type AdjustmentDraftLine = { fsliId: string; accountCode: string; debit: string; credit: string };
 type PopulationPayload = {
-  population: { id: string; name: string; rowCount: number; positiveTotalMinor: number; excludedCount: number; exclusionsReason: string; sourceHash: string; tbVersionId: string };
+  population: { id: string; name: string; rowCount: number; positiveTotalMinor: number; excludedCount: number; exclusionsReason: string; sourceHash: string; tbVersionId: string; fsliId: string };
   rows: Array<{ id: string; sourceRowKey: string; ordinal: number; bookValueMinor: number; eligible: number; exclusionReason: string | null }>;
   sourceOrderPeriodicityFlags: Array<{ field: 'DESCRIPTION' | 'BOOK_VALUE_MINOR'; periodLength: number; repeatedCycles: number; eligibleOrderStart: number; eligibleOrderEnd: number }>;
 };
 type SamplingPlanPayload = {
   plan: { id: string; populationId: string; method: string; revision: number; confidenceBps: number | null; tolerableMinor: number | null;
     requestedCount: number | null; calculatedCount: number; inputHash: string; parameters: Record<string, unknown>; seedHex?: string; policyVersion?: number; latestResult: string | null };
-  population: { id: string; name: string; rowCount: number; positiveTotalMinor: number; excludedCount: number };
+  population: { id: string; name: string; rowCount: number; positiveTotalMinor: number; excludedCount: number; fsliId: string };
   rows: Array<{ id: string; sourceRowKey: string; ordinal: number; bookValueMinor: number; eligible: number; exclusionReason: string | null }>;
   hits: Array<{ drawNumber: number; populationRowId: string; monetaryUnitMinor: number | null; stratumKey: string | null; sourceRowKey: string }>;
   tests: Array<{ id: string; version: number; populationRowId: string; tested: number; auditedValueMinor: string | number | null; misstated: number | null; deviation: number | null;
@@ -79,6 +79,17 @@ function label(value: unknown): string { return String(value ?? '—').replaceAl
 function formatRate(value: number | null, reason: string): string {
   if (reason !== 'CALCULATED' || value === null) return label(reason);
   return `${value.toFixed(2)}%`;
+}
+function laterAcceptedSubmissionForNote(note: BusinessFieldworkWorkspace['reviewNotes'][number], submissions: BusinessFieldworkWorkspace['reviewSubmissions']) {
+  return submissions.filter(item => {
+    if (item.decision !== 'ACCEPT' || (note.responseAt && item.submittedAt < note.responseAt)) return false;
+    if (note.procedureId) return item.targetKind === 'PROCEDURE' && item.procedureId === note.procedureId
+      && item.targetVersion > (note.procedureTargetVersion ?? note.targetVersion);
+    if (note.targetKind === 'GOING_CONCERN') return item.targetKind === 'GOING_CONCERN' && (item.subjectRevision ?? 0) > (note.targetRevision ?? 0);
+    return item.targetKind === note.targetKind && item.workprogramId === note.workprogramId
+      && item.analyticalReviewId === note.analyticalReviewId && item.goingConcernId === note.goingConcernId && item.srmVersionId === note.srmVersionId
+      && item.targetVersion > note.targetVersion;
+  }).sort((left,right) => right.targetVersion-left.targetVersion)[0];
 }
 
 export function BusinessFieldworkPanel({ workspaceId, selected, context, engagement, files, onChanged }: {
@@ -150,6 +161,7 @@ export function BusinessFieldworkPanel({ workspaceId, selected, context, engagem
   const [descriptionColumn, setDescriptionColumn] = useState('2');
   const [exclusionsReason, setExclusionsReason] = useState('');
   const [selectedPopulationId, setSelectedPopulationId] = useState('');
+  const [samplingProcedureId, setSamplingProcedureId] = useState('');
   const [population, setPopulation] = useState<PopulationPayload | null>(null);
   const [stratumByRow, setStratumByRow] = useState<Record<string, string>>({});
   const [stratumCriteriaByKey, setStratumCriteriaByKey] = useState<Record<string, AttributeStratumCriteria>>({});
@@ -298,7 +310,7 @@ export function BusinessFieldworkPanel({ workspaceId, selected, context, engagem
     return () => controller.abort();
   }, [workspaceId, engagement.id, selectedPopulationId, scope.actorId, scope.persona, scope.clientId, scope.engagementId, available]);
 
-  useEffect(() => { setPeriodicityAssessment(''); }, [selectedPopulationId]);
+  useEffect(() => { setPeriodicityAssessment(''); setSamplingProcedureId(''); }, [selectedPopulationId]);
 
   useEffect(() => {
     if (!selectedPlanId || !available) { setPlanDetail(null); return; }
@@ -472,6 +484,7 @@ export function BusinessFieldworkPanel({ workspaceId, selected, context, engagem
         });
       })() : undefined;
       const payload: Record<string, unknown> = { engagementId: engagement.id, populationId: population.population.id, policyId: policy.id, method,
+        ...(samplingProcedureId ? { procedureId: samplingProcedureId } : {}),
         ...(method === 'SYSTEMATIC' ? { requestedCount: Number(requestedCount), sampleSizeRationale: sampleRationale, orderingRule: systematicOrdering,
           ...(periodicityAssessment.trim() ? { periodicityAssessment: periodicityAssessment.trim() } : {}) } : { confidenceBps }),
         ...(method === 'MUS_BINOMIAL_PPS' ? { tolerableMinor: toMinor(tolerableAmount), expectedTaintedBps: percentBps(expectedTaintedPercent) } : {}),
@@ -716,11 +729,7 @@ export function BusinessFieldworkPanel({ workspaceId, selected, context, engagem
             </div>)}
             {workspace.reviewNotes.filter(note => note.workprogramId === selectedWorkprogram.id || (note.procedureId && workspace.procedures.some(procedure => procedure.id === note.procedureId && procedure.workprogramId === selectedWorkprogram.id))).map(note => {
               const assigned = workspace.staff.find(staff => staff.id === note.assignedPreparerId);
-              const laterAccepted = workspace.reviewSubmissions.filter(item => item.decision === 'ACCEPT' && item.submittedAt > (note.responseAt ?? note.createdAt) && (note.procedureId
-                ? item.targetKind === 'PROCEDURE' && item.procedureId === note.procedureId
-              : note.targetKind === 'GOING_CONCERN' ? item.targetKind === 'GOING_CONCERN' && (item.subjectRevision ?? 0) > (note.targetRevision ?? 0)
-                : item.targetKind === note.targetKind && item.workprogramId === note.workprogramId))
-                .sort((left,right) => right.targetVersion-left.targetVersion)[0];
+              const laterAccepted = laterAcceptedSubmissionForNote(note,workspace.reviewSubmissions);
               return <article className="business-fieldwork-review" key={note.id}>
                 <strong>Review note · {label(note.status)}{note.procedureId ? ` · ${workspace.procedures.find(item => item.id === note.procedureId)?.title ?? note.procedureId}` : ''}</strong>
                 <p>{note.text}</p><small>Assigned preparer: {assigned?.displayName ?? note.assignedPreparerId}</small>
@@ -774,6 +783,7 @@ export function BusinessFieldworkPanel({ workspaceId, selected, context, engagem
           <button type="button" className="btn sm" aria-pressed={selectedPopulationId === item.id} onClick={() => { setSelectedPopulationId(item.id); setTab('sampling'); }}>Assign and select</button></div>)}
         {population && <section className="business-fieldwork-card"><div className="business-section-heading"><div><h3>{population.population.name} · {population.population.rowCount} source rows</h3><p className="business-muted">Eligible items must belong to exactly one attribute stratum. Assignments are retained in the plan input hash.</p></div>
             <label className="business-field"><span>Sampling method</span><select value={method} onChange={event => setMethod(event.target.value as typeof method)}><option value="MUS_BINOMIAL_PPS">MUS · binomial bound</option><option value="SYSTEMATIC">Systematic · reviewer-sized</option><option value="STRATIFIED_ATTRIBUTE">Stratified attribute</option></select></label></div>
+          <label className="business-field"><span>Procedure supported by this sample plan (optional)</span><select value={samplingProcedureId} onChange={event => setSamplingProcedureId(event.target.value)}><option value="">No procedure link</option>{workspace.procedures.filter(procedure => procedure.fsliId === population.population.fsliId && ['NOT_STARTED','IN_PROGRESS','UNDER_REWORK'].includes(procedure.status)).map(procedure => <option key={procedure.id} value={procedure.id}>{procedure.title} · {label(procedure.status)}</option>)}</select><small>Linked plans must have a current completed sample test and evaluation before the procedure can be submitted.</small></label>
           {method === 'MUS_BINOMIAL_PPS' && <div className="business-form-grid"><label className="business-field"><span>Confidence (%)</span><input type="number" min="50" max="99.99" step="0.01" value={confidencePercent} onChange={event => setConfidencePercent(event.target.value)} /></label>
             <label className="business-field"><span>Tolerable misstatement (QAR)</span><input required inputMode="decimal" value={tolerableAmount} onChange={event => setTolerableAmount(event.target.value)} /></label>
             <label className="business-field"><span>Expected tainted book-value (%)</span><input type="number" min="0" max="99.99" step="0.01" value={expectedTaintedPercent} onChange={event => setExpectedTaintedPercent(event.target.value)} /></label></div>}
@@ -813,7 +823,7 @@ export function BusinessFieldworkPanel({ workspaceId, selected, context, engagem
           <label className="business-field"><span>Reviewer sampling rationale</span><textarea required minLength={10} value={sampleRationale} onChange={event => setSampleRationale(event.target.value)} /></label>
           <button className="btn primary" type="button" disabled={busy || !canReview || !workspace.samplingPolicies.some(item => item.method === method && item.status === 'APPROVED') || (method === 'SYSTEMATIC' && sourceOrderPeriodicityFlags.length > 0 && periodicityAssessment.trim().length < 10) || (method === 'STRATIFIED_ATTRIBUTE' && !attributeCriteriaValid)} onClick={() => void createSamplingPlan()}>Create sample plan</button>
         </section>}
-        {workspace.samplingPlans.map(plan => <div className="business-fieldwork-row" key={plan.id}><div><strong>{label(plan.method)} · {plan.calculatedCount} draws</strong><span>{plan.populationId} · revision {plan.revision} · {plan.latestResult ? label(plan.latestResult) : 'Not evaluated'} · {plan.inputHash.slice(0,12)}</span></div>
+        {workspace.samplingPlans.map(plan => <div className="business-fieldwork-row" key={plan.id}><div><strong>{label(plan.method)} · {plan.calculatedCount} draws</strong><span>{plan.populationId} · revision {plan.revision} · {plan.procedureId ? `Procedure ${workspace.procedures.find(item => item.id === plan.procedureId)?.title ?? plan.procedureId} · ` : ''}{plan.latestResult ? label(plan.latestResult) : 'Not evaluated'} · {plan.inputHash.slice(0,12)}</span></div>
           <button type="button" className="btn sm" aria-pressed={selectedPlanId === plan.id} onClick={() => { setHitPage(0); setSamplePage(0); setSelectedPlanId(plan.id); }}>Open exact plan</button></div>)}
         {planDetail && <section className="business-fieldwork-card"><div className="business-section-heading"><div><h3>{label(planDetail.plan.method)} · revision {planDetail.plan.revision}</h3><p className="business-muted">{planDetail.plan.calculatedCount} selected draws · {planDetail.hits.length} draw rows · {planDetail.plan.latestResult ? label(planDetail.plan.latestResult) : 'Not evaluated'}</p></div>
           <button type="button" className="btn sm" disabled={busy || !canReview} onClick={() => void evaluateCurrentSamplePlan()}>Evaluate current tests</button></div>
@@ -1111,11 +1121,7 @@ export function BusinessFieldworkPanel({ workspaceId, selected, context, engagem
         <section className="business-fieldwork-card"><p className="business-eyebrow">DOCUMENTED REWORK</p><h3>Review notes</h3>
           {workspace.reviewNotes.map(note => {
             const assigned = workspace.staff.find(staff => staff.id === note.assignedPreparerId);
-            const laterAccepted = workspace.reviewSubmissions.filter(item => item.decision === 'ACCEPT' && item.submittedAt > (note.responseAt ?? note.createdAt) && (note.procedureId
-              ? item.targetKind === 'PROCEDURE' && item.procedureId === note.procedureId
-              : note.targetKind === 'GOING_CONCERN' ? item.targetKind === 'GOING_CONCERN' && (item.subjectRevision ?? 0) > (note.targetRevision ?? 0)
-                : item.targetKind === note.targetKind && item.workprogramId === note.workprogramId && item.analyticalReviewId === note.analyticalReviewId && item.goingConcernId === note.goingConcernId && item.srmVersionId === note.srmVersionId))
-              .sort((left,right) => right.targetVersion-left.targetVersion)[0];
+            const laterAccepted = laterAcceptedSubmissionForNote(note,workspace.reviewSubmissions);
             return <article className="business-fieldwork-review" key={note.id}>
               <strong>{label(note.targetKind)} note · {label(note.status)}{note.procedureId ? ` · ${workspace.procedures.find(item => item.id === note.procedureId)?.title ?? note.procedureId}` : ''}</strong>
               <p>{note.text}</p><small>Assigned preparer: {assigned?.displayName ?? note.assignedPreparerId}</small>

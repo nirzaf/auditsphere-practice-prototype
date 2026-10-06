@@ -471,7 +471,8 @@ export interface BusinessFieldworkWorkspace {
     targetVersion: number; subjectRevision: number | null; dependencyHash: string; submittedByActorId: string; submittedAt: string; decision: 'ACCEPT' | 'RETURN' | null; decisionComment: string | null; decidedAt: string | null }>;
   reviewNotes: Array<{ id: string; version: number; submissionId: string; procedureId: string | null; text: string; assignedPreparerId: string; status: 'OPEN' | 'RESPONDED' | 'CLOSED';
     responseText: string | null; responseAt: string | null; closedByActorId: string | null; closedAt: string | null; closureReason: string | null; resubmissionId: string | null;
-    createdAt: string; targetKind: string; workprogramId: string | null; analyticalReviewId: string | null; goingConcernId: string | null; srmVersionId: string | null; targetVersion: number; targetRevision: number | null }>;
+    createdAt: string; targetKind: string; workprogramId: string | null; analyticalReviewId: string | null; goingConcernId: string | null; srmVersionId: string | null; targetVersion: number;
+    procedureTargetVersion: number | null; targetRevision: number | null }>;
   findings: Array<Record<string, unknown>>;
   adjustments: Array<Record<string, unknown> & { lines: Array<Record<string, unknown>>; evidence: Array<Record<string, unknown>> }>;
   differences: Array<Record<string, unknown>>;
@@ -486,7 +487,7 @@ export interface BusinessFieldworkWorkspace {
     fileSha256: string | null; adequacy: 'ADEQUATE' | 'DEFICIENT' | null; adequacyRationale: string | null }>;
   samplingPolicies: Array<{ id: string; version: number; name: string; method: 'MUS_BINOMIAL_PPS' | 'SYSTEMATIC' | 'STRATIFIED_ATTRIBUTE'; algorithmVersion: string; assumptions: string; status: string; approvedByActorId: string | null; approvedAt: string | null }>;
   populations: Array<{ id: string; name: string; sourceFileId: string; fsliId: string; sourceHash: string; orderHash: string; rowCount: number; positiveTotalMinor: number; excludedCount: number; exclusionsReason: string }>;
-  samplingPlans: Array<{ id: string; populationId: string; policyId: string; revision: number; method: string; confidenceBps: number | null; tolerableMinor: number | null;
+  samplingPlans: Array<{ id: string; populationId: string; policyId: string; procedureId: string | null; revision: number; method: string; confidenceBps: number | null; tolerableMinor: number | null;
     expectedTaintedBps: number | null; requestedCount: number | null; calculatedCount: number; parameters: Record<string, unknown>; inputHash: string; reason: string; createdAt: string;
     latestResult: string | null; seedHex: string; policyVersion: number }>;
   changeCursor: number;
