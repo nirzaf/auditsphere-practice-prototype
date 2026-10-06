@@ -14,9 +14,14 @@ synthetic data unless a trusted access environment is separately provided.
 
 ## GitHub setup
 
-1. Create the GitHub Actions environment `cloudflare-production` and restrict
-   it to the `main` branch. Add the team's required production reviewer(s)
-   before enabling deployment.
+The `cloudflare-production` environment is configured with a deployment branch
+policy that allows only `main`. The deploy switch is currently unset, and the
+environment still needs its chosen reviewer and Cloudflare credentials before
+production deployment can be enabled.
+
+1. Confirm the existing `cloudflare-production` environment remains restricted
+   to the `main` branch. Add the team's required production reviewer(s) before
+   enabling deployment.
 2. Add environment secrets `CLOUDFLARE_ACCOUNT_ID` and
    `CLOUDFLARE_API_TOKEN` to that environment. The account-owned API token needs
    Workers Editor access scoped to the existing Worker and D1 Edit access

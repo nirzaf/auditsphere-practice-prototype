@@ -307,3 +307,34 @@ bundle candidate SELECT and catches the previously undefined representation
 request alias. This removes a report-bundle preparation blocker in **US-REP-005**;
 it does not verify the full report, atomic release, portal freeze, delivery, or
 archive lifecycle. Both reporting stories remain open for their other criteria.
+
+## Cross-module implementation and verification — 2026-10-06
+
+On `main` at `837bfce`, the latest local gates passed: `npm run test:unit`
+reported **484/484** checks across 104 suites; `npx tsc --noEmit`,
+`npm run cloud:typecheck`, and `npm run build` also passed.
+
+The current changes add bounded evidence and UI paths, while the complete
+stories remain open:
+
+* An API integration scenario revises a draft analytical review in place,
+  retains its id, rejects a stale expected version, and rejects edits after
+  independent acceptance (**US-FLD-004**).
+* Going-concern submission rejects `UNASSESSED`; SRM input collection blocks
+  when a current mapped FSLI lacks a workprogram (**US-FLD-004 / US-FLD-012**).
+  The focused helper tests exercise both guards; they do not establish full SRM
+  compilation, Partner clearance, or the complete release chain.
+* Planning approval now requires every nonzero current or prior TB balance to
+  have an FSLI mapping (**US-FLD-001 / US-FLD-002**). This change still needs a
+  direct regression case for a prior-year-only unmapped row.
+* The practice time-entry UI can optionally select an active FSLI, and the
+  workspace query supplies the active catalog (**US-PRC-001**). No browser
+  interaction evidence for this new field is recorded yet.
+* The client workspace now provides contact creation, signatory/deactivation
+  changes, and purpose-specific primary/alternate recipient routing (**US-ENG-001**).
+  The production build passed, but this UI flow still needs browser-level
+  acceptance evidence.
+
+These checks do not close the 46-story epic. Requirement-by-requirement
+acceptance, browser evidence for the new UI paths, two-browser races, archive
+restore, and the remaining story criteria are still outstanding.
