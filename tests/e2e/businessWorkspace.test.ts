@@ -244,3 +244,125 @@ it('US-SYS-001/002/005 creates a real workspace, assigns all personas, persists 
   assert.equal(tab.blockedExternalRequests.length, 0, 'the journey made no external HTTP requests');
   assert.deepEqual(tab.exceptions, [], 'the production browser journey raised no uncaught JavaScript exceptions');
 });
+
+it('US-ENG-001/002 creates a client-linked lead from the visible forms and advances one real engagement', { timeout: 90000 }, async () => {
+  assert.ok(tab && server);
+
+  // Observe the current real workspace before switching to a second, empty D1 workspace.
+  const current = await tab.evaluate<{ heading: string; switchButton: boolean }>(`({
+    heading: document.querySelector('#business-workspace-heading')?.textContent?.trim() ?? '',
+    switchButton: [...document.querySelectorAll('button')].some(button => button.textContent?.trim() === 'Switch to prototype / TEST' && !button.disabled)
+  })`);
+  assert.ok(current.heading.startsWith('QA Workspace '));
+  assert.equal(current.switchButton, true);
+  await clickButton('Switch to prototype / TEST');
+  await waitFor('the empty-workspace landing page', `document.querySelector('#production-workspace-heading')?.textContent === 'Open your business workspace'`);
+  const landing = await tab.evaluate<{ preference: string | null; createButton: boolean }>(`({
+    preference: localStorage.getItem('auditsphere.business-context.v1'),
+    createButton: [...document.querySelectorAll('button')].some(button => button.textContent.trim() === 'Create or connect workspace')
+  })`);
+  assert.equal(landing.preference, null);
+  assert.equal(landing.createButton, true);
+
+  // Plan/Act/Verify: create a fresh workspace, then check that its real database is empty.
+  await clickButton('Create or connect workspace');
+  await waitFor('the fresh workspace form', `document.querySelector('#business-partner-email') !== null`);
+  const unique = Date.now();
+  await fillFields({
+    'business-workspace-name': `Lead Journey ${unique}`,
+    'business-partner-name': 'QA Lead Partner',
+    'business-partner-key': `QA-LEAD-PARTNER-${unique}`,
+    'business-partner-email': 'lead.partner@example.invalid'
+  });
+  await clickButton('Create business workspace');
+  await waitFor('the empty new workspace', `document.querySelector('#business-workspace-heading')?.textContent === ${JSON.stringify(`Lead Journey ${unique}`)} && document.body.innerText.includes('No clients are registered.')`);
+  const preference = await tab.evaluate<{ workspaceId: string; actorId: string; persona: string }>(`JSON.parse(localStorage.getItem('auditsphere.business-context.v1') ?? '{}')`);
+  assert.equal(preference.persona, 'APPROVER');
+  assert.equal(server.db.prepare('SELECT COUNT(*) AS count FROM clients WHERE workspace_id=?').bind(preference.workspaceId).first<{ count: number }>()?.count, 0);
+  assert.equal(server.db.prepare('SELECT COUNT(*) AS count FROM leads WHERE workspace_id=?').bind(preference.workspaceId).first<{ count: number }>()?.count, 0);
+
+  await fillFields({
+    'business-standards-name': `QA Approved Standards ${unique}`,
+    'business-standards-start': '2026-01-01',
+    'business-isa220': 'ISA 220 (Revised), approved test profile',
+    'business-isa570': 'ISA 570 (Revised 2024), approved test profile',
+    'business-reporting-framework': 'Approved synthetic test framework'
+  });
+  await clickButton('Approve standards profile');
+  await waitFor('the immutable standards profile', `document.body.innerText.includes(${JSON.stringify(`QA Approved Standards ${unique}`)})`);
+
+  await fillFields({
+    'business-staff-name': 'QA Lead Preparer',
+    'business-staff-person-key': `QA-LEAD-PREPARER-${unique}`,
+    'business-staff-email': `qa.lead.${unique}@example.invalid`,
+    'business-staff-grade': 'ASSOCIATE',
+    'business-staff-persona': 'PREPARER'
+  });
+  await clickButton('Add preparer profile');
+  await waitFor('the new PREPARER profile', `([...document.querySelectorAll('#business-active-persona option')].some(option => option.textContent?.includes('PREPARER · QA Lead Preparer')))`);
+  await chooseOption('business-active-persona', `item.textContent?.includes('PREPARER · QA Lead Preparer')`);
+  await waitFor('the PREPARER context', `document.querySelector('.business-actor-summary')?.innerText.includes('PREPARER')`);
+
+  // Record one new-client referral with a real contact, service and period.
+  await fillFields({
+    'business-lead-client-code': `QA-LEAD-${unique}`,
+    'business-lead-client-name': `QA Lead Client ${unique} WLL`,
+    'business-lead-industry': 'Professional services',
+    'business-lead-address': 'Doha, Qatar',
+    'business-lead-contact-name': 'QA Finance Contact',
+    'business-lead-contact-email': `finance.${unique}@example.invalid`,
+    'business-lead-contact-phone': '',
+    'business-lead-contact-title': 'Finance Director',
+    'business-lead-contact-role': 'CFO_FINANCE_DIRECTOR',
+    'business-lead-source': 'REFERRAL',
+    'business-lead-service': 'STATUTORY_AUDIT',
+    'business-lead-period-start': '2026-01-01',
+    'business-lead-period-end': '2026-12-31',
+    'business-lead-fee': '10000000'
+  });
+  await clickButton('Record lead');
+  await waitFor('the linked lead and client', `document.querySelector('.business-lead-list')?.innerText.includes(${JSON.stringify(`QA Lead Client ${unique} WLL`)}) && document.querySelector('.business-client-list')?.innerText.includes(${JSON.stringify(`QA Lead Client ${unique} WLL`)})`);
+
+  const leadIds = await tab.evaluate<string[]>(`[...document.querySelectorAll('.business-lead-list input[id^="business-engagement-code-"]')].map(input => input.id)`);
+  assert.equal(leadIds.length, 1, 'one open lead has one conversion control');
+  const conversionInputReady = await tab.evaluate<boolean>(`(() => {
+    const input = document.getElementById(${JSON.stringify(leadIds[0])});
+    return input instanceof HTMLInputElement && input.required && !input.disabled && Boolean(input.getClientRects().length);
+  })()`);
+  assert.equal(conversionInputReady, true, 'the visible conversion code field is required and editable');
+  const conversionCodeAccepted = await tab.evaluate<boolean>(`(() => {
+    const input = document.getElementById(${JSON.stringify(leadIds[0])});
+    if (!(input instanceof HTMLInputElement)) return false;
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(input, ${JSON.stringify(`QA-ENG-${unique}`)});
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    input.dispatchEvent(new Event('change', { bubbles: true }));
+    return input.value === ${JSON.stringify(`QA-ENG-${unique}`)} && input.checkValidity();
+  })()`);
+  assert.equal(conversionCodeAccepted, true, 'the required engagement code passes native field validation');
+  await clickButton('Convert to engagement');
+  await waitFor('one linked LEAD_INGESTION engagement', `document.querySelector('.business-created-engagement')?.innerText.includes('Current state: LEAD_INGESTION')`);
+  assert.equal(await tab.evaluate<boolean>(`document.querySelector('.business-created-engagement')?.innerText.includes('Current state: PROPOSAL_GENERATION') ?? false`), false);
+
+  // Advance through the actual profile gate and verify the persisted lifecycle projection.
+  await clickButton('Validate profile and enter proposal generation');
+  await waitFor('the proposal-generation handoff', `document.querySelector('.business-created-engagement')?.innerText.includes('Current state: PROPOSAL_GENERATION')`);
+  await tab.command('Page.reload');
+  await waitFor('the reloaded lead and proposal-ready engagement', `document.querySelector('.business-lead-list')?.innerText.includes('CONVERTED') && [...(document.querySelector('#business-proposal-engagement')?.options ?? [])].some(option => option.textContent?.includes(${JSON.stringify(`QA-ENG-${unique}`)}))`);
+
+  const persisted = server.db.prepare(`SELECT l.id AS lead_id,l.status,l.converted_engagement_id,e.lifecycle_state,e.code,
+      (SELECT COUNT(*) FROM leads duplicate WHERE duplicate.workspace_id=l.workspace_id AND duplicate.converted_engagement_id=e.id) AS linked_leads
+    FROM leads l JOIN engagements e ON e.workspace_id=l.workspace_id AND e.id=l.converted_engagement_id
+    WHERE l.workspace_id=? AND e.code=?`).bind(preference.workspaceId, `QA-ENG-${unique}`).first<any>();
+  assert.ok(persisted);
+  assert.deepEqual({ ...persisted }, {
+    lead_id: persisted.lead_id,
+    status: 'CONVERTED',
+    converted_engagement_id: persisted.converted_engagement_id,
+    lifecycle_state: 'PROPOSAL_GENERATION',
+    code: `QA-ENG-${unique}`,
+    linked_leads: 1
+  });
+  assert.equal(server.db.prepare('SELECT COUNT(*) AS count FROM engagements WHERE workspace_id=? AND code=?').bind(preference.workspaceId, `QA-ENG-${unique}`).first<{ count: number }>()?.count, 1);
+  assert.equal(tab.blockedExternalRequests.length, 0);
+  assert.deepEqual(tab.exceptions, []);
+});

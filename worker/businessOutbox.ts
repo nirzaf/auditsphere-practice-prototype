@@ -975,8 +975,8 @@ async function recordJobFailure(env: Env, job: OutboxJob, error: unknown): Promi
         .bind(status, failure.code, now, job.workspace_id, payload.draftId, job.id)] : []),
       ...(documentType === 'REPORT_CANDIDATE' && typeof payload.reportCandidateId === 'string' && status === 'PERMANENT_FAILED' ? [env.DB.prepare(`UPDATE report_candidates SET status='FAILED',failure_code=?,updated_at=? WHERE workspace_id=? AND id=? AND status='PREPARING'`)
         .bind(failure.code,now,job.workspace_id,payload.reportCandidateId)] : []),
-      ...(documentType === 'MANAGEMENT_LETTER' && typeof payload.managementLetterVersionId === 'string' && status === 'PERMANENT_FAILED' ? [env.DB.prepare(`UPDATE management_letter_versions SET status='FAILED' WHERE workspace_id=? AND id=? AND status='PREPARING'`)
-        .bind(job.workspace_id,payload.managementLetterVersionId)] : []),
+      ...(documentType === 'MANAGEMENT_LETTER' && typeof payload.managementLetterVersionId === 'string' && status === 'PERMANENT_FAILED' ? [env.DB.prepare(`UPDATE management_letter_versions SET status='FAILED',failure_code=? WHERE workspace_id=? AND id=? AND status='PREPARING'`)
+        .bind(failure.code,job.workspace_id,payload.managementLetterVersionId)] : []),
       ...(documentType === 'REPRESENTATION_TEMPLATE' && typeof payload.requestId === 'string' && status === 'PERMANENT_FAILED' ? [env.DB.prepare(`UPDATE representation_requests SET status='FAILED',version=version+1,updated_at=? WHERE workspace_id=? AND id=? AND status='PREPARING'`)
         .bind(now,job.workspace_id,payload.requestId)] : []),
       ...(documentType === 'BUNDLE_CANDIDATE' && typeof payload.bundleCandidateId === 'string' ? [env.DB.prepare(`UPDATE bundle_candidates SET status=?,failure_code=?,updated_at=? WHERE workspace_id=? AND id=? AND status='PREPARING'`)

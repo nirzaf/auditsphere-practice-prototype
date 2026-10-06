@@ -97,8 +97,8 @@ import { getBusinessReportingWorkspace } from './businessReportingQuery';
 const JSON_BODY_LIMIT = 1_000_000;
 /** Hard ceiling for a single command payload; the domain model is small. */
 const COMMAND_BODY_LIMIT = 512_000;
-/** Updated alongside worker/migrations/0027_application_schema_version.sql. */
-const APPLICATION_SCHEMA_VERSION = 27;
+/** Updated alongside the latest application schema migration. */
+const APPLICATION_SCHEMA_VERSION = 28;
 
 /** Per-IP/route rate limit using the optional Worker Rate Limiting binding. */
 async function enforceRateLimit(ctx: RouteContext, bucket: string, key: string): Promise<void> {
