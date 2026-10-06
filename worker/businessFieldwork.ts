@@ -146,6 +146,8 @@ export function isBusinessFieldworkCommand(command: { type: string }): command i
 }
 
 type Engagement = { id: string; version: number; client_id: string; lifecycle_state: string; period_start: string; period_end: string; locked_at: string | null; standards_profile_id: string; active_tb_version_id: string | null; active_mapping_version_id: string | null; active_materiality_version_id: string | null; approved_planning_version_id: string | null };
+export type ConfirmationGateEngagement = Pick<Engagement, 'id' | 'version' | 'client_id' | 'active_tb_version_id' | 'active_mapping_version_id' | 'active_materiality_version_id'>;
+export type CriticalConfirmationBlocker = { id: string; version: number; type: string; status: string; dueDate: string; sourceHash: string; externalPartyName: string; criticalityReason: string; stalePins: boolean };
 type StatementLine = { fsliId: string; code: string; name: string; statement: string; category: string; displaySign: number; currentBaseMinor: number; currentAdjustmentMinor: number; currentAdjustedMinor: number; priorMinor: number | null; varianceNumerator: string | null; varianceDenominator: string | null; variancePercent: number | null; varianceReason: string; riskBand: string; sourceRows: Array<Record<string, unknown>> };
 
 function requireInternal(context: BusinessContext, action = 'fieldwork.read'): void {
@@ -1846,7 +1848,7 @@ async function recordConfirmationAlternative(env:Env,workspaceId:string,context:
     'CONFIRMATION_ALTERNATIVE_PROCEDURE',idValue,null,1,{confirmationId:row.id,evidenceFileId:file.id,rationale:p.rationale,criticalGateWaived:false});
 }
 
-async function criticalConfirmationBlockers(env:Env,workspaceId:string,engagement:Engagement){
+export async function criticalConfirmationBlockers(env:Env,workspaceId:string,engagement:ConfirmationGateEngagement):Promise<CriticalConfirmationBlocker[]>{
   const result=await env.DB.prepare(`SELECT id,version,type,status,due_date AS dueDate,source_hash AS sourceHash,tb_version_id AS tbVersionId,mapping_version_id AS mappingVersionId,
       materiality_version_id AS materialityVersionId,external_party_name AS externalPartyName,criticality_reason AS criticalityReason
     FROM confirmations WHERE workspace_id=? AND engagement_id=? AND critical=1 AND status<>'CANCELLED' ORDER BY id`).bind(workspaceId,engagement.id).all<Record<string,unknown>>();
@@ -1857,7 +1859,7 @@ async function criticalConfirmationBlockers(env:Env,workspaceId:string,engagemen
         ||row.mappingVersionId!==engagement.active_mapping_version_id||row.materialityVersionId!==engagement.active_materiality_version_id}));
 }
 
-async function queueHoldingLetterForBlockers(env:Env,workspaceId:string,context:BusinessContext,engagement:Engagement,commandId:string,now:string,blockers:Array<Record<string,unknown>>):Promise<BusinessMutation>{
+export async function queueHoldingLetterForBlockers(env:Env,workspaceId:string,context:BusinessContext,engagement:ConfirmationGateEngagement,commandId:string,now:string,blockers:CriticalConfirmationBlocker[],responseStatus?:number):Promise<BusinessMutation>{
   const route=await env.DB.prepare(`SELECT cr.id,cr.version,ct.id AS contact_id,ct.full_name,ct.email FROM contact_routes cr JOIN contacts ct
       ON ct.workspace_id=cr.workspace_id AND ct.client_id=cr.client_id AND ct.id=cr.contact_id
     WHERE cr.workspace_id=? AND cr.client_id=? AND cr.purpose='HOLDING_LETTER' AND cr.is_primary=1 AND ct.active=1 AND ct.email IS NOT NULL
@@ -1866,8 +1868,11 @@ async function queueHoldingLetterForBlockers(env:Env,workspaceId:string,context:
   const outstandingSetHash=await rowHash(snapshot);const baseBlockers=blockers.map(item=>({code:item.stalePins?'STALE_CONFIRMATION_SOURCE':'CRITICAL_CONFIRMATION_OUTSTANDING',entityId:item.id,
     description:`${String(item.type)} confirmation for ${String(item.externalPartyName)} is ${String(item.status).replaceAll('_',' ').toLowerCase()}${item.stalePins?' or pinned to replaced source versions':''}.`,
     route:'#audit-fieldwork',remediation:item.stalePins?'Reassess this confirmation against the current trial balance, mapping, and materiality.':'Obtain and independently verify the direct third-party response.'}));
-  if(!route)return commandMutation([],{blocked:true,blockers:[...baseBlockers,{code:'HOLDING_LETTER_ROUTE_MISSING',entityId:engagement.id,description:'No active primary management contact route with an email is configured for the holding letter.',route:'#clients',remediation:'Set a primary HOLDING_LETTER route for an active MD/GM or CFO contact.'}],
-    holdingLetterJobId:null,outstandingSetHash},'CONFIRMATION_GATE',engagement.id,engagement.version,engagement.version,{blocked:true,outstandingSetHash,holdingLetterQueued:false});
+  if(!route){
+    const mutation=commandMutation([],{blocked:true,blockers:[...baseBlockers,{code:'HOLDING_LETTER_ROUTE_MISSING',entityId:engagement.id,description:'No active primary management contact route with an email is configured for the holding letter.',route:'#clients',remediation:'Set a primary HOLDING_LETTER route for an active MD/GM or CFO contact.'}],
+      holdingLetterJobId:null,outstandingSetHash},'CONFIRMATION_GATE',engagement.id,engagement.version,engagement.version,{blocked:true,outstandingSetHash,holdingLetterQueued:false});
+    return responseStatus===undefined?mutation:{...mutation,responseStatus};
+  }
   const deduplicationKey=`holding-letter:${engagement.id}:${outstandingSetHash}`;
   const prior=await env.DB.prepare(`SELECT id,status FROM outbox_jobs WHERE workspace_id=? AND deduplication_key=?`).bind(workspaceId,deduplicationKey).first<{id:string;status:string}>();
   const jobId=prior?.id??crypto.randomUUID();const recipient={contactRouteId:route.id,contactRouteVersion:route.version,contactId:route.contact_id,name:route.full_name,email:route.email};
@@ -1886,8 +1891,9 @@ async function queueHoldingLetterForBlockers(env:Env,workspaceId:string,context:
         workspaceId,engagement.id,snapshot.length,JSON.stringify(snapshot),workspaceId)];
   if(!prior)statements.push(env.DB.prepare(`INSERT INTO outbox_jobs(id,workspace_id,version,kind,aggregate_id,aggregate_version,payload_json,deduplication_key,status,attempts,next_attempt_at,lease_until,last_error_code,provider_reference,result_file_id,result_json,completed_at,created_at,updated_at)
       VALUES(?,?,1,'GENERATE_DOCUMENT',?,?,?,?, 'PENDING',0,?,NULL,NULL,NULL,NULL,NULL,NULL,?,?)`).bind(jobId,workspaceId,engagement.id,engagement.version,JSON.stringify(payload),deduplicationKey,now,now,now));
-  return commandMutation(statements,{blocked:true,blockers:baseBlockers,holdingLetterJobId:jobId,holdingLetterJobStatus:prior?.status??'PENDING',outstandingSetHash},'CONFIRMATION_GATE',engagement.id,engagement.version,engagement.version,
+  const mutation=commandMutation(statements,{blocked:true,blockers:baseBlockers,holdingLetterJobId:jobId,holdingLetterJobStatus:prior?.status??'PENDING',holdingLetterReused:Boolean(prior),outstandingSetHash},'CONFIRMATION_GATE',engagement.id,engagement.version,engagement.version,
     {blocked:true,outstandingSetHash,holdingLetterJobId:jobId,holdingLetterReused:Boolean(prior)});
+  return responseStatus===undefined?mutation:{...mutation,responseStatus};
 }
 
 async function createAdjustment(env:Env,workspaceId:string,context:BusinessContext,command:Extract<BusinessFieldworkCommand,{type:'adjustment.create'}>,now:string):Promise<BusinessMutation>{

@@ -100,6 +100,37 @@ const COMMAND_BODY_LIMIT = 512_000;
 /** Updated alongside the latest application schema migration. */
 const APPLICATION_SCHEMA_VERSION = 28;
 
+const ASYNC_BUSINESS_COMMANDS = new Set([
+  'proposal.generate', 'proposal.generate.retry', 'proposal.dispatch', 'proposal.dispatch.retry',
+  'engagementLetter.generate', 'engagementLetter.issue', 'invoice.issueAdvance', 'payment.record', 'payment.reverse'
+]);
+
+export function businessCommandHttpResult(
+  response: Record<string, unknown>, commandType: string, recordedStatus: number | null | undefined, requestId: string
+): { body: unknown; status: number } {
+  const defaultStatus = ASYNC_BUSINESS_COMMANDS.has(commandType) ? 202 : 200;
+  const status = recordedStatus !== null && recordedStatus !== undefined && recordedStatus !== 200
+    ? Number(recordedStatus) : defaultStatus;
+  const result = response.result && typeof response.result === 'object'
+    ? response.result as Record<string, unknown> : null;
+  if (status === 409 && commandType === 'report.release' && result?.blocked === true) {
+    const blockers = Array.isArray(result.blockers) ? result.blockers as Array<Record<string, unknown>> : [];
+    const criticalConfirmationIds = blockers
+      .filter(blocker => blocker.code === 'CRITICAL_CONFIRMATION_OUTSTANDING' || blocker.code === 'STALE_CONFIRMATION_SOURCE')
+      .map(blocker => blocker.entityId).filter((id): id is string => typeof id === 'string');
+    return {
+      status,
+      body: {
+        code: 'GATE_BLOCKED',
+        message: 'Critical confirmation clearance changed after bundle preparation.',
+        details: { criticalConfirmationIds, holdingLetterJobId: result.holdingLetterJobId ?? null, blockers },
+        requestId
+      }
+    };
+  }
+  return { body: response, status };
+}
+
 /** Per-IP/route rate limit using the optional Worker Rate Limiting binding. */
 async function enforceRateLimit(ctx: RouteContext, bucket: string, key: string): Promise<void> {
   const limiter = ctx.env.RATE_LIMITER;
@@ -577,9 +608,10 @@ const handleCommand = async (ctx: RouteContext): Promise<Response> => {
     const body = await readJson<unknown>(ctx.request, COMMAND_BODY_LIMIT);
     const envelope = parseBusinessCommandEnvelope(body, ctx.request.headers.get('Idempotency-Key'));
     const response = await runBusinessDirectoryCommand(ctx.env, workspaceId, ctx.request, envelope);
-    const status = ['proposal.generate', 'proposal.generate.retry', 'proposal.dispatch', 'proposal.dispatch.retry',
-      'engagementLetter.generate', 'engagementLetter.issue', 'invoice.issueAdvance', 'payment.record', 'payment.reverse'].includes(envelope.command.type) ? 202 : 200;
-    return jsonResponse(response, status, ctx.requestId);
+    const recorded = await ctx.env.DB.prepare(`SELECT response_status FROM command_receipts WHERE workspace_id=? AND idempotency_key=?`)
+      .bind(workspaceId, envelope.idempotencyKey).first<{ response_status: number }>();
+    const result = businessCommandHttpResult(response, envelope.command.type, recorded?.response_status, ctx.requestId);
+    return jsonResponse(result.body, result.status, ctx.requestId);
   }
 
   const { session, state, actor } = await resolveSession(ctx.env, ctx.request);

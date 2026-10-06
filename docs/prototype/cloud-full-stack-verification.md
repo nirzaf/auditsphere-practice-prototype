@@ -338,3 +338,20 @@ stories remain open:
 These checks do not close the 46-story epic. Requirement-by-requirement
 acceptance, browser evidence for the new UI paths, two-browser races, archive
 restore, and the remaining story criteria are still outstanding.
+
+## Critical-confirmation release recheck — 2026-10-06
+
+`npx tsx --test tests/unit/businessWorkspace.test.ts` passed **1/1** after
+adding a synthetic critical bank confirmation to the Worker/D1 integration
+scenario. The shared release gate finds the new blocker, records HTTP 409 on
+the release mutation, and queues a Holding Letter against the configured
+synthetic management recipient. Repeating the same outstanding set reuses the
+same outbox job; the database retains exactly one matching job. This is bounded
+evidence for the `US-FLD-013` late-blocker/idempotency subcase. The test does
+not execute a fully prepared `report.release` candidate through the HTTP route,
+so `US-FLD-013` and the complete reporting lifecycle remain open.
+
+The latest hosted CI run before this change (`37457806609`) passed typechecks,
+unit tests, production build and browser E2E on `a0a5adb`. Its Cloudflare deploy
+job was skipped because production activation remains gated on the missing
+GitHub environment credentials, reviewer selection and explicit deploy switch.

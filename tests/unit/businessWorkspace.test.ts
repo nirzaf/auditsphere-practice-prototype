@@ -2,7 +2,8 @@ import { after, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import worker from '../../worker/index.js';
+import worker, { businessCommandHttpResult } from '../../worker/index.js';
+import { criticalConfirmationBlockers, queueHoldingLetterForBlockers } from '../../worker/businessFieldwork.js';
 import { SqliteD1 } from '../helpers/sqliteD1.js';
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
@@ -2493,4 +2494,48 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
   assert.equal(afterAllocationReversal.body.arAging.reconciliationDifferenceMinor,
     practiceData.body.arAging.reconciliationDifferenceMinor,
     'the appended allocation reversal increases both subledger AR and posted AR control by the same amount');
+
+  // FLD-013: a critical confirmation that becomes outstanding after handover
+  // blocks final release with HTTP 409 and queues one idempotent Holding Letter.
+  const criticalConfirmation = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'confirmation.create', payload: {
+      engagementId, type: 'BANK', fsliId: revenueLine.fsliId,
+      externalPartyName: 'Synthetic Test Bank', externalPartyAddress: '1 Example Street, Doha',
+      externalPartyEmail: 'bank@example.invalid', recipientVerificationText: 'Verified against the synthetic engagement contact record.',
+      critical: true, criticalityReason: 'The balance is individually material to the audit opinion.', dueDate: planDate
+    } }
+  }, technicalHeaders);
+  assert.equal(criticalConfirmation.response.status, 200, JSON.stringify(criticalConfirmation.body));
+  const gateEngagement = db.prepare(`SELECT id,version,client_id,active_tb_version_id,active_mapping_version_id,active_materiality_version_id
+    FROM engagements WHERE workspace_id=? AND id=?`).bind(workspaceId, engagementId).first<any>();
+  const blockers = await criticalConfirmationBlockers(env, workspaceId, gateEngagement);
+  assert.equal(blockers.length, 1, 'the outstanding critical confirmation is detected at release time');
+
+  const queuedHoldingLetter = await queueHoldingLetterForBlockers(env, workspaceId, {} as any, gateEngagement,
+    crypto.randomUUID(), new Date().toISOString(), blockers, 409);
+  assert.equal(queuedHoldingLetter.responseStatus, 409, 'the blocked release persists its required HTTP status');
+  assert.equal(queuedHoldingLetter.result.blocked, true);
+  assert.ok(queuedHoldingLetter.result.holdingLetterJobId);
+  await db.batch([...queuedHoldingLetter.statements, db.prepare('DELETE FROM command_assertions WHERE workspace_id=?').bind(workspaceId)]);
+
+  const replayedHoldingLetter = await queueHoldingLetterForBlockers(env, workspaceId, {} as any, gateEngagement,
+    crypto.randomUUID(), new Date().toISOString(), blockers, 409);
+  assert.equal(replayedHoldingLetter.responseStatus, 409);
+  assert.equal(replayedHoldingLetter.result.holdingLetterJobId, queuedHoldingLetter.result.holdingLetterJobId,
+    'the same outstanding set reuses its Holding Letter outbox job');
+  assert.equal(replayedHoldingLetter.result.holdingLetterReused, true);
+  await db.batch([...replayedHoldingLetter.statements, db.prepare('DELETE FROM command_assertions WHERE workspace_id=?').bind(workspaceId)]);
+  assert.equal(db.prepare(`SELECT COUNT(*) AS count FROM outbox_jobs WHERE workspace_id=? AND deduplication_key LIKE 'holding-letter:%'`)
+    .bind(workspaceId).first<any>()?.count, 1);
+  const httpBlockedRelease = businessCommandHttpResult({ commandId: crypto.randomUUID(), replayed: false, result: queuedHoldingLetter.result },
+    'report.release', queuedHoldingLetter.responseStatus, 'test-request');
+  assert.equal(httpBlockedRelease.status, 409);
+  assert.deepEqual(httpBlockedRelease.body, {
+    code: 'GATE_BLOCKED', message: 'Critical confirmation clearance changed after bundle preparation.',
+    details: { criticalConfirmationIds: [blockers[0].id], holdingLetterJobId: queuedHoldingLetter.result.holdingLetterJobId,
+      blockers: queuedHoldingLetter.result.blockers },
+    requestId: 'test-request'
+  });
+  assert.equal(businessCommandHttpResult({ result: {} }, 'proposal.dispatch', 200, 'test-request').status, 202,
+    'a legacy 200 receipt still receives the normal asynchronous command status');
 });

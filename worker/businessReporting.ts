@@ -7,6 +7,7 @@ import { sha256Hex } from './http';
 import type { BusinessContext, BusinessMutation } from './business';
 import { renderReportingPdf, type ReportingPdfInput } from './reportingDocument';
 import { prepareBusinessInvoiceJournal } from './businessPractice';
+import { criticalConfirmationBlockers as currentCriticalConfirmationBlockers, queueHoldingLetterForBlockers, type ConfirmationGateEngagement } from './businessFieldwork';
 
 const id=z.uuid(),date=z.iso.date(),hash=z.string().regex(/^[a-f0-9]{64}$/);
 const text=(min=10,max=10000)=>z.string().trim().min(min).max(max);
@@ -101,14 +102,11 @@ async function reportPins(env:Env,workspaceId:string,engagementId:string){
   return {engagement,srm,snapshot,profile};
 }
 async function criticalConfirmationBlockers(env:Env,workspaceId:string,engagementId:string){
-  const rows=(await env.DB.prepare(`SELECT c.id,c.status,c.tb_version_id,c.mapping_version_id,c.materiality_version_id,c.reliance_frozen,e.active_tb_version_id,e.active_mapping_version_id,e.active_materiality_version_id,
-      EXISTS(SELECT 1 FROM confirmation_scope_reassessments r WHERE r.workspace_id=c.workspace_id AND r.prior_confirmation_id=c.id) AS reassessed
-    FROM confirmations c JOIN engagements e ON e.workspace_id=c.workspace_id AND e.id=c.engagement_id WHERE c.workspace_id=? AND c.engagement_id=? AND c.critical=1`)
-    .bind(workspaceId,engagementId).all<Record<string,unknown>>()).results??[];
-  return rows.filter(row=>{
-    if(row.status==='CANCELLED'&&Number(row.reassessed)===1)return false;
-    return row.status!=='RETURNED_VERIFIED'||row.tb_version_id!==row.active_tb_version_id||row.mapping_version_id!==row.active_mapping_version_id||row.materiality_version_id!==row.active_materiality_version_id;
-  }).map(row=>`Critical confirmation ${String(row.id).slice(0,8)} is unresolved, stale or lacks an approved scope reassessment.`);
+  const engagement=await env.DB.prepare(`SELECT id,version,client_id,active_tb_version_id,active_mapping_version_id,active_materiality_version_id
+    FROM engagements WHERE workspace_id=? AND id=?`).bind(workspaceId,engagementId).first<ConfirmationGateEngagement>();
+  if(!engagement)return [];
+  const rows=await currentCriticalConfirmationBlockers(env,workspaceId,engagement);
+  return rows.map(row=>`Critical ${row.type} confirmation ${row.id.slice(0,8)} for ${row.externalPartyName} is ${row.status.replaceAll('_',' ').toLowerCase()}${row.stalePins?' or pinned to replaced source versions':''}.`);
 }
 async function readPngAsset(env:Env,workspaceId:string,fileId:string,purpose:'SIGNATURE'|'SEAL'){
   const row=await env.DB.prepare(`SELECT id,media_type,purpose,state,immutable,sha256,size_bytes,object_key FROM file_versions WHERE workspace_id=? AND id=?`)
@@ -631,7 +629,9 @@ async function buildReportRelease(env:Env,workspaceId:string,context:BusinessCon
     throw new ApiError('STALE_DEPENDENCY','The Partner opinion, approved statements or exact signature asset changed after report preparation.');
   const representationHash=await currentRepresentationHash(env,workspaceId,candidate.engagement_id,candidate.proposed_report_date,candidate.representation_request_id);
   if(representationHash!==candidate.representation_hash)throw new ApiError('STALE_DEPENDENCY','The signed representation no longer covers the current approved reporting sources.');
-  const critical=await criticalConfirmationBlockers(env,workspaceId,candidate.engagement_id);if(critical.length)throw new ApiError('GATE_BLOCKED','Critical confirmation clearance changed after bundle preparation.',{blockers:critical});
+  const gateEngagement=await engagementRow(env,workspaceId,context,candidate.engagement_id);
+  const critical=await currentCriticalConfirmationBlockers(env,workspaceId,gateEngagement);
+  if(critical.length)return queueHoldingLetterForBlockers(env,workspaceId,context,gateEngagement,commandId,now,critical,409);
   const findings=(await env.DB.prepare(`SELECT id,version,source_hash FROM findings WHERE workspace_id=? AND engagement_id=?`).bind(workspaceId,candidate.engagement_id).all<{id:string;version:number;source_hash:string}>()).results??[];
   const findingById=new Map(findings.map(row=>[row.id,row]));
   const management=await env.DB.prepare(`SELECT items_snapshot_json FROM management_letter_versions WHERE workspace_id=? AND id=?`).bind(workspaceId,candidate.management_letter_version_id).first<{items_snapshot_json:string}>();

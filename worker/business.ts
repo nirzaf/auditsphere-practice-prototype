@@ -1321,6 +1321,7 @@ export interface BusinessMutation {
   beforeVersion: number | null;
   afterVersion: number;
   auditDetails?: Record<string, unknown>;
+  responseStatus?: number;
 }
 
 const BUSINESS_FILE_MAX_BYTES = 25 * 1024 * 1024;
@@ -3471,6 +3472,7 @@ export async function runBusinessDirectoryCommand(
       timestamp
     }));
     const response = { commandId, result: mutation.result, replayed: false };
+    const responseStatus = 'responseStatus' in mutation && typeof mutation.responseStatus === 'number' ? mutation.responseStatus : 200;
     const actorSnapshot = JSON.stringify({
       actorId: context.actor.id,
       persona: context.actor.persona,
@@ -3485,8 +3487,8 @@ export async function runBusinessDirectoryCommand(
         .bind(workspaceId, workspaceId),
       env.DB.prepare(`INSERT INTO command_receipts(
         id,workspace_id,version,idempotency_key,request_hash,actor_snapshot_json,command_type,response_status,response_json,created_at
-      ) VALUES(?,?,1,?,?,?,?,200,?,?)`).bind(
-        commandId, workspaceId, envelope.idempotencyKey, requestHash, actorSnapshot, envelope.command.type, JSON.stringify(response), timestamp
+      ) VALUES(?,?,1,?,?,?,?,?,?,?)`).bind(
+        commandId, workspaceId, envelope.idempotencyKey, requestHash, actorSnapshot, envelope.command.type, responseStatus, JSON.stringify(response), timestamp
       ),
       ...mutation.statements,
       env.DB.prepare(`UPDATE audit_chain_heads SET last_sequence=?,last_event_hash=?,updated_at=?
