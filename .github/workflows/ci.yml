@@ -1,0 +1,57 @@
+name: CI
+
+# Every push and pull request touching main is verified here: there is no
+# deploy path that bypasses these gates.
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# A newer commit supersedes an in-flight verification of the same PR/branch.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: Typecheck, unit tests, production build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          # Matches the lockfile generation and the local dev toolchain.
+          node-version: '24'
+          cache: 'npm'
+
+      # Cache the installed tree itself, not just the download cache, so a hit
+      # skips `npm ci` outright. Keyed on the root lockfile only: `ste-audit/`
+      # has its own lockfile and is not installed by this job.
+      - name: Restore node_modules
+        id: node-modules
+        uses: actions/cache@v4
+        with:
+          path: node_modules
+          key: node-modules-${{ runner.os }}-node24-${{ hashFiles('package-lock.json') }}
+
+      - name: Install dependencies
+        if: steps.node-modules.outputs.cache-hit != 'true'
+        run: npm ci
+
+      - name: Typecheck app and worker
+        run: |
+          npx tsc --noEmit
+          npm run cloud:typecheck
+
+      - name: Unit tests
+        run: npm run test:unit
+
+      - name: Production build
+        run: npm run build
