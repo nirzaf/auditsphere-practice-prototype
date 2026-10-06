@@ -595,10 +595,16 @@ it('final alignment preserves mobile keyboard containment, route focus and modal
   await sleep(200);
   await tab.command('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:false});
   const key=async(key:string,code:string,vk:number,modifiers=0)=>{await tab.command('Input.dispatchKeyEvent',{type:'keyDown',key,code,windowsVirtualKeyCode:vk,modifiers});await tab.command('Input.dispatchKeyEvent',{type:'keyUp',key,code,windowsVirtualKeyCode:vk,modifiers});};
-  const mobileNavigationBefore = await tab.evaluate<{ triggerVisible: boolean; expanded: string | null }>(`(() => {
+  let mobileNavigationBefore = { triggerVisible: false, expanded: null as string | null };
+  const mobileNavigationDeadline = Date.now() + 5000;
+  while (Date.now() < mobileNavigationDeadline) {
+    mobileNavigationBefore = await tab.evaluate<{ triggerVisible: boolean; expanded: string | null }>(`(() => {
     const trigger = document.querySelector('[aria-label="Open navigation"]');
     return { triggerVisible: Boolean(trigger?.getClientRects().length), expanded: trigger?.getAttribute('aria-expanded') ?? null };
   })()`);
+    if (mobileNavigationBefore.triggerVisible && mobileNavigationBefore.expanded === 'false') break;
+    await sleep(25);
+  }
   assert.equal(mobileNavigationBefore.triggerVisible, true, 'mobile navigation trigger is visible before opening');
   assert.equal(mobileNavigationBefore.expanded, 'false', 'the drawer starts closed');
   await tab.evaluate(`document.querySelector('[aria-label="Open navigation"]').click()`);

@@ -3116,6 +3116,175 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
   }, samplingReviewerHeaders);
   assert.equal(closedGreenWorkprogramNote.response.status, 200, JSON.stringify(closedGreenWorkprogramNote.body));
 
+  // US-FLD-012 — an AJE is a reviewed reporting overlay, while signed and gross
+  // differences and qualitative exceptions remain separately identifiable.
+  const adjustmentExpenseLine = statements.body.profitLoss.find((line: any) => line.category === 'EXPENSE');
+  const adjustmentAssetLine = statements.body.balanceSheet.find((line: any) => line.category === 'ASSET');
+  assert.ok(adjustmentExpenseLine?.fsliId && adjustmentAssetLine?.fsliId, 'the mapped statement contains expense and asset lines for a balanced AJE');
+  const tbVersionId = String(tbActivated.body.result.tbVersionId);
+  const unbalancedAjeCountBefore = Number(db.prepare('SELECT COUNT(*) AS count FROM audit_adjustments WHERE workspace_id=? AND engagement_id=?')
+    .bind(workspaceId, engagementId).first<any>()?.count);
+  const statementsBeforeAje = await call(`/api/workspaces/${workspaceId}/engagements/${engagementId}/financial-statements`, { headers: technicalHeaders });
+  assert.equal(statementsBeforeAje.response.status, 200, JSON.stringify(statementsBeforeAje.body));
+  const tbLinesBeforeAje = db.prepare('SELECT COUNT(*) AS count,SUM(current_minor) AS movement FROM tb_lines WHERE workspace_id=? AND tb_version_id=?')
+    .bind(workspaceId, tbVersionId).first<any>();
+  const unbalancedAje = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'adjustment.create', payload: {
+      engagementId, tbVersionId, description: 'Proposed period-end correction with an intentionally unequal debit and credit. ',
+      evidenceIds: [findingEvidence.body.result.evidenceId], lines: [
+        { fsliId: adjustmentExpenseLine.fsliId, accountCode: 'EXP-TEST', debitMinor: '50000', creditMinor: '0' },
+        { fsliId: adjustmentAssetLine.fsliId, accountCode: 'AST-TEST', debitMinor: '0', creditMinor: '49999' }
+      ]
+    } }
+  }, technicalHeaders);
+  assert.equal(unbalancedAje.body.code, 'UNBALANCED_ADJUSTMENT');
+  assert.equal(Number(db.prepare('SELECT COUNT(*) AS count FROM audit_adjustments WHERE workspace_id=? AND engagement_id=?')
+    .bind(workspaceId, engagementId).first<any>()?.count), unbalancedAjeCountBefore, 'an unequal AJE writes no draft or lines');
+  const statementsAfterRejectedAje = await call(`/api/workspaces/${workspaceId}/engagements/${engagementId}/financial-statements`, { headers: technicalHeaders });
+  assert.equal(statementsAfterRejectedAje.body.sourceHash, statementsBeforeAje.body.sourceHash, 'a rejected AJE leaves the statement source unchanged');
+
+  const proposedAje = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'adjustment.create', payload: {
+      engagementId, tbVersionId, description: 'Accrue the supported current-period service expense against the retained source.',
+      evidenceIds: [findingEvidence.body.result.evidenceId], lines: [
+        { fsliId: adjustmentExpenseLine.fsliId, accountCode: 'EXP-TEST', debitMinor: '10000', creditMinor: '0' },
+        { fsliId: adjustmentAssetLine.fsliId, accountCode: 'AST-TEST', debitMinor: '0', creditMinor: '10000' }
+      ]
+    } }
+  }, technicalHeaders);
+  assert.equal(proposedAje.response.status, 200, JSON.stringify(proposedAje.body));
+  assert.equal(proposedAje.body.result.status, 'DRAFT');
+  const ajeId = String(proposedAje.body.result.adjustmentId);
+  const proposalToClient = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'adjustment.propose', payload: { adjustmentId: ajeId, expectedVersion: 1 } }
+  }, technicalHeaders);
+  assert.equal(proposalToClient.response.status, 200, JSON.stringify(proposalToClient.body));
+  assert.equal(proposalToClient.body.result.status, 'PROPOSED');
+  const clientAjeResponse = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'adjustment.client-respond', payload: {
+      adjustmentId: ajeId, expectedVersion: 2, decision: 'ACCEPTED', responseText: 'Management accepts and will record the supported current-period correction.'
+    } }
+  }, makeRiskHeaders(clientHeaders));
+  assert.equal(clientAjeResponse.response.status, 200, JSON.stringify(clientAjeResponse.body));
+  assert.equal(clientAjeResponse.body.result.status, 'CLIENT_ACCEPTED');
+  const approvedAje = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'adjustment.approve', payload: {
+      adjustmentId: ajeId, expectedVersion: 3, sourceHash: clientAjeResponse.body.result.sourceHash
+    } }
+  }, samplingReviewerHeaders);
+  assert.equal(approvedAje.response.status, 200, JSON.stringify(approvedAje.body));
+  assert.equal(approvedAje.body.result.status, 'REVIEW_APPROVED');
+  assert.equal(approvedAje.body.result.includeInStatements, true);
+  const approvedAjeStored = db.prepare('SELECT status,include_in_statements,created_by_actor_id,approved_by_actor_id FROM audit_adjustments WHERE workspace_id=? AND id=?')
+    .bind(workspaceId, ajeId).first<any>();
+  assert.equal(approvedAjeStored.status, 'REVIEW_APPROVED');
+  assert.equal(approvedAjeStored.include_in_statements, 1);
+  assert.notEqual(approvedAjeStored.created_by_actor_id, approvedAjeStored.approved_by_actor_id, 'review approval is recorded under a different actor');
+  const approvedAjeHistory = db.prepare(`SELECT revision,snapshot_json FROM audit_adjustment_revisions WHERE workspace_id=? AND adjustment_id=? ORDER BY revision`)
+    .bind(workspaceId, ajeId).all<any>().results.map((row: any) => ({ revision: row.revision, snapshot: JSON.parse(row.snapshot_json) }));
+  assert.deepEqual(approvedAjeHistory.map((row: any) => [row.revision,row.snapshot.adjustment.status]), [
+    [1,'DRAFT'],[2,'PROPOSED'],[3,'CLIENT_ACCEPTED'],[4,'REVIEW_APPROVED']
+  ], 'each AJE decision remains in its append-only revision history');
+  const pinnedAjeEvidence = db.prepare(`SELECT evidence_id,evidence_version,file_sha256,source_snapshot_json FROM audit_adjustment_evidence_links WHERE workspace_id=? AND adjustment_id=?`)
+    .bind(workspaceId, ajeId).first<any>();
+  const currentAjeEvidenceSource = db.prepare(`SELECT f.sha256 FROM evidence_records e JOIN file_versions f ON f.workspace_id=e.workspace_id AND f.id=e.file_version_id WHERE e.workspace_id=? AND e.id=?`)
+    .bind(workspaceId, findingEvidence.body.result.evidenceId).first<any>();
+  assert.equal(pinnedAjeEvidence.evidence_id, findingEvidence.body.result.evidenceId);
+  assert.equal(pinnedAjeEvidence.evidence_version, 1);
+  assert.equal(pinnedAjeEvidence.file_sha256, currentAjeEvidenceSource.sha256);
+  assert.throws(() => db.prepare('UPDATE audit_adjustment_lines SET debit_minor=debit_minor+1 WHERE workspace_id=? AND adjustment_id=?')
+    .bind(workspaceId, ajeId).run(), /immutable/, 'approved AJE source lines cannot be rewritten');
+  const statementsAfterApprovedAje = await call(`/api/workspaces/${workspaceId}/engagements/${engagementId}/financial-statements`, { headers: technicalHeaders });
+  assert.equal(statementsAfterApprovedAje.response.status, 200, JSON.stringify(statementsAfterApprovedAje.body));
+  assert.notEqual(statementsAfterApprovedAje.body.sourceHash, statementsBeforeAje.body.sourceHash, 'the reviewed AJE creates a new adjusted statement basis');
+  assert.notEqual(statementsAfterApprovedAje.body.adjustmentSetHash, statementsBeforeAje.body.adjustmentSetHash);
+  assert.equal(statementsAfterApprovedAje.body.reconciliation.balanced, true, 'the balanced AJE preserves statement reconciliation');
+  const expenseAfterAje = statementsAfterApprovedAje.body.profitLoss.find((line: any) => line.fsliId === adjustmentExpenseLine.fsliId);
+  assert.notEqual(expenseAfterAje.currentAdjustmentMinor, 0, 'the reporting overlay appears on its exact mapped FSLI');
+  const tbLinesAfterAje = db.prepare('SELECT COUNT(*) AS count,SUM(current_minor) AS movement FROM tb_lines WHERE workspace_id=? AND tb_version_id=?')
+    .bind(workspaceId, tbVersionId).first<any>();
+  assert.deepEqual(tbLinesAfterAje, tbLinesBeforeAje, 'the AJE does not post into or rewrite the client trial balance');
+
+  const declinedAjeDraft = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'adjustment.create', payload: {
+      engagementId, tbVersionId, description: 'Client-declined service expense correction retained for evaluation as an unadjusted item.',
+      evidenceIds: [findingEvidence.body.result.evidenceId], lines: [
+        { fsliId: adjustmentExpenseLine.fsliId, accountCode: 'EXP-TEST', debitMinor: '5000', creditMinor: '0' },
+        { fsliId: adjustmentAssetLine.fsliId, accountCode: 'AST-TEST', debitMinor: '0', creditMinor: '5000' }
+      ]
+    } }
+  }, technicalHeaders);
+  assert.equal(declinedAjeDraft.response.status, 200, JSON.stringify(declinedAjeDraft.body));
+  const declinedAjeId = String(declinedAjeDraft.body.result.adjustmentId);
+  const declinedAjeProposal = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'adjustment.propose', payload: { adjustmentId: declinedAjeId, expectedVersion: 1 } }
+  }, technicalHeaders);
+  assert.equal(declinedAjeProposal.response.status, 200, JSON.stringify(declinedAjeProposal.body));
+  const declinedAjeClientResponse = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'adjustment.client-respond', payload: {
+      adjustmentId: declinedAjeId, expectedVersion: 2, decision: 'DECLINED', responseText: 'Management declines this proposed expense correction.'
+    } }
+  }, makeRiskHeaders(clientHeaders));
+  assert.equal(declinedAjeClientResponse.response.status, 200, JSON.stringify(declinedAjeClientResponse.body));
+  assert.equal(declinedAjeClientResponse.body.result.status, 'CLIENT_DECLINED');
+  const approvedDeclinedAje = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'adjustment.approve', payload: {
+      adjustmentId: declinedAjeId, expectedVersion: 3, sourceHash: declinedAjeClientResponse.body.result.sourceHash
+    } }
+  }, samplingReviewerHeaders);
+  assert.equal(approvedDeclinedAje.response.status, 200, JSON.stringify(approvedDeclinedAje.body));
+  assert.equal(approvedDeclinedAje.body.result.status, 'REVIEW_APPROVED');
+  assert.equal(approvedDeclinedAje.body.result.includeInStatements, false, 'review approval does not silently include a client-declined correction');
+  const statementsAfterDeclinedAje = await call(`/api/workspaces/${workspaceId}/engagements/${engagementId}/financial-statements`, { headers: technicalHeaders });
+  assert.equal(statementsAfterDeclinedAje.body.sourceHash, statementsAfterApprovedAje.body.sourceHash,
+    'a declined AJE stays out of the statement overlay while its immutable review record remains available for the SRM');
+
+  const srmDifference = async (payload: Record<string, unknown>) => post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'difference.create', payload }
+  }, technicalHeaders);
+  const overstatement = await srmDifference({ findingId: newFinding.body.result.findingId, fsliId: revenueLine.fsliId, amountMinor: '300000',
+    nature: 'FACTUAL', qualitativeSignificance: false, disposition: 'UNADJUSTED', dispositionReason: 'The unsupported recorded balance remains uncorrected.' });
+  assert.equal(overstatement.response.status, 200, JSON.stringify(overstatement.body));
+  const offsettingUnderstatement = await srmDifference({ findingId: newFinding.body.result.findingId, fsliId: revenueLine.fsliId, amountMinor: '-250000',
+    nature: 'PROJECTED', qualitativeSignificance: false, disposition: 'UNADJUSTED', dispositionReason: 'The projected understatement remains uncorrected.' });
+  assert.equal(offsettingUnderstatement.response.status, 200, JSON.stringify(offsettingUnderstatement.body));
+  const expenseFinding = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'finding.create', payload: {
+      engagementId, fsliId: adjustmentExpenseLine.fsliId, title: 'Unrecorded supported expense',
+      description: 'The current-period service expense was omitted from the client ledger and requires an audit adjustment.',
+      severity: 'MODERATE', qualitativeSignificance: false
+    } }
+  }, technicalHeaders);
+  assert.equal(expenseFinding.response.status, 200, JSON.stringify(expenseFinding.body));
+  const declinedAjeCannotClearDifference = await srmDifference({ findingId: expenseFinding.body.result.findingId, fsliId: adjustmentExpenseLine.fsliId, amountMinor: '5000',
+    nature: 'FACTUAL', qualitativeSignificance: false, disposition: 'ADJUSTED', adjustmentId: declinedAjeId, dispositionReason: 'Attempt to classify a client-declined correction as adjusted.' });
+  assert.equal(declinedAjeCannotClearDifference.body.code, 'GATE_BLOCKED', 'a client-declined, excluded AJE cannot clear an unadjusted difference');
+  const adjustedDifference = await srmDifference({ findingId: expenseFinding.body.result.findingId, fsliId: adjustmentExpenseLine.fsliId, amountMinor: '10000',
+    nature: 'FACTUAL', qualitativeSignificance: false, disposition: 'ADJUSTED', adjustmentId: ajeId, dispositionReason: 'The independently approved AJE corrects this supported expense.' });
+  assert.equal(adjustedDifference.response.status, 200, JSON.stringify(adjustedDifference.body));
+  const qualitativeFinding = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'finding.create', payload: {
+      engagementId, fsliId: revenueLine.fsliId, title: 'Management integrity exception',
+      description: 'A management integrity concern requires qualitative evaluation regardless of its monetary amount.',
+      severity: 'HIGH', qualitativeSignificance: true
+    } }
+  }, technicalHeaders);
+  assert.equal(qualitativeFinding.response.status, 200, JSON.stringify(qualitativeFinding.body));
+  const qualitativeDismissal = await srmDifference({ findingId: qualitativeFinding.body.result.findingId, fsliId: revenueLine.fsliId, amountMinor: '10000',
+    nature: 'JUDGMENTAL', qualitativeSignificance: true, disposition: 'CLEARLY_TRIVIAL', dispositionReason: 'Attempt to dismiss a low-value integrity concern as clearly trivial.' });
+  assert.equal(qualitativeDismissal.body.code, 'GATE_BLOCKED', 'a qualitative exception cannot be dismissed as clearly trivial below SAD');
+  const retainedQualitativeDifference = await srmDifference({ findingId: qualitativeFinding.body.result.findingId, fsliId: revenueLine.fsliId, amountMinor: '10000',
+    nature: 'JUDGMENTAL', qualitativeSignificance: true, disposition: 'UNADJUSTED', dispositionReason: 'Retain the low-value management integrity exception for qualitative assessment.' });
+  assert.equal(retainedQualitativeDifference.response.status, 200, JSON.stringify(retainedQualitativeDifference.body));
+  const currentSrmDifferences = db.prepare(`SELECT amount_minor,qualitative_significance,disposition,adjustment_id,tb_version_id,mapping_version_id,materiality_version_id
+    FROM audit_differences WHERE workspace_id=? AND engagement_id=? ORDER BY created_at,id`).bind(workspaceId, engagementId).all<any>().results;
+  assert.deepEqual(currentSrmDifferences.map((row: any) => [String(row.amount_minor),row.qualitative_significance,row.disposition]), [
+    ['300000',0,'UNADJUSTED'],['-250000',0,'UNADJUSTED'],['10000',0,'ADJUSTED'],['10000',1,'UNADJUSTED']
+  ]);
+  assert.equal(currentSrmDifferences[2].adjustment_id, ajeId, 'an adjusted difference retains its exact approved AJE link');
+  assert.ok(currentSrmDifferences.every((row: any) => row.tb_version_id===tbVersionId&&row.mapping_version_id===mappingApproved.body.result.mappingVersionId&&row.materiality_version_id===activeMaterialityId),
+    'every difference pins the exact active TB, mapping and materiality versions');
+
   for (const file of [firstPbcFile, replacementPbcFile]) {
     const downloaded = await worker.fetch(new Request(`https://local.auditsphere.test/api/workspaces/${workspaceId}/files/${file.fileId}`, {
       headers: clientPbcHeaders
@@ -3554,23 +3723,27 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
   const settlementAllocation = db.prepare('SELECT id FROM payment_allocations WHERE workspace_id=? AND payment_id=? ORDER BY allocated_on DESC,id DESC LIMIT 1')
     .bind(workspaceId, settlement.body.result.paymentId).first<any>();
   assert.ok(settlementAllocation?.id, 'the settled advance payment carries an active allocation');
+  const arAsOfDate = String(issuedInvoice.issueDate);
+  assert.match(arAsOfDate, /^\d{4}-\d{2}-\d{2}$/, 'the issued invoice supplies its effective accounting date');
+  const beforeAllocationReversal = await call(`${practicePath}?asOfDate=${arAsOfDate}`, { headers: practiceHeaders });
+  assert.equal(beforeAllocationReversal.response.status, 200, JSON.stringify(beforeAllocationReversal.body));
   const partialReversal = await post(`/api/workspaces/${workspaceId}/commands`, {
     idempotencyKey: crypto.randomUUID(), command: { type: 'payment.reverse-allocation', payload: {
-      allocationId: settlementAllocation.id, effectiveDate: planDate, amountMinor: '50000',
+      allocationId: settlementAllocation.id, effectiveDate: arAsOfDate, amountMinor: '50000',
       reason: 'The client overpaid the advance; part of the receipt is re-applied after review.' } }
   }, approverHeaders);
   assert.equal(partialReversal.response.status, 200, JSON.stringify(partialReversal.body));
-  const afterAllocationReversal = await call(`${practicePath}?asOfDate=${planDate}`, { headers: practiceHeaders });
+  const afterAllocationReversal = await call(`${practicePath}?asOfDate=${arAsOfDate}`, { headers: practiceHeaders });
   assert.equal(afterAllocationReversal.response.status, 200, JSON.stringify(afterAllocationReversal.body));
-  const priorOutstanding = BigInt(practiceData.body.arAging.invoices.find((row: any) => row.invoiceId === issuedInvoice.id).outstandingMinor);
+  const priorOutstanding = BigInt(beforeAllocationReversal.body.arAging.invoices.find((row: any) => row.invoiceId === issuedInvoice.id).outstandingMinor);
   const nextOutstanding = BigInt(afterAllocationReversal.body.arAging.invoices.find((row: any) => row.invoiceId === issuedInvoice.id).outstandingMinor);
   assert.equal(nextOutstanding - priorOutstanding, 50000n, 'the original invoice shows the appended allocation reversal');
-  assert.equal(BigInt(afterAllocationReversal.body.arAging.unallocatedMinor) - BigInt(practiceData.body.arAging.unallocatedMinor), 50000n,
+  assert.equal(BigInt(afterAllocationReversal.body.arAging.unallocatedMinor) - BigInt(beforeAllocationReversal.body.arAging.unallocatedMinor), 50000n,
     'the reversed amount returns to unallocated verified cash');
   assert.equal(afterAllocationReversal.body.arAging.reconciliationStatus, 'INTEGRATION_EXCEPTION',
     'the seeded historical invoice has no opening ledger journal, so the pre-existing difference remains visible');
   assert.equal(afterAllocationReversal.body.arAging.reconciliationDifferenceMinor,
-    practiceData.body.arAging.reconciliationDifferenceMinor,
+    beforeAllocationReversal.body.arAging.reconciliationDifferenceMinor,
     'the appended allocation reversal increases both subledger AR and posted AR control by the same amount');
 
   // FLD-013: a critical confirmation that becomes outstanding after handover

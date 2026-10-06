@@ -2210,7 +2210,7 @@ async function approveAdjustment(env:Env,workspaceId:string,context:BusinessCont
   if(row.materiality_version_id!==engagement.active_materiality_version_id)throw new ApiError('STALE_DEPENDENCY','The adjustment was prepared against an obsolete materiality version; refresh its classification before approval.');
   if(sourceChanged&&!p.reflectedInSourceReason)throw new ApiError('GATE_BLOCKED','The active trial balance replaced the AJE source. Record a reasoned reviewer disposition before excluding the overlay.');
   if(!sourceChanged&&p.reflectedInSourceReason)throw new ApiError('VALIDATION_FAILED','A reflected-in-source disposition is only valid when the active trial balance replaced the AJE source.');
-  const nextVersion=row.version+1;const reflected=sourceChanged?1:0;const include=sourceChanged?0:1;
+  const nextVersion=row.version+1;const reflected=sourceChanged?1:0;const include=sourceChanged?0:row.client_response_decision==='ACCEPTED'?1:0;
   const sourceHash=await rowHash({priorSourceHash:row.source_hash,reviewerActorId:context.actor.id,decision:'REVIEW_APPROVED',activeTbVersionId:engagement.active_tb_version_id,reflectedInSourceReason:p.reflectedInSourceReason??null});
   const header={...row,version:nextVersion,status:'REVIEW_APPROVED',reflected_in_source:reflected,reflected_in_source_reason:p.reflectedInSourceReason??null,include_in_statements:include,source_hash:sourceHash,approved_by_actor_id:context.actor.id,updated_at:now,evidence};
   const statements=[versionGuard(env,workspaceId,990,'audit_adjustments','id',row.id,row.version),
@@ -2234,10 +2234,11 @@ async function createDifference(env:Env,workspaceId:string,context:BusinessConte
   if(p.disposition==='CLEARLY_TRIVIAL'&&(p.qualitativeSignificance||absolute>sad))throw new ApiError('GATE_BLOCKED','Only non-qualitative differences at or below the current SAD may be classified as clearly trivial.');
   if(p.disposition==='ADJUSTED'){
     const adjustmentId=p.adjustmentId;if(!adjustmentId)throw new ApiError('VALIDATION_FAILED','An adjusted difference must name its approved AJE.');
-    const adjustment=await env.DB.prepare(`SELECT id,finding_id,tb_version_id,status,reflected_in_source FROM audit_adjustments WHERE workspace_id=? AND id=? AND engagement_id=?`)
-      .bind(workspaceId,adjustmentId,engagement.id).first<{id:string;finding_id:string|null;tb_version_id:string;status:string;reflected_in_source:number}>();
+    const adjustment=await env.DB.prepare(`SELECT id,finding_id,tb_version_id,status,reflected_in_source,include_in_statements FROM audit_adjustments WHERE workspace_id=? AND id=? AND engagement_id=?`)
+      .bind(workspaceId,adjustmentId,engagement.id).first<{id:string;finding_id:string|null;tb_version_id:string;status:string;reflected_in_source:number;include_in_statements:number}>();
     if(!adjustment||adjustment.status!=='REVIEW_APPROVED'||(adjustment.finding_id&&adjustment.finding_id!==finding.id)||
-      (adjustment.tb_version_id!==engagement.active_tb_version_id&&!adjustment.reflected_in_source))throw new ApiError('GATE_BLOCKED','An adjusted difference must link to an approved, current or explicitly reflected AJE for its finding.');
+      (!adjustment.include_in_statements&&!adjustment.reflected_in_source)||
+      (adjustment.tb_version_id!==engagement.active_tb_version_id&&!adjustment.reflected_in_source))throw new ApiError('GATE_BLOCKED','An adjusted difference must link to an approved AJE included in statements or already reflected in the current trial balance.');
     const matching=await env.DB.prepare(`SELECT COUNT(*) AS count FROM audit_adjustment_lines WHERE workspace_id=? AND adjustment_id=? AND fsli_id=?`).bind(workspaceId,adjustmentId,p.fsliId).first<{count:number}>();
     if(!Number(matching?.count??0))throw new ApiError('VALIDATION_FAILED','The linked AJE does not include this FSLI.');
   }else if(p.adjustmentId)throw new ApiError('VALIDATION_FAILED','Only an adjusted difference may reference an AJE.');
@@ -2255,6 +2256,21 @@ type SrmInputs={engagement:Engagement;planning:Record<string,unknown>;materialit
   analyticalReviews:Array<Record<string,unknown>>;findings:Array<Record<string,unknown>>;adjustments:Array<Record<string,unknown>>;adjustmentLines:Array<Record<string,unknown>>;
   adjustmentEvidence:Array<Record<string,unknown>>;adjustmentRevisions:Array<Record<string,unknown>>;differences:Array<Record<string,unknown>>;reviewSubmissions:Array<Record<string,unknown>>;reviewNotes:Array<Record<string,unknown>>;
   areaClearances:Array<Record<string,unknown>>;signedUnadjustedMinor:string;grossUnadjustedMinor:string;thresholdAnalysis:Record<string,unknown>;inputDependencyHash:string};
+
+export type SrmDifferenceInput={id:string;amountMinor:string|number|bigint;qualitativeSignificance:boolean|number;disposition:'UNADJUSTED'|'ADJUSTED'|'CLEARLY_TRIVIAL'};
+export function summarizeSrmDifferences(differences:readonly SrmDifferenceInput[],thresholds:{sadMinor:string|number|bigint;performanceMinor:string|number|bigint;planningMinor:string|number|bigint}){
+  const sad=BigInt(thresholds.sadMinor);const te=BigInt(thresholds.performanceMinor);const pm=BigInt(thresholds.planningMinor);let signed=0n;let gross=0n;
+  const perItem=differences.map(row=>{const amount=BigInt(String(row.amountMinor));if(amount===0n)throw new ApiError('VALIDATION_FAILED','An audit difference must be nonzero.');
+    const abs=amount<0n?-amount:amount;const qualitative=Boolean(row.qualitativeSignificance);
+    if(row.disposition==='CLEARLY_TRIVIAL'&&(qualitative||abs>sad))throw new ApiError('GATE_BLOCKED','A qualitative or above-SAD difference cannot be excluded as clearly trivial.');
+    if(row.disposition==='UNADJUSTED'){signed+=amount;gross+=abs;}
+    return {differenceId:row.id,amountMinor:amount.toString(),qualitativeSignificance:qualitative,exceedsSAD:abs>sad,exceedsTE:abs>te,exceedsPM:abs>pm,disposition:row.disposition};
+  });
+  if(signed>BigInt(Number.MAX_SAFE_INTEGER)||signed<BigInt(Number.MIN_SAFE_INTEGER)||gross>BigInt(Number.MAX_SAFE_INTEGER))throw new ApiError('CALCULATION_DOMAIN_EXCEEDED','Unadjusted-difference totals exceed safe QAR minor-unit precision.');
+  const absoluteSigned=signed<0n?-signed:signed;
+  return {signedUnadjustedMinor:signed.toString(),grossUnadjustedMinor:gross.toString(),thresholdAnalysis:{perItem,aggregate:{signedMinor:signed.toString(),absoluteSignedMinor:absoluteSigned.toString(),grossMinor:gross.toString(),
+    signedExceedsSAD:absoluteSigned>sad,signedExceedsTE:absoluteSigned>te,signedExceedsPM:absoluteSigned>pm,grossExceedsSAD:gross>sad,grossExceedsTE:gross>te,grossExceedsPM:gross>pm}}};
+}
 
 async function collectSrmInputs(env:Env,workspaceId:string,context:BusinessContext,engagementId:string):Promise<SrmInputs>{
   const engagement=await getEngagement(env,workspaceId,context,engagementId);
@@ -2348,19 +2364,13 @@ async function collectSrmInputs(env:Env,workspaceId:string,context:BusinessConte
     if(Number(adjustment.includeInStatements)===1&&(adjustment.tbVersionId!==engagement.active_tb_version_id||adjustment.mappingVersionId!==engagement.active_mapping_version_id))throw new ApiError('STALE_DEPENDENCY',`Adjustment ${String(adjustment.number)} is overlaid on a replaced source.`);
     if(adjustment.tbVersionId!==engagement.active_tb_version_id&&Number(adjustment.reflectedInSource)!==1)throw new ApiError('GATE_BLOCKED',`Adjustment ${String(adjustment.number)} has no reviewer disposition for the replacement TB.`);
   }
-  const differences=differenceResult.results??[];const sad=BigInt(Number(materiality.sadMinor));const te=BigInt(Number(materiality.performanceMinor));const pm=BigInt(Number(materiality.planningMinor));
-  let signed=0n;let gross=0n;
+  const differences=differenceResult.results??[];
   for(const difference of differences){
     if(difference.tbVersionId!==engagement.active_tb_version_id||difference.mappingVersionId!==engagement.active_mapping_version_id||difference.materialityVersionId!==engagement.active_materiality_version_id)throw new ApiError('STALE_DEPENDENCY','A difference is pinned to obsolete TB, mapping, or materiality. Reassess it before compiling the SRM.');
-    const amount=BigInt(String(difference.amountMinor));const absolute=amount<0n?-amount:amount;
-    if(difference.disposition==='CLEARLY_TRIVIAL'&&(Number(difference.qualitativeSignificance)!==0||absolute>sad))throw new ApiError('GATE_BLOCKED','A qualitative or above-SAD difference cannot be excluded as clearly trivial.');
-    if(difference.disposition==='UNADJUSTED'){signed+=amount;gross+=absolute;}
   }
-  if(signed>BigInt(Number.MAX_SAFE_INTEGER)||signed<BigInt(Number.MIN_SAFE_INTEGER)||gross>BigInt(Number.MAX_SAFE_INTEGER))throw new ApiError('CALCULATION_DOMAIN_EXCEEDED','Unadjusted-difference totals exceed safe QAR minor-unit precision.');
-  const absoluteSigned=signed<0n?-signed:signed;
-  const thresholdAnalysis={perItem:differences.map(row=>{const amount=BigInt(String(row.amountMinor));const abs=amount<0n?-amount:amount;return {differenceId:row.id,amountMinor:String(amount),qualitativeSignificance:Boolean(row.qualitativeSignificance),
-      exceedsSAD:abs>sad,exceedsTE:abs>te,exceedsPM:abs>pm,disposition:row.disposition};}),aggregate:{signedMinor:signed.toString(),absoluteSignedMinor:absoluteSigned.toString(),grossMinor:gross.toString(),
-      signedExceedsSAD:absoluteSigned>sad,signedExceedsTE:absoluteSigned>te,signedExceedsPM:absoluteSigned>pm,grossExceedsSAD:gross>sad,grossExceedsTE:gross>te,grossExceedsPM:gross>pm}};
+  const differenceSummary=summarizeSrmDifferences(differences.map(row=>({id:String(row.id),amountMinor:String(row.amountMinor),qualitativeSignificance:Number(row.qualitativeSignificance)!==0,
+    disposition:row.disposition as SrmDifferenceInput['disposition']})),{sadMinor:String(materiality.sadMinor),performanceMinor:String(materiality.performanceMinor),planningMinor:String(materiality.planningMinor)});
+  const {signedUnadjustedMinor,grossUnadjustedMinor,thresholdAnalysis}=differenceSummary;
   const areaClearances=clearanceResult.results??[];const clearancePins:Array<Record<string,unknown>>=[];
   for(const program of workprograms){
     const procedureItems=procedures.filter(row=>row.workprogramId===program.id).map(row=>({id:row.id,version:row.version,status:row.status,sourceHash:row.sourceHash,evidenceSetHash:row.evidenceSetHash}));
@@ -2372,9 +2382,9 @@ async function collectSrmInputs(env:Env,workspaceId:string,context:BusinessConte
   const inputDependencyHash=await rowHash({engagementId,sourcePins:{tbVersionId:engagement.active_tb_version_id,mappingVersionId:engagement.active_mapping_version_id,materialityVersionId:engagement.active_materiality_version_id,
       planningVersionId:engagement.approved_planning_version_id,standardsProfileId:engagement.standards_profile_id},planning,materiality,statementSourceHash:statementView.sourceHash,adjustmentSetHash:statementView.adjustmentSetHash,
     goingConcern:going,workprograms,procedures,analyticalReviews,findings,adjustments,adjustmentLines,adjustmentEvidence,adjustmentRevisions,differences,reviewSubmissions:submissions,reviewNotes:notes,areaClearances:clearancePins,
-    signedUnadjustedMinor:signed.toString(),grossUnadjustedMinor:gross.toString(),thresholdAnalysis});
+    signedUnadjustedMinor,grossUnadjustedMinor,thresholdAnalysis});
   return {engagement,planning,materiality,statementView,goingConcern:going,goingConcernSubmission:going,workprograms,procedures,analyticalReviews,findings,adjustments,adjustmentLines,adjustmentEvidence,adjustmentRevisions,differences,
-    reviewSubmissions:submissions,reviewNotes:notes,areaClearances:clearancePins,signedUnadjustedMinor:signed.toString(),grossUnadjustedMinor:gross.toString(),thresholdAnalysis,inputDependencyHash};
+    reviewSubmissions:submissions,reviewNotes:notes,areaClearances:clearancePins,signedUnadjustedMinor,grossUnadjustedMinor,thresholdAnalysis,inputDependencyHash};
 }
 
 async function compileSrm(env:Env,workspaceId:string,context:BusinessContext,command:Extract<BusinessFieldworkCommand,{type:'srm.compile'}>,now:string):Promise<BusinessMutation>{
