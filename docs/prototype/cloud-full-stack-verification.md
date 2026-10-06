@@ -421,6 +421,50 @@ previously failing visible fieldwork journey; `npx tsc --noEmit` and
 These runs do not include a browser journey through the PBC route selector, so
 that UI subcase still lacks browser evidence. Full acceptance of **US-ENG-001**,
 **US-ENG-007**, the other story criteria, and the 46-story epic remains open.
-The latest hosted run before these changes (`37463953487`) still records the
-earlier workpaper-readiness failure; only a new hosted run can verify the fix
-against GitHub CI.
+Hosted main run `37470102310` at `52319e9` passed the verify job; its Cloudflare
+deployment job was skipped while the deploy switch was unset. That run predates
+the current working-tree changes, so a push is still required for hosted
+verification of this diff.
+
+## BUSINESS workspace change-feed integration — 2026-10-06
+
+The workspace-level `/changes` route now branches to the no-session BUSINESS
+actor context. It reads the immutable audit sequence with bounded cursor
+pagination, filters by the validated engagement or client scope, omits audit
+details, and returns only sequence/time to CLIENT profiles. New commands record
+the resolved scope in both indexed audit columns and the hash-covered event
+details. Existing events whose scope cannot be proven return
+`resyncRequired: true` with the current cursor rather than an empty-delta claim.
+
+`npx tsx --test tests/unit/businessWorkspace.test.ts` passed **1/1**. The API
+integration assertions cover the no-session route, cursor paging, unchanged and
+future cursors, absence of audit details, cross-client filtering, the
+CLIENT-safe projection, and workspace-level staff events staying out of a
+client-scoped feed. The `US-SYS-001/002/005` browser journey exposed two scope
+cases: creating another client while a client is selected must use the new
+client as the event scope, and workspace-level records must not inherit the
+selected client. Both now pass their regression checks.
+
+On the current working tree, `npm run test:unit` passed **484/484** checks,
+`npm run test:e2e` passed **24/24** browser scenarios, `npx tsc --noEmit`,
+`npm run cloud:typecheck`, the production build, and `git diff --check` passed.
+This closes only the workspace change-feed routing and scope-projection
+subcase of **US-SYS-003**. The aggregate `/engagements/{e}/workflow` projection,
+server-driven progress UI, full browser conflict journey, and the remaining
+US-SYS-003 criteria are still open; the 46-story epic remains open.
+
+## Cloudflare activation preflight — 2026-10-06
+
+GitHub environment `cloudflare-production` now contains the required
+`CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` secrets. Wrangler accepted
+the token for the configured account and listed the remote D1 migrations. The
+environment currently permits deployments from `main` but has no required
+reviewer; `CLOUDFLARE_DEPLOY_ENABLED` remains unset pending the production
+reviewer decision recorded in `cloudflare-cicd.md`.
+
+Remote D1 reports migrations `0006` through `0029` pending. The migration audit
+found the intentional expiry-column transfer in `0007` and `dispatches` table
+copy/rebuild in `0019`, in addition to additive schema and data migrations.
+Wrangler's CI migration command captures a D1 backup, but the first enabled
+deployment will still apply this full backlog. No production migration or Worker
+deployment has been run from this working tree.

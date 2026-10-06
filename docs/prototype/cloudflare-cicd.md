@@ -15,18 +15,20 @@ synthetic data unless a trusted access environment is separately provided.
 ## GitHub setup
 
 The `cloudflare-production` environment is configured with a deployment branch
-policy that allows only `main`. The deploy switch is currently unset, and the
-environment still needs its chosen reviewer and Cloudflare credentials before
-production deployment can be enabled.
+policy that allows only `main`. Its `CLOUDFLARE_ACCOUNT_ID` and
+`CLOUDFLARE_API_TOKEN` secrets are configured. The deploy switch remains unset
+while the required production reviewer is selected and added to the environment.
+The current environment has no reviewer protection rule.
 
 1. Confirm the existing `cloudflare-production` environment remains restricted
    to the `main` branch. Add the team's required production reviewer(s) before
    enabling deployment.
-2. Add environment secrets `CLOUDFLARE_ACCOUNT_ID` and
-   `CLOUDFLARE_API_TOKEN` to that environment. The account-owned API token needs
-   Workers Editor access scoped to the existing Worker and D1 Edit access
-   scoped to `steaudit-prototype-demo`, so CI can deploy and apply migrations.
-3. Create the repository Actions variable `CLOUDFLARE_DEPLOY_ENABLED` with the
+2. Confirm the environment secrets `CLOUDFLARE_ACCOUNT_ID` and
+   `CLOUDFLARE_API_TOKEN` are present. The account-owned API token needs Workers
+   Editor access scoped to the existing Worker and D1 Edit access scoped to
+   `steaudit-prototype-demo`, so CI can deploy and apply migrations.
+3. Add the team's required production reviewer(s) to the environment.
+4. Create the repository Actions variable `CLOUDFLARE_DEPLOY_ENABLED` with the
    value `true` after the environment and secrets are ready.
 
 Do not grant Workers Routes Write unless a later deployment adds or changes a

@@ -85,7 +85,7 @@ export async function bootstrapBusinessWorkspace(
   const now = Math.floor(Date.now() / 1000);
   const timestamp = new Date(now * 1000).toISOString();
   const response: Omit<BusinessBootstrapResponse, 'replayed'> = { workspaceId, staffMemberId, actorProfileId };
-  const details = JSON.stringify({ provenance: 'SYSTEM/BOOTSTRAP', dataMode: 'BUSINESS' });
+  const details = JSON.stringify({ provenance: 'SYSTEM/BOOTSTRAP', dataMode: 'BUSINESS', scope: { clientId: null, engagementId: null } });
   const hashInput = JSON.stringify({
     id: auditEventId,
     workspaceId,
@@ -587,6 +587,226 @@ export async function resolveBusinessContext(env: Env, workspaceId: string, requ
           : ['client.read', 'file.read', 'file.upload', 'proposal.read', 'commercialAcceptance.read', 'commercialAcceptance.record', 'commercialAcceptance.revoke', 'billing.read', 'pbc.read', 'pbc.submit', 'reporting.read'],
     readOnlyReasons: isClient ? ['CLIENT_PROJECTION_ONLY'] : []
   };
+}
+
+interface BusinessChangeEventRow {
+  sequence: number;
+  command_id: string | null;
+  command_type: string;
+  entity_type: string | null;
+  entity_id: string | null;
+  client_id: string | null;
+  engagement_id: string | null;
+  scope_metadata: string | null;
+  scope_client_metadata: string | null;
+  scope_engagement_metadata: string | null;
+  before_version: number | null;
+  after_version: number | null;
+  actor_persona: BusinessPersona | null;
+  source: string;
+  created_at: number;
+}
+
+function firstStringField(records: Array<Record<string, unknown> | undefined>, field: string): string | null {
+  for (const record of records) {
+    const value = record?.[field];
+    if (typeof value === 'string' && value.length > 0) return value;
+  }
+  return null;
+}
+
+/** Records the server-validated scope next to a command so cursors can be filtered without reading private event details. */
+async function businessCommandScope(
+  env: Env,
+  workspaceId: string,
+  context: BusinessContext,
+  command: { type?: string; payload?: Record<string, unknown> },
+  mutation: BusinessMutation
+): Promise<{ clientId: string | null; engagementId: string | null; known: boolean }> {
+  // Workspace configuration changes stay workspace-scoped even when the UI
+  // carries an active client or engagement selection in its request context.
+  if (['STAFF_MEMBER', 'ACTOR_PROFILE', 'FIRM_PROFILE', 'STANDARDS_PROFILE', 'WORKPROGRAM_TEMPLATE', 'SAMPLING_POLICY'].includes(mutation.entityType)) {
+    return { clientId: null, engagementId: null, known: true };
+  }
+
+  // Client creation is a workspace directory operation. Its newly assigned
+  // client ID is the event scope; a prior client/engagement selection in the
+  // browser must not prevent creating another client or misattribute the event.
+  if (command.type === 'client.create') {
+    const clientId = firstStringField([mutation.result, command.payload], 'clientId');
+    return { clientId, engagementId: null, known: Boolean(clientId) };
+  }
+
+  const candidates = [mutation.result, mutation.auditDetails, command.payload];
+  const explicitEngagementId = firstStringField(candidates, 'engagementId');
+  const explicitClientId = firstStringField(candidates, 'clientId');
+  if (context.scope.engagementId && explicitEngagementId && context.scope.engagementId !== explicitEngagementId) {
+    throw new ApiError('FORBIDDEN_SCOPE', 'The command is outside the selected engagement scope.');
+  }
+  if (context.scope.clientId && explicitClientId && context.scope.clientId !== explicitClientId) {
+    throw new ApiError('FORBIDDEN_SCOPE', 'The command is outside the selected client scope.');
+  }
+  let engagementId = context.scope.engagementId ?? explicitEngagementId;
+  let clientId = context.scope.clientId ?? context.actor.clientId ?? explicitClientId;
+  let known = Boolean(engagementId || clientId);
+
+  if (engagementId) {
+    const engagement = await env.DB.prepare(`SELECT client_id FROM engagements WHERE workspace_id=? AND id=?`)
+      .bind(workspaceId, engagementId).first<{ client_id: string }>();
+    if (engagement) {
+      if (clientId && clientId !== engagement.client_id) throw new ApiError('FORBIDDEN_SCOPE', 'The command engagement is outside the selected client scope.');
+      clientId = engagement.client_id;
+    } else if (!clientId) {
+      // Some commands create an engagement and its first audit event in the same batch.
+      // The mutation result is authoritative for that not-yet-committed identifier.
+      clientId = firstStringField(candidates, 'clientId');
+      if (!clientId && command.type === 'lead.convert' && typeof command.payload?.leadId === 'string') {
+        const lead = await env.DB.prepare(`SELECT client_id FROM leads WHERE workspace_id=? AND id=?`)
+          .bind(workspaceId, command.payload.leadId).first<{ client_id: string | null }>();
+        clientId = lead?.client_id ?? null;
+      }
+    }
+  }
+
+  if (!known) {
+    // Resolve common ID-only edits from their normalized owner row. Unknown entity
+    // types remain explicitly unscoped so filtered readers request a full resync.
+    const ownerScopeQueryByEntity: Record<string, string> = {
+      CONTACT: `SELECT client_id,NULL AS engagement_id FROM contacts WHERE workspace_id=? AND id=?`,
+      CONTACT_ROUTE: `SELECT client_id,NULL AS engagement_id FROM contact_routes WHERE workspace_id=? AND id=?`,
+      LEAD: `SELECT client_id,converted_engagement_id AS engagement_id FROM leads WHERE workspace_id=? AND id=?`,
+      ENGAGEMENT: `SELECT client_id,id AS engagement_id FROM engagements WHERE workspace_id=? AND id=?`,
+      PROCEDURE: `SELECT w.client_id,w.engagement_id FROM procedures p JOIN workprograms w ON w.workspace_id=p.workspace_id AND w.id=p.workprogram_id WHERE p.workspace_id=? AND p.id=?`,
+      WORKPROGRAM: `SELECT client_id,engagement_id FROM workprograms WHERE workspace_id=? AND id=?`,
+      SAMPLE_POPULATION: `SELECT client_id,engagement_id FROM sample_populations WHERE workspace_id=? AND id=?`,
+      SAMPLE_TEST: `SELECT pop.client_id,pop.engagement_id FROM sample_tests t JOIN sampling_plans sp ON sp.workspace_id=t.workspace_id AND sp.id=t.plan_id JOIN sample_populations pop ON pop.workspace_id=sp.workspace_id AND pop.id=sp.population_id WHERE t.workspace_id=? AND t.id=?`,
+      SAMPLING_PLAN: `SELECT pop.client_id,pop.engagement_id FROM sampling_plans sp JOIN sample_populations pop ON pop.workspace_id=sp.workspace_id AND pop.id=sp.population_id WHERE sp.workspace_id=? AND sp.id=?`,
+      AUDIT_ADJUSTMENT: `SELECT client_id,engagement_id FROM audit_adjustments WHERE workspace_id=? AND id=?`,
+      ANALYTICAL_REVIEW: `SELECT client_id,engagement_id FROM analytical_reviews WHERE workspace_id=? AND id=?`,
+      FILE_VERSION: `SELECT client_id,engagement_id FROM file_versions WHERE workspace_id=? AND id=?`,
+      PBC_REQUEST: `SELECT client_id,engagement_id FROM pbc_requests WHERE workspace_id=? AND id=?`
+    };
+    const ownerScopeQuery = ownerScopeQueryByEntity[mutation.entityType];
+    if (ownerScopeQuery) {
+      const owner = await env.DB.prepare(ownerScopeQuery)
+        .bind(workspaceId, mutation.entityId).first<{ client_id: string | null; engagement_id: string | null }>();
+      if (owner) {
+        clientId = owner.client_id;
+        engagementId = owner.engagement_id;
+        known = true;
+      }
+    }
+  }
+
+  if (context.actor.persona === 'CLIENT' && context.actor.clientId !== clientId) {
+    throw new ApiError('FORBIDDEN_SCOPE', 'A CLIENT command cannot be recorded outside its linked client.');
+  }
+  if (context.scope.clientId && clientId && context.scope.clientId !== clientId) {
+    throw new ApiError('FORBIDDEN_SCOPE', 'The command is outside the selected client scope.');
+  }
+  if (context.scope.engagementId && engagementId && context.scope.engagementId !== engagementId) {
+    throw new ApiError('FORBIDDEN_SCOPE', 'The command is outside the selected engagement scope.');
+  }
+  return { clientId, engagementId, known };
+}
+
+/**
+ * Reads the immutable workspace audit sequence as a bounded, scope-filtered feed.
+ * Old events without trustworthy scope metadata trigger an explicit resync instead
+ * of being silently dropped or exposed to a different client.
+ */
+export async function getBusinessChanges(
+  env: Env,
+  workspaceId: string,
+  request: Request,
+  url: URL
+): Promise<{ events: Array<Record<string, unknown>>; nextCursor: string; hasMore: boolean; resyncRequired?: true }> {
+  await requireBusinessWorkspace(env, workspaceId);
+  const context = await resolveBusinessContext(env, workspaceId, request);
+  const rawAfter = url.searchParams.get('after') ?? '0';
+  const rawLimit = url.searchParams.get('limit') ?? '100';
+  if (!/^\d+$/.test(rawAfter) || !/^\d+$/.test(rawLimit)) {
+    throw new ApiError('BAD_REQUEST', 'The change cursor and page limit must be non-negative integers.');
+  }
+  const after = Number(rawAfter);
+  const requestedLimit = Number(rawLimit);
+  if (!Number.isSafeInteger(after) || !Number.isSafeInteger(requestedLimit) || requestedLimit < 1) {
+    throw new ApiError('BAD_REQUEST', 'The change cursor or page limit is outside the supported range.');
+  }
+  const limit = Math.min(100, requestedLimit);
+
+  const queryEngagementId = url.searchParams.get('engagementId');
+  if (queryEngagementId !== null && !queryEngagementId.trim()) {
+    throw new ApiError('BAD_REQUEST', 'The engagement filter cannot be empty.');
+  }
+  if (context.scope.engagementId && queryEngagementId && context.scope.engagementId !== queryEngagementId) {
+    throw new ApiError('FORBIDDEN_SCOPE', 'The requested engagement does not match the selected engagement.');
+  }
+  const engagementId = context.scope.engagementId ?? queryEngagementId;
+  let clientId = context.scope.clientId ?? context.actor.clientId;
+  if (engagementId) {
+    const engagement = await env.DB.prepare(`SELECT client_id FROM engagements WHERE workspace_id=? AND id=?`)
+      .bind(workspaceId, engagementId).first<{ client_id: string }>();
+    if (!engagement) throw new ApiError('NOT_FOUND', 'The engagement was not found in this workspace.');
+    if (clientId && clientId !== engagement.client_id) throw new ApiError('FORBIDDEN_SCOPE', 'The engagement is outside the selected client.');
+    clientId = engagement.client_id;
+  }
+  if (context.actor.persona === 'CLIENT' && (!clientId || clientId !== context.actor.clientId)) {
+    throw new ApiError('FORBIDDEN_SCOPE', 'The change feed is outside the linked client scope.');
+  }
+
+  const head = await env.DB.prepare(`SELECT last_sequence FROM audit_chain_heads
+    WHERE workspace_id=? AND scope_kind='WORKSPACE' AND scope_id=?`).bind(workspaceId, workspaceId)
+    .first<{ last_sequence: number }>();
+  if (!head) throw new ApiError('UNAVAILABLE', 'Workspace audit lineage is not initialized.');
+  const snapshot = Number(head.last_sequence);
+  if (after > snapshot) throw new ApiError('BAD_REQUEST', 'The change cursor is ahead of the current workspace sequence. Resynchronize the workspace.');
+  if (after === snapshot) return { events: [], nextCursor: String(snapshot), hasMore: false };
+
+  const result = await env.DB.prepare(`SELECT sequence,command_id,command_type,entity_type,entity_id,client_id,engagement_id,
+      json_type(details_json,'$.scope') AS scope_metadata,
+      json_type(details_json,'$.scope.clientId') AS scope_client_metadata,
+      json_type(details_json,'$.scope.engagementId') AS scope_engagement_metadata,
+      COALESCE(client_id,json_extract(details_json,'$.scope.clientId'),json_extract(details_json,'$.details.clientId'),json_extract(details_json,'$.result.clientId')) AS effective_client_id,
+      COALESCE(engagement_id,json_extract(details_json,'$.scope.engagementId'),json_extract(details_json,'$.details.engagementId'),json_extract(details_json,'$.result.engagementId')) AS effective_engagement_id,
+      before_version,after_version,actor_persona,source,created_at
+    FROM audit_events WHERE workspace_id=? AND chain_scope_kind='WORKSPACE' AND sequence>? AND sequence<=?
+    ORDER BY sequence LIMIT ?`).bind(workspaceId, after, snapshot, limit + 1).all<BusinessChangeEventRow & {
+      effective_client_id: string | null;
+      effective_engagement_id: string | null;
+    }>();
+  const rows = result.results ?? [];
+  const hasMore = rows.length > limit;
+  const page = rows.slice(0, limit);
+  const hasGap = page.some((row, index) => Number(row.sequence) !== after + index + 1);
+  const hasUnknownScope = Boolean(clientId || engagementId) && page.some(row => {
+    const explicitlyWorkspaceScoped = row.scope_metadata === 'object'
+      && row.scope_client_metadata === 'null' && row.scope_engagement_metadata === 'null';
+    return !row.effective_client_id && !row.effective_engagement_id && !explicitlyWorkspaceScoped;
+  });
+  if (hasGap || (page.length === 0 && after < snapshot) || hasUnknownScope) {
+    return { events: [], nextCursor: String(snapshot), hasMore: false, resyncRequired: true };
+  }
+
+  const scopedRows = page.filter(row => {
+    if (engagementId) {
+      return row.effective_engagement_id === engagementId ||
+        (!row.effective_engagement_id && Boolean(clientId) && row.effective_client_id === clientId);
+    }
+    if (clientId) return row.effective_client_id === clientId;
+    return true;
+  });
+  const events = context.actor.persona === 'CLIENT'
+    ? scopedRows.map(row => ({ sequence: Number(row.sequence), changedAt: new Date(Number(row.created_at) * 1000).toISOString() }))
+    : scopedRows.map(row => ({
+      sequence: Number(row.sequence), commandId: row.command_id, commandType: row.command_type,
+      entityType: row.entity_type, entityId: row.entity_id, clientId: row.effective_client_id, engagementId: row.effective_engagement_id,
+      beforeVersion: row.before_version, afterVersion: row.after_version,
+      actorPersona: row.actor_persona, source: row.source,
+      changedAt: new Date(Number(row.created_at) * 1000).toISOString()
+    }));
+  const nextCursor = hasMore ? String(page[page.length - 1].sequence) : String(snapshot);
+  return { events, nextCursor, hasMore };
 }
 
 // Only the directory commands required to configure the four real personas are
@@ -3511,10 +3731,13 @@ export async function runBusinessDirectoryCommand(
                          ? await buildBusinessPracticeMutation(env, workspaceId, context, envelope.command, commandId, timestamp)
                     : await buildCommercialMutation(env, workspaceId, context, envelope.command, commandId, timestamp);
     const sequence = head.last_sequence + 1;
+    const scope = await businessCommandScope(env, workspaceId, context,
+      envelope.command as { type?: string; payload?: Record<string, unknown> }, mutation);
     const eventDetails = JSON.stringify({
       commandId,
       result: mutation.result,
       ...(mutation.auditDetails ? { details: mutation.auditDetails } : {}),
+      scope: scope.known ? { clientId: scope.clientId, engagementId: scope.engagementId } : null,
       provenance: 'SELF_ASSERTED'
     });
     const eventHash = await sha256Hex(JSON.stringify({
@@ -3561,11 +3784,11 @@ export async function runBusinessDirectoryCommand(
         client_id,engagement_id,before_version,after_version,details_json,created_at,
         actor_assurance,source,chain_scope_kind,chain_scope_id,previous_hash,event_hash,actor_id,
         event_type,entity_type,command_id,actor_persona
-      ) VALUES(?,?,?,NULL,?,?,?, ?,NULL,NULL,?,?,?,?, 'SELF_ASSERTED','USER','WORKSPACE',?,?,?,?,?,?,?,?)`)
+      ) VALUES(?,?,?,NULL,?,?,?,?,?,?,?,?,?,?,'SELF_ASSERTED','USER','WORKSPACE',?,?,?,?,?,?,?,?)`)
         .bind(
           auditEventId, workspaceId, sequence, context.actor.persona, envelope.command.type,
-          mutation.entityType.toLowerCase(), mutation.entityId, mutation.beforeVersion,
-          mutation.afterVersion, eventDetails, now, workspaceId, head.last_event_hash,
+          mutation.entityType.toLowerCase(), mutation.entityId, scope.clientId, scope.engagementId,
+          mutation.beforeVersion, mutation.afterVersion, eventDetails, now, workspaceId, head.last_event_hash,
           eventHash, context.actor.id, envelope.command.type, mutation.entityType,
           commandId, context.actor.persona
         ),

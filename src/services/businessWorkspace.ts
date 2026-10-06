@@ -1,6 +1,7 @@
 import { isApiErrorBody } from '../shared/api/errors';
 import type {
   BusinessActorProfile,
+  BusinessWorkspaceChangeFeed,
   BusinessContextResponse,
   BusinessClientDetail,
   BusinessClientSummary,
@@ -213,6 +214,19 @@ export async function getBusinessContext(
   signal?: AbortSignal
 ): Promise<BusinessContextResponse> {
   return requestJson(`/api/workspaces/${encodeURIComponent(workspaceId)}/context`, { context: selected, signal });
+}
+
+export async function getBusinessWorkspaceChanges(
+  workspaceId: string,
+  selected: BusinessWorkspacePreference,
+  options: { after?: string; engagementId?: string; limit?: number; signal?: AbortSignal } = {}
+): Promise<BusinessWorkspaceChangeFeed> {
+  const query = new URLSearchParams({ after: options.after ?? '0', limit: String(options.limit ?? 100) });
+  if (options.engagementId) query.set('engagementId', options.engagementId);
+  return requestJson(
+    `/api/workspaces/${encodeURIComponent(workspaceId)}/changes?${query}`,
+    { context: selected, signal: options.signal }
+  );
 }
 
 export async function getBusinessClients(

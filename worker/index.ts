@@ -76,6 +76,7 @@ import {
   getBusinessPbcRequestPortal,
   getBusinessPbcPortal,
   listBusinessPbcEngagements,
+  getBusinessChanges,
   businessEnvelopeFromRequest,
   getBusinessFileDownload,
   getBusinessFileMetadata,
@@ -537,9 +538,13 @@ const handleState = async (ctx: RouteContext): Promise<Response> => {
 };
 
 const handleChanges = async (ctx: RouteContext): Promise<Response> => {
+  const row = await requireWorkspace(ctx.env, ctx.params.workspaceId);
+  if (row.data_mode === 'BUSINESS') {
+    const changes = await getBusinessChanges(ctx.env, row.id, ctx.request, ctx.url);
+    return jsonResponse(changes, 200, ctx.requestId);
+  }
   const { session } = await resolveSession(ctx.env, ctx.request);
   if (session.workspace_id !== ctx.params.workspaceId) throw new ApiError('FORBIDDEN_SCOPE', 'Session does not match this workspace.');
-  const row = await requireWorkspace(ctx.env, ctx.params.workspaceId);
   const since = Number(ctx.url.searchParams.get('since'));
   // When the caller is already at the current revision there is nothing to send.
   if (Number.isInteger(since) && since === row.revision) {

@@ -190,6 +190,19 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
   assert.equal(profiles.response.status, 200, JSON.stringify(profiles.body));
   assert.deepEqual(profiles.body.items.map((profile: any) => profile.persona), ['APPROVER']);
   const approverHeaders = { 'X-Actor-Id': created.body.actorProfileId, 'X-Active-Persona': 'APPROVER' };
+  const bootstrapChanges = await call(`/api/workspaces/${workspaceId}/changes?after=0`, { headers: approverHeaders });
+  assert.equal(bootstrapChanges.response.status, 200, JSON.stringify(bootstrapChanges.body));
+  assert.deepEqual(Object.keys(bootstrapChanges.body).sort(), ['events', 'hasMore', 'nextCursor']);
+  assert.equal(bootstrapChanges.body.events.length, 1);
+  assert.equal(bootstrapChanges.body.events[0].sequence, 1);
+  assert.equal(Object.hasOwn(bootstrapChanges.body.events[0], 'details'), false, 'workspace feed never returns private audit details');
+  const noNewChanges = await call(`/api/workspaces/${workspaceId}/changes?after=${bootstrapChanges.body.nextCursor}`, { headers: approverHeaders });
+  assert.equal(noNewChanges.response.status, 200);
+  assert.deepEqual(noNewChanges.body.events, []);
+  assert.equal(noNewChanges.body.hasMore, false);
+  const futureCursor = await call(`/api/workspaces/${workspaceId}/changes?after=2`, { headers: approverHeaders });
+  assert.equal(futureCursor.response.status, 400);
+  assert.equal(futureCursor.body.code, 'BAD_REQUEST');
   const approverContext = await call(`/api/workspaces/${workspaceId}/context`, { headers: approverHeaders });
   assert.equal(approverContext.response.status, 200, JSON.stringify(approverContext.body));
   assert.deepEqual(approverContext.body.allowedActions, [
@@ -209,6 +222,16 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
   const staff = await post(`/api/workspaces/${workspaceId}/commands`, staffRequest, approverHeaders);
   assert.equal(staff.response.status, 200, JSON.stringify(staff.body));
   assert.equal(staff.body.replayed, false);
+  const firstChangePage = await call(`/api/workspaces/${workspaceId}/changes?after=0&limit=1`, { headers: approverHeaders });
+  assert.equal(firstChangePage.response.status, 200, JSON.stringify(firstChangePage.body));
+  assert.equal(firstChangePage.body.events.length, 1);
+  assert.equal(firstChangePage.body.events[0].sequence, 1);
+  assert.equal(firstChangePage.body.hasMore, true);
+  assert.equal(firstChangePage.body.nextCursor, '1');
+  const secondChangePage = await call(`/api/workspaces/${workspaceId}/changes?after=${firstChangePage.body.nextCursor}&limit=1`, { headers: approverHeaders });
+  assert.equal(secondChangePage.response.status, 200, JSON.stringify(secondChangePage.body));
+  assert.equal(secondChangePage.body.events[0].sequence, 2);
+  assert.equal(secondChangePage.body.hasMore, false);
   const staffReplay = await post(`/api/workspaces/${workspaceId}/commands`, staffRequest, approverHeaders);
   assert.equal(staffReplay.response.status, 200);
   assert.equal(staffReplay.body.result.staffMemberId, staff.body.result.staffMemberId);
@@ -293,6 +316,8 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
       title: 'Chief Financial Officer', role: 'CFO_FINANCE_DIRECTOR', effectiveFrom: '2026-01-01'
     }
   });
+  const cursorBeforeFirstClient = db.prepare(`SELECT last_sequence FROM audit_chain_heads
+    WHERE workspace_id=? AND scope_kind='WORKSPACE' AND scope_id=?`).bind(workspaceId, workspaceId).first<{ last_sequence: number }>()!.last_sequence;
   const firstClient = await post(`/api/workspaces/${workspaceId}/commands`, {
     idempotencyKey: crypto.randomUUID(), command: { type: 'client.create', payload: makeClient('C001', 'HOLDING') }
   }, preparerHeaders);
@@ -398,6 +423,25 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
   }, preparerHeaders);
   assert.equal(childClient.response.status, 200, JSON.stringify(childClient.body));
   const childClientId = childClient.body.result.clientId as string;
+  const scopedStaff = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'staff.create', payload: {
+      displayName: 'Client Context Staff', naturalPersonKey: `TEST-PERSON-${crypto.randomUUID()}`,
+      email: 'client-context.staff@example.invalid', grade: 'ASSOCIATE'
+    } }
+  }, { ...approverHeaders, 'X-Client-Id': clientId });
+  assert.equal(scopedStaff.response.status, 200, JSON.stringify(scopedStaff.body));
+  const clientScopedChanges = await call(`/api/workspaces/${workspaceId}/changes?after=${cursorBeforeFirstClient}`, {
+    headers: { ...preparerHeaders, 'X-Client-Id': clientId }
+  });
+  assert.equal(clientScopedChanges.response.status, 200, JSON.stringify(clientScopedChanges.body));
+  assert.equal(clientScopedChanges.body.resyncRequired, undefined, 'new business events have trustworthy scope metadata');
+  assert.equal(clientScopedChanges.body.hasMore, false);
+  assert.ok(clientScopedChanges.body.events.length > 0);
+  assert.equal(clientScopedChanges.body.events.every((event: any) => event.clientId === clientId), true);
+  assert.equal(clientScopedChanges.body.events.some((event: any) => event.entityId === scopedStaff.body.result.staffMemberId), false,
+    'workspace configuration changes stay out of a client-scoped feed');
+  assert.equal(clientScopedChanges.body.events.some((event: any) => event.entityId === childClientId), false,
+    'a selected client feed excludes another client’s identifiers');
   const auditCountBeforeCycle = db.prepare('SELECT COUNT(*) AS count FROM audit_events WHERE workspace_id=?')
     .bind(workspaceId).first<{ count: number }>()?.count;
   const cycleAttempt = await post(`/api/workspaces/${workspaceId}/commands`, {
@@ -440,6 +484,12 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
   }, approverHeaders);
   assert.equal(clientProfile.response.status, 200, JSON.stringify(clientProfile.body));
   const clientHeaders = { 'X-Actor-Id': clientProfile.body.result.actorProfileId as string, 'X-Active-Persona': 'CLIENT' };
+  const clientChanges = await call(`/api/workspaces/${workspaceId}/changes?after=${cursorBeforeFirstClient}`, { headers: clientHeaders });
+  assert.equal(clientChanges.response.status, 200, JSON.stringify(clientChanges.body));
+  assert.equal(clientChanges.body.resyncRequired, undefined);
+  assert.ok(clientChanges.body.events.length > 0);
+  assert.equal(clientChanges.body.events.every((event: any) => Object.keys(event).sort().join(',') === 'changedAt,sequence'), true,
+    'CLIENT feed events expose only sequence and time, not staff or entity details');
   const pbcClientProfile = await post(`/api/workspaces/${workspaceId}/commands`, {
     idempotencyKey: crypto.randomUUID(), command: { type: 'actor-profile.assign', payload: { persona: 'CLIENT', contactId: pbcContactId } }
   }, approverHeaders);
@@ -509,6 +559,14 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
   }, preparerHeaders);
   assert.equal(advance.response.status, 200, JSON.stringify(advance.body));
   assert.equal(advance.body.result.state, 'PROPOSAL_GENERATION');
+  const engagementId = conversion.body.result.engagementId as string;
+  const engagementChanges = await call(`/api/workspaces/${workspaceId}/changes?after=${cursorBeforeFirstClient}&engagementId=${engagementId}`, {
+    headers: { ...approverHeaders, 'X-Client-Id': clientId }
+  });
+  assert.equal(engagementChanges.response.status, 200, JSON.stringify(engagementChanges.body));
+  assert.equal(engagementChanges.body.resyncRequired, undefined);
+  assert.ok(engagementChanges.body.events.some((event: any) => event.engagementId === engagementId));
+  assert.equal(engagementChanges.body.events.every((event: any) => event.clientId === clientId), true, JSON.stringify(engagementChanges.body.events));
   const transition = db.prepare(`SELECT from_state,to_state,command_id FROM state_transitions WHERE workspace_id=? AND engagement_id=?`)
     .bind(workspaceId, conversion.body.result.engagementId).first<any>();
   assert.deepEqual({ ...transition }, { from_state: 'LEAD_INGESTION', to_state: 'PROPOSAL_GENERATION', command_id: advance.body.commandId });
@@ -828,7 +886,6 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
     .bind(workspaceId, conversion.body.result.engagementId).first<any>()?.lifecycle_state, 'DUAL_KEY_PENDING',
     'the lifecycle advances only after the email provider returns a verifiable message ID');
 
-  const engagementId = conversion.body.result.engagementId as string;
   const makeRiskHeaders = (headers: Record<string, string>) => ({ ...headers, 'X-Client-Id': clientId, 'X-Engagement-Id': engagementId });
   // US-REP-001 — a visible Partner opinion control is not an authorization boundary.
   const reviewerOpinionAttempt = await post(`/api/workspaces/${workspaceId}/commands`, {
@@ -2656,4 +2713,20 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
   });
   assert.equal(businessCommandHttpResult({ result: {} }, 'proposal.dispatch', 200, 'test-request').status, 202,
     'a legacy 200 receipt still receives the normal asynchronous command status');
+
+  // Simulate a legacy event that has scope metadata in an unknown shape. A
+  // client-filtered reader must resynchronize rather than silently skip it.
+  const legacyUnscopedEvent = db.prepare(`SELECT id,sequence FROM audit_events WHERE workspace_id=? AND entity_id=?`)
+    .bind(workspaceId, scopedStaff.body.result.staffMemberId).first<any>();
+  assert.ok(legacyUnscopedEvent, 'the fixture has a workspace-level audit event to model legacy metadata');
+  db.prepare('DROP TRIGGER audit_events_no_update').run();
+  db.prepare(`UPDATE audit_events SET details_json=? WHERE workspace_id=? AND id=?`)
+    .bind(JSON.stringify({ scope: { legacyVersion: 1 } }), workspaceId, legacyUnscopedEvent.id).run();
+  const legacyScopeFeed = await call(`/api/workspaces/${workspaceId}/changes?after=${legacyUnscopedEvent.sequence - 1}`, {
+    headers: { ...preparerHeaders, 'X-Client-Id': clientId }
+  });
+  assert.equal(legacyScopeFeed.response.status, 200, JSON.stringify(legacyScopeFeed.body));
+  assert.equal(legacyScopeFeed.body.resyncRequired, true,
+    'unknown structured scope metadata must not be mistaken for a known workspace-only event');
+  assert.deepEqual(legacyScopeFeed.body.events, []);
 });

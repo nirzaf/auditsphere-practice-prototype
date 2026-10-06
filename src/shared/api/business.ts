@@ -59,6 +59,28 @@ export interface BusinessContextResponse {
   readOnlyReasons: string[];
 }
 
+export interface BusinessWorkspaceChangeEvent {
+  sequence: number;
+  changedAt: string;
+  commandId?: string | null;
+  commandType?: string;
+  entityType?: string | null;
+  entityId?: string | null;
+  clientId?: string | null;
+  engagementId?: string | null;
+  beforeVersion?: number | null;
+  afterVersion?: number | null;
+  actorPersona?: BusinessPersona | null;
+  source?: string;
+}
+
+export interface BusinessWorkspaceChangeFeed {
+  events: BusinessWorkspaceChangeEvent[];
+  nextCursor: string;
+  hasMore: boolean;
+  resyncRequired?: true;
+}
+
 export interface BusinessDirectoryCommandResponse<T = Record<string, unknown>> {
   commandId: string;
   result: T;
