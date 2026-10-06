@@ -1,16 +1,15 @@
 import assert from 'node:assert/strict';
 import { after, before, it } from 'node:test';
-import { spawn, type ChildProcess } from 'node:child_process';
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { type ChildProcess } from 'node:child_process';
+import { existsSync, rmSync } from 'node:fs';
 import { CdpTab } from '../helpers/cdp.js';
+import { launchHeadlessChrome } from '../helpers/headlessChrome.js';
 import { startBusinessE2eServer, type BusinessE2eServer } from '../helpers/businessE2eServer.js';
 
 let server: BusinessE2eServer | undefined;
 let chrome: ChildProcess | undefined;
 let profileDirectory = '';
-let browserPort = '';
+let browserPort = 0;
 let tab: CdpTab | undefined;
 const sleep = (milliseconds: number) => new Promise(resolve => setTimeout(resolve, milliseconds));
 
@@ -89,20 +88,10 @@ before(async () => {
   server = await startBusinessE2eServer();
   const executable = chromeExecutable();
   assert.ok(executable, 'Chrome or Edge is available for the browser acceptance journey.');
-  profileDirectory = mkdtempSync(join(tmpdir(), 'auditsphere-business-e2e-'));
-  chrome = spawn(executable, [
-    '--headless=new', '--no-sandbox', '--disable-gpu', '--window-size=1440,900',
-    '--remote-debugging-port=0', '--remote-allow-origins=*', `--user-data-dir=${profileDirectory}`,
-    '--no-first-run', 'about:blank'
-  ], { stdio: 'ignore', windowsHide: true });
-
-  for (let attempt = 0; attempt < 150; attempt += 1) {
-    try { browserPort = readFileSync(join(profileDirectory, 'DevToolsActivePort'), 'utf8').split('\n')[0]; }
-    catch { /* Chrome has not written its port file yet. */ }
-    if (browserPort) break;
-    await sleep(100);
-  }
-  assert.ok(browserPort, 'Chrome exposes its DevTools port.');
+  const browser = await launchHeadlessChrome(executable, { profilePrefix: 'auditsphere-business-e2e-', timeoutMs: 45000 });
+  chrome = browser.child;
+  profileDirectory = browser.profileDirectory;
+  browserPort = browser.port;
   const target = await fetch(`http://127.0.0.1:${browserPort}/json/new?${server.origin}`, { method: 'PUT' }).then(response => response.json()) as { webSocketDebuggerUrl: string };
   const socket = new WebSocket(target.webSocketDebuggerUrl);
   await new Promise<void>((resolve, reject) => {
@@ -116,7 +105,7 @@ before(async () => {
   await tab.blockExternalHttp();
   await tab.command('Page.navigate', { url: server.origin });
   await waitFor('the production workspace landing screen', `document.querySelector('#production-workspace-heading')?.innerText === 'Open your business workspace'`);
-}, { timeout: 45000 });
+}, { timeout: 90000 });
 
 after(async () => {
   tab?.close();

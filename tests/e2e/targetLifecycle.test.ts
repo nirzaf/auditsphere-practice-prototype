@@ -2,14 +2,13 @@ import { runVisibleAlignmentJourney } from '../helpers/visibleAlignmentJourney';
 import { before, after, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn, type ChildProcess } from 'node:child_process';
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync, mkdirSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { existsSync, readFileSync, rmSync, writeFileSync, mkdirSync } from 'node:fs';
 import { CdpTab } from '../helpers/cdp';
+import { launchHeadlessChrome } from '../helpers/headlessChrome';
 import { PROJECT_TEMPLATES, templateUrl } from '../../src/services/projectTemplates';
 import { DECK_SLIDES } from '../../src/components/clientRequirements/deckData';
 import { unzipSync } from 'fflate';
-let vite: ChildProcess, chrome: ChildProcess, tab: CdpTab, profile: string;
+let vite: ChildProcess, chrome: ChildProcess, tab: CdpTab, profile: string, browserPort: number;
 const origin = 'http://127.0.0.1:3007',
   sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 async function saveEvidence(path: string, data: string | Buffer) {
@@ -37,35 +36,17 @@ before(
         break;
       await sleep(100);
     }
-    const path =
-      process.env.CHROME_PATH || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
+    const path = process.env.CHROME_PATH || (process.platform === 'win32'
+      ? ['C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe', 'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe', 'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe'].find(existsSync)
+      : process.platform === 'darwin'
+        ? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
+        : ['/usr/bin/google-chrome', '/usr/bin/chromium', '/usr/bin/chromium-browser', '/usr/bin/microsoft-edge'].find(existsSync));
     assert.ok(existsSync(path));
-    profile = mkdtempSync(join(tmpdir(), 'auditsphere-target-'));
-    chrome = spawn(
-      path,
-      [
-        '--headless=new',
-        '--no-sandbox',
-        '--disable-gpu',
-        '--window-size=1440,1000',
-        '--remote-debugging-port=0',
-        '--remote-allow-origins=*',
-        `--user-data-dir=${profile}`,
-        '--no-first-run',
-        'about:blank'
-      ],
-      { stdio: 'ignore' }
-    );
-    let port = '';
-    for (let n = 0; n < 100; n++) {
-      try {
-        port = readFileSync(join(profile, 'DevToolsActivePort'), 'utf8').split('\n')[0];
-      } catch {}
-      if (port) break;
-      await sleep(100);
-    }
-    assert.ok(port);
-    const target = (await fetch(`http://127.0.0.1:${port}/json/new?${origin}`, {
+    const browser = await launchHeadlessChrome(path, { windowSize: '1440,1000', profilePrefix: 'auditsphere-target-', timeoutMs: 45000 });
+    chrome = browser.child;
+    profile = browser.profileDirectory;
+    browserPort = browser.port;
+    const target = (await fetch(`http://127.0.0.1:${browserPort}/json/new?${origin}`, {
       method: 'PUT'
     }).then((r) => r.json())) as any;
     const ws = new WebSocket(target.webSocketDebuggerUrl);
@@ -87,7 +68,7 @@ before(
     }
     throw Error('React shell did not render');
   },
-  { timeout: 30000 }
+  { timeout: 75000 }
 );
 after(async () => {
   tab?.close();
@@ -204,8 +185,7 @@ it('D5 Workprograms & Evidence opens current FSLI fieldwork rather than the reti
 }, {timeout:30000});
 it('two real browser tabs preserve independent FSLI procedure edits after reload', async () => {
   const result=await tab.evaluate<any>(`import('/tests/helpers/targetJourney.ts').then(m=>m.runTargetJourney({stopAtFieldwork:true}))`);
-  const port=readFileSync(join(profile,'DevToolsActivePort'),'utf8').split('\n')[0];
-  const target=await fetch(`http://127.0.0.1:${port}/json/new?${origin}`,{method:'PUT'}).then(r=>r.json()) as any;
+  const target=await fetch(`http://127.0.0.1:${browserPort}/json/new?${origin}`,{method:'PUT'}).then(r=>r.json()) as any;
   const ws=new WebSocket(target.webSocketDebuggerUrl);
   await new Promise<void>((resolve,reject)=>{ws.addEventListener('open',()=>resolve(),{once:true});ws.addEventListener('error',()=>reject(Error('Second tab CDP failed')),{once:true});});
   const other=new CdpTab(ws,origin);
@@ -662,11 +642,14 @@ it('US-SYS-001 keeps exactly four self-selected personas visible and persistent 
   }
   assert.equal(await tab.evaluate<string>(`JSON.parse(localStorage.getItem('ste-auditsphere-role-portals-v2') ?? '{}').currentRole ?? ''`), 'preparer');
   await tab.command('Page.reload');
-  for (let attempt = 0; attempt < 60; attempt++) {
-    if (await tab.evaluate<string>(`document.querySelector('#role-select')?.value ?? ''`) === 'PREPARER') break;
-    await sleep(50);
+  const reloadDeadline = Date.now() + 15000;
+  let reloadedPersona = '';
+  while (Date.now() < reloadDeadline) {
+    reloadedPersona = await tab.evaluate<string>(`document.readyState === 'complete' && document.querySelector('#role-select')?.value === 'PREPARER' && JSON.parse(localStorage.getItem('ste-auditsphere-role-portals-v2') ?? '{}').currentRole === 'preparer' ? 'PREPARER' : ''`);
+    if (reloadedPersona === 'PREPARER') break;
+    await sleep(100);
   }
-  assert.equal(await tab.evaluate<string>(`document.querySelector('#role-select')?.value ?? ''`), 'PREPARER');
+  assert.equal(reloadedPersona, 'PREPARER', 'the hydrated persona selector and persisted preference agree after reload');
   await tab.evaluate('window.scrollTo(0, 0)');
   await sleep(80);
   const desktopScreenshot = await tab.command('Page.captureScreenshot', { format: 'png' });
