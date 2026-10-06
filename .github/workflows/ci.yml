@@ -15,10 +15,12 @@ on:
         required: true
         default: false
 
-# A newer commit supersedes an in-flight verification of the same PR/branch.
+# Superseded PR/ref checks cancel; main runs serialize so production deploys are not interrupted.
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  # Keep the main branch's deployment run intact; newer main pushes can queue.
+  # PR and feature-ref runs remain cancellable when superseded.
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 permissions:
   contents: read
