@@ -261,6 +261,12 @@ export function BusinessWorkspaceConsole() {
   const [primaryContactEmail, setPrimaryContactEmail] = useState('');
   const [primaryContactRole, setPrimaryContactRole] = useState<'MD_GM' | 'CFO_FINANCE_DIRECTOR' | 'CHIEF_ACCOUNTANT_LIAISON' | 'OTHER'>('CFO_FINANCE_DIRECTOR');
   const [clientProfileContactId, setClientProfileContactId] = useState('');
+  const [contactDraft, setContactDraft] = useState<{ fullName: string; email: string; phone: string; title: string; role: 'MD_GM' | 'CFO_FINANCE_DIRECTOR' | 'CHIEF_ACCOUNTANT_LIAISON' | 'OTHER'; isSignatory: boolean; effectiveFrom: string }>({
+    fullName: '', email: '', phone: '', title: '', role: 'CFO_FINANCE_DIRECTOR', isSignatory: false, effectiveFrom: new Date().toISOString().slice(0, 10)
+  });
+  const [routePurpose, setRoutePurpose] = useState<'PROPOSAL' | 'EL' | 'FINAL_REPORT' | 'INVOICE' | 'RECEIPT' | 'PBC' | 'HOLDING_LETTER'>('PROPOSAL');
+  const [routeContactId, setRouteContactId] = useState('');
+  const [routeIsPrimary, setRouteIsPrimary] = useState(true);
   const [leadSource, setLeadSource] = useState<'PHONE' | 'WHATSAPP' | 'EMAIL' | 'WEB_FORM' | 'REFERRAL'>('REFERRAL');
   const [leadClientMode, setLeadClientMode] = useState<'NEW' | 'EXISTING'>('NEW');
   const [leadClientCode, setLeadClientCode] = useState('');
@@ -497,6 +503,69 @@ export function BusinessWorkspaceConsole() {
       setCommandMessage(`${contact.full_name} was added as a CLIENT profile for ${client.legalName}.`);
     } catch (reason) {
       setCommandMessage(reason instanceof Error ? reason.message : 'The CLIENT profile could not be assigned. Retry with the same contact.');
+    } finally {
+      setCommandBusy(false);
+    }
+  };
+
+  const createContact = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const selected = currentSelection();
+    const client = clientDetail?.client;
+    if (!selected || !client || !context?.allowedActions.includes('directory.manage')) return;
+    const payload = { clientId: client.id, contact: {
+      fullName: contactDraft.fullName, title: contactDraft.title, role: contactDraft.role, isSignatory: contactDraft.isSignatory, effectiveFrom: contactDraft.effectiveFrom,
+      ...(contactDraft.email ? { email: contactDraft.email } : {}), ...(contactDraft.phone ? { phone: contactDraft.phone } : {})
+    } };
+    setCommandBusy(true);
+    setCommandMessage('');
+    try {
+      await runBusinessCommand(selected.workspaceId, selected, { type: 'contact.create', payload }, commandKeyFor('contact.create', payload));
+      businessCommandKeys.current.delete('contact.create');
+      setContactDraft(current => ({ ...current, fullName: '', email: '', phone: '', title: '', isSignatory: false }));
+      setCommandMessage(`${payload.contact.fullName} was added to ${client.legalName}.`);
+      setRecordsKey(value => value + 1);
+    } catch (reason) {
+      setCommandMessage(reason instanceof Error ? reason.message : 'The contact could not be created. Retry with the same details.');
+    } finally {
+      setCommandBusy(false);
+    }
+  };
+
+  const updateContact = async (contact: BusinessClientDetail['contacts'][number], changes: Record<string, unknown>, note: string) => {
+    const selected = currentSelection();
+    if (!selected || !clientDetail || !context?.allowedActions.includes('directory.manage')) return;
+    const payload = { contactId: contact.id, expectedVersion: contact.version, ...changes };
+    setCommandBusy(true);
+    setCommandMessage('');
+    try {
+      await runBusinessCommand(selected.workspaceId, selected, { type: 'contact.update', payload }, commandKeyFor(`contact.update.${contact.id}`, payload));
+      businessCommandKeys.current.delete(`contact.update.${contact.id}`);
+      setCommandMessage(note);
+      setRecordsKey(value => value + 1);
+    } catch (reason) {
+      setCommandMessage(reason instanceof Error ? reason.message : 'The contact update was rejected. Refresh and retry.');
+    } finally {
+      setCommandBusy(false);
+    }
+  };
+
+  const routeContact = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const selected = currentSelection();
+    const client = clientDetail?.client;
+    if (!selected || !client || !routeContactId || !context?.allowedActions.includes('directory.manage')) return;
+    const existing = clientDetail?.routes.find(route => route.purpose === routePurpose && route.contact_id === routeContactId);
+    const payload = { clientId: client.id, contactId: routeContactId, purpose: routePurpose, isPrimary: routeIsPrimary, expectedVersion: existing ? existing.version : null };
+    setCommandBusy(true);
+    setCommandMessage('');
+    try {
+      await runBusinessCommand(selected.workspaceId, selected, { type: 'contact.route', payload }, commandKeyFor(`contact.route.${routePurpose}.${routeContactId}`, payload));
+      businessCommandKeys.current.delete(`contact.route.${routePurpose}.${routeContactId}`);
+      setCommandMessage(`${routePurpose.replaceAll('_', ' ')} deliveries now route to the selected contact.`);
+      setRecordsKey(value => value + 1);
+    } catch (reason) {
+      setCommandMessage(reason instanceof Error ? reason.message : 'The recipient route could not be saved. Refresh and retry.');
     } finally {
       setCommandBusy(false);
     }
@@ -1100,7 +1169,44 @@ export function BusinessWorkspaceConsole() {
             <h4>Active contacts</h4>
             {clientDetail.contacts.length ? <ul className="business-record-list">{clientDetail.contacts.map(contact => <li key={contact.id}><strong>{contact.full_name}</strong><span>{contact.role.replaceAll('_', ' ')}{contact.isPrimary ? ' · Primary' : ''}</span><small>{contact.email ?? contact.phone}</small></li>)}</ul> : <p className="business-muted">No active contact is available in this projection.</p>}
             <h4>Communication routes</h4>
-            {clientDetail.routes.length ? <ul className="business-route-list">{clientDetail.routes.map((route, index) => <li key={`${route.id}-${index}`}><span>{route.purpose.replaceAll('_', ' ')}</span><strong>{route.full_name}</strong><small>{route.email ?? route.phone}</small></li>)}</ul> : <p className="business-muted">No configured routes.</p>}
+            {clientDetail.routes.length ? <ul className="business-route-list">{clientDetail.routes.map((route, index) => <li key={`${route.id}-${index}`}><span>{route.purpose.replaceAll('_', ' ')}{route.is_primary ? '' : ' · alternate'}</span><strong>{route.full_name}</strong><small>{route.email ?? route.phone} · v{route.version}</small></li>)}</ul> : <p className="business-muted">No configured routes.</p>}
+            <h4>Maintain contacts and delivery recipients</h4>
+            {context?.allowedActions.includes('directory.manage') ? <>
+              <form className="business-form business-commercial-form" onSubmit={createContact}>
+                <h3>Add a contact</h3>
+                <div className="business-form-grid">
+                  <label className="business-field"><span>Full name</span><input required maxLength={200} value={contactDraft.fullName} onChange={event => setContactDraft(current => ({ ...current, fullName: event.target.value }))} /></label>
+                  <label className="business-field"><span>Title</span><input required maxLength={200} value={contactDraft.title} onChange={event => setContactDraft(current => ({ ...current, title: event.target.value }))} /></label>
+                  <label className="business-field"><span>Contact role</span><select value={contactDraft.role} onChange={event => setContactDraft(current => ({ ...current, role: event.target.value as typeof contactDraft.role }))}><option value="MD_GM">MD / General Manager</option><option value="CFO_FINANCE_DIRECTOR">CFO / Finance Director</option><option value="CHIEF_ACCOUNTANT_LIAISON">Chief Accountant / Audit Liaison</option><option value="OTHER">Other</option></select></label>
+                  <label className="business-field"><span>Email</span><input type="email" maxLength={254} value={contactDraft.email} onChange={event => setContactDraft(current => ({ ...current, email: event.target.value }))} /></label>
+                  <label className="business-field"><span>Phone</span><input maxLength={30} value={contactDraft.phone} onChange={event => setContactDraft(current => ({ ...current, phone: event.target.value }))} /></label>
+                  <label className="business-field"><span>Effective from</span><input type="date" required value={contactDraft.effectiveFrom} onChange={event => setContactDraft(current => ({ ...current, effectiveFrom: event.target.value }))} /></label>
+                  <label className="business-field"><span>Signatory</span><select value={contactDraft.isSignatory ? 'true' : 'false'} onChange={event => setContactDraft(current => ({ ...current, isSignatory: event.target.value === 'true' }))}><option value="false">Not a signatory</option><option value="true">May sign commercial acceptance</option></select></label>
+                </div>
+                <div className="business-dialog-actions"><button className="btn sm" disabled={commandBusy}>Add contact to client</button></div>
+                <small>Provide an email or phone. Commercial acceptance needs an active signatory contact whose effective date has been reached.</small>
+              </form>
+              <form className="business-form business-commercial-form" onSubmit={routeContact}>
+                <h3>Set a delivery recipient</h3>
+                <div className="business-form-grid">
+                  <label className="business-field"><span>Purpose</span><select value={routePurpose} onChange={event => setRoutePurpose(event.target.value as typeof routePurpose)}>{(['PROPOSAL', 'EL', 'FINAL_REPORT', 'INVOICE', 'RECEIPT', 'PBC', 'HOLDING_LETTER'] as const).map(purpose => <option key={purpose} value={purpose}>{purpose.replaceAll('_', ' ')}</option>)}</select></label>
+                  <label className="business-field"><span>Recipient contact</span><select required value={routeContactId} onChange={event => setRouteContactId(event.target.value)}><option value="">Select an active contact</option>{clientDetail.contacts.map(contact => <option key={contact.id} value={contact.id}>{contact.full_name} · {contact.role.replaceAll('_', ' ')}</option>)}</select></label>
+                  <label className="business-field"><span>Priority</span><select value={routeIsPrimary ? 'true' : 'false'} onChange={event => setRouteIsPrimary(event.target.value === 'true')}><option value="true">Primary recipient</option><option value="false">Alternate recipient</option></select></label>
+                </div>
+                <div className="business-dialog-actions"><button className="btn sm" disabled={commandBusy || !routeContactId}>Save recipient route</button></div>
+                <small>The selected contact must stay active and within its effective dates to receive this document type.</small>
+              </form>
+              <ul className="business-record-list">{clientDetail.contacts.map(contact => <li key={contact.id}>
+                <strong>{contact.full_name}</strong>
+                <span>{contact.role.replaceAll('_', ' ')}{contact.isPrimary ? ' · Primary' : ''}{contact.isSignatory ? ' · Signatory' : ''}</span>
+                <small>{contact.email ?? contact.phone ?? 'No direct channel'} · effective {contact.effective_from}{contact.effective_to ? ` – ${contact.effective_to}` : ''} · v{contact.version}</small>
+                <span>
+                  {!contact.isPrimary && <button type="button" className="btn sm" disabled={commandBusy} onClick={() => void updateContact(contact, { isPrimary: true }, `${contact.full_name} is now the primary contact.`)}>Make primary</button>}{' '}
+                  <button type="button" className="btn sm" disabled={commandBusy} onClick={() => void updateContact(contact, { isSignatory: !contact.isSignatory }, `${contact.full_name} signatory status was updated.`)}>{contact.isSignatory ? 'Remove signatory' : 'Make signatory'}</button>{' '}
+                  <button type="button" className="btn sm" disabled={commandBusy} onClick={() => void updateContact(contact, { active: false }, `${contact.full_name} was deactivated and no longer receives deliveries.`)}>Deactivate</button>
+                </span>
+              </li>)}</ul>
+            </> : <p className="business-muted">Directory management requires the directory.manage action.</p>}
           </div>}
         </section>}
 
