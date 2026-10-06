@@ -3,7 +3,7 @@ import { after, before, it } from 'node:test';
 import { type ChildProcess } from 'node:child_process';
 import { existsSync, rmSync } from 'node:fs';
 import { CdpTab } from '../helpers/cdp.js';
-import { launchHeadlessChrome } from '../helpers/headlessChrome.js';
+import { launchHeadlessChrome, stopHeadlessChrome } from '../helpers/headlessChrome.js';
 import { startBusinessE2eServer, type BusinessE2eServer } from '../helpers/businessE2eServer.js';
 
 let server: BusinessE2eServer | undefined;
@@ -109,11 +109,7 @@ before(async () => {
 
 after(async () => {
   tab?.close();
-  if (chrome && chrome.exitCode === null) {
-    const exited = new Promise<void>(resolve => chrome!.once('exit', () => resolve()));
-    chrome.kill('SIGTERM');
-    await exited;
-  }
+  if (chrome) await stopHeadlessChrome(chrome);
   if (server) await server.close();
   if (profileDirectory) rmSync(profileDirectory, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
 });
@@ -378,10 +374,35 @@ it('US-ENG-001/002 creates a client-linked lead from the visible forms and advan
   await clickButton('Convert to engagement');
   await waitFor('one linked LEAD_INGESTION engagement', `document.querySelector('.business-created-engagement')?.innerText.includes('Current state: LEAD_INGESTION')`);
   assert.equal(await tab.evaluate<boolean>(`document.querySelector('.business-created-engagement')?.innerText.includes('Current state: PROPOSAL_GENERATION') ?? false`), false);
+  await waitFor('the server-projected lead-ingestion stage', `document.querySelector('.business-workflow-state')?.innerText.includes('LEAD INGESTION') && [...(document.querySelector('#business-workflow-engagement')?.options ?? [])].some(option => option.textContent?.includes(${JSON.stringify(`QA-ENG-${unique}`)}))`);
+  const leadStage = await tab.evaluate<{ state: string; current: string; request: boolean }>(`({
+    state: document.querySelector('.business-workflow-state')?.innerText ?? '',
+    current: document.querySelector('.business-workflow-stages > li[data-status="current"] strong')?.textContent?.trim() ?? '',
+    request: performance.getEntriesByType('resource').some(entry => entry.name.includes('/engagements/') && entry.name.endsWith('/workflow'))
+  })`);
+  assert.match(leadStage.state, /LEAD INGESTION/);
+  assert.equal(leadStage.current, 'Lead ingestion');
+  assert.equal(leadStage.request, true, 'the workflow strip loaded from the server endpoint');
 
   // Advance through the actual profile gate and verify the persisted lifecycle projection.
   await clickButton('Validate profile and enter proposal generation');
   await waitFor('the proposal-generation handoff', `document.querySelector('.business-created-engagement')?.innerText.includes('Current state: PROPOSAL_GENERATION')`);
+  await waitFor('the refreshed proposal-generation stage', `document.querySelector('.business-workflow-state')?.innerText.includes('PROPOSAL GENERATION') && document.querySelector('.business-workflow-stages > li[data-status="completed"] strong')?.textContent?.trim() === 'Lead ingestion'`);
+  await tab.command('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 1, mobile: true });
+  try {
+    await waitFor('the mobile workflow projection', `document.querySelector('.business-workflow-card')?.getClientRects().length === 1 && getComputedStyle(document.querySelector('.business-workflow-stages')).gridTemplateColumns.trim().split(/\\s+/).length === 1`);
+    const mobileWorkflow = await tab.evaluate<{ width: number; right: number; viewport: number; columns: number }>(`(() => {
+      const card = document.querySelector('.business-workflow-card')?.getBoundingClientRect();
+      const stages = document.querySelector('.business-workflow-stages');
+      return { width: card?.width ?? 0, right: card?.right ?? Infinity, viewport: window.innerWidth,
+        columns: getComputedStyle(stages).gridTemplateColumns.trim().split(/\\s+/).length };
+    })()`);
+    assert.ok(mobileWorkflow.width > 0 && mobileWorkflow.width <= mobileWorkflow.viewport);
+    assert.ok(mobileWorkflow.right <= mobileWorkflow.viewport + 1);
+    assert.equal(mobileWorkflow.columns, 1, 'the lifecycle stages become a single readable column on mobile');
+  } finally {
+    await tab.command('Emulation.clearDeviceMetricsOverride');
+  }
   await tab.command('Page.reload');
   await waitFor('the reloaded lead and proposal-ready engagement', `document.querySelector('.business-lead-list')?.innerText.includes('CONVERTED') && [...(document.querySelector('#business-proposal-engagement')?.options ?? [])].some(option => option.textContent?.includes(${JSON.stringify(`QA-ENG-${unique}`)}))`);
 

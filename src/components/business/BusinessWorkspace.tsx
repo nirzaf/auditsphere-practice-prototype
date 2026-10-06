@@ -48,6 +48,7 @@ import { BusinessTrialBalancePanel } from './BusinessTrialBalancePanel';
 import { BusinessFieldworkPanel } from './BusinessFieldworkPanel';
 import { BusinessPracticePanel } from './BusinessPracticePanel';
 import { BusinessReportingPanel } from './BusinessReportingPanel';
+import { BusinessWorkflowProgress } from './BusinessWorkflowProgress';
 
 type SetupMode = 'create' | 'connect';
 
@@ -960,6 +961,7 @@ export function BusinessWorkspaceConsole() {
       businessCommandKeys.current.delete('engagement.advance');
       setCreatedEngagement({ ...createdEngagement, version: result.result.version, state: result.result.state });
       setCommandMessage(`Engagement advanced to ${result.result.state}.`);
+      setRecordsKey(value => value + 1);
     } catch (reason) {
       setCommandMessage(reason instanceof Error ? reason.message : 'The engagement could not be advanced.');
     } finally { setCommandBusy(false); }
@@ -1091,6 +1093,9 @@ export function BusinessWorkspaceConsole() {
           <p className="business-self-select-note">Persona selection changes the request context in this browser only. It is not authentication or identity verification.</p>
           {context?.readOnlyReasons.map(reason => <p className="business-muted" key={reason}>{reason.replaceAll('_', ' ').toLowerCase()}</p>)}
         </section>
+
+        {selectedProfile && preference && context?.allowedActions.includes('engagement.read')
+          && <BusinessWorkflowProgress selected={preference} refreshKey={recordsKey} />}
 
         {context?.allowedActions.includes('directory.manage') && <section className="business-directory-card" aria-labelledby="business-directory-heading">
           <div className="business-section-heading">

@@ -552,14 +552,29 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
   }, preparerHeaders);
   assert.equal(conversion.response.status, 200, JSON.stringify(conversion.body));
   assert.equal(conversion.body.result.state, 'LEAD_INGESTION');
+  const engagementId = conversion.body.result.engagementId as string;
+  const initialWorkflow = await call(`/api/workspaces/${workspaceId}/engagements/${engagementId}/workflow`, {
+    headers: { ...preparerHeaders, 'X-Client-Id': clientId }
+  });
+  assert.equal(initialWorkflow.response.status, 200, JSON.stringify(initialWorkflow.body));
+  assert.equal(initialWorkflow.body.state, 'LEAD_INGESTION');
+  assert.ok(Number.isSafeInteger(initialWorkflow.body.sourceVersion) && initialWorkflow.body.sourceVersion > 0);
+  assert.equal(initialWorkflow.body.stages.length, 11);
+  assert.equal(initialWorkflow.body.stages[0].status, 'current');
+  assert.equal(initialWorkflow.body.stages[0].completedCount, 0);
+  assert.equal(initialWorkflow.body.stages.at(-1).status, 'pending');
+  const wrongClientWorkflow = await call(`/api/workspaces/${workspaceId}/engagements/${engagementId}/workflow`, {
+    headers: { ...preparerHeaders, 'X-Client-Id': crypto.randomUUID() }
+  });
+  assert.equal(wrongClientWorkflow.response.status, 403);
+  assert.equal(wrongClientWorkflow.body.code, 'FORBIDDEN_SCOPE');
   const advance = await post(`/api/workspaces/${workspaceId}/commands`, {
     idempotencyKey: crypto.randomUUID(), command: { type: 'engagement.advance', payload: {
-      engagementId: conversion.body.result.engagementId, expectedVersion: 1, expectedState: 'LEAD_INGESTION'
+      engagementId, expectedVersion: 1, expectedState: 'LEAD_INGESTION'
     } }
   }, preparerHeaders);
   assert.equal(advance.response.status, 200, JSON.stringify(advance.body));
   assert.equal(advance.body.result.state, 'PROPOSAL_GENERATION');
-  const engagementId = conversion.body.result.engagementId as string;
   const engagementChanges = await call(`/api/workspaces/${workspaceId}/changes?after=${cursorBeforeFirstClient}&engagementId=${engagementId}`, {
     headers: { ...approverHeaders, 'X-Client-Id': clientId }
   });
@@ -941,6 +956,19 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
   assert.equal(incompleteGate.body.commercialKey.status, 'PENDING');
   assert.equal(incompleteGate.body.riskKey.status, 'PENDING');
   assert.equal(incompleteGate.body.ready, false);
+  const blockedWorkflow = await call(`/api/workspaces/${workspaceId}/engagements/${engagementId}/workflow`, { headers: makeRiskHeaders(approverHeaders) });
+  assert.equal(blockedWorkflow.response.status, 200, JSON.stringify(blockedWorkflow.body));
+  assert.equal(blockedWorkflow.body.state, 'DUAL_KEY_PENDING');
+  assert.equal(blockedWorkflow.body.stages[2].status, 'blocked');
+  assert.equal(blockedWorkflow.body.stages[2].blockerCoverage, 'evaluated');
+  assert.equal(blockedWorkflow.body.stages[2].blockers.length, 2);
+  const clientWorkflow = await call(`/api/workspaces/${workspaceId}/engagements/${engagementId}/workflow`, {
+    headers: makeRiskHeaders(clientHeaders)
+  });
+  assert.equal(clientWorkflow.response.status, 200, JSON.stringify(clientWorkflow.body));
+  assert.equal(clientWorkflow.body.stages[2].status, 'blocked');
+  assert.equal(clientWorkflow.body.stages[2].blockers.every((blocker: any) => !('entityId' in blocker)), true,
+    'the CLIENT workflow projection does not reveal internal entity identifiers');
 
   const submitRisk = await post(`/api/workspaces/${workspaceId}/commands`, {
     idempotencyKey: crypto.randomUUID(), command: { type: 'riskAssessment.submit', payload: { assessmentId: draftRisk.body.result.assessmentId, expectedDraftVersion: 1 } }

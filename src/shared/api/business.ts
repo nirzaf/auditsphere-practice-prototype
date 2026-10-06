@@ -81,6 +81,37 @@ export interface BusinessWorkspaceChangeFeed {
   resyncRequired?: true;
 }
 
+export type BusinessLifecycleState =
+  | 'LEAD_INGESTION'
+  | 'PROPOSAL_GENERATION'
+  | 'DUAL_KEY_PENDING'
+  | 'ADVANCE_BILLING'
+  | 'PORTAL_ACTIVE_PLANNING'
+  | 'FIELDWORK_EXECUTION'
+  | 'MANAGERIAL_REVIEW'
+  | 'PARTNER_APPROVAL'
+  | 'DELIVERABLE_RELEASE'
+  | 'COMPLIANCE_COUNTDOWN'
+  | 'ARCHIVED_READ_ONLY';
+
+export type BusinessWorkflowStageStatus = 'completed' | 'current' | 'pending' | 'blocked' | 'rework' | 'stale';
+
+export interface BusinessWorkflowProgress {
+  state: BusinessLifecycleState;
+  /** Workspace audit sequence observed while calculating the projection. */
+  sourceVersion: number;
+  stages: Array<{
+    id: BusinessLifecycleState;
+    label: string;
+    status: BusinessWorkflowStageStatus;
+    completedCount: number;
+    requiredCount: number;
+    blockers: Array<{ code: string; description: string; route?: string }>;
+    /** Other gate details remain on their owning module's readiness view. */
+    blockerCoverage: 'evaluated' | 'module-detail';
+  }>;
+}
+
 export interface BusinessDirectoryCommandResponse<T = Record<string, unknown>> {
   commandId: string;
   result: T;

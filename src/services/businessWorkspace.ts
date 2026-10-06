@@ -2,6 +2,7 @@ import { isApiErrorBody } from '../shared/api/errors';
 import type {
   BusinessActorProfile,
   BusinessWorkspaceChangeFeed,
+  BusinessWorkflowProgress,
   BusinessContextResponse,
   BusinessClientDetail,
   BusinessClientSummary,
@@ -226,6 +227,18 @@ export async function getBusinessWorkspaceChanges(
   return requestJson(
     `/api/workspaces/${encodeURIComponent(workspaceId)}/changes?${query}`,
     { context: selected, signal: options.signal }
+  );
+}
+
+export async function getBusinessWorkflowProgress(
+  workspaceId: string,
+  engagementId: string,
+  selected: BusinessWorkspacePreference,
+  signal?: AbortSignal
+): Promise<BusinessWorkflowProgress> {
+  return requestJson(
+    `/api/workspaces/${encodeURIComponent(workspaceId)}/engagements/${encodeURIComponent(engagementId)}/workflow`,
+    { context: selected, signal }
   );
 }
 

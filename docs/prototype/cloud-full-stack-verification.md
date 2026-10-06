@@ -468,3 +468,29 @@ copy/rebuild in `0019`, in addition to additive schema and data migrations.
 Wrangler's CI migration command captures a D1 backup, but the first enabled
 deployment will still apply this full backlog. No production migration or Worker
 deployment has been run from this working tree.
+
+## BUSINESS aggregate workflow projection — 2026-10-06
+
+Added the scoped `/api/workspaces/:workspaceId/engagements/:engagementId/workflow`
+projection and BUSINESS progress view for the eleven canonical lifecycle stages.
+The endpoint derives stage, latest transition, source version, and supported
+current blockers from persisted engagement state and the existing acceptance
+and planning gates. It checks engagement-read permission and selected
+engagement/client scope; CLIENT profiles receive descriptions without internal
+entity identifiers. The UI refreshes its projection after the visible lead to
+proposal transition and adapts to the mobile viewport.
+
+Verification on this working tree: `npm run test:unit` passed **484/484**;
+`npm run test:e2e` passed **24/24** browser scenarios, including BUSINESS
+progress rendering and the 390x844 mobile layout; `npx tsc --noEmit`,
+`npm run cloud:typecheck`, and the E2E production build passed. The dedicated
+workflow API tests cover source version, scope rejection, status handling,
+DUAL_KEY blockers, and the CLIENT-safe projection.
+
+Blocker detail is currently projected for `DUAL_KEY_PENDING` and
+`PORTAL_ACTIVE_PLANNING`; other stages direct users to the owning module and
+report `module-detail` coverage. Full blocker coverage, the browser conflict
+journey, the remaining **US-SYS-003** criteria, and acceptance of the full
+46-story epic remain open. This change does not enable Cloudflare production
+deployment; the reviewer gate and pending remote migrations described above
+remain unresolved.

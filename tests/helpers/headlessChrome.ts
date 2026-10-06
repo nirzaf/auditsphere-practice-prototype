@@ -1,10 +1,30 @@
-import { spawn, type ChildProcess } from 'node:child_process';
+import { execFile, spawn, type ChildProcess } from 'node:child_process';
 import { createServer } from 'node:net';
 import { existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 const sleep = (milliseconds: number) => new Promise(resolve => setTimeout(resolve, milliseconds));
+
+/** Stop only the Chrome process tree returned by launchHeadlessChrome. */
+export async function stopHeadlessChrome(child: ChildProcess): Promise<void> {
+  const exited = child.exitCode === null
+    ? new Promise<void>(resolve => child.once('exit', () => resolve()))
+    : Promise.resolve();
+  if (process.platform === 'win32' && child.pid) {
+    await new Promise<void>(resolve => {
+      execFile('taskkill.exe', ['/PID', String(child.pid), '/T', '/F'], () => resolve());
+    });
+  } else if (child.exitCode === null) {
+    child.kill('SIGTERM');
+  }
+  if (child.exitCode === null) await Promise.race([exited, sleep(5000)]);
+  if (child.exitCode === null) {
+    child.kill('SIGTERM');
+    await Promise.race([exited, sleep(1000)]);
+  }
+  await sleep(500);
+}
 
 export interface HeadlessChromeInstance {
   child: ChildProcess;
@@ -56,10 +76,7 @@ export async function launchHeadlessChrome(
     }
     throw new Error(`Chrome did not expose its debugging endpoint on 127.0.0.1:${port} within ${options.timeoutMs ?? 30000} ms.`);
   } catch (error) {
-    if (child.pid && child.exitCode === null) {
-      child.kill('SIGTERM');
-      await new Promise<void>(resolve => child.once('exit', () => resolve()));
-    }
+    await stopHeadlessChrome(child);
     rmSync(profileDirectory, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
     throw error;
   }

@@ -94,6 +94,7 @@ import { getBusinessPlanningReadiness, getBusinessTrialBalanceImport, getBusines
 import { getBusinessFinancialStatements, getBusinessFsliSourceLines, getBusinessFieldworkWorkspace, getBusinessSamplingPlan, getBusinessSamplingPopulation, getBusinessFieldworkChanges } from './businessFieldwork';
 import { getBusinessPracticeWorkspace } from './businessPractice';
 import { getBusinessReportingWorkspace } from './businessReportingQuery';
+import { getBusinessWorkflow } from './businessWorkflow';
 
 const JSON_BODY_LIMIT = 1_000_000;
 /** Hard ceiling for a single command payload; the domain model is small. */
@@ -315,6 +316,12 @@ const handleBusinessProposalWorkspace = async (ctx: RouteContext): Promise<Respo
 const handleBusinessAcceptanceGate = async (ctx: RouteContext): Promise<Response> => {
   const context = await resolveBusinessContext(ctx.env, ctx.params.workspaceId, ctx.request);
   const result = await getBusinessAcceptanceGate(ctx.env, ctx.params.workspaceId, context, ctx.params.engagementId);
+  return jsonResponse(result, 200, ctx.requestId);
+};
+
+const handleBusinessWorkflow = async (ctx: RouteContext): Promise<Response> => {
+  const context = await resolveBusinessContext(ctx.env, ctx.params.workspaceId, ctx.request);
+  const result = await getBusinessWorkflow(ctx.env, ctx.params.workspaceId, context, ctx.params.engagementId);
   return jsonResponse(result, 200, ctx.requestId);
 };
 
@@ -886,6 +893,7 @@ const router = createRouter()
   .get('/api/workspaces/:workspaceId/leads', handleBusinessLeads)
   .get('/api/workspaces/:workspaceId/standards-profiles', handleBusinessStandardsProfiles)
   .get('/api/workspaces/:workspaceId/proposal-workspace', handleBusinessProposalWorkspace)
+  .get('/api/workspaces/:workspaceId/engagements/:engagementId/workflow', handleBusinessWorkflow)
   .get('/api/workspaces/:workspaceId/engagements/:engagementId/acceptance-gate', handleBusinessAcceptanceGate)
   .get('/api/workspaces/:workspaceId/engagements/:engagementId/risk-workspace', handleBusinessRiskWorkspace)
   .get('/api/workspaces/:workspaceId/engagements/:engagementId/delivery-workspace', handleBusinessDeliveryWorkspace)

@@ -56,6 +56,24 @@
 .business-command-message { margin: 0; color: var(--muted); }
 .business-workflows-placeholder { border-style: dashed; }
 .business-workflows-placeholder > p { max-width: 800px; }
+.business-workflow-card { display: grid; gap: 12px; }
+.business-workflow-select { width: min(360px, 52%); }
+.business-workflow-state { margin: 0; color: var(--muted); }
+.business-workflow-stages { list-style: none; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; margin: 0; padding: 0; }
+.business-workflow-stages > li { min-width: 0; display: grid; align-content: start; gap: 5px; border: 1px solid var(--line); border-radius: 9px; padding: 12px; }
+.business-workflow-stages > li[data-status="current"] { border-color: #93c5fd; background: #eff6ff; }
+.business-workflow-stages > li[data-status="completed"] { border-color: #86efac; background: #f0fdf4; }
+.business-workflow-stages > li[data-status="blocked"] { border-color: #fca5a5; background: #fef2f2; }
+.business-workflow-stages > li[data-status="rework"], .business-workflow-stages > li[data-status="stale"] { border-color: #fdba74; background: #fff7ed; }
+.business-workflow-stage-status { width: max-content; max-width: 100%; border-radius: 99px; padding: 3px 8px; background: #f1f5f9; color: #334155; font-size: 10px; font-weight: 700; }
+.business-workflow-stages > li[data-status="current"] .business-workflow-stage-status { background: #dbeafe; color: #1d4ed8; }
+.business-workflow-stages > li[data-status="completed"] .business-workflow-stage-status { background: #dcfce7; color: #166534; }
+.business-workflow-stages > li[data-status="blocked"] .business-workflow-stage-status { background: #fee2e2; color: #991b1b; }
+.business-workflow-stages > li[data-status="rework"] .business-workflow-stage-status, .business-workflow-stages > li[data-status="stale"] .business-workflow-stage-status { background: #ffedd5; color: #9a3412; }
+.business-workflow-stages small { color: var(--muted); font-size: 12px; line-height: 1.4; }
+.business-workflow-blockers { display: grid; gap: 7px; margin: 4px 0 0; padding-left: 18px; }
+.business-workflow-blockers li { display: grid; gap: 3px; }
+.business-workflow-blockers small { color: #7f1d1d; }
 .business-client-context { grid-column: 2; grid-row: 3; }
 .business-count { flex: none; color: var(--muted); font-size: 12px; }
 .business-commercial-form { border-top: 1px solid var(--line); margin-top: 16px; padding-top: 16px; }
@@ -87,6 +105,9 @@
   .business-console-header { align-items: flex-start; }
   .business-console-header > .btn { max-width: 44%; white-space: normal; }
   .business-console-alert { align-items: flex-start; flex-direction: column; }
+  .business-workflow-card > .business-section-heading { align-items: stretch; flex-direction: column; }
+  .business-workflow-select { width: 100%; }
+  .business-workflow-stages { grid-template-columns: minmax(0, 1fr); }
 }
 @media (prefers-reduced-motion: reduce) {
   .business-console *, .business-setup-dialog * { scroll-behavior: auto !important; transition-duration: .01ms !important; animation-duration: .01ms !important; }
