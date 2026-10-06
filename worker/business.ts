@@ -10,6 +10,7 @@ import { businessRiskCommands, buildBusinessRiskMutation, isBusinessRiskCommand 
 import { businessDeliveryCommands, buildBusinessDeliveryMutation, isBusinessDeliveryCommand } from './businessDelivery';
 import { businessPlanningCommands, buildBusinessPlanningMutation, isBusinessPlanningCommand } from './businessPlanning';
 import { businessTbCommands, buildBusinessTbMutation, isBusinessTbCommand } from './businessTb';
+import { businessFieldworkCommands, buildBusinessFieldworkMutation, isBusinessFieldworkCommand } from './businessFieldwork';
 
 export const BUSINESS_SCHEMA_VERSION = 10;
 
@@ -573,9 +574,9 @@ export async function resolveBusinessContext(env: Env, workspaceId: string, requ
     },
     scope: { clientId, engagementId: requestedEngagementId },
     allowedActions: row.persona === 'APPROVER' && row.staffGrade === 'PARTNER'
-      ? ['directory.manage', 'client.read', 'client.manage', 'lead.read', 'lead.manage', 'lead.convert', 'engagement.read', 'engagement.advance', 'standards.read', 'standards.manage', 'file.read', 'file.upload', 'proposal.read', 'proposal.create', 'proposal.generate', 'proposal.approve', 'proposal.dispatch', 'firm.manage', 'risk.read', 'riskAssessment.draft', 'riskAssessment.submit', 'riskAssessment.resolveEscalation', 'risk.clear', 'commercialAcceptance.read', 'engagementLetter.manage', 'invoice.issue', 'payment.record', 'payment.reverse', 'billing.read', 'pbc.read', 'pbc.manage', 'pbc.review', 'planning.read', 'staffing.manage', 'tb.manage']
-      : row.persona === 'PREPARER' ? ['client.read', 'client.manage', 'lead.read', 'lead.manage', 'lead.convert', 'engagement.read', 'engagement.advance', 'standards.read', 'file.read', 'file.upload', 'proposal.read', 'proposal.create', 'proposal.generate', 'risk.read', 'riskAssessment.draft', 'riskAssessment.submit', 'commercialAcceptance.read', 'billing.read', 'pbc.read', 'pbc.manage', 'planning.read', 'tb.manage']
-        : row.persona === 'REVIEWER' ? ['client.read', 'lead.read', 'engagement.read', 'standards.read', 'file.read', 'file.upload', 'proposal.read', 'proposal.create', 'proposal.generate', 'risk.read', 'riskAssessment.draft', 'riskAssessment.submit', 'riskAssessment.escalate', 'commercialAcceptance.read', 'invoice.issue', 'payment.record', 'payment.reverse', 'billing.read', 'pbc.read', 'pbc.manage', 'pbc.review', 'planning.read', 'staffing.manage', 'tb.manage']
+      ? ['directory.manage', 'client.read', 'client.manage', 'lead.read', 'lead.manage', 'lead.convert', 'engagement.read', 'engagement.advance', 'standards.read', 'standards.manage', 'file.read', 'file.upload', 'proposal.read', 'proposal.create', 'proposal.generate', 'proposal.approve', 'proposal.dispatch', 'firm.manage', 'risk.read', 'riskAssessment.draft', 'riskAssessment.submit', 'riskAssessment.resolveEscalation', 'risk.clear', 'commercialAcceptance.read', 'engagementLetter.manage', 'invoice.issue', 'payment.record', 'payment.reverse', 'billing.read', 'pbc.read', 'pbc.manage', 'pbc.review', 'planning.read', 'staffing.manage', 'tb.manage', 'fieldwork.read', 'fieldwork.manage', 'fieldwork.review', 'sampling.manage', 'evidence.review']
+      : row.persona === 'PREPARER' ? ['client.read', 'client.manage', 'lead.read', 'lead.manage', 'lead.convert', 'engagement.read', 'engagement.advance', 'standards.read', 'file.read', 'file.upload', 'proposal.read', 'proposal.create', 'proposal.generate', 'risk.read', 'riskAssessment.draft', 'riskAssessment.submit', 'commercialAcceptance.read', 'billing.read', 'pbc.read', 'pbc.manage', 'planning.read', 'tb.manage', 'fieldwork.read', 'fieldwork.manage']
+        : row.persona === 'REVIEWER' ? ['client.read', 'lead.read', 'engagement.read', 'standards.read', 'file.read', 'file.upload', 'proposal.read', 'proposal.create', 'proposal.generate', 'risk.read', 'riskAssessment.draft', 'riskAssessment.submit', 'riskAssessment.escalate', 'commercialAcceptance.read', 'invoice.issue', 'payment.record', 'payment.reverse', 'billing.read', 'pbc.read', 'pbc.manage', 'pbc.review', 'planning.read', 'staffing.manage', 'tb.manage', 'fieldwork.read', 'fieldwork.manage', 'fieldwork.review', 'sampling.manage', 'evidence.review']
           : ['client.read', 'file.read', 'file.upload', 'proposal.read', 'commercialAcceptance.read', 'commercialAcceptance.record', 'commercialAcceptance.revoke', 'billing.read', 'pbc.read', 'pbc.submit'],
     readOnlyReasons: isClient ? ['CLIENT_PROJECTION_ONLY'] : []
   };
@@ -976,7 +977,8 @@ export const businessCommandSchema = z.discriminatedUnion('type', [
   ...businessRiskCommands,
   ...businessDeliveryCommands,
   ...businessPlanningCommands,
-  ...businessTbCommands
+  ...businessTbCommands,
+  ...businessFieldworkCommands
 ]);
 
 const expectedVersionSchema = z.strictObject({
@@ -1001,7 +1003,8 @@ type BusinessPbcCommand = Extract<BusinessCommand, { type: 'pbc.request.create' 
 type BusinessProposalCommand = Extract<BusinessCommand, { type: 'firm-profile.save' | 'team-cv.attach' | 'team-cv.approve' | 'proposal.create' | 'proposal.revise' | 'proposal.generate' | 'proposal.generate.retry' | 'proposal.approve' | 'proposal.dispatch' | 'proposal.dispatch.retry' }>;
 type BusinessPlanningCommandType = import('./businessPlanning').BusinessPlanningCommand;
 type BusinessTbCommandType = import('./businessTb').BusinessTbCommand;
-type BusinessCommercialCommand = Exclude<BusinessCommand, BusinessDirectoryCommand | BusinessFileCommand | BusinessPbcCommand | BusinessProposalCommand | BusinessPlanningCommandType | BusinessTbCommandType | import('./businessRisk').BusinessRiskCommand | import('./businessDelivery').BusinessDeliveryCommand>;
+type BusinessFieldworkCommandType = import('./businessFieldwork').BusinessFieldworkCommand;
+type BusinessCommercialCommand = Exclude<BusinessCommand, BusinessDirectoryCommand | BusinessFileCommand | BusinessPbcCommand | BusinessProposalCommand | BusinessPlanningCommandType | BusinessTbCommandType | BusinessFieldworkCommandType | import('./businessRisk').BusinessRiskCommand | import('./businessDelivery').BusinessDeliveryCommand>;
 
 function isBusinessDirectoryCommand(command: BusinessCommand): command is BusinessDirectoryCommand {
   return command.type === 'staff.create' || command.type === 'staff.update'
@@ -1052,8 +1055,15 @@ export function parseBusinessCommandEnvelope(value: unknown, idempotencyKey: str
                     : command.type === 'proposal.revise' ? { entity: 'Proposal', id: command.payload.proposalId, version: command.payload.expectedVersion }
                       : command.type === 'proposal.generate' || command.type === 'proposal.generate.retry' || command.type === 'proposal.approve' || command.type === 'proposal.dispatch'
                         ? { entity: 'ProposalVersion', id: command.payload.proposalVersionId, version: command.payload.expectedVersion }
-                        : command.type === 'proposal.dispatch.retry'
+        : command.type === 'proposal.dispatch.retry'
                           ? { entity: 'Dispatch', id: command.payload.dispatchId, version: command.payload.expectedVersion }
+                        : command.type === 'analytical-review.submit' ? { entity: 'AnalyticalReview', id: command.payload.analyticalReviewId, version: command.payload.expectedVersion }
+                          : command.type === 'workprogram.template.approve' ? { entity: 'WorkprogramTemplate', id: command.payload.templateId, version: command.payload.expectedVersion }
+                            : command.type === 'procedure.update' || command.type === 'procedure.mark-not-applicable' || command.type === 'procedure.submit' || command.type === 'procedure.review'
+                              ? { entity: 'Procedure', id: command.payload.procedureId, version: command.payload.expectedVersion }
+                              : command.type === 'sampling.policy.approve' ? { entity: 'SamplingPolicy', id: command.payload.policyId, version: command.payload.expectedVersion }
+                                : command.type === 'sampling.record-test' && command.payload.expectedVersion > 0
+                                  ? { entity: 'SampleTest', id: command.payload.populationRowId, version: command.payload.expectedVersion }
                         : null;
   if (versionTarget && (parsed.data.expectedVersions.length !== 1
     || parsed.data.expectedVersions[0].entity !== versionTarget.entity
@@ -3270,7 +3280,9 @@ export async function runBusinessDirectoryCommand(
                 ? await buildBusinessPlanningMutation(env, workspaceId, context, envelope.command, commandId, timestamp)
                 : isBusinessTbCommand(envelope.command)
                   ? await buildBusinessTbMutation(env, workspaceId, context, envelope.command, commandId, timestamp)
-                  : await buildCommercialMutation(env, workspaceId, context, envelope.command, commandId, timestamp);
+                  : isBusinessFieldworkCommand(envelope.command)
+                    ? await buildBusinessFieldworkMutation(env, workspaceId, context, envelope.command, commandId, timestamp)
+                    : await buildCommercialMutation(env, workspaceId, context, envelope.command, commandId, timestamp);
     const sequence = head.last_sequence + 1;
     const eventDetails = JSON.stringify({
       commandId,

@@ -255,3 +255,74 @@
   .business-tb-step-heading h3 { padding-top: 4px; }
   .business-tb-data-table { min-width: 720px; }
 }
+.business-fieldwork-panel { min-width: 0; display: grid; gap: 14px; margin-top: 16px; padding: clamp(16px, 2.5vw, 24px); border: 1px solid #b9c8d8; border-radius: 12px; background: #fff; box-shadow: var(--shadow); }
+.business-fieldwork-panel h2, .business-fieldwork-panel h3, .business-fieldwork-panel h4 { margin: 2px 0 7px; color: var(--ink); }
+.business-fieldwork-head, .business-fieldwork-actions, .business-fieldwork-row, .business-fieldwork-action-row, .business-fieldwork-result { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 9px 14px; }
+.business-fieldwork-head > div, .business-fieldwork-actions > div, .business-fieldwork-row > div { min-width: 0; display: grid; gap: 4px; }
+.business-fieldwork-head h2 { margin: 3px 0; }
+.business-fieldwork-head p:last-child, .business-fieldwork-row span, .business-fieldwork-row small { color: var(--muted); overflow-wrap: anywhere; }
+.business-fieldwork-state, .business-fieldwork-pins span, .business-risk-band { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--line); border-radius: 999px; padding: 5px 9px; background: var(--color-site-bg); color: var(--ink); font-size: 12px; }
+.business-fieldwork-pins { display: flex; flex-wrap: wrap; gap: 7px; }
+.business-fieldwork-pins strong { color: var(--muted); }
+.business-fieldwork-tabs { display: flex; flex-wrap: wrap; gap: 8px; border-bottom: 1px solid var(--line); padding-bottom: 9px; }
+.business-fieldwork-tabs button { min-height: 44px; border: 1px solid var(--line); border-radius: 8px; padding: 8px 13px; background: #fff; color: var(--ink); font: inherit; cursor: pointer; }
+.business-fieldwork-tabs button.selected, .business-fieldwork-picklist button.selected { border-color: var(--primary); box-shadow: inset 0 -2px 0 var(--primary); background: var(--color-site-bg); font-weight: 700; }
+.business-fieldwork-body { display: grid; gap: 14px; min-width: 0; }
+.business-fieldwork-card, .business-fieldwork-source { display: grid; gap: 12px; min-width: 0; padding: 14px; border: 1px solid var(--line); border-radius: 10px; background: #fff; }
+.business-fieldwork-card > h3 { margin: 0; }
+.business-fieldwork-scroll { max-width: 100%; overflow-x: auto; border: 1px solid var(--line); border-radius: 8px; }
+.business-fieldwork-scroll table { width: 100%; min-width: 760px; border-collapse: collapse; }
+.business-fieldwork-scroll th, .business-fieldwork-scroll td { padding: 9px 10px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; font-size: 13px; }
+.business-fieldwork-scroll thead th { position: sticky; top: 0; background: var(--color-site-bg); color: var(--ink); }
+.business-fieldwork-scroll tbody tr:last-child > * { border-bottom: 0; }
+.business-fieldwork-scroll tbody tr.selected { background: #eff6ff; }
+.business-fieldwork-scroll tbody td > small, .business-fieldwork-scroll tbody td > .business-risk-band { display: block; margin-top: 4px; }
+.business-fieldwork-row-actions { display: flex; flex-wrap: wrap; gap: 5px; min-width: 240px; }
+.business-risk-band { width: max-content; font-weight: 700; }
+.business-risk-band.risk-red { color: #991b1b; background: #fef2f2; border-color: #fecaca; }
+.business-risk-band.risk-amber { color: #854d0e; background: #fffbeb; border-color: #fde68a; }
+.business-risk-band.risk-green { color: #166534; background: #f0fdf4; border-color: #bbf7d0; }
+.business-fieldwork-actions { border: 1px solid var(--line); border-left: 4px solid var(--primary); border-radius: 8px; padding: 10px 12px; background: var(--color-site-bg); }
+.business-fieldwork-actions span { display: block; color: var(--muted); font-size: 12px; margin-top: 3px; overflow-wrap: anywhere; }
+.business-fieldwork-reconciliation { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; align-items: center; padding: 12px; border: 1px solid var(--line); border-radius: 9px; }
+.business-fieldwork-reconciliation > div { display: grid; gap: 4px; min-width: 0; }
+.business-fieldwork-reconciliation span { color: var(--muted); overflow-wrap: anywhere; }
+.business-fieldwork-reconciliation.balanced { border-color: #86efac; background: #f0fdf4; }
+.business-fieldwork-reconciliation.unbalanced { border-color: #fca5a5; background: #fef2f2; }
+.business-fieldwork-checklist { display: flex; flex-wrap: wrap; gap: 6px 16px; border: 1px solid var(--line); border-radius: 8px; padding: 12px; }
+.business-fieldwork-checklist legend { padding: 0 5px; font-weight: 700; }
+.business-fieldwork-checklist label { display: flex; align-items: center; gap: 7px; min-height: 36px; }
+.business-fieldwork-checklist input, .business-fieldwork-panel input[type="checkbox"] { width: 18px; height: 18px; }
+.business-fieldwork-panel textarea { width: 100%; min-height: 78px; resize: vertical; border: 1px solid var(--ui-control-border); border-radius: 7px; padding: 9px 11px; background: #fff; color: var(--ink); font: inherit; }
+.business-fieldwork-panel select[multiple] { min-height: 110px; }
+.business-fieldwork-panel :is(button,input,select,textarea,summary):focus-visible { outline: 3px solid #60a5fa; outline-offset: 2px; }
+.business-fieldwork-details { border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; }
+.business-fieldwork-details summary { min-height: 30px; cursor: pointer; font-weight: 700; }
+.business-fieldwork-subform { border-top: 1px solid var(--line); padding-top: 12px; }
+.business-fieldwork-template-step { display: grid; grid-template-columns: minmax(0,1fr) minmax(150px,.35fr); gap: 10px; padding: 10px; border: 1px solid var(--line); border-radius: 8px; }
+.business-fieldwork-template-step .business-field:nth-child(3) { grid-column: 1 / -1; }
+.business-fieldwork-picklist { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 8px; }
+.business-fieldwork-picklist button { display: grid; gap: 4px; min-height: 60px; border: 1px solid var(--line); border-radius: 8px; padding: 9px 11px; text-align: left; background: #fff; color: var(--ink); cursor: pointer; }
+.business-fieldwork-picklist small { color: var(--muted); }
+.business-fieldwork-procedure { display: grid; gap: 9px; padding: 12px; border: 1px solid var(--line); border-radius: 9px; }
+.business-fieldwork-procedure .business-section-heading > div { display: grid; gap: 3px; }
+.business-fieldwork-procedure .business-section-heading span, .business-fieldwork-procedure small { color: var(--muted); font-size: 12px; }
+.business-fieldwork-procedure p { margin: 0; line-height: 1.45; }
+.business-fieldwork-action-row { justify-content: flex-start; }
+.business-fieldwork-sample-test { display: grid; gap: 9px; padding: 12px; border: 1px solid var(--line); border-radius: 9px; }
+.business-fieldwork-sample-test > div:first-child { display: grid; gap: 3px; }
+.business-fieldwork-sample-test > div:first-child span { color: var(--muted); font-size: 12px; }
+.business-fieldwork-panel .business-fieldwork-row { padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; }
+.business-fieldwork-result { justify-content: flex-start; padding: 9px 11px; border-left: 3px solid var(--primary); background: var(--color-site-bg); }
+.business-fieldwork-pagination { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 8px 14px; padding: 8px 0; color: var(--muted); font-size: .85rem; }
+.business-fieldwork-pagination button { min-height: 44px; }
+.business-fieldwork-review { display: grid; gap: 8px; min-width: min(100%, 300px); }
+.business-fieldwork-review .business-field { margin: 0; }
+@media (max-width: 700px) {
+  .business-fieldwork-head, .business-fieldwork-panel .business-section-heading { align-items: stretch; flex-direction: column; }
+  .business-fieldwork-reconciliation { grid-template-columns: minmax(0, 1fr); }
+  .business-fieldwork-template-step { grid-template-columns: minmax(0,1fr); }
+  .business-fieldwork-template-step .business-field:nth-child(3) { grid-column: auto; }
+  .business-fieldwork-row { align-items: flex-start; }
+  .business-fieldwork-pagination { justify-content: space-between; }
+}

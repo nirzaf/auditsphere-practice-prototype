@@ -45,6 +45,7 @@ import { BusinessDeliveryPanel } from './BusinessDeliveryPanel';
 import { BusinessPbcPanel } from './BusinessPbcPanel';
 import { BusinessPlanningPanel } from './BusinessPlanningPanel';
 import { BusinessTrialBalancePanel } from './BusinessTrialBalancePanel';
+import { BusinessFieldworkPanel } from './BusinessFieldworkPanel';
 
 type SetupMode = 'create' | 'connect';
 
@@ -1230,6 +1231,9 @@ export function BusinessWorkspaceConsole() {
           {context.allowedActions.includes('planning.read') && <BusinessPlanningPanel workspaceId={preference.workspaceId} selected={preference}
             context={context} engagement={riskEngagement} onChanged={() => setRecordsKey(value => value + 1)} />}
           {context.allowedActions.includes('planning.read') && <BusinessTrialBalancePanel workspaceId={preference.workspaceId}
+            selected={preference} context={context} engagement={riskEngagement} files={files}
+            onChanged={() => setRecordsKey(value => value + 1)} />}
+          {context.allowedActions.includes('fieldwork.read') && <BusinessFieldworkPanel workspaceId={preference.workspaceId}
             selected={preference} context={context} engagement={riskEngagement} files={files}
             onChanged={() => setRecordsKey(value => value + 1)} />}
         </section>}

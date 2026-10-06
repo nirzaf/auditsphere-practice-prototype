@@ -13,6 +13,8 @@ import type {
   BusinessPlanningWorkspace,
   BusinessPlanningReadiness,
   BusinessTrialBalanceWorkspace,
+  BusinessFinancialStatements,
+  BusinessFieldworkWorkspace,
   BusinessTrialBalancePreview,
   BusinessTrialBalanceImport,
   BusinessCapacity,
@@ -302,6 +304,25 @@ export async function getBusinessTrialBalanceWorkspace(
   return requestJson(`/api/workspaces/${encodeURIComponent(workspaceId)}/engagements/${encodeURIComponent(engagementId)}/trial-balance-workspace`, { context: selected, signal });
 }
 
+export async function getBusinessFinancialStatements(workspaceId:string,engagementId:string,selected:BusinessWorkspacePreference,signal?:AbortSignal):Promise<BusinessFinancialStatements>{
+  return requestJson(`/api/workspaces/${encodeURIComponent(workspaceId)}/engagements/${encodeURIComponent(engagementId)}/financial-statements`,{context:selected,signal});
+}
+export async function getBusinessFsliSourceLines(workspaceId:string,engagementId:string,fsliId:string,selected:BusinessWorkspacePreference,signal?:AbortSignal){
+  const query=new URLSearchParams({limit:'100'});return requestJson(`/api/workspaces/${encodeURIComponent(workspaceId)}/engagements/${encodeURIComponent(engagementId)}/fslis/${encodeURIComponent(fsliId)}/source-lines?${query}`,{context:selected,signal});
+}
+export async function getBusinessFieldworkWorkspace(workspaceId:string,engagementId:string,selected:BusinessWorkspacePreference,signal?:AbortSignal):Promise<BusinessFieldworkWorkspace>{
+  return requestJson(`/api/workspaces/${encodeURIComponent(workspaceId)}/engagements/${encodeURIComponent(engagementId)}/fieldwork-workspace`,{context:selected,signal});
+}
+export async function getBusinessSamplingPlan(workspaceId:string,engagementId:string,planId:string,selected:BusinessWorkspacePreference,signal?:AbortSignal):Promise<Record<string,unknown>>{
+  return requestJson(`/api/workspaces/${encodeURIComponent(workspaceId)}/engagements/${encodeURIComponent(engagementId)}/sampling-plans/${encodeURIComponent(planId)}`,{context:selected,signal});
+}
+export async function getBusinessSamplingPopulation(workspaceId:string,engagementId:string,populationId:string,selected:BusinessWorkspacePreference,signal?:AbortSignal):Promise<Record<string,unknown>>{
+  return requestJson(`/api/workspaces/${encodeURIComponent(workspaceId)}/engagements/${encodeURIComponent(engagementId)}/sampling-populations/${encodeURIComponent(populationId)}`,{context:selected,signal});
+}
+export async function getBusinessFieldworkChanges<T = { changes: unknown[]; nextCursor: string; hasMore: boolean }>(workspaceId:string,engagementId:string,selected:BusinessWorkspacePreference,after:number,signal?:AbortSignal):Promise<T>{
+  const query=new URLSearchParams({after:String(after),limit:'100'});return requestJson<T>(`/api/workspaces/${encodeURIComponent(workspaceId)}/engagements/${encodeURIComponent(engagementId)}/changes?${query}`,{context:selected,signal});
+}
+
 export async function getBusinessTrialBalancePreview(
   workspaceId: string,
   engagementId: string,
@@ -470,6 +491,11 @@ export async function runBusinessCommand<T = Record<string, unknown>>(
                 : value.type === 'proposal.revise' ? { entity: 'Proposal', id: payload.proposalId }
               : value.type === 'proposal.generate' || value.type === 'proposal.generate.retry' || value.type === 'proposal.approve' || value.type === 'proposal.dispatch' ? { entity: 'ProposalVersion', id: payload.proposalVersionId }
                 : value.type === 'proposal.dispatch.retry' ? { entity: 'Dispatch', id: payload.dispatchId }
+                  : value.type === 'analytical-review.submit' ? { entity: 'AnalyticalReview', id: payload.analyticalReviewId }
+                    : value.type === 'workprogram.template.approve' ? { entity: 'WorkprogramTemplate', id: payload.templateId }
+                      : value.type === 'procedure.update' || value.type === 'procedure.mark-not-applicable' || value.type === 'procedure.submit' || value.type === 'procedure.review' ? { entity: 'Procedure', id: payload.procedureId }
+                        : value.type === 'sampling.policy.approve' ? { entity: 'SamplingPolicy', id: payload.policyId }
+                          : value.type === 'sampling.record-test' && Number(commandVersion)>0 ? { entity: 'SampleTest', id: payload.populationRowId }
                 : null
     : null;
   const expectedVersions = versionTarget && typeof versionTarget.id === 'string'

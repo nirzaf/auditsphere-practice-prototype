@@ -89,6 +89,7 @@ import { getBusinessAcceptanceGate, getBusinessRiskWorkspace } from './businessR
 import { getBusinessDeliveryWorkspace } from './businessDelivery';
 import { getBusinessCapacity, getBusinessPlanningWorkspace, listBusinessEngagementFolders } from './businessPlanning';
 import { getBusinessPlanningReadiness, getBusinessTrialBalanceImport, getBusinessTrialBalancePreview, getBusinessTrialBalanceWorkspace } from './businessTb';
+import { getBusinessFinancialStatements, getBusinessFsliSourceLines, getBusinessFieldworkWorkspace, getBusinessSamplingPlan, getBusinessSamplingPopulation, getBusinessFieldworkChanges } from './businessFieldwork';
 
 const JSON_BODY_LIMIT = 1_000_000;
 /** Hard ceiling for a single command payload; the domain model is small. */
@@ -251,6 +252,46 @@ const handleBusinessPlanningWorkspace = async (ctx: RouteContext): Promise<Respo
   const context = await resolveBusinessContext(ctx.env, ctx.params.workspaceId, ctx.request);
   const result = await getBusinessPlanningWorkspace(ctx.env, ctx.params.workspaceId, context, ctx.params.engagementId);
   return jsonResponse(result, 200, ctx.requestId);
+};
+
+const handleBusinessFinancialStatements = async (ctx: RouteContext): Promise<Response> => {
+  const context=await resolveBusinessContext(ctx.env,ctx.params.workspaceId,ctx.request);
+  const result=await getBusinessFinancialStatements(ctx.env,ctx.params.workspaceId,context,ctx.params.engagementId);
+  return jsonResponse(result,200,ctx.requestId);
+};
+
+const handleBusinessFsliSourceLines = async (ctx: RouteContext): Promise<Response> => {
+  const context=await resolveBusinessContext(ctx.env,ctx.params.workspaceId,ctx.request);
+  const limit=Number(ctx.url.searchParams.get('limit')??100);const cursor=Number(ctx.url.searchParams.get('cursor')??0);
+  if(!Number.isInteger(limit)||!Number.isInteger(cursor)||cursor<0)throw new ApiError('BAD_REQUEST','Source-line limit and cursor must be non-negative integers.');
+  const result=await getBusinessFsliSourceLines(ctx.env,ctx.params.workspaceId,context,ctx.params.engagementId,ctx.params.fsliId,limit,cursor);
+  return jsonResponse(result,200,ctx.requestId);
+};
+
+const handleBusinessFieldworkWorkspace = async (ctx: RouteContext): Promise<Response> => {
+  const context=await resolveBusinessContext(ctx.env,ctx.params.workspaceId,ctx.request);
+  const result=await getBusinessFieldworkWorkspace(ctx.env,ctx.params.workspaceId,context,ctx.params.engagementId);
+  return jsonResponse(result,200,ctx.requestId);
+};
+
+const handleBusinessSamplingPlan = async (ctx: RouteContext): Promise<Response> => {
+  const context=await resolveBusinessContext(ctx.env,ctx.params.workspaceId,ctx.request);
+  const result=await getBusinessSamplingPlan(ctx.env,ctx.params.workspaceId,context,ctx.params.engagementId,ctx.params.planId);
+  return jsonResponse(result,200,ctx.requestId);
+};
+
+const handleBusinessSamplingPopulation = async (ctx: RouteContext): Promise<Response> => {
+  const context=await resolveBusinessContext(ctx.env,ctx.params.workspaceId,ctx.request);
+  const result=await getBusinessSamplingPopulation(ctx.env,ctx.params.workspaceId,context,ctx.params.engagementId,ctx.params.populationId);
+  return jsonResponse(result,200,ctx.requestId);
+};
+
+const handleBusinessFieldworkChanges = async (ctx: RouteContext): Promise<Response> => {
+  const context=await resolveBusinessContext(ctx.env,ctx.params.workspaceId,ctx.request);
+  const after=Number(ctx.url.searchParams.get('after')??0);const limit=Number(ctx.url.searchParams.get('limit')??100);
+  if(!Number.isInteger(after)||after<0||!Number.isInteger(limit)||limit<1)throw new ApiError('BAD_REQUEST','Change feed cursor and limit must be non-negative integers.');
+  const result=await getBusinessFieldworkChanges(ctx.env,ctx.params.workspaceId,context,ctx.params.engagementId,after,limit);
+  return jsonResponse(result,200,ctx.requestId);
 };
 
 const handleBusinessTrialBalanceWorkspace = async (ctx: RouteContext): Promise<Response> => {
@@ -747,6 +788,12 @@ const router = createRouter()
   .get('/api/workspaces/:workspaceId/engagements/:engagementId/risk-workspace', handleBusinessRiskWorkspace)
   .get('/api/workspaces/:workspaceId/engagements/:engagementId/delivery-workspace', handleBusinessDeliveryWorkspace)
   .get('/api/workspaces/:workspaceId/engagements/:engagementId/planning-workspace', handleBusinessPlanningWorkspace)
+  .get('/api/workspaces/:workspaceId/engagements/:engagementId/financial-statements', handleBusinessFinancialStatements)
+  .get('/api/workspaces/:workspaceId/engagements/:engagementId/fslis/:fsliId/source-lines', handleBusinessFsliSourceLines)
+  .get('/api/workspaces/:workspaceId/engagements/:engagementId/fieldwork-workspace', handleBusinessFieldworkWorkspace)
+  .get('/api/workspaces/:workspaceId/engagements/:engagementId/sampling-plans/:planId', handleBusinessSamplingPlan)
+  .get('/api/workspaces/:workspaceId/engagements/:engagementId/sampling-populations/:populationId', handleBusinessSamplingPopulation)
+  .get('/api/workspaces/:workspaceId/engagements/:engagementId/changes', handleBusinessFieldworkChanges)
   .get('/api/workspaces/:workspaceId/engagements/:engagementId/trial-balance-workspace', handleBusinessTrialBalanceWorkspace)
   .get('/api/workspaces/:workspaceId/engagements/:engagementId/trial-balance-preview', handleBusinessTrialBalancePreview)
   .get('/api/workspaces/:workspaceId/engagements/:engagementId/tb-imports/:importId', handleBusinessTrialBalanceImport)

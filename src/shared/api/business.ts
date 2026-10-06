@@ -378,6 +378,44 @@ export interface BusinessTrialBalanceWorkspace {
     approvedAt: string | null; signoffRationale: string | null; staleEventCount: number };
   readiness: BusinessPlanningReadiness;
 }
+
+export interface BusinessStatementLine {
+  fsliId: string; code: string; name: string; statement: 'PROFIT_LOSS' | 'BALANCE_SHEET'; category: string; displaySign: number;
+  currentBaseMinor: number; currentAdjustedMinor: number; priorMinor: number | null; varianceNumerator: string | null;
+  varianceDenominator: string | null; variancePercent: number | null; varianceReason: 'CALCULATED' | 'NEW_BALANCE' | 'ZERO_BOTH' | 'NO_COMPARATIVE';
+  riskBand: 'GREEN' | 'AMBER' | 'RED'; sourceRows: Array<{ tbLineId: string; sourceRowNumber: number; accountCode: string; accountName: string;
+    currentRawMinor: string; currentPresentedMinor: string; priorRawMinor: string | null; priorPresentedMinor: string | null; displaySign: number }>;
+}
+export interface BusinessFinancialStatements {
+  engagementId: string; sourcePins: Record<string, string | number | null>; sourceHash: string; adjustmentSetHash: string; basis: 'ADJUSTED';
+  profitLoss: BusinessStatementLine[]; balanceSheet: BusinessStatementLine[];
+  reconciliation: { assetsMinor: string; liabilitiesMinor: string; equityMinor: string; currentResultMinor: string;
+    equityIncludingCurrentResultMinor: string; differenceMinor: string; balanced: boolean };
+  blockers: Array<{ code: string; differenceMinor: string; message: string }>;
+}
+export interface BusinessFieldworkWorkspace {
+  engagement: { id: string; clientId: string; state: string; periodStart: string; periodEnd: string; standardsProfileId: string; activeTbVersionId: string | null; activeMappingVersionId: string | null; approvedPlanningVersionId: string | null };
+  staff: Array<{ id: string; displayName: string; grade: StaffGrade }>;
+  evidenceLinks: Array<{ id: string; evidenceId: string; evidenceVersion: number; targetVersion: number; targetType: string; targetId: string; unlinkReason: string | null; linkedAt: string }>;
+  statements: BusinessFinancialStatements;
+  templates: Array<{ id: string; version: number; fsliCode: string; revision: number; title: string; standardsProfileId: string; status: string; approvedByActorId: string | null; approvedAt: string | null }>;
+  analyticalReviews: Array<Record<string, unknown>>;
+  goingConcern: null | { id: string; version: number; revision: number; isa570Edition: string; assessmentStart: string; assessmentEnd: string; checklist: Record<string, boolean>;
+    eventsText: string; mitigatingPlansText: string; conclusion: string; rationale: string; status: string; sourceHash: string; createdAt: string };
+  workprograms: Array<{ id: string; version: number; fsliId: string; fsliCode: string; fsliName: string; templateId: string; planningVersionId: string; riskBand: string; assignedStaffId: string; status: string; sourceHash: string }>;
+  procedures: Array<{ id: string; version: number; workprogramId: string; fsliId: string; ordinal: number; title: string; instructions: string; assertion: string; origin: string; mandatory: number;
+    scopeReason: string | null; workPerformed: string | null; conclusion: string | null; applicable: number; notApplicableReason: string | null; status: string; executedByStaffId: string | null;
+    evidenceSetHash: string; sourceHash: string; submissionId: string | null }>;
+  evidence: Array<{ id: string; familyId: string; version: number; mode: 'DIGITAL' | 'PHYSICAL' | 'HYBRID'; title: string; fileVersionId: string | null; physicalIndex: string | null;
+    physicalDescription: string | null; binder: string | null; box: string | null; shelf: string | null; externalSourceUrl: string | null; retrievedAt: string | null;
+    fileSha256: string | null; adequacy: 'ADEQUATE' | 'DEFICIENT' | null; adequacyRationale: string | null }>;
+  samplingPolicies: Array<{ id: string; version: number; name: string; method: 'MUS_BINOMIAL_PPS' | 'SYSTEMATIC' | 'STRATIFIED_ATTRIBUTE'; algorithmVersion: string; assumptions: string; status: string; approvedByActorId: string | null; approvedAt: string | null }>;
+  populations: Array<{ id: string; name: string; sourceFileId: string; fsliId: string; sourceHash: string; orderHash: string; rowCount: number; positiveTotalMinor: number; excludedCount: number; exclusionsReason: string }>;
+  samplingPlans: Array<{ id: string; populationId: string; policyId: string; revision: number; method: string; confidenceBps: number | null; tolerableMinor: number | null;
+    expectedTaintedBps: number | null; requestedCount: number | null; calculatedCount: number; parameters: Record<string, unknown>; inputHash: string; reason: string; createdAt: string;
+    latestResult: string | null; seedHex: string; policyVersion: number }>;
+  changeCursor: number;
+}
 export interface BusinessTrialBalancePreview {
   file: { id: string; name: string; mediaType: BusinessFileMediaType; sizeBytes: number; sha256: string };
   worksheetNames: string[];
