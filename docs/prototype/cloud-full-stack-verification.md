@@ -282,16 +282,23 @@ bounded API acceptance for:
   alternate work; seeded MUS replay preserves all 59 monetary draws, including
   repeat hits on one row; conservative zero-taint and misstatement evaluations
   produce explicit bounds and decisions.
-* **US-FLD-008:** Systematic sampling uses a persisted stable ordering and exact
-  rational start/interval, rejects an impossible requested count, and records an
-  explicit census when the full population is requested.
+* **US-FLD-008:** Systematic sampling uses exact integer/rational position
+  arithmetic, reproduces the specified 1,000-row / 50-item vector from the
+  independently verified seed, rejects an impossible count, and records a
+  zero-start CENSUS when every eligible row is selected. Repeating source-order
+  segments raise a reviewer prompt; a periodicity assessment is mandatory before
+  freezing that order, and the server-seeded Fisher–Yates shuffle retains its
+  algorithm, seed and resulting order hash.
 * **US-FLD-009:** Disjoint strata retain separate confidence assumptions and
   results; overlapping or omitted source rows are rejected, and a partial test
   reports each stratum while keeping the overall plan INCOMPLETE.
 
-The evidence is an API integration pass, not browser-level acceptance of these
-stories and not completion of the 46-story epic. Full requirement-by-requirement
-closure remains open.
+The API integration uses isolated local Worker/SQLite adapters and synthetic
+audit data. A separate Chromium journey covers the visible US-FLD-007/008
+evidence, methodology approval, periodicity warning, required assessment and
+shuffled plan details. US-FLD-009 remains API-level evidence here. These checks
+do not constitute firm methodology sign-off or completion of the 46-story epic;
+full requirement-by-requirement closure remains open.
 
 ## Reporting authorization and release-candidate SQL evidence — 2026-10-06
 
@@ -455,12 +462,12 @@ US-SYS-003 criteria are still open; the 46-story epic remains open.
 
 ## Cloudflare activation preflight — 2026-10-06
 
-GitHub environment `cloudflare-production` now contains the required
-`CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` secrets. Wrangler accepted
-the token for the configured account and listed the remote D1 migrations. The
-environment currently permits deployments from `main` but has no required
-reviewer; `CLOUDFLARE_DEPLOY_ENABLED` remains unset pending the production
-reviewer decision recorded in `cloudflare-cicd.md`.
+GitHub environment `cloudflare-production` contains the required
+`CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` secrets; the token was
+updated on 2026-10-06 and only secret presence/update metadata was verified.
+`CLOUDFLARE_DEPLOY_ENABLED` is `true`. The environment permits deployments from
+`main` but has no required reviewer. No workflow run, production migration or
+Worker deployment was triggered in this verification.
 
 Remote D1 reports migrations `0006` through `0029` pending. The migration audit
 found the intentional expiry-column transfer in `0007` and `dispatches` table

@@ -146,8 +146,18 @@ export async function startBusinessE2eServer(): Promise<BusinessE2eServer> {
     },
     setApiAvailable(available) { apiAvailable = available; },
     async close() {
-      db.close();
-      await new Promise<void>((resolvePromise, reject) => server.close(error => error ? reject(error) : resolvePromise()));
+      try {
+        await new Promise<void>((resolvePromise, reject) => {
+          const timeout = setTimeout(() => reject(new Error('The isolated business E2E server did not close within five seconds.')), 5000);
+          server.close(error => {
+            clearTimeout(timeout);
+            error ? reject(error) : resolvePromise();
+          });
+          server.closeAllConnections();
+        });
+      } finally {
+        db.close();
+      }
     }
   };
 }

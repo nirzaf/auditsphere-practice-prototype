@@ -84,7 +84,7 @@ async function createFieldworkFixture() {
   const workspace = await response.json() as { workspaceId: string; staffMemberId: string; actorProfileId: string };
   const ids = {
     clientId: randomUUID(), standardsId: randomUUID(), engagementId: randomUUID(),
-    fileId: randomUUID(), samplingFileId: randomUUID(), importId: randomUUID(), tbVersionId: randomUUID(), tbLineId: randomUUID(),
+    fileId: randomUUID(), samplingFileId: randomUUID(), systematicSamplingFileId: randomUUID(), importId: randomUUID(), tbVersionId: randomUUID(), tbLineId: randomUUID(),
     fsliId: randomUUID(), mappingDraftId: randomUUID(), mappingDraftLineId: randomUUID(),
     mappingVersionId: randomUUID(), mappingId: randomUUID(), materialityId: randomUUID(),
     planningId: randomUUID(), templateId: randomUUID(), templateStepA: randomUUID(), templateStepB: randomUUID(),
@@ -98,6 +98,11 @@ async function createFieldworkFixture() {
   const samplingSourceBytes = new TextEncoder().encode(samplingSource);
   const samplingObjectKey = `e2e/${key}/sampling-population.csv`;
   server!.putTestObject(samplingObjectKey, samplingSourceBytes);
+  const systematicSamplingSource = ['reference,amount,description', ...Array.from({ length: 12 }, (_, index) =>
+    `SYS-${String(index + 1).padStart(2, '0')},5000.00,Class ${index % 3 + 1}`)].join('\n');
+  const systematicSamplingSourceBytes = new TextEncoder().encode(systematicSamplingSource);
+  const systematicSamplingObjectKey = `e2e/${key}/systematic-population.csv`;
+  server!.putTestObject(systematicSamplingObjectKey, systematicSamplingSourceBytes);
 
   // This is a setup-only local SQLite fixture. Both browsers read and mutate the same
   // real Worker-backed rows; the fixture itself uses valid persisted provenance pins.
@@ -122,6 +127,10 @@ async function createFieldworkFixture() {
   runFixtureSql(`INSERT INTO file_versions(id,workspace_id,client_id,engagement_id,original_name,media_type,size_bytes,sha256,object_key,purpose,state,committed_at,immutable,created_at,updated_at,created_by_actor_id,updated_by_actor_id)
     VALUES(?,?,?,?,'qa-sampling-population.csv','text/csv',?,?,?,'EVIDENCE','COMMITTED',?,1,?,?,?,?)`,
   ids.samplingFileId, workspaceId, ids.clientId, ids.engagementId, samplingSourceBytes.length, sha256(samplingSource), samplingObjectKey,
+  now, now, now, workspace.actorProfileId, workspace.actorProfileId);
+  runFixtureSql(`INSERT INTO file_versions(id,workspace_id,client_id,engagement_id,original_name,media_type,size_bytes,sha256,object_key,purpose,state,committed_at,immutable,created_at,updated_at,created_by_actor_id,updated_by_actor_id)
+    VALUES(?,?,?,?,'qa-systematic-population.csv','text/csv',?,?,?,'EVIDENCE','COMMITTED',?,1,?,?,?,?)`,
+  ids.systematicSamplingFileId, workspaceId, ids.clientId, ids.engagementId, systematicSamplingSourceBytes.length, sha256(systematicSamplingSource), systematicSamplingObjectKey,
   now, now, now, workspace.actorProfileId, workspace.actorProfileId);
   runFixtureSql(`INSERT INTO tb_imports(id,workspace_id,version,client_id,engagement_id,file_version_id,status,worksheet,column_map_json,row_count,source_sha256,
     current_debits_minor,current_credits_minor,prior_debits_minor,prior_credits_minor,error_count,errors_json,created_by_actor_id,created_at,updated_at)
@@ -307,10 +316,11 @@ async function setVisibleFieldByLabel(tab: CdpTab, labelText: string, value: str
   const deadline = Date.now() + 5000;
   while (Date.now() < deadline) {
     const filled = await tab.evaluate<boolean>(`(() => {
-      const label = [...document.querySelectorAll('label.business-field')]
-        .find(item => item.querySelector('span')?.textContent?.trim() === ${JSON.stringify(labelText)});
-      const control = label?.querySelector('input,textarea,select');
-      if (!control || !control.getClientRects().length) return false;
+      const control = [...document.querySelectorAll('label.business-field')]
+        .filter(item => item.querySelector('span')?.textContent?.trim() === ${JSON.stringify(labelText)})
+        .map(item => item.querySelector('input,textarea,select'))
+        .find(item => !!item?.getClientRects().length);
+      if (!control) return false;
       let nextValue = ${JSON.stringify(value)};
       if (control instanceof HTMLSelectElement && ${JSON.stringify(optionText ?? null)}) {
         const option = [...control.options].find(item => item.textContent?.includes(${JSON.stringify(optionText ?? '')}));
@@ -327,7 +337,10 @@ async function setVisibleFieldByLabel(tab: CdpTab, labelText: string, value: str
     await sleep(80);
   }
   const availableFields = await tab.evaluate<string[]>(`[...document.querySelectorAll('label.business-field span')].map(item => item.textContent?.trim() ?? '')`);
-  assert.fail(`the visible "${labelText}" field did not accept the intended value. Available fields: ${availableFields.join(', ')}`);
+  const matchingFields = await tab.evaluate<Array<{ visible: boolean; tag: string | null }>>(`([...document.querySelectorAll('label.business-field')]
+    .filter(item => item.querySelector('span')?.textContent?.trim() === ${JSON.stringify(labelText)})
+    .map(item => { const control = item.querySelector('input,textarea,select'); return { visible: !!control?.getClientRects().length, tag: control?.tagName ?? null }; }))`);
+  assert.fail(`the visible "${labelText}" field did not accept the intended value. Matching fields: ${JSON.stringify(matchingFields)}. Available fields: ${availableFields.join(', ')}`);
 }
 
 before(async () => {
@@ -591,7 +604,7 @@ it('US-FLD-006 preserves same-procedure drafts across a two-browser version conf
   assert.deepEqual(tabB.blockedExternalRequests, []);
 });
 
-it('US-FLD-007 imports a documented population, creates a Partner-approved MUS plan, and evaluates the tested UI sample', { timeout: 120000 }, async () => {
+it('US-FLD-007 and US-FLD-008 verify MUS evaluation and systematic sampling with periodicity review', { timeout: 120000 }, async () => {
   assert.ok(server && tabA);
   const fixture = await createFieldworkFixture();
   await selectWorkspace(tabA, fixture, fixture.actorProfileId);
@@ -697,5 +710,60 @@ it('US-FLD-007 imports a documented population, creates a Partner-approved MUS p
   assert.equal(finalUi.boundVisible, true);
   assert.ok(tabA.requests.some(url => new URL(url).pathname.includes('/sampling-plans/')));
   assert.deepEqual(tabA.exceptions, [], 'the sampling acceptance screen has no unhandled JavaScript exceptions');
+  assert.deepEqual(tabA.blockedExternalRequests, []);
+
+  // Continue through the reviewer-sized systematic workflow and its periodicity review.
+  await setVisibleFieldByLabel(tabA, 'Sampling method', '', 'Systematic · reviewer-sized');
+  await clickVisibleButton(tabA, 'Create draft policy');
+  await waitFor(tabA, 'the draft systematic policy approval control', `document.body.innerText.includes('SYSTEMATIC') && !![...document.querySelectorAll('label.business-field span')].find(item => item.textContent?.trim() === 'Partner methodology approval rationale')`);
+  await setVisibleFieldByLabel(tabA, 'Partner methodology approval rationale', 'Partner approved reviewer-sized systematic selection with exact order and start retention.');
+  await clickVisibleButton(tabA, 'Partner approve');
+  await waitFor(tabA, 'the Partner-approved systematic policy', `document.body.innerText.includes('SYSTEMATIC') && document.body.innerText.includes('APPROVED') && ![...document.querySelectorAll('label.business-field span')].find(item => item.textContent?.trim() === 'Partner methodology approval rationale')`);
+
+  const systematicPopulationName = 'UI systematic sample with a repeated source-order pattern';
+  await setVisibleFieldByLabel(tabA, 'Population name', systematicPopulationName);
+  await setVisibleFieldByLabel(tabA, 'Committed source file', '', 'qa-systematic-population.csv');
+  await waitFor(tabA, 'the systematic population FSLI selection', `(() => {
+    const label = [...document.querySelectorAll('label.business-field')].find(item => item.querySelector('span')?.textContent?.trim() === 'FSLI');
+    return [...(label?.querySelectorAll('select option') ?? [])].some(option => option.textContent?.includes('QA-REV'));
+  })()`);
+  await setVisibleFieldByLabel(tabA, 'FSLI', '', 'QA-REV');
+  await setVisibleFieldByLabel(tabA, 'Zero and negative item alternate-procedure rationale', 'No nonpositive rows are present; retain this import rationale with the source population.');
+  await clickVisibleButton(tabA, 'Import population');
+  await waitFor(tabA, 'the imported 12-row systematic population', `document.body.innerText.includes(${JSON.stringify(systematicPopulationName)}) && document.body.innerText.includes('12 rows')`);
+  const selectedSystematicPopulation = await tabA.evaluate<boolean>(`(() => {
+    const row = [...document.querySelectorAll('.business-fieldwork-row')].find(item => item.textContent?.includes(${JSON.stringify(systematicPopulationName)}));
+    const button = [...(row?.querySelectorAll('button') ?? [])].find(item => item.textContent?.trim() === 'Assign and select');
+    button?.click(); return !!button;
+  })()`);
+  assert.equal(selectedSystematicPopulation, true, 'the exact periodic source population is selected');
+  await waitFor(tabA, 'the periodic-order warning and review field', `document.body.innerText.includes('Potential periodic source ordering detected.') && !![...document.querySelectorAll('label.business-field span')].find(item => item.textContent?.trim() === 'Periodicity assessment')`);
+  const periodicUi = await tabA.evaluate<{ warning: string; orderLabels: string[] }>(`({
+    warning: [...document.querySelectorAll('[role="alert"]')].map(item => item.innerText).find(text => text.includes('Potential periodic source ordering detected.')) ?? '',
+    orderLabels: [...document.querySelectorAll('label.business-field span')].map(item => item.textContent?.trim() ?? '')
+  })`);
+  assert.ok(periodicUi.warning.includes('Description repeats in a 3-row pattern across 4 cycles (eligible-order positions 1–12).'), periodicUi.warning);
+  assert.ok(periodicUi.orderLabels.includes('Periodicity assessment'));
+  const planDisabledBeforeAssessment = await tabA.evaluate<boolean>(`[...document.querySelectorAll('button')].find(item => item.textContent?.trim() === 'Create sample plan')?.disabled ?? false`);
+  assert.equal(planDisabledBeforeAssessment, true, 'the detected pattern requires a reviewer assessment before the plan can be frozen');
+  await setVisibleFieldByLabel(tabA, 'Reviewer-selected count', '6');
+  await setVisibleFieldByLabel(tabA, 'Frozen source ordering', '', 'Server-seeded unbiased shuffle');
+  await setVisibleFieldByLabel(tabA, 'Sample-size rationale', 'Select six distinct items for reviewer-assessed coverage; no confidence is inferred.');
+  await setVisibleFieldByLabel(tabA, 'Periodicity assessment', 'The source description repeats every three rows. Use the recorded unbiased shuffle before freezing the sample order.');
+  const planEnabledAfterAssessment = await tabA.evaluate<boolean>(`[...document.querySelectorAll('button')].find(item => item.textContent?.trim() === 'Create sample plan')?.disabled === false`);
+  assert.equal(planEnabledAfterAssessment, true, 'a complete periodicity assessment enables the reviewer-sized plan');
+  await clickVisibleButton(tabA, 'Create sample plan');
+  await waitFor(tabA, 'the shuffled six-item systematic plan', `document.body.innerText.includes('6 selected draws') && document.body.innerText.includes('SERVER_SEEDED_SHUFFLE') && document.body.innerText.includes('Periodicity assessment: The source description repeats every three rows.')`);
+  const systematicPlanUi = await tabA.evaluate<{ details: string; sampleRows: number; alert: string | null }>(`({
+    details: document.body.innerText,
+    sampleRows: document.querySelectorAll('.business-fieldwork-scroll table tbody tr').length,
+    alert: document.querySelector('.business-fieldwork-panel > .business-alert')?.textContent?.trim() ?? null
+  })`);
+  assert.equal(systematicPlanUi.alert, null);
+  assert.equal(systematicPlanUi.sampleRows, 6);
+  assert.ok(systematicPlanUi.details.includes('Interval N/n = 12/6.'));
+  assert.ok(systematicPlanUi.details.includes('no statistical confidence is inferred'));
+  assert.ok(systematicPlanUi.details.includes('Ordering: SERVER_SEEDED_SHUFFLE'));
+  assert.deepEqual(tabA.exceptions, [], 'the periodicity review screen has no unhandled JavaScript exceptions');
   assert.deepEqual(tabA.blockedExternalRequests, []);
 });

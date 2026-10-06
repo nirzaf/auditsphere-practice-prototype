@@ -25,6 +25,7 @@ type AdjustmentDraftLine = { fsliId: string; accountCode: string; debit: string;
 type PopulationPayload = {
   population: { id: string; name: string; rowCount: number; positiveTotalMinor: number; excludedCount: number; exclusionsReason: string; sourceHash: string; tbVersionId: string };
   rows: Array<{ id: string; sourceRowKey: string; ordinal: number; bookValueMinor: number; eligible: number; exclusionReason: string | null }>;
+  sourceOrderPeriodicityFlags: Array<{ field: 'DESCRIPTION' | 'BOOK_VALUE_MINOR'; periodLength: number; repeatedCycles: number; eligibleOrderStart: number; eligibleOrderEnd: number }>;
 };
 type SamplingPlanPayload = {
   plan: { id: string; populationId: string; method: string; revision: number; confidenceBps: number | null; tolerableMinor: number | null;
@@ -154,6 +155,7 @@ export function BusinessFieldworkPanel({ workspaceId, selected, context, engagem
   const [requestedCount, setRequestedCount] = useState('25');
   const [sampleRationale, setSampleRationale] = useState('Reviewer-selected systematic sample size based on engagement risk and available population coverage.');
   const [systematicOrdering, setSystematicOrdering] = useState<'SOURCE_ROW_ASC'|'REFERENCE_ASC'|'SERVER_SEEDED_SHUFFLE'>('SOURCE_ROW_ASC');
+  const [periodicityAssessment, setPeriodicityAssessment] = useState('');
   const [attributeExpected, setAttributeExpected] = useState('0');
   const [attributeTolerable, setAttributeTolerable] = useState('10');
   const [attributeRationale, setAttributeRationale] = useState('Risk-based tolerable deviation rate approved for this population.');
@@ -238,6 +240,7 @@ export function BusinessFieldworkPanel({ workspaceId, selected, context, engagem
   const editableEvidence = workspace?.evidence ?? [];
   const distinctSampleRows = planDetail ? [...new Set(planDetail.hits.map(hit => hit.populationRowId))] : [];
   const eligiblePopulationRows = population?.rows.filter(row => row.eligible === 1) ?? [];
+  const sourceOrderPeriodicityFlags = population?.sourceOrderPeriodicityFlags ?? [];
   const selectedSourceRows = allLines.find(line => line.fsliId === sourceFsliId)?.sourceRows ?? [];
   const currentSrm = workspace?.srmVersions[0];
   const currentSrmFindingsSnapshot=currentSrm?.findingsSnapshot as {thresholdAnalysis?:{aggregate?:Record<string,unknown>;perItem?:Array<Record<string,unknown>>}}|undefined;
@@ -276,6 +279,8 @@ export function BusinessFieldworkPanel({ workspaceId, selected, context, engagem
       .catch(reason => { if (!controller.signal.aborted) setError(reason instanceof Error ? reason.message : 'Population rows could not be loaded.'); });
     return () => controller.abort();
   }, [workspaceId, engagement.id, selectedPopulationId, scope.actorId, scope.persona, scope.clientId, scope.engagementId, available]);
+
+  useEffect(() => { setPeriodicityAssessment(''); }, [selectedPopulationId]);
 
   useEffect(() => {
     if (!selectedPlanId || !available) { setPlanDetail(null); return; }
@@ -445,7 +450,8 @@ export function BusinessFieldworkPanel({ workspaceId, selected, context, engagem
           populationRowIds, expectedDeviationBps: percentBps(attributeExpected), tolerableDeviationBps: percentBps(attributeTolerable), rationale: attributeRationale }));
       })() : undefined;
       const payload: Record<string, unknown> = { engagementId: engagement.id, populationId: population.population.id, policyId: policy.id, method,
-        ...(method === 'SYSTEMATIC' ? { requestedCount: Number(requestedCount), sampleSizeRationale: sampleRationale, orderingRule: systematicOrdering } : { confidenceBps }),
+        ...(method === 'SYSTEMATIC' ? { requestedCount: Number(requestedCount), sampleSizeRationale: sampleRationale, orderingRule: systematicOrdering,
+          ...(periodicityAssessment.trim() ? { periodicityAssessment: periodicityAssessment.trim() } : {}) } : { confidenceBps }),
         ...(method === 'MUS_BINOMIAL_PPS' ? { tolerableMinor: toMinor(tolerableAmount), expectedTaintedBps: percentBps(expectedTaintedPercent) } : {}),
         ...(strata ? { strata } : {}), reason: sampleRationale };
       const idempotencyKey = samplingPlanIdempotencyKey.current ?? newBusinessIdempotencyKey();
@@ -747,9 +753,22 @@ export function BusinessFieldworkPanel({ workspaceId, selected, context, engagem
           {method === 'MUS_BINOMIAL_PPS' && <div className="business-form-grid"><label className="business-field"><span>Confidence (%)</span><input type="number" min="50" max="99.99" step="0.01" value={confidencePercent} onChange={event => setConfidencePercent(event.target.value)} /></label>
             <label className="business-field"><span>Tolerable misstatement (QAR)</span><input required inputMode="decimal" value={tolerableAmount} onChange={event => setTolerableAmount(event.target.value)} /></label>
             <label className="business-field"><span>Expected tainted book-value (%)</span><input type="number" min="0" max="99.99" step="0.01" value={expectedTaintedPercent} onChange={event => setExpectedTaintedPercent(event.target.value)} /></label></div>}
-          {method === 'SYSTEMATIC' && <div className="business-form-grid"><label className="business-field"><span>Reviewer-selected count</span><input type="number" min="1" max={population.rows.filter(row => row.eligible === 1).length} value={requestedCount} onChange={event => setRequestedCount(event.target.value)} /></label>
-            <label className="business-field"><span>Frozen source ordering</span><select value={systematicOrdering} onChange={event => setSystematicOrdering(event.target.value as typeof systematicOrdering)}><option value="SOURCE_ROW_ASC">Source row ascending</option><option value="REFERENCE_ASC">Reference ascending</option><option value="SERVER_SEEDED_SHUFFLE">Server-seeded unbiased shuffle</option></select><small>Ordering and the rational start offset are pinned in the plan.</small></label>
-            <label className="business-field"><span>Sample-size rationale</span><textarea required minLength={10} value={sampleRationale} onChange={event => setSampleRationale(event.target.value)} /></label></div>}
+          {method === 'SYSTEMATIC' && <>
+            {sourceOrderPeriodicityFlags.length > 0 && <div className="business-note" role="alert" aria-live="polite">
+              <strong>Potential periodic source ordering detected.</strong>
+              <ul>{sourceOrderPeriodicityFlags.map(flag => <li key={`${flag.field}-${flag.periodLength}`}>
+                {(flag.field === 'DESCRIPTION' ? 'Description' : 'Book value')} repeats in a {flag.periodLength}-row pattern across {flag.repeatedCycles} cycles (eligible-order positions {flag.eligibleOrderStart}–{flag.eligibleOrderEnd}).
+              </li>)}</ul>
+              <p>This exact-cycle check is a review prompt, not proof of bias. Assess whether the interval could align with the source pattern. A server-seeded shuffle is available and its seed, algorithm and resulting order hash are retained.</p>
+            </div>}
+            <div className="business-form-grid"><label className="business-field"><span>Reviewer-selected count</span><input type="number" min="1" max={eligiblePopulationRows.length} value={requestedCount} onChange={event => setRequestedCount(event.target.value)} /></label>
+              <label className="business-field"><span>Frozen source ordering</span><select value={systematicOrdering} onChange={event => setSystematicOrdering(event.target.value as typeof systematicOrdering)}><option value="SOURCE_ROW_ASC">Source row ascending</option><option value="REFERENCE_ASC">Reference ascending</option><option value="SERVER_SEEDED_SHUFFLE">Server-seeded unbiased shuffle</option></select>
+                <small>{systematicOrdering === 'SERVER_SEEDED_SHUFFLE' ? 'An unbiased Fisher–Yates shuffle is applied before the order is frozen; the algorithm, seed and order hash are recorded.' : 'The selected order and exact rational start offset are pinned in the plan.'}</small></label>
+              <label className="business-field"><span>Sample-size rationale</span><textarea required minLength={10} value={sampleRationale} onChange={event => setSampleRationale(event.target.value)} /></label>
+              {sourceOrderPeriodicityFlags.length > 0 && <label className="business-field"><span>Periodicity assessment</span><textarea id="systematic-periodicity-assessment" aria-describedby="systematic-periodicity-help" required minLength={10} value={periodicityAssessment} onChange={event => setPeriodicityAssessment(event.target.value)} /></label>}
+            </div>
+            {sourceOrderPeriodicityFlags.length > 0 && <p id="systematic-periodicity-help" className="business-note">Record the source-order risk you assessed and why the chosen ordering is appropriate. The plan will retain this assessment.</p>}
+          </>}
           {method === 'STRATIFIED_ATTRIBUTE' && <><div className="business-form-grid"><label className="business-field"><span>Joint confidence (%)</span><input type="number" min="50" max="99.99" step="0.01" value={confidencePercent} onChange={event => setConfidencePercent(event.target.value)} /></label>
             <label className="business-field"><span>Expected deviation (%)</span><input type="number" min="0" max="99.99" step="0.01" value={attributeExpected} onChange={event => setAttributeExpected(event.target.value)} /></label>
             <label className="business-field"><span>Tolerable deviation (%)</span><input type="number" min="0.01" max="99.99" step="0.01" value={attributeTolerable} onChange={event => setAttributeTolerable(event.target.value)} /></label>
@@ -758,13 +777,20 @@ export function BusinessFieldworkPanel({ workspaceId, selected, context, engagem
             <PaginationControls page={attributePage} pageSize={100} total={eligiblePopulationRows.length} label="Eligible population rows" onPage={setAttributePage} />
             <p className="business-note">Each eligible source row must be assigned exactly once. Confidence is split by the approved Bonferroni method; no averaging can make an incomplete stratum pass.</p></>}
           <label className="business-field"><span>Reviewer sampling rationale</span><textarea required minLength={10} value={sampleRationale} onChange={event => setSampleRationale(event.target.value)} /></label>
-          <button className="btn primary" type="button" disabled={busy || !canReview || !workspace.samplingPolicies.some(item => item.method === method && item.status === 'APPROVED')} onClick={() => void createSamplingPlan()}>Create sample plan</button>
+          <button className="btn primary" type="button" disabled={busy || !canReview || !workspace.samplingPolicies.some(item => item.method === method && item.status === 'APPROVED') || (method === 'SYSTEMATIC' && sourceOrderPeriodicityFlags.length > 0 && periodicityAssessment.trim().length < 10)} onClick={() => void createSamplingPlan()}>Create sample plan</button>
         </section>}
         {workspace.samplingPlans.map(plan => <div className="business-fieldwork-row" key={plan.id}><div><strong>{label(plan.method)} · {plan.calculatedCount} draws</strong><span>{plan.populationId} · revision {plan.revision} · {plan.latestResult ? label(plan.latestResult) : 'Not evaluated'} · {plan.inputHash.slice(0,12)}</span></div>
           <button type="button" className="btn sm" aria-pressed={selectedPlanId === plan.id} onClick={() => { setHitPage(0); setSamplePage(0); setSelectedPlanId(plan.id); }}>Open exact plan</button></div>)}
         {planDetail && <section className="business-fieldwork-card"><div className="business-section-heading"><div><h3>{label(planDetail.plan.method)} · revision {planDetail.plan.revision}</h3><p className="business-muted">{planDetail.plan.calculatedCount} selected draws · {planDetail.hits.length} draw rows · {planDetail.plan.latestResult ? label(planDetail.plan.latestResult) : 'Not evaluated'}</p></div>
           <button type="button" className="btn sm" disabled={busy || !canReview} onClick={() => void evaluateCurrentSamplePlan()}>Evaluate current tests</button></div>
           <p className="business-note">Input hash {planDetail.plan.inputHash} · policy version {planDetail.plan.policyVersion ?? '—'} · seed {planDetail.plan.seedHex ?? 'server-held'} · selected rows and draw numbers are immutable.</p>
+          {planDetail.plan.method === 'SYSTEMATIC' && <p className="business-note">
+            {planDetail.plan.parameters.selectionMode === 'CENSUS' ? 'CENSUS · every eligible row is selected.' : 'Reviewer-sized systematic selection · no statistical confidence is inferred.'}
+            {' '}Interval N/n = {String(planDetail.plan.parameters.intervalNumerator)}/{String(planDetail.plan.parameters.intervalDenominator)}.
+            {' '}Exact start offset R/n = {String(planDetail.plan.parameters.startNumerator)}/{String(planDetail.plan.parameters.startDenominator)}.
+            {' '}Ordering: {String(planDetail.plan.parameters.orderingRule)} · order hash {String(planDetail.plan.parameters.orderingHash)}.
+          </p>}
+          {planDetail.plan.method === 'SYSTEMATIC' && typeof planDetail.plan.parameters.periodicityAssessment === 'string' && <p className="business-note">Periodicity assessment: {planDetail.plan.parameters.periodicityAssessment}</p>}
           {planDetail.evaluations.map((evaluation,index) => <p className="business-fieldwork-result" key={String(evaluation.id ?? index)}><strong>{label(evaluation.result)}</strong> · {String(evaluation.reviewedAt ?? '')} · {String(evaluation.upperBoundMinor ? qar(String(evaluation.upperBoundMinor)) : 'No monetary upper bound')}</p>)}
           <div className="business-fieldwork-scroll"><table><thead><tr><th>Draw</th><th>Reference</th><th>Book value</th><th>Monetary unit</th><th>Stratum</th></tr></thead><tbody>{planDetail.hits.slice(hitPage * 100, (hitPage + 1) * 100).map(hit => <tr key={`${hit.drawNumber}-${hit.populationRowId}`}><td>{hit.drawNumber}</td><td>{hit.sourceRowKey}</td><td>{qar(planDetail.rows.find(row => row.id === hit.populationRowId)?.bookValueMinor)}</td><td>{hit.monetaryUnitMinor ? qar(hit.monetaryUnitMinor) : '—'}</td><td>{hit.stratumKey ?? '—'}</td></tr>)}</tbody></table></div>
           <PaginationControls page={hitPage} pageSize={100} total={planDetail.hits.length} label="Sample draws" onPage={setHitPage} />

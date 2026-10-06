@@ -103,7 +103,8 @@ const samplingPlan = z.strictObject({ type: z.literal('sampling.plan'), payload:
   engagementId: id, populationId: id, policyId: id, method: z.enum(['MUS_BINOMIAL_PPS','SYSTEMATIC','STRATIFIED_ATTRIBUTE']),
   confidenceBps: z.number().int().min(5000).max(9999).nullable().optional(), tolerableMinor: minor.nullable().optional(),
   expectedTaintedBps: z.number().int().min(0).max(9999).nullable().optional(), requestedCount: z.number().int().positive().nullable().optional(),
-  sampleSizeRationale: text(10,5000).nullable().optional(), orderingRule: z.enum(['SOURCE_ROW_ASC','REFERENCE_ASC','SERVER_SEEDED_SHUFFLE']).default('SOURCE_ROW_ASC'),
+  sampleSizeRationale: text(10,5000).nullable().optional(), periodicityAssessment: text(10,5000).nullable().optional(),
+  orderingRule: z.enum(['SOURCE_ROW_ASC','REFERENCE_ASC','SERVER_SEEDED_SHUFFLE']).default('SOURCE_ROW_ASC'),
   strata: z.array(stratumInput).max(100).optional(), reason: text(10,10000)
 }) });
 const samplingRecordTest = z.strictObject({ type: z.literal('sampling.record-test'), payload: z.strictObject({
@@ -500,9 +501,56 @@ export async function getBusinessSamplingPopulation(env:Env,workspaceId:string,c
     FROM sample_populations WHERE workspace_id=? AND id=? AND engagement_id=?`).bind(workspaceId,populationId,engagement.id).first<Record<string,unknown>>();
   if(!population)throw new ApiError('NOT_FOUND','The sampling population was not found in this engagement.');
   const rows=await env.DB.prepare(`SELECT id,source_row_key AS sourceRowKey,ordinal,book_value_minor AS bookValueMinor,eligible,
-      exclusion_reason AS exclusionReason FROM population_rows WHERE workspace_id=? AND population_id=? ORDER BY ordinal`)
+      exclusion_reason AS exclusionReason,source_data_json AS sourceDataJson FROM population_rows WHERE workspace_id=? AND population_id=? ORDER BY ordinal`)
     .bind(workspaceId,populationId).all<Record<string,unknown>>();
-  return {population,rows:rows.results??[]};
+  const sourceRows=rows.results??[];
+  return {population,rows:sourceRows.map(({sourceDataJson: _sourceDataJson,...row})=>row),sourceOrderPeriodicityFlags:detectSourceOrderPeriodicity(sourceRows.map(row=>({
+    eligible:Number(row.eligible),bookValueMinor:Number(row.bookValueMinor),sourceDataJson:String(row.sourceDataJson)
+  })))};
+}
+
+type SourceOrderPeriodicityFlag={field:'DESCRIPTION'|'BOOK_VALUE_MINOR';periodLength:number;repeatedCycles:number;eligibleOrderStart:number;eligibleOrderEnd:number};
+
+function repeatedPeriodPattern(values:string[]):{periodLength:number;repeatedCycles:number;startIndex:number;endIndex:number}|null{
+  const length=values.length;if(length<6||values.every(value=>value===values[0]))return null;
+  for(let period=2;period<=Math.min(64,Math.floor(length/3));period++){
+    let currentRun=0,currentStart=0,bestRun=0,bestStart=0;
+    for(let index=period;index<length;index++){
+      if(values[index]===values[index-period]){
+        if(currentRun===0)currentStart=index-period;
+        currentRun++;
+        if(currentRun>bestRun){bestRun=currentRun;bestStart=currentStart;}
+      }else currentRun=0;
+    }
+    if(bestRun>=period*2)return {periodLength:period,repeatedCycles:Math.floor((period+bestRun)/period),startIndex:bestStart,endIndex:bestStart+period+bestRun-1};
+  }
+  // Also catch longer exact cycles that cover the entire ordered sequence.
+  const prefix=new Uint32Array(length);
+  for(let index=1,matched=0;index<length;index++){
+    while(matched>0&&values[index]!==values[matched])matched=prefix[matched-1];
+    if(values[index]===values[matched])matched++;
+    prefix[index]=matched;
+  }
+  const period=length-prefix[length-1];
+  if(period<2||Math.floor(length/period)<3)return null;
+  for(let index=period;index<length;index++)if(values[index]!==values[index-period])return null;
+  return {periodLength:period,repeatedCycles:Math.floor(length/period),startIndex:0,endIndex:length-1};
+}
+
+function detectSourceOrderPeriodicity(rows:Array<{eligible:number;bookValueMinor:number;sourceDataJson:string}>):SourceOrderPeriodicityFlag[]{
+  const eligible=rows.filter(row=>row.eligible===1);if(eligible.length<6)return [];
+  const descriptions=eligible.map(row=>{
+    try{return String((JSON.parse(row.sourceDataJson) as {description?:unknown}).description??'').normalize('NFKC').trim().replace(/\s+/g,' ').toLowerCase();}
+    catch{return '';}
+  });
+  const flags:SourceOrderPeriodicityFlag[]=[];
+  const descriptionPattern=repeatedPeriodPattern(descriptions);
+  if(descriptionPattern)flags.push({field:'DESCRIPTION',periodLength:descriptionPattern.periodLength,repeatedCycles:descriptionPattern.repeatedCycles,
+    eligibleOrderStart:descriptionPattern.startIndex+1,eligibleOrderEnd:descriptionPattern.endIndex+1});
+  const amountPattern=repeatedPeriodPattern(eligible.map(row=>String(row.bookValueMinor)));
+  if(amountPattern)flags.push({field:'BOOK_VALUE_MINOR',periodLength:amountPattern.periodLength,repeatedCycles:amountPattern.repeatedCycles,
+    eligibleOrderStart:amountPattern.startIndex+1,eligibleOrderEnd:amountPattern.endIndex+1});
+  return flags;
 }
 
 export async function getBusinessFieldworkChanges(env:Env,workspaceId:string,context:BusinessContext,engagementId:string,after:number,limit:number){
@@ -1366,8 +1414,8 @@ async function createSamplingPlan(env:Env,workspaceId:string,context:BusinessCon
   if(!population||population.engagement_id!==engagement.id||population.client_id!==engagement.client_id)throw new ApiError('FORBIDDEN_SCOPE','The sampling population is outside this engagement.');
   if(population.tb_version_id!==engagement.active_tb_version_id)throw new ApiError('STALE_DEPENDENCY','The population was imported from a prior TB version. Re-import the population before sampling.');
   if(!policy||policy.status!=='APPROVED'||policy.method!==p.method)throw new ApiError('GATE_BLOCKED','An approved firm sampling policy for the selected method is required before operational use.');
-  const rowResult=await env.DB.prepare(`SELECT id,source_row_key,ordinal,book_value_minor,eligible FROM population_rows WHERE workspace_id=? AND population_id=? ORDER BY ordinal`)
-    .bind(workspaceId,p.populationId).all<{id:string;source_row_key:string;ordinal:number;book_value_minor:number;eligible:number}>();
+  const rowResult=await env.DB.prepare(`SELECT id,source_row_key,ordinal,book_value_minor,eligible,source_data_json FROM population_rows WHERE workspace_id=? AND population_id=? ORDER BY ordinal`)
+    .bind(workspaceId,p.populationId).all<{id:string;source_row_key:string;ordinal:number;book_value_minor:number;eligible:number;source_data_json:string}>();
   const allRows=rowResult.results??[];const revisionRow=await env.DB.prepare(`SELECT COALESCE(MAX(revision),0) AS revision FROM sampling_plans WHERE workspace_id=? AND population_id=?`).bind(workspaceId,p.populationId).first<{revision:number}>();
   const planId=crypto.randomUUID();const revision=(revisionRow?.revision??0)+1;
   // Isolated Worker tests can inject a deterministic seed directly through the
@@ -1393,14 +1441,21 @@ async function createSamplingPlan(env:Env,workspaceId:string,context:BusinessCon
       confidenceBps,pT:{numerator:String(tolerableMinor),denominator:String(total)},pE:{bps:expectedBps,meaning:'expected tainted-book-value proportion; not expected monetary error'},alpha:{numerator:String(10000-confidenceBps),denominator:'10000'},selectionMode:'PPS_WITH_REPLACEMENT',algorithmVersion:policy.algorithmVersion};
   }else if(p.method==='SYSTEMATIC'){
     if(p.requestedCount==null||!p.sampleSizeRationale||p.confidenceBps!=null||p.tolerableMinor!=null||p.expectedTaintedBps!=null)throw new ApiError('INVALID_SAMPLE_PARAMETERS','Systematic sampling requires a reviewer-selected count and rationale and accepts no statistical confidence or tolerable error.');
-    const ordered=allRows.filter(row=>row.eligible===1);if(!ordered.length||p.requestedCount>ordered.length)throw new ApiError('INVALID_SAMPLE_PARAMETERS',`Requested count must be between 1 and the ${ordered.length} eligible population rows.`);
-    if(p.orderingRule==='REFERENCE_ASC')ordered.sort((a,b)=>a.source_row_key.localeCompare(b.source_row_key));requestedCount=p.requestedCount;
+    const sourceOrder=allRows.filter(row=>row.eligible===1);if(!sourceOrder.length||p.requestedCount>sourceOrder.length)throw new ApiError('INVALID_SAMPLE_PARAMETERS',`Requested count must be between 1 and the ${sourceOrder.length} eligible population rows.`);
+    const sourceOrderFlags=detectSourceOrderPeriodicity(sourceOrder.map(row=>({eligible:row.eligible,bookValueMinor:row.book_value_minor,sourceDataJson:row.source_data_json})));
+    const periodicityAssessment=p.periodicityAssessment?.trim()??'';
+    if(sourceOrderFlags.length&&!periodicityAssessment)throw new ApiError('INVALID_SAMPLE_PARAMETERS','The original source order contains a potential repeating pattern. Record how it was assessed before freezing a systematic sample order.');
+    const ordered=[...sourceOrder];requestedCount=p.requestedCount;
+    if(p.orderingRule==='REFERENCE_ASC')ordered.sort((a,b)=>a.source_row_key<b.source_row_key?-1:a.source_row_key>b.source_row_key?1:a.ordinal-b.ordinal);
     let counter=0;
     if(p.orderingRule==='SERVER_SEEDED_SHUFFLE')for(let index=ordered.length-1;index>0;index--){const swap=Number(await random(counter++,BigInt(index+1)));[ordered[index],ordered[swap]]=[ordered[swap],ordered[index]];}
-    const start=Number(await random(counter,BigInt(ordered.length)));const selected=new Set<string>();
-    for(let j=0;j<requestedCount;j++){const position=Math.floor((start+j*ordered.length)/requestedCount);const row=ordered[position];if(!row||selected.has(row.id))throw new ApiError('UNAVAILABLE','Systematic selection produced a duplicate position. No plan was saved.');selected.add(row.id);hits.push({drawNumber:j+1,rowId:row.id,monetaryUnitMinor:null,stratumKey:null});}
+    const start=requestedCount===ordered.length?0:Number(await random(counter,BigInt(ordered.length)));const selected=new Set<string>();
+    for(let j=0;j<requestedCount;j++){const position=Number((BigInt(start)+BigInt(j)*BigInt(ordered.length))/BigInt(requestedCount));const row=ordered[position];if(!row||selected.has(row.id))throw new ApiError('UNAVAILABLE','Systematic selection produced a duplicate position. No plan was saved.');selected.add(row.id);hits.push({drawNumber:j+1,rowId:row.id,monetaryUnitMinor:null,stratumKey:null});}
+    const frozenOrderFlags=detectSourceOrderPeriodicity(ordered.map(row=>({eligible:row.eligible,bookValueMinor:row.book_value_minor,sourceDataJson:row.source_data_json})));
     parameters={selectionMode:requestedCount===ordered.length?'CENSUS':'SYSTEMATIC',intervalNumerator:ordered.length,intervalDenominator:requestedCount,startNumerator:String(start),startDenominator:String(requestedCount),orderingRule:p.orderingRule,
-      orderingHash:await rowHash(ordered.map(row=>row.id)),sampleSizeRationale:p.sampleSizeRationale,confidenceClaim:null,algorithmVersion:policy.algorithmVersion};
+      orderingHash:await rowHash(ordered.map(row=>row.id)),orderingAlgorithm:p.orderingRule==='SERVER_SEEDED_SHUFFLE'?'FISHER_YATES_HMAC_SHA256_REJECTION_V1':'CANONICAL_ASC_V1',
+      sourceOrderPeriodicityFlags:sourceOrderFlags,frozenOrderPeriodicityFlags:frozenOrderFlags,periodicityAssessment:periodicityAssessment||null,
+      sampleSizeRationale:p.sampleSizeRationale,confidenceClaim:null,algorithmVersion:policy.algorithmVersion};
   }else{
     if(p.confidenceBps==null||p.tolerableMinor!=null||p.expectedTaintedBps!=null||p.requestedCount!=null||!p.strata?.length)throw new ApiError('INVALID_SAMPLE_PARAMETERS','Stratified attribute sampling requires confidence and fully specified strata, with no monetary tolerable amount or reviewer-sized count.');
     if(allRows.length>20000)throw new ApiError('CALCULATION_DOMAIN_EXCEEDED','Exact stratified calculations support up to 20,000 source rows.');
@@ -1440,7 +1495,8 @@ async function createSamplingPlan(env:Env,workspaceId:string,context:BusinessCon
   }
   const rowById=new Map(allRows.map(row=>[row.id,row]));const hitRows=hits.map(hit=>[crypto.randomUUID(),workspaceId,planId,hit.drawNumber,hit.rowId,hit.monetaryUnitMinor,hit.stratumKey]);
   statements.push(...makeMultiInsertStatements(env,'sample_hits',['id','workspace_id','plan_id','draw_number','population_row_id','monetary_unit_minor','stratum_key'],hitRows));
-  return commandMutation(statements,{planId,revision,method:p.method,calculatedCount:hits.length,distinctRowCount:new Set(hits.map(hit=>hit.rowId)).size,populationCount:p.method==='MUS_BINOMIAL_PPS'?allRows.filter(row=>row.book_value_minor>0).length:allRows.length,
+  return commandMutation(statements,{planId,revision,method:p.method,calculatedCount:hits.length,distinctRowCount:new Set(hits.map(hit=>hit.rowId)).size,populationCount:p.method==='MUS_BINOMIAL_PPS'
+    ?allRows.filter(row=>row.eligible===1&&row.book_value_minor>0).length:allRows.filter(row=>row.eligible===1).length,
     ...(p.method==='SYSTEMATIC'?{interval:{numerator:parameters.intervalNumerator,denominator:parameters.intervalDenominator},start:{numerator:parameters.startNumerator,denominator:parameters.startDenominator},selectionMode:parameters.selectionMode,confidenceClaim:null}:{}),
     ...(strataRows.length?{strata:strataRows.map(row=>({key:row.key,populationCount:row.rows.length,sampleCount:row.sampleCount}))}:{}),inputHash},'SAMPLING_PLAN',planId,null,1,{populationId:population.id,policyId:policy.id,method:p.method,seedHex,parameters,reason:p.reason});
 }

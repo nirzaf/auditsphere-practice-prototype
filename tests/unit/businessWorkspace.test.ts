@@ -2357,6 +2357,77 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
   assert.equal(systematicCensus.body.result.selectionMode, 'CENSUS');
   assert.equal(systematicCensus.body.result.calculatedCount, 200);
   assert.equal(systematicCensus.body.result.distinctRowCount, 200);
+  assert.equal(systematicCensus.body.result.start.numerator, '0', 'a census has a canonical zero start and is not presented as a random draw');
+
+  const knownStartCsv = ['reference,amount,description', ...Array.from({ length: 1000 }, (_, index) =>
+    `START-${String(index + 1).padStart(4, '0')},5000.00,Unique invoice ${index + 1}`)].join('\n');
+  const knownStartPopulation = await createSamplingPopulation('Known start systematic population', 'sampling-start-1000.csv', knownStartCsv);
+  assert.equal(knownStartPopulation.created.response.status, 200, JSON.stringify(knownStartPopulation.created.body));
+  const knownStartPopulationId = knownStartPopulation.created.body.result.populationId as string;
+  const knownSystematicSeed = '0'.repeat(61) + '550';
+  assert.equal(referenceMusUnits(knownSystematicSeed, 1, 1000)[0] - 1, 300, 'the independent HMAC reference seed yields offset u=R/n=6');
+  let systematicSeedOffset = 0n;
+  (env as typeof env & { __testSamplingSeedFactory?: () => string }).__testSamplingSeedFactory = () =>
+    (BigInt(`0x${knownSystematicSeed}`) + systematicSeedOffset++).toString(16).padStart(64, '0');
+  const knownStartPlan = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'sampling.plan', payload: {
+      engagementId, populationId: knownStartPopulationId, policyId: systematicPolicyId, method: 'SYSTEMATIC', requestedCount: 50,
+      sampleSizeRationale: 'Use a reviewer-selected 50-item coverage count with no statistical confidence claim.',
+      orderingRule: 'SOURCE_ROW_ASC', reason: 'Validate the fixed source-order positions against an independent seeded start.'
+    } }
+  }, samplingReviewerHeaders);
+  assert.equal(knownStartPlan.response.status, 200, JSON.stringify(knownStartPlan.body));
+  assert.deepEqual(knownStartPlan.body.result.start, { numerator: '300', denominator: '50' });
+  assert.deepEqual(knownStartPlan.body.result.interval, { numerator: 1000, denominator: 50 });
+  const knownStartPlanView = await call(`/api/workspaces/${workspaceId}/engagements/${engagementId}/sampling-plans/${knownStartPlan.body.result.planId}`, { headers: technicalHeaders });
+  const knownStartOrdinals = knownStartPlanView.body.hits.map((hit: any) => hit.ordinal);
+  assert.deepEqual(knownStartOrdinals, Array.from({ length: 50 }, (_, index) => 7 + index * 20));
+  assert.equal(new Set(knownStartPlanView.body.hits.map((hit: any) => hit.populationRowId)).size, 50);
+  assert.equal(knownStartPlanView.body.plan.parameters.confidenceClaim, null);
+
+  const periodicCsv = ['reference,amount,description', 'CYCLE-PREFIX,5000.00,Unique opening item', ...Array.from({ length: 12 }, (_, index) =>
+    `CYCLE-${String(index + 1).padStart(2, '0')},5000.00,Class ${index % 3 + 1}`),
+  'CYCLE-SUFFIX,5000.00,Unique closing item', 'CYCLE-NEGATIVE,-10.00,Alternate-procedure balance', 'CYCLE-ZERO,0.00,Alternate-procedure balance'].join('\n');
+  const periodicPopulation = await createSamplingPopulation('Repeated source-order pattern', 'sampling-periodic.csv', periodicCsv,
+    'Nonpositive balances are addressed through separate understatement and completeness procedures.');
+  assert.equal(periodicPopulation.created.response.status, 200, JSON.stringify(periodicPopulation.created.body));
+  const periodicPopulationId = periodicPopulation.created.body.result.populationId as string;
+  const periodicPopulationView = await call(`/api/workspaces/${workspaceId}/engagements/${engagementId}/sampling-populations/${periodicPopulationId}`, { headers: technicalHeaders });
+  assert.deepEqual(periodicPopulationView.body.sourceOrderPeriodicityFlags, [{ field: 'DESCRIPTION', periodLength: 3, repeatedCycles: 4,
+    eligibleOrderStart: 2, eligibleOrderEnd: 13 }]);
+  const plansBeforeUnassessedPeriodicity = Number(db.prepare('SELECT COUNT(*) AS count FROM sampling_plans WHERE workspace_id=? AND population_id=?')
+    .bind(workspaceId, periodicPopulationId).first<any>()?.count ?? 0);
+  const unassessedPeriodicityPlan = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'sampling.plan', payload: {
+      engagementId, populationId: periodicPopulationId, policyId: systematicPolicyId, method: 'SYSTEMATIC', requestedCount: 6,
+      sampleSizeRationale: 'Select six items to exercise the reviewer-sized systematic method.',
+      orderingRule: 'SERVER_SEEDED_SHUFFLE', reason: 'The original order must be assessed before a new frozen sample order is created.'
+    } }
+  }, samplingReviewerHeaders);
+  assert.equal(unassessedPeriodicityPlan.response.status, 422);
+  assert.equal(unassessedPeriodicityPlan.body.code, 'INVALID_SAMPLE_PARAMETERS');
+  assert.equal(Number(db.prepare('SELECT COUNT(*) AS count FROM sampling_plans WHERE workspace_id=? AND population_id=?')
+    .bind(workspaceId, periodicPopulationId).first<any>()?.count ?? 0), plansBeforeUnassessedPeriodicity,
+  'unassessed periodic ordering does not persist a partial plan');
+  const shuffledPeriodicityPlan = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'sampling.plan', payload: {
+      engagementId, populationId: periodicPopulationId, policyId: systematicPolicyId, method: 'SYSTEMATIC', requestedCount: 6,
+      sampleSizeRationale: 'Select six items to exercise the reviewer-sized systematic method.',
+      periodicityAssessment: 'The original descriptions repeat every three rows. Apply the recorded unbiased shuffle before freezing the order.',
+      orderingRule: 'SERVER_SEEDED_SHUFFLE', reason: 'Break the observed three-row pattern with a seeded Fisher–Yates order before sampling.'
+    } }
+  }, samplingReviewerHeaders);
+  assert.equal(shuffledPeriodicityPlan.response.status, 200, JSON.stringify(shuffledPeriodicityPlan.body));
+  assert.equal(shuffledPeriodicityPlan.body.result.populationCount, 14, 'systematic N counts eligible ordered rows and excludes documented alternate-procedure rows');
+  const shuffledPeriodicityView = await call(`/api/workspaces/${workspaceId}/engagements/${engagementId}/sampling-plans/${shuffledPeriodicityPlan.body.result.planId}`, { headers: technicalHeaders });
+  assert.equal(shuffledPeriodicityView.body.plan.parameters.orderingRule, 'SERVER_SEEDED_SHUFFLE');
+  assert.equal(shuffledPeriodicityView.body.plan.parameters.orderingAlgorithm, 'FISHER_YATES_HMAC_SHA256_REJECTION_V1');
+  assert.equal(shuffledPeriodicityView.body.plan.parameters.sourceOrderPeriodicityFlags[0].periodLength, 3);
+  assert.equal(shuffledPeriodicityView.body.plan.parameters.periodicityAssessment,
+    'The original descriptions repeat every three rows. Apply the recorded unbiased shuffle before freezing the order.');
+  assert.match(shuffledPeriodicityView.body.plan.parameters.orderingHash, /^[a-f0-9]{64}$/);
+  assert.equal(shuffledPeriodicityView.body.hits.length, 6);
+  assert.equal(new Set(shuffledPeriodicityView.body.hits.map((hit: any) => hit.populationRowId)).size, 6);
 
   const stratifiedPolicyId = await createSamplingPolicy('STRATIFIED_ATTRIBUTE');
   const populationRowIds = systematicPopulation.body.rows.map((row: any) => row.id as string);
