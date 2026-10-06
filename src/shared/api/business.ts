@@ -420,6 +420,10 @@ export interface BusinessFieldworkWorkspace {
   adjustments: Array<Record<string, unknown> & { lines: Array<Record<string, unknown>>; evidence: Array<Record<string, unknown>> }>;
   differences: Array<Record<string, unknown>>;
   srmVersions: Array<Record<string, unknown>>;
+  confirmations: Array<Record<string, unknown>>;
+  confirmationFollowups: Array<Record<string, unknown>>;
+  confirmationAlternatives: Array<Record<string, unknown>>;
+  confirmationReassessments: Array<{ id: string; priorConfirmationId: string; replacementConfirmationId: string | null; priorCritical: number; replacementCritical: number | null; rationale: string; partnerActorId: string; approvedAt: string }>;
   materiality: null | Record<string, unknown>;
   evidence: Array<{ id: string; familyId: string; version: number; mode: 'DIGITAL' | 'PHYSICAL' | 'HYBRID'; title: string; fileVersionId: string | null; physicalIndex: string | null;
     physicalDescription: string | null; binder: string | null; box: string | null; shelf: string | null; externalSourceUrl: string | null; retrievedAt: string | null;

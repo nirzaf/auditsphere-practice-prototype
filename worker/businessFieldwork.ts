@@ -75,6 +75,19 @@ const adjustmentApprove = z.strictObject({ type: z.literal('adjustment.approve')
 const differenceCreate = z.strictObject({ type: z.literal('difference.create'), payload: z.strictObject({ findingId: id, fsliId: id, amountMinor: minor, nature: z.enum(['FACTUAL','JUDGMENTAL','PROJECTED']), qualitativeSignificance: z.boolean(), disposition: z.enum(['UNADJUSTED','ADJUSTED','CLEARLY_TRIVIAL']), dispositionReason: text(10,10000), adjustmentId: id.nullable().optional() }).refine(value => BigInt(value.amountMinor)!==0n) });
 const srmCompile = z.strictObject({ type: z.literal('srm.compile'), payload: z.strictObject({ engagementId: id, managerRecommendation: text(10,10000), estimatesText: text(10,10000) }) });
 const srmClear = z.strictObject({ type: z.literal('srm.clear'), payload: z.strictObject({ srmVersionId: id, dependencyHash: z.string().regex(/^[a-f0-9]{64}$/), rationale: text(10,10000) }) });
+const confirmationCreate = z.strictObject({ type: z.literal('confirmation.create'), payload: z.strictObject({
+  engagementId: id, type: z.enum(['BANK','AR','AP','INVENTORY','LEGAL']), fsliId: id,
+  externalPartyName: text(1,200), externalPartyAddress: text(1,2000), externalPartyEmail: z.email().max(320).nullable().optional(),
+  recipientVerificationText: text(10,5000), balanceMinor: minor.nullable().optional(), critical: z.boolean(),
+  criticalityReason: text(10,5000).nullable().optional(), dueDate: z.iso.date()
+}).refine(value => !value.critical || Boolean(value.criticalityReason?.trim()), { message: 'Critical confirmations require a reason.' }) });
+const confirmationDispatch = z.strictObject({ type: z.literal('confirmation.dispatch'), payload: z.strictObject({ confirmationId: id, expectedVersion: z.number().int().positive() }) });
+const confirmationResponse = z.strictObject({ type: z.literal('confirmation.record-response'), payload: z.strictObject({ confirmationId: id, expectedVersion: z.number().int().positive(), responseFileId: id, returnedAt: z.iso.datetime({ offset: true }) }) });
+const confirmationVerify = z.strictObject({ type: z.literal('confirmation.verify'), payload: z.strictObject({ confirmationId: id, expectedVersion: z.number().int().positive(), verificationRationale: text(10,10000) }) });
+const confirmationCancel = z.strictObject({ type: z.literal('confirmation.cancel'), payload: z.strictObject({ confirmationId: id, expectedVersion: z.number().int().positive(), reason: text(10,5000) }) });
+const confirmationScopeReassess = z.strictObject({ type: z.literal('confirmation.scope-reassess'), payload: z.strictObject({ confirmationId: id, expectedVersion: z.number().int().positive(), rationale: text(10,10000), replacementCritical: z.boolean().nullable(), replacementCriticalityReason: text(10,5000).nullable().optional() }).refine(value=>value.replacementCritical!==true||Boolean(value.replacementCriticalityReason?.trim()),{message:'A critical replacement requires a criticality rationale.'}) });
+const confirmationFollowup = z.strictObject({ type: z.literal('confirmation.follow-up'), payload: z.strictObject({ confirmationId: id, note: text(10,5000) }) });
+const confirmationAlternative = z.strictObject({ type: z.literal('confirmation.alternative-procedure'), payload: z.strictObject({ confirmationId: id, evidenceFileId: id, rationale: text(10,10000) }) });
 const samplingPolicyCreate = z.strictObject({ type: z.literal('sampling.policy.create'), payload: z.strictObject({
   name: text(1,300), method: z.enum(['MUS_BINOMIAL_PPS','SYSTEMATIC','STRATIFIED_ATTRIBUTE']), assumptions: text(10,10000)
 }) });
@@ -122,13 +135,13 @@ export const businessFieldworkCommands = [statementSnapshot, analyticalReviewSav
   workprogramTemplateCreate, workprogramTemplateApprove, workprogramProvision, procedureInsert, procedureUpdate,
   procedureNotApplicable, procedureSubmit, procedureReview, reviewSubmit, reviewDecide, reviewRespond, reviewCloseNote, partnerAreaClear, managerHandover, partnerHandover, findingCreate, findingRespond, findingResolve, adjustmentCreate, adjustmentPropose, adjustmentClientRespond, adjustmentApprove, differenceCreate, srmCompile, srmClear, samplingPolicyCreate, samplingPolicyApprove,
   samplingPopulationCreate, samplingPlan, samplingRecordTest, samplingEvaluate, evidenceCreate, evidenceLink,
-  evidenceReview, evidenceUnlink] as const;
+  evidenceReview, evidenceUnlink, confirmationCreate, confirmationDispatch, confirmationResponse, confirmationVerify, confirmationCancel, confirmationScopeReassess, confirmationFollowup, confirmationAlternative] as const;
 export const businessFieldworkCommandSchema = z.discriminatedUnion('type', businessFieldworkCommands);
 export type BusinessFieldworkCommand = z.infer<typeof businessFieldworkCommandSchema>;
 export function isBusinessFieldworkCommand(command: { type: string }): command is BusinessFieldworkCommand {
   return command.type === 'statement.snapshot' || command.type.startsWith('analytical-review.') || command.type.startsWith('going-concern.')
     || command.type.startsWith('workprogram.') || command.type.startsWith('procedure.') || command.type.startsWith('review.') || command.type==='partner.clear-area' || command.type.startsWith('fieldwork.handover-') || command.type.startsWith('finding.') || command.type.startsWith('adjustment.') || command.type.startsWith('difference.') || command.type.startsWith('srm.') || command.type.startsWith('sampling.')
-    || command.type.startsWith('evidence.');
+    || command.type.startsWith('evidence.') || command.type.startsWith('confirmation.');
 }
 
 type Engagement = { id: string; version: number; client_id: string; lifecycle_state: string; period_start: string; period_end: string; locked_at: string | null; standards_profile_id: string; active_tb_version_id: string | null; active_mapping_version_id: string | null; active_materiality_version_id: string | null; approved_planning_version_id: string | null };
@@ -377,6 +390,27 @@ export async function getBusinessFieldworkWorkspace(env:Env,workspaceId:string,c
     env.DB.prepare(`SELECT n.id,n.version,n.submission_id AS submissionId,n.procedure_id AS procedureId,n.text,n.assigned_preparer_id AS assignedPreparerId,n.status,n.response_text AS responseText,n.response_at AS responseAt,n.closed_by_actor_id AS closedByActorId,n.closed_at AS closedAt,n.closure_reason AS closureReason,n.resubmission_id AS resubmissionId,n.created_at AS createdAt,s.target_kind AS targetKind,s.workprogram_id AS workprogramId,s.analytical_review_id AS analyticalReviewId,s.going_concern_id AS goingConcernId,s.srm_version_id AS srmVersionId,s.target_version AS targetVersion,json_extract(s.snapshot_json,'$.revision') AS targetRevision
       FROM review_notes n JOIN review_submissions s ON s.workspace_id=n.workspace_id AND s.id=n.submission_id WHERE s.workspace_id=? AND s.engagement_id=? ORDER BY n.created_at DESC LIMIT 500`).bind(workspaceId,engagementId).all<Record<string,unknown>>()
   ]);
+  const [confirmations,confirmationFollowups,confirmationAlternatives,confirmationReassessments]=await Promise.all([
+    env.DB.prepare(`SELECT c.id,c.version,c.type,c.fsli_id AS fsliId,f.code AS fsliCode,c.external_party_name AS externalPartyName,c.external_party_address AS externalPartyAddress,
+      c.external_party_email AS externalPartyEmail,c.recipient_verification_text AS recipientVerificationText,c.balance_minor AS balanceMinor,c.critical,c.criticality_reason AS criticalityReason,
+      c.status,c.due_date AS dueDate,c.dispatch_id AS dispatchId,d.status AS dispatchStatus,j.status AS jobStatus,
+      COALESCE(j.last_error_code,(SELECT q.last_error_code FROM outbox_jobs q WHERE q.workspace_id=c.workspace_id AND q.aggregate_id=c.id AND q.kind='GENERATE_DOCUMENT' ORDER BY q.created_at DESC LIMIT 1)) AS jobError,
+      c.response_file_id AS responseFileId,c.returned_at AS returnedAt,c.verified_by_actor_id AS verifiedByActorId,c.verified_at AS verifiedAt,c.verification_rationale AS verificationRationale,
+      c.reliance_frozen AS relianceFrozen,c.source_hash AS sourceHash,c.created_by_actor_id AS createdByActorId,c.created_at AS createdAt,
+      (SELECT json_object('id',h.id,'artifactId',h.artifact_id,'dispatchId',h.dispatch_id,'createdAt',h.created_at) FROM holding_letters h
+        WHERE h.workspace_id=c.workspace_id AND h.engagement_id=c.engagement_id ORDER BY h.created_at DESC LIMIT 1) AS latestHoldingLetter
+      FROM confirmations c JOIN fsli_catalog f ON f.workspace_id=c.workspace_id AND f.id=c.fsli_id
+      LEFT JOIN dispatches d ON d.workspace_id=c.workspace_id AND d.id=c.dispatch_id
+      LEFT JOIN outbox_jobs j ON j.workspace_id=d.workspace_id AND j.id=d.job_id
+      WHERE c.workspace_id=? AND c.engagement_id=? ORDER BY c.created_at DESC,c.id`).bind(workspaceId,engagementId).all<Record<string,unknown>>(),
+    env.DB.prepare(`SELECT id,confirmation_id AS confirmationId,note,dispatch_id AS dispatchId,followed_at AS followedAt,created_by_actor_id AS createdByActorId
+      FROM confirmation_followups WHERE workspace_id=? AND engagement_id=? ORDER BY followed_at DESC,id`).bind(workspaceId,engagementId).all<Record<string,unknown>>(),
+    env.DB.prepare(`SELECT id,confirmation_id AS confirmationId,evidence_file_id AS evidenceFileId,rationale,recorded_by_actor_id AS recordedByActorId,recorded_at AS recordedAt
+      FROM confirmation_alternative_procedures WHERE workspace_id=? AND engagement_id=? ORDER BY recorded_at DESC,id`).bind(workspaceId,engagementId).all<Record<string,unknown>>(),
+    env.DB.prepare(`SELECT r.id,r.prior_confirmation_id AS priorConfirmationId,r.replacement_confirmation_id AS replacementConfirmationId,r.prior_critical AS priorCritical,
+      r.replacement_critical AS replacementCritical,r.rationale,r.partner_actor_id AS partnerActorId,r.approved_at AS approvedAt
+      FROM confirmation_scope_reassessments r WHERE r.workspace_id=? AND r.engagement_id=? ORDER BY r.approved_at DESC,r.id`).bind(workspaceId,engagementId).all<Record<string,unknown>>()
+  ]);
   const [findings,adjustmentHeads,adjustmentLineResult,adjustmentEvidenceResult,differences,srmVersions,materiality]=await Promise.all([
     env.DB.prepare(`SELECT f.id,f.version,f.fsli_id AS fsliId,c.code AS fsliCode,c.name AS fsliName,f.tb_version_id AS tbVersionId,f.mapping_version_id AS mappingVersionId,
       f.materiality_version_id AS materialityVersionId,f.title,f.description,f.severity,f.qualitative_significance AS qualitativeSignificance,f.status,f.client_response AS clientResponse,
@@ -421,7 +455,8 @@ export async function getBusinessFieldworkWorkspace(env:Env,workspaceId:string,c
     staff:staff.results??[],evidenceLinks:evidenceLinks.results??[],
     statements,templates:templates.results??[],analyticalReviews:reviews.results??[],goingConcern:going?{...going,checklist:JSON.parse(String(going.checklistJson))}:null,
     workprograms:programs.results??[],procedures:procedures.results??[],reviewSubmissions:reviewSubmissions.results??[],reviewNotes:reviewNotes.results??[],findings:findings.results??[],adjustments:adjustmentRows,
-    differences:differences.results??[],srmVersions:srmRows,materiality, evidence:evidence.results??[],samplingPolicies:policies.results??[],populations:populations.results??[],samplingPlans:samplingPlanRows.map(row=>({...row,parameters:JSON.parse(String(row.parametersJson))})),changeCursor:changes?.cursor??0};
+    differences:differences.results??[],srmVersions:srmRows,materiality,confirmations:confirmations.results??[],confirmationFollowups:confirmationFollowups.results??[],confirmationAlternatives:confirmationAlternatives.results??[],confirmationReassessments:confirmationReassessments.results??[],
+    evidence:evidence.results??[],samplingPolicies:policies.results??[],populations:populations.results??[],samplingPlans:samplingPlanRows.map(row=>({...row,parameters:JSON.parse(String(row.parametersJson))})),changeCursor:changes?.cursor??0};
 }
 
 export async function getBusinessSamplingPlan(env:Env,workspaceId:string,context:BusinessContext,engagementId:string,planId:string){
@@ -1033,6 +1068,8 @@ async function handoverToManager(env:Env,workspaceId:string,context:BusinessCont
   const p=command.payload;requireReviewer(context);if(context.actor.staffGrade!=='MANAGER')throw new ApiError('PERSONA_ACTION_DENIED','Managerial handover requires an active Manager reviewer.');
   const engagement=await getEngagement(env,workspaceId,context,p.engagementId);if(engagement.lifecycle_state!=='FIELDWORK_EXECUTION')throw new ApiError('INVALID_STATE','Only active fieldwork can be handed over for Manager review.');
   if(engagement.version!==p.expectedVersion)throw new ApiError('VERSION_CONFLICT',JSON.stringify({entity:'Engagement',id:p.engagementId,expectedVersion:p.expectedVersion,currentVersion:engagement.version}));
+  const confirmationBlockers=await criticalConfirmationBlockers(env,workspaceId,engagement);
+  if(confirmationBlockers.length)return queueHoldingLetterForBlockers(env,workspaceId,context,engagement,commandId,now,confirmationBlockers);
   const programs=await env.DB.prepare(`SELECT w.id,w.version,w.status,w.source_hash,w.planning_version_id,
       EXISTS(SELECT 1 FROM review_submissions s JOIN review_decisions d ON d.workspace_id=s.workspace_id AND d.submission_id=s.id WHERE s.workspace_id=w.workspace_id AND s.workprogram_id=w.id AND s.target_kind='WORKPROGRAM' AND d.decision='ACCEPT' AND s.target_version+1=w.version) AS independently_accepted
     FROM workprograms w WHERE w.workspace_id=? AND w.engagement_id=? ORDER BY w.fsli_id`).bind(workspaceId,p.engagementId).all<Record<string,unknown>>();
@@ -1053,7 +1090,11 @@ async function handoverToManager(env:Env,workspaceId:string,context:BusinessCont
   const dependencyHash=await rowHash({engagementId:p.engagementId,pins,workprograms:programRows.map(row=>({id:row.id,version:row.version,status:row.status,sourceHash:row.source_hash})),
     procedures:procedureRows.results?.map(row=>({id:row.id,version:row.version,status:row.status,sourceHash:row.source_hash,evidenceSetHash:row.evidence_set_hash}))});
   const transitionId=crypto.randomUUID();const nextVersion=engagement.version+1;
-  return commandMutation([versionGuard(env,workspaceId,990,'engagements','id',p.engagementId,engagement.version),
+  return commandMutation([env.DB.prepare(`INSERT INTO command_assertions(workspace_id,seq,ok)
+      SELECT ?,988,CASE WHEN NOT EXISTS(SELECT 1 FROM confirmations c WHERE c.workspace_id=? AND c.engagement_id=? AND c.critical=1 AND c.status<>'CANCELLED'
+        AND (c.status<>'RETURNED_VERIFIED' OR c.tb_version_id IS NOT ? OR c.mapping_version_id IS NOT ? OR c.materiality_version_id IS NOT ?))
+        THEN 1 ELSE 0 END`).bind(workspaceId,workspaceId,engagement.id,engagement.active_tb_version_id,engagement.active_mapping_version_id,engagement.active_materiality_version_id),
+    versionGuard(env,workspaceId,990,'engagements','id',p.engagementId,engagement.version),
     env.DB.prepare(`UPDATE engagements SET version=?,lifecycle_state='MANAGERIAL_REVIEW',updated_at=?,updated_by_actor_id=? WHERE workspace_id=? AND id=? AND version=? AND lifecycle_state='FIELDWORK_EXECUTION'`)
       .bind(nextVersion,now,context.actor.id,workspaceId,p.engagementId,engagement.version),
     env.DB.prepare(`INSERT INTO state_transitions(id,workspace_id,client_id,engagement_id,version,from_state,to_state,command_id,reason,dependency_hash,transitioned_at) VALUES(?,?,?,?,1,'FIELDWORK_EXECUTION','MANAGERIAL_REVIEW',?,?,?,?)`)
@@ -1624,6 +1665,203 @@ async function resolveFinding(env:Env,workspaceId:string,context:BusinessContext
     {findingId:finding.id,version:nextVersion,status:'RESOLVED',sourceHash,resolution:p.resolution},'FINDING',finding.id,finding.version,nextVersion,{resolution:p.resolution});
 }
 
+type ConfirmationRow={id:string;version:number;client_id:string;engagement_id:string;type:string;fsli_id:string;tb_version_id:string;mapping_version_id:string;materiality_version_id:string;
+  external_party_name:string;external_party_address:string;external_party_email:string|null;recipient_verification_text:string;balance_minor:number|null;critical:number;criticality_reason:string|null;
+  status:string;due_date:string;dispatch_id:string|null;response_file_id:string|null;response_recorded_by_actor_id:string|null;returned_at:string|null;
+  verified_by_actor_id:string|null;verified_at:string|null;verification_rationale:string|null;reliance_frozen:number;source_hash:string;created_by_actor_id:string;created_at:string};
+
+async function currentConfirmation(env:Env,workspaceId:string,confirmationId:string):Promise<ConfirmationRow>{
+  const row=await env.DB.prepare(`SELECT * FROM confirmations WHERE workspace_id=? AND id=?`).bind(workspaceId,confirmationId).first<ConfirmationRow>();
+  if(!row)throw new ApiError('NOT_FOUND','The external confirmation was not found.');
+  return row;
+}
+
+async function createConfirmation(env:Env,workspaceId:string,context:BusinessContext,command:Extract<BusinessFieldworkCommand,{type:'confirmation.create'}>,now:string):Promise<BusinessMutation>{
+  requireWriter(context);const p=command.payload;const engagement=await getEngagement(env,workspaceId,context,p.engagementId);
+  if(!engagement.active_tb_version_id||!engagement.active_mapping_version_id||!engagement.active_materiality_version_id)throw new ApiError('GATE_BLOCKED','Current trial-balance, mapping and materiality versions are required to scope an external confirmation.');
+  const fsli=await env.DB.prepare(`SELECT id FROM fsli_catalog WHERE workspace_id=? AND id=? AND active=1`).bind(workspaceId,p.fsliId).first<{id:string}>();
+  if(!fsli)throw new ApiError('VALIDATION_FAILED','Choose a current active FSLI in this workspace.');
+  const idValue=crypto.randomUUID();const balance=p.balanceMinor==null?null:moneyMinor(p.balanceMinor);
+  const sourceHash=await rowHash({engagementId:engagement.id,type:p.type,fsliId:p.fsliId,tbVersionId:engagement.active_tb_version_id,mappingVersionId:engagement.active_mapping_version_id,
+    materialityVersionId:engagement.active_materiality_version_id,externalPartyName:p.externalPartyName,externalPartyAddress:p.externalPartyAddress,externalPartyEmail:p.externalPartyEmail??null,
+    recipientVerificationText:p.recipientVerificationText,balanceMinor:balance,critical:p.critical,criticalityReason:p.criticalityReason??null,dueDate:p.dueDate});
+  return commandMutation([env.DB.prepare(`INSERT INTO confirmations(id,workspace_id,version,client_id,engagement_id,type,fsli_id,tb_version_id,mapping_version_id,materiality_version_id,
+      external_party_name,external_party_address,external_party_email,recipient_verification_text,balance_minor,critical,criticality_reason,status,due_date,dispatch_id,response_file_id,response_recorded_by_actor_id,
+      returned_at,verified_by_actor_id,verified_at,verification_rationale,reliance_frozen,source_hash,created_by_actor_id,created_at,updated_at)
+    VALUES(?,?,1,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'DRAFT',?,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0,?,?,?,?)`)
+      .bind(idValue,workspaceId,engagement.client_id,engagement.id,p.type,p.fsliId,engagement.active_tb_version_id,engagement.active_mapping_version_id,engagement.active_materiality_version_id,
+        p.externalPartyName,p.externalPartyAddress,p.externalPartyEmail??null,p.recipientVerificationText,balance,p.critical?1:0,p.criticalityReason??null,p.dueDate,sourceHash,context.actor.id,now,now),
+    pushChange(env,workspaceId,engagement.id,'Confirmation',idValue,1,now)],{confirmationId:idValue,version:1,status:'DRAFT',sourceHash},'CONFIRMATION',idValue,null,1,
+    {type:p.type,critical:p.critical,tbVersionId:engagement.active_tb_version_id,mappingVersionId:engagement.active_mapping_version_id,materialityVersionId:engagement.active_materiality_version_id});
+}
+
+async function dispatchConfirmation(env:Env,workspaceId:string,context:BusinessContext,command:Extract<BusinessFieldworkCommand,{type:'confirmation.dispatch'}>,commandId:string,now:string):Promise<BusinessMutation>{
+  requireWriter(context);const p=command.payload;const row=await currentConfirmation(env,workspaceId,p.confirmationId);const engagement=await getEngagement(env,workspaceId,context,row.engagement_id);
+  if(row.version!==p.expectedVersion)throw new ApiError('VERSION_CONFLICT',JSON.stringify({entity:'Confirmation',id:row.id,expectedVersion:p.expectedVersion,currentVersion:row.version}));
+  if(row.status!=='DRAFT')throw new ApiError('INVALID_STATE','Only a draft confirmation can be dispatched.');
+  if(!row.external_party_email)throw new ApiError('GATE_BLOCKED','Add a verified external-party email before queuing the confirmation.');
+  if(row.tb_version_id!==engagement.active_tb_version_id||row.mapping_version_id!==engagement.active_mapping_version_id||row.materiality_version_id!==engagement.active_materiality_version_id)throw new ApiError('STALE_DEPENDENCY','The confirmation scope pins are stale; reassess the recipient and balance before dispatch.');
+  const nextVersion=row.version+1;const jobId=crypto.randomUUID();const dispatchId=crypto.randomUUID();const deduplicationKey=`confirmation-request:${row.id}:${row.source_hash}`;
+  const payload={commandId,documentType:'CONFIRMATION_REQUEST',confirmationId:row.id,dispatchId,engagementId:engagement.id,clientId:engagement.client_id,sourceHash:row.source_hash,
+    recipient:{name:row.external_party_name,email:row.external_party_email}};
+  return commandMutation([versionGuard(env,workspaceId,990,'confirmations','id',row.id,row.version),
+    env.DB.prepare(`UPDATE confirmations SET status='QUEUED',reliance_frozen=1,version=?,updated_at=? WHERE workspace_id=? AND id=? AND version=? AND status='DRAFT'`)
+      .bind(nextVersion,now,workspaceId,row.id,row.version),
+    env.DB.prepare(`INSERT INTO outbox_jobs(id,workspace_id,version,kind,aggregate_id,aggregate_version,payload_json,deduplication_key,status,attempts,next_attempt_at,lease_until,last_error_code,provider_reference,result_file_id,result_json,completed_at,created_at,updated_at)
+      VALUES(?,?,1,'GENERATE_DOCUMENT',?,?,?,?, 'PENDING',0,?,NULL,NULL,NULL,NULL,NULL,NULL,?,?)`)
+      .bind(jobId,workspaceId,row.id,nextVersion,JSON.stringify(payload),deduplicationKey,now,now,now),
+    pushChange(env,workspaceId,engagement.id,'Confirmation',row.id,nextVersion,now)],{confirmationId:row.id,version:nextVersion,status:'QUEUED',jobId,dispatchId},'CONFIRMATION',row.id,row.version,nextVersion,
+    {dispatchQueued:true,jobId,critical:Boolean(row.critical),sourceHash:row.source_hash});
+}
+
+async function recordConfirmationResponse(env:Env,workspaceId:string,context:BusinessContext,command:Extract<BusinessFieldworkCommand,{type:'confirmation.record-response'}>,now:string):Promise<BusinessMutation>{
+  requireWriter(context);const p=command.payload;const row=await currentConfirmation(env,workspaceId,p.confirmationId);const engagement=await getEngagement(env,workspaceId,context,row.engagement_id);
+  if(row.version!==p.expectedVersion)throw new ApiError('VERSION_CONFLICT',JSON.stringify({entity:'Confirmation',id:row.id,expectedVersion:p.expectedVersion,currentVersion:row.version}));
+  if(row.status!=='SENT')throw new ApiError('INVALID_STATE','A response can be recorded only after the confirmation dispatch is accepted by the provider.');
+  const returnedAt=new Date(p.returnedAt).toISOString();if(Date.parse(returnedAt)>Date.parse(now))throw new ApiError('VALIDATION_FAILED','The third-party response date cannot be in the future.');
+  const file=await committedEvidenceFile(env,workspaceId,engagement,p.responseFileId);
+  const nextVersion=row.version+1;const sourceHash=await rowHash({priorSourceHash:row.source_hash,responseFileId:file.id,responseFileSha256:file.sha256,returnedAt,recordedByActorId:context.actor.id});
+  return commandMutation([versionGuard(env,workspaceId,990,'confirmations','id',row.id,row.version),
+    env.DB.prepare(`UPDATE confirmations SET status='RETURNED_UNVERIFIED',response_file_id=?,response_recorded_by_actor_id=?,returned_at=?,version=?,source_hash=?,updated_at=?
+      WHERE workspace_id=? AND id=? AND version=? AND status='SENT'`).bind(file.id,context.actor.id,returnedAt,nextVersion,sourceHash,now,workspaceId,row.id,row.version),
+    pushChange(env,workspaceId,engagement.id,'Confirmation',row.id,nextVersion,now)],{confirmationId:row.id,version:nextVersion,status:'RETURNED_UNVERIFIED',responseFileId:file.id,responseSha256:file.sha256,sourceHash},
+    'CONFIRMATION',row.id,row.version,nextVersion,{responseRecorded:true,responseSha256:file.sha256});
+}
+
+async function verifyConfirmation(env:Env,workspaceId:string,context:BusinessContext,command:Extract<BusinessFieldworkCommand,{type:'confirmation.verify'}>,now:string):Promise<BusinessMutation>{
+  requireReviewer(context);const p=command.payload;const row=await currentConfirmation(env,workspaceId,p.confirmationId);const engagement=await getEngagement(env,workspaceId,context,row.engagement_id);
+  if(row.version!==p.expectedVersion)throw new ApiError('VERSION_CONFLICT',JSON.stringify({entity:'Confirmation',id:row.id,expectedVersion:p.expectedVersion,currentVersion:row.version}));
+  if(row.status!=='RETURNED_UNVERIFIED'||!row.response_file_id||!row.response_recorded_by_actor_id)throw new ApiError('GATE_BLOCKED','Only a newly returned, unverified response can receive independent verification.');
+  const reviewer=await actorStaff(env,workspaceId,context);const creator=await actorNaturalPerson(env,workspaceId,row.created_by_actor_id);const recorder=await actorNaturalPerson(env,workspaceId,row.response_recorded_by_actor_id);
+  if(!creator||!recorder||reviewer.natural_person_key===creator||reviewer.natural_person_key===recorder)throw new ApiError('SELF_REVIEW_BLOCKED','The confirmation preparer and response recorder cannot independently verify this return.');
+  const file=await committedEvidenceFile(env,workspaceId,engagement,row.response_file_id);const nextVersion=row.version+1;
+  const sourceHash=await rowHash({priorSourceHash:row.source_hash,verifiedByActorId:context.actor.id,verifiedNaturalPersonKey:reviewer.natural_person_key,verificationRationale:p.verificationRationale,
+    responseFileId:file.id,responseFileSha256:file.sha256,verifiedAt:now});
+  return commandMutation([versionGuard(env,workspaceId,990,'confirmations','id',row.id,row.version),
+    env.DB.prepare(`UPDATE confirmations SET status='RETURNED_VERIFIED',verified_by_actor_id=?,verified_at=?,verification_rationale=?,version=?,source_hash=?,updated_at=?
+      WHERE workspace_id=? AND id=? AND version=? AND status='RETURNED_UNVERIFIED'`).bind(context.actor.id,now,p.verificationRationale,nextVersion,sourceHash,now,workspaceId,row.id,row.version),
+    pushChange(env,workspaceId,engagement.id,'Confirmation',row.id,nextVersion,now)],{confirmationId:row.id,version:nextVersion,status:'RETURNED_VERIFIED',sourceHash},
+    'CONFIRMATION',row.id,row.version,nextVersion,{verificationRationale:p.verificationRationale,responseSha256:file.sha256});
+}
+
+async function cancelConfirmation(env:Env,workspaceId:string,context:BusinessContext,command:Extract<BusinessFieldworkCommand,{type:'confirmation.cancel'}>,now:string):Promise<BusinessMutation>{
+  requirePartner(context);const p=command.payload;const row=await currentConfirmation(env,workspaceId,p.confirmationId);const engagement=await getEngagement(env,workspaceId,context,row.engagement_id);
+  if(row.version!==p.expectedVersion)throw new ApiError('VERSION_CONFLICT',JSON.stringify({entity:'Confirmation',id:row.id,expectedVersion:p.expectedVersion,currentVersion:row.version}));
+  if(row.status!=='DRAFT'||row.reliance_frozen)throw new ApiError('GATE_BLOCKED','A confirmation already queued or relied upon cannot be cancelled without a fresh Partner scope reassessment.');
+  const nextVersion=row.version+1;const sourceHash=await rowHash({priorSourceHash:row.source_hash,cancelledByActorId:context.actor.id,reason:p.reason,cancelledAt:now});
+  return commandMutation([versionGuard(env,workspaceId,990,'confirmations','id',row.id,row.version),
+    env.DB.prepare(`UPDATE confirmations SET status='CANCELLED',version=?,source_hash=?,updated_at=? WHERE workspace_id=? AND id=? AND version=? AND status='DRAFT'`)
+      .bind(nextVersion,sourceHash,now,workspaceId,row.id,row.version),pushChange(env,workspaceId,engagement.id,'Confirmation',row.id,nextVersion,now)],
+    {confirmationId:row.id,version:nextVersion,status:'CANCELLED',sourceHash},'CONFIRMATION',row.id,row.version,nextVersion,{reason:p.reason});
+}
+
+async function reassessConfirmationScope(env:Env,workspaceId:string,context:BusinessContext,command:Extract<BusinessFieldworkCommand,{type:'confirmation.scope-reassess'}>,now:string):Promise<BusinessMutation>{
+  requirePartner(context);const p=command.payload;const prior=await currentConfirmation(env,workspaceId,p.confirmationId);const engagement=await getEngagement(env,workspaceId,context,prior.engagement_id);
+  if(prior.version!==p.expectedVersion)throw new ApiError('VERSION_CONFLICT',JSON.stringify({entity:'Confirmation',id:prior.id,expectedVersion:p.expectedVersion,currentVersion:prior.version}));
+  if(prior.status==='CANCELLED')throw new ApiError('INVALID_STATE','A cancelled confirmation cannot be reassessed again; create a new scoped confirmation.');
+  let replacementId:string|null=null;let replacementHash:string|null=null;let replacementCritical:number|null=null;let replacementInsert:D1PreparedStatement|undefined;
+  if(p.replacementCritical!==null){
+    if(!engagement.active_tb_version_id||!engagement.active_mapping_version_id||!engagement.active_materiality_version_id)throw new ApiError('GATE_BLOCKED','Current TB, mapping, and materiality versions are required for a replacement scope.');
+    const fsli=await env.DB.prepare(`SELECT id FROM fsli_catalog WHERE workspace_id=? AND id=? AND active=1`).bind(workspaceId,prior.fsli_id).first<{id:string}>();
+    if(!fsli)throw new ApiError('VALIDATION_FAILED','The confirmation FSLI is no longer active; create a new scope against an active line.');
+    const criticalityReason=p.replacementCritical?p.replacementCriticalityReason??'':null;
+    replacementId=crypto.randomUUID();replacementCritical=p.replacementCritical?1:0;
+    replacementHash=await rowHash({engagementId:engagement.id,type:prior.type,fsliId:prior.fsli_id,tbVersionId:engagement.active_tb_version_id,
+      mappingVersionId:engagement.active_mapping_version_id,materialityVersionId:engagement.active_materiality_version_id,externalPartyName:prior.external_party_name,
+      externalPartyAddress:prior.external_party_address,externalPartyEmail:prior.external_party_email,recipientVerificationText:prior.recipient_verification_text,
+      balanceMinor:prior.balance_minor,critical:Boolean(replacementCritical),criticalityReason,dueDate:prior.due_date});
+    replacementInsert=env.DB.prepare(`INSERT INTO confirmations(id,workspace_id,version,client_id,engagement_id,type,fsli_id,tb_version_id,mapping_version_id,materiality_version_id,
+        external_party_name,external_party_address,external_party_email,recipient_verification_text,balance_minor,critical,criticality_reason,status,due_date,dispatch_id,response_file_id,response_recorded_by_actor_id,
+        returned_at,verified_by_actor_id,verified_at,verification_rationale,reliance_frozen,source_hash,created_by_actor_id,created_at,updated_at)
+      VALUES(?,?,1,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'DRAFT',?,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0,?,?,?,?)`)
+      .bind(replacementId,workspaceId,engagement.client_id,engagement.id,prior.type,prior.fsli_id,engagement.active_tb_version_id,engagement.active_mapping_version_id,engagement.active_materiality_version_id,
+        prior.external_party_name,prior.external_party_address,prior.external_party_email,prior.recipient_verification_text,prior.balance_minor,replacementCritical,criticalityReason,prior.due_date,
+        replacementHash,context.actor.id,now,now);
+  }
+  const approvalId=crypto.randomUUID();const nextPriorVersion=prior.version+1;
+  const statements:D1PreparedStatement[]=[
+    env.DB.prepare(`INSERT INTO command_assertions(workspace_id,seq,ok)
+      SELECT ?,988,CASE WHEN EXISTS(SELECT 1 FROM engagements WHERE workspace_id=? AND id=? AND version=? AND active_tb_version_id IS ? AND active_mapping_version_id IS ? AND active_materiality_version_id IS ?)
+        AND (? IS NULL OR EXISTS(SELECT 1 FROM fsli_catalog WHERE workspace_id=? AND id=? AND active=1)) THEN 1 ELSE 0 END`)
+      .bind(workspaceId,workspaceId,engagement.id,engagement.version,engagement.active_tb_version_id,engagement.active_mapping_version_id,engagement.active_materiality_version_id,
+        replacementId,workspaceId,prior.fsli_id),
+    versionGuard(env,workspaceId,990,'confirmations','id',prior.id,prior.version)
+  ];
+  if(replacementInsert)statements.push(replacementInsert);
+  statements.push(env.DB.prepare(`INSERT INTO confirmation_scope_reassessments(id,workspace_id,client_id,engagement_id,prior_confirmation_id,replacement_confirmation_id,prior_source_hash,
+      replacement_source_hash,prior_critical,replacement_critical,rationale,partner_actor_id,approved_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)`)
+      .bind(approvalId,workspaceId,engagement.client_id,engagement.id,prior.id,replacementId,prior.source_hash,replacementHash,prior.critical,replacementCritical,p.rationale,context.actor.id,now),
+    env.DB.prepare(`UPDATE confirmations SET status='CANCELLED',version=?,updated_at=? WHERE workspace_id=? AND id=? AND version=? AND status=?`)
+      .bind(nextPriorVersion,now,workspaceId,prior.id,prior.version,prior.status),
+    pushChange(env,workspaceId,engagement.id,'Confirmation',prior.id,nextPriorVersion,now));
+  if(replacementId)statements.push(pushChange(env,workspaceId,engagement.id,'Confirmation',replacementId,1,now));
+  return commandMutation(statements,{reassessmentId:approvalId,confirmationId:prior.id,version:nextPriorVersion,status:'CANCELLED',replacementConfirmationId:replacementId,
+      replacementStatus:replacementId?'DRAFT':null,replacementCritical:p.replacementCritical,replacementSourceHash:replacementHash},'CONFIRMATION_SCOPE_REASSESSMENT',approvalId,null,1,
+    {priorConfirmationId:prior.id,priorSourceHash:prior.source_hash,replacementConfirmationId:replacementId,replacementSourceHash:replacementHash,
+      priorCritical:Boolean(prior.critical),replacementCritical:p.replacementCritical,rationale:p.rationale});
+}
+
+async function addConfirmationFollowup(env:Env,workspaceId:string,context:BusinessContext,command:Extract<BusinessFieldworkCommand,{type:'confirmation.follow-up'}>,now:string):Promise<BusinessMutation>{
+  requireWriter(context);const p=command.payload;const row=await currentConfirmation(env,workspaceId,p.confirmationId);const engagement=await getEngagement(env,workspaceId,context,row.engagement_id);
+  if(!['SENT','RETURNED_UNVERIFIED'].includes(row.status))throw new ApiError('INVALID_STATE','Follow-ups can be recorded only while a response is outstanding or awaiting independent verification.');
+  const idValue=crypto.randomUUID();return commandMutation([env.DB.prepare(`INSERT INTO confirmation_followups(id,workspace_id,client_id,engagement_id,confirmation_id,note,dispatch_id,followed_at,created_by_actor_id)
+      VALUES(?,?,?,?,?,?,NULL,?,?)`).bind(idValue,workspaceId,engagement.client_id,engagement.id,row.id,p.note,now,context.actor.id),
+    pushChange(env,workspaceId,engagement.id,'ConfirmationFollowup',idValue,1,now)],{followupId:idValue,confirmationId:row.id,recordedAt:now},'CONFIRMATION_FOLLOWUP',idValue,null,1,{confirmationId:row.id,note:p.note});
+}
+
+async function recordConfirmationAlternative(env:Env,workspaceId:string,context:BusinessContext,command:Extract<BusinessFieldworkCommand,{type:'confirmation.alternative-procedure'}>,now:string):Promise<BusinessMutation>{
+  requireWriter(context);const p=command.payload;const row=await currentConfirmation(env,workspaceId,p.confirmationId);const engagement=await getEngagement(env,workspaceId,context,row.engagement_id);
+  const file=await committedEvidenceFile(env,workspaceId,engagement,p.evidenceFileId);const idValue=crypto.randomUUID();
+  return commandMutation([env.DB.prepare(`INSERT INTO confirmation_alternative_procedures(id,workspace_id,client_id,engagement_id,confirmation_id,evidence_file_id,rationale,recorded_by_actor_id,recorded_at)
+      VALUES(?,?,?,?,?,?,?,?,?)`).bind(idValue,workspaceId,engagement.client_id,engagement.id,row.id,file.id,p.rationale,context.actor.id,now),
+    pushChange(env,workspaceId,engagement.id,'ConfirmationAlternativeProcedure',idValue,1,now)],{alternativeProcedureId:idValue,confirmationId:row.id,evidenceFileId:file.id},
+    'CONFIRMATION_ALTERNATIVE_PROCEDURE',idValue,null,1,{confirmationId:row.id,evidenceFileId:file.id,rationale:p.rationale,criticalGateWaived:false});
+}
+
+async function criticalConfirmationBlockers(env:Env,workspaceId:string,engagement:Engagement){
+  const result=await env.DB.prepare(`SELECT id,version,type,status,due_date AS dueDate,source_hash AS sourceHash,tb_version_id AS tbVersionId,mapping_version_id AS mappingVersionId,
+      materiality_version_id AS materialityVersionId,external_party_name AS externalPartyName,criticality_reason AS criticalityReason
+    FROM confirmations WHERE workspace_id=? AND engagement_id=? AND critical=1 AND status<>'CANCELLED' ORDER BY id`).bind(workspaceId,engagement.id).all<Record<string,unknown>>();
+  const rows=result.results??[];
+  return rows.filter(row=>row.status!=='RETURNED_VERIFIED'||row.tbVersionId!==engagement.active_tb_version_id||row.mappingVersionId!==engagement.active_mapping_version_id
+    ||row.materialityVersionId!==engagement.active_materiality_version_id).map(row=>({id:String(row.id),version:Number(row.version),type:String(row.type),status:String(row.status),dueDate:String(row.dueDate),
+      sourceHash:String(row.sourceHash),externalPartyName:String(row.externalPartyName),criticalityReason:String(row.criticalityReason??''),stalePins:row.tbVersionId!==engagement.active_tb_version_id
+        ||row.mappingVersionId!==engagement.active_mapping_version_id||row.materialityVersionId!==engagement.active_materiality_version_id}));
+}
+
+async function queueHoldingLetterForBlockers(env:Env,workspaceId:string,context:BusinessContext,engagement:Engagement,commandId:string,now:string,blockers:Array<Record<string,unknown>>):Promise<BusinessMutation>{
+  const route=await env.DB.prepare(`SELECT cr.id,cr.version,ct.id AS contact_id,ct.full_name,ct.email FROM contact_routes cr JOIN contacts ct
+      ON ct.workspace_id=cr.workspace_id AND ct.client_id=cr.client_id AND ct.id=cr.contact_id
+    WHERE cr.workspace_id=? AND cr.client_id=? AND cr.purpose='HOLDING_LETTER' AND cr.is_primary=1 AND ct.active=1 AND ct.email IS NOT NULL
+      AND ct.role IN ('MD_GM','CFO_FINANCE_DIRECTOR') ORDER BY cr.id LIMIT 1`).bind(workspaceId,engagement.client_id).first<{id:string;version:number;contact_id:string;full_name:string;email:string}>();
+  const snapshot=blockers.map(item=>({id:item.id,version:item.version,type:item.type,status:item.status,dueDate:item.dueDate,sourceHash:item.sourceHash,externalPartyName:item.externalPartyName,stalePins:item.stalePins}));
+  const outstandingSetHash=await rowHash(snapshot);const baseBlockers=blockers.map(item=>({code:item.stalePins?'STALE_CONFIRMATION_SOURCE':'CRITICAL_CONFIRMATION_OUTSTANDING',entityId:item.id,
+    description:`${String(item.type)} confirmation for ${String(item.externalPartyName)} is ${String(item.status).replaceAll('_',' ').toLowerCase()}${item.stalePins?' or pinned to replaced source versions':''}.`,
+    route:'#audit-fieldwork',remediation:item.stalePins?'Reassess this confirmation against the current trial balance, mapping, and materiality.':'Obtain and independently verify the direct third-party response.'}));
+  if(!route)return commandMutation([],{blocked:true,blockers:[...baseBlockers,{code:'HOLDING_LETTER_ROUTE_MISSING',entityId:engagement.id,description:'No active primary management contact route with an email is configured for the holding letter.',route:'#clients',remediation:'Set a primary HOLDING_LETTER route for an active MD/GM or CFO contact.'}],
+    holdingLetterJobId:null,outstandingSetHash},'CONFIRMATION_GATE',engagement.id,engagement.version,engagement.version,{blocked:true,outstandingSetHash,holdingLetterQueued:false});
+  const deduplicationKey=`holding-letter:${engagement.id}:${outstandingSetHash}`;
+  const prior=await env.DB.prepare(`SELECT id,status FROM outbox_jobs WHERE workspace_id=? AND deduplication_key=?`).bind(workspaceId,deduplicationKey).first<{id:string;status:string}>();
+  const jobId=prior?.id??crypto.randomUUID();const recipient={contactRouteId:route.id,contactRouteVersion:route.version,contactId:route.contact_id,name:route.full_name,email:route.email};
+  const payload={commandId,documentType:'HOLDING_LETTER',holdingLetterId:crypto.randomUUID(),engagementId:engagement.id,clientId:engagement.client_id,
+    outstandingSetHash,confirmations:snapshot,recipient};
+  const statements:D1PreparedStatement[]=[env.DB.prepare(`INSERT INTO command_assertions(workspace_id,seq,ok)
+      SELECT ?,988,CASE WHEN EXISTS(SELECT 1 FROM engagements WHERE workspace_id=? AND id=? AND version=? AND active_tb_version_id IS ? AND active_mapping_version_id IS ? AND active_materiality_version_id IS ?)
+        AND (SELECT COUNT(*) FROM confirmations c JOIN engagements e ON e.workspace_id=c.workspace_id AND e.id=c.engagement_id
+          WHERE c.workspace_id=? AND c.engagement_id=? AND c.critical=1 AND c.status<>'CANCELLED'
+            AND (c.status<>'RETURNED_VERIFIED' OR c.tb_version_id IS NOT e.active_tb_version_id OR c.mapping_version_id IS NOT e.active_mapping_version_id OR c.materiality_version_id IS NOT e.active_materiality_version_id))=?
+        AND NOT EXISTS(SELECT 1 FROM json_each(?) item LEFT JOIN confirmations c ON c.workspace_id=? AND c.id=json_extract(item.value,'$.id')
+          WHERE c.id IS NULL OR c.critical<>1 OR c.status='CANCELLED' OR c.version<>CAST(json_extract(item.value,'$.version') AS INTEGER)
+            OR c.status<>json_extract(item.value,'$.status') OR c.source_hash<>json_extract(item.value,'$.sourceHash'))
+        THEN 1 ELSE 0 END`)
+      .bind(workspaceId,workspaceId,engagement.id,engagement.version,engagement.active_tb_version_id,engagement.active_mapping_version_id,engagement.active_materiality_version_id,
+        workspaceId,engagement.id,snapshot.length,JSON.stringify(snapshot),workspaceId)];
+  if(!prior)statements.push(env.DB.prepare(`INSERT INTO outbox_jobs(id,workspace_id,version,kind,aggregate_id,aggregate_version,payload_json,deduplication_key,status,attempts,next_attempt_at,lease_until,last_error_code,provider_reference,result_file_id,result_json,completed_at,created_at,updated_at)
+      VALUES(?,?,1,'GENERATE_DOCUMENT',?,?,?,?, 'PENDING',0,?,NULL,NULL,NULL,NULL,NULL,NULL,?,?)`).bind(jobId,workspaceId,engagement.id,engagement.version,JSON.stringify(payload),deduplicationKey,now,now,now));
+  return commandMutation(statements,{blocked:true,blockers:baseBlockers,holdingLetterJobId:jobId,holdingLetterJobStatus:prior?.status??'PENDING',outstandingSetHash},'CONFIRMATION_GATE',engagement.id,engagement.version,engagement.version,
+    {blocked:true,outstandingSetHash,holdingLetterJobId:jobId,holdingLetterReused:Boolean(prior)});
+}
+
 async function createAdjustment(env:Env,workspaceId:string,context:BusinessContext,command:Extract<BusinessFieldworkCommand,{type:'adjustment.create'}>,now:string):Promise<BusinessMutation>{
   requireWriter(context);const p=command.payload;const engagement=await getEngagement(env,workspaceId,context,p.engagementId);
   if(!engagement.active_mapping_version_id||!engagement.active_materiality_version_id)throw new ApiError('GATE_BLOCKED','A current approved mapping and materiality version are required before drafting an AJE.');
@@ -1964,5 +2202,13 @@ export async function buildBusinessFieldworkMutation(env:Env,workspaceId:string,
     case 'evidence.link':return linkEvidence(env,workspaceId,context,command,now);
     case 'evidence.review':return reviewEvidence(env,workspaceId,context,command,now);
     case 'evidence.unlink':return unlinkEvidence(env,workspaceId,context,command,now);
+    case 'confirmation.create':return createConfirmation(env,workspaceId,context,command,now);
+    case 'confirmation.dispatch':return dispatchConfirmation(env,workspaceId,context,command,commandId,now);
+    case 'confirmation.record-response':return recordConfirmationResponse(env,workspaceId,context,command,now);
+    case 'confirmation.verify':return verifyConfirmation(env,workspaceId,context,command,now);
+    case 'confirmation.cancel':return cancelConfirmation(env,workspaceId,context,command,now);
+    case 'confirmation.scope-reassess':return reassessConfirmationScope(env,workspaceId,context,command,now);
+    case 'confirmation.follow-up':return addConfirmationFollowup(env,workspaceId,context,command,now);
+    case 'confirmation.alternative-procedure':return recordConfirmationAlternative(env,workspaceId,context,command,now);
   }
 }

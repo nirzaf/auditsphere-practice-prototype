@@ -15,7 +15,7 @@ import {
 } from '../../services/businessWorkspace';
 
 type EngagementRef = { id: string; clientId: string; code: string; clientName: string; lifecycleState: string; periodStart: string; periodEnd: string };
-type Tab = 'statements' | 'workprograms' | 'sampling' | 'evidence' | 'findings' | 'reviews';
+type Tab = 'statements' | 'workprograms' | 'sampling' | 'evidence' | 'confirmations' | 'findings' | 'reviews';
 type Assertion = 'EXISTENCE' | 'RIGHTS_OBLIGATIONS' | 'COMPLETENESS' | 'VALUATION' | 'CUTOFF' | 'PRESENTATION';
 type AdjustmentDraftLine = { fsliId: string; accountCode: string; debit: string; credit: string };
 type PopulationPayload = {
@@ -186,6 +186,22 @@ export function BusinessFieldworkPanel({ workspaceId, selected, context, engagem
   const [findingSeverity, setFindingSeverity] = useState<'LOW'|'MODERATE'|'HIGH'|'CRITICAL'>('MODERATE');
   const [findingQualitative, setFindingQualitative] = useState(false);
   const [findingResolutions, setFindingResolutions] = useState<Record<string,string>>({});
+  const [confirmationFsliId, setConfirmationFsliId] = useState('');
+  const [confirmationType, setConfirmationType] = useState<'BANK'|'AR'|'AP'|'INVENTORY'|'LEGAL'>('BANK');
+  const [confirmationPartyName, setConfirmationPartyName] = useState('');
+  const [confirmationPartyAddress, setConfirmationPartyAddress] = useState('');
+  const [confirmationPartyEmail, setConfirmationPartyEmail] = useState('');
+  const [confirmationRecipientSource, setConfirmationRecipientSource] = useState('');
+  const [confirmationBalance, setConfirmationBalance] = useState('');
+  const [confirmationCritical, setConfirmationCritical] = useState(true);
+  const [confirmationCriticalityReason, setConfirmationCriticalityReason] = useState('');
+  const [confirmationDueDate, setConfirmationDueDate] = useState(engagement.periodEnd);
+  const [confirmationResponseFiles, setConfirmationResponseFiles] = useState<Record<string,string>>({});
+  const [confirmationReturnedAt, setConfirmationReturnedAt] = useState(() => new Date().toISOString().slice(0,16));
+  const [confirmationVerificationDrafts, setConfirmationVerificationDrafts] = useState<Record<string,string>>({});
+  const [confirmationFollowupDrafts, setConfirmationFollowupDrafts] = useState<Record<string,string>>({});
+  const [confirmationAlternativeDrafts, setConfirmationAlternativeDrafts] = useState<Record<string,{fileId:string;rationale:string}>>({});
+  const [confirmationReassessmentDrafts, setConfirmationReassessmentDrafts] = useState<Record<string,{action:'CRITICAL'|'NONCRITICAL'|'CANCEL'|'';rationale:string;criticalityReason:string}>>({});
   const [adjustmentDescription, setAdjustmentDescription] = useState('');
   const [adjustmentFindingId, setAdjustmentFindingId] = useState('');
   const [adjustmentEvidenceIds, setAdjustmentEvidenceIds] = useState<string[]>([]);
@@ -232,6 +248,7 @@ export function BusinessFieldworkPanel({ workspaceId, selected, context, engagem
         setPopulationFsliId(current => current || data.statements.profitLoss[0]?.fsliId || data.statements.balanceSheet[0]?.fsliId || '');
         setFindingFsliId(current => current || data.statements.profitLoss[0]?.fsliId || data.statements.balanceSheet[0]?.fsliId || '');
         setDifferenceFsliId(current => current || data.statements.profitLoss[0]?.fsliId || data.statements.balanceSheet[0]?.fsliId || '');
+        setConfirmationFsliId(current => current || data.statements.profitLoss[0]?.fsliId || data.statements.balanceSheet[0]?.fsliId || '');
         setAdjustmentLinesDraft(current => current.map((line,index) => ({...line,fsliId:line.fsliId||data.statements.profitLoss[index]?.fsliId||data.statements.balanceSheet[index]?.fsliId||''})));
         setAdjustmentEvidenceIds(current => current.length?current:data.evidence.filter(item=>item.adequacy==='ADEQUATE').slice(0,1).map(item=>item.id));
         setAssignedStaffId(current => current || data.staff.find(person => person.grade === 'MANAGER')?.id || data.staff[0]?.id || '');
@@ -268,7 +285,12 @@ export function BusinessFieldworkPanel({ workspaceId, selected, context, engagem
     setBusy(true); setError(''); setMessage('');
     try {
       const response = await runBusinessCommand<T>(workspaceId, scope, { type, payload }, idempotencyKey);
-      setMessage(success); setRefresh(value => value + 1); onChanged(); return response.result;
+        const result = response.result as T & { blocked?: boolean; blockers?: Array<{description?: unknown}>; holdingLetterJobId?: unknown };
+        if (result.blocked) {
+          setError(`Handover is blocked: ${(result.blockers ?? []).map(item => String(item.description ?? '')).filter(Boolean).join(' ')}`);
+          setMessage(result.holdingLetterJobId ? `A deduplicated Holding Letter job is queued: ${String(result.holdingLetterJobId)}.` : 'Configure the management Holding Letter contact route to notify management.');
+        } else setMessage(success);
+        setRefresh(value => value + 1); onChanged(); return response.result;
     } catch (reason) {
       const code = reason && typeof reason === 'object' ? String((reason as { code?: unknown }).code ?? '') : '';
       if (code === 'VERSION_CONFLICT' || code === 'STALE_REVISION' || code === 'STALE_DEPENDENCY') {
@@ -282,6 +304,16 @@ export function BusinessFieldworkPanel({ workspaceId, selected, context, engagem
   async function createFinding(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();const result=await command<{findingId?:string}>('finding.create',{engagementId:engagement.id,fsliId:findingFsliId,title:findingTitle,description:findingDescription,severity:findingSeverity,qualitativeSignificance:findingQualitative},'Finding and source pins were recorded.');
     if(result?.findingId){setFindingTitle('');setFindingDescription('');setFindingQualitative(false);}
+  }
+
+  async function createConfirmation(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const payload = { engagementId: engagement.id, type: confirmationType, fsliId: confirmationFsliId, externalPartyName: confirmationPartyName,
+      externalPartyAddress: confirmationPartyAddress, externalPartyEmail: confirmationPartyEmail.trim() || null, recipientVerificationText: confirmationRecipientSource,
+      balanceMinor: confirmationBalance.trim() ? toMinor(confirmationBalance) : null, critical: confirmationCritical,
+      criticalityReason: confirmationCritical ? confirmationCriticalityReason : null, dueDate: confirmationDueDate };
+    const result = await command<{confirmationId?:string}>('confirmation.create', payload, 'Version-pinned external confirmation was recorded.');
+    if (result?.confirmationId) { setConfirmationPartyName(''); setConfirmationPartyAddress(''); setConfirmationPartyEmail(''); setConfirmationRecipientSource(''); setConfirmationBalance(''); setConfirmationCriticalityReason(''); }
   }
 
   async function createAdjustment(event: FormEvent<HTMLFormElement>) {
@@ -449,7 +481,7 @@ export function BusinessFieldworkPanel({ workspaceId, selected, context, engagem
         <span><strong>Planning</strong>{workspace.engagement.approvedPlanningVersionId ?? 'Missing'}</span><span><strong>Statement source</strong>{workspace.statements.sourceHash.slice(0, 14)}</span>
       </div>
       <nav className="business-fieldwork-tabs" aria-label="Fieldwork sections">
-        {([['statements','Financial statements'],['workprograms','Workprograms'],['sampling','Sampling'],['evidence','Evidence'],['findings','Findings & SRM'],['reviews','Review queue']] as Array<[Tab,string]>).map(([key,title]) =>
+        {([['statements','Financial statements'],['workprograms','Workprograms'],['sampling','Sampling'],['evidence','Evidence'],['confirmations',`Confirmations${workspace.confirmations.some(item=>item.critical&&item.status!=='RETURNED_VERIFIED'&&item.status!=='CANCELLED')?' · gate open':''}`],['findings','Findings & SRM'],['reviews','Review queue']] as Array<[Tab,string]>).map(([key,title]) =>
           <button type="button" key={key} className={tab === key ? 'selected' : ''} aria-pressed={tab === key} onClick={() => setTab(key)}>{title}</button>)}
       </nav>
 
@@ -723,6 +755,65 @@ export function BusinessFieldworkPanel({ workspaceId, selected, context, engagem
         <div className="business-fieldwork-card"><div className="business-section-heading"><div><h3>Change feed</h3><p className="business-muted">Cursor {changeCursor} · refresh reloads current versioned rows and audit links.</p></div>
           <button className="btn sm" type="button" disabled={busy} onClick={async () => { try { const result = await getBusinessFieldworkChanges<{changes:unknown[];nextCursor:string;hasMore:boolean}>(workspaceId, engagement.id, scope, changeCursor); setChangeCursor(Number(result.nextCursor)); setMessage(`${result.changes.length} changes loaded${result.hasMore ? '; more are available' : ''}.`); } catch (reason) { setError(reason instanceof Error ? reason.message : 'Fieldwork changes could not be loaded.'); } }}>Read next events</button></div>
         </div>
+      </div>}
+      {tab === 'confirmations' && <div className="business-fieldwork-body">
+        <section className="business-fieldwork-card"><p className="business-eyebrow">US-FLD-013 · INDEPENDENT THIRD-PARTY EVIDENCE</p><h3>External confirmations</h3>
+          <p className="business-note">Critical requests block Manager handover and final release until the direct response is independently verified against its current TB, mapping, and materiality pins. An alternative procedure is retained separately and never waives that policy gate.</p>
+          {workspace.confirmations.some(item=>item.critical&&item.status!=='RETURNED_VERIFIED'&&item.status!=='CANCELLED')&&<p className="business-alert" role="alert">Critical confirmation gate is open. Complete and independently verify each critical response before handover.</p>}
+        </section>
+        {canWrite&&<form className="business-fieldwork-card business-form" onSubmit={createConfirmation}>
+          <h3>Scope a new confirmation</h3><div className="business-form-grid">
+            <label className="business-field"><span>Confirmation type</span><select value={confirmationType} onChange={event=>setConfirmationType(event.target.value as typeof confirmationType)}><option value="BANK">Bank</option><option value="AR">Accounts receivable</option><option value="AP">Accounts payable</option><option value="INVENTORY">Inventory</option><option value="LEGAL">Legal</option></select></label>
+            <label className="business-field"><span>Affected FSLI</span><select required value={confirmationFsliId} onChange={event=>setConfirmationFsliId(event.target.value)}><option value="">Choose a statement line…</option>{allLines.map(line=><option key={line.fsliId} value={line.fsliId}>{line.code} · {line.name}</option>)}</select></label>
+            <label className="business-field"><span>External party</span><input required maxLength={200} value={confirmationPartyName} onChange={event=>setConfirmationPartyName(event.target.value)}/></label>
+            <label className="business-field"><span>External party address</span><input required maxLength={2000} value={confirmationPartyAddress} onChange={event=>setConfirmationPartyAddress(event.target.value)}/></label>
+            <label className="business-field"><span>External party email</span><input type="email" maxLength={320} value={confirmationPartyEmail} onChange={event=>setConfirmationPartyEmail(event.target.value)}/><small>Required when dispatching the request.</small></label>
+            <label className="business-field"><span>Confirmed balance (QAR, optional)</span><input inputMode="decimal" value={confirmationBalance} onChange={event=>setConfirmationBalance(event.target.value)}/></label>
+            <label className="business-field"><span>Response due date</span><input type="date" required value={confirmationDueDate} onChange={event=>setConfirmationDueDate(event.target.value)}/></label>
+          </div>
+          <label className="business-field"><span>Recipient source and independent address verification</span><textarea required minLength={10} maxLength={5000} value={confirmationRecipientSource} onChange={event=>setConfirmationRecipientSource(event.target.value)} placeholder="Record how the recipient and address were obtained and verified independently."/></label>
+          <label className="business-check-field"><input type="checkbox" checked={confirmationCritical} onChange={event=>setConfirmationCritical(event.target.checked)}/>Critical confirmation under the firm release policy</label>
+          {confirmationCritical&&<label className="business-field"><span>Why is this confirmation critical?</span><textarea required minLength={10} maxLength={5000} value={confirmationCriticalityReason} onChange={event=>setConfirmationCriticalityReason(event.target.value)}/></label>}
+          <button className="btn primary" type="submit" disabled={busy||!canWrite||!confirmationFsliId||confirmationRecipientSource.trim().length<10||(confirmationCritical&&confirmationCriticalityReason.trim().length<10)}>Save confirmation scope</button>
+        </form>}
+        {workspace.confirmations.map(item=>{const id=String(item.id);const status=String(item.status);const alt=confirmationAlternativeDrafts[id]??{fileId:'',rationale:''};
+          return <article className="business-fieldwork-card" key={id}><div className="business-section-heading"><div><strong>{String(item.type)} · {String(item.fsliCode)} · {String(item.externalPartyName)}</strong>
+              <span>{label(status)} · due {String(item.dueDate)} · {item.critical?'CRITICAL':'noncritical'} · v{String(item.version)}</span></div><code>{String(item.sourceHash).slice(0,14)}</code></div>
+            <p>{String(item.externalPartyAddress)} · {String(item.externalPartyEmail??'No email')}</p>
+            <p className="business-muted">Recipient source: {String(item.recipientVerificationText)} · pins TB {String(item.tbVersionId??'—').slice(0,10)}, mapping {String(item.mappingVersionId??'—').slice(0,10)}, materiality {String(item.materialityVersionId??'—').slice(0,10)}</p>
+            {Boolean(item.critical)&&<p className="business-note">Criticality rationale: {String(item.criticalityReason??'')}</p>}
+            {Boolean(item.jobError)&&<p className="business-alert" role="alert">Request job error: {String(item.jobError)}</p>}
+            {(workspace.confirmationReassessments??[]).filter(record=>record.priorConfirmationId===id).map(record=><p className="business-note" key={String(record.id)}>Partner scope reassessment · {String(record.approvedAt)} · {String(record.rationale)}{record.replacementConfirmationId?` · replacement ${String(record.replacementConfirmationId)}`:' · cancelled without replacement'}</p>)}
+            {status==='DRAFT'&&canWrite&&<div className="business-fieldwork-action-row"><button className="btn sm" type="button" disabled={busy} onClick={()=>void command('confirmation.dispatch',{confirmationId:id,expectedVersion:Number(item.version)},'A verified confirmation request PDF and idempotent dispatch job were queued.')}>Queue verified confirmation request</button>
+              {canPartner&&<button className="btn sm" type="button" disabled={busy} onClick={()=>void command('confirmation.cancel',{confirmationId:id,expectedVersion:Number(item.version),reason:'Partner cancelled this unissued confirmation before its scope was relied upon.'},'Unused draft confirmation cancelled with a reason.')}>Cancel unused draft</button>}</div>}
+            {status==='SENT'&&canWrite&&<div className="business-fieldwork-review"><h4>Record returned third-party evidence</h4><div className="business-form-grid">
+                <label className="business-field"><span>Committed response file</span><select required value={confirmationResponseFiles[id]??''} onChange={event=>setConfirmationResponseFiles(current=>({...current,[id]:event.target.value}))}><option value="">Choose response evidence…</option>{sourceFiles.map(file=><option key={file.id} value={file.id}>{file.originalName} · {file.purpose} · v{file.version}</option>)}</select></label>
+                <label className="business-field"><span>Third party returned at</span><input type="datetime-local" required value={confirmationReturnedAt} onChange={event=>setConfirmationReturnedAt(event.target.value)}/></label></div>
+              <button type="button" className="btn sm" disabled={busy||!confirmationResponseFiles[id]} onClick={()=>void command('confirmation.record-response',{confirmationId:id,expectedVersion:Number(item.version),responseFileId:confirmationResponseFiles[id],returnedAt:new Date(confirmationReturnedAt).toISOString()},'Third-party response retained as unverified; independent review is still required.')}>Record response as unverified</button>
+            </div>}
+            {status==='RETURNED_UNVERIFIED'&&canReview&&<div className="business-fieldwork-review"><label className="business-field"><span>Independent response verification rationale</span><textarea required minLength={10} value={confirmationVerificationDrafts[id]??''} onChange={event=>setConfirmationVerificationDrafts(current=>({...current,[id]:event.target.value}))}/></label>
+              <button type="button" className="btn sm" disabled={busy||(confirmationVerificationDrafts[id]?.trim().length??0)<10} onClick={()=>void command('confirmation.verify',{confirmationId:id,expectedVersion:Number(item.version),verificationRationale:confirmationVerificationDrafts[id]},'Direct external response independently verified.')}>Verify exact response</button>
+            </div>}
+            {['SENT','RETURNED_UNVERIFIED'].includes(status)&&canWrite&&<div className="business-fieldwork-review"><label className="business-field"><span>Follow-up note (retained separately)</span><textarea minLength={10} value={confirmationFollowupDrafts[id]??''} onChange={event=>setConfirmationFollowupDrafts(current=>({...current,[id]:event.target.value}))}/></label>
+              <button type="button" className="btn sm" disabled={busy||(confirmationFollowupDrafts[id]?.trim().length??0)<10} onClick={async()=>{const result=await command('confirmation.follow-up',{confirmationId:id,note:confirmationFollowupDrafts[id]},'Confirmation follow-up was recorded.');if(result)setConfirmationFollowupDrafts(current=>({...current,[id]:''}));}}>Record follow-up</button>
+            </div>}
+            {canPartner&&status!=='CANCELLED'&&<details className="business-fieldwork-review"><summary>Partner scope reassessment</summary>
+              <p className="business-note">A Partner reason is required. Reassessing creates a new draft pinned to current source versions, or cancels this request while preserving its history.</p>
+              <label className="business-field"><span>Decision</span><select value={confirmationReassessmentDrafts[id]?.action??''} onChange={event=>setConfirmationReassessmentDrafts(current=>({...current,[id]:{action:event.target.value as 'CRITICAL'|'NONCRITICAL'|'CANCEL'|'',rationale:current[id]?.rationale??'',criticalityReason:current[id]?.criticalityReason??''}}))}><option value="">Choose a reassessment…</option><option value="CRITICAL">Replace as critical</option><option value="NONCRITICAL">Replace as noncritical</option><option value="CANCEL">Cancel without replacement</option></select></label>
+              {confirmationReassessmentDrafts[id]?.action==='CRITICAL'&&<label className="business-field"><span>Replacement criticality rationale</span><textarea required minLength={10} value={confirmationReassessmentDrafts[id]?.criticalityReason??''} onChange={event=>setConfirmationReassessmentDrafts(current=>({...current,[id]:{action:current[id]?.action??'CRITICAL',rationale:current[id]?.rationale??'',criticalityReason:event.target.value}}))}/></label>}
+              <label className="business-field"><span>Partner reassessment rationale</span><textarea required minLength={10} value={confirmationReassessmentDrafts[id]?.rationale??''} onChange={event=>setConfirmationReassessmentDrafts(current=>({...current,[id]:{action:current[id]?.action??'',rationale:event.target.value,criticalityReason:current[id]?.criticalityReason??''}}))}/></label>
+              <button type="button" className="btn sm" disabled={busy||!confirmationReassessmentDrafts[id]?.action||(confirmationReassessmentDrafts[id]?.rationale.trim().length??0)<10||(confirmationReassessmentDrafts[id]?.action==='CRITICAL'&&(confirmationReassessmentDrafts[id]?.criticalityReason.trim().length??0)<10)} onClick={()=>{const draft=confirmationReassessmentDrafts[id];if(!draft)return;void command('confirmation.scope-reassess',{confirmationId:id,expectedVersion:Number(item.version),rationale:draft.rationale,replacementCritical:draft.action==='CANCEL'?null:draft.action==='CRITICAL',replacementCriticalityReason:draft.action==='CRITICAL'?draft.criticalityReason:null},draft.action==='CANCEL'?'Partner-approved cancellation recorded with its rationale.':'Partner reassessment created a replacement draft with current source pins.');}}>Approve reassessment</button>
+            </details>}
+            <details className="business-fieldwork-review"><summary>Record an alternative procedure</summary><p className="business-note">This is retained as separate evidence and does not waive a critical-response blocker.</p><div className="business-form-grid">
+                <label className="business-field"><span>Committed evidence</span><select value={alt.fileId} onChange={event=>setConfirmationAlternativeDrafts(current=>({...current,[id]:{...alt,fileId:event.target.value}}))}><option value="">Choose evidence…</option>{sourceFiles.map(file=><option key={file.id} value={file.id}>{file.originalName}</option>)}</select></label>
+                <label className="business-field"><span>Procedure and conclusion</span><textarea minLength={10} value={alt.rationale} onChange={event=>setConfirmationAlternativeDrafts(current=>({...current,[id]:{...alt,rationale:event.target.value}}))}/></label></div>
+              <button type="button" className="btn sm" disabled={busy||!canWrite||!alt.fileId||alt.rationale.trim().length<10} onClick={()=>void command('confirmation.alternative-procedure',{confirmationId:id,evidenceFileId:alt.fileId,rationale:alt.rationale},'Alternative procedure and exact file pin recorded; confirmation gate remains in force.')}>Save alternative procedure</button>
+            </details>
+            {(workspace.confirmationFollowups??[]).filter(note=>note.confirmationId===id).map(note=><p className="business-muted" key={String(note.id)}>Follow-up · {String(note.followedAt)} · {String(note.note)}</p>)}
+            {(workspace.confirmationAlternatives??[]).filter(note=>note.confirmationId===id).map(note=><p className="business-muted" key={String(note.id)}>Alternative procedure · {String(note.rationale)} · file {String(note.evidenceFileId)}</p>)}
+          </article>;
+        })}
+        {!workspace.confirmations.length&&<p className="business-muted">No third-party confirmations have been scoped.</p>}
       </div>}
       {tab === 'findings' && <div className="business-fieldwork-body">
         <section className="business-fieldwork-card">

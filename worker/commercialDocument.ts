@@ -1,7 +1,7 @@
 import { jsPDF } from 'jspdf';
 
 export type CommercialDocumentInput = {
-  kind: 'ENGAGEMENT_LETTER' | 'INVOICE' | 'RECEIPT';
+  kind: 'ENGAGEMENT_LETTER' | 'INVOICE' | 'RECEIPT' | 'CONFIRMATION_REQUEST' | 'HOLDING_LETTER';
   number: string;
   createdAt: string;
   firmName: string;
@@ -22,6 +22,7 @@ export type CommercialDocumentInput = {
   isReversal?: boolean;
   signature?: { bytes: Uint8Array; partnerName: string };
   sealBytes?: Uint8Array;
+  noticeText?: string;
 };
 
 export class CommercialDocumentError extends Error {
@@ -80,7 +81,10 @@ export function renderCommercialPdf(input: CommercialDocumentInput): Uint8Array 
   line(input.firmName, 17, 2, true);
   doc.setTextColor(37, 50, 62);
   const title = input.kind === 'ENGAGEMENT_LETTER' ? 'ENGAGEMENT LETTER'
-    : input.kind === 'INVOICE' ? 'ADVANCE INVOICE' : input.isReversal ? 'PAYMENT REVERSAL RECEIPT' : 'PAYMENT RECEIPT';
+    : input.kind === 'INVOICE' ? 'ADVANCE INVOICE'
+      : input.kind === 'CONFIRMATION_REQUEST' ? 'EXTERNAL CONFIRMATION REQUEST'
+        : input.kind === 'HOLDING_LETTER' ? 'HOLDING LETTER — OUTSTANDING CRITICAL CONFIRMATIONS'
+          : input.isReversal ? 'PAYMENT REVERSAL RECEIPT' : 'PAYMENT RECEIPT';
   line(title, 14, 2, true);
   line(`Document number: ${input.number}`);
   line(`Client: ${input.clientName}`);
@@ -108,6 +112,12 @@ export function renderCommercialPdf(input: CommercialDocumentInput): Uint8Array 
     line(`Tax (${input.taxPolicyName ?? 'approved workspace policy'}): ${money(input.taxMinor ?? 0)}`);
     line(`Total due: ${money(input.feeMinor)}`, 12, 2, true);
     line(`Due date: ${input.dueDate ?? 'Not set'}`);
+  } else if (input.kind === 'CONFIRMATION_REQUEST' || input.kind === 'HOLDING_LETTER') {
+    line(input.kind === 'CONFIRMATION_REQUEST' ? 'To the independent external party' : 'To client management', 11, 1, true);
+    line(input.noticeText ?? '', 10, 2);
+    line(input.kind === 'CONFIRMATION_REQUEST'
+      ? 'Please respond directly to the auditor using the independently verified contact route. A client-provided copy alone is not treated as an independently verified response.'
+      : 'Please provide the outstanding direct third-party confirmations listed above. This notice does not change the confirmation scope or release requirements.', 9, 0);
   } else {
     line(input.isReversal ? 'Reversed verified payment' : 'Verified payment', 11, 1, true);
     line(`${input.isReversal ? 'Reversed amount' : 'Received'}: ${money(input.feeMinor)} on ${input.receivedOn ?? ''}`);
