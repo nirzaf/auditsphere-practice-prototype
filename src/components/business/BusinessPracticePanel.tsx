@@ -6,7 +6,8 @@ type Account = { id: string; code: string; name: string; accountType: string; no
 type Staff = { id: string; displayName: string; grade: string };
 type TimeEntry = { id: string; version: number; staff_member_id?: string; staffMemberId?: string; display_name?: string; grade?: string; work_date?: string; phase?: string; minutes: number; description: string; billable: boolean; status: string; chargeOutMinor?: string | null };
 type PracticeData = {
-  staff: Staff[]; rates: Array<Record<string, unknown>>; timeEntries: TimeEntry[]; utilization: Array<Record<string, unknown>>;
+  staff: Staff[]; rates: Array<Record<string, unknown>>; timeEntries: TimeEntry[];
+  utilization: Array<{ staffMemberId: string; displayName?: string; grade?: string; scheduledMinutes: number; leaveMinutes: number; availableMinutes: number; recordedMinutes: number; approvedBillableMinutes: number; approvedNonbillableMinutes: number; utilizationBps: number | null; resultReason: string; missingCapacityDates: string[] }>;
   accounts: Account[]; accountingPeriods: Array<{ id: string; startDate: string; endDate: string; status: string }>;
   journals: Array<{ id: string; version: number; number: string; postingDate: string; description: string; sourceType: string; status: string; debitTotalMinor: string; creditTotalMinor: string }>;
   expenses: Array<{ id: string; date: string; payee: string; category: string; amountMinor: string; description: string; status: string }>;
@@ -16,7 +17,7 @@ type PracticeData = {
   trialBalance: { rows: Array<{ accountId: string; code: string; name: string; accountType: string; openingMinor: string; periodDebitMinor: string; periodCreditMinor: string; closingMinor: string }>; closingDebitMinor: string; closingCreditMinor: string; closingBalanced: boolean; sourceHash: string };
   profitLoss: { revenueMinor: string; expenseMinor: string; profitMinor: string; sourceHash: string; recognitionNote: string };
   budget: { id: string; revision: number; sourceHash: string } | null;
-  profitability: { feeMinor: string; chargeOutValueMinor: string; profitabilityMinor: string; phaseVariances: Array<Record<string, unknown>> } | null;
+  profitability: { feeMinor: string; chargeOutValueMinor: string; profitabilityMinor: string; approvedMinutes: number; pendingMinutes: number; billedMinor: string; collectedMinor: string; metricLabel: string; formula: string; sourceHash: string; phases: Array<{ phase: string; plannedMinutes: number; actualMinutes: number; varianceMinutes: number; varianceBps: number | null; varianceStatus: string; chargeOutValueMinor: string }> } | null;
   partnerWithdrawals: Array<Record<string, unknown>>;
   pettyCashReconciliations: Array<Record<string, unknown>>;
   creditNotes: Array<Record<string, unknown>>;
@@ -38,6 +39,7 @@ interface Props {
 const phases = ['COMMERCIAL', 'PLANNING', 'FIELDWORK', 'REVIEW', 'REPORTING', 'ARCHIVE'];
 const grades = ['PARTNER', 'MANAGER', 'SENIOR', 'ASSOCIATE'];
 function qatarToday(): string { return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Qatar', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date()); }
+function qatarTomorrow(): string { const date = new Date(`${qatarToday()}T00:00:00Z`); date.setUTCDate(date.getUTCDate() + 1); return date.toISOString().slice(0, 10); }
 function money(value: string | number | null | undefined): string {
   if (value === null || value === undefined || !/^-?\d+$/.test(String(value))) return '—';
   const n = BigInt(String(value)); const sign = n < 0n ? '−' : ''; const abs = n < 0n ? -n : n;
@@ -66,6 +68,7 @@ export function BusinessPracticePanel({ workspaceId, selected, context, engageme
   const [billable, setBillable] = useState(true);
   const [rateGrade, setRateGrade] = useState('ASSOCIATE');
   const [rateQar, setRateQar] = useState('200');
+  const [rateEffectiveFrom, setRateEffectiveFrom] = useState(qatarTomorrow());
   const [accountCode, setAccountCode] = useState('5400');
   const [accountName, setAccountName] = useState('Other operating expense');
   const [accountType, setAccountType] = useState<'ASSET' | 'LIABILITY' | 'EQUITY' | 'REVENUE' | 'EXPENSE'>('EXPENSE');
@@ -89,9 +92,7 @@ export function BusinessPracticePanel({ workspaceId, selected, context, engageme
   const [journalDebitAccount, setJournalDebitAccount] = useState('');
   const [journalCreditAccount, setJournalCreditAccount] = useState('');
   const [journalAmount, setJournalAmount] = useState('');
-  const [budgetPhase, setBudgetPhase] = useState('FIELDWORK');
-  const [budgetGrade, setBudgetGrade] = useState('SENIOR');
-  const [budgetMinutes, setBudgetMinutes] = useState('0');
+  const [budgetRows, setBudgetRows] = useState<Array<{ phase: string; grade: string; plannedMinutes: string }>>([{ phase: 'FIELDWORK', grade: 'SENIOR', plannedMinutes: '0' }]);
   const [openPeriodStart, setOpenPeriodStart] = useState(`${today.slice(0, 4)}-01-01`);
   const [openPeriodEnd, setOpenPeriodEnd] = useState(today);
   const [closePeriodId, setClosePeriodId] = useState('');
@@ -144,7 +145,7 @@ export function BusinessPracticePanel({ workspaceId, selected, context, engageme
   };
   const saveRate = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    try { await perform('practice.rate.set', { grade: rateGrade, hourlyMinor: qatarMinor(rateQar), effectiveFrom: today }, `Approved ${rateGrade.toLowerCase()} rate saved for ${today}.`); }
+    try { await perform('practice.rate.set', { grade: rateGrade, hourlyMinor: qatarMinor(rateQar), effectiveFrom: rateEffectiveFrom }, `Approved ${rateGrade.toLowerCase()} rate effective ${rateEffectiveFrom}.`); }
     catch (reason) { setError(reason instanceof Error ? reason.message : 'Enter a valid charge-out rate.'); }
   };
   const createExpense = async (event: React.FormEvent<HTMLFormElement>) => {
@@ -188,8 +189,10 @@ export function BusinessPracticePanel({ workspaceId, selected, context, engageme
     event.preventDefault();
     const proposalVersionId = (data as unknown as { engagement?: { activeProposalVersionId?: string } } | null)?.engagement?.activeProposalVersionId;
     if (!proposalVersionId) { setError('The engagement has no accepted proposal revision to pin.'); return; }
-    await perform('budget.approve', { engagementId: engagement.id, feeProposalVersionId: proposalVersionId,
-      phases: [{ phase: budgetPhase, grade: budgetGrade, plannedMinutes: Number(budgetMinutes) }] }, 'Immutable phase budget approved against the accepted fee revision.');
+    const budgetPhases = budgetRows.map(row => ({ phase: row.phase, grade: row.grade, plannedMinutes: Number(row.plannedMinutes) }));
+    if (new Set(budgetPhases.map(row => `${row.phase}:${row.grade}`)).size !== budgetPhases.length) { setError('Each phase and grade pair may appear only once in a budget.'); return; }
+    await perform('budget.approve', { engagementId: engagement.id, feeProposalVersionId: proposalVersionId, phases: budgetPhases },
+      'Immutable multi-phase budget approved against the accepted fee revision.');
   };
   const openPeriod = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault(); await perform('accounting-period.open', { startDate: openPeriodStart, endDate: openPeriodEnd }, 'Accounting period opened with a non-overlapping date range.');
@@ -276,6 +279,21 @@ export function BusinessPracticePanel({ workspaceId, selected, context, engageme
         <button type="button" className="btn sm" disabled={busy} onClick={() => void perform('practice.capture-ar-aging-report', { asOf: to }, 'AR aging snapshot captured with the current reconciliation result.')}>Capture AR aging snapshot</button>
       </div>
 
+      {(data.utilization.length > 0 || data.profitability) && <div className="business-delivery-grid">
+        {data.utilization.length > 0 && <div className="business-record-list"><h3>Utilization · approved billable time against available capacity</h3>
+          <div className="business-table-wrap"><table className="business-table"><thead><tr><th>Staff / grade</th><th>Approved billable</th><th>Available</th><th>Utilization</th></tr></thead><tbody>
+            {data.utilization.map(row => <tr key={row.staffMemberId}><td>{row.displayName ?? row.staffMemberId} · {row.grade ?? '—'}</td><td>{row.approvedBillableMinutes} min</td><td>{row.availableMinutes} min</td>
+              <td>{row.utilizationBps === null ? `Not calculated · ${row.resultReason.replaceAll('_', ' ').toLowerCase()}` : `${(row.utilizationBps / 100).toFixed(2)}%`}</td></tr>)}
+          </tbody></table></div>
+          <small>Approved billable minutes divided by explicitly scheduled capacity after approved leave. Missing capacity is shown, never assumed.</small></div>}
+        {data.profitability && <div className="business-record-list"><h3>Engagement profitability · current approved budget and time</h3>
+          <p>Accepted fee {money(data.profitability.feeMinor)} · charge-out value {money(data.profitability.chargeOutValueMinor)} · margin {money(data.profitability.profitabilityMinor)}</p>
+          <small>{data.profitability.metricLabel} · {data.profitability.pendingMinutes} pending minutes · billed {money(data.profitability.billedMinor)} · collected {money(data.profitability.collectedMinor)}.</small>
+          <div className="business-table-wrap"><table className="business-table"><thead><tr><th>Phase</th><th>Planned</th><th>Actual</th><th>Variance</th><th>Status</th></tr></thead><tbody>
+            {data.profitability.phases.map(row => <tr key={row.phase}><td>{row.phase}</td><td>{row.plannedMinutes} min</td><td>{row.actualMinutes} min</td><td>{row.varianceMinutes >= 0 ? '+' : ''}{row.varianceMinutes} min</td><td>{row.varianceStatus.replaceAll('_', ' ')}</td></tr>)}
+          </tbody></table></div></div>}
+      </div>}
+
       {context.actor.persona === 'PREPARER' && <form className="business-form business-commercial-form" onSubmit={captureTime}>
         <h3>Record actual time</h3>
         <div className="business-form-grid">
@@ -292,8 +310,9 @@ export function BusinessPracticePanel({ workspaceId, selected, context, engageme
         <h3>Set a grade charge-out rate</h3><div className="business-form-grid">
           <label className="business-field"><span>Grade</span><select value={rateGrade} onChange={event => setRateGrade(event.target.value)}>{grades.map(item => <option key={item}>{item}</option>)}</select></label>
           <label className="business-field"><span>QAR per hour</span><input required inputMode="decimal" value={rateQar} onChange={event => setRateQar(event.target.value)} /></label>
+          <label className="business-field"><span>Effective from</span><input type="date" required value={rateEffectiveFrom} onChange={event => setRateEffectiveFrom(event.target.value)} /></label>
         </div><button className="btn sm" disabled={busy}>Save rate revision</button>
-        <small>Each time submission pins the effective rate and calculates value in QAR minor units.</small>
+        <small>A new rate must be future-effective; historical work keeps its pinned rate. Each time submission pins the effective rate and calculates value in QAR minor units.</small>
       </form>}
 
       <h3>Actual time entries</h3>
@@ -307,12 +326,18 @@ export function BusinessPracticePanel({ workspaceId, selected, context, engageme
       </tbody></table></div> : <p className="business-muted">No time entries exist for this engagement and period.</p>}
 
       {isPartner && <form className="business-form business-commercial-form" onSubmit={saveBudget}>
-        <h3>Approve a phase budget</h3><div className="business-form-grid">
-          <label className="business-field"><span>Phase</span><select value={budgetPhase} onChange={event => setBudgetPhase(event.target.value)}>{phases.map(item => <option key={item}>{item}</option>)}</select></label>
-          <label className="business-field"><span>Grade</span><select value={budgetGrade} onChange={event => setBudgetGrade(event.target.value)}>{grades.map(item => <option key={item}>{item}</option>)}</select></label>
-          <label className="business-field"><span>Planned minutes</span><input type="number" min="0" max="1000000" required value={budgetMinutes} onChange={event => setBudgetMinutes(event.target.value)} /></label>
-        </div><button className="btn sm" disabled={busy}>Pin budget to accepted fee revision</button>
-        {data.budget && <small>Current immutable budget revision {data.budget.revision} · {data.budget.sourceHash.slice(0, 16)}…</small>}
+        <h3>Approve a multi-phase budget</h3>
+        {budgetRows.map((row, index) => <div className="business-form-grid" key={index}>
+          <label className="business-field"><span>Phase</span><select value={row.phase} onChange={event => setBudgetRows(rows => rows.map((item, position) => position === index ? { ...item, phase: event.target.value } : item))}>{phases.map(item => <option key={item}>{item}</option>)}</select></label>
+          <label className="business-field"><span>Grade</span><select value={row.grade} onChange={event => setBudgetRows(rows => rows.map((item, position) => position === index ? { ...item, grade: event.target.value } : item))}>{grades.map(item => <option key={item}>{item}</option>)}</select></label>
+          <label className="business-field"><span>Planned minutes</span><input type="number" min="0" max="1000000" required value={row.plannedMinutes} onChange={event => setBudgetRows(rows => rows.map((item, position) => position === index ? { ...item, plannedMinutes: event.target.value } : item))} /></label>
+          {budgetRows.length > 1 && <button type="button" className="btn sm" disabled={busy} onClick={() => setBudgetRows(rows => rows.filter((_, position) => position !== index))}>Remove line</button>}
+        </div>)}
+        <div className="business-practice-actions">
+          <button type="button" className="btn sm" disabled={busy || budgetRows.length >= 24} onClick={() => setBudgetRows(rows => [...rows, { phase: 'FIELDWORK', grade: 'SENIOR', plannedMinutes: '0' }])}>Add phase line</button>
+          <button className="btn sm" disabled={busy}>Pin complete budget to accepted fee revision</button>
+        </div>
+        {data.budget && <small>Current immutable budget revision {data.budget.revision} · {data.budget.sourceHash.slice(0, 16)}… Each approval supersedes the prior plan with the complete set of phase lines above.</small>}
       </form>}
 
       {isPartner && <form className="business-form business-commercial-form" onSubmit={openPeriod}>
