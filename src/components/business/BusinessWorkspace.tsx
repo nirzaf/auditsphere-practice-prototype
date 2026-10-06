@@ -46,6 +46,8 @@ import { BusinessPbcPanel } from './BusinessPbcPanel';
 import { BusinessPlanningPanel } from './BusinessPlanningPanel';
 import { BusinessTrialBalancePanel } from './BusinessTrialBalancePanel';
 import { BusinessFieldworkPanel } from './BusinessFieldworkPanel';
+import { BusinessPracticePanel } from './BusinessPracticePanel';
+import { BusinessReportingPanel } from './BusinessReportingPanel';
 
 type SetupMode = 'create' | 'connect';
 
@@ -392,7 +394,7 @@ export function BusinessWorkspaceConsole() {
       setProposalEngagementId(current => current && next.engagements.some(item => item.id === current)
         ? current : next.engagements.find(item => item.lifecycleState === 'PROPOSAL_GENERATION')?.id ?? '');
       setRiskEngagementId(current => current && next.engagements.some(item => item.id === current)
-        ? current : next.engagements.find(item => ['PROPOSAL_GENERATION', 'DUAL_KEY_PENDING', 'ADVANCE_BILLING'].includes(item.lifecycleState))?.id ?? '');
+        ? current : next.engagements.find(item => item.lifecycleState !== 'ARCHIVED_READ_ONLY')?.id ?? next.engagements[0]?.id ?? '');
       setCvStaffMemberId(current => current || selectedProfile?.staffMemberId || next.staffMembers.find(staff => staff.grade === 'PARTNER')?.id || '');
       setCvFileVersionId(current => current || files.find(file => file.purpose === 'TEMPLATE'
         && ['application/pdf', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'].includes(file.mediaType))?.id || '');
@@ -1219,7 +1221,7 @@ export function BusinessWorkspaceConsole() {
           <div className="business-section-heading">
             <div><p className="business-eyebrow">ADMINISTRATION · GOVERNANCE</p><h2 id="business-risk-engagement-heading">Engagement acceptance and risk</h2></div>
             <label className="business-field" htmlFor="business-risk-engagement"><span>Engagement</span><select id="business-risk-engagement" value={riskEngagementId} onChange={event => setRiskEngagementId(event.target.value)}>
-              {proposalWorkspace?.engagements.filter(item => item.lifecycleState !== 'ARCHIVED_READ_ONLY').map(item => <option key={item.id} value={item.id}>{item.clientName} · {item.code} · {item.lifecycleState.replaceAll('_', ' ')}</option>)}
+              {proposalWorkspace?.engagements.map(item => <option key={item.id} value={item.id}>{item.clientName} · {item.code} · {item.lifecycleState.replaceAll('_', ' ')}</option>)}
             </select></label>
           </div>
           <BusinessAcceptanceRiskPanel workspaceId={preference.workspaceId} selected={preference} context={context}
@@ -1236,10 +1238,17 @@ export function BusinessWorkspaceConsole() {
           {context.allowedActions.includes('fieldwork.read') && <BusinessFieldworkPanel workspaceId={preference.workspaceId}
             selected={preference} context={context} engagement={riskEngagement} files={files}
             onChanged={() => setRecordsKey(value => value + 1)} />}
+          {context.allowedActions.includes('practice.read') && <BusinessPracticePanel workspaceId={preference.workspaceId}
+            selected={preference} context={context} engagement={riskEngagement} files={files}
+            onChanged={() => setRecordsKey(value => value + 1)} />}
         </section>}
 
         {context?.allowedActions.includes('pbc.read') && preference && <BusinessPbcPanel workspaceId={preference.workspaceId}
           selected={preference} context={context} onChanged={() => setRecordsKey(value => value + 1)} />}
+
+        {context?.allowedActions.includes('reporting.read') && preference && riskEngagement && <BusinessReportingPanel workspaceId={preference.workspaceId}
+          selected={preference} context={context} engagement={riskEngagement} files={files}
+          onChanged={() => setRecordsKey(value => value + 1)} />}
 
         {context?.allowedActions.includes('file.read') && context.actor.persona !== 'CLIENT' && <section className="business-directory-card" aria-labelledby="business-files-heading">
           <div className="business-section-heading">

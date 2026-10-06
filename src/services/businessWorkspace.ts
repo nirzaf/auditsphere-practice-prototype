@@ -286,6 +286,26 @@ export async function getBusinessDeliveryWorkspace(
   return requestJson(`/api/workspaces/${encodeURIComponent(workspaceId)}/engagements/${encodeURIComponent(engagementId)}/delivery-workspace`, { context: selected, signal });
 }
 
+export async function getBusinessPracticeWorkspace(
+  workspaceId: string,
+  selected: BusinessWorkspacePreference,
+  input: { from: string; to: string; engagementId?: string; asOfDate?: string },
+  signal?: AbortSignal
+): Promise<Record<string, unknown>> {
+  const query = new URLSearchParams({ from: input.from, to: input.to, ...(input.engagementId ? { engagementId: input.engagementId } : {}),
+    ...(input.asOfDate ? { asOfDate: input.asOfDate } : {}) });
+  return requestJson(`/api/workspaces/${encodeURIComponent(workspaceId)}/practice?${query}`, { context: selected, signal });
+}
+
+export async function getBusinessReportingWorkspace(
+  workspaceId: string,
+  engagementId: string,
+  selected: BusinessWorkspacePreference,
+  signal?: AbortSignal
+): Promise<Record<string, unknown>> {
+  return requestJson(`/api/workspaces/${encodeURIComponent(workspaceId)}/engagements/${encodeURIComponent(engagementId)}/reporting-workspace`, { context: selected, signal });
+}
+
 export async function getBusinessPlanningWorkspace(
   workspaceId: string,
   engagementId: string,
@@ -400,7 +420,7 @@ export function initializeBusinessFile(
   workspaceId: string,
   selected: BusinessWorkspacePreference,
   input: { purpose: BusinessFilePurpose; originalName: string; mediaType: BusinessFileMediaType; sizeBytes: number; clientId?: string; engagementId?: string;
-    folderId?: string; pbcRequestId?: string; expectedPbcRequestVersion?: number },
+    folderId?: string; pbcRequestId?: string; expectedPbcRequestVersion?: number; representationRequestId?: string; paymentEvidenceReservationId?: string },
   idempotencyKey: string
 ): Promise<BusinessFileReservation> {
   return requestJson(`/api/workspaces/${encodeURIComponent(workspaceId)}/files`, {

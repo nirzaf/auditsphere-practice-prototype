@@ -16,8 +16,8 @@
       "plannedHours": 10,
       "chargeRate": 1000,
       "costRate": 50,
-      "startDate": "2026-10-05",
-      "endDate": "2026-10-05"
+      "startDate": "2026-10-06",
+      "endDate": "2026-10-06"
     },
     {
       "userId": "manager",
@@ -29,8 +29,8 @@
       "plannedHours": 10,
       "chargeRate": 750,
       "costRate": 50,
-      "startDate": "2026-10-05",
-      "endDate": "2026-10-05"
+      "startDate": "2026-10-06",
+      "endDate": "2026-10-06"
     },
     {
       "userId": "reviewer",
@@ -40,8 +40,8 @@
       "plannedHours": 10,
       "chargeRate": 500,
       "costRate": 50,
-      "startDate": "2026-10-05",
-      "endDate": "2026-10-05"
+      "startDate": "2026-10-06",
+      "endDate": "2026-10-06"
     },
     {
       "userId": "preparer",
@@ -51,8 +51,8 @@
       "plannedHours": 10,
       "chargeRate": 200,
       "costRate": 50,
-      "startDate": "2026-10-05",
-      "endDate": "2026-10-05"
+      "startDate": "2026-10-06",
+      "endDate": "2026-10-06"
     },
     {
       "userId": "manager",

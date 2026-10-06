@@ -3,6 +3,7 @@ import type { Env } from './env';
 import { ApiError } from './errors';
 import { sha256Hex } from './http';
 import { getBusinessAcceptanceGate } from './businessRisk';
+import { prepareBusinessPaymentJournal } from './businessPractice';
 import type { BusinessContext, BusinessMutation } from './business';
 
 const uuid = z.uuid();
@@ -421,8 +422,9 @@ async function buildPaymentRecord(env: Env, workspaceId: string, context: Busine
   if (context.scope.engagementId && context.scope.engagementId !== input.engagementId) throw new ApiError('FORBIDDEN_SCOPE', 'The payment is outside the selected engagement.');
   if (input.receivedOn > qatarToday()) throw new ApiError('VALIDATION_FAILED', 'A payment cannot be recorded with a future received date.');
   const amount = BigInt(input.amountMinor);
-  const file = await env.DB.prepare(`SELECT id FROM file_versions WHERE workspace_id=? AND id=? AND client_id=? AND engagement_id=?
-    AND purpose='EVIDENCE' AND state='COMMITTED' AND immutable=1`).bind(workspaceId, input.evidenceFileId, input.clientId, input.engagementId).first<{ id: string }>();
+  const file = await env.DB.prepare(`SELECT id,payment_evidence_reservation_id FROM file_versions WHERE workspace_id=? AND id=? AND client_id=? AND engagement_id=?
+    AND purpose='EVIDENCE' AND state='COMMITTED' AND immutable=1`).bind(workspaceId, input.evidenceFileId, input.clientId, input.engagementId)
+    .first<{ id: string; payment_evidence_reservation_id: string | null }>();
   if (!file) throw new ApiError('GATE_BLOCKED', 'A committed engagement-scoped payment evidence file is required.');
   const route = await env.DB.prepare(`SELECT cr.version,cr.contact_id,ct.full_name,ct.email FROM contact_routes cr
     JOIN contacts ct ON ct.workspace_id=cr.workspace_id AND ct.client_id=cr.client_id AND ct.id=cr.contact_id
@@ -431,7 +433,7 @@ async function buildPaymentRecord(env: Env, workspaceId: string, context: Busine
   if (!route) throw new ApiError('GATE_BLOCKED', 'Select the active primary RECEIPT contact route for this client.');
   const engagement = await env.DB.prepare(`SELECT version,lifecycle_state FROM engagements WHERE workspace_id=? AND client_id=? AND id=?`)
     .bind(workspaceId, input.clientId, input.engagementId).first<{ version: number; lifecycle_state: string }>();
-  if (!engagement || engagement.lifecycle_state !== 'ADVANCE_BILLING') throw new ApiError('INVALID_TRANSITION', 'Payments for advance handover can only be recorded during advance billing.');
+  if (!engagement) throw new ApiError('NOT_FOUND', 'The payment engagement was not found.');
   const invoiceIds = [...new Set(input.allocations.map(item => item.invoiceId))];
   if (invoiceIds.length !== input.allocations.length) throw new ApiError('VALIDATION_FAILED', 'Use one allocation per invoice in a payment command.');
   const invoiceRows = invoiceIds.length ? await env.DB.prepare(`SELECT id,total_minor,status,engagement_id,kind FROM invoices
@@ -459,6 +461,9 @@ async function buildPaymentRecord(env: Env, workspaceId: string, context: Busine
   const statements: D1PreparedStatement[] = [
     env.DB.prepare(`INSERT INTO payments(id,workspace_id,version,client_id,engagement_id,amount_minor,received_on,method,reference,evidence_file_id,verified_by_actor_id,reverses_payment_id,created_at)
       VALUES(?,?,1,?,?,?,?,?,?,?, ?,NULL,?)`).bind(paymentId, workspaceId, input.clientId, input.engagementId, Number(amount), input.receivedOn, input.method, input.reference, input.evidenceFileId, context.actor.id, timestamp),
+    ...(file.payment_evidence_reservation_id ? [env.DB.prepare(`UPDATE payment_evidence_reservations SET payment_id=?
+      WHERE workspace_id=? AND id=? AND client_id=? AND engagement_id=? AND payment_id IS NULL`)
+      .bind(paymentId, workspaceId, file.payment_evidence_reservation_id, input.clientId, input.engagementId)] : []),
     ...allocations.map(item => env.DB.prepare(`INSERT INTO payment_allocations(id,workspace_id,version,client_id,engagement_id,payment_id,invoice_id,amount_minor,allocated_on)
       VALUES(?,?,1,?,?,?,?,?,?)`).bind(crypto.randomUUID(), workspaceId, input.clientId, input.engagementId, paymentId, item.invoiceId, Number(item.amount), input.receivedOn)),
     env.DB.prepare(`INSERT INTO receipt_vouchers(id,workspace_id,version,client_id,engagement_id,payment_id,number,artifact_id,file_version_id,contact_route_id,recipient_snapshot_json,status,issued_at,created_at)
@@ -467,9 +472,16 @@ async function buildPaymentRecord(env: Env, workspaceId: string, context: Busine
       VALUES(?,?,1,'GENERATE_DOCUMENT',?,?,?,?,'PENDING',0,?,NULL,NULL,NULL,NULL,NULL,NULL,?,?)`)
       .bind(jobId, workspaceId, receiptId, 1, JSON.stringify(payload), dedup, timestamp, timestamp, timestamp),
     env.DB.prepare(`INSERT INTO command_assertions(workspace_id,seq,ok)
-      SELECT ?,82,CASE WHEN EXISTS(SELECT 1 FROM engagements WHERE workspace_id=? AND client_id=? AND id=? AND version=? AND lifecycle_state='ADVANCE_BILLING')
-        AND EXISTS(SELECT 1 FROM file_versions WHERE workspace_id=? AND id=? AND state='COMMITTED' AND immutable=1 AND purpose='EVIDENCE')
-      THEN 1 ELSE 0 END`).bind(workspaceId, workspaceId, input.clientId, input.engagementId, engagement.version, workspaceId, input.evidenceFileId)
+      SELECT ?,82,CASE WHEN EXISTS(SELECT 1 FROM engagements WHERE workspace_id=? AND client_id=? AND id=? AND version=?)
+        AND EXISTS(SELECT 1 FROM invoices WHERE workspace_id=? AND client_id=? AND engagement_id=? AND status='ISSUED')
+        AND EXISTS(SELECT 1 FROM file_versions f WHERE f.workspace_id=? AND f.id=? AND f.state='COMMITTED' AND f.immutable=1 AND f.purpose='EVIDENCE'
+          AND (f.payment_evidence_reservation_id IS NULL OR EXISTS(SELECT 1 FROM payment_evidence_reservations per
+            WHERE per.workspace_id=f.workspace_id AND per.id=f.payment_evidence_reservation_id AND per.client_id=f.client_id
+              AND per.engagement_id=f.engagement_id AND per.payment_id=?)))
+      THEN 1 ELSE 0 END`).bind(workspaceId, workspaceId, input.clientId, input.engagementId, engagement.version,
+        workspaceId,input.clientId,input.engagementId,workspaceId, input.evidenceFileId, paymentId),
+    ...await prepareBusinessPaymentJournal(env,workspaceId,context,{paymentId,clientId:input.clientId,engagementId:input.engagementId,method:input.method,
+      amountMinor:Number(amount),allocations:allocations.map(item=>({invoiceId:item.invoiceId,amountMinor:Number(item.amount)})),postingDate:input.receivedOn,now:timestamp})
   ];
   const advanceInvoice = (invoiceRows.results ?? []).find(row => row.kind === 'ADVANCE' && row.status === 'ISSUED');
   const outstanding = advanceInvoice ? BigInt(advanceInvoice.total_minor) - (balances.get(advanceInvoice.id) ?? 0n)
@@ -494,7 +506,6 @@ async function buildPaymentReverse(env: Env, workspaceId: string, context: Busin
   if (!source || source.reverses_payment_id) throw new ApiError('NOT_FOUND', 'A verified original payment was not found for reversal.');
   requireClientScope(context, source.client_id);
   if (source.receipt_status !== 'ISSUED') throw new ApiError('GATE_BLOCKED', 'A payment can be reversed only after its original receipt has been committed.');
-  if (source.lifecycle_state !== 'ADVANCE_BILLING') throw new ApiError('INVALID_TRANSITION', 'Advance payment reversals are recorded only while the engagement remains in advance billing.');
   const prior = await env.DB.prepare(`SELECT id FROM payments WHERE workspace_id=? AND reverses_payment_id=?`).bind(workspaceId, source.id).first<{ id: string }>();
   if (prior) throw new ApiError('VERSION_CONFLICT', 'This payment already has an immutable reversal.');
   const originalAllocations = await env.DB.prepare(`SELECT invoice_id,amount_minor FROM payment_allocations WHERE workspace_id=? AND payment_id=? ORDER BY invoice_id`)
@@ -504,19 +515,23 @@ async function buildPaymentReverse(env: Env, workspaceId: string, context: Busin
   const jobId = crypto.randomUUID();
   const timestamp = new Date(now).toISOString();
   const reversalReference = `REVERSAL:${source.reference}`.slice(0, 200);
+  const reversalDate=qatarToday();
   const recipient = JSON.parse(source.recipient_snapshot_json) as Record<string, unknown>;
   const payload = { documentType: 'RECEIPT', receiptId, paymentId: reversalId, commandId, engagementId: source.engagement_id, clientId: source.client_id, recipient };
   const statements: D1PreparedStatement[] = [
     env.DB.prepare(`INSERT INTO payments(id,workspace_id,version,client_id,engagement_id,amount_minor,received_on,method,reference,evidence_file_id,verified_by_actor_id,reverses_payment_id,created_at)
-      VALUES(?,?,1,?,?,?,?,?,?,?, ?,?,?)`).bind(reversalId, workspaceId, source.client_id, source.engagement_id, source.amount_minor, qatarToday(), source.method, reversalReference, source.evidence_file_id, context.actor.id, source.id, timestamp),
+      VALUES(?,?,1,?,?,?,?,?,?,?, ?,?,?)`).bind(reversalId, workspaceId, source.client_id, source.engagement_id, source.amount_minor, reversalDate, source.method, reversalReference, source.evidence_file_id, context.actor.id, source.id, timestamp),
     ...(originalAllocations.results ?? []).map(item => env.DB.prepare(`INSERT INTO payment_allocations(id,workspace_id,version,client_id,engagement_id,payment_id,invoice_id,amount_minor,allocated_on)
-      VALUES(?,?,1,?,?,?,?,?,?)`).bind(crypto.randomUUID(), workspaceId, source.client_id, source.engagement_id, reversalId, item.invoice_id, item.amount_minor, qatarToday())),
+      VALUES(?,?,1,?,?,?,?,?,?)`).bind(crypto.randomUUID(), workspaceId, source.client_id, source.engagement_id, reversalId, item.invoice_id, item.amount_minor, reversalDate)),
     env.DB.prepare(`INSERT INTO receipt_vouchers(id,workspace_id,version,client_id,engagement_id,payment_id,number,artifact_id,file_version_id,contact_route_id,recipient_snapshot_json,status,issued_at,created_at)
       VALUES(?,?,1,?,?,?, ?,NULL,NULL,?,?,'PENDING',NULL,?)`).bind(receiptId, workspaceId, source.client_id, source.engagement_id, reversalId, `AS-RCP-${reversalId.slice(0, 8).toUpperCase()}`, source.contact_route_id, source.recipient_snapshot_json, timestamp),
     env.DB.prepare(`INSERT INTO outbox_jobs(id,workspace_id,version,kind,aggregate_id,aggregate_version,payload_json,deduplication_key,status,attempts,next_attempt_at,lease_until,last_error_code,provider_reference,result_file_id,result_json,completed_at,created_at,updated_at)
       VALUES(?,?,1,'GENERATE_DOCUMENT',?,?,?,?,'PENDING',0,?,NULL,NULL,NULL,NULL,NULL,NULL,?,?)`)
       .bind(jobId, workspaceId, receiptId, 1, JSON.stringify(payload), `receipt:${reversalId}`, timestamp, timestamp, timestamp)
   ];
+  statements.push(...await prepareBusinessPaymentJournal(env,workspaceId,context,{paymentId:reversalId,clientId:source.client_id,engagementId:source.engagement_id,method:source.method,
+    amountMinor:source.amount_minor,allocations:(originalAllocations.results??[]).map(item=>({invoiceId:item.invoice_id,amountMinor:item.amount_minor})),postingDate:reversalDate,
+    now:timestamp,reversesPaymentId:source.id,reason:command.payload.rationale}));
   return { statements, result: { paymentId: reversalId, reversesPaymentId: source.id, receiptId, receiptJobId: jobId, status: 'REVERSAL_RECORDED' },
     entityType: 'PAYMENT', entityId: reversalId, beforeVersion: null, afterVersion: 1,
     auditDetails: { reversesPaymentId: source.id, rationale: command.payload.rationale, allocationCount: originalAllocations.results?.length ?? 0 } };

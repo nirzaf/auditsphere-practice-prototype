@@ -11,6 +11,8 @@ import { businessDeliveryCommands, buildBusinessDeliveryMutation, isBusinessDeli
 import { businessPlanningCommands, buildBusinessPlanningMutation, isBusinessPlanningCommand } from './businessPlanning';
 import { businessTbCommands, buildBusinessTbMutation, isBusinessTbCommand } from './businessTb';
 import { businessFieldworkCommands, buildBusinessFieldworkMutation, isBusinessFieldworkCommand } from './businessFieldwork';
+import { businessPracticeCommands, buildBusinessPracticeMutation, businessPracticeBootstrapStatements, getBusinessPracticeWorkspace, isBusinessPracticeCommand } from './businessPractice';
+import { businessReportingCommands, buildBusinessReportingMutation, isBusinessReportingCommand } from './businessReporting';
 
 export const BUSINESS_SCHEMA_VERSION = 10;
 
@@ -113,6 +115,7 @@ export async function bootstrapBusinessWorkspace(
         id,workspace_id,version,persona,staff_member_id,contact_id,active,created_at,updated_at
       ) VALUES(?,?,1,'APPROVER',?,NULL,1,?,?)`)
         .bind(actorProfileId, workspaceId, staffMemberId, timestamp, timestamp),
+      ...await businessPracticeBootstrapStatements(env, workspaceId, actorProfileId, timestamp),
       env.DB.prepare(`INSERT INTO audit_chain_heads(
         id,workspace_id,version,scope_kind,scope_id,last_sequence,last_event_hash,created_at,updated_at
       ) VALUES(?,?,1,'WORKSPACE',?,1,?,?,?)`)
@@ -576,10 +579,10 @@ export async function resolveBusinessContext(env: Env, workspaceId: string, requ
     },
     scope: { clientId, engagementId: requestedEngagementId },
     allowedActions: row.persona === 'APPROVER' && row.staffGrade === 'PARTNER'
-      ? ['directory.manage', 'client.read', 'client.manage', 'lead.read', 'lead.manage', 'lead.convert', 'engagement.read', 'engagement.advance', 'standards.read', 'standards.manage', 'file.read', 'file.upload', 'proposal.read', 'proposal.create', 'proposal.generate', 'proposal.approve', 'proposal.dispatch', 'firm.manage', 'risk.read', 'riskAssessment.draft', 'riskAssessment.submit', 'riskAssessment.resolveEscalation', 'risk.clear', 'commercialAcceptance.read', 'engagementLetter.manage', 'invoice.issue', 'payment.record', 'payment.reverse', 'billing.read', 'pbc.read', 'pbc.manage', 'pbc.review', 'planning.read', 'staffing.manage', 'tb.manage', 'fieldwork.read', 'fieldwork.manage', 'fieldwork.review', 'sampling.manage', 'evidence.review']
-      : row.persona === 'PREPARER' ? ['client.read', 'client.manage', 'lead.read', 'lead.manage', 'lead.convert', 'engagement.read', 'engagement.advance', 'standards.read', 'file.read', 'file.upload', 'proposal.read', 'proposal.create', 'proposal.generate', 'risk.read', 'riskAssessment.draft', 'riskAssessment.submit', 'commercialAcceptance.read', 'billing.read', 'pbc.read', 'pbc.manage', 'planning.read', 'tb.manage', 'fieldwork.read', 'fieldwork.manage']
-        : row.persona === 'REVIEWER' ? ['client.read', 'lead.read', 'engagement.read', 'standards.read', 'file.read', 'file.upload', 'proposal.read', 'proposal.create', 'proposal.generate', 'risk.read', 'riskAssessment.draft', 'riskAssessment.submit', 'riskAssessment.escalate', 'commercialAcceptance.read', 'invoice.issue', 'payment.record', 'payment.reverse', 'billing.read', 'pbc.read', 'pbc.manage', 'pbc.review', 'planning.read', 'staffing.manage', 'tb.manage', 'fieldwork.read', 'fieldwork.manage', 'fieldwork.review', 'sampling.manage', 'evidence.review']
-          : ['client.read', 'file.read', 'file.upload', 'proposal.read', 'commercialAcceptance.read', 'commercialAcceptance.record', 'commercialAcceptance.revoke', 'billing.read', 'pbc.read', 'pbc.submit'],
+      ? ['directory.manage', 'client.read', 'client.manage', 'lead.read', 'lead.manage', 'lead.convert', 'engagement.read', 'engagement.advance', 'standards.read', 'standards.manage', 'file.read', 'file.upload', 'proposal.read', 'proposal.create', 'proposal.generate', 'proposal.approve', 'proposal.dispatch', 'firm.manage', 'risk.read', 'riskAssessment.draft', 'riskAssessment.submit', 'riskAssessment.resolveEscalation', 'risk.clear', 'commercialAcceptance.read', 'engagementLetter.manage', 'invoice.issue', 'payment.record', 'payment.reverse', 'billing.read', 'pbc.read', 'pbc.manage', 'pbc.review', 'planning.read', 'staffing.manage', 'tb.manage', 'fieldwork.read', 'fieldwork.manage', 'fieldwork.review', 'sampling.manage', 'evidence.review', 'practice.read', 'practice.manage', 'practice.approve', 'ledger.read', 'ledger.manage', 'ledger.post', 'reporting.read', 'reporting.prepare', 'reporting.approve', 'reporting.release']
+      : row.persona === 'PREPARER' ? ['client.read', 'client.manage', 'lead.read', 'lead.manage', 'lead.convert', 'engagement.read', 'engagement.advance', 'standards.read', 'file.read', 'file.upload', 'proposal.read', 'proposal.create', 'proposal.generate', 'risk.read', 'riskAssessment.draft', 'riskAssessment.submit', 'commercialAcceptance.read', 'billing.read', 'pbc.read', 'pbc.manage', 'planning.read', 'tb.manage', 'fieldwork.read', 'fieldwork.manage', 'practice.read', 'practice.time', 'reporting.read']
+        : row.persona === 'REVIEWER' ? ['client.read', 'lead.read', 'engagement.read', 'standards.read', 'file.read', 'file.upload', 'proposal.read', 'proposal.create', 'proposal.generate', 'risk.read', 'riskAssessment.draft', 'riskAssessment.submit', 'riskAssessment.escalate', 'commercialAcceptance.read', 'invoice.issue', 'payment.record', 'payment.reverse', 'billing.read', 'pbc.read', 'pbc.manage', 'pbc.review', 'planning.read', 'staffing.manage', 'tb.manage', 'fieldwork.read', 'fieldwork.manage', 'fieldwork.review', 'sampling.manage', 'evidence.review', 'practice.read', 'practice.approve', 'ledger.read', 'ledger.post', 'reporting.read', 'reporting.prepare', 'reporting.approve']
+          : ['client.read', 'file.read', 'file.upload', 'proposal.read', 'commercialAcceptance.read', 'commercialAcceptance.record', 'commercialAcceptance.revoke', 'billing.read', 'pbc.read', 'pbc.submit', 'reporting.read'],
     readOnlyReasons: isClient ? ['CLIENT_PROJECTION_ONLY'] : []
   };
 }
@@ -823,6 +826,8 @@ const businessFileReserveCommand = z.strictObject({
     folderId: clientIdSchema.optional(),
     pbcRequestId: clientIdSchema.optional(),
     expectedPbcRequestVersion: z.number().int().positive().optional(),
+    representationRequestId: clientIdSchema.optional(),
+    paymentEvidenceReservationId: clientIdSchema.optional(),
     purpose: businessFilePurposeSchema,
     originalName: z.string().trim().min(1).max(200),
     mediaType: businessFileMediaTypeSchema,
@@ -833,6 +838,10 @@ const businessFileReserveCommand = z.strictObject({
     message: 'A PBC upload reservation must name its current request and request version.'
   }).refine(payload => payload.purpose === 'PBC' || (!payload.pbcRequestId && !payload.expectedPbcRequestVersion), {
     message: 'Only PBC file reservations may include a PBC request binding.'
+  }).refine(payload => !payload.representationRequestId || payload.purpose === 'EVIDENCE', {
+    message: 'Only evidence file reservations may include a representation request binding.'
+  }).refine(payload => !payload.paymentEvidenceReservationId || payload.purpose === 'EVIDENCE', {
+    message: 'Only evidence file reservations may include a payment evidence binding.'
   })
 });
 const businessFileStageCommand = z.strictObject({
@@ -980,7 +989,9 @@ export const businessCommandSchema = z.discriminatedUnion('type', [
   ...businessDeliveryCommands,
   ...businessPlanningCommands,
   ...businessTbCommands,
-  ...businessFieldworkCommands
+  ...businessFieldworkCommands,
+  ...businessPracticeCommands,
+  ...businessReportingCommands
 ]);
 
 const expectedVersionSchema = z.strictObject({
@@ -1006,7 +1017,9 @@ type BusinessProposalCommand = Extract<BusinessCommand, { type: 'firm-profile.sa
 type BusinessPlanningCommandType = import('./businessPlanning').BusinessPlanningCommand;
 type BusinessTbCommandType = import('./businessTb').BusinessTbCommand;
 type BusinessFieldworkCommandType = import('./businessFieldwork').BusinessFieldworkCommand;
-type BusinessCommercialCommand = Exclude<BusinessCommand, BusinessDirectoryCommand | BusinessFileCommand | BusinessPbcCommand | BusinessProposalCommand | BusinessPlanningCommandType | BusinessTbCommandType | BusinessFieldworkCommandType | import('./businessRisk').BusinessRiskCommand | import('./businessDelivery').BusinessDeliveryCommand>;
+type BusinessPracticeCommandType = import('./businessPractice').BusinessPracticeCommand;
+type BusinessReportingCommandType = import('./businessReporting').BusinessReportingCommand;
+type BusinessCommercialCommand = Exclude<BusinessCommand, BusinessDirectoryCommand | BusinessFileCommand | BusinessPbcCommand | BusinessProposalCommand | BusinessPlanningCommandType | BusinessTbCommandType | BusinessFieldworkCommandType | BusinessPracticeCommandType | BusinessReportingCommandType | import('./businessRisk').BusinessRiskCommand | import('./businessDelivery').BusinessDeliveryCommand>;
 
 function isBusinessDirectoryCommand(command: BusinessCommand): command is BusinessDirectoryCommand {
   return command.type === 'staff.create' || command.type === 'staff.update'
@@ -1066,6 +1079,9 @@ export function parseBusinessCommandEnvelope(value: unknown, idempotencyKey: str
                               : command.type === 'sampling.policy.approve' ? { entity: 'SamplingPolicy', id: command.payload.policyId, version: command.payload.expectedVersion }
                                 : command.type === 'sampling.record-test' && command.payload.expectedVersion > 0
                                   ? { entity: 'SampleTest', id: command.payload.populationRowId, version: command.payload.expectedVersion }
+                         : command.type === 'time.submit' || command.type === 'time.approve' || command.type === 'time.return' || command.type === 'time.correct'
+                           ? { entity: 'TimeEntry', id: command.payload.timeEntryId, version: command.payload.expectedVersion }
+                           : command.type === 'ledger.post' ? { entity: 'FirmJournal', id: command.payload.journalId, version: command.payload.expectedVersion }
                         : null;
   if (versionTarget && (parsed.data.expectedVersions.length !== 1
     || parsed.data.expectedVersions[0].entity !== versionTarget.entity
@@ -1313,6 +1329,7 @@ type BusinessFileRow = {
   engagement_id: string | null;
   pbc_request_id: string | null;
   pbc_request_version: number | null;
+  representation_request_id: string | null;
   original_name: string;
   media_type: string;
   size_bytes: number;
@@ -1322,12 +1339,16 @@ type BusinessFileRow = {
   state: 'INITIALIZED' | 'STAGED' | 'VERIFIED' | 'COMMITTED' | 'REJECTED';
   committed_at: string | null;
   immutable: number;
+  created_by_actor_id: string | null;
+  payment_evidence_reservation_id: string | null;
 };
 
 async function businessFileRow(env: Env, workspaceId: string, fileId: string): Promise<BusinessFileRow | null> {
-  return env.DB.prepare(`SELECT id,version,client_id,engagement_id,pbc_request_id,pbc_request_version,original_name,media_type,size_bytes,sha256,
-      object_key,purpose,state,committed_at,immutable
-    FROM file_versions WHERE workspace_id=? AND id=?`).bind(workspaceId, fileId).first<BusinessFileRow>();
+  return env.DB.prepare(`SELECT f.id,f.version,f.client_id,f.engagement_id,f.pbc_request_id,f.pbc_request_version,
+      (SELECT rfr.request_id FROM representation_file_reservations rfr WHERE rfr.workspace_id=f.workspace_id AND rfr.file_version_id=f.id) AS representation_request_id,
+      f.original_name,f.media_type,f.size_bytes,f.sha256,f.object_key,f.purpose,f.state,f.committed_at,f.immutable,f.created_by_actor_id,
+      f.payment_evidence_reservation_id
+    FROM file_versions f WHERE f.workspace_id=? AND f.id=?`).bind(workspaceId, fileId).first<BusinessFileRow>();
 }
 
 async function sha256Bytes(bytes: Uint8Array): Promise<string> {
@@ -1403,14 +1424,16 @@ export function verifyBusinessFileBytes(mediaType: string, bytes: Uint8Array): v
   throw new ApiError('UNSUPPORTED_MEDIA_TYPE', 'This file type is not supported in Business workspaces.');
 }
 
-function assertBusinessFileAction(context: BusinessContext, file: Pick<BusinessFileRow, 'client_id' | 'engagement_id' | 'purpose'>, action: 'read' | 'upload'): void {
+function assertBusinessFileAction(context: BusinessContext, file: Pick<BusinessFileRow, 'client_id' | 'engagement_id' | 'purpose' | 'representation_request_id'>, action: 'read' | 'upload'): void {
   const required = action === 'read' ? 'file.read' : 'file.upload';
   if (!context.allowedActions.includes(required)) throw new ApiError('PERSONA_ACTION_DENIED', 'This actor profile cannot access files.');
   if (context.actor.persona === 'CLIENT') {
-    if (action === 'upload' && !['PBC', 'TB'].includes(file.purpose)) {
-      throw new ApiError('PERSONA_ACTION_DENIED', 'CLIENT profiles can upload only to their own PBC or trial-balance request.');
+    if (action === 'upload' && !['PBC', 'TB'].includes(file.purpose)
+      && !(file.purpose === 'EVIDENCE' && Boolean(file.representation_request_id))) {
+      throw new ApiError('PERSONA_ACTION_DENIED', 'CLIENT profiles can upload only to their own PBC, trial-balance or open representation request.');
     }
-    if (action === 'read' && !['PBC', 'GENERATED', 'RELEASE'].includes(file.purpose)) {
+    if (action === 'read' && !['PBC', 'GENERATED', 'RELEASE'].includes(file.purpose)
+      && !(file.purpose === 'EVIDENCE' && Boolean(file.representation_request_id))) {
       throw new ApiError('FORBIDDEN_SCOPE', 'This file is not part of the client-facing projection.');
     }
     if (!context.actor.clientId || file.client_id !== context.actor.clientId || !file.engagement_id) {
@@ -1431,12 +1454,13 @@ function assertBusinessFileAction(context: BusinessContext, file: Pick<BusinessF
   }
 }
 
-async function assertFileEngagementWritable(env: Env, workspaceId: string, clientId: string, engagementId: string, clientActor: boolean): Promise<void> {
-  const engagement = await env.DB.prepare(`SELECT lifecycle_state,locked_at,portal_activated_at,portal_frozen_at FROM engagements
+async function assertFileEngagementWritable(env: Env, workspaceId: string, clientId: string, engagementId: string, clientActor: boolean, allowPostArchivePaymentEvidence = false): Promise<void> {
+  const engagement = await env.DB.prepare(`SELECT lifecycle_state,locked_at,archive_due_at,portal_activated_at,portal_frozen_at FROM engagements
     WHERE workspace_id=? AND client_id=? AND id=?`).bind(workspaceId, clientId, engagementId)
-    .first<{ lifecycle_state: string; locked_at: string | null; portal_activated_at: string | null; portal_frozen_at: string | null }>();
+    .first<{ lifecycle_state: string; locked_at: string | null; archive_due_at:string|null; portal_activated_at: string | null; portal_frozen_at: string | null }>();
   if (!engagement) throw new ApiError('FORBIDDEN_SCOPE', 'The file engagement does not belong to the selected client.');
-  if (engagement.locked_at || engagement.lifecycle_state === 'ARCHIVED_READ_ONLY') {
+  if (!allowPostArchivePaymentEvidence && (engagement.locked_at || engagement.lifecycle_state === 'ARCHIVED_READ_ONLY'
+    || (engagement.archive_due_at!==null&&engagement.archive_due_at<=new Date().toISOString()))) {
     throw new ApiError('WORKSPACE_FROZEN', 'This engagement is read-only.');
   }
   if (clientActor && !engagement.portal_activated_at) {
@@ -1445,6 +1469,18 @@ async function assertFileEngagementWritable(env: Env, workspaceId: string, clien
   if (clientActor && engagement.portal_frozen_at) {
     throw new ApiError('WORKSPACE_FROZEN', 'Client uploads are frozen for this engagement.');
   }
+}
+
+async function assertPaymentEvidenceReservationCurrent(env: Env, workspaceId: string, context: BusinessContext, file: BusinessFileRow): Promise<void> {
+  if (!file.payment_evidence_reservation_id) return;
+  if (context.actor.persona === 'CLIENT' || file.purpose !== 'EVIDENCE' || !file.client_id || !file.engagement_id
+    || file.created_by_actor_id !== context.actor.id) {
+    throw new ApiError('FORBIDDEN_SCOPE', 'Post-archive payment evidence must remain bound to its internal uploader and engagement.');
+  }
+  const reservation = await env.DB.prepare(`SELECT id FROM payment_evidence_reservations
+    WHERE workspace_id=? AND id=? AND client_id=? AND engagement_id=? AND reserved_by_actor_id=? AND payment_id IS NULL`)
+    .bind(workspaceId, file.payment_evidence_reservation_id, file.client_id, file.engagement_id, context.actor.id).first<{ id: string }>();
+  if (!reservation) throw new ApiError('VERSION_CONFLICT', 'This payment evidence reservation was already consumed or is outside this engagement.');
 }
 
 async function assertPbcFileRequestCurrent(env: Env, workspaceId: string, context: BusinessContext, file: BusinessFileRow): Promise<void> {
@@ -1464,6 +1500,36 @@ async function assertPbcFileRequestCurrent(env: Env, workspaceId: string, contex
   if (request.version !== file.pbc_request_version || !['PENDING_UPLOAD','REJECTED_REUPLOAD_REQUIRED'].includes(request.status)) {
     throw new ApiError('VERSION_CONFLICT', 'The PBC request changed after this file was reserved. Refresh the request and upload against its current version.');
   }
+}
+
+async function assertRepresentationFileRequestScope(
+  env: Env,
+  workspaceId: string,
+  context: BusinessContext,
+  file: Pick<BusinessFileRow, 'client_id' | 'engagement_id' | 'purpose' | 'representation_request_id'> & Partial<Pick<BusinessFileRow, 'created_by_actor_id'>>,
+  requireOpen: boolean
+): Promise<void> {
+  if (context.actor.persona !== 'CLIENT' || file.purpose !== 'EVIDENCE') return;
+  const requestId = file.representation_request_id;
+  if (!requestId || !file.client_id || !file.engagement_id
+    || (file.created_by_actor_id && file.created_by_actor_id !== context.actor.id)) {
+    throw new ApiError('FORBIDDEN_SCOPE', 'A client signed representation PDF must be reserved by the assigned contact for one engagement request.');
+  }
+  const statusPredicate = requireOpen ? "r.status IN ('SENT','REJECTED')" : "r.status IN ('SENT','RECEIVED','REJECTED','ACCEPTED')";
+  const activePortalPredicate = requireOpen
+    ? "AND e.portal_activated_at IS NOT NULL AND e.portal_frozen_at IS NULL AND e.locked_at IS NULL AND (e.archive_due_at IS NULL OR e.archive_due_at>?)"
+    : '';
+  const row = await env.DB.prepare(`SELECT r.id FROM representation_requests r
+    JOIN contact_routes cr ON cr.workspace_id=r.workspace_id AND cr.id=r.contact_route_id AND cr.client_id=r.client_id AND cr.purpose='FINAL_REPORT'
+    JOIN contacts c ON c.workspace_id=cr.workspace_id AND c.client_id=cr.client_id AND c.id=cr.contact_id AND c.active=1
+    JOIN actor_profiles ap ON ap.workspace_id=r.workspace_id AND ap.id=? AND ap.persona='CLIENT' AND ap.active=1 AND ap.contact_id=c.id
+    JOIN engagements e ON e.workspace_id=r.workspace_id AND e.client_id=r.client_id AND e.id=r.engagement_id
+    WHERE r.workspace_id=? AND r.id=? AND r.client_id=? AND r.engagement_id=? AND ${statusPredicate} ${activePortalPredicate}`)
+    .bind(context.actor.id, workspaceId, requestId, file.client_id, file.engagement_id, ...(requireOpen ? [new Date().toISOString()] : []))
+    .first<{ id: string }>();
+  if (!row) throw new ApiError(requireOpen ? 'WORKSPACE_FROZEN' : 'FORBIDDEN_SCOPE',
+    requireOpen ? 'The assigned representation request is closed or the client portal is frozen.' : 'This signed representation file is outside the assigned client request.');
+  if (requireOpen) await assertFileEngagementWritable(env, workspaceId, file.client_id, file.engagement_id, true);
 }
 
 async function assertClientPbcDownloadScope(env: Env, workspaceId: string, context: BusinessContext, file: BusinessFileRow): Promise<void> {
@@ -1490,9 +1556,11 @@ export async function getBusinessFileForUpload(
   if (!file) throw new ApiError('NOT_FOUND', 'File reservation not found.');
   assertBusinessFileAction(context, file, 'upload');
   if (file.client_id && file.engagement_id) {
-    await assertFileEngagementWritable(env, workspaceId, file.client_id, file.engagement_id, context.actor.persona === 'CLIENT');
+    await assertFileEngagementWritable(env, workspaceId, file.client_id, file.engagement_id, context.actor.persona === 'CLIENT', Boolean(file.payment_evidence_reservation_id));
   }
   await assertPbcFileRequestCurrent(env, workspaceId, context, file);
+  await assertRepresentationFileRequestScope(env, workspaceId, context, file, true);
+  await assertPaymentEvidenceReservationCurrent(env, workspaceId, context, file);
   return { context, file };
 }
 
@@ -1507,8 +1575,21 @@ async function buildBusinessFileMutation(
   const actorId = context.actor.id;
   if (command.type === 'file.reserve') {
     const payload = command.payload;
-    const descriptor = { client_id: payload.clientId ?? null, engagement_id: payload.engagementId ?? null, purpose: payload.purpose };
+    const descriptor = { client_id: payload.clientId ?? null, engagement_id: payload.engagementId ?? null, purpose: payload.purpose,
+      representation_request_id: payload.representationRequestId ?? null, created_by_actor_id: actorId };
     assertBusinessFileAction(context, descriptor, 'upload');
+    if (context.actor.persona === 'CLIENT' && payload.purpose === 'EVIDENCE'
+      && (payload.mediaType !== 'application/pdf' || !payload.representationRequestId)) {
+      throw new ApiError('VALIDATION_FAILED', 'A client evidence upload must be a PDF reserved against its open signed representation request.');
+    }
+    if (payload.representationRequestId && context.actor.persona !== 'CLIENT') {
+      throw new ApiError('PERSONA_ACTION_DENIED', 'Only the assigned client contact can reserve a signed representation return.');
+    }
+    if (payload.paymentEvidenceReservationId && (context.actor.persona === 'CLIENT' || payload.purpose !== 'EVIDENCE'
+      || payload.representationRequestId || !payload.clientId || !payload.engagementId
+      || !['application/pdf', 'image/png', 'image/jpeg'].includes(payload.mediaType))) {
+      throw new ApiError('VALIDATION_FAILED', 'Post-archive payment evidence must be an internal engagement-scoped PDF or image.');
+    }
     const requiresEngagement = ['PBC', 'TB', 'EVIDENCE'].includes(payload.purpose);
     if (requiresEngagement && (!payload.clientId || !payload.engagementId)) {
       throw new ApiError('VALIDATION_FAILED', 'PBC, TB and evidence files must be scoped to a client engagement.');
@@ -1523,8 +1604,9 @@ async function buildBusinessFileMutation(
       if (context.scope.engagementId && context.scope.engagementId !== payload.engagementId) {
         throw new ApiError('FORBIDDEN_SCOPE', 'The file engagement does not match the selected context.');
       }
-      await assertFileEngagementWritable(env, workspaceId, payload.clientId, payload.engagementId, context.actor.persona === 'CLIENT');
+      await assertFileEngagementWritable(env, workspaceId, payload.clientId, payload.engagementId, context.actor.persona === 'CLIENT', Boolean(payload.paymentEvidenceReservationId));
     }
+    await assertRepresentationFileRequestScope(env, workspaceId, context, descriptor, true);
     if (payload.folderId) {
       if (!payload.clientId || !payload.engagementId) throw new ApiError('VALIDATION_FAILED', 'A folder-bound file must identify its client and engagement.');
       const folder = await env.DB.prepare(`SELECT code FROM engagement_folders WHERE workspace_id=? AND id=? AND client_id=? AND engagement_id=?`)
@@ -1560,11 +1642,15 @@ async function buildBusinessFileMutation(
     }
     const id = crypto.randomUUID();
     const key = `workspaces/${workspaceId}/files/${id}`;
-    return {
-      statements: [
+    const statements: D1PreparedStatement[] = [];
+    if (payload.paymentEvidenceReservationId) {
+      statements.push(env.DB.prepare(`INSERT INTO payment_evidence_reservations(id,workspace_id,client_id,engagement_id,reserved_by_actor_id,payment_id,created_at)
+        VALUES(?,?,?,?,?,NULL,?)`).bind(payload.paymentEvidenceReservationId, workspaceId, payload.clientId!, payload.engagementId!, actorId, now));
+    }
+    statements.push(
         env.DB.prepare(`INSERT INTO command_assertions(workspace_id,seq,ok)
           SELECT ?,71,CASE WHEN (? IS NULL OR EXISTS(SELECT 1 FROM clients WHERE workspace_id=? AND id=? AND active=1))
-            AND (? IS NULL OR EXISTS(SELECT 1 FROM engagements WHERE workspace_id=? AND client_id=? AND id=? AND locked_at IS NULL AND lifecycle_state<>'ARCHIVED_READ_ONLY'
+            AND (? IS NULL OR ?=1 OR EXISTS(SELECT 1 FROM engagements WHERE workspace_id=? AND client_id=? AND id=? AND locked_at IS NULL AND lifecycle_state<>'ARCHIVED_READ_ONLY'
               AND (?=0 OR (portal_activated_at IS NOT NULL AND portal_frozen_at IS NULL))))
             AND (? IS NULL OR EXISTS(SELECT 1 FROM engagement_folders f WHERE f.workspace_id=? AND f.id=? AND f.client_id=? AND f.engagement_id=? AND f.code<>'FINAL_SIGNED_ARCHIVE'))
             AND (?=0 OR EXISTS(SELECT 1 FROM pbc_requests r JOIN actor_profiles ap ON ap.workspace_id=r.workspace_id AND ap.id=?
@@ -1574,7 +1660,7 @@ async function buildBusinessFileMutation(
                 AND ap.persona='CLIENT' AND ap.active=1 AND pe.portal_activated_at IS NOT NULL AND pe.portal_frozen_at IS NULL AND pe.locked_at IS NULL))
             THEN 1 ELSE 0 END`)
           .bind(workspaceId, payload.clientId ?? null, workspaceId, payload.clientId ?? null,
-            payload.engagementId ?? null, workspaceId, payload.clientId ?? null, payload.engagementId ?? null,
+            payload.engagementId ?? null, payload.paymentEvidenceReservationId ? 1 : 0, workspaceId, payload.clientId ?? null, payload.engagementId ?? null,
             context.actor.persona === 'CLIENT' ? 1 : 0,
             payload.folderId ?? null, workspaceId, payload.folderId ?? null, payload.clientId ?? null, payload.engagementId ?? null,
             payload.purpose === 'PBC' ? 1 : 0, actorId,
@@ -1582,13 +1668,19 @@ async function buildBusinessFileMutation(
             payload.expectedPbcRequestVersion ?? null),
         env.DB.prepare(`INSERT INTO file_versions(
           id,workspace_id,version,client_id,engagement_id,folder_id,original_name,media_type,size_bytes,object_key,previous_version_id,purpose,
-          pbc_request_id,pbc_request_version,state,immutable,created_at,updated_at,created_by_actor_id,updated_by_actor_id
-        ) VALUES(?,?,1,?,?,?,?,?,?,?,?,?,?,?,'INITIALIZED',0,?,?,?,?)`).bind(
+          pbc_request_id,pbc_request_version,payment_evidence_reservation_id,state,immutable,created_at,updated_at,created_by_actor_id,updated_by_actor_id
+        ) VALUES(?,?,1,?,?,?,?,?,?,?,?,?,?,?,?,'INITIALIZED',0,?,?,?,?)`).bind(
           id, workspaceId, payload.clientId ?? null, payload.engagementId ?? null, payload.folderId ?? null, payload.originalName,
           payload.mediaType, payload.sizeBytes, key, priorPbcFileId, payload.purpose, payload.pbcRequestId ?? null,
-          payload.expectedPbcRequestVersion ?? null, now, now, actorId, actorId
+          payload.expectedPbcRequestVersion ?? null, payload.paymentEvidenceReservationId ?? null, now, now, actorId, actorId
         )
-      ],
+      );
+    if (payload.representationRequestId) {
+      statements.push(env.DB.prepare(`INSERT INTO representation_file_reservations(workspace_id,file_version_id,request_id,reserved_by_actor_id,reserved_at)
+        VALUES(?,?,?,?,?)`).bind(workspaceId, id, payload.representationRequestId, actorId, now));
+    }
+    return {
+      statements,
       result: { fileId: id, version: 1, state: 'INITIALIZED', uploadPath: `/api/workspaces/${workspaceId}/files/${id}/content` },
       entityType: 'FILE_VERSION', entityId: id, beforeVersion: null, afterVersion: 1
     };
@@ -1599,9 +1691,11 @@ async function buildBusinessFileMutation(
   if (!file) throw new ApiError('NOT_FOUND', 'File reservation not found.');
   assertBusinessFileAction(context, file, 'upload');
   if (file.client_id && file.engagement_id) {
-    await assertFileEngagementWritable(env, workspaceId, file.client_id, file.engagement_id, context.actor.persona === 'CLIENT');
+    await assertFileEngagementWritable(env, workspaceId, file.client_id, file.engagement_id, context.actor.persona === 'CLIENT', Boolean(file.payment_evidence_reservation_id));
   }
   await assertPbcFileRequestCurrent(env, workspaceId, context, file);
+  await assertRepresentationFileRequestScope(env, workspaceId, context, file, true);
+  await assertPaymentEvidenceReservationCurrent(env, workspaceId, context, file);
 
   if (command.type === 'file.stage') {
     const payload = command.payload;
@@ -1624,8 +1718,18 @@ async function buildBusinessFileMutation(
           SELECT ?,72,CASE WHEN EXISTS(SELECT 1 FROM file_versions fv WHERE fv.workspace_id=? AND fv.id=? AND fv.version=? AND fv.state='INITIALIZED'
             AND (fv.pbc_request_id IS NULL OR EXISTS(SELECT 1 FROM pbc_requests r JOIN engagements e ON e.workspace_id=r.workspace_id AND e.client_id=r.client_id AND e.id=r.engagement_id
               WHERE r.workspace_id=fv.workspace_id AND r.id=fv.pbc_request_id AND r.version=fv.pbc_request_version
-                AND r.status IN ('PENDING_UPLOAD','REJECTED_REUPLOAD_REQUIRED') AND e.portal_activated_at IS NOT NULL AND e.portal_frozen_at IS NULL AND e.locked_at IS NULL)))
-            THEN 1 ELSE 0 END`).bind(workspaceId, workspaceId, file.id, payload.expectedVersion),
+                AND r.status IN ('PENDING_UPLOAD','REJECTED_REUPLOAD_REQUIRED') AND e.portal_activated_at IS NOT NULL AND e.portal_frozen_at IS NULL AND e.locked_at IS NULL))
+            AND NOT EXISTS(SELECT 1 FROM representation_file_reservations rfr
+              JOIN representation_requests rr ON rr.workspace_id=rfr.workspace_id AND rr.id=rfr.request_id
+              JOIN engagements re ON re.workspace_id=rr.workspace_id AND re.client_id=rr.client_id AND re.id=rr.engagement_id
+              WHERE rfr.workspace_id=fv.workspace_id AND rfr.file_version_id=fv.id
+                AND (rr.status NOT IN ('SENT','REJECTED') OR re.portal_activated_at IS NULL OR re.portal_frozen_at IS NOT NULL OR re.locked_at IS NOT NULL
+                  OR (re.archive_due_at IS NOT NULL AND re.archive_due_at<=?)))
+            AND (fv.payment_evidence_reservation_id IS NULL OR EXISTS(SELECT 1 FROM payment_evidence_reservations per
+              WHERE per.workspace_id=fv.workspace_id AND per.id=fv.payment_evidence_reservation_id
+                AND per.client_id=fv.client_id AND per.engagement_id=fv.engagement_id
+                AND per.reserved_by_actor_id=fv.created_by_actor_id AND per.payment_id IS NULL)))
+            THEN 1 ELSE 0 END`).bind(workspaceId, workspaceId, file.id, payload.expectedVersion, now),
         env.DB.prepare(`UPDATE file_versions SET version=version+1,size_bytes=?,sha256=?,object_key=?,state='STAGED',updated_at=?,updated_by_actor_id=?
           WHERE workspace_id=? AND id=? AND version=? AND state='INITIALIZED'`)
           .bind(payload.sizeBytes, digest, objectKey, now, actorId, workspaceId, file.id, payload.expectedVersion)
@@ -1654,15 +1758,26 @@ async function buildBusinessFileMutation(
       statements: [
         env.DB.prepare(`INSERT INTO command_assertions(workspace_id,seq,ok)
           SELECT ?,73,CASE WHEN EXISTS(SELECT 1 FROM file_versions fv WHERE fv.workspace_id=? AND fv.id=? AND fv.version=? AND fv.state='STAGED'
-            AND fv.sha256=? AND fv.size_bytes=? AND (? IS NULL OR EXISTS(SELECT 1 FROM engagements e WHERE e.workspace_id=fv.workspace_id
+            AND fv.sha256=? AND fv.size_bytes=? AND (?=1 OR ? IS NULL OR EXISTS(SELECT 1 FROM engagements e WHERE e.workspace_id=fv.workspace_id
               AND e.client_id=fv.client_id AND e.id=fv.engagement_id AND e.locked_at IS NULL AND e.lifecycle_state<>'ARCHIVED_READ_ONLY'
-              AND (?=0 OR (e.portal_activated_at IS NOT NULL AND e.portal_frozen_at IS NULL))))
+              AND (?=0 OR (e.portal_activated_at IS NOT NULL AND e.portal_frozen_at IS NULL))
+              AND (e.archive_due_at IS NULL OR e.archive_due_at>?)))
             AND (fv.pbc_request_id IS NULL OR EXISTS(SELECT 1 FROM pbc_requests r JOIN engagements pe ON pe.workspace_id=r.workspace_id AND pe.client_id=r.client_id AND pe.id=r.engagement_id
               WHERE r.workspace_id=fv.workspace_id AND r.id=fv.pbc_request_id AND r.version=fv.pbc_request_version
-                AND r.status IN ('PENDING_UPLOAD','REJECTED_REUPLOAD_REQUIRED') AND pe.portal_activated_at IS NOT NULL AND pe.portal_frozen_at IS NULL AND pe.locked_at IS NULL)))
+                AND r.status IN ('PENDING_UPLOAD','REJECTED_REUPLOAD_REQUIRED') AND pe.portal_activated_at IS NOT NULL AND pe.portal_frozen_at IS NULL AND pe.locked_at IS NULL))
+            AND NOT EXISTS(SELECT 1 FROM representation_file_reservations rfr
+              JOIN representation_requests rr ON rr.workspace_id=rfr.workspace_id AND rr.id=rfr.request_id
+              JOIN engagements re ON re.workspace_id=rr.workspace_id AND re.client_id=rr.client_id AND re.id=rr.engagement_id
+              WHERE rfr.workspace_id=fv.workspace_id AND rfr.file_version_id=fv.id
+                AND (rr.status NOT IN ('SENT','REJECTED') OR re.portal_activated_at IS NULL OR re.portal_frozen_at IS NOT NULL OR re.locked_at IS NOT NULL
+                  OR (re.archive_due_at IS NOT NULL AND re.archive_due_at<=?)))
+            AND (fv.payment_evidence_reservation_id IS NULL OR EXISTS(SELECT 1 FROM payment_evidence_reservations per
+              WHERE per.workspace_id=fv.workspace_id AND per.id=fv.payment_evidence_reservation_id
+                AND per.client_id=fv.client_id AND per.engagement_id=fv.engagement_id
+                AND per.reserved_by_actor_id=fv.created_by_actor_id AND per.payment_id IS NULL)))
             THEN 1 ELSE 0 END`)
-          .bind(workspaceId, workspaceId, file.id, payload.expectedVersion, digest, bytes.length, file.engagement_id,
-            context.actor.persona === 'CLIENT' ? 1 : 0),
+          .bind(workspaceId, workspaceId, file.id, payload.expectedVersion, digest, bytes.length,
+            file.payment_evidence_reservation_id ? 1 : 0, file.engagement_id, context.actor.persona === 'CLIENT' ? 1 : 0, now, now),
         env.DB.prepare(`UPDATE file_versions SET version=version+1,state='COMMITTED',immutable=1,committed_at=?,updated_at=?,updated_by_actor_id=?
           WHERE workspace_id=? AND id=? AND version=? AND state='STAGED' AND sha256=? AND size_bytes=?`)
           .bind(now, now, actorId, workspaceId, file.id, payload.expectedVersion, digest, bytes.length)
@@ -1862,6 +1977,7 @@ function businessFileMetadata(file: BusinessFileRow) {
     sizeBytes: file.size_bytes,
     sha256: file.sha256,
     purpose: file.purpose,
+    ...(file.representation_request_id ? { representationRequestId: file.representation_request_id } : {}),
     state: file.state,
     committedAt: file.committed_at,
     immutable: file.immutable === 1
@@ -1952,9 +2068,17 @@ export async function listBusinessFiles(
     OR EXISTS(SELECT 1 FROM engagement_letters l WHERE l.workspace_id=file_versions.workspace_id AND l.client_id=? AND l.file_version_id=file_versions.id)
     OR EXISTS(SELECT 1 FROM invoices i WHERE i.workspace_id=file_versions.workspace_id AND i.client_id=? AND i.file_version_id=file_versions.id AND i.status='ISSUED')
     OR EXISTS(SELECT 1 FROM receipt_vouchers rv WHERE rv.workspace_id=file_versions.workspace_id AND rv.client_id=? AND rv.file_version_id=file_versions.id AND rv.status='ISSUED')
-   )))`), bindings.push(context.actor.id, clientId, clientId, clientId, clientId);
+    OR (purpose='EVIDENCE' AND media_type='application/pdf' AND EXISTS(SELECT 1 FROM representation_file_reservations rfr
+      JOIN representation_requests rr ON rr.workspace_id=rfr.workspace_id AND rr.id=rfr.request_id
+      JOIN contact_routes cr ON cr.workspace_id=rr.workspace_id AND cr.id=rr.contact_route_id AND cr.client_id=rr.client_id AND cr.purpose='FINAL_REPORT'
+      JOIN actor_profiles ap ON ap.workspace_id=rr.workspace_id AND ap.id=? AND ap.persona='CLIENT' AND ap.active=1 AND ap.contact_id=cr.contact_id
+      WHERE rfr.workspace_id=file_versions.workspace_id AND rfr.file_version_id=file_versions.id AND rr.client_id=?
+        AND rr.engagement_id=file_versions.engagement_id AND rr.status IN ('SENT','RECEIVED','REJECTED','ACCEPTED')))
+   )))`), bindings.push(context.actor.id, clientId, clientId, clientId, clientId, context.actor.id, clientId);
   const result = await env.DB.prepare(`SELECT id,version,client_id,engagement_id,original_name,media_type,size_bytes,
-      pbc_request_id,pbc_request_version,sha256,object_key,purpose,state,committed_at,immutable FROM file_versions
+      pbc_request_id,pbc_request_version,
+      (SELECT rfr.request_id FROM representation_file_reservations rfr WHERE rfr.workspace_id=file_versions.workspace_id AND rfr.file_version_id=file_versions.id) AS representation_request_id,
+      sha256,object_key,purpose,state,committed_at,immutable,created_by_actor_id FROM file_versions
     WHERE ${clauses.join(' AND ')} ORDER BY created_at DESC,id DESC LIMIT ?`)
     .bind(...bindings, safeLimit).all<BusinessFileRow>();
   return { items: (result.results ?? []).map(businessFileMetadata) };
@@ -3274,6 +3398,18 @@ export async function runBusinessDirectoryCommand(
   const prior = await findCommandReceipt(env, workspaceId, envelope.idempotencyKey);
   if (prior) return replayCommand(prior, requestHash);
 
+  const commandPayload=(envelope.command as {payload?:Record<string,unknown>}).payload;
+  const targetEngagementId=typeof commandPayload?.engagementId==='string'?commandPayload.engagementId:null;
+  const postArchiveBookkeeping=new Set(['payment.record','payment.reverse','payment.allocate','payment.reverse-allocation','credit-note.issue','revenue.recognize']);
+  if(targetEngagementId&&!postArchiveBookkeeping.has(envelope.command.type)&&envelope.command.type!=='archive.lock'){
+    const engagement=await env.DB.prepare(`SELECT lifecycle_state,locked_at,archive_due_at FROM engagements WHERE workspace_id=? AND id=?`)
+      .bind(workspaceId,targetEngagementId).first<{lifecycle_state:string;locked_at:string|null;archive_due_at:string|null}>();
+    if(!engagement)throw new ApiError('NOT_FOUND','The engagement was not found.');
+    if(engagement.locked_at||engagement.lifecycle_state==='ARCHIVED_READ_ONLY'||(engagement.archive_due_at!==null&&engagement.archive_due_at<=new Date().toISOString())){
+      throw new ApiError('WORKSPACE_FROZEN','The engagement is read-only because its archive deadline has passed or its archive is locked.');
+    }
+  }
+
   const workspace = await env.DB.prepare(`SELECT version,business_status FROM workspaces WHERE id=?`)
     .bind(workspaceId).first<{ version: number; business_status: 'ACTIVE' | 'READ_ONLY' }>();
   if (!workspace) throw new ApiError('NOT_FOUND', 'Workspace not found.');
@@ -3305,8 +3441,12 @@ export async function runBusinessDirectoryCommand(
                 ? await buildBusinessPlanningMutation(env, workspaceId, context, envelope.command, commandId, timestamp)
                 : isBusinessTbCommand(envelope.command)
                   ? await buildBusinessTbMutation(env, workspaceId, context, envelope.command, commandId, timestamp)
-                  : isBusinessFieldworkCommand(envelope.command)
-                    ? await buildBusinessFieldworkMutation(env, workspaceId, context, envelope.command, commandId, timestamp)
+                : isBusinessFieldworkCommand(envelope.command)
+                     ? await buildBusinessFieldworkMutation(env, workspaceId, context, envelope.command, commandId, timestamp)
+                     : isBusinessReportingCommand(envelope.command)
+                       ? await buildBusinessReportingMutation(env, workspaceId, context, envelope.command, commandId, timestamp)
+                       : isBusinessPracticeCommand(envelope.command)
+                         ? await buildBusinessPracticeMutation(env, workspaceId, context, envelope.command, commandId, timestamp)
                     : await buildCommercialMutation(env, workspaceId, context, envelope.command, commandId, timestamp);
     const sequence = head.last_sequence + 1;
     const eventDetails = JSON.stringify({

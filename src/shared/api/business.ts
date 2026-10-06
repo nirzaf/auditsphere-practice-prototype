@@ -85,6 +85,7 @@ export interface BusinessFileMetadata {
   sizeBytes: number;
   sha256: string | null;
   purpose: BusinessFilePurpose;
+  representationRequestId?: string;
   state: 'INITIALIZED' | 'STAGED' | 'VERIFIED' | 'COMMITTED' | 'REJECTED';
   committedAt: string | null;
   immutable: boolean;

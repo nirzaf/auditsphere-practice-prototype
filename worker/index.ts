@@ -42,6 +42,7 @@ import { ApiError, toApiError } from './errors';
 import { assertSameOrigin, baseHeaders, jsonResponse, readJson, sha256Hex } from './http';
 import { createRouter, type RouteContext } from './router';
 import { processBusinessOutbox } from './businessOutbox';
+import { queueDueBusinessArchives } from './businessReporting';
 import {
   SESSION_TTL_SECONDS,
   WORKSPACE_TTL_SECONDS,
@@ -90,6 +91,8 @@ import { getBusinessDeliveryWorkspace } from './businessDelivery';
 import { getBusinessCapacity, getBusinessPlanningWorkspace, listBusinessEngagementFolders } from './businessPlanning';
 import { getBusinessPlanningReadiness, getBusinessTrialBalanceImport, getBusinessTrialBalancePreview, getBusinessTrialBalanceWorkspace } from './businessTb';
 import { getBusinessFinancialStatements, getBusinessFsliSourceLines, getBusinessFieldworkWorkspace, getBusinessSamplingPlan, getBusinessSamplingPopulation, getBusinessFieldworkChanges } from './businessFieldwork';
+import { getBusinessPracticeWorkspace } from './businessPractice';
+import { getBusinessReportingWorkspace } from './businessReportingQuery';
 
 const JSON_BODY_LIMIT = 1_000_000;
 /** Hard ceiling for a single command payload; the domain model is small. */
@@ -324,6 +327,18 @@ const handleBusinessCapacity = async (ctx: RouteContext): Promise<Response> => {
   const context = await resolveBusinessContext(ctx.env, ctx.params.workspaceId, ctx.request);
   const result = await getBusinessCapacity(ctx.env, ctx.params.workspaceId, context,
     ctx.url.searchParams.get('from') ?? '', ctx.url.searchParams.get('to') ?? '');
+  return jsonResponse(result, 200, ctx.requestId);
+};
+
+const handleBusinessPracticeWorkspace = async (ctx: RouteContext): Promise<Response> => {
+  const context = await resolveBusinessContext(ctx.env, ctx.params.workspaceId, ctx.request);
+  const result = await getBusinessPracticeWorkspace(ctx.env, ctx.params.workspaceId, context, ctx.url.searchParams);
+  return jsonResponse(result, 200, ctx.requestId);
+};
+
+const handleBusinessReportingWorkspace = async (ctx: RouteContext): Promise<Response> => {
+  const context = await resolveBusinessContext(ctx.env, ctx.params.workspaceId, ctx.request);
+  const result = await getBusinessReportingWorkspace(ctx.env, ctx.params.workspaceId, context, ctx.params.engagementId);
   return jsonResponse(result, 200, ctx.requestId);
 };
 
@@ -800,6 +815,8 @@ const router = createRouter()
   .get('/api/workspaces/:workspaceId/engagements/:engagementId/planning-readiness', handleBusinessPlanningReadiness)
   .get('/api/workspaces/:workspaceId/engagements/:engagementId/folders', handleBusinessEngagementFolders)
   .get('/api/workspaces/:workspaceId/capacity', handleBusinessCapacity)
+  .get('/api/workspaces/:workspaceId/practice', handleBusinessPracticeWorkspace)
+  .get('/api/workspaces/:workspaceId/engagements/:engagementId/reporting-workspace', handleBusinessReportingWorkspace)
   .get('/api/workspaces/:workspaceId/pbc-engagements', handleBusinessPbcEngagements)
   .get('/api/workspaces/:workspaceId/engagements/:engagementId/pbc/:requestId', handleBusinessPbcRequest)
   .get('/api/workspaces/:workspaceId/engagements/:engagementId/portal', handleBusinessPbcPortal)
@@ -876,6 +893,7 @@ export default {
   /** Process durable business jobs and clean expired legacy/session state. */
   async scheduled(_event: ScheduledController, env: Env): Promise<void> {
     const now = nowSeconds();
+    await queueDueBusinessArchives(env,new Date(now*1000).toISOString()).catch(error => console.error('business archive deadline enforcement failed', String(error)));
     await processBusinessOutbox(env).catch(error => console.error('business outbox processing failed', String(error)));
     await env.DB.prepare('DELETE FROM workspace_sessions WHERE expires_at<=?').bind(now).run();
     await env.DB.prepare('DELETE FROM idempotency_keys WHERE expires_at<=?').bind(now).run();

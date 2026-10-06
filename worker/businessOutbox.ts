@@ -4,8 +4,11 @@ import { ProposalDocumentError, renderProposalPdf, type ProposalDocumentInput } 
 import { CommercialDocumentError, renderCommercialPdf, type CommercialDocumentInput } from './commercialDocument';
 import { getBusinessAcceptanceGate } from './businessRisk';
 import { prepareTrialBalanceImport } from './businessTb';
+import { prepareBusinessInvoiceJournal } from './businessPractice';
+import { processBusinessReportingDocument } from './businessReportingJobs';
+import { ApiError } from './errors';
 
-type JobKind = 'GENERATE_DOCUMENT' | 'EMAIL' | 'IMPORT_TB';
+type JobKind = 'GENERATE_DOCUMENT' | 'SEAL_ARCHIVE' | 'EMAIL' | 'IMPORT_TB';
 interface OutboxJob {
   id: string;
   workspace_id: string;
@@ -111,9 +114,9 @@ function parseRawPayload(job: OutboxJob): Record<string, any> {
 
 async function claimJob(env: Env, id: string, now: string): Promise<OutboxJob | null> {
   return env.DB.prepare(`UPDATE outbox_jobs SET status='RUNNING',attempts=attempts+1,lease_until=?,updated_at=?,version=version+1
-    WHERE id=? AND kind IN ('GENERATE_DOCUMENT','EMAIL','IMPORT_TB') AND (
+    WHERE id=? AND kind IN ('GENERATE_DOCUMENT','SEAL_ARCHIVE','EMAIL','IMPORT_TB') AND (
       (status IN ('PENDING','RETRYABLE_FAILED') AND next_attempt_at<=?)
-      OR (status='RUNNING' AND kind IN ('GENERATE_DOCUMENT','IMPORT_TB') AND lease_until IS NOT NULL AND lease_until<=?)
+      OR (status='RUNNING' AND kind IN ('GENERATE_DOCUMENT','SEAL_ARCHIVE','IMPORT_TB') AND lease_until IS NOT NULL AND lease_until<=?)
     ) RETURNING id,workspace_id,version,kind,aggregate_id,aggregate_version,payload_json,deduplication_key,status,attempts,lease_until,last_error_code,result_file_id`)
     .bind(new Date(Date.parse(now) + JOB_LEASE_MS).toISOString(), now, id, now, now).first<OutboxJob>();
 }
@@ -558,11 +561,16 @@ async function renderAndStoreCommercialDocument(env: Env, job: OutboxJob): Promi
     statements.push(env.DB.prepare(`UPDATE engagement_letter_drafts SET status='SUCCEEDED',version=version+1,artifact_id=?,file_version_id=?,error_code=NULL,updated_at=?
       WHERE workspace_id=? AND id=? AND version=? AND status IN ('PENDING','RETRYABLE_FAILED')`).bind(artifactId, fileVersionId, generatedAt, job.workspace_id, draft.id, draft.version));
   } else if (type === 'ADVANCE_INVOICE') {
-    const invoice = await env.DB.prepare(`SELECT id,version,engagement_id FROM invoices WHERE workspace_id=? AND id=? AND status='PENDING_DOCUMENT'`)
-      .bind(job.workspace_id, payload.invoiceId).first<{ id: string; version: number; engagement_id: string }>();
+    const invoice = await env.DB.prepare(`SELECT id,version,engagement_id,client_id,kind,number,subtotal_minor,tax_minor,total_minor,created_by_actor_id
+      FROM invoices WHERE workspace_id=? AND id=? AND status='PENDING_DOCUMENT'`)
+      .bind(job.workspace_id, payload.invoiceId).first<{ id: string; version: number; engagement_id: string; client_id:string; kind:string; number:string;
+        subtotal_minor:number; tax_minor:number; total_minor:number; created_by_actor_id:string }>();
     if (!invoice) throw new OutboxError('STALE_INVOICE', 'The advance invoice changed while its PDF was rendering.');
+    const issueDate=qatarDate();
+    statements.push(...await prepareBusinessInvoiceJournal(env,job.workspace_id,{id:invoice.id,number:invoice.number,kind:invoice.kind,clientId:invoice.client_id,
+      engagementId:invoice.engagement_id,subtotalMinor:invoice.subtotal_minor,taxMinor:invoice.tax_minor,totalMinor:invoice.total_minor,issueDate,actorId:invoice.created_by_actor_id},generatedAt));
     statements.push(env.DB.prepare(`UPDATE invoices SET status='ISSUED',version=version+1,artifact_id=?,file_version_id=?,issue_date=?,issued_at=?,updated_at=?
-      WHERE workspace_id=? AND id=? AND version=? AND status='PENDING_DOCUMENT'`).bind(artifactId, fileVersionId, qatarDate(), generatedAt, generatedAt, job.workspace_id, invoice.id, invoice.version));
+      WHERE workspace_id=? AND id=? AND version=? AND status='PENDING_DOCUMENT'`).bind(artifactId, fileVersionId, issueDate, generatedAt, generatedAt, job.workspace_id, invoice.id, invoice.version));
   } else if(type==='RECEIPT') {
     const receipt = await env.DB.prepare(`SELECT id,client_id,engagement_id,payment_id,status FROM receipt_vouchers WHERE workspace_id=? AND id=? AND status='PENDING'`)
       .bind(job.workspace_id, payload.receiptId).first<{ id: string; client_id: string; engagement_id: string; payment_id: string; status: string }>();
@@ -754,7 +762,7 @@ async function dispatchCommercial(env: Env, job: OutboxJob): Promise<void> {
   const dispatch = await env.DB.prepare(`SELECT id,status,version,purpose,file_version_id,recipient_snapshot_json FROM dispatches WHERE workspace_id=? AND id=? AND job_id=?`)
     .bind(job.workspace_id, payload.dispatchId, job.id).first<{ id: string; status: string; version: number; purpose: string; file_version_id: string; recipient_snapshot_json: string }>();
   if (!dispatch || dispatch.status !== 'QUEUED' || dispatch.file_version_id !== payload.fileVersionId
-    || !['EL','INVOICE','RECEIPT','CONFIRMATION','HOLDING_LETTER'].includes(dispatch.purpose)) throw new OutboxError('DISPATCH_NOT_QUEUED', 'This commercial dispatch is no longer queued for the pinned artifact.');
+    || !['EL','INVOICE','RECEIPT','CONFIRMATION','HOLDING_LETTER','BUNDLE'].includes(dispatch.purpose)) throw new OutboxError('DISPATCH_NOT_QUEUED', 'This commercial dispatch is no longer queued for the pinned artifact.');
   let snapshot: Record<string, unknown>;
   try { snapshot = JSON.parse(dispatch.recipient_snapshot_json) as Record<string, unknown>; }
   catch { throw new OutboxError('INVALID_RECIPIENT_SNAPSHOT', 'The pinned recipient snapshot cannot be verified.'); }
@@ -898,6 +906,10 @@ async function commitJobMutation(env: Env, job: OutboxJob, mutation: JobMutation
 async function recordJobFailure(env: Env, job: OutboxJob, error: unknown): Promise<void> {
   const failure = error instanceof OutboxError
     ? error
+    : error instanceof ApiError
+      ? new OutboxError(error.code, error.message)
+      : error instanceof Error && error.message.startsWith('ARCHIVE_INCOMPLETE:')
+        ? new OutboxError('ARCHIVE_INCOMPLETE', error.message, 'RETRY')
     : error instanceof ProposalDocumentError
       ? new OutboxError(error.code, error.message)
       : error instanceof CommercialDocumentError
@@ -913,11 +925,22 @@ async function recordJobFailure(env: Env, job: OutboxJob, error: unknown): Promi
   const dispatchStatus = disposition === 'UNKNOWN' ? 'UNKNOWN' : disposition === 'FAIL' ? 'FAILED' : null;
   const dispatchId = job.kind === 'EMAIL' && typeof payload.dispatchId === 'string' ? payload.dispatchId : null;
   const documentType = typeof payload.documentType === 'string' ? payload.documentType : null;
+  let archiveMissingFiles: string[] = [];
+  if (failure.code === 'ARCHIVE_INCOMPLETE') {
+    try { archiveMissingFiles = JSON.parse(failure.message.replace(/^ARCHIVE_INCOMPLETE:/, '')) as string[]; }
+    catch { archiveMissingFiles = [failure.message.slice('ARCHIVE_INCOMPLETE:'.length)]; }
+  }
   const documentEntity = documentType === 'ENGAGEMENT_LETTER' && typeof payload.draftId === 'string' ? { type: 'ENGAGEMENT_LETTER_DRAFT', id: payload.draftId }
     : documentType === 'ADVANCE_INVOICE' && typeof payload.invoiceId === 'string' ? { type: 'INVOICE', id: payload.invoiceId }
       : documentType === 'RECEIPT' && typeof payload.receiptId === 'string' ? { type: 'RECEIPT_VOUCHER', id: payload.receiptId }
         : documentType === 'CONFIRMATION_REQUEST' && typeof payload.confirmationId === 'string' ? { type: 'CONFIRMATION', id: payload.confirmationId }
-          : documentType === 'HOLDING_LETTER' && typeof payload.holdingLetterId === 'string' ? { type: 'HOLDING_LETTER', id: payload.holdingLetterId } : null;
+          : documentType === 'HOLDING_LETTER' && typeof payload.holdingLetterId === 'string' ? { type: 'HOLDING_LETTER', id: payload.holdingLetterId }
+            : documentType === 'REPORT_CANDIDATE' && typeof payload.reportCandidateId === 'string' ? { type: 'REPORT_CANDIDATE', id: payload.reportCandidateId }
+              : documentType === 'MANAGEMENT_LETTER' && typeof payload.managementLetterVersionId === 'string' ? { type: 'MANAGEMENT_LETTER_VERSION', id: payload.managementLetterVersionId }
+                : documentType === 'REPRESENTATION_TEMPLATE' && typeof payload.requestId === 'string' ? { type: 'REPRESENTATION_REQUEST', id: payload.requestId }
+                  : documentType === 'BUNDLE_CANDIDATE' && typeof payload.bundleCandidateId === 'string' ? { type: 'BUNDLE_CANDIDATE', id: payload.bundleCandidateId }
+                  : documentType === 'SEAL_ARCHIVE' && typeof payload.archiveRunId === 'string' ? { type: 'ARCHIVE_RUN', id: payload.archiveRunId }
+                    : documentType === 'PRACTICE_REPORT' && typeof payload.reportSnapshotId === 'string' ? { type: 'FIRM_REPORT_SNAPSHOT', id: payload.reportSnapshotId } : null;
   const failureEntityType = job.kind === 'IMPORT_TB' ? 'TB_IMPORT' : job.kind === 'EMAIL' ? 'DISPATCH' : documentEntity?.type ?? 'PROPOSAL_VERSION';
   const failureEntityId = dispatchId ?? documentEntity?.id ?? job.aggregate_id;
   await commitJobMutation(env, job, {
@@ -936,6 +959,16 @@ async function recordJobFailure(env: Env, job: OutboxJob, error: unknown): Promi
       ...(documentType === 'ENGAGEMENT_LETTER' && typeof payload.draftId === 'string' ? [env.DB.prepare(`UPDATE engagement_letter_drafts SET status=?,error_code=?,version=version+1,updated_at=?
           WHERE workspace_id=? AND id=? AND job_id=? AND status IN ('PENDING','RETRYABLE_FAILED')`)
         .bind(status, failure.code, now, job.workspace_id, payload.draftId, job.id)] : []),
+      ...(documentType === 'REPORT_CANDIDATE' && typeof payload.reportCandidateId === 'string' && status === 'PERMANENT_FAILED' ? [env.DB.prepare(`UPDATE report_candidates SET status='FAILED',failure_code=?,updated_at=? WHERE workspace_id=? AND id=? AND status='PREPARING'`)
+        .bind(failure.code,now,job.workspace_id,payload.reportCandidateId)] : []),
+      ...(documentType === 'MANAGEMENT_LETTER' && typeof payload.managementLetterVersionId === 'string' && status === 'PERMANENT_FAILED' ? [env.DB.prepare(`UPDATE management_letter_versions SET status='FAILED' WHERE workspace_id=? AND id=? AND status='PREPARING'`)
+        .bind(job.workspace_id,payload.managementLetterVersionId)] : []),
+      ...(documentType === 'REPRESENTATION_TEMPLATE' && typeof payload.requestId === 'string' && status === 'PERMANENT_FAILED' ? [env.DB.prepare(`UPDATE representation_requests SET status='FAILED',version=version+1,updated_at=? WHERE workspace_id=? AND id=? AND status='PREPARING'`)
+        .bind(now,job.workspace_id,payload.requestId)] : []),
+      ...(documentType === 'BUNDLE_CANDIDATE' && typeof payload.bundleCandidateId === 'string' ? [env.DB.prepare(`UPDATE bundle_candidates SET status=?,failure_code=?,updated_at=? WHERE workspace_id=? AND id=? AND status='PREPARING'`)
+        .bind(status === 'PERMANENT_FAILED' ? 'FAILED' : 'PREPARING',failure.code,now,job.workspace_id,payload.bundleCandidateId)] : []),
+      ...(documentType === 'SEAL_ARCHIVE' && typeof payload.archiveRunId === 'string' ? [env.DB.prepare(`UPDATE archive_runs SET status=?,error_code=?,missing_files_json=?,last_attempt_at=?,updated_at=? WHERE workspace_id=? AND id=? AND status<>'SEALED'`)
+        .bind('FAILED',failure.code,JSON.stringify(archiveMissingFiles),now,now,job.workspace_id,payload.archiveRunId)] : []),
       ...(job.kind === 'IMPORT_TB' ? [env.DB.prepare(`UPDATE tb_imports SET status=CASE WHEN ?='PERMANENT_FAILED' THEN 'INVALID' ELSE 'VALIDATING' END,
           error_count=error_count+CASE WHEN ?='PERMANENT_FAILED' THEN 1 ELSE 0 END,
           errors_json=CASE WHEN ?='PERMANENT_FAILED' THEN json_array(json_object('row',0,'code',?,'message',?)) ELSE errors_json END,updated_at=?
@@ -977,9 +1010,9 @@ export async function processBusinessOutbox(env: Env, limit = 20): Promise<numbe
   const safeLimit = Math.min(Math.max(Math.trunc(limit) || 20, 1), 50);
   const [ready, expiredEmail] = await Promise.all([
     env.DB.prepare(`SELECT j.id FROM outbox_jobs j JOIN workspaces w ON w.id=j.workspace_id AND w.data_mode='BUSINESS'
-      WHERE j.kind IN ('GENERATE_DOCUMENT','EMAIL','IMPORT_TB') AND (
+      WHERE j.kind IN ('GENERATE_DOCUMENT','SEAL_ARCHIVE','EMAIL','IMPORT_TB') AND (
         (j.status IN ('PENDING','RETRYABLE_FAILED') AND j.next_attempt_at<=?)
-        OR (j.status='RUNNING' AND j.kind IN ('GENERATE_DOCUMENT','IMPORT_TB') AND j.lease_until IS NOT NULL AND j.lease_until<=?)
+      OR (j.status='RUNNING' AND j.kind IN ('GENERATE_DOCUMENT','SEAL_ARCHIVE','IMPORT_TB') AND j.lease_until IS NOT NULL AND j.lease_until<=?)
       ) ORDER BY j.next_attempt_at,j.created_at,j.id LIMIT ?`)
       .bind(now, now, safeLimit).all<{ id: string }>(),
     env.DB.prepare(`SELECT j.id,j.workspace_id,j.lease_until,j.aggregate_id,j.payload_json FROM outbox_jobs j
@@ -999,8 +1032,12 @@ export async function processBusinessOutbox(env: Env, limit = 20): Promise<numbe
       const payload = parseRawPayload(job);
       if (job.kind === 'IMPORT_TB') {
         await commitJobMutation(env, job, await prepareTrialBalanceImport(env, job));
-      } else if (job.kind === 'GENERATE_DOCUMENT') {
-        if (typeof payload.documentType === 'string') await renderAndStoreCommercialDocument(env, job);
+      } else if (job.kind === 'GENERATE_DOCUMENT' || job.kind === 'SEAL_ARCHIVE') {
+        if (typeof payload.documentType === 'string') {
+          const reportingHandled=await processBusinessReportingDocument(env,job,payload,mutation=>commitJobMutation(env,job,mutation));
+          if(!reportingHandled&&job.kind==='SEAL_ARCHIVE')throw new OutboxError('INVALID_ARCHIVE_JOB','Archive sealing jobs must use the archive document processor.');
+          if(!reportingHandled)await renderAndStoreCommercialDocument(env,job);
+        }
         else await renderAndStoreProposal(env, job);
       } else if (payload.documentType === 'COMMERCIAL_EMAIL') await dispatchCommercial(env, job);
       else await dispatchProposal(env, job);

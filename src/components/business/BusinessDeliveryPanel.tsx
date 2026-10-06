@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import type { BusinessContextResponse, BusinessDeliveryWorkspace, BusinessEngagementOption, BusinessFileMetadata, BusinessWorkspacePreference } from '../../shared/api/business';
-import { downloadBusinessFile, getBusinessAcceptanceGate, getBusinessDeliveryWorkspace, newBusinessIdempotencyKey, runBusinessCommand } from '../../services/businessWorkspace';
+import { completeBusinessFile, downloadBusinessFile, getBusinessAcceptanceGate, getBusinessDeliveryWorkspace, initializeBusinessFile, newBusinessIdempotencyKey, runBusinessCommand, uploadBusinessFile } from '../../services/businessWorkspace';
 
 interface Props {
   workspaceId: string;
@@ -42,6 +42,7 @@ export function BusinessDeliveryPanel({ workspaceId, selected, context, engageme
   const [paymentMethod, setPaymentMethod] = useState<'BANK_TRANSFER'|'CHEQUE'|'CASH'>('BANK_TRANSFER');
   const [paymentReference, setPaymentReference] = useState('');
   const [evidenceFileId, setEvidenceFileId] = useState('');
+  const [paymentEvidenceFile, setPaymentEvidenceFile] = useState<BusinessFileMetadata | null>(null);
   const [allocations, setAllocations] = useState<AllocationDraft[]>([{ invoiceId: '', amountMinor: '' }]);
 
   const isPartner = context.actor.persona === 'APPROVER' && context.actor.staffGrade === 'PARTNER';
@@ -156,6 +157,36 @@ export function BusinessDeliveryPanel({ workspaceId, selected, context, engageme
     setPaymentAmount(''); setPaymentReference(''); setAllocations([{ invoiceId: '', amountMinor: '' }]);
   };
 
+  const uploadPaymentEvidence = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const selectedFile = event.target.files?.[0];
+    event.target.value = '';
+    if (!selectedFile) return;
+    const mediaType = selectedFile.type === 'application/pdf' ? 'application/pdf'
+      : selectedFile.type === 'image/png' ? 'image/png'
+        : selectedFile.type === 'image/jpeg' ? 'image/jpeg' : null;
+    if (!mediaType || selectedFile.size <= 0 || selectedFile.size > 25 * 1024 * 1024) {
+      setError('Choose a PDF, PNG or JPEG payment document up to 25 MB.');
+      return;
+    }
+    setBusy(true); setError(''); setMessage('');
+    try {
+      const reservation = await initializeBusinessFile(workspaceId, selected, {
+        purpose: 'EVIDENCE', originalName: selectedFile.name, mediaType, sizeBytes: selectedFile.size,
+        clientId: engagement.clientId, engagementId: engagement.id, paymentEvidenceReservationId: crypto.randomUUID()
+      }, newBusinessIdempotencyKey());
+      const staged = await uploadBusinessFile(workspaceId, selected, reservation, selectedFile, mediaType, newBusinessIdempotencyKey());
+      const committed = await completeBusinessFile(workspaceId, selected, staged, newBusinessIdempotencyKey());
+      const metadata: BusinessFileMetadata = { id: committed.fileId, version: committed.version, clientId: engagement.clientId,
+        engagementId: engagement.id, originalName: selectedFile.name, mediaType, sizeBytes: committed.sizeBytes,
+        sha256: committed.sha256, purpose: 'EVIDENCE', state: 'COMMITTED', committedAt: new Date().toISOString(), immutable: true };
+      setPaymentEvidenceFile(metadata); setEvidenceFileId(metadata.id);
+      setMessage('Payment evidence uploaded and committed. Review it before recording the payment.');
+      onChanged();
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'Payment evidence could not be uploaded.');
+    } finally { setBusy(false); }
+  };
+
   const reversePayment = async (paymentId: string) => {
     await perform({ type: 'payment.reverse', payload: { paymentId, rationale: 'The original receipt and supporting bank or cash evidence were reviewed; record an explicit payment reversal.' } },
       'Payment reversal recorded with a new immutable receipt voucher.');
@@ -176,7 +207,7 @@ export function BusinessDeliveryPanel({ workspaceId, selected, context, engageme
 
   if (!data) return <section className="business-delivery-card" aria-label="Engagement letters and billing"><p role="status">Loading engagement delivery records…</p>{error && <p role="alert">{error}</p>}</section>;
   const advanceInvoices = data.invoices.filter(item => item.kind === 'ADVANCE');
-  const outstandingEvidence = evidenceFiles;
+  const outstandingEvidence = [...evidenceFiles.filter(file => file.id !== paymentEvidenceFile?.id), ...(paymentEvidenceFile ? [paymentEvidenceFile] : [])];
   const partnerReady = isPartner && gate?.ready && engagement.lifecycleState === 'ADVANCE_BILLING';
 
   return <section className="business-delivery-card" aria-labelledby={`business-delivery-${engagement.id}`}>
@@ -263,6 +294,8 @@ export function BusinessDeliveryPanel({ workspaceId, selected, context, engageme
     {canRecordPayment && <form className="business-form business-commercial-form business-delivery-workflow" onSubmit={recordPayment}>
       <h3>Record a verified payment and issue its receipt</h3>
       <p className="business-note">Verification is the selected staff profile’s recorded review of the committed evidence. No bank integration is claimed.</p>
+      <label className="business-field"><span>Upload payment evidence (PDF, PNG or JPEG)</span><input type="file" accept="application/pdf,image/png,image/jpeg" disabled={busy} onChange={event => void uploadPaymentEvidence(event)} /></label>
+      <p className="business-note">Use this dedicated upload for payment support, including collections recorded after the audit file is sealed. The evidence stays tied to this engagement and uploader.</p>
       <div className="business-form-grid">
         <label className="business-field"><span>Amount (QAR minor units)</span><input required inputMode="numeric" pattern="[1-9][0-9]{0,15}" value={paymentAmount} onChange={event => setPaymentAmount(event.target.value)} /></label>
         <label className="business-field"><span>Received date</span><input type="date" required value={receivedOn} onChange={event => setReceivedOn(event.target.value)} /></label>

@@ -1,5 +1,10 @@
 -- External confirmations are versioned workpaper records. Dispatch and holding
 -- letter artifacts are retained through the existing verified file/outbox path.
+-- 0018's adjustment-response trigger references this field; add it before this
+-- migration's schema changes so both fresh and already-migrated D1 databases
+-- can revalidate the existing trigger when applying 0019.
+ALTER TABLE audit_adjustments ADD COLUMN client_response TEXT;
+
 CREATE TABLE dispatches_next (
   id TEXT PRIMARY KEY,
   workspace_id TEXT NOT NULL,
