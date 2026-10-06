@@ -525,8 +525,18 @@ it('US-ENG-003 renders and approves an exact quote revision, then fails closed w
   await waitFor('the visible unconfigured-provider failure', `document.querySelector('.business-proposal-list')?.innerText.includes('dispatch FAILED') && document.querySelector('.business-proposal-list [role="status"]')?.innerText.includes('email provider not configured')`);
   await tab.command('Page.reload');
   await waitFor('the persisted provider failure after reload', `document.querySelector('.business-proposal-list')?.innerText.includes('dispatch FAILED') && document.querySelector('.business-proposal-list [role="alert"]')?.innerText.includes('engagement remains in proposal generation')`);
+  const pendingKeys = await tab.evaluate<string[]>(`[...document.querySelectorAll('.business-risk-card .business-key-status')]
+    .map(item => item.innerText.replace(/\\s+/g, ' ').trim()).sort()`);
+  assert.deepEqual(pendingKeys, ['Client commercial key PENDING', 'Partner risk key PENDING'],
+    'proposal provider failure cannot produce either acceptance key');
   assert.equal(server.db.prepare('SELECT lifecycle_state FROM engagements WHERE workspace_id=? AND id=?')
     .bind(preference.workspaceId, proposal.engagement_id).first<any>()?.lifecycle_state, 'PROPOSAL_GENERATION');
+  assert.equal(server.db.prepare('SELECT COUNT(*) AS count FROM engagement_letter_drafts WHERE workspace_id=? AND engagement_id=?')
+    .bind(preference.workspaceId, proposal.engagement_id).first<any>()?.count, 0, 'no letter render is created before both keys are current');
+  assert.equal(server.db.prepare('SELECT COUNT(*) AS count FROM engagement_letters WHERE workspace_id=? AND engagement_id=?')
+    .bind(preference.workspaceId, proposal.engagement_id).first<any>()?.count, 0, 'no engagement letter is issued before both keys are current');
+  assert.equal(server.db.prepare('SELECT COUNT(*) AS count FROM invoices WHERE workspace_id=? AND engagement_id=?')
+    .bind(preference.workspaceId, proposal.engagement_id).first<any>()?.count, 0, 'no advance invoice exists before letter issuance');
   assert.equal(server.db.prepare("SELECT status FROM dispatches WHERE workspace_id=? AND engagement_id=? AND purpose='PROPOSAL' ORDER BY created_at DESC LIMIT 1")
     .bind(preference.workspaceId, proposal.engagement_id).first<any>()?.status, 'FAILED');
   assert.equal(server.db.prepare('SELECT COUNT(*) AS count FROM command_receipts WHERE workspace_id=? AND command_type IN (\'proposal.dispatch\',\'proposal.dispatch.retry\')')

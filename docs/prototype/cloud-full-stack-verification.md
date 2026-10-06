@@ -239,7 +239,9 @@ renders a real quotation PDF, and approves that exact proposal revision. A
 QAR 10,000,001 minor-unit fee is split into QAR 5,000,001 advance and QAR
 5,000,000 final. It also exercises a missing email-provider binding: the UI
 shows the committed provider failure, the dispatch remains FAILED, and the
-engagement stays in PROPOSAL_GENERATION after reload.
+engagement stays in PROPOSAL_GENERATION after reload. Both client-commercial
+and partner-risk keys remain PENDING, and the journey verifies that no
+engagement-letter draft, issued letter, or advance invoice is created.
 
 This journey exposed and fixed a no-op dispatch button: the UI displayed its
 first eligible contact route as the default while the handler only read the
