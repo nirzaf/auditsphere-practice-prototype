@@ -1344,7 +1344,11 @@ async function createSamplePopulation(env:Env,workspaceId:string,context:Busines
     worksheet:worksheetName,headerRow:p.headerRow,referenceColumn:p.referenceColumn,amountColumn:p.amountColumn};
   const orderHash=await rowHash(rows.map(row=>({ordinal:row.ordinal,key:row.key,amount:row.amount})));
   const sourceHash=await rowHash({pins:sourcePins,orderHash,exclusionsReason:p.exclusionsReason??null});const populationId=crypto.randomUUID();
-  const rowValues=rows.map(row=>[row.id,workspaceId,populationId,row.key,row.ordinal,row.amount,1,null,JSON.stringify({reference:row.reference,description:row.description,sourceRowNumber:row.sourceRowNumber})]);
+  const rowValues=rows.map(row=>{
+    const eligible=row.amount>0;
+    return [row.id,workspaceId,populationId,row.key,row.ordinal,row.amount,eligible?1:0,eligible?null:p.exclusionsReason??null,
+      JSON.stringify({reference:row.reference,description:row.description,sourceRowNumber:row.sourceRowNumber})];
+  });
   const statements=[env.DB.prepare(`INSERT INTO sample_populations(id,workspace_id,client_id,engagement_id,name,source_file_id,tb_version_id,fsli_id,source_hash,order_hash,row_count,positive_total_minor,excluded_count,exclusions_reason,created_by_actor_id,created_at)
     VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).bind(populationId,workspaceId,engagement.client_id,engagement.id,p.name,file.id,engagement.active_tb_version_id,p.fsliId,sourceHash,orderHash,rows.length,positiveTotal,excludedCount,p.exclusionsReason??'',context.actor.id,now),
     ...makeMultiInsertStatements(env,'population_rows',['id','workspace_id','population_id','source_row_key','ordinal','book_value_minor','eligible','exclusion_reason','source_data_json'],rowValues)];
@@ -1365,7 +1369,12 @@ async function createSamplingPlan(env:Env,workspaceId:string,context:BusinessCon
   const rowResult=await env.DB.prepare(`SELECT id,source_row_key,ordinal,book_value_minor,eligible FROM population_rows WHERE workspace_id=? AND population_id=? ORDER BY ordinal`)
     .bind(workspaceId,p.populationId).all<{id:string;source_row_key:string;ordinal:number;book_value_minor:number;eligible:number}>();
   const allRows=rowResult.results??[];const revisionRow=await env.DB.prepare(`SELECT COALESCE(MAX(revision),0) AS revision FROM sampling_plans WHERE workspace_id=? AND population_id=?`).bind(workspaceId,p.populationId).first<{revision:number}>();
-  const planId=crypto.randomUUID();const revision=(revisionRow?.revision??0)+1;const seedHex=randomToken(32);const random=await keyedSampler(seedHex);
+  const planId=crypto.randomUUID();const revision=(revisionRow?.revision??0)+1;
+  // Isolated Worker tests can inject a deterministic seed directly through the
+  // test environment. The public command schema never accepts a seed; deployed
+  // Workers always use cryptographically random seed material.
+  const testSeedFactory=(env as Env & {__testSamplingSeedFactory?:()=>string}).__testSamplingSeedFactory;
+  const seedHex=testSeedFactory?.()??randomToken(32);const random=await keyedSampler(seedHex);
   let hits:Array<{drawNumber:number;rowId:string;monetaryUnitMinor:number|null;stratumKey:string|null}>=[];let strataParams:unknown[]=[];let strataRows:Array<{id:string;key:string;description:string;rows:Array<typeof allRows[number]>;sampleCount:number;alpha:number}>=[];
   let confidenceBps:number|null=null;let tolerableMinor:number|null=null;let expectedBps:number|null=null;let requestedCount:number|null=null;let parameters:Record<string,unknown>={};
   if(p.method==='MUS_BINOMIAL_PPS'){

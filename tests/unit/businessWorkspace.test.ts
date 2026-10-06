@@ -1,5 +1,6 @@
 import { after, it } from 'node:test';
 import assert from 'node:assert/strict';
+import { createHmac } from 'node:crypto';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import worker, { businessCommandHttpResult } from '../../worker/index.js';
@@ -7,6 +8,58 @@ import { criticalConfirmationBlockers, queueHoldingLetterForBlockers } from '../
 import { SqliteD1 } from '../helpers/sqliteD1.js';
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
+
+/** Independent log-recurrence reference for exact binomial CDF values. */
+function referenceBinomialCdf(k: number, n: number, probability: number): number {
+  if (k < 0) return 0;
+  if (probability <= 0) return 1;
+  if (probability >= 1) return k >= n ? 1 : 0;
+  const upper = Math.min(k, n);
+  const logTerms = [n * Math.log1p(-probability)];
+  for (let index = 1; index <= upper; index++) {
+    logTerms.push(logTerms[index - 1] + Math.log(n - index + 1) - Math.log(index)
+      + Math.log(probability) - Math.log1p(-probability));
+  }
+  let maximum = Number.NEGATIVE_INFINITY;
+  for (const term of logTerms) maximum = Math.max(maximum, term);
+  return Math.min(1, Math.exp(maximum) * logTerms.reduce((sum, term) => sum + Math.exp(term - maximum), 0));
+}
+
+function referenceMusSampleCount(pT: number, pE: number, alpha: number): number {
+  for (let draws = 1; draws <= 5000; draws++) {
+    if (referenceBinomialCdf(Math.floor(draws * pE), draws, pT) <= alpha) return draws;
+  }
+  throw new Error('Reference MUS sample exceeds the supported calculation domain.');
+}
+
+function referenceMusUnits(seedHex: string, draws: number, totalMinor: number): number[] {
+  const seed = Buffer.from(seedHex, 'hex');
+  const range = BigInt(totalMinor);
+  const space = 1n << 64n;
+  const limit = (space / range) * range;
+  return Array.from({ length: draws }, (_, counter) => {
+    for (let retry = 0; retry < 100; retry++) {
+      const digest = createHmac('sha256', seed)
+        .update(`AUDITSPHERE_SAMPLING:v1:${counter}:${retry}`)
+        .digest();
+      const sample = digest.readBigUInt64BE(0);
+      if (sample < limit) return Number(sample % range) + 1;
+    }
+    throw new Error(`Reference MUS draw ${counter + 1} exceeded the rejection limit.`);
+  });
+}
+
+function referenceUpperBoundMinor(taintedDraws: number, draws: number, alpha: number, populationMinor: number): number {
+  let lower = 0;
+  let upper = 1;
+  for (let iteration = 0; iteration < 100; iteration++) {
+    const midpoint = (lower + upper) / 2;
+    if (referenceBinomialCdf(taintedDraws, draws, midpoint) > alpha) lower = midpoint;
+    else upper = midpoint;
+  }
+  return Math.ceil(((lower + upper) / 2) * populationMinor);
+}
+
 const db = new SqliteD1();
 db.migrate(repositoryRoot);
 const r2Objects = new Map<string, Uint8Array>();
@@ -2047,16 +2100,25 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
   };
 
   const negativePopulationSource = await createSamplingPopulation('Negative balance requires alternate work', 'sampling-negative.csv',
-    'reference,amount,description\nPOS-001,100.00,Positive control balance\nNEG-001,-25.00,Negative credit balance');
+    'reference,amount,description\nPOS-001,100.00,Positive control balance\nNEG-001,-25.00,Negative credit balance\nZERO-001,0.00,Zero balance');
   assert.equal(negativePopulationSource.created.response.status, 422, JSON.stringify(negativePopulationSource.created.body));
   assert.equal(negativePopulationSource.created.body.code, 'INVALID_POPULATION');
-  const documentedNegativePopulation = await createSamplingPopulation('Negative balance alternate procedure documented', 'sampling-negative.csv',
-    'reference,amount,description\nPOS-001,100.00,Positive control balance\nNEG-001,-25.00,Negative credit balance',
-    'Test the negative credit separately through a documented understatement and completeness procedure.');
+  const alternateProcedureReason = 'Test nonpositive balances separately through documented understatement and completeness procedures.';
+  const documentedNegativePopulation = await createSamplingPopulation('Nonpositive balances have alternate procedures documented', 'sampling-negative.csv',
+    'reference,amount,description\nPOS-001,100.00,Positive control balance\nNEG-001,-25.00,Negative credit balance\nZERO-001,0.00,Zero balance',
+    alternateProcedureReason);
   assert.equal(documentedNegativePopulation.created.response.status, 200, JSON.stringify(documentedNegativePopulation.created.body));
-  assert.equal(documentedNegativePopulation.created.body.result.rowCount, 2);
+  assert.equal(documentedNegativePopulation.created.body.result.rowCount, 3);
   assert.equal(documentedNegativePopulation.created.body.result.positiveTotalMinor, '10000');
-  assert.equal(documentedNegativePopulation.created.body.result.excludedCount, 1);
+  assert.equal(documentedNegativePopulation.created.body.result.excludedCount, 2);
+  const documentedPopulationId = documentedNegativePopulation.created.body.result.populationId as string;
+  const documentedPopulationView = await call(`/api/workspaces/${workspaceId}/engagements/${engagementId}/sampling-populations/${documentedPopulationId}`, { headers: technicalHeaders });
+  assert.equal(documentedPopulationView.response.status, 200, JSON.stringify(documentedPopulationView.body));
+  for (const excludedReference of ['NEG-001', 'ZERO-001']) {
+    const excludedRow = documentedPopulationView.body.rows.find((row: any) => row.sourceRowKey === excludedReference);
+    assert.equal(excludedRow.eligible, 0, `${excludedReference} is explicitly excluded from positive MUS eligibility`);
+    assert.equal(excludedRow.exclusionReason, alternateProcedureReason, `${excludedReference} retains its documented alternate procedure`);
+  }
 
   const musPopulationSource = await createSamplingPopulation('Single positive monetary unit sampling population', 'sampling-mus.csv',
     'reference,amount,description\nMUS-INV-001,1000000.00,Single positive invoice for repeat-hit validation');
@@ -2069,6 +2131,28 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
     tolerableMinor: '5000000', expectedTaintedBps: 0,
     reason: 'Apply the approved conservative MUS policy to the exact positive source total and retain every seeded monetary-unit draw.'
   } };
+  const musPlanCount = () => Number(db.prepare('SELECT COUNT(*) AS count FROM sampling_plans WHERE workspace_id=? AND population_id=?')
+    .bind(workspaceId, musPopulationId).first<any>()?.count ?? 0);
+  const initialMusPlanCount = musPlanCount();
+  const rejectMusPlan = async (overrides: Record<string, unknown>, expectedCode: string) => {
+    const rejected = await post(`/api/workspaces/${workspaceId}/commands`, {
+      idempotencyKey: crypto.randomUUID(),
+      command: { ...musPlanCommand, payload: { ...musPlanCommand.payload, ...overrides } }
+    }, samplingReviewerHeaders);
+    assert.equal(rejected.response.status, 422, JSON.stringify(rejected.body));
+    assert.equal(rejected.body.code, expectedCode);
+    assert.equal(musPlanCount(), initialMusPlanCount, 'a rejected parameter set creates no sampling-plan revision');
+  };
+  await rejectMusPlan({ tolerableMinor: '0' }, 'INVALID_SAMPLE_PARAMETERS');
+  await rejectMusPlan({ tolerableMinor: '100000000' }, 'INVALID_SAMPLE_PARAMETERS');
+  await rejectMusPlan({ expectedTaintedBps: 500 }, 'INVALID_SAMPLE_PARAMETERS');
+  await rejectMusPlan({ expectedTaintedBps: 501 }, 'INVALID_SAMPLE_PARAMETERS');
+  await rejectMusPlan({ tolerableMinor: '1000' }, 'CALCULATION_DOMAIN_EXCEEDED');
+
+  const musSeedBase = '0123456789abcdef'.repeat(4);
+  let deterministicSeedOffset = 0n;
+  (env as typeof env & { __testSamplingSeedFactory?: () => string }).__testSamplingSeedFactory = () =>
+    (BigInt(`0x${musSeedBase}`) + deterministicSeedOffset++).toString(16).padStart(64, '0');
   const musPlanIdempotencyKey = crypto.randomUUID();
   const musPlan = await post(`/api/workspaces/${workspaceId}/commands`, { idempotencyKey: musPlanIdempotencyKey, command: musPlanCommand }, samplingReviewerHeaders);
   assert.equal(musPlan.response.status, 200, JSON.stringify(musPlan.body));
@@ -2082,6 +2166,11 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
   const musPlanView = await call(musPlanPath, { headers: technicalHeaders });
   assert.equal(musPlanView.response.status, 200, JSON.stringify(musPlanView.body));
   assert.equal(musPlanView.body.hits.length, 59);
+  assert.equal(musPlanView.body.plan.seedHex, musSeedBase, 'the isolated test constructor supplied the deterministic seed');
+  const musUnits = musPlanView.body.hits.map((hit: any) => Number(hit.monetaryUnitMinor));
+  assert.deepEqual(musUnits, referenceMusUnits(musSeedBase, 59, 100000000), 'Node HMAC-SHA256 independently reproduces every persisted monetary-unit draw');
+  assert.deepEqual(musUnits.slice(0, 10), [52678214, 70747834, 52798567, 79083303, 51862293, 59051886, 71110241, 95225569, 42383621, 85700774],
+    'the fixed HMAC-SHA256 vector matches its checked reference values');
   assert.equal(new Set(musPlanView.body.hits.map((hit: any) => hit.populationRowId)).size, 1,
     'all 59 monetary draws remain visible even when they hit the same invoice');
   const musFirstTest = await post(`/api/workspaces/${workspaceId}/commands`, {
@@ -2122,6 +2211,104 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
   assert.equal(musRepeatedHitEvaluation.body.result.taintedHitCount, 59, 'one misstatement across the invoice taints each of its repeated monetary-unit hits');
   assert.equal(musRepeatedHitEvaluation.body.result.upperBoundMinor, '100000000');
   assert.equal(musRepeatedHitEvaluation.body.result.result, 'EXCEEDS_TOLERANCE');
+
+  const nonzeroExpectedTaintPlan = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { ...musPlanCommand, payload: {
+      ...musPlanCommand.payload, expectedTaintedBps: 200,
+      reason: 'Use a documented 2% expected tainted-book-value proportion for an independent exact-binomial sample-size check.'
+    } }
+  }, samplingReviewerHeaders);
+  assert.equal(nonzeroExpectedTaintPlan.response.status, 200, JSON.stringify(nonzeroExpectedTaintPlan.body));
+  const nonzeroReferenceCount = referenceMusSampleCount(0.05, 0.02, 0.05);
+  assert.equal(nonzeroReferenceCount, 93, 'independent recurrence reference fixes the nonzero expected-taint vector');
+  assert.equal(nonzeroExpectedTaintPlan.body.result.calculatedCount, nonzeroReferenceCount,
+    'the Worker chooses the smallest n with BinomialCDF(floor(n*pE),n,pT) <= alpha');
+  const nonzeroExpectedTaintView = await call(`/api/workspaces/${workspaceId}/engagements/${engagementId}/sampling-plans/${nonzeroExpectedTaintPlan.body.result.planId}`, { headers: technicalHeaders });
+  assert.equal(nonzeroExpectedTaintView.response.status, 200, JSON.stringify(nonzeroExpectedTaintView.body));
+  assert.deepEqual(nonzeroExpectedTaintView.body.plan.parameters.pE, {
+    bps: 200, meaning: 'expected tainted-book-value proportion; not expected monetary error'
+  });
+
+  const musReroll = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { ...musPlanCommand, payload: {
+      ...musPlanCommand.payload,
+      reason: 'Create a separately reasoned reviewer reroll while preserving the original approved sample revision.'
+    } }
+  }, samplingReviewerHeaders);
+  assert.equal(musReroll.response.status, 200, JSON.stringify(musReroll.body));
+  assert.notEqual(musReroll.body.result.planId, musPlan.body.result.planId);
+  const musRerollView = await call(`/api/workspaces/${workspaceId}/engagements/${engagementId}/sampling-plans/${musReroll.body.result.planId}`, { headers: technicalHeaders });
+  assert.equal(musRerollView.response.status, 200, JSON.stringify(musRerollView.body));
+  assert.equal(musRerollView.body.plan.revision, 3, 'each separately reasoned plan is a new append-only population revision');
+  assert.notEqual(musRerollView.body.plan.seedHex, musPlanView.body.plan.seedHex, 'a reroll gets fresh seed material');
+  const preservedOriginalMusPlan = await call(musPlanPath, { headers: technicalHeaders });
+  assert.equal(preservedOriginalMusPlan.body.plan.revision, 1);
+  assert.equal(preservedOriginalMusPlan.body.plan.seedHex, musSeedBase);
+  assert.deepEqual(preservedOriginalMusPlan.body.hits.map((hit: any) => Number(hit.monetaryUnitMinor)), musUnits,
+    'rerolling never overwrites the original persisted draw sequence');
+
+  const multiRowMusCsv = ['reference,amount,description', ...Array.from({ length: 10 }, (_, index) =>
+    `MUS-MULTI-${String(index + 1).padStart(2, '0')},100000.00,Equal positive invoice ${index + 1}`)].join('\n');
+  const multiRowMusPopulation = await createSamplingPopulation('Ten-row positive MUS population', 'sampling-mus-multi.csv', multiRowMusCsv);
+  assert.equal(multiRowMusPopulation.created.response.status, 200, JSON.stringify(multiRowMusPopulation.created.body));
+  assert.equal(multiRowMusPopulation.created.body.result.positiveTotalMinor, '100000000');
+  const multiRowMusPopulationId = multiRowMusPopulation.created.body.result.populationId as string;
+  const multiRowMusPlan = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'sampling.plan', payload: {
+      engagementId, populationId: multiRowMusPopulationId, policyId: musPolicyId, method: 'MUS_BINOMIAL_PPS', confidenceBps: 9500,
+      tolerableMinor: '5000000', expectedTaintedBps: 0,
+      reason: 'Use a seeded positive ten-row source to independently verify monetary-unit mapping and a nonzero taint bound.'
+    } }
+  }, samplingReviewerHeaders);
+  assert.equal(multiRowMusPlan.response.status, 200, JSON.stringify(multiRowMusPlan.body));
+  const multiRowMusPlanPath = `/api/workspaces/${workspaceId}/engagements/${engagementId}/sampling-plans/${multiRowMusPlan.body.result.planId}`;
+  const multiRowMusPlanView = await call(multiRowMusPlanPath, { headers: technicalHeaders });
+  assert.equal(multiRowMusPlanView.response.status, 200, JSON.stringify(multiRowMusPlanView.body));
+  const multiRowUnits = referenceMusUnits(multiRowMusPlanView.body.plan.seedHex, 59, 100000000);
+  const rowsInOrdinalOrder = [...multiRowMusPlanView.body.rows].sort((left: any, right: any) => left.ordinal - right.ordinal);
+  const referenceHitRowIds = multiRowUnits.map(unit => {
+    let cumulativeMinor = 0;
+    const selected = rowsInOrdinalOrder.find((row: any) => {
+      cumulativeMinor += Number(row.bookValueMinor);
+      return unit <= cumulativeMinor;
+    });
+    assert.ok(selected, `monetary unit ${unit} maps to exactly one positive source row`);
+    return selected.id;
+  });
+  assert.deepEqual(multiRowMusPlanView.body.hits.map((hit: any) => hit.populationRowId), referenceHitRowIds,
+    'the HMAC monetary units select rows by the cumulative positive-book-value intervals');
+  const firstTaintedRowId = multiRowMusPlanView.body.hits[0].populationRowId;
+  const intermediateTaintedDraws = multiRowMusPlanView.body.hits.filter((hit: any) => hit.populationRowId === firstTaintedRowId).length;
+  assert.ok(intermediateTaintedDraws > 0 && intermediateTaintedDraws < 59,
+    'the fixed reference seed produces an intermediate taint count for exact upper-bound validation');
+  const testedPopulationRows = [...new Set<string>(multiRowMusPlanView.body.hits.map((hit: any) => hit.populationRowId))];
+  for (const populationRowId of testedPopulationRows) {
+    const populationRow = multiRowMusPlanView.body.rows.find((row: any) => row.id === populationRowId);
+    const recordedTest = await post(`/api/workspaces/${workspaceId}/commands`, {
+      idempotencyKey: crypto.randomUUID(), command: { type: 'sampling.record-test', payload: {
+        planId: multiRowMusPlan.body.result.planId, populationRowId, expectedVersion: 0, tested: true,
+        auditedValueMinor: String(populationRow.bookValueMinor), misstated: populationRowId === firstTaintedRowId,
+        conclusion: populationRowId === firstTaintedRowId
+          ? 'Independent test identifies a misstatement in this positive invoice.'
+          : 'Independent test confirms this positive invoice agrees to its retained support.',
+        evidenceId: hybridEvidence.body.result.evidenceId, evidenceVersion: 1
+      } }
+    }, technicalHeaders);
+    assert.equal(recordedTest.response.status, 200, JSON.stringify(recordedTest.body));
+  }
+  const multiRowMusAfterTests = await call(multiRowMusPlanPath, { headers: technicalHeaders });
+  const intermediateMusEvaluation = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'sampling.evaluate', payload: {
+      planId: multiRowMusPlan.body.result.planId, testSetHash: multiRowMusAfterTests.body.testSetHash
+    } }
+  }, samplingReviewerHeaders);
+  assert.equal(intermediateMusEvaluation.response.status, 200, JSON.stringify(intermediateMusEvaluation.body));
+  const independentUpperBound = referenceUpperBoundMinor(intermediateTaintedDraws, 59, 0.05, 100000000);
+  assert.equal(intermediateMusEvaluation.body.result.testedHitCount, 59);
+  assert.equal(intermediateMusEvaluation.body.result.taintedHitCount, intermediateTaintedDraws);
+  assert.equal(intermediateMusEvaluation.body.result.upperBoundMinor, String(independentUpperBound),
+    'the one-sided exact upper confidence bound and conservative minor-unit ceiling match an independent bisection');
+  assert.equal(intermediateMusEvaluation.body.result.result, 'EXCEEDS_TOLERANCE');
 
   const systematicCsv = ['reference,amount,description', ...Array.from({ length: 200 }, (_, index) =>
     `SYS-${String(index + 1).padStart(3, '0')},5000.00,Invoice ${index + 1}`)].join('\n');

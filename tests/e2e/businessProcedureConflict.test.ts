@@ -54,7 +54,10 @@ async function waitFor(tab: CdpTab, label: string, predicate: string, timeoutMs 
     if (await tab.evaluate<boolean>(predicate)) return;
     await sleep(80);
   }
-  const diagnostic = await tab.evaluate<string>(`document.querySelector('.business-fieldwork-panel')?.innerText ?? document.body.innerText.slice(-3000)`);
+  const diagnostic = await tab.evaluate<string>(`(() => [
+    document.querySelector('.business-fieldwork-panel > .business-alert')?.textContent?.trim() ?? '',
+    document.querySelector('.business-fieldwork-panel')?.innerText ?? document.body.innerText.slice(-3000)
+  ].join('\\n'))()`);
   throw new Error(`Timed out waiting for ${label}. Fieldwork diagnostics: ${diagnostic}`);
 }
 
@@ -81,7 +84,7 @@ async function createFieldworkFixture() {
   const workspace = await response.json() as { workspaceId: string; staffMemberId: string; actorProfileId: string };
   const ids = {
     clientId: randomUUID(), standardsId: randomUUID(), engagementId: randomUUID(),
-    fileId: randomUUID(), importId: randomUUID(), tbVersionId: randomUUID(), tbLineId: randomUUID(),
+    fileId: randomUUID(), samplingFileId: randomUUID(), importId: randomUUID(), tbVersionId: randomUUID(), tbLineId: randomUUID(),
     fsliId: randomUUID(), mappingDraftId: randomUUID(), mappingDraftLineId: randomUUID(),
     mappingVersionId: randomUUID(), mappingId: randomUUID(), materialityId: randomUUID(),
     planningId: randomUUID(), templateId: randomUUID(), templateStepA: randomUUID(), templateStepB: randomUUID(),
@@ -91,6 +94,10 @@ async function createFieldworkFixture() {
   const workspaceId = workspace.workspaceId;
   const contentHash = sha256(`fieldwork-fixture:${key}`);
   const emptyEvidenceHash = sha256('[]');
+  const samplingSource = 'reference,amount,description\nMUS-UI-001,1000000.00,Positive invoice for UI sampling acceptance\nMUS-UI-NEG,-25.00,Negative balance for alternate procedures\nMUS-UI-ZERO,0.00,Zero balance for alternate procedures';
+  const samplingSourceBytes = new TextEncoder().encode(samplingSource);
+  const samplingObjectKey = `e2e/${key}/sampling-population.csv`;
+  server!.putTestObject(samplingObjectKey, samplingSourceBytes);
 
   // This is a setup-only local SQLite fixture. Both browsers read and mutate the same
   // real Worker-backed rows; the fixture itself uses valid persisted provenance pins.
@@ -112,6 +119,10 @@ async function createFieldworkFixture() {
   runFixtureSql(`INSERT INTO file_versions(id,workspace_id,client_id,engagement_id,original_name,media_type,size_bytes,sha256,object_key,purpose,state,committed_at,immutable,created_at,updated_at,created_by_actor_id,updated_by_actor_id)
     VALUES(?,?,?,?,'qa-trial-balance.csv','text/csv',0,?,?,'TB','COMMITTED',?,1,?,?,?,?)`,
   ids.fileId, workspaceId, ids.clientId, ids.engagementId, contentHash, `e2e/${key}/tb.csv`, now, now, now, workspace.actorProfileId, workspace.actorProfileId);
+  runFixtureSql(`INSERT INTO file_versions(id,workspace_id,client_id,engagement_id,original_name,media_type,size_bytes,sha256,object_key,purpose,state,committed_at,immutable,created_at,updated_at,created_by_actor_id,updated_by_actor_id)
+    VALUES(?,?,?,?,'qa-sampling-population.csv','text/csv',?,?,?,'EVIDENCE','COMMITTED',?,1,?,?,?,?)`,
+  ids.samplingFileId, workspaceId, ids.clientId, ids.engagementId, samplingSourceBytes.length, sha256(samplingSource), samplingObjectKey,
+  now, now, now, workspace.actorProfileId, workspace.actorProfileId);
   runFixtureSql(`INSERT INTO tb_imports(id,workspace_id,version,client_id,engagement_id,file_version_id,status,worksheet,column_map_json,row_count,source_sha256,
     current_debits_minor,current_credits_minor,prior_debits_minor,prior_credits_minor,error_count,errors_json,created_by_actor_id,created_at,updated_at)
     VALUES(?,?,1,?,? ,?,'ACTIVATED','Sheet1','{}',1,?,0,0,NULL,NULL,0,'[]',?,?,?)`,
@@ -188,6 +199,7 @@ async function createFieldworkFixture() {
 }
 
 async function selectWorkspace(tab: CdpTab, fixture: Awaited<ReturnType<typeof createFieldworkFixture>>, actorId: string): Promise<void> {
+  await tab.evaluate(`localStorage.removeItem('auditsphere.business-context.v1')`);
   await tab.command('Page.navigate', { url: server!.origin });
   await waitFor(tab, 'the isolated local BUSINESS landing page', `document.querySelector('#production-workspace-heading')?.textContent?.trim() === 'Open your business workspace'`);
   const preference = { version: 1, workspaceId: fixture.workspaceId, actorId, persona: 'APPROVER', clientId: fixture.clientId, engagementId: fixture.engagementId };
@@ -271,6 +283,51 @@ async function clickVisibleButton(tab: CdpTab, buttonLabel: string): Promise<voi
     button.click(); return true;
   })()`);
   assert.equal(clicked, true, `visible enabled "${buttonLabel}" action is available`);
+}
+
+async function clickWhenEnabled(tab: CdpTab, buttonLabel: string, timeoutMs = 10000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const clicked = await tab.evaluate<boolean>(`(() => {
+      const button = [...document.querySelectorAll('button')].find(item => item.textContent?.trim() === ${JSON.stringify(buttonLabel)});
+      if (!button || button.disabled || !button.getClientRects().length) return false;
+      button.click(); return true;
+    })()`);
+    if (clicked) return;
+    await sleep(80);
+  }
+  const state = await tab.evaluate<string>(`[...document.querySelectorAll('button')]
+    .filter(item => item.textContent?.trim() === ${JSON.stringify(buttonLabel)})
+    .map(item => JSON.stringify({ disabled: item.disabled, visible: !!item.getClientRects().length, text: item.textContent?.trim() }))
+    .join('; ')`);
+  throw new Error(`Timed out waiting to click "${buttonLabel}". Matching controls: ${state || 'none'}`);
+}
+
+async function setVisibleFieldByLabel(tab: CdpTab, labelText: string, value: string, optionText?: string): Promise<void> {
+  const deadline = Date.now() + 5000;
+  while (Date.now() < deadline) {
+    const filled = await tab.evaluate<boolean>(`(() => {
+      const label = [...document.querySelectorAll('label.business-field')]
+        .find(item => item.querySelector('span')?.textContent?.trim() === ${JSON.stringify(labelText)});
+      const control = label?.querySelector('input,textarea,select');
+      if (!control || !control.getClientRects().length) return false;
+      let nextValue = ${JSON.stringify(value)};
+      if (control instanceof HTMLSelectElement && ${JSON.stringify(optionText ?? null)}) {
+        const option = [...control.options].find(item => item.textContent?.includes(${JSON.stringify(optionText ?? '')}));
+        if (!option) return false;
+        nextValue = option.value;
+      }
+      const setter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(control), 'value')?.set;
+      setter?.call(control, nextValue);
+      control.dispatchEvent(new Event('input', { bubbles: true }));
+      control.dispatchEvent(new Event('change', { bubbles: true }));
+      return true;
+    })()`);
+    if (filled) return;
+    await sleep(80);
+  }
+  const availableFields = await tab.evaluate<string[]>(`[...document.querySelectorAll('label.business-field span')].map(item => item.textContent?.trim() ?? '')`);
+  assert.fail(`the visible "${labelText}" field did not accept the intended value. Available fields: ${availableFields.join(', ')}`);
 }
 
 before(async () => {
@@ -532,4 +589,113 @@ it('US-FLD-006 preserves same-procedure drafts across a two-browser version conf
   assert.deepEqual(tabB.exceptions, [], 'Partner B browser has no uncaught JavaScript exceptions');
   assert.deepEqual(tabA.blockedExternalRequests, []);
   assert.deepEqual(tabB.blockedExternalRequests, []);
+});
+
+it('US-FLD-007 imports a documented population, creates a Partner-approved MUS plan, and evaluates the tested UI sample', { timeout: 120000 }, async () => {
+  assert.ok(server && tabA);
+  const fixture = await createFieldworkFixture();
+  await selectWorkspace(tabA, fixture, fixture.actorProfileId);
+
+  // Observe the rendered, settled fieldwork shell before starting the UI journey.
+  const initialUi = await tabA.evaluate<{ heading: string; persona: string; tabs: string[] }>(`({
+    heading: document.querySelector('#business-fieldwork-heading')?.textContent?.trim() ?? '',
+    persona: document.querySelector('#business-active-persona')?.selectedOptions[0]?.textContent?.trim() ?? '',
+    tabs: [...document.querySelectorAll('.business-fieldwork-tabs button')].map(button => button.textContent?.trim() ?? '')
+  })`);
+  assert.ok(initialUi.heading.length > 0);
+  assert.ok(initialUi.persona.includes('APPROVER'));
+  assert.ok(initialUi.tabs.includes('Evidence') && initialUi.tabs.includes('Sampling'));
+
+  await clickVisibleButton(tabA, 'Evidence');
+  await waitFor(tabA, 'the physical evidence record form', `!![...document.querySelectorAll('.business-fieldwork-card h3')].find(item => item.textContent?.trim() === 'Retain digital, physical or hybrid evidence')`);
+  const evidenceTitle = 'UI sample invoice inspection evidence';
+  await setVisibleFieldByLabel(tabA, 'Evidence mode', '', 'Physical');
+  await waitFor(tabA, 'physical evidence inputs', `!![...document.querySelectorAll('label.business-field span')].find(item => item.textContent?.trim() === 'Physical index code')`);
+  await setVisibleFieldByLabel(tabA, 'Evidence title', evidenceTitle);
+  await setVisibleFieldByLabel(tabA, 'Physical index code', 'MUS-UI-01');
+  await setVisibleFieldByLabel(tabA, 'Physical description', 'Original invoice inspected and traced to the customer ledger.');
+  const commandsBeforeInvalidPhysicalEvidence = tabA.requests.filter(url => new URL(url).pathname.endsWith('/commands')).length;
+  await clickVisibleButton(tabA, 'Create evidence record');
+  await waitFor(tabA, 'the physical locator validation message', `document.body.innerText.includes('Physical and hybrid evidence require at least one binder, box or shelf locator.')`);
+  assert.equal(tabA.requests.filter(url => new URL(url).pathname.endsWith('/commands')).length, commandsBeforeInvalidPhysicalEvidence,
+    'invalid physical evidence is stopped in the form before a request reaches the Worker');
+  await setVisibleFieldByLabel(tabA, 'Binder', 'Revenue binder A');
+  await clickVisibleButton(tabA, 'Create evidence record');
+  await waitFor(tabA, 'the saved evidence awaiting review', `document.body.innerText.includes(${JSON.stringify(evidenceTitle)}) && document.body.innerText.includes('PENDING VERIFICATION')`);
+
+  // The second Partner is a distinct natural person and independently reviews the evidence.
+  await selectWorkspace(tabA, fixture, fixture.actorB);
+  await clickVisibleButton(tabA, 'Evidence');
+  await waitFor(tabA, 'the independent evidence review controls', `!![...document.querySelectorAll('.business-fieldwork-card h3')].find(item => item.textContent?.trim() === 'Independent evidence adequacy review')`);
+  await setVisibleFieldByLabel(tabA, 'Exact evidence version', '', evidenceTitle);
+  await setVisibleFieldByLabel(tabA, 'Reviewer rationale', 'The physical invoice was inspected and supports the tested positive balance.');
+  await clickVisibleButton(tabA, 'Save evidence review');
+  await waitFor(tabA, 'the independently verified evidence version', `document.body.innerText.includes(${JSON.stringify(evidenceTitle)}) && document.body.innerText.includes('ADEQUATE')`);
+
+  await selectWorkspace(tabA, fixture, fixture.actorProfileId);
+  await clickVisibleButton(tabA, 'Sampling');
+  await waitFor(tabA, 'sampling methodology and population forms', `!![...document.querySelectorAll('.business-fieldwork-card h3')].find(item => item.textContent?.trim() === 'Firm sampling methodology')`);
+  await clickVisibleButton(tabA, 'Create draft policy');
+  await waitFor(tabA, 'the draft MUS policy approval field', `document.body.innerText.includes('MUS_BINOMIAL_PPS') && !![...document.querySelectorAll('label.business-field span')].find(item => item.textContent?.trim() === 'Partner methodology approval rationale')`);
+  await setVisibleFieldByLabel(tabA, 'Partner methodology approval rationale', 'Partner approved the conservative binomial MUS assumptions for this synthetic audit population.');
+  await clickVisibleButton(tabA, 'Partner approve');
+  await waitFor(tabA, 'the approved MUS methodology and ready population form', `document.body.innerText.includes('APPROVED') &&
+    !![...document.querySelectorAll('label.business-field span')].find(item => item.textContent?.trim() === 'Population name')`);
+
+  const populationName = 'UI MUS population with explicit exclusions';
+  await setVisibleFieldByLabel(tabA, 'Population name', populationName);
+  const samplingSourceOptions = await tabA.evaluate<{ labelFound: boolean; options: string[] }>(`(() => {
+    const label = [...document.querySelectorAll('label.business-field')].find(item => item.querySelector('span')?.textContent?.trim() === 'Committed source file');
+    return { labelFound: !!label, options: [...(label?.querySelectorAll('select option') ?? [])].map(option => option.textContent?.trim() ?? '') };
+  })()`);
+  assert.ok(samplingSourceOptions.options.some(option => option.includes('qa-sampling-population.csv')),
+    `the committed sampling source appears in the selection list: ${JSON.stringify(samplingSourceOptions)}`);
+  await setVisibleFieldByLabel(tabA, 'Committed source file', '', 'qa-sampling-population.csv');
+  await waitFor(tabA, 'the active QA-REV FSLI option', `(() => {
+    const label = [...document.querySelectorAll('label.business-field')].find(item => item.querySelector('span')?.textContent?.trim() === 'FSLI');
+    return [...(label?.querySelectorAll('select option') ?? [])].some(option => option.textContent?.includes('QA-REV'));
+  })()`);
+  await setVisibleFieldByLabel(tabA, 'FSLI', '', 'QA-REV');
+  await setVisibleFieldByLabel(tabA, 'Zero and negative item alternate-procedure rationale', 'Test the credit and zero balances separately using completeness and understatement procedures.');
+  await clickVisibleButton(tabA, 'Import population');
+  await waitFor(tabA, 'the imported positive population and two excluded rows', `document.body.innerText.includes(${JSON.stringify(populationName)}) && document.body.innerText.includes('2 excluded')`);
+  await clickVisibleButton(tabA, 'Assign and select');
+  await waitFor(tabA, 'the selected population and MUS inputs', `!![...document.querySelectorAll('.business-fieldwork-card h3')].find(item => item.textContent?.includes(${JSON.stringify(populationName)})) && !![...document.querySelectorAll('label.business-field span')].find(item => item.textContent?.trim() === 'Expected tainted book-value (%)')`);
+
+  await setVisibleFieldByLabel(tabA, 'Tolerable misstatement (QAR)', '50000.00');
+  await clickVisibleButton(tabA, 'Create sample plan');
+  await waitFor(tabA, 'the 59-draw immutable MUS plan', `document.body.innerText.includes('59 selected draws') && document.body.innerText.includes('server seed')`);
+  const visiblePlan = await tabA.evaluate<{ distinctRows: number; draws: number; selectedEvidenceLabel: string }>(`(() => ({
+    distinctRows: document.querySelectorAll('.business-fieldwork-sample-test').length,
+    draws: document.querySelectorAll('.business-fieldwork-scroll table tbody tr').length,
+    selectedEvidenceLabel: [...document.querySelectorAll('label.business-field span')].find(item => item.textContent?.trim() === 'Adequate evidence item')?.textContent?.trim() ?? ''
+  }))()`);
+  assert.equal(visiblePlan.distinctRows, 1, '59 monetary draws remain one document test for the single positive invoice');
+  assert.equal(visiblePlan.draws, 59);
+  assert.equal(visiblePlan.selectedEvidenceLabel, 'Adequate evidence item');
+
+  await setVisibleFieldByLabel(tabA, 'Audited amount (QAR)', '1000000.00');
+  await setVisibleFieldByLabel(tabA, 'Conclusion', 'Inspected invoice agrees with the customer ledger and retained source.');
+  await setVisibleFieldByLabel(tabA, 'Adequate evidence item', '', evidenceTitle);
+  const misstatementDefault = await tabA.evaluate<boolean>(`[...document.querySelectorAll('label.business-check-field')]
+    .find(item => item.textContent?.includes('Misstatement identified'))?.querySelector('input')?.checked ?? true`);
+  assert.equal(misstatementDefault, false);
+  await clickVisibleButton(tabA, 'Save test');
+  await waitFor(tabA, 'the version-pinned tested item', `document.querySelector('.business-fieldwork-panel [role="status"]')?.textContent?.includes('Sample test saved with exact evidence version.')`);
+  await clickWhenEnabled(tabA, 'Evaluate current tests');
+  await waitFor(tabA, 'the sampling evaluation response', `document.body.innerText.includes('WITHIN TOLERANCE') || !!document.querySelector('.business-fieldwork-panel > .business-alert')`);
+
+  const finalUi = await tabA.evaluate<{ withinToleranceVisible: boolean; boundVisible: boolean; evidenceVisible: boolean; alert: string | null }>(`({
+    withinToleranceVisible: document.body.innerText.includes('WITHIN TOLERANCE'),
+    boundVisible: document.body.innerText.includes('49,507.61'),
+    evidenceVisible: document.body.innerText.includes(${JSON.stringify(evidenceTitle)}),
+    alert: document.querySelector('.business-fieldwork-panel > .business-alert')?.textContent?.trim() ?? null
+  })`);
+  assert.equal(finalUi.alert, null, `sampling evaluation was rejected: ${finalUi.alert}`);
+  assert.equal(finalUi.evidenceVisible, true);
+  assert.equal(finalUi.withinToleranceVisible, true);
+  assert.equal(finalUi.boundVisible, true);
+  assert.ok(tabA.requests.some(url => new URL(url).pathname.includes('/sampling-plans/')));
+  assert.deepEqual(tabA.exceptions, [], 'the sampling acceptance screen has no unhandled JavaScript exceptions');
+  assert.deepEqual(tabA.blockedExternalRequests, []);
 });

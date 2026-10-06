@@ -469,8 +469,30 @@ export function BusinessFieldworkPanel({ workspaceId, selected, context, engagem
     } catch (reason) { setError(reason instanceof Error ? reason.message : 'The sample test is incomplete.'); }
   }
 
+  async function evaluateCurrentSamplePlan() {
+    if (!planDetail || busy) return;
+    setBusy(true); setError(''); setMessage('');
+    let currentPlan: SamplingPlanPayload;
+    try {
+      currentPlan = await getBusinessSamplingPlan(workspaceId, engagement.id, planDetail.plan.id, scope) as unknown as SamplingPlanPayload;
+      setPlanDetail(currentPlan);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'The current sample test set could not be refreshed.');
+      setBusy(false);
+      return;
+    }
+    // Keep the button unavailable through the fresh-read/command handoff so a
+    // second click cannot submit the previously displayed test-set hash.
+    await command('sampling.evaluate', { planId: currentPlan.plan.id, testSetHash: currentPlan.testSetHash },
+      'Exact version-pinned sample evaluation completed.');
+  }
+
   async function createEvidence(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if ((evidenceMode === 'PHYSICAL' || evidenceMode === 'HYBRID') && ![binder, box, shelf].some(value => value.trim())) {
+      setError('Physical and hybrid evidence require at least one binder, box or shelf locator.');
+      return;
+    }
     await command('evidence.create', { engagementId: engagement.id, mode: evidenceMode, title: evidenceTitle,
       ...(evidenceFileId ? { fileVersionId: evidenceFileId } : {}), ...(physicalIndex ? { physicalIndex } : {}), ...(physicalDescription ? { physicalDescription } : {}),
       ...(binder ? { binder } : {}), ...(box ? { box } : {}), ...(shelf ? { shelf } : {}),
@@ -741,7 +763,7 @@ export function BusinessFieldworkPanel({ workspaceId, selected, context, engagem
         {workspace.samplingPlans.map(plan => <div className="business-fieldwork-row" key={plan.id}><div><strong>{label(plan.method)} · {plan.calculatedCount} draws</strong><span>{plan.populationId} · revision {plan.revision} · {plan.latestResult ? label(plan.latestResult) : 'Not evaluated'} · {plan.inputHash.slice(0,12)}</span></div>
           <button type="button" className="btn sm" aria-pressed={selectedPlanId === plan.id} onClick={() => { setHitPage(0); setSamplePage(0); setSelectedPlanId(plan.id); }}>Open exact plan</button></div>)}
         {planDetail && <section className="business-fieldwork-card"><div className="business-section-heading"><div><h3>{label(planDetail.plan.method)} · revision {planDetail.plan.revision}</h3><p className="business-muted">{planDetail.plan.calculatedCount} selected draws · {planDetail.hits.length} draw rows · {planDetail.plan.latestResult ? label(planDetail.plan.latestResult) : 'Not evaluated'}</p></div>
-          <button type="button" className="btn sm" disabled={busy || !canReview} onClick={() => void command('sampling.evaluate', { planId: planDetail.plan.id, testSetHash: planDetail.testSetHash }, 'Exact version-pinned sample evaluation completed.')}>Evaluate current tests</button></div>
+          <button type="button" className="btn sm" disabled={busy || !canReview} onClick={() => void evaluateCurrentSamplePlan()}>Evaluate current tests</button></div>
           <p className="business-note">Input hash {planDetail.plan.inputHash} · policy version {planDetail.plan.policyVersion ?? '—'} · seed {planDetail.plan.seedHex ?? 'server-held'} · selected rows and draw numbers are immutable.</p>
           {planDetail.evaluations.map((evaluation,index) => <p className="business-fieldwork-result" key={String(evaluation.id ?? index)}><strong>{label(evaluation.result)}</strong> · {String(evaluation.reviewedAt ?? '')} · {String(evaluation.upperBoundMinor ? qar(String(evaluation.upperBoundMinor)) : 'No monetary upper bound')}</p>)}
           <div className="business-fieldwork-scroll"><table><thead><tr><th>Draw</th><th>Reference</th><th>Book value</th><th>Monetary unit</th><th>Stratum</th></tr></thead><tbody>{planDetail.hits.slice(hitPage * 100, (hitPage + 1) * 100).map(hit => <tr key={`${hit.drawNumber}-${hit.populationRowId}`}><td>{hit.drawNumber}</td><td>{hit.sourceRowKey}</td><td>{qar(planDetail.rows.find(row => row.id === hit.populationRowId)?.bookValueMinor)}</td><td>{hit.monetaryUnitMinor ? qar(hit.monetaryUnitMinor) : '—'}</td><td>{hit.stratumKey ?? '—'}</td></tr>)}</tbody></table></div>
@@ -772,6 +794,7 @@ export function BusinessFieldworkPanel({ workspaceId, selected, context, engagem
             <label className="business-field"><span>External source URL (optional)</span><input type="url" value={externalUrl} onChange={event => setExternalUrl(event.target.value)} /></label>
             {externalUrl && <label className="business-field"><span>Retrieved at</span><input type="datetime-local" required value={retrievedAt} onChange={event => setRetrievedAt(event.target.value)} /></label>}
           </div><p className="business-note">An external URL is provenance only; it does not substitute for retained verified bytes. Physical-only items receive no fabricated digital hash. New evidence starts PENDING_VERIFICATION.</p>
+          {evidenceMode !== 'DIGITAL' && <p className="business-muted">Provide at least one binder, box or shelf locator for physical evidence.</p>}
           <button className="btn primary" type="submit" disabled={busy || !canWrite}>Create evidence record</button>
         </form>
         {editableEvidence.map(item => <article className="business-fieldwork-row" key={item.id}><div><strong>{item.title} · {item.mode} · v{item.version}</strong>
