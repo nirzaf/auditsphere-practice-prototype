@@ -55,6 +55,34 @@ it('compares explicitly mapped legacy client fields without exposing values', ()
   assert.notEqual(report.fieldReconciliation[0].fields[1].sourceSha256, 'Example Trading WLL');
 });
 
+it('reconciles normalized contact fields and their mapped client reference', () => {
+  const snapshot = baseSnapshot();
+  snapshot.entities[0].payload_json = JSON.stringify({ id: 'client-1', name: 'Synthetic client' });
+  snapshot.entities.push({
+    entity_kind: 'contacts',
+    entity_id: 'contact-1',
+    payload_json: JSON.stringify({
+      id: 'contact-1', clientId: 'client-1', name: 'Synthetic Contact', email: 'CONTACT@EXAMPLE.TEST',
+      phone: null, title: 'Finance Director', contactRole: 'CFO/Finance Director', isPrimary: true,
+      active: true, effectiveFrom: '2026-01-01', effectiveTo: null
+    })
+  });
+  snapshot.idMaps.push({ source_kind: 'contacts', source_id: 'contact-1', target_kind: 'contacts', target_id: 'contact-1' });
+  snapshot.targetRows.push({ kind: 'contacts', id: 'contact-1' });
+  snapshot.targetFields = [{ kind: 'contacts', id: 'contact-1', fields: {
+    client_id: 'client-1', full_name: 'Synthetic Contact', email: 'contact@example.test', phone: null,
+    title: 'Finance Director', role: 'CFO_FINANCE_DIRECTOR', is_primary: 1, active: 1,
+    effective_from: '2026-01-01', effective_to: null
+  } }];
+  const report = buildMigrationAuditReport(snapshot, new Map(), 31, 27, '00000000-0000-4000-8000-000000000009');
+
+  const contact = report.fieldReconciliation.find(row => row.sourceKind === 'contacts');
+  assert.ok(contact);
+  assert.equal(contact.fields.length, 10);
+  assert.ok(contact.fields.every(field => field.status === 'MATCHED'));
+  assert.equal(JSON.stringify(contact).includes('contact@example.test'), false);
+});
+
 it('blocks a mapped client field mismatch and identifies the field using hashes only', () => {
   const snapshot = baseSnapshot();
   snapshot.entities[0].payload_json = JSON.stringify({ id: 'client-1', code: 'C-1', name: 'Source Name' });
