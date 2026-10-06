@@ -344,6 +344,15 @@ export async function getBusinessOpinionPreview(
   return requestJson(`/api/workspaces/${encodeURIComponent(workspaceId)}/engagements/${encodeURIComponent(engagementId)}/opinion-preview?${query}`, { context: selected, signal });
 }
 
+export async function getBusinessReleasedReportProvenance(
+  workspaceId: string,
+  engagementId: string,
+  selected: BusinessWorkspacePreference,
+  signal?: AbortSignal
+): Promise<Record<string, unknown>> {
+  return requestJson(`/api/workspaces/${encodeURIComponent(workspaceId)}/engagements/${encodeURIComponent(engagementId)}/released-report/provenance`, { context: selected, signal });
+}
+
 export async function getBusinessPlanningWorkspace(
   workspaceId: string,
   engagementId: string,

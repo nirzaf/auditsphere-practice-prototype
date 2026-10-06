@@ -63,6 +63,121 @@ export async function getBusinessOpinionPreview(env: Env, workspaceId: string, c
   };
 }
 
+/** Released-only, Partner-scoped record of the immutable report signature and every pinned source hash. */
+export async function getBusinessReleasedReportProvenance(env: Env, workspaceId: string, context: BusinessContext, engagementId: string): Promise<Row> {
+  if (context.actor.persona !== 'APPROVER' || context.actor.staffGrade !== 'PARTNER' || !context.allowedActions.includes('reporting.read')) {
+    throw new ApiError('PERSONA_ACTION_DENIED', 'Only a Partner approver can read internal released-report provenance.');
+  }
+  const engagement = await env.DB.prepare(`SELECT e.id,e.client_id,e.code,e.period_start,e.period_end,e.report_signed_at,e.report_date,e.released_at,c.legal_name AS client_name
+    FROM engagements e JOIN clients c ON c.workspace_id=e.workspace_id AND c.id=e.client_id WHERE e.workspace_id=? AND e.id=?`)
+    .bind(workspaceId, engagementId).first<Row>();
+  if (!engagement) throw new ApiError('NOT_FOUND', 'The engagement was not found.');
+  if ((context.scope.clientId && context.scope.clientId !== engagement.client_id)
+    || (context.scope.engagementId && context.scope.engagementId !== engagementId)) {
+    throw new ApiError('FORBIDDEN_SCOPE', 'The engagement is outside the selected scope.');
+  }
+
+  const row = await env.DB.prepare(`SELECT
+      b.id AS bundle_id,b.revision AS bundle_revision,b.content_hash AS bundle_hash,b.released_at AS bundle_released_at,b.released_by_actor_id AS released_by_actor_id,
+      sig.id AS signature_id,sig.report_artifact_id AS signature_artifact_id,sig.signature_file_sha256 AS signature_sha256,sig.seal_file_sha256 AS seal_sha256,
+      sig.signed_at AS signed_at,sig.report_date AS report_date,sig.final_file_sha256 AS final_file_sha256,sig.signing_method AS signing_method,
+      consent.id AS consent_id,consent.actor_id AS consent_actor_id,consent.actor_staff_member_id AS consent_staff_member_id,
+      consent.actor_display_name AS consent_display_name,consent.actor_persona AS consent_persona,consent.attribution AS consent_attribution,
+      consent.consented_at AS consented_at,consent.proposed_report_date AS consent_report_date,consent.candidate_content_hash AS consent_candidate_hash,
+      consent.report_candidate_id AS consent_candidate_id,consent.opinion_version_id AS consent_opinion_id,consent.signature_asset_id AS consent_asset_id,
+      candidate.id AS report_candidate_id,candidate.status AS candidate_status,candidate.dependency_hash AS candidate_dependency_hash,
+      candidate.report_artifact_id AS candidate_artifact_id,candidate.opinion_version_id AS candidate_opinion_id,candidate.financial_statement_approval_id AS candidate_approval_id,
+      candidate.signature_asset_id AS candidate_asset_id,candidate.proposed_report_date AS candidate_report_date,
+      candidate_artifact.content_sha256 AS candidate_content_sha256,
+      opinion.id AS opinion_id,opinion.revision AS opinion_revision,opinion.report_type AS report_type,opinion.category AS opinion_category,
+      opinion.aup_report_type AS aup_report_type,opinion.dependency_hash AS opinion_hash,opinion.srm_version_id AS opinion_srm_id,
+      srm.id AS srm_id,srm.dependency_hash AS srm_hash,srm.statement_snapshot_id AS statement_snapshot_id,
+      snapshot.source_hash AS statement_hash,snapshot.tb_version_id AS tb_version_id,snapshot.mapping_version_id AS mapping_version_id,
+      approval.id AS statement_approval_id,approval.draft_id AS statement_draft_id,approval.draft_version AS statement_draft_version,
+      approval.statement_snapshot_id AS approval_snapshot_id,approval.source_hash AS statement_approval_hash,
+      asset.id AS signature_asset_id,asset.staff_member_id AS asset_owner_id,asset.owner_display_name AS asset_owner_name,asset.owner_grade AS asset_owner_grade,
+      asset.signature_file_id AS signature_file_id,asset.seal_file_id AS seal_file_id,asset.signature_sha256 AS asset_signature_hash,asset.seal_sha256 AS asset_seal_hash,
+      asset.signature_width AS signature_width,asset.signature_height AS signature_height,asset.seal_width AS seal_width,asset.seal_height AS seal_height,
+      asset.label AS asset_label,asset.status AS asset_status,asset.uploaded_at AS asset_uploaded_at,
+      signature_file.sha256 AS signature_file_hash,signature_file.media_type AS signature_media_type,signature_file.size_bytes AS signature_size_bytes,
+      seal_file.sha256 AS seal_file_hash,seal_file.media_type AS seal_media_type,seal_file.size_bytes AS seal_size_bytes,
+      artifact.id AS report_artifact_id,artifact.file_version_id AS final_file_id,artifact.content_sha256 AS artifact_file_hash,artifact.size_bytes AS artifact_size_bytes,
+      final_file.sha256 AS final_file_row_hash,final_file.original_name AS final_file_name,final_file.media_type AS final_file_media_type,
+      part.sha256 AS released_part_hash,part.size_bytes AS released_part_size_bytes
+    FROM deliverable_bundles b
+    JOIN engagements e ON e.workspace_id=b.workspace_id AND e.id=b.engagement_id AND e.released_at IS NOT NULL
+    JOIN report_signatures sig ON sig.workspace_id=b.workspace_id AND sig.id=b.report_signature_id AND sig.engagement_id=b.engagement_id
+    JOIN report_signature_consents consent ON consent.workspace_id=sig.workspace_id AND consent.id=sig.consent_id
+    JOIN report_candidates candidate ON candidate.workspace_id=b.workspace_id AND candidate.id=b.report_candidate_id AND candidate.id=consent.report_candidate_id
+    JOIN generated_artifacts candidate_artifact ON candidate_artifact.workspace_id=candidate.workspace_id AND candidate_artifact.id=candidate.report_artifact_id
+    JOIN opinion_versions opinion ON opinion.workspace_id=b.workspace_id AND opinion.id=b.opinion_version_id
+      AND opinion.id=candidate.opinion_version_id AND opinion.id=consent.opinion_version_id
+    JOIN srm_versions srm ON srm.workspace_id=b.workspace_id AND srm.id=b.srm_version_id AND srm.id=opinion.srm_version_id
+    JOIN statement_snapshots snapshot ON snapshot.workspace_id=srm.workspace_id AND snapshot.id=srm.statement_snapshot_id
+    JOIN financial_statement_approvals approval ON approval.workspace_id=candidate.workspace_id AND approval.id=candidate.financial_statement_approval_id
+    JOIN report_signature_assets asset ON asset.workspace_id=consent.workspace_id AND asset.id=consent.signature_asset_id
+      AND asset.id=candidate.signature_asset_id
+    JOIN file_versions signature_file ON signature_file.workspace_id=asset.workspace_id AND signature_file.id=asset.signature_file_id
+    JOIN file_versions seal_file ON seal_file.workspace_id=asset.workspace_id AND seal_file.id=asset.seal_file_id
+    JOIN generated_artifacts artifact ON artifact.workspace_id=sig.workspace_id AND artifact.id=sig.report_artifact_id
+    JOIN file_versions final_file ON final_file.workspace_id=artifact.workspace_id AND final_file.id=artifact.file_version_id
+    JOIN deliverable_parts part ON part.workspace_id=b.workspace_id AND part.bundle_id=b.id AND part.kind='REPORT_AND_FS' AND part.primary_file_id=final_file.id
+    WHERE b.workspace_id=? AND b.engagement_id=? AND b.released_at IS NOT NULL
+    ORDER BY b.released_at DESC,b.revision DESC LIMIT 1`).bind(workspaceId, engagementId).first<Row>();
+  if (!row) throw new ApiError('NOT_FOUND', 'No released report signature provenance exists for this engagement.');
+
+  const same = (left: unknown, right: unknown) => left !== null && left !== undefined && right !== null && right !== undefined && String(left) === String(right);
+  const integrityMatches = same(row.bundle_released_at, engagement.released_at)
+    && same(row.signed_at, engagement.report_signed_at) && same(row.report_date, engagement.report_date)
+    && same(row.consent_report_date, row.report_date) && same(row.candidate_report_date, row.report_date)
+    && same(row.final_file_sha256, row.released_part_hash) && same(row.final_file_sha256, row.final_file_row_hash)
+    && same(row.final_file_sha256, row.artifact_file_hash) && same(row.final_file_sha256, row.candidate_content_sha256)
+    && same(row.consent_candidate_hash, row.candidate_content_sha256)
+    && same(row.asset_signature_hash, row.signature_file_hash) && same(row.asset_seal_hash, row.seal_file_hash)
+    && same(row.signature_sha256, row.asset_signature_hash) && same(row.seal_sha256, row.asset_seal_hash)
+    && same(row.consent_candidate_id, row.report_candidate_id) && same(row.consent_opinion_id, row.opinion_id)
+    && same(row.candidate_opinion_id, row.opinion_id) && same(row.consent_asset_id, row.signature_asset_id)
+    && same(row.candidate_asset_id, row.signature_asset_id) && same(row.opinion_srm_id, row.srm_id)
+    && same(row.statement_snapshot_id, row.approval_snapshot_id) && row.candidate_status === 'READY'
+    && row.consent_attribution === 'SELF_ASSERTED_PERSONA' && row.signing_method === 'IMAGE_WITH_AUDIT_PROVENANCE'
+    && row.asset_owner_grade === 'PARTNER'
+    && (row.consent_staff_member_id === null || same(row.consent_staff_member_id, row.asset_owner_id))
+    && (row.consent_staff_member_id === null || row.consent_persona === 'APPROVER')
+    && row.signature_media_type === 'image/png' && row.seal_media_type === 'image/png'
+    && row.final_file_media_type === 'application/pdf' && row.report_artifact_id === row.signature_artifact_id;
+  if (!integrityMatches) throw new ApiError('INTEGRITY_MISMATCH', 'The released report, consent, signature asset, or pinned source hashes do not reconcile.');
+
+  return {
+    engagement: { id: engagement.id, code: engagement.code, clientName: engagement.client_name, periodStart: engagement.period_start,
+      periodEnd: engagement.period_end, reportDate: row.report_date, reportSignedAt: row.signed_at },
+    bundle: { id: row.bundle_id, revision: row.bundle_revision, contentSha256: row.bundle_hash, releasedAt: row.bundle_released_at,
+      releasedByActorId: row.released_by_actor_id },
+    consent: { id: row.consent_id, actorId: row.consent_actor_id, actorStaffMemberId: row.consent_staff_member_id,
+      actorDisplayName: row.consent_display_name, actorPersona: row.consent_persona, attribution: row.consent_attribution,
+      consentedAt: row.consented_at, candidateContentSha256: row.consent_candidate_hash },
+    opinion: { id: row.opinion_id, revision: row.opinion_revision, reportType: row.report_type, category: row.opinion_category,
+      aupReportType: row.aup_report_type, dependencySha256: row.opinion_hash },
+    sources: { reportCandidateId: row.report_candidate_id, reportCandidateDependencySha256: row.candidate_dependency_hash,
+      statementApprovalId: row.statement_approval_id, statementDraftId: row.statement_draft_id,
+      statementDraftVersion: row.statement_draft_version, statementApprovalSha256: row.statement_approval_hash,
+      srmVersionId: row.srm_id, srmDependencySha256: row.srm_hash, statementSnapshotId: row.statement_snapshot_id,
+      statementSnapshotSha256: row.statement_hash, trialBalanceVersionId: row.tb_version_id, mappingVersionId: row.mapping_version_id },
+    signatureAsset: { id: row.signature_asset_id, label: row.asset_label, status: row.asset_status, uploadedAt: row.asset_uploaded_at,
+      owner: { staffMemberId: row.asset_owner_id, displayName: row.asset_owner_name, grade: row.asset_owner_grade },
+      signature: { fileId: row.signature_file_id, sha256: row.asset_signature_hash, width: row.signature_width, height: row.signature_height,
+        sizeBytes: row.signature_size_bytes },
+      seal: { fileId: row.seal_file_id, sha256: row.asset_seal_hash, width: row.seal_width, height: row.seal_height, sizeBytes: row.seal_size_bytes } },
+    reportSignature: { id: row.signature_id, artifactId: row.report_artifact_id, fileId: row.final_file_id, fileName: row.final_file_name,
+      finalFileSha256: row.final_file_sha256, sizeBytes: row.released_part_size_bytes, signedAt: row.signed_at, reportDate: row.report_date,
+      signingMethod: row.signing_method, attribution: row.consent_attribution },
+    sourceHashes: { consentedCandidate: row.consent_candidate_hash, reportCandidateDependency: row.candidate_dependency_hash,
+      opinion: row.opinion_hash, srm: row.srm_hash, statementSnapshot: row.statement_hash, statementApproval: row.statement_approval_hash,
+      signatureAsset: row.asset_signature_hash, sealAsset: row.asset_seal_hash, finalReport: row.final_file_sha256,
+      releasedReportPart: row.released_part_hash, releasedBundle: row.bundle_hash },
+    integrity: { hashesAndPinnedVersionsMatch: integrityMatches, signatureAttribution: 'SELF_ASSERTED_PERSONA' }
+  };
+}
+
 /** Reporting projection with an intentionally narrow CLIENT shape. */
 export async function getBusinessReportingWorkspace(env: Env, workspaceId: string, context: BusinessContext, engagementId: string): Promise<Row> {
   if (!context.allowedActions.includes('reporting.read')) throw new ApiError('PERSONA_ACTION_DENIED', 'Reporting read access is not available to this persona.');
@@ -130,10 +245,12 @@ export async function getBusinessReportingWorkspace(env: Env, workspaceId: strin
       FROM opinion_affected_fslis a JOIN opinion_versions o ON o.workspace_id=a.workspace_id AND o.id=a.opinion_version_id
       JOIN fsli_catalog f ON f.workspace_id=a.workspace_id AND f.id=a.fsli_id WHERE a.workspace_id=? AND o.engagement_id=? ORDER BY o.revision DESC,f.presentation_order`)
       .bind(workspaceId, engagementId).all<Row>(),
-    env.DB.prepare(`SELECT a.id,a.staff_member_id AS staffMemberId,s.display_name AS staffName,a.signature_sha256 AS signatureSha256,a.seal_sha256 AS sealSha256,
+    env.DB.prepare(`SELECT a.id,a.staff_member_id AS staffMemberId,a.owner_display_name AS staffName,a.owner_grade AS ownerGrade,
+      a.signature_sha256 AS signatureSha256,a.seal_sha256 AS sealSha256,
       a.signature_file_id AS signatureFileId,a.seal_file_id AS sealFileId,a.label,a.status,a.uploaded_at AS uploadedAt
       FROM report_signature_assets a JOIN staff_members s ON s.workspace_id=a.workspace_id AND s.id=a.staff_member_id
-      WHERE a.workspace_id=? AND a.status='ACTIVE' ORDER BY a.uploaded_at DESC`).bind(workspaceId).all<Row>(),
+      WHERE a.workspace_id=? AND a.status='ACTIVE' AND a.owner_grade='PARTNER' AND a.owner_display_name IS NOT NULL
+        AND s.grade='PARTNER' AND s.active=1 ORDER BY a.uploaded_at DESC`).bind(workspaceId).all<Row>(),
     env.DB.prepare(`SELECT s.id,s.source_hash AS sourceHash,s.generated_at AS generatedAt,s.standards_profile_id AS standardsProfileId,
         s.tb_version_id AS tbVersionId,s.mapping_version_id AS mappingVersionId
       FROM statement_snapshots s WHERE s.workspace_id=? AND s.engagement_id=? ORDER BY s.generated_at DESC LIMIT 1`).bind(workspaceId, engagementId).first<Row>(),

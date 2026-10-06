@@ -94,14 +94,14 @@ import { getBusinessCapacity, getBusinessPlanningWorkspace, listBusinessEngageme
 import { getBusinessPlanningReadiness, getBusinessTrialBalanceImport, getBusinessTrialBalancePreview, getBusinessTrialBalanceWorkspace } from './businessTb';
 import { getBusinessFinancialStatements, getBusinessFsliSourceLines, getBusinessFieldworkWorkspace, getBusinessSamplingPlan, getBusinessSamplingPopulation, getBusinessFieldworkChanges } from './businessFieldwork';
 import { getBusinessPracticeWorkspace } from './businessPractice';
-import { getBusinessOpinionPreview, getBusinessReportingWorkspace } from './businessReportingQuery';
+import { getBusinessOpinionPreview, getBusinessReleasedReportProvenance, getBusinessReportingWorkspace } from './businessReportingQuery';
 import { getBusinessWorkflow } from './businessWorkflow';
 
 const JSON_BODY_LIMIT = 1_000_000;
 /** Hard ceiling for a single command payload; the domain model is small. */
 const COMMAND_BODY_LIMIT = 512_000;
 /** Updated alongside the latest application schema migration. */
-const APPLICATION_SCHEMA_VERSION = 31;
+const APPLICATION_SCHEMA_VERSION = 32;
 
 const ASYNC_BUSINESS_COMMANDS = new Set([
   'proposal.generate', 'proposal.generate.retry', 'proposal.dispatch', 'proposal.dispatch.retry',
@@ -445,6 +445,12 @@ const handleBusinessOpinionPreview = async (ctx: RouteContext): Promise<Response
   const opinionVersionId = ctx.url.searchParams.get('versionId')?.trim();
   if (!opinionVersionId) throw new ApiError('BAD_REQUEST', 'Provide the opinion version to preview.');
   const result = await getBusinessOpinionPreview(ctx.env, ctx.params.workspaceId, context, ctx.params.engagementId, opinionVersionId);
+  return jsonResponse(result, 200, ctx.requestId);
+};
+
+const handleBusinessReleasedReportProvenance = async (ctx: RouteContext): Promise<Response> => {
+  const context = await resolveBusinessContext(ctx.env, ctx.params.workspaceId, ctx.request);
+  const result = await getBusinessReleasedReportProvenance(ctx.env, ctx.params.workspaceId, context, ctx.params.engagementId);
   return jsonResponse(result, 200, ctx.requestId);
 };
 
@@ -949,6 +955,7 @@ const router = createRouter()
   .get('/api/workspaces/:workspaceId/practice', handleBusinessPracticeWorkspace)
   .get('/api/workspaces/:workspaceId/engagements/:engagementId/reporting-workspace', handleBusinessReportingWorkspace)
   .get('/api/workspaces/:workspaceId/engagements/:engagementId/opinion-preview', handleBusinessOpinionPreview)
+  .get('/api/workspaces/:workspaceId/engagements/:engagementId/released-report/provenance', handleBusinessReleasedReportProvenance)
   .get('/api/workspaces/:workspaceId/pbc-engagements', handleBusinessPbcEngagements)
   .get('/api/workspaces/:workspaceId/engagements/:engagementId/pbc/:requestId', handleBusinessPbcRequest)
   .get('/api/workspaces/:workspaceId/engagements/:engagementId/portal', handleBusinessPbcPortal)

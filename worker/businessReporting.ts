@@ -9,6 +9,7 @@ import { renderReportingPdf, type ReportingPdfInput } from './reportingDocument'
 import { prepareBusinessInvoiceJournal } from './businessPractice';
 import { criticalConfirmationBlockers as currentCriticalConfirmationBlockers, queueHoldingLetterForBlockers, type ConfirmationGateEngagement } from './businessFieldwork';
 import { opinionReportingBlockers, validateOpinionSelection } from './reportingOpinion';
+import { inspectReportingPng } from './reportingPng';
 
 const id=z.uuid(),date=z.iso.date(),hash=z.string().regex(/^[a-f0-9]{64}$/);
 const text=(min=10,max=10000)=>z.string().trim().min(min).max(max);
@@ -121,18 +122,10 @@ async function readPngAsset(env:Env,workspaceId:string,fileId:string,purpose:'SI
   if(!row||row.purpose!==purpose||row.media_type!=='image/png'||row.state!=='COMMITTED'||row.immutable!==1)throw new ApiError('GATE_BLOCKED',`Choose a committed immutable PNG with purpose ${purpose}.`);
   const object=await env.FILES.get(row.object_key);if(!object)throw new ApiError('INTEGRITY_MISMATCH','The signature asset is missing from object storage.');
   const bytes=new Uint8Array(await object.arrayBuffer());if(bytes.byteLength!==row.size_bytes||await sha256BytesHex(bytes)!==row.sha256)throw new ApiError('INTEGRITY_MISMATCH','The signature asset bytes do not match their stored hash.');
-  const cleanPng=(data:Uint8Array)=>{
-    if(data.length<33||data[0]!==0x89||data[1]!==0x50||data[2]!==0x4e||data[3]!==0x47||new TextDecoder().decode(data.subarray(12,16))!=='IHDR')return null;
-    const width=new DataView(data.buffer,data.byteOffset,data.byteLength).getUint32(16),height=new DataView(data.buffer,data.byteOffset,data.byteLength).getUint32(20);
-    if(width<1||height<1||width>4096||height>4096)return null;
-    // Reject textual, EXIF, and unknown ancillary chunks instead of retaining untrusted metadata.
-    const safe=new Set(['IHDR','IDAT','IEND','PLTE','tRNS','sRGB','gAMA','cHRM','pHYs']);let offset=8;
-    while(offset+12<=data.length){const length=new DataView(data.buffer,data.byteOffset+offset,4).getUint32(0),kind=new TextDecoder().decode(data.subarray(offset+4,offset+8));
-      if(!safe.has(kind)||length>data.length||offset+12+length>data.length)return null;offset+=12+length;if(kind==='IEND')break;}
-    return {width,height};
-  };
-  const dimensions=cleanPng(bytes);if(!dimensions)throw new ApiError('UNSUPPORTED_MEDIA_TYPE','The PNG contains unsupported metadata or invalid image chunks. Re-export a clean static PNG asset.');
-  return {...row,bytes,...dimensions};
+  let inspection;
+  try { inspection=inspectReportingPng(bytes,purpose==='SEAL'); }
+  catch (error) { throw new ApiError('UNSUPPORTED_MEDIA_TYPE',error instanceof Error?error.message:'The PNG is not a supported static reporting image.'); }
+  return {...row,bytes:inspection.sanitizedBytes,width:inspection.width,height:inspection.height};
 }
 
 async function buildOpinionSelect(env:Env,workspaceId:string,context:BusinessContext,command:Extract<BusinessReportingCommand,{type:'opinion.select'}>,now:string){
@@ -170,15 +163,19 @@ async function buildOpinionSelect(env:Env,workspaceId:string,context:BusinessCon
 
 async function buildSignatureRegister(env:Env,workspaceId:string,context:BusinessContext,command:Extract<BusinessReportingCommand,{type:'signature-asset.register'}>,now:string){
   partner(context);const p=command.payload;
-  const staff=await env.DB.prepare(`SELECT id,grade,active FROM staff_members WHERE workspace_id=? AND id=?`).bind(workspaceId,p.staffMemberId)
-    .first<{id:string;grade:string;active:number}>();
+  const ownerId=context.actor.staffMemberId;
+  if(!ownerId||p.staffMemberId!==ownerId)throw new ApiError('PERSONA_ACTION_DENIED','A Partner can register only their own signature and seal assets in the self-asserted persona workflow.');
+  const staff=await env.DB.prepare(`SELECT id,grade,active,display_name FROM staff_members WHERE workspace_id=? AND id=?`).bind(workspaceId,ownerId)
+    .first<{id:string;grade:string;active:number;display_name:string}>();
   if(!staff||staff.grade!=='PARTNER'||staff.active!==1)throw new ApiError('GATE_BLOCKED','The image owner must be an active Partner-grade staff record.');
   const [signature,seal]=await Promise.all([readPngAsset(env,workspaceId,p.signatureFileId,'SIGNATURE'),readPngAsset(env,workspaceId,p.sealFileId,'SEAL')]);
   const assetId=crypto.randomUUID();
-  return mut([env.DB.prepare(`INSERT INTO report_signature_assets(id,workspace_id,staff_member_id,signature_file_id,seal_file_id,signature_sha256,seal_sha256,signature_width,signature_height,seal_width,seal_height,label,status,uploaded_at,uploaded_by_actor_id)
-      VALUES(?,?,?,?,?,?,?,?,?,?,?,?,'ACTIVE',?,?)`).bind(assetId,workspaceId,staff.id,signature.id,seal.id,signature.sha256,seal.sha256,signature.width,signature.height,seal.width,seal.height,p.label,now,context.actor.id)],
-    {signatureAssetId:assetId,label:p.label,signatureSha256:signature.sha256,sealSha256:seal.sha256,attribution:'SELF_ASSERTED_PERSONA'},'REPORT_SIGNATURE_ASSET',assetId,null,1,
-    {staffMemberId:staff.id,signatureSha256:signature.sha256,sealSha256:seal.sha256,dimensions:{signature:[signature.width,signature.height],seal:[seal.width,seal.height]}});
+  return mut([env.DB.prepare(`INSERT INTO report_signature_assets(id,workspace_id,staff_member_id,owner_display_name,owner_grade,signature_file_id,seal_file_id,signature_sha256,seal_sha256,
+      signature_width,signature_height,seal_width,seal_height,label,status,uploaded_at,uploaded_by_actor_id)
+      VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,'ACTIVE',?,?)`).bind(assetId,workspaceId,staff.id,staff.display_name,staff.grade,signature.id,seal.id,signature.sha256,seal.sha256,
+        signature.width,signature.height,seal.width,seal.height,p.label,now,context.actor.id)],
+    {signatureAssetId:assetId,label:p.label,ownerDisplayName:staff.display_name,signatureSha256:signature.sha256,sealSha256:seal.sha256,attribution:'SELF_ASSERTED_PERSONA'},'REPORT_SIGNATURE_ASSET',assetId,null,1,
+    {staffMemberId:staff.id,ownerDisplayName:staff.display_name,signatureSha256:signature.sha256,sealSha256:seal.sha256,dimensions:{signature:[signature.width,signature.height],seal:[seal.width,seal.height]}});
 }
 
 async function buildStatementDraftSave(env:Env,workspaceId:string,context:BusinessContext,command:Extract<BusinessReportingCommand,{type:'financial-statements.save-disclosures'}>,now:string){
@@ -271,8 +268,13 @@ async function buildReportPrepare(env:Env,workspaceId:string,context:BusinessCon
     .first<{id:string;draft_id:string;draft_version:number;statement_snapshot_id:string;notes_hash:string;supplement_hash:string;source_hash:string;status:string;version:number;draft_hash:string}>();
   if(!approval||approval.status!=='APPROVED'||approval.version!==approval.draft_version||approval.statement_snapshot_id!==pins.snapshot.id||approval.draft_hash!==approval.source_hash)
     throw new ApiError('STALE_DEPENDENCY','An approved complete financial-statement draft for the current SRM snapshot is required.');
-  const asset=await env.DB.prepare(`SELECT id,status,signature_sha256,seal_sha256 FROM report_signature_assets WHERE workspace_id=? AND id=? AND status='ACTIVE'`)
-    .bind(workspaceId,p.signatureAssetId).first<{id:string;status:string;signature_sha256:string;seal_sha256:string}>();if(!asset)throw new ApiError('GATE_BLOCKED','Choose a registered active Partner signature and seal asset.');
+  const asset=await env.DB.prepare(`SELECT a.id,a.staff_member_id,a.status,a.signature_sha256,a.seal_sha256,s.grade,s.active
+    FROM report_signature_assets a JOIN staff_members s ON s.workspace_id=a.workspace_id AND s.id=a.staff_member_id
+    WHERE a.workspace_id=? AND a.id=? AND a.status='ACTIVE' AND a.owner_grade='PARTNER'`)
+    .bind(workspaceId,p.signatureAssetId).first<{id:string;staff_member_id:string;status:string;signature_sha256:string;seal_sha256:string;grade:string;active:number}>();
+  if(!asset)throw new ApiError('GATE_BLOCKED','Choose a registered active Partner signature and seal asset.');
+  if(!context.actor.staffMemberId||asset.staff_member_id!==context.actor.staffMemberId||asset.grade!=='PARTNER'||asset.active!==1)
+    throw new ApiError('PERSONA_ACTION_DENIED','A Partner can prepare a report only with their own active signature and seal assets.');
   const candidateId=crypto.randomUUID(),jobId=crypto.randomUUID();
   const dependencyHash=await sha256Hex(JSON.stringify({engagementId:engagement.id,srmVersionId:pins.srm.id,srmDependencyHash:pins.srm.dependency_hash,
     opinionId:opinion.id,opinionHash:opinion.dependency_hash,approvalId:approval.id,approvalHash:approval.source_hash,snapshotHash:pins.snapshot.source_hash,
@@ -297,11 +299,18 @@ async function buildReportConsent(env:Env,workspaceId:string,context:BusinessCon
   const pins=await reportPins(env,workspaceId,engagement.id),opinion=await env.DB.prepare(`SELECT srm_version_id,dependency_hash FROM opinion_versions WHERE workspace_id=? AND id=?`)
     .bind(workspaceId,candidate.opinion_version_id).first<{srm_version_id:string;dependency_hash:string}>();
   if(!opinion||opinion.srm_version_id!==pins.srm.id)throw new ApiError('STALE_DEPENDENCY','The opinion is no longer tied to the current cleared SRM.');
-  const asset=await env.DB.prepare(`SELECT id,signature_sha256,seal_sha256 FROM report_signature_assets WHERE workspace_id=? AND id=? AND status='ACTIVE'`)
-    .bind(workspaceId,p.signatureAssetId).first<{id:string;signature_sha256:string;seal_sha256:string}>();if(!asset)throw new ApiError('STALE_DEPENDENCY','The signature asset is no longer active.');
+  const asset=await env.DB.prepare(`SELECT a.id,a.staff_member_id,a.signature_sha256,a.seal_sha256,a.owner_display_name,s.grade,s.active
+    FROM report_signature_assets a JOIN staff_members s ON s.workspace_id=a.workspace_id AND s.id=a.staff_member_id
+    WHERE a.workspace_id=? AND a.id=? AND a.status='ACTIVE' AND a.owner_grade='PARTNER'`)
+    .bind(workspaceId,p.signatureAssetId).first<{id:string;staff_member_id:string;signature_sha256:string;seal_sha256:string;owner_display_name:string;grade:string;active:number}>();
+  if(!asset)throw new ApiError('STALE_DEPENDENCY','The signature asset is no longer active.');
+  if(!context.actor.staffMemberId||asset.staff_member_id!==context.actor.staffMemberId||asset.grade!=='PARTNER'||asset.active!==1)
+    throw new ApiError('PERSONA_ACTION_DENIED','Only the Partner who owns the signature asset can consent to its use for this report.');
   const consentId=crypto.randomUUID();
-  const statements=[env.DB.prepare(`INSERT INTO report_signature_consents(id,workspace_id,client_id,engagement_id,actor_id,signature_asset_id,opinion_version_id,report_candidate_id,candidate_content_hash,proposed_report_date,consent_text,consented_at,attribution)
-    VALUES(?,?,?,?,?,?,?,?,?,?,?,?, 'SELF_ASSERTED_PERSONA')`).bind(consentId,workspaceId,engagement.client_id,engagement.id,context.actor.id,asset.id,candidate.opinion_version_id,candidate.id,p.candidateContentHash,p.proposedReportDate,p.consentText,now)];
+  const statements=[env.DB.prepare(`INSERT INTO report_signature_consents(id,workspace_id,client_id,engagement_id,actor_id,signature_asset_id,opinion_version_id,report_candidate_id,candidate_content_hash,proposed_report_date,consent_text,consented_at,attribution,
+      actor_staff_member_id,actor_display_name,actor_persona)
+    VALUES(?,?,?,?,?,?,?,?,?,?,?,?, 'SELF_ASSERTED_PERSONA',?,?, 'APPROVER')`).bind(consentId,workspaceId,engagement.client_id,engagement.id,context.actor.id,asset.id,candidate.opinion_version_id,candidate.id,p.candidateContentHash,p.proposedReportDate,p.consentText,now,
+      asset.staff_member_id,asset.owner_display_name)];
   return mut(statements,{consentId,reportCandidateId:candidate.id,candidateContentHash:p.candidateContentHash,signatureSha256:asset.signature_sha256,sealSha256:asset.seal_sha256,
     attribution:'SELF_ASSERTED_PERSONA',reportDate:p.proposedReportDate},'REPORT_SIGNATURE_CONSENT',consentId,null,1,{candidateId:candidate.id,candidateContentHash:p.candidateContentHash,assetId:asset.id});
 }
@@ -619,9 +628,10 @@ async function buildReportRelease(env:Env,workspaceId:string,context:BusinessCon
     JOIN representation_returns ret ON ret.workspace_id=rr.workspace_id AND ret.id=rr.current_return_id
     JOIN srm_versions fs ON fs.workspace_id=e.workspace_id AND fs.engagement_id=e.id AND fs.id=op.srm_version_id
     JOIN statement_snapshots snap ON snap.workspace_id=fs.workspace_id AND snap.id=fs.statement_snapshot_id
-    JOIN report_signature_assets asset ON asset.workspace_id=b.workspace_id AND asset.id=rc.signature_asset_id AND asset.status='ACTIVE'
+      JOIN report_signature_assets asset ON asset.workspace_id=b.workspace_id AND asset.id=rc.signature_asset_id AND asset.status='ACTIVE'
     JOIN report_signature_consents cons ON cons.workspace_id=b.workspace_id AND cons.report_candidate_id=rc.id AND cons.opinion_version_id=op.id
       AND cons.signature_asset_id=asset.id AND cons.candidate_content_hash=ra.content_sha256 AND cons.proposed_report_date=rc.proposed_report_date
+      AND cons.actor_staff_member_id=asset.staff_member_id AND cons.actor_persona='APPROVER'
     JOIN engagement_letters el ON el.workspace_id=b.workspace_id AND el.id=b.engagement_letter_id
     JOIN invoices advance ON advance.workspace_id=b.workspace_id AND advance.engagement_letter_id=el.id AND advance.kind='ADVANCE' AND advance.status='ISSUED'
     JOIN billing_tax_policy_versions tax ON tax.workspace_id=b.workspace_id AND tax.id=b.tax_policy_version_id

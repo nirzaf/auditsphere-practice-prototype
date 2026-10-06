@@ -2,6 +2,7 @@ import type { Env } from './env';
 import { sha256Hex } from './http';
 import { renderReportingPdf, type ReportingPdfInput, type ReportPdfSection } from './reportingDocument';
 import { buildOpinionReportSections, opinionReportingBlockers, type OpinionAffectedFsli } from './reportingOpinion';
+import { inspectReportingPng } from './reportingPng';
 import { strToU8, zipSync } from 'fflate';
 import * as XLSX from 'xlsx';
 
@@ -17,6 +18,7 @@ type Mutation = { entityType:string; entityId:string; clientId?:string; engageme
 type Commit = (mutation:Mutation)=>Promise<void>;
 
 const nowIso=()=>new Date().toISOString();
+const currentQatarDate=()=>new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Qatar',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());
 const money=(value:unknown)=>{const n=BigInt(String(value??0));const a=n<0n?-n:n;return `QAR ${n<0n?'-':''}${a/100n}.${(a%100n).toString().padStart(2,'0')}`;};
 
 async function exactFile(env:Env,workspaceId:string,fileId:string){
@@ -58,6 +60,7 @@ async function reportCandidate(env:Env,job:Job,p:Payload,commit:Commit){
   if(!row||row.status!=='PREPARING'||row.engagement_id!==p.engagementId||row.client_id!==p.clientId||row.lifecycle_state!=='PARTNER_APPROVAL'
     ||row.draft_status!=='APPROVED'||row.draft_version!==Number((await env.DB.prepare(`SELECT draft_version FROM financial_statement_approvals WHERE workspace_id=? AND id=?`).bind(job.workspace_id,row.financial_statement_approval_id).first<{draft_version:number}>())?.draft_version))
     throw new Error('The report candidate source is no longer eligible for rendering.');
+  if(row.proposed_report_date!==currentQatarDate())throw new Error('The report candidate crossed into a new Qatar report date before rendering; prepare and review a fresh candidate.');
   const pins=await env.DB.prepare(`SELECT s.id,s.dependency_hash,s.going_concern_id,s.statement_snapshot_id,s.statement_snapshot_id AS snapshot_id,t.source_hash,t.tb_version_id,t.mapping_version_id,t.standards_profile_id
     FROM srm_versions s JOIN statement_snapshots t ON t.workspace_id=s.workspace_id AND t.id=s.statement_snapshot_id
     JOIN srm_clearances c ON c.workspace_id=s.workspace_id AND c.srm_version_id=s.id AND c.dependency_hash=s.dependency_hash
@@ -82,13 +85,15 @@ async function reportCandidate(env:Env,job:Job,p:Payload,commit:Commit){
     .bind(job.workspace_id,row.draft_id).all<Record<string,any>>()).results??[];
   const supplements=(await env.DB.prepare(`SELECT section,code,label,current_minor,prior_minor,rationale FROM statement_supplement_lines WHERE workspace_id=? AND draft_id=? ORDER BY section,code`)
     .bind(job.workspace_id,row.draft_id).all<Record<string,any>>()).results??[];
-  const assets=await env.DB.prepare(`SELECT a.staff_member_id,a.signature_file_id,a.seal_file_id,a.signature_sha256,a.seal_sha256,s.display_name
+  const assets=await env.DB.prepare(`SELECT a.staff_member_id,a.signature_file_id,a.seal_file_id,a.signature_sha256,a.seal_sha256,a.owner_display_name AS display_name,
+      a.owner_grade,s.grade AS current_grade,s.active AS current_active
     FROM report_signature_assets a JOIN staff_members s ON s.workspace_id=a.workspace_id AND s.id=a.staff_member_id
-    WHERE a.workspace_id=? AND a.id=? AND a.status='ACTIVE'`).bind(job.workspace_id,row.signature_asset_id)
-    .first<{staff_member_id:string;signature_file_id:string;seal_file_id:string;signature_sha256:string;seal_sha256:string;display_name:string}>();
-  if(!assets)throw new Error('The approved report signature asset is missing or retired.');
+    WHERE a.workspace_id=? AND a.id=? AND a.status='ACTIVE' AND a.owner_grade='PARTNER'`).bind(job.workspace_id,row.signature_asset_id)
+    .first<{staff_member_id:string;signature_file_id:string;seal_file_id:string;signature_sha256:string;seal_sha256:string;display_name:string;owner_grade:string;current_grade:string;current_active:number}>();
+  if(!assets||assets.current_grade!=='PARTNER'||assets.current_active!==1||!assets.display_name)throw new Error('The approved report signature asset or active Partner owner snapshot is missing or retired.');
   const [signature,seal]=await Promise.all([exactFile(env,job.workspace_id,assets.signature_file_id),exactFile(env,job.workspace_id,assets.seal_file_id)]);
   if(signature.sha256!==assets.signature_sha256||seal.sha256!==assets.seal_sha256||signature.purpose!=='SIGNATURE'||seal.purpose!=='SEAL')throw new Error('The approved signature or seal no longer matches its immutable source hash.');
+  const signaturePng=inspectReportingPng(signature.bytes),sealPng=inspectReportingPng(seal.bytes,true);
   const affected=(await env.DB.prepare(`SELECT f.code,f.name,a.amount_minor AS amountMinor,a.explanation
     FROM opinion_affected_fslis a JOIN fsli_catalog f ON f.workspace_id=a.workspace_id AND f.id=a.fsli_id
     WHERE a.workspace_id=? AND a.opinion_version_id=? ORDER BY f.presentation_order,f.code`).bind(job.workspace_id,row.opinion_version_id).all<OpinionAffectedFsli>()).results??[];
@@ -113,7 +118,8 @@ async function reportCandidate(env:Env,job:Job,p:Payload,commit:Commit){
       `Presentation profile ${row.standards_profile_id}. The statement set uses approved disclosures and supporting schedules; professional review remains required.`]}];
   const input:ReportingPdfInput={number:`REPORT-${row.code}-${String(p.proposedReportDate).replaceAll('-','')}`,
     title:row.report_type==='ISRS_4400_AUP'?String(row.aup_report_type):'Independent Auditor’s Report and Financial Statements',firmName:row.firm_name,clientName:row.client_name,
-    engagementCode:row.code,serviceType:row.engagement_type,periodStart:row.period_start,periodEnd:row.period_end,reportDate:p.proposedReportDate,sections,signatureBytes:signature.bytes,sealBytes:seal.bytes,partnerName:assets.display_name};
+    engagementCode:row.code,serviceType:row.engagement_type,periodStart:row.period_start,periodEnd:row.period_end,reportDate:p.proposedReportDate,sections,
+    signatureBytes:signaturePng.sanitizedBytes,sealBytes:sealPng.sanitizedBytes,partnerName:assets.display_name};
   const output=await storePdf(env,job,p,input,'REPORT','REPORT_CANDIDATE',String(row.id),1,'reports');
   await commit({entityType:'REPORT_CANDIDATE',entityId:row.id,clientId:row.client_id,engagementId:row.engagement_id,details:{contentSha256:output.digest,dependencyHash:p.dependencyHash},
     result:{reportCandidateId:row.id,fileVersionId:output.fileId,artifactId:output.artifactId,contentSha256:output.digest,sizeBytes:output.size},statements:[...output.statements,

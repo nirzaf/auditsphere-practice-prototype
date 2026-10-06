@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import type { BusinessContextResponse, BusinessEngagementOption, BusinessFileMetadata, BusinessWorkspacePreference } from '../../shared/api/business';
 import { completeBusinessFile, downloadBusinessFileVersion, getBusinessOpinionPreview, getBusinessReportingWorkspace, initializeBusinessFile,
-  newBusinessIdempotencyKey, runBusinessCommand, uploadBusinessFile } from '../../services/businessWorkspace';
+  getBusinessReleasedReportProvenance, newBusinessIdempotencyKey, runBusinessCommand, uploadBusinessFile } from '../../services/businessWorkspace';
 
 type ReportRow = Record<string, unknown>;
 type ReportingWorkspace = {
@@ -49,6 +49,9 @@ interface Props {
 const rowText = (row: ReportRow | undefined, key: string, fallback = ''): string => {
   const value = row?.[key]; return typeof value === 'string' || typeof value === 'number' ? String(value) : fallback;
 };
+const rowObject = (row: ReportRow | null | undefined, key: string): ReportRow | undefined => {
+  const value = row?.[key]; return value && typeof value === 'object' && !Array.isArray(value) ? value as ReportRow : undefined;
+};
 const rowNumber = (row: ReportRow | undefined, key: string): number => Number(row?.[key] ?? 0);
 const rows = (value: unknown): ReportRow[] => Array.isArray(value) ? value.filter((item): item is ReportRow => Boolean(item) && typeof item === 'object') : [];
 const representationReviewChecks = [
@@ -84,6 +87,9 @@ export function BusinessReportingPanel({ workspaceId, selected, context, engagem
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
   const [downloading, setDownloading] = useState('');
+  const [candidatePreview, setCandidatePreview] = useState<{ candidateId: string; url: string } | null>(null);
+  const [releasedProvenance, setReleasedProvenance] = useState<ReportRow | null>(null);
+  const [releasedProvenanceError, setReleasedProvenanceError] = useState('');
 
   const [opinionCategory, setOpinionCategory] = useState('UNMODIFIED');
   const [opinionRationale, setOpinionRationale] = useState('');
@@ -98,7 +104,6 @@ export function BusinessReportingPanel({ workspaceId, selected, context, engagem
   const [aupReportType, setAupReportType] = useState('');
   const [aupProcedureSummary, setAupProcedureSummary] = useState('');
 
-  const [signatureOwnerId, setSignatureOwnerId] = useState('');
   const [signatureFileId, setSignatureFileId] = useState('');
   const [sealFileId, setSealFileId] = useState('');
   const [signatureLabel, setSignatureLabel] = useState('');
@@ -192,6 +197,20 @@ export function BusinessReportingPanel({ workspaceId, selected, context, engagem
     finally { setDownloading(''); }
   };
 
+  const loadCandidatePreview = async (fileId: string, candidateId: string, expectedHash: string) => {
+    setDownloading(fileId); setError('');
+    try {
+      const blob = await downloadBusinessFileVersion(workspaceId, fileId, selected);
+      if (await digest(blob) !== expectedHash) throw new Error('The candidate preview does not match the consented SHA-256 digest.');
+      if (blob.type && blob.type !== 'application/pdf') throw new Error('The candidate preview is not a PDF document.');
+      setConfirmedConsentCandidateIds(current => current.filter(id => id !== candidateId));
+      setCandidatePreview({ candidateId, url: URL.createObjectURL(blob) });
+    } catch (reason) { setError(reason instanceof Error ? reason.message : 'The verified report preview could not be opened.'); }
+    finally { setDownloading(''); }
+  };
+
+  useEffect(() => () => { if (candidatePreview) URL.revokeObjectURL(candidatePreview.url); }, [candidatePreview]);
+
   const opinions = data?.opinions ?? [];
   const approvals = data?.financialStatementApprovals ?? [];
   const candidates = data?.reportCandidates ?? [];
@@ -209,6 +228,10 @@ export function BusinessReportingPanel({ workspaceId, selected, context, engagem
   const signedReturns = firmFiles.filter(file => file.engagementId === engagement.id && ['EVIDENCE', 'GENERATED'].includes(file.purpose) && file.mediaType === 'application/pdf');
   const isClient = context.actor.persona === 'CLIENT';
   const isPartner = context.actor.persona === 'APPROVER' && context.actor.staffGrade === 'PARTNER';
+  const partnerAssets = assets.filter(asset => asset.staffMemberId === context.actor.staffMemberId);
+  useEffect(() => {
+    if (selectedSignatureAssetId && !partnerAssets.some(asset => asset.id === selectedSignatureAssetId)) setSelectedSignatureAssetId('');
+  }, [assets, context.actor.staffMemberId, selectedSignatureAssetId]);
   const canReview = context.actor.persona === 'REVIEWER' || isPartner;
   const currentOpinion = opinions.find(row => row.id === selectedOpinionId) ?? opinions[0];
   const currentApproval = approvals.find(row => row.id === selectedApprovalId) ?? approvals[0];
@@ -236,6 +259,23 @@ export function BusinessReportingPanel({ workspaceId, selected, context, engagem
     && (!currentArchiveDue || Date.parse(currentArchiveDue) > Date.now());
   const released = isClient ? data?.releasedBundle : releasedBundles[0];
   const releasedParts = rows(released?.parts);
+  const provenanceEngagement = rowObject(releasedProvenance, 'engagement');
+  const provenanceConsent = rowObject(releasedProvenance, 'consent');
+  const provenanceSignature = rowObject(releasedProvenance, 'reportSignature');
+  const provenanceAsset = rowObject(releasedProvenance, 'signatureAsset');
+  const provenanceOwner = rowObject(provenanceAsset, 'owner');
+  const provenanceSignatureAsset = rowObject(provenanceAsset, 'signature');
+  const provenanceSealAsset = rowObject(provenanceAsset, 'seal');
+  const provenanceHashes = rowObject(releasedProvenance, 'sourceHashes');
+
+  useEffect(() => {
+    if (!isPartner || releasedBundles.length === 0) { setReleasedProvenance(null); setReleasedProvenanceError(''); return; }
+    const controller = new AbortController();
+    getBusinessReleasedReportProvenance(workspaceId, engagement.id, selected, controller.signal)
+      .then(result => { if (!controller.signal.aborted) { setReleasedProvenance(result as ReportRow); setReleasedProvenanceError(''); } })
+      .catch(reason => { if (!controller.signal.aborted) { setReleasedProvenance(null); setReleasedProvenanceError(reason instanceof Error ? reason.message : 'Released report provenance is unavailable.'); } });
+    return () => controller.abort();
+  }, [workspaceId, engagement.id, selected.actorId, selected.persona, selected.clientId, selected.engagementId, isPartner, releasedBundles[0]?.id]);
 
   return <section className="business-directory-card" aria-labelledby={`business-reporting-${engagement.id}`}>
     <div className="business-section-heading">
@@ -385,14 +425,15 @@ export function BusinessReportingPanel({ workspaceId, selected, context, engagem
       </section>}
       {opinions.length > 0 && <div className="business-record-list"><h3>Opinion history</h3>{opinions.map(item => <p key={String(item.id)}>v{rowText(item, 'revision')} · {rowText(item, 'report_type')} · {rowText(item, 'category', rowText(item, 'aup_report_type'))} · {rowText(item, 'basis_heading', 'AUP findings')} · {rowText(item, 'dependency_hash').slice(0, 16)}…</p>)}</div>}
 
-      {isPartner && <form className="business-form business-commercial-form" onSubmit={event => { event.preventDefault(); void perform('signature-asset.register', { staffMemberId: signatureOwnerId || context.actor.staffMemberId,
+      {isPartner && <form className="business-form business-commercial-form" onSubmit={event => { event.preventDefault(); void perform('signature-asset.register', { staffMemberId: context.actor.staffMemberId,
         signatureFileId, sealFileId, label: signatureLabel }, 'Partner signature and seal registered with immutable file hashes.'); }}>
         <h3>Register a Partner signature image and PNG seal</h3><div className="business-form-grid">
-          <label className="business-field"><span>Partner owner</span><select required value={signatureOwnerId || context.actor.staffMemberId || ''} onChange={event => setSignatureOwnerId(event.target.value)}><option value="">Choose active Partner</option>{(data?.staff ?? []).filter(item => item.grade === 'PARTNER').map(item => <option key={String(item.id)} value={String(item.id)}>{rowText(item, 'displayName')}</option>)}</select></label>
+          <label className="business-field"><span>Partner owner</span><output>{context.actor.displayName} · current self-asserted Partner profile</output></label>
           <label className="business-field"><span>Committed signature PNG</span><select required value={signatureFileId} onChange={event => setSignatureFileId(event.target.value)}><option value="">Choose signature</option>{signatureFiles.map(file => <option key={file.id} value={file.id}>{file.originalName} · {file.sha256?.slice(0, 12)}</option>)}</select></label>
           <label className="business-field"><span>Committed seal PNG</span><select required value={sealFileId} onChange={event => setSealFileId(event.target.value)}><option value="">Choose seal</option>{sealFiles.map(file => <option key={file.id} value={file.id}>{file.originalName} · {file.sha256?.slice(0, 12)}</option>)}</select></label>
           <label className="business-field"><span>Asset label</span><input required maxLength={200} value={signatureLabel} onChange={event => setSignatureLabel(event.target.value)} /></label></div>
-        <p className="business-note">Upload the actual images through the firm-file controls first. No built-in signature is supplied.</p><button className="btn sm" disabled={busy || !isPartner}>Register assets</button>
+        <p className="business-note">Upload the actual images through the firm-file controls first. The seal must include transparent pixels. Registration records the current Partner profile as a self-asserted owner; no built-in signature is supplied.</p>
+        <button className="btn sm" disabled={busy || !isPartner || !context.actor.staffMemberId}>Register assets</button>
       </form>}
 
       {canReview && snapshot && <form className="business-form business-commercial-form" onSubmit={event => { event.preventDefault();
@@ -427,29 +468,45 @@ export function BusinessReportingPanel({ workspaceId, selected, context, engagem
 
       {isPartner && <form className="business-form business-commercial-form" onSubmit={event => { event.preventDefault(); void perform('report.prepare', { engagementId: engagement.id,
         opinionVersionId: selectedOpinionId || rowText(currentOpinion, 'id'), financialStatementApprovalId: selectedApprovalId || rowText(currentApproval, 'id'),
-        signatureAssetId: selectedSignatureAssetId || rowText(assets[0], 'id'), proposedReportDate: today }, 'Report candidate queued for PDF generation.'); }}>
+        signatureAssetId: selectedSignatureAssetId || rowText(partnerAssets[0], 'id'), proposedReportDate: today }, 'Report candidate queued for PDF generation.'); }}>
         <h3>{isAup ? 'Prepare exact AUP report candidate' : 'Prepare exact auditor-report and statement candidate'}</h3><div className="business-form-grid">
           <label className="business-field"><span>Partner opinion</span><select required value={selectedOpinionId} onChange={event => setSelectedOpinionId(event.target.value)}><option value="">Choose opinion</option>{opinions.map(item => <option key={String(item.id)} value={String(item.id)}>v{rowText(item, 'revision')} · {rowText(item, 'category', rowText(item, 'aup_report_type'))}</option>)}</select></label>
           <label className="business-field"><span>Approved statement draft</span><select required value={selectedApprovalId} onChange={event => setSelectedApprovalId(event.target.value)}><option value="">Choose approved statements</option>{approvals.map(item => <option key={String(item.id)} value={String(item.id)}>Draft v{rowText(item, 'draftVersion')} · {rowText(item, 'approvedAt')}</option>)}</select></label>
-          <label className="business-field"><span>Signature and seal asset</span><select required value={selectedSignatureAssetId} onChange={event => setSelectedSignatureAssetId(event.target.value)}><option value="">Choose registered asset</option>{assets.map(item => <option key={String(item.id)} value={String(item.id)}>{rowText(item, 'label')} · {rowText(item, 'staffName')}</option>)}</select></label>
+          <label className="business-field"><span>Your signature and seal asset</span><select required value={selectedSignatureAssetId} onChange={event => setSelectedSignatureAssetId(event.target.value)}><option value="">Choose your registered asset</option>{partnerAssets.map(item => <option key={String(item.id)} value={String(item.id)}>{rowText(item, 'label')} · {rowText(item, 'staffName')}</option>)}</select></label>
           <label className="business-field"><span>Proposed Qatar report date</span><input type="date" readOnly value={today} /></label></div>
         <button className="btn sm" disabled={busy || !isPartner || !opinionPreview || opinionPreview.opinionVersionId !== selectedOpinionId || opinionPreview.reportingBlockers.length > 0}>Generate report candidate</button>
       </form>}
       {candidates.length > 0 && <div className="business-record-list"><h3>Report candidates and explicit signature consent</h3>{candidates.map(candidate => {
         const id = rowText(candidate, 'id');
         const candidateOpinion = opinions.find(opinion => opinion.id === candidate.opinionVersionId);
-        return <div className="business-delivery-row" key={id}><strong>{id} · {rowText(candidate, 'status')}</strong><span>Proposed {rowText(candidate, 'proposedReportDate')} · content SHA-256 {rowText(candidate, 'contentSha256').slice(0, 18)}… · job {rowText(candidate, 'failureCode', 'no failure')}</span>
-          {isPartner && candidate.status === 'READY' && !candidate.consentId && <>
-            <span>Consent review: {engagement.clientName} · {engagement.periodStart}–{engagement.periodEnd} · opinion {rowText(candidateOpinion, 'category', rowText(candidateOpinion, 'aup_report_type'))} · contract fee {formatQarMinor(engagement.contractFeeMinor)} · signature asset {rowText(assets.find(asset => asset.id === candidate.signatureAssetId), 'label')}.</span>
-            <label><input type="checkbox" checked={confirmedConsentCandidateIds.includes(id)} onChange={event => setConfirmedConsentCandidateIds(current => event.target.checked ? [...current, id] : current.filter(item => item !== id))} /> I reviewed this exact preview, SHA-256, opinion, entity, period, fee and signature image.</label>
-          </>}
+        const candidateAsset = partnerAssets.find(asset => asset.id === candidate.signatureAssetId);
+        const candidateAssetSignature = rowText(candidateAsset, 'signatureSha256');
+        const candidateAssetSeal = rowText(candidateAsset, 'sealSha256');
+        const candidatePreviewIsOpen = candidatePreview?.candidateId === id;
+        const candidateDateIsCurrent = rowText(candidate, 'proposedReportDate') === today;
+        return <div className="business-delivery-row" key={id}><strong>{id} · {rowText(candidate, 'status')}</strong>
+          <span>Proposed Qatar report date {rowText(candidate, 'proposedReportDate')} · candidate content SHA-256 {rowText(candidate, 'contentSha256')} · job {rowText(candidate, 'failureCode', 'no failure')}</span>
+          {isPartner && candidate.status === 'READY' && <section className="business-report-consent" aria-label={`Review report candidate ${id} before signature consent`}>
+            <h4>Exact report and signature review</h4>
+            <dl><div><dt>Entity</dt><dd>{engagement.clientName}</dd></div><div><dt>Reporting period</dt><dd>{engagement.periodStart}–{engagement.periodEnd}</dd></div>
+              <div><dt>Opinion</dt><dd>{rowText(candidateOpinion, 'category', rowText(candidateOpinion, 'aup_report_type'))}</dd></div>
+              <div><dt>Contract fee</dt><dd>{formatQarMinor(engagement.contractFeeMinor)}</dd></div><div><dt>Signature owner</dt><dd>{rowText(candidateAsset, 'staffName', 'Asset owner unavailable')}</dd></div>
+              <div><dt>Signature asset</dt><dd>{rowText(candidateAsset, 'label', 'Asset unavailable')}</dd></div>
+              <div><dt>Signature SHA-256</dt><dd>{candidateAssetSignature || 'Unavailable'}</dd></div><div><dt>Seal SHA-256</dt><dd>{candidateAssetSeal || 'Unavailable'}</dd></div></dl>
+            <button type="button" className="btn sm" disabled={Boolean(downloading) || !rowText(candidate, 'fileId')}
+              onClick={() => void loadCandidatePreview(rowText(candidate, 'fileId'), id, rowText(candidate, 'contentSha256'))}>Open hash-verified report preview</button>
+            {candidatePreviewIsOpen && candidatePreview && <iframe className="business-report-preview-frame" title={`Hash-verified report preview ${id}`} src={candidatePreview.url} />}
+            {!candidateDateIsCurrent && <p className="business-alert" role="status">This preview is dated for an earlier Qatar day. It cannot be consented or released; prepare a current report candidate.</p>}
+            {candidateDateIsCurrent && !candidate.consentId && candidatePreviewIsOpen && <>
+              <label><input type="checkbox" checked={confirmedConsentCandidateIds.includes(id)} onChange={event => setConfirmedConsentCandidateIds(current => event.target.checked ? [...current, id] : current.filter(item => item !== id))} /> I reviewed the exact PDF above, its full content hash, opinion, entity, period, fee, signature owner and seal hashes.</label>
+              <button type="button" className="btn sm" disabled={busy || !confirmedConsentCandidateIds.includes(id)} onClick={() => {
+                const assetId = rowText(candidate, 'signatureAssetId'), contentHash = rowText(candidate, 'contentSha256'), date = rowText(candidate, 'proposedReportDate');
+                void perform('report.consent', { engagementId: engagement.id, reportCandidateId: id, signatureAssetId: assetId, candidateContentHash: contentHash, proposedReportDate: date, consentText: reportConsentText }, 'Explicit consent recorded for this exact report hash and image asset.');
+              }}>Consent to exact report hash</button>
+            </>}
+            {Boolean(candidate.consentId) && <span>Consent recorded for candidate hash {rowText(candidate, 'consentContentHash')} · signature event recorded only after final release.</span>}
+          </section>}
           {rowText(candidate, 'fileId') && <button type="button" className="btn sm" disabled={Boolean(downloading)} onClick={() => void download(rowText(candidate, 'fileId'), `report-candidate-${id}.pdf`, rowText(candidate, 'contentSha256'))}>Download hash-verified preview</button>}
-          {isPartner && candidate.status === 'READY' && !candidate.consentId && <button type="button" className="btn sm" disabled={busy || !confirmedConsentCandidateIds.includes(id)} onClick={() => {
-            const assetId = rowText(candidate, 'signatureAssetId'), contentHash = rowText(candidate, 'contentSha256'), date = rowText(candidate, 'proposedReportDate');
-            setReportCandidateId(id);
-            void perform('report.consent', { engagementId: engagement.id, reportCandidateId: id, signatureAssetId: assetId, candidateContentHash: contentHash, proposedReportDate: date, consentText: reportConsentText }, 'Explicit consent recorded for this exact report hash and image asset.');
-          }}>Consent to exact report hash</button>}
-          {isPartner && candidate.status === 'READY' && Boolean(candidate.consentId) && <span>Consent recorded · {rowText(candidate, 'signedFileSha256', 'image rendering pending final release')}</span>}
         </div>;
       })}</div>}
 
@@ -556,6 +613,22 @@ export function BusinessReportingPanel({ workspaceId, selected, context, engagem
       {releasedBundles.length > 0 && <div className="business-record-list"><h3>Released five-part bundle</h3>{releasedBundles.map(bundle => <div className="business-delivery-row" key={String(bundle.id)}><strong>Release v{rowText(bundle, 'revision')} · {rowText(bundle, 'releasedAt')}</strong><span>Content SHA-256 {rowText(bundle, 'contentHash')} · final invoice {rowText(bundle.invoice as ReportRow | undefined, 'number', 'pending')}</span>
         {rows(bundle.parts).map(part => <button type="button" className="btn sm" key={String(part.id)} disabled={Boolean(downloading)} onClick={() => void download(rowText(part, 'fileId'), rowText(part, 'fileName'), rowText(part, 'sha256'))}>Download {rowText(part, 'kind').replaceAll('_', ' ')}</button>)}
       </div>)}</div>}
+      {isPartner && releasedBundles.length > 0 && <section className="business-record-list business-report-provenance" aria-labelledby={`report-provenance-${engagement.id}`}>
+        <h3 id={`report-provenance-${engagement.id}`}>Released report signature provenance</h3>
+        {releasedProvenanceError && <p className="business-alert" role="alert">{releasedProvenanceError}</p>}
+        {!releasedProvenance && !releasedProvenanceError && <p role="status">Loading the released signature and source record…</p>}
+        {releasedProvenance && <>
+          <p>Report {rowText(provenanceEngagement, 'code')} for {rowText(provenanceEngagement, 'clientName')} · {rowText(provenanceEngagement, 'periodStart')}–{rowText(provenanceEngagement, 'periodEnd')} · report date {rowText(provenanceEngagement, 'reportDate')} · signed {rowText(provenanceSignature, 'signedAt')}.</p>
+          <p>Signature method: {rowText(provenanceSignature, 'signingMethod')} · attribution: {rowText(provenanceSignature, 'attribution')}. This records a self-asserted persona action and is not certificate-backed or verified identity.</p>
+          <dl><div><dt>Consent actor</dt><dd>{rowText(provenanceConsent, 'actorDisplayName', 'Historical actor display name unavailable')} · {rowText(provenanceConsent, 'actorStaffMemberId', 'staff snapshot unavailable')}</dd></div>
+            <div><dt>Consented candidate SHA-256</dt><dd>{rowText(provenanceConsent, 'candidateContentSha256')}</dd></div>
+            <div><dt>Signature owner</dt><dd>{rowText(provenanceOwner, 'displayName')} · {rowText(provenanceOwner, 'grade')} · {rowText(provenanceAsset, 'label')} ({rowText(provenanceAsset, 'status')})</dd></div>
+            <div><dt>Signature source</dt><dd>{rowText(provenanceSignatureAsset, 'fileId')} · SHA-256 {rowText(provenanceSignatureAsset, 'sha256')} · {rowText(provenanceSignatureAsset, 'width')}×{rowText(provenanceSignatureAsset, 'height')}</dd></div>
+            <div><dt>Seal source</dt><dd>{rowText(provenanceSealAsset, 'fileId')} · SHA-256 {rowText(provenanceSealAsset, 'sha256')} · {rowText(provenanceSealAsset, 'width')}×{rowText(provenanceSealAsset, 'height')}</dd></div>
+            <div><dt>Final report</dt><dd>{rowText(provenanceSignature, 'fileName')} · SHA-256 {rowText(provenanceSignature, 'finalFileSha256')}</dd></div></dl>
+          <h4>Pinned source hashes</h4><ul>{Object.entries(provenanceHashes ?? {}).map(([name, value]) => <li key={name}><strong>{name.replaceAll(/([A-Z])/g, ' $1')}</strong>: {String(value)}</li>)}</ul>
+        </>}
+      </section>}
     </>}
   </section>;
 }

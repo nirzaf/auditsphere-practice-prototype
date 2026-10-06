@@ -174,7 +174,7 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
   const ready = await call('/api/health/ready');
   assert.equal(ready.response.status, 200, JSON.stringify(ready.body));
   assert.equal(ready.body.status, 'ready');
-  assert.equal(ready.body.schemaVersion, 31);
+  assert.equal(ready.body.schemaVersion, 32);
   assert.deepEqual(ready.body.dependencyCodes, []);
   failNextR2Head = true;
   const degradedReady = await call('/api/health/ready');
@@ -207,7 +207,7 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
 
   const migrationStatus = await call(`/api/workspaces/${workspaceId}/migration-status`);
   assert.equal(migrationStatus.response.status, 200, JSON.stringify(migrationStatus.body));
-  assert.deepEqual(migrationStatus.body, { schemaVersion: 31, lastRunId: null, status: null });
+  assert.deepEqual(migrationStatus.body, { schemaVersion: 32, lastRunId: null, status: null });
   const missingMigrationWorkspace = await call(`/api/workspaces/${crypto.randomUUID()}/migration-status`);
   assert.equal(missingMigrationWorkspace.response.status, 404);
 
@@ -984,6 +984,14 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
     { headers: makeRiskHeaders(reviewerHeaders) });
   assert.equal(reviewerOpinionPreview.response.status, 403, JSON.stringify(reviewerOpinionPreview.body));
   assert.equal(reviewerOpinionPreview.body.code, 'PERSONA_ACTION_DENIED', 'a Reviewer cannot read the Partner-only opinion preview');
+  const reviewerReportProvenance = await call(`/api/workspaces/${workspaceId}/engagements/${engagementId}/released-report/provenance`,
+    { headers: makeRiskHeaders(reviewerHeaders) });
+  assert.equal(reviewerReportProvenance.response.status, 403, JSON.stringify(reviewerReportProvenance.body));
+  assert.equal(reviewerReportProvenance.body.code, 'PERSONA_ACTION_DENIED', 'a Reviewer cannot read internal signature provenance');
+  const unreleasedReportProvenance = await call(`/api/workspaces/${workspaceId}/engagements/${engagementId}/released-report/provenance`,
+    { headers: makeRiskHeaders(approverHeaders) });
+  assert.equal(unreleasedReportProvenance.response.status, 404, JSON.stringify(unreleasedReportProvenance.body));
+  assert.equal(unreleasedReportProvenance.body.code, 'NOT_FOUND', 'a staged candidate or consent is not presented as released provenance');
 
   const signatory = await post(`/api/workspaces/${workspaceId}/commands`, {
     idempotencyKey: crypto.randomUUID(), command: { type: 'contact.update', payload: { contactId: financeContactId, expectedVersion: 1, isSignatory: true } }
