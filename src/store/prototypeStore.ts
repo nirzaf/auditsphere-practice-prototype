@@ -392,7 +392,7 @@ class PrototypeStore {
 
   public logEvent(text: string, ref: string, type = 'checkcircle') {
     const time = 'Today · ' + new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
-    this.state.events.unshift({ text, ref, time, type });
+    this.state.events.unshift({ id: `ACT-${crypto.randomUUID()}`, text, ref, time, type });
     if (this.state.events.length > 50) this.state.events.pop();
   }
 
@@ -1122,7 +1122,7 @@ class PrototypeStore {
           procedure.reviewedAt = undefined;
         }
       }
-      updated.events = [...(current.events || []), { text: `Engagement administration changed by ${this.state.currentPerson}: ${changed.join(', ')}`, ref: eng.id, time: new Date().toISOString(), type: 'history' }];
+      updated.events = [...(current.events || []), { id: `ACT-${crypto.randomUUID()}`, text: `Engagement administration changed by ${this.state.currentPerson}: ${changed.join(', ')}`, ref: eng.id, time: new Date().toISOString(), type: 'history' }];
       this.state.engagements[index] = updated;
       this.invalidateReleaseBasis(updated);
       this.logEvent(`Engagement ${eng.id} changed (${changed.join(', ')}); release approvals reset`, eng.id, 'history');

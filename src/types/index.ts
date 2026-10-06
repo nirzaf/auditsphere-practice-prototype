@@ -62,6 +62,15 @@ export interface IdentityStatusEvent {
   reason?: string;
 }
 
+/** Prototype activity feed item. Older saved payloads may omit its stable merge key. */
+export interface PrototypeActivityEvent {
+  id?: string;
+  text: string;
+  ref: string;
+  time: string;
+  type: string;
+}
+
 
 export type RouteKey =
   | 'overview'
@@ -681,7 +690,7 @@ export interface EngagementRecord {
   pbc: PbcRequestItem[];
   annual: { confirmed: string[]; decision: string | null; nextId: string | null };
   questionnaire: { answers: Record<number, boolean>; status: string };
-  events: Array<{ text: string; ref: string; time: string; type: string }>;
+  events: PrototypeActivityEvent[];
 }
 
 // Historical schema grouping (migration compatibility): 05: Jobs & Tasks
@@ -1856,7 +1865,7 @@ export interface PrototypeState {
   findings: FindingItem[];
   m365Config: M365SimulationConfig;
   firmSettings: FirmSettings;
-  events: Array<{ text: string; ref: string; time: string; type: string }>;
+  events: PrototypeActivityEvent[];
   roleGrants: Array<{
     userId: string;
     role: RoleKey;

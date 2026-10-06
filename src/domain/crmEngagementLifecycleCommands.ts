@@ -58,7 +58,7 @@ export function setEngagementLifecycleCommand(
   }
   engagement.lifecycleStatus = status;
   engagement.events ||= [];
-  engagement.events.push({ text: `${current} → ${status} by ${state.currentPerson}: ${reason.trim()}`, ref: engagement.id, time: ctx.now(), type: 'lifecycle' });
+  engagement.events.push({ id: `ACT-${crypto.randomUUID()}`, text: `${current} → ${status} by ${state.currentPerson}: ${reason.trim()}`, ref: engagement.id, time: ctx.now(), type: 'lifecycle' });
   invalidateReleaseBasis(engagement);
   ctx.log(`Engagement ${engagement.id} ${status.toLowerCase()}: ${reason.trim()}`, engagement.id, 'history');
   ctx.notify();

@@ -45,7 +45,7 @@ export function hasRole(state: PrototypeState, role: RoleKey): boolean {
 /** Record each prototype-only authorization/actor override; never changes validation rules. */
 export function recordPrototypeSuperuserOverride(state: PrototypeState, action: string): boolean {
   if (!isSuperuserRole(state.currentRole) || !activePersona(state).active) return false;
-  state.events.unshift({ text: `Prototype Superuser Override: ${state.currentPerson} accessed ${action}; this is a test-only override, not an independent approval.`, ref: 'SUPERUSER-OVERRIDE', time: new Date().toISOString(), type: 'shield' });
+  state.events.unshift({ id: `ACT-${crypto.randomUUID()}`, text: `Prototype Superuser Override: ${state.currentPerson} accessed ${action}; this is a test-only override, not an independent approval.`, ref: 'SUPERUSER-OVERRIDE', time: new Date().toISOString(), type: 'shield' });
   if (state.events.length > 50) state.events.pop();
   return true;
 }

@@ -29,7 +29,7 @@ export function updateEngagementAdminCommand(state: PrototypeState, eng: Engagem
   }
   if (JSON.stringify(updated) === JSON.stringify(current)) return { saved: current };
   const changed = (['service', 'year', 'period', 'stage', 'due', 'manager', 'partner', 'team', 'opinion'] as const).filter(k => JSON.stringify(current[k]) !== JSON.stringify(updated[k]));
-  updated.events = [...(current.events || []), { text: `Engagement administration changed by ${state.currentPerson}: ${changed.join(', ')}`, ref: eng.id, time: ctx.now(), type: 'history' as const }];
+  updated.events = [...(current.events || []), { id: `ACT-${crypto.randomUUID()}`, text: `Engagement administration changed by ${state.currentPerson}: ${changed.join(', ')}`, ref: eng.id, time: ctx.now(), type: 'history' as const }];
   state.engagements[index] = updated;
   invalidateReleaseBasis(updated);
   ctx.log(`Engagement ${eng.id} changed (${changed.join(', ')}); release approvals reset`, eng.id, 'history');

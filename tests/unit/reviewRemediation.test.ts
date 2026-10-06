@@ -91,6 +91,17 @@ it('RT-19 independently prepended event history merges without losing either aud
   const remote={events:[{text:'Second tab',ref:'B'},...base.events]};
   assert.deepEqual(mergeIndependentEdits(base,local,remote).events,[local.events[0],remote.events[0],base.events[0]]);
 });
+it('RT-19 bounded activity feed merges independent additions after oldest-entry eviction', () => {
+  const base={events:Array.from({length:50},(_,i)=>({id:`base-${i}`,text:`Base ${i}`,ref:`BASE-${i}`,time:'Today · 09:00',type:'history'}))};
+  const first={id:'ACT-first',text:'First tab',ref:'A',time:'Today · 09:01',type:'history'};
+  const second={id:'ACT-second',text:'Second tab',ref:'B',time:'Today · 09:01',type:'history'};
+  const local={events:[first,...base.events.slice(0,49)]};
+  const remote={events:[second,...base.events.slice(0,49)]};
+  const merged=mergeIndependentEdits(base,local,remote).events;
+  assert.deepEqual(merged.map((event:any)=>event.id),['ACT-first','ACT-second',...base.events.slice(0,48).map(event=>event.id)]);
+  const observed={events:[first,second,...base.events.slice(0,48)]};
+  assert.deepEqual(mergeIndependentEdits(base,local,observed).events.map((event:any)=>event.id),['ACT-first','ACT-second',...base.events.slice(0,48).map(event=>event.id)],'an event already observed in both tabs is not duplicated');
+});
 it('RT-22 old SRM never advances a fresh engagement review', () => {
   const s=targetFixture(), e=s.engagements[0]; e.auditLifecycle!.srms=[{basis:'old-source',artifact:awaitableArtifact(),summary:[],revision:1,at:new Date().toISOString(),actorUserId:'manager',notes:'Old review'}];
   assert.notEqual(computeSystemState(s,e).state,'MANAGERIAL_REVIEW');

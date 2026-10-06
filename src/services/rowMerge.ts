@@ -4,6 +4,29 @@ export function mergeIndependentEdits<T>(base: T, local: T, remote: T, path = ''
   if (equal(local, remote) || equal(base, remote)) return structuredClone(local);
   if (equal(base, local) && path) return structuredClone(remote);
   if (Array.isArray(base) && Array.isArray(local) && Array.isArray(remote)) {
+    // The bounded activity feed prepends new entries and drops its oldest item
+    // at capacity. Recover concurrent additions by matching each branch to the
+    // retained prefix of the shared base instead of treating the eviction as an edit.
+    if (path === '.events') {
+      const additions = (branch: unknown[]) => {
+        if (base.length === 0) return branch;
+        for (let offset = 0; offset < branch.length; offset++) {
+          const overlap = Math.min(base.length, branch.length - offset);
+          if (overlap > 0 && branch.slice(offset, offset + overlap).every((entry, index) => equal(entry, base[index]))) {
+            return branch.slice(0, offset);
+          }
+        }
+        throw new Error(`Conflicting append to bounded activity feed at ${path}`);
+      };
+      const seen = new Set<string>();
+      const added = [...additions(local), ...additions(remote)].filter((entry: any) => {
+        const key = typeof entry?.id === 'string' ? `id:${entry.id}` : `legacy:${JSON.stringify(entry)}`;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
+      return [...added, ...base].slice(0, 50) as T;
+    }
     const keyed = [...base, ...local, ...remote].every((x: any) => x && typeof x === 'object' && typeof x.id === 'string');
     if (keyed) {
       const ids = [...new Set([...remote, ...local].map(x => x.id))];

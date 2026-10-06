@@ -1097,3 +1097,11 @@ The installed Python runtime has no `pytest` module, so the attempted `py -3 -m 
 ## Canonical lifecycle refactor — 2026-09-30
 
 Current checks: dependency install, lint, 353/353 unit tests, 2/2 target Chrome tests including production build, legacy syntax check and diff check passed. The former 39-module browser suite is preserved under `tests/historical`; its retired UI contracts are not included in current acceptance. [Detailed report and evidence limits](target-lifecycle-report.md). Chrome executes a command-level lifecycle with rendered checkpoints and genuine artifacts, not a click-by-click professional acceptance.
+
+## US-FLD-006 independent row concurrency — 2026-10-06
+
+**Verification:** `npm run lint`; `npm run test:unit` — 487/487; `npm run test:e2e` — 25/25 serialized Chrome scenarios (includes production build); focused `npx tsx --test --test-concurrency=1 tests/e2e/businessProcedureConflict.test.ts` — 1/1; `git diff --check`.
+
+**Evidence:** `tests/e2e/businessProcedureConflict.test.ts` drives the real local Worker against isolated SQLite/D1 and two independent Chrome profiles. Same-row v1 writes produce one v2 procedure revision and one `procedure.update` audit event; the other request returns 409 with base/local/server values retained. Explicit rebase creates v3 under the losing actor. Discard creates neither a revision nor audit event. Concurrent changes to distinct rows both commit with row-local versions and one audit event per successful write. A later change cursor refreshes the second browser's row. `tests/unit/businessWorkspace.test.ts` separately verifies that approval of a submission superseded by rework fails with `STALE_DEPENDENCY`. The legacy prototype two-tab journey also verifies distinct procedure rows survive a reload; its bounded 50-entry activity feed now merges concurrent prepends by stable event ID instead of surfacing a false conflict after tail eviction.
+
+**Boundary:** These are synthetic local Worker/SQLite and browser checks. No Cloudflare production write or external service is exercised. This entry verifies the listed US-FLD-006 behaviors; the remaining stories and broader acceptance of the 46-story epic remain open.

@@ -204,6 +204,7 @@ export class TargetLifecycleCommands {
     return engagement;
   }
   private event(engagement: EngagementRecord, action: string, reason: string) {
+    const eventId = `ACT-${crypto.randomUUID()}`;
     const entry = {
       at: new Date().toISOString(),
       actorUserId: this.state.currentUserId,
@@ -212,12 +213,14 @@ export class TargetLifecycleCommands {
     };
     engagement.auditLifecycle!.history.push(entry);
     engagement.events.push({
+      id: eventId,
       text: `${action}: ${reason}`,
       ref: engagement.id,
       time: entry.at,
       type: 'lifecycle'
     });
     this.state.events.unshift({
+      id: eventId,
       text: `${action}: ${reason}`,
       ref: engagement.id,
       time: entry.at,
@@ -2346,6 +2349,7 @@ export class TargetLifecycleCommands {
       ]
     });
     this.state.events.unshift({
+      id: `ACT-${crypto.randomUUID()}`,
       text: `Firm expense recorded: ${input.category} / ${input.amount}; separate from all client TBs.`,
       ref: id,
       time: new Date().toISOString(),
