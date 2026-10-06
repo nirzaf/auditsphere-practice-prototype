@@ -1602,6 +1602,56 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
   assert.equal(acceptedAnalysis.response.status, 200, JSON.stringify(acceptedAnalysis.body));
   assert.equal(acceptedAnalysis.body.result.decision, 'ACCEPT');
 
+  // US-GAP-11 — an analytical review is revised in place (identity preserved)
+  // instead of being silently replaced, and the revision is version-guarded.
+  const reviseDraft = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'analytical-review.save', payload: {
+      engagementId, fsliId: revenueLine.fsliId, statementSnapshotId: statementSnapshot.body.result.statementSnapshotId,
+      expectationText: 'The comparative revenue movement expectation is documented for the rework journey review.',
+      thresholdMinor: '250000', thresholdBps: 1000,
+      explanation: 'The recorded balance was compared with the retained period expectation before rework.',
+      conclusion: 'The initial presentation matched the retained source evidence before independent review.',
+      ratios: []
+    } }
+  }, technicalHeaders);
+  assert.equal(reviseDraft.response.status, 200, JSON.stringify(reviseDraft.body));
+  const reviseDraftId = reviseDraft.body.result.analyticalReviewId as string;
+  const reviseInPlace = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'analytical-review.save', payload: {
+      analyticalReviewId: reviseDraftId, expectedVersion: 1,
+      engagementId, fsliId: revenueLine.fsliId, statementSnapshotId: statementSnapshot.body.result.statementSnapshotId,
+      expectationText: 'The revised expectation reconciles the comparative movement to retained source records.',
+      thresholdMinor: '250000', thresholdBps: 1000,
+      explanation: 'The revised explanation reconciles the comparative revenue movement to retained source records.',
+      conclusion: 'The revised conclusion reflects the current comparative movement with no residual variance.',
+      ratios: []
+    } }
+  }, technicalHeaders);
+  assert.equal(reviseInPlace.response.status, 200, JSON.stringify(reviseInPlace.body));
+  assert.equal(reviseInPlace.body.result.analyticalReviewId, reviseDraftId, 'the original record is revised in place, not replaced');
+  const revisedDraftRow = db.prepare('SELECT version,status FROM analytical_reviews WHERE workspace_id=? AND id=?').bind(workspaceId, reviseDraftId).first<any>();
+  assert.equal(revisedDraftRow.status, 'DRAFT');
+  assert.equal(revisedDraftRow.version, 2);
+  const staleRevision = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'analytical-review.save', payload: {
+      analyticalReviewId: reviseDraftId, expectedVersion: 1,
+      engagementId, fsliId: revenueLine.fsliId, statementSnapshotId: statementSnapshot.body.result.statementSnapshotId,
+      expectationText: 'A stale revision attempt must not overwrite the current revised record version.',
+      explanation: 'This revision presents a stale expected version for the same analytical review.',
+      conclusion: 'A stale expected version cannot revise the record.', ratios: [] } }
+  }, technicalHeaders);
+  assert.equal(staleRevision.response.status, 409, 'a stale revision is rejected with a version conflict');
+  const acceptedRow = db.prepare('SELECT version FROM analytical_reviews WHERE workspace_id=? AND id=?').bind(workspaceId, analyticalReview.body.result.analyticalReviewId).first<any>();
+  const acceptedRevision = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'analytical-review.save', payload: {
+      analyticalReviewId: analyticalReview.body.result.analyticalReviewId, expectedVersion: acceptedRow.version,
+      engagementId, fsliId: revenueLine.fsliId, statementSnapshotId: statementSnapshot.body.result.statementSnapshotId,
+      expectationText: 'An already reviewed analytical review must not accept further preparer revisions.',
+      explanation: 'This revision attempts to edit an independently accepted analytical review.',
+      conclusion: 'An accepted review is immutable to preparer revision.', ratios: [] } }
+  }, technicalHeaders);
+  assert.equal(acceptedRevision.response.status, 422, 'an independently reviewed analytical review cannot be revised');
+
   const samplingReviewerHeaders = makeRiskHeaders(reviewerHeaders);
   const samplingApproverHeaders = makeRiskHeaders(approverHeaders);
   // US-FLD-005..006 — approved source templates, ad-hoc scope, Manager-only
