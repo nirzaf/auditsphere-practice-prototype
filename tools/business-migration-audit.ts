@@ -118,6 +118,10 @@ function buildSnapshotQuery(workspaceId: string): string {
   // workspaceId is constrained to the UUID grammar before it reaches SQL.
   const id = `'${workspaceId}'`;
   const targetUnion = TARGET_TABLES.map(table => `SELECT '${table}' AS kind,id FROM ${table} WHERE workspace_id=${id}`).join(' UNION ALL ');
+  const targetFieldUnion = [
+    `SELECT 'clients' AS kind,id,json_object('code',code,'legal_name',legal_name,'trading_name',trading_name,'entity_type',entity_type,'parent_client_id',parent_client_id,'commercial_registration',commercial_registration,'tax_id',tax_id,'industry',industry,'address',address,'country_code',country_code,'active',active) AS fields_json FROM clients WHERE workspace_id=${id}`,
+    `SELECT 'contacts' AS kind,id,json_object('client_id',client_id,'full_name',full_name,'email',email,'phone',phone,'title',title,'role',role,'is_primary',is_primary,'active',active,'effective_from',effective_from,'effective_to',effective_to) AS fields_json FROM contacts WHERE workspace_id=${id}`
+  ].join(' UNION ALL ');
   const targetMoneyUnion = [
     `SELECT 'invoices' AS kind,CAST(COUNT(*) AS TEXT) AS row_count,CAST(COALESCE(SUM(total_minor),0) AS TEXT) AS amount_minor FROM invoices WHERE workspace_id=${id}`,
     `SELECT 'payments' AS kind,CAST(COUNT(*) AS TEXT) AS row_count,CAST(COALESCE(SUM(amount_minor),0) AS TEXT) AS amount_minor FROM payments WHERE workspace_id=${id}`,
@@ -131,6 +135,7 @@ function buildSnapshotQuery(workspaceId: string): string {
     'files',json(COALESCE((SELECT json_group_array(json_object('id',f.id,'r2_key',f.r2_key,'original_name',f.original_name,'size_bytes',f.size_bytes,'sha256',f.sha256,'state',f.state)) FROM file_objects f WHERE f.workspace_id=w.id AND f.deleted_at IS NULL),'[]')),
     'idMaps',json(COALESCE((SELECT json_group_array(json_object('source_kind',m.source_kind,'source_id',m.source_id,'target_kind',m.target_kind,'target_id',m.target_id)) FROM migration_id_map m WHERE m.workspace_id=w.id),'[]')),
     'targetRows',json(COALESCE((SELECT json_group_array(json_object('kind',t.kind,'id',t.id)) FROM (${targetUnion}) t),'[]')),
+    'targetFields',json(COALESCE((SELECT json_group_array(json_object('kind',t.kind,'id',t.id,'fields',json(t.fields_json))) FROM (${targetFieldUnion}) t),'[]')),
     'targetMoneyTotals',json(COALESCE((SELECT json_group_array(json_object('kind',t.kind,'row_count',t.row_count,'amount_minor',t.amount_minor)) FROM (${targetMoneyUnion}) t),'[]'))
   ) AS snapshot_json FROM workspaces w WHERE w.id=${id}`;
 }

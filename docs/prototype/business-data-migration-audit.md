@@ -16,8 +16,9 @@ npm.cmd run migration:audit -- --workspace 00000000-0000-4000-8000-000000000000 
 ```
 
 To read the configured remote D1 and R2 explicitly, add `--remote`. The command
-does not mutate business rows. It stores a compact `MigrationRun` audit record
-so `GET /api/workspaces/{w}/migration-status` can report the most recent
+does not mutate business rows or source snapshots. When the source schema is
+older than the target, it stores a compact `MigrationRun` audit record so
+`GET /api/workspaces/{w}/migration-status` can report the most recent
 validation. The source snapshot and file objects remain unchanged.
 
 ## Cutover interpretation
@@ -28,11 +29,12 @@ Every source row requires an explicit `migration_id_map` entry and an existing
 normalized target row. The tool blocks validation for unmapped rows, unresolved
 relationships, non-committed files, missing R2 objects, size/hash mismatches,
 count or monetary differences, and source schema versions newer than migration
-target 31. Even when IDs, counts and totals match, each non-empty source row is
-reported with `TARGET_FIELD_RECONCILIATION_NOT_VERIFIED`: field-by-field source
-to target comparison and the apply migrator remain unimplemented. Therefore this
-tool cannot authorize cutover for non-empty legacy data. It never invents a
-target record, approval, ID mapping, or missing file.
+target 31. Explicit field-by-field comparisons currently cover mapped client
+and contact fields. Values are represented in the report by SHA-256 hashes.
+Unmapped fields and other entity kinds remain blockers until their mappings and
+transformations are reviewed and implemented. The apply migrator remains
+unimplemented, so this audit cannot authorize cutover for non-empty legacy
+data. It never invents a target record, approval, ID mapping, or missing file.
 
 `moneyTotals.sourceNativeUnits` reports values as stored by the legacy snapshot;
 `moneyTotals.targetQarMinorUnits` reports normalized minor-unit totals. They

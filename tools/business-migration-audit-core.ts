@@ -34,6 +34,8 @@ export interface MigrationAuditSnapshot {
   files: MigrationAuditSourceFile[];
   idMaps: MigrationAuditIdMap[];
   targetRows: Array<{ kind: string; id: string }>;
+  /** Whitelisted columns used only for explicit source-to-target comparison. */
+  targetFields?: Array<{ kind: string; id: string; fields: Record<string, unknown> }>;
   targetMoneyTotals: Array<{ kind: string; row_count: string; amount_minor: string }>;
 }
 
@@ -72,6 +74,19 @@ export interface MigrationAuditReport {
   orphanRows: Array<{ sourceKind: string; sourceId: string; field: string; referenceId: string; reason: string }>;
   unmappedRows: Array<{ sourceKind: string; sourceId: string; reason: string }>;
   reconciliationIssues: Array<{ sourceKind: string; sourceId: string; code: string }>;
+  fieldReconciliation: Array<{
+    sourceKind: string;
+    sourceId: string;
+    targetKind: string;
+    targetId: string;
+    fields: Array<{
+      sourceField: string;
+      targetField: string | null;
+      status: 'MATCHED' | 'MISMATCHED' | 'UNVERIFIED';
+      sourceSha256?: string;
+      targetSha256?: string;
+    }>;
+  }>;
   blockers: number;
 }
 
@@ -126,6 +141,127 @@ const RELATION_FIELDS: Readonly<Record<string, string>> = {
   procedureId: 'auditPrograms', populationId: 'samplePopulations',
   jobId: 'jobs', taskId: 'jobTasks', contactId: 'contacts', userId: 'users'
 };
+
+const UNMAPPABLE = Symbol('unmappable source field');
+type MigrationFieldDefinition = {
+  sourceField: string;
+  targetField: string;
+  optional?: boolean;
+  transform?: (value: unknown, payload: Record<string, unknown>, maps: ReadonlyMap<string, MigrationAuditIdMap>) => unknown | typeof UNMAPPABLE;
+};
+
+const direct = (value: unknown): unknown => value;
+const nullableText = (value: unknown): unknown => {
+  if (value === null || value === undefined || value === '') return null;
+  return typeof value === 'string' ? value.trim() : UNMAPPABLE;
+};
+const countryCode = (value: unknown): unknown => {
+  if (typeof value !== 'string') return UNMAPPABLE;
+  const normalized = value.trim();
+  if (/^[A-Za-z]{2}$/.test(normalized)) return normalized.toUpperCase();
+  if (normalized.toLocaleLowerCase() === 'qatar') return 'QA';
+  return UNMAPPABLE;
+};
+const entityType = (value: unknown): unknown => ({
+  Holding: 'HOLDING', Subsidiary: 'SUBSIDIARY', Standalone: 'STANDALONE'
+} as Record<string, string>)[String(value)] ?? UNMAPPABLE;
+const activeFlag = (value: unknown): unknown => ({ Active: 1, Suspended: 0, Archived: 0 } as Record<string, number>)[String(value)] ?? UNMAPPABLE;
+const contactRole = (value: unknown): unknown => ({
+  'MD/GM': 'MD_GM',
+  'CFO/Finance Director': 'CFO_FINANCE_DIRECTOR',
+  'Chief Accountant/Audit Liaison': 'CHIEF_ACCOUNTANT_LIAISON',
+  Other: 'OTHER'
+} as Record<string, string>)[String(value)] ?? UNMAPPABLE;
+const booleanInteger = (value: unknown): unknown => typeof value === 'boolean' ? Number(value) : UNMAPPABLE;
+const mappedRelation = (kind: string) => (value: unknown, _payload: Record<string, unknown>, maps: ReadonlyMap<string, MigrationAuditIdMap>): unknown => {
+  if (value === null || value === undefined || value === '') return null;
+  if (typeof value !== 'string') return UNMAPPABLE;
+  return maps.get(`${kind}\0${value}\0${kind}`)?.target_id ?? UNMAPPABLE;
+};
+
+/** Explicitly supported field pairs. Other source fields remain blockers until reviewed mappings are added. */
+const FIELD_MAPPINGS: Readonly<Record<string, readonly MigrationFieldDefinition[]>> = {
+  clients: [
+    { sourceField: 'code', targetField: 'code', transform: nullableText },
+    { sourceField: 'name', targetField: 'legal_name', transform: nullableText },
+    { sourceField: 'tradingName', targetField: 'trading_name', optional: true, transform: nullableText },
+    { sourceField: 'entityRole', targetField: 'entity_type', transform: entityType },
+    { sourceField: 'parentClientId', targetField: 'parent_client_id', optional: true, transform: mappedRelation('clients') },
+    { sourceField: 'registrationNumber', targetField: 'commercial_registration', optional: true, transform: nullableText },
+    { sourceField: 'taxId', targetField: 'tax_id', optional: true, transform: nullableText },
+    { sourceField: 'industry', targetField: 'industry', transform: nullableText },
+    { sourceField: 'address', targetField: 'address', transform: nullableText },
+    { sourceField: 'jurisdiction', targetField: 'country_code', transform: countryCode },
+    { sourceField: 'status', targetField: 'active', transform: activeFlag }
+  ],
+  contacts: [
+    { sourceField: 'clientId', targetField: 'client_id', transform: mappedRelation('clients') },
+    { sourceField: 'name', targetField: 'full_name', transform: nullableText },
+    { sourceField: 'email', targetField: 'email', optional: true, transform: value => typeof value === 'string' ? value.trim().toLocaleLowerCase() || null : value === null ? null : UNMAPPABLE },
+    { sourceField: 'phone', targetField: 'phone', optional: true, transform: nullableText },
+    { sourceField: 'title', targetField: 'title', transform: nullableText },
+    { sourceField: 'contactRole', targetField: 'role', transform: contactRole },
+    { sourceField: 'isPrimary', targetField: 'is_primary', transform: booleanInteger },
+    { sourceField: 'active', targetField: 'active', transform: booleanInteger },
+    { sourceField: 'effectiveFrom', targetField: 'effective_from', transform: nullableText },
+    { sourceField: 'effectiveTo', targetField: 'effective_to', optional: true, transform: nullableText }
+  ]
+};
+
+function valueSha256(value: unknown): string {
+  return createHash('sha256').update(canonical(value)).digest('hex');
+}
+
+function reconcileMappedFields(
+  sourceKind: string,
+  sourceId: string,
+  targetKind: string,
+  targetId: string,
+  sourcePayload: Record<string, unknown>,
+  targetFields: Record<string, unknown> | undefined,
+  maps: ReadonlyMap<string, MigrationAuditIdMap>
+): MigrationAuditReport['fieldReconciliation'][number] | null {
+  const definitions = FIELD_MAPPINGS[sourceKind];
+  if (!definitions) return null;
+  const fields: MigrationAuditReport['fieldReconciliation'][number]['fields'] = [];
+  const registeredSourceFields = new Set(['id', ...definitions.map(item => item.sourceField)]);
+  if (!targetFields) {
+    fields.push({ sourceField: '*', targetField: null, status: 'UNVERIFIED' });
+  } else {
+    for (const definition of definitions) {
+      const present = Object.hasOwn(sourcePayload, definition.sourceField);
+      const raw = present ? sourcePayload[definition.sourceField] : undefined;
+      const mapped = !present && definition.optional
+        ? null
+        : present
+          ? (definition.transform ?? direct)(raw, sourcePayload, maps)
+          : UNMAPPABLE;
+      const targetPresent = Object.hasOwn(targetFields, definition.targetField);
+      const targetValue = targetFields[definition.targetField];
+      if (mapped === UNMAPPABLE || !targetPresent) {
+        fields.push({
+          sourceField: definition.sourceField,
+          targetField: definition.targetField,
+          status: 'UNVERIFIED',
+          ...(present ? { sourceSha256: valueSha256(raw) } : {}),
+          ...(targetPresent ? { targetSha256: valueSha256(targetValue) } : {})
+        });
+      } else {
+        fields.push({
+          sourceField: definition.sourceField,
+          targetField: definition.targetField,
+          status: canonical(mapped) === canonical(targetValue) ? 'MATCHED' : 'MISMATCHED',
+          sourceSha256: valueSha256(mapped),
+          targetSha256: valueSha256(targetValue)
+        });
+      }
+    }
+  }
+  for (const sourceField of Object.keys(sourcePayload).filter(field => !registeredSourceFields.has(field)).sort()) {
+    fields.push({ sourceField, targetField: null, status: 'UNVERIFIED', sourceSha256: valueSha256(sourcePayload[sourceField]) });
+  }
+  return { sourceKind, sourceId, targetKind, targetId, fields };
+}
 
 const canonical = (value: unknown): string => {
   if (Array.isArray(value)) return `[${value.map(canonical).join(',')}]`;
@@ -220,6 +356,7 @@ export function buildMigrationAuditReport(
 
   const byMapKey = new Map(maps.map(mapping => [`${mapping.source_kind}\0${mapping.source_id}\0${mapping.target_kind}`, mapping]));
   const targetIds = new Map<string, Set<string>>();
+  const targetFieldRows = new Map((snapshot.targetFields ?? []).map(row => [`${row.kind}\0${row.id}`, row.fields]));
   const targetCounts: Record<string, number> = {};
   for (const row of snapshot.targetRows) {
     const ids = targetIds.get(row.kind) ?? new Set<string>();
@@ -232,6 +369,7 @@ export function buildMigrationAuditReport(
   const orphanRows: MigrationAuditReport['orphanRows'] = [];
   const unmappedRows: MigrationAuditReport['unmappedRows'] = [];
   const reconciliationIssues: MigrationAuditReport['reconciliationIssues'] = [];
+  const fieldReconciliation: MigrationAuditReport['fieldReconciliation'] = [];
   const sourceRows = [
     ...entities.map(entity => ({ source_kind: entity.entity_kind, source_id: entity.entity_id, target_kind: DIRECT_TARGET_KIND[entity.entity_kind] })),
     ...roots.filter(root => !METADATA_ROOTS.has(root.document_key)).map(root => ({ source_kind: 'ROOT_DOCUMENT', source_id: root.document_key, target_kind: ROOT_TARGET_KIND[root.document_key] })),
@@ -271,7 +409,28 @@ export function buildMigrationAuditReport(
       orphanRows.push({ sourceKind: source.source_kind, sourceId: source.source_id, field: 'migration_id_map.target_id', referenceId: mapping.target_id, reason: `Mapped ${targetKind} row is absent from the normalized workspace.` });
     } else {
       reconciledTargetCount += 1;
-      reconciliationIssues.push({ sourceKind: source.source_kind, sourceId: source.source_id, code: 'TARGET_FIELD_RECONCILIATION_NOT_VERIFIED' });
+      const fieldReport = reconcileMappedFields(
+        source.source_kind,
+        source.source_id,
+        targetKind,
+        mapping.target_id,
+        payloads.get(`${source.source_kind}\0${source.source_id}`) ?? {},
+        targetFieldRows.get(`${targetKind}\0${mapping.target_id}`),
+        byMapKey
+      );
+      if (fieldReport) {
+        fieldReconciliation.push(fieldReport);
+        if (fieldReport.fields.some(field => field.status !== 'MATCHED')) {
+          reconciliationIssues.push({ sourceKind: source.source_kind, sourceId: source.source_id, code: 'TARGET_FIELD_RECONCILIATION_NOT_VERIFIED' });
+        }
+        for (const field of fieldReport.fields) {
+          if (field.status === 'MATCHED') continue;
+          const code = field.status === 'MISMATCHED' ? 'TARGET_FIELD_MISMATCH'
+            : field.sourceField === '*' ? 'TARGET_FIELDS_NOT_SNAPSHOTTED'
+              : field.targetField === null ? 'SOURCE_FIELD_NOT_MAPPED' : 'TARGET_FIELD_NOT_VERIFIED';
+          reconciliationIssues.push({ sourceKind: source.source_kind, sourceId: source.source_id, code });
+        }
+      } else reconciliationIssues.push({ sourceKind: source.source_kind, sourceId: source.source_id, code: 'TARGET_FIELD_RECONCILIATION_NOT_VERIFIED' });
     }
   }
 
@@ -408,6 +567,7 @@ export function buildMigrationAuditReport(
     orphanRows,
     unmappedRows,
     reconciliationIssues,
+    fieldReconciliation,
     blockers
   };
 }

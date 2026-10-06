@@ -23,10 +23,51 @@ it('reconciles row counts but blocks cutover until mapped target fields are veri
   assert.equal(first.auditMetadataRecorded, false);
   assert.equal(first.sourceCount, 1);
   assert.equal(first.targetCount, 1);
-  assert.equal(first.blockers, 1);
+  assert.equal(first.blockers, 2);
   assert.deepEqual(first.reconciliationByTarget, [{ targetKind: 'clients', sourceRows: 1, mappedRows: 1, targetRows: 1, status: 'COUNTS_MATCHED' }]);
-  assert.deepEqual(first.reconciliationIssues, [{ sourceKind: 'clients', sourceId: 'client-1', code: 'TARGET_FIELD_RECONCILIATION_NOT_VERIFIED' }]);
+  assert.deepEqual(first.reconciliationIssues, [
+    { sourceKind: 'clients', sourceId: 'client-1', code: 'TARGET_FIELD_RECONCILIATION_NOT_VERIFIED' },
+    { sourceKind: 'clients', sourceId: 'client-1', code: 'TARGET_FIELDS_NOT_SNAPSHOTTED' }
+  ]);
   assert.equal(first.sourceSha256, second.sourceSha256);
+});
+
+it('compares explicitly mapped legacy client fields without exposing values', () => {
+  const snapshot = baseSnapshot();
+  snapshot.entities[0].payload_json = JSON.stringify({
+    id: 'client-1', code: 'C-1', name: 'Example Trading WLL', tradingName: 'Example',
+    entityRole: 'Standalone', parentClientId: null, registrationNumber: 'CR-1', taxId: null,
+    industry: 'Trading', address: 'Doha', jurisdiction: 'Qatar', status: 'Active'
+  });
+  snapshot.targetFields = [{
+    kind: 'clients', id: 'client-1', fields: {
+      code: 'C-1', legal_name: 'Example Trading WLL', trading_name: 'Example', entity_type: 'STANDALONE',
+      parent_client_id: null, commercial_registration: 'CR-1', tax_id: null, industry: 'Trading',
+      address: 'Doha', country_code: 'QA', active: 1
+    }
+  }];
+  const report = buildMigrationAuditReport(snapshot, new Map(), 31, 27, '00000000-0000-4000-8000-000000000007');
+
+  assert.equal(report.validationStatus, 'VALIDATED');
+  assert.equal(report.fieldReconciliation.length, 1);
+  assert.equal(report.fieldReconciliation[0].fields.length, 11);
+  assert.ok(report.fieldReconciliation[0].fields.every(field => field.status === 'MATCHED'));
+  assert.notEqual(report.fieldReconciliation[0].fields[1].sourceSha256, 'Example Trading WLL');
+});
+
+it('blocks a mapped client field mismatch and identifies the field using hashes only', () => {
+  const snapshot = baseSnapshot();
+  snapshot.entities[0].payload_json = JSON.stringify({ id: 'client-1', code: 'C-1', name: 'Source Name' });
+  snapshot.targetFields = [{ kind: 'clients', id: 'client-1', fields: { code: 'C-1', legal_name: 'Different Name' } }];
+  const report = buildMigrationAuditReport(snapshot, new Map(), 31, 27, '00000000-0000-4000-8000-000000000008');
+
+  assert.equal(report.validationStatus, 'BLOCKED');
+  assert.ok(report.reconciliationIssues.some(issue => issue.code === 'TARGET_FIELD_MISMATCH'));
+  const name = report.fieldReconciliation[0].fields.find(field => field.sourceField === 'name');
+  assert.equal(name?.status, 'MISMATCHED');
+  assert.ok(name?.sourceSha256 && name?.targetSha256 && name.sourceSha256 !== name.targetSha256);
+  assert.equal(JSON.stringify(report).includes('Source Name'), false);
+  assert.equal(JSON.stringify(report).includes('Different Name'), false);
 });
 
 it('blocks unmapped, orphaned and missing or altered R2 source records', () => {
