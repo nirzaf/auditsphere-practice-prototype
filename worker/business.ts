@@ -522,6 +522,7 @@ export interface BusinessContext {
     displayName: string;
     staffGrade: BusinessActorProfileSummary['staffGrade'];
     clientId: string | null;
+    staffMemberId: string | null;
   };
   scope: { clientId: string | null; engagementId: string | null };
   allowedActions: string[];
@@ -570,7 +571,8 @@ export async function resolveBusinessContext(env: Env, workspaceId: string, requ
       persona: row.persona,
       displayName: row.displayName,
       staffGrade: isClient ? null : row.staffGrade,
-      clientId: isClient ? row.clientId : null
+      clientId: isClient ? row.clientId : null,
+      staffMemberId: isClient ? null : row.staffMemberId
     },
     scope: { clientId, engagementId: requestedEngagementId },
     allowedActions: row.persona === 'APPROVER' && row.staffGrade === 'PARTNER'

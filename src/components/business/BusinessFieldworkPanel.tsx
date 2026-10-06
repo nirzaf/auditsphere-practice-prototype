@@ -15,7 +15,7 @@ import {
 } from '../../services/businessWorkspace';
 
 type EngagementRef = { id: string; clientId: string; code: string; clientName: string; lifecycleState: string; periodStart: string; periodEnd: string };
-type Tab = 'statements' | 'workprograms' | 'sampling' | 'evidence';
+type Tab = 'statements' | 'workprograms' | 'sampling' | 'evidence' | 'reviews';
 type Assertion = 'EXISTENCE' | 'RIGHTS_OBLIGATIONS' | 'COMPLETENESS' | 'VALUATION' | 'CUTOFF' | 'PRESENTATION';
 type PopulationPayload = {
   population: { id: string; name: string; rowCount: number; positiveTotalMinor: number; excludedCount: number; exclusionsReason: string; sourceHash: string; tbVersionId: string };
@@ -122,6 +122,12 @@ export function BusinessFieldworkPanel({ workspaceId, selected, context, engagem
   const [adhocDrafts, setAdhocDrafts] = useState<Record<string, { title: string; instructions: string; assertion: Assertion; scopeReason: string }>>({});
   const [procedureDrafts, setProcedureDrafts] = useState<Record<string, { workPerformed: string; conclusion: string }>>({});
   const [procedureReviewDrafts, setProcedureReviewDrafts] = useState<Record<string, string>>({});
+  const [procedureReworkReasons, setProcedureReworkReasons] = useState<Record<string, string>>({});
+  const [workprogramReviewDrafts, setWorkprogramReviewDrafts] = useState<Record<string, string>>({});
+  const [reviewNoteResponses, setReviewNoteResponses] = useState<Record<string, string>>({});
+  const [reviewNoteClosures, setReviewNoteClosures] = useState<Record<string, string>>({});
+  const [partnerClearanceRationales, setPartnerClearanceRationales] = useState<Record<string, string>>({});
+  const [handoverReason, setHandoverReason] = useState('');
   const [procedureNaReasons, setProcedureNaReasons] = useState<Record<string, string>>({});
   const [populationName, setPopulationName] = useState('');
   const [populationFileId, setPopulationFileId] = useState('');
@@ -386,7 +392,7 @@ export function BusinessFieldworkPanel({ workspaceId, selected, context, engagem
         <span><strong>Planning</strong>{workspace.engagement.approvedPlanningVersionId ?? 'Missing'}</span><span><strong>Statement source</strong>{workspace.statements.sourceHash.slice(0, 14)}</span>
       </div>
       <nav className="business-fieldwork-tabs" aria-label="Fieldwork sections">
-        {([['statements','Financial statements'],['workprograms','Workprograms'],['sampling','Sampling'],['evidence','Evidence']] as Array<[Tab,string]>).map(([key,title]) =>
+        {([['statements','Financial statements'],['workprograms','Workprograms'],['sampling','Sampling'],['evidence','Evidence'],['reviews','Review queue']] as Array<[Tab,string]>).map(([key,title]) =>
           <button type="button" key={key} className={tab === key ? 'selected' : ''} aria-pressed={tab === key} onClick={() => setTab(key)}>{title}</button>)}
       </nav>
 
@@ -455,6 +461,7 @@ export function BusinessFieldworkPanel({ workspaceId, selected, context, engagem
             <label className="business-field"><span>Additional retained evidence files</span><select multiple value={goingEvidenceFiles} onChange={event => setGoingEvidenceFiles([...event.currentTarget.selectedOptions].map(option => option.value))}>{sourceFiles.map(file => <option key={file.id} value={file.id}>{file.originalName} · v{file.version}</option>)}</select></label>
             <button className="btn primary" type="submit" disabled={busy || !canWrite}>Save assessment revision</button>
           </form>
+          {workspace.goingConcern && ['DRAFT','UNDER_REWORK'].includes(workspace.goingConcern.status) && <button className="btn primary" type="button" disabled={busy || !canWrite} onClick={() => void command('review.submit', { targetKind: 'GOING_CONCERN', targetId: workspace.goingConcern!.id, targetVersion: workspace.goingConcern!.version }, 'Going-concern assessment submitted as an immutable independent-review snapshot.')}>Submit going-concern assessment for review</button>}
         </section>
       </div>}
 
@@ -478,14 +485,18 @@ export function BusinessFieldworkPanel({ workspaceId, selected, context, engagem
           </div>
           {selectedWorkprogram && <section className="business-fieldwork-card"><div className="business-section-heading"><div><p className="business-eyebrow">PLANNING VERSION {selectedWorkprogram.planningVersionId}</p><h3>{selectedLine.code} workprogram · {label(selectedWorkprogram.status)}</h3></div><span>{selectedWorkprogram.riskBand} risk</span></div>
             <p className="business-note">Assigned executor: {workspace.staff.find(staff => staff.id === selectedWorkprogram.assignedStaffId)?.displayName ?? selectedWorkprogram.assignedStaffId}. Assignment is frozen with this workprogram revision.</p>
+            {['DRAFT','IN_PROGRESS','UNDER_REWORK'].includes(selectedWorkprogram.status) && !workspace.reviewNotes.some(note => note.status !== 'CLOSED' && (note.workprogramId === selectedWorkprogram.id || Boolean(note.procedureId && workspace.procedures.some(procedure => procedure.id === note.procedureId && procedure.workprogramId === selectedWorkprogram.id)))) && workspace.procedures.filter(item => item.workprogramId === selectedWorkprogram.id).length > 0 && workspace.procedures.filter(item => item.workprogramId === selectedWorkprogram.id).every(item => item.status === 'REVIEWED') &&
+              <button className="btn primary" type="button" disabled={busy || !canWrite} onClick={() => void command('review.submit', { targetKind: 'WORKPROGRAM', targetId: selectedWorkprogram.id, targetVersion: selectedWorkprogram.version }, 'Current workprogram snapshot submitted for independent Manager review.')}>Submit workprogram for Manager review</button>}
             {workspace.procedures.filter(item => item.workprogramId === selectedWorkprogram.id).map(procedure => <article className="business-fieldwork-procedure" key={procedure.id}>
               <div className="business-section-heading"><div><strong>{procedure.ordinal}. {procedure.title}</strong><span>{procedure.assertion} · {procedure.origin} · {label(procedure.status)}</span></div><span>v{procedure.version}</span></div>
               <p>{procedure.instructions}</p>{procedure.scopeReason && <p className="business-muted">Scope: {procedure.scopeReason}</p>}
               <label className="business-field"><span>Work performed</span><textarea minLength={10} value={procedureDrafts[procedure.id]?.workPerformed ?? procedure.workPerformed ?? ''} onChange={event => setProcedureDrafts(current => ({ ...current, [procedure.id]: { workPerformed: event.target.value, conclusion: current[procedure.id]?.conclusion ?? procedure.conclusion ?? '' } }))} /></label>
               <label className="business-field"><span>Conclusion</span><textarea minLength={10} value={procedureDrafts[procedure.id]?.conclusion ?? procedure.conclusion ?? ''} onChange={event => setProcedureDrafts(current => ({ ...current, [procedure.id]: { workPerformed: current[procedure.id]?.workPerformed ?? procedure.workPerformed ?? '', conclusion: event.target.value } }))} /></label>
+              {procedure.status === 'UNDER_REWORK' && <label className="business-field"><span>How this revision addresses the review note</span><textarea required minLength={10} value={procedureReworkReasons[procedure.id] ?? ''} onChange={event => setProcedureReworkReasons(current => ({ ...current, [procedure.id]: event.target.value }))} /></label>}
               {procedure.status === 'NOT_STARTED' || procedure.status === 'IN_PROGRESS' || procedure.status === 'UNDER_REWORK' ? <>
-                <button className="btn sm" type="button" disabled={busy || !canWrite || !(procedureDrafts[procedure.id]?.workPerformed ?? procedure.workPerformed) || !(procedureDrafts[procedure.id]?.conclusion ?? procedure.conclusion)} onClick={() => void command('procedure.update', { procedureId: procedure.id, expectedVersion: procedure.version,
-                  workPerformed: procedureDrafts[procedure.id]?.workPerformed ?? procedure.workPerformed, conclusion: procedureDrafts[procedure.id]?.conclusion ?? procedure.conclusion }, 'Procedure work and conclusion saved as a new revision.')}>Save work</button>
+                <button className="btn sm" type="button" disabled={busy || !canWrite || !(procedureDrafts[procedure.id]?.workPerformed ?? procedure.workPerformed) || !(procedureDrafts[procedure.id]?.conclusion ?? procedure.conclusion) || (procedure.status === 'UNDER_REWORK' && (procedureReworkReasons[procedure.id] ?? '').trim().length < 10)} onClick={() => void command('procedure.update', { procedureId: procedure.id, expectedVersion: procedure.version,
+                  workPerformed: procedureDrafts[procedure.id]?.workPerformed ?? procedure.workPerformed, conclusion: procedureDrafts[procedure.id]?.conclusion ?? procedure.conclusion,
+                  ...(procedure.status === 'UNDER_REWORK' ? { reworkReason: procedureReworkReasons[procedure.id] } : {}) }, 'Procedure work and conclusion saved as a new revision.')}>Save work</button>
                 <button className="btn sm" type="button" disabled={busy || !canWrite} onClick={() => void command('procedure.submit', { procedureId: procedure.id, expectedVersion: procedure.version }, 'Exact procedure revision submitted for independent review.')}>Submit</button>
                 <label className="business-field"><span>Reason this step is not applicable</span><textarea minLength={10} value={procedureNaReasons[procedure.id] ?? ''} onChange={event => setProcedureNaReasons(current => ({ ...current, [procedure.id]: event.target.value }))} /></label>
                 <button className="btn sm" type="button" disabled={busy || !canWrite || (procedureNaReasons[procedure.id] ?? '').trim().length < 10} onClick={() => void command('procedure.mark-not-applicable', { procedureId: procedure.id, expectedVersion: procedure.version, reason: procedureNaReasons[procedure.id] }, 'Not-applicable decision submitted for independent approval.')}>Propose N/A</button>
@@ -498,6 +509,46 @@ export function BusinessFieldworkPanel({ workspaceId, selected, context, engagem
               </div>}
               <small>Evidence pins: {workspace.evidenceLinks.filter(link => link.targetType === 'PROCEDURE' && link.targetId === procedure.id && !link.unlinkReason).length} · {procedure.evidenceSetHash.slice(0, 12)}</small>
             </article>)}
+            {workspace.reviewSubmissions.filter(item => item.targetKind === 'WORKPROGRAM' && item.workprogramId === selectedWorkprogram.id).map(submission => <div className="business-fieldwork-review" key={submission.id}>
+              <p className="business-note">Manager submission v{submission.targetVersion} · {submission.decision ? `${label(submission.decision)}${submission.decidedAt ? ` · ${new Date(submission.decidedAt).toLocaleString()}` : ''}` : 'Awaiting independent decision'} · dependency {submission.dependencyHash.slice(0, 12)}</p>
+              {submission.decisionComment && <p className="business-note">Review rationale: {submission.decisionComment}</p>}
+              {!submission.decision && canReview && <>
+                <label className="business-field"><span>Manager review rationale (required for either decision)</span><textarea minLength={10} value={workprogramReviewDrafts[submission.id] ?? ''} onChange={event => setWorkprogramReviewDrafts(current => ({ ...current, [submission.id]: event.target.value }))} /></label>
+                <div className="business-fieldwork-action-row">
+                  <button className="btn sm" type="button" disabled={busy || (workprogramReviewDrafts[submission.id] ?? '').trim().length < 10} onClick={() => void command('review.decide', { submissionId: submission.id, decision: 'ACCEPT', comment: workprogramReviewDrafts[submission.id] }, 'Workprogram accepted by an independent Manager.')}>Accept workprogram</button>
+                  <button className="btn sm" type="button" disabled={busy || (workprogramReviewDrafts[submission.id] ?? '').trim().length < 10} onClick={() => void command('review.decide', { submissionId: submission.id, decision: 'RETURN', comment: workprogramReviewDrafts[submission.id], assignedPreparerId: selectedWorkprogram.assignedStaffId,
+                    procedureIds: workspace.procedures.filter(item => item.workprogramId === selectedWorkprogram.id && item.mandatory).map(item => item.id) }, 'Workprogram returned with assigned, step-specific rework notes.')}>Return for rework</button>
+                </div>
+              </>}
+              {submission.decision === 'ACCEPT' && canPartner && <>
+                <label className="business-field"><span>Partner area-clearance rationale</span><textarea minLength={10} value={partnerClearanceRationales[selectedWorkprogram.id] ?? ''} onChange={event => setPartnerClearanceRationales(current => ({ ...current, [selectedWorkprogram.id]: event.target.value }))} /></label>
+                <button className="btn sm" type="button" disabled={busy || (partnerClearanceRationales[selectedWorkprogram.id] ?? '').trim().length < 10} onClick={() => void command('partner.clear-area', { workprogramId: selectedWorkprogram.id, submissionId: submission.id, dependencyHash: submission.dependencyHash, rationale: partnerClearanceRationales[selectedWorkprogram.id] }, 'Partner area clearance signed against the accepted current dependency snapshot.')}>Partner clear area</button>
+              </>}
+            </div>)}
+            {workspace.reviewNotes.filter(note => note.workprogramId === selectedWorkprogram.id || (note.procedureId && workspace.procedures.some(procedure => procedure.id === note.procedureId && procedure.workprogramId === selectedWorkprogram.id))).map(note => {
+              const assigned = workspace.staff.find(staff => staff.id === note.assignedPreparerId);
+              const laterAccepted = workspace.reviewSubmissions.filter(item => item.decision === 'ACCEPT' && item.submittedAt > (note.responseAt ?? note.createdAt) && (note.procedureId
+                ? item.targetKind === 'PROCEDURE' && item.procedureId === note.procedureId
+              : note.targetKind === 'GOING_CONCERN' ? item.targetKind === 'GOING_CONCERN' && (item.subjectRevision ?? 0) > (note.targetRevision ?? 0)
+                : item.targetKind === note.targetKind && item.workprogramId === note.workprogramId))
+                .sort((left,right) => right.targetVersion-left.targetVersion)[0];
+              return <article className="business-fieldwork-review" key={note.id}>
+                <strong>Review note · {label(note.status)}{note.procedureId ? ` · ${workspace.procedures.find(item => item.id === note.procedureId)?.title ?? note.procedureId}` : ''}</strong>
+                <p>{note.text}</p><small>Assigned preparer: {assigned?.displayName ?? note.assignedPreparerId}</small>
+                {note.responseText && <p className="business-note">Preparer response: {note.responseText}</p>}
+                {note.status === 'OPEN' && context.actor.staffMemberId === note.assignedPreparerId && <>
+                  <label className="business-field"><span>Response to the review note</span><textarea minLength={10} value={reviewNoteResponses[note.id] ?? ''} onChange={event => setReviewNoteResponses(current => ({ ...current, [note.id]: event.target.value }))} /></label>
+                  <button className="btn sm" type="button" disabled={busy || (reviewNoteResponses[note.id] ?? '').trim().length < 10} onClick={() => void command('review.respond', { noteId: note.id, responseText: reviewNoteResponses[note.id] }, 'Assigned preparer response recorded in the review history.')}>Record response</button>
+                </>}
+                {note.status === 'RESPONDED' && canReview && <>
+                  {laterAccepted ? <>
+                    <p className="business-note">Accepted resubmission v{laterAccepted.targetVersion} is available for closure.</p>
+                    <label className="business-field"><span>Reviewer closure rationale</span><textarea minLength={10} value={reviewNoteClosures[note.id] ?? ''} onChange={event => setReviewNoteClosures(current => ({ ...current, [note.id]: event.target.value }))} /></label>
+                    <button className="btn sm" type="button" disabled={busy || (reviewNoteClosures[note.id] ?? '').trim().length < 10} onClick={() => void command('review.close-note', { noteId: note.id, resubmissionId: laterAccepted.id, closureReason: reviewNoteClosures[note.id] }, 'Review note closed after independent acceptance of the later revision.')}>Close resolved note</button>
+                  </> : <p className="business-note">The note remains open until the later revision is independently accepted.</p>}
+                </>}
+              </article>;
+            })}
             {canWrite && <form className="business-form business-fieldwork-subform" onSubmit={event => void insertProcedure(event,selectedWorkprogram.id)}><h4>Add a reasoned ad-hoc step</h4>
               <label className="business-field"><span>Title</span><input required value={adhocDrafts[selectedWorkprogram.id]?.title ?? ''} onChange={event => setAdhocDrafts(current => ({ ...current, [selectedWorkprogram.id]: { title: event.target.value, instructions: current[selectedWorkprogram.id]?.instructions ?? '', assertion: current[selectedWorkprogram.id]?.assertion ?? 'VALUATION', scopeReason: current[selectedWorkprogram.id]?.scopeReason ?? '' } }))} /></label>
               <label className="business-field"><span>Instructions</span><textarea required minLength={1} value={adhocDrafts[selectedWorkprogram.id]?.instructions ?? ''} onChange={event => setAdhocDrafts(current => ({ ...current, [selectedWorkprogram.id]: { title: current[selectedWorkprogram.id]?.title ?? '', instructions: event.target.value, assertion: current[selectedWorkprogram.id]?.assertion ?? 'VALUATION', scopeReason: current[selectedWorkprogram.id]?.scopeReason ?? '' } }))} /></label>
@@ -615,6 +666,60 @@ export function BusinessFieldworkPanel({ workspaceId, selected, context, engagem
         <div className="business-fieldwork-card"><div className="business-section-heading"><div><h3>Change feed</h3><p className="business-muted">Cursor {changeCursor} · refresh reloads current versioned rows and audit links.</p></div>
           <button className="btn sm" type="button" disabled={busy} onClick={async () => { try { const result = await getBusinessFieldworkChanges<{changes:unknown[];nextCursor:string;hasMore:boolean}>(workspaceId, engagement.id, scope, changeCursor); setChangeCursor(Number(result.nextCursor)); setMessage(`${result.changes.length} changes loaded${result.hasMore ? '; more are available' : ''}.`); } catch (reason) { setError(reason instanceof Error ? reason.message : 'Fieldwork changes could not be loaded.'); } }}>Read next events</button></div>
         </div>
+      </div>}
+      {tab === 'reviews' && <div className="business-fieldwork-body">
+        {(workspace.engagement.state === 'FIELDWORK_EXECUTION' && context.actor.staffGrade === 'MANAGER' || workspace.engagement.state === 'MANAGERIAL_REVIEW' && canPartner) && <section className="business-fieldwork-card">
+          <p className="business-eyebrow">LIFECYCLE GATE</p><h3>{workspace.engagement.state === 'FIELDWORK_EXECUTION' ? 'Hand over for Manager review' : 'Hand over for Partner approval'}</h3>
+          <p className="business-note">The server rechecks every current submission, decision, source pin and open rework note inside the handover command.</p>
+          <label className="business-field"><span>Handover rationale</span><textarea minLength={10} value={handoverReason} onChange={event => setHandoverReason(event.target.value)} /></label>
+          {workspace.engagement.state === 'FIELDWORK_EXECUTION' ? <button className="btn primary" type="button" disabled={busy || !canReview || handoverReason.trim().length < 10} onClick={() => void command('fieldwork.handover-manager', { engagementId: engagement.id, expectedVersion: workspace.engagement.version, reason: handoverReason }, 'Current fieldwork handed over to Manager review.')}>Start Manager review</button>
+            : <button className="btn primary" type="button" disabled={busy || handoverReason.trim().length < 10} onClick={() => void command('fieldwork.handover-partner', { engagementId: engagement.id, expectedVersion: workspace.engagement.version, reason: handoverReason }, 'Manager-reviewed fieldwork handed over to Partner approval.')}>Start Partner approval</button>}
+        </section>}
+        <section className="business-fieldwork-card"><p className="business-eyebrow">IMMUTABLE SUBMISSIONS</p><h3>Independent review queue</h3>
+          {workspace.reviewSubmissions.filter(item => ['ANALYTICAL_REVIEW','GOING_CONCERN'].includes(item.targetKind)).map(submission => {
+            const reviewDraft = workprogramReviewDrafts[submission.id] ?? '';
+            const targetName = submission.targetKind === 'ANALYTICAL_REVIEW'
+              ? `Analytical review · ${String(workspace.analyticalReviews.find(item => item.id === submission.analyticalReviewId)?.fsliCode ?? submission.analyticalReviewId)}`
+              : `Going-concern assessment · ${submission.goingConcernId}`;
+            return <article className="business-fieldwork-review" key={submission.id}>
+              <div className="business-section-heading"><div><strong>{targetName} · v{submission.targetVersion}</strong><span>Submitted {new Date(submission.submittedAt).toLocaleString()} · {submission.decision ? label(submission.decision) : 'awaiting review'}</span></div><code>{submission.dependencyHash.slice(0, 14)}</code></div>
+              {submission.decisionComment && <p className="business-note">Reviewer rationale: {submission.decisionComment}</p>}
+              {!submission.decision && canReview && <>
+                <label className="business-field"><span>Independent review rationale (required for either decision)</span><textarea minLength={10} value={reviewDraft} onChange={event => setWorkprogramReviewDrafts(current => ({ ...current, [submission.id]: event.target.value }))} /></label>
+                <div className="business-fieldwork-action-row">
+                  <button className="btn sm" type="button" disabled={busy || reviewDraft.trim().length < 10} onClick={() => void command('review.decide', { submissionId: submission.id, decision: 'ACCEPT', comment: reviewDraft }, 'Submission accepted by an independent reviewer.')}>Accept exact submission</button>
+                  <button className="btn sm" type="button" disabled={busy || reviewDraft.trim().length < 10} onClick={() => void command('review.decide', { submissionId: submission.id, decision: 'RETURN', comment: reviewDraft }, 'Submission returned with a documented assigned-preparer note.')}>Return for rework</button>
+                </div>
+              </>}
+            </article>;
+          })}
+          {!workspace.reviewSubmissions.some(item => ['ANALYTICAL_REVIEW','GOING_CONCERN'].includes(item.targetKind)) && <p className="business-muted">No analytical-review or going-concern submissions are waiting in this engagement.</p>}
+        </section>
+        <section className="business-fieldwork-card"><p className="business-eyebrow">DOCUMENTED REWORK</p><h3>Review notes</h3>
+          {workspace.reviewNotes.map(note => {
+            const assigned = workspace.staff.find(staff => staff.id === note.assignedPreparerId);
+            const laterAccepted = workspace.reviewSubmissions.filter(item => item.decision === 'ACCEPT' && item.submittedAt > (note.responseAt ?? note.createdAt) && (note.procedureId
+              ? item.targetKind === 'PROCEDURE' && item.procedureId === note.procedureId
+              : note.targetKind === 'GOING_CONCERN' ? item.targetKind === 'GOING_CONCERN' && (item.subjectRevision ?? 0) > (note.targetRevision ?? 0)
+                : item.targetKind === note.targetKind && item.workprogramId === note.workprogramId && item.analyticalReviewId === note.analyticalReviewId && item.goingConcernId === note.goingConcernId && item.srmVersionId === note.srmVersionId))
+              .sort((left,right) => right.targetVersion-left.targetVersion)[0];
+            return <article className="business-fieldwork-review" key={note.id}>
+              <strong>{label(note.targetKind)} note · {label(note.status)}{note.procedureId ? ` · ${workspace.procedures.find(item => item.id === note.procedureId)?.title ?? note.procedureId}` : ''}</strong>
+              <p>{note.text}</p><small>Assigned preparer: {assigned?.displayName ?? note.assignedPreparerId}</small>
+              {note.responseText && <p className="business-note">Preparer response: {note.responseText}</p>}
+              {note.status === 'OPEN' && context.actor.staffMemberId === note.assignedPreparerId && <>
+                <label className="business-field"><span>Response to the review note</span><textarea minLength={10} value={reviewNoteResponses[note.id] ?? ''} onChange={event => setReviewNoteResponses(current => ({ ...current, [note.id]: event.target.value }))} /></label>
+                <button className="btn sm" type="button" disabled={busy || (reviewNoteResponses[note.id] ?? '').trim().length < 10} onClick={() => void command('review.respond', { noteId: note.id, responseText: reviewNoteResponses[note.id] }, 'Assigned preparer response recorded in the review history.')}>Record response</button>
+              </>}
+              {note.status === 'RESPONDED' && canReview && (laterAccepted ? <>
+                <p className="business-note">Accepted resubmission v{laterAccepted.targetVersion} is available for closure.</p>
+                <label className="business-field"><span>Reviewer closure rationale</span><textarea minLength={10} value={reviewNoteClosures[note.id] ?? ''} onChange={event => setReviewNoteClosures(current => ({ ...current, [note.id]: event.target.value }))} /></label>
+                <button className="btn sm" type="button" disabled={busy || (reviewNoteClosures[note.id] ?? '').trim().length < 10} onClick={() => void command('review.close-note', { noteId: note.id, resubmissionId: laterAccepted.id, closureReason: reviewNoteClosures[note.id] }, 'Review note closed after independent acceptance of the later revision.')}>Close resolved note</button>
+              </> : <p className="business-note">Waiting for the assigned preparer to resubmit and receive independent acceptance.</p>)}
+            </article>;
+          })}
+          {!workspace.reviewNotes.length && <p className="business-muted">No rework notes have been issued for this engagement.</p>}
+        </section>
       </div>}
     </>}
   </section>;

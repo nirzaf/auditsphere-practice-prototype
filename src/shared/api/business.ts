@@ -51,6 +51,7 @@ export interface BusinessContextResponse {
     displayName: string;
     staffGrade: StaffGrade | null;
     clientId: string | null;
+    staffMemberId?: string | null;
   };
   scope: { clientId: string | null; engagementId: string | null };
   allowedActions: string[];
@@ -394,7 +395,7 @@ export interface BusinessFinancialStatements {
   blockers: Array<{ code: string; differenceMinor: string; message: string }>;
 }
 export interface BusinessFieldworkWorkspace {
-  engagement: { id: string; clientId: string; state: string; periodStart: string; periodEnd: string; standardsProfileId: string; activeTbVersionId: string | null; activeMappingVersionId: string | null; approvedPlanningVersionId: string | null };
+  engagement: { id: string; version: number; clientId: string; state: string; periodStart: string; periodEnd: string; standardsProfileId: string; activeTbVersionId: string | null; activeMappingVersionId: string | null; approvedPlanningVersionId: string | null };
   staff: Array<{ id: string; displayName: string; grade: StaffGrade }>;
   evidenceLinks: Array<{ id: string; evidenceId: string; evidenceVersion: number; targetVersion: number; targetType: string; targetId: string; unlinkReason: string | null; linkedAt: string }>;
   statements: BusinessFinancialStatements;
@@ -406,6 +407,11 @@ export interface BusinessFieldworkWorkspace {
   procedures: Array<{ id: string; version: number; workprogramId: string; fsliId: string; ordinal: number; title: string; instructions: string; assertion: string; origin: string; mandatory: number;
     scopeReason: string | null; workPerformed: string | null; conclusion: string | null; applicable: number; notApplicableReason: string | null; status: string; executedByStaffId: string | null;
     evidenceSetHash: string; sourceHash: string; submissionId: string | null }>;
+  reviewSubmissions: Array<{ id: string; targetKind: string; procedureId: string | null; workprogramId: string | null; analyticalReviewId: string | null; goingConcernId: string | null; srmVersionId: string | null;
+    targetVersion: number; subjectRevision: number | null; dependencyHash: string; submittedByActorId: string; submittedAt: string; decision: 'ACCEPT' | 'RETURN' | null; decisionComment: string | null; decidedAt: string | null }>;
+  reviewNotes: Array<{ id: string; version: number; submissionId: string; procedureId: string | null; text: string; assignedPreparerId: string; status: 'OPEN' | 'RESPONDED' | 'CLOSED';
+    responseText: string | null; responseAt: string | null; closedByActorId: string | null; closedAt: string | null; closureReason: string | null; resubmissionId: string | null;
+    createdAt: string; targetKind: string; workprogramId: string | null; analyticalReviewId: string | null; goingConcernId: string | null; srmVersionId: string | null; targetVersion: number; targetRevision: number | null }>;
   evidence: Array<{ id: string; familyId: string; version: number; mode: 'DIGITAL' | 'PHYSICAL' | 'HYBRID'; title: string; fileVersionId: string | null; physicalIndex: string | null;
     physicalDescription: string | null; binder: string | null; box: string | null; shelf: string | null; externalSourceUrl: string | null; retrievedAt: string | null;
     fileSha256: string | null; adequacy: 'ADEQUATE' | 'DEFICIENT' | null; adequacyRationale: string | null }>;
