@@ -20,8 +20,9 @@ const ratioInput = z.strictObject({
 const analyticalReviewSave = z.strictObject({ type: z.literal('analytical-review.save'), payload: z.strictObject({
   engagementId: id, fsliId: id, statementSnapshotId: id,
   expectationText: text(10,10000), thresholdMinor: minor.nullable().optional(), thresholdBps: z.number().int().min(1).max(100000).nullable().optional(),
-  explanation: text(10,10000).nullable().optional(), conclusion: text(10,5000).nullable().optional(), ratios: z.array(ratioInput).max(30).default([])
-}) });
+  explanation: text(10,10000).nullable().optional(), conclusion: text(10,5000).nullable().optional(), ratios: z.array(ratioInput).max(30).default([]),
+  analyticalReviewId: id.optional(), expectedVersion: z.number().int().positive().optional()
+}).refine(value => Boolean(value.analyticalReviewId) === Boolean(value.expectedVersion), { message: 'Revising an analytical review requires both the exact review id and its expected version.' }) });
 const analyticalReviewSubmit = z.strictObject({ type: z.literal('analytical-review.submit'), payload: z.strictObject({ analyticalReviewId: id, expectedVersion: z.number().int().positive() }) });
 const checklist = z.strictObject({
   managementAssessment: z.boolean(), cashFlowForecasts: z.boolean(), financingAndCovenants: z.boolean(),
@@ -173,6 +174,14 @@ async function getEngagement(env: Env, workspaceId: string, context: BusinessCon
   return row;
 }
 function rowHash(input: unknown): Promise<string> { return sha256Hex(JSON.stringify(input)); }
+export function assertGoingConcernComplete(conclusion: string): void {
+  if (conclusion === 'UNASSESSED') throw new ApiError('GATE_BLOCKED', 'An unfinished going-concern assessment (conclusion UNASSESSED) cannot be submitted for independent review.');
+}
+export function assertFieldworkFsliCoverage(mappedFsliIds: string[], workprogramFsliIds: string[]): void {
+  const covered = new Set(workprogramFsliIds);
+  const uncovered = mappedFsliIds.filter(fsliId => !covered.has(fsliId));
+  if (uncovered.length) throw new ApiError('GATE_BLOCKED', `Fieldwork is incomplete: ${uncovered.length} in-scope FSLI(s) on the active mapping have no workprogram.`);
+}
 function moneyMinor(value: string | number): number {
   const amount = typeof value === 'string' ? Number(value) : value;
   if (!Number.isSafeInteger(amount)) throw new ApiError('INVALID_SAMPLE_PARAMETERS','Amount is outside the supported safe minor-unit range.');
@@ -608,14 +617,32 @@ async function saveAnalyticalReview(env:Env,workspaceId:string,context:BusinessC
   const snapshot=await env.DB.prepare(`SELECT source_hash FROM statement_snapshots WHERE workspace_id=? AND id=? AND engagement_id=?`).bind(workspaceId,p.statementSnapshotId,p.engagementId).first<{source_hash:string}>();
   if(!snapshot||snapshot.source_hash!==view.sourceHash)throw new ApiError('STALE_DEPENDENCY','Create a current statement snapshot before drafting an analytical review.');
   const line=[...view.profitLoss,...view.balanceSheet].find(item=>item.fsliId===p.fsliId);if(!line)throw new ApiError('NOT_FOUND','FSLI was not found on the current statement.');
-  const reviewId=crypto.randomUUID();const reviewSourceHash=await rowHash({snapshot:snapshot.source_hash,fsliId:p.fsliId,expectation:p.expectationText,thresholdMinor:p.thresholdMinor??null,thresholdBps:p.thresholdBps??null,ratios:p.ratios});
-  const statements:D1PreparedStatement[]=[env.DB.prepare(`INSERT INTO analytical_reviews(id,workspace_id,version,client_id,engagement_id,fsli_id,statement_snapshot_id,expectation_text,threshold_minor,threshold_bps,explanation,conclusion,status,prepared_by_actor_id,source_hash,created_at,updated_at)
-    VALUES(?,?,1,?,?,?,?,?,?,?,?,?,'DRAFT',?,?,?,?)`).bind(reviewId,workspaceId,engagement.client_id,engagement.id,p.fsliId,p.statementSnapshotId,p.expectationText,p.thresholdMinor??null,p.thresholdBps??null,p.explanation??null,p.conclusion??null,context.actor.id,reviewSourceHash,now,now)];
-  for(const ratio of p.ratios){
+  const reviewSourceHash=await rowHash({snapshot:snapshot.source_hash,fsliId:p.fsliId,expectation:p.expectationText,thresholdMinor:p.thresholdMinor??null,thresholdBps:p.thresholdBps??null,ratios:p.ratios});
+  const ratioStatements=(reviewId:string)=>p.ratios.map(ratio=>{
     const numerator=moneyMinor(ratio.numeratorMinor);const denominator=moneyMinor(ratio.denominatorMinor);const undefinedReason=denominator===0?'ZERO_DENOMINATOR':null;
-    statements.push(env.DB.prepare(`INSERT INTO analytical_ratios(id,workspace_id,analytical_review_id,name,numerator_minor,denominator_minor,result_numerator,result_denominator,undefined_reason,numerator_source,denominator_source)
-      VALUES(?,?,?,?,?,?,?,?,?,?,?)`).bind(crypto.randomUUID(),workspaceId,reviewId,ratio.name,numerator,denominator,undefinedReason?null:String(numerator),undefinedReason?null:String(denominator),undefinedReason,ratio.numeratorSource,ratio.denominatorSource));
+    return env.DB.prepare(`INSERT INTO analytical_ratios(id,workspace_id,analytical_review_id,name,numerator_minor,denominator_minor,result_numerator,result_denominator,undefined_reason,numerator_source,denominator_source)
+      VALUES(?,?,?,?,?,?,?,?,?,?,?)`).bind(crypto.randomUUID(),workspaceId,reviewId,ratio.name,numerator,denominator,undefinedReason?null:String(numerator),undefinedReason?null:String(denominator),undefinedReason,ratio.numeratorSource,ratio.denominatorSource);});
+  if(p.analyticalReviewId){
+    const existing=await env.DB.prepare(`SELECT id,version,status,client_id,engagement_id FROM analytical_reviews WHERE workspace_id=? AND id=?`).bind(workspaceId,p.analyticalReviewId)
+      .first<{id:string;version:number;status:string;client_id:string;engagement_id:string}>();
+    if(!existing)throw new ApiError('NOT_FOUND','The analytical review to revise was not found.');
+    if(existing.engagement_id!==p.engagementId||existing.client_id!==engagement.client_id)throw new ApiError('FORBIDDEN_SCOPE','The analytical review is outside the selected engagement.');
+    if(existing.status!=='DRAFT'&&existing.status!=='UNDER_REWORK')throw new ApiError('INVALID_STATE','Only a draft or returned analytical review can be revised and resubmitted.');
+    const expectedVersion=p.expectedVersion as number;
+    if(Number(existing.version)!==expectedVersion)throw new ApiError('VERSION_CONFLICT',JSON.stringify({entity:'AnalyticalReview',id:existing.id,expectedVersion,currentVersion:existing.version}));
+    const nextVersion=expectedVersion+1;
+    const revisedStatements:D1PreparedStatement[]=[versionGuard(env,workspaceId,990,'analytical_reviews','id',existing.id,expectedVersion),
+      env.DB.prepare(`UPDATE analytical_reviews SET version=?,fsli_id=?,statement_snapshot_id=?,expectation_text=?,threshold_minor=?,threshold_bps=?,explanation=?,conclusion=?,status='DRAFT',source_hash=?,updated_at=? WHERE workspace_id=? AND id=? AND version=? AND status IN ('DRAFT','UNDER_REWORK')`)
+        .bind(nextVersion,p.fsliId,p.statementSnapshotId,p.expectationText,p.thresholdMinor??null,p.thresholdBps??null,p.explanation??null,p.conclusion??null,reviewSourceHash,now,workspaceId,existing.id,expectedVersion),
+      env.DB.prepare(`DELETE FROM analytical_ratios WHERE workspace_id=? AND analytical_review_id=?`).bind(workspaceId,existing.id),
+      ...ratioStatements(existing.id)];
+    return commandMutation(revisedStatements,{analyticalReviewId:existing.id,version:nextVersion,revised:true,fsli:{id:line.fsliId,code:line.code},sourceHash:reviewSourceHash,variancePercent:line.variancePercent,varianceReason:line.varianceReason},
+      'ANALYTICAL_REVIEW',existing.id,expectedVersion,nextVersion);
   }
+  const reviewId=crypto.randomUUID();
+  const statements:D1PreparedStatement[]=[env.DB.prepare(`INSERT INTO analytical_reviews(id,workspace_id,version,client_id,engagement_id,fsli_id,statement_snapshot_id,expectation_text,threshold_minor,threshold_bps,explanation,conclusion,status,prepared_by_actor_id,source_hash,created_at,updated_at)
+    VALUES(?,?,1,?,?,?,?,?,?,?,?,?,'DRAFT',?,?,?,?)`).bind(reviewId,workspaceId,engagement.client_id,engagement.id,p.fsliId,p.statementSnapshotId,p.expectationText,p.thresholdMinor??null,p.thresholdBps??null,p.explanation??null,p.conclusion??null,context.actor.id,reviewSourceHash,now,now),
+    ...ratioStatements(reviewId)];
   return commandMutation(statements,{analyticalReviewId:reviewId,version:1,fsli:{id:line.fsliId,code:line.code},sourceHash:reviewSourceHash,variancePercent:line.variancePercent,varianceReason:line.varianceReason},'ANALYTICAL_REVIEW',reviewId,null,1);
 }
 
@@ -920,6 +947,7 @@ async function submitReview(env:Env,workspaceId:string,context:BusinessContext,c
   if(p.targetKind==='GOING_CONCERN'){
     const row=await env.DB.prepare(`SELECT g.id,g.version,g.client_id,g.engagement_id,g.revision,g.source_hash,g.status,g.prepared_by_actor_id,g.assessment_end,g.conclusion,g.checklist_json,g.evidence_file_ids_json FROM going_concern_assessments g WHERE g.workspace_id=? AND g.id=?`).bind(workspaceId,p.targetId).first<Record<string,unknown>>();
     if(!row||!['DRAFT','UNDER_REWORK'].includes(String(row.status)))throw new ApiError('INVALID_STATE','Only an editable going-concern assessment can be submitted.');
+    assertGoingConcernComplete(String(row.conclusion));
     const engagement=await getEngagement(env,workspaceId,context,String(row.engagement_id));if(Number(row.version)!==p.targetVersion)throw new ApiError('VERSION_CONFLICT',JSON.stringify({entity:'GoingConcernAssessment',id:p.targetId,expectedVersion:p.targetVersion,currentVersion:row.version}));
     const dependencyHash=await rowHash({sourceHash:row.source_hash,standardsProfileId:engagement.standards_profile_id,tbVersionId:engagement.active_tb_version_id,mappingVersionId:engagement.active_mapping_version_id});
     if(p.dependencyHash&&p.dependencyHash!==dependencyHash)throw new ApiError('STALE_DEPENDENCY','Going-concern source pins changed.');
@@ -2060,6 +2088,9 @@ async function collectSrmInputs(env:Env,workspaceId:string,context:BusinessConte
   if(going.status!=='REVIEWED'||going.decision!=='ACCEPT'||Number(going.submittedVersion)+1!==Number(going.version)||going.dependencyHash!==goingDependency)throw new ApiError('GATE_BLOCKED','The latest going-concern assessment must be independently accepted against current source pins.');
   const workprograms=workprogramResult.results??[];const procedures=procedureResult.results??[];const analyticalReviews=analyticalResult.results??[];const findings=findingResult.results??[];const adjustments=adjustmentResult.results??[];
   if(!workprograms.length||workprograms.some(row=>row.status!=='PARTNER_CLEARED'||Number(row.managerAccepted)!==1||row.planningVersionId!==engagement.approved_planning_version_id))throw new ApiError('GATE_BLOCKED','Every current workprogram must have Manager acceptance and Partner area clearance before the SRM can be compiled.');
+  const mappedFsliResult=await env.DB.prepare(`SELECT DISTINCT fsli_id AS fsliId FROM tb_mappings WHERE workspace_id=? AND mapping_version_id=?`)
+    .bind(workspaceId,engagement.active_mapping_version_id).all<{fsliId:string}>();
+  assertFieldworkFsliCoverage((mappedFsliResult.results??[]).map(row=>row.fsliId),workprograms.map(row=>String(row.fsliId)));
   if(!procedures.length||procedures.some(row=>row.status!=='REVIEWED'))throw new ApiError('GATE_BLOCKED','Every applicable procedure must be independently reviewed before the SRM can be compiled.');
   if(analyticalReviews.some(row=>row.status!=='REVIEWED'))throw new ApiError('GATE_BLOCKED','Resolve every draft, returned, or pending analytical review before compiling the SRM.');
   for(const review of analyticalReviews){const accepted=(reviewResult.results??[]).some(sub=>sub.targetKind==='ANALYTICAL_REVIEW'&&sub.snapshotJson&&sub.decision==='ACCEPT'&&Number(sub.targetVersion)+1===review.version&&JSON.parse(String(sub.snapshotJson)).id===review.id);
