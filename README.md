@@ -16,7 +16,7 @@ npm run cloud:typecheck
 npm run build
 ```
 
-On Windows, set `CHROME_PATH` to the installed Chrome executable before browser tests. Production output is `dist/`. The build also generates `public/Client_Requirements.html` from the same 17-slide JSON used by React.
+npm is the only package manager here: `package-lock.json` is the single lockfile, installed in CI with `npm ci`, which fails when the lockfile drifts from `package.json`. Node 24 is pinned by `.nvmrc` and declared in `package.json` `engines`. On Windows, set `CHROME_PATH` to the installed Chrome executable before browser tests. Production output is `dist/`. The build also generates `public/Client_Requirements.html` from the same 17-slide JSON used by React.
 
 ## Architecture
 

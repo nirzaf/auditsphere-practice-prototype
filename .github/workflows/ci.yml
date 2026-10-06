@@ -40,18 +40,13 @@ jobs:
           node-version: '24'
           cache: 'npm'
 
-      # Cache the installed tree itself, not just the download cache, so a hit
-      # skips `npm ci` outright. Keyed on the root lockfile only: `ste-audit/`
-      # has its own lockfile and is not installed by this job.
-      - name: Restore node_modules
-        id: node-modules
-        uses: actions/cache@v4
-        with:
-          path: node_modules
-          key: node-modules-${{ runner.os }}-node24-${{ hashFiles('package-lock.json') }}
-
+      # Install from the lockfile on every run. Caching the installed tree lets a
+      # hit skip `npm ci` outright, which quietly stops CI from validating that
+      # package-lock.json still matches package.json. Only the download cache is
+      # kept (setup-node above), and this now matches the deploy job, which has
+      # always run `npm ci` unconditionally. Keying nothing on node_modules also
+      # keeps `ste-audit/`'s separate lockfile out of this job's cache identity.
       - name: Install dependencies
-        if: steps.node-modules.outputs.cache-hit != 'true'
         run: npm ci
 
       - name: Typecheck app and worker
