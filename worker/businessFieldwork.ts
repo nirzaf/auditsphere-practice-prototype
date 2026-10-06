@@ -566,7 +566,7 @@ async function evidenceSet(env:Env,workspaceId:string,kind:'procedure_id'|'analy
   const deficient=rows.filter(row=>row.adequacy!=='ADEQUATE');
   if(stale.length)throw new ApiError('STALE_DEPENDENCY','A linked evidence version has been replaced. Refresh its pin and reassess the affected work.');
   if(requireAdequate&&deficient.length)throw new ApiError('GATE_BLOCKED','All linked evidence must have a current ADEQUATE reviewer decision.');
-  return {rows,hash:await rowHash(rows.map(row=>({id:row.id,version:row.version,adequacy:row.adequacy,sha256:row.sha256}))),adequate:rows.filter(row=>row.adequacy==='ADEQUATE').length};
+  return {rows,hash:await pinHash(rows.map(row=>({evidenceId:row.id,evidenceVersion:row.version,sha256:row.sha256,adequacy:row.adequacy}))),adequate:rows.filter(row=>row.adequacy==='ADEQUATE').length};
 }
 function pushChange(env:Env,workspaceId:string,engagementId:string,entityType:string,entityId:string,rowVersion:number,now:string){
   return env.DB.prepare(`INSERT INTO fieldwork_change_feed(workspace_id,sequence,entity_type,entity_id,row_version,engagement_id,changed_at)
@@ -809,7 +809,7 @@ async function submitProcedure(env:Env,workspaceId:string,context:BusinessContex
 
 async function reviewProcedure(env:Env,workspaceId:string,context:BusinessContext,command:Extract<BusinessFieldworkCommand,{type:'procedure.review'}>,now:string):Promise<BusinessMutation>{
   requireReviewer(context);const p=command.payload;const row=await currentProcedure(env,workspaceId,p.procedureId);await verifyProcedureScope(context,row);
-  if(Number(row.version)!==p.expectedVersion)throw new ApiError('VERSION_CONFLICT',JSON.stringify({entity:'Procedure',id:p.procedureId,expectedVersion:p.expectedVersion,currentVersion:row.version}));
+  if(Number(row.version)!==p.expectedVersion)throw new ApiError('STALE_DEPENDENCY','The procedure changed after the reviewer opened the submitted revision. Refresh and review the exact current submission.');
   if(row.status!=='SUBMITTED')throw new ApiError('INVALID_STATE','Only an exact current submitted procedure revision can be reviewed.');
   const submission=await env.DB.prepare(`SELECT id,row_version,content_version,evidence_set_hash,source_hash,status,submitted_by_actor_id FROM procedure_submissions WHERE workspace_id=? AND procedure_id=? ORDER BY submitted_at DESC LIMIT 1`).bind(workspaceId,p.procedureId).first<Record<string,unknown>>();
   if(!submission||Number(submission.row_version)!==p.expectedVersion||submission.status!=='SUBMITTED')throw new ApiError('STALE_DEPENDENCY','The submitted procedure revision is no longer current.');
@@ -1220,7 +1220,7 @@ async function evaluateSampling(env:Env,workspaceId:string,context:BusinessConte
   const testMap=new Map(tests.map(row=>[String(row.populationRowId),row]));const distinctHitIds=new Set(hits.map(hit=>hit.populationRowId));
   const missing=[...distinctHitIds].filter(rowId=>Number(testMap.get(rowId)?.tested)!==1);const evaluationId=crypto.randomUUID();const prior=await env.DB.prepare(`SELECT COALESCE(MAX(revision),0) AS revision FROM sampling_evaluations WHERE workspace_id=? AND plan_id=?`).bind(workspaceId,p.planId).first<{revision:number}>();
   const revision=(prior?.revision??0)+1;let details:Record<string,unknown>={method:plan.method,testSetHash:testHash,distinctSelectedCount:distinctHitIds.size,selectedDrawCount:hits.length};let testedHitCount=0;let taintedHitCount=0;let upperBound:number|null=null;let result:'WITHIN_TOLERANCE'|'EXCEEDS_TOLERANCE'|'INCOMPLETE'|'OUTSIDE_ASSUMPTIONS'|'COMPLETED_NONSTATISTICAL'='INCOMPLETE';
-  if(missing.length){result='INCOMPLETE';details.missingPopulationRowIds=missing;}
+  if(missing.length&&plan.method!=='STRATIFIED_ATTRIBUTE'){result='INCOMPLETE';details.missingPopulationRowIds=missing;}
   else if(plan.method==='MUS_BINOMIAL_PPS'){
     for(const hit of hits){const test=testMap.get(hit.populationRowId);if(test&&Number(test.tested)===1){testedHitCount++;if(Number(test.misstated)===1)taintedHitCount++;if(Number(test.auditedValueMinor)<0){result='OUTSIDE_ASSUMPTIONS';details.outsideAssumptionsReason='A tested audited value is negative.';break;}}}
     if(!('outsideAssumptionsReason'in details)){

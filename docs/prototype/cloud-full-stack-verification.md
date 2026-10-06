@@ -261,5 +261,34 @@ digital bytes and a physical locator as HYBRID evidence. A separate reviewer
 records adequacy before the preparer submits the analysis and the reviewer
 accepts it. A zero-denominator ratio remains explicitly undefined. This adds
 bounded API integration evidence for US-FLD-003, US-FLD-004, US-FLD-010 and
-US-FLD-011; the remaining FLD stories and their browser-level acceptance are
-still open.
+US-FLD-011. At that point, the other FLD stories and browser-level acceptance
+were still open; the follow-up below records the next bounded API slice.
+
+## Fieldwork concurrency and sampling integration evidence — 2026-10-06
+
+`npx tsx --test tests/unit/businessWorkspace.test.ts` passed **1/1** after the
+fieldwork fixes, and `npm run build` passed. The Worker/D1 integration scenario
+uses the isolated in-memory test adapters and synthetic audit data. It adds
+bounded API acceptance for:
+
+* **US-FLD-005:** Partner approval of a five-step revenue workprogram template,
+  Manager-only Red-risk provision and execution, persistence of a sixth
+  engagement-specific ad-hoc step, and rejection of an empty procedure
+  submission.
+* **US-FLD-006:** Independent procedure rows save at the same time; a stale
+  same-row update receives a version conflict; reviewers cannot accept an old
+  submission after preparer rework.
+* **US-FLD-007:** A negative population amount is blocked until documented
+  alternate work; seeded MUS replay preserves all 59 monetary draws, including
+  repeat hits on one row; conservative zero-taint and misstatement evaluations
+  produce explicit bounds and decisions.
+* **US-FLD-008:** Systematic sampling uses a persisted stable ordering and exact
+  rational start/interval, rejects an impossible requested count, and records an
+  explicit census when the full population is requested.
+* **US-FLD-009:** Disjoint strata retain separate confidence assumptions and
+  results; overlapping or omitted source rows are rejected, and a partial test
+  reports each stratum while keeping the overall plan INCOMPLETE.
+
+The evidence is an API integration pass, not browser-level acceptance of these
+stories and not completion of the 46-story epic. Full requirement-by-requirement
+closure remains open.

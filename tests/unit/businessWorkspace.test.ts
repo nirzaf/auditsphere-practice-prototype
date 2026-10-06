@@ -76,6 +76,12 @@ async function call(path: string, options: {
                           ? { entity: 'ProposalVersion', id: commandPayload.proposalVersionId }
                           : request.command.type === 'proposal.dispatch.retry' ? { entity: 'Dispatch', id: commandPayload.dispatchId }
                           : request.command.type === 'analytical-review.submit' ? { entity: 'AnalyticalReview', id: commandPayload.analyticalReviewId }
+                          : request.command.type === 'workprogram.template.approve' ? { entity: 'WorkprogramTemplate', id: commandPayload.templateId }
+                          : ['procedure.update', 'procedure.mark-not-applicable', 'procedure.submit', 'procedure.review'].includes(String(request.command.type))
+                            ? { entity: 'Procedure', id: commandPayload.procedureId }
+                          : request.command.type === 'sampling.policy.approve' ? { entity: 'SamplingPolicy', id: commandPayload.policyId }
+                          : request.command.type === 'sampling.record-test' && commandPayload.expectedVersion > 0
+                            ? { entity: 'SampleTest', id: commandPayload.populationRowId }
                   : request.command.type === 'time.submit' || request.command.type === 'time.approve'
                     || request.command.type === 'time.return' || request.command.type === 'time.correct'
                     ? { entity: 'TimeEntry', id: commandPayload.timeEntryId }
@@ -1581,6 +1587,394 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
   }, makeRiskHeaders(reviewerHeaders));
   assert.equal(acceptedAnalysis.response.status, 200, JSON.stringify(acceptedAnalysis.body));
   assert.equal(acceptedAnalysis.body.result.decision, 'ACCEPT');
+
+  const samplingReviewerHeaders = makeRiskHeaders(reviewerHeaders);
+  const samplingApproverHeaders = makeRiskHeaders(approverHeaders);
+  // US-FLD-005..006 — approved source templates, ad-hoc scope, Manager-only
+  // Red-risk execution and row-level concurrency/review revision protection.
+  const revenueTemplate = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'workprogram.template.create', payload: {
+      fsliCode: 'REVENUE', title: 'Revenue assertions and cutoff', standardsProfileId: planningApproved.body.result.standardsProfileId ?? fieldworkWorkspace.body.engagement.standardsProfileId,
+      procedures: [
+        { title: 'Vouch recorded revenue', instructions: 'Trace selected recorded invoices to signed evidence of delivered services and customer acceptance.', assertion: 'EXISTENCE', mandatory: true },
+        { title: 'Confirm rights and obligations', instructions: 'Inspect current contracts and customer terms that establish the firm obligation to the named client.', assertion: 'RIGHTS_OBLIGATIONS', mandatory: true },
+        { title: 'Trace completeness', instructions: 'Trace a sequence of source service records forward into the current revenue ledger.', assertion: 'COMPLETENESS', mandatory: true },
+        { title: 'Recalculate valuation', instructions: 'Recalculate the recorded invoice amount and compare it with the underlying signed order.', assertion: 'VALUATION', mandatory: true },
+        { title: 'Test cutoff', instructions: 'Inspect transactions immediately before and after period end and verify service delivery dates.', assertion: 'CUTOFF', mandatory: true }
+      ]
+    } }
+  }, samplingApproverHeaders);
+  assert.equal(revenueTemplate.response.status, 200, JSON.stringify(revenueTemplate.body));
+  assert.equal(revenueTemplate.body.result.procedureCount, 5);
+  const revenueTemplateId = revenueTemplate.body.result.templateId as string;
+  const approveRevenueTemplate = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'workprogram.template.approve', payload: { templateId: revenueTemplateId, expectedVersion: 1 } }
+  }, samplingApproverHeaders);
+  assert.equal(approveRevenueTemplate.response.status, 200, JSON.stringify(approveRevenueTemplate.body));
+  assert.equal(approveRevenueTemplate.body.result.status, 'APPROVED');
+  const redWorkprogramPayload = { engagementId, fsliId: revenueLine.fsliId, planningVersionId: planningApproved.body.result.planningVersionId,
+    templateId: revenueTemplateId, assignedStaffId: preparerStaff.body.result.staffMemberId };
+  const associateRedProvision = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'workprogram.provision', payload: redWorkprogramPayload }
+  }, technicalHeaders);
+  assert.equal(associateRedProvision.response.status, 403, 'an Associate cannot be assigned to execute Red-risk work');
+  assert.equal(associateRedProvision.body.code, 'PERSONA_ACTION_DENIED');
+  const managerRedProvision = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'workprogram.provision', payload: { ...redWorkprogramPayload, assignedStaffId: staff.body.result.staffMemberId } }
+  }, samplingReviewerHeaders);
+  assert.equal(managerRedProvision.response.status, 200, JSON.stringify(managerRedProvision.body));
+  assert.equal(managerRedProvision.body.result.procedureCount, 5);
+  const revenueWorkprogramId = managerRedProvision.body.result.workprogramId as string;
+  const revenueProcedureIds = managerRedProvision.body.result.procedureIds as string[];
+  const associateRedExecution = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'procedure.update', payload: {
+      procedureId: revenueProcedureIds[0], expectedVersion: 1,
+      workPerformed: 'The Associate attempted the required Red-risk execution.', conclusion: 'The screen persona cannot satisfy Manager-grade execution.'
+    } }
+  }, technicalHeaders);
+  assert.equal(associateRedExecution.response.status, 403);
+  assert.equal(associateRedExecution.body.code, 'PERSONA_ACTION_DENIED');
+  const addAdHocProcedure = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'procedure.insert', payload: {
+      workprogramId: revenueWorkprogramId, afterProcedureId: revenueProcedureIds[0], title: 'Investigate an unusual year-end credit note',
+      instructions: 'Inspect the full source record and assess whether the credit note masks revenue cutoff or an undisclosed customer concession.',
+      assertion: 'CUTOFF', scopeReason: 'Current-year analytics identified an unusual year-end credit requiring an engagement-specific procedure.'
+    } }
+  }, technicalHeaders);
+  assert.equal(addAdHocProcedure.response.status, 200, JSON.stringify(addAdHocProcedure.body));
+  const revenueWorkspaceAfterInsert = await call(`/api/workspaces/${workspaceId}/engagements/${engagementId}/fieldwork-workspace`, { headers: technicalHeaders });
+  const revenueProcedureRows = revenueWorkspaceAfterInsert.body.procedures.filter((row: any) => row.workprogramId === revenueWorkprogramId);
+  assert.equal(revenueProcedureRows.length, 6, 'five copied standard steps coexist with one persistent ad-hoc procedure');
+  assert.equal(revenueProcedureRows.filter((row: any) => row.origin === 'STANDARD').length, 5);
+  assert.equal(revenueProcedureRows.filter((row: any) => row.origin === 'AD_HOC').length, 1);
+  const blankProcedureSubmit = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'procedure.submit', payload: { procedureId: revenueProcedureIds[0], expectedVersion: 1 } }
+  }, samplingReviewerHeaders);
+  assert.equal(blankProcedureSubmit.response.status, 422);
+  assert.equal(blankProcedureSubmit.body.code, 'VALIDATION_FAILED');
+  assert.equal(db.prepare('SELECT COUNT(*) AS count FROM procedure_submissions WHERE workspace_id=? AND procedure_id=?')
+    .bind(workspaceId, revenueProcedureIds[0]).first<any>()?.count, 0, 'blank work and conclusion cannot create a review submission');
+
+  const updateProcedure = (procedureId: string, expectedVersion: number, suffix: string) => post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'procedure.update', payload: {
+      procedureId, expectedVersion, workPerformed: `Manager-grade procedure work ${suffix} was completed against the current retained source.`,
+      conclusion: `The ${suffix} review conclusion retains its independent row version and source rationale.`
+    } }
+  }, samplingReviewerHeaders);
+  const independentProcedureUpdates = await Promise.all([
+    updateProcedure(revenueProcedureIds[0], 1, 'Sales'), updateProcedure(revenueProcedureIds[1], 1, 'PPE')
+  ]);
+  assert.deepEqual(independentProcedureUpdates.map(item => item.response.status), [200, 200], 'different procedure rows save concurrently');
+  assert.deepEqual(independentProcedureUpdates.map(item => item.body.result.version), [2, 2]);
+  const concurrentSameRow = await Promise.all([
+    updateProcedure(revenueProcedureIds[0], 2, 'first concurrent writer'), updateProcedure(revenueProcedureIds[0], 2, 'second concurrent writer')
+  ]);
+  assert.equal(concurrentSameRow.filter(item => item.response.status === 200).length, 1, 'only one same-row writer commits');
+  assert.equal(concurrentSameRow.filter(item => item.response.status === 409 && item.body.code === 'VERSION_CONFLICT').length, 1,
+    'the competing same-row writer receives an explicit version conflict');
+  const racedProcedure = db.prepare('SELECT version,work_performed FROM procedures WHERE workspace_id=? AND id=?')
+    .bind(workspaceId, revenueProcedureIds[0]).first<any>();
+  assert.equal(racedProcedure?.version, 3);
+  assert.ok(['first concurrent writer', 'second concurrent writer'].some(name => String(racedProcedure?.work_performed).includes(name)));
+  assert.deepEqual(db.prepare('SELECT row_version FROM procedure_revisions WHERE workspace_id=? AND procedure_id=? ORDER BY row_version')
+    .bind(workspaceId, revenueProcedureIds[0]).all<any>().results.map((item: any) => item.row_version), [1, 2, 3],
+    'the losing write creates no revision and cannot replace the winning content');
+
+  const greenFsli = currentTbWorkspace.body.fsliCatalog.find((item: any) => item.code === 'OTHER_CURRENT_ASSETS');
+  const greenTemplate = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'workprogram.template.create', payload: {
+      fsliCode: 'OTHER_CURRENT_ASSETS', title: 'Other current assets existence and valuation', standardsProfileId: fieldworkWorkspace.body.engagement.standardsProfileId,
+      procedures: [{ title: 'Inspect other current asset support', instructions: 'Inspect the retained source and recalculate the other current asset amount.', assertion: 'VALUATION', mandatory: true }]
+    } }
+  }, samplingApproverHeaders);
+  assert.equal(greenTemplate.response.status, 200, JSON.stringify(greenTemplate.body));
+  const greenTemplateApproval = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'workprogram.template.approve', payload: { templateId: greenTemplate.body.result.templateId, expectedVersion: 1 } }
+  }, samplingApproverHeaders);
+  assert.equal(greenTemplateApproval.response.status, 200, JSON.stringify(greenTemplateApproval.body));
+  const greenProgram = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'workprogram.provision', payload: {
+      engagementId, fsliId: greenFsli.id, planningVersionId: planningApproved.body.result.planningVersionId,
+      templateId: greenTemplate.body.result.templateId, assignedStaffId: preparerStaff.body.result.staffMemberId
+    } }
+  }, technicalHeaders);
+  assert.equal(greenProgram.response.status, 200, JSON.stringify(greenProgram.body));
+  const greenProcedureId = greenProgram.body.result.procedureIds[0] as string;
+  const greenProcedureUpdate = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'procedure.update', payload: {
+      procedureId: greenProcedureId, expectedVersion: 1,
+      workPerformed: 'Inspected the complete retained asset support and recalculated the carrying value.',
+      conclusion: 'The sampled carrying value agrees to source support and remains appropriately presented.'
+    } }
+  }, technicalHeaders);
+  assert.equal(greenProcedureUpdate.response.status, 200, JSON.stringify(greenProcedureUpdate.body));
+  const greenEvidenceLink = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'evidence.link', payload: {
+      evidenceId: hybridEvidence.body.result.evidenceId, evidenceVersion: 1, targetVersion: 2, procedureId: greenProcedureId
+    } }
+  }, technicalHeaders);
+  assert.equal(greenEvidenceLink.response.status, 200, JSON.stringify(greenEvidenceLink.body));
+  const greenProcedureSubmission = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'procedure.submit', payload: { procedureId: greenProcedureId, expectedVersion: 3 } }
+  }, technicalHeaders);
+  assert.equal(greenProcedureSubmission.response.status, 200, JSON.stringify(greenProcedureSubmission.body));
+  const returnGreenProcedure = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'procedure.review', payload: {
+      procedureId: greenProcedureId, expectedVersion: 4, decision: 'REWORK', comments: 'Clarify the source period and the recalculation basis before final review.',
+      assignedPreparerId: preparerStaff.body.result.staffMemberId
+    } }
+  }, samplingReviewerHeaders);
+  assert.equal(returnGreenProcedure.response.status, 200, JSON.stringify(returnGreenProcedure.body));
+  const greenReworkRevision = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'procedure.update', payload: {
+      procedureId: greenProcedureId, expectedVersion: 5, reworkReason: 'Reviewer requested a more explicit period and recalculation reference.',
+      workPerformed: 'Rechecked the current-period asset listing and independently recalculated the recorded amount.',
+      conclusion: 'The current-period source supports the recorded amount and the revised conclusion.'
+    } }
+  }, technicalHeaders);
+  assert.equal(greenReworkRevision.response.status, 200, JSON.stringify(greenReworkRevision.body));
+  const staleProcedureApproval = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'procedure.review', payload: {
+      procedureId: greenProcedureId, expectedVersion: 4, decision: 'ACCEPT', comments: 'Attempt to accept the obsolete submitted revision after its rework replacement.'
+    } }
+  }, samplingReviewerHeaders);
+  assert.equal(staleProcedureApproval.response.status, 409);
+  assert.equal(staleProcedureApproval.body.code, 'STALE_DEPENDENCY', 'an obsolete submission cannot receive a current reviewed status');
+  const currentGreenProcedure = db.prepare('SELECT status,version FROM procedures WHERE workspace_id=? AND id=?').bind(workspaceId, greenProcedureId).first<any>();
+  assert.equal(currentGreenProcedure?.status, 'IN_PROGRESS', 'the explicit rework edit remains an editable new revision');
+  assert.equal(currentGreenProcedure?.version, 6);
+
+  // US-FLD-007..009 — sampling policies, committed source populations,
+  // reproducible selections and conservative incomplete/evaluation outcomes.
+  const createSamplingPopulation = async (name: string, originalName: string, csv: string, exclusionsReason?: string) => {
+    const sourceFileId = await storeCommittedFile('EVIDENCE', originalName, 'text/csv', new TextEncoder().encode(csv), technicalHeaders, { clientId, engagementId });
+    const created = await post(`/api/workspaces/${workspaceId}/commands`, {
+      idempotencyKey: crypto.randomUUID(), command: { type: 'sampling.population.create', payload: {
+        engagementId, name, fsliId: revenueLine.fsliId, sourceFileId, headerRow: 1, referenceColumn: 0, amountColumn: 1, descriptionColumn: 2,
+        ...(exclusionsReason ? { exclusionsReason } : {})
+      } }
+    }, samplingReviewerHeaders);
+    return { sourceFileId, created };
+  };
+  const createSamplingPolicy = async (method: 'MUS_BINOMIAL_PPS' | 'SYSTEMATIC' | 'STRATIFIED_ATTRIBUTE') => {
+    const created = await post(`/api/workspaces/${workspaceId}/commands`, {
+      idempotencyKey: crypto.randomUUID(), command: { type: 'sampling.policy.create', payload: {
+        name: `Approved ${method} test methodology`, method,
+        assumptions: 'Use the documented source ordering and method-specific calculation assumptions for this synthetic audit test.'
+      } }
+    }, samplingReviewerHeaders);
+    assert.equal(created.response.status, 200, JSON.stringify(created.body));
+    const policyId = created.body.result.policyId as string;
+    const reviewerCannotApprove = await post(`/api/workspaces/${workspaceId}/commands`, {
+      idempotencyKey: crypto.randomUUID(), command: { type: 'sampling.policy.approve', payload: {
+        policyId, expectedVersion: 1, rationale: 'Only Partner-grade methodology approval permits this method for operational sampling.'
+      } }
+    }, samplingReviewerHeaders);
+    assert.equal(reviewerCannotApprove.response.status, 403, 'sampling methodology requires Partner approval');
+    const approved = await post(`/api/workspaces/${workspaceId}/commands`, {
+      idempotencyKey: crypto.randomUUID(), command: { type: 'sampling.policy.approve', payload: {
+        policyId, expectedVersion: 1, rationale: 'Partner-approved synthetic methodology, with its assumptions and limits retained alongside each plan.'
+      } }
+    }, samplingApproverHeaders);
+    assert.equal(approved.response.status, 200, JSON.stringify(approved.body));
+    assert.equal(approved.body.result.status, 'APPROVED');
+    return policyId;
+  };
+
+  const negativePopulationSource = await createSamplingPopulation('Negative balance requires alternate work', 'sampling-negative.csv',
+    'reference,amount,description\nPOS-001,100.00,Positive control balance\nNEG-001,-25.00,Negative credit balance');
+  assert.equal(negativePopulationSource.created.response.status, 422, JSON.stringify(negativePopulationSource.created.body));
+  assert.equal(negativePopulationSource.created.body.code, 'INVALID_POPULATION');
+  const documentedNegativePopulation = await createSamplingPopulation('Negative balance alternate procedure documented', 'sampling-negative.csv',
+    'reference,amount,description\nPOS-001,100.00,Positive control balance\nNEG-001,-25.00,Negative credit balance',
+    'Test the negative credit separately through a documented understatement and completeness procedure.');
+  assert.equal(documentedNegativePopulation.created.response.status, 200, JSON.stringify(documentedNegativePopulation.created.body));
+  assert.equal(documentedNegativePopulation.created.body.result.rowCount, 2);
+  assert.equal(documentedNegativePopulation.created.body.result.positiveTotalMinor, '10000');
+  assert.equal(documentedNegativePopulation.created.body.result.excludedCount, 1);
+
+  const musPopulationSource = await createSamplingPopulation('Single positive monetary unit sampling population', 'sampling-mus.csv',
+    'reference,amount,description\nMUS-INV-001,1000000.00,Single positive invoice for repeat-hit validation');
+  assert.equal(musPopulationSource.created.response.status, 200, JSON.stringify(musPopulationSource.created.body));
+  assert.equal(musPopulationSource.created.body.result.positiveTotalMinor, '100000000');
+  const musPopulationId = musPopulationSource.created.body.result.populationId as string;
+  const musPolicyId = await createSamplingPolicy('MUS_BINOMIAL_PPS');
+  const musPlanCommand = { type: 'sampling.plan', payload: {
+    engagementId, populationId: musPopulationId, policyId: musPolicyId, method: 'MUS_BINOMIAL_PPS', confidenceBps: 9500,
+    tolerableMinor: '5000000', expectedTaintedBps: 0,
+    reason: 'Apply the approved conservative MUS policy to the exact positive source total and retain every seeded monetary-unit draw.'
+  } };
+  const musPlanIdempotencyKey = crypto.randomUUID();
+  const musPlan = await post(`/api/workspaces/${workspaceId}/commands`, { idempotencyKey: musPlanIdempotencyKey, command: musPlanCommand }, samplingReviewerHeaders);
+  assert.equal(musPlan.response.status, 200, JSON.stringify(musPlan.body));
+  assert.equal(musPlan.body.result.calculatedCount, 59, 'zero expected taint uses the smallest n satisfying the 95% MUS bound');
+  assert.equal(musPlan.body.result.distinctRowCount, 1);
+  const musRetry = await post(`/api/workspaces/${workspaceId}/commands`, { idempotencyKey: musPlanIdempotencyKey, command: musPlanCommand }, samplingReviewerHeaders);
+  assert.equal(musRetry.response.status, 200, JSON.stringify(musRetry.body));
+  assert.equal(musRetry.body.replayed, true, 'retry reuses the original persisted sample instead of drawing again');
+  assert.equal(musRetry.body.result.planId, musPlan.body.result.planId);
+  const musPlanPath = `/api/workspaces/${workspaceId}/engagements/${engagementId}/sampling-plans/${musPlan.body.result.planId}`;
+  const musPlanView = await call(musPlanPath, { headers: technicalHeaders });
+  assert.equal(musPlanView.response.status, 200, JSON.stringify(musPlanView.body));
+  assert.equal(musPlanView.body.hits.length, 59);
+  assert.equal(new Set(musPlanView.body.hits.map((hit: any) => hit.populationRowId)).size, 1,
+    'all 59 monetary draws remain visible even when they hit the same invoice');
+  const musFirstTest = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'sampling.record-test', payload: {
+      planId: musPlan.body.result.planId, populationRowId: musPlanView.body.hits[0].populationRowId, expectedVersion: 0, tested: true,
+      auditedValueMinor: '100000000', misstated: false, conclusion: 'The full positive invoice amount agrees to its retained source document.',
+      evidenceId: hybridEvidence.body.result.evidenceId, evidenceVersion: 1
+    } }
+  }, technicalHeaders);
+  assert.equal(musFirstTest.response.status, 200, JSON.stringify(musFirstTest.body));
+  let musPlanAfterTest = await call(musPlanPath, { headers: technicalHeaders });
+  assert.equal(musPlanAfterTest.response.status, 200, JSON.stringify(musPlanAfterTest.body));
+  const musZeroTaintEvaluation = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'sampling.evaluate', payload: {
+      planId: musPlan.body.result.planId, testSetHash: musPlanAfterTest.body.testSetHash
+    } }
+  }, samplingReviewerHeaders);
+  assert.equal(musZeroTaintEvaluation.response.status, 200, JSON.stringify(musZeroTaintEvaluation.body));
+  assert.equal(musZeroTaintEvaluation.body.result.testedHitCount, 59);
+  assert.equal(musZeroTaintEvaluation.body.result.taintedHitCount, 0);
+  assert.equal(musZeroTaintEvaluation.body.result.upperBoundMinor, '4950761', 'the one-sided 95% upper bound rounds upward to QAR 49,507.61');
+  assert.equal(musZeroTaintEvaluation.body.result.result, 'WITHIN_TOLERANCE');
+  const musMisstatementRevision = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'sampling.record-test', payload: {
+      planId: musPlan.body.result.planId, populationRowId: musPlanView.body.hits[0].populationRowId, expectedVersion: 1, tested: true,
+      auditedValueMinor: '100000000', misstated: true, conclusion: 'The test identifies a misstatement in the sampled positive invoice amount.',
+      evidenceId: hybridEvidence.body.result.evidenceId, evidenceVersion: 1
+    } }
+  }, technicalHeaders);
+  assert.equal(musMisstatementRevision.response.status, 200, JSON.stringify(musMisstatementRevision.body));
+  musPlanAfterTest = await call(musPlanPath, { headers: technicalHeaders });
+  const musRepeatedHitEvaluation = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'sampling.evaluate', payload: {
+      planId: musPlan.body.result.planId, testSetHash: musPlanAfterTest.body.testSetHash
+    } }
+  }, samplingReviewerHeaders);
+  assert.equal(musRepeatedHitEvaluation.response.status, 200, JSON.stringify(musRepeatedHitEvaluation.body));
+  assert.equal(musRepeatedHitEvaluation.body.result.taintedHitCount, 59, 'one misstatement across the invoice taints each of its repeated monetary-unit hits');
+  assert.equal(musRepeatedHitEvaluation.body.result.upperBoundMinor, '100000000');
+  assert.equal(musRepeatedHitEvaluation.body.result.result, 'EXCEEDS_TOLERANCE');
+
+  const systematicCsv = ['reference,amount,description', ...Array.from({ length: 200 }, (_, index) =>
+    `SYS-${String(index + 1).padStart(3, '0')},5000.00,Invoice ${index + 1}`)].join('\n');
+  const systematicPopulationSource = await createSamplingPopulation('Stable 200 item systematic population', 'sampling-systematic.csv', systematicCsv);
+  assert.equal(systematicPopulationSource.created.response.status, 200, JSON.stringify(systematicPopulationSource.created.body));
+  const systematicPopulationId = systematicPopulationSource.created.body.result.populationId as string;
+  const systematicPopulation = await call(`/api/workspaces/${workspaceId}/engagements/${engagementId}/sampling-populations/${systematicPopulationId}`, { headers: technicalHeaders });
+  assert.equal(systematicPopulation.response.status, 200, JSON.stringify(systematicPopulation.body));
+  assert.equal(systematicPopulation.body.rows.length, 200);
+  const systematicPolicyId = await createSamplingPolicy('SYSTEMATIC');
+  const overlargeSystematic = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'sampling.plan', payload: {
+      engagementId, populationId: systematicPopulationId, policyId: systematicPolicyId, method: 'SYSTEMATIC', requestedCount: 201,
+      sampleSizeRationale: 'Attempt a count above the eligible source population to verify there is no silent cap.',
+      reason: 'The invalid request must fail without creating a plan.'
+    } }
+  }, samplingReviewerHeaders);
+  assert.equal(overlargeSystematic.response.status, 422);
+  assert.equal(overlargeSystematic.body.code, 'INVALID_SAMPLE_PARAMETERS');
+  const systematicPlan = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'sampling.plan', payload: {
+      engagementId, populationId: systematicPopulationId, policyId: systematicPolicyId, method: 'SYSTEMATIC', requestedCount: 10,
+      sampleSizeRationale: 'Select ten items based on reviewer-assessed coverage across the source population; this count makes no confidence claim.',
+      orderingRule: 'SOURCE_ROW_ASC', reason: 'Freeze source-row order and the seeded start for reproducible systematic testing.'
+    } }
+  }, samplingReviewerHeaders);
+  assert.equal(systematicPlan.response.status, 200, JSON.stringify(systematicPlan.body));
+  assert.equal(systematicPlan.body.result.calculatedCount, 10);
+  assert.equal(systematicPlan.body.result.selectionMode, 'SYSTEMATIC');
+  assert.equal(systematicPlan.body.result.confidenceClaim, null);
+  const systematicPlanPath = `/api/workspaces/${workspaceId}/engagements/${engagementId}/sampling-plans/${systematicPlan.body.result.planId}`;
+  const systematicPlanView = await call(systematicPlanPath, { headers: technicalHeaders });
+  const systematicStart = Number(systematicPlan.body.result.start.numerator);
+  const systematicOrdinals = systematicPlanView.body.hits.map((hit: any) => hit.ordinal);
+  assert.equal(new Set(systematicPlanView.body.hits.map((hit: any) => hit.populationRowId)).size, 10);
+  assert.deepEqual(systematicOrdinals, Array.from({ length: 10 }, (_, index) => Math.floor((systematicStart + index * 200) / 10) + 1),
+    'persisted hits follow exact integer-lattice positions from the stored random start');
+  const systematicCensus = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'sampling.plan', payload: {
+      engagementId, populationId: systematicPopulationId, policyId: systematicPolicyId, method: 'SYSTEMATIC', requestedCount: 200,
+      sampleSizeRationale: 'Cover every eligible population item as an explicit census.',
+      reason: 'The requested count equals the complete 200-item population.'
+    } }
+  }, samplingReviewerHeaders);
+  assert.equal(systematicCensus.response.status, 200, JSON.stringify(systematicCensus.body));
+  assert.equal(systematicCensus.body.result.selectionMode, 'CENSUS');
+  assert.equal(systematicCensus.body.result.calculatedCount, 200);
+  assert.equal(systematicCensus.body.result.distinctRowCount, 200);
+
+  const stratifiedPolicyId = await createSamplingPolicy('STRATIFIED_ATTRIBUTE');
+  const populationRowIds = systematicPopulation.body.rows.map((row: any) => row.id as string);
+  const stratumAIds = populationRowIds.slice(0, 100);
+  const stratumBIds = populationRowIds.slice(100, 200);
+  const invalidCoverage = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'sampling.plan', payload: {
+      engagementId, populationId: systematicPopulationId, policyId: stratifiedPolicyId, method: 'STRATIFIED_ATTRIBUTE', confidenceBps: 9500,
+      strata: [
+        { key: 'A', description: 'First half of the source population', populationRowIds: stratumAIds, expectedDeviationBps: 0, tolerableDeviationBps: 1000,
+          rationale: 'The first half is retained as its own disjoint control stratum.' },
+        { key: 'B', description: 'Second half with overlap error', populationRowIds: [...stratumBIds.slice(0, 99), stratumAIds[99]], expectedDeviationBps: 0, tolerableDeviationBps: 1000,
+          rationale: 'An overlapping source row and omitted source row must be rejected.' }
+      ], reason: 'This intentionally invalid coverage must not persist a partial plan.'
+    } }
+  }, samplingReviewerHeaders);
+  assert.equal(invalidCoverage.response.status, 422);
+  assert.equal(invalidCoverage.body.code, 'INVALID_POPULATION');
+  assert.ok(invalidCoverage.body.details.errors.some((error: string) => error.includes('overlapping')));
+  assert.ok(invalidCoverage.body.details.errors.some((error: string) => error.includes('not assigned')));
+  const stratifiedPlan = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'sampling.plan', payload: {
+      engagementId, populationId: systematicPopulationId, policyId: stratifiedPolicyId, method: 'STRATIFIED_ATTRIBUTE', confidenceBps: 9500,
+      strata: [
+        { key: 'A', description: 'First 100 eligible source rows', populationRowIds: stratumAIds, expectedDeviationBps: 0, tolerableDeviationBps: 1000,
+          rationale: 'Evaluate control deviations independently in the first source stratum.' },
+        { key: 'B', description: 'Last 100 eligible source rows', populationRowIds: stratumBIds, expectedDeviationBps: 0, tolerableDeviationBps: 1000,
+          rationale: 'Evaluate control deviations independently in the second source stratum.' }
+      ], reason: 'Use joint 95% confidence with Bonferroni allocation across the two complete strata.'
+    } }
+  }, samplingReviewerHeaders);
+  assert.equal(stratifiedPlan.response.status, 200, JSON.stringify(stratifiedPlan.body));
+  assert.equal(stratifiedPlan.body.result.calculatedCount, 56);
+  assert.deepEqual(stratifiedPlan.body.result.strata.map((item: any) => item.sampleCount), [28, 28]);
+  const stratifiedPlanPath = `/api/workspaces/${workspaceId}/engagements/${engagementId}/sampling-plans/${stratifiedPlan.body.result.planId}`;
+  const stratifiedPlanView = await call(stratifiedPlanPath, { headers: technicalHeaders });
+  assert.equal(stratifiedPlanView.body.plan.parameters.familywiseMethod, 'BONFERRONI');
+  assert.deepEqual(stratifiedPlanView.body.plan.parameters.strata.map((item: any) => [item.alphaNumerator, item.alphaDenominator]),
+    [['500', '20000'], ['500', '20000']], 'each stratum receives alpha 0.025 for the joint 95% policy');
+  assert.equal(stratifiedPlanView.body.hits.length, 56);
+  assert.equal(new Set(stratifiedPlanView.body.hits.map((hit: any) => hit.populationRowId)).size, 56,
+    'attribute selections are unique across disjoint strata');
+  assert.deepEqual(stratifiedPlanView.body.strata.map((stratum: any) => stratum.sampleCount), [28, 28]);
+  const stratumASelectedHits = stratifiedPlanView.body.hits.filter((hit: any) => hit.stratumKey === 'A');
+  const stratumBFirstHit = stratifiedPlanView.body.hits.find((hit: any) => hit.stratumKey === 'B');
+  for (const hit of [...stratumASelectedHits, stratumBFirstHit]) {
+    const stratumKey = hit.stratumKey as string;
+    const testResult = await post(`/api/workspaces/${workspaceId}/commands`, {
+      idempotencyKey: crypto.randomUUID(), command: { type: 'sampling.record-test', payload: {
+        planId: stratifiedPlan.body.result.planId, populationRowId: hit.populationRowId, expectedVersion: 0, tested: true,
+        deviation: false, conclusion: `The selected control item in stratum ${stratumKey} was inspected and no deviation was identified.`,
+        evidenceId: hybridEvidence.body.result.evidenceId, evidenceVersion: 1
+      } }
+    }, technicalHeaders);
+    assert.equal(testResult.response.status, 200, JSON.stringify(testResult.body));
+  }
+  const stratifiedPlanAfterTest = await call(stratifiedPlanPath, { headers: technicalHeaders });
+  const incompleteStratifiedEvaluation = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'sampling.evaluate', payload: {
+      planId: stratifiedPlan.body.result.planId, testSetHash: stratifiedPlanAfterTest.body.testSetHash
+    } }
+  }, samplingReviewerHeaders);
+  assert.equal(incompleteStratifiedEvaluation.response.status, 200, JSON.stringify(incompleteStratifiedEvaluation.body));
+  assert.equal(incompleteStratifiedEvaluation.body.result.result, 'INCOMPLETE',
+    'uncompleted selected items cannot be averaged into a passing attribute-sampling result');
+  const stratumKeyById = new Map(stratifiedPlanView.body.strata.map((stratum: any) => [stratum.id, stratum.key]));
+  const perStratumResults = new Map(incompleteStratifiedEvaluation.body.result.details.perStratum
+    .map((item: any) => [stratumKeyById.get(item.stratumId), item.result]));
+  assert.equal(perStratumResults.get('A'), 'WITHIN_TOLERANCE', 'the completely tested first stratum can be evaluated independently');
+  assert.equal(perStratumResults.get('B'), 'INCOMPLETE', 'an incomplete second stratum keeps the overall result incomplete');
 
   for (const file of [firstPbcFile, replacementPbcFile]) {
     const downloaded = await worker.fetch(new Request(`https://local.auditsphere.test/api/workspaces/${workspaceId}/files/${file.fileId}`, {
