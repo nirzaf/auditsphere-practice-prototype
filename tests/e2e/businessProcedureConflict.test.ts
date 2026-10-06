@@ -634,7 +634,7 @@ it('US-FLD-007, US-FLD-008 and US-FLD-009 verify MUS, systematic and stratified 
     'invalid physical evidence is stopped in the form before a request reaches the Worker');
   await setVisibleFieldByLabel(tabA, 'Binder', 'Revenue binder A');
   await clickVisibleButton(tabA, 'Create evidence record');
-  await waitFor(tabA, 'the saved evidence awaiting review', `document.body.innerText.includes(${JSON.stringify(evidenceTitle)}) && document.body.innerText.includes('PENDING VERIFICATION')`);
+  await waitFor(tabA, 'the saved physical-only evidence awaiting review', `document.body.innerText.includes(${JSON.stringify(evidenceTitle)}) && document.body.innerText.includes('PENDING VERIFICATION') && document.body.innerText.includes('No digital hash') && document.body.innerText.includes('Revenue binder A')`);
 
   // The second Partner is a distinct natural person and independently reviews the evidence.
   await selectWorkspace(tabA, fixture, fixture.actorB);
@@ -854,4 +854,120 @@ it('US-FLD-007, US-FLD-008 and US-FLD-009 verify MUS, systematic and stratified 
   assert.ok(stratifiedEvaluationUi.text.includes('Not computed while incomplete'));
   assert.deepEqual(tabA.exceptions, [], 'the stratified finite-population workflow has no unhandled JavaScript exceptions');
   assert.deepEqual(tabA.blockedExternalRequests, []);
+});
+
+it('US-FLD-010 retains hybrid provenance, links Findings, and preserves replacement and unlink history', { timeout: 120000 }, async () => {
+  assert.ok(server && tabA);
+  const fixture = await createFieldworkFixture();
+  await selectWorkspace(tabA, fixture, fixture.actorProfileId);
+
+  // Observe the settled Worker-backed workspace before the evidence journey.
+  const initialUi = await tabA.evaluate<{ heading: string; persona: string; evidenceTabVisible: boolean }>(`({
+    heading: document.querySelector('#business-fieldwork-heading')?.textContent?.trim() ?? '',
+    persona: document.querySelector('#business-active-persona')?.selectedOptions[0]?.textContent?.trim() ?? '',
+    evidenceTabVisible: [...document.querySelectorAll('.business-fieldwork-tabs button')].some(button => button.textContent?.trim() === 'Evidence')
+  })`);
+  assert.ok(initialUi.heading.length > 0);
+  assert.ok(initialUi.persona.includes('APPROVER'));
+  assert.equal(initialUi.evidenceTabVisible, true);
+
+  const evidenceTitleV1 = 'Hybrid invoice evidence v1';
+  const externalSourceUrl = 'https://evidence.example.invalid/invoice-source.pdf';
+  await clickVisibleButton(tabA, 'Evidence');
+  await waitFor(tabA, 'the settled hybrid evidence form', `!![...document.querySelectorAll('.business-fieldwork-card h3')].find(item => item.textContent?.trim() === 'Retain digital, physical or hybrid evidence')`);
+  await setVisibleFieldByLabel(tabA, 'Evidence mode', '', 'Hybrid');
+  await waitFor(tabA, 'the selected hybrid mode and visible physical locator inputs', `(() => {
+    const mode = [...document.querySelectorAll('label.business-field')].find(item => item.querySelector('span')?.textContent?.trim() === 'Evidence mode')?.querySelector('select');
+    const index = [...document.querySelectorAll('label.business-field')].find(item => item.querySelector('span')?.textContent?.trim() === 'Physical index code')?.querySelector('input');
+    return mode?.value === 'HYBRID' && !!index?.getClientRects().length;
+  })()`);
+  await setVisibleFieldByLabel(tabA, 'Evidence title', evidenceTitleV1);
+  await setVisibleFieldByLabel(tabA, 'Committed retained file', '', 'qa-sampling-population.csv');
+  await setVisibleFieldByLabel(tabA, 'Physical index code', 'INV-UI-01');
+  await setVisibleFieldByLabel(tabA, 'Physical description', 'Signed supplier invoice inspected and agreed to the ledger.');
+  await setVisibleFieldByLabel(tabA, 'Binder', 'Purchases binder 2');
+  await setVisibleFieldByLabel(tabA, 'Box', '3');
+  await setVisibleFieldByLabel(tabA, 'Shelf', 'B');
+  await setVisibleFieldByLabel(tabA, 'External source URL (optional)', externalSourceUrl);
+  await setVisibleFieldByLabel(tabA, 'Retrieved at', '2026-10-01T12:30');
+  await clickVisibleButton(tabA, 'Create evidence record');
+  await waitFor(tabA, 'the committed hybrid evidence metadata', `document.body.innerText.includes(${JSON.stringify(evidenceTitleV1)}) && document.body.innerText.includes('SHA-256') && document.body.innerText.includes('Purchases binder 2') && document.body.innerText.includes('Box 3') && document.body.innerText.includes('Shelf B') && document.body.innerText.includes(${JSON.stringify(externalSourceUrl)})`);
+
+  await selectWorkspace(tabA, fixture, fixture.actorB);
+  await clickVisibleButton(tabA, 'Evidence');
+  await waitFor(tabA, 'independent adequacy review for hybrid evidence', `!![...document.querySelectorAll('.business-fieldwork-card h3')].find(item => item.textContent?.trim() === 'Independent evidence adequacy review')`);
+  await setVisibleFieldByLabel(tabA, 'Exact evidence version', '', evidenceTitleV1);
+  await setVisibleFieldByLabel(tabA, 'Reviewer rationale', 'The immutable source bytes and physical invoice location agree to the test objective.');
+  await clickVisibleButton(tabA, 'Save evidence review');
+  await waitFor(tabA, 'the independently adequate hybrid evidence version', `document.body.innerText.includes(${JSON.stringify(evidenceTitleV1)}) && document.body.innerText.includes('ADEQUATE')`);
+
+  await selectWorkspace(tabA, fixture, fixture.actorProfileId);
+  await clickVisibleButton(tabA, 'Findings & SRM');
+  await waitFor(tabA, 'the finding entry form', `!![...document.querySelectorAll('.business-fieldwork-card h3')].find(item => item.textContent?.trim() === 'Record an audit finding')`);
+  const findingTitle = 'Invoice cut-off evidence finding';
+  await setVisibleFieldByLabel(tabA, 'Affected FSLI', '', 'QA-REV');
+  await setVisibleFieldByLabel(tabA, 'Finding title', findingTitle);
+  await setVisibleFieldByLabel(tabA, 'Condition, criteria and proposed correction', 'The selected invoice indicates a cut-off condition that requires documented audit follow-up.');
+  await clickVisibleButton(tabA, 'Save finding');
+  await waitFor(tabA, 'the saved finding', `document.body.innerText.includes(${JSON.stringify(findingTitle)})`);
+
+  await clickVisibleButton(tabA, 'Evidence');
+  await waitFor(tabA, 'the Finding target option', `[...document.querySelectorAll('label.business-field')].some(item => item.querySelector('span')?.textContent?.trim() === 'Audit target type')`);
+  await setVisibleFieldByLabel(tabA, 'Current evidence version', '', evidenceTitleV1);
+  await setVisibleFieldByLabel(tabA, 'Audit target type', '', 'Finding');
+  await setVisibleFieldByLabel(tabA, 'Target revision', '', findingTitle);
+  const findingId = await tabA.evaluate<string>(`(() => {
+    const label = [...document.querySelectorAll('label.business-field')].find(item => item.querySelector('span')?.textContent?.trim() === 'Target revision');
+    return label?.querySelector('select')?.value ?? '';
+  })()`);
+  assert.ok(findingId, 'the visible target selector resolves the exact finding ID');
+  await clickVisibleButton(tabA, 'Link exact evidence version');
+  await waitFor(tabA, 'the version-pinned evidence link to the Finding', `document.body.innerText.includes(${JSON.stringify('FINDING · ' + findingId)}) && document.body.innerText.includes('Evidence')`);
+
+  const evidenceTitleV2 = 'Hybrid invoice evidence v2';
+  await setVisibleFieldByLabel(tabA, 'Evidence title', evidenceTitleV2);
+  await setVisibleFieldByLabel(tabA, 'Supersedes evidence version (optional)', '', evidenceTitleV1);
+  await setVisibleFieldByLabel(tabA, 'Committed retained file', '', 'qa-systematic-population.csv');
+  await setVisibleFieldByLabel(tabA, 'Evidence mode', '', 'Hybrid');
+  await waitFor(tabA, 'hybrid locator inputs for the replacement revision', `(() => {
+    const mode = [...document.querySelectorAll('label.business-field')].find(item => item.querySelector('span')?.textContent?.trim() === 'Evidence mode')?.querySelector('select');
+    const index = [...document.querySelectorAll('label.business-field')].find(item => item.querySelector('span')?.textContent?.trim() === 'Physical index code')?.querySelector('input');
+    return mode?.value === 'HYBRID' && !!index?.getClientRects().length;
+  })()`);
+  await setVisibleFieldByLabel(tabA, 'Physical index code', 'INV-UI-02');
+  await setVisibleFieldByLabel(tabA, 'Physical description', 'Replacement signed invoice copy captured and inspected.');
+  await setVisibleFieldByLabel(tabA, 'Binder', 'Purchases binder 2');
+  await setVisibleFieldByLabel(tabA, 'Box', '3');
+  await setVisibleFieldByLabel(tabA, 'Shelf', 'B');
+  await setVisibleFieldByLabel(tabA, 'External source URL (optional)', 'https://evidence.example.invalid/invoice-source-v2.pdf');
+  await setVisibleFieldByLabel(tabA, 'Retrieved at', '2026-10-02T09:15');
+  await clickVisibleButton(tabA, 'Create evidence record');
+  await waitFor(tabA, 'the replacement evidence revision and stale prior pin', `document.body.innerText.includes(${JSON.stringify(evidenceTitleV2)}) && document.body.innerText.includes('STALE EVIDENCE PIN') && document.body.innerText.includes('current v2')`);
+
+  await selectWorkspace(tabA, fixture, fixture.actorB);
+  await clickVisibleButton(tabA, 'Evidence');
+  await waitFor(tabA, 'review controls for replacement evidence', `!![...document.querySelectorAll('.business-fieldwork-card h3')].find(item => item.textContent?.trim() === 'Independent evidence adequacy review')`);
+  await setVisibleFieldByLabel(tabA, 'Exact evidence version', '', evidenceTitleV2);
+  await setVisibleFieldByLabel(tabA, 'Reviewer rationale', 'The replacement immutable bytes and physical locator were independently inspected.');
+  await clickVisibleButton(tabA, 'Save evidence review');
+  await waitFor(tabA, 'the reviewed replacement revision', `document.body.innerText.includes(${JSON.stringify(evidenceTitleV2)}) && document.body.innerText.includes('ADEQUATE')`);
+
+  await selectWorkspace(tabA, fixture, fixture.actorProfileId);
+  await clickVisibleButton(tabA, 'Evidence');
+  await waitFor(tabA, 'the current replacement evidence target controls', `document.body.innerText.includes(${JSON.stringify(evidenceTitleV2)})`);
+  await setVisibleFieldByLabel(tabA, 'Current evidence version', '', evidenceTitleV2);
+  await setVisibleFieldByLabel(tabA, 'Audit target type', '', 'Finding');
+  await setVisibleFieldByLabel(tabA, 'Target revision', '', findingTitle);
+  await clickVisibleButton(tabA, 'Link exact evidence version');
+  await waitFor(tabA, 'the new exact finding evidence pin and automatic historical unlink', `document.body.innerText.includes('Superseded by a new evidence target-version pin') && !document.body.innerText.includes('STALE EVIDENCE PIN')`);
+
+  await clickVisibleButton(tabA, 'Unlink with reason');
+  await setVisibleFieldByLabel(tabA, 'Reason for unlinking this evidence reference', 'The replacement reference is no longer relied upon after reassessment.');
+  await clickVisibleButton(tabA, 'Record unlink');
+  await waitFor(tabA, 'the append-only manual unlink history', `document.body.innerText.includes('UNLINKED') && document.body.innerText.includes('The replacement reference is no longer relied upon after reassessment.')`);
+  await clickVisibleButton(tabA, 'Refresh records');
+  await waitFor(tabA, 'the refreshed append-only link and unlink history', `document.body.innerText.includes('The replacement reference is no longer relied upon after reassessment.') && document.body.innerText.includes('Superseded by a new evidence target-version pin')`);
+
+  assert.deepEqual(tabA.exceptions, [], 'the evidence and Finding workflow has no uncaught JavaScript exceptions');
+  assert.deepEqual(tabA.blockedExternalRequests, [], 'the local acceptance journey makes no external network request');
 });

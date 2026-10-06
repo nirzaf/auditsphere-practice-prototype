@@ -456,7 +456,8 @@ export interface BusinessFinancialStatements {
 export interface BusinessFieldworkWorkspace {
   engagement: { id: string; version: number; clientId: string; state: string; periodStart: string; periodEnd: string; standardsProfileId: string; activeTbVersionId: string | null; activeMappingVersionId: string | null; approvedPlanningVersionId: string | null };
   staff: Array<{ id: string; displayName: string; grade: StaffGrade }>;
-  evidenceLinks: Array<{ id: string; evidenceId: string; evidenceVersion: number; targetVersion: number; targetType: string; targetId: string; unlinkReason: string | null; linkedAt: string }>;
+  evidenceLinks: Array<{ id: string; evidenceId: string; evidenceVersion: number; targetVersion: number; targetType: string; targetId: string;
+    currentEvidenceVersion: number; unlinkReason: string | null; unlinkActorId: string | null; unlinkedAt: string | null; linkedAt: string }>;
   statements: BusinessFinancialStatements;
   templates: Array<{ id: string; version: number; fsliCode: string; revision: number; title: string; standardsProfileId: string; status: string; approvedByActorId: string | null; approvedAt: string | null }>;
   analyticalReviews: Array<Record<string, unknown>>;

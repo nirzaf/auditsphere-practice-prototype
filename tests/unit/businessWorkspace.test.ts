@@ -1819,14 +1819,29 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
   assert.equal(blockedAnalysisSubmit.response.status, 409, JSON.stringify(blockedAnalysisSubmit.body));
   assert.equal(blockedAnalysisSubmit.body.code, 'GATE_BLOCKED', 'an analytical conclusion needs independently reviewed current evidence');
 
+  const urlOnlyEvidence = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'evidence.create', payload: {
+      engagementId, mode: 'DIGITAL', title: 'External reference without retained bytes',
+      externalSourceUrl: 'https://evidence.example.invalid/register.pdf', retrievedAt: '2026-10-01T12:30:00.000Z'
+    } }
+  }, technicalHeaders);
+  assert.equal(urlOnlyEvidence.response.status, 400, JSON.stringify(urlOnlyEvidence.body));
+  assert.equal(urlOnlyEvidence.body.code, 'BAD_REQUEST', 'an external URL cannot stand in for committed retained evidence bytes');
+
   const hybridEvidence = await post(`/api/workspaces/${workspaceId}/commands`, {
     idempotencyKey: crypto.randomUUID(), command: { type: 'evidence.create', payload: {
-      engagementId, mode: 'HYBRID', title: 'Revenue source inspection record', fileVersionId: fileId,
+      engagementId, mode: 'HYBRID', title: 'Revenue source inspection record', fileVersionId: replacementPbcFile.fileId,
       physicalIndex: 'REV-01', physicalDescription: 'Original signed sales-register extract inspected at the client site.',
-      binder: 'Revenue binder A'
+      binder: 'Revenue binder A', box: '3', shelf: 'B',
+      externalSourceUrl: 'https://evidence.example.invalid/register.pdf', retrievedAt: '2026-10-01T12:30:00.000Z'
     } }
   }, technicalHeaders);
   assert.equal(hybridEvidence.response.status, 200, JSON.stringify(hybridEvidence.body));
+  assert.equal(hybridEvidence.body.result.fileVersionId, replacementPbcFile.fileId, 'an accepted PBC submission can be pinned as retained digital bytes');
+  assert.equal(hybridEvidence.body.result.fileSha256, replacementPbcFile.sha256);
+  assert.equal(hybridEvidence.body.result.physicalIndex, 'REV-01');
+  assert.equal(hybridEvidence.body.result.box, '3');
+  assert.equal(hybridEvidence.body.result.shelf, 'B');
   const evidenceLink = await post(`/api/workspaces/${workspaceId}/commands`, {
     idempotencyKey: crypto.randomUUID(), command: { type: 'evidence.link', payload: {
       evidenceId: hybridEvidence.body.result.evidenceId, evidenceVersion: 1, targetVersion: 1,
@@ -1841,6 +1856,20 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
     } }
   }, makeRiskHeaders(reviewerHeaders));
   assert.equal(evidenceAdequacy.response.status, 200, JSON.stringify(evidenceAdequacy.body));
+  const hybridEvidenceProjection = await call(`/api/workspaces/${workspaceId}/engagements/${engagementId}/fieldwork-workspace`, { headers: technicalHeaders });
+  assert.equal(hybridEvidenceProjection.response.status, 200, JSON.stringify(hybridEvidenceProjection.body));
+  const retainedHybridEvidence = hybridEvidenceProjection.body.evidence.find((item: any) => item.id === hybridEvidence.body.result.evidenceId);
+  assert.deepEqual({
+    fileVersionId: retainedHybridEvidence.fileVersionId, fileSha256: retainedHybridEvidence.fileSha256,
+    physicalIndex: retainedHybridEvidence.physicalIndex, physicalDescription: retainedHybridEvidence.physicalDescription,
+    binder: retainedHybridEvidence.binder, box: retainedHybridEvidence.box, shelf: retainedHybridEvidence.shelf,
+    externalSourceUrl: retainedHybridEvidence.externalSourceUrl, retrievedAt: retainedHybridEvidence.retrievedAt
+  }, {
+    fileVersionId: replacementPbcFile.fileId, fileSha256: replacementPbcFile.sha256,
+    physicalIndex: 'REV-01', physicalDescription: 'Original signed sales-register extract inspected at the client site.',
+    binder: 'Revenue binder A', box: '3', shelf: 'B',
+    externalSourceUrl: 'https://evidence.example.invalid/register.pdf', retrievedAt: '2026-10-01T12:30:00.000Z'
+  }, 'hybrid evidence keeps byte identity, exact physical locators and retrieval provenance together');
   const submittedAnalysis = await post(`/api/workspaces/${workspaceId}/commands`, {
     idempotencyKey: crypto.randomUUID(), command: { type: 'analytical-review.submit', payload: {
       analyticalReviewId: analyticalReview.body.result.analyticalReviewId, expectedVersion: 2
@@ -1905,6 +1934,73 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
       conclusion: 'An accepted review is immutable to preparer revision.', ratios: [] } }
   }, technicalHeaders);
   assert.equal(acceptedRevision.response.status, 422, 'an independently reviewed analytical review cannot be revised');
+
+  const analyticalEvidenceV1 = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'evidence.create', payload: {
+      engagementId, mode: 'DIGITAL', title: 'Analytical review source, original', fileVersionId: fileId
+    } }
+  }, technicalHeaders);
+  assert.equal(analyticalEvidenceV1.response.status, 200, JSON.stringify(analyticalEvidenceV1.body));
+  const analyticalEvidenceReviewV1 = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'evidence.review', payload: {
+      evidenceId: analyticalEvidenceV1.body.result.evidenceId, evidenceVersion: 1, status: 'ADEQUATE',
+      rationale: 'The original analytical source was checked against retained bytes.'
+    } }
+  }, makeRiskHeaders(reviewerHeaders));
+  assert.equal(analyticalEvidenceReviewV1.response.status, 200, JSON.stringify(analyticalEvidenceReviewV1.body));
+  const staleAnalyticalDraft = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'analytical-review.save', payload: {
+      engagementId, fsliId: revenueLine.fsliId, statementSnapshotId: statementSnapshot.body.result.statementSnapshotId,
+      expectationText: 'The current-period expectation is compared with a committed revenue source.',
+      thresholdMinor: '250000', thresholdBps: 1000, explanation: 'The source supports an independently testable expectation.',
+      conclusion: 'The source supports the current-period analytical conclusion.', ratios: []
+    } }
+  }, technicalHeaders);
+  assert.equal(staleAnalyticalDraft.response.status, 200, JSON.stringify(staleAnalyticalDraft.body));
+  const staleAnalyticalLinkV1 = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'evidence.link', payload: {
+      evidenceId: analyticalEvidenceV1.body.result.evidenceId, evidenceVersion: 1, targetVersion: 1,
+      analyticalReviewId: staleAnalyticalDraft.body.result.analyticalReviewId
+    } }
+  }, technicalHeaders);
+  assert.equal(staleAnalyticalLinkV1.response.status, 200, JSON.stringify(staleAnalyticalLinkV1.body));
+  const staleAnalyticalSubmission = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'analytical-review.submit', payload: {
+      analyticalReviewId: staleAnalyticalDraft.body.result.analyticalReviewId, expectedVersion: 2
+    } }
+  }, technicalHeaders);
+  assert.equal(staleAnalyticalSubmission.response.status, 200, JSON.stringify(staleAnalyticalSubmission.body));
+  const analyticalEvidenceV2 = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'evidence.create', payload: {
+      engagementId, mode: 'DIGITAL', title: 'Analytical review source, corrected', fileVersionId: replacementPbcFile.fileId,
+      supersedesEvidenceId: analyticalEvidenceV1.body.result.evidenceId
+    } }
+  }, technicalHeaders);
+  assert.equal(analyticalEvidenceV2.response.status, 200, JSON.stringify(analyticalEvidenceV2.body));
+  const analyticalEvidenceReviewV2 = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'evidence.review', payload: {
+      evidenceId: analyticalEvidenceV2.body.result.evidenceId, evidenceVersion: 2, status: 'ADEQUATE',
+      rationale: 'The corrected source bytes were independently reassessed.'
+    } }
+  }, makeRiskHeaders(reviewerHeaders));
+  assert.equal(analyticalEvidenceReviewV2.response.status, 200, JSON.stringify(analyticalEvidenceReviewV2.body));
+  const staleAnalyticalAcceptance = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'review.decide', payload: {
+      submissionId: staleAnalyticalSubmission.body.result.submissionId, decision: 'ACCEPT',
+      comment: 'Attempt to accept the analytical conclusion after its evidence family was superseded.'
+    } }
+  }, makeRiskHeaders(reviewerHeaders));
+  assert.equal(staleAnalyticalAcceptance.response.status, 409);
+  assert.equal(staleAnalyticalAcceptance.body.code, 'STALE_DEPENDENCY');
+  const returnStaleAnalyticalReview = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'review.decide', payload: {
+      submissionId: staleAnalyticalSubmission.body.result.submissionId, decision: 'RETURN',
+      comment: 'Reassess the analytical conclusion against the corrected evidence version.',
+      assignedPreparerId: preparerStaff.body.result.staffMemberId
+    } }
+  }, makeRiskHeaders(reviewerHeaders));
+  assert.equal(returnStaleAnalyticalReview.response.status, 200, JSON.stringify(returnStaleAnalyticalReview.body));
+  assert.equal(returnStaleAnalyticalReview.body.result.status, 'UNDER_REWORK');
 
   const samplingReviewerHeaders = makeRiskHeaders(reviewerHeaders);
   const samplingApproverHeaders = makeRiskHeaders(approverHeaders);
@@ -2553,6 +2649,164 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
   const failingStratumResults = failingStratumEvaluation.body.result.details.perStratum as Array<Record<string, any>>;
   assert.equal(failingStratumResults.find(item => item.key === 'A')?.result, 'EXCEEDS_TOLERANCE');
   assert.equal(failingStratumResults.find(item => item.key === 'B')?.result, 'WITHIN_TOLERANCE');
+
+  const newFinding = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'finding.create', payload: {
+      engagementId, fsliId: revenueLine.fsliId, title: 'Evidence-linked receivable exception',
+      description: 'The independently inspected receivable support identifies a condition requiring audit follow-up.',
+      severity: 'MODERATE', qualitativeSignificance: false
+    } }
+  }, technicalHeaders);
+  assert.equal(newFinding.response.status, 200, JSON.stringify(newFinding.body));
+  const findingEvidence = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'evidence.create', payload: {
+      engagementId, mode: 'DIGITAL', title: 'Finding source document', fileVersionId: fileId
+    } }
+  }, technicalHeaders);
+  assert.equal(findingEvidence.response.status, 200, JSON.stringify(findingEvidence.body));
+  const findingEvidenceReview = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'evidence.review', payload: {
+      evidenceId: findingEvidence.body.result.evidenceId, evidenceVersion: 1, status: 'ADEQUATE',
+      rationale: 'The committed source file was independently checked against this finding.'
+    } }
+  }, makeRiskHeaders(reviewerHeaders));
+  assert.equal(findingEvidenceReview.response.status, 200, JSON.stringify(findingEvidenceReview.body));
+  const findingEvidenceLink = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'evidence.link', payload: {
+      evidenceId: findingEvidence.body.result.evidenceId, evidenceVersion: 1, targetVersion: 1,
+      findingId: newFinding.body.result.findingId
+    } }
+  }, technicalHeaders);
+  assert.equal(findingEvidenceLink.response.status, 200, JSON.stringify(findingEvidenceLink.body));
+  const findingLinkProjection = await call(`/api/workspaces/${workspaceId}/engagements/${engagementId}/fieldwork-workspace`, { headers: technicalHeaders });
+  const findingLink = findingLinkProjection.body.evidenceLinks.find((item: any) => item.id === findingEvidenceLink.body.result.linkId);
+  assert.equal(findingLink.targetType, 'FINDING');
+  assert.equal(findingLink.targetId, newFinding.body.result.findingId);
+  const findingUnlink = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'evidence.unlink', payload: {
+      evidenceLinkId: findingEvidenceLink.body.result.linkId, reason: 'The finding was reassigned to a replacement source document.'
+    } }
+  }, technicalHeaders);
+  assert.equal(findingUnlink.response.status, 200, JSON.stringify(findingUnlink.body));
+  const findingHistoryProjection = await call(`/api/workspaces/${workspaceId}/engagements/${engagementId}/fieldwork-workspace`, { headers: technicalHeaders });
+  const retainedFindingLink = findingHistoryProjection.body.evidenceLinks.find((item: any) => item.id === findingEvidenceLink.body.result.linkId);
+  assert.equal(retainedFindingLink.unlinkReason, 'The finding was reassigned to a replacement source document.');
+  assert.ok(retainedFindingLink.unlinkActorId);
+  assert.ok(retainedFindingLink.unlinkedAt);
+  const clientEvidenceCatalog = await call(`/api/workspaces/${workspaceId}/engagements/${engagementId}/fieldwork-workspace`, { headers: clientHeaders });
+  assert.equal(clientEvidenceCatalog.response.status, 403, 'CLIENT persona cannot read the internal evidence catalog');
+
+  const replacementHybridEvidence = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'evidence.create', payload: {
+      engagementId, mode: 'HYBRID', title: 'Revenue source inspection record, replacement', fileVersionId: fileId,
+      physicalIndex: 'REV-01', physicalDescription: 'Replacement signed sales-register extract inspected at the client site.',
+      binder: 'Revenue binder A', box: '3', shelf: 'B', supersedesEvidenceId: hybridEvidence.body.result.evidenceId
+    } }
+  }, technicalHeaders);
+  assert.equal(replacementHybridEvidence.response.status, 200, JSON.stringify(replacementHybridEvidence.body));
+  assert.equal(replacementHybridEvidence.body.result.version, 2);
+  assert.equal(replacementHybridEvidence.body.result.supersedesEvidenceId, hybridEvidence.body.result.evidenceId);
+  const staleEvidenceSubmission = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'procedure.submit', payload: { procedureId: greenProcedureId, expectedVersion: 6 } }
+  }, technicalHeaders);
+  assert.equal(staleEvidenceSubmission.response.status, 409, JSON.stringify(staleEvidenceSubmission.body));
+  assert.equal(staleEvidenceSubmission.body.code, 'STALE_DEPENDENCY',
+    'replacing a linked evidence family blocks procedure clearance until its pin is refreshed');
+  const staleEvidenceReview = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'evidence.review', payload: {
+      evidenceId: hybridEvidence.body.result.evidenceId, evidenceVersion: 1, status: 'ADEQUATE',
+      rationale: 'Attempt to reuse the adequacy conclusion from the superseded evidence version.'
+    } }
+  }, makeRiskHeaders(reviewerHeaders));
+  assert.equal(staleEvidenceReview.response.status, 409, JSON.stringify(staleEvidenceReview.body));
+  assert.equal(staleEvidenceReview.body.code, 'STALE_DEPENDENCY');
+  const replacementEvidenceReview = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'evidence.review', payload: {
+      evidenceId: replacementHybridEvidence.body.result.evidenceId, evidenceVersion: 2, status: 'ADEQUATE',
+      rationale: 'The replacement bytes and physical locator were independently inspected.'
+    } }
+  }, makeRiskHeaders(reviewerHeaders));
+  assert.equal(replacementEvidenceReview.response.status, 200, JSON.stringify(replacementEvidenceReview.body));
+  const refreshedProcedureEvidenceLink = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'evidence.link', payload: {
+      evidenceId: replacementHybridEvidence.body.result.evidenceId, evidenceVersion: 2, targetVersion: 6, procedureId: greenProcedureId
+    } }
+  }, technicalHeaders);
+  assert.equal(refreshedProcedureEvidenceLink.response.status, 200, JSON.stringify(refreshedProcedureEvidenceLink.body));
+  const reassessedProcedureSubmission = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'procedure.submit', payload: { procedureId: greenProcedureId, expectedVersion: 7 } }
+  }, technicalHeaders);
+  assert.equal(reassessedProcedureSubmission.response.status, 200, JSON.stringify(reassessedProcedureSubmission.body));
+  const refreshedEvidenceLinks = await call(`/api/workspaces/${workspaceId}/engagements/${engagementId}/fieldwork-workspace`, { headers: technicalHeaders });
+  assert.ok(refreshedEvidenceLinks.body.evidenceLinks.some((item: any) => item.evidenceId === hybridEvidence.body.result.evidenceId && item.unlinkReason));
+  assert.ok(refreshedEvidenceLinks.body.evidenceLinks.some((item: any) => item.evidenceId === replacementHybridEvidence.body.result.evidenceId && !item.unlinkReason));
+  const replacementEvidencePinV2 = refreshedEvidenceLinks.body.evidenceLinks.find((item: any) => item.evidenceId === replacementHybridEvidence.body.result.evidenceId && !item.unlinkReason);
+  assert.ok(replacementEvidencePinV2?.id, 'the current replacement pin is available for an append-only stale-pin unlink');
+
+  const replacementEvidenceFileV3 = await storeCommittedFile('EVIDENCE', 'replacement-invoice-evidence-v3.pdf', 'application/pdf', replacementBytes, technicalHeaders, { clientId, engagementId });
+  const replacementHybridEvidenceV3 = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'evidence.create', payload: {
+      engagementId, mode: 'HYBRID', title: 'Revenue source inspection record, independently reassessed replacement', fileVersionId: replacementEvidenceFileV3,
+      physicalIndex: 'REV-01', physicalDescription: 'Corrected signed sales-register extract inspected at the client site.',
+      binder: 'Revenue binder A', box: '3', shelf: 'B', supersedesEvidenceId: replacementHybridEvidence.body.result.evidenceId
+    } }
+  }, technicalHeaders);
+  assert.equal(replacementHybridEvidenceV3.response.status, 200, JSON.stringify(replacementHybridEvidenceV3.body));
+  assert.equal(replacementHybridEvidenceV3.body.result.version, 3);
+  const replacementEvidenceReviewV3 = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'evidence.review', payload: {
+      evidenceId: replacementHybridEvidenceV3.body.result.evidenceId, evidenceVersion: 3, status: 'ADEQUATE',
+      rationale: 'The corrected committed bytes and physical source were independently inspected.'
+    } }
+  }, makeRiskHeaders(reviewerHeaders));
+  assert.equal(replacementEvidenceReviewV3.response.status, 200, JSON.stringify(replacementEvidenceReviewV3.body));
+  const staleReplacementProcedureAcceptance = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'procedure.review', payload: {
+      procedureId: greenProcedureId, expectedVersion: 8, decision: 'ACCEPT', comments: 'Attempt to accept the submission after its exact evidence was superseded.'
+    } }
+  }, samplingReviewerHeaders);
+  assert.equal(staleReplacementProcedureAcceptance.response.status, 409);
+  assert.equal(staleReplacementProcedureAcceptance.body.code, 'STALE_DEPENDENCY',
+    'new evidence bytes invalidate the pending procedure conclusion until the reviewer returns it for reassessment');
+  const returnStaleEvidenceProcedure = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'procedure.review', payload: {
+      procedureId: greenProcedureId, expectedVersion: 8, decision: 'REWORK', comments: 'Reassess the procedure against the corrected evidence version.',
+      assignedPreparerId: preparerStaff.body.result.staffMemberId
+    } }
+  }, samplingReviewerHeaders);
+  assert.equal(returnStaleEvidenceProcedure.response.status, 200, JSON.stringify(returnStaleEvidenceProcedure.body));
+  assert.equal(returnStaleEvidenceProcedure.body.result.status, 'UNDER_REWORK');
+  const unlinkStaleEvidencePin = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'evidence.unlink', payload: {
+      evidenceLinkId: replacementEvidencePinV2.id, reason: 'The linked evidence was superseded; reassessment will use the corrected third version.'
+    } }
+  }, technicalHeaders);
+  assert.equal(unlinkStaleEvidencePin.response.status, 200, JSON.stringify(unlinkStaleEvidencePin.body));
+  const revisedProcedureForEvidenceV3 = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'procedure.update', payload: {
+      procedureId: greenProcedureId, expectedVersion: 10, reworkReason: 'The evidence family advanced to its corrected third version.',
+      workPerformed: 'Inspected the corrected source record and recalculated the relevant current-period amount against the ledger.',
+      conclusion: 'The corrected current-period source supports the recorded amount and the revised audit conclusion.'
+    } }
+  }, technicalHeaders);
+  assert.equal(revisedProcedureForEvidenceV3.response.status, 200, JSON.stringify(revisedProcedureForEvidenceV3.body));
+  const refreshedProcedureEvidenceLinkV3 = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'evidence.link', payload: {
+      evidenceId: replacementHybridEvidenceV3.body.result.evidenceId, evidenceVersion: 3, targetVersion: 11, procedureId: greenProcedureId
+    } }
+  }, technicalHeaders);
+  assert.equal(refreshedProcedureEvidenceLinkV3.response.status, 200, JSON.stringify(refreshedProcedureEvidenceLinkV3.body));
+  const reassessedProcedureSubmissionV3 = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'procedure.submit', payload: { procedureId: greenProcedureId, expectedVersion: 12 } }
+  }, technicalHeaders);
+  assert.equal(reassessedProcedureSubmissionV3.response.status, 200, JSON.stringify(reassessedProcedureSubmissionV3.body));
+  const reassessedProcedureAcceptanceV3 = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'procedure.review', payload: {
+      procedureId: greenProcedureId, expectedVersion: 13, decision: 'ACCEPT', comments: 'Accepted after independent reassessment of the corrected evidence.'
+    } }
+  }, samplingReviewerHeaders);
+  assert.equal(reassessedProcedureAcceptanceV3.response.status, 200, JSON.stringify(reassessedProcedureAcceptanceV3.body));
+  assert.equal(reassessedProcedureAcceptanceV3.body.result.status, 'REVIEWED');
 
   for (const file of [firstPbcFile, replacementPbcFile]) {
     const downloaded = await worker.fetch(new Request(`https://local.auditsphere.test/api/workspaces/${workspaceId}/files/${file.fileId}`, {

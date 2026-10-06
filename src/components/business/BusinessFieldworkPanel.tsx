@@ -170,6 +170,7 @@ export function BusinessFieldworkPanel({ workspaceId, selected, context, engagem
   const [evidenceMode, setEvidenceMode] = useState<'DIGITAL'|'PHYSICAL'|'HYBRID'>('DIGITAL');
   const [evidenceTitle, setEvidenceTitle] = useState('');
   const [evidenceFileId, setEvidenceFileId] = useState('');
+  const [evidenceSupersedesId, setEvidenceSupersedesId] = useState('');
   const [physicalIndex, setPhysicalIndex] = useState('');
   const [physicalDescription, setPhysicalDescription] = useState('');
   const [binder, setBinder] = useState('');
@@ -520,11 +521,12 @@ export function BusinessFieldworkPanel({ workspaceId, selected, context, engagem
       setError('Physical and hybrid evidence require at least one binder, box or shelf locator.');
       return;
     }
-    await command('evidence.create', { engagementId: engagement.id, mode: evidenceMode, title: evidenceTitle,
+    const result = await command('evidence.create', { engagementId: engagement.id, mode: evidenceMode, title: evidenceTitle,
       ...(evidenceFileId ? { fileVersionId: evidenceFileId } : {}), ...(physicalIndex ? { physicalIndex } : {}), ...(physicalDescription ? { physicalDescription } : {}),
       ...(binder ? { binder } : {}), ...(box ? { box } : {}), ...(shelf ? { shelf } : {}),
-      ...(externalUrl ? { externalSourceUrl: externalUrl, retrievedAt: retrievedAt ? new Date(retrievedAt).toISOString() : '' } : {}) }, 'Evidence record created with pending reviewer verification.');
-    setEvidenceTitle('');
+      ...(externalUrl ? { externalSourceUrl: externalUrl, retrievedAt: retrievedAt ? new Date(retrievedAt).toISOString() : '' } : {}),
+      ...(evidenceSupersedesId ? { supersedesEvidenceId: evidenceSupersedesId } : {}) }, 'Evidence record created with pending reviewer verification.');
+    if (result) { setEvidenceTitle(''); setEvidenceSupersedesId(''); }
   }
 
   async function linkEvidence(event: FormEvent<HTMLFormElement>) {
@@ -533,7 +535,8 @@ export function BusinessFieldworkPanel({ workspaceId, selected, context, engagem
     if (!evidence) { setError('Choose a current evidence version first.'); return; }
     const selectedTarget = linkTargetType === 'PROCEDURE' ? workspace?.procedures.find(item => item.id === linkTargetId)
       : linkTargetType === 'ANALYTICAL_REVIEW' ? workspace?.analyticalReviews.find(item => String(item.id) === linkTargetId)
-        : linkTargetType === 'SAMPLE_TEST' ? planDetail?.tests.find(item => item.id === linkTargetId) : null;
+        : linkTargetType === 'SAMPLE_TEST' ? planDetail?.tests.find(item => item.id === linkTargetId)
+          : workspace?.findings.find(item => String(item.id) === linkTargetId);
     if (!selectedTarget) { setError('Choose an available target in this engagement.'); return; }
     const targetProp = linkTargetType === 'PROCEDURE' ? { procedureId: linkTargetId } : linkTargetType === 'ANALYTICAL_REVIEW' ? { analyticalReviewId: linkTargetId }
       : linkTargetType === 'SAMPLE_TEST' ? { sampleTestId: linkTargetId } : { findingId: linkTargetId };
@@ -866,6 +869,7 @@ export function BusinessFieldworkPanel({ workspaceId, selected, context, engagem
         <form className="business-fieldwork-card business-form" onSubmit={createEvidence}><h3>Retain digital, physical or hybrid evidence</h3>
           <div className="business-form-grid"><label className="business-field"><span>Evidence mode</span><select value={evidenceMode} onChange={event => setEvidenceMode(event.target.value as typeof evidenceMode)}><option value="DIGITAL">Digital</option><option value="PHYSICAL">Physical</option><option value="HYBRID">Hybrid</option></select></label>
             <label className="business-field"><span>Evidence title</span><input required value={evidenceTitle} onChange={event => setEvidenceTitle(event.target.value)} /></label>
+            <label className="business-field"><span>Supersedes evidence version (optional)</span><select value={evidenceSupersedesId} onChange={event => setEvidenceSupersedesId(event.target.value)}><option value="">Create a new evidence family</option>{editableEvidence.map(item => <option key={item.id} value={item.id}>{item.title} · v{item.version}</option>)}</select></label>
             {evidenceMode !== 'PHYSICAL' && <label className="business-field"><span>Committed retained file</span><select required value={evidenceFileId} onChange={event => setEvidenceFileId(event.target.value)}><option value="">Choose verified evidence…</option>{sourceFiles.map(file => <option key={file.id} value={file.id}>{file.originalName} · {file.purpose} · v{file.version}</option>)}</select></label>}
             {evidenceMode !== 'DIGITAL' && <><label className="business-field"><span>Physical index code</span><input required value={physicalIndex} onChange={event => setPhysicalIndex(event.target.value)} /></label>
               <label className="business-field"><span>Physical description</span><input required minLength={5} value={physicalDescription} onChange={event => setPhysicalDescription(event.target.value)} /></label>
@@ -877,7 +881,9 @@ export function BusinessFieldworkPanel({ workspaceId, selected, context, engagem
           <button className="btn primary" type="submit" disabled={busy || !canWrite}>Create evidence record</button>
         </form>
         {editableEvidence.map(item => <article className="business-fieldwork-row" key={item.id}><div><strong>{item.title} · {item.mode} · v{item.version}</strong>
-          <span>{item.adequacy ?? 'PENDING VERIFICATION'} · {item.fileSha256 ? `SHA-256 ${item.fileSha256}` : 'No digital hash'} · {item.physicalIndex ?? 'No physical index'} {item.box ? `· Box ${item.box}` : ''} {item.shelf ? `· Shelf ${item.shelf}` : ''}</span>
+          <span>{item.adequacy ?? 'PENDING VERIFICATION'} · {item.fileSha256 ? `SHA-256 ${item.fileSha256}` : 'No digital hash'} · {item.physicalIndex ?? 'No physical index'}</span>
+          {(item.physicalDescription || item.binder || item.box || item.shelf) && <small>Physical record: {item.physicalDescription ?? 'Description missing'}{item.binder ? ` · Binder ${item.binder}` : ''}{item.box ? ` · Box ${item.box}` : ''}{item.shelf ? ` · Shelf ${item.shelf}` : ''}</small>}
+          {item.externalSourceUrl && <small>External source: <a href={item.externalSourceUrl} target="_blank" rel="noreferrer">{item.externalSourceUrl}</a> · retrieved {item.retrievedAt ?? 'time missing'}</small>}
           {item.adequacyRationale && <small>Reviewer: {item.adequacyRationale}</small>}</div></article>)}
         {canReview && editableEvidence.length > 0 && <form className="business-fieldwork-card business-form" onSubmit={event => { event.preventDefault(); void command('evidence.review', { evidenceId: reviewEvidenceId, evidenceVersion: Number(reviewEvidenceVersion), status: evidenceDecision, rationale: evidenceRationale }, `Evidence ${label(evidenceDecision).toLowerCase()} decision saved.`); }}>
           <h3>Independent evidence adequacy review</h3><div className="business-form-grid"><label className="business-field"><span>Exact evidence version</span><select value={`${reviewEvidenceId}:${reviewEvidenceVersion}`} onChange={event => { const [id,version] = event.target.value.split(':'); setReviewEvidenceId(id); setReviewEvidenceVersion(version); }}>
@@ -888,20 +894,24 @@ export function BusinessFieldworkPanel({ workspaceId, selected, context, engagem
         </form>}
         <form className="business-fieldwork-card business-form" onSubmit={linkEvidence}><h3>Link evidence to an exact row revision</h3><div className="business-form-grid">
           <label className="business-field"><span>Current evidence version</span><select required value={linkEvidenceId} onChange={event => setLinkEvidenceId(event.target.value)}><option value="">Choose evidence…</option>{editableEvidence.map(item => <option key={item.id} value={item.id}>{item.title} · v{item.version}</option>)}</select></label>
-          <label className="business-field"><span>Audit target type</span><select value={linkTargetType} onChange={event => { setLinkTargetType(event.target.value as typeof linkTargetType); setLinkTargetId(''); setLinkTargetVersion(''); }}><option value="PROCEDURE">Procedure</option><option value="ANALYTICAL_REVIEW">Analytical review</option><option value="SAMPLE_TEST">Sample test</option></select></label>
+          <label className="business-field"><span>Audit target type</span><select value={linkTargetType} onChange={event => { setLinkTargetType(event.target.value as typeof linkTargetType); setLinkTargetId(''); setLinkTargetVersion(''); }}><option value="PROCEDURE">Procedure</option><option value="ANALYTICAL_REVIEW">Analytical review</option><option value="SAMPLE_TEST">Sample test</option><option value="FINDING">Finding</option></select></label>
           <label className="business-field"><span>Target revision</span><select value={linkTargetId} onChange={event => { setLinkTargetId(event.target.value); const target = linkTargetType === 'PROCEDURE' ? workspace.procedures.find(row => row.id === event.target.value)
-            : linkTargetType === 'ANALYTICAL_REVIEW' ? workspace.analyticalReviews.find(row => String(row.id) === event.target.value) : planDetail?.tests.find(row => row.id === event.target.value); setLinkTargetVersion(String(target && 'version' in target ? target.version : '')); }}>
+            : linkTargetType === 'ANALYTICAL_REVIEW' ? workspace.analyticalReviews.find(row => String(row.id) === event.target.value)
+              : linkTargetType === 'SAMPLE_TEST' ? planDetail?.tests.find(row => row.id === event.target.value)
+                : workspace.findings.find(row => String(row.id) === event.target.value); setLinkTargetVersion(String(target && 'version' in target ? target.version : '')); }}>
             <option value="">Choose a target…</option>{linkTargetType === 'PROCEDURE' ? workspace.procedures.filter(row => ['NOT_STARTED','IN_PROGRESS','UNDER_REWORK'].includes(row.status)).map(row => <option key={row.id} value={row.id}>{row.title} · v{row.version}</option>)
               : linkTargetType === 'ANALYTICAL_REVIEW' ? workspace.analyticalReviews.filter(row => ['DRAFT','UNDER_REWORK'].includes(String(row.status))).map(row => <option key={String(row.id)} value={String(row.id)}>{String(row.fsliCode ?? row.id)} · v{String(row.version)}</option>)
-                : (planDetail?.tests ?? []).filter(row => row.tested === 1).map(row => <option key={row.id} value={row.id}>{row.populationRowId} · v{row.version}</option>)}</select></label>
+                : linkTargetType === 'SAMPLE_TEST' ? (planDetail?.tests ?? []).filter(row => row.tested === 1).map(row => <option key={row.id} value={row.id}>{row.populationRowId} · v{row.version}</option>)
+                  : workspace.findings.map(row => <option key={String(row.id)} value={String(row.id)}>{String(row.title ?? row.id)} · v{String(row.version)}</option>)}</select></label>
           <label className="business-field"><span>Expected target version</span><input type="number" min="1" required value={linkTargetVersion} onChange={event => setLinkTargetVersion(event.target.value)} /></label></div>
           <button className="btn" type="submit" disabled={busy || !canWrite}>Link exact evidence version</button>
         </form>
-        {workspace.evidenceLinks.filter(link => !link.unlinkReason).map(link => <div className="business-fieldwork-row" key={link.id}><div><strong>{link.targetType} · {link.targetId} · target v{link.targetVersion}</strong><span>Evidence {link.evidenceId} · v{link.evidenceVersion} · linked {link.linkedAt}</span></div>
-          {unlinkId === link.id ? <form className="business-fieldwork-review" onSubmit={async event => { event.preventDefault(); const result = await command('evidence.unlink', { evidenceLinkId: link.id, reason: unlinkReason }, 'An append-only unlink event was recorded; the prior reference remains in the audit history.'); if (result) { setUnlinkId(''); setUnlinkReason(''); } }}>
+        {workspace.evidenceLinks.map(link => <div className="business-fieldwork-row" key={link.id}><div><strong>{link.targetType} · {link.targetId} · target v{link.targetVersion}{!link.unlinkReason && link.evidenceVersion < link.currentEvidenceVersion ? ` · STALE EVIDENCE PIN (current v${link.currentEvidenceVersion})` : ''}{link.unlinkReason ? ' · UNLINKED' : ''}</strong><span>Evidence {link.evidenceId} · v{link.evidenceVersion} · linked {link.linkedAt}</span>
+          {link.unlinkReason && <small>Unlinked {link.unlinkedAt ?? 'at an unrecorded time'} by {link.unlinkActorId ?? 'an unknown actor'}: {link.unlinkReason}</small>}</div>
+          {!link.unlinkReason && unlinkId === link.id ? <form className="business-fieldwork-review" onSubmit={async event => { event.preventDefault(); const result = await command('evidence.unlink', { evidenceLinkId: link.id, reason: unlinkReason }, 'An append-only unlink event was recorded; the prior reference remains in the audit history.'); if (result) { setUnlinkId(''); setUnlinkReason(''); } }}>
             <label className="business-field"><span>Reason for unlinking this evidence reference</span><textarea required minLength={10} value={unlinkReason} onChange={event => setUnlinkReason(event.target.value)} /></label>
             <button type="submit" className="btn sm" disabled={busy || !canWrite || unlinkReason.trim().length < 10}>Record unlink</button><button type="button" className="btn sm" onClick={() => { setUnlinkId(''); setUnlinkReason(''); }}>Cancel</button>
-          </form> : <button type="button" className="btn sm" disabled={busy || !canWrite} onClick={() => { setUnlinkId(link.id); setUnlinkReason(''); }}>Unlink with reason</button>}</div>)}
+          </form> : !link.unlinkReason && <button type="button" className="btn sm" disabled={busy || !canWrite} onClick={() => { setUnlinkId(link.id); setUnlinkReason(''); }}>Unlink with reason</button>}</div>)}
         <div className="business-fieldwork-card"><div className="business-section-heading"><div><h3>Change feed</h3><p className="business-muted">Cursor {changeCursor} · new events refresh current versioned rows and audit links.</p></div>
           <button className="btn sm" type="button" disabled={busy} onClick={async () => { try { const result = await getBusinessFieldworkChanges<{changes:unknown[];nextCursor:string;hasMore:boolean}>(workspaceId, engagement.id, scope, changeCursor); setChangeCursor(Number(result.nextCursor)); setMessage(`${result.changes.length} changes loaded${result.hasMore ? '; more are available' : ''}.`); if (result.changes.length > 0) setRefresh(value => value + 1); } catch (reason) { setError(reason instanceof Error ? reason.message : 'Fieldwork changes could not be loaded.'); } }}>Read next events</button></div>
         </div>
