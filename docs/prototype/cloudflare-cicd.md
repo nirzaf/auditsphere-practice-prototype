@@ -6,6 +6,10 @@ existing Wrangler target: the Worker API, Vite Static Assets, D1/R2 bindings,
 and configured cron trigger. Production deployment is disabled until the
 repository variable `CLOUDFLARE_DEPLOY_ENABLED` is set to `true`.
 
+This profile intentionally has no user authentication: persona selection is
+self-asserted. The deployment workflow adds no access boundary, so use only
+synthetic data unless a trusted access environment is separately provided.
+
 ## GitHub setup
 
 1. Create the GitHub Actions environment `cloudflare-production` and restrict
