@@ -672,7 +672,13 @@ it('US-SYS-001 keeps exactly four self-selected personas visible and persistent 
 
   await tab.command('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 1, mobile: false });
   await tab.evaluate('window.scrollTo(0, 0)');
-  await sleep(80);
+  const mobileReadyDeadline = Date.now() + 5000;
+  let mobileReady = false;
+  while (Date.now() < mobileReadyDeadline) {
+    mobileReady = await tab.evaluate<boolean>(`Boolean(document.querySelector('#role-select')?.getClientRects().length && document.querySelector('.persona-trust-notice')?.getClientRects().length)`);
+    if (mobileReady) break;
+    await sleep(50);
+  }
   const mobile = await tab.evaluate<{ visible: boolean; noticeVisible: boolean; warningTop: number; warningBottom: number; selectorRight: number; pageWidth: number }>(`(() => {
     const select = document.querySelector('#role-select');
     const notice = document.querySelector('.persona-trust-notice');
@@ -686,7 +692,7 @@ it('US-SYS-001 keeps exactly four self-selected personas visible and persistent 
       pageWidth: document.documentElement.scrollWidth
     };
   })()`);
-  assert.equal(mobile.visible, true);
+  assert.equal(mobile.visible, true, JSON.stringify({ mobileReady, ...mobile }));
   assert.equal(mobile.noticeVisible, true);
   assert.ok(mobile.warningTop >= 0 && mobile.warningBottom <= 844, 'trust notice is inside the captured mobile viewport');
   assert.ok(mobile.selectorRight <= 390, `persona selector is inside the 390px viewport: ${mobile.selectorRight}`);

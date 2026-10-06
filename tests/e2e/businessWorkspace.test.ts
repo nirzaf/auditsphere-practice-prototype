@@ -302,6 +302,7 @@ it('US-ENG-001/002 creates a client-linked lead from the visible forms and advan
   await waitFor('the new PREPARER profile', `([...document.querySelectorAll('#business-active-persona option')].some(option => option.textContent?.includes('PREPARER · QA Lead Preparer')))`);
   await chooseOption('business-active-persona', `item.textContent?.includes('PREPARER · QA Lead Preparer')`);
   await waitFor('the PREPARER context', `document.querySelector('.business-actor-summary')?.innerText.includes('PREPARER')`);
+  await waitFor('the PREPARER lead intake form', `document.getElementById('business-lead-client-code')?.getClientRects().length > 0`);
 
   // Record one new-client referral with a real contact, service and period.
   await fillFields({
@@ -525,8 +526,9 @@ it('US-ENG-003 renders and approves an exact quote revision, then fails closed w
   await waitFor('the visible unconfigured-provider failure', `document.querySelector('.business-proposal-list')?.innerText.includes('dispatch FAILED') && document.querySelector('.business-proposal-list [role="status"]')?.innerText.includes('email provider not configured')`);
   await tab.command('Page.reload');
   await waitFor('the persisted provider failure after reload', `document.querySelector('.business-proposal-list')?.innerText.includes('dispatch FAILED') && document.querySelector('.business-proposal-list [role="alert"]')?.innerText.includes('engagement remains in proposal generation')`);
+  await waitFor('the current engagement acceptance panel after reload', `document.querySelectorAll('.business-risk-card .business-key-status').length === 2`);
   const pendingKeys = await tab.evaluate<string[]>(`[...document.querySelectorAll('.business-risk-card .business-key-status')]
-    .map(item => item.innerText.replace(/\\s+/g, ' ').trim()).sort()`);
+    .map(item => [item.querySelector('span')?.textContent?.trim(), item.querySelector('strong')?.textContent?.trim().toUpperCase()].join(' ')).sort()`);
   assert.deepEqual(pendingKeys, ['Client commercial key PENDING', 'Partner risk key PENDING'],
     'proposal provider failure cannot produce either acceptance key');
   assert.equal(server.db.prepare('SELECT lifecycle_state FROM engagements WHERE workspace_id=? AND id=?')
