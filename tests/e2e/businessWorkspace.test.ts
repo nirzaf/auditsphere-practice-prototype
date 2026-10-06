@@ -366,3 +366,171 @@ it('US-ENG-001/002 creates a client-linked lead from the visible forms and advan
   assert.equal(tab.blockedExternalRequests.length, 0);
   assert.deepEqual(tab.exceptions, []);
 });
+
+it('US-ENG-003 renders and approves an exact quote revision, then fails closed when email is unconfigured', { timeout: 120000 }, async () => {
+  assert.ok(tab && server);
+
+  // Observe: the prior journey left its synthetic workspace selected and the shell is interactive.
+  const current = await tab.evaluate<{ workspaceHeading: string; landingHeading: string; switchButton: boolean }>(`({
+    workspaceHeading: document.querySelector('#business-workspace-heading')?.textContent?.trim() ?? '',
+    landingHeading: document.querySelector('#production-workspace-heading')?.textContent?.trim() ?? '',
+    switchButton: [...document.querySelectorAll('button')].some(button => button.textContent?.trim() === 'Switch to prototype / TEST' && !button.disabled)
+  })`);
+  if (current.workspaceHeading) {
+    assert.ok(current.workspaceHeading.startsWith('Lead Journey '));
+    assert.equal(current.switchButton, true);
+    await clickButton('Switch to prototype / TEST');
+    await waitFor('the empty-workspace landing page', `document.querySelector('#production-workspace-heading')?.textContent === 'Open your business workspace'`);
+  } else {
+    assert.equal(current.landingHeading, 'Open your business workspace');
+  }
+
+  // Plan/Act/Verify: create an isolated workspace before exercising the real commercial UI.
+  await clickButton('Create or connect workspace');
+  await waitFor('the fresh workspace form', `document.querySelector('#business-partner-email') !== null`);
+  const unique = Date.now();
+  await fillFields({
+    'business-workspace-name': `Quote Journey ${unique}`,
+    'business-partner-name': 'QA Commercial Partner',
+    'business-partner-key': `QA-COMMERCIAL-PARTNER-${unique}`,
+    'business-partner-email': 'commercial.partner@example.invalid'
+  });
+  await clickButton('Create business workspace');
+  await waitFor('the empty commercial workspace', `document.querySelector('#business-workspace-heading')?.textContent === ${JSON.stringify(`Quote Journey ${unique}`)} && document.body.innerText.includes('No clients are registered.')`);
+  const preference = await tab.evaluate<{ workspaceId: string; persona: string }>(`JSON.parse(localStorage.getItem('auditsphere.business-context.v1') ?? '{}')`);
+  assert.equal(preference.persona, 'APPROVER');
+
+  await fillFields({
+    'business-standards-name': `QA Standards ${unique}`,
+    'business-standards-start': '2026-01-01',
+    'business-isa220': 'ISA 220 (Revised), approved synthetic profile',
+    'business-isa570': 'ISA 570 (Revised 2024), approved synthetic profile',
+    'business-reporting-framework': 'Approved synthetic reporting framework'
+  });
+  await clickButton('Approve standards profile');
+  await waitFor('the approved standards profile', `document.body.innerText.includes(${JSON.stringify(`QA Standards ${unique}`)})`);
+
+  await fillFields({
+    'business-firm-legal-name': 'Example Audit Practice WLL',
+    'business-firm-registration': `QA-REG-${unique}`,
+    'business-firm-address': 'Doha, Qatar',
+    'business-firm-profile-text': 'Synthetic test firm profile for verifying quote rendering only.',
+    'business-firm-methodology': 'Synthetic methodology summary for isolated browser acceptance; no real firm claim.'
+  });
+  await clickButton('Save firm profile');
+  await waitFor('the approved synthetic firm profile', `document.body.innerText.includes('Partner-approved firm content · v1')`);
+
+  const addStaffProfile = async (displayName: string, persona: 'PREPARER' | 'REVIEWER', grade: 'ASSOCIATE' | 'MANAGER') => {
+    await fillFields({
+      'business-staff-name': displayName,
+      'business-staff-person-key': `QA-${persona}-${unique}`,
+      'business-staff-email': `${persona.toLowerCase()}.${unique}@example.invalid`,
+      'business-staff-grade': grade,
+      'business-staff-persona': persona
+    });
+    await clickButton(`Add ${persona.toLowerCase()} profile`);
+    await waitFor(`${persona} profile in the selector`, `([...document.querySelectorAll('#business-active-persona option')].some(option => option.textContent?.includes(${JSON.stringify(`${persona} · ${displayName}`)})))`);
+  };
+  await addStaffProfile('QA Quote Reviewer', 'REVIEWER', 'MANAGER');
+  await addStaffProfile('QA Quote Preparer', 'PREPARER', 'ASSOCIATE');
+  await chooseOption('business-active-persona', `item.textContent?.includes('PREPARER · QA Quote Preparer')`);
+  await waitFor('the PREPARER context', `document.querySelector('.business-actor-summary')?.innerText.includes('PREPARER')`);
+
+  await fillFields({
+    'business-lead-client-code': `QA-QUOTE-${unique}`,
+    'business-lead-client-name': `QA Quote Client ${unique} WLL`,
+    'business-lead-industry': 'Professional services',
+    'business-lead-address': 'Doha, Qatar',
+    'business-lead-contact-name': 'QA Finance Contact',
+    'business-lead-contact-email': `quote.finance.${unique}@example.invalid`,
+    'business-lead-contact-phone': '',
+    'business-lead-contact-title': 'Finance Director',
+    'business-lead-contact-role': 'MD_GM',
+    'business-lead-source': 'REFERRAL',
+    'business-lead-service': 'STATUTORY_AUDIT',
+    'business-lead-period-start': '2026-01-01',
+    'business-lead-period-end': '2026-12-31',
+    'business-lead-fee': '10000001'
+  });
+  await clickButton('Record lead');
+  await waitFor('the real linked lead', `document.querySelector('.business-lead-list')?.innerText.includes(${JSON.stringify(`QA Quote Client ${unique} WLL`)})`);
+  const conversionControl = await tab.evaluate<string>(`document.querySelector('.business-lead-list input[id^="business-engagement-code-"]')?.id ?? ''`);
+  assert.ok(conversionControl);
+  const codeAccepted = await tab.evaluate<boolean>(`(() => {
+    const input = document.getElementById(${JSON.stringify(conversionControl)});
+    if (!(input instanceof HTMLInputElement)) return false;
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(input, ${JSON.stringify(`QA-QUOTE-ENG-${unique}`)});
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    input.dispatchEvent(new Event('change', { bubbles: true }));
+    return input.checkValidity();
+  })()`);
+  assert.equal(codeAccepted, true);
+  await clickButton('Convert to engagement');
+  await waitFor('the LEAD_INGESTION engagement', `document.querySelector('.business-created-engagement')?.innerText.includes('Current state: LEAD_INGESTION')`);
+  await clickButton('Validate profile and enter proposal generation');
+  await waitFor('the proposal-generation state', `document.querySelector('.business-created-engagement')?.innerText.includes('Current state: PROPOSAL_GENERATION')`);
+
+  await chooseOption('business-active-persona', `item.textContent?.includes('REVIEWER · QA Quote Reviewer')`);
+  await waitFor('the Reviewer proposal form and proposal-ready engagement', `document.querySelector('.business-actor-summary')?.innerText.includes('REVIEWER') && [...(document.querySelector('#business-proposal-engagement')?.options ?? [])].some(option => option.textContent?.includes(${JSON.stringify(`QA-QUOTE-ENG-${unique}`)}))`);
+  await chooseOption('business-proposal-engagement', `item.textContent?.includes(${JSON.stringify(`QA-QUOTE-ENG-${unique}`)})`);
+  await fillFields({
+    'business-proposal-mode': 'QUOTE',
+    'business-proposal-fee': '10000001',
+    'business-proposal-valid-until': '2026-11-01',
+    'business-proposal-milestone': 'Draft audited financial statements',
+    'business-proposal-milestone-date': '2027-02-15',
+    'business-proposal-scope': 'Statutory audit of the synthetic client financial statements for the stated reporting period.'
+  });
+  await clickButton('Create proposal revision');
+  await waitFor('the exact quote split and saved revision', `document.querySelector('.business-command-message')?.innerText.includes('QAR minor-unit terms split to 5000001 advance and 5000000 final') && document.querySelector('.business-proposal-list')?.innerText.includes('Quotation · Revision 1')`);
+
+  const proposal = server.db.prepare(`SELECT pv.id AS proposal_version_id,pv.fee_minor,pv.revision,pv.mode,pv.advance_bps,pv.final_bps,
+      p.id AS proposal_id,e.id AS engagement_id,e.lifecycle_state
+    FROM proposal_versions pv JOIN proposals p ON p.workspace_id=pv.workspace_id AND p.id=pv.proposal_id
+    JOIN engagements e ON e.workspace_id=pv.workspace_id AND e.id=pv.engagement_id
+    WHERE pv.workspace_id=? AND e.code=?`).bind(preference.workspaceId, `QA-QUOTE-ENG-${unique}`).first<any>();
+  assert.ok(proposal);
+  assert.deepEqual({ fee: proposal.fee_minor, revision: proposal.revision, mode: proposal.mode, advanceBps: proposal.advance_bps, finalBps: proposal.final_bps },
+    { fee: 10000001, revision: 1, mode: 'QUOTE', advanceBps: 5000, finalBps: 5000 });
+
+  // Observe the proposal card before queueing its document job; then run the isolated Worker scheduler.
+  assert.equal(await tab.evaluate<boolean>(`[...document.querySelectorAll('.business-proposal-list li')].some(item => item.innerText.includes('Document NOT GENERATED') && [...item.querySelectorAll('button')].some(button => button.innerText.trim() === 'Generate verified PDF' && !button.disabled))`), true);
+  await clickButton('Generate verified PDF');
+  await waitFor('the queued proposal document job', `document.querySelector('.business-command-message')?.innerText.includes('Document job')`);
+  await server.runScheduled();
+  await waitFor('the committed generated PDF state', `document.querySelector('.business-proposal-list')?.innerText.includes('Document SUCCEEDED') && document.querySelector('.business-proposal-list')?.innerText.includes('Partner approval PENDING')`);
+  const artifact = server.db.prepare(`SELECT j.status,j.result_file_id,f.state,f.purpose,f.media_type,f.sha256,f.size_bytes,f.immutable
+    FROM outbox_jobs j JOIN file_versions f ON f.workspace_id=j.workspace_id AND f.id=j.result_file_id
+    WHERE j.workspace_id=? AND j.kind='GENERATE_DOCUMENT' AND j.aggregate_id=? ORDER BY j.created_at DESC LIMIT 1`)
+    .bind(preference.workspaceId, proposal.proposal_version_id).first<any>();
+  assert.deepEqual({ status: artifact?.status, state: artifact?.state, purpose: artifact?.purpose, mediaType: artifact?.media_type, immutable: artifact?.immutable },
+    { status: 'SUCCEEDED', state: 'COMMITTED', purpose: 'GENERATED', mediaType: 'application/pdf', immutable: 1 });
+  assert.ok(artifact.sha256 && artifact.size_bytes > 500);
+  assert.equal(server.db.prepare('SELECT COUNT(*) AS count FROM proposal_artifacts WHERE workspace_id=? AND proposal_version_id=?')
+    .bind(preference.workspaceId, proposal.proposal_version_id).first<any>()?.count, 1);
+
+  await chooseOption('business-active-persona', `item.textContent?.includes('APPROVER')`);
+  await waitFor('the Partner approval action for the generated revision', `document.querySelector('.business-actor-summary')?.innerText.includes('APPROVER') && [...document.querySelectorAll('.business-proposal-list button')].some(button => button.innerText.trim() === 'Approve this exact revision')`);
+  await clickButton('Approve this exact revision');
+  await waitFor('approval pinned to the exact generated revision', `document.querySelector('.business-proposal-list')?.innerText.includes('Partner approval APPROVE')`);
+
+  assert.equal(await tab.evaluate<boolean>(`(() => {
+    const route = document.querySelector('.business-proposal-list select[id^="business-proposal-route-"]');
+    const button = [...document.querySelectorAll('.business-proposal-list button')].find(item => item.innerText.trim() === 'Queue approved proposal email');
+    return route instanceof HTMLSelectElement && Boolean(route.value) && Boolean(button && !button.disabled);
+  })()`), true, 'the displayed default proposal route is selected and dispatch is actionable');
+  await clickButton('Queue approved proposal email');
+  await waitFor('the queued dispatch state', `document.querySelector('.business-proposal-list')?.innerText.includes('dispatch QUEUED')`);
+  await server.runScheduled();
+  await waitFor('the visible unconfigured-provider failure', `document.querySelector('.business-proposal-list')?.innerText.includes('dispatch FAILED') && document.querySelector('.business-proposal-list [role="status"]')?.innerText.includes('email provider not configured')`);
+  await tab.command('Page.reload');
+  await waitFor('the persisted provider failure after reload', `document.querySelector('.business-proposal-list')?.innerText.includes('dispatch FAILED') && document.querySelector('.business-proposal-list [role="alert"]')?.innerText.includes('engagement remains in proposal generation')`);
+  assert.equal(server.db.prepare('SELECT lifecycle_state FROM engagements WHERE workspace_id=? AND id=?')
+    .bind(preference.workspaceId, proposal.engagement_id).first<any>()?.lifecycle_state, 'PROPOSAL_GENERATION');
+  assert.equal(server.db.prepare("SELECT status FROM dispatches WHERE workspace_id=? AND engagement_id=? AND purpose='PROPOSAL' ORDER BY created_at DESC LIMIT 1")
+    .bind(preference.workspaceId, proposal.engagement_id).first<any>()?.status, 'FAILED');
+  assert.equal(server.db.prepare('SELECT COUNT(*) AS count FROM command_receipts WHERE workspace_id=? AND command_type IN (\'proposal.dispatch\',\'proposal.dispatch.retry\')')
+    .bind(preference.workspaceId).first<any>()?.count, 1, 'no provider-less retry or duplicate dispatch was recorded');
+  assert.equal(tab.blockedExternalRequests.length, 0, 'the synthetic provider-less journey made no external HTTP calls');
+  assert.deepEqual(tab.exceptions, [], 'the commercial browser journey raised no uncaught JavaScript exceptions');
+});

@@ -818,7 +818,8 @@ export function BusinessWorkspaceConsole() {
 
   const dispatchProposal = async (proposal: BusinessProposal) => {
     const selected = currentSelection();
-    const contactRouteId = proposalRouteIds[proposal.proposalVersionId];
+    const contactRouteId = proposalRouteIds[proposal.proposalVersionId]
+      ?? proposalWorkspace?.contactRoutes.find(route => route.clientId === proposal.clientId)?.id;
     if (!selected || !contactRouteId || !context?.allowedActions.includes('proposal.dispatch')) return;
     const payload = { proposalVersionId: proposal.proposalVersionId, expectedVersion: 1, contactRouteId };
     setCommandBusy(true);

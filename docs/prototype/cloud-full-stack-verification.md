@@ -228,3 +228,22 @@ all present in `initialState.ts` and `worker/seed.sql`.
   (`visibleAlignmentJourney.ts` and `LifecycleOverviewView.tsx` were last changed in
   commit `955427d`), so this journey could not pass before the cutover either. It is
   reported here rather than deleted, skipped or silently re-baselined.
+
+## Business workspace browser acceptance update — 2026-10-06
+
+`npm run build` passed, and `npx tsx --test tests/e2e/businessWorkspace.test.ts`
+passed **3/3** isolated browser journeys against the local Worker, SQLite D1
+adapter and in-memory R2 adapter. The new US-ENG-003 journey creates a client
+lead, advances to proposal generation, stores firm-approved synthetic content,
+renders a real quotation PDF, and approves that exact proposal revision. A
+QAR 10,000,001 minor-unit fee is split into QAR 5,000,001 advance and QAR
+5,000,000 final. It also exercises a missing email-provider binding: the UI
+shows the committed provider failure, the dispatch remains FAILED, and the
+engagement stays in PROPOSAL_GENERATION after reload.
+
+This journey exposed and fixed a no-op dispatch button: the UI displayed its
+first eligible contact route as the default while the handler only read the
+uninitialized selection state. The handler now uses the same default route as
+the control. Test records use `example.invalid`; no external HTTP request or
+real email provider is used. This is bounded US-ENG-003 browser evidence, not
+full acceptance of the 46-story epic or production email delivery.

@@ -43,6 +43,7 @@ function requestHeaders(request: IncomingMessage): Headers {
 export interface BusinessE2eServer {
   origin: string;
   db: SqliteD1;
+  runScheduled(): Promise<void>;
   setApiAvailable(available: boolean): void;
   close(): Promise<void>;
 }
@@ -138,6 +139,9 @@ export async function startBusinessE2eServer(): Promise<BusinessE2eServer> {
   return {
     origin,
     db,
+    async runScheduled() {
+      await worker.scheduled({ scheduledTime: Date.now(), cron: '* * * * *' } as any, env);
+    },
     setApiAvailable(available) { apiAvailable = available; },
     async close() {
       db.close();
