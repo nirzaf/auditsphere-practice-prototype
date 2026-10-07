@@ -18,8 +18,10 @@
     "migration:audit": "tsx tools/business-migration-audit.ts",
     "cloud:typecheck": "tsc --noEmit -p worker/tsconfig.json",
     "cloud:migrate": "wrangler d1 migrations apply steaudit-prototype-demo --remote --config wrangler.jsonc",
+    "cloud:r2-archive-locks:generate": "tsx tools/generate-r2-archive-lock-rules.ts",
+    "cloud:r2-archive-locks:apply": "npm run cloud:r2-archive-locks:generate && tsx tools/apply-r2-archive-lock-rules.ts",
     "cloud:dev": "npm run dev",
-    "cloud:deploy": "npm run build && wrangler deploy --config wrangler.jsonc",
+    "cloud:deploy": "npm run build && npm run cloud:r2-archive-locks:apply && wrangler deploy --config wrangler.jsonc",
     "test:cloud": "tsx --test tests/cloud/*.test.ts",
     "test:e2e": "npm run build && tsx --test --test-concurrency=1 tests/e2e/*.test.ts",
     "cf": "wrangler"

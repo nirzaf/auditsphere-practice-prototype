@@ -44,7 +44,14 @@ client; checksum-backed exports retain R2's verified body stream. The previous
 ZIP32 format still imposes a 4 GiB archive/member limit, and browser fallback
 behavior without the File System Access API remains a hash-verified Blob. Large-
 archive acceptance remains open until tests cover the full supported size range
-and all supported download paths end-to-end. Each open story has concrete
+and all supported download paths end-to-end. Sealed objects now use dedicated
+retention-specific prefixes, and `worker/r2-archive-locks.json` contains generated
+prefix rules for every supported term. CI and `npm run cloud:deploy` now apply
+these rules idempotently and verify their Cloudflare read-back before Worker
+deployment; a Cloudflare API token with R2 bucket configuration edit permission
+is required. The rule set has not yet been applied successfully, so
+storage-level overwrite/deletion protection remains unverified.
+Each open story has concrete
 acceptance criteria in the backlog and should be implemented through the active
 business UI/Worker with current-account evidence.
 

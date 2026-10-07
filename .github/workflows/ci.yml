@@ -173,6 +173,15 @@ jobs:
       - name: Build production assets
         run: npm run build
 
+      # Keep R2's archive prefix locks synchronized before code can emit newly
+      # sealed archives. The script preserves unrelated account lock rules and
+      # verifies the Cloudflare read-back before allowing later deploy steps.
+      - name: Apply and verify R2 archive retention locks
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: npm run cloud:r2-archive-locks:apply
+
       # Preflight the provider deployment before changing the production schema.
       # Its config disables workers.dev and limits sending to the approved
       # non-production destination.

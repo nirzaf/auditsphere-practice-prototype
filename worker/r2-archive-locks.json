@@ -1,0 +1,912 @@
+{
+  "rules": [
+    {
+      "id": "auditsphere-archive-1-years",
+      "enabled": true,
+      "prefix": "sealed-archives/retention/years-1/",
+      "condition": {
+        "type": "Age",
+        "maxAgeSeconds": 31622400
+      }
+    },
+    {
+      "id": "auditsphere-archive-2-years",
+      "enabled": true,
+      "prefix": "sealed-archives/retention/years-2/",
+      "condition": {
+        "type": "Age",
+        "maxAgeSeconds": 63158400
+      }
+    },
+    {
+      "id": "auditsphere-archive-3-years",
+      "enabled": true,
+      "prefix": "sealed-archives/retention/years-3/",
+      "condition": {
+        "type": "Age",
+        "maxAgeSeconds": 94694400
+      }
+    },
+    {
+      "id": "auditsphere-archive-4-years",
+      "enabled": true,
+      "prefix": "sealed-archives/retention/years-4/",
+      "condition": {
+        "type": "Age",
+        "maxAgeSeconds": 126230400
+      }
+    },
+    {
+      "id": "auditsphere-archive-5-years",
+      "enabled": true,
+      "prefix": "sealed-archives/retention/years-5/",
+      "condition": {
+        "type": "Age",
+        "maxAgeSeconds": 157852800
+      }
+    },
+    {
+      "id": "auditsphere-archive-6-years",
+      "enabled": true,
+      "prefix": "sealed-archives/retention/years-6/",
+      "condition": {
+        "type": "Age",
+        "maxAgeSeconds": 189388800
+      }
+    },
+    {
+      "id": "auditsphere-archive-7-years",
+      "enabled": true,
+      "prefix": "sealed-archives/retention/years-7/",
+      "condition": {
+        "type": "Age",
+        "maxAgeSeconds": 220924800
+      }
+    },
+    {
+      "id": "auditsphere-archive-8-years",
+      "enabled": true,
+      "prefix": "sealed-archives/retention/years-8/",
+      "condition": {
+        "type": "Age",
+        "maxAgeSeconds": 252460800
+      }
+    },
+    {
+      "id": "auditsphere-archive-9-years",
+      "enabled": true,
+      "prefix": "sealed-archives/retention/years-9/",
+      "condition": {
+        "type": "Age",
+        "maxAgeSeconds": 284083200
+      }
+    },
+    {
+      "id": "auditsphere-archive-10-years",
+      "enabled": true,
+      "prefix": "sealed-archives/retention/years-10/",
+      "condition": {
+        "type": "Age",
+        "maxAgeSeconds": 315619200
+      }
+    },
+    {
+      "id": "auditsphere-archive-11-years",
+      "enabled": true,
+      "prefix": "sealed-archives/retention/years-11/",
+      "condition": {
+        "type": "Age",
+        "maxAgeSeconds": 347155200
+      }
+    },
+    {
+      "id": "auditsphere-archive-12-years",
+      "enabled": true,
+      "prefix": "sealed-archives/retention/years-12/",
+      "condition": {
+        "type": "Age",
+        "maxAgeSeconds": 378691200
+      }
+    },
+    {
+      "id": "auditsphere-archive-13-years",
+      "enabled": true,
+      "prefix": "sealed-archives/retention/years-13/",
+      "condition": {
+        "type": "Age",
+        "maxAgeSeconds": 410313600
+      }
+    },
+    {
+      "id": "auditsphere-archive-14-years",
+      "enabled": true,
+      "prefix": "sealed-archives/retention/years-14/",
+      "condition": {
+        "type": "Age",
+        "maxAgeSeconds": 441849600
+      }
+    },
+    {
+      "id": "auditsphere-archive-15-years",
+      "enabled": true,
+      "prefix": "sealed-archives/retention/years-15/",
+      "condition": {
+        "type": "Age",
+        "maxAgeSeconds": 473385600
+      }
+    },
+    {
+      "id": "auditsphere-archive-16-years",
+      "enabled": true,
+      "prefix": "sealed-archives/retention/years-16/",
+      "condition": {
+        "type": "Age",
+        "maxAgeSeconds": 504921600
+      }
+    },
+    {
+      "id": "auditsphere-archive-17-years",
+      "enabled": true,
+      "prefix": "sealed-archives/retention/years-17/",
+      "condition": {
+        "type": "Age",
+        "maxAgeSeconds": 536544000
+      }
+    },
+    {
+      "id": "auditsphere-archive-18-years",
+      "enabled": true,
+      "prefix": "sealed-archives/retention/years-18/",
+      "condition": {
+        "type": "Age",
+        "maxAgeSeconds": 568080000
+      }
+    },
+    {
+      "id": "auditsphere-archive-19-years",
+      "enabled": true,
+      "prefix": "sealed-archives/retention/years-19/",
+      "condition": {
+        "type": "Age",
+        "maxAgeSeconds": 599616000
+      }
+    },
+    {
+      "id": "auditsphere-archive-20-years",
+      "enabled": true,
+      "prefix": "sealed-archives/retention/years-20/",
+      "condition": {
+        "type": "Age",
+        "maxAgeSeconds": 631152000
+      }
+    },
+    {
+      "id": "auditsphere-archive-21-years",
+      "enabled": true,
+      "prefix": "sealed-archives/retention/years-21/",
+      "condition": {
+        "type": "Age",
+        "maxAgeSeconds": 662774400
+      }
+    },
+    {
+      "id": "auditsphere-archive-22-years",
+      "enabled": true,
+      "prefix": "sealed-archives/retention/years-22/",
+      "condition": {
+        "type": "Age",
+        "maxAgeSeconds": 694310400
+      }
+    },
+    {
+      "id": "auditsphere-archive-23-years",
+      "enabled": true,
+      "prefix": "sealed-archives/retention/years-23/",
+      "condition": {
+        "type": "Age",
+        "maxAgeSeconds": 725846400
+      }
+    },
+    {
+      "id": "auditsphere-archive-24-years",
+      "enabled": true,
+      "prefix": "sealed-archives/retention/years-24/",
+      "condition": {
+        "type": "Age",
+        "maxAgeSeconds": 757382400
+      }
+    },
+    {
+      "id": "auditsphere-archive-25-years",
+      "enabled": true,
+      "prefix": "sealed-archives/retention/years-25/",
+      "condition": {
+        "type": "Age",
+        "maxAgeSeconds": 789004800
+      }
+    },
+    {
+      "id": "auditsphere-archive-26-years",
+      "enabled": true,
+      "prefix": "sealed-archives/retention/years-26/",
+      "condition": {
+        "type": "Age",
+        "maxAgeSeconds": 820540800
+      }
+    },
+    {
+      "id": "auditsphere-archive-27-years",
+      "enabled": true,
+      "prefix": "sealed-archives/retention/years-27/",
+      "condition": {
+        "type": "Age",
+        "maxAgeSeconds": 852076800
+      }
+    },
+    {
+      "id": "auditsphere-archive-28-years",
+      "enabled": true,
+      "prefix": "sealed-archives/retention/years-28/",
+      "condition": {
+        "type": "Age",
+        "maxAgeSeconds": 883612800
+      }
+    },
+    {
+      "id": "auditsphere-archive-29-years",
+      "enabled": true,
+      "prefix": "sealed-archives/retention/years-29/",
+      "condition": {
+        "type": "Age",
+        "maxAgeSeconds": 915235200
+      }
+    },
+    {
+      "id": "auditsphere-archive-30-years",
+      "enabled": true,
+      "prefix": "sealed-archives/retention/years-30/",
+      "condition": {
+        "type": "Age",
+        "maxAgeSeconds": 946771200
+      }
+    },
+    {
+      "id": "auditsphere-archive-31-years",
+      "enabled": true,
+      "prefix": "sealed-archives/retention/years-31/",
+      "condition": {
+        "type": "Age",
+        "maxAgeSeconds": 978307200
+      }
+    },
+    {
+      "id": "auditsphere-archive-32-years",
+      "enabled": true,
+      "prefix": "sealed-archives/retention/years-32/",
+      "condition": {
+        "type": "Age",
+        "maxAgeSeconds": 1009843200
+      }
+    },
+    {
+      "id": "auditsphere-archive-33-years",
+      "enabled": true,
+      "prefix": "sealed-archives/retention/years-33/",
+      "condition": {
+        "type": "Age",
+        "maxAgeSeconds": 1041465600
+      }
+    },
+    {
+      "id": "auditsphere-archive-34-years",
+      "enabled": true,
+      "prefix": "sealed-archives/retention/years-34/",
+      "condition": {
+        "type": "Age",
+        "maxAgeSeconds": 1073001600
+      }
+    },
+    {
+      "id": "auditsphere-archive-35-years",
+      "enabled": true,
+      "prefix": "sealed-archives/retention/years-35/",
+      "condition": {
+        "type": "Age",
+        "maxAgeSeconds": 1104537600
+      }
+    },
+    {
+      "id": "auditsphere-archive-36-years",
+      "enabled": true,
+      "prefix": "sealed-archives/retention/years-36/",
+      "condition": {
+        "type": "Age",
+        "maxAgeSeconds": 1136073600
+      }
+    },
+    {
+      "id": "auditsphere-archive-37-years",
+      "enabled": true,
+      "prefix": "sealed-archives/retention/years-37/",
+      "condition": {
+        "type": "Age",
+        "maxAgeSeconds": 1167696000
+      }
+    },
+    {
+      "id": "auditsphere-archive-38-years",
+      "enabled": true,
+      "prefix": "sealed-archives/retention/years-38/",
+      "condition": {
+        "type": "Age",
+        "maxAgeSeconds": 1199232000
+      }
+    },
+    {
+      "id": "auditsphere-archive-39-years",
+      "enabled": true,
+      "prefix": "sealed-archives/retention/years-39/",
+      "condition": {
+        "type": "Age",
+        "maxAgeSeconds": 1230768000
+      }
+    },
+    {
+      "id": "auditsphere-archive-40-years",
+      "enabled": true,
+      "prefix": "sealed-archives/retention/years-40/",
+      "condition": {
+        "type": "Age",
+        "maxAgeSeconds": 1262304000
+      }
+    },
+    {
+      "id": "auditsphere-archive-41-years",
+      "enabled": true,
+      "prefix": "sealed-archives/retention/years-41/",
+      "condition": {
+        "type": "Age",
+        "maxAgeSeconds": 1293926400
+      }
+    },
+    {
+      "id": "auditsphere-archive-42-years",
+      "enabled": true,
+      "prefix": "sealed-archives/retention/years-42/",
+      "condition": {
+        "type": "Age",
+        "maxAgeSeconds": 1325462400
+      }
+    },
+    {
+      "id": "auditsphere-archive-43-years",
+      "enabled": true,
+      "prefix": "sealed-archives/retention/years-43/",
+      "condition": {
+        "type": "Age",
+        "maxAgeSeconds": 1356998400
+      }
+    },
+    {
+      "id": "auditsphere-archive-44-years",
+      "enabled": true,
+      "prefix": "sealed-archives/retention/years-44/",
+      "condition": {
+        "type": "Age",
+        "maxAgeSeconds": 1388534400
+      }
+    },
+    {
+      "id": "auditsphere-archive-45-years",
+      "enabled": true,
+      "prefix": "sealed-archives/retention/years-45/",
+      "condition": {
+        "type": "Age",
+        "maxAgeSeconds": 1420156800
+      }
+    },
+    {
+      "id": "auditsphere-archive-46-years",
+      "enabled": true,
+      "prefix": "sealed-archives/retention/years-46/",
+      "condition": {
+        "type": "Age",
+        "maxAgeSeconds": 1451692800
+      }
+    },
+    {
+      "id": "auditsphere-archive-47-years",
+      "enabled": true,
+      "prefix": "sealed-archives/retention/years-47/",
+      "condition": {
+        "type": "Age",
+        "maxAgeSeconds": 1483228800
+      }
+    },
+    {
+      "id": "auditsphere-archive-48-years",
+      "enabled": true,
+      "prefix": "sealed-archives/retention/years-48/",
+      "condition": {
+        "type": "Age",
+        "maxAgeSeconds": 1514764800
+      }
+    },
+    {
+      "id": "auditsphere-archive-49-years",
+      "enabled": true,
+      "prefix": "sealed-archives/retention/years-49/",
+      "condition": {
+        "type": "Age",
+        "maxAgeSeconds": 1546387200
+      }
+    },
+    {
+      "id": "auditsphere-archive-50-years",
+      "enabled": true,
+      "prefix": "sealed-archives/retention/years-50/",
+      "condition": {
+        "type": "Age",
+        "maxAgeSeconds": 1577923200
+      }
+    },
+    {
+      "id": "auditsphere-archive-51-years",
+      "enabled": true,
+      "prefix": "sealed-archives/retention/years-51/",
+      "condition": {
+        "type": "Age",
+        "maxAgeSeconds": 1609459200
+      }
+    },
+    {
+      "id": "auditsphere-archive-52-years",
+      "enabled": true,
+      "prefix": "sealed-archives/retention/years-52/",
+      "condition": {
+        "type": "Age",
+        "maxAgeSeconds": 1640995200
+      }
+    },
+    {
+      "id": "auditsphere-archive-53-years",
+      "enabled": true,
+      "prefix": "sealed-archives/retention/years-53/",
+      "condition": {
+        "type": "Age",
+        "maxAgeSeconds": 1672617600
+      }
+    },
+    {
+      "id": "auditsphere-archive-54-years",
+      "enabled": true,
+      "prefix": "sealed-archives/retention/years-54/",
+      "condition": {
+        "type": "Age",
+        "maxAgeSeconds": 1704153600
+      }
+    },
+    {
+      "id": "auditsphere-archive-55-years",
+      "enabled": true,
+      "prefix": "sealed-archives/retention/years-55/",
+      "condition": {
+        "type": "Age",
+        "maxAgeSeconds": 1735689600
+      }
+    },
+    {
+      "id": "auditsphere-archive-56-years",
+      "enabled": true,
+      "prefix": "sealed-archives/retention/years-56/",
+      "condition": {
+        "type": "Age",
+        "maxAgeSeconds": 1767225600
+      }
+    },
+    {
+      "id": "auditsphere-archive-57-years",
+      "enabled": true,
+      "prefix": "sealed-archives/retention/years-57/",
+      "condition": {
+        "type": "Age",
+        "maxAgeSeconds": 1798848000
+      }
+    },
+    {
+      "id": "auditsphere-archive-58-years",
+      "enabled": true,
+      "prefix": "sealed-archives/retention/years-58/",
+      "condition": {
+        "type": "Age",
+        "maxAgeSeconds": 1830384000
+      }
+    },
+    {
+      "id": "auditsphere-archive-59-years",
+      "enabled": true,
+      "prefix": "sealed-archives/retention/years-59/",
+      "condition": {
+        "type": "Age",
+        "maxAgeSeconds": 1861920000
+      }
+    },
+    {
+      "id": "auditsphere-archive-60-years",
+      "enabled": true,
+      "prefix": "sealed-archives/retention/years-60/",
+      "condition": {
+        "type": "Age",
+        "maxAgeSeconds": 1893456000
+      }
+    },
+    {
+      "id": "auditsphere-archive-61-years",
+      "enabled": true,
+      "prefix": "sealed-archives/retention/years-61/",
+      "condition": {
+        "type": "Age",
+        "maxAgeSeconds": 1925078400
+      }
+    },
+    {
+      "id": "auditsphere-archive-62-years",
+      "enabled": true,
+      "prefix": "sealed-archives/retention/years-62/",
+      "condition": {
+        "type": "Age",
+        "maxAgeSeconds": 1956614400
+      }
+    },
+    {
+      "id": "auditsphere-archive-63-years",
+      "enabled": true,
+      "prefix": "sealed-archives/retention/years-63/",
+      "condition": {
+        "type": "Age",
+        "maxAgeSeconds": 1988150400
+      }
+    },
+    {
+      "id": "auditsphere-archive-64-years",
+      "enabled": true,
+      "prefix": "sealed-archives/retention/years-64/",
+      "condition": {
+        "type": "Age",
+        "maxAgeSeconds": 2019686400
+      }
+    },
+    {
+      "id": "auditsphere-archive-65-years",
+      "enabled": true,
+      "prefix": "sealed-archives/retention/years-65/",
+      "condition": {
+        "type": "Age",
+        "maxAgeSeconds": 2051308800
+      }
+    },
+    {
+      "id": "auditsphere-archive-66-years",
+      "enabled": true,
+      "prefix": "sealed-archives/retention/years-66/",
+      "condition": {
+        "type": "Age",
+        "maxAgeSeconds": 2082844800
+      }
+    },
+    {
+      "id": "auditsphere-archive-67-years",
+      "enabled": true,
+      "prefix": "sealed-archives/retention/years-67/",
+      "condition": {
+        "type": "Age",
+        "maxAgeSeconds": 2114380800
+      }
+    },
+    {
+      "id": "auditsphere-archive-68-years",
+      "enabled": true,
+      "prefix": "sealed-archives/retention/years-68/",
+      "condition": {
+        "type": "Age",
+        "maxAgeSeconds": 2145916800
+      }
+    },
+    {
+      "id": "auditsphere-archive-69-years",
+      "enabled": true,
+      "prefix": "sealed-archives/retention/years-69/",
+      "condition": {
+        "type": "Age",
+        "maxAgeSeconds": 2177539200
+      }
+    },
+    {
+      "id": "auditsphere-archive-70-years",
+      "enabled": true,
+      "prefix": "sealed-archives/retention/years-70/",
+      "condition": {
+        "type": "Age",
+        "maxAgeSeconds": 2209075200
+      }
+    },
+    {
+      "id": "auditsphere-archive-71-years",
+      "enabled": true,
+      "prefix": "sealed-archives/retention/years-71/",
+      "condition": {
+        "type": "Age",
+        "maxAgeSeconds": 2240611200
+      }
+    },
+    {
+      "id": "auditsphere-archive-72-years",
+      "enabled": true,
+      "prefix": "sealed-archives/retention/years-72/",
+      "condition": {
+        "type": "Age",
+        "maxAgeSeconds": 2272147200
+      }
+    },
+    {
+      "id": "auditsphere-archive-73-years",
+      "enabled": true,
+      "prefix": "sealed-archives/retention/years-73/",
+      "condition": {
+        "type": "Age",
+        "maxAgeSeconds": 2303769600
+      }
+    },
+    {
+      "id": "auditsphere-archive-74-years",
+      "enabled": true,
+      "prefix": "sealed-archives/retention/years-74/",
+      "condition": {
+        "type": "Age",
+        "maxAgeSeconds": 2335305600
+      }
+    },
+    {
+      "id": "auditsphere-archive-75-years",
+      "enabled": true,
+      "prefix": "sealed-archives/retention/years-75/",
+      "condition": {
+        "type": "Age",
+        "maxAgeSeconds": 2366841600
+      }
+    },
+    {
+      "id": "auditsphere-archive-76-years",
+      "enabled": true,
+      "prefix": "sealed-archives/retention/years-76/",
+      "condition": {
+        "type": "Age",
+        "maxAgeSeconds": 2398377600
+      }
+    },
+    {
+      "id": "auditsphere-archive-77-years",
+      "enabled": true,
+      "prefix": "sealed-archives/retention/years-77/",
+      "condition": {
+        "type": "Age",
+        "maxAgeSeconds": 2430000000
+      }
+    },
+    {
+      "id": "auditsphere-archive-78-years",
+      "enabled": true,
+      "prefix": "sealed-archives/retention/years-78/",
+      "condition": {
+        "type": "Age",
+        "maxAgeSeconds": 2461536000
+      }
+    },
+    {
+      "id": "auditsphere-archive-79-years",
+      "enabled": true,
+      "prefix": "sealed-archives/retention/years-79/",
+      "condition": {
+        "type": "Age",
+        "maxAgeSeconds": 2493072000
+      }
+    },
+    {
+      "id": "auditsphere-archive-80-years",
+      "enabled": true,
+      "prefix": "sealed-archives/retention/years-80/",
+      "condition": {
+        "type": "Age",
+        "maxAgeSeconds": 2524608000
+      }
+    },
+    {
+      "id": "auditsphere-archive-81-years",
+      "enabled": true,
+      "prefix": "sealed-archives/retention/years-81/",
+      "condition": {
+        "type": "Age",
+        "maxAgeSeconds": 2556230400
+      }
+    },
+    {
+      "id": "auditsphere-archive-82-years",
+      "enabled": true,
+      "prefix": "sealed-archives/retention/years-82/",
+      "condition": {
+        "type": "Age",
+        "maxAgeSeconds": 2587766400
+      }
+    },
+    {
+      "id": "auditsphere-archive-83-years",
+      "enabled": true,
+      "prefix": "sealed-archives/retention/years-83/",
+      "condition": {
+        "type": "Age",
+        "maxAgeSeconds": 2619302400
+      }
+    },
+    {
+      "id": "auditsphere-archive-84-years",
+      "enabled": true,
+      "prefix": "sealed-archives/retention/years-84/",
+      "condition": {
+        "type": "Age",
+        "maxAgeSeconds": 2650838400
+      }
+    },
+    {
+      "id": "auditsphere-archive-85-years",
+      "enabled": true,
+      "prefix": "sealed-archives/retention/years-85/",
+      "condition": {
+        "type": "Age",
+        "maxAgeSeconds": 2682460800
+      }
+    },
+    {
+      "id": "auditsphere-archive-86-years",
+      "enabled": true,
+      "prefix": "sealed-archives/retention/years-86/",
+      "condition": {
+        "type": "Age",
+        "maxAgeSeconds": 2713996800
+      }
+    },
+    {
+      "id": "auditsphere-archive-87-years",
+      "enabled": true,
+      "prefix": "sealed-archives/retention/years-87/",
+      "condition": {
+        "type": "Age",
+        "maxAgeSeconds": 2745532800
+      }
+    },
+    {
+      "id": "auditsphere-archive-88-years",
+      "enabled": true,
+      "prefix": "sealed-archives/retention/years-88/",
+      "condition": {
+        "type": "Age",
+        "maxAgeSeconds": 2777068800
+      }
+    },
+    {
+      "id": "auditsphere-archive-89-years",
+      "enabled": true,
+      "prefix": "sealed-archives/retention/years-89/",
+      "condition": {
+        "type": "Age",
+        "maxAgeSeconds": 2808691200
+      }
+    },
+    {
+      "id": "auditsphere-archive-90-years",
+      "enabled": true,
+      "prefix": "sealed-archives/retention/years-90/",
+      "condition": {
+        "type": "Age",
+        "maxAgeSeconds": 2840227200
+      }
+    },
+    {
+      "id": "auditsphere-archive-91-years",
+      "enabled": true,
+      "prefix": "sealed-archives/retention/years-91/",
+      "condition": {
+        "type": "Age",
+        "maxAgeSeconds": 2871763200
+      }
+    },
+    {
+      "id": "auditsphere-archive-92-years",
+      "enabled": true,
+      "prefix": "sealed-archives/retention/years-92/",
+      "condition": {
+        "type": "Age",
+        "maxAgeSeconds": 2903299200
+      }
+    },
+    {
+      "id": "auditsphere-archive-93-years",
+      "enabled": true,
+      "prefix": "sealed-archives/retention/years-93/",
+      "condition": {
+        "type": "Age",
+        "maxAgeSeconds": 2934921600
+      }
+    },
+    {
+      "id": "auditsphere-archive-94-years",
+      "enabled": true,
+      "prefix": "sealed-archives/retention/years-94/",
+      "condition": {
+        "type": "Age",
+        "maxAgeSeconds": 2966457600
+      }
+    },
+    {
+      "id": "auditsphere-archive-95-years",
+      "enabled": true,
+      "prefix": "sealed-archives/retention/years-95/",
+      "condition": {
+        "type": "Age",
+        "maxAgeSeconds": 2997993600
+      }
+    },
+    {
+      "id": "auditsphere-archive-96-years",
+      "enabled": true,
+      "prefix": "sealed-archives/retention/years-96/",
+      "condition": {
+        "type": "Age",
+        "maxAgeSeconds": 3029529600
+      }
+    },
+    {
+      "id": "auditsphere-archive-97-years",
+      "enabled": true,
+      "prefix": "sealed-archives/retention/years-97/",
+      "condition": {
+        "type": "Age",
+        "maxAgeSeconds": 3061152000
+      }
+    },
+    {
+      "id": "auditsphere-archive-98-years",
+      "enabled": true,
+      "prefix": "sealed-archives/retention/years-98/",
+      "condition": {
+        "type": "Age",
+        "maxAgeSeconds": 3092688000
+      }
+    },
+    {
+      "id": "auditsphere-archive-99-years",
+      "enabled": true,
+      "prefix": "sealed-archives/retention/years-99/",
+      "condition": {
+        "type": "Age",
+        "maxAgeSeconds": 3124224000
+      }
+    },
+    {
+      "id": "auditsphere-archive-100-years",
+      "enabled": true,
+      "prefix": "sealed-archives/retention/years-100/",
+      "condition": {
+        "type": "Age",
+        "maxAgeSeconds": 3155760000
+      }
+    },
+    {
+      "id": "auditsphere-archive-indefinite",
+      "enabled": true,
+      "prefix": "sealed-archives/retention/indefinite/",
+      "condition": {
+        "type": "Indefinite"
+      }
+    }
+  ]
+}

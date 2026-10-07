@@ -1283,3 +1283,29 @@ account operator can still overwrite/delete archive objects outside the Worker.
 Wrangler could not refresh its expired login while the Cloudflare auth endpoint
 was unreachable. Do not describe the current R2 archive as storage-locked or
 permanently deletion-protected. US-REP-007 and the broader epic remain open.
+
+## US-REP-007 retention-specific R2 prefixes — 2026-10-08
+
+**Verification:** `npm run cloud:typecheck`; `npm run build`; focused
+`npx tsx --test --test-concurrency=1 tests/unit/archiveRetention.test.ts
+tests/unit/streamingArchive.test.ts tests/unit/businessArchiveExport.test.ts` —
+13/13; `git diff --check`.
+
+**Evidence:** Archive and manifest keys now route under a retention-specific
+prefix derived from the sealed workspace's selected policy. The deterministic
+`worker/r2-archive-locks.json` configuration has 101 non-overlapping rules: one
+for each supported retention term (1–100 years) and one indefinite rule. Age
+terms conservatively include leap days. `npm run cloud:r2-archive-locks:apply`
+generates the file, merges its managed rules while preserving unrelated bucket
+rules, applies it through Cloudflare's R2 Locks API, and verifies the read-back.
+The production GitHub Actions deploy job runs this step before deploying the
+Worker; the local `cloud:deploy` script does the same.
+
+**Boundary:** Generation, merge behavior, and Worker key mapping are locally
+verified. The R2 configuration has not yet been applied by a successful deploy;
+the dashboard previously showed no lock rules and the current Wrangler OAuth
+session cannot refresh. The deploy requires a Cloudflare API token with R2 bucket
+configuration edit permission. Existing archives under the prior
+`workspaces/.../archive/` prefixes remain unprotected. US-REP-007 and the full
+epic remain open until a deploy succeeds and Cloudflare read-back confirms the
+rules.

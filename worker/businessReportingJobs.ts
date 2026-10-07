@@ -5,6 +5,7 @@ import { buildOpinionReportSections, opinionReportingBlockers, type OpinionAffec
 import { inspectReportingPng } from './reportingPng';
 import { renderRepresentationTemplateDocx } from './reportingRepresentationDocument';
 import { buildReportingStatementProjection, type ReportingStatementLine } from './reportingStatements';
+import { archiveRetentionSegment } from './archiveRetention';
 import * as XLSX from 'xlsx';
 import { createStreamingArchive, verifyStreamingSha256 } from './streamingArchive';
 
@@ -338,8 +339,9 @@ async function bundleCandidate(env:Env,job:Job,p:Payload,commit:Commit){
 
 async function sealArchive(env:Env,job:Job,p:Payload,commit:Commit){
   const run=await env.DB.prepare(`SELECT r.id,r.status,e.client_id,e.lifecycle_state,e.locked_at,e.archive_due_at,e.report_signed_at,e.report_date,e.code,e.period_start,e.period_end,
-      b.id AS bundle_id,b.content_hash,wp.retention_policy_id FROM archive_runs r JOIN engagements e ON e.workspace_id=r.workspace_id AND e.id=r.engagement_id
+      b.id AS bundle_id,b.content_hash,wp.retention_policy_id,rp.retention_years,rp.retain_indefinitely FROM archive_runs r JOIN engagements e ON e.workspace_id=r.workspace_id AND e.id=r.engagement_id
       JOIN deliverable_bundles b ON b.workspace_id=e.workspace_id AND b.engagement_id=e.id JOIN workspaces wp ON wp.id=e.workspace_id
+      JOIN retention_policies rp ON rp.workspace_id=wp.id AND rp.id=wp.retention_policy_id
       WHERE r.workspace_id=? AND r.id=? AND e.id=?`).bind(job.workspace_id,p.archiveRunId,p.engagementId).first<Record<string,any>>();
   if(!run||run.status==='SEALED'||run.lifecycle_state!=='COMPLIANCE_COUNTDOWN'||!run.locked_at||run.client_id!==p.clientId||!run.retention_policy_id)throw new Error('The locked engagement archive is not ready for sealing.');
   const files=(await env.DB.prepare(`SELECT id,original_name,media_type,size_bytes,sha256,object_key,purpose FROM file_versions WHERE workspace_id=? AND engagement_id=? AND state='COMMITTED' ORDER BY purpose,original_name,id`)
@@ -380,8 +382,10 @@ async function sealArchive(env:Env,job:Job,p:Payload,commit:Commit){
     records,files:verified.map(({id,originalName,mediaType,sizeBytes,sha256,purpose})=>({id,originalName,mediaType,sizeBytes,sha256,purpose}))};
   const manifestBytes=new TextEncoder().encode(JSON.stringify(manifest,null,2)),manifestHash=await sha256BytesHex(manifestBytes);
   const archiveId=crypto.randomUUID(),manifestFileId=crypto.randomUUID(),archiveArtifactId=crypto.randomUUID(),sealId=crypto.randomUUID(),at=nowIso();
-  const manifestKey=`workspaces/${job.workspace_id}/archive/${p.engagementId}/${manifestHash}.manifest.json`;
-  const archiveKey=`workspaces/${job.workspace_id}/archive/${p.engagementId}/${run.id}-${archiveId}.zip`;
+  const retentionSegment=archiveRetentionSegment({retentionYears:run.retention_years,retainIndefinitely:run.retain_indefinitely});
+  const archivePrefix=`sealed-archives/retention/${retentionSegment}/${job.workspace_id}/${p.engagementId}`;
+  const manifestKey=`${archivePrefix}/${manifestHash}.manifest.json`;
+  const archiveKey=`${archivePrefix}/${run.id}-${archiveId}.zip`;
   const archiveFiles=verified.map(file=>{
     const safe=file.originalName.replace(/[\\/]+/g,'_').replace(/\.\./g,'_').slice(0,160);
     return {path:`files/${file.purpose.toLowerCase()}/${file.id}-${safe}`,sizeBytes:file.sizeBytes,sha256:file.sha256,
