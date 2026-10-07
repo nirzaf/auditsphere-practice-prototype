@@ -233,11 +233,27 @@ export function BusinessReportingPanel({ workspaceId, selected, context, engagem
     const manifestSha256 = rowText(data?.archive, 'manifestSha256');
     if (!archiveSha256 || !manifestSha256) { setError('A sealed archive with both recorded hashes is required.'); return; }
     setDownloading(`archive-${part}`); setError('');
+    let writable: { write(chunk: Uint8Array): Promise<void>; close(): Promise<void>; abort(reason?: unknown): Promise<void> } | undefined;
     try {
-      const result = await downloadBusinessArchiveExport(workspaceId, activeEngagementId, part, selected, archiveSha256, manifestSha256);
-      const url = URL.createObjectURL(result.blob), anchor = document.createElement('a');
-      anchor.href = url; anchor.download = result.fileName; document.body.append(anchor); anchor.click(); anchor.remove(); URL.revokeObjectURL(url);
-    } catch (reason) { setError(reason instanceof Error ? reason.message : 'The sealed archive export could not be verified.'); }
+      const saveWindow = window as Window & { showSaveFilePicker?: (options: { suggestedName: string; types: Array<{ description: string; accept: Record<string, string[]> }> }) => Promise<{ createWritable(): Promise<{ write(chunk: Uint8Array): Promise<void>; close(): Promise<void>; abort(reason?: unknown): Promise<void> }> }> };
+      const saveHandle = part === 'archive' && saveWindow.showSaveFilePicker
+        ? await saveWindow.showSaveFilePicker({
+          suggestedName: 'sealed-audit-archive.zip',
+          types: [{ description: 'Sealed AuditSphere archive', accept: { 'application/zip': ['.zip'] } }]
+        })
+        : undefined;
+      writable = saveHandle ? await saveHandle.createWritable() : undefined;
+      const result = await downloadBusinessArchiveExport(workspaceId, activeEngagementId, part, selected, archiveSha256, manifestSha256, writable);
+      if (result.blob) {
+        const url = URL.createObjectURL(result.blob), anchor = document.createElement('a');
+        anchor.href = url; anchor.download = result.fileName; document.body.append(anchor); anchor.click(); anchor.remove(); URL.revokeObjectURL(url);
+      }
+    } catch (reason) {
+      if (writable) await writable.abort(reason).catch(() => undefined);
+      if (!(reason instanceof DOMException && reason.name === 'AbortError')) {
+        setError(reason instanceof Error ? reason.message : 'The sealed archive export could not be verified.');
+      }
+    }
     finally { setDownloading(''); }
   };
 

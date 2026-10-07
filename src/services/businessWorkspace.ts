@@ -543,8 +543,9 @@ export async function downloadBusinessArchiveExport(
   part: 'archive' | 'manifest',
   selected: BusinessWorkspacePreference,
   expectedArchiveSha256: string,
-  expectedManifestSha256: string
-): Promise<{ blob: Blob; fileName: string }> {
+  expectedManifestSha256: string,
+  writable?: { write(chunk: Uint8Array): Promise<void>; close(): Promise<void>; abort?(reason?: unknown): Promise<void> }
+): Promise<{ blob?: Blob; fileName: string }> {
   const query = new URLSearchParams({ part });
   let response: Response;
   try {
@@ -563,13 +564,39 @@ export async function downloadBusinessArchiveExport(
     || response.headers.get('X-Archive-Manifest-SHA256') !== expectedManifestSha256) {
     throw new Error('The archive export response does not match the independently recorded seal hashes.');
   }
+  const expectedType = part === 'manifest' ? 'application/json' : 'application/zip';
+  if (response.headers.get('Content-Type')?.split(';', 1)[0]?.trim() !== expectedType) {
+    throw new Error('The archive export returned an unexpected media type.');
+  }
+  if (writable && part === 'archive') {
+    const expectedSize = Number(response.headers.get('Content-Length'));
+    if (!Number.isSafeInteger(expectedSize) || expectedSize <= 0 || !response.body) {
+      throw new Error('The streamed archive response is missing a valid size or body.');
+    }
+    const reader = response.body.getReader();
+    let received = 0;
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        received += value.byteLength;
+        if (received > expectedSize) throw new Error('The streamed archive exceeded its sealed size.');
+        await writable.write(value);
+      }
+      if (received !== expectedSize) throw new Error('The streamed archive was incomplete and did not match its sealed size.');
+      await writable.close();
+    } catch (error) {
+      await reader.cancel().catch(() => undefined);
+      await writable.abort?.(error).catch(() => undefined);
+      throw error;
+    }
+    return { fileName: 'sealed-audit-archive.zip' };
+  }
   const blob = await response.blob();
   const expectedHash = part === 'manifest' ? expectedManifestSha256 : expectedArchiveSha256;
   const actualHash = [...new Uint8Array(await crypto.subtle.digest('SHA-256', await blob.arrayBuffer()))]
     .map(byte => byte.toString(16).padStart(2, '0')).join('');
   if (actualHash !== expectedHash) throw new Error('The exported bytes failed the client-side SHA-256 check.');
-  const expectedType = part === 'manifest' ? 'application/json' : 'application/zip';
-  if (blob.type && blob.type !== expectedType) throw new Error('The archive export returned an unexpected media type.');
   return { blob, fileName: part === 'manifest' ? 'archive-manifest.json' : 'sealed-audit-archive.zip' };
 }
 
