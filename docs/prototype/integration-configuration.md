@@ -5,12 +5,15 @@ blocked. It records the integration code and configuration in the repository and
 the account-owner steps that still gate live acceptance. Integration status must
 come from the deployed Worker; local configuration is not evidence of connectivity.
 
-Production commit `0689461738caf33ae13290809f063ccebf032374` is deployed at the
-application URL below. The latest GitHub Actions run passed typecheck, unit tests,
-build, browser E2E, provider deployment, D1 migrations, Worker deployment, and
-readiness. The integration probe still reflects account-side setup: email is bound
-through `SERVICE_BINDING`, while SharePoint remains unconfigured until its site
-grant and client secret are present. A healthy deployment does not by itself
+The last recorded production build identity is
+`0689461738caf33ae13290809f063ccebf032374`; its GitHub Actions run passed typecheck,
+unit tests, build, browser E2E, provider deployment, D1 migrations, Worker
+deployment, and readiness. Main has since advanced to
+`ca6037bf73ec3d21c28da7cb2ce5d41b0ae0002c`. The GitHub API could not be reached
+during the 2026-10-07 follow-up, so CI and production deployment for the newer
+commit have not been verified. The last recorded integration probe showed email
+bound through `SERVICE_BINDING`, while SharePoint remained unconfigured until its
+site grant and client secret are present. A healthy deployment does not by itself
 establish email delivery or SharePoint connectivity.
 
 Verify the current state of every integration at any time:
@@ -69,11 +72,21 @@ Do not send an application message until Cloudflare shows it Verified and a
 controlled UAT delivery succeeds.
 
 The requested inbound alias is `audit@steaudit.com` → `fazrin@quadrate.lk`; the
-destination is verified. Do not enable Cloudflare Email Routing for the root zone
-while its apex MX points to Microsoft 365: onboarding replaces the root-domain
-mail exchanger and can interrupt all `@steaudit.com` inbound mail. Keep the current
-MX and configure the alias through Microsoft 365, or get approval for a full mail
-migration before switching the root MX to Cloudflare.
+destination is verified. On 2026-10-07, the Cloudflare dashboard showed
+`fazrin@quadrate.lk` as **Verified** and the approved UAT test destination
+`testing@mail.steauditing.com` as **Pending**. The `mail.steaudit.com` Email Sending
+domain showed **Enabled / Configured** with zero sends in the dashboard's last-7-day
+view. This confirms sender-domain setup only; it does not confirm a provider send or
+live application delivery.
+
+Do not enable Cloudflare Email Routing for the root zone while its apex MX points
+to Microsoft 365: the onboarding preview proposes replacing that MX with three
+Cloudflare MX records and adding a root SPF record, which can interrupt all
+`@steaudit.com` inbound mail and change sender authorization. The DNS records page
+confirmed the apex MX target is `steaudit-com.mail.protection.outlook.com`. Keep the
+current MX and configure the alias through Microsoft 365, or obtain explicit
+approval for a full mail migration before switching the root MX to Cloudflare.
+The alias is not active until a routing rule has been created and tested.
 
 ## 2. SharePoint / Microsoft Graph (US-GAP-25 – US-GAP-28)
 
@@ -101,6 +114,11 @@ That separate grant must be applied by an authorized SharePoint administrator us
 a grant-authority session (for example, PnP PowerShell with delegated Graph
 `Sites.FullControl.All`). The target app remains limited to `Sites.Selected`; do not
 give it tenant-wide `Sites.ReadWrite.All` or `Sites.FullControl.All`.
+
+The SharePoint Admin Center session reviewed on 2026-10-07 can see the approved
+acceptance site and its site settings/membership, but does not expose a Graph
+`Sites.Selected` app-permission grant action. No site grant was applied in that
+session.
 
 Example with an already-approved PnP grant-authority app and an authorized admin
 session (this grants only the target site and `Write` role):
