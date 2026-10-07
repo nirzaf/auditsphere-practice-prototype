@@ -392,7 +392,7 @@ export async function getBusinessArchiveStatus(env:Env,workspaceId:string,contex
   const status=typeof row.assembly_status==='string'?row.assembly_status:'NOT_STARTED';
   const effectiveReadOnly=Boolean(row.locked_at)||row.lifecycle_state==='ARCHIVED_READ_ONLY'||typeof row.archive_due_at==='string'&&row.archive_due_at<=now;
   await accessEvent(env,workspaceId,engagementId,'ARCHIVE_STATUS',engagementId,'READ',context.actor.id,now);
-  return {engagementId,reportSignedAt:row.report_signed_at??null,reportDate:row.report_date??null,archiveDueAt:row.archive_due_at??null,
+  return {engagementId,serverNow:now,reportSignedAt:row.report_signed_at??null,reportDate:row.report_date??null,archiveDueAt:row.archive_due_at??null,
     effectiveReadOnly,lockedAt:row.locked_at??null,sealedAt:row.sealed_at??null,assemblyStatus:status,missingFiles,errorCode:staff?(row.error_code??null):null,sealed:Boolean(row.seal_id)};
 }
 

@@ -5,8 +5,8 @@ blocked. It records the integration code and configuration in the repository and
 the account-owner steps that still gate live acceptance. Integration status must
 come from the deployed Worker; local configuration is not evidence of connectivity.
 
-Production build identity `bcd23de750459b99277d937df2205573cd505d99` was deployed
-from `main` by [GitHub Actions run 37656134133](https://github.com/nirzaf/auditsphere-practice-prototype/actions/runs/37656134133).
+Production build identity `157a30f26a0498a3dbbcd31af6fcdd42eac24c53` was deployed
+from `main` by [GitHub Actions run 37685670419](https://github.com/nirzaf/auditsphere-practice-prototype/actions/runs/37685670419).
 The run passed app/Worker typecheck, unit tests, production build, the complete
 browser E2E suite, Email Service provider deployment, D1 migrations, Worker/static
 asset deployment, and readiness. A live `GET /api/integrations/status` check at
@@ -165,7 +165,7 @@ below before acceptance:
 | Field | Source |
 | --- | --- |
 | Application URL | https://auditsphere-visual-prototype.quadrate-lk.workers.dev (readiness returns `ready`) |
-| Deployed build identity | `bcd23de750459b99277d937df2205573cd505d99` (latest verified deployment) |
+| Deployed build identity | `157a30f26a0498a3dbbcd31af6fcdd42eac24c53` (latest verified deployment recorded 2026-10-08) |
 | Workspace and actors | synthetic workspace created through the UI; verify all four selectable personas and persisted context |
 | Client / engagement ids | synthetic records created through visible UI journeys; record IDs in the restricted UAT evidence bundle |
 | SharePoint site/library/root ids | values returned by `/api/integrations/status` after the site grant and secret are configured |

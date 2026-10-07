@@ -57,6 +57,7 @@ async function archiveEnv(options:{tamperManifest?:boolean;streamArchive?:boolea
 it('US-REP-007 exposes read-only status without client archive hashes and logs access separately',async()=>{
   const {env,inserted}=await archiveEnv();
   const status=await getBusinessArchiveStatus(env,workspaceId,context('CLIENT'),engagementId,'2026-10-07T12:00:00.000Z');
+  assert.equal(status.serverNow,'2026-10-07T12:00:00.000Z');
   assert.equal(status.sealed,true);
   assert.equal(status.effectiveReadOnly,true);
   assert.deepEqual(status.missingFiles,[]);

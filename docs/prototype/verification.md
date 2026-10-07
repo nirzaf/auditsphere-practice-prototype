@@ -1221,3 +1221,25 @@ Current checks: dependency install, lint, 353/353 unit tests, 2/2 target Chrome 
 **Evidence:** Wrangler identified D1 and R2 as local bindings and the Assets binding as local. The Windows workerd runtime exited with `CreateDirectory: #5 Access is denied.; path = miniflare-email-store`. This records an environment startup failure; no API/UI smoke assertion is counted as passed. The default development and preview scripts explicitly use `--local` to avoid production bindings.
 
 **Boundary:** The Worker runtime failure prevents a local served-app smoke check in this desktop session. The synthetic Worker adapter suites pass separately; Cloudflare production was not contacted or deployed.
+
+## US-REP-007 server-authoritative archive countdown — 2026-10-08
+
+The archive-status response now includes the Worker's current timestamp. The
+reporting UI estimates elapsed server time from that sample using the browser's
+monotonic performance clock, refreshes the estimate once per minute, and derives
+the countdown and client-upload cutoff from that estimate. It no longer uses the
+user-adjustable browser wall clock for this lifecycle boundary. A missing or
+failed status sample blocks client upload controls and presents an actionable
+server-status message; a deadline at or before the sampled server time displays
+as overdue (including the sub-day interval that previously displayed as zero
+days remaining).
+
+**Verification:** `npm run lint`; `npm run cloud:typecheck`; focused
+`npx tsx --test --test-concurrency=1 tests/unit/businessArchiveExport.test.ts`
+— 6/6; `git diff --check`.
+
+**Boundary:** The focused Worker test verifies the server timestamp is returned
+and the archive export integrity cases remain green. This change has not yet
+been exercised in a browser with an intentionally skewed local clock or deployed
+to Cloudflare. US-REP-007 and the broader epic remain open for the other stated
+acceptance criteria and operational acceptance.

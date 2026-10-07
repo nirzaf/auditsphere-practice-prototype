@@ -33,15 +33,18 @@ real-output acceptance for closure.
 
 ## Not completed in this change set (source-grounded work remaining)
 
-US-GAP-02, 03, 04, 05, 06, 10, 14, 15, 17, 18, 19, 20, the remaining US-GAP-24
-expense-scope items, and the US-GAP-29 large-archive export remain open. The Worker
-now streams checksum-backed R2 archive objects and no longer applies the 128 MiB
-buffered-export cap to newly sealed archives. Legacy archives without an R2 SHA-256
-checksum still use the bounded full-byte verification path; archive assembly and
-the browser's Blob-based download still have memory limits, so large-archive
-acceptance remains open. Each open story has concrete acceptance criteria in the
-backlog and should be implemented through the active business UI/Worker with
-current-account evidence.
+US-GAP-02, 03, 04, 05, 06, 10, 14, 15, 17, 18, 19, 20, and the remaining
+US-GAP-24 expense-scope items remain open. US-GAP-29 large-archive export is now
+partially implemented: checksum-backed R2 objects stream to disk through the
+large-export action, and the Worker does not apply the 128 MiB buffered-export cap
+to newly sealed archives. Legacy archives without an R2 SHA-256 checksum retain a
+bounded full-byte verification path. Archive creation still reads every source
+file and constructs the ZIP in memory with a 64 MiB input bound; browsers without
+the File System Access API use the hash-verified Blob fallback. Large-archive
+acceptance remains open until assembly and supported download paths are bounded
+end-to-end. Each open story has concrete acceptance criteria in the backlog and
+should be implemented through the active business UI/Worker with current-account
+evidence.
 
 ## Externally blocked (integration layer implemented; external values still required)
 

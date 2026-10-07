@@ -89,6 +89,8 @@ export function BusinessReportingPanel({ workspaceId, selected, context, engagem
   const [data, setData] = useState<ReportingWorkspace | null>(null);
   const [archiveStatus, setArchiveStatus] = useState<ReportRow | null>(null);
   const [archiveStatusError, setArchiveStatusError] = useState('');
+  const [archiveClockOffset, setArchiveClockOffset] = useState<number | null>(null);
+  const [archiveClockTick, setArchiveClockTick] = useState(0);
   const [refresh, setRefresh] = useState(0);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -180,13 +182,39 @@ export function BusinessReportingPanel({ workspaceId, selected, context, engagem
   }, [workspaceId, activeEngagementId, selected.actorId, selected.persona, selected.clientId, selected.engagementId, refresh]);
 
   useEffect(() => {
-    if (!selected.actorId || !selected.persona || !activeEngagementId) { setArchiveStatus(null); return; }
+    if (!selected.actorId || !selected.persona || !activeEngagementId) {
+      setArchiveStatus(null); setArchiveClockOffset(null); return;
+    }
     const controller = new AbortController();
+    setArchiveClockOffset(null);
     getBusinessArchiveStatus(workspaceId, activeEngagementId, selected, controller.signal)
-      .then(result => { if (!controller.signal.aborted) { setArchiveStatus(result); setArchiveStatusError(''); } })
-      .catch(reason => { if (!controller.signal.aborted) setArchiveStatusError(reason instanceof Error ? reason.message : 'Archive status could not be loaded.'); });
+      .then(result => {
+        if (controller.signal.aborted) return;
+        setArchiveStatus(result);
+        const serverTime = Date.parse(String(result.serverNow ?? ''));
+        if (Number.isFinite(serverTime)) {
+          const monotonicNow = performance.now();
+          setArchiveClockOffset(serverTime - monotonicNow);
+          setArchiveClockTick(monotonicNow);
+        } else {
+          setArchiveClockOffset(null);
+        }
+        setArchiveStatusError('');
+      })
+      .catch(reason => {
+        if (!controller.signal.aborted) {
+          setArchiveClockOffset(null);
+          setArchiveStatusError(reason instanceof Error ? reason.message : 'Archive status could not be loaded.');
+        }
+      });
     return () => controller.abort();
   }, [workspaceId, activeEngagementId, selected.actorId, selected.persona, selected.clientId, selected.engagementId, refresh]);
+
+  useEffect(() => {
+    if (archiveClockOffset === null) return;
+    const timer = window.setInterval(() => setArchiveClockTick(performance.now()), 60_000);
+    return () => window.clearInterval(timer);
+  }, [archiveClockOffset]);
 
   const perform = async (type: string, payload: Record<string, unknown>, success: string) => {
     setBusy(true); setError(''); setMessage('');
@@ -325,9 +353,18 @@ export function BusinessReportingPanel({ workspaceId, selected, context, engagem
   }, [pendingJobs]);
 
   const currentArchiveDue = rowText(data?.engagement, 'archiveDueAt');
-  const daysUntilArchive = currentArchiveDue ? Math.ceil((Date.parse(currentArchiveDue) - Date.now()) / 86_400_000) : null;
+  const serverNowMs = archiveClockOffset === null ? null : archiveClockOffset + archiveClockTick;
+  const daysUntilArchive = currentArchiveDue && serverNowMs !== null
+    ? Math.ceil((Date.parse(currentArchiveDue) - serverNowMs) / 86_400_000) : null;
+  const archiveDeadlinePassed = currentArchiveDue !== '' && serverNowMs !== null && Date.parse(currentArchiveDue) <= serverNowMs;
+  const clientUploadBlockReason = serverNowMs === null
+    ? 'Authoritative archive status is unavailable. Refresh before uploading.'
+    : rowText(data?.engagement, 'portalFrozenAt') || rowText(data?.engagement, 'lockedAt')
+      ? 'The report portal or engagement is read-only.'
+      : archiveDeadlinePassed
+        ? 'The archive deadline has passed; this request cannot accept a signed return.' : '';
   const clientUploadsOpen = !rowText(data?.engagement, 'portalFrozenAt') && !rowText(data?.engagement, 'lockedAt')
-    && (!currentArchiveDue || Date.parse(currentArchiveDue) > Date.now());
+    && serverNowMs !== null && !archiveDeadlinePassed;
   const released = isClient ? data?.releasedBundle : releasedBundles[0];
   const releasedParts = rows(released?.parts);
   const provenanceEngagement = rowObject(releasedProvenance, 'engagement');
@@ -381,7 +418,7 @@ export function BusinessReportingPanel({ workspaceId, selected, context, engagem
             <strong>{rowText(request, 'status')} · proposed report date {rowText(request, 'proposedReportDate')}</strong>
             <span>Required management signatories: {signatoryNamesForRequest.join(', ') || 'request configuration is unavailable'}</span>
             {['SENT', 'REJECTED'].includes(rowText(request, 'status')) && <>
-              {!clientUploadsOpen && <p className="business-alert" role="status">The portal is frozen or the archive deadline has passed; this request cannot accept a signed return.</p>}
+              {!clientUploadsOpen && <p className="business-alert" role="status">{clientUploadBlockReason}</p>}
               <label className="business-field"><span>Signed LOR PDF</span><input type="file" accept="application/pdf,.pdf" disabled={busy || !clientUploadsOpen}
                 onChange={event => { const file = event.currentTarget.files?.[0]; setSignedUploadFiles(current => file ? { ...current, [requestId]: file } : current); }} /></label>
               <button type="button" className="btn sm" disabled={busy || !clientUploadsOpen || !signedUploadFiles[requestId]}
@@ -423,7 +460,7 @@ export function BusinessReportingPanel({ workspaceId, selected, context, engagem
       <div className="business-delivery-grid">
         <div className="business-record-list"><h3>Current statement source</h3><p>{snapshot ? `Snapshot ${rowText(snapshot, 'id')} · ${rows(snapshot.lines).length} presentation lines` : 'A cleared statement snapshot is required.'}</p>
           {snapshot && <small>Source hash {rowText(snapshot, 'sourceHash').slice(0, 18)}… · generated {rowText(snapshot, 'generatedAt')}</small>}</div>
-        <div className="business-record-list"><h3>Assembly deadline</h3><p>{currentArchiveDue ? `${daysUntilArchive === null ? 'Calculating' : daysUntilArchive < 0 ? 'Overdue' : `${daysUntilArchive} days remaining`} · ${currentArchiveDue}` : 'The 60-day clock starts only after successful report release.'}</p>
+        <div className="business-record-list"><h3>Assembly deadline</h3><p>{currentArchiveDue ? `${daysUntilArchive === null ? 'Server time unavailable' : archiveDeadlinePassed ? 'Overdue' : `${daysUntilArchive} days remaining`} · ${currentArchiveDue}` : 'The 60-day clock starts only after successful report release.'}</p>
           <small>Deadline is derived from the report signature timestamp and does not move when email or downloads are retried.</small></div>
       </div>
 
