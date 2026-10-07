@@ -4048,6 +4048,10 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
       staffMemberId: secondPartnerStaff.body.result.staffMemberId, workDate: planDate, scheduledMinutes: 480 } }
   }, approverHeaders);
   assert.equal(secondPartnerCapacity.response.status, 200, JSON.stringify(secondPartnerCapacity.body));
+  const expensesBeforeWithdrawal = db.prepare(`SELECT COALESCE(SUM(l.debit_minor-l.credit_minor),0) AS balance
+    FROM firm_journal_lines l JOIN firm_journals j ON j.workspace_id=l.workspace_id AND j.id=l.journal_id AND j.status='POSTED'
+    JOIN firm_accounts a ON a.workspace_id=l.workspace_id AND a.id=l.account_id AND a.account_type='EXPENSE'
+    WHERE l.workspace_id=?`).bind(workspaceId).first<{ balance: number }>()?.balance;
   const selfWithdrawal = await post(`/api/workspaces/${workspaceId}/commands`, {
     idempotencyKey: crypto.randomUUID(), command: { type: 'partner-withdrawal.post', payload: {
       partnerStaffId, date: planDate, amountMinor: '10000',
@@ -4062,6 +4066,18 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
       reason: 'Approved Partner profit withdrawal recorded against partner capital.' } }
   }, secondPartnerHeaders);
   assert.equal(withdrawal.response.status, 200, JSON.stringify(withdrawal.body));
+  const withdrawalLines = await db.prepare(`SELECT a.account_type,a.control_type,l.debit_minor,l.credit_minor
+    FROM firm_journal_lines l JOIN firm_accounts a ON a.workspace_id=l.workspace_id AND a.id=l.account_id
+    WHERE l.workspace_id=? AND l.journal_id=? ORDER BY a.control_type`).bind(workspaceId,withdrawal.body.result.journalId).all<any>();
+  assert.deepEqual((withdrawalLines.results??[]).map((line: any) => ({ type: line.account_type, control: line.control_type, debit: line.debit_minor, credit: line.credit_minor })), [
+    { type: 'ASSET', control: 'BANK', debit: 0, credit: 30000 },
+    { type: 'EQUITY', control: 'PARTNER_DRAWINGS', debit: 30000, credit: 0 }
+  ]);
+  const expensesAfterWithdrawal = db.prepare(`SELECT COALESCE(SUM(l.debit_minor-l.credit_minor),0) AS balance
+    FROM firm_journal_lines l JOIN firm_journals j ON j.workspace_id=l.workspace_id AND j.id=l.journal_id AND j.status='POSTED'
+    JOIN firm_accounts a ON a.workspace_id=l.workspace_id AND a.id=l.account_id AND a.account_type='EXPENSE'
+    WHERE l.workspace_id=?`).bind(workspaceId).first<{ balance: number }>()?.balance;
+  assert.equal(expensesAfterWithdrawal, expensesBeforeWithdrawal, 'a Partner withdrawal must not change P&L expenses');
 
   // PRC-002/003/006: capacity, profitability and bookkeeping report snapshots.
   // Keep one pending entry across the report cutoff, then approve it after the

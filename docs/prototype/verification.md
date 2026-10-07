@@ -1359,13 +1359,17 @@ The command uses its idempotency key as the source-event identity; the transfer
 does not touch an expense account or create a second voucher expense.
 
 Regression evidence in `tests/unit/businessWorkspace.test.ts` models a posted
-QAR 300 petty-cash voucher followed by the equal bank replenishment, rejects an
+QAR 300 petty-cash voucher followed by the equal bank replenishment, rejects a
 cash asset misclassified as the voucher's expense debit and an expense account
 misclassified as the bank source, checks the two asset journal lines and closing
 petty-cash balance, retries the same command without duplicating the journal, and
 verifies the petty-cash expense account remains debited exactly once. Expense
-category-to-account mapping is also rechecked when the voucher is approved.
+category-to-account mapping is also rechecked when the voucher is approved. The
+same practice integration journey verifies a Partner withdrawal debits the
+Partner Drawings equity control, credits the Bank control, and leaves the total
+posted P&L expense balance unchanged.
 `npm run build`, `npm run cloud:typecheck`, and the focused
 `tests/unit/businessWorkspace.test.ts` pass. This is implementation evidence for
-the replenishment and mapping scenarios only; the remaining US-PRC-005
-requirements and full epic acceptance remain open.
+the rent, petty-cash disbursement/replenishment, account mapping, and Partner
+withdrawal accounting scenarios; source support, custodian reconciliation, and
+full epic acceptance remain open.
