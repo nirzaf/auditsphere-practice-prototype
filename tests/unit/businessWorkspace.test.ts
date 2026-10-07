@@ -832,7 +832,7 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
     timeline: [{ name: 'Planning and fieldwork', date: '2027-02-15' }]
   };
   const blockedFullProposal = await post(`/api/workspaces/${workspaceId}/commands`, {
-    idempotencyKey: crypto.randomUUID(), command: { type: 'proposal.create', payload: { ...proposalTerms, expectedEngagementVersion: advance.body.result.version } }
+    idempotencyKey: crypto.randomUUID(), command: { type: 'proposal.create', payload: { ...proposalTerms, selectedTeamCvIds: [attachedCv.body.result.teamCvId], expectedEngagementVersion: advance.body.result.version } }
   }, reviewerHeaders);
   assert.equal(blockedFullProposal.response.status, 409, JSON.stringify(blockedFullProposal.body));
   assert.equal(blockedFullProposal.body.code, 'GATE_BLOCKED');
@@ -875,7 +875,7 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
 
   const revisedProposal = await post(`/api/workspaces/${workspaceId}/commands`, {
     idempotencyKey: crypto.randomUUID(), command: { type: 'proposal.revise', payload: {
-      ...proposalTerms, proposalId: proposal.body.result.proposalId, expectedVersion: 1,
+      ...proposalTerms, selectedTeamCvIds: [attachedCv.body.result.teamCvId], proposalId: proposal.body.result.proposalId, expectedVersion: 1,
       scope: 'Statutory audit scope with the agreed reporting period and named deliverables.'
     } }
   }, reviewerHeaders);
@@ -918,7 +918,7 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
 
   const thirdProposal = await post(`/api/workspaces/${workspaceId}/commands`, {
     idempotencyKey: crypto.randomUUID(), command: { type: 'proposal.revise', payload: {
-      ...proposalTerms, proposalId: proposal.body.result.proposalId, expectedVersion: 2,
+      ...proposalTerms, selectedTeamCvIds: [attachedCv.body.result.teamCvId], proposalId: proposal.body.result.proposalId, expectedVersion: 2,
       scope: 'Statutory audit and reporting deliverables for the agreed reporting period ended 31 December 2025.'
     } }
   }, reviewerHeaders);

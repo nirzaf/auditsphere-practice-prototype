@@ -481,10 +481,10 @@ export async function getBusinessProposalWorkspace(env: Env, workspaceId: string
       FROM firm_profiles WHERE workspace_id=?`).bind(workspaceId).first<Record<string, unknown>>(),
     env.DB.prepare(`SELECT id,version,display_name,grade,active FROM staff_members WHERE workspace_id=? AND active=1 ORDER BY grade,display_name,id LIMIT 100`)
       .bind(workspaceId).all<Record<string, unknown>>(),
-    env.DB.prepare(`SELECT cv.id,cv.version,cv.staff_member_id,sm.display_name,sm.grade,cv.file_version_id,f.original_name,f.sha256,cv.approved,cv.approved_by_actor_id,cv.approved_at
+    env.DB.prepare(`SELECT cv.id,cv.version,cv.staff_member_id,sm.display_name,sm.grade,cv.file_version_id,f.original_name,f.sha256,cv.approved,cv.approved_by_actor_id,cv.approved_at,cv.created_at
       FROM team_cv_documents cv JOIN staff_members sm ON sm.workspace_id=cv.workspace_id AND sm.id=cv.staff_member_id
       JOIN file_versions f ON f.workspace_id=cv.workspace_id AND f.id=cv.file_version_id
-      WHERE cv.workspace_id=? ORDER BY sm.display_name,cv.created_at DESC LIMIT 100`).bind(workspaceId).all<Record<string, unknown>>(),
+      WHERE cv.workspace_id=? ORDER BY sm.display_name,CASE WHEN cv.approved=1 THEN 0 ELSE 1 END,cv.approved_at DESC,cv.created_at DESC,cv.id DESC LIMIT 100`).bind(workspaceId).all<Record<string, unknown>>(),
     env.DB.prepare(`SELECT cr.id,cr.version,cr.client_id,c.legal_name AS client_name,ct.full_name AS contact_name,ct.email
       FROM contact_routes cr JOIN contacts ct ON ct.workspace_id=cr.workspace_id AND ct.client_id=cr.client_id AND ct.id=cr.contact_id
       JOIN clients c ON c.workspace_id=cr.workspace_id AND c.id=cr.client_id
@@ -501,9 +501,16 @@ export async function getBusinessProposalWorkspace(env: Env, workspaceId: string
     id: String(row.id), version: Number(row.version), displayName: String(row.display_name),
     grade: String(row.grade), active: Number(row.active) === 1
   }));
+  const currentApprovedCvByStaff = new Map<string, string>();
+  for (const cv of cvs.results ?? []) {
+    if (cv.approved === 1 && !currentApprovedCvByStaff.has(String(cv.staff_member_id))) {
+      currentApprovedCvByStaff.set(String(cv.staff_member_id), String(cv.id));
+    }
+  }
   const teamCvs = (cvs.results ?? []).map(cv => ({
     id: cv.id, version: cv.version, staffMemberId: cv.staff_member_id, displayName: cv.display_name, grade: cv.grade,
     fileVersionId: cv.file_version_id, originalName: cv.original_name, sha256: cv.sha256, approved: cv.approved === 1,
+    isCurrent: currentApprovedCvByStaff.get(String(cv.staff_member_id)) === String(cv.id),
     approvedByActorId: cv.approved_by_actor_id, approvedAt: cv.approved_at
   }));
   return {
@@ -1130,7 +1137,10 @@ const proposalTermsSchema = z.strictObject({
   scope: z.string().trim().min(10).max(10000),
   feeMinor: moneyMinorSchema,
   validUntil: dateSchema,
-  timeline: z.array(timelineMilestoneSchema).min(1).max(24)
+  timeline: z.array(timelineMilestoneSchema).min(1).max(24),
+  selectedTeamCvIds: z.array(clientIdSchema).max(20).default([]).refine(ids => new Set(ids).size === ids.length, {
+    message: 'Each proposed team member must be selected only once.'
+  })
 });
 const firmProfileSaveCommand = z.strictObject({
   type: z.literal('firm-profile.save'),
@@ -3351,15 +3361,18 @@ async function buildBusinessProposalMutation(
       JOIN staff_members sm ON sm.workspace_id=ap.workspace_id AND sm.id=ap.staff_member_id
       WHERE ap.workspace_id=? AND ap.persona='APPROVER' AND ap.active=1 AND sm.active=1 AND sm.grade='PARTNER'
       ORDER BY ap.created_at,ap.id LIMIT 1`).bind(workspaceId).first<{ staff_member_id: string }>();
-    const teamCvs = await env.DB.prepare(`SELECT cv.id,cv.staff_member_id,cv.file_version_id,sm.display_name,sm.grade,f.original_name,f.sha256
+    const teamCvs = await env.DB.prepare(`SELECT cv.id,cv.staff_member_id,cv.file_version_id,cv.approved_at,cv.created_at,sm.display_name,sm.grade,f.original_name,f.sha256
       FROM team_cv_documents cv JOIN staff_members sm ON sm.workspace_id=cv.workspace_id AND sm.id=cv.staff_member_id
       JOIN file_versions f ON f.workspace_id=cv.workspace_id AND f.id=cv.file_version_id
       WHERE cv.workspace_id=? AND cv.approved=1 AND sm.active=1 AND f.state='COMMITTED' AND f.immutable=1
-      ORDER BY CASE WHEN sm.grade='PARTNER' THEN 0 ELSE 1 END,sm.display_name,cv.id`).bind(workspaceId)
-      .all<{ id: string; staff_member_id: string; file_version_id: string; display_name: string; grade: string; original_name: string; sha256: string }>();
-    const approvedCvs = teamCvs.results ?? [];
-    if (input.mode === 'FULL_PROPOSAL' && (!currentPartner || !approvedCvs.some(cv => cv.staff_member_id === currentPartner.staff_member_id && cv.grade === 'PARTNER'))) {
-      throw new ApiError('GATE_BLOCKED', 'A full proposal requires an approved, committed CV for the active assigned Partner. No biography will be invented.');
+      ORDER BY CASE WHEN sm.grade='PARTNER' THEN 0 ELSE 1 END,sm.id,cv.approved_at DESC,cv.created_at DESC,cv.id DESC`).bind(workspaceId)
+      .all<{ id: string; staff_member_id: string; file_version_id: string; approved_at: string; created_at: string; display_name: string; grade: string; original_name: string; sha256: string }>();
+    const approvedCvs: NonNullable<typeof teamCvs.results> = [];
+    for (const cv of teamCvs.results ?? []) if (!approvedCvs.some(current => current.staff_member_id === cv.staff_member_id)) approvedCvs.push(cv);
+    const selectedCvs = input.selectedTeamCvIds.map(id => approvedCvs.find(cv => cv.id === id)).filter((cv): cv is NonNullable<typeof cv> => Boolean(cv));
+    if (input.mode === 'FULL_PROPOSAL' && (selectedCvs.length !== input.selectedTeamCvIds.length || !currentPartner
+      || !selectedCvs.some(cv => cv.staff_member_id === currentPartner.staff_member_id && cv.grade === 'PARTNER'))) {
+      throw new ApiError('GATE_BLOCKED', 'A full proposal must explicitly select current, approved CVs for its proposed team, including the active assigned Partner. No biography will be invented.');
     }
 
     let proposalId: string;
@@ -3389,7 +3402,7 @@ async function buildBusinessProposalMutation(
       profileText: firm.profile_text, methodologyText: firm.methodology_text, logoFileId: firm.logo_file_id,
       version: firm.version, methodologyVersion
     });
-    const cvSnapshot = approvedCvs.map(cv => ({
+    const cvSnapshot = (input.mode === 'FULL_PROPOSAL' ? selectedCvs : []).map(cv => ({
       teamCvId: cv.id, staffMemberId: cv.staff_member_id, displayName: cv.display_name, grade: cv.grade,
       fileVersionId: cv.file_version_id, originalName: cv.original_name, sha256: cv.sha256
     }));

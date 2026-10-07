@@ -239,6 +239,7 @@ export function BusinessWorkspaceConsole() {
   const [proposalMilestones, setProposalMilestones] = useState<Array<{ name: string; date: string }>>([
     { name: 'Planning and fieldwork', date: '' }
   ]);
+  const [proposalTeamCvIds, setProposalTeamCvIds] = useState<string[]>([]);
   const [cvStaffMemberId, setCvStaffMemberId] = useState('');
   const [cvFileVersionId, setCvFileVersionId] = useState('');
   const [proposalRouteIds, setProposalRouteIds] = useState<Record<string, string>>({});
@@ -862,6 +863,7 @@ export function BusinessWorkspaceConsole() {
     const payload = {
       engagementId: engagement.id, expectedEngagementVersion: engagement.version, mode: proposalMode,
       scope: proposalScope, feeMinor: proposalFeeMinor, validUntil: proposalValidUntil,
+      selectedTeamCvIds: proposalMode === 'FULL_PROPOSAL' ? proposalTeamCvIds : [],
       timeline: proposalMilestones.map(milestone => ({ name: milestone.name.trim(), date: milestone.date }))
     };
     setCommandBusy(true);
@@ -874,6 +876,7 @@ export function BusinessWorkspaceConsole() {
       setCommandMessage(`Proposal revision ${created.result.revision} saved. QAR minor-unit terms split to ${created.result.advanceMinor} advance and ${created.result.finalMinor} final.`);
       setProposalScope(''); setProposalFeeMinor('');
       setProposalMilestones([{ name: 'Planning and fieldwork', date: '' }]);
+      setProposalTeamCvIds([]);
       setRecordsKey(value => value + 1);
     } catch (reason) {
       setCommandMessage(reason instanceof Error ? reason.message : 'The proposal could not be saved.');
@@ -1411,6 +1414,19 @@ export function BusinessWorkspaceConsole() {
                 <label className="business-field" htmlFor="business-proposal-fee"><span>Total fee · QAR minor units</span><input id="business-proposal-fee" required inputMode="numeric" pattern="[0-9]*" value={proposalFeeMinor} onChange={event => setProposalFeeMinor(event.target.value)} /><small>Advance is rounded half-up; the final amount is the exact remainder.</small></label>
                 <label className="business-field" htmlFor="business-proposal-valid-until"><span>Offer valid until</span><input id="business-proposal-valid-until" type="date" required value={proposalValidUntil} onChange={event => setProposalValidUntil(event.target.value)} /></label>
               </div>
+              {proposalMode === 'FULL_PROPOSAL' && <fieldset className="business-field business-proposed-team" aria-describedby="business-proposed-team-help">
+                <legend>Proposed engagement team</legend>
+                <p id="business-proposed-team-help" className="business-note">Select the current Partner-approved CVs to include in this proposal. The assigned Partner is required; unrelated staff and superseded CVs are excluded.</p>
+                {proposalWorkspace?.teamCvs.filter(cv => cv.approved && cv.isCurrent
+                  && proposalWorkspace.staffMembers.some(staff => staff.id === cv.staffMemberId && staff.active)).map(cv => <label className="business-check-field" key={cv.id}>
+                    <input type="checkbox" value={cv.id} checked={proposalTeamCvIds.includes(cv.id)}
+                      onChange={event => setProposalTeamCvIds(current => event.target.checked
+                        ? [...current, cv.id] : current.filter(id => id !== cv.id))} />
+                    <span>{cv.displayName} · {cv.grade}{cv.grade === 'PARTNER' ? ' · required Partner' : ''}</span>
+                  </label>)}
+                {!proposalWorkspace?.teamCvs.some(cv => cv.approved && cv.isCurrent && cv.grade === 'PARTNER')
+                  && <p className="business-alert" role="alert">An active Partner must have a current approved CV before a full proposal can be created.</p>}
+              </fieldset>}
               <div className="business-field">
                 <span>Engagement timetable</span>
                 <small>List the planned delivery milestones in date order. Each milestone is saved with this proposal revision.</small>
@@ -1433,7 +1449,8 @@ export function BusinessWorkspaceConsole() {
               </div>
               <label className="business-field" htmlFor="business-proposal-scope"><span>Agreed scope</span><textarea id="business-proposal-scope" className="input" required minLength={10} maxLength={10000} rows={3} value={proposalScope} onChange={event => setProposalScope(event.target.value)} /></label>
               <p className="business-note">Each revision pins the current firm profile, methodology hash and approved CV file IDs. A new revision does not overwrite a prior approval or document.</p>
-              <div className="business-dialog-actions"><button className="btn primary" type="submit" disabled={commandBusy || !proposalWorkspace?.firmProfile || !proposalEngagementId}>{commandBusy ? 'Saving…' : 'Create proposal revision'}</button></div>
+              <div className="business-dialog-actions"><button className="btn primary" type="submit" disabled={commandBusy || !proposalWorkspace?.firmProfile || !proposalEngagementId
+                || (proposalMode === 'FULL_PROPOSAL' && !proposalTeamCvIds.some(id => proposalWorkspace.teamCvs.some(cv => cv.id === id && cv.approved && cv.isCurrent && cv.grade === 'PARTNER')))}>{commandBusy ? 'Saving…' : 'Create proposal revision'}</button></div>
             </form>}
 
             {proposalWorkspace?.proposals.length ? <ul className="business-record-list business-proposal-list" aria-label="Current proposal revisions">{proposalWorkspace.proposals.map(proposal => {

@@ -246,6 +246,7 @@ export interface BusinessTeamCv {
   originalName: string;
   sha256: string;
   approved: boolean;
+  isCurrent: boolean;
   approvedByActorId: string | null;
   approvedAt: string | null;
 }
