@@ -80,7 +80,18 @@ export async function launchHeadlessChrome(
     throw new Error(`Chrome did not expose its debugging endpoint on 127.0.0.1:${port} within ${options.timeoutMs ?? 30000} ms.`);
   } catch (error) {
     await stopHeadlessChrome(child);
-    rmSync(profileDirectory, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
+    let cleanupError: unknown;
+    for (let attempt = 0; attempt < 20; attempt++) {
+      try {
+        rmSync(profileDirectory, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+        cleanupError = undefined;
+        break;
+      } catch (reason) {
+        cleanupError = reason;
+        await sleep(100);
+      }
+    }
+    if (cleanupError) console.warn(`Chrome profile cleanup was deferred for ${profileDirectory}: ${String(cleanupError)}`);
     throw error;
   }
 }

@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict';
 import { after, before, it } from 'node:test';
 import { type ChildProcess } from 'node:child_process';
-import { existsSync, rmSync } from 'node:fs';
+import { existsSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { CdpTab } from '../helpers/cdp.js';
 import { launchHeadlessChrome, stopHeadlessChrome } from '../helpers/headlessChrome.js';
 import { startBusinessE2eServer, type BusinessE2eServer } from '../helpers/businessE2eServer.js';
@@ -656,7 +658,7 @@ it('US-ENG-003 renders and approves an exact quote revision, then fails closed w
   await waitFor('the exact quote split and saved revision', `document.querySelector('.business-command-message')?.innerText.includes('QAR minor-unit terms split to 5000001 advance and 5000000 final') && document.querySelector('.business-proposal-list')?.innerText.includes('Quotation · Revision 1')`);
 
   const proposal = server.db.prepare(`SELECT pv.id AS proposal_version_id,pv.fee_minor,pv.revision,pv.mode,pv.advance_bps,pv.final_bps,
-      p.id AS proposal_id,e.id AS engagement_id,e.lifecycle_state
+      p.id AS proposal_id,e.id AS engagement_id,e.client_id,e.lifecycle_state
     FROM proposal_versions pv JOIN proposals p ON p.workspace_id=pv.workspace_id AND p.id=pv.proposal_id
     JOIN engagements e ON e.workspace_id=pv.workspace_id AND e.id=pv.engagement_id
     WHERE pv.workspace_id=? AND e.code=?`).bind(preference.workspaceId, `QA-QUOTE-ENG-${unique}`).first<any>();
@@ -713,6 +715,28 @@ it('US-ENG-003 renders and approves an exact quote revision, then fails closed w
     .bind(preference.workspaceId, proposal.engagement_id).first<any>()?.status, 'FAILED');
   assert.equal(server.db.prepare('SELECT COUNT(*) AS count FROM command_receipts WHERE workspace_id=? AND command_type IN (\'proposal.dispatch\',\'proposal.dispatch.retry\')')
     .bind(preference.workspaceId).first<any>()?.count, 1, 'no provider-less retry or duplicate dispatch was recorded');
+  await chooseOption('business-active-persona', `item.textContent?.includes('REVIEWER · QA Quote Reviewer')`);
+  await waitFor('the Reviewer risk dossier editor and its evidence upload', `document.querySelector('[aria-label="Risk assessment evidence upload"] input[type="file"]')?.getClientRects().length === 1`);
+  const syntheticRiskEvidencePath = join(tmpdir(), `auditsphere-risk-evidence-${unique}.pdf`);
+  try {
+    writeFileSync(syntheticRiskEvidencePath, Buffer.from('%PDF-1.4\n1 0 obj\n<< /Type /Catalog >>\nendobj\ntrailer\n<< /Root 1 0 R >>\n%%EOF\n'));
+    const documentNode = await tab.command<{ root: { nodeId: number } }>('DOM.getDocument', { depth: -1 });
+    const uploadInput = await tab.command<{ nodeId: number }>('DOM.querySelector', {
+      nodeId: documentNode.root.nodeId, selector: `#risk-evidence-upload-${proposal.engagement_id}`
+    });
+    assert.ok(uploadInput.nodeId, 'the risk evidence upload is scoped to the selected engagement');
+    await tab.command('DOM.setFileInputFiles', { files: [syntheticRiskEvidencePath], nodeId: uploadInput.nodeId });
+    await waitFor('the committed risk evidence acknowledgement', `document.querySelector('[aria-label="Risk assessment evidence upload"] [role="status"]')?.innerText.includes('verified and committed')`);
+    const riskEvidence = server.db.prepare(`SELECT client_id,engagement_id,purpose,state,immutable,media_type,size_bytes
+      FROM file_versions WHERE workspace_id=? AND original_name=? ORDER BY version DESC LIMIT 1`)
+      .bind(preference.workspaceId, `auditsphere-risk-evidence-${unique}.pdf`).first<any>();
+    assert.deepEqual({ clientId: riskEvidence?.client_id, engagementId: riskEvidence?.engagement_id, purpose: riskEvidence?.purpose,
+      state: riskEvidence?.state, immutable: riskEvidence?.immutable, mediaType: riskEvidence?.media_type },
+    { clientId: proposal.client_id, engagementId: proposal.engagement_id, purpose: 'EVIDENCE', state: 'COMMITTED', immutable: 1, mediaType: 'application/pdf' });
+    await waitFor('the uploaded file in the UBO evidence selector', `document.querySelector('#risk-evidence-UBO-${proposal.engagement_id}')?.innerText.includes(${JSON.stringify(`auditsphere-risk-evidence-${unique}.pdf`)})`);
+  } finally {
+    rmSync(syntheticRiskEvidencePath, { force: true });
+  }
   assert.equal(tab.blockedExternalRequests.length, 0, 'the synthetic provider-less journey made no external HTTP calls');
   assert.deepEqual(tab.exceptions, [], 'the commercial browser journey raised no uncaught JavaScript exceptions');
 });

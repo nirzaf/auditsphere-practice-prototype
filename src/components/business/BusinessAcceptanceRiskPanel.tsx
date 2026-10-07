@@ -11,7 +11,7 @@ import type {
   BusinessWorkspacePreference,
   BusinessContextResponse
 } from '../../shared/api/business';
-import { getBusinessAcceptanceGate, getBusinessRiskWorkspace, newBusinessIdempotencyKey, runBusinessCommand } from '../../services/businessWorkspace';
+import { completeBusinessFile, getBusinessAcceptanceGate, getBusinessRiskWorkspace, initializeBusinessFile, newBusinessIdempotencyKey, runBusinessCommand, uploadBusinessFile } from '../../services/businessWorkspace';
 
 const trackAChecks: BusinessRiskCheckCode[] = ['UBO', 'KYC', 'AML', 'INTEGRITY', 'VIABILITY', 'INDEPENDENCE', 'CONFLICTS'];
 const trackBChecks: BusinessRiskCheckCode[] = ['PRIOR_FEES', 'MANAGEMENT_CHANGE', 'OWNERSHIP_CHANGE', 'NEW_BORROWING', 'LITIGATION', 'FRAUD_REGULATORY'];
@@ -91,6 +91,9 @@ export function BusinessAcceptanceRiskPanel({
   const [confirmPriorReuse, setConfirmPriorReuse] = useState(false);
   const [priorReuseRationale, setPriorReuseRationale] = useState('');
   const [busy, setBusy] = useState(false);
+  const [evidenceUploadBusy, setEvidenceUploadBusy] = useState(false);
+  const [evidenceUploadError, setEvidenceUploadError] = useState('');
+  const [evidenceUploadMessage, setEvidenceUploadMessage] = useState('');
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
   const [refresh, setRefresh] = useState(0);
@@ -214,6 +217,36 @@ export function BusinessAcceptanceRiskPanel({
     if (draft.checks.some(check => !check.outcome)) { setError(`Select an outcome for each required Track ${draft.track === 'CONTINUANCE' ? 'B' : 'A'} check.`); return; }
     const checks = draft.checks.map(({ outcome, ...check }) => ({ ...check, resolution: check.resolution?.trim() || undefined, outcome }));
     void command('riskAssessment.saveDraft', { ...draft, expectedDraftVersion: riskWorkspace?.assessment?.draftVersion ?? 0, checks }, 'Risk assessment draft saved with a new version.');
+  };
+  const uploadRiskEvidence = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const selectedFile = event.currentTarget.files?.[0];
+    event.currentTarget.value = '';
+    if (!selectedFile) return;
+    const mediaType = selectedFile.type === 'application/pdf' ? 'application/pdf'
+      : selectedFile.type === 'image/png' ? 'image/png'
+        : selectedFile.type === 'image/jpeg' ? 'image/jpeg' : null;
+    if (!mediaType || selectedFile.size <= 0 || selectedFile.size > 25 * 1024 * 1024) {
+      setEvidenceUploadError('Choose a PDF, PNG or JPEG risk document up to 25 MB.');
+      return;
+    }
+    setEvidenceUploadBusy(true);
+    setEvidenceUploadError('');
+    setEvidenceUploadMessage('');
+    try {
+      const reservation = await initializeBusinessFile(workspaceId, scoped, {
+        purpose: 'EVIDENCE', originalName: selectedFile.name, mediaType, sizeBytes: selectedFile.size, clientId, engagementId
+      }, newBusinessIdempotencyKey());
+      const staged = await uploadBusinessFile(workspaceId, scoped, reservation, selectedFile, mediaType, newBusinessIdempotencyKey());
+      const committed = await completeBusinessFile(workspaceId, scoped, staged, newBusinessIdempotencyKey());
+      if (committed.state !== 'COMMITTED') throw new Error('The uploaded risk evidence was not committed.');
+      setEvidenceUploadMessage(`${selectedFile.name} was verified and committed as immutable engagement evidence.`);
+      setRefresh(value => value + 1);
+      onChanged?.();
+    } catch (reason) {
+      setEvidenceUploadError(reason instanceof Error ? reason.message : 'Risk evidence could not be uploaded.');
+    } finally {
+      setEvidenceUploadBusy(false);
+    }
   };
   const startContinuance = (event: React.FormEvent) => {
     event.preventDefault();
@@ -367,6 +400,14 @@ export function BusinessAcceptanceRiskPanel({
         <button type="submit" className="btn primary" disabled={busy || continuanceTopics.some(topic => !continuanceEvidence[topic]) || continuanceSummary.trim().length < 10 || (selectedPriorEvidence.length > 0 && (!confirmPriorReuse || priorReuseRationale.trim().length < 10))}>Record a new delta revision</button>
       </form>}
       {editable && <>
+        <section className="business-form business-commercial-form" aria-label="Risk assessment evidence upload">
+          <h3>Upload current risk evidence</h3>
+          <p className="business-note">Commit client and engagement-scoped source documents before linking them to UBO, KYC, AML or other risk conclusions. The Worker verifies the bytes and stores an immutable version.</p>
+          {evidenceUploadError && <p className="business-alert" role="alert">{evidenceUploadError}</p>}
+          {evidenceUploadMessage && <p className="business-command-message" role="status">{evidenceUploadMessage}</p>}
+          <label className="business-field" htmlFor={`risk-evidence-upload-${engagementId}`}><span>Risk support document (PDF, PNG or JPEG)</span><input id={`risk-evidence-upload-${engagementId}`} type="file" accept="application/pdf,image/png,image/jpeg" disabled={evidenceUploadBusy} onChange={uploadRiskEvidence} /></label>
+          {evidenceUploadBusy && <p className="business-muted" role="status">Verifying and committing evidence…</p>}
+        </section>
         <form className="business-form business-commercial-form" onSubmit={saveOwner}>
           <h3>Beneficial ownership register</h3>
           <div className="business-form-grid">
