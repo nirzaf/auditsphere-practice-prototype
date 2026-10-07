@@ -174,13 +174,13 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
   const ready = await call('/api/health/ready');
   assert.equal(ready.response.status, 200, JSON.stringify(ready.body));
   assert.equal(ready.body.status, 'ready');
-  assert.equal(ready.body.schemaVersion, 35);
+  assert.equal(ready.body.schemaVersion, 37);
   assert.deepEqual(ready.body.dependencyCodes, []);
   const supportBundle = await call('/api/health/support-bundle');
   assert.equal(supportBundle.response.status, 200);
   assert.match(supportBundle.response.headers.get('content-disposition') ?? '', /attachment; filename="auditsphere-support-bundle.json"/);
-  assert.equal(supportBundle.body.applicationSchemaVersion, 35);
-  assert.equal(supportBundle.body.installedSchemaVersion, 35);
+  assert.equal(supportBundle.body.applicationSchemaVersion, 37);
+  assert.equal(supportBundle.body.installedSchemaVersion, 37);
   assert.equal(supportBundle.body.readiness, 'ready');
   assert.deepEqual(supportBundle.body.verificationRuns, []);
   assert.equal(JSON.stringify(supportBundle.body).includes('workspaceId'), false);
@@ -219,13 +219,13 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
   await db.prepare(`INSERT INTO verification_runs(id,workspace_id,source_commit,schema_version,environment,started_at,
     completed_at,status,created_at,updated_at)
     VALUES (?,?,?,?,?,?,?,?,?,?)`).bind(
-    verificationRunId, workspaceId, 'a'.repeat(40), 35, 'CI', verificationStartedAt,
+    verificationRunId, workspaceId, 'a'.repeat(40), 37, 'CI', verificationStartedAt,
     verificationCompletedAt, 'PASSED', verificationCompletedAt, verificationCompletedAt
   ).run();
   const populatedSupportBundle = await call('/api/health/support-bundle');
   assert.equal(populatedSupportBundle.response.status, 200);
   assert.deepEqual(populatedSupportBundle.body.verificationRuns, [{
-    sourceCommit: 'a'.repeat(40), schemaVersion: 35, environment: 'CI',
+    sourceCommit: 'a'.repeat(40), schemaVersion: 37, environment: 'CI',
     startedAt: verificationStartedAt, completedAt: verificationCompletedAt, status: 'PASSED'
   }]);
   assert.equal(JSON.stringify(populatedSupportBundle.body).includes(workspaceId), false,
@@ -233,7 +233,7 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
 
   const migrationStatus = await call(`/api/workspaces/${workspaceId}/migration-status`);
   assert.equal(migrationStatus.response.status, 200, JSON.stringify(migrationStatus.body));
-  assert.deepEqual(migrationStatus.body, { schemaVersion: 35, lastRunId: null, status: null });
+  assert.deepEqual(migrationStatus.body, { schemaVersion: 37, lastRunId: null, status: null });
   const missingMigrationWorkspace = await call(`/api/workspaces/${crypto.randomUUID()}/migration-status`);
   assert.equal(missingMigrationWorkspace.response.status, 404);
 

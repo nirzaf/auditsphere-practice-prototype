@@ -365,7 +365,7 @@ async function buildLetterIssue(env: Env, workspaceId: string, context: Business
               WHERE cr.workspace_id=? AND cr.id=? AND cr.version=? AND cr.client_id=e.client_id AND cr.purpose='INVOICE' AND cr.is_primary=1
                 AND ct.id=? AND ct.full_name=? AND ct.email=? AND ct.role='CFO_FINANCE_DIRECTOR' AND ct.active=1)
             AND EXISTS(SELECT 1 FROM billing_tax_policy_versions tp WHERE tp.workspace_id=? AND tp.id=?
-              AND tp.revision=(SELECT MAX(latest.revision) FROM billing_tax_policy_versions latest WHERE latest.workspace_id=tp.workspace_id))
+              AND tp.revision=(SELECT MAX(latest.revision) FROM billing_tax_policy_versions latest WHERE latest.workspace_id=tp.workspace_id)))
         THEN 1 ELSE 0 END`).bind(workspaceId, jobId, expectedRiskClearanceId, workspaceId, engagementId, pins.engagement.version, expectedProposalVersionId,
         workspaceId, contactRouteId, route.version, route.contact_id, route.full_name, route.email,
         workspaceId, invoiceContactRouteId, invoiceRoute.version, invoiceRoute.contact_id, invoiceRoute.full_name, invoiceRoute.email, workspaceId, taxPolicy.id),
