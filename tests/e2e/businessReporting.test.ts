@@ -435,7 +435,7 @@ async function verifyOpinionVariants(): Promise<void> {
     assert.equal(result.value, value, `the visible ${label} form field accepted its value`);
     if (!select) assert.ok(value.length > 0);
   };
-  const saveOpinion = async (fixture: Awaited<ReturnType<typeof seedReportingFixture>>, expected: string) => {
+  const saveOpinion = async (fixture: Awaited<ReturnType<typeof seedReportingFixture>>, expected: string, expectedPreviewText: string[] = []) => {
     const clicked = await tab!.evaluate<boolean>(`(() => {
       const report = document.querySelector('#business-reporting-${fixture.engagementId}')?.closest('section');
       const form = [...(report?.querySelectorAll('form') ?? [])].find(item => item.querySelector('h3')?.textContent?.includes('Partner opinion and conditional basis'));
@@ -444,9 +444,11 @@ async function verifyOpinionVariants(): Promise<void> {
       button.click(); return true;
     })()`);
     assert.equal(clicked, true, `the visible Partner opinion form saves ${expected}`);
-    await waitFor(`the ${expected} opinion to appear in its exact preview`, `
-      document.querySelector('#business-reporting-${fixture.engagementId}')?.closest('section')?.innerText.includes(${JSON.stringify(expected)}) &&
-      document.querySelector('#business-reporting-${fixture.engagementId}')?.closest('section')?.innerText.includes('Current cleared SRM')`);
+    const exactTextCondition = expectedPreviewText.map(text => `preview.includes(${JSON.stringify(text)})`).join(' && ') || 'true';
+    await waitFor(`the ${expected} opinion to appear with its exact approved text in the preview`, `
+      (() => { const report=document.querySelector('#business-reporting-${fixture.engagementId}')?.closest('section');
+        const preview=document.querySelector('#opinion-preview-title')?.closest('section')?.innerText ?? '';
+        return preview.includes(${JSON.stringify(expected)}) && report?.innerText.includes('Current cleared SRM') && (${exactTextCondition}); })()`);
   };
 
   const audit = await seedReportingFixture();
@@ -467,7 +469,7 @@ async function verifyOpinionVariants(): Promise<void> {
   await setField(audit, 'Partner rationale', unmodifiedRationale);
   await setField(audit, 'Materiality assessment', 'The current synthetic amounts were compared with the approved planning materiality.');
   await setField(audit, 'Pervasiveness assessment', 'No material modification is required based on the synthetic assessed evidence.');
-  await saveOpinion(audit, 'Unmodified Opinion');
+  await saveOpinion(audit, 'Unmodified Opinion', [unmodifiedRationale]);
   const unmodifiedPreview = await tab.evaluate<string>(`document.querySelector('#opinion-preview-title')?.closest('section')?.innerText ?? ''`);
   assert.ok(unmodifiedPreview.includes(unmodifiedRationale), 'the approved unmodified rationale is previewed verbatim');
   assert.ok(!unmodifiedPreview.includes('Basis for Unmodified Opinion'), 'the clean opinion omits a modified-opinion basis section');
@@ -500,7 +502,8 @@ async function verifyOpinionVariants(): Promise<void> {
     await setField(audit, 'FSLI 1', fsliId, true);
     await setField(audit, 'Quantifiable amount (QAR, optional)', '1250.75');
     await setField(audit, 'Nature and explanation', affectedExplanation);
-    await saveOpinion(audit, category.label);
+    await saveOpinion(audit, category.label, [category.basis, rationale, basisText, materiality, pervasiveness,
+      'QA-REV', 'SYNTHETIC REVENUE', 'QAR 1250.75', affectedExplanation]);
     const preview = await tab.evaluate<string>(`document.querySelector('#opinion-preview-title')?.closest('section')?.innerText ?? ''`);
     for (const exactText of [category.basis, rationale, basisText, materiality, pervasiveness, 'QA-REV', 'SYNTHETIC REVENUE',
       'QAR 1250.75', affectedExplanation]) {
@@ -517,7 +520,7 @@ async function verifyOpinionVariants(): Promise<void> {
       .some(item => item.querySelector('span')?.textContent?.trim() === 'Audit opinion')`);
   await setField(aup, 'Approved AUP report type', 'Synthetic agreed-upon procedures report');
   await setField(aup, 'Procedures and factual findings summary', 'The listed synthetic procedures were performed and the factual results are presented without an audit opinion.');
-  await saveOpinion(aup, 'Synthetic agreed-upon procedures report');
+  await saveOpinion(aup, 'Synthetic agreed-upon procedures report', ['The listed synthetic procedures were performed and the factual results are presented without an audit opinion.']);
   const aupPreview = await tab.evaluate<{ preview: string; formNotice: string }>(`(() => {
     const report = document.querySelector('#business-reporting-${aup.engagementId}')?.closest('section');
     return {
