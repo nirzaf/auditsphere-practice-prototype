@@ -6,6 +6,7 @@ import { unzipSync, zlibSync } from 'fflate';
 import { CdpTab } from '../helpers/cdp.js';
 import { launchHeadlessChrome, stopHeadlessChrome, type HeadlessChromeInstance } from '../helpers/headlessChrome.js';
 import { startBusinessE2eServer, type BusinessE2eServer } from '../helpers/businessE2eServer.js';
+import { extractReportingPdfText } from '../helpers/reportingPdf.js';
 
 let server: BusinessE2eServer | undefined;
 let browser: HeadlessChromeInstance | undefined;
@@ -372,7 +373,8 @@ async function seedReportingFixture(engagementType: 'STATUTORY_AUDIT' | 'AGREED_
     ids.proposalVersion, now, workspaceId, ids.engagement);
   return { workspaceId, actorId, staffMemberId: workspace.staffMemberId, clientId: ids.client, engagementId: ids.engagement,
     name: `Reporting journey ${key.slice(0, 8)}`, reportApprovalId: ids.approval, signatureFileId: ids.signatureFile, sealFileId: ids.sealFile,
-    clientActorId: ids.clientActor, reviewerActorId: ids.reviewerActor, managementContactId: ids.managementContact, reportRouteId: ids.reportRoute };
+    clientActorId: ids.clientActor, reviewerActorId: ids.reviewerActor, managementContactId: ids.managementContact, reportRouteId: ids.reportRoute,
+    sourceHash, snapshotId: ids.snapshot, standardsProfileId: ids.standards, engagementCode: `QA-REPORT-${key.slice(0, 8)}` };
 }
 
 before(async () => {
@@ -545,6 +547,7 @@ it('US-REP-001–007 covers all report categories, representation, atomic releas
   await tab.command('Page.reload');
   await waitFor('the clean reporting landing page after opinion category acceptance', `document.querySelector('#production-workspace-heading')?.textContent?.trim() === 'Open your business workspace'`);
   const fixture = await seedReportingFixture();
+  const reportDate = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Qatar', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
   const beforeAction = await tab.evaluate<{ heading: string; preference: string | null }>(`({
     heading: document.querySelector('#production-workspace-heading')?.textContent?.trim() ?? '',
     preference: localStorage.getItem('auditsphere.business-context.v1')
@@ -804,6 +807,31 @@ it('US-REP-001–007 covers all report categories, representation, atomic releas
   assert.equal(renderedPdf.byteLength, generated.size_bytes);
   assert.equal(sha256(renderedPdf), generated.content_sha256);
   assert.equal(new TextDecoder().decode(renderedPdf.slice(0, 5)), '%PDF-', 'the candidate object contains PDF bytes, not a mock URL or metadata-only record');
+  const reportContent = extractReportingPdfText(renderedPdf);
+  const normalizedReportText = reportContent.text.replace(/\s+/g, ' ');
+  assert.ok(reportContent.pageCount >= 2, 'the complete report and signature assets render across correctly numbered pages');
+  for (const exactText of [
+    'Independent Auditor’s Report · Qualified Opinion',
+    'A single synthetic revenue presentation matter is material for this test report.',
+    'Basis for Qualified Opinion',
+    'A synthetic revenue source item is unsupported and remains unadjusted in this local test fixture.',
+    'Affected financial statement lines',
+    'QA-REV · Synthetic revenue', 'QAR 1000.00', 'comparative QAR 800.00',
+    'Statement of Financial Position', 'QA-ASSET · Synthetic assets', 'QAR 2000.00', 'comparative QAR 1800.00',
+    'Statement of Profit or Loss and Other Comprehensive Income',
+    'CASH FLOW', 'QA-CF · Synthetic operating cash flow', 'QAR 250.00', 'comparative QAR 200.00',
+    'EQUITY CHANGE', 'QA-EQ · Synthetic closing equity movement',
+    'Approved Accounting Policies', 'Synthetic accounting policy disclosure for the local Worker-backed reporting browser acceptance journey.',
+    'Note 1 · Synthetic basis of preparation', 'Synthetic statement note retained for local PDF rendering and hash verification.',
+    'Source and completeness', `Statement snapshot ${fixture.snapshotId} · source ${fixture.sourceHash}.`,
+    `Presentation profile ${fixture.standardsProfileId}.`, 'professional review remains required.',
+    'Partner approval assets displayed for review', 'Partner profile: QA Reporting Partner',
+    'not a certificate-based digital signature or identity verification.'
+  ]) assert.ok(normalizedReportText.includes(exactText.replace(/\s+/g, ' ')), `the persisted report PDF contains its required approved content: ${exactText}`);
+  for (let page = 1; page <= reportContent.pageCount; page += 1) {
+    assert.ok(normalizedReportText.includes(`REPORT-${fixture.engagementCode}-${reportDate.replaceAll('-', '')} · Page ${page} of ${reportContent.pageCount}`),
+      `the report PDF includes the expected footer for page ${page}`);
+  }
 
   const refreshed = await tab.evaluate<boolean>(`(() => {
     const report = document.querySelector('#business-reporting-${fixture.engagementId}')?.closest('section');
@@ -884,7 +912,6 @@ it('US-REP-001–007 covers all report categories, representation, atomic releas
       .bind(fixture.workspaceId, preparingCandidate.id).first<{ id: string }>()?.id).first<{ count: number }>()?.count, 0,
   'image consent is not misrepresented as the final released report signature');
 
-  const reportDate = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Qatar', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
   await fillReportField('Partner-approved reason for no reportable deficiencies', 'No reportable deficiencies were identified in the synthetic acceptance records reviewed for this isolated test.');
   await clickInForm('Prepare management letter', 'Generate management letter');
   await waitFor('the queued management letter command result', `document.querySelector('#business-reporting-${fixture.engagementId}')?.closest('section')?.innerText.includes('Management-letter version queued from selected findings or an explicit no-deficiencies rationale.')`);
