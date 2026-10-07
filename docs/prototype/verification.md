@@ -1367,9 +1367,13 @@ verifies the petty-cash expense account remains debited exactly once. Expense
 category-to-account mapping is also rechecked when the voucher is approved. The
 same practice integration journey verifies a Partner withdrawal debits the
 Partner Drawings equity control, credits the Bank control, and leaves the total
-posted P&L expense balance unchanged.
+posted P&L expense balance unchanged. Expense posting is exercised with a
+committed synthetic voucher and with a separately retained, reviewer-approved
+missing-support exception. Petty-cash reconciliation rejects self-review,
+records an exact independent count and a separate visible variance, and rejects
+updates to prior reconciliation rows.
 `npm run build`, `npm run cloud:typecheck`, and the focused
 `tests/unit/businessWorkspace.test.ts` pass. This is implementation evidence for
 the rent, petty-cash disbursement/replenishment, account mapping, and Partner
-withdrawal accounting scenarios; source support, custodian reconciliation, and
-full epic acceptance remain open.
+withdrawal accounting scenarios and their local support/custodian controls. Live
+source-document inspection and full epic acceptance remain open.

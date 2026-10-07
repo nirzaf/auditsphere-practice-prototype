@@ -3929,6 +3929,10 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
     idempotencyKey: crypto.randomUUID(), command: { type: 'expense.approve-and-post', payload: { expenseId: expenseCreate.body.result.expenseId } }
   }, reviewerHeaders);
   assert.equal(expensePost.response.status, 200, JSON.stringify(expensePost.body));
+  const exceptionExpense = db.prepare(`SELECT status,missing_support_reason FROM firm_expenses WHERE workspace_id=? AND id=?`)
+    .bind(workspaceId,expenseCreate.body.result.expenseId).first<any>();
+  assert.equal(exceptionExpense.status, 'POSTED');
+  assert.equal(exceptionExpense.missing_support_reason, 'The landlord invoice arrives after the month-end closing cut-off.');
 
   // PRC-005: a QAR 300 petty-cash voucher is the expense; replenishing that cash
   // from bank creates only an asset-to-asset transfer and never a second expense.
@@ -3940,14 +3944,17 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
       debitAccountId: accountId('1010'), settlementAccountId: accountId('1010'), paymentMethod: 'CASH' } }
   }, preparerHeaders);
   assert.equal(invalidPettyCashVoucher.response.status, 422, JSON.stringify(invalidPettyCashVoucher.body));
+  const pettyVoucherSupportId = await storeCommittedFile('EVIDENCE', 'petty-cash-voucher.pdf', 'application/pdf', pdf,
+    preparerHeaders, { clientId, engagementId });
   const pettyVoucher = await post(`/api/workspaces/${workspaceId}/commands`, {
     idempotencyKey: crypto.randomUUID(), command: { type: 'expense.create', payload: {
       date: planDate, payee: 'Practice supplies', category: 'PETTY_CASH', amountMinor: '30000',
       description: 'Small office supplies paid from the accountable petty cash float.',
-      missingSupportReason: 'Receipt is being recovered from the custodian before month-end.',
+      supportingFileId: pettyVoucherSupportId,
       debitAccountId: accountId('5300'), settlementAccountId: accountId('1010'), paymentMethod: 'CASH' } }
   }, preparerHeaders);
   assert.equal(pettyVoucher.response.status, 200, JSON.stringify(pettyVoucher.body));
+  assert.equal(db.prepare('SELECT state FROM file_versions WHERE workspace_id=? AND id=?').bind(workspaceId,pettyVoucherSupportId).first<any>()?.state, 'COMMITTED');
   const pettyVoucherPost = await post(`/api/workspaces/${workspaceId}/commands`, {
     idempotencyKey: crypto.randomUUID(), command: { type: 'expense.approve-and-post', payload: { expenseId: pettyVoucher.body.result.expenseId } }
   }, reviewerHeaders);
@@ -3973,6 +3980,31 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
   }, reviewerHeaders);
   assert.equal(repeatedPettyCashTransfer.response.status, 200, JSON.stringify(repeatedPettyCashTransfer.body));
   assert.equal(repeatedPettyCashTransfer.body.result.journalId, pettyCashTransfer.body.result.journalId);
+  const custodianCannotReviewOwnCount = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'petty-cash.reconcile', payload: {
+      accountId: accountId('1010'), asOf: planDate, countedCashMinor: '0',
+      explanation: 'The custodian cannot independently approve their own cash count.', custodianStaffId: created.body.staffMemberId } }
+  }, approverHeaders);
+  assert.equal(custodianCannotReviewOwnCount.response.status, 403, JSON.stringify(custodianCannotReviewOwnCount.body));
+  const pettyCashReconciliation = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'petty-cash.reconcile', payload: {
+      accountId: accountId('1010'), asOf: planDate, countedCashMinor: '0',
+      explanation: 'Independent count agrees to the restored petty cash float.', custodianStaffId: preparerStaff.body.result.staffMemberId } }
+  }, reviewerHeaders);
+  assert.equal(pettyCashReconciliation.response.status, 200, JSON.stringify(pettyCashReconciliation.body));
+  assert.equal(pettyCashReconciliation.body.result.ledgerBalanceMinor, '0');
+  assert.equal(pettyCashReconciliation.body.result.differenceMinor, '0');
+  assert.equal(pettyCashReconciliation.body.result.status, 'RECONCILED');
+  const pettyCashVariance = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'petty-cash.reconcile', payload: {
+      accountId: accountId('1010'), asOf: planDate, countedCashMinor: '100',
+      explanation: 'A one-riyal short count must remain visible as a variance.', custodianStaffId: preparerStaff.body.result.staffMemberId } }
+  }, reviewerHeaders);
+  assert.equal(pettyCashVariance.response.status, 200, JSON.stringify(pettyCashVariance.body));
+  assert.equal(pettyCashVariance.body.result.differenceMinor, '100');
+  assert.equal(pettyCashVariance.body.result.status, 'VARIANCE');
+  assert.throws(() => db.prepare(`UPDATE petty_cash_reconciliations SET explanation='Edited count' WHERE workspace_id=? AND id=?`)
+    .bind(workspaceId,pettyCashReconciliation.body.result.reconciliationId).run(), /append only/);
   assert.equal(db.prepare(`SELECT COUNT(*) AS count FROM firm_journals WHERE workspace_id=? AND source_type='PETTY_CASH_REPLENISHMENT'`)
     .bind(workspaceId).first<{ count: number }>()?.count, 1, 'idempotent retry must not duplicate the replenishment journal');
   const transferLines = await db.prepare(`SELECT l.account_id,l.debit_minor,l.credit_minor,a.control_type,a.account_type
