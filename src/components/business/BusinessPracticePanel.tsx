@@ -21,7 +21,9 @@ type PracticeData = {
   trialBalance: { rows: Array<{ accountId: string; code: string; name: string; accountType: string; openingMinor: string; periodDebitMinor: string; periodCreditMinor: string; closingMinor: string }>; closingDebitMinor: string; closingCreditMinor: string; closingBalanced: boolean; sourceHash: string };
   profitLoss: { revenueMinor: string; expenseMinor: string; profitMinor: string; sourceHash: string; recognitionNote: string };
   budget: { id: string; revision: number; sourceHash: string } | null;
-  profitability: { feeMinor: string; chargeOutValueMinor: string; profitabilityMinor: string; approvedMinutes: number; pendingMinutes: number; billedMinor: string; collectedMinor: string; metricLabel: string; formula: string; sourceHash: string; phases: Array<{ phase: string; plannedMinutes: number; actualMinutes: number; varianceMinutes: number; varianceBps: number | null; varianceStatus: string; chargeOutValueMinor: string }> } | null;
+  profitability: { engagementId: string; asOf: string; budgetRevision: number; feeProposalVersionId: string; feeProposalRevision: number; engagementLetterId: string; letterRevision: number; acceptedAt: string; acceptedFeeRevisions: Array<{ engagementLetterId: string; letterRevision: number; feeProposalVersionId: string; feeProposalRevision: number; feeMinor: string; acceptedAt: string }>; feeMinor: string; chargeOutValueMinor: string; profitabilityMinor: string; approvedMinutes: number; pendingMinutes: number; billedMinor: string; collectedMinor: string; metricLabel: string; formula: string; sourceHash: string; phases: Array<{ phase: string; plannedMinutes: number; actualMinutes: number; varianceMinutes: number; varianceBps: number | null; varianceStatus: string; chargeOutValueMinor: string }> } | null;
+  profitabilityBlocker: string | null;
+  profitabilitySnapshots: Array<{ id: string; asOf: string; feeMinor: number; approvedMinutes: number; chargeOutValueMinor: number; profitabilityMinor: number; pendingMinutes: number | null; billedMinor: number | null; collectedMinor: number | null; phaseSnapshotJson: string; sourceHash: string; calculatedAt: string; budgetRevision: number; feeProposalRevision: number; phases: Array<{ phase: string; plannedMinutes: number; actualMinutes: number; varianceMinutes: number; varianceBps: number | null; varianceStatus: string; chargeOutValueMinor: string }> }>;
   partnerWithdrawals: Array<Record<string, unknown>>;
   pettyCashReconciliations: Array<Record<string, unknown>>;
   creditNotes: Array<Record<string, unknown>>;
@@ -283,9 +285,11 @@ export function BusinessPracticePanel({ workspaceId, selected, context, engageme
 
       <div className="business-practice-actions">
         <button type="button" className="btn sm" disabled={busy} onClick={() => void perform('practice.capture-utilization-report', { from, to }, 'Utilization snapshot captured from explicit capacity and approved time.')}>Capture utilization snapshot</button>
-        <button type="button" className="btn sm" disabled={busy || !data.budget} onClick={() => void perform('practice.capture-profitability-report', { engagementId: engagement.id, asOf: new Date().toISOString() }, 'Profitability snapshot captured against approved time and budget.')}>Capture profitability snapshot</button>
+        <button type="button" className="btn sm" disabled={busy || !data.profitability} onClick={() => void perform('practice.capture-profitability-report', { engagementId: engagement.id, asOf: new Date().toISOString() }, 'Profitability snapshot captured against the accepted fee, approved time and phase budget.')}>Capture profitability snapshot</button>
         <button type="button" className="btn sm" disabled={busy} onClick={() => void perform('practice.capture-ar-aging-report', { asOf: to }, 'AR aging snapshot captured with the current reconciliation result.')}>Capture AR aging snapshot</button>
       </div>
+
+      {data.profitabilityBlocker && <div className="business-record-list"><h3>Engagement profitability unavailable</h3><p>{data.profitabilityBlocker}</p></div>}
 
       {(data.utilization.length > 0 || data.profitability) && <div className="business-delivery-grid">
         {data.utilization.length > 0 && <div className="business-record-list"><h3>Utilization · approved billable time against available capacity</h3>
@@ -312,12 +316,30 @@ export function BusinessPracticePanel({ workspaceId, selected, context, engageme
             })}
           </tbody></table></div>
           <small>Utilization = approved billable minutes ÷ available minutes. Unapproved entries appear in Recorded only; missing capacity is listed and never assumed.</small></div>}
-        {data.profitability && <div className="business-record-list"><h3>Engagement profitability · current approved budget and time</h3>
+        {data.profitability && <div className="business-record-list"><h3>Engagement profitability · approved time through {formatQatarTimestamp(data.profitability.asOf)}</h3>
           <p>Accepted fee {money(data.profitability.feeMinor)} · charge-out value {money(data.profitability.chargeOutValueMinor)} · margin {money(data.profitability.profitabilityMinor)}</p>
-          <small>{data.profitability.metricLabel} · {data.profitability.pendingMinutes} pending minutes · billed {money(data.profitability.billedMinor)} · collected {money(data.profitability.collectedMinor)}.</small>
-          <div className="business-table-wrap"><table className="business-table"><thead><tr><th>Phase</th><th>Planned</th><th>Actual</th><th>Variance</th><th>Status</th></tr></thead><tbody>
-            {data.profitability.phases.map(row => <tr key={row.phase}><td>{row.phase}</td><td>{row.plannedMinutes} min</td><td>{row.actualMinutes} min</td><td>{row.varianceMinutes >= 0 ? '+' : ''}{row.varianceMinutes} min</td><td>{row.varianceStatus.replaceAll('_', ' ')}</td></tr>)}
-          </tbody></table></div></div>}
+          <small>{data.profitability.metricLabel} · pending {data.profitability.pendingMinutes} min · billed {money(data.profitability.billedMinor)} · collected {money(data.profitability.collectedMinor)}.</small>
+          <small>Accepted letter rev {data.profitability.letterRevision} · proposal rev {data.profitability.feeProposalRevision} · phase budget rev {data.profitability.budgetRevision} · accepted {formatQatarTimestamp(data.profitability.acceptedAt)}.</small>
+          <small>{data.profitability.formula}</small>
+          <div className="business-table-wrap"><table className="business-table"><caption className="business-sr-only">Approved actual minutes compared with the pinned phase budget. Positive variance means over budget.</caption><thead><tr>
+            <th scope="col">Phase</th><th scope="col">Planned</th><th scope="col">Actual</th><th scope="col">Variance</th><th scope="col">Variance %</th><th scope="col">Status</th>
+          </tr></thead><tbody>
+            {data.profitability.phases.map(row => { const variancePercent = row.varianceBps === null ? (row.varianceStatus === 'UNBUDGETED' ? 'UNBUDGETED' : '—') : `${row.varianceBps > 0 ? '+' : ''}${(row.varianceBps / 100).toFixed(2)}%`;
+              return <tr key={row.phase}><th scope="row">{row.phase}</th><td>{row.plannedMinutes} min</td><td>{row.actualMinutes} min</td>
+                <td>{row.varianceMinutes >= 0 ? '+' : ''}{row.varianceMinutes} min</td><td>{variancePercent}</td><td>{row.varianceStatus.replaceAll('_', ' ')}</td></tr>;
+            })}
+          </tbody></table></div>
+          <details><summary>Accepted fee revisions ({data.profitability.acceptedFeeRevisions.length})</summary><ul>
+            {data.profitability.acceptedFeeRevisions.map(revision => <li key={revision.engagementLetterId}>Letter rev {revision.letterRevision} · proposal rev {revision.feeProposalRevision} · {money(revision.feeMinor)} · accepted {formatQatarTimestamp(revision.acceptedAt)}</li>)}
+          </ul></details>
+          {data.profitabilitySnapshots.length > 0 && <details><summary>Saved profitability snapshots ({data.profitabilitySnapshots.length})</summary><ul>
+            {data.profitabilitySnapshots.map(snapshot => <li key={snapshot.id}>
+              <p>Cutoff {formatQatarTimestamp(snapshot.asOf)} · proposal rev {snapshot.feeProposalRevision} · budget rev {snapshot.budgetRevision} · fee {money(snapshot.feeMinor)} · approved {snapshot.approvedMinutes} min · pending {snapshot.pendingMinutes ?? '—'} min · billed {money(snapshot.billedMinor)} · collected {money(snapshot.collectedMinor)} · charge-out {money(snapshot.chargeOutValueMinor)} · margin {money(snapshot.profitabilityMinor)}</p>
+              <details><summary>Saved phase variances</summary><ul>{snapshot.phases.map(phase => <li key={phase.phase}>{phase.phase}: {phase.plannedMinutes} min planned, {phase.actualMinutes} min approved, {phase.varianceMinutes >= 0 ? '+' : ''}{phase.varianceMinutes} min · {phase.varianceBps === null ? (phase.varianceStatus === 'UNBUDGETED' ? 'UNBUDGETED' : '—') : `${phase.varianceBps > 0 ? '+' : ''}${(phase.varianceBps / 100).toFixed(2)}%`} ({phase.varianceStatus.replaceAll('_', ' ')})</li>)}</ul></details>
+              <small>Source {snapshot.sourceHash}</small>
+            </li>)}
+          </ul></details>}
+          <small>Source hash {data.profitability.sourceHash}</small></div>}
       </div>}
 
       {context.actor.persona === 'PREPARER' && <form className="business-form business-commercial-form" onSubmit={captureTime}>

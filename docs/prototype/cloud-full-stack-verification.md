@@ -731,3 +731,38 @@ The browser/Worker runs use synthetic records, an in-memory SQLite D1 adapter,
 and local Chromium; they do not establish remote D1 compatibility, Cloudflare
 runtime performance, or production deployment. US-PRC-002 and the full
 46-story epic remain open for remaining acceptance and operational evidence.
+
+### PRC-003 engagement profitability and phase budget variances — 2026-10-07
+
+The Worker now exposes the Partner-only cutoff read at
+`GET /api/workspaces/{workspaceId}/practice/engagements/{engagementId}/profitability?asOf=...`.
+It selects the accepted engagement-letter fee and matching approved budget that
+existed at the cutoff, aggregates only time approved by then, and treats entries
+approved later as pending for that historical view. Corrections, credit notes,
+payment reversals, billings and collections are calculated as of the same cutoff.
+The response includes accepted fee revisions, pinned budget and proposal
+revisions, signed phase variance minutes and basis points, pending time, billing,
+collection, formula, and source hash. The dashboard shows per-phase percentages,
+`UNBUDGETED` activity, accepted fee history and saved snapshot history. Migration
+0034 adds pending minutes, billed value and collected value to append-only
+profitability snapshots so later approvals cannot rewrite previously captured
+reports.
+
+The integration journey verified QAR 2,950 charge-out value from the pinned
+grade rates, a 210-minute / +50.00% fieldwork overrun against 420 planned
+minutes, no percentage for a zero/zero phase, and 120 minutes of unbudgeted
+reporting activity. It approved the reporting entry after capturing a snapshot,
+then confirmed the earlier cutoff still showed it as pending and the stored
+snapshot fields and source hash remained unchanged. Preparers received no
+profitability totals, accepted contract fee or saved snapshots; the dedicated
+endpoint returned 403 and requires an explicit ISO cutoff.
+
+Verification on this local working tree: `npm run lint`, `npm run build`,
+`npm run cloud:typecheck`, `git diff --check`, the full unit suite (**539/539**,
+106 suites), the focused Worker integration (**1/1**), and the full serialized
+Chromium suite (**31/31**) passed. The app tab at port 3005 is a static preview
+whose `/api/*` paths fall back to the SPA; the local Wrangler Worker preview
+could not start on this Windows host because workerd was denied creation of
+`miniflare-email-store`. The Chromium suite used its isolated local Worker and
+SQLite harness. No remote D1 or production deployment was exercised. The full
+46-story epic remains open.

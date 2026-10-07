@@ -510,15 +510,28 @@ function allocateRounded(total:bigint,groups:Array<{key:string;numerator:bigint}
 }
 
 async function profitability(env:Env,workspaceId:string,context:BusinessContext,engagementId:string,asOf:string){
+  const cutoff=z.iso.datetime().safeParse(asOf);
+  if(!cutoff.success)throw new ApiError('VALIDATION_FAILED','Provide asOf as an ISO 8601 timestamp with a timezone.');
   const engagement=await requireEngagement(env,workspaceId,context,engagementId);
-  const budget=await env.DB.prepare(`SELECT id,revision,fee_proposal_version_id FROM engagement_budgets WHERE workspace_id=? AND engagement_id=? ORDER BY revision DESC LIMIT 1`).bind(workspaceId,engagementId)
+  const acceptedRows=await env.DB.prepare(`SELECT l.id AS engagement_letter_id,l.revision AS letter_revision,l.proposal_version_id,pv.revision AS fee_proposal_revision,l.fee_minor,l.issued_at
+    FROM engagement_letters l JOIN proposal_versions pv ON pv.workspace_id=l.workspace_id AND pv.id=l.proposal_version_id
+    WHERE l.workspace_id=? AND l.engagement_id=? AND julianday(l.issued_at)<=julianday(?)
+    ORDER BY julianday(l.issued_at) DESC,l.revision DESC`).bind(workspaceId,engagementId,asOf)
+    .all<{engagement_letter_id:string;letter_revision:number;proposal_version_id:string;fee_proposal_revision:number;fee_minor:number;issued_at:string}>();
+  const acceptedFeeRevisions=(acceptedRows.results??[]).map(row=>({engagementLetterId:row.engagement_letter_id,letterRevision:row.letter_revision,
+    feeProposalVersionId:row.proposal_version_id,feeProposalRevision:row.fee_proposal_revision,feeMinor:String(row.fee_minor),acceptedAt:row.issued_at}));
+  const accepted=acceptedRows.results?.[0];
+  if(!accepted)throw new ApiError('GATE_BLOCKED','No accepted engagement fee revision existed at this report cutoff.');
+  const budget=await env.DB.prepare(`SELECT id,revision,fee_proposal_version_id FROM engagement_budgets
+    WHERE workspace_id=? AND engagement_id=? AND fee_proposal_version_id=? AND julianday(approved_at)<=julianday(?)
+    ORDER BY revision DESC LIMIT 1`).bind(workspaceId,engagementId,accepted.proposal_version_id,asOf)
     .first<{id:string;revision:number;fee_proposal_version_id:string}>();
   if(!budget)throw new ApiError('GATE_BLOCKED','Approve a phase budget against the accepted fee revision before viewing profitability.');
   const rows=await env.DB.prepare(`SELECT t.phase,s.grade,t.minutes,t.charge_numerator
     FROM firm_time_entries t JOIN staff_members s ON s.workspace_id=t.workspace_id AND s.id=t.staff_member_id
-    WHERE t.workspace_id=? AND t.engagement_id=? AND t.status='APPROVED' AND t.approved_at<=?
-      AND NOT EXISTS(SELECT 1 FROM firm_time_corrections c WHERE c.workspace_id=t.workspace_id AND c.original_time_entry_id=t.id)
-    ORDER BY t.phase,s.grade,t.id`).bind(workspaceId,engagementId,asOf).all<{phase:string;grade:string;minutes:number;charge_numerator:string}>();
+    WHERE t.workspace_id=? AND t.engagement_id=? AND t.status='APPROVED' AND julianday(t.approved_at)<=julianday(?)
+      AND NOT EXISTS(SELECT 1 FROM firm_time_corrections c WHERE c.workspace_id=t.workspace_id AND c.original_time_entry_id=t.id AND julianday(c.approved_at)<=julianday(?))
+    ORDER BY t.phase,s.grade,t.id`).bind(workspaceId,engagementId,asOf,asOf).all<{phase:string;grade:string;minutes:number;charge_numerator:string}>();
   let numerator=0n,approvedMinutes=0;
   const groupedRows=new Map<string,{phase:string;grade:string;minutes:number;numerator:bigint}>();
   for(const row of rows.results??[]){const key=`${row.phase}:${row.grade}`,current=groupedRows.get(key)??{phase:row.phase,grade:row.grade,minutes:0,numerator:0n};current.minutes+=Number(row.minutes);current.numerator+=BigInt(row.charge_numerator);groupedRows.set(key,current);}
@@ -535,25 +548,38 @@ async function profitability(env:Env,workspaceId:string,context:BusinessContext,
       varianceBps:planned>0?Math.round(delta*10000/planned):null,varianceStatus:planned===0&&actual>0?'UNBUDGETED':planned===0?'NO_ACTIVITY':delta>0?'OVERRUN':delta<0?'UNDER_BUDGET':'ON_BUDGET',
       chargeOutValueMinor:String(groups.filter(line=>line.phase===phase).reduce((sum,line)=>sum+(grouped.get(`${line.phase}:${line.grade}`)??0n),0n))});
   }
-  const pending=await env.DB.prepare(`SELECT COALESCE(SUM(minutes),0) AS minutes FROM firm_time_entries WHERE workspace_id=? AND engagement_id=? AND status IN ('DRAFT','SUBMITTED','RETURNED')`)
-    .bind(workspaceId,engagementId).first<{minutes:number}>();
-  const payments=await env.DB.prepare(`SELECT COALESCE(SUM(p.amount_minor),0) AS collected FROM payments p WHERE p.workspace_id=? AND p.engagement_id=? AND p.received_on<=?`)
+  const pending=await env.DB.prepare(`SELECT COALESCE(SUM(t.minutes),0) AS minutes FROM firm_time_entries t
+    WHERE t.workspace_id=? AND t.engagement_id=? AND julianday(t.created_at)<=julianday(?)
+      AND (t.status IN ('DRAFT','SUBMITTED','RETURNED') OR (t.status='APPROVED' AND julianday(t.approved_at)>julianday(?)))
+      AND NOT EXISTS(SELECT 1 FROM firm_time_corrections c WHERE c.workspace_id=t.workspace_id AND c.original_time_entry_id=t.id AND julianday(c.approved_at)<=julianday(?))`)
+    .bind(workspaceId,engagementId,asOf,asOf,asOf).first<{minutes:number}>();
+  const payments=await env.DB.prepare(`SELECT COALESCE(SUM(CASE WHEN p.reverses_payment_id IS NULL THEN p.amount_minor ELSE -p.amount_minor END),0) AS collected
+    FROM payments p WHERE p.workspace_id=? AND p.engagement_id=? AND p.received_on<=?`)
     .bind(workspaceId,engagementId,asOf.slice(0,10)).first<{collected:number}>();
-  const invoices=await env.DB.prepare(`SELECT COALESCE(SUM(total_minor),0) AS billed FROM invoices WHERE workspace_id=? AND engagement_id=? AND status='ISSUED' AND issue_date<=?`)
-    .bind(workspaceId,engagementId,asOf.slice(0,10)).first<{billed:number}>();
-  const sourceHash=await sha256Hex(JSON.stringify({engagementId,asOf,budgetId:budget.id,feeMinor:engagement.contract_fee_minor,groups:groups.map(row=>[row.phase,row.grade,row.minutes,String(row.numerator)]),phasesOut}));
-  return {engagementId,asOf,budgetId:budget.id,budgetRevision:budget.revision,feeProposalVersionId:budget.fee_proposal_version_id,feeMinor:String(engagement.contract_fee_minor),
-    approvedMinutes,chargeOutNumerator:String(numerator),chargeOutDenominator:'60',chargeOutValueMinor:String(rounded),profitabilityMinor:String(BigInt(engagement.contract_fee_minor)-rounded),
-    phases:phasesOut,pendingMinutes:Number(pending?.minutes??0),billedMinor:String(invoices?.billed??0),collectedMinor:String(payments?.collected??0),
+  const invoices=await env.DB.prepare(`SELECT MAX(0,COALESCE(SUM(i.total_minor),0)-COALESCE((SELECT SUM(n.amount_minor) FROM firm_credit_notes n
+      WHERE n.workspace_id=i.workspace_id AND n.engagement_id=i.engagement_id AND n.credit_date<=?),0)) AS billed
+    FROM invoices i WHERE i.workspace_id=? AND i.engagement_id=? AND i.status='ISSUED' AND i.issue_date<=?`)
+    .bind(asOf.slice(0,10),workspaceId,engagementId,asOf.slice(0,10)).first<{billed:number}>();
+  const pendingMinutes=Number(pending?.minutes??0),billedMinor=String(invoices?.billed??0),collectedMinor=String(payments?.collected??0);
+  const sourceHash=await sha256Hex(JSON.stringify({engagementId,asOf,acceptedFee:{letterId:accepted.engagement_letter_id,letterRevision:accepted.letter_revision,
+    proposalVersionId:accepted.proposal_version_id,proposalRevision:accepted.fee_proposal_revision,feeMinor:accepted.fee_minor,acceptedAt:accepted.issued_at},
+    budgetId:budget.id,budgetRevision:budget.revision,pendingMinutes,billedMinor,collectedMinor,
+    groups:groups.map(row=>[row.phase,row.grade,row.minutes,String(row.numerator)]),phasesOut}));
+  return {engagementId,asOf,budgetId:budget.id,budgetRevision:budget.revision,feeProposalVersionId:budget.fee_proposal_version_id,
+    feeProposalRevision:accepted.fee_proposal_revision,engagementLetterId:accepted.engagement_letter_id,letterRevision:accepted.letter_revision,acceptedAt:accepted.issued_at,
+    acceptedFeeRevisions,feeMinor:String(accepted.fee_minor),
+    approvedMinutes,chargeOutNumerator:String(numerator),chargeOutDenominator:'60',chargeOutValueMinor:String(rounded),profitabilityMinor:String(BigInt(accepted.fee_minor)-rounded),
+    phases:phasesOut,phaseVariances:phasesOut,pendingMinutes,billedMinor,collectedMinor,
     metricLabel:'Engagement margin against charge-out value',formula:'Accepted contract fee less approved hours multiplied by each pinned grade charge-out rate. This is a management metric, not accounting profit or payroll cost.',sourceHash};
 }
 
 async function buildCaptureProfitability(env:Env,workspaceId:string,context:BusinessContext,command:Extract<BusinessPracticeCommand,{type:'practice.capture-profitability-report'}>,now:string){
   partner(context);const p=command.payload,asOf=p.asOf??now;
   const result=await profitability(env,workspaceId,context,p.engagementId,asOf),idValue=crypto.randomUUID();
-  return mutation([env.DB.prepare(`INSERT INTO profitability_snapshots(id,workspace_id,client_id,engagement_id,budget_id,as_of,fee_minor,approved_minutes,charge_out_numerator,charge_out_denominator,charge_out_value_minor,profitability_minor,phase_snapshot_json,source_hash,calculated_by_actor_id,calculated_at)
-    VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).bind(idValue,workspaceId,(await requireEngagement(env,workspaceId,context,p.engagementId)).client_id,p.engagementId,result.budgetId,asOf,
-      Number(result.feeMinor),result.approvedMinutes,result.chargeOutNumerator,result.chargeOutDenominator,Number(result.chargeOutValueMinor),Number(result.profitabilityMinor),JSON.stringify(result.phases),result.sourceHash,context.actor.id,now)],
+  return mutation([env.DB.prepare(`INSERT INTO profitability_snapshots(id,workspace_id,client_id,engagement_id,budget_id,as_of,fee_minor,approved_minutes,charge_out_numerator,charge_out_denominator,charge_out_value_minor,profitability_minor,phase_snapshot_json,source_hash,calculated_by_actor_id,calculated_at,pending_minutes,billed_minor,collected_minor)
+    VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).bind(idValue,workspaceId,(await requireEngagement(env,workspaceId,context,p.engagementId)).client_id,p.engagementId,result.budgetId,asOf,
+      Number(result.feeMinor),result.approvedMinutes,result.chargeOutNumerator,result.chargeOutDenominator,Number(result.chargeOutValueMinor),Number(result.profitabilityMinor),JSON.stringify(result.phases),result.sourceHash,context.actor.id,now,
+      result.pendingMinutes,Number(result.billedMinor),Number(result.collectedMinor))],
     {snapshotId:idValue,sourceHash:result.sourceHash,feeMinor:result.feeMinor,chargeOutValueMinor:result.chargeOutValueMinor,profitabilityMinor:result.profitabilityMinor},'PROFITABILITY_SNAPSHOT',idValue,null,1,
     {engagementId:p.engagementId,asOf,sourceHash:result.sourceHash});
 }
@@ -1003,8 +1029,17 @@ async function buildPracticeReportExport(env:Env,workspaceId:string,context:Busi
     'FIRM_REPORT_EXPORT',snapshotId,null,1,{jobId,kind:p.kind,format:p.format,periodStart:p.periodStart,periodEnd:p.periodEnd,sourceHash});
 }
 
+export async function getBusinessProfitability(env:Env,workspaceId:string,context:BusinessContext,engagementId:string,asOf:string|null):Promise<Record<string,unknown>>{
+  partner(context);
+  if(!asOf)throw new ApiError('VALIDATION_FAILED','Provide an ISO 8601 asOf timestamp for the profitability cutoff.');
+  const parsed=z.iso.datetime().safeParse(asOf);
+  if(!parsed.success)throw new ApiError('VALIDATION_FAILED','Provide asOf as an ISO 8601 timestamp with a timezone.');
+  return profitability(env,workspaceId,context,engagementId,asOf);
+}
+
 export async function getBusinessPracticeWorkspace(env:Env,workspaceId:string,context:BusinessContext,params:URLSearchParams):Promise<Record<string,unknown>>{
   internal(context);
+  const isPartner=context.actor.persona==='APPROVER'&&context.actor.staffGrade==='PARTNER';
   const calculatedAt=new Date().toISOString();
   const today=qatarDate(),from=params.get('from')??`${today.slice(0,4)}-01-01`,to=params.get('to')??today;
   dateRange(from,to,366);
@@ -1056,9 +1091,22 @@ export async function getBusinessPracticeWorkspace(env:Env,workspaceId:string,co
     ORDER BY p.received_on DESC,p.id LIMIT 200`).bind(workspaceId,...(engagementId?[engagementId]:[]),...(context.scope.clientId?[context.scope.clientId]:[]))
     .all<Record<string,unknown>>();
   for(const person of staffRows){const row=await utilizationFor(env,workspaceId,String(person.id),from,to);utilization.push({...row,displayName:person.displayName,grade:person.grade});}
-  const budget=engagementId?await env.DB.prepare(`SELECT id,revision,fee_proposal_version_id AS feeProposalVersionId,source_hash AS sourceHash,approved_at AS approvedAt
+  const budget=isPartner&&engagementId?await env.DB.prepare(`SELECT id,revision,fee_proposal_version_id AS feeProposalVersionId,source_hash AS sourceHash,approved_at AS approvedAt
     FROM engagement_budgets WHERE workspace_id=? AND engagement_id=? ORDER BY revision DESC LIMIT 1`).bind(workspaceId,engagementId).first<Record<string,unknown>>():null;
-  const profitabilityView=engagementId&&budget?await profitability(env,workspaceId,context,engagementId,params.get('asOf')??new Date().toISOString()):null;
+  let profitabilityView:Record<string,unknown>|null=null,profitabilityBlocker:string|null=null;
+  if(isPartner&&engagementId){
+    try{profitabilityView=await profitability(env,workspaceId,context,engagementId,params.get('asOf')??new Date().toISOString());}
+    catch(error){if(error instanceof ApiError&&error.code==='GATE_BLOCKED')profitabilityBlocker=error.message;else throw error;}
+  }
+  const profitabilitySnapshotRows=isPartner?await env.DB.prepare(`SELECT s.id,s.as_of AS asOf,s.fee_minor AS feeMinor,s.approved_minutes AS approvedMinutes,
+      s.charge_out_value_minor AS chargeOutValueMinor,s.profitability_minor AS profitabilityMinor,s.phase_snapshot_json AS phaseSnapshotJson,
+      s.pending_minutes AS pendingMinutes,s.billed_minor AS billedMinor,s.collected_minor AS collectedMinor,
+      s.source_hash AS sourceHash,s.calculated_at AS calculatedAt,b.revision AS budgetRevision,pv.revision AS feeProposalRevision
+    FROM profitability_snapshots s JOIN engagement_budgets b ON b.workspace_id=s.workspace_id AND b.id=s.budget_id
+    JOIN proposal_versions pv ON pv.workspace_id=b.workspace_id AND pv.id=b.fee_proposal_version_id
+    WHERE s.workspace_id=?${engagementId?' AND s.engagement_id=?':''} ORDER BY s.calculated_at DESC,s.id DESC LIMIT 50`)
+    .bind(workspaceId,...(engagementId?[engagementId]:[])).all<Record<string,unknown>>():{results:[] as Record<string,unknown>[]};
+  const profitabilitySnapshots=(profitabilitySnapshotRows.results??[]).map(row=>({...row,phases:JSON.parse(String(row.phaseSnapshotJson))}));
   const agingView=context.actor.persona==='PREPARER'?null:await arAging(env,workspaceId,context,params.get('asOfDate')??today,context.scope.clientId??undefined);
   const entryItems=(time.results??[]).map(row=>({...row,minutes:Number(row.minutes),billable:Boolean(row.billable),hourlyMinorSnapshot:row.hourly_minor_snapshot===null?null:String(row.hourly_minor_snapshot),chargeOutMinor:row.charge_numerator===null?null:String(roundHalfUp(BigInt(String(row.charge_numerator)),60n))}));
   const paymentItems=(payments.results??[]).map(row=>({...row,remainingUnallocatedMinor:String(BigInt(String(row.amountMinor))-
@@ -1086,10 +1134,10 @@ export async function getBusinessPracticeWorkspace(env:Env,workspaceId:string,co
       WHERE a.workspace_id=? ORDER BY a.allocated_on DESC,a.id DESC LIMIT 200`).bind(workspaceId).all<Record<string,unknown>>()
   ]);
   return {period:{from,to,timezone:'Asia/Qatar',inclusive:true},utilizationCalculatedAt:calculatedAt,engagement:engagement?{id:engagement.id,version:engagement.version,clientId:engagement.client_id,code:engagement.code,
-    lifecycleState:engagement.lifecycle_state,contractFeeMinor:String(engagement.contract_fee_minor),activeProposalVersionId:engagement.active_proposal_version_id}:null,
+    lifecycleState:engagement.lifecycle_state,contractFeeMinor:isPartner?String(engagement.contract_fee_minor):null,activeProposalVersionId:engagement.active_proposal_version_id}:null,
     staff:staffRows,rates:rates.results??[],timeEntries:entryItems,utilization,fsliCatalog:fsliCatalog.results??[],procedureCatalog:procedures.results??[],
     utilizationNotes:{definition:'Approved billable minutes divided by explicitly scheduled capacity after approved leave. Missing daily capacity is shown, never assumed.',payrollCostAvailable:false},
-    budget,profitability:profitabilityView,trialBalance,profitLoss,accounts:accounts.results??[],accountingPeriods:periods.results??[],journals:journals.results??[],expenses:expenses.results??[],
+    budget,profitability:profitabilityView,profitabilityBlocker,profitabilitySnapshots,trialBalance,profitLoss,accounts:accounts.results??[],accountingPeriods:periods.results??[],journals:journals.results??[],expenses:expenses.results??[],
     revenuePolicies:policies.results??[],payments:paymentItems,arAging:agingView,reportSnapshots,partnerWithdrawals:withdrawals.results??[],
     pettyCashReconciliations:pettyCashReconciliations.results??[],creditNotes:creditNotes.results??[],paymentAllocations:allocations.results??[],
     controlAccountBalances:await Promise.all((accounts.results??[]).filter(row=>row.controlType==='CASH').map(async account=>({accountId:account.id,code:account.code,name:account.name,

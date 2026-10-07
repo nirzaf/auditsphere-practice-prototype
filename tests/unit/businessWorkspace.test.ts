@@ -3845,6 +3845,9 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
   const approvedNinetyMinutes = afterNinetyMinutes.body.timeEntries.find((item: any) => item.id === ninetyMinuteId);
   assert.equal(approvedNinetyMinutes?.status, 'APPROVED');
   assert.equal(approvedNinetyMinutes?.chargeOutMinor, '30000', 'ninety minutes at QAR 200/hour prorate exactly to QAR 300');
+  assert.equal(afterNinetyMinutes.body.profitability, null, 'preparers never receive engagement margin aggregates');
+  assert.deepEqual(afterNinetyMinutes.body.profitabilitySnapshots, [], 'preparers never receive immutable partner profitability snapshots');
+  assert.equal(afterNinetyMinutes.body.engagement.contractFeeMinor, null, 'accepted contract fee remains partner-only');
   const dailyLimitEntry = await post(`/api/workspaces/${workspaceId}/commands`, {
     idempotencyKey: crypto.randomUUID(), command: { type: 'time.create', payload: {
       engagementId, staffMemberId: preparerStaff.body.result.staffMemberId, workDate: planDate, phase: 'FIELDWORK',
@@ -3965,6 +3968,31 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
   assert.equal(withdrawal.response.status, 200, JSON.stringify(withdrawal.body));
 
   // PRC-002/003/006: capacity, profitability and bookkeeping report snapshots.
+  // Keep one pending entry across the report cutoff, then approve it after the
+  // snapshot to prove historical cutoffs preserve pending versus approved time.
+  const lateTimeEntryId = crypto.randomUUID(), lateCreatedAt = new Date(Date.now() - 1000).toISOString();
+  const lateWorkDate = new Date(Date.now() + 86_400_000).toISOString().slice(0, 10);
+  db.prepare(`INSERT INTO firm_time_entries(id,workspace_id,version,client_id,engagement_id,staff_member_id,work_date,phase,fsli_id,procedure_id,minutes,start_at,end_at,description,billable,status,rate_id,hourly_minor_snapshot,charge_numerator,charge_denominator,submitted_by_actor_id,submitted_at,approved_by_actor_id,approved_at,created_by_actor_id,created_at,updated_at)
+    VALUES(?,?,1,?,?,?,?,?,?,?,?,?,?,?,?, 'DRAFT',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,?,?,?)`)
+    .bind(lateTimeEntryId,workspaceId,clientId,engagementId,preparerStaff.body.result.staffMemberId,lateWorkDate,'REPORTING',null,null,120,null,null,
+      'Prepared a reporting phase entry for a cutoff approval check.',1,preparerProfile.body.result.actorProfileId,lateCreatedAt,lateCreatedAt).run();
+  const profitabilityAsOf = new Date().toISOString();
+  const profitabilityPath = `/api/workspaces/${workspaceId}/practice/engagements/${engagementId}/profitability`;
+  const profitabilityBefore = await call(`${profitabilityPath}?asOf=${encodeURIComponent(profitabilityAsOf)}`, { headers: practiceHeaders });
+  assert.equal(profitabilityBefore.response.status, 200, JSON.stringify(profitabilityBefore.body));
+  assert.equal(BigInt(profitabilityBefore.body.chargeOutValueMinor), 295000n);
+  assert.equal(profitabilityBefore.body.phases.find((phase: any) => phase.phase === 'FIELDWORK')?.varianceMinutes, 210);
+  assert.equal(profitabilityBefore.body.phases.find((phase: any) => phase.phase === 'FIELDWORK')?.varianceBps, 5000);
+  assert.equal(profitabilityBefore.body.phases.find((phase: any) => phase.phase === 'REPORTING')?.varianceBps, null,
+    'zero planned and actual minutes has no percentage');
+  assert.equal(profitabilityBefore.body.pendingMinutes >= 120, true, 'unapproved reporting time is included as pending, not approved actual');
+  assert.ok(profitabilityBefore.body.acceptedFeeRevisions.length > 0, 'the accepted fee revision history is explicit');
+  assert.ok(profitabilityBefore.body.feeProposalRevision > 0 && profitabilityBefore.body.budgetRevision > 0);
+  assert.match(profitabilityBefore.body.sourceHash, /^[a-f0-9]{64}$/);
+  const profitabilityNoCutoff = await call(profitabilityPath, { headers: practiceHeaders });
+  assert.equal(profitabilityNoCutoff.response.status, 422, 'the dedicated profitability endpoint requires an explicit report cutoff');
+  const preparerProfitability = await call(`${profitabilityPath}?asOf=${encodeURIComponent(profitabilityAsOf)}`, { headers: preparerHeaders });
+  assert.equal(preparerProfitability.response.status, 403, 'profitability details are restricted to a Partner approver');
   const utilization = await post(`/api/workspaces/${workspaceId}/commands`, {
     idempotencyKey: crypto.randomUUID(), command: { type: 'practice.capture-utilization-report', payload: {
       from: planDate, to: planDate, staffMemberIds: [preparerStaff.body.result.staffMemberId]
@@ -3974,22 +4002,50 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
   assert.equal(utilization.body.result.staffCount, 1);
   const profitability = await post(`/api/workspaces/${workspaceId}/commands`, {
     idempotencyKey: crypto.randomUUID(), command: { type: 'practice.capture-profitability-report', payload: {
-      engagementId, asOf: `${planDate}T12:00:00.000Z` } }
+      engagementId, asOf: profitabilityAsOf } }
   }, approverHeaders);
   assert.equal(profitability.response.status, 200, JSON.stringify(profitability.body));
   const arAging = await post(`/api/workspaces/${workspaceId}/commands`, {
     idempotencyKey: crypto.randomUUID(), command: { type: 'practice.capture-ar-aging-report', payload: { asOf: planDate, clientId } }
   }, approverHeaders);
   assert.equal(arAging.response.status, 200, JSON.stringify(arAging.body));
-  const profitabilityRows = db.prepare(`SELECT charge_out_value_minor FROM profitability_snapshots WHERE workspace_id=? AND engagement_id=? ORDER BY calculated_at DESC LIMIT 1`)
+  const profitabilityRows = db.prepare(`SELECT id,as_of,charge_out_value_minor,profitability_minor,phase_snapshot_json,source_hash FROM profitability_snapshots WHERE workspace_id=? AND engagement_id=? ORDER BY calculated_at DESC LIMIT 1`)
     .bind(workspaceId, engagementId).first<any>();
   assert.ok(profitabilityRows, 'the profitability snapshot persists against the engagement');
+  assert.equal(profitabilityRows.as_of, profitabilityAsOf);
+  assert.equal(JSON.parse(profitabilityRows.phase_snapshot_json).find((phase: any) => phase.phase === 'REPORTING')?.actualMinutes, 0);
+  const associateRate = db.prepare(`SELECT id,hourly_minor FROM firm_charge_out_rates WHERE workspace_id=? AND grade='ASSOCIATE' AND effective_from<=? AND (effective_to IS NULL OR effective_to>=?) ORDER BY effective_from DESC,revision DESC LIMIT 1`)
+    .bind(workspaceId,lateWorkDate,lateWorkDate).first<any>();
+  const lateApprovalAt = new Date(Date.parse(profitabilityAsOf) + 1000).toISOString();
+  db.prepare(`UPDATE firm_time_entries SET version=2,status='APPROVED',rate_id=?,hourly_minor_snapshot=?,charge_numerator=?,charge_denominator=60,
+      submitted_by_actor_id=?,submitted_at=?,approved_by_actor_id=?,approved_at=?,updated_at=? WHERE workspace_id=? AND id=? AND status='DRAFT'`)
+    .bind(associateRate.id,associateRate.hourly_minor,String(BigInt(associateRate.hourly_minor)*120n),preparerProfile.body.result.actorProfileId,lateCreatedAt,
+      partnerActorId,lateApprovalAt,lateApprovalAt,workspaceId,lateTimeEntryId).run();
+  const laterAsOf = new Date(Date.parse(lateApprovalAt) + 1000).toISOString();
+  const historicalProfitability = await call(`${profitabilityPath}?asOf=${encodeURIComponent(profitabilityAsOf)}`, { headers: practiceHeaders });
+  const currentProfitability = await call(`${profitabilityPath}?asOf=${encodeURIComponent(laterAsOf)}`, { headers: practiceHeaders });
+  assert.equal(historicalProfitability.response.status, 200, JSON.stringify(historicalProfitability.body));
+  assert.equal(currentProfitability.response.status, 200, JSON.stringify(currentProfitability.body));
+  assert.equal(historicalProfitability.body.pendingMinutes, profitabilityBefore.body.pendingMinutes,
+    'a time entry approved after the cutoff remains pending in the historical calculation');
+  assert.equal(historicalProfitability.body.phases.find((phase: any) => phase.phase === 'REPORTING')?.actualMinutes, 0);
+  const reportingVariance = currentProfitability.body.phases.find((phase: any) => phase.phase === 'REPORTING');
+  assert.equal(reportingVariance.actualMinutes, 120);
+  assert.equal(reportingVariance.varianceMinutes, 120);
+  assert.equal(reportingVariance.varianceBps, null);
+  assert.equal(reportingVariance.varianceStatus, 'UNBUDGETED');
+  assert.equal(currentProfitability.body.pendingMinutes, profitabilityBefore.body.pendingMinutes - 120);
+  const storedSnapshotAfterApproval = db.prepare(`SELECT id,as_of,charge_out_value_minor,profitability_minor,phase_snapshot_json,source_hash FROM profitability_snapshots WHERE workspace_id=? AND id=?`)
+    .bind(workspaceId,profitabilityRows.id).first<any>();
+  assert.deepEqual(storedSnapshotAfterApproval, profitabilityRows, 'later-approved time does not rewrite an immutable profitability snapshot');
   const practiceData = await call(practicePath, { headers: practiceHeaders });
   assert.equal(practiceData.response.status, 200, JSON.stringify(practiceData.body));
   assert.equal(BigInt(practiceData.body.profitability.chargeOutValueMinor), 295000n,
     'approved Associate, Senior and Manager time is aggregated from exact pinned charge numerators');
   assert.equal(practiceData.body.profitability.phases.reduce((sum: bigint, phase: any) => sum + BigInt(phase.chargeOutValueMinor), 0n), 295000n,
     'residual allocation makes displayed phase totals reconcile to the once-rounded engagement total');
+  assert.equal(practiceData.body.profitabilitySnapshots.length, 1, 'partners can review saved profitability snapshots in the practice workspace');
+  assert.equal(practiceData.body.profitabilitySnapshots[0].sourceHash, profitabilityRows.source_hash);
 
   // PRC-002: explicit inclusive Qatar-date utilization reads distinguish recorded work,
   // independently approved actuals, incomplete capacity, and over-capacity work.
