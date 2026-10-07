@@ -488,7 +488,7 @@ it('US-ENG-001/002 creates a client-linked lead from the visible forms and advan
   await clickButton('Save recipient route');
   await waitFor('the saved primary PBC recipient route', `document.querySelector('.business-route-list')?.innerText.includes('PBC')`);
 
-  await waitFor('the PBC engagement selector', `document.getElementById('business-pbc-engagement')?.options.length > 1`);
+  await waitFor('the PBC engagement selector', `[...(document.querySelector('#business-pbc-engagement')?.options ?? [])].some(option => option.textContent?.includes(${JSON.stringify(`QA-ENG-${unique}`)}))`);
   await chooseOption('business-pbc-engagement', `item.textContent?.includes(${JSON.stringify(`QA-ENG-${unique}`)})`);
   await waitFor('the PBC recipient selector populated from the configured route', `([...document.querySelector('#business-pbc-contact')?.options ?? []].some(option => option.textContent?.includes('QA Chief Accountant')))`);
   const pbcFormState = await tab.evaluate<{ recipient: string; requestDisabled: boolean }>(`(() => ({
