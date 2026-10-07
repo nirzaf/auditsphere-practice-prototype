@@ -631,7 +631,9 @@ CI verification and runtime readiness. A local writer check produced one
 `PASSED` run with runtime readiness `not_checked`. The complete local Chrome
 suite passed **30/30** browser journeys, including the full visible lifecycle,
 Partner release, two-browser row conflict, portal, mobile layout and archive
-journeys.
+journeys. The Worker API integration test inserts a scoped D1 verification row,
+downloads it through the support-bundle route and verifies the owning workspace
+identifier is redacted.
 
 The CI workflow exports its VerificationRun-shaped metadata as a GitHub
 artifact; it does not ingest the result into application D1. The migration and

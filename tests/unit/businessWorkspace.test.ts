@@ -213,6 +213,24 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
   assert.match(created.body.actorProfileId, /^[a-f0-9-]{36}$/);
   const workspaceId = created.body.workspaceId as string;
 
+  const verificationRunId = crypto.randomUUID();
+  const verificationStartedAt = new Date(Date.now() - 1000).toISOString();
+  const verificationCompletedAt = new Date().toISOString();
+  await db.prepare(`INSERT INTO verification_runs(id,workspace_id,source_commit,schema_version,environment,started_at,
+    completed_at,status,created_at,updated_at)
+    VALUES (?,?,?,?,?,?,?,?,?,?)`).bind(
+    verificationRunId, workspaceId, 'a'.repeat(40), 33, 'CI', verificationStartedAt,
+    verificationCompletedAt, 'PASSED', verificationCompletedAt, verificationCompletedAt
+  ).run();
+  const populatedSupportBundle = await call('/api/health/support-bundle');
+  assert.equal(populatedSupportBundle.response.status, 200);
+  assert.deepEqual(populatedSupportBundle.body.verificationRuns, [{
+    sourceCommit: 'a'.repeat(40), schemaVersion: 33, environment: 'CI',
+    startedAt: verificationStartedAt, completedAt: verificationCompletedAt, status: 'PASSED'
+  }]);
+  assert.equal(JSON.stringify(populatedSupportBundle.body).includes(workspaceId), false,
+    'the operational export must not reveal the owning workspace ID');
+
   const migrationStatus = await call(`/api/workspaces/${workspaceId}/migration-status`);
   assert.equal(migrationStatus.response.status, 200, JSON.stringify(migrationStatus.body));
   assert.deepEqual(migrationStatus.body, { schemaVersion: 33, lastRunId: null, status: null });
