@@ -470,6 +470,7 @@ it('US-ENG-001/002 creates a client-linked lead from the visible forms and advan
   // purpose-specific route to an active Chief Accountant / Audit Liaison.
   await chooseOption('business-active-persona', `item.textContent?.includes('APPROVER · QA Lead Partner')`);
   await waitFor('the approver context', `document.querySelector('.business-actor-summary')?.innerText.includes('APPROVER')`);
+  await waitFor('the new client in the selected-client context', `[...(document.querySelector('#business-selected-client')?.options ?? [])].some(option => option.textContent?.includes(${JSON.stringify(`QA Lead Client ${unique} WLL`)}))`);
   await chooseOption('business-selected-client', `item.textContent?.includes(${JSON.stringify(`QA Lead Client ${unique} WLL`)})`);
   await waitFor('the selected client directory', `document.querySelector('#business-contact-name') !== null`);
   await fillFields({
