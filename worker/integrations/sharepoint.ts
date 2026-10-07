@@ -205,9 +205,16 @@ export async function sharePointStatus(env: Env, deps: GraphDeps = {}): Promise<
   const checkedAt = new Date((deps.now ?? Date.now)()).toISOString();
   const config = sharePointConfig(env);
   if (!config) {
+    const missingSettings = [
+      ['SHAREPOINT_TENANT_ID', env.SHAREPOINT_TENANT_ID],
+      ['SHAREPOINT_CLIENT_ID', env.SHAREPOINT_CLIENT_ID],
+      ['SHAREPOINT_CLIENT_SECRET', env.SHAREPOINT_CLIENT_SECRET],
+      ['SHAREPOINT_SITE_HOSTNAME', env.SHAREPOINT_SITE_HOSTNAME],
+      ['SHAREPOINT_SITE_PATH', env.SHAREPOINT_SITE_PATH]
+    ].filter(([, value]) => typeof value !== 'string' || !value.trim()).map(([name]) => name);
     return {
       state: 'UNCONFIGURED', siteHostname: env.SHAREPOINT_SITE_HOSTNAME ?? null, sitePath: env.SHAREPOINT_SITE_PATH ?? null,
-      message: 'Set the SHAREPOINT_* configuration before the SharePoint integration can connect.', checkedAt
+      message: `Missing SharePoint Worker settings: ${missingSettings.join(', ')}.`, checkedAt
     };
   }
   try {

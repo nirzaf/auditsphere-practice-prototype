@@ -23,6 +23,18 @@ describe('SharePoint/Graph adapter (US-GAP-25..28)', () => {
     assert.equal(sharePointConfig({} as Env), null);
     const status = await sharePointStatus({} as Env, { fetchImpl: async () => { throw new Error('must not be called'); } });
     assert.equal(status.state, 'UNCONFIGURED');
+    assert.match(status.message, /SHAREPOINT_CLIENT_SECRET/);
+  });
+
+  it('names only the missing secret when the non-secret Worker settings are present', async () => {
+    const status = await sharePointStatus({
+      SHAREPOINT_TENANT_ID: 'tenant',
+      SHAREPOINT_CLIENT_ID: 'client',
+      SHAREPOINT_SITE_HOSTNAME: 'easyguide.sharepoint.com',
+      SHAREPOINT_SITE_PATH: '/sites/AuditSphereJSAcceptance'
+    } as Env);
+    assert.equal(status.state, 'UNCONFIGURED');
+    assert.equal(status.message, 'Missing SharePoint Worker settings: SHAREPOINT_CLIENT_SECRET.');
   });
 
   it('resolves the configured site, drive and root folder', async () => {
