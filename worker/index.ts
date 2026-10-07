@@ -45,6 +45,8 @@ import { createRouter, type RouteContext } from './router';
 import { processBusinessOutbox } from './businessOutbox';
 import { queueDueBusinessArchives } from './businessReporting';
 import { apiRequestMetric, outboxSnapshot, safeErrorKind, type OutboxMetricRow } from './observability';
+import { APPLICATION_SCHEMA_VERSION } from './versions';
+import { buildVerificationSupportBundle, type VerificationRunRow } from './verificationSupportBundle';
 import {
   SESSION_TTL_SECONDS,
   WORKSPACE_TTL_SECONDS,
@@ -101,9 +103,6 @@ import { getBusinessWorkflow } from './businessWorkflow';
 const JSON_BODY_LIMIT = 1_000_000;
 /** Hard ceiling for a single command payload; the domain model is small. */
 const COMMAND_BODY_LIMIT = 512_000;
-/** Updated alongside the latest application schema migration. */
-const APPLICATION_SCHEMA_VERSION = 32;
-
 const ASYNC_BUSINESS_COMMANDS = new Set([
   'proposal.generate', 'proposal.generate.retry', 'proposal.dispatch', 'proposal.dispatch.retry',
   'engagementLetter.generate', 'engagementLetter.issue', 'invoice.issueAdvance', 'payment.record', 'payment.reverse',
@@ -195,6 +194,40 @@ const handleHealthReady = async (ctx: RouteContext): Promise<Response> => {
   }
   const ready = dependencyCodes.length === 0;
   return jsonResponse({ status: ready ? 'ready' : 'degraded', schemaVersion, dependencyCodes }, ready ? 200 : 503, ctx.requestId);
+};
+
+const handleSupportBundle = async (ctx: RouteContext): Promise<Response> => {
+  const readyResponse = await handleHealthReady(ctx);
+  const readiness = await readyResponse.json() as {
+    status: 'ready' | 'degraded';
+    schemaVersion: number | null;
+    dependencyCodes: string[];
+  };
+  const dependencyCodes = [...readiness.dependencyCodes];
+  let verificationRuns: VerificationRunRow[] = [];
+  try {
+    const result = await ctx.env.DB.prepare(`SELECT source_commit,schema_version,environment,started_at,completed_at,status
+      FROM verification_runs ORDER BY started_at DESC LIMIT 100`).all<VerificationRunRow>();
+    verificationRuns = result.results ?? [];
+  } catch {
+    dependencyCodes.push('VERIFICATION_RUNS_UNAVAILABLE');
+  }
+  const bundle = buildVerificationSupportBundle({
+    generatedAt: new Date().toISOString(),
+    applicationSchemaVersion: APPLICATION_SCHEMA_VERSION,
+    installedSchemaVersion: readiness.schemaVersion,
+    readiness: readiness.status,
+    dependencyCodes,
+    verificationRuns
+  });
+  return new Response(`${JSON.stringify(bundle, null, 2)}\n`, {
+    status: 200,
+    headers: {
+      'Content-Type': 'application/json; charset=utf-8',
+      'Content-Disposition': 'attachment; filename="auditsphere-support-bundle.json"',
+      ...baseHeaders(ctx.requestId)
+    }
+  });
 };
 
 /** The seed/snapshot/session API is retained only for isolated legacy tests. */
@@ -950,6 +983,7 @@ const router = createRouter()
   .get('/api/health', handleHealth)
   .get('/api/health/live', handleHealthLive)
   .get('/api/health/ready', handleHealthReady)
+  .get('/api/health/support-bundle', handleSupportBundle)
   .get('/api/seeds', handleSeeds)
   .post('/api/workspaces', handleCreateWorkspace)
   .post('/api/workspaces/resume', handleResumeWorkspace)

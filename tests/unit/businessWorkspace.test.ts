@@ -174,8 +174,16 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
   const ready = await call('/api/health/ready');
   assert.equal(ready.response.status, 200, JSON.stringify(ready.body));
   assert.equal(ready.body.status, 'ready');
-  assert.equal(ready.body.schemaVersion, 32);
+  assert.equal(ready.body.schemaVersion, 33);
   assert.deepEqual(ready.body.dependencyCodes, []);
+  const supportBundle = await call('/api/health/support-bundle');
+  assert.equal(supportBundle.response.status, 200);
+  assert.match(supportBundle.response.headers.get('content-disposition') ?? '', /attachment; filename="auditsphere-support-bundle.json"/);
+  assert.equal(supportBundle.body.applicationSchemaVersion, 33);
+  assert.equal(supportBundle.body.installedSchemaVersion, 33);
+  assert.equal(supportBundle.body.readiness, 'ready');
+  assert.deepEqual(supportBundle.body.verificationRuns, []);
+  assert.equal(JSON.stringify(supportBundle.body).includes('workspaceId'), false);
   failNextR2Head = true;
   const degradedReady = await call('/api/health/ready');
   assert.equal(degradedReady.response.status, 503);
@@ -207,7 +215,7 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
 
   const migrationStatus = await call(`/api/workspaces/${workspaceId}/migration-status`);
   assert.equal(migrationStatus.response.status, 200, JSON.stringify(migrationStatus.body));
-  assert.deepEqual(migrationStatus.body, { schemaVersion: 32, lastRunId: null, status: null });
+  assert.deepEqual(migrationStatus.body, { schemaVersion: 33, lastRunId: null, status: null });
   const missingMigrationWorkspace = await call(`/api/workspaces/${crypto.randomUUID()}/migration-status`);
   assert.equal(missingMigrationWorkspace.response.status, 404);
 

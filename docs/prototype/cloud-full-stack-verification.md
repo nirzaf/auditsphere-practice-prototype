@@ -610,3 +610,32 @@ US-SYS-005 remains incomplete: the p95 read/command targets have not been
 measured under the documented 20-active-user workload, Cloudflare alert
 destinations are not configured here, and an isolated restore against actual
 sandbox D1/R2 resources has not been performed. The 46-story epic remains open.
+
+### SYS-005 verification record and support bundle — 2026-10-07
+
+The additive `verification_runs` migration now stores source commit, schema
+version, environment, start/completion timestamps, `PASSED`/`FAILED`/`NOT_RUN`
+status and an optional same-workspace result-file reference. A run can be
+finalized once, completed metadata cannot be edited, and records cannot be
+deleted. Readiness expects schema version 33. CI exports and uploads a
+versioned support-bundle artifact even when a verification gate fails; the
+download endpoint returns allowlisted operational metadata and omits workspace
+IDs, raw output, financial data, file bytes and credentials.
+
+The local migration replay now exercises schema version 33, run finalization,
+status validation and immutability. The current full unit suite passed **538/538**
+across 106 suites; app typecheck, Worker typecheck, production build, focused
+business-workspace API test (**1/1**) and `git diff --check` passed. The support
+bundle tests cover redaction, malformed metadata and the distinction between
+CI verification and runtime readiness. A local writer check produced one
+`PASSED` run with runtime readiness `not_checked`. The complete local Chrome
+suite passed **30/30** browser journeys, including the full visible lifecycle,
+Partner release, two-browser row conflict, portal, mobile layout and archive
+journeys.
+
+The CI workflow exports its VerificationRun-shaped metadata as a GitHub
+artifact; it does not ingest the result into application D1. The migration and
+schema are ready for trusted CI/staging ingestion, but durable D1 run recording
+is still open. These checks do not establish remote migration compatibility,
+that a hosted CI run produced the artifact, or that the remaining SYS-005 load,
+alert-destination and sandbox-restore criteria pass.

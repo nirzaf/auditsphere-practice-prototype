@@ -28,6 +28,30 @@ it('applies each migration using Wrangler statement splitting to an isolated SQL
     assert.deepEqual(database.prepare('PRAGMA foreign_key_check').all(), [], 'the migrated schema has no foreign-key violations');
     assert.ok(database.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='report_signatures'").get(),
       'the latest reporting migrations are present');
+    assert.equal(database.prepare('SELECT version FROM application_schema_version WHERE singleton=1').get()?.version, 33);
+    assert.ok(database.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='verification_runs'").get(),
+      'verification runs have a dedicated relational table');
+
+    const now = '2026-10-07T12:00:00.000Z';
+    database.prepare(`INSERT INTO workspaces(id,seed_id,name,schema_version,revision,status,created_at,updated_at)
+      VALUES ('verification-workspace',NULL,'Verification fixture',10,1,'active',1,1)`).run();
+    database.prepare(`INSERT INTO verification_runs(id,workspace_id,source_commit,schema_version,environment,started_at,
+      completed_at,status,created_at,updated_at)
+      VALUES ('verification-run','verification-workspace',?,33,'CI',?,NULL,'NOT_RUN',?,?)`)
+      .run('a'.repeat(40), now, now, now);
+    database.prepare(`UPDATE verification_runs SET version=2,status='PASSED',completed_at=?,updated_at=?
+      WHERE workspace_id='verification-workspace' AND id='verification-run'`).run('2026-10-07T12:01:00.000Z', '2026-10-07T12:01:00.000Z');
+    assert.equal(database.prepare("SELECT status FROM verification_runs WHERE id='verification-run'").get()?.status, 'PASSED');
+    assert.throws(() => database.prepare(`UPDATE verification_runs SET version=3,status='FAILED',completed_at=?,updated_at=?
+      WHERE workspace_id='verification-workspace' AND id='verification-run'`).run('2026-10-07T12:02:00.000Z', '2026-10-07T12:02:00.000Z'),
+    /verification run metadata is immutable/);
+    assert.throws(() => database.prepare("DELETE FROM verification_runs WHERE id='verification-run'").run(),
+      /verification runs cannot be deleted/);
+    assert.throws(() => database.prepare(`INSERT INTO verification_runs(id,workspace_id,source_commit,schema_version,environment,
+      started_at,completed_at,status,created_at,updated_at)
+      VALUES ('invalid-run','verification-workspace',?,33,'CI',?,NULL,'SKIPPED',?,?)`)
+      .run('b'.repeat(40), now, now, now), /CHECK constraint failed/);
+    assert.deepEqual(database.prepare('PRAGMA foreign_key_check').all(), [], 'verification rows preserve their workspace scope');
   } finally {
     database.close();
   }

@@ -34,6 +34,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Record verification start time
+        id: verification_start
+        shell: bash
+        run: echo "started_at=$(date -u +'%Y-%m-%dT%H:%M:%S.000Z')" >> "$GITHUB_OUTPUT"
+
       - uses: actions/setup-node@v4
         with:
           # Matches the lockfile generation and the local dev toolchain.
@@ -50,20 +55,40 @@ jobs:
         run: npm ci
 
       - name: Typecheck app and worker
+        id: typecheck
         run: |
           npx tsc --noEmit
           npm run cloud:typecheck
 
       - name: Unit tests
+        id: unit
         run: npm run test:unit
 
       - name: Production build
+        id: build
         run: npm run build
 
       - name: Browser end-to-end tests
+        id: browser_e2e
         env:
           CHROME_PATH: /usr/bin/google-chrome
         run: npm run test:e2e
+
+      - name: Export redacted verification support bundle
+        if: always()
+        env:
+          GITHUB_SHA: ${{ github.sha }}
+          AUDITSPHERE_VERIFICATION_STARTED_AT: ${{ steps.verification_start.outputs.started_at }}
+          AUDITSPHERE_VERIFICATION_GATES: ${{ steps.typecheck.outcome }},${{ steps.unit.outcome }},${{ steps.build.outcome }},${{ steps.browser_e2e.outcome }}
+        run: npx tsx tools/write-verification-support-bundle.ts verification-support-bundle.json
+
+      - name: Upload verification support bundle
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: auditsphere-verification-${{ github.run_id }}
+          path: verification-support-bundle.json
+          if-no-files-found: warn
 
   deploy-cloudflare:
     name: Deploy Worker and Static Assets to Cloudflare
