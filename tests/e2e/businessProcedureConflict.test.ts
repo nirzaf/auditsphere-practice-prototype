@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict';
 import { createHash, randomUUID } from 'node:crypto';
 import type { ChildProcess } from 'node:child_process';
-import { existsSync, rmSync } from 'node:fs';
+import { existsSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { after, before, it } from 'node:test';
 import { CdpTab } from '../helpers/cdp.js';
 import { launchHeadlessChrome, stopHeadlessChrome, type HeadlessChromeInstance } from '../helpers/headlessChrome.js';
@@ -234,6 +236,105 @@ async function createFieldworkFixture() {
   }
 
   return { ...workspace, ...ids, name: `Conflict Journey ${key.slice(0, 8)}` };
+}
+
+function addTimeEntryPreparer(fixture: Awaited<ReturnType<typeof createFieldworkFixture>>) {
+  const now = new Date().toISOString();
+  const staffMemberId = randomUUID(), actorId = randomUUID(), assignmentId = randomUUID();
+  const unique = randomUUID();
+  runFixtureSql(`INSERT INTO staff_members(id,workspace_id,version,natural_person_key,display_name,email,grade,active,created_at,updated_at,created_by_actor_id,updated_by_actor_id)
+    VALUES(?,?,1,?,?,?,'ASSOCIATE',1,?,?,?,?)`, staffMemberId, fixture.workspaceId, `QA-TIME-${unique}`,
+  'QA Time Entry Preparer', `time.preparer.${unique}@example.invalid`, now, now, fixture.actorProfileId, fixture.actorProfileId);
+  runFixtureSql(`INSERT INTO actor_profiles(id,workspace_id,version,persona,staff_member_id,contact_id,active,created_at,updated_at)
+    VALUES(?,?,1,'PREPARER',?,NULL,1,?,?)`, actorId, fixture.workspaceId, staffMemberId, now, now);
+  runFixtureSql(`INSERT INTO engagement_assignments(id,workspace_id,version,client_id,engagement_id,staff_member_id,persona,phase,start_date,end_date,planned_minutes,created_by_actor_id,created_at)
+    VALUES(?,?,1,?,?,?,'PREPARER','FIELDWORK','2026-01-01','2026-12-31',480,?,?)`, assignmentId, fixture.workspaceId,
+  fixture.clientId, fixture.engagementId, staffMemberId, fixture.actorProfileId, now);
+  return { staffMemberId, actorId, assignmentId };
+}
+
+async function selectPracticeWorkspace(tab: CdpTab, fixture: Awaited<ReturnType<typeof createFieldworkFixture>>,
+  actorId: string, persona: 'PREPARER' | 'APPROVER', grade: string): Promise<void> {
+  await tab.command('Page.navigate', { url: server!.origin });
+  await waitFor(tab, 'the isolated local BUSINESS app origin', `location.origin === ${JSON.stringify(new URL(server!.origin).origin)}`);
+  await tab.evaluate(`localStorage.removeItem('auditsphere.business-context.v1')`);
+  await tab.command('Page.reload');
+  await waitFor(tab, 'the isolated local BUSINESS landing page', `document.querySelector('#production-workspace-heading')?.textContent?.trim() === 'Open your business workspace'`);
+  const preference = { version: 1, workspaceId: fixture.workspaceId, actorId, persona, clientId: fixture.clientId, engagementId: fixture.engagementId };
+  await tab.evaluate(`localStorage.setItem('auditsphere.business-context.v1', ${JSON.stringify(JSON.stringify(preference))})`);
+  await tab.command('Page.reload');
+  await waitFor(tab, `the selected ${persona} profile and BUSINESS workspace`, `
+    document.querySelector('#business-workspace-heading')?.textContent?.trim() === ${JSON.stringify(fixture.name)} &&
+    document.querySelector('#business-active-persona')?.selectedOptions[0]?.textContent?.includes(${JSON.stringify(persona)}) &&
+    document.querySelector('.business-actor-summary')?.textContent?.includes(${JSON.stringify(grade)})`);
+  await waitFor(tab, 'the Worker-projected practice management panel', `
+    !!document.querySelector('[aria-labelledby="business-practice-${fixture.engagementId}"]')`);
+}
+
+async function setPracticeFieldByLabel(tab: CdpTab, engagementId: string, labelText: string, value: string, optionText?: string): Promise<void> {
+  const set = await tab.evaluate<boolean>(`(() => {
+    const panel = document.querySelector('[aria-labelledby="business-practice-${engagementId}"]');
+    const form = [...(panel?.querySelectorAll('form') ?? [])].find(item => item.querySelector('h3')?.textContent?.trim() === 'Record actual time');
+    const label = [...(form?.querySelectorAll('label.business-field') ?? [])].find(item => item.querySelector('span')?.textContent?.trim() === ${JSON.stringify(labelText)});
+    const control = label?.querySelector('input,select,textarea');
+    if (!control) return false;
+    let nextValue = ${JSON.stringify(value)};
+    if (control instanceof HTMLSelectElement && ${JSON.stringify(optionText ?? null)}) {
+      const option = [...control.options].find(item => item.textContent?.includes(${JSON.stringify(optionText ?? '')}));
+      if (!option) return false;
+      nextValue = option.value;
+    }
+    const setter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(control), 'value')?.set;
+    setter?.call(control, nextValue);
+    control.dispatchEvent(new Event('input', { bubbles: true }));
+    control.dispatchEvent(new Event('change', { bubbles: true }));
+    return control.value === nextValue;
+  })()`);
+  assert.equal(set, true, `the visible practice field "${labelText}" accepted the intended value`);
+}
+
+async function readPracticeTimeRow(tab: CdpTab, engagementId: string, procedureTitle: string, minutes: number) {
+  return tab.evaluate<{ text: string; status: string; hasSubmit: boolean; hasApprove: boolean; amount: string } | null>(`(() => {
+    const panel = document.querySelector('[aria-labelledby="business-practice-${engagementId}"]');
+    const row = [...(panel?.querySelectorAll('table tbody tr') ?? [])].find(item => item.textContent?.includes(${JSON.stringify(procedureTitle)}) &&
+      item.textContent?.includes(${JSON.stringify(String(minutes))}));
+    if (!row) return null;
+    const cells = [...row.querySelectorAll('td')];
+    return { text: row.textContent?.trim() ?? '', status: cells[6]?.textContent?.trim() ?? '',
+      hasSubmit: [...row.querySelectorAll('button')].some(button => button.textContent?.trim() === 'Submit'),
+      hasApprove: [...row.querySelectorAll('button')].some(button => button.textContent?.trim() === 'Approve'),
+      amount: cells[5]?.textContent?.trim() ?? '' };
+  })()`);
+}
+
+async function clickPracticeAction(tab: CdpTab, engagementId: string, label: string, procedureTitle?: string, minutes?: number): Promise<void> {
+  const clicked = await tab.evaluate<boolean>(`(() => {
+    const panel = document.querySelector('[aria-labelledby="business-practice-${engagementId}"]');
+    const scope = ${procedureTitle ? ` [...(panel?.querySelectorAll('table tbody tr') ?? [])].find(item => item.textContent?.includes(${JSON.stringify(procedureTitle)}) && item.textContent?.includes(${JSON.stringify(String(minutes))}))` : 'panel'};
+    const button = [...(scope?.querySelectorAll('button') ?? [])].find(item => item.textContent?.trim() === ${JSON.stringify(label)});
+    if (!button || button.disabled || !button.getClientRects().length) return false;
+    button.click(); return true;
+  })()`);
+  assert.equal(clicked, true, `the visible practice action "${label}" was enabled`);
+}
+
+async function captureUiFailure(tab: CdpTab, label: string, engagementId: string): Promise<string> {
+  await tab.evaluate(`document.querySelector('[aria-labelledby="business-practice-${engagementId}"]')?.scrollIntoView({ block: 'center' })`);
+  const capture = await tab.command('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false }) as { data: string };
+  const path = join(tmpdir(), `auditsphere-${label}-${Date.now()}.png`);
+  writeFileSync(path, Buffer.from(capture.data, 'base64'));
+  return path;
+}
+
+async function readPracticeDiagnostics(tab: CdpTab, engagementId: string): Promise<string> {
+  return tab.evaluate<string>(`(() => {
+    const panel = document.querySelector('[aria-labelledby="business-practice-${engagementId}"]');
+    return JSON.stringify({
+      alerts: [...(panel?.querySelectorAll('[role="alert"]') ?? [])].map(item => item.textContent?.trim()),
+      messages: [...(panel?.querySelectorAll('[role="status"]') ?? [])].map(item => item.textContent?.trim()),
+      rows: [...(panel?.querySelectorAll('table tbody tr') ?? [])].map(item => item.textContent?.trim())
+    });
+  })()`);
 }
 
 async function selectWorkspace(tab: CdpTab, fixture: Awaited<ReturnType<typeof createFieldworkFixture>>, actorId: string): Promise<void> {
@@ -1354,4 +1455,98 @@ it('US-FLD-012 compiles and clears a Worker SRM, then rejects clearance after an
   assert.equal(server.db.prepare(`SELECT COUNT(*) AS count FROM srm_clearances WHERE workspace_id=? AND srm_version_id=?`)
     .bind(fixture.workspaceId, compiled.body.result?.srmVersionId).first<any>()?.count, 1,
   'the immutable prior clearance remains historical after new fieldwork input invalidates it');
+});
+
+it('US-PRC-001 records procedure-linked time in the browser and requires independent approval', { timeout: 120000 }, async () => {
+  await ensureBrowsers();
+  assert.ok(server && tabA && tabB);
+  const fixture = await createFieldworkFixture();
+  const preparer = addTimeEntryPreparer(fixture);
+  const procedureTitle = 'Same-row concurrent edits';
+  const practiceSelector = `[aria-labelledby="business-practice-${fixture.engagementId}"]`;
+
+  try {
+    await Promise.all([
+      selectPracticeWorkspace(tabA, fixture, preparer.actorId, 'PREPARER', 'ASSOCIATE'),
+      selectPracticeWorkspace(tabB, fixture, fixture.actorProfileId, 'APPROVER', 'PARTNER')
+    ]);
+    await waitFor(tabA, 'the time-entry form and engagement procedures', `(() => {
+      const panel = document.querySelector(${JSON.stringify(practiceSelector)});
+      const form = [...(panel?.querySelectorAll('form') ?? [])].find(item => item.querySelector('h3')?.textContent?.trim() === 'Record actual time');
+      const procedure = [...(form?.querySelectorAll('label.business-field') ?? [])].find(item => item.querySelector('span')?.textContent?.trim() === 'Procedure (optional)')?.querySelector('select');
+      return !!procedure && [...procedure.options].some(option => option.value === ${JSON.stringify(fixture.procedureA)} && option.textContent?.includes(${JSON.stringify(procedureTitle)}));
+    })()`);
+
+    const observedForm = await tabA.evaluate<{ procedureVisible: boolean; procedureOptionCount: number; defaultMinutes: string }>(`(() => {
+      const panel = document.querySelector(${JSON.stringify(practiceSelector)});
+      const form = [...(panel?.querySelectorAll('form') ?? [])].find(item => item.querySelector('h3')?.textContent?.trim() === 'Record actual time');
+      const labels = [...(form?.querySelectorAll('label.business-field') ?? [])];
+      const procedure = labels.find(item => item.querySelector('span')?.textContent?.trim() === 'Procedure (optional)')?.querySelector('select');
+      const minutes = labels.find(item => item.querySelector('span')?.textContent?.trim() === 'Actual minutes')?.querySelector('input');
+      return { procedureVisible: !!procedure?.getClientRects().length, procedureOptionCount: procedure?.options.length ?? 0, defaultMinutes: minutes?.value ?? '' };
+    })()`);
+    assert.equal(observedForm.procedureVisible, true, 'the optional procedure selector is visible before interaction');
+    assert.ok(observedForm.procedureOptionCount > 1, 'the active engagement procedures populate the selector');
+
+    await setPracticeFieldByLabel(tabA, fixture.engagementId, 'Procedure (optional)', fixture.procedureA, procedureTitle);
+    await waitFor(tabA, 'the selected procedure FSLI to populate the time entry', `(() => {
+      const panel = document.querySelector(${JSON.stringify(practiceSelector)});
+      const form = [...(panel?.querySelectorAll('form') ?? [])].find(item => item.querySelector('h3')?.textContent?.trim() === 'Record actual time');
+      const labels = [...(form?.querySelectorAll('label.business-field') ?? [])];
+      const fsli = labels.find(item => item.querySelector('span')?.textContent?.trim() === 'FSLI (optional)')?.querySelector('select');
+      return fsli?.value === ${JSON.stringify(fixture.fsliId)};
+    })()`);
+    await setPracticeFieldByLabel(tabA, fixture.engagementId, 'Actual minutes', '90');
+    await setPracticeFieldByLabel(tabA, fixture.engagementId, 'Description', 'Reviewed retained evidence for the selected synthetic procedure.');
+
+    await clickPracticeAction(tabA, fixture.engagementId, 'Save draft time entry');
+    await waitFor(tabA, 'the saved draft time row', `(() => {
+      const panel = document.querySelector(${JSON.stringify(practiceSelector)});
+      return [...(panel?.querySelectorAll('table tbody tr') ?? [])].some(row => row.textContent?.includes(${JSON.stringify(procedureTitle)}) &&
+        row.textContent?.includes('90') && row.textContent?.includes('DRAFT'));
+    })()`);
+    const draftRow = await readPracticeTimeRow(tabA, fixture.engagementId, procedureTitle, 90);
+    assert.ok(draftRow, 'the saved entry is shown with its selected procedure');
+    assert.equal(draftRow.status, 'DRAFT');
+    assert.equal(draftRow.hasSubmit, true, 'the preparer can submit their draft');
+    assert.equal(draftRow.hasApprove, false, 'the preparer cannot approve their own time');
+
+    await clickPracticeAction(tabA, fixture.engagementId, 'Submit', procedureTitle, 90);
+    await waitFor(tabA, 'the submitted time row without an approval action for the preparer', `(() => {
+      const panel = document.querySelector(${JSON.stringify(practiceSelector)});
+      const row = [...(panel?.querySelectorAll('table tbody tr') ?? [])].find(item => item.textContent?.includes(${JSON.stringify(procedureTitle)}) && item.textContent?.includes('90'));
+      return !!row && row.textContent?.includes('SUBMITTED') && ![...row.querySelectorAll('button')].some(button => button.textContent?.trim() === 'Approve');
+    })()`);
+
+    await clickPracticeAction(tabB, fixture.engagementId, 'Refresh practice data');
+    await waitFor(tabB, 'the Partner-visible submitted time row', `(() => {
+      const panel = document.querySelector(${JSON.stringify(practiceSelector)});
+      const row = [...(panel?.querySelectorAll('table tbody tr') ?? [])].find(item => item.textContent?.includes(${JSON.stringify(procedureTitle)}) && item.textContent?.includes('90'));
+      return !!row && row.textContent?.includes('SUBMITTED') && [...row.querySelectorAll('button')].some(button => button.textContent?.trim() === 'Approve');
+    })()`);
+    await clickPracticeAction(tabB, fixture.engagementId, 'Approve', procedureTitle, 90);
+    await waitFor(tabB, 'independent approval and the QAR 300 charge-out value', `(() => {
+      const panel = document.querySelector(${JSON.stringify(practiceSelector)});
+      const row = [...(panel?.querySelectorAll('table tbody tr') ?? [])].find(item => item.textContent?.includes(${JSON.stringify(procedureTitle)}) && item.textContent?.includes('90'));
+      const cells = [...(row?.querySelectorAll('td') ?? [])];
+      return cells[6]?.textContent?.trim() === 'APPROVED' && cells[5]?.textContent?.trim() === 'QAR 300.00';
+    })()`);
+    const approvedRow = await readPracticeTimeRow(tabB, fixture.engagementId, procedureTitle, 90);
+    assert.equal(approvedRow?.status, 'APPROVED');
+    assert.equal(approvedRow?.amount, 'QAR 300.00');
+
+    await clickPracticeAction(tabA, fixture.engagementId, 'Refresh practice data');
+    await waitFor(tabA, 'the final approved time row in the preparer workspace', `(() => {
+      const panel = document.querySelector(${JSON.stringify(practiceSelector)});
+      const row = [...(panel?.querySelectorAll('table tbody tr') ?? [])].find(item => item.textContent?.includes(${JSON.stringify(procedureTitle)}) && item.textContent?.includes('90'));
+      const cells = [...(row?.querySelectorAll('td') ?? [])];
+      return cells[6]?.textContent?.trim() === 'APPROVED' && cells[5]?.textContent?.trim() === 'QAR 300.00';
+    })()`);
+  } catch (error) {
+    const diagnostics = await Promise.allSettled([readPracticeDiagnostics(tabA, fixture.engagementId), readPracticeDiagnostics(tabB, fixture.engagementId)]);
+    const uiDiagnostics = diagnostics.map((result, index) => `browser${index + 1}=${result.status === 'fulfilled' ? result.value : 'diagnostics unavailable'}`).join(' ');
+    const evidence = await Promise.allSettled([captureUiFailure(tabA, 'practice-preparer', fixture.engagementId), captureUiFailure(tabB, 'practice-approver', fixture.engagementId)]);
+    const screenshots = evidence.flatMap(result => result.status === 'fulfilled' ? [result.value] : []);
+    throw new Error(`${error instanceof Error ? error.message : String(error)}. UI diagnostics: ${uiDiagnostics}. Browser evidence: ${screenshots.join(', ') || 'screenshot capture failed'}`, { cause: error });
+  }
 });

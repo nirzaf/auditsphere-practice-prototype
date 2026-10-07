@@ -291,8 +291,10 @@ async function buildTimeCreate(env:Env,workspaceId:string,context:BusinessContex
   const assignment=await timeAssignment(env,workspaceId,staff.id,engagement.id,p.workDate,p.phase);
   if(!assignment)throw new ApiError('GATE_BLOCKED','The staff member needs a matching approved phase assignment for this engagement and work date.');
   if(p.fsliId){const fsli=await env.DB.prepare(`SELECT id FROM fsli_catalog WHERE workspace_id=? AND id=? AND active=1`).bind(workspaceId,p.fsliId).first<{id:string}>();if(!fsli)throw new ApiError('NOT_FOUND','The selected FSLI is not active in this workspace.');}
-  if(p.procedureId){const procedure=await env.DB.prepare(`SELECT p.id FROM procedures p JOIN workprograms w ON w.workspace_id=p.workspace_id AND w.id=p.workprogram_id
-      WHERE p.workspace_id=? AND p.id=? AND w.engagement_id=?`).bind(workspaceId,p.procedureId,engagement.id).first<{id:string}>();if(!procedure)throw new ApiError('FORBIDDEN_SCOPE','The selected procedure is outside this engagement.');}
+  if(p.procedureId){const procedure=await env.DB.prepare(`SELECT p.id,w.fsli_id AS fsliId FROM procedures p JOIN workprograms w ON w.workspace_id=p.workspace_id AND w.id=p.workprogram_id
+      WHERE p.workspace_id=? AND p.id=? AND w.engagement_id=?`).bind(workspaceId,p.procedureId,engagement.id).first<{id:string;fsliId:string}>();
+    if(!procedure)throw new ApiError('FORBIDDEN_SCOPE','The selected procedure is outside this engagement.');
+    if(p.fsliId&&p.fsliId!==procedure.fsliId)throw new ApiError('VALIDATION_FAILED','The selected FSLI must match the selected procedure.');}
   if(p.startAt){const overlap=await env.DB.prepare(`SELECT id FROM firm_time_entries WHERE workspace_id=? AND staff_member_id=? AND work_date=? AND status IN ('DRAFT','SUBMITTED','APPROVED')
       AND start_at IS NOT NULL AND end_at IS NOT NULL AND start_at<? AND end_at>? LIMIT 1`).bind(workspaceId,staff.id,p.workDate,p.endAt,p.startAt)
       .first<{id:string}>();if(overlap)throw new ApiError('VALIDATION_FAILED','The time range overlaps an existing recorded entry.');}
@@ -380,8 +382,16 @@ async function buildTimeCorrection(env:Env,workspaceId:string,context:BusinessCo
     const workDate=replacement.workDate??original.work_date,phase=replacement.phase??original.phase,minutes=replacement.minutes??original.minutes;
     const description=replacement.description??original.description,billable=replacement.billable??Boolean(original.billable);
     const startAt=replacement.startAt===undefined?original.start_at:replacement.startAt,endAt=replacement.endAt===undefined?original.end_at:replacement.endAt;
+    const fsliId=replacement.fsliId===undefined?original.fsli_id:replacement.fsliId;
+    const procedureId=replacement.procedureId===undefined?original.procedure_id:replacement.procedureId;
     if(Boolean(startAt)!==Boolean(endAt)||(startAt&&Date.parse(endAt!)-Date.parse(startAt)!==minutes*60_000))throw new ApiError('VALIDATION_FAILED','Corrected timed duration must match its integer minutes.');
     if(!await timeAssignment(env,workspaceId,original.staff_member_id,original.engagement_id,workDate,phase))throw new ApiError('GATE_BLOCKED','The replacement work date and phase need an approved staff assignment.');
+    if(fsliId&&!(await env.DB.prepare(`SELECT id FROM fsli_catalog WHERE workspace_id=? AND id=? AND active=1`).bind(workspaceId,fsliId).first<{id:string}>()))
+      throw new ApiError('NOT_FOUND','The replacement FSLI is not active in this workspace.');
+    if(procedureId){const procedure=await env.DB.prepare(`SELECT p.id,w.fsli_id AS fsliId FROM procedures p JOIN workprograms w ON w.workspace_id=p.workspace_id AND w.id=p.workprogram_id
+        WHERE p.workspace_id=? AND p.id=? AND w.engagement_id=?`).bind(workspaceId,procedureId,original.engagement_id).first<{id:string;fsliId:string}>();
+      if(!procedure)throw new ApiError('FORBIDDEN_SCOPE','The replacement procedure is outside this engagement.');
+      if(fsliId&&fsliId!==procedure.fsliId)throw new ApiError('VALIDATION_FAILED','The replacement FSLI must match the replacement procedure.');}
     const rate=await timeValue(env,workspaceId,original.staff_member_id,workDate);
     const daily=await env.DB.prepare(`SELECT COALESCE(SUM(t.minutes),0) AS minutes FROM firm_time_entries t WHERE t.workspace_id=? AND t.staff_member_id=? AND t.work_date=?
       AND t.id<>? AND t.status='APPROVED' AND NOT EXISTS(SELECT 1 FROM firm_time_corrections c WHERE c.workspace_id=t.workspace_id AND c.original_time_entry_id=t.id)`)
@@ -390,7 +400,7 @@ async function buildTimeCorrection(env:Env,workspaceId:string,context:BusinessCo
     replacementId=crypto.randomUUID();
     statements.push(env.DB.prepare(`INSERT INTO firm_time_entries(id,workspace_id,version,client_id,engagement_id,staff_member_id,work_date,phase,fsli_id,procedure_id,minutes,start_at,end_at,description,billable,status,rate_id,hourly_minor_snapshot,charge_numerator,charge_denominator,submitted_by_actor_id,submitted_at,approved_by_actor_id,approved_at,created_by_actor_id,created_at,updated_at)
       VALUES(?,?,1,?,?,?,?,?,?,?,?,?,?,?,?, 'APPROVED',?,?,?,60,?,?,?,?,?,?,?)`).bind(replacementId,workspaceId,original.client_id,original.engagement_id,original.staff_member_id,workDate,phase,
-      replacement.fsliId===undefined?original.fsli_id:replacement.fsliId,replacement.procedureId===undefined?original.procedure_id:replacement.procedureId,minutes,startAt,endAt,description,billable?1:0,
+      fsliId,procedureId,minutes,startAt,endAt,description,billable?1:0,
       rate.id,rate.hourly_minor,String(BigInt(rate.hourly_minor)*BigInt(minutes)),original.submitted_by_actor_id,now,context.actor.id,now,context.actor.id,now,now));
   }
   const correctionId=crypto.randomUUID();
@@ -981,7 +991,7 @@ export async function getBusinessPracticeWorkspace(env:Env,workspaceId:string,co
     WHERE t.workspace_id=? AND t.work_date BETWEEN ? AND ?${engagementId?' AND t.engagement_id=?':''}${context.actor.persona==='PREPARER'?' AND t.staff_member_id=?':''}
     ORDER BY t.work_date DESC,t.created_at DESC,t.id`;
   const timeBindings:unknown[]=[workspaceId,from,to];if(engagementId)timeBindings.push(engagementId);if(context.actor.persona==='PREPARER'&&context.actor.staffMemberId)timeBindings.push(context.actor.staffMemberId);
-  const [time,staff,rates,accounts,periods,journals,expenses,policies,trialBalance,profitLoss]=await Promise.all([
+  const [time,staff,rates,accounts,periods,journals,expenses,policies,trialBalance,profitLoss,procedures]=await Promise.all([
     env.DB.prepare(timeQuery).bind(...timeBindings).all<Record<string,unknown>>(),
     env.DB.prepare(`SELECT id,display_name AS displayName,grade FROM staff_members WHERE workspace_id=? AND active=1${context.actor.persona==='PREPARER'?' AND id=?':''} ORDER BY grade,display_name,id`)
       .bind(...(context.actor.persona==='PREPARER'&&context.actor.staffMemberId?[workspaceId,context.actor.staffMemberId]:[workspaceId])).all<Record<string,unknown>>(),
@@ -996,7 +1006,14 @@ export async function getBusinessPracticeWorkspace(env:Env,workspaceId:string,co
       FROM firm_expenses WHERE workspace_id=? ORDER BY expense_date DESC,created_at DESC LIMIT 100`).bind(workspaceId).all<Record<string,unknown>>(),
     env.DB.prepare(`SELECT id,revision,name,effective_from AS effectiveFrom,recognition_method AS recognitionMethod,recognition_rules AS recognitionRules,content_sha256 AS contentSha256
       FROM firm_revenue_policies WHERE workspace_id=? ORDER BY revision DESC`).bind(workspaceId).all<Record<string,unknown>>(),
-    firmTrialBalance(env,workspaceId,from,to),firmProfitLoss(env,workspaceId,from,to)
+    firmTrialBalance(env,workspaceId,from,to),firmProfitLoss(env,workspaceId,from,to),
+    engagementId
+      ? env.DB.prepare(`SELECT p.id,p.ordinal,p.title,p.status,w.fsli_id AS fsliId,c.code AS fsliCode
+          FROM procedures p JOIN workprograms w ON w.workspace_id=p.workspace_id AND w.id=p.workprogram_id
+          LEFT JOIN fsli_catalog c ON c.workspace_id=w.workspace_id AND c.id=w.fsli_id
+          WHERE p.workspace_id=? AND w.engagement_id=? ORDER BY w.fsli_id,p.ordinal,p.id`)
+        .bind(workspaceId,engagementId).all<Record<string,unknown>>()
+      : Promise.resolve({results:[] as Record<string,unknown>[]})
   ]);
   const staffRows=staff.results??[],utilization=[] as Array<Record<string,unknown>>;
   const fsliCatalog=await env.DB.prepare(`SELECT id,code,name,statement FROM fsli_catalog WHERE workspace_id=? AND active=1 ORDER BY presentation_order,code`)
@@ -1045,7 +1062,7 @@ export async function getBusinessPracticeWorkspace(env:Env,workspaceId:string,co
   ]);
   return {period:{from,to},engagement:engagement?{id:engagement.id,version:engagement.version,clientId:engagement.client_id,code:engagement.code,
     lifecycleState:engagement.lifecycle_state,contractFeeMinor:String(engagement.contract_fee_minor),activeProposalVersionId:engagement.active_proposal_version_id}:null,
-    staff:staffRows,rates:rates.results??[],timeEntries:entryItems,utilization,fsliCatalog:fsliCatalog.results??[],
+    staff:staffRows,rates:rates.results??[],timeEntries:entryItems,utilization,fsliCatalog:fsliCatalog.results??[],procedureCatalog:procedures.results??[],
     utilizationNotes:{definition:'Approved billable minutes divided by explicitly scheduled capacity after approved leave. Missing daily capacity is shown, never assumed.',payrollCostAvailable:false},
     budget,profitability:profitabilityView,trialBalance,profitLoss,accounts:accounts.results??[],accountingPeriods:periods.results??[],journals:journals.results??[],expenses:expenses.results??[],
     revenuePolicies:policies.results??[],payments:paymentItems,arAging:agingView,reportSnapshots,partnerWithdrawals:withdrawals.results??[],

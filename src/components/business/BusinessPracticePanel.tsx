@@ -4,10 +4,11 @@ import { downloadBusinessFileVersion, getBusinessPracticeWorkspace, newBusinessI
 
 type Account = { id: string; code: string; name: string; accountType: string; normalSide: string; postingAllowed: number | boolean; active: number | boolean; controlType: string };
 type Staff = { id: string; displayName: string; grade: string };
-type TimeEntry = { id: string; version: number; staff_member_id?: string; staffMemberId?: string; display_name?: string; grade?: string; work_date?: string; phase?: string; minutes: number; description: string; billable: boolean; status: string; chargeOutMinor?: string | null };
+type TimeEntry = { id: string; version: number; staff_member_id?: string; staffMemberId?: string; display_name?: string; grade?: string; work_date?: string; phase?: string; fsli_id?: string | null; procedure_id?: string | null; minutes: number; description: string; billable: boolean; status: string; chargeOutMinor?: string | null };
 type PracticeData = {
   staff: Staff[]; rates: Array<Record<string, unknown>>; timeEntries: TimeEntry[];
   fsliCatalog: Array<{ id: string; code: string; name: string; statement: string }>;
+  procedureCatalog: Array<{ id: string; ordinal: number; title: string; status: string; fsliId: string; fsliCode: string | null }>;
   utilization: Array<{ staffMemberId: string; displayName?: string; grade?: string; scheduledMinutes: number; leaveMinutes: number; availableMinutes: number; recordedMinutes: number; approvedBillableMinutes: number; approvedNonbillableMinutes: number; utilizationBps: number | null; resultReason: string; missingCapacityDates: string[] }>;
   accounts: Account[]; accountingPeriods: Array<{ id: string; startDate: string; endDate: string; status: string }>;
   journals: Array<{ id: string; version: number; number: string; postingDate: string; description: string; sourceType: string; status: string; debitTotalMinor: string; creditTotalMinor: string }>;
@@ -65,6 +66,7 @@ export function BusinessPracticePanel({ workspaceId, selected, context, engageme
   const [workDate, setWorkDate] = useState(today);
   const [phase, setPhase] = useState('FIELDWORK');
   const [fsliId, setFsliId] = useState('');
+  const [procedureId, setProcedureId] = useState('');
   const [minutes, setMinutes] = useState('60');
   const [description, setDescription] = useState('');
   const [billable, setBillable] = useState(true);
@@ -143,7 +145,8 @@ export function BusinessPracticePanel({ workspaceId, selected, context, engageme
   const captureTime = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!staffMemberId) { setError('Select the staff member who performed this work.'); return; }
-    if (await perform('time.create', { engagementId: engagement.id, staffMemberId, workDate, phase, minutes: Number(minutes), description, billable, ...(fsliId ? { fsliId } : {}) }, 'Time entry saved as a draft. Submit it for independent approval.')) setDescription('');
+    if (await perform('time.create', { engagementId: engagement.id, staffMemberId, workDate, phase, minutes: Number(minutes), description, billable,
+      ...(fsliId ? { fsliId } : {}), ...(procedureId ? { procedureId } : {}) }, 'Time entry saved as a draft. Submit it for independent approval.')) setDescription('');
   };
   const saveRate = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -303,6 +306,12 @@ export function BusinessPracticePanel({ workspaceId, selected, context, engageme
           <label className="business-field"><span>Work date</span><input type="date" required value={workDate} onChange={event => setWorkDate(event.target.value)} /></label>
           <label className="business-field"><span>Phase</span><select value={phase} onChange={event => setPhase(event.target.value)}>{phases.map(item => <option key={item} value={item}>{item}</option>)}</select></label>
           <label className="business-field"><span>FSLI (optional)</span><select value={fsliId} onChange={event => setFsliId(event.target.value)}><option value="">No specific FSLI</option>{data.fsliCatalog.map(item => <option key={item.id} value={item.id}>{item.code} · {item.name}</option>)}</select></label>
+          <label className="business-field"><span>Procedure (optional)</span><select value={procedureId} onChange={event => {
+            const selectedProcedureId = event.target.value;
+            setProcedureId(selectedProcedureId);
+            const selectedProcedure = data.procedureCatalog.find(item => item.id === selectedProcedureId);
+            if (selectedProcedure) setFsliId(selectedProcedure.fsliId);
+          }}><option value="">No specific procedure</option>{data.procedureCatalog.map(item => <option key={item.id} value={item.id}>{item.fsliCode ? `${item.fsliCode} · ` : ''}{item.ordinal}. {item.title}</option>)}</select></label>
           <label className="business-field"><span>Actual minutes</span><input type="number" min="1" max="1440" required value={minutes} onChange={event => setMinutes(event.target.value)} /></label>
           <label className="business-field"><span>Description</span><input required minLength={10} maxLength={5000} value={description} onChange={event => setDescription(event.target.value)} /></label>
           <label className="business-field"><span>Chargeable</span><select value={billable ? 'true' : 'false'} onChange={event => setBillable(event.target.value === 'true')}><option value="true">Billable</option><option value="false">Non-billable</option></select></label>
@@ -319,13 +328,18 @@ export function BusinessPracticePanel({ workspaceId, selected, context, engageme
       </form>}
 
       <h3>Actual time entries</h3>
-      {data.timeEntries.length ? <div className="business-table-wrap"><table className="business-table"><thead><tr><th>Date</th><th>Staff / grade</th><th>Phase</th><th>Minutes</th><th>Value</th><th>Status</th><th>Action</th></tr></thead><tbody>
-        {data.timeEntries.map(entry => <tr key={entry.id}><td>{entry.work_date ?? '—'}</td><td>{entry.display_name ?? '—'} · {entry.grade ?? '—'}</td><td>{entry.phase ?? '—'}</td><td>{entry.minutes}</td><td>{money(entry.chargeOutMinor)}</td><td>{entry.status}</td><td>
+      {data.timeEntries.length ? <div className="business-table-wrap"><table className="business-table"><thead><tr><th>Date</th><th>Staff / grade</th><th>Phase</th><th>FSLI / procedure</th><th>Minutes</th><th>Value</th><th>Status</th><th>Action</th></tr></thead><tbody>
+        {data.timeEntries.map(entry => {
+          const fsli = data.fsliCatalog.find(item => item.id === entry.fsli_id);
+          const procedure = data.procedureCatalog.find(item => item.id === entry.procedure_id);
+          const reference = [fsli?.code, procedure ? `${procedure.ordinal}. ${procedure.title}` : null].filter(Boolean).join(' · ');
+          return <tr key={entry.id}><td>{entry.work_date ?? '—'}</td><td>{entry.display_name ?? '—'} · {entry.grade ?? '—'}</td><td>{entry.phase ?? '—'}</td><td>{reference || '—'}</td><td>{entry.minutes}</td><td>{money(entry.chargeOutMinor)}</td><td>{entry.status}</td><td>
           {entry.status === 'DRAFT' || entry.status === 'RETURNED' ? <button type="button" className="btn sm" disabled={busy} onClick={() => void perform('time.submit', { timeEntryId: entry.id, expectedVersion: entry.version }, 'Time submitted for independent approval.')}>Submit</button> : null}
           {entry.status === 'SUBMITTED' && canReview && <><button type="button" className="btn sm" disabled={busy} onClick={() => void perform('time.approve', { timeEntryId: entry.id, expectedVersion: entry.version }, 'Approved time retained with its rate snapshot.')}>Approve</button>
             <button type="button" className="btn sm" disabled={busy} onClick={() => void perform('time.return', { timeEntryId: entry.id, expectedVersion: entry.version, reason: 'Please clarify the work performed and engagement phase before approval.' }, 'Time returned with a recorded reason.')}>Return</button></>}
           {entry.status === 'APPROVED' && canReview && <button type="button" className="btn sm" disabled={busy} onClick={() => void perform('time.correct', { timeEntryId: entry.id, expectedVersion: entry.version, reason: 'Approved time is reversed after independent correction review.', replacement: null }, 'Correction appended. The original time remains in history.')}>Correct / reverse</button>}
-        </td></tr>)}
+        </td></tr>;
+        })}
       </tbody></table></div> : <p className="business-muted">No time entries exist for this engagement and period.</p>}
 
       {isPartner && <form className="business-form business-commercial-form" onSubmit={saveBudget}>

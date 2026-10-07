@@ -676,3 +676,28 @@ journey and all four tests in its E2E file passed in isolation, and the full
 suite rerun then passed. The source-option wait now requires three consecutive
 observations before interacting with the control; the containing E2E file
 passed **4/4** after that stabilization.
+
+### PRC-001 grade-based time entry and browser approval — 2026-10-07
+
+The time-entry form now offers engagement-scoped procedure choices alongside
+optional FSLI selection, fills the related FSLI when a procedure is selected,
+and displays both references on saved rows. The Worker rejects an FSLI/procedure
+mismatch in both new entries and corrections. A browser journey exposed that the
+shared UI command wrapper omitted the `TimeEntry` `expectedVersions` entry for
+submit/approve/return/correct; the wrapper now supplies the entity ID and
+expected version required by the Worker.
+
+The Worker integration scenario verifies the exact default QAR schedule,
+QAR 300 for 90 approved Associate minutes, QAR 750 and QAR 500 for Manager and
+Senior records created under a REVIEWER persona, historical-rate pinning,
+idempotent submit retry, explicit time-range overlap rejection, and the 1,440
+minute daily limit. It also verifies that once-rounded engagement value and
+displayed phase totals reconcile using the rational residual allocation.
+
+Verification on this working tree: `npm run lint`, `npm run build`,
+`git diff --check`, the full unit suite (**539/539**, 106 suites), and the full
+serialized Chromium suite (**31/31**) all passed. The PRC journey used an
+isolated local Worker/SQLite workspace and two synthetic browser actors. These
+results do not validate remote D1, Cloudflare performance, or production
+deployment. The complete 46-story epic and the open US-SYS-005 Cloudflare
+load, alert, sandbox-restore, and trusted-ingestion criteria remain incomplete.

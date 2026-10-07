@@ -3676,6 +3676,45 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
   const practiceHeaders = { ...approverHeaders, 'X-Client-Id': clientId, 'X-Engagement-Id': engagementId };
   const accountId = (code: string) => db.prepare('SELECT id FROM firm_accounts WHERE workspace_id=? AND code=?')
     .bind(workspaceId, code).first<any>()?.id as string;
+  const defaultRateSchedule = db.prepare(`SELECT grade,hourly_minor FROM firm_charge_out_rates WHERE workspace_id=? ORDER BY grade`)
+    .bind(workspaceId).all<any>().results.map((row: any) => [row.grade, row.hourly_minor]);
+  assert.deepEqual(defaultRateSchedule, [['ASSOCIATE', 20000], ['MANAGER', 75000], ['PARTNER', 100000], ['SENIOR', 50000]],
+    'the defaults preserve the exact grade schedule in QAR minor units');
+  const partnerActorId = created.body.actorProfileId as string;
+  const createGradeReviewerTime = async (grade: 'MANAGER' | 'SENIOR') => {
+    const staffMemberId = crypto.randomUUID(), assignmentId = crypto.randomUUID(), naturalPersonKey = `TEST-${grade}-${crypto.randomUUID()}`;
+    const now = new Date().toISOString();
+    db.prepare(`INSERT INTO staff_members(id,workspace_id,version,natural_person_key,display_name,email,grade,active,created_at,updated_at,created_by_actor_id,updated_by_actor_id)
+      VALUES(?,?,1,?,?,?, ?,1,?,?,?,?)`).bind(staffMemberId, workspaceId, naturalPersonKey, `${grade} Reviewer`, `${grade.toLowerCase()}.${naturalPersonKey}@example.invalid`, grade,
+      now, now, partnerActorId, partnerActorId).run();
+    db.prepare(`INSERT INTO engagement_assignments(id,workspace_id,version,client_id,engagement_id,staff_member_id,persona,phase,start_date,end_date,planned_minutes,created_by_actor_id,created_at)
+      VALUES(?,?,1,?,?,?,'REVIEWER','FIELDWORK',?,?,60,?,?)`).bind(assignmentId, workspaceId, clientId, engagementId, staffMemberId, planDate, planDate, partnerActorId, now).run();
+    const draft = await post(`/api/workspaces/${workspaceId}/commands`, {
+      idempotencyKey: crypto.randomUUID(), command: { type: 'time.create', payload: {
+        engagementId, staffMemberId, workDate: planDate, phase: 'FIELDWORK', minutes: 60,
+        description: `Recorded one hour of assigned ${grade.toLowerCase()} review work.`, billable: true } }
+    }, reviewerHeaders);
+    assert.equal(draft.response.status, 200, JSON.stringify(draft.body));
+    const timeEntryId = draft.body.result.timeEntryId as string;
+    const submitted = await post(`/api/workspaces/${workspaceId}/commands`, {
+      idempotencyKey: crypto.randomUUID(), command: { type: 'time.submit', payload: { timeEntryId, expectedVersion: 1 } }
+    }, reviewerHeaders);
+    assert.equal(submitted.response.status, 200, JSON.stringify(submitted.body));
+    const approved = await post(`/api/workspaces/${workspaceId}/commands`, {
+      idempotencyKey: crypto.randomUUID(), command: { type: 'time.approve', payload: { timeEntryId, expectedVersion: 2 } }
+    }, approverHeaders);
+    assert.equal(approved.response.status, 200, JSON.stringify(approved.body));
+    return db.prepare('SELECT hourly_minor_snapshot,charge_numerator,charge_denominator FROM firm_time_entries WHERE workspace_id=? AND id=?')
+      .bind(workspaceId, timeEntryId).first<any>();
+  };
+  const managerReviewerTime = await createGradeReviewerTime('MANAGER');
+  const seniorReviewerTime = await createGradeReviewerTime('SENIOR');
+  assert.equal(managerReviewerTime?.hourly_minor_snapshot, 75000, 'a REVIEWER entry for a Manager staff member uses QAR 750/hour');
+  assert.equal(managerReviewerTime?.charge_numerator, '4500000');
+  assert.equal(managerReviewerTime?.charge_denominator, 60);
+  assert.equal(seniorReviewerTime?.hourly_minor_snapshot, 50000, 'a REVIEWER entry for a Senior staff member uses QAR 500/hour');
+  assert.equal(seniorReviewerTime?.charge_numerator, '3000000');
+  assert.equal(seniorReviewerTime?.charge_denominator, 60);
 
   // PRC scope: CLIENT personas never reach firm practice records or bookkeeping.
   const clientPracticeDenied = await call(practicePath, { headers: clientHeaders });
@@ -3700,19 +3739,51 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
   }, approverHeaders);
   assert.equal(historicalRateEdit.response.status, 422, 'a new rate cannot rewrite the effective rate of recorded work');
 
+  const mismatchedProcedureFsli = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'time.create', payload: {
+      engagementId, staffMemberId: preparerStaff.body.result.staffMemberId, workDate: planDate, phase: 'FIELDWORK',
+      fsliId: greenFsli.id, procedureId: revenueProcedureIds[0], minutes: 30,
+      description: 'Attempt to link a procedure to a different financial statement area.', billable: true } }
+  }, preparerHeaders);
+  assert.equal(mismatchedProcedureFsli.response.status, 422, JSON.stringify(mismatchedProcedureFsli.body));
+  assert.equal(mismatchedProcedureFsli.body.code, 'VALIDATION_FAILED', 'a time entry cannot pair a procedure with another FSLI');
+
+  const firstTimedEntry = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'time.create', payload: {
+      engagementId, staffMemberId: preparerStaff.body.result.staffMemberId, workDate: planDate, phase: 'FIELDWORK', minutes: 60,
+      description: 'Recorded the first explicit timed audit work range.', billable: true,
+      startAt: `${planDate}T09:00:00.000Z`, endAt: `${planDate}T10:00:00.000Z` } }
+  }, preparerHeaders);
+  assert.equal(firstTimedEntry.response.status, 200, JSON.stringify(firstTimedEntry.body));
+  const overlappingTimedEntry = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'time.create', payload: {
+      engagementId, staffMemberId: preparerStaff.body.result.staffMemberId, workDate: planDate, phase: 'FIELDWORK', minutes: 60,
+      description: 'Attempted to overlap an already recorded timed range.', billable: true,
+      startAt: `${planDate}T09:30:00.000Z`, endAt: `${planDate}T10:30:00.000Z` } }
+  }, preparerHeaders);
+  assert.equal(overlappingTimedEntry.response.status, 422, JSON.stringify(overlappingTimedEntry.body));
+  assert.equal(overlappingTimedEntry.body.code, 'VALIDATION_FAILED', 'overlapping explicit timed ranges are rejected');
+
   const timeDraft = await post(`/api/workspaces/${workspaceId}/commands`, {
     idempotencyKey: crypto.randomUUID(), command: { type: 'time.create', payload: {
       engagementId, staffMemberId: preparerStaff.body.result.staffMemberId, workDate: planDate, phase: 'FIELDWORK',
-      minutes: 420, description: 'Executed assigned fieldwork procedures for the scoped engagement.', billable: true } }
+      fsliId: revenueLine.fsliId, procedureId: revenueProcedureIds[0], minutes: 420,
+      description: 'Executed assigned fieldwork procedures for the scoped engagement.', billable: true } }
   }, preparerHeaders);
   assert.equal(timeDraft.response.status, 200, JSON.stringify(timeDraft.body));
   assert.equal(timeDraft.body.result.status, 'DRAFT');
   const timeEntryId = timeDraft.body.result.timeEntryId as string;
 
+  const initialTimeSubmitKey = crypto.randomUUID();
   const submitTime = await post(`/api/workspaces/${workspaceId}/commands`, {
-    idempotencyKey: crypto.randomUUID(), command: { type: 'time.submit', payload: { timeEntryId, expectedVersion: 1 } }
+    idempotencyKey: initialTimeSubmitKey, command: { type: 'time.submit', payload: { timeEntryId, expectedVersion: 1 } }
   }, preparerHeaders);
   assert.equal(submitTime.response.status, 200, JSON.stringify(submitTime.body));
+  const retryTimeSubmit = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: initialTimeSubmitKey, command: { type: 'time.submit', payload: { timeEntryId, expectedVersion: 1 } }
+  }, preparerHeaders);
+  assert.equal(retryTimeSubmit.response.status, 200, JSON.stringify(retryTimeSubmit.body));
+  assert.equal(retryTimeSubmit.body.result.timeEntryId, timeEntryId, 'a retry returns the original submission result without creating another entry');
   const selfApproval = await post(`/api/workspaces/${workspaceId}/commands`, {
     idempotencyKey: crypto.randomUUID(), command: { type: 'time.approve', payload: { timeEntryId, expectedVersion: 2 } }
   }, preparerHeaders);
@@ -3730,11 +3801,72 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
     idempotencyKey: crypto.randomUUID(), command: { type: 'time.approve', payload: { timeEntryId, expectedVersion: 4 } }
   }, reviewerHeaders);
   assert.equal(approveTime.response.status, 200, JSON.stringify(approveTime.body));
-  const approvedTimeRow = db.prepare('SELECT status,hourly_minor_snapshot,charge_numerator,charge_denominator,approved_by_actor_id FROM firm_time_entries WHERE workspace_id=? AND id=?')
+  const mismatchedCorrectionFsli = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'time.correct', payload: {
+      timeEntryId, expectedVersion: 5, reason: 'Correcting a misclassified FSLI requires an aligned procedure reference.',
+      replacement: { fsliId: greenFsli.id, procedureId: revenueProcedureIds[0] } } }
+  }, approverHeaders);
+  assert.equal(mismatchedCorrectionFsli.response.status, 422, JSON.stringify(mismatchedCorrectionFsli.body));
+  assert.equal(mismatchedCorrectionFsli.body.code, 'VALIDATION_FAILED');
+  assert.equal(db.prepare('SELECT COUNT(*) AS count FROM firm_time_corrections WHERE workspace_id=? AND original_time_entry_id=?')
+    .bind(workspaceId, timeEntryId).first<any>()?.count, 0, 'a rejected replacement cannot leave a partial correction');
+  const approvedTimeRow = db.prepare('SELECT status,hourly_minor_snapshot,charge_numerator,charge_denominator,approved_by_actor_id,fsli_id,procedure_id FROM firm_time_entries WHERE workspace_id=? AND id=?')
     .bind(workspaceId, timeEntryId).first<any>();
   assert.equal(approvedTimeRow?.status, 'APPROVED');
   assert.equal(approvedTimeRow?.hourly_minor_snapshot, 20000, 'approval freezes the rate effective on the work date, not a later revision');
   assert.equal(approvedTimeRow?.charge_denominator, 60, 'charge-out is stored as a rational minutes/hour fraction');
+  assert.equal(approvedTimeRow?.fsli_id, revenueLine.fsliId, 'time retains its optional FSLI link');
+  assert.equal(approvedTimeRow?.procedure_id, revenueProcedureIds[0], 'time retains its optional procedure link');
+  const practiceTimeView = await call(`${practicePath}?engagementId=${encodeURIComponent(engagementId)}`, { headers: preparerHeaders });
+  assert.equal(practiceTimeView.response.status, 200, JSON.stringify(practiceTimeView.body));
+  assert.ok(practiceTimeView.body.procedureCatalog.some((item: any) => item.id === revenueProcedureIds[0]), 'the engagement practice view exposes procedures for time entry selection');
+  const projectedApprovedTime = practiceTimeView.body.timeEntries.find((item: any) => item.id === timeEntryId);
+  assert.equal(projectedApprovedTime?.fsli_id, revenueLine.fsliId);
+  assert.equal(projectedApprovedTime?.procedure_id, revenueProcedureIds[0]);
+  assert.equal(projectedApprovedTime?.chargeOutMinor, '140000', '420 Associate minutes at QAR 200/hour produce QAR 1,400');
+
+  // PRC-001: 90 minutes at the default Associate rate is QAR 300, and submitted daily totals stop at 1,440.
+  const ninetyMinuteDraft = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'time.create', payload: {
+      engagementId, staffMemberId: preparerStaff.body.result.staffMemberId, workDate: planDate, phase: 'FIELDWORK',
+      minutes: 90, description: 'Completed a focused substantive procedure and retained the result.', billable: true } }
+  }, preparerHeaders);
+  assert.equal(ninetyMinuteDraft.response.status, 200, JSON.stringify(ninetyMinuteDraft.body));
+  const ninetyMinuteId = ninetyMinuteDraft.body.result.timeEntryId as string;
+  const submitNinetyMinutes = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'time.submit', payload: { timeEntryId: ninetyMinuteId, expectedVersion: 1 } }
+  }, preparerHeaders);
+  assert.equal(submitNinetyMinutes.response.status, 200, JSON.stringify(submitNinetyMinutes.body));
+  const approveNinetyMinutes = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'time.approve', payload: { timeEntryId: ninetyMinuteId, expectedVersion: 2 } }
+  }, reviewerHeaders);
+  assert.equal(approveNinetyMinutes.response.status, 200, JSON.stringify(approveNinetyMinutes.body));
+  const afterNinetyMinutes = await call(`${practicePath}?engagementId=${encodeURIComponent(engagementId)}`, { headers: preparerHeaders });
+  const approvedNinetyMinutes = afterNinetyMinutes.body.timeEntries.find((item: any) => item.id === ninetyMinuteId);
+  assert.equal(approvedNinetyMinutes?.status, 'APPROVED');
+  assert.equal(approvedNinetyMinutes?.chargeOutMinor, '30000', 'ninety minutes at QAR 200/hour prorate exactly to QAR 300');
+  const dailyLimitEntry = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'time.create', payload: {
+      engagementId, staffMemberId: preparerStaff.body.result.staffMemberId, workDate: planDate, phase: 'FIELDWORK',
+      minutes: 890, description: 'Completed assigned procedures through the full working day.', billable: true } }
+  }, preparerHeaders);
+  assert.equal(dailyLimitEntry.response.status, 200, JSON.stringify(dailyLimitEntry.body));
+  const submitDailyLimit = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'time.submit', payload: { timeEntryId: dailyLimitEntry.body.result.timeEntryId, expectedVersion: 1 } }
+  }, preparerHeaders);
+  assert.equal(submitDailyLimit.response.status, 200, JSON.stringify(submitDailyLimit.body), '420 + 90 + 890 minutes is exactly the daily limit');
+  const overflowTime = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'time.create', payload: {
+      engagementId, staffMemberId: preparerStaff.body.result.staffMemberId, workDate: planDate, phase: 'FIELDWORK',
+      minutes: 100, description: 'Attempted to record time beyond the maximum daily capacity.', billable: true } }
+  }, preparerHeaders);
+  assert.equal(overflowTime.response.status, 200, JSON.stringify(overflowTime.body));
+  const submitOverflowTime = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'time.submit', payload: { timeEntryId: overflowTime.body.result.timeEntryId, expectedVersion: 1 } }
+  }, preparerHeaders);
+  assert.equal(submitOverflowTime.response.status, 422, JSON.stringify(submitOverflowTime.body));
+  assert.equal(submitOverflowTime.body.code, 'VALIDATION_FAILED');
+  assert.match(submitOverflowTime.body.message, /1,440 minutes per person and work date/);
 
   // PRC-003: engagement budget approved against the accepted fee proposal version.
   const budgetApprove = await post(`/api/workspaces/${workspaceId}/commands`, {
@@ -3854,6 +3986,10 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
   assert.ok(profitabilityRows, 'the profitability snapshot persists against the engagement');
   const practiceData = await call(practicePath, { headers: practiceHeaders });
   assert.equal(practiceData.response.status, 200, JSON.stringify(practiceData.body));
+  assert.equal(BigInt(practiceData.body.profitability.chargeOutValueMinor), 295000n,
+    'approved Associate, Senior and Manager time is aggregated from exact pinned charge numerators');
+  assert.equal(practiceData.body.profitability.phases.reduce((sum: bigint, phase: any) => sum + BigInt(phase.chargeOutValueMinor), 0n), 295000n,
+    'residual allocation makes displayed phase totals reconcile to the once-rounded engagement total');
 
   // PRC-006: the firm trial-balance export renders from an immutable source snapshot.
   const exportRequest = await post(`/api/workspaces/${workspaceId}/commands`, {
