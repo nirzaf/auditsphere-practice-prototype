@@ -47,6 +47,7 @@ import { queueDueBusinessArchives } from './businessReporting';
 import { apiRequestMetric, outboxSnapshot, safeErrorKind, type OutboxMetricRow } from './observability';
 import { APPLICATION_SCHEMA_VERSION } from './versions';
 import { buildVerificationSupportBundle, type VerificationRunRow } from './verificationSupportBundle';
+import { ingestVerificationRun } from './verificationIngest';
 import {
   SESSION_TTL_SECONDS,
   WORKSPACE_TTL_SECONDS,
@@ -996,6 +997,7 @@ const router = createRouter()
   .get('/api/health/live', handleHealthLive)
   .get('/api/health/ready', handleHealthReady)
   .get('/api/health/support-bundle', handleSupportBundle)
+  .post('/api/internal/verification-runs', ingestVerificationRun)
   .get('/api/seeds', handleSeeds)
   .post('/api/workspaces', handleCreateWorkspace)
   .post('/api/workspaces/resume', handleResumeWorkspace)

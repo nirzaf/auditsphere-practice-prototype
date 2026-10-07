@@ -14,6 +14,11 @@ on:
         type: boolean
         required: true
         default: false
+      record_sandbox_verification:
+        description: Record this run's redacted verification metadata in the Cloudflare sandbox
+        type: boolean
+        required: true
+        default: false
 
 # Superseded PR/ref checks cancel; main runs serialize so production deploys are not interrupted.
 concurrency:
@@ -30,6 +35,8 @@ jobs:
     name: Typecheck, unit tests, browser E2E, production build
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    outputs:
+      support_bundle_written: ${{ steps.support_bundle.outputs.bundle_written }}
 
     steps:
       - uses: actions/checkout@v4
@@ -76,19 +83,55 @@ jobs:
 
       - name: Export redacted verification support bundle
         if: always()
+        id: support_bundle
         env:
           GITHUB_SHA: ${{ github.sha }}
           AUDITSPHERE_VERIFICATION_STARTED_AT: ${{ steps.verification_start.outputs.started_at }}
           AUDITSPHERE_VERIFICATION_GATES: ${{ steps.typecheck.outcome }},${{ steps.unit.outcome }},${{ steps.build.outcome }},${{ steps.browser_e2e.outcome }}
-        run: npx tsx tools/write-verification-support-bundle.ts verification-support-bundle.json
+        run: |
+          npx tsx tools/write-verification-support-bundle.ts verification-support-bundle.json
+          echo "bundle_written=true" >> "$GITHUB_OUTPUT"
 
       - name: Upload verification support bundle
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: auditsphere-verification-${{ github.run_id }}
+          name: auditsphere-verification-${{ github.run_id }}-${{ github.run_attempt }}
           path: verification-support-bundle.json
           if-no-files-found: warn
+
+  record-sandbox-verification:
+    name: Record redacted verification metadata in Cloudflare sandbox
+    needs: verify
+    if: >-
+      always() &&
+      github.ref == 'refs/heads/main' &&
+      needs.verify.outputs.support_bundle_written == 'true' &&
+      (needs.verify.result == 'success' || needs.verify.result == 'failure') &&
+      vars.AUDITSPHERE_VERIFICATION_INGEST_ENABLED == 'true' &&
+      (github.event_name == 'push' ||
+       (github.event_name == 'workflow_dispatch' && inputs.record_sandbox_verification == true))
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    environment:
+      name: cloudflare-verification-sandbox
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: auditsphere-verification-${{ github.run_id }}-${{ github.run_attempt }}
+          path: .verification-artifact
+
+      - name: Ingest verification metadata
+        env:
+          AUDITSPHERE_VERIFICATION_INGEST_URL: ${{ vars.AUDITSPHERE_VERIFICATION_INGEST_URL }}
+          AUDITSPHERE_VERIFICATION_INGEST_TOKEN: ${{ secrets.AUDITSPHERE_VERIFICATION_INGEST_TOKEN }}
+          GITHUB_RUN_ID: ${{ github.run_id }}
+          GITHUB_RUN_ATTEMPT: ${{ github.run_attempt }}
+        run: node tools/ingest-verification-run.mjs .verification-artifact/verification-support-bundle.json
 
   deploy-cloudflare:
     name: Deploy Worker and Static Assets to Cloudflare

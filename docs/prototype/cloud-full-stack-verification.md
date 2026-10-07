@@ -766,3 +766,36 @@ could not start on this Windows host because workerd was denied creation of
 `miniflare-email-store`. The Chromium suite used its isolated local Worker and
 SQLite harness. No remote D1 or production deployment was exercised. The full
 46-story epic remains open.
+
+### US-SYS-005 trusted CI verification metadata ingestion — 2026-10-07
+
+The Worker now accepts a strict, redacted verification record at
+`POST /api/internal/verification-runs` only when `ENVIRONMENT` is exactly
+`verification-sandbox` and the Worker has a dedicated ingest token and a fixed
+`VERIFICATION_INGEST_WORKSPACE_ID`. The request cannot choose its workspace,
+include files or test output, or start arbitrary commands. CI run IDs are
+idempotent; replaying identical metadata succeeds, while binding an existing
+run ID to different metadata returns `IDEMPOTENCY_MISMATCH`. Production and
+ordinary local Worker configurations return 404 for the route.
+
+The CI workflow has a separate sandbox recording job. It is restricted to
+trusted `main` pushes or an explicitly selected `record_sandbox_verification`
+workflow dispatch and remains disabled until the repository variable
+`AUDITSPHERE_VERIFICATION_INGEST_ENABLED=true` is set. The GitHub environment
+`cloudflare-verification-sandbox` supplies the HTTPS sandbox Worker origin and
+`AUDITSPHERE_VERIFICATION_INGEST_TOKEN`; the Worker-side token and fixed
+workspace ID must be configured on that isolated sandbox Worker. The job posts
+only the allowlisted metadata from the existing redacted support bundle.
+
+Local SQLite integration evidence covers disabled production/local routing,
+missing and invalid bearer tokens, strict input validation, fixed-workspace
+scope, PASSED and NOT_RUN records, idempotent replay, and conflicting retries.
+Migration 0035 aligns the application schema marker with version 35, including
+the snapshot columns added in migration 0034.
+
+**Boundary:** The sandbox Worker, CI environment, secrets, repository variable,
+and sandbox workspace are not configured or invoked from this checkout. The
+job cannot run until those isolated resources exist. This code-level
+implementation does not close US-SYS-005: Cloudflare 20-user p95 measurements,
+alert destination, and a Cloudflare D1/R2 restore remain unverified, and the
+full epic remains open.

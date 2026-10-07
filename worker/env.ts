@@ -23,6 +23,10 @@ export interface Env {
   ENVIRONMENT?: string;
   /** Enable first-time BUSINESS workspace setup only in a trusted deployment. */
   BUSINESS_SETUP_ENABLED?: string;
+  /** Enables CI metadata ingestion only on a separately configured verification sandbox Worker. */
+  VERIFICATION_INGEST_TOKEN?: string;
+  /** Fixed workspace scope for trusted CI metadata; never supplied by the caller. */
+  VERIFICATION_INGEST_WORKSPACE_ID?: string;
   /** Explicit local/test opt-in for the retired snapshot/session API. Never set in production. */
   TEST_SNAPSHOT_API_ENABLED?: string;
   /** Optional Cloudflare Worker Rate Limiting binding. */

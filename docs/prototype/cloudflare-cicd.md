@@ -1,12 +1,14 @@
 # Cloudflare CI/CD
 
 The `CI` workflow verifies the app and Worker before the deployment job can
-run. A successful push to `main` deploys the exact verified commit to the
-existing Wrangler target: the Worker API, Vite Static Assets, D1/R2 bindings,
+run. When `CLOUDFLARE_DEPLOY_ENABLED=true`, a successful push to `main` deploys
+the exact verified commit to the existing Wrangler target: the Worker API,
+Vite Static Assets, D1/R2 bindings,
 and configured cron trigger. The protected production job applies pending D1
 migrations, deploys the Worker, and requires `/api/health/ready` to pass.
-Production deployment is disabled until the repository variable
-`CLOUDFLARE_DEPLOY_ENABLED` is set to `true`.
+The production switch is currently enabled; therefore a push to `main` can
+apply migrations and deploy to Cloudflare production. The GitHub production
+environment currently has no required reviewer protection rule.
 
 This profile intentionally has no user authentication: persona selection is
 self-asserted. The deployment workflow adds no access boundary, so use only
@@ -15,21 +17,19 @@ synthetic data unless a trusted access environment is separately provided.
 ## GitHub setup
 
 The `cloudflare-production` environment is configured with a deployment branch
-policy that allows only `main`. Its `CLOUDFLARE_ACCOUNT_ID` and
-`CLOUDFLARE_API_TOKEN` secrets are configured. The deploy switch remains unset
-while the required production reviewer is selected and added to the environment.
-The current environment has no reviewer protection rule.
+policy that allows only `main`. It must contain the `CLOUDFLARE_ACCOUNT_ID` and
+`CLOUDFLARE_API_TOKEN` secrets. Verify that the required production reviewer
+protection is in place before enabling or using production deployment.
 
 1. Confirm the existing `cloudflare-production` environment remains restricted
-   to the `main` branch. Add the team's required production reviewer(s) before
-   enabling deployment.
+   to the `main` branch and has the team's required production reviewer(s).
 2. Confirm the environment secrets `CLOUDFLARE_ACCOUNT_ID` and
    `CLOUDFLARE_API_TOKEN` are present. The account-owned API token needs Workers
    Editor access scoped to the existing Worker and D1 Edit access scoped to
    `steaudit-prototype-demo`, so CI can deploy and apply migrations.
 3. Add the team's required production reviewer(s) to the environment.
-4. Create the repository Actions variable `CLOUDFLARE_DEPLOY_ENABLED` with the
-   value `true` after the environment and secrets are ready.
+4. The current `CLOUDFLARE_DEPLOY_ENABLED` value is `true`. Before a main push,
+   confirm production reviewers and inspect the full pending migration set.
 
 Do not grant Workers Routes Write unless a later deployment adds or changes a
 zone route or custom domain. Do not put the token in source control or print it
@@ -49,3 +49,27 @@ If the enable variable is unset or false, the deploy job is skipped. If it is
 enabled before the environment secrets are configured, the deploy job fails
 with the missing secret name and does not invoke Wrangler. If migration,
 deployment, or readiness fails, the job fails and reports the failing step.
+
+## Verification sandbox ingestion
+
+The workflow can record the redacted CI verification summary in a dedicated
+Cloudflare sandbox. This path never invokes Wrangler or a deployment API and is
+independent of the production deploy job. Configure a separate Worker, D1
+database, R2 bucket and BUSINESS workspace for the sandbox; do not point it at
+the production bindings. Set its Worker variables/secrets as described in the
+Cloud full-stack runbook, then add the GitHub environment
+`cloudflare-verification-sandbox` with:
+
+* Variable `AUDITSPHERE_VERIFICATION_INGEST_URL`, set to the sandbox Worker
+  `workers.dev` origin.
+* Secret `AUDITSPHERE_VERIFICATION_INGEST_TOKEN`, matching the sandbox Worker
+  secret `VERIFICATION_INGEST_TOKEN`.
+* Repository variable `AUDITSPHERE_VERIFICATION_INGEST_ENABLED=true` only after
+  the sandbox Worker and workspace have been verified.
+
+Main-branch pushes then write only the commit, schema version, CI timestamps,
+status and workflow run identity. The job is disabled until the repository
+variable is enabled; manual runs additionally require selecting
+`record_sandbox_verification`. The endpoint rejects production/local Worker
+configurations, non-CI metadata, caller-selected workspaces and conflicting
+run-ID replays.

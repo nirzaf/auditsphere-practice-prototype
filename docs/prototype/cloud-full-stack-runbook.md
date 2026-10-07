@@ -107,9 +107,19 @@ The CI artifact marks runtime readiness as `not_checked`; a green test job does
 not imply that a deployed runtime was inspected.
 The D1 `verification_runs` table can retain workspace-scoped run metadata and
 an optional same-workspace result-file reference; completed rows are immutable.
-The current CI workflow exports run metadata as a GitHub artifact and does not
-write it into application D1. The download endpoint therefore reports only
-records already present in D1.
+Trusted CI metadata can be recorded in a separately deployed verification
+sandbox. The `record-sandbox-verification` job requires the repository variable
+`AUDITSPHERE_VERIFICATION_INGEST_ENABLED=true`, the GitHub environment
+`cloudflare-verification-sandbox`, and its HTTPS Worker origin and ingest-token
+secret. The Worker must set `ENVIRONMENT=verification-sandbox`, a secret
+`VERIFICATION_INGEST_TOKEN`, and a fixed
+`VERIFICATION_INGEST_WORKSPACE_ID`; its D1 and R2 bindings must point to
+separately provisioned sandbox resources. The write endpoint accepts only
+allowlisted CI metadata and uses the configured workspace, not a caller-chosen
+workspace. Do not reuse production D1/R2 or the production Cloudflare API token
+for this setup. Until those sandbox resources and GitHub settings are
+provisioned, CI only uploads the GitHub verification artifact and the support
+bundle reports records already present in D1.
 
 ## Backup, restore and file integrity
 
