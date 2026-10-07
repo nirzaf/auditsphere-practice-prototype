@@ -223,8 +223,11 @@ export function BusinessWorkspaceConsole() {
   const [pendingAssignment, setPendingAssignment] = useState<PendingStaffAssignment | null>(null);
   const pendingCreate = useRef<{ idempotencyKey: string; naturalPersonKey: string; displayName: string; email: string; grade: StaffGrade } | null>(null);
   const [clients, setClients] = useState<BusinessClientSummary[]>([]);
+  const [clientCursor, setClientCursor] = useState<string | null>(null);
   const [clientDetail, setClientDetail] = useState<BusinessClientDetail | null>(null);
   const [leads, setLeads] = useState<BusinessLead[]>([]);
+  const [leadCursor, setLeadCursor] = useState<string | null>(null);
+  const [loadingMore, setLoadingMore] = useState<'clients' | 'leads' | null>(null);
   const [standardsProfiles, setStandardsProfiles] = useState<BusinessStandardsProfile[]>([]);
   const [proposalWorkspace, setProposalWorkspace] = useState<BusinessProposalWorkspace | null>(null);
   const [proposalEngagementId, setProposalEngagementId] = useState('');
@@ -359,8 +362,10 @@ export function BusinessWorkspaceConsole() {
   useEffect(() => {
     if (!preference?.workspaceId || !preference.actorId || !context || context.actor.id !== preference.actorId) {
       setClients([]);
+      setClientCursor(null);
       setClientDetail(null);
       setLeads([]);
+      setLeadCursor(null);
       setStandardsProfiles([]);
       return;
     }
@@ -370,11 +375,11 @@ export function BusinessWorkspaceConsole() {
     const positions: Array<'clients' | 'leads' | 'standards'> = [];
     if (context.allowedActions.includes('client.read')) {
       positions.push('clients');
-      work.push(getBusinessClients(preference.workspaceId, preference, controller.signal));
+      work.push(getBusinessClients(preference.workspaceId, preference, { signal: controller.signal }));
     }
     if (context.allowedActions.includes('lead.read')) {
       positions.push('leads');
-      work.push(getBusinessLeads(preference.workspaceId, preference, controller.signal));
+      work.push(getBusinessLeads(preference.workspaceId, preference, { signal: controller.signal }));
     }
     if (context.allowedActions.includes('standards.read')) {
       positions.push('standards');
@@ -383,8 +388,14 @@ export function BusinessWorkspaceConsole() {
     Promise.all(work).then(results => {
       if (controller.signal.aborted) return;
       results.forEach((result, index) => {
-        if (positions[index] === 'clients') setClients((result as { items: BusinessClientSummary[] }).items);
-        if (positions[index] === 'leads') setLeads((result as { items: BusinessLead[] }).items);
+        if (positions[index] === 'clients') {
+          const page = result as { items: BusinessClientSummary[]; nextCursor: string | null };
+          setClients(page.items); setClientCursor(page.nextCursor ?? null);
+        }
+        if (positions[index] === 'leads') {
+          const page = result as { items: BusinessLead[]; nextCursor: string | null };
+          setLeads(page.items); setLeadCursor(page.nextCursor ?? null);
+        }
         if (positions[index] === 'standards') setStandardsProfiles(result as BusinessStandardsProfile[]);
       });
     }).catch(reason => {
@@ -645,6 +656,30 @@ export function BusinessWorkspaceConsole() {
       version: 1, workspaceId: preference.workspaceId, actorId: preference.actorId, persona: preference.persona,
       ...(clientId ? { clientId } : {})
     });
+  };
+
+  const loadMoreClients = async () => {
+    if (!preference?.workspaceId || !preference.actorId || !preference.persona || !clientCursor || loadingMore) return;
+    setLoadingMore('clients');
+    try {
+      const page = await getBusinessClients(preference.workspaceId, preference, { cursor: clientCursor });
+      setClients(current => [...current, ...page.items]);
+      setClientCursor(page.nextCursor ?? null);
+    } catch (reason) {
+      setRecordError(reason instanceof Error ? reason.message : 'More clients could not be loaded. Retry.');
+    } finally { setLoadingMore(null); }
+  };
+
+  const loadMoreLeads = async () => {
+    if (!preference?.workspaceId || !preference.actorId || !preference.persona || !leadCursor || loadingMore) return;
+    setLoadingMore('leads');
+    try {
+      const page = await getBusinessLeads(preference.workspaceId, preference, { cursor: leadCursor });
+      setLeads(current => [...current, ...page.items]);
+      setLeadCursor(page.nextCursor ?? null);
+    } catch (reason) {
+      setRecordError(reason instanceof Error ? reason.message : 'More leads could not be loaded. Retry.');
+    } finally { setLoadingMore(null); }
   };
 
   const createClient = async (event: React.FormEvent<HTMLFormElement>) => {
@@ -1154,6 +1189,7 @@ export function BusinessWorkspaceConsole() {
 
         {context?.allowedActions.includes('client.read') && <section className="business-directory-card" aria-labelledby="business-clients-heading">
           <div className="business-section-heading"><div><p className="business-eyebrow">COMMERCIAL · US-ENG-001</p><h2 id="business-clients-heading">Client registry</h2></div><span className="business-count">{clients.length} loaded</span></div>
+          {clientCursor && <div className="business-pagination-controls"><span className="business-muted" role="status">Showing the first {clients.length} clients; more records are available.</span><button type="button" className="btn sm" disabled={loadingMore !== null} onClick={() => void loadMoreClients()}>{loadingMore === 'clients' ? 'Loading…' : 'Load more clients'}</button></div>}
           {clients.length ? <ul className="business-client-list" aria-label="Workspace clients">{clients.map(client => <li key={client.id}>
             <button type="button" className={preference?.clientId === client.id ? 'business-client-choice selected' : 'business-client-choice'} onClick={() => selectClientContext(client.id)}>
               <strong>{client.legalName}</strong><span>{client.code ?? client.id.slice(0, 8)} · {client.entityType ?? 'CLIENT'}</span>
@@ -1228,6 +1264,7 @@ export function BusinessWorkspaceConsole() {
 
         {context?.allowedActions.includes('lead.read') && <section className="business-directory-card" aria-labelledby="business-leads-heading">
           <div className="business-section-heading"><div><p className="business-eyebrow">COMMERCIAL · US-ENG-002</p><h2 id="business-leads-heading">Lead pipeline</h2></div><span className="business-count">{leads.length} loaded</span></div>
+          {leadCursor && <div className="business-pagination-controls"><span className="business-muted" role="status">Showing the first {leads.length} leads; more records are available.</span><button type="button" className="btn sm" disabled={loadingMore !== null} onClick={() => void loadMoreLeads()}>{loadingMore === 'leads' ? 'Loading…' : 'Load more leads'}</button></div>}
           {context.allowedActions.includes('lead.manage') && <form className="business-form business-commercial-form" onSubmit={createLead}>
             <h3>Record an inquiry</h3>
             <div className="business-form-grid">

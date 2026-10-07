@@ -392,3 +392,18 @@
   .business-fieldwork-pagination { justify-content: space-between; }
   .business-report-preview-frame { min-height: 62vh; }
 }
+
+.business-pagination-controls { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; margin: 4px 0 2px; }
+.business-pagination-controls button { min-height: 44px; }
+
+.business-capacity-calendar { margin: 10px 0 16px; }
+.business-capacity-calendar h3 { margin: 0 0 6px; color: var(--ink); }
+.business-capacity-scroll { overflow-x: auto; border: 1px solid var(--line); border-radius: 8px; }
+.business-capacity-calendar table { border-collapse: collapse; width: 100%; font-size: 12px; }
+.business-capacity-calendar caption { text-align: left; padding: 6px 8px; }
+.business-capacity-calendar th, .business-capacity-calendar td { border: 1px solid var(--line); padding: 4px 7px; text-align: left; white-space: nowrap; }
+.business-capacity-calendar td[data-status='OVERBOOKED'] { color: #b91c1c; font-weight: 700; }
+.business-capacity-calendar td[data-status='EXCEPTION_APPROVED'] { color: #b45309; }
+.business-capacity-calendar td[data-status='MISSING_CAPACITY'], .business-capacity-calendar td[data-status='NONE'] { color: var(--muted); font-style: italic; }
+
+

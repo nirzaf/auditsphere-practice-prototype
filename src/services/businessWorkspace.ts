@@ -245,9 +245,11 @@ export async function getBusinessWorkflowProgress(
 export async function getBusinessClients(
   workspaceId: string,
   selected: BusinessWorkspacePreference,
-  signal?: AbortSignal
+  options: { cursor?: string | null; limit?: number; signal?: AbortSignal } = {}
 ): Promise<{ items: BusinessClientSummary[]; nextCursor: string | null }> {
-  return requestJson(`/api/workspaces/${encodeURIComponent(workspaceId)}/clients?limit=100`, { context: selected, signal });
+  const query = new URLSearchParams({ limit: String(options.limit ?? 100) });
+  if (options.cursor) query.set('cursor', options.cursor);
+  return requestJson(`/api/workspaces/${encodeURIComponent(workspaceId)}/clients?${query}`, { context: selected, signal: options.signal });
 }
 
 export async function getBusinessClient(
@@ -262,9 +264,11 @@ export async function getBusinessClient(
 export async function getBusinessLeads(
   workspaceId: string,
   selected: BusinessWorkspacePreference,
-  signal?: AbortSignal
+  options: { cursor?: string | null; limit?: number; signal?: AbortSignal } = {}
 ): Promise<{ items: BusinessLead[]; nextCursor: string | null }> {
-  return requestJson(`/api/workspaces/${encodeURIComponent(workspaceId)}/leads?limit=100`, { context: selected, signal });
+  const query = new URLSearchParams({ limit: String(options.limit ?? 100) });
+  if (options.cursor) query.set('cursor', options.cursor);
+  return requestJson(`/api/workspaces/${encodeURIComponent(workspaceId)}/leads?${query}`, { context: selected, signal: options.signal });
 }
 
 export async function getBusinessStandardsProfiles(

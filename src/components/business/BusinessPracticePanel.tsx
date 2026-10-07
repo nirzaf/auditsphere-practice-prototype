@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import type { BusinessContextResponse, BusinessEngagementOption, BusinessFileMetadata, BusinessWorkspacePreference } from '../../shared/api/business';
 import { downloadBusinessFileVersion, getBusinessPracticeWorkspace, newBusinessIdempotencyKey, runBusinessCommand } from '../../services/businessWorkspace';
+import { expenseAccountCodeForCategory, type FirmExpenseCategory } from '../../services/practiceAccounts';
 import { StatusBadge } from '../common/StatusBadge';
 
 type Account = { id: string; code: string; name: string; accountType: string; normalSide: string; postingAllowed: number | boolean; active: number | boolean; controlType: string };
@@ -85,7 +86,9 @@ export function BusinessPracticePanel({ workspaceId, selected, context, engageme
   const [expenseAmount, setExpenseAmount] = useState('');
   const [expenseSupport, setExpenseSupport] = useState('');
   const [expenseReason, setExpenseReason] = useState('');
-  const [expenseCategory, setExpenseCategory] = useState('OVERHEAD');
+  const [expenseCategory, setExpenseCategory] = useState<FirmExpenseCategory>('OVERHEAD');
+  const [expenseDate, setExpenseDate] = useState(today);
+  const [expenseDebitAccountId, setExpenseDebitAccountId] = useState('');
   const [expensePaymentMethod, setExpensePaymentMethod] = useState<'BANK' | 'CASH' | 'PAYABLE'>('BANK');
   const [expenseSettlementAccountId, setExpenseSettlementAccountId] = useState('');
   const [missingSupportReason, setMissingSupportReason] = useState('');
@@ -160,14 +163,17 @@ export function BusinessPracticePanel({ workspaceId, selected, context, engageme
   };
   const createExpense = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    const debit = data?.accounts.find(account => account.code === '5200') ?? data?.accounts.find(account => account.accountType === 'EXPENSE');
+    const targetCode = expenseAccountCodeForCategory(expenseCategory);
+    const debit = (expenseDebitAccountId ? data?.accounts.find(account => account.id === expenseDebitAccountId && account.accountType === 'EXPENSE') : undefined)
+      ?? data?.accounts.find(account => account.code === targetCode && account.accountType === 'EXPENSE')
+      ?? data?.accounts.find(account => account.accountType === 'EXPENSE');
     const expectedControl = expensePaymentMethod === 'BANK' ? 'BANK' : expensePaymentMethod === 'CASH' ? 'CASH' : 'AP';
     const settlement = data?.accounts.find(account => account.id === expenseSettlementAccountId && account.controlType === expectedControl)
       ?? data?.accounts.find(account => account.controlType === expectedControl);
     if (!debit || !settlement) { setError(`Configure an expense account and ${expectedControl} control account before recording an expense.`); return; }
     if (!expenseSupport && missingSupportReason.trim().length < 10) { setError('Explain why voucher support is missing; a generic exception is not accepted.'); return; }
     try {
-      const payload: Record<string, unknown> = { date: today, payee: expensePayee, category: expenseCategory, amountMinor: qatarMinor(expenseAmount), description: expenseReason || `Operating expense paid to ${expensePayee}`,
+      const payload: Record<string, unknown> = { date: expenseDate, payee: expensePayee, category: expenseCategory, amountMinor: qatarMinor(expenseAmount), description: expenseReason || `Operating expense paid to ${expensePayee}`,
         debitAccountId: debit.id, settlementAccountId: settlement.id, paymentMethod: expensePaymentMethod, ...(expenseSupport ? { supportingFileId: expenseSupport } : { missingSupportReason }) };
       if (await perform('expense.create', payload, 'Expense saved as a draft for independent review.')) { setExpensePayee(''); setExpenseAmount(''); setExpenseSupport(''); setExpenseReason(''); setMissingSupportReason(''); }
     } catch (reason) { setError(reason instanceof Error ? reason.message : 'Enter a valid QAR amount.'); }
@@ -415,7 +421,8 @@ export function BusinessPracticePanel({ workspaceId, selected, context, engageme
           <h3>Record an operating expense</h3>
           <label className="business-field"><span>Payee</span><input required maxLength={300} value={expensePayee} onChange={event => setExpensePayee(event.target.value)} /></label>
           <label className="business-field"><span>Amount (QAR)</span><input required inputMode="decimal" value={expenseAmount} onChange={event => setExpenseAmount(event.target.value)} /></label>
-          <div className="business-form-grid"><label className="business-field"><span>Expense category</span><select value={expenseCategory} onChange={event => setExpenseCategory(event.target.value)}>{['RENT', 'SALARIES_BENEFITS', 'OVERHEAD', 'PETTY_CASH', 'OTHER'].map(item => <option key={item} value={item}>{item.replaceAll('_', ' ')}</option>)}</select></label>
+          <div className="business-form-grid"><label className="business-field"><span>Accounting date</span><input type="date" required value={expenseDate} onChange={event => setExpenseDate(event.target.value)} /></label><label className="business-field"><span>Expense category</span><select value={expenseCategory} onChange={event => setExpenseCategory(event.target.value as FirmExpenseCategory)}>{['RENT', 'SALARIES_BENEFITS', 'OVERHEAD', 'PETTY_CASH', 'OTHER'].map(item => <option key={item} value={item}>{item.replaceAll('_', ' ')}</option>)}</select></label>
+            <label className="business-field"><span>Debit expense account</span><select value={expenseDebitAccountId} onChange={event => setExpenseDebitAccountId(event.target.value)}><option value="">Category default · {expenseAccountCodeForCategory(expenseCategory)}</option>{accountOptions.filter(account => account.accountType === 'EXPENSE').map(account => <option key={account.id} value={account.id}>{account.code} · {account.name}</option>)}</select></label>
             <label className="business-field"><span>Settlement method</span><select value={expensePaymentMethod} onChange={event => { const method = event.target.value as typeof expensePaymentMethod; setExpensePaymentMethod(method); setExpenseSettlementAccountId(''); }}><option value="BANK">Bank paid</option><option value="CASH">Cash paid</option><option value="PAYABLE">Record payable</option></select></label>
             <label className="business-field"><span>Settlement account</span><select required value={expenseSettlementAccountId || (data.accounts.find(account => account.controlType === (expensePaymentMethod === 'BANK' ? 'BANK' : expensePaymentMethod === 'CASH' ? 'CASH' : 'AP'))?.id ?? '')} onChange={event => setExpenseSettlementAccountId(event.target.value)}><option value="">Choose control account</option>{accountOptions.filter(account => account.controlType === (expensePaymentMethod === 'BANK' ? 'BANK' : expensePaymentMethod === 'CASH' ? 'CASH' : 'AP')).map(account => <option key={account.id} value={account.id}>{account.code} · {account.name}</option>)}</select></label></div>
           <label className="business-field"><span>Supporting receipt</span><select value={expenseSupport} onChange={event => setExpenseSupport(event.target.value)}><option value="">No committed voucher</option>{committedEvidence.map(file => <option key={file.id} value={file.id}>{file.originalName}</option>)}</select></label>

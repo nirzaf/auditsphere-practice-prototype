@@ -28,6 +28,7 @@ export function BusinessPlanningPanel({
     [selected.actorId, selected.persona, selected.clientId, engagement.clientId, engagement.id]);
   const today = new Date().toISOString().slice(0, 10);
   const [capacityDate, setCapacityDate] = useState(today);
+  const [capacityRangeEnd, setCapacityRangeEnd] = useState(today);
   const [workspace, setWorkspace] = useState<BusinessPlanningWorkspace | null>(null);
   const [capacity, setCapacity] = useState<BusinessCapacity | null>(null);
   const [loadedScope, setLoadedScope] = useState('');
@@ -56,6 +57,18 @@ export function BusinessPlanningPanel({
   const scopeKey = [workspaceId, context.actor.id, context.actor.persona, context.actor.clientId ?? scope.clientId, engagement.id].join('|');
   const data = loadedScope === scopeKey ? workspace : null;
   const staff = data?.staff ?? [];
+  const capacityGrid = useMemo(() => {
+    const dates: string[] = [];
+    const byStaff = new Map<string, Map<string, BusinessCapacity['staffDays'][number]>>();
+    for (const day of capacity?.staffDays ?? []) {
+      if (!dates.includes(day.workDate)) dates.push(day.workDate);
+      const row = byStaff.get(day.staffMemberId) ?? new Map<string, BusinessCapacity['staffDays'][number]>();
+      row.set(day.workDate, day);
+      byStaff.set(day.staffMemberId, row);
+    }
+    dates.sort();
+    return { dates, byStaff };
+  }, [capacity]);
   const selectedStaff = staff.find(item => item.id === staffMemberId) ?? staff[0];
   const selectedCapacity = capacity?.staffDays.find(day => day.staffMemberId === selectedStaff?.id && day.workDate === availabilityDate);
   const isPartner = context.actor.persona === 'APPROVER' && context.actor.staffGrade === 'PARTNER';
@@ -69,7 +82,7 @@ export function BusinessPlanningPanel({
     setLoadedScope('');
     Promise.all([
       getBusinessPlanningWorkspace(workspaceId, engagement.id, scope, controller.signal),
-      getBusinessCapacity(workspaceId, scope, capacityDate, capacityDate, controller.signal)
+      getBusinessCapacity(workspaceId, scope, capacityDate, capacityRangeEnd < capacityDate ? capacityDate : capacityRangeEnd, controller.signal)
     ]).then(([plan, days]) => {
       if (controller.signal.aborted) return;
       setWorkspace(plan);
@@ -80,7 +93,7 @@ export function BusinessPlanningPanel({
       if (!controller.signal.aborted) setError(reason instanceof Error ? reason.message : 'Planning records could not be loaded.');
     }).finally(() => { if (!controller.signal.aborted) setLoading(false); });
     return () => controller.abort();
-  }, [workspaceId, engagement.id, scope.actorId, scope.persona, scope.clientId, scope.engagementId, capacityDate, refresh, scopeKey]);
+  }, [workspaceId, engagement.id, scope.actorId, scope.persona, scope.clientId, scope.engagementId, capacityDate, capacityRangeEnd, refresh, scopeKey]);
 
   async function command(type: string, payload: Record<string, unknown>, success: string) {
     setBusy(true); setError(''); setMessage('');
@@ -149,6 +162,7 @@ export function BusinessPlanningPanel({
         <label className="business-field" htmlFor="business-planning-staff"><span>Staff member</span><select id="business-planning-staff" value={selectedStaff?.id ?? ''} onChange={event => setStaffMemberId(event.target.value)}>
           {staff.map(person => <option key={person.id} value={person.id}>{person.displayName} · {person.grade}</option>)}
         </select></label>
+        <label className="business-field" htmlFor="business-planning-capacity-end"><span>Range end date</span><input id="business-planning-capacity-end" type="date" value={capacityRangeEnd} onChange={event => setCapacityRangeEnd(event.target.value)} /></label>
       </div>
 
       {context.allowedActions.includes('staffing.manage') && <form className="business-form business-commercial-form" onSubmit={setAvailability}>
@@ -158,6 +172,30 @@ export function BusinessPlanningPanel({
           <div className="business-field" aria-live="polite"><span>Current day</span><strong>{selectedCapacity ? `${selectedCapacity.availableMinutes ?? 0} available · ${selectedCapacity.assignedMinutes} assigned` : 'No schedule recorded'}</strong></div></div>
         <button className="btn sm" type="submit" disabled={busy || !selectedStaff}>{busy ? 'Saving…' : 'Save working schedule'}</button>
       </form>}
+
+      {capacity && capacity.staffDays.length > 0 && <section className="business-capacity-calendar" aria-label="Capacity calendar">
+        <h3>Capacity calendar · {capacity.from} to {capacity.to}</h3>
+        <div className="business-capacity-scroll">
+          <table>
+            <caption className="business-muted">Each cell shows available / assigned minutes for the working day. Colour and title show the capacity status.</caption>
+            <thead><tr><th scope="col">Staff</th>{capacityGrid.dates.map(date => <th scope="col" key={date}>{date}</th>)}</tr></thead>
+            <tbody>
+              {[...capacityGrid.byStaff.entries()].map(([memberId, days]) => {
+                const sample = capacity.staffDays.find(day => day.staffMemberId === memberId)!;
+                return <tr key={memberId}>
+                  <th scope="row">{sample.displayName} · {sample.grade}</th>
+                  {capacityGrid.dates.map(date => {
+                    const day = days.get(date);
+                    if (!day) return <td key={date} data-status="NONE">—</td>;
+                    const label = `${day.availableMinutes ?? 0} / ${day.assignedMinutes}${day.approvedLeaveMinutes ? ` · leave ${day.approvedLeaveMinutes}` : ''}`;
+                    return <td key={date} data-status={day.capacityStatus} title={day.capacityStatus.replaceAll('_', ' ')}>{label}</td>;
+                  })}
+                </tr>;
+              })}
+            </tbody>
+          </table>
+        </div>
+      </section>}
 
       <form className="business-form business-commercial-form" onSubmit={assignStaff}>
         <h3>Assign a staff member to this engagement</h3>
