@@ -208,8 +208,10 @@ async function createFieldworkFixture() {
 }
 
 async function selectWorkspace(tab: CdpTab, fixture: Awaited<ReturnType<typeof createFieldworkFixture>>, actorId: string): Promise<void> {
-  await tab.evaluate(`localStorage.removeItem('auditsphere.business-context.v1')`);
   await tab.command('Page.navigate', { url: server!.origin });
+  await waitFor(tab, 'the isolated local BUSINESS app origin', `location.origin === ${JSON.stringify(new URL(server!.origin).origin)}`);
+  await tab.evaluate(`localStorage.removeItem('auditsphere.business-context.v1')`);
+  await tab.command('Page.reload');
   await waitFor(tab, 'the isolated local BUSINESS landing page', `document.querySelector('#production-workspace-heading')?.textContent?.trim() === 'Open your business workspace'`);
   const preference = { version: 1, workspaceId: fixture.workspaceId, actorId, persona: 'APPROVER', clientId: fixture.clientId, engagementId: fixture.engagementId };
   await tab.evaluate(`localStorage.setItem('auditsphere.business-context.v1', ${JSON.stringify(JSON.stringify(preference))})`);

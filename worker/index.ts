@@ -94,7 +94,7 @@ import { getBusinessCapacity, getBusinessPlanningWorkspace, listBusinessEngageme
 import { getBusinessPlanningReadiness, getBusinessTrialBalanceImport, getBusinessTrialBalancePreview, getBusinessTrialBalanceWorkspace } from './businessTb';
 import { getBusinessFinancialStatements, getBusinessFsliSourceLines, getBusinessFieldworkWorkspace, getBusinessSamplingPlan, getBusinessSamplingPopulation, getBusinessFieldworkChanges } from './businessFieldwork';
 import { getBusinessPracticeWorkspace } from './businessPractice';
-import { getBusinessOpinionPreview, getBusinessReleasedReportProvenance, getBusinessReportingWorkspace } from './businessReportingQuery';
+import { getBusinessArchiveExport, getBusinessArchiveStatus, getBusinessOpinionPreview, getBusinessReleasedReportProvenance, getBusinessReportingWorkspace } from './businessReportingQuery';
 import { getBusinessWorkflow } from './businessWorkflow';
 
 const JSON_BODY_LIMIT = 1_000_000;
@@ -438,6 +438,31 @@ const handleBusinessReportingWorkspace = async (ctx: RouteContext): Promise<Resp
   const context = await resolveBusinessContext(ctx.env, ctx.params.workspaceId, ctx.request);
   const result = await getBusinessReportingWorkspace(ctx.env, ctx.params.workspaceId, context, ctx.params.engagementId);
   return jsonResponse(result, 200, ctx.requestId);
+};
+
+const handleBusinessArchiveStatus = async (ctx: RouteContext): Promise<Response> => {
+  const context = await resolveBusinessContext(ctx.env, ctx.params.workspaceId, ctx.request);
+  const result = await getBusinessArchiveStatus(ctx.env, ctx.params.workspaceId, context, ctx.params.engagementId);
+  return jsonResponse(result, 200, ctx.requestId);
+};
+
+const handleBusinessArchiveExport = async (ctx: RouteContext): Promise<Response> => {
+  const context = await resolveBusinessContext(ctx.env, ctx.params.workspaceId, ctx.request);
+  const requestedPart = ctx.url.searchParams.get('part') ?? 'archive';
+  if (requestedPart !== 'archive' && requestedPart !== 'manifest') {
+    throw new ApiError('BAD_REQUEST', 'Choose archive or manifest as the export part.');
+  }
+  const result = await getBusinessArchiveExport(ctx.env, ctx.params.workspaceId, context, ctx.params.engagementId, requestedPart);
+  return new Response(result.bytes, { headers: {
+    'Content-Type': result.contentType,
+    'Content-Disposition': `attachment; filename="${result.fileName}"`,
+    'Cache-Control': 'no-store',
+    'X-Content-Type-Options': 'nosniff',
+    'X-Archive-SHA256': result.archiveSha256,
+    'X-Archive-Manifest-SHA256': result.manifestSha256,
+    'X-Request-Id': ctx.requestId,
+    'Referrer-Policy': 'no-referrer'
+  } });
 };
 
 const handleBusinessOpinionPreview = async (ctx: RouteContext): Promise<Response> => {
@@ -954,6 +979,8 @@ const router = createRouter()
   .get('/api/workspaces/:workspaceId/capacity', handleBusinessCapacity)
   .get('/api/workspaces/:workspaceId/practice', handleBusinessPracticeWorkspace)
   .get('/api/workspaces/:workspaceId/engagements/:engagementId/reporting-workspace', handleBusinessReportingWorkspace)
+  .get('/api/workspaces/:workspaceId/engagements/:engagementId/archive-status', handleBusinessArchiveStatus)
+  .get('/api/workspaces/:workspaceId/engagements/:engagementId/archive/export', handleBusinessArchiveExport)
   .get('/api/workspaces/:workspaceId/engagements/:engagementId/opinion-preview', handleBusinessOpinionPreview)
   .get('/api/workspaces/:workspaceId/engagements/:engagementId/released-report/provenance', handleBusinessReleasedReportProvenance)
   .get('/api/workspaces/:workspaceId/pbc-engagements', handleBusinessPbcEngagements)

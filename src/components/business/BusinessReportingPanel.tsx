@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import type { BusinessContextResponse, BusinessEngagementOption, BusinessFileMetadata, BusinessWorkspacePreference } from '../../shared/api/business';
-import { completeBusinessFile, downloadBusinessFileVersion, getBusinessOpinionPreview, getBusinessReportingWorkspace, initializeBusinessFile,
+import { completeBusinessFile, downloadBusinessArchiveExport, downloadBusinessFileVersion, getBusinessArchiveStatus, getBusinessOpinionPreview, getBusinessReportingWorkspace, initializeBusinessFile,
   getBusinessReleasedReportProvenance, newBusinessIdempotencyKey, runBusinessCommand, uploadBusinessFile } from '../../services/businessWorkspace';
 
 type ReportRow = Record<string, unknown>;
@@ -19,6 +19,9 @@ type ReportingWorkspace = {
   representationReturns?: ReportRow[];
   bundleCandidates?: ReportRow[];
   releasedBundles?: ReportRow[];
+  bundleDeliveries?: ReportRow[];
+  bundleDispatches?: ReportRow[];
+  portalAcknowledgements?: ReportRow[];
   retentionPolicies?: ReportRow[];
   archive?: ReportRow;
   findings?: ReportRow[];
@@ -82,6 +85,8 @@ async function digest(blob: Blob): Promise<string> {
 export function BusinessReportingPanel({ workspaceId, selected, context, engagement, files, onChanged }: Props) {
   const today = qatarDate();
   const [data, setData] = useState<ReportingWorkspace | null>(null);
+  const [archiveStatus, setArchiveStatus] = useState<ReportRow | null>(null);
+  const [archiveStatusError, setArchiveStatusError] = useState('');
   const [refresh, setRefresh] = useState(0);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -146,6 +151,10 @@ export function BusinessReportingPanel({ workspaceId, selected, context, engagem
   const [archiveNote, setArchiveNote] = useState('Index and cross-reference the completed report release records for administrative assembly.');
   const [archiveRecordType, setArchiveRecordType] = useState('DELIVERABLE_BUNDLE');
   const [archiveRecordId, setArchiveRecordId] = useState('');
+  const [deliveryBundleId, setDeliveryBundleId] = useState('');
+  const [deliveryMethod, setDeliveryMethod] = useState<'EMAIL'|'PORTAL_ACKNOWLEDGEMENT'|'RECORDED_HANDOVER'>('EMAIL');
+  const [deliveryDispatchId, setDeliveryDispatchId] = useState('');
+  const [deliveryEvidenceFileId, setDeliveryEvidenceFileId] = useState('');
   const [confirmedConsentCandidateIds, setConfirmedConsentCandidateIds] = useState<string[]>([]);
 
   useEffect(() => {
@@ -154,6 +163,15 @@ export function BusinessReportingPanel({ workspaceId, selected, context, engagem
     getBusinessReportingWorkspace(workspaceId, engagement.id, selected, controller.signal)
       .then(result => { if (!controller.signal.aborted) { setData(result as ReportingWorkspace); setError(''); } })
       .catch(reason => { if (!controller.signal.aborted) setError(reason instanceof Error ? reason.message : 'Reporting records could not be loaded.'); });
+    return () => controller.abort();
+  }, [workspaceId, engagement.id, selected.actorId, selected.persona, selected.clientId, selected.engagementId, refresh]);
+
+  useEffect(() => {
+    if (!selected.actorId || !selected.persona) return;
+    const controller = new AbortController();
+    getBusinessArchiveStatus(workspaceId, engagement.id, selected, controller.signal)
+      .then(result => { if (!controller.signal.aborted) { setArchiveStatus(result); setArchiveStatusError(''); } })
+      .catch(reason => { if (!controller.signal.aborted) setArchiveStatusError(reason instanceof Error ? reason.message : 'Archive status could not be loaded.'); });
     return () => controller.abort();
   }, [workspaceId, engagement.id, selected.actorId, selected.persona, selected.clientId, selected.engagementId, refresh]);
 
@@ -197,6 +215,19 @@ export function BusinessReportingPanel({ workspaceId, selected, context, engagem
     finally { setDownloading(''); }
   };
 
+  const downloadArchiveExport = async (part: 'archive' | 'manifest') => {
+    const archiveSha256 = rowText(data?.archive, 'archiveSha256');
+    const manifestSha256 = rowText(data?.archive, 'manifestSha256');
+    if (!archiveSha256 || !manifestSha256) { setError('A sealed archive with both recorded hashes is required.'); return; }
+    setDownloading(`archive-${part}`); setError('');
+    try {
+      const result = await downloadBusinessArchiveExport(workspaceId, engagement.id, part, selected, archiveSha256, manifestSha256);
+      const url = URL.createObjectURL(result.blob), anchor = document.createElement('a');
+      anchor.href = url; anchor.download = result.fileName; document.body.append(anchor); anchor.click(); anchor.remove(); URL.revokeObjectURL(url);
+    } catch (reason) { setError(reason instanceof Error ? reason.message : 'The sealed archive export could not be verified.'); }
+    finally { setDownloading(''); }
+  };
+
   const loadCandidatePreview = async (fileId: string, candidateId: string, expectedHash: string) => {
     setDownloading(fileId); setError('');
     try {
@@ -221,11 +252,15 @@ export function BusinessReportingPanel({ workspaceId, selected, context, engagem
   const management = data?.managementLetters ?? [];
   const bundles = data?.bundleCandidates ?? [];
   const releasedBundles = data?.releasedBundles ?? [];
+  const bundleDeliveries = data?.bundleDeliveries ?? [];
+  const bundleDispatches = data?.bundleDispatches ?? [];
+  const portalAcknowledgements = data?.portalAcknowledgements ?? [];
   const snapshot = data?.statementSnapshot ?? null;
   const firmFiles = useMemo(() => files.filter(file => file.state === 'COMMITTED' && file.immutable), [files]);
   const signatureFiles = firmFiles.filter(file => file.purpose === 'SIGNATURE' && file.mediaType === 'image/png');
   const sealFiles = firmFiles.filter(file => file.purpose === 'SEAL' && file.mediaType === 'image/png');
   const signedReturns = firmFiles.filter(file => file.engagementId === engagement.id && ['EVIDENCE', 'GENERATED'].includes(file.purpose) && file.mediaType === 'application/pdf');
+  const deliveryEvidenceFiles = firmFiles.filter(file => file.engagementId === engagement.id);
   const isClient = context.actor.persona === 'CLIENT';
   const isPartner = context.actor.persona === 'APPROVER' && context.actor.staffGrade === 'PARTNER';
   const partnerAssets = assets.filter(asset => asset.staffMemberId === context.actor.staffMemberId);
@@ -290,7 +325,8 @@ export function BusinessReportingPanel({ workspaceId, selected, context, engagem
         <div className="business-record-list"><h3>Portal upload status</h3><p><strong>{rowText(data?.engagement, 'portalFrozenAt') ? 'Read only' : 'Open'}</strong></p>
           {rowText(data?.engagement, 'portalFrozenAt') && <small>Frozen at {rowText(data?.engagement, 'portalFrozenAt')}; released audit content remains available below.</small>}</div>
         <div className="business-record-list"><h3>Archive status</h3><p>{rowText(data?.archive, 'status', 'Assembly has not started')}</p>
-          {rowText(data?.archive, 'sealedAt') && <small>Sealed {rowText(data?.archive, 'sealedAt')} · archive SHA-256 {rowText(data?.archive, 'archiveSha256').slice(0, 16)}…</small>}</div>
+          {rowText(archiveStatus ?? undefined, 'sealedAt') && <small>Sealed {rowText(archiveStatus ?? undefined, 'sealedAt')}</small>}
+          {archiveStatusError && <small role="status">{archiveStatusError}</small>}</div>
       </div>
       {requests.length > 0 && <div className="business-record-list"><h3>Signed letter of representation</h3>
         {requests.map(request => {
@@ -333,10 +369,17 @@ export function BusinessReportingPanel({ workspaceId, selected, context, engagem
       {releasedParts.length ? <div className="business-record-list">{releasedParts.map(part => <div className="business-delivery-row" key={String(part.id ?? part.kind)}>
         <strong>{rowText(part, 'kind').replaceAll('_', ' ')}</strong><span>{rowText(part, 'fileName')} · {((Number(part.sizeBytes) || 0) / 1024).toFixed(1)} KiB · SHA-256 {rowText(part, 'sha256').slice(0, 16)}…</span>
         <button type="button" className="btn sm" disabled={Boolean(downloading)} onClick={() => void download(rowText(part, 'fileId'), rowText(part, 'fileName', `${rowText(part, 'kind').toLowerCase()}.pdf`), rowText(part, 'sha256'))}>{downloading === part.fileId ? 'Verifying…' : 'Download and verify'}</button>
+        {rowText(part, 'signedReturnFileId') && <button type="button" className="btn sm" disabled={Boolean(downloading)}
+          onClick={() => void download(rowText(part, 'signedReturnFileId'), rowText(part, 'signedReturnName', 'signed-representation.pdf'), rowText(part, 'signedReturnSha256'))}>
+          {downloading === rowText(part, 'signedReturnFileId') ? 'Verifying signed return…' : 'Download accepted signed return'}
+        </button>}
       </div>)}</div> : <p className="business-muted">No final bundle has been released for this engagement.</p>}
-      {data?.archive && rowText(data.archive, 'archiveFileId') && <div className="business-practice-actions">
-        <button type="button" className="btn sm" disabled={Boolean(downloading)} onClick={() => void download(rowText(data.archive, 'archiveFileId'), 'sealed-audit-archive.zip', rowText(data.archive, 'archiveSha256'))}>Download verified sealed archive</button>
-        <button type="button" className="btn sm" disabled={Boolean(downloading)} onClick={() => void download(rowText(data.archive, 'manifestFileId'), 'archive-manifest.json', rowText(data.archive, 'manifestSha256'))}>Download verified manifest</button>
+      {data?.releasedBundle && <div className="business-record-list"><h3>Portal delivery acknowledgement</h3>
+        {portalAcknowledgements.length > 0 ? <p role="status">Acknowledged {rowText(portalAcknowledgements[0], 'deliveredAt')}.</p>
+          : <><p>Released downloads are available. Acknowledging receipt records an operational event and does not change the report signature or archive deadline.</p>
+            <button type="button" className="btn sm" disabled={busy} onClick={() => void perform('bundle.record-delivery', {
+              bundleId: rowText(data.releasedBundle ?? undefined, 'id'), method: 'PORTAL_ACKNOWLEDGEMENT', dispatchId: null, evidenceFileId: null
+            }, 'Portal acknowledgement recorded. The signed report date and archive deadline are unchanged.')}>Acknowledge portal receipt</button></>}
       </div>}
     </> : <>
       <div className="business-delivery-grid">
@@ -606,13 +649,43 @@ export function BusinessReportingPanel({ workspaceId, selected, context, engagem
           <button className="btn sm" disabled={busy || !archiveRecordId}>Append assembly note</button>
         </form>}
       </div>}
-      {data?.archive && <div className="business-record-list"><h3>Archive assembly status</h3><p>{rowText(data.archive, 'status', 'Not started')} · locked {rowText(data.engagement, 'lockedAt', 'not yet')}</p>
+      {data?.archive && <div className="business-record-list"><h3>Archive assembly status</h3><p>{rowText(archiveStatus ?? undefined, 'assemblyStatus', rowText(data.archive, 'status', 'Not started'))} · locked {rowText(archiveStatus ?? undefined, 'lockedAt', rowText(data.engagement, 'lockedAt', 'not yet'))}</p>
         {rowText(data.archive, 'errorCode') && <p className="business-alert" role="alert">{rowText(data.archive, 'errorCode')} · {rowText(data.archive, 'missingFilesJson')}</p>}
-        {rowText(data.archive, 'archiveSha256') && <small>Sealed archive SHA-256 {rowText(data.archive, 'archiveSha256')} · manifest SHA-256 {rowText(data.archive, 'manifestSha256')}</small>}
+        {archiveStatusError && <p className="business-alert" role="alert">{archiveStatusError}</p>}
+        {rowText(data.archive, 'archiveSha256') && <><small>Sealed archive SHA-256 {rowText(data.archive, 'archiveSha256')} · manifest SHA-256 {rowText(data.archive, 'manifestSha256')}</small>
+          {canReview && <div className="business-practice-actions">
+            <button type="button" className="btn sm" disabled={Boolean(downloading)} onClick={() => void downloadArchiveExport('archive')}>{downloading === 'archive-archive' ? 'Verifying archive…' : 'Export verified sealed archive'}</button>
+            <button type="button" className="btn sm" disabled={Boolean(downloading)} onClick={() => void downloadArchiveExport('manifest')}>{downloading === 'archive-manifest' ? 'Verifying manifest…' : 'Export verified manifest'}</button>
+          </div>}
+        </>}
       </div>}
       {releasedBundles.length > 0 && <div className="business-record-list"><h3>Released five-part bundle</h3>{releasedBundles.map(bundle => <div className="business-delivery-row" key={String(bundle.id)}><strong>Release v{rowText(bundle, 'revision')} · {rowText(bundle, 'releasedAt')}</strong><span>Content SHA-256 {rowText(bundle, 'contentHash')} · final invoice {rowText(bundle.invoice as ReportRow | undefined, 'number', 'pending')}</span>
         {rows(bundle.parts).map(part => <button type="button" className="btn sm" key={String(part.id)} disabled={Boolean(downloading)} onClick={() => void download(rowText(part, 'fileId'), rowText(part, 'fileName'), rowText(part, 'sha256'))}>Download {rowText(part, 'kind').replaceAll('_', ' ')}</button>)}
       </div>)}</div>}
+      {canReview && releasedBundles.length > 0 && <section className="business-record-list" aria-label="Bundle delivery evidence">
+        <h3>Delivery outcomes</h3>
+        {bundleDispatches.map(dispatch => <div className="business-delivery-row" key={String(dispatch.id)}><strong>Email {rowText(dispatch, 'status')} · {rowText(dispatch, 'acceptedAt', 'provider acceptance pending')}</strong>
+          <span>Dispatch {rowText(dispatch, 'id')} · {rowText(dispatch, 'lastErrorCode', rowText(dispatch, 'providerMessageId', 'No provider outcome recorded'))}</span>
+          {isPartner && dispatch.status === 'FAILED' && dispatch.jobStatus === 'PERMANENT_FAILED' && <button type="button" className="btn sm" disabled={busy}
+            onClick={() => void perform('bundle.delivery.retry', { bundleId: rowText(dispatch, 'bundleId'), dispatchId: rowText(dispatch, 'id'), expectedDispatchVersion: rowNumber(dispatch, 'version') },
+              'A new email attempt was queued with the same released report file and recipient. No invoice or deadline was changed.')}>Retry failed email</button>}
+        </div>)}
+        {bundleDeliveries.map(delivery => <p key={String(delivery.id)}>{rowText(delivery, 'method').replaceAll('_', ' ')} recorded {rowText(delivery, 'deliveredAt')} · dispatch {rowText(delivery, 'dispatchId', 'not applicable')}</p>)}
+        <form className="business-form business-commercial-form" onSubmit={event => { event.preventDefault(); const bundleId = deliveryBundleId || rowText(releasedBundles[0], 'id');
+          void perform('bundle.record-delivery', { bundleId, method: deliveryMethod, dispatchId: deliveryMethod === 'EMAIL' ? deliveryDispatchId || null : null,
+            evidenceFileId: deliveryEvidenceFileId || null }, 'Operational delivery evidence recorded without changing the released bundle or lifecycle deadline.'); }}>
+          <div className="business-form-grid">
+            <label className="business-field"><span>Released bundle</span><select required value={deliveryBundleId || rowText(releasedBundles[0], 'id')} onChange={event => setDeliveryBundleId(event.target.value)}>
+              {releasedBundles.map(bundle => <option key={String(bundle.id)} value={String(bundle.id)}>v{rowText(bundle, 'revision')} · {rowText(bundle, 'id')}</option>)}</select></label>
+            <label className="business-field"><span>Delivery method</span><select value={deliveryMethod} onChange={event => { setDeliveryMethod(event.target.value as typeof deliveryMethod); setDeliveryDispatchId(''); }}>
+              <option value="EMAIL">Provider accepted email</option><option value="PORTAL_ACKNOWLEDGEMENT">Portal acknowledgement</option><option value="RECORDED_HANDOVER">Recorded handover</option></select></label>
+            {deliveryMethod === 'EMAIL' && <label className="business-field"><span>Accepted bundle email dispatch</span><select required value={deliveryDispatchId} onChange={event => setDeliveryDispatchId(event.target.value)}>
+              <option value="">Choose accepted dispatch</option>{bundleDispatches.filter(dispatch => ['ACCEPTED','DELIVERED'].includes(rowText(dispatch, 'status'))).map(dispatch => <option key={String(dispatch.id)} value={String(dispatch.id)}>{rowText(dispatch, 'status')} · {rowText(dispatch, 'providerMessageId', rowText(dispatch, 'id'))}</option>)}</select></label>}
+            <label className="business-field"><span>Supporting evidence (optional)</span><select value={deliveryEvidenceFileId} onChange={event => setDeliveryEvidenceFileId(event.target.value)}>
+              <option value="">No separate evidence file</option>{deliveryEvidenceFiles.map(file => <option key={file.id} value={file.id}>{file.originalName} · {file.sha256?.slice(0, 12)}</option>)}</select></label>
+          </div><button className="btn sm" disabled={busy || releasedBundles.length === 0 || deliveryMethod === 'EMAIL' && !deliveryDispatchId}>Record delivery outcome</button>
+        </form>
+      </section>}
       {isPartner && releasedBundles.length > 0 && <section className="business-record-list business-report-provenance" aria-labelledby={`report-provenance-${engagement.id}`}>
         <h3 id={`report-provenance-${engagement.id}`}>Released report signature provenance</h3>
         {releasedProvenanceError && <p className="business-alert" role="alert">{releasedProvenanceError}</p>}

@@ -433,8 +433,8 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
       clientId, contactId: secondaryFinanceContactId, purpose: 'INVOICE', isPrimary: false, expectedVersion: null
     } }
   }, preparerHeaders);
-  assert.equal(undocumentedAlternate.response.status, 400);
-  assert.equal(undocumentedAlternate.body.code, 'BAD_REQUEST');
+  assert.equal(undocumentedAlternate.response.status, 422);
+  assert.equal(undocumentedAlternate.body.code, 'VALIDATION_FAILED');
   const documentedAlternate = await post(`/api/workspaces/${workspaceId}/commands`, {
     idempotencyKey: crypto.randomUUID(), command: { type: 'contact.route', payload: {
       clientId, contactId: secondaryFinanceContactId, purpose: 'INVOICE', isPrimary: false,
@@ -562,6 +562,25 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
   const outOfScopeClient = await call(`/api/workspaces/${workspaceId}/clients/${childClientId}`, { headers: clientHeaders });
   assert.equal(outOfScopeClient.response.status, 403);
   assert.equal(outOfScopeClient.body.code, 'FORBIDDEN_SCOPE');
+
+  const futureIas1Profile = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'standards-profile.create', payload: {
+      name: 'Invalid future IAS 1 profile', effectivePeriodStart: '2027-01-01', effectivePeriodEnd: '2027-12-31',
+      isa220Edition: 'ISA 220 Revised', isa570Edition: 'ISA 570 Revised 2024', reportingFramework: 'IFRS',
+      presentationEdition: 'IAS1', earlyAdoption: false
+    } }
+  }, approverHeaders);
+  assert.equal(futureIas1Profile.response.status, 422, JSON.stringify(futureIas1Profile.body));
+  assert.equal(futureIas1Profile.body.code, 'VALIDATION_FAILED');
+  const unapprovedEarlyIfrs18Profile = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'standards-profile.create', payload: {
+      name: 'Unapproved early IFRS 18 profile', effectivePeriodStart: '2026-01-01', effectivePeriodEnd: '2026-12-31',
+      isa220Edition: 'ISA 220 Revised', isa570Edition: 'ISA 570 Revised 2024', reportingFramework: 'IFRS',
+      presentationEdition: 'IFRS18', earlyAdoption: false
+    } }
+  }, approverHeaders);
+  assert.equal(unapprovedEarlyIfrs18Profile.response.status, 422, JSON.stringify(unapprovedEarlyIfrs18Profile.body));
+  assert.equal(unapprovedEarlyIfrs18Profile.body.code, 'VALIDATION_FAILED');
 
   const standards = await post(`/api/workspaces/${workspaceId}/commands`, {
     idempotencyKey: crypto.randomUUID(), command: { type: 'standards-profile.create', payload: {
@@ -1474,7 +1493,53 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
     assert.equal(committed.response.status, 200, JSON.stringify(committed.body));
     return { fileId, sha256: stagedBody.sha256 as string };
   };
+  const staleReservation = await post(`/api/workspaces/${workspaceId}/files`, {
+    clientId, engagementId, pbcRequestId, expectedPbcRequestVersion: 1, purpose: 'PBC', originalName: 'frozen-portal-pbc.pdf',
+    mediaType: 'application/pdf', sizeBytes: pdf.length
+  }, { ...clientPbcHeaders, 'Idempotency-Key': crypto.randomUUID() });
+  assert.equal(staleReservation.response.status, 201, JSON.stringify(staleReservation.body));
+  const staleFileId = staleReservation.body.fileId as string;
+  const staleStage = await worker.fetch(new Request(`https://local.auditsphere.test/api/workspaces/${workspaceId}/files/${staleFileId}/content`, {
+    method: 'PUT', headers: { Origin: 'https://local.auditsphere.test', ...clientPbcHeaders,
+      'Idempotency-Key': crypto.randomUUID(), 'X-File-Version': '1', 'Content-Type': 'application/pdf' }, body: pdf
+  }), env, {} as any);
+  assert.equal(staleStage.status, 200, await staleStage.clone().text());
+  const staleStageBody = await staleStage.clone().json() as { sha256: string };
+  const frozenAt = '2026-10-07T12:00:00.000Z';
+  const originalBatch = db.batch.bind(db);
+  let freezeDuringCommit = true;
+  (db as any).batch = (statements: unknown[]) => {
+    if (freezeDuringCommit) {
+      freezeDuringCommit = false;
+      db.prepare('UPDATE engagements SET portal_frozen_at=? WHERE workspace_id=? AND id=?').bind(frozenAt, workspaceId, engagementId).run();
+    }
+    return originalBatch(statements as any);
+  };
+  let pbcFrozenStaleCommit: Awaited<ReturnType<typeof post>>;
+  try {
+    pbcFrozenStaleCommit = await post(`/api/workspaces/${workspaceId}/files/${staleFileId}/complete`, {
+      expectedVersion: 2, sizeBytes: pdf.length, sha256: staleStageBody.sha256
+    }, { ...clientPbcHeaders, 'Idempotency-Key': crypto.randomUUID() });
+  } finally { (db as any).batch = originalBatch; }
+  assert.equal(pbcFrozenStaleCommit.response.status, 423, JSON.stringify(pbcFrozenStaleCommit.body));
+  assert.equal(pbcFrozenStaleCommit.body.code, 'PORTAL_FROZEN');
+  assert.deepEqual(pbcFrozenStaleCommit.body.details, { engagementId, frozenAt, bundleId: null });
+  assert.equal(db.prepare('SELECT state FROM file_versions WHERE workspace_id=? AND id=?').bind(workspaceId, staleFileId).first<any>()?.state, 'STAGED',
+    'a reservation staged before release cannot be committed after portal freeze');
+  db.prepare('UPDATE engagements SET portal_frozen_at=NULL WHERE workspace_id=? AND id=?').bind(workspaceId, engagementId).run();
   const firstPbcFile = await uploadPbcResponse('year-end-tb.pdf', pdf, 1);
+  db.prepare('UPDATE engagements SET portal_frozen_at=? WHERE workspace_id=? AND id=?').bind(frozenAt, workspaceId, engagementId).run();
+  const pbcFrozenSubmission = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'pbc.submit', payload: {
+      requestId: pbcRequestId, expectedRequestVersion: 1, fileVersionId: firstPbcFile.fileId
+    } }
+  }, clientPbcHeaders);
+  assert.equal(pbcFrozenSubmission.response.status, 423, JSON.stringify(pbcFrozenSubmission.body));
+  assert.equal(pbcFrozenSubmission.body.code, 'PORTAL_FROZEN');
+  assert.deepEqual(pbcFrozenSubmission.body.details, { engagementId, frozenAt, bundleId: null });
+  assert.equal(db.prepare('SELECT COUNT(*) AS count FROM pbc_submissions WHERE workspace_id=? AND request_id=?')
+    .bind(workspaceId, pbcRequestId).first<any>()?.count, 0, 'frozen client PBC submissions leave no review record');
+  db.prepare('UPDATE engagements SET portal_frozen_at=NULL WHERE workspace_id=? AND id=?').bind(workspaceId, engagementId).run();
   const wrongPbcFile = await post(`/api/workspaces/${workspaceId}/commands`, {
     idempotencyKey: crypto.randomUUID(), command: { type: 'pbc.submit', payload: {
       requestId: pbcRequestId, expectedRequestVersion: 1, fileVersionId: evidenceFileId
@@ -1865,8 +1930,8 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
       externalSourceUrl: 'https://evidence.example.invalid/register.pdf', retrievedAt: '2026-10-01T12:30:00.000Z'
     } }
   }, technicalHeaders);
-  assert.equal(urlOnlyEvidence.response.status, 400, JSON.stringify(urlOnlyEvidence.body));
-  assert.equal(urlOnlyEvidence.body.code, 'BAD_REQUEST', 'an external URL cannot stand in for committed retained evidence bytes');
+  assert.equal(urlOnlyEvidence.response.status, 422, JSON.stringify(urlOnlyEvidence.body));
+  assert.equal(urlOnlyEvidence.body.code, 'VALIDATION_FAILED', 'an external URL cannot stand in for committed retained evidence bytes');
 
   const hybridEvidence = await post(`/api/workspaces/${workspaceId}/commands`, {
     idempotencyKey: crypto.randomUUID(), command: { type: 'evidence.create', payload: {
@@ -2224,8 +2289,8 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
       assignedPreparerId: preparerStaff.body.result.staffMemberId
     } }
   }, samplingReviewerHeaders);
-  assert.equal(rejectedEmptyProcedureReturn.response.status, 400);
-  assert.equal(rejectedEmptyProcedureReturn.body.code, 'BAD_REQUEST', 'a return requires a substantive reviewer comment');
+  assert.equal(rejectedEmptyProcedureReturn.response.status, 422);
+  assert.equal(rejectedEmptyProcedureReturn.body.code, 'VALIDATION_FAILED', 'a return requires a substantive reviewer comment');
   const returnGreenProcedure = await post(`/api/workspaces/${workspaceId}/commands`, {
     idempotencyKey: crypto.randomUUID(), command: { type: 'review.decide', payload: {
       submissionId: greenProcedureSubmission.body.result.reviewSubmissionId, decision: 'RETURN',
@@ -3941,6 +4006,26 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
     'the reassessed noncritical replacement is not treated as a critical-return waiver');
   assert.equal(businessCommandHttpResult({ result: {} }, 'proposal.dispatch', 200, 'test-request').status, 202,
     'a legacy 200 receipt still receives the normal asynchronous command status');
+
+  const futureIfrsLead = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'lead.create', payload: {
+      clientId, primaryContactId: financeContactId, source: 'REFERRAL', receivedAt: '2026-10-05T09:05:00Z',
+      requestedService: 'STATUTORY_AUDIT', periodStart: '2027-01-01', periodEnd: '2027-12-31', estimatedFeeMinor: '100000'
+    } }
+  }, preparerHeaders);
+  assert.equal(futureIfrsLead.response.status, 200, JSON.stringify(futureIfrsLead.body));
+  const futureIfrsConversion = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'lead.convert', payload: {
+      leadId: futureIfrsLead.body.result.leadId, expectedVersion: 1, engagementCode: 'E2027-IAS1-BLOCKED',
+      standardsProfileId: actualStandardsProfileId, contractFeeMinor: '100000'
+    } }
+  }, preparerHeaders);
+  assert.equal(futureIfrsConversion.response.status, 409, JSON.stringify(futureIfrsConversion.body));
+  assert.equal(futureIfrsConversion.body.code, 'GATE_BLOCKED');
+  assert.match(futureIfrsConversion.body.message, /select IFRS 18/);
+  assert.equal(db.prepare('SELECT status FROM leads WHERE workspace_id=? AND id=?')
+    .bind(workspaceId, futureIfrsLead.body.result.leadId).first<any>()?.status, 'OPEN',
+    'an IAS 1 profile cannot convert a full-IFRS engagement starting in 2027 or advance its lead');
 
   // Simulate a legacy event that has scope metadata in an unknown shape. A
   // client-filtered reader must resynchronize rather than silently skip it.

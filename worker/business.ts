@@ -13,6 +13,7 @@ import { businessTbCommands, buildBusinessTbMutation, isBusinessTbCommand } from
 import { businessFieldworkCommands, buildBusinessFieldworkMutation, isBusinessFieldworkCommand } from './businessFieldwork';
 import { businessPracticeCommands, buildBusinessPracticeMutation, businessPracticeBootstrapStatements, getBusinessPracticeWorkspace, isBusinessPracticeCommand } from './businessPractice';
 import { businessReportingCommands, buildBusinessReportingMutation, isBusinessReportingCommand } from './businessReporting';
+import { presentationEditionBlocker } from '../src/domain/reportingStandards';
 
 export const BUSINESS_SCHEMA_VERSION = 10;
 
@@ -1029,6 +1030,10 @@ const standardsProfileCreateCommand = z.strictObject({
     earlyAdoption: z.boolean().default(false)
   }).refine(payload => !payload.effectivePeriodEnd || payload.effectivePeriodStart <= payload.effectivePeriodEnd, {
     message: 'The standards profile end date must not precede its start date.'
+  }).superRefine((payload, refinement) => {
+    const presentationBlocker = presentationEditionBlocker({ reportingFramework: payload.reportingFramework,
+      presentationEdition: payload.presentationEdition, earlyAdoption: payload.earlyAdoption, periodStart: payload.effectivePeriodStart });
+    if (presentationBlocker) refinement.addIssue({ code: 'custom', path: ['presentationEdition'], message: presentationBlocker });
   })
 });
 
@@ -1285,7 +1290,10 @@ export function parseBusinessCommandEnvelope(value: unknown, idempotencyKey: str
         issues: parsed.error.issues.map(issue => ({ path: issue.path.map(String), message: issue.message }))
       });
     }
-    throw invalidInput(parsed.error.issues);
+    if (parsed.error.issues.some(issue => issue.code === 'unrecognized_keys')) throw invalidInput(parsed.error.issues);
+    throw new ApiError('VALIDATION_FAILED', 'Business command details are invalid.', {
+      issues: parsed.error.issues.map(issue => ({ path: issue.path.map(String), message: issue.message }))
+    });
   }
   const command = parsed.data.command;
   const versionTarget = command.type === 'staff.update' ? { entity: 'StaffMember', id: command.payload.staffMemberId, version: command.payload.expectedVersion }
@@ -1690,10 +1698,20 @@ function assertBusinessFileAction(context: BusinessContext, file: Pick<BusinessF
 }
 
 async function assertFileEngagementWritable(env: Env, workspaceId: string, clientId: string, engagementId: string, clientActor: boolean, allowPostArchivePaymentEvidence = false): Promise<void> {
-  const engagement = await env.DB.prepare(`SELECT lifecycle_state,locked_at,archive_due_at,portal_activated_at,portal_frozen_at FROM engagements
-    WHERE workspace_id=? AND client_id=? AND id=?`).bind(workspaceId, clientId, engagementId)
-    .first<{ lifecycle_state: string; locked_at: string | null; archive_due_at:string|null; portal_activated_at: string | null; portal_frozen_at: string | null }>();
+  const engagement = await env.DB.prepare(`SELECT e.lifecycle_state,e.locked_at,e.archive_due_at,e.portal_activated_at,e.portal_frozen_at,
+      pf.frozen_at AS portal_freeze_recorded_at,pf.bundle_id AS portal_freeze_bundle_id
+    FROM engagements e LEFT JOIN portal_freezes pf ON pf.workspace_id=e.workspace_id AND pf.engagement_id=e.id
+    WHERE e.workspace_id=? AND e.client_id=? AND e.id=?`).bind(workspaceId, clientId, engagementId)
+    .first<{ lifecycle_state: string; locked_at: string | null; archive_due_at:string|null; portal_activated_at: string | null; portal_frozen_at: string | null;
+      portal_freeze_recorded_at: string | null; portal_freeze_bundle_id: string | null }>();
   if (!engagement) throw new ApiError('FORBIDDEN_SCOPE', 'The file engagement does not belong to the selected client.');
+  if (clientActor && engagement.portal_frozen_at) {
+    throw new ApiError('PORTAL_FROZEN', 'Client uploads are frozen for this released engagement.', {
+      engagementId,
+      frozenAt: engagement.portal_freeze_recorded_at ?? engagement.portal_frozen_at,
+      bundleId: engagement.portal_freeze_bundle_id
+    });
+  }
   if (!allowPostArchivePaymentEvidence && (engagement.locked_at || engagement.lifecycle_state === 'ARCHIVED_READ_ONLY'
     || (engagement.archive_due_at!==null&&engagement.archive_due_at<=new Date().toISOString()))) {
     throw new ApiError('WORKSPACE_FROZEN', 'This engagement is read-only.');
@@ -1701,9 +1719,33 @@ async function assertFileEngagementWritable(env: Env, workspaceId: string, clien
   if (clientActor && !engagement.portal_activated_at) {
     throw new ApiError('GATE_BLOCKED', 'Client uploads open only after the commercial handover is complete and the advance is settled with its committed receipt.');
   }
-  if (clientActor && engagement.portal_frozen_at) {
-    throw new ApiError('WORKSPACE_FROZEN', 'Client uploads are frozen for this engagement.');
+}
+
+async function portalFrozenClientMutationError(env: Env, workspaceId: string, context: BusinessContext, command: BusinessCommand): Promise<ApiError | null> {
+  if (context.actor.persona !== 'CLIENT'
+    || !['file.reserve', 'file.stage', 'file.commit', 'pbc.submit'].includes(command.type)) return null;
+  const payload = (command as { payload?: Record<string, unknown> }).payload ?? {};
+  let engagement: { client_id: string; engagement_id: string } | null = null;
+  if (command.type === 'file.reserve' && typeof payload.clientId === 'string' && typeof payload.engagementId === 'string') {
+    engagement = { client_id: payload.clientId, engagement_id: payload.engagementId };
+  } else if ((command.type === 'file.stage' || command.type === 'file.commit') && typeof payload.fileId === 'string') {
+    engagement = await env.DB.prepare(`SELECT client_id,engagement_id FROM file_versions WHERE workspace_id=? AND id=?`)
+      .bind(workspaceId, payload.fileId).first<{ client_id: string; engagement_id: string }>();
+  } else if (command.type === 'pbc.submit' && typeof payload.requestId === 'string') {
+    engagement = await env.DB.prepare(`SELECT client_id,engagement_id FROM pbc_requests WHERE workspace_id=? AND id=?`)
+      .bind(workspaceId, payload.requestId).first<{ client_id: string; engagement_id: string }>();
   }
+  if (!engagement) return null;
+  const freeze = await env.DB.prepare(`SELECT e.portal_frozen_at,pf.frozen_at AS recorded_frozen_at,pf.bundle_id
+    FROM engagements e LEFT JOIN portal_freezes pf ON pf.workspace_id=e.workspace_id AND pf.engagement_id=e.id
+    WHERE e.workspace_id=? AND e.client_id=? AND e.id=?`).bind(workspaceId, engagement.client_id, engagement.engagement_id)
+    .first<{ portal_frozen_at: string | null; recorded_frozen_at: string | null; bundle_id: string | null }>();
+  if (!freeze?.portal_frozen_at) return null;
+  return new ApiError('PORTAL_FROZEN', 'Client uploads are frozen for this released engagement.', {
+    engagementId: engagement.engagement_id,
+    frozenAt: freeze.recorded_frozen_at ?? freeze.portal_frozen_at,
+    bundleId: freeze.bundle_id
+  });
 }
 
 async function assertPaymentEvidenceReservationCurrent(env: Env, workspaceId: string, context: BusinessContext, file: BusinessFileRow): Promise<void> {
@@ -2467,8 +2509,8 @@ export async function getBusinessPbcRequestPortal(
   };
 }
 
-async function readableBusinessFile(env: Env, workspaceId: string, request: Request, fileId: string): Promise<BusinessFileRow> {
-  const context = await resolveBusinessContext(env, workspaceId, request);
+async function readableBusinessFile(env: Env, workspaceId: string, request: Request, fileId: string, knownContext?: BusinessContext): Promise<BusinessFileRow> {
+  const context = knownContext ?? await resolveBusinessContext(env, workspaceId, request);
   const file = await businessFileRow(env, workspaceId, fileId);
   if (!file) throw new ApiError('NOT_FOUND', 'File not found.');
   let fileContext = context;
@@ -2516,7 +2558,11 @@ export async function getBusinessFileDownload(
   request: Request,
   fileId: string
 ): Promise<Response> {
-  const file = await readableBusinessFile(env, workspaceId, request, fileId);
+  const context = await resolveBusinessContext(env, workspaceId, request);
+  const file = await readableBusinessFile(env, workspaceId, request, fileId, context);
+  if (file.purpose === 'ARCHIVE') {
+    throw new ApiError('GATE_BLOCKED', 'Sealed archive objects can be retrieved only through the verified archive export endpoint.');
+  }
   const stored = await env.FILES.get(file.object_key);
   if (!stored) throw new ApiError('INTEGRITY_MISMATCH', 'The committed file is missing from object storage.');
   const bytes = new Uint8Array(await stored.arrayBuffer());
@@ -2524,6 +2570,11 @@ export async function getBusinessFileDownload(
     throw new ApiError('INTEGRITY_MISMATCH', 'The committed file bytes failed their stored integrity check.');
   }
   verifyBusinessFileBytes(file.media_type, bytes);
+  if (file.engagement_id) {
+    await env.DB.prepare(`INSERT INTO operational_access_events(id,workspace_id,engagement_id,resource_type,resource_id,action,occurred_at,actor_id)
+      VALUES(?,?,?,'FILE_VERSION',?,'DOWNLOAD',?,?)`)
+      .bind(crypto.randomUUID(),workspaceId,file.engagement_id,file.id,new Date().toISOString(),context.actor.id).run();
+  }
   const headers = new Headers({
     'Content-Type': file.media_type,
     'Content-Length': String(file.size_bytes),
@@ -3052,12 +3103,12 @@ async function buildCommercialMutation(
     const payload = command.payload;
     const lead = await env.DB.prepare(`SELECT l.version,l.client_id,l.primary_contact_id,l.requested_service,l.period_start,l.period_end,
         l.estimated_fee_minor,l.status,c.active AS client_active,ct.active AS contact_active,
-        sp.effective_period_start,sp.effective_period_end
+        sp.effective_period_start,sp.effective_period_end,sp.presentation_edition,sp.reporting_framework,sp.early_adoption
       FROM leads l JOIN clients c ON c.workspace_id=l.workspace_id AND c.id=l.client_id
       JOIN contacts ct ON ct.workspace_id=l.workspace_id AND ct.client_id=l.client_id AND ct.id=l.primary_contact_id
       JOIN standards_profiles sp ON sp.workspace_id=l.workspace_id AND sp.id=?
       WHERE l.workspace_id=? AND l.id=?`).bind(payload.standardsProfileId, workspaceId, payload.leadId)
-      .first<{ version: number; client_id: string; primary_contact_id: string; requested_service: string; period_start: string; period_end: string; estimated_fee_minor: number | null; status: string; client_active: number; contact_active: number; effective_period_start: string; effective_period_end: string | null }>();
+      .first<{ version: number; client_id: string; primary_contact_id: string; requested_service: string; period_start: string; period_end: string; estimated_fee_minor: number | null; status: string; client_active: number; contact_active: number; effective_period_start: string; effective_period_end: string | null; presentation_edition: 'IAS1' | 'IFRS18' | 'OTHER_APPROVED'; reporting_framework: string; early_adoption: number }>();
     if (!lead) throw new ApiError('NOT_FOUND', 'Lead, active client/contact or standards profile not found.');
     requireClientScope(context, lead.client_id);
     if (lead.version !== payload.expectedVersion) throw new ApiError('VERSION_CONFLICT', 'The lead changed. Reload it before conversion.');
@@ -3066,6 +3117,9 @@ async function buildCommercialMutation(
     if (lead.period_start < lead.effective_period_start || (lead.effective_period_end && lead.period_end > lead.effective_period_end)) {
       throw new ApiError('VALIDATION_FAILED', 'The selected standards profile does not cover the requested reporting period.');
     }
+    const presentationBlocker = presentationEditionBlocker({ reportingFramework: lead.reporting_framework,
+      presentationEdition: lead.presentation_edition, earlyAdoption: lead.early_adoption === 1, periodStart: lead.period_start });
+    if (presentationBlocker) throw new ApiError('GATE_BLOCKED', presentationBlocker);
     const fee = payload.contractFeeMinor ?? (lead.estimated_fee_minor === null ? undefined : String(lead.estimated_fee_minor));
     if (fee === undefined) throw new ApiError('VALIDATION_FAILED', 'Set an engagement fee in QAR minor units before converting this lead.');
     const engagementId = crypto.randomUUID();
@@ -3812,6 +3866,10 @@ export async function runBusinessDirectoryCommand(
     } catch (error) {
       const raced = await findCommandReceipt(env, workspaceId, envelope.idempotencyKey);
       if (raced) return replayCommand(raced, requestHash);
+      if (error instanceof Error && /command_assertions|CHECK constraint failed: ok = 1/i.test(error.message)) {
+        const portalFrozen = await portalFrozenClientMutationError(env, workspaceId, context, envelope.command);
+        if (portalFrozen) throw portalFrozen;
+      }
       const currentHead = await env.DB.prepare(`SELECT last_sequence,last_event_hash FROM audit_chain_heads
         WHERE id=? AND workspace_id=?`).bind(head.id, workspaceId)
         .first<{ last_sequence: number; last_event_hash: string | null }>();

@@ -36,7 +36,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS actor_profiles_one_active_client_persona_idx
 CREATE TRIGGER IF NOT EXISTS actor_profiles_active_reference_insert
 BEFORE INSERT ON actor_profiles
 BEGIN
-  SELECT CASE
+  SELECT (CASE
     WHEN NEW.persona <> 'CLIENT' AND NOT EXISTS (
       SELECT 1 FROM staff_members s WHERE s.workspace_id=NEW.workspace_id AND s.id=NEW.staff_member_id AND s.active=1
     ) THEN RAISE(ABORT, 'staff actor profile requires active staff')
@@ -44,41 +44,41 @@ BEGIN
       SELECT 1 FROM contacts c JOIN clients cl ON cl.workspace_id=c.workspace_id AND cl.id=c.client_id
       WHERE c.workspace_id=NEW.workspace_id AND c.id=NEW.contact_id AND c.active=1 AND cl.active=1
     ) THEN RAISE(ABORT, 'client actor profile requires active contact and client')
-  END;
+  END);
 END;
 
 CREATE TRIGGER IF NOT EXISTS actor_profiles_persona_grade_insert
 BEFORE INSERT ON actor_profiles
 BEGIN
-  SELECT CASE
+  SELECT (CASE
     WHEN NEW.persona = 'APPROVER' AND NOT EXISTS (
       SELECT 1 FROM staff_members s WHERE s.workspace_id=NEW.workspace_id AND s.id=NEW.staff_member_id AND s.grade='PARTNER'
     ) THEN RAISE(ABORT, 'APPROVER requires PARTNER grade')
     WHEN NEW.persona = 'REVIEWER' AND NOT EXISTS (
       SELECT 1 FROM staff_members s WHERE s.workspace_id=NEW.workspace_id AND s.id=NEW.staff_member_id AND s.grade IN ('MANAGER','SENIOR')
     ) THEN RAISE(ABORT, 'REVIEWER requires MANAGER or SENIOR grade')
-  END;
+  END);
 END;
 
 CREATE TRIGGER IF NOT EXISTS actor_profiles_persona_grade_update
 BEFORE UPDATE OF persona, staff_member_id, active ON actor_profiles
 WHEN NEW.active = 1
 BEGIN
-  SELECT CASE
+  SELECT (CASE
     WHEN NEW.persona = 'APPROVER' AND NOT EXISTS (
       SELECT 1 FROM staff_members s WHERE s.workspace_id=NEW.workspace_id AND s.id=NEW.staff_member_id AND s.grade='PARTNER' AND s.active=1
     ) THEN RAISE(ABORT, 'APPROVER requires active PARTNER grade')
     WHEN NEW.persona = 'REVIEWER' AND NOT EXISTS (
       SELECT 1 FROM staff_members s WHERE s.workspace_id=NEW.workspace_id AND s.id=NEW.staff_member_id AND s.grade IN ('MANAGER','SENIOR') AND s.active=1
     ) THEN RAISE(ABORT, 'REVIEWER requires active MANAGER or SENIOR grade')
-  END;
+  END);
 END;
 
 CREATE TRIGGER IF NOT EXISTS actor_profiles_active_reference_update
 BEFORE UPDATE OF persona, staff_member_id, contact_id, active ON actor_profiles
 WHEN NEW.active = 1
 BEGIN
-  SELECT CASE
+  SELECT (CASE
     WHEN NEW.persona <> 'CLIENT' AND NOT EXISTS (
       SELECT 1 FROM staff_members s WHERE s.workspace_id=NEW.workspace_id AND s.id=NEW.staff_member_id AND s.active=1
     ) THEN RAISE(ABORT, 'staff actor profile requires active staff')
@@ -86,26 +86,26 @@ BEGIN
       SELECT 1 FROM contacts c JOIN clients cl ON cl.workspace_id=c.workspace_id AND cl.id=c.client_id
       WHERE c.workspace_id=NEW.workspace_id AND c.id=NEW.contact_id AND c.active=1 AND cl.active=1
     ) THEN RAISE(ABORT, 'client actor profile requires active contact and client')
-  END;
+  END);
 END;
 
 CREATE TRIGGER IF NOT EXISTS staff_grade_persona_update
 BEFORE UPDATE OF grade, active ON staff_members
 WHEN NEW.active = 1
 BEGIN
-  SELECT CASE
+  SELECT (CASE
     WHEN EXISTS (SELECT 1 FROM actor_profiles ap WHERE ap.workspace_id=NEW.workspace_id AND ap.staff_member_id=NEW.id AND ap.active=1 AND ap.persona='APPROVER')
       AND NEW.grade <> 'PARTNER' THEN RAISE(ABORT, 'active APPROVER profile requires PARTNER grade')
     WHEN EXISTS (SELECT 1 FROM actor_profiles ap WHERE ap.workspace_id=NEW.workspace_id AND ap.staff_member_id=NEW.id AND ap.active=1 AND ap.persona='REVIEWER')
       AND NEW.grade NOT IN ('MANAGER','SENIOR') THEN RAISE(ABORT, 'active REVIEWER profile requires MANAGER or SENIOR grade')
-  END;
+  END);
 END;
 
 CREATE TRIGGER IF NOT EXISTS staff_deactivate_profiles_guard
 BEFORE UPDATE OF active ON staff_members
 WHEN NEW.active = 0 AND OLD.active = 1
 BEGIN
-  SELECT CASE WHEN EXISTS (
+  SELECT (CASE WHEN EXISTS (
     SELECT 1 FROM actor_profiles ap WHERE ap.workspace_id=NEW.workspace_id AND ap.staff_member_id=NEW.id AND ap.active=1
-  ) THEN RAISE(ABORT, 'deactivate actor profiles before staff member') END;
+  ) THEN RAISE(ABORT, 'deactivate actor profiles before staff member') END);
 END;

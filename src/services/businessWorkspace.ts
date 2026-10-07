@@ -533,6 +533,53 @@ export async function downloadBusinessFileVersion(
   return response.blob();
 }
 
+export async function downloadBusinessArchiveExport(
+  workspaceId: string,
+  engagementId: string,
+  part: 'archive' | 'manifest',
+  selected: BusinessWorkspacePreference,
+  expectedArchiveSha256: string,
+  expectedManifestSha256: string
+): Promise<{ blob: Blob; fileName: string }> {
+  const query = new URLSearchParams({ part });
+  let response: Response;
+  try {
+    response = await fetch(`/api/workspaces/${encodeURIComponent(workspaceId)}/engagements/${encodeURIComponent(engagementId)}/archive/export?${query}`, {
+      headers: contextHeaders(selected), credentials: 'omit', cache: 'no-store'
+    });
+  } catch {
+    throw new Error('The sealed archive service is unavailable. Retry the export.');
+  }
+  if (!response.ok) {
+    const body = await response.json().catch(() => null);
+    if (isApiErrorBody(body)) throw Object.assign(new Error(body.message), { code: body.code, requestId: body.requestId });
+    throw new Error('The sealed archive export failed. Check the service status and retry.');
+  }
+  if (response.headers.get('X-Archive-SHA256') !== expectedArchiveSha256
+    || response.headers.get('X-Archive-Manifest-SHA256') !== expectedManifestSha256) {
+    throw new Error('The archive export response does not match the independently recorded seal hashes.');
+  }
+  const blob = await response.blob();
+  const expectedHash = part === 'manifest' ? expectedManifestSha256 : expectedArchiveSha256;
+  const actualHash = [...new Uint8Array(await crypto.subtle.digest('SHA-256', await blob.arrayBuffer()))]
+    .map(byte => byte.toString(16).padStart(2, '0')).join('');
+  if (actualHash !== expectedHash) throw new Error('The exported bytes failed the client-side SHA-256 check.');
+  const expectedType = part === 'manifest' ? 'application/json' : 'application/zip';
+  if (blob.type && blob.type !== expectedType) throw new Error('The archive export returned an unexpected media type.');
+  return { blob, fileName: part === 'manifest' ? 'archive-manifest.json' : 'sealed-audit-archive.zip' };
+}
+
+export function getBusinessArchiveStatus(
+  workspaceId: string,
+  engagementId: string,
+  selected: BusinessWorkspacePreference,
+  signal?: AbortSignal
+): Promise<Record<string, unknown>> {
+  return requestJson(`/api/workspaces/${encodeURIComponent(workspaceId)}/engagements/${encodeURIComponent(engagementId)}/archive-status`, {
+    context: selected, signal
+  });
+}
+
 export async function runBusinessCommand<T = Record<string, unknown>>(
   workspaceId: string,
   selected: BusinessWorkspacePreference,

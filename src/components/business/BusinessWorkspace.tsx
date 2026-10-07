@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
+import { IFRS18_EFFECTIVE_PERIOD_START, presentationEditionBlocker, usesFullIfrsFramework } from '../../domain/reportingStandards';
 import type {
   BusinessActorProfile,
   BusinessClientDetail,
@@ -291,6 +292,7 @@ export function BusinessWorkspaceConsole() {
   const [isa570Edition, setIsa570Edition] = useState('');
   const [reportingFramework, setReportingFramework] = useState('');
   const [presentationEdition, setPresentationEdition] = useState<'IAS1' | 'IFRS18' | 'OTHER_APPROVED'>('IAS1');
+  const [earlyAdoption, setEarlyAdoption] = useState(false);
   const [engagementCode, setEngagementCode] = useState('');
   const [contractFeeMinor, setContractFeeMinor] = useState('');
   const [createdEngagement, setCreatedEngagement] = useState<{ id: string; version: number; state: string } | null>(null);
@@ -738,17 +740,19 @@ export function BusinessWorkspaceConsole() {
     event.preventDefault();
     const selected = currentSelection();
     if (!selected || !context?.allowedActions.includes('standards.manage')) return;
+    const presentationBlocker = presentationEditionBlocker({ reportingFramework, presentationEdition, earlyAdoption, periodStart: standardsStart });
+    if (presentationBlocker) { setCommandMessage(presentationBlocker); return; }
     const payload = {
       name: standardsName, effectivePeriodStart: standardsStart,
       ...(standardsEnd ? { effectivePeriodEnd: standardsEnd } : {}),
-      isa220Edition, isa570Edition, reportingFramework, presentationEdition, earlyAdoption: false
+      isa220Edition, isa570Edition, reportingFramework, presentationEdition, earlyAdoption
     };
     setCommandBusy(true);
     setCommandMessage('');
     try {
       await runBusinessCommand(selected.workspaceId, selected, { type: 'standards-profile.create', payload }, commandKeyFor('standards.create', payload));
       businessCommandKeys.current.delete('standards.create');
-      setStandardsName(''); setIsa220Edition(''); setIsa570Edition(''); setReportingFramework('');
+      setStandardsName(''); setIsa220Edition(''); setIsa570Edition(''); setReportingFramework(''); setEarlyAdoption(false);
       setCommandMessage('The standards profile was saved as an immutable, Partner-approved version.');
       setRecordsKey(value => value + 1);
     } catch (reason) {
@@ -1268,15 +1272,37 @@ export function BusinessWorkspaceConsole() {
             <h3>Approve a standards profile version</h3>
             <div className="business-form-grid">
               <label className="business-field" htmlFor="business-standards-name"><span>Profile name</span><input id="business-standards-name" required maxLength={200} value={standardsName} onChange={event => setStandardsName(event.target.value)} /></label>
-              <label className="business-field" htmlFor="business-standards-start"><span>Period start</span><input id="business-standards-start" type="date" required value={standardsStart} onChange={event => setStandardsStart(event.target.value)} /></label>
+              <label className="business-field" htmlFor="business-standards-start"><span>Period start</span><input id="business-standards-start" type="date" required value={standardsStart} onChange={event => {
+                const value = event.target.value; setStandardsStart(value);
+                if (usesFullIfrsFramework(reportingFramework) && value >= IFRS18_EFFECTIVE_PERIOD_START) {
+                  setEarlyAdoption(false);
+                  if (presentationEdition === 'IAS1') setPresentationEdition('IFRS18');
+                }
+              }} /></label>
               <label className="business-field" htmlFor="business-standards-end"><span>Period end · optional</span><input id="business-standards-end" type="date" value={standardsEnd} onChange={event => setStandardsEnd(event.target.value)} /></label>
               <label className="business-field" htmlFor="business-isa220"><span>ISA 220 edition</span><input id="business-isa220" required maxLength={200} value={isa220Edition} onChange={event => setIsa220Edition(event.target.value)} /></label>
               <label className="business-field" htmlFor="business-isa570"><span>ISA 570 edition</span><input id="business-isa570" required maxLength={200} value={isa570Edition} onChange={event => setIsa570Edition(event.target.value)} /></label>
-              <label className="business-field" htmlFor="business-reporting-framework"><span>Reporting framework</span><input id="business-reporting-framework" required maxLength={200} value={reportingFramework} onChange={event => setReportingFramework(event.target.value)} /></label>
-              <label className="business-field" htmlFor="business-presentation-edition"><span>Presentation edition</span><select id="business-presentation-edition" value={presentationEdition} onChange={event => setPresentationEdition(event.target.value as typeof presentationEdition)}><option value="IAS1">IAS 1</option><option value="IFRS18">IFRS 18</option><option value="OTHER_APPROVED">Other approved</option></select></label>
+              <label className="business-field" htmlFor="business-reporting-framework"><span>Reporting framework</span><input id="business-reporting-framework" required maxLength={200} value={reportingFramework} onChange={event => {
+                const value = event.target.value; setReportingFramework(value);
+                if (!usesFullIfrsFramework(value)) setEarlyAdoption(false);
+                if (usesFullIfrsFramework(value) && standardsStart >= IFRS18_EFFECTIVE_PERIOD_START) {
+                  setEarlyAdoption(false);
+                  if (presentationEdition === 'IAS1') setPresentationEdition('IFRS18');
+                }
+              }} /></label>
+              <label className="business-field" htmlFor="business-presentation-edition"><span>Presentation edition</span><select id="business-presentation-edition" value={presentationEdition} onChange={event => {
+                const value = event.target.value as typeof presentationEdition; setPresentationEdition(value);
+                if (value !== 'IFRS18') setEarlyAdoption(false);
+              }}><option value="IAS1" disabled={usesFullIfrsFramework(reportingFramework) && standardsStart >= IFRS18_EFFECTIVE_PERIOD_START}>IAS 1</option><option value="IFRS18">IFRS 18</option><option value="OTHER_APPROVED">Other Partner-approved</option></select></label>
             </div>
-            <p className="business-note">Only a Partner profile can approve this immutable basis. Enter firm-approved content; this form does not choose professional standards for the firm.</p>
-            <div className="business-dialog-actions"><button className="btn primary" type="submit" disabled={commandBusy}>{commandBusy ? 'Saving…' : 'Approve standards profile'}</button></div>
+            {usesFullIfrsFramework(reportingFramework) && presentationEdition === 'IFRS18' && standardsStart < IFRS18_EFFECTIVE_PERIOD_START && <label className="business-check-row">
+              <input type="checkbox" checked={earlyAdoption} onChange={event => setEarlyAdoption(event.target.checked)} />
+              <span>I approve explicit early adoption of IFRS 18 for this period</span>
+            </label>}
+            {presentationEditionBlocker({ reportingFramework, presentationEdition, earlyAdoption, periodStart: standardsStart })
+              ? <p className="business-alert" role="alert">{presentationEditionBlocker({ reportingFramework, presentationEdition, earlyAdoption, periodStart: standardsStart })}</p>
+              : <p className="business-note">Only a Partner profile can approve this immutable basis. IFRS 18 is the full-IFRS presentation baseline for annual periods beginning on or after 1 January 2027; an earlier IFRS 18 profile requires recorded early adoption. “Other Partner-approved” records an explicit alternative. This form does not choose professional standards for the firm.</p>}
+            <div className="business-dialog-actions"><button className="btn primary" type="submit" disabled={commandBusy || Boolean(presentationEditionBlocker({ reportingFramework, presentationEdition, earlyAdoption, periodStart: standardsStart }))}>{commandBusy ? 'Saving…' : 'Approve standards profile'}</button></div>
           </form>}
         </section>}
 

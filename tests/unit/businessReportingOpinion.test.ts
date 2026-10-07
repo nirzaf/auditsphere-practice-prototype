@@ -91,11 +91,12 @@ function opinionCommandEnv() {
         bind(..._values: unknown[]) { return this; },
         async first() {
           if (sql.includes('SELECT e.id,e.version,e.client_id,e.code')) return engagement;
-          if (sql.includes('SELECT id,active_tb_version_id')) return { id: engagementId, active_tb_version_id: 'tb-1', active_mapping_version_id: 'mapping-1',
+          if (sql.includes('SELECT id,period_start,active_tb_version_id')) return { id: engagementId, period_start: '2026-01-01', active_tb_version_id: 'tb-1', active_mapping_version_id: 'mapping-1',
             active_materiality_version_id: 'materiality-1', approved_planning_version_id: 'planning-1', standards_profile_id: 'standards-current' };
           if (sql.includes('SELECT s.*,c.id AS clearance_id')) return srm;
           if (sql.includes('SELECT id,source_hash,tb_version_id')) return snapshot;
-          if (sql.includes('SELECT id,presentation_edition')) return { id: 'standards-current', presentation_edition: 'ISA-2025', effective_period_start: '2020-01-01', effective_period_end: null, content_sha256: digest };
+          if (sql.includes('SELECT id,presentation_edition')) return { id: 'standards-current', presentation_edition: 'OTHER_APPROVED', reporting_framework: 'ISA', early_adoption: 0,
+            effective_period_start: '2020-01-01', effective_period_end: null, content_sha256: digest };
           if (sql.includes('SELECT id,status,conclusion FROM going_concern_assessments')) return { id: 'gc-current', status: 'REVIEWED', conclusion: 'NO_MATERIAL_UNCERTAINTY' };
           if (sql.includes('SELECT id,status FROM going_concern_assessments')) return { id: 'gc-current', status: 'REVIEWED' };
           if (sql.includes('SELECT COALESCE(MAX(revision),0)+1')) return { value: 1 };
@@ -183,13 +184,13 @@ it('US-REP-002 prevents a Partner from consenting with another Partner’s asset
         async first() {
           if (sql.includes('FROM engagements e JOIN clients')) return engagement;
           if (sql.includes('FROM report_candidates c JOIN generated_artifacts')) return candidate;
-          if (sql.includes('SELECT id,active_tb_version_id')) return { id: engagementId, active_tb_version_id: 'tb-1', active_mapping_version_id: 'mapping-1',
+          if (sql.includes('SELECT id,period_start,active_tb_version_id')) return { id: engagementId, period_start: '2026-01-01', active_tb_version_id: 'tb-1', active_mapping_version_id: 'mapping-1',
             active_materiality_version_id: 'materiality-1', approved_planning_version_id: 'planning-1', standards_profile_id: 'standards-current' };
           if (sql.includes('SELECT s.*,c.id AS clearance_id')) return { id: 'srm-current', revision: 1, statement_snapshot_id: 'snapshot-current',
             dependency_hash: digest, clearance_id: 'clearance-current', clearance_hash: digest };
           if (sql.includes('SELECT id,source_hash,tb_version_id')) return { id: 'snapshot-current', source_hash: digest, tb_version_id: 'tb-1',
             mapping_version_id: 'mapping-1', standards_profile_id: 'standards-current' };
-          if (sql.includes('SELECT id,presentation_edition')) return { id: 'standards-current', presentation_edition: 'ISA-2025',
+          if (sql.includes('SELECT id,presentation_edition')) return { id: 'standards-current', presentation_edition: 'OTHER_APPROVED', reporting_framework: 'ISA', early_adoption: 0,
             effective_period_start: '2020-01-01', effective_period_end: null, content_sha256: digest };
           if (sql.includes('SELECT srm_version_id,dependency_hash FROM opinion_versions')) return { srm_version_id: 'srm-current', dependency_hash: digest };
           if (sql.includes('FROM report_signature_assets a JOIN staff_members s')) return { id: 'signature-asset', staff_member_id: '66666666-6666-4666-8666-666666666666',

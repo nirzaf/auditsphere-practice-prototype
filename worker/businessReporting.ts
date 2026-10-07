@@ -10,6 +10,7 @@ import { prepareBusinessInvoiceJournal } from './businessPractice';
 import { criticalConfirmationBlockers as currentCriticalConfirmationBlockers, queueHoldingLetterForBlockers, type ConfirmationGateEngagement } from './businessFieldwork';
 import { opinionReportingBlockers, validateOpinionSelection } from './reportingOpinion';
 import { inspectReportingPng } from './reportingPng';
+import { presentationEditionBlocker } from '../src/domain/reportingStandards';
 
 const id=z.uuid(),date=z.iso.date(),hash=z.string().regex(/^[a-f0-9]{64}$/);
 const text=(min=10,max=10000)=>z.string().trim().min(min).max(max);
@@ -39,12 +40,16 @@ const representationReceive=z.strictObject({type:z.literal('representation.recei
 const representationReview=z.strictObject({type:z.literal('representation.review'),payload:z.strictObject({requestId:id,returnId:id,decision:z.enum(['ACCEPT','REJECT']),reviewReason:text(10),dependencyHash:hash,
   identityConfirmed:z.boolean(),capacityConfirmed:z.boolean(),completenessConfirmed:z.boolean(),periodConfirmed:z.boolean(),dateConfirmed:z.boolean(),consistencyConfirmed:z.boolean()})});
 const bundlePrepare=z.strictObject({type:z.literal('bundle.prepare'),payload:z.strictObject({engagementId:id,reportCandidateId:id,managementLetterVersionId:id,representationRequestId:id})});
+const bundleRecordDelivery=z.strictObject({type:z.literal('bundle.record-delivery'),payload:z.strictObject({bundleId:id,method:z.enum(['EMAIL','PORTAL_ACKNOWLEDGEMENT','RECORDED_HANDOVER']),
+  dispatchId:id.nullable().optional(),evidenceFileId:id.nullable().optional()})});
+const bundleRetryDelivery=z.strictObject({type:z.literal('bundle.delivery.retry'),payload:z.strictObject({bundleId:id,dispatchId:id,expectedDispatchVersion:z.number().int().positive()})});
 const reportRelease=z.strictObject({type:z.literal('report.release'),payload:z.strictObject({candidateId:id,expectedContentHash:hash,proposedReportDate:date})});
 const retentionSave=z.strictObject({type:z.literal('retention-policy.save'),payload:z.strictObject({name:z.string().trim().min(1).max(200),retentionYears:z.number().int().positive().max(100).nullable(),retainIndefinitely:z.boolean(),legalBasis:text(10)})});
 const archiveLock=z.strictObject({type:z.literal('archive.lock'),payload:z.strictObject({engagementId:id,reason:z.literal('EARLY_PARTNER_LOCK'),rationale:text(10)})});
 const archiveNote=z.strictObject({type:z.literal('archive.note'),payload:z.strictObject({engagementId:id,text:text(10),relatedRecordType:z.string().trim().min(1).max(120),relatedRecordId:id})});
 
-export const businessReportingCommands=[opinionSelect,signatureRegister,fsSave,fsApprove,reportPrepare,reportConsent,managementPrepare,representationPrepare,representationSend,representationReceive,representationReview,bundlePrepare,reportRelease,retentionSave,archiveLock,archiveNote] as const;
+export const businessReportingCommands=[opinionSelect,signatureRegister,fsSave,fsApprove,reportPrepare,reportConsent,managementPrepare,representationPrepare,representationSend,representationReceive,representationReview,
+  bundlePrepare,bundleRecordDelivery,bundleRetryDelivery,reportRelease,retentionSave,archiveLock,archiveNote] as const;
 export type BusinessReportingCommand=z.infer<(typeof businessReportingCommands)[number]>;
 export function isBusinessReportingCommand(command:{type:string}):command is BusinessReportingCommand{return businessReportingCommands.some(schema=>schema.shape.type.value===command.type);}
 
@@ -94,18 +99,21 @@ async function currentSrm(env:Env,workspaceId:string,engagementId:string){
   return srm;
 }
 async function reportPins(env:Env,workspaceId:string,engagementId:string){
-  const engagement=await env.DB.prepare(`SELECT id,active_tb_version_id,active_mapping_version_id,active_materiality_version_id,approved_planning_version_id,standards_profile_id
+  const engagement=await env.DB.prepare(`SELECT id,period_start,active_tb_version_id,active_mapping_version_id,active_materiality_version_id,approved_planning_version_id,standards_profile_id
     FROM engagements WHERE workspace_id=? AND id=?`).bind(workspaceId,engagementId)
-    .first<{id:string;active_tb_version_id:string|null;active_mapping_version_id:string|null;active_materiality_version_id:string|null;approved_planning_version_id:string|null;standards_profile_id:string}>();
+    .first<{id:string;period_start:string;active_tb_version_id:string|null;active_mapping_version_id:string|null;active_materiality_version_id:string|null;approved_planning_version_id:string|null;standards_profile_id:string}>();
   if(!engagement)throw new ApiError('NOT_FOUND','The engagement was not found.');
   const srm=await currentSrm(env,workspaceId,engagementId);
   const snapshot=await env.DB.prepare(`SELECT id,source_hash,tb_version_id,mapping_version_id,standards_profile_id FROM statement_snapshots WHERE workspace_id=? AND id=? AND engagement_id=?`)
     .bind(workspaceId,srm.statement_snapshot_id,engagementId).first<{id:string;source_hash:string;tb_version_id:string;mapping_version_id:string;standards_profile_id:string}>();
   if(!snapshot||snapshot.tb_version_id!==engagement.active_tb_version_id||snapshot.mapping_version_id!==engagement.active_mapping_version_id||snapshot.standards_profile_id!==engagement.standards_profile_id)
     throw new ApiError('STALE_DEPENDENCY','The latest SRM statement snapshot does not match the current TB, mapping and standards profile.');
-  const profile=await env.DB.prepare(`SELECT id,presentation_edition,effective_period_start,effective_period_end,content_sha256 FROM standards_profiles WHERE workspace_id=? AND id=?`)
-    .bind(workspaceId,engagement.standards_profile_id).first<{id:string;presentation_edition:string;effective_period_start:string;effective_period_end:string|null;content_sha256:string}>();
+  const profile=await env.DB.prepare(`SELECT id,presentation_edition,reporting_framework,early_adoption,effective_period_start,effective_period_end,content_sha256 FROM standards_profiles WHERE workspace_id=? AND id=?`)
+    .bind(workspaceId,engagement.standards_profile_id).first<{id:string;presentation_edition:'IAS1'|'IFRS18'|'OTHER_APPROVED';reporting_framework:string;early_adoption:number;effective_period_start:string;effective_period_end:string|null;content_sha256:string}>();
   if(!profile)throw new ApiError('GATE_BLOCKED','An approved reporting standards profile is required.');
+  const presentationBlocker=presentationEditionBlocker({reportingFramework:profile.reporting_framework,presentationEdition:profile.presentation_edition,
+    earlyAdoption:profile.early_adoption===1,periodStart:engagement.period_start});
+  if(presentationBlocker)throw new ApiError('GATE_BLOCKED',presentationBlocker);
   if(engagement.approved_planning_version_id===null||engagement.active_materiality_version_id===null)throw new ApiError('GATE_BLOCKED','Current planning and materiality pins are required before reporting.');
   return {engagement,srm,snapshot,profile};
 }
@@ -507,6 +515,98 @@ async function buildBundlePrepare(env:Env,workspaceId:string,context:BusinessCon
     finalInstallmentMinor:finalFee.toString(),taxMinor:tax.toString()},'BUNDLE_CANDIDATE',candidateId,null,candidateRevision,{jobId,dependencyHash,finalFeeMinor:finalFee.toString(),taxMinor:tax.toString()});
 }
 
+async function releasedBundleForDelivery(env:Env,workspaceId:string,context:BusinessContext,bundleId:string,now:string){
+  const bundle=await env.DB.prepare(`SELECT b.id,b.client_id,b.engagement_id,b.released_at,e.lifecycle_state,e.locked_at,e.archive_due_at,
+      p.primary_file_id AS report_file_id,p.sha256 AS report_sha256,f.sha256 AS file_sha256,f.immutable AS report_immutable
+    FROM deliverable_bundles b JOIN engagements e ON e.workspace_id=b.workspace_id AND e.client_id=b.client_id AND e.id=b.engagement_id
+    JOIN deliverable_parts p ON p.workspace_id=b.workspace_id AND p.bundle_id=b.id AND p.kind='REPORT_AND_FS'
+    JOIN file_versions f ON f.workspace_id=p.workspace_id AND f.id=p.primary_file_id
+    WHERE b.workspace_id=? AND b.id=?`).bind(workspaceId,bundleId).first<Record<string,any>>();
+  if(!bundle||!bundle.released_at||bundle.lifecycle_state!=='COMPLIANCE_COUNTDOWN')throw new ApiError('NOT_FOUND','The released bundle was not found.');
+  if((context.scope.clientId&&context.scope.clientId!==bundle.client_id)||(context.scope.engagementId&&context.scope.engagementId!==bundle.engagement_id)
+    ||(context.actor.persona==='CLIENT'&&context.actor.clientId!==bundle.client_id))throw new ApiError('FORBIDDEN_SCOPE','The bundle is outside the selected engagement scope.');
+  if(bundle.locked_at||(typeof bundle.archive_due_at==='string'&&bundle.archive_due_at<=now))throw new ApiError('WORKSPACE_FROZEN','Delivery records are frozen after the archive deadline or Partner lock.');
+  if(bundle.report_immutable!==1||bundle.report_sha256!==bundle.file_sha256)throw new ApiError('INTEGRITY_MISMATCH','The released report part no longer matches its immutable file record.');
+  return bundle as {id:string;client_id:string;engagement_id:string;released_at:string;lifecycle_state:string;locked_at:string|null;archive_due_at:string|null;report_file_id:string;report_sha256:string;file_sha256:string;report_immutable:number};
+}
+
+async function buildBundleRecordDelivery(env:Env,workspaceId:string,context:BusinessContext,command:Extract<BusinessReportingCommand,{type:'bundle.record-delivery'}>,now:string){
+  const p=command.payload,bundle=await releasedBundleForDelivery(env,workspaceId,context,p.bundleId,now);
+  if(context.actor.persona==='CLIENT'){
+    if(p.method!=='PORTAL_ACKNOWLEDGEMENT')throw new ApiError('PERSONA_ACTION_DENIED','A CLIENT may record only their own portal acknowledgement.');
+  }else reviewer(context);
+  const dispatchId=p.dispatchId??null,evidenceFileId=p.evidenceFileId??null;
+  if(p.method==='EMAIL'){
+    if(!dispatchId)throw new ApiError('VALIDATION_FAILED','An email delivery record must reference the accepted provider dispatch.');
+    const dispatch=await env.DB.prepare(`SELECT id FROM dispatches WHERE workspace_id=? AND id=? AND client_id=? AND engagement_id=? AND purpose='BUNDLE'
+        AND file_version_id=? AND status IN ('ACCEPTED','DELIVERED') AND provider_message_id IS NOT NULL`)
+      .bind(workspaceId,dispatchId,bundle.client_id,bundle.engagement_id,bundle.report_file_id).first<{id:string}>();
+    if(!dispatch)throw new ApiError('GATE_BLOCKED','Email delivery requires a provider-accepted dispatch for this released bundle and report file.');
+  }else if(dispatchId){
+    throw new ApiError('VALIDATION_FAILED','Only an EMAIL delivery record may reference a dispatch.');
+  }
+  if(evidenceFileId){
+    const evidence=await env.DB.prepare(`SELECT id,object_key,size_bytes,sha256,immutable,state FROM file_versions WHERE workspace_id=? AND id=? AND client_id=? AND engagement_id=?`)
+      .bind(workspaceId,evidenceFileId,bundle.client_id,bundle.engagement_id).first<{id:string;object_key:string;size_bytes:number;sha256:string|null;immutable:number;state:string}>();
+    if(!evidence||evidence.state!=='COMMITTED'||evidence.immutable!==1||!evidence.sha256)throw new ApiError('VALIDATION_FAILED','Delivery evidence must be a committed immutable file from this engagement.');
+    const object=await env.FILES.get(evidence.object_key);if(!object)throw new ApiError('INTEGRITY_MISMATCH','Delivery evidence bytes are missing.');
+    const bytes=new Uint8Array(await object.arrayBuffer()),digest=await sha256BytesDigest(bytes);
+    if(bytes.byteLength!==evidence.size_bytes||digest!==evidence.sha256)throw new ApiError('INTEGRITY_MISMATCH','Delivery evidence does not match its committed size and digest.');
+  }
+  const deliveryId=crypto.randomUUID();
+  const eligible=assertDb(env,workspaceId,706,`EXISTS(SELECT 1 FROM deliverable_bundles b JOIN engagements e ON e.workspace_id=b.workspace_id AND e.id=b.engagement_id
+      JOIN deliverable_parts p ON p.workspace_id=b.workspace_id AND p.bundle_id=b.id AND p.kind='REPORT_AND_FS'
+      WHERE b.workspace_id=? AND b.id=? AND b.released_at IS NOT NULL AND e.lifecycle_state='COMPLIANCE_COUNTDOWN' AND e.locked_at IS NULL
+        AND (e.archive_due_at IS NULL OR e.archive_due_at>?) AND p.primary_file_id=? AND p.sha256=?)
+      AND (? IS NULL OR EXISTS(SELECT 1 FROM dispatches d WHERE d.workspace_id=? AND d.id=? AND d.purpose='BUNDLE' AND d.file_version_id=?
+        AND d.status IN ('ACCEPTED','DELIVERED') AND d.provider_message_id IS NOT NULL))
+      AND (? IS NULL OR EXISTS(SELECT 1 FROM file_versions f WHERE f.workspace_id=? AND f.id=? AND f.client_id=? AND f.engagement_id=? AND f.state='COMMITTED' AND f.immutable=1 AND f.sha256 IS NOT NULL))`,
+    workspaceId,bundle.id,now,bundle.report_file_id,bundle.report_sha256,dispatchId,workspaceId,dispatchId,bundle.report_file_id,evidenceFileId,workspaceId,evidenceFileId,bundle.client_id,bundle.engagement_id);
+  return mut([eligible,env.DB.prepare(`INSERT INTO bundle_deliveries(id,workspace_id,bundle_id,dispatch_id,method,delivered_at,evidence_file_id,recorded_by_actor_id)
+      VALUES(?,?,?,?,?,?,?,?)`).bind(deliveryId,workspaceId,bundle.id,dispatchId,p.method,now,evidenceFileId,context.actor.id)],
+    {deliveryId,bundleId:bundle.id,method:p.method,deliveredAt:now,dispatchId,evidenceFileId,clientId:bundle.client_id,engagementId:bundle.engagement_id},
+    'BUNDLE_DELIVERY',deliveryId,null,1,{bundleId:bundle.id,method:p.method,dispatchId,evidenceFileId,deliveredAt:now});
+}
+
+async function buildBundleDeliveryRetry(env:Env,workspaceId:string,context:BusinessContext,command:Extract<BusinessReportingCommand,{type:'bundle.delivery.retry'}>,commandId:string,now:string){
+  partner(context);const p=command.payload,bundle=await releasedBundleForDelivery(env,workspaceId,context,p.bundleId,now);
+  const prior=await env.DB.prepare(`SELECT d.id,d.version,d.client_id,d.engagement_id,d.file_version_id,d.recipient_snapshot_json,d.status,d.job_id,
+      j.status AS job_status,j.kind,j.payload_json FROM dispatches d JOIN outbox_jobs j ON j.workspace_id=d.workspace_id AND j.id=d.job_id
+      WHERE d.workspace_id=? AND d.id=? AND d.client_id=? AND d.engagement_id=? AND d.purpose='BUNDLE' AND d.file_version_id=?`)
+    .bind(workspaceId,p.dispatchId,bundle.client_id,bundle.engagement_id,bundle.report_file_id)
+    .first<{id:string;version:number;client_id:string;engagement_id:string;file_version_id:string;recipient_snapshot_json:string;status:string;job_id:string;job_status:string;kind:string;payload_json:string}>();
+  if(!prior)throw new ApiError('NOT_FOUND','The failed bundle dispatch was not found for this release.');
+  if(prior.version!==p.expectedDispatchVersion||prior.status!=='FAILED'||prior.job_status!=='PERMANENT_FAILED'||prior.kind!=='EMAIL')
+    throw new ApiError('INVALID_STATE','Only a definitively failed bundle email can be retried. Unknown provider outcomes must be reconciled first.');
+  let priorPayload:Record<string,unknown>,recipient:Record<string,unknown>;
+  try{priorPayload=JSON.parse(prior.payload_json) as Record<string,unknown>;recipient=JSON.parse(prior.recipient_snapshot_json) as Record<string,unknown>;
+    if(priorPayload.documentType!=='COMMERCIAL_EMAIL'||priorPayload.purpose!=='BUNDLE'||priorPayload.fileVersionId!==bundle.report_file_id
+      ||typeof recipient.contactRouteId!=='string'||typeof recipient.contactRouteVersion!=='number'||typeof recipient.contactId!=='string'
+      ||typeof recipient.name!=='string'||typeof recipient.email!=='string')throw new Error('shape');}
+  catch{throw new ApiError('INVALID_STATE','The original bundle delivery recipient or file snapshot cannot be verified.');}
+  const count=await env.DB.prepare(`SELECT COUNT(*) AS count FROM dispatches WHERE workspace_id=? AND engagement_id=? AND purpose='BUNDLE' AND file_version_id=?`)
+    .bind(workspaceId,bundle.engagement_id,bundle.report_file_id).first<{count:number}>();
+  const attempt=Number(count?.count??1)+1,dispatchId=crypto.randomUUID(),jobId=crypto.randomUUID(),dedup=`released-bundle:${bundle.id}:retry:${attempt}`;
+  const payload={documentType:'COMMERCIAL_EMAIL',purpose:'BUNDLE',commandId,engagementId:bundle.engagement_id,clientId:bundle.client_id,dispatchId,
+    fileVersionId:bundle.report_file_id,recipient,subject:`Final audit deliverables · ${bundle.id.slice(0,8)}`,
+    body:'The released five-part audit deliverable package remains available in the client portal. This message reuses the existing released report file.'};
+  const assertion=assertDb(env,workspaceId,707,`EXISTS(SELECT 1 FROM dispatches d JOIN outbox_jobs j ON j.workspace_id=d.workspace_id AND j.id=d.job_id
+      JOIN deliverable_bundles b ON b.workspace_id=d.workspace_id AND b.id=? JOIN engagements e ON e.workspace_id=b.workspace_id AND e.id=b.engagement_id
+      WHERE d.workspace_id=? AND d.id=? AND d.version=? AND d.status='FAILED' AND j.status='PERMANENT_FAILED' AND j.kind='EMAIL'
+        AND d.purpose='BUNDLE' AND d.engagement_id=b.engagement_id AND d.file_version_id=? AND e.locked_at IS NULL
+        AND (e.archive_due_at IS NULL OR e.archive_due_at>?))`,bundle.id,workspaceId,prior.id,p.expectedDispatchVersion,bundle.report_file_id,now);
+  return mut([assertion,emailOutboxJob(env,workspaceId,jobId,dispatchId,1,payload,dedup,now),
+    env.DB.prepare(`INSERT INTO dispatches(id,workspace_id,version,client_id,engagement_id,purpose,file_version_id,recipient_snapshot_json,status,provider_message_id,sent_at,deduplication_key,job_id,created_at,updated_at)
+      VALUES(?,?,1,?,?,'BUNDLE',?,?,'QUEUED',NULL,NULL,?,?,?,?)`).bind(dispatchId,workspaceId,bundle.client_id,bundle.engagement_id,bundle.report_file_id,prior.recipient_snapshot_json,dedup,jobId,now,now)],
+    {bundleId:bundle.id,dispatchId,jobId,status:'QUEUED',retryOfDispatchId:prior.id,clientId:bundle.client_id,engagementId:bundle.engagement_id},
+    'DISPATCH',dispatchId,null,1,{bundleId:bundle.id,retryOfDispatchId:prior.id,fileVersionId:bundle.report_file_id,jobId});
+}
+
+async function sha256BytesDigest(bytes:Uint8Array):Promise<string>{
+  const copy=new ArrayBuffer(bytes.byteLength);new Uint8Array(copy).set(bytes);const digest=await crypto.subtle.digest('SHA-256',copy);
+  return [...new Uint8Array(digest)].map(value=>value.toString(16).padStart(2,'0')).join('');
+}
+
 async function currentRepresentationHash(env:Env,workspaceId:string,engagementId:string,reportDate:string,requestId:string){
   const pins=await reportPins(env,workspaceId,engagementId);const required=await env.DB.prepare(`SELECT required_signatories_json FROM representation_requests WHERE workspace_id=? AND id=?`)
     .bind(workspaceId,requestId).first<{required_signatories_json:string}>();
@@ -599,7 +699,8 @@ async function copyReleaseFile(env:Env,workspaceId:string,engagementId:string,fi
   if(!file||!file.sha256)throw new ApiError('GATE_BLOCKED',`The ${kind} file is not a committed immutable version.`);
   const stored=await env.FILES.get(file.object_key);if(!stored)throw new ApiError('INTEGRITY_MISMATCH',`The ${kind} source bytes are missing.`);
   const bytes=new Uint8Array(await stored.arrayBuffer());if(bytes.byteLength!==file.size_bytes||await sha256BytesHex(bytes)!==file.sha256)throw new ApiError('INTEGRITY_MISMATCH',`The ${kind} source bytes failed hash verification.`);
-  const idValue=crypto.randomUUID(),safe=file.original_name.replace(/[^A-Z0-9._-]/gi,'-').slice(0,160),key=`workspaces/${workspaceId}/released/${bundleId}/${kind}/${file.sha256}.pdf`;
+    const idValue=crypto.randomUUID(),safe=file.original_name.replace(/[^A-Z0-9._-]/gi,'-').slice(0,160),extension=file.media_type==='application/pdf'?'.pdf'
+      :file.media_type==='application/vnd.openxmlformats-officedocument.wordprocessingml.document'?'.docx':'.bin',key=`workspaces/${workspaceId}/released/${bundleId}/${kind}/${file.sha256}${extension}`;
   await env.FILES.put(key,bytes,{httpMetadata:{contentType:file.media_type},customMetadata:{sha256:file.sha256,bundleId,partKind:kind,sourceFileId:file.id}});
   const verified=await env.FILES.get(key);if(!verified||await sha256BytesHex(new Uint8Array(await verified.arrayBuffer()))!==file.sha256)throw new ApiError('INTEGRITY_MISMATCH',`The staged ${kind} release alias failed read-back verification.`);
   return {id:idValue,sourceId:file.id,originalName:safe,mediaType:file.media_type,size:file.size_bytes,sha256:file.sha256,key,now,bytes};
@@ -803,6 +904,8 @@ export async function buildBusinessReportingMutation(env:Env,workspaceId:string,
     case 'representation.receive':return buildRepresentationReceive(env,workspaceId,context,command,now);
     case 'representation.review':return buildRepresentationReview(env,workspaceId,context,command,now);
     case 'bundle.prepare':return buildBundlePrepare(env,workspaceId,context,command,now);
+    case 'bundle.record-delivery':return buildBundleRecordDelivery(env,workspaceId,context,command,now);
+    case 'bundle.delivery.retry':return buildBundleDeliveryRetry(env,workspaceId,context,command,commandId,now);
     case 'report.release':return buildReportRelease(env,workspaceId,context,command,commandId,now);
     case 'retention-policy.save':return buildRetentionSave(env,workspaceId,context,command,now);
     case 'archive.lock':return buildArchiveLock(env,workspaceId,context,command,commandId,now);

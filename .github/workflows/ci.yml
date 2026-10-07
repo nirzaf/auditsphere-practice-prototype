@@ -105,9 +105,8 @@ jobs:
       - name: Build production assets
         run: npm run build
 
-      # The protected environment approval covers this schema change and the
-      # Worker release as one operation. Wrangler captures a D1 backup before
-      # applying migrations in non-interactive CI.
+      # The branch-restricted environment scopes deployment secrets to main.
+      # Wrangler captures a D1 backup before applying migrations in non-interactive CI.
       - name: Apply approved D1 migrations
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}

@@ -2,6 +2,7 @@ import type { Env } from './env';
 import { ApiError } from './errors';
 import type { BusinessContext } from './business';
 import { buildOpinionReportSections, opinionReportingBlockers, type OpinionAffectedFsli } from './reportingOpinion';
+import { unzipSync } from 'fflate';
 
 type Row = Record<string, unknown>;
 
@@ -206,6 +207,19 @@ export async function getBusinessReportingWorkspace(env: Env, workspaceId: strin
     LEFT JOIN deliverable_attachments a ON a.workspace_id=p.workspace_id AND a.part_id=p.id AND a.purpose='SIGNED_CLIENT_REPRESENTATION'
     LEFT JOIN file_versions af ON af.workspace_id=a.workspace_id AND af.id=a.file_version_id
     WHERE p.workspace_id=? AND p.bundle_id=? ORDER BY p.kind`).bind(workspaceId, latestBundle.id).all<Row>()).results ?? [] : [];
+  const [bundleDeliveryRows,bundleDispatchRows]=await Promise.all([
+    env.DB.prepare(`SELECT d.id,d.bundle_id AS bundleId,d.dispatch_id AS dispatchId,d.method,d.delivered_at AS deliveredAt,
+        d.evidence_file_id AS evidenceFileId,d.recorded_by_actor_id AS recordedByActorId
+      FROM bundle_deliveries d JOIN deliverable_bundles b ON b.workspace_id=d.workspace_id AND b.id=d.bundle_id AND b.released_at IS NOT NULL
+      WHERE d.workspace_id=? AND b.engagement_id=? ORDER BY d.delivered_at DESC,d.id`).bind(workspaceId,engagementId).all<Row>(),
+    env.DB.prepare(`SELECT d.id,d.version,d.status,d.provider_message_id AS providerMessageId,d.sent_at AS acceptedAt,d.file_version_id AS fileVersionId,
+        b.id AS bundleId,
+        j.status AS jobStatus,j.last_error_code AS lastErrorCode
+      FROM dispatches d JOIN outbox_jobs j ON j.workspace_id=d.workspace_id AND j.id=d.job_id
+      JOIN deliverable_parts p ON p.workspace_id=d.workspace_id AND p.primary_file_id=d.file_version_id AND p.kind='REPORT_AND_FS'
+      JOIN deliverable_bundles b ON b.workspace_id=p.workspace_id AND b.id=p.bundle_id AND b.engagement_id=d.engagement_id
+      WHERE d.workspace_id=? AND d.engagement_id=? AND d.purpose='BUNDLE' ORDER BY d.created_at DESC,d.id`).bind(workspaceId,engagementId).all<Row>()
+  ]);
   const archive = await env.DB.prepare(`SELECT r.id AS runId,r.status AS status,r.missing_files_json AS missingFilesJson,r.error_code AS errorCode,
       s.id AS sealId,s.sealed_at AS sealedAt,s.reason,s.manifest_file_id AS manifestFileId,s.archive_file_id AS archiveFileId,
       s.manifest_sha256 AS manifestSha256,s.archive_sha256 AS archiveSha256,s.record_count AS recordCount,s.file_count AS fileCount
@@ -231,9 +245,9 @@ export async function getBusinessReportingWorkspace(env: Env, workspaceId: strin
         WHERE rr.workspace_id=? AND r.engagement_id=? ORDER BY rr.received_at DESC`).bind(context.actor.id, workspaceId, engagementId).all<Row>()
     ]);
     return { engagement: summary, releasedBundle: latestBundle ? { ...latestBundle, parts: releasedParts } : null,
-      archive: archive?.sealId ? { sealId: archive.sealId, sealedAt: archive.sealedAt, reason: archive.reason,
-        manifestFileId: archive.manifestFileId, archiveFileId: archive.archiveFileId, manifestSha256: archive.manifestSha256,
-        archiveSha256: archive.archiveSha256, status: archive.status } : null,
+      archive: archive?.sealId ? { sealedAt: archive.sealedAt, status: archive.status } : null,
+      portalAcknowledgements: (bundleDeliveryRows.results??[]).filter(row=>row.bundleId===latestBundle?.id&&row.method==='PORTAL_ACKNOWLEDGEMENT')
+        .map(row=>({method:row.method,deliveredAt:row.deliveredAt})),
       representationRequests: clientRepresentations.results ?? [], representationReturns: clientRepresentationReturns.results ?? [], readOnly: true };
   }
 
@@ -345,5 +359,95 @@ export async function getBusinessReportingWorkspace(env: Env, workspaceId: strin
     bundleCandidates: (bundleCandidates.results ?? []).map(candidate => ({ ...candidate, parts: candidatePartRows.filter(part => part.candidateId === candidate.id) })),
     releasedBundles: bundleRows.map(bundle => ({ ...bundle, parts: bundleParts.filter(part => part.bundleId === bundle.id),
       invoice: bundle.finalInvoiceStatus === 'ISSUED' ? { id: bundle.finalInvoiceId, number: bundle.finalInvoiceNumber,totalMinor: bundle.finalInvoiceTotal,dueDate:bundle.finalInvoiceDueDate } : null })),
-    retentionPolicies: retentionPolicies.results ?? [], archive: archiveView, findings: findings.results ?? [], contactRoutes: contactRoutes.results ?? [], jobs: jobs.results ?? [], readOnly: false };
+    retentionPolicies: retentionPolicies.results ?? [], archive: archiveView, bundleDeliveries:bundleDeliveryRows.results??[],bundleDispatches:bundleDispatchRows.results??[],
+    findings: findings.results ?? [], contactRoutes: contactRoutes.results ?? [], jobs: jobs.results ?? [], readOnly: false };
 }
+
+async function accessEvent(env:Env,workspaceId:string,engagementId:string,resourceType:string,resourceId:string,action:'READ'|'EXPORT',actorId:string|null,now:string){
+  await env.DB.prepare(`INSERT INTO operational_access_events(id,workspace_id,engagement_id,resource_type,resource_id,action,occurred_at,actor_id)
+    VALUES(?,?,?,?,?,?,?,?)`).bind(crypto.randomUUID(),workspaceId,engagementId,resourceType,resourceId,action,now,actorId).run();
+}
+
+function assertArchiveScope(context:BusinessContext,engagement:Row,engagementId:string){
+  if((context.scope.clientId&&context.scope.clientId!==engagement.client_id)||(context.scope.engagementId&&context.scope.engagementId!==engagementId)
+    ||(context.actor.persona==='CLIENT'&&context.actor.clientId!==engagement.client_id))throw new ApiError('FORBIDDEN_SCOPE','The engagement is outside the selected scope.');
+}
+
+function parsedMissingFiles(value:unknown):string[]{
+  try{const parsed=JSON.parse(String(value??'[]')) as unknown;return Array.isArray(parsed)?parsed.filter((item):item is string=>typeof item==='string'):[];}
+  catch{return ['Archive status contains an invalid missing-file record.'];}
+}
+
+export async function getBusinessArchiveStatus(env:Env,workspaceId:string,context:BusinessContext,engagementId:string,now:string=new Date().toISOString()):Promise<Row>{
+  if(!context.allowedActions.includes('reporting.read'))throw new ApiError('PERSONA_ACTION_DENIED','Archive status is not available to this persona.');
+  const row=await env.DB.prepare(`SELECT e.id,e.client_id,e.lifecycle_state,e.report_signed_at,e.report_date,e.archive_due_at,e.locked_at,
+      r.id AS run_id,r.status AS assembly_status,r.missing_files_json,r.error_code,s.id AS seal_id,s.sealed_at
+    FROM engagements e LEFT JOIN archive_runs r ON r.workspace_id=e.workspace_id AND r.engagement_id=e.id
+    LEFT JOIN archive_seals s ON s.workspace_id=e.workspace_id AND s.engagement_id=e.id
+    WHERE e.workspace_id=? AND e.id=?`).bind(workspaceId,engagementId).first<Row>();
+  if(!row)throw new ApiError('NOT_FOUND','The engagement was not found.');
+  assertArchiveScope(context,row,engagementId);
+  const staff=context.actor.persona!=='CLIENT';
+  const missingFiles=staff?parsedMissingFiles(row.missing_files_json):[];
+  const status=typeof row.assembly_status==='string'?row.assembly_status:'NOT_STARTED';
+  const effectiveReadOnly=Boolean(row.locked_at)||row.lifecycle_state==='ARCHIVED_READ_ONLY'||typeof row.archive_due_at==='string'&&row.archive_due_at<=now;
+  await accessEvent(env,workspaceId,engagementId,'ARCHIVE_STATUS',engagementId,'READ',context.actor.id,now);
+  return {engagementId,reportSignedAt:row.report_signed_at??null,reportDate:row.report_date??null,archiveDueAt:row.archive_due_at??null,
+    effectiveReadOnly,lockedAt:row.locked_at??null,sealedAt:row.sealed_at??null,assemblyStatus:status,missingFiles,errorCode:staff?(row.error_code??null):null,sealed:Boolean(row.seal_id)};
+}
+
+export async function getBusinessArchiveExport(env:Env,workspaceId:string,context:BusinessContext,engagementId:string,part:'archive'|'manifest'='archive'):
+  Promise<{bytes:Uint8Array;fileName:string;contentType:string;archiveSha256:string;manifestSha256:string}>{
+  if(!context.allowedActions.includes('reporting.read')||!(context.actor.persona==='REVIEWER'||context.actor.persona==='APPROVER'&&context.actor.staffGrade==='PARTNER'))
+    throw new ApiError('PERSONA_ACTION_DENIED','Only a Reviewer or Partner may export a sealed internal audit archive.');
+  const seal=await env.DB.prepare(`SELECT e.id,e.client_id,e.lifecycle_state,e.locked_at,e.archive_due_at,r.status AS run_status,r.error_code,
+      s.id AS seal_id,s.bundle_id,s.manifest_file_id,s.archive_file_id,s.manifest_sha256,s.archive_sha256,s.audit_chain_head,s.record_count,s.file_count
+    FROM engagements e LEFT JOIN archive_runs r ON r.workspace_id=e.workspace_id AND r.engagement_id=e.id
+    LEFT JOIN archive_seals s ON s.workspace_id=e.workspace_id AND s.engagement_id=e.id
+    WHERE e.workspace_id=? AND e.id=?`).bind(workspaceId,engagementId).first<Row>();
+  if(!seal)throw new ApiError('NOT_FOUND','The engagement was not found.');
+  assertArchiveScope(context,seal,engagementId);
+  if(seal.lifecycle_state!=='ARCHIVED_READ_ONLY'||!seal.locked_at||seal.run_status!=='SEALED'||!seal.seal_id||typeof seal.manifest_file_id!=='string'||typeof seal.archive_file_id!=='string')
+    throw new ApiError('GATE_BLOCKED','A successfully sealed archive is required before export.');
+  const records=await env.DB.prepare(`SELECT id,original_name,media_type,size_bytes,sha256,object_key,purpose,immutable,state FROM file_versions
+    WHERE workspace_id=? AND engagement_id=? AND id IN (?,?)`).bind(workspaceId,engagementId,seal.manifest_file_id,seal.archive_file_id).all<Row>();
+  const byId=new Map((records.results??[]).map(row=>[String(row.id),row]));
+  const manifestRow=byId.get(seal.manifest_file_id),archiveRow=byId.get(seal.archive_file_id);
+  if(!manifestRow||!archiveRow||manifestRow.purpose!=='ARCHIVE'||archiveRow.purpose!=='ARCHIVE'||manifestRow.state!=='COMMITTED'||archiveRow.state!=='COMMITTED'
+    ||manifestRow.immutable!==1||archiveRow.immutable!==1||manifestRow.media_type!=='text/plain'||archiveRow.media_type!=='application/zip'
+    ||manifestRow.sha256!==seal.manifest_sha256||archiveRow.sha256!==seal.archive_sha256||Number(archiveRow.size_bytes)>128*1024*1024)
+    throw new ApiError('INTEGRITY_MISMATCH','The archive seal does not match its committed immutable manifest and ZIP metadata.');
+  const [manifestObject,archiveObject]=await Promise.all([env.FILES.get(String(manifestRow.object_key)),env.FILES.get(String(archiveRow.object_key))]);
+  if(!manifestObject||!archiveObject)throw new ApiError('INTEGRITY_MISMATCH','The sealed archive or manifest bytes are missing from storage.');
+  const [manifestBytes,archiveBytes]=await Promise.all([manifestObject.arrayBuffer(),archiveObject.arrayBuffer()]);
+  const digest=async(bytes:ArrayBuffer)=>{const value=await crypto.subtle.digest('SHA-256',bytes);return [...new Uint8Array(value)].map(byte=>byte.toString(16).padStart(2,'0')).join('');};
+  if(manifestBytes.byteLength!==manifestRow.size_bytes||archiveBytes.byteLength!==archiveRow.size_bytes
+    ||await digest(manifestBytes)!==seal.manifest_sha256||await digest(archiveBytes)!==seal.archive_sha256)
+    throw new ApiError('INTEGRITY_MISMATCH','The stored archive bytes do not match their independently recorded seal hashes.');
+  let manifest:Record<string,unknown>;
+  try{manifest=JSON.parse(new TextDecoder().decode(manifestBytes)) as Record<string,unknown>;}
+  catch{throw new ApiError('INTEGRITY_MISMATCH','The sealed archive manifest is not valid JSON.');}
+  if(manifest.format!=='AuditSphere sealed archive manifest v1'||manifest.engagementId!==engagementId||manifest.bundleId!==seal.bundle_id
+    ||manifest.auditChainHead!==seal.audit_chain_head||!Array.isArray(manifest.files)||manifest.files.length!==Number(seal.file_count)
+    ||manifest.recordCount!==Number(seal.record_count))throw new ApiError('INTEGRITY_MISMATCH','The sealed manifest identity or counts do not match the archive seal.');
+  let entries:Record<string,Uint8Array>;
+  try{entries=unzipSync(new Uint8Array(archiveBytes));}
+  catch{throw new ApiError('INTEGRITY_MISMATCH','The sealed archive is not a readable ZIP.');}
+  const embedded=entries['manifest.json'];
+  if(!embedded||!sameBytes(embedded,new Uint8Array(manifestBytes))||Object.keys(entries).length!==manifest.files.length+1)
+    throw new ApiError('INTEGRITY_MISMATCH','The ZIP does not contain the exact independently sealed manifest and file count.');
+  for(const raw of manifest.files){
+    if(!raw||typeof raw!=='object')throw new ApiError('INTEGRITY_MISMATCH','The sealed manifest contains an invalid file entry.');
+    const file=raw as Record<string,unknown>;
+    if(typeof file.id!=='string'||typeof file.originalName!=='string'||typeof file.purpose!=='string'||typeof file.sha256!=='string'||!Number.isSafeInteger(file.sizeBytes))
+      throw new ApiError('INTEGRITY_MISMATCH','The sealed manifest contains an incomplete file entry.');
+    const safe=file.originalName.replace(/[\\/]+/g,'_').replace(/\.\./g,'_').slice(0,160),path=`files/${file.purpose.toLowerCase()}/${file.id}-${safe}`,bytes=entries[path];
+    if(!bytes||bytes.byteLength!==file.sizeBytes||await digest(bytes.slice().buffer)!==file.sha256)throw new ApiError('INTEGRITY_MISMATCH',`A sealed archive member failed integrity verification: ${file.id}.`);
+  }
+  const now=new Date().toISOString();
+  await accessEvent(env,workspaceId,engagementId,'SEALED_ARCHIVE',String(seal.archive_file_id),'EXPORT',context.actor.id,now);
+  return {bytes:new Uint8Array(part==='manifest'?manifestBytes:archiveBytes),fileName:part==='manifest'?'archive-manifest.json':'sealed-audit-archive.zip',
+    contentType:part==='manifest'?'application/json':'application/zip',archiveSha256:String(seal.archive_sha256),manifestSha256:String(seal.manifest_sha256)};
+}
+
+function sameBytes(a:Uint8Array,b:Uint8Array):boolean{return a.byteLength===b.byteLength&&a.every((byte,index)=>byte===b[index]);}

@@ -3,6 +3,7 @@ import { sha256Hex } from './http';
 import { renderReportingPdf, type ReportingPdfInput, type ReportPdfSection } from './reportingDocument';
 import { buildOpinionReportSections, opinionReportingBlockers, type OpinionAffectedFsli } from './reportingOpinion';
 import { inspectReportingPng } from './reportingPng';
+import { renderRepresentationTemplateDocx } from './reportingRepresentationDocument';
 import { strToU8, zipSync } from 'fflate';
 import * as XLSX from 'xlsx';
 
@@ -41,6 +42,23 @@ async function storePdf(env:Env,job:Job,payload:Payload,input:ReportingPdfInput,
     env.DB.prepare(`INSERT INTO file_versions(id,workspace_id,version,client_id,engagement_id,original_name,media_type,size_bytes,sha256,object_key,purpose,state,committed_at,immutable,created_at,updated_at,created_by_actor_id,updated_by_actor_id)
       VALUES(?,?,1,?,?,?,'application/pdf',?,?,?,'GENERATED','COMMITTED',?,1,?,?,NULL,NULL)`)
       .bind(fileId,job.workspace_id,payload.clientId,payload.engagementId,fileName,bytes.byteLength,digest,key,generatedAt,generatedAt,generatedAt),
+    env.DB.prepare(`INSERT INTO generated_artifacts(id,workspace_id,client_id,engagement_id,artifact_kind,source_entity_type,source_entity_id,source_revision,file_version_id,content_sha256,size_bytes,generated_at,generated_by_job_id)
+      VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)`).bind(artifactId,job.workspace_id,payload.clientId,payload.engagementId,kind,sourceType,sourceId,revision,fileId,digest,bytes.byteLength,generatedAt,job.id)
+  ]};
+}
+
+async function storeDocx(env:Env,job:Job,payload:Payload,number:string,bytes:Uint8Array,kind:string,sourceType:string,sourceId:string,revision:number,category:string){
+  const digest=await sha256BytesHex(bytes),fileId=crypto.randomUUID(),artifactId=crypto.randomUUID(),generatedAt=nowIso();
+  const key=`workspaces/${job.workspace_id}/generated/${category}/${sourceId}/${digest}.docx`;
+  const mediaType='application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+  await env.FILES.put(key,bytes,{httpMetadata:{contentType:mediaType},customMetadata:{sha256:digest,documentType:kind,generatedByJobId:job.id}});
+  const stored=await env.FILES.get(key);if(!stored)throw new Error('The generated representation DOCX could not be read back from object storage.');
+  const copy=new Uint8Array(await stored.arrayBuffer());if(copy.byteLength!==bytes.byteLength||await sha256BytesHex(copy)!==digest)throw new Error('The generated representation DOCX failed object-store hash verification.');
+  const fileName=`${number.replace(/[^A-Z0-9._-]/gi,'-')}.docx`;
+  return {fileId,artifactId,digest,size:bytes.byteLength,key,fileName,generatedAt,bytes,statements:[
+    env.DB.prepare(`INSERT INTO file_versions(id,workspace_id,version,client_id,engagement_id,original_name,media_type,size_bytes,sha256,object_key,purpose,state,committed_at,immutable,created_at,updated_at,created_by_actor_id,updated_by_actor_id)
+      VALUES(?,?,1,?,?,?,?,?,?,?,'GENERATED','COMMITTED',?,1,?,?,NULL,NULL)`)
+      .bind(fileId,job.workspace_id,payload.clientId,payload.engagementId,fileName,mediaType,bytes.byteLength,digest,key,generatedAt,generatedAt,generatedAt),
     env.DB.prepare(`INSERT INTO generated_artifacts(id,workspace_id,client_id,engagement_id,artifact_kind,source_entity_type,source_entity_id,source_revision,file_version_id,content_sha256,size_bytes,generated_at,generated_by_job_id)
       VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)`).bind(artifactId,job.workspace_id,payload.clientId,payload.engagementId,kind,sourceType,sourceId,revision,fileId,digest,bytes.byteLength,generatedAt,job.id)
   ]};
@@ -155,14 +173,24 @@ async function representationTemplate(env:Env,job:Job,p:Payload,commit:Commit){
     .bind(job.workspace_id,p.requestId).first<Record<string,any>>();
   if(!row||row.status!=='PREPARING'||row.dependency_hash!==p.dependencyHash||row.engagement_id!==p.engagementId)throw new Error('The representation request is no longer eligible for rendering.');
   const names=JSON.parse(String(row.required_signatories_json)) as string[];
-  const output=await storePdf(env,job,p,{number:`LOR-${row.code}-${String(row.proposed_report_date).replaceAll('-','')}`,title:'Management Representation Letter · Client Letterhead Template',firmName:row.client_name,clientName:row.client_name,
-    engagementCode:row.code,serviceType:row.engagement_type,periodStart:row.period_start,periodEnd:row.period_end,reportDate:row.proposed_report_date,
-    sections:[{heading:'To the Independent Auditor',paragraphs:[`Entity: ${row.client_name}.`,`Financial reporting period: ${row.period_start} to ${row.period_end}.`,
-      `Proposed auditor’s report date: ${row.proposed_report_date}.`,`Required management signatories: ${names.join('; ')}.`,
-      'Management confirms that it has fulfilled its responsibilities for the preparation and fair presentation of the financial statements, provided access to all relevant information and recorded all transactions and events.',
-      'Management has disclosed all known fraud, suspected fraud, laws and regulations, related parties, subsequent events, uncorrected misstatements and other matters relevant to the engagement.',
-      'This editable template must be reviewed on client letterhead, completed where applicable, signed by the required representatives and returned before the auditor’s report is signed. It is not evidence of signature until the signed return is received and reviewed.']},
-      {heading:'Authorised representatives',paragraphs:names.map(name=>`${name} · Signature: ____________________ · Date: ____________________`)}]},'REPRESENTATION','REPRESENTATION_REQUEST',row.id,1,'representations');
+  const snapshot=await env.DB.prepare(`SELECT s.id,s.source_hash FROM financial_statement_approvals a
+      JOIN statement_snapshots s ON s.workspace_id=a.workspace_id AND s.id=a.statement_snapshot_id
+      WHERE a.workspace_id=? AND a.engagement_id=? ORDER BY a.approved_at DESC,a.id DESC LIMIT 1`)
+    .bind(job.workspace_id,row.engagement_id).first<{id:string;source_hash:string}>();
+  if(!snapshot)throw new Error('The representation letter needs the exact approved financial statement snapshot.');
+  const figureRows=await env.DB.prepare(`SELECT f.statement,f.category,SUM(l.current_adjusted_minor) AS current_minor,
+      CASE WHEN COUNT(l.prior_minor)=COUNT(*) THEN SUM(l.prior_minor) ELSE NULL END AS comparative_minor
+    FROM statement_snapshot_lines l JOIN fsli_catalog f ON f.workspace_id=l.workspace_id AND f.id=l.fsli_id
+    WHERE l.workspace_id=? AND l.snapshot_id=? GROUP BY f.statement,f.category ORDER BY f.statement,f.category`)
+    .bind(job.workspace_id,snapshot.id).all<{statement:string;category:string;current_minor:number;comparative_minor:number|null}>();
+  const figures=(figureRows.results??[]).map(figure=>({
+    label:`${figure.statement==='BALANCE_SHEET'?'Statement of financial position':'Statement of profit or loss'} · ${figure.category.toLowerCase()}`,
+    current:money(figure.current_minor),comparative:figure.comparative_minor===null?null:money(figure.comparative_minor)
+  }));
+  const documentBytes=await renderRepresentationTemplateDocx({clientName:String(row.client_name),engagementCode:String(row.code),periodStart:String(row.period_start),periodEnd:String(row.period_end),
+    proposedReportDate:String(row.proposed_report_date),signatories:names,statementSnapshotId:snapshot.id,statementSourceHash:snapshot.source_hash,figures});
+  const output=await storeDocx(env,job,p,`LOR-${row.code}-${String(row.proposed_report_date).replaceAll('-','')}`,documentBytes,
+    'REPRESENTATION','REPRESENTATION_REQUEST',row.id,1,'representations');
   await commit({entityType:'REPRESENTATION_REQUEST',entityId:row.id,clientId:row.client_id,engagementId:row.engagement_id,details:{dependencyHash:row.dependency_hash,contentSha256:output.digest},
     result:{requestId:row.id,fileVersionId:output.fileId,artifactId:output.artifactId,contentSha256:output.digest},statements:[...output.statements,
       env.DB.prepare(`UPDATE representation_requests SET template_artifact_id=?,template_file_id=?,status='PREPARED',version=version+1,updated_at=? WHERE workspace_id=? AND id=? AND status='PREPARING' AND dependency_hash=?`)

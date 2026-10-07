@@ -28,6 +28,17 @@ function bundleCandidateSql(): string {
   return query;
 }
 
+function bundleDispatchSql(): string {
+  const source = readFileSync(join(repositoryRoot, 'worker', 'businessReportingQuery.ts'), 'utf8');
+  const marker = 'SELECT d.id,d.version,d.status,d.provider_message_id AS providerMessageId';
+  const selectStart = source.indexOf(marker);
+  assert.notEqual(selectStart, -1, 'the bundle dispatch query was found');
+  const queryStart = source.lastIndexOf('env.DB.prepare(`', selectStart) + 'env.DB.prepare(`'.length;
+  const queryEnd = source.indexOf('`)', queryStart);
+  assert.ok(queryEnd > queryStart, 'the bundle dispatch query ended normally');
+  return source.slice(queryStart, queryEnd);
+}
+
 describe('US-GAP-16 five-part bundle candidate SQL', () => {
   it('reads the representation template through the joined request alias', () => {
     const query = bundleCandidateSql();
@@ -45,6 +56,28 @@ describe('US-GAP-16 five-part bundle candidate SQL', () => {
       const statement = db.prepare(bundleCandidateSql()); // must not throw "no such column: rr.template_file_id"
       const row = statement.bind('diagnostic-workspace', 'diagnostic-candidate').first<Record<string, unknown>>();
       assert.equal(row, null, 'an empty workspace returns no candidate instead of failing');
+    } finally {
+      db.close();
+    }
+  });
+
+  it('keeps bootstrap trigger CASE expressions parenthesized for remote D1 parsing', () => {
+    const migration = readFileSync(join(repositoryRoot, 'worker', 'migrations', '0008_business_workspace_bootstrap.sql'), 'utf8');
+    assert.doesNotMatch(migration, /\bSELECT\s+CASE\b/i,
+      'D1 can misread an unparenthesized CASE END as the end of its trigger body');
+    assert.equal((migration.match(/\bSELECT\s+\(CASE\b/gi) ?? []).length, 6,
+      'all six trigger guards keep their CASE expression inside parentheses');
+  });
+
+  it('associates each bundle email dispatch with its own released report part', () => {
+    const query = bundleDispatchSql();
+    assert.match(query, /b\.id AS bundleId/);
+    assert.match(query, /p\.primary_file_id=d\.file_version_id/);
+    const db = new SqliteD1(':memory:');
+    try {
+      db.migrate(repositoryRoot);
+      const result = db.prepare(query).bind('diagnostic-workspace', 'diagnostic-engagement').all<Record<string, unknown>>();
+      assert.deepEqual(result.results, [], 'an engagement without bundle email history returns no rows');
     } finally {
       db.close();
     }
