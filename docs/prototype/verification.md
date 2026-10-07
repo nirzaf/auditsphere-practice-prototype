@@ -1268,14 +1268,15 @@ without an R2 SHA-256 streams through size/digest verification; checksum-backed
 objects remain streamed. The 65 MiB regression exercises the former 64 MiB
 assembly ceiling and verifies output digest/size. Corrupt, truncated, wrong-size,
 and wrong-hash inputs are rejected. ZIP32 currently limits an archive/member to
-less than 4 GiB; the documented browser fallback still uses a verified Blob.
+less than 4 GiB in this historical check; the follow-up below replaces that
+format limit. The documented browser fallback still uses a verified Blob.
 
 **Browser gate:** Focused `tests/e2e/businessReporting.test.ts` did not reach the
 application: headless Chrome failed to expose its CDP endpoint within the
 configured 45-second startup window. No browser assertions ran. `npm audit --omit=dev`
 could not reach `registry.npmjs.org`, so the dependency advisory status is unknown.
 
-**Boundary:** These local checks do not establish full 4 GiB boundary behavior,
+**Boundary:** These local checks did not establish full 4 GiB boundary behavior,
 Cloudflare production R2 acceptance, browser download behavior, or operational
 retention/recovery. The authenticated Cloudflare dashboard was inspected on
 2026-10-08: `auditsphere-prototype-files` has **no bucket lock rules**, so an
@@ -1283,6 +1284,25 @@ account operator can still overwrite/delete archive objects outside the Worker.
 Wrangler could not refresh its expired login while the Cloudflare auth endpoint
 was unreachable. Do not describe the current R2 archive as storage-locked or
 permanently deletion-protected. US-REP-007 and the broader epic remain open.
+
+## US-REP-007 ZIP64 streaming writer — 2026-10-08
+
+**Verification:** `npx tsx --test --test-concurrency=1
+tests/unit/streamingArchive.test.ts tests/unit/businessArchiveExport.test.ts` —
+13/13; `npm run build`; `npm run cloud:typecheck`; `git diff --check`.
+
+**Evidence:** Replaced the ZIP32 writer with a streaming ZIP64 stored-entry
+writer. Local headers, data descriptors, central-directory sizes/offsets and
+end records now carry ZIP64 fields; source contents are SHA-256 and CRC32
+verified as they stream. Tests extract the generated archive with `fflate`,
+including a UTF-8 filename, and reject unsafe paths, duplicates, corrupt source
+bytes and hash/size mismatches. The existing 65 MiB streaming case still passes.
+
+**Boundary:** The tests validate ZIP64 structure and ordinary-size extraction,
+but do not stream a real member larger than 4 GiB. Full supported-range,
+Cloudflare R2, restore, and browser end-to-end acceptance remain open. The
+non-File-System-Access browser fallback still buffers a verified Blob. The
+broader US-REP-007 story remains open.
 
 ## US-REP-007 retention-specific R2 prefixes — 2026-10-08
 

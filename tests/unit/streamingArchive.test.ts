@@ -23,8 +23,48 @@ it('streams verified source bytes into a readable ZIP and reports its SHA-256 an
   assert.equal(new TextDecoder().decode(entries['files/evidence.txt']), new TextDecoder().decode(source));
   assert.equal(result.sizeBytes, outputBytes.byteLength);
   assert.equal(result.sha256, toHex(sha256(outputBytes)));
+  assert.equal(new DataView(outputBytes.buffer, outputBytes.byteOffset).getUint32(0, true), 0x04034b50);
+  assert.equal(new DataView(outputBytes.buffer, outputBytes.byteOffset).getUint32(outputBytes.byteLength - 22, true), 0x06054b50);
+  assert.ok(outputBytes.some((_, index) => index + 4 <= outputBytes.byteLength
+    && new DataView(outputBytes.buffer, outputBytes.byteOffset + index).getUint32(0, true) === 0x06064b50), 'ZIP64 end record is present');
   const verified = await new Response(verifyStreamingSha256(bytesStream(outputBytes), result.sizeBytes, result.sha256)).arrayBuffer();
   assert.deepEqual(new Uint8Array(verified), outputBytes);
+});
+
+it('writes ZIP64 size and offset fields and accepts UTF-8 archive paths', async () => {
+  const source = encoder.encode('verified content');
+  const archive = createStreamingArchive(encoder.encode('{}'), [{
+    path: 'files/2026/عنصر-مراجعة.txt', sizeBytes: source.byteLength, sha256: toHex(sha256(source)), body: bytesStream(source)
+  }]);
+  const outputPromise = new Response(archive.body).arrayBuffer();
+  await archive.completed;
+  const output = new Uint8Array(await outputPromise);
+  const entries = unzipSync(output);
+  assert.equal(new TextDecoder().decode(entries['files/2026/عنصر-مراجعة.txt']), 'verified content');
+  const view = new DataView(output.buffer, output.byteOffset);
+  assert.equal(view.getUint32(output.byteLength - 22, true), 0x06054b50);
+  assert.equal(view.getUint16(output.byteLength - 22 + 8, true), 0xffff);
+  assert.equal(view.getUint16(output.byteLength - 22 + 10, true), 0xffff);
+  assert.equal(view.getUint32(output.byteLength - 22 + 12, true), 0xffff_ffff);
+  assert.equal(view.getUint32(output.byteLength - 22 + 16, true), 0xffff_ffff);
+});
+
+it('rejects unsafe, duplicate, and reserved archive paths', async () => {
+  for (const path of ['../outside.txt', '/absolute.txt', 'files\\windows.txt', 'manifest.json', 'files//empty-part.txt']) {
+    const archive = createStreamingArchive(encoder.encode('{}'), [{
+      path, sizeBytes: 0, sha256: toHex(sha256(new Uint8Array())), body: bytesStream(new Uint8Array())
+    }]);
+    const consume = new Response(archive.body).arrayBuffer();
+    await assert.rejects(archive.completed, /Archive path is invalid|Archive path is duplicated or reserved/);
+    await assert.rejects(consume);
+  }
+  const duplicate = createStreamingArchive(encoder.encode('{}'), [
+    { path: 'files/same.txt', sizeBytes: 0, sha256: toHex(sha256(new Uint8Array())), body: bytesStream(new Uint8Array()) },
+    { path: 'files/same.txt', sizeBytes: 0, sha256: toHex(sha256(new Uint8Array())), body: bytesStream(new Uint8Array()) }
+  ]);
+  const duplicateOutput = new Response(duplicate.body).arrayBuffer();
+  await assert.rejects(duplicate.completed, /Archive path is duplicated or reserved/);
+  await assert.rejects(duplicateOutput);
 });
 
 it('rejects changed or truncated source bytes and errors the uncommitted ZIP stream', async () => {

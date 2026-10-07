@@ -43,11 +43,13 @@ R2 object at a time, streams ZIP chunks to R2, verifies the stored object by
 streaming it back, and records the resulting digest/size before the seal transaction.
 Exports without an R2 SHA-256 checksum verify the digest while streaming to the
 client; checksum-backed exports retain R2's verified body stream. The previous
-64 MiB assembly and 128 MiB export-buffer limits have been removed. The current
-ZIP32 format still imposes a 4 GiB archive/member limit, and browser fallback
+64 MiB assembly and 128 MiB export-buffer limits have been removed. The archive
+writer now emits streaming ZIP64 local headers, descriptors, central-directory
+entries and end records, removing the ZIP32 4 GiB archive/member cap; it still
+rejects byte counts beyond JavaScript's exact safe-integer range. Browser fallback
 behavior without the File System Access API remains a hash-verified Blob. Large-
-archive acceptance remains open until tests cover the full supported size range
-and all supported download paths end-to-end. Sealed objects now use dedicated
+archive acceptance remains open until tests cover actual multi-gigabyte members,
+the full supported size range and all supported download paths end-to-end. Sealed objects now use dedicated
 retention-specific prefixes, and `worker/r2-archive-locks.json` contains generated
 prefix rules for every supported term. CI and `npm run cloud:deploy` now apply
 these rules idempotently and verify their Cloudflare read-back before Worker
