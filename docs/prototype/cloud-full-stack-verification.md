@@ -810,11 +810,27 @@ message and no persisted PBC row. The test targets the route selector and the
 server-side stage gate without manufacturing an engagement-letter transition.
 
 `npm run build` passed and `npx tsx --test tests/unit/businessWorkspace.test.ts`
-passed **1/1**, including the Worker/D1 PBC route and lifecycle checks. The browser
-journey could not start in this Windows execution sandbox: installed Chrome did
-not expose its DevTools endpoint on the isolated loopback port, and the installed
-Edge binary exited with code `3221225477` before exposing CDP. The headless-browser
-cleanup now bounds `taskkill` waiting, so these setup failures return instead of
-hanging. This is not browser acceptance; run the scenario in a host with working
-headless Chromium before closing the UI subcase. US-ENG-001, US-ENG-007, and the
-46-story epic remain open.
+passed **1/1**, including the Worker/D1 PBC route and lifecycle checks. The first
+browser attempt under the default Windows sandbox could not expose Chrome's CDP
+endpoint; this attempt did not count as browser acceptance.
+
+### PBC route refresh and visible rejection follow-up — 2026-10-07
+
+The PBC recipient projection now refreshes when the parent client-directory
+revision changes, and its route lookup is aborted when its scope or revision is
+superseded. The portal's three-second background refresh now owns a separate
+read-error state, so a successful poll cannot clear an actionable command error.
+The full browser acceptance file now passes all three business-workspace scenarios. It confirms the newly saved primary Chief Accountant /
+Audit
+Liaison route appears, remains unselected until the actor chooses it, and the
+early request displays the Worker's `INVALID_TRANSITION` message without writing
+a PBC row.
+
+Verification: `npm run build` passed; `npm run cloud:typecheck` passed;
+`npx tsx --test --test-concurrency=1 tests/unit/businessWorkspace.test.ts`
+passed **1/1**; and the ordered `US-SYS-001/002/005` plus `US-ENG-001/002`
+business-workspace browser scenarios passed **3/3** against the isolated local
+Worker/SQLite harness. Chromium required running outside the default sandbox to
+bind its local CDP endpoint. This focused result does not close US-ENG-001,
+US-ENG-007, or the full 46-story epic; broad persona/scope and full-suite
+acceptance remain open.

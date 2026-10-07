@@ -117,7 +117,27 @@ after(async () => {
   tab?.close();
   if (chrome) await stopHeadlessChrome(chrome);
   if (server) await server.close();
-  if (profileDirectory) rmSync(profileDirectory, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
+  if (profileDirectory) {
+    let cleanupError: unknown;
+    for (let attempt = 0; attempt < 40; attempt++) {
+      try {
+        rmSync(profileDirectory, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+        cleanupError = undefined;
+        break;
+      } catch (reason) {
+        cleanupError = reason;
+        if (!reason || typeof reason !== 'object' || !['EPERM', 'EBUSY'].includes(String((reason as NodeJS.ErrnoException).code))) throw reason;
+        await sleep(250);
+      }
+    }
+    // Windows can retain a transient handle to Chrome's profile after the
+    // process tree has exited (for example, from antivirus scanning). The
+    // browser scenarios have already closed the profile; do not turn a
+    // successful acceptance journey into a failure solely because best-effort
+    // temporary-file cleanup is delayed. Keep the path in the warning so a
+    // developer can remove it after the handle is released.
+    if (cleanupError) console.warn(`Could not remove temporary Chrome profile yet: ${profileDirectory}`, cleanupError);
+  }
 });
 
 it('US-SYS-001/002/005 creates a real workspace, assigns all personas, persists UI records, and fails closed offline', { timeout: 90000 }, async () => {
@@ -495,17 +515,19 @@ it('US-ENG-001/002 creates a client-linked lead from the visible forms and advan
     recipient: document.querySelector('#business-pbc-contact')?.selectedOptions[0]?.textContent?.trim() ?? '',
     requestDisabled: [...document.querySelectorAll('button')].find(button => button.innerText.trim() === 'Create request')?.disabled ?? true
   }))()`);
-  assert.equal(pbcFormState.recipient, 'Select a configured PBC route');
+  assert.equal(pbcFormState.recipient, 'Select a configured PBC route', 'the route is visible but must be explicitly selected');
   assert.equal(pbcFormState.requestDisabled, false, 'the request action is enabled only after a configured route is available');
+  await chooseOption('business-pbc-contact', `item.textContent?.includes('QA Chief Accountant')`);
   await fillFields({
     'business-pbc-title': 'Year-end bank statements',
     'business-pbc-category': 'BANK_STATEMENT',
     'business-pbc-due': '2026-10-20',
     'business-pbc-description': 'Provide the complete statements for all operating bank accounts for the audit period.'
   });
-  await chooseOption('business-pbc-contact', `item.textContent?.includes('QA Chief Accountant')`);
+  const selectedPbcRecipient = await tab.evaluate<string>(`document.querySelector('#business-pbc-contact')?.selectedOptions[0]?.textContent?.trim() ?? ''`);
+  assert.ok(selectedPbcRecipient.includes('QA Chief Accountant'), 'the explicitly selected PBC recipient matches the saved route');
   await clickButton('Create request');
-  await waitFor('the Worker lifecycle gate to reject the early PBC request', `document.querySelector('.business-alert[role="alert"]')?.innerText.includes('PBC requests can be created after the engagement letter')`);
+  await waitFor('the Worker lifecycle gate to reject the early PBC request', `[...document.querySelectorAll('.business-alert[role="alert"]')].some(alert => alert.innerText.includes('PBC requests can be created after the engagement letter and risk handover enter advance billing'))`);
   const prematurePbcRequestCount = server.db.prepare(`SELECT COUNT(*) AS count FROM pbc_requests
     WHERE workspace_id=? AND engagement_id=? AND title='Year-end bank statements'`).bind(preference.workspaceId, persisted.converted_engagement_id).first<any>()?.count;
   assert.equal(prematurePbcRequestCount, 0, 'the early request is rejected atomically despite having a valid visible recipient route');

@@ -60,11 +60,12 @@ function formatMinorAmount(value: unknown): string {
 }
 
 export function BusinessPbcPanel({
-  workspaceId, selected, context, onChanged
+  workspaceId, selected, context, directoryRevision, onChanged
 }: {
   workspaceId: string;
   selected: BusinessWorkspacePreference;
   context: BusinessContextResponse;
+  directoryRevision: number;
   onChanged: () => void;
 }) {
   const [engagements, setEngagements] = useState<BusinessPbcEngagement[]>([]);
@@ -77,6 +78,7 @@ export function BusinessPbcPanel({
   const [busyRequestId, setBusyRequestId] = useState<string | null>(null);
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
   const [error, setError] = useState('');
+  const [portalError, setPortalError] = useState('');
   const [message, setMessage] = useState('');
   const [clientComments, setClientComments] = useState<Record<string, string>>({});
   const [findingResponses, setFindingResponses] = useState<Record<string, string>>({});
@@ -126,7 +128,7 @@ export function BusinessPbcPanel({
     const controller = new AbortController();
     const clientContext = { ...selected, clientId: engagement.clientId, engagementId: engagement.id };
     const requestedContactsScopeKey = [context.actor.id, engagement.clientId].join('|');
-    getBusinessClient(workspaceId, engagement.clientId, clientContext).then(detail => {
+    getBusinessClient(workspaceId, engagement.clientId, clientContext, controller.signal).then(detail => {
       if (!controller.signal.aborted) {
         const contactRoles = new Map(detail.contacts.map(contact => [String(contact.id), String(contact.role).trim().toUpperCase()]));
         setContacts(detail.routes
@@ -145,15 +147,16 @@ export function BusinessPbcPanel({
       }
     });
     return () => controller.abort();
-  }, [workspaceId, selected.actorId, selected.persona, selected.clientId, engagement?.id, engagement?.clientId, context.actor.id, context.actor.persona, context.allowedActions]);
+  }, [workspaceId, selected.actorId, selected.persona, selected.clientId, engagement?.id, engagement?.clientId, context.actor.id, context.actor.persona, context.allowedActions, directoryRevision]);
 
   useEffect(() => {
-    if (!engagement || !requestContext) { setPortal(null); setPortalScopeKey(''); return; }
+    if (!engagement || !requestContext) { setPortal(null); setPortalScopeKey(''); setPortalError(''); return; }
     let active = true;
     const controller = new AbortController();
     cursor.current = null;
     setPortal(null);
     setPortalScopeKey('');
+    setPortalError('');
     const refresh = async (announce: boolean) => {
       if (polling.current || document.visibilityState === 'hidden') return;
       polling.current = true;
@@ -164,9 +167,9 @@ export function BusinessPbcPanel({
         cursor.current = next.changeCursor;
         setPortal(next);
         setPortalScopeKey(activePortalScopeKey);
-        setError('');
+        setPortalError('');
       } catch (reason) {
-        if (active && !controller.signal.aborted) setError(reason instanceof Error ? reason.message : 'The PBC workspace could not be refreshed.');
+        if (active && !controller.signal.aborted) setPortalError(reason instanceof Error ? reason.message : 'The PBC workspace could not be refreshed.');
       } finally { polling.current = false; }
     };
     void refresh(false);
@@ -200,9 +203,9 @@ export function BusinessPbcPanel({
       cursor.current = next.changeCursor;
       setPortal(next);
       setPortalScopeKey(activePortalScopeKey);
-      setError('');
+      setPortalError('');
       onChanged();
-    } catch (reason) { setError(reason instanceof Error ? reason.message : 'The PBC workspace could not be refreshed.'); }
+    } catch (reason) { setPortalError(reason instanceof Error ? reason.message : 'The PBC workspace could not be refreshed.'); }
   };
 
   const createRequest = async (event: React.FormEvent<HTMLFormElement>) => {
@@ -337,6 +340,7 @@ export function BusinessPbcPanel({
       </label>
     </div>
     {loading && <p className="business-muted" role="status">Loading engagement portal…</p>}
+    {portalError && <p className="business-alert" role="alert">{portalError}</p>}
     {error && <p className="business-alert" role="alert">{error}</p>}
     {message && <p className="business-command-message" role="status" aria-atomic="true">{message}</p>}
     {portal && portalScopeKey === activePortalScopeKey && <>

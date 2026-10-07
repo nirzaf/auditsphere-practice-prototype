@@ -1475,7 +1475,7 @@ export function BusinessWorkspaceConsole() {
         </section>}
 
         {context?.allowedActions.includes('pbc.read') && preference && <BusinessPbcPanel workspaceId={preference.workspaceId}
-          selected={preference} context={context} onChanged={() => setRecordsKey(value => value + 1)} />}
+          selected={preference} context={context} directoryRevision={recordsKey} onChanged={() => setRecordsKey(value => value + 1)} />}
 
         {context?.allowedActions.includes('reporting.read') && preference && reportingEngagementId && <BusinessReportingPanel workspaceId={preference.workspaceId}
           selected={preference} context={context} engagement={riskEngagement ?? undefined} engagementId={reportingEngagementId} files={files}
