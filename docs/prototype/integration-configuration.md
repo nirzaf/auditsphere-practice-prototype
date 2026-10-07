@@ -131,8 +131,8 @@ the live test site. Populate the non-secret manifest below before acceptance:
 
 | Field | Source |
 | --- | --- |
-| Application URL | deployed business Worker URL (currently returns NOT_FOUND for API routes until a successful deploy) |
-| Deployed build identity | the commit/build SHA under test; record only after successful deploy |
+| Application URL | https://auditsphere-visual-prototype.quadrate-lk.workers.dev (readiness returns `ready`) |
+| Deployed build identity | `2f33ce45c52ed0ddb5c70a4ee55068ca28a11f78` |
 | Existing account → persona/grade | supplied login accounts mapped to PREPARER/REVIEWER/APPROVER/CLIENT |
 | Client / engagement ids | supplied workspace + seeded client/engagement |
 | SharePoint site/library/root ids | values returned by `/api/integrations/status` once CONNECTED |

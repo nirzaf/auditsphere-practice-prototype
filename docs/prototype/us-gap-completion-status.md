@@ -58,15 +58,16 @@ the repository:
 
 | Story | Blocking prerequisite |
 | --- | --- |
-| US-GAP-05 / 06 | Cloudflare Email Sending is enabled and DNS is configured for `mail.steaudit.com`. The approved recipient `testing@mail.steauditing.com` is Pending verification. The restricted provider and ordered CI deployment are configured in the working tree. The current live Worker API returns `NOT_FOUND` because deploy has not succeeded. |
+| US-GAP-05 / 06 | Cloudflare Email Sending is enabled and DNS is configured for `mail.steaudit.com`. The restricted provider is deployed and the live status reports `SERVICE_BINDING`. The approved recipient `testing@mail.steauditing.com` is Pending verification, so a real delivery has not been accepted. |
 | US-GAP-25 – 28 | Entra app `AuditSphere SharePoint UAT` is registered and `Sites.Selected` application consent is granted. The approved single-site `write` grant and client secret are still pending; do not report `CONNECTED` until the site grant, secret and live probe succeed. |
-| US-GAP-30 – 32 | Existing UAT login accounts, a successful deployed build identity and the live SharePoint site evidence remain required. |
+| US-GAP-30 – 32 | Deployed URL/build identity are recorded. Existing UAT login accounts/persona mappings and connected SharePoint site/library evidence remain required. |
 
-The current production deployment has not reached the new Worker: its integration
-and readiness API routes return `NOT_FOUND`. The latest deploy run passed typecheck,
-unit, build and browser E2E gates but D1 rejected migration 0021's compound `SELECT`
-seed expression. That migration now uses a `VALUES` table to avoid D1's stricter
-compound-select limit. Once deployed, SharePoint remains `UNCONFIGURED` until the
-site grant and Worker secret exist; email delivery remains unverified until the
-approved destination is verified and a real, approved UAT send succeeds. Keep the
-integration and UAT stories BLOCKED rather than simulating acceptance.
+Production build `2f33ce45c52ed0ddb5c70a4ee55068ca28a11f78` is deployed. CI passed
+typecheck, unit tests, build, browser E2E, the Email Service provider deployment,
+D1 migrations and the Worker readiness check (`ready`, schema 35). Migration 0021
+uses a `VALUES` table to avoid D1's stricter compound-select limit. The live
+integration probe reports email `SERVICE_BINDING`; the SharePoint probe reports
+`UNCONFIGURED` and specifically names the missing `SHAREPOINT_CLIENT_SECRET`. The
+approved single-site `write` grant is also still pending. Email delivery remains
+unverified until the recipient is verified and an approved UAT send succeeds; keep
+the integration and UAT stories BLOCKED rather than simulating acceptance.
