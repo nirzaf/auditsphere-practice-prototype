@@ -654,6 +654,11 @@ it('US-ENG-003 renders and approves an exact quote revision, then fails closed w
     'business-proposal-milestone-date': '2027-02-15',
     'business-proposal-scope': 'Statutory audit of the synthetic client financial statements for the stated reporting period.'
   });
+  await clickButton('Add milestone');
+  await fillFields({
+    'business-proposal-milestone-1': 'Final signed report',
+    'business-proposal-milestone-date-1': '2027-03-01'
+  });
   await clickButton('Create proposal revision');
   await waitFor('the exact quote split and saved revision', `document.querySelector('.business-command-message')?.innerText.includes('QAR minor-unit terms split to 5000001 advance and 5000000 final') && document.querySelector('.business-proposal-list')?.innerText.includes('Quotation · Revision 1')`);
 
@@ -665,6 +670,12 @@ it('US-ENG-003 renders and approves an exact quote revision, then fails closed w
   assert.ok(proposal);
   assert.deepEqual({ fee: proposal.fee_minor, revision: proposal.revision, mode: proposal.mode, advanceBps: proposal.advance_bps, finalBps: proposal.final_bps },
     { fee: 10000001, revision: 1, mode: 'QUOTE', advanceBps: 5000, finalBps: 5000 });
+  const timeline = server.db.prepare(`SELECT timeline_json FROM proposal_versions WHERE workspace_id=? AND id=?`)
+    .bind(preference.workspaceId, proposal.proposal_version_id).first<any>()?.timeline_json;
+  assert.deepEqual(JSON.parse(timeline), [
+    { name: 'Draft audited financial statements', date: '2027-02-15' },
+    { name: 'Final signed report', date: '2027-03-01' }
+  ], 'the proposal revision preserves its complete multi-milestone timetable');
 
   // Observe the proposal card before queueing its document job; then run the isolated Worker scheduler.
   assert.equal(await tab.evaluate<boolean>(`[...document.querySelectorAll('.business-proposal-list li')].some(item => item.innerText.includes('Document NOT GENERATED') && [...item.querySelectorAll('button')].some(button => button.innerText.trim() === 'Generate verified PDF' && !button.disabled))`), true);

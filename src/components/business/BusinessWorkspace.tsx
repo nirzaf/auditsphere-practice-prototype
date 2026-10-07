@@ -236,8 +236,9 @@ export function BusinessWorkspaceConsole() {
   const [proposalScope, setProposalScope] = useState('');
   const [proposalFeeMinor, setProposalFeeMinor] = useState('');
   const [proposalValidUntil, setProposalValidUntil] = useState('');
-  const [proposalMilestoneName, setProposalMilestoneName] = useState('Planning and fieldwork');
-  const [proposalMilestoneDate, setProposalMilestoneDate] = useState('');
+  const [proposalMilestones, setProposalMilestones] = useState<Array<{ name: string; date: string }>>([
+    { name: 'Planning and fieldwork', date: '' }
+  ]);
   const [cvStaffMemberId, setCvStaffMemberId] = useState('');
   const [cvFileVersionId, setCvFileVersionId] = useState('');
   const [proposalRouteIds, setProposalRouteIds] = useState<Record<string, string>>({});
@@ -861,7 +862,7 @@ export function BusinessWorkspaceConsole() {
     const payload = {
       engagementId: engagement.id, expectedEngagementVersion: engagement.version, mode: proposalMode,
       scope: proposalScope, feeMinor: proposalFeeMinor, validUntil: proposalValidUntil,
-      timeline: [{ name: proposalMilestoneName, date: proposalMilestoneDate }]
+      timeline: proposalMilestones.map(milestone => ({ name: milestone.name.trim(), date: milestone.date }))
     };
     setCommandBusy(true);
     setCommandMessage('');
@@ -872,6 +873,7 @@ export function BusinessWorkspaceConsole() {
       businessCommandKeys.current.delete('proposal.create');
       setCommandMessage(`Proposal revision ${created.result.revision} saved. QAR minor-unit terms split to ${created.result.advanceMinor} advance and ${created.result.finalMinor} final.`);
       setProposalScope(''); setProposalFeeMinor('');
+      setProposalMilestones([{ name: 'Planning and fieldwork', date: '' }]);
       setRecordsKey(value => value + 1);
     } catch (reason) {
       setCommandMessage(reason instanceof Error ? reason.message : 'The proposal could not be saved.');
@@ -1408,8 +1410,26 @@ export function BusinessWorkspaceConsole() {
                 <label className="business-field" htmlFor="business-proposal-mode"><span>Document mode</span><select id="business-proposal-mode" value={proposalMode} onChange={event => setProposalMode(event.target.value as typeof proposalMode)}><option value="QUOTE">Quotation · 1–2 pages</option><option value="FULL_PROPOSAL">Comprehensive proposal · approved team CV required</option></select></label>
                 <label className="business-field" htmlFor="business-proposal-fee"><span>Total fee · QAR minor units</span><input id="business-proposal-fee" required inputMode="numeric" pattern="[0-9]*" value={proposalFeeMinor} onChange={event => setProposalFeeMinor(event.target.value)} /><small>Advance is rounded half-up; the final amount is the exact remainder.</small></label>
                 <label className="business-field" htmlFor="business-proposal-valid-until"><span>Offer valid until</span><input id="business-proposal-valid-until" type="date" required value={proposalValidUntil} onChange={event => setProposalValidUntil(event.target.value)} /></label>
-                <label className="business-field" htmlFor="business-proposal-milestone"><span>Timeline milestone</span><input id="business-proposal-milestone" required maxLength={160} value={proposalMilestoneName} onChange={event => setProposalMilestoneName(event.target.value)} /></label>
-                <label className="business-field" htmlFor="business-proposal-milestone-date"><span>Milestone date</span><input id="business-proposal-milestone-date" type="date" required value={proposalMilestoneDate} onChange={event => setProposalMilestoneDate(event.target.value)} /></label>
+              </div>
+              <div className="business-field">
+                <span>Engagement timetable</span>
+                <small>List the planned delivery milestones in date order. Each milestone is saved with this proposal revision.</small>
+                {proposalMilestones.map((milestone, index) => <div className="business-form-grid" key={`proposal-milestone-${index}`}>
+                  <label className="business-field" htmlFor={index === 0 ? 'business-proposal-milestone' : `business-proposal-milestone-${index}`}>
+                    <span>{index === 0 ? 'Timeline milestone' : `Timeline milestone ${index + 1}`}</span>
+                    <input id={index === 0 ? 'business-proposal-milestone' : `business-proposal-milestone-${index}`} required maxLength={160} value={milestone.name}
+                      onChange={event => setProposalMilestones(current => current.map((item, itemIndex) => itemIndex === index ? { ...item, name: event.target.value } : item))} />
+                  </label>
+                  <label className="business-field" htmlFor={index === 0 ? 'business-proposal-milestone-date' : `business-proposal-milestone-date-${index}`}>
+                    <span>{index === 0 ? 'Milestone date' : `Milestone ${index + 1} date`}</span>
+                    <input id={index === 0 ? 'business-proposal-milestone-date' : `business-proposal-milestone-date-${index}`} type="date" required value={milestone.date}
+                      onChange={event => setProposalMilestones(current => current.map((item, itemIndex) => itemIndex === index ? { ...item, date: event.target.value } : item))} />
+                  </label>
+                  <button type="button" className="btn sm ghost" aria-label={`Remove timeline milestone ${index + 1}`}
+                    disabled={proposalMilestones.length <= 1} onClick={() => setProposalMilestones(current => current.filter((_, itemIndex) => itemIndex !== index))}>Remove</button>
+                </div>)}
+                <button type="button" className="btn sm" disabled={proposalMilestones.length >= 24}
+                  onClick={() => setProposalMilestones(current => current.length < 24 ? [...current, { name: '', date: '' }] : current)}>Add milestone</button>
               </div>
               <label className="business-field" htmlFor="business-proposal-scope"><span>Agreed scope</span><textarea id="business-proposal-scope" className="input" required minLength={10} maxLength={10000} rows={3} value={proposalScope} onChange={event => setProposalScope(event.target.value)} /></label>
               <p className="business-note">Each revision pins the current firm profile, methodology hash and approved CV file IDs. A new revision does not overwrite a prior approval or document.</p>
