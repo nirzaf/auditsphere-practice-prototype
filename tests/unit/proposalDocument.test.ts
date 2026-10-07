@@ -12,6 +12,8 @@ const shortProposal: ProposalDocumentInput = {
   firm: {
     legalName: 'Local Audit Partners WLL', registrationNumber: 'CR-FIRM-001', address: 'Doha, Qatar',
     profileText: 'Independent audit and assurance services for Qatar entities.',
+    credentialsText: 'Current Qatar audit registration verified against firm records.',
+    industryPortfolioText: 'Anonymized assurance experience across local trading and service entities.',
     methodologyText: 'The firm uses its approved risk-based audit methodology and documented professional review.'
   },
   team: []
@@ -44,4 +46,15 @@ it('embeds the licensed Arabic font before rendering Arabic firm and client name
   const bytes = renderProposalPdf(arabicProposal, font);
   assert.match(new TextDecoder().decode(bytes.subarray(0, 8)), /^%PDF-\d\.\d$/);
   assert.ok(pageCount(bytes) >= 1 && pageCount(bytes) <= 2);
+});
+
+it('requires actual Partner-maintained credentials and portfolio in comprehensive proposals', () => {
+  const fullProposal: ProposalDocumentInput = { ...shortProposal, mode: 'FULL_PROPOSAL', team: [
+    { displayName: 'Assigned Partner', grade: 'PARTNER', originalName: 'partner-cv.pdf', sha256: 'a'.repeat(64) }
+  ] };
+  assert.throws(() => renderProposalPdf({ ...fullProposal, firm: { ...fullProposal.firm, credentialsText: '' } }),
+    (error: unknown) => error instanceof ProposalDocumentError && error.code === 'FIRM_CREDENTIALS_REQUIRED');
+  assert.throws(() => renderProposalPdf({ ...fullProposal, firm: { ...fullProposal.firm, industryPortfolioText: '' } }),
+    (error: unknown) => error instanceof ProposalDocumentError && error.code === 'FIRM_PORTFOLIO_REQUIRED');
+  assert.match(new TextDecoder().decode(renderProposalPdf(fullProposal)), /%PDF/);
 });

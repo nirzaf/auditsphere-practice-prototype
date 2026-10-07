@@ -477,7 +477,7 @@ export async function getBusinessProposalWorkspace(env: Env, workspaceId: string
   if (context.actor.persona === 'CLIENT') return { engagements: [], firmProfile: null, staffMembers: [], teamCvs: [], contactRoutes: [], proposals: items };
 
   const [firm, staff, cvs, routes] = await Promise.all([
-    env.DB.prepare(`SELECT id,version,legal_name,registration_number,address,profile_text,methodology_text,logo_file_id,updated_at
+    env.DB.prepare(`SELECT id,version,legal_name,registration_number,address,profile_text,methodology_text,credentials_text,industry_portfolio_text,logo_file_id,updated_at
       FROM firm_profiles WHERE workspace_id=?`).bind(workspaceId).first<Record<string, unknown>>(),
     env.DB.prepare(`SELECT id,version,display_name,grade,active FROM staff_members WHERE workspace_id=? AND active=1 ORDER BY grade,display_name,id LIMIT 100`)
       .bind(workspaceId).all<Record<string, unknown>>(),
@@ -495,6 +495,7 @@ export async function getBusinessProposalWorkspace(env: Env, workspaceId: string
   const firmProfile = firm ? {
     id: firm.id, version: firm.version, legalName: firm.legal_name, registrationNumber: firm.registration_number,
     address: firm.address, profileText: firm.profile_text, methodologyText: firm.methodology_text,
+    credentialsText: firm.credentials_text, industryPortfolioText: firm.industry_portfolio_text,
     logoFileId: firm.logo_file_id, updatedAt: firm.updated_at
   } : null;
   const staffMembers = (staff.results ?? []).map(row => ({
@@ -1151,6 +1152,8 @@ const firmProfileSaveCommand = z.strictObject({
     address: z.string().trim().min(1).max(1000),
     profileText: z.string().trim().min(10).max(10000),
     methodologyText: z.string().trim().min(10).max(20000),
+    credentialsText: z.string().trim().max(10000).optional().default(''),
+    industryPortfolioText: z.string().trim().max(10000).optional().default(''),
     logoFileId: clientIdSchema.nullable().optional()
   }).refine(value => value.profileText.length + value.methodologyText.length <= 25000, {
     message: 'Firm profile and methodology together must fit within 25,000 characters.'
@@ -3276,12 +3279,12 @@ async function buildBusinessProposalMutation(
           OR EXISTS(SELECT 1 FROM firm_profiles WHERE workspace_id=? AND version=?) THEN 1 ELSE 0 END`)
         .bind(workspaceId, input.expectedVersion, workspaceId, workspaceId, input.expectedVersion),
       current
-        ? env.DB.prepare(`UPDATE firm_profiles SET version=version+1,legal_name=?,registration_number=?,address=?,profile_text=?,methodology_text=?,logo_file_id=?,updated_at=?,updated_by_actor_id=?
+      ? env.DB.prepare(`UPDATE firm_profiles SET version=version+1,legal_name=?,registration_number=?,address=?,profile_text=?,methodology_text=?,credentials_text=?,industry_portfolio_text=?,logo_file_id=?,updated_at=?,updated_by_actor_id=?
             WHERE workspace_id=? AND id=? AND version=?`).bind(input.legalName, input.registrationNumber, input.address,
-          input.profileText, input.methodologyText, input.logoFileId ?? null, now, actorId, workspaceId, profileId, current.version)
-        : env.DB.prepare(`INSERT INTO firm_profiles(id,workspace_id,version,legal_name,registration_number,address,profile_text,methodology_text,logo_file_id,created_at,updated_at,created_by_actor_id,updated_by_actor_id)
-            VALUES(?,?,1,?,?,?,?,?,?, ?,?,?,?)`).bind(profileId, workspaceId, input.legalName, input.registrationNumber,
-          input.address, input.profileText, input.methodologyText, input.logoFileId ?? null, now, now, actorId, actorId)
+          input.profileText, input.methodologyText, input.credentialsText, input.industryPortfolioText, input.logoFileId ?? null, now, actorId, workspaceId, profileId, current.version)
+        : env.DB.prepare(`INSERT INTO firm_profiles(id,workspace_id,version,legal_name,registration_number,address,profile_text,methodology_text,credentials_text,industry_portfolio_text,logo_file_id,created_at,updated_at,created_by_actor_id,updated_by_actor_id)
+            VALUES(?,?,1,?,?,?,?,?,?,?,?,?,?,?,?)`).bind(profileId, workspaceId, input.legalName, input.registrationNumber,
+          input.address, input.profileText, input.methodologyText, input.credentialsText, input.industryPortfolioText, input.logoFileId ?? null, now, now, actorId, actorId)
     ];
     return {
       statements, result: { firmProfileId: profileId, version: nextVersion },
@@ -3353,9 +3356,9 @@ async function buildBusinessProposalMutation(
     requireClientScope(context, engagement.client_id);
     if (context.scope.engagementId && context.scope.engagementId !== engagement.id) throw new ApiError('FORBIDDEN_SCOPE', 'The engagement does not match the selected request context.');
     if (engagement.lifecycle_state !== 'PROPOSAL_GENERATION' || engagement.client_active !== 1) throw new ApiError('GATE_BLOCKED', 'Proposals can be drafted only for an active engagement in PROPOSAL_GENERATION.');
-    const firm = await env.DB.prepare(`SELECT id,version,legal_name,registration_number,address,profile_text,methodology_text,logo_file_id
+    const firm = await env.DB.prepare(`SELECT id,version,legal_name,registration_number,address,profile_text,methodology_text,credentials_text,industry_portfolio_text,logo_file_id
       FROM firm_profiles WHERE workspace_id=?`).bind(workspaceId)
-      .first<{ id: string; version: number; legal_name: string; registration_number: string; address: string; profile_text: string; methodology_text: string; logo_file_id: string | null }>();
+      .first<{ id: string; version: number; legal_name: string; registration_number: string; address: string; profile_text: string; methodology_text: string; credentials_text: string; industry_portfolio_text: string; logo_file_id: string | null }>();
     if (!firm) throw new ApiError('GATE_BLOCKED', 'Complete the Partner-approved legal firm profile, registration and methodology before drafting a proposal.');
     const currentPartner = await env.DB.prepare(`SELECT ap.staff_member_id FROM actor_profiles ap
       JOIN staff_members sm ON sm.workspace_id=ap.workspace_id AND sm.id=ap.staff_member_id
@@ -3373,6 +3376,9 @@ async function buildBusinessProposalMutation(
     if (input.mode === 'FULL_PROPOSAL' && (selectedCvs.length !== input.selectedTeamCvIds.length || !currentPartner
       || !selectedCvs.some(cv => cv.staff_member_id === currentPartner.staff_member_id && cv.grade === 'PARTNER'))) {
       throw new ApiError('GATE_BLOCKED', 'A full proposal must explicitly select current, approved CVs for its proposed team, including the active assigned Partner. No biography will be invented.');
+    }
+    if (input.mode === 'FULL_PROPOSAL' && (firm.credentials_text.trim().length < 10 || firm.industry_portfolio_text.trim().length < 10)) {
+      throw new ApiError('GATE_BLOCKED', 'A comprehensive proposal requires Partner-maintained firm credentials and relevant industry portfolio content. Add only verified firm information; no credentials or client history will be invented.');
     }
 
     let proposalId: string;
@@ -3399,9 +3405,11 @@ async function buildBusinessProposalMutation(
     const methodologyVersion = await sha256Hex(firm.methodology_text);
     const firmSnapshot = JSON.stringify({
       legalName: firm.legal_name, registrationNumber: firm.registration_number, address: firm.address,
-      profileText: firm.profile_text, methodologyText: firm.methodology_text, logoFileId: firm.logo_file_id,
+      profileText: firm.profile_text, methodologyText: firm.methodology_text,
+      credentialsText: firm.credentials_text, industryPortfolioText: firm.industry_portfolio_text, logoFileId: firm.logo_file_id,
       version: firm.version, methodologyVersion
     });
+    if (firmSnapshot.length > 30000) throw new ApiError('VALIDATION_FAILED', 'The approved firm profile is too large to pin safely. Shorten the firm profile, credentials, portfolio or methodology and retry.');
     const cvSnapshot = (input.mode === 'FULL_PROPOSAL' ? selectedCvs : []).map(cv => ({
       teamCvId: cv.id, staffMemberId: cv.staff_member_id, displayName: cv.display_name, grade: cv.grade,
       fileVersionId: cv.file_version_id, originalName: cv.original_name, sha256: cv.sha256

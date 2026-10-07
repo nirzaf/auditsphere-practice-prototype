@@ -183,12 +183,23 @@ async function buildProposalDocument(env: Env, workspaceId: string, payload: Job
     const firmSnapshot = JSON.parse(row.firm_profile_snapshot_json) as Record<string, unknown>;
     if (typeof firmSnapshot.legalName !== 'string' || typeof firmSnapshot.registrationNumber !== 'string'
       || typeof firmSnapshot.address !== 'string' || typeof firmSnapshot.profileText !== 'string'
-      || typeof firmSnapshot.methodologyText !== 'string') throw new Error('firm');
+      || typeof firmSnapshot.methodologyText !== 'string'
+      || (typeof firmSnapshot.credentialsText !== 'string' && row.mode === 'FULL_PROPOSAL')
+      || (typeof firmSnapshot.industryPortfolioText !== 'string' && row.mode === 'FULL_PROPOSAL')) throw new Error('firm');
+    const credentialsText = typeof firmSnapshot.credentialsText === 'string' ? firmSnapshot.credentialsText : '';
+    const industryPortfolioText = typeof firmSnapshot.industryPortfolioText === 'string' ? firmSnapshot.industryPortfolioText : '';
+    if (row.mode === 'FULL_PROPOSAL' && credentialsText.trim().length < 10) {
+      throw new OutboxError('FIRM_CREDENTIALS_REQUIRED', 'A comprehensive proposal needs current firm credentials maintained by the Partner; no credentials were invented.');
+    }
+    if (row.mode === 'FULL_PROPOSAL' && industryPortfolioText.trim().length < 10) {
+      throw new OutboxError('FIRM_PORTFOLIO_REQUIRED', 'A comprehensive proposal needs relevant industry portfolio content maintained by the Partner; no client history was invented.');
+    }
     const parsedTimeline = JSON.parse(row.timeline_json) as unknown;
     if (!Array.isArray(parsedTimeline) || parsedTimeline.some(item => !item || typeof item.name !== 'string' || typeof item.date !== 'string')) throw new Error('timeline');
     firm = {
       legalName: firmSnapshot.legalName, registrationNumber: firmSnapshot.registrationNumber,
-      address: firmSnapshot.address, profileText: firmSnapshot.profileText, methodologyText: firmSnapshot.methodologyText
+      address: firmSnapshot.address, profileText: firmSnapshot.profileText, methodologyText: firmSnapshot.methodologyText,
+      credentialsText, industryPortfolioText
     };
     timeline = parsedTimeline as ProposalDocumentInput['timeline'];
   } catch {

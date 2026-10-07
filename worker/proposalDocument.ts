@@ -17,6 +17,8 @@ export interface ProposalDocumentInput {
     address: string;
     profileText: string;
     methodologyText: string;
+    credentialsText?: string;
+    industryPortfolioText?: string;
   };
   team: Array<{ displayName: string; grade: string; originalName: string; sha256: string }>;
 }
@@ -58,6 +60,12 @@ function stablePdfFileId(input: ProposalDocumentInput): string {
 }
 
 export function renderProposalPdf(input: ProposalDocumentInput, arabicFontBytes?: Uint8Array): Uint8Array {
+  if (input.mode === 'FULL_PROPOSAL' && (input.firm.credentialsText?.trim().length ?? 0) < 10) {
+    throw new ProposalDocumentError('FIRM_CREDENTIALS_REQUIRED', 'A comprehensive proposal needs current, firm-verified credential content. Add at least 10 characters to the Partner-approved firm profile and retry.');
+  }
+  if (input.mode === 'FULL_PROPOSAL' && (input.firm.industryPortfolioText?.trim().length ?? 0) < 10) {
+    throw new ProposalDocumentError('FIRM_PORTFOLIO_REQUIRED', 'A comprehensive proposal needs relevant, firm-verified industry portfolio content. Add at least 10 characters to the Partner-approved firm profile and retry.');
+  }
   const searchableText = JSON.stringify(input);
   const arabic = containsArabic(searchableText);
   if (arabic && !arabicFontBytes?.length) {
@@ -137,6 +145,12 @@ export function renderProposalPdf(input: ProposalDocumentInput, arabicFontBytes?
 
   drawSection('Firm profile');
   drawLine(input.firm.profileText, { gap: 1 });
+  if (input.mode === 'FULL_PROPOSAL') {
+    drawSection('Firm credentials');
+    drawLine(input.firm.credentialsText!.trim(), { gap: 1 });
+    drawSection('Relevant industry portfolio');
+    drawLine(input.firm.industryPortfolioText!.trim(), { gap: 1 });
+  }
   drawSection('Approved methodology');
   drawLine(input.firm.methodologyText, { gap: 1 });
 

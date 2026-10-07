@@ -818,7 +818,9 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
     idempotencyKey: crypto.randomUUID(), command: { type: 'firm-profile.save', payload: {
       expectedVersion: null, legalName: 'Local Audit Partners WLL', registrationNumber: 'CR-LOCAL-001',
       address: 'Doha, Qatar', profileText: 'Independent assurance and advisory services for Qatar entities.',
-      methodologyText: 'The firm performs a risk-based engagement using its approved methodology and documented professional review.'
+      methodologyText: 'The firm performs a risk-based engagement using its approved methodology and documented professional review.',
+      credentialsText: 'Current Qatar audit registration verified against firm records.',
+      industryPortfolioText: 'Anonymized statutory audit experience across local trading and service entities.'
     } }
   }, approverHeaders);
   assert.equal(firmProfile.response.status, 200, JSON.stringify(firmProfile.body));

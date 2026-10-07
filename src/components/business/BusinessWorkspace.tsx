@@ -249,6 +249,8 @@ export function BusinessWorkspaceConsole() {
   const [firmAddress, setFirmAddress] = useState('');
   const [firmProfileText, setFirmProfileText] = useState('');
   const [firmMethodologyText, setFirmMethodologyText] = useState('');
+  const [firmCredentialsText, setFirmCredentialsText] = useState('');
+  const [firmIndustryPortfolioText, setFirmIndustryPortfolioText] = useState('');
   const [files, setFiles] = useState<BusinessFileMetadata[]>([]);
   const [filePurpose, setFilePurpose] = useState<BusinessFilePurpose>('TEMPLATE');
   const [fileBusy, setFileBusy] = useState(false);
@@ -428,6 +430,8 @@ export function BusinessWorkspaceConsole() {
         setFirmAddress(next.firmProfile.address);
         setFirmProfileText(next.firmProfile.profileText);
         setFirmMethodologyText(next.firmProfile.methodologyText);
+        setFirmCredentialsText(next.firmProfile.credentialsText);
+        setFirmIndustryPortfolioText(next.firmProfile.industryPortfolioText);
       }
     }).catch(reason => {
       if (!controller.signal.aborted) setRecordError(reason instanceof Error ? reason.message : 'Proposal workspace could not be loaded.');
@@ -804,7 +808,8 @@ export function BusinessWorkspaceConsole() {
     const payload = {
       expectedVersion: proposalWorkspace?.firmProfile?.version ?? null,
       legalName: firmLegalName, registrationNumber: firmRegistrationNumber, address: firmAddress,
-      profileText: firmProfileText, methodologyText: firmMethodologyText
+      profileText: firmProfileText, methodologyText: firmMethodologyText,
+      credentialsText: firmCredentialsText, industryPortfolioText: firmIndustryPortfolioText
     };
     setCommandBusy(true);
     setCommandMessage('');
@@ -1386,6 +1391,10 @@ export function BusinessWorkspaceConsole() {
                 </div>
                 <label className="business-field" htmlFor="business-firm-profile-text"><span>Approved firm profile</span><textarea id="business-firm-profile-text" className="input" required minLength={10} maxLength={10000} rows={3} value={firmProfileText} onChange={event => setFirmProfileText(event.target.value)} /></label>
                 <label className="business-field" htmlFor="business-firm-methodology"><span>Approved methodology summary</span><textarea id="business-firm-methodology" className="input" required minLength={10} maxLength={20000} rows={4} value={firmMethodologyText} onChange={event => setFirmMethodologyText(event.target.value)} /></label>
+                <label className="business-field" htmlFor="business-firm-credentials"><span>Verified firm credentials</span><textarea id="business-firm-credentials" className="input" maxLength={10000} rows={3} value={firmCredentialsText} onChange={event => setFirmCredentialsText(event.target.value)} aria-describedby="business-firm-credentials-help" /></label>
+                <small id="business-firm-credentials-help">Record only current, firm-verified registrations, memberships or qualifications. Comprehensive proposals require at least 10 characters.</small>
+                <label className="business-field" htmlFor="business-firm-portfolio"><span>Relevant industry portfolio</span><textarea id="business-firm-portfolio" className="input" maxLength={10000} rows={3} value={firmIndustryPortfolioText} onChange={event => setFirmIndustryPortfolioText(event.target.value)} aria-describedby="business-firm-portfolio-help" /></label>
+                <small id="business-firm-portfolio-help">Describe verified, relevant firm experience without exposing client-identifying information. Comprehensive proposals require at least 10 characters.</small>
                 <p className="business-note">Enter the firm’s actual registration and approved content. These values are snapshotted into new proposal revisions; no biography or professional claim is generated from a placeholder.</p>
                 <div className="business-dialog-actions"><button className="btn primary" type="submit" disabled={commandBusy}>{commandBusy ? 'Saving…' : proposalWorkspace?.firmProfile ? 'Save new firm profile revision' : 'Save firm profile'}</button></div>
               </form>
@@ -1408,6 +1417,8 @@ export function BusinessWorkspaceConsole() {
             {context.allowedActions.includes('proposal.create') && <form className="business-form business-commercial-form" onSubmit={createProposal}>
               <h3>Draft a versioned proposal</h3>
               {!proposalWorkspace?.firmProfile && <p className="business-alert" role="alert">A Partner must save the firm’s legal registration, profile and methodology before a proposal can be created.</p>}
+              {proposalMode === 'FULL_PROPOSAL' && (!proposalWorkspace?.firmProfile?.credentialsText.trim() || !proposalWorkspace?.firmProfile.industryPortfolioText.trim())
+                && <p className="business-alert" role="alert">A comprehensive proposal needs Partner-maintained firm credentials and relevant portfolio content. Enter only verified information; the Worker will block incomplete proposals.</p>}
               <div className="business-form-grid">
                 <label className="business-field" htmlFor="business-proposal-engagement"><span>Engagement in proposal generation</span><select id="business-proposal-engagement" required value={proposalEngagementId} onChange={event => setProposalEngagementId(event.target.value)}><option value="">Select engagement</option>{proposalWorkspace?.engagements.filter(engagement => engagement.lifecycleState === 'PROPOSAL_GENERATION').map(engagement => <option key={engagement.id} value={engagement.id}>{engagement.clientName} · {engagement.code} · {engagement.periodStart}–{engagement.periodEnd}</option>)}</select></label>
                 <label className="business-field" htmlFor="business-proposal-mode"><span>Document mode</span><select id="business-proposal-mode" value={proposalMode} onChange={event => setProposalMode(event.target.value as typeof proposalMode)}><option value="QUOTE">Quotation · 1–2 pages</option><option value="FULL_PROPOSAL">Comprehensive proposal · approved team CV required</option></select></label>
@@ -1448,7 +1459,7 @@ export function BusinessWorkspaceConsole() {
                   onClick={() => setProposalMilestones(current => current.length < 24 ? [...current, { name: '', date: '' }] : current)}>Add milestone</button>
               </div>
               <label className="business-field" htmlFor="business-proposal-scope"><span>Agreed scope</span><textarea id="business-proposal-scope" className="input" required minLength={10} maxLength={10000} rows={3} value={proposalScope} onChange={event => setProposalScope(event.target.value)} /></label>
-              <p className="business-note">Each revision pins the current firm profile, methodology hash and approved CV file IDs. A new revision does not overwrite a prior approval or document.</p>
+              <p className="business-note">Each revision pins the current firm profile, credentials, industry portfolio, methodology hash and approved CV file IDs. A new revision does not overwrite a prior approval or document.</p>
               <div className="business-dialog-actions"><button className="btn primary" type="submit" disabled={commandBusy || !proposalWorkspace?.firmProfile || !proposalEngagementId
                 || (proposalMode === 'FULL_PROPOSAL' && !proposalTeamCvIds.some(id => proposalWorkspace.teamCvs.some(cv => cv.id === id && cv.approved && cv.isCurrent && cv.grade === 'PARTNER')))}>{commandBusy ? 'Saving…' : 'Create proposal revision'}</button></div>
             </form>}
