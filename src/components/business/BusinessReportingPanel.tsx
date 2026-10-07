@@ -228,7 +228,7 @@ export function BusinessReportingPanel({ workspaceId, selected, context, engagem
     finally { setDownloading(''); }
   };
 
-  const downloadArchiveExport = async (part: 'archive' | 'manifest') => {
+  const downloadArchiveExport = async (part: 'archive' | 'manifest', streamToDisk = false) => {
     const archiveSha256 = rowText(data?.archive, 'archiveSha256');
     const manifestSha256 = rowText(data?.archive, 'manifestSha256');
     if (!archiveSha256 || !manifestSha256) { setError('A sealed archive with both recorded hashes is required.'); return; }
@@ -237,7 +237,7 @@ export function BusinessReportingPanel({ workspaceId, selected, context, engagem
     try {
       const saveWindow = window as Window & { showSaveFilePicker?: (options: { suggestedName: string; types: Array<{ description: string; accept: Record<string, string[]> }> }) => Promise<{ createWritable(): Promise<{ write(chunk: Uint8Array): Promise<void>; close(): Promise<void>; abort(reason?: unknown): Promise<void> }> }> };
       let saveHandle: Awaited<ReturnType<NonNullable<typeof saveWindow.showSaveFilePicker>>> | undefined;
-      if (part === 'archive' && saveWindow.showSaveFilePicker) {
+      if (streamToDisk && part === 'archive' && saveWindow.showSaveFilePicker) {
         try {
           saveHandle = await saveWindow.showSaveFilePicker({
             suggestedName: 'sealed-audit-archive.zip',
@@ -693,6 +693,7 @@ export function BusinessReportingPanel({ workspaceId, selected, context, engagem
         {rowText(data.archive, 'archiveSha256') && <><small>Sealed archive SHA-256 {rowText(data.archive, 'archiveSha256')} · manifest SHA-256 {rowText(data.archive, 'manifestSha256')}</small>
           {canReview && <div className="business-practice-actions">
             <button type="button" className="btn sm" disabled={Boolean(downloading)} onClick={() => void downloadArchiveExport('archive')}>{downloading === 'archive-archive' ? 'Verifying archive…' : 'Export verified sealed archive'}</button>
+            {typeof window !== 'undefined' && 'showSaveFilePicker' in window && <button type="button" className="btn sm" disabled={Boolean(downloading)} onClick={() => void downloadArchiveExport('archive', true)}>{downloading === 'archive-archive' ? 'Saving archive…' : 'Save large archive without buffering'}</button>}
             <button type="button" className="btn sm" disabled={Boolean(downloading)} onClick={() => void downloadArchiveExport('manifest')}>{downloading === 'archive-manifest' ? 'Verifying manifest…' : 'Export verified manifest'}</button>
           </div>}
         </>}
