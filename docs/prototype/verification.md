@@ -1397,3 +1397,22 @@ deterministic for an identical proposal snapshot.
 in an independent PDF viewer, all full-proposal content/overflow variants,
 current firm-source evidence, or successful live email delivery. US-ENG-003 and
 the broader epic remain open.
+
+## US-ENG-005 issued engagement-letter PDF and exact pins — 2026-10-08
+
+**Verification:** `npx tsx --test --test-reporter=spec
+tests/unit/businessWorkspace.test.ts` — 1/1; `git diff --check`.
+
+**Evidence:** The Worker integration journey now decompresses the actual
+generated engagement-letter PDF and asserts the synthetic client's legal name,
+statutory-audit service, reporting dates, accepted QAR fee, final timetable
+milestone, approved template clauses, signature/seal sections, and image-signature
+disclaimer. It checks the PDF contains an embedded image object. After issuance,
+the test reads the immutable `engagement_letters` row and verifies its exact
+proposal, commercial acceptance, risk clearance, service template, rendered file,
+signature image, seal image, fee, period, and SHA-256 provenance.
+
+**Boundary:** This is synthetic local Worker/SQLite/R2-adapter evidence. It does
+not verify visual appearance in an independent PDF viewer, a race-injected stale
+render, production document delivery, or actual Partner identity. US-ENG-005 and
+the broader epic remain open.

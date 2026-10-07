@@ -3,11 +3,36 @@ import assert from 'node:assert/strict';
 import { createHmac } from 'node:crypto';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { inflateSync } from 'node:zlib';
 import worker, { businessCommandHttpResult } from '../../worker/index.js';
 import { criticalConfirmationBlockers, queueHoldingLetterForBlockers } from '../../worker/businessFieldwork.js';
 import { SqliteD1 } from '../helpers/sqliteD1.js';
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
+
+function decodedPdfContent(bytes: Uint8Array): string {
+  const pdf = Buffer.from(bytes);
+  const streams: string[] = [];
+  const marker = Buffer.from('stream\n');
+  let cursor = 0;
+  while (cursor < pdf.length) {
+    const markerIndex = pdf.indexOf(marker, cursor);
+    if (markerIndex < 0) break;
+    const dictionaryStart = pdf.lastIndexOf(Buffer.from('<<'), markerIndex);
+    const dictionary = pdf.subarray(dictionaryStart, markerIndex).toString('latin1');
+    const dataStart = markerIndex + marker.length;
+    const dataEnd = pdf.indexOf(Buffer.from('endstream'), dataStart);
+    if (dataEnd < 0) break;
+    if (dictionary.includes('/FlateDecode')) {
+      let compressedEnd = dataEnd;
+      if (pdf[compressedEnd - 1] === 0x0a) compressedEnd -= 1;
+      if (pdf[compressedEnd - 1] === 0x0d) compressedEnd -= 1;
+      streams.push(inflateSync(pdf.subarray(dataStart, compressedEnd)).toString('latin1'));
+    }
+    cursor = dataEnd + Buffer.byteLength('endstream');
+  }
+  return streams.join('\n');
+}
 
 /** Independent log-recurrence reference for exact binomial CDF values. */
 function referenceBinomialCdf(k: number, n: number, probability: number): number {
@@ -1365,6 +1390,26 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
   const renderedLetterBytes = new Uint8Array(await renderedLetterFile.arrayBuffer());
   assert.equal(renderedLetterFile.status, 200);
   assert.equal(new TextDecoder().decode(renderedLetterBytes.slice(0, 8)), '%PDF-1.3', 'the approved clause and actual PNG assets produced a PDF');
+  const renderedLetterContent = decodedPdfContent(renderedLetterBytes);
+  const clientLegalName = db.prepare('SELECT legal_name FROM clients WHERE workspace_id=? AND id=?')
+    .bind(workspaceId, clientId).first<any>()?.legal_name;
+  for (const expected of [
+    'ENGAGEMENT LETTER',
+    'E2026-001',
+    clientLegalName,
+    'STATUTORY AUDIT',
+    '2025-01-01 to 2025-12-31',
+    'QAR 2,500.01',
+    '2027-02-15',
+    'Firm-approved statutory audit service terms and scope.',
+    'Partner signature image',
+    'Firm seal',
+    'not a certificate-based digital signature.'
+  ]) {
+    assert.ok(renderedLetterContent.includes(expected), `the actual engagement-letter PDF contains ${expected}`);
+  }
+  assert.ok((new TextDecoder().decode(renderedLetterBytes).match(/\/Subtype \/Image\b/g) ?? []).length >= 1,
+    'the actual engagement-letter PDF embeds the approved PNG asset data');
 
   const issuedLetter = await post(`/api/workspaces/${workspaceId}/commands`, {
     idempotencyKey: crypto.randomUUID(), command: { type: 'engagementLetter.issue', payload: {
@@ -1377,6 +1422,22 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
   assert.equal(issuedLetter.body.result.state, 'ADVANCE_BILLING');
   assert.equal(issuedLetter.body.result.advanceInvoiceStatus, 'PENDING_DOCUMENT');
   assert.equal(issuedLetter.body.result.invoiceDueDate, '2099-12-31');
+  const issuedLetterRecord = db.prepare(`SELECT proposal_version_id,commercial_acceptance_id,risk_clearance_id,template_version_id,
+      artifact_id,file_version_id,signature_file_version_id,signature_consent_id,seal_file_version_id,seal_approval_id,
+      content_sha256,fee_minor,period_start,period_end
+    FROM engagement_letters WHERE workspace_id=? AND id=?`).bind(workspaceId, issuedLetter.body.result.letterId).first<any>();
+  assert.ok(issuedLetterRecord, 'the issue command creates an immutable issued-letter record');
+  assert.equal(issuedLetterRecord.proposal_version_id, renewedGate.body.commercialKey.proposalVersionId);
+  assert.equal(issuedLetterRecord.commercial_acceptance_id, renewedGate.body.commercialKey.acceptanceId);
+  assert.equal(issuedLetterRecord.risk_clearance_id, renewedGate.body.riskKey.clearanceId);
+  assert.equal(issuedLetterRecord.template_version_id, serviceTemplate.body.result.templateVersionId);
+  assert.equal(issuedLetterRecord.file_version_id, issuedLetter.body.result.fileId);
+  assert.equal(issuedLetterRecord.signature_file_version_id, signatureFileId);
+  assert.equal(issuedLetterRecord.seal_file_version_id, sealFileId);
+  assert.equal(issuedLetterRecord.fee_minor, 250001);
+  assert.equal(issuedLetterRecord.period_start, '2025-01-01');
+  assert.equal(issuedLetterRecord.period_end, '2025-12-31');
+  assert.match(issuedLetterRecord.content_sha256, /^[a-f0-9]{64}$/);
   assert.deepEqual((await readWorkflowStage('ADVANCE_BILLING')).blockers.map((item: any) => item.code), ['ADVANCE_INVOICE_RENDER_PENDING'],
     'issuing the engagement letter atomically queues the exact advance invoice render');
   const issuedDelivery = await call(deliveryPath, { headers: makeRiskHeaders(reviewerHeaders) });
