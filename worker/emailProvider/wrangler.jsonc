@@ -12,9 +12,10 @@
   "compatibility_date": "2026-09-30",
   "compatibility_flags": ["nodejs_compat"],
   "workers_dev": true,
-  "observability": { "enabled": true }//,
+  "observability": { "enabled": true }
+
   // --- Email Routing transport (uncomment after enabling Email Routing) ---
   // ,"send_email": [{ "name": "SEND_EMAIL", "destination_address": "audit-dispatch@your-firm.example" }]
-  // --- HTTP API transport vars (set EMAIL_API_KEY with `wrangler secret put`) ---
+  // --- HTTP API transport (set EMAIL_API_KEY with `wrangler secret put`) ---
   // ,"vars": { "EMAIL_API_URL": "https://api.example.com/send", "EMAIL_FROM": "audit-dispatch@your-firm.example", "EMAIL_FROM_NAME": "AuditSphere" }
 }
