@@ -449,13 +449,26 @@ async function verifyOpinionVariants(): Promise<void> {
 
   const audit = await seedReportingFixture();
   await setWorkspace(audit);
+  const opinionChoices = await tab.evaluate<Array<{ value: string; label: string }>>(`(() => {
+    const report = document.querySelector('#business-reporting-${audit.engagementId}')?.closest('section');
+    const label = [...(report?.querySelectorAll('label') ?? [])].find(item => item.querySelector('span')?.textContent?.trim() === 'Audit opinion');
+    return [...(label?.querySelectorAll('option') ?? [])].map(option => ({ value: option.value, label: option.textContent?.trim() ?? '' }));
+  })()`);
+  assert.deepEqual(opinionChoices, [
+    { value: 'UNMODIFIED', label: 'Clean / unqualified' },
+    { value: 'QUALIFIED', label: 'Qualified' },
+    { value: 'DISCLAIMER', label: 'Disclaimer' },
+    { value: 'ADVERSE', label: 'Adverse' }
+  ], 'the Partner sees the four supported categories with a canonical UNMODIFIED value');
   await setField(audit, 'Audit opinion', 'UNMODIFIED', true);
-  await setField(audit, 'Partner rationale', 'The synthetic audit evidence supports an unmodified opinion for this local acceptance journey.');
+  const unmodifiedRationale = 'The synthetic audit evidence supports an unmodified opinion for this local acceptance journey.';
+  await setField(audit, 'Partner rationale', unmodifiedRationale);
   await setField(audit, 'Materiality assessment', 'The current synthetic amounts were compared with the approved planning materiality.');
   await setField(audit, 'Pervasiveness assessment', 'No material modification is required based on the synthetic assessed evidence.');
   await saveOpinion(audit, 'Unmodified Opinion');
-  assert.equal(await tab.evaluate<boolean>(`!document.querySelector('#business-reporting-${audit.engagementId}')?.closest('section')?.innerText.includes('Basis for Unmodified Opinion')`), true,
-    'the unmodified opinion preview has no modified-opinion basis section');
+  const unmodifiedPreview = await tab.evaluate<string>(`document.querySelector('#opinion-preview-title')?.closest('section')?.innerText ?? ''`);
+  assert.ok(unmodifiedPreview.includes(unmodifiedRationale), 'the approved unmodified rationale is previewed verbatim');
+  assert.ok(!unmodifiedPreview.includes('Basis for Unmodified Opinion'), 'the clean opinion omits a modified-opinion basis section');
 
   for (const category of [
     { value: 'QUALIFIED', label: 'Qualified Opinion', basis: 'Basis for Qualified Opinion' },
@@ -473,15 +486,24 @@ async function verifyOpinionVariants(): Promise<void> {
       return [...(control?.options ?? [])].find(option => option.textContent?.includes('QA-REV'))?.value ?? '';
     })()`);
     assert.ok(fsliId, 'the server-projected current revenue FSLI is selectable');
-    await setField(audit, 'Partner rationale', `The Partner's ${category.value.toLowerCase()} assessment is based on the current synthetic evidence and scope.`);
-    await setField(audit, 'Materiality assessment', 'The affected synthetic revenue line exceeds the relevant assessed reporting threshold.');
-    await setField(audit, 'Pervasiveness assessment', 'The current basis assessment describes the scope and pervasiveness of the affected line.');
-    await setField(audit, 'Basis text', `The exact synthetic basis supporting the ${category.value.toLowerCase()} opinion is documented for this fixture.`);
+    const rationale = `The Partner's ${category.value.toLowerCase()} assessment is based on the current synthetic evidence and scope.`;
+    const materiality = 'The affected synthetic revenue line exceeds the relevant assessed reporting threshold.';
+    const pervasiveness = 'The current basis assessment describes the scope and pervasiveness of the affected line.';
+    const basisText = `The exact synthetic basis supporting the ${category.value.toLowerCase()} opinion is documented for this fixture.`;
+    const affectedExplanation = `The synthetic revenue line is affected under the ${category.value.toLowerCase()} case.`;
+    await setField(audit, 'Partner rationale', rationale);
+    await setField(audit, 'Materiality assessment', materiality);
+    await setField(audit, 'Pervasiveness assessment', pervasiveness);
+    await setField(audit, 'Basis text', basisText);
     await setField(audit, 'FSLI 1', fsliId, true);
-    await setField(audit, 'Nature and explanation', `The synthetic revenue line is affected under the ${category.value.toLowerCase()} case.`);
+    await setField(audit, 'Quantifiable amount (QAR, optional)', '1250.75');
+    await setField(audit, 'Nature and explanation', affectedExplanation);
     await saveOpinion(audit, category.label);
-    assert.equal(await tab.evaluate<boolean>(`document.querySelector('#business-reporting-${audit.engagementId}')?.closest('section')?.innerText.includes(${JSON.stringify(category.basis)})`), true,
-      `${category.value} uses its matching basis heading in the shared preview`);
+    const preview = await tab.evaluate<string>(`document.querySelector('#opinion-preview-title')?.closest('section')?.innerText ?? ''`);
+    for (const exactText of [category.basis, rationale, basisText, materiality, pervasiveness, 'QA-REV', 'SYNTHETIC REVENUE',
+      'QAR 1250.75', affectedExplanation]) {
+      assert.ok(preview.includes(exactText), `${category.value} preview preserves exact approved text: ${exactText}`);
+    }
   }
 
   const aup = await seedReportingFixture('AGREED_UPON_PROCEDURES');
