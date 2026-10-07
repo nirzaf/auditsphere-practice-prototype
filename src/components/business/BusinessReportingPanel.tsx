@@ -236,12 +236,19 @@ export function BusinessReportingPanel({ workspaceId, selected, context, engagem
     let writable: { write(chunk: Uint8Array): Promise<void>; close(): Promise<void>; abort(reason?: unknown): Promise<void> } | undefined;
     try {
       const saveWindow = window as Window & { showSaveFilePicker?: (options: { suggestedName: string; types: Array<{ description: string; accept: Record<string, string[]> }> }) => Promise<{ createWritable(): Promise<{ write(chunk: Uint8Array): Promise<void>; close(): Promise<void>; abort(reason?: unknown): Promise<void> }> }> };
-      const saveHandle = part === 'archive' && saveWindow.showSaveFilePicker
-        ? await saveWindow.showSaveFilePicker({
-          suggestedName: 'sealed-audit-archive.zip',
-          types: [{ description: 'Sealed AuditSphere archive', accept: { 'application/zip': ['.zip'] } }]
-        })
-        : undefined;
+      let saveHandle: Awaited<ReturnType<NonNullable<typeof saveWindow.showSaveFilePicker>>> | undefined;
+      if (part === 'archive' && saveWindow.showSaveFilePicker) {
+        try {
+          saveHandle = await saveWindow.showSaveFilePicker({
+            suggestedName: 'sealed-audit-archive.zip',
+            types: [{ description: 'Sealed AuditSphere archive', accept: { 'application/zip': ['.zip'] } }]
+          });
+        } catch (reason) {
+          // Automation and embedded browsers may not provide transient user activation.
+          // Keep those downloads working through the hash-verified Blob fallback.
+          if (!(reason instanceof DOMException && ['SecurityError', 'NotAllowedError'].includes(reason.name))) throw reason;
+        }
+      }
       writable = saveHandle ? await saveHandle.createWritable() : undefined;
       const result = await downloadBusinessArchiveExport(workspaceId, activeEngagementId, part, selected, archiveSha256, manifestSha256, writable);
       if (result.blob) {
