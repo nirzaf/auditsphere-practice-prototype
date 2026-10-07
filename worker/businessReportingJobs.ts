@@ -375,8 +375,8 @@ async function sealArchive(env:Env,job:Job,p:Payload,commit:Commit){
   for(const file of verified){const safe=file.originalName.replace(/[\\/]+/g,'_').replace(/\.\./g,'_').slice(0,160);entries[`files/${file.purpose.toLowerCase()}/${file.id}-${safe}`]=file.bytes;}
   const archiveBytes=zipSync(entries,{level:6}),archiveHash=await sha256BytesHex(archiveBytes),archiveId=crypto.randomUUID(),manifestFileId=crypto.randomUUID(),archiveArtifactId=crypto.randomUUID(),sealId=crypto.randomUUID(),at=nowIso();
   const manifestKey=`workspaces/${job.workspace_id}/archive/${p.engagementId}/${manifestHash}.manifest.json`,archiveKey=`workspaces/${job.workspace_id}/archive/${p.engagementId}/${archiveHash}.zip`;
-  await Promise.all([env.FILES.put(manifestKey,manifestBytes,{httpMetadata:{contentType:'text/plain'},customMetadata:{sha256:manifestHash,archiveRunId:run.id}}),
-    env.FILES.put(archiveKey,archiveBytes,{httpMetadata:{contentType:'application/zip'},customMetadata:{sha256:archiveHash,archiveRunId:run.id}})]);
+  await Promise.all([env.FILES.put(manifestKey,manifestBytes,{httpMetadata:{contentType:'text/plain'},customMetadata:{sha256:manifestHash,archiveRunId:run.id},sha256:hexToArrayBuffer(manifestHash)}),
+    env.FILES.put(archiveKey,archiveBytes,{httpMetadata:{contentType:'application/zip'},customMetadata:{sha256:archiveHash,archiveRunId:run.id},sha256:hexToArrayBuffer(archiveHash)})]);
   for(const [key,expected] of [[manifestKey,manifestHash],[archiveKey,archiveHash]] as const){const object=await env.FILES.get(key);if(!object||await sha256BytesHex(new Uint8Array(await object.arrayBuffer()))!==expected)throw new Error('The sealed archive did not pass object-store read-back verification.');}
   const policy=await env.DB.prepare(`SELECT id FROM retention_policies WHERE workspace_id=? AND id=?`).bind(job.workspace_id,run.retention_policy_id).first<{id:string}>();if(!policy)throw new Error('The referenced retention policy is missing.');
   const systemCommandId=crypto.randomUUID(),systemRequestHash=await sha256Hex(JSON.stringify({jobId:job.id,engagementId:p.engagementId,archiveHash}));
@@ -406,4 +406,10 @@ async function sealArchive(env:Env,job:Job,p:Payload,commit:Commit){
     result:{archiveRunId:run.id,status:'SEALED',manifestFileId,archiveFileId:archiveId,manifestSha256:manifestHash,archiveSha256:archiveHash},statements:[...statements,
       env.DB.prepare(`UPDATE outbox_jobs SET status='SUCCEEDED',result_file_id=?,result_json=?,last_error_code=NULL,completed_at=?,lease_until=NULL,updated_at=?,version=version+1 WHERE workspace_id=? AND id=? AND status='RUNNING' AND lease_until=?`)
         .bind(archiveId,JSON.stringify({archiveRunId:run.id,status:'SEALED',archiveFileId:archiveId,manifestFileId,archiveSha256:archiveHash}),at,at,job.workspace_id,job.id,job.lease_until)]});
+}
+
+function hexToArrayBuffer(hex:string):ArrayBuffer{
+  const bytes=new Uint8Array(hex.length/2);
+  for(let index=0;index<bytes.length;index++)bytes[index]=Number.parseInt(hex.slice(index*2,index*2+2),16);
+  return bytes.buffer;
 }

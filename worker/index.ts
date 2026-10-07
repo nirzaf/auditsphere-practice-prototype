@@ -501,13 +501,14 @@ const handleBusinessArchiveExport = async (ctx: RouteContext): Promise<Response>
     throw new ApiError('BAD_REQUEST', 'Choose archive or manifest as the export part.');
   }
   const result = await getBusinessArchiveExport(ctx.env, ctx.params.workspaceId, context, ctx.params.engagementId, requestedPart);
-  return new Response(result.bytes, { headers: {
+  return new Response(result.body ?? result.bytes ?? null, { headers: {
     'Content-Type': result.contentType,
     'Content-Disposition': `attachment; filename="${result.fileName}"`,
     'Cache-Control': 'no-store',
     'X-Content-Type-Options': 'nosniff',
     'X-Archive-SHA256': result.archiveSha256,
     'X-Archive-Manifest-SHA256': result.manifestSha256,
+    'Content-Length': String(result.sizeBytes),
     'X-Request-Id': ctx.requestId,
     'Referrer-Policy': 'no-referrer'
   } });

@@ -397,7 +397,7 @@ export async function getBusinessArchiveStatus(env:Env,workspaceId:string,contex
 }
 
 export async function getBusinessArchiveExport(env:Env,workspaceId:string,context:BusinessContext,engagementId:string,part:'archive'|'manifest'='archive'):
-  Promise<{bytes:Uint8Array;fileName:string;contentType:string;archiveSha256:string;manifestSha256:string}>{
+  Promise<{bytes?:Uint8Array;body?:ReadableStream<Uint8Array>;sizeBytes:number;fileName:string;contentType:string;archiveSha256:string;manifestSha256:string}>{
   if(!context.allowedActions.includes('reporting.read')||!(context.actor.persona==='REVIEWER'||context.actor.persona==='APPROVER'&&context.actor.staffGrade==='PARTNER'))
     throw new ApiError('PERSONA_ACTION_DENIED','Only a Reviewer or Partner may export a sealed internal audit archive.');
   const seal=await env.DB.prepare(`SELECT e.id,e.client_id,e.lifecycle_state,e.locked_at,e.archive_due_at,r.status AS run_status,r.error_code,
@@ -415,39 +415,69 @@ export async function getBusinessArchiveExport(env:Env,workspaceId:string,contex
   const manifestRow=byId.get(seal.manifest_file_id),archiveRow=byId.get(seal.archive_file_id);
   if(!manifestRow||!archiveRow||manifestRow.purpose!=='ARCHIVE'||archiveRow.purpose!=='ARCHIVE'||manifestRow.state!=='COMMITTED'||archiveRow.state!=='COMMITTED'
     ||manifestRow.immutable!==1||archiveRow.immutable!==1||manifestRow.media_type!=='text/plain'||archiveRow.media_type!=='application/zip'
-    ||manifestRow.sha256!==seal.manifest_sha256||archiveRow.sha256!==seal.archive_sha256||Number(archiveRow.size_bytes)>128*1024*1024)
+    ||manifestRow.sha256!==seal.manifest_sha256||archiveRow.sha256!==seal.archive_sha256)
     throw new ApiError('INTEGRITY_MISMATCH','The archive seal does not match its committed immutable manifest and ZIP metadata.');
   const [manifestObject,archiveObject]=await Promise.all([env.FILES.get(String(manifestRow.object_key)),env.FILES.get(String(archiveRow.object_key))]);
   if(!manifestObject||!archiveObject)throw new ApiError('INTEGRITY_MISMATCH','The sealed archive or manifest bytes are missing from storage.');
-  const [manifestBytes,archiveBytes]=await Promise.all([manifestObject.arrayBuffer(),archiveObject.arrayBuffer()]);
+  if(manifestObject.size!==Number(manifestRow.size_bytes)||archiveObject.size!==Number(archiveRow.size_bytes))
+    throw new ApiError('INTEGRITY_MISMATCH','The stored archive object sizes do not match the immutable file records.');
+  const manifestBytes=await manifestObject.arrayBuffer();
   const digest=async(bytes:ArrayBuffer)=>{const value=await crypto.subtle.digest('SHA-256',bytes);return [...new Uint8Array(value)].map(byte=>byte.toString(16).padStart(2,'0')).join('');};
-  if(manifestBytes.byteLength!==manifestRow.size_bytes||archiveBytes.byteLength!==archiveRow.size_bytes
-    ||await digest(manifestBytes)!==seal.manifest_sha256||await digest(archiveBytes)!==seal.archive_sha256)
-    throw new ApiError('INTEGRITY_MISMATCH','The stored archive bytes do not match their independently recorded seal hashes.');
+  if(manifestBytes.byteLength!==manifestRow.size_bytes||await digest(manifestBytes)!==seal.manifest_sha256)
+    throw new ApiError('INTEGRITY_MISMATCH','The stored archive manifest does not match its independently recorded seal hash.');
   let manifest:Record<string,unknown>;
   try{manifest=JSON.parse(new TextDecoder().decode(manifestBytes)) as Record<string,unknown>;}
   catch{throw new ApiError('INTEGRITY_MISMATCH','The sealed archive manifest is not valid JSON.');}
   if(manifest.format!=='AuditSphere sealed archive manifest v1'||manifest.engagementId!==engagementId||manifest.bundleId!==seal.bundle_id
     ||manifest.auditChainHead!==seal.audit_chain_head||!Array.isArray(manifest.files)||manifest.files.length!==Number(seal.file_count)
     ||manifest.recordCount!==Number(seal.record_count))throw new ApiError('INTEGRITY_MISMATCH','The sealed manifest identity or counts do not match the archive seal.');
-  let entries:Record<string,Uint8Array>;
-  try{entries=unzipSync(new Uint8Array(archiveBytes));}
-  catch{throw new ApiError('INTEGRITY_MISMATCH','The sealed archive is not a readable ZIP.');}
-  const embedded=entries['manifest.json'];
-  if(!embedded||!sameBytes(embedded,new Uint8Array(manifestBytes))||Object.keys(entries).length!==manifest.files.length+1)
-    throw new ApiError('INTEGRITY_MISMATCH','The ZIP does not contain the exact independently sealed manifest and file count.');
   for(const raw of manifest.files){
     if(!raw||typeof raw!=='object')throw new ApiError('INTEGRITY_MISMATCH','The sealed manifest contains an invalid file entry.');
     const file=raw as Record<string,unknown>;
     if(typeof file.id!=='string'||typeof file.originalName!=='string'||typeof file.purpose!=='string'||typeof file.sha256!=='string'||!Number.isSafeInteger(file.sizeBytes))
       throw new ApiError('INTEGRITY_MISMATCH','The sealed manifest contains an incomplete file entry.');
-    const safe=file.originalName.replace(/[\\/]+/g,'_').replace(/\.\./g,'_').slice(0,160),path=`files/${file.purpose.toLowerCase()}/${file.id}-${safe}`,bytes=entries[path];
-    if(!bytes||bytes.byteLength!==file.sizeBytes||await digest(bytes.slice().buffer)!==file.sha256)throw new ApiError('INTEGRITY_MISMATCH',`A sealed archive member failed integrity verification: ${file.id}.`);
+  }
+  const archiveChecksum=archiveObject.checksums?.sha256;
+  const hasStorageChecksum=archiveChecksum instanceof ArrayBuffer
+    && toHex(new Uint8Array(archiveChecksum))===seal.archive_sha256;
+  if(archiveChecksum && !hasStorageChecksum)
+    throw new ApiError('INTEGRITY_MISMATCH','The stored ZIP checksum does not match its independently recorded seal hash.');
+  let archiveBytes:Uint8Array|undefined;
+  let archiveBody:ReadableStream<Uint8Array>|undefined;
+  if(hasStorageChecksum && 'body' in archiveObject){
+    // R2 validated this checksum when the object was written. Stream its body
+    // instead of buffering and inflating the entire archive on each download.
+    archiveBody=archiveObject.body as ReadableStream<Uint8Array>;
+  }else{
+    // Legacy archive objects predate persisted R2 checksums. Keep the strict
+    // byte-level ZIP verification for them, with a bounded compatibility path.
+    if(Number(archiveRow.size_bytes)>128*1024*1024)
+      throw new ApiError('INTEGRITY_MISMATCH','This legacy archive is too large for safe verification; reseal it to enable streamed export.');
+    const archiveBuffer=await archiveObject.arrayBuffer();
+    if(archiveBuffer.byteLength!==archiveRow.size_bytes||await digest(archiveBuffer)!==seal.archive_sha256)
+      throw new ApiError('INTEGRITY_MISMATCH','The stored archive bytes do not match their independently recorded seal hash.');
+    let entries:Record<string,Uint8Array>;
+    try{entries=unzipSync(new Uint8Array(archiveBuffer));}
+    catch{throw new ApiError('INTEGRITY_MISMATCH','The sealed archive is not a readable ZIP.');}
+    const embedded=entries['manifest.json'];
+    if(!embedded||!sameBytes(embedded,new Uint8Array(manifestBytes))||Object.keys(entries).length!==manifest.files.length+1)
+      throw new ApiError('INTEGRITY_MISMATCH','The ZIP does not contain the exact independently sealed manifest and file count.');
+    for(const raw of manifest.files){
+      const file=raw as Record<string,unknown>;
+      const originalName=String(file.originalName),purpose=String(file.purpose),fileId=String(file.id);
+      const safe=originalName.replace(/[\\/]+/g,'_').replace(/\.\./g,'_').slice(0,160);
+      const path=`files/${purpose.toLowerCase()}/${fileId}-${safe}`,bytes=entries[path];
+      if(!bytes||bytes.byteLength!==file.sizeBytes||await digest(bytes.slice().buffer)!==file.sha256)
+        throw new ApiError('INTEGRITY_MISMATCH',`A sealed archive member failed integrity verification: ${String(file.id)}.`);
+    }
+    archiveBytes=new Uint8Array(archiveBuffer);
   }
   const now=new Date().toISOString();
   await accessEvent(env,workspaceId,engagementId,'SEALED_ARCHIVE',String(seal.archive_file_id),'EXPORT',context.actor.id,now);
-  return {bytes:new Uint8Array(part==='manifest'?manifestBytes:archiveBytes),fileName:part==='manifest'?'archive-manifest.json':'sealed-audit-archive.zip',
+  return {...(part==='manifest'?{bytes:new Uint8Array(manifestBytes)}:archiveBytes?{bytes:archiveBytes}:{body:archiveBody}),
+    sizeBytes:part==='manifest'?manifestBytes.byteLength:Number(archiveRow.size_bytes),fileName:part==='manifest'?'archive-manifest.json':'sealed-audit-archive.zip',
     contentType:part==='manifest'?'application/json':'application/zip',archiveSha256:String(seal.archive_sha256),manifestSha256:String(seal.manifest_sha256)};
 }
 
 function sameBytes(a:Uint8Array,b:Uint8Array):boolean{return a.byteLength===b.byteLength&&a.every((byte,index)=>byte===b[index]);}
+function toHex(bytes:Uint8Array):string{return [...bytes].map(byte=>byte.toString(16).padStart(2,'0')).join('');}
