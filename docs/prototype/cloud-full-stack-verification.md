@@ -811,9 +811,10 @@ server-side stage gate without manufacturing an engagement-letter transition.
 
 `npm run build` passed and `npx tsx --test tests/unit/businessWorkspace.test.ts`
 passed **1/1**, including the Worker/D1 PBC route and lifecycle checks. The browser
-journey could not start in this Windows execution sandbox: the installed Chrome
-binary never exposed its DevTools endpoint on the isolated loopback port. The
-headless-browser cleanup now bounds `taskkill` waiting, so this environment
-reports that setup failure instead of hanging. This is not browser acceptance;
-run the scenario in a host with working headless Chrome before closing the UI
-subcase. US-ENG-001, US-ENG-007, and the 46-story epic remain open.
+journey could not start in this Windows execution sandbox: installed Chrome did
+not expose its DevTools endpoint on the isolated loopback port, and the installed
+Edge binary exited with code `3221225477` before exposing CDP. The headless-browser
+cleanup now bounds `taskkill` waiting, so these setup failures return instead of
+hanging. This is not browser acceptance; run the scenario in a host with working
+headless Chromium before closing the UI subcase. US-ENG-001, US-ENG-007, and the
+46-story epic remain open.

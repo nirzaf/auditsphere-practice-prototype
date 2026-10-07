@@ -9,7 +9,7 @@ The last recorded production build identity is
 `0689461738caf33ae13290809f063ccebf032374`; its GitHub Actions run passed typecheck,
 unit tests, build, browser E2E, provider deployment, D1 migrations, Worker
 deployment, and readiness. Main has since advanced to
-`ca6037bf73ec3d21c28da7cb2ce5d41b0ae0002c`. The GitHub API could not be reached
+`fa7cbc29deaf6216ad5a50ee8ddf9c4c0714d7a2`. The GitHub API could not be reached
 during the 2026-10-07 follow-up, so CI and production deployment for the newer
 commit have not been verified. The last recorded integration probe showed email
 bound through `SERVICE_BINDING`, while SharePoint remained unconfigured until its
