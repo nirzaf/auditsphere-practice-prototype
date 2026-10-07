@@ -251,6 +251,8 @@ export function BusinessWorkspaceConsole() {
   const [firmMethodologyText, setFirmMethodologyText] = useState('');
   const [firmCredentialsText, setFirmCredentialsText] = useState('');
   const [firmIndustryPortfolioText, setFirmIndustryPortfolioText] = useState('');
+  const [firmCredentialFileIds, setFirmCredentialFileIds] = useState<string[]>([]);
+  const [firmPortfolioFileIds, setFirmPortfolioFileIds] = useState<string[]>([]);
   const [files, setFiles] = useState<BusinessFileMetadata[]>([]);
   const [filePurpose, setFilePurpose] = useState<BusinessFilePurpose>('TEMPLATE');
   const [fileBusy, setFileBusy] = useState(false);
@@ -432,6 +434,8 @@ export function BusinessWorkspaceConsole() {
         setFirmMethodologyText(next.firmProfile.methodologyText);
         setFirmCredentialsText(next.firmProfile.credentialsText);
         setFirmIndustryPortfolioText(next.firmProfile.industryPortfolioText);
+        setFirmCredentialFileIds(next.firmProfile.credentialFileVersionIds);
+        setFirmPortfolioFileIds(next.firmProfile.portfolioFileVersionIds);
       }
     }).catch(reason => {
       if (!controller.signal.aborted) setRecordError(reason instanceof Error ? reason.message : 'Proposal workspace could not be loaded.');
@@ -809,7 +813,8 @@ export function BusinessWorkspaceConsole() {
       expectedVersion: proposalWorkspace?.firmProfile?.version ?? null,
       legalName: firmLegalName, registrationNumber: firmRegistrationNumber, address: firmAddress,
       profileText: firmProfileText, methodologyText: firmMethodologyText,
-      credentialsText: firmCredentialsText, industryPortfolioText: firmIndustryPortfolioText
+      credentialsText: firmCredentialsText, industryPortfolioText: firmIndustryPortfolioText,
+      credentialFileVersionIds: firmCredentialFileIds, portfolioFileVersionIds: firmPortfolioFileIds
     };
     setCommandBusy(true);
     setCommandMessage('');
@@ -1395,6 +1400,28 @@ export function BusinessWorkspaceConsole() {
                 <small id="business-firm-credentials-help">Record only current, firm-verified registrations, memberships or qualifications. Comprehensive proposals require at least 10 characters.</small>
                 <label className="business-field" htmlFor="business-firm-portfolio"><span>Relevant industry portfolio</span><textarea id="business-firm-portfolio" className="input" maxLength={10000} rows={3} value={firmIndustryPortfolioText} onChange={event => setFirmIndustryPortfolioText(event.target.value)} aria-describedby="business-firm-portfolio-help" /></label>
                 <small id="business-firm-portfolio-help">Describe verified, relevant firm experience without exposing client-identifying information. Comprehensive proposals require at least 10 characters.</small>
+                <fieldset className="business-field business-proposed-team" aria-describedby="business-firm-credential-files-help">
+                  <legend>Credential evidence files</legend>
+                  <p id="business-firm-credential-files-help" className="business-note">Select committed firm registration, membership or qualification PDFs/DOCX. These exact versions are pinned to full proposals and attached to dispatches.</p>
+                  {files.filter(file => file.purpose === 'TEMPLATE' && ['application/pdf', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'].includes(file.mediaType)).map(file => <label className="business-check-field" key={`credential-${file.id}`}>
+                    <input type="checkbox" checked={firmCredentialFileIds.includes(file.id)} onChange={event => setFirmCredentialFileIds(current => event.target.checked
+                      ? [...current, file.id] : current.filter(id => id !== file.id))} />
+                    <span>{file.originalName} · SHA-256 {file.sha256?.slice(0, 10)}</span>
+                  </label>)}
+                  {!files.some(file => file.purpose === 'TEMPLATE' && ['application/pdf', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'].includes(file.mediaType))
+                    && <p className="business-muted">Store credential evidence as an immutable firm PDF or DOCX to select it here.</p>}
+                </fieldset>
+                <fieldset className="business-field business-proposed-team" aria-describedby="business-firm-portfolio-files-help">
+                  <legend>Industry portfolio evidence files</legend>
+                  <p id="business-firm-portfolio-files-help" className="business-note">Select anonymized, firm-verified industry experience PDFs/DOCX. Client-identifying information must not be disclosed without authority.</p>
+                  {files.filter(file => file.purpose === 'TEMPLATE' && ['application/pdf', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'].includes(file.mediaType)).map(file => <label className="business-check-field" key={`portfolio-${file.id}`}>
+                    <input type="checkbox" checked={firmPortfolioFileIds.includes(file.id)} onChange={event => setFirmPortfolioFileIds(current => event.target.checked
+                      ? [...current, file.id] : current.filter(id => id !== file.id))} />
+                    <span>{file.originalName} · SHA-256 {file.sha256?.slice(0, 10)}</span>
+                  </label>)}
+                  {!files.some(file => file.purpose === 'TEMPLATE' && ['application/pdf', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'].includes(file.mediaType))
+                    && <p className="business-muted">Store an anonymized portfolio evidence file as an immutable firm PDF or DOCX to select it here.</p>}
+                </fieldset>
                 <p className="business-note">Enter the firm’s actual registration and approved content. These values are snapshotted into new proposal revisions; no biography or professional claim is generated from a placeholder.</p>
                 <div className="business-dialog-actions"><button className="btn primary" type="submit" disabled={commandBusy}>{commandBusy ? 'Saving…' : proposalWorkspace?.firmProfile ? 'Save new firm profile revision' : 'Save firm profile'}</button></div>
               </form>
@@ -1417,8 +1444,9 @@ export function BusinessWorkspaceConsole() {
             {context.allowedActions.includes('proposal.create') && <form className="business-form business-commercial-form" onSubmit={createProposal}>
               <h3>Draft a versioned proposal</h3>
               {!proposalWorkspace?.firmProfile && <p className="business-alert" role="alert">A Partner must save the firm’s legal registration, profile and methodology before a proposal can be created.</p>}
-              {proposalMode === 'FULL_PROPOSAL' && (!proposalWorkspace?.firmProfile?.credentialsText.trim() || !proposalWorkspace?.firmProfile.industryPortfolioText.trim())
-                && <p className="business-alert" role="alert">A comprehensive proposal needs Partner-maintained firm credentials and relevant portfolio content. Enter only verified information; the Worker will block incomplete proposals.</p>}
+              {proposalMode === 'FULL_PROPOSAL' && (!proposalWorkspace?.firmProfile?.credentialsText.trim() || !proposalWorkspace?.firmProfile.industryPortfolioText.trim()
+                || !proposalWorkspace?.firmProfile.credentialFileVersionIds.length || !proposalWorkspace?.firmProfile.portfolioFileVersionIds.length)
+                && <p className="business-alert" role="alert">A comprehensive proposal needs verified credentials and portfolio text plus selected, committed evidence files in each category. The Worker blocks incomplete packages.</p>}
               <div className="business-form-grid">
                 <label className="business-field" htmlFor="business-proposal-engagement"><span>Engagement in proposal generation</span><select id="business-proposal-engagement" required value={proposalEngagementId} onChange={event => setProposalEngagementId(event.target.value)}><option value="">Select engagement</option>{proposalWorkspace?.engagements.filter(engagement => engagement.lifecycleState === 'PROPOSAL_GENERATION').map(engagement => <option key={engagement.id} value={engagement.id}>{engagement.clientName} · {engagement.code} · {engagement.periodStart}–{engagement.periodEnd}</option>)}</select></label>
                 <label className="business-field" htmlFor="business-proposal-mode"><span>Document mode</span><select id="business-proposal-mode" value={proposalMode} onChange={event => setProposalMode(event.target.value as typeof proposalMode)}><option value="QUOTE">Quotation · 1–2 pages</option><option value="FULL_PROPOSAL">Comprehensive proposal · approved team CV required</option></select></label>
@@ -1461,7 +1489,9 @@ export function BusinessWorkspaceConsole() {
               <label className="business-field" htmlFor="business-proposal-scope"><span>Agreed scope</span><textarea id="business-proposal-scope" className="input" required minLength={10} maxLength={10000} rows={3} value={proposalScope} onChange={event => setProposalScope(event.target.value)} /></label>
               <p className="business-note">Each revision pins the current firm profile, credentials, industry portfolio, methodology hash and approved CV file IDs. A new revision does not overwrite a prior approval or document.</p>
               <div className="business-dialog-actions"><button className="btn primary" type="submit" disabled={commandBusy || !proposalWorkspace?.firmProfile || !proposalEngagementId
-                || (proposalMode === 'FULL_PROPOSAL' && !proposalTeamCvIds.some(id => proposalWorkspace.teamCvs.some(cv => cv.id === id && cv.approved && cv.isCurrent && cv.grade === 'PARTNER')))}>{commandBusy ? 'Saving…' : 'Create proposal revision'}</button></div>
+                || (proposalMode === 'FULL_PROPOSAL' && (!proposalTeamCvIds.some(id => proposalWorkspace.teamCvs.some(cv => cv.id === id && cv.approved && cv.isCurrent && cv.grade === 'PARTNER'))
+                  || !proposalWorkspace.firmProfile.credentialsText.trim() || !proposalWorkspace.firmProfile.industryPortfolioText.trim()
+                  || !proposalWorkspace.firmProfile.credentialFileVersionIds.length || !proposalWorkspace.firmProfile.portfolioFileVersionIds.length))}>{commandBusy ? 'Saving…' : 'Create proposal revision'}</button></div>
             </form>}
 
             {proposalWorkspace?.proposals.length ? <ul className="business-record-list business-proposal-list" aria-label="Current proposal revisions">{proposalWorkspace.proposals.map(proposal => {

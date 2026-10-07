@@ -814,13 +814,34 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
     .bind(workspaceId).first<{ count: number }>()?.count, auditBeforeDuplicate,
     'a rejected duplicate does not append an audit decision');
 
+  const createFirmEvidenceFile = async (originalName: string): Promise<string> => {
+    const bytes = new TextEncoder().encode('%PDF-1.4\n1 0 obj\n<< /Type /Catalog >>\nendobj\n%%EOF\n');
+    const reservation = await post(`/api/workspaces/${workspaceId}/files`, {
+      purpose: 'TEMPLATE', originalName, mediaType: 'application/pdf', sizeBytes: bytes.length
+    }, { ...approverHeaders, 'Idempotency-Key': crypto.randomUUID() });
+    assert.equal(reservation.response.status, 201, JSON.stringify(reservation.body));
+    const staged = await worker.fetch(new Request(`https://local.auditsphere.test/api/workspaces/${workspaceId}/files/${reservation.body.fileId}/content`, {
+      method: 'PUT', headers: { Origin: 'https://local.auditsphere.test', ...approverHeaders, 'Idempotency-Key': crypto.randomUUID(),
+        'X-File-Version': '1', 'Content-Type': 'application/pdf' }, body: bytes
+    }), env, {} as any);
+    const stagedBody = await staged.json() as any;
+    assert.equal(staged.status, 200, JSON.stringify(stagedBody));
+    const committed = await post(`/api/workspaces/${workspaceId}/files/${reservation.body.fileId}/complete`, {
+      expectedVersion: 2, sizeBytes: bytes.length, sha256: stagedBody.sha256
+    }, { ...approverHeaders, 'Idempotency-Key': crypto.randomUUID() });
+    assert.equal(committed.response.status, 200, JSON.stringify(committed.body));
+    return reservation.body.fileId;
+  };
+  const credentialEvidenceFileId = await createFirmEvidenceFile('qatar-audit-registration.pdf');
+  const portfolioEvidenceFileId = await createFirmEvidenceFile('anonymized-trading-portfolio.pdf');
   const firmProfile = await post(`/api/workspaces/${workspaceId}/commands`, {
     idempotencyKey: crypto.randomUUID(), command: { type: 'firm-profile.save', payload: {
       expectedVersion: null, legalName: 'Local Audit Partners WLL', registrationNumber: 'CR-LOCAL-001',
       address: 'Doha, Qatar', profileText: 'Independent assurance and advisory services for Qatar entities.',
       methodologyText: 'The firm performs a risk-based engagement using its approved methodology and documented professional review.',
       credentialsText: 'Current Qatar audit registration verified against firm records.',
-      industryPortfolioText: 'Anonymized statutory audit experience across local trading and service entities.'
+      industryPortfolioText: 'Anonymized statutory audit experience across local trading and service entities.',
+      credentialFileVersionIds: [credentialEvidenceFileId], portfolioFileVersionIds: [portfolioEvidenceFileId]
     } }
   }, approverHeaders);
   assert.equal(firmProfile.response.status, 200, JSON.stringify(firmProfile.body));
@@ -874,6 +895,10 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
   assert.equal(proposal.response.status, 200, JSON.stringify(proposal.body));
   assert.equal(proposal.body.result.revision, 1);
   assert.deepEqual({ advance: proposal.body.result.advanceMinor, final: proposal.body.result.finalMinor }, { advance: '125001', final: '125000' });
+  const proposalEvidencePins = db.prepare(`SELECT firm_credential_file_ids_json,firm_portfolio_file_ids_json
+    FROM proposal_versions WHERE workspace_id=? AND id=?`).bind(workspaceId, proposal.body.result.proposalVersionId).first<any>();
+  assert.deepEqual(JSON.parse(proposalEvidencePins.firm_credential_file_ids_json), [credentialEvidenceFileId]);
+  assert.deepEqual(JSON.parse(proposalEvidencePins.firm_portfolio_file_ids_json), [portfolioEvidenceFileId]);
 
   const revisedProposal = await post(`/api/workspaces/${workspaceId}/commands`, {
     idempotencyKey: crypto.randomUUID(), command: { type: 'proposal.revise', payload: {
@@ -917,6 +942,8 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
   assert.equal(proposalWorkspace.body.proposals[0].documentStatus, 'SUCCEEDED');
   assert.equal(proposalWorkspace.body.proposals[0].artifactFileId, generatedJob.result_file_id);
   assert.equal(proposalWorkspace.body.firmProfile.registrationNumber, 'CR-LOCAL-001');
+  assert.deepEqual(proposalWorkspace.body.firmProfile.credentialFileVersionIds, [credentialEvidenceFileId]);
+  assert.deepEqual(proposalWorkspace.body.firmProfile.portfolioFileVersionIds, [portfolioEvidenceFileId]);
 
   const thirdProposal = await post(`/api/workspaces/${workspaceId}/commands`, {
     idempotencyKey: crypto.randomUUID(), command: { type: 'proposal.revise', payload: {
@@ -992,18 +1019,23 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
   }, approverHeaders);
   assert.equal(retryDispatch.response.status, 202, JSON.stringify(retryDispatch.body));
   let deliveredAttachments = 0;
+  let deliveredAttachmentNames: string[] = [];
   const deliveredRecipients: string[] = [];
   env.EMAIL_PROVIDER = { fetch: async (request: Request) => {
     const form = await request.formData();
     const message = JSON.parse(String(form.get('message')));
     assert.match(message.to, /^[^@]+@example\.invalid$/);
     deliveredRecipients.push(message.to);
-    deliveredAttachments = form.getAll('attachment').length;
+    const files = form.getAll('attachment').filter((item): item is File => typeof item !== 'string');
+    deliveredAttachments = files.length;
+    deliveredAttachmentNames = files.map(file => file.name);
     assert.ok(request.headers.get('Idempotency-Key'));
     return Response.json({ messageId: 'local-provider-message-001' }, { status: 202 });
   } };
   await worker.scheduled({ scheduledTime: Date.now(), cron: '*/5 * * * *' } as any, env);
-  assert.equal(deliveredAttachments, 2, 'dispatch contains the exact generated PDF and pinned approved Partner CV');
+  assert.equal(deliveredAttachments, 4, 'dispatch contains the proposal PDF, Partner CV and both selected firm evidence files');
+  assert.ok(deliveredAttachmentNames.includes('qatar-audit-registration.pdf'));
+  assert.ok(deliveredAttachmentNames.includes('anonymized-trading-portfolio.pdf'));
   assert.equal(db.prepare(`SELECT status FROM dispatches WHERE workspace_id=? AND id=?`)
     .bind(workspaceId, retryDispatch.body.result.dispatchId).first<any>()?.status, 'ACCEPTED');
   assert.equal(db.prepare(`SELECT lifecycle_state FROM engagements WHERE workspace_id=? AND id=?`)

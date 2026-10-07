@@ -47,6 +47,8 @@ interface ProposalSnapshot {
   timeline_json: string;
   firm_profile_snapshot_json: string;
   team_cv_file_ids_json: string;
+  firm_credential_file_ids_json: string;
+  firm_portfolio_file_ids_json: string;
   created_at: string;
   client_id: string;
   engagement_id: string;
@@ -163,7 +165,7 @@ function parseStringArray(json: string): string[] {
 
 async function buildProposalDocument(env: Env, workspaceId: string, payload: JobPayload): Promise<{ input: ProposalDocumentInput; attachmentIds: string[] }> {
   const row = await env.DB.prepare(`SELECT pv.proposal_id,pv.id AS proposal_version_id,pv.revision,pv.mode,pv.scope,pv.fee_minor,pv.valid_until,
-      pv.timeline_json,pv.firm_profile_snapshot_json,pv.team_cv_file_ids_json,pv.created_at,
+      pv.timeline_json,pv.firm_profile_snapshot_json,pv.team_cv_file_ids_json,pv.firm_credential_file_ids_json,pv.firm_portfolio_file_ids_json,pv.created_at,
       e.client_id,e.id AS engagement_id,e.code AS engagement_code,e.period_start,e.period_end,e.engagement_type,e.lifecycle_state,
       p.current_version_id,c.legal_name,c.trading_name,c.commercial_registration,c.active AS client_active
     FROM proposal_versions pv JOIN proposals p ON p.workspace_id=pv.workspace_id AND p.id=pv.proposal_id
@@ -207,6 +209,14 @@ async function buildProposalDocument(env: Env, workspaceId: string, payload: Job
   }
 
   const attachmentIds = parseStringArray(row.team_cv_file_ids_json);
+  const credentialFileIds = parseStringArray(row.firm_credential_file_ids_json);
+  const portfolioFileIds = parseStringArray(row.firm_portfolio_file_ids_json);
+  if (row.mode === 'FULL_PROPOSAL' && (!credentialFileIds.length || !portfolioFileIds.length)) {
+    throw new OutboxError('FIRM_EVIDENCE_REQUIRED', 'A comprehensive proposal requires pinned firm credential and industry portfolio evidence files.');
+  }
+  if (new Set([...credentialFileIds, ...portfolioFileIds]).size !== credentialFileIds.length + portfolioFileIds.length) {
+    throw new OutboxError('INVALID_FIRM_EVIDENCE_SNAPSHOT', 'Credential and portfolio evidence selections must use distinct exact file versions.');
+  }
   const team: ProposalDocumentInput['team'] = [];
   if (row.mode === 'FULL_PROPOSAL') {
     if (!attachmentIds.length) throw new OutboxError('APPROVED_PARTNER_CV_REQUIRED', 'A full proposal requires the approved Partner CV that was pinned to this revision.');
@@ -233,12 +243,27 @@ async function buildProposalDocument(env: Env, workspaceId: string, payload: Job
     // A quote does not expose or transmit staff CV material.
   }
 
+  const loadFirmEvidence = async (ids: string[]): Promise<Array<{ originalName: string; sha256: string }>> => {
+    const result: Array<{ originalName: string; sha256: string }> = [];
+    for (const id of ids) {
+      const file = await exactFile(env, workspaceId, id);
+      if (file.metadata.purpose !== 'TEMPLATE' || !['application/pdf', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'].includes(file.metadata.media_type)) {
+        throw new OutboxError('FIRM_EVIDENCE_INVALID', 'Pinned firm credential and portfolio evidence must remain committed PDF or DOCX firm files.');
+      }
+      result.push({ originalName: file.metadata.original_name, sha256: file.metadata.sha256 });
+      attachmentIds.push(id);
+    }
+    return result;
+  };
+  const credentialEvidence = row.mode === 'FULL_PROPOSAL' ? await loadFirmEvidence(credentialFileIds) : [];
+  const portfolioEvidence = row.mode === 'FULL_PROPOSAL' ? await loadFirmEvidence(portfolioFileIds) : [];
+
   const input: ProposalDocumentInput = {
     id: row.proposal_id, revision: row.revision, createdAt: row.created_at, mode: row.mode, scope: row.scope, feeMinor: row.fee_minor,
     validUntil: row.valid_until, timeline,
     client: { legalName: row.legal_name, tradingName: row.trading_name, registrationNumber: row.commercial_registration },
     engagement: { code: row.engagement_code, periodStart: row.period_start, periodEnd: row.period_end, type: row.engagement_type },
-    firm, team
+    firm, team, firmEvidence: { credentials: credentialEvidence, industryPortfolio: portfolioEvidence }
   };
   return { input, attachmentIds };
 }
@@ -688,14 +713,14 @@ async function dispatchProposal(env: Env, job: OutboxJob): Promise<void> {
   if (!payload.dispatchId || !payload.fileVersionId || !payload.recipient) {
     throw new OutboxError('INVALID_DISPATCH_PAYLOAD', 'The dispatch is missing its exact proposal artifact or recipient snapshot.');
   }
-  const approved = await env.DB.prepare(`SELECT pv.proposal_id,pv.revision,pv.team_cv_file_ids_json,p.current_version_id,e.version AS engagement_version,e.lifecycle_state,
+  const approved = await env.DB.prepare(`SELECT pv.proposal_id,pv.revision,pv.mode,pv.team_cv_file_ids_json,pv.firm_credential_file_ids_json,pv.firm_portfolio_file_ids_json,p.current_version_id,e.version AS engagement_version,e.lifecycle_state,
       a.approval_decision_id
     FROM proposal_versions pv JOIN proposals p ON p.workspace_id=pv.workspace_id AND p.id=pv.proposal_id
     JOIN engagements e ON e.workspace_id=pv.workspace_id AND e.client_id=pv.client_id AND e.id=pv.engagement_id
     JOIN proposal_approvals a ON a.workspace_id=pv.workspace_id AND a.proposal_version_id=pv.id AND a.decision='APPROVE'
     WHERE pv.workspace_id=? AND pv.id=? ORDER BY a.decided_at DESC,a.id DESC LIMIT 1`)
     .bind(job.workspace_id, payload.proposalVersionId)
-    .first<{ proposal_id: string; revision: number; team_cv_file_ids_json: string; current_version_id: string; engagement_version: number; lifecycle_state: string; approval_decision_id: string }>();
+    .first<{ proposal_id: string; revision: number; mode: string; team_cv_file_ids_json: string; firm_credential_file_ids_json: string; firm_portfolio_file_ids_json: string; current_version_id: string; engagement_version: number; lifecycle_state: string; approval_decision_id: string }>();
   if (!approved || approved.current_version_id !== payload.proposalVersionId || approved.lifecycle_state !== 'PROPOSAL_GENERATION') {
     throw new OutboxError('STALE_APPROVED_PROPOSAL', 'Dispatch requires Partner approval of the current proposal revision while its engagement remains in proposal generation.');
   }
@@ -711,6 +736,22 @@ async function dispatchProposal(env: Env, job: OutboxJob): Promise<void> {
       throw new OutboxError('PROPOSAL_ATTACHMENT_INVALID', 'A CV attachment pinned to the approved proposal is not a committed PDF or DOCX template.');
     }
     attachments.push({ name: cv.metadata.original_name, mediaType: cv.metadata.media_type, sha256: cv.metadata.sha256, bytes: cv.bytes });
+  }
+  const credentialFileIds = parseStringArray(approved.firm_credential_file_ids_json);
+  const portfolioFileIds = parseStringArray(approved.firm_portfolio_file_ids_json);
+  if (approved.mode === 'FULL_PROPOSAL' && (!credentialFileIds.length || !portfolioFileIds.length)) {
+    throw new OutboxError('FIRM_EVIDENCE_REQUIRED', 'The approved comprehensive proposal no longer has its exact credential and portfolio file selections.');
+  }
+  const evidenceIds = [...credentialFileIds, ...portfolioFileIds];
+  if (new Set([...cvIds, ...evidenceIds]).size !== cvIds.length + evidenceIds.length) {
+    throw new OutboxError('INVALID_PROPOSAL_ATTACHMENT_SNAPSHOT', 'Proposal CVs, credentials and portfolio evidence must be distinct exact file versions.');
+  }
+  for (const id of evidenceIds) {
+    const evidence = await exactFile(env, job.workspace_id, id);
+    if (evidence.metadata.purpose !== 'TEMPLATE' || !['application/pdf', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'].includes(evidence.metadata.media_type)) {
+      throw new OutboxError('FIRM_EVIDENCE_INVALID', 'Pinned firm evidence must remain a committed PDF or DOCX.');
+    }
+    attachments.push({ name: evidence.metadata.original_name, mediaType: evidence.metadata.media_type, sha256: evidence.metadata.sha256, bytes: evidence.bytes });
   }
   const dispatch = await env.DB.prepare(`SELECT id,status,version FROM dispatches WHERE workspace_id=? AND id=? AND job_id=?`)
     .bind(job.workspace_id, payload.dispatchId, job.id).first<{ id: string; status: string; version: number }>();

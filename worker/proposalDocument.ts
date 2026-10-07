@@ -20,6 +20,10 @@ export interface ProposalDocumentInput {
     credentialsText?: string;
     industryPortfolioText?: string;
   };
+  firmEvidence: {
+    credentials: Array<{ originalName: string; sha256: string }>;
+    industryPortfolio: Array<{ originalName: string; sha256: string }>;
+  };
   team: Array<{ displayName: string; grade: string; originalName: string; sha256: string }>;
 }
 
@@ -65,6 +69,12 @@ export function renderProposalPdf(input: ProposalDocumentInput, arabicFontBytes?
   }
   if (input.mode === 'FULL_PROPOSAL' && (input.firm.industryPortfolioText?.trim().length ?? 0) < 10) {
     throw new ProposalDocumentError('FIRM_PORTFOLIO_REQUIRED', 'A comprehensive proposal needs relevant, firm-verified industry portfolio content. Add at least 10 characters to the Partner-approved firm profile and retry.');
+  }
+  if (input.mode === 'FULL_PROPOSAL' && !input.firmEvidence.credentials.length) {
+    throw new ProposalDocumentError('FIRM_CREDENTIAL_EVIDENCE_REQUIRED', 'Select at least one committed firm credential evidence file before rendering a comprehensive proposal.');
+  }
+  if (input.mode === 'FULL_PROPOSAL' && !input.firmEvidence.industryPortfolio.length) {
+    throw new ProposalDocumentError('FIRM_PORTFOLIO_EVIDENCE_REQUIRED', 'Select at least one committed industry portfolio evidence file before rendering a comprehensive proposal.');
   }
   const searchableText = JSON.stringify(input);
   const arabic = containsArabic(searchableText);
@@ -148,8 +158,10 @@ export function renderProposalPdf(input: ProposalDocumentInput, arabicFontBytes?
   if (input.mode === 'FULL_PROPOSAL') {
     drawSection('Firm credentials');
     drawLine(input.firm.credentialsText!.trim(), { gap: 1 });
+    for (const file of input.firmEvidence.credentials) drawLine(`Supporting credential file: ${file.originalName} · SHA-256 ${file.sha256}`, { size: 8 });
     drawSection('Relevant industry portfolio');
     drawLine(input.firm.industryPortfolioText!.trim(), { gap: 1 });
+    for (const file of input.firmEvidence.industryPortfolio) drawLine(`Supporting portfolio file: ${file.originalName} · SHA-256 ${file.sha256}`, { size: 8 });
   }
   drawSection('Approved methodology');
   drawLine(input.firm.methodologyText, { gap: 1 });

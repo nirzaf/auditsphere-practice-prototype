@@ -477,7 +477,7 @@ export async function getBusinessProposalWorkspace(env: Env, workspaceId: string
   if (context.actor.persona === 'CLIENT') return { engagements: [], firmProfile: null, staffMembers: [], teamCvs: [], contactRoutes: [], proposals: items };
 
   const [firm, staff, cvs, routes] = await Promise.all([
-    env.DB.prepare(`SELECT id,version,legal_name,registration_number,address,profile_text,methodology_text,credentials_text,industry_portfolio_text,logo_file_id,updated_at
+    env.DB.prepare(`SELECT id,version,legal_name,registration_number,address,profile_text,methodology_text,credentials_text,industry_portfolio_text,credential_file_ids_json,portfolio_file_ids_json,logo_file_id,updated_at
       FROM firm_profiles WHERE workspace_id=?`).bind(workspaceId).first<Record<string, unknown>>(),
     env.DB.prepare(`SELECT id,version,display_name,grade,active FROM staff_members WHERE workspace_id=? AND active=1 ORDER BY grade,display_name,id LIMIT 100`)
       .bind(workspaceId).all<Record<string, unknown>>(),
@@ -496,6 +496,8 @@ export async function getBusinessProposalWorkspace(env: Env, workspaceId: string
     id: firm.id, version: firm.version, legalName: firm.legal_name, registrationNumber: firm.registration_number,
     address: firm.address, profileText: firm.profile_text, methodologyText: firm.methodology_text,
     credentialsText: firm.credentials_text, industryPortfolioText: firm.industry_portfolio_text,
+    credentialFileVersionIds: JSON.parse(String(firm.credential_file_ids_json)),
+    portfolioFileVersionIds: JSON.parse(String(firm.portfolio_file_ids_json)),
     logoFileId: firm.logo_file_id, updatedAt: firm.updated_at
   } : null;
   const staffMembers = (staff.results ?? []).map(row => ({
@@ -1154,6 +1156,12 @@ const firmProfileSaveCommand = z.strictObject({
     methodologyText: z.string().trim().min(10).max(20000),
     credentialsText: z.string().trim().max(10000).optional().default(''),
     industryPortfolioText: z.string().trim().max(10000).optional().default(''),
+    credentialFileVersionIds: z.array(clientIdSchema).max(20).default([]).refine(ids => new Set(ids).size === ids.length, {
+      message: 'Each credential evidence file may be selected only once.'
+    }),
+    portfolioFileVersionIds: z.array(clientIdSchema).max(20).default([]).refine(ids => new Set(ids).size === ids.length, {
+      message: 'Each industry portfolio file may be selected only once.'
+    }),
     logoFileId: clientIdSchema.nullable().optional()
   }).refine(value => value.profileText.length + value.methodologyText.length <= 25000, {
     message: 'Firm profile and methodology together must fit within 25,000 characters.'
@@ -3271,20 +3279,39 @@ async function buildBusinessProposalMutation(
         .bind(workspaceId, input.logoFileId).first<{ id: string }>();
       if (!logo) throw new ApiError('GATE_BLOCKED', 'Choose a committed PNG or JPEG firm logo from Stored files.');
     }
+    const allEvidenceIds = [...input.credentialFileVersionIds, ...input.portfolioFileVersionIds];
+    if (new Set(allEvidenceIds).size !== allEvidenceIds.length) throw new ApiError('VALIDATION_FAILED', 'Use separate files for credential and portfolio evidence.');
+    if (allEvidenceIds.length) {
+      const placeholders = allEvidenceIds.map(() => '?').join(',');
+      const evidence = await env.DB.prepare(`SELECT id FROM file_versions WHERE workspace_id=? AND id IN (${placeholders})
+          AND state='COMMITTED' AND immutable=1 AND purpose='TEMPLATE'
+          AND media_type IN ('application/pdf','application/vnd.openxmlformats-officedocument.wordprocessingml.document')`)
+        .bind(workspaceId, ...allEvidenceIds).all<{ id: string }>();
+      if ((evidence.results ?? []).length !== allEvidenceIds.length) {
+        throw new ApiError('GATE_BLOCKED', 'Credential and portfolio evidence must use distinct committed, immutable PDF or DOCX firm files.');
+      }
+    }
     const profileId = current?.id ?? crypto.randomUUID();
     const nextVersion = current ? current.version + 1 : 1;
     const statements = [
       env.DB.prepare(`INSERT INTO command_assertions(workspace_id,seq,ok)
-        SELECT ?,73,CASE WHEN (? IS NULL AND NOT EXISTS(SELECT 1 FROM firm_profiles WHERE workspace_id=?))
-          OR EXISTS(SELECT 1 FROM firm_profiles WHERE workspace_id=? AND version=?) THEN 1 ELSE 0 END`)
-        .bind(workspaceId, input.expectedVersion, workspaceId, workspaceId, input.expectedVersion),
+        SELECT ?,73,CASE WHEN (((? IS NULL AND NOT EXISTS(SELECT 1 FROM firm_profiles WHERE workspace_id=?))
+          OR EXISTS(SELECT 1 FROM firm_profiles WHERE workspace_id=? AND version=?))
+          AND NOT EXISTS(SELECT 1 FROM (SELECT value AS file_id FROM json_each(?) UNION SELECT value FROM json_each(?)) selected
+            LEFT JOIN file_versions f ON f.workspace_id=? AND f.id=selected.file_id
+            WHERE f.id IS NULL OR f.state<>'COMMITTED' OR f.immutable<>1 OR f.purpose<>'TEMPLATE'
+              OR f.media_type NOT IN ('application/pdf','application/vnd.openxmlformats-officedocument.wordprocessingml.document'))) THEN 1 ELSE 0 END`)
+        .bind(workspaceId, input.expectedVersion, workspaceId, workspaceId, input.expectedVersion,
+          JSON.stringify(input.credentialFileVersionIds), JSON.stringify(input.portfolioFileVersionIds), workspaceId),
       current
-      ? env.DB.prepare(`UPDATE firm_profiles SET version=version+1,legal_name=?,registration_number=?,address=?,profile_text=?,methodology_text=?,credentials_text=?,industry_portfolio_text=?,logo_file_id=?,updated_at=?,updated_by_actor_id=?
+      ? env.DB.prepare(`UPDATE firm_profiles SET version=version+1,legal_name=?,registration_number=?,address=?,profile_text=?,methodology_text=?,credentials_text=?,industry_portfolio_text=?,credential_file_ids_json=?,portfolio_file_ids_json=?,logo_file_id=?,updated_at=?,updated_by_actor_id=?
             WHERE workspace_id=? AND id=? AND version=?`).bind(input.legalName, input.registrationNumber, input.address,
-          input.profileText, input.methodologyText, input.credentialsText, input.industryPortfolioText, input.logoFileId ?? null, now, actorId, workspaceId, profileId, current.version)
-        : env.DB.prepare(`INSERT INTO firm_profiles(id,workspace_id,version,legal_name,registration_number,address,profile_text,methodology_text,credentials_text,industry_portfolio_text,logo_file_id,created_at,updated_at,created_by_actor_id,updated_by_actor_id)
-            VALUES(?,?,1,?,?,?,?,?,?,?,?,?,?,?,?)`).bind(profileId, workspaceId, input.legalName, input.registrationNumber,
-          input.address, input.profileText, input.methodologyText, input.credentialsText, input.industryPortfolioText, input.logoFileId ?? null, now, now, actorId, actorId)
+          input.profileText, input.methodologyText, input.credentialsText, input.industryPortfolioText,
+          JSON.stringify(input.credentialFileVersionIds), JSON.stringify(input.portfolioFileVersionIds), input.logoFileId ?? null, now, actorId, workspaceId, profileId, current.version)
+        : env.DB.prepare(`INSERT INTO firm_profiles(id,workspace_id,version,legal_name,registration_number,address,profile_text,methodology_text,credentials_text,industry_portfolio_text,credential_file_ids_json,portfolio_file_ids_json,logo_file_id,created_at,updated_at,created_by_actor_id,updated_by_actor_id)
+            VALUES(?,?,1,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).bind(profileId, workspaceId, input.legalName, input.registrationNumber,
+          input.address, input.profileText, input.methodologyText, input.credentialsText, input.industryPortfolioText,
+          JSON.stringify(input.credentialFileVersionIds), JSON.stringify(input.portfolioFileVersionIds), input.logoFileId ?? null, now, now, actorId, actorId)
     ];
     return {
       statements, result: { firmProfileId: profileId, version: nextVersion },
@@ -3356,9 +3383,9 @@ async function buildBusinessProposalMutation(
     requireClientScope(context, engagement.client_id);
     if (context.scope.engagementId && context.scope.engagementId !== engagement.id) throw new ApiError('FORBIDDEN_SCOPE', 'The engagement does not match the selected request context.');
     if (engagement.lifecycle_state !== 'PROPOSAL_GENERATION' || engagement.client_active !== 1) throw new ApiError('GATE_BLOCKED', 'Proposals can be drafted only for an active engagement in PROPOSAL_GENERATION.');
-    const firm = await env.DB.prepare(`SELECT id,version,legal_name,registration_number,address,profile_text,methodology_text,credentials_text,industry_portfolio_text,logo_file_id
+    const firm = await env.DB.prepare(`SELECT id,version,legal_name,registration_number,address,profile_text,methodology_text,credentials_text,industry_portfolio_text,credential_file_ids_json,portfolio_file_ids_json,logo_file_id
       FROM firm_profiles WHERE workspace_id=?`).bind(workspaceId)
-      .first<{ id: string; version: number; legal_name: string; registration_number: string; address: string; profile_text: string; methodology_text: string; credentials_text: string; industry_portfolio_text: string; logo_file_id: string | null }>();
+      .first<{ id: string; version: number; legal_name: string; registration_number: string; address: string; profile_text: string; methodology_text: string; credentials_text: string; industry_portfolio_text: string; credential_file_ids_json: string; portfolio_file_ids_json: string; logo_file_id: string | null }>();
     if (!firm) throw new ApiError('GATE_BLOCKED', 'Complete the Partner-approved legal firm profile, registration and methodology before drafting a proposal.');
     const currentPartner = await env.DB.prepare(`SELECT ap.staff_member_id FROM actor_profiles ap
       JOIN staff_members sm ON sm.workspace_id=ap.workspace_id AND sm.id=ap.staff_member_id
@@ -3377,8 +3404,33 @@ async function buildBusinessProposalMutation(
       || !selectedCvs.some(cv => cv.staff_member_id === currentPartner.staff_member_id && cv.grade === 'PARTNER'))) {
       throw new ApiError('GATE_BLOCKED', 'A full proposal must explicitly select current, approved CVs for its proposed team, including the active assigned Partner. No biography will be invented.');
     }
+    const parseFirmEvidenceIds = (json: string, label: string): string[] => {
+      let parsed: unknown;
+      try { parsed = JSON.parse(json); } catch { throw new ApiError('GATE_BLOCKED', `The selected ${label} evidence snapshot is invalid. Update Partner firm content before drafting.`); }
+      if (!Array.isArray(parsed) || parsed.length > 20 || parsed.some(id => typeof id !== 'string' || !clientIdSchema.safeParse(id).success)
+        || new Set(parsed).size !== parsed.length) throw new ApiError('GATE_BLOCKED', `The selected ${label} evidence snapshot is invalid. Update Partner firm content before drafting.`);
+      return parsed as string[];
+    };
+    const credentialEvidenceIds = parseFirmEvidenceIds(firm.credential_file_ids_json, 'credential');
+    const portfolioEvidenceIds = parseFirmEvidenceIds(firm.portfolio_file_ids_json, 'industry portfolio');
     if (input.mode === 'FULL_PROPOSAL' && (firm.credentials_text.trim().length < 10 || firm.industry_portfolio_text.trim().length < 10)) {
       throw new ApiError('GATE_BLOCKED', 'A comprehensive proposal requires Partner-maintained firm credentials and relevant industry portfolio content. Add only verified firm information; no credentials or client history will be invented.');
+    }
+    if (input.mode === 'FULL_PROPOSAL' && (!credentialEvidenceIds.length || !portfolioEvidenceIds.length)) {
+      throw new ApiError('GATE_BLOCKED', 'A comprehensive proposal requires at least one selected firm credential evidence file and one relevant portfolio evidence file.');
+    }
+    const selectedEvidenceIds = input.mode === 'FULL_PROPOSAL' ? [...credentialEvidenceIds, ...portfolioEvidenceIds] : [];
+    if (new Set(selectedEvidenceIds).size !== selectedEvidenceIds.length) throw new ApiError('GATE_BLOCKED', 'Credential and portfolio selections must use separate evidence files.');
+    if (selectedEvidenceIds.some(id => selectedCvs.some(cv => cv.file_version_id === id))) {
+      throw new ApiError('GATE_BLOCKED', 'A team CV cannot also serve as credential or industry portfolio evidence. Select a separate supporting file.');
+    }
+    if (selectedEvidenceIds.length) {
+      const placeholders = selectedEvidenceIds.map(() => '?').join(',');
+      const evidence = await env.DB.prepare(`SELECT id FROM file_versions WHERE workspace_id=? AND id IN (${placeholders})
+          AND state='COMMITTED' AND immutable=1 AND purpose='TEMPLATE'
+          AND media_type IN ('application/pdf','application/vnd.openxmlformats-officedocument.wordprocessingml.document')`)
+        .bind(workspaceId, ...selectedEvidenceIds).all<{ id: string }>();
+      if ((evidence.results ?? []).length !== selectedEvidenceIds.length) throw new ApiError('GATE_BLOCKED', 'A selected firm credential or portfolio evidence file is no longer a committed, immutable PDF or DOCX.');
     }
 
     let proposalId: string;
@@ -3433,12 +3485,13 @@ async function buildBusinessProposalMutation(
         id,workspace_id,version,client_id,engagement_id,current_version_id,created_at,updated_at,created_by_actor_id,updated_by_actor_id
       ) VALUES(?,?,1,?,?,NULL,?,?,?,?)`).bind(proposalId, workspaceId, engagement.client_id, engagement.id, now, now, actorId, actorId)] : []),
       env.DB.prepare(`INSERT INTO proposal_versions(
-        id,workspace_id,version,client_id,engagement_id,proposal_id,revision,mode,scope,fee_minor,currency,advance_bps,final_bps,
-        valid_until,timeline_json,firm_profile_snapshot_json,team_cv_file_ids_json,methodology_version,firm_profile_version,created_at,created_by_actor_id
-      ) VALUES(?,?,1,?,?,?,?,?,?,?,'QAR',5000,5000,?,?,?,?,?,?,?,?)`).bind(
+      id,workspace_id,version,client_id,engagement_id,proposal_id,revision,mode,scope,fee_minor,currency,advance_bps,final_bps,
+        valid_until,timeline_json,firm_profile_snapshot_json,team_cv_file_ids_json,firm_credential_file_ids_json,firm_portfolio_file_ids_json,methodology_version,firm_profile_version,created_at,created_by_actor_id
+      ) VALUES(?,?,1,?,?,?,?,?,?,?,'QAR',5000,5000,?,?,?,?,?,?,?,?,?,?)`).bind(
         proposalVersionId, workspaceId, engagement.client_id, engagement.id, proposalId, revision, input.mode,
         input.scope, Number(input.feeMinor), input.validUntil, JSON.stringify(input.timeline), firmSnapshot,
-        JSON.stringify(cvSnapshot.map(cv => cv.fileVersionId)), methodologyVersion, firm.version, now, actorId
+        JSON.stringify(cvSnapshot.map(cv => cv.fileVersionId)), JSON.stringify(selectedEvidenceIds.length ? credentialEvidenceIds : []),
+        JSON.stringify(selectedEvidenceIds.length ? portfolioEvidenceIds : []), methodologyVersion, firm.version, now, actorId
       ),
       command.type === 'proposal.create'
         ? env.DB.prepare(`UPDATE proposals SET current_version_id=?,updated_at=?,updated_by_actor_id=? WHERE workspace_id=? AND id=? AND version=1`)

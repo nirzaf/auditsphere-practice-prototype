@@ -234,6 +234,8 @@ export interface BusinessFirmProfile {
   methodologyText: string;
   credentialsText: string;
   industryPortfolioText: string;
+  credentialFileVersionIds: string[];
+  portfolioFileVersionIds: string[];
   logoFileId: string | null;
   updatedAt: string;
 }

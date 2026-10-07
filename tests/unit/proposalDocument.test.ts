@@ -16,7 +16,7 @@ const shortProposal: ProposalDocumentInput = {
     industryPortfolioText: 'Anonymized assurance experience across local trading and service entities.',
     methodologyText: 'The firm uses its approved risk-based audit methodology and documented professional review.'
   },
-  team: []
+  team: [], firmEvidence: { credentials: [], industryPortfolio: [] }
 };
 
 function pageCount(bytes: Uint8Array): number {
@@ -51,7 +51,10 @@ it('embeds the licensed Arabic font before rendering Arabic firm and client name
 it('requires actual Partner-maintained credentials and portfolio in comprehensive proposals', () => {
   const fullProposal: ProposalDocumentInput = { ...shortProposal, mode: 'FULL_PROPOSAL', team: [
     { displayName: 'Assigned Partner', grade: 'PARTNER', originalName: 'partner-cv.pdf', sha256: 'a'.repeat(64) }
-  ] };
+  ], firmEvidence: {
+    credentials: [{ originalName: 'firm-license.pdf', sha256: 'b'.repeat(64) }],
+    industryPortfolio: [{ originalName: 'anonymized-experience.pdf', sha256: 'c'.repeat(64) }]
+  } };
   assert.throws(() => renderProposalPdf({ ...fullProposal, firm: { ...fullProposal.firm, credentialsText: '' } }),
     (error: unknown) => error instanceof ProposalDocumentError && error.code === 'FIRM_CREDENTIALS_REQUIRED');
   assert.throws(() => renderProposalPdf({ ...fullProposal, firm: { ...fullProposal.firm, industryPortfolioText: '' } }),
