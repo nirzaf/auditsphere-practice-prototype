@@ -15,7 +15,8 @@ Deployed at `https://auditsphere-visual-prototype.quadrate-lk.workers.dev`
 ## Local development
 
 ```powershell
-npm.cmd run cloud:dev        # wrangler dev against local D1/R2 simulation
+npm.cmd run dev              # build + Wrangler Worker with local D1/R2 simulation
+npm.cmd run preview          # serve the current dist/ build through that Worker
 npm.cmd run cloud:typecheck  # typechecks the Worker + its transitive src imports
 ```
 

@@ -28,6 +28,24 @@ function walkFiles(dir: string, out: string[] = []): string[] {
 const sourceFiles = scannedRoots.filter(existsSync).flatMap(dir => walkFiles(dir));
 const readSource = (path: string) => readFileSync(path, 'utf8');
 
+describe('Worker-backed default runtime', () => {
+  it('loads the browser-store prototype only when the isolated E2E harness opts in', () => {
+    const app = readSource(join(repoRoot, 'src', 'App.tsx'));
+    const lifecycleE2E = readSource(join(repoRoot, 'tests', 'e2e', 'targetLifecycle.test.ts'));
+    assert.match(app, /import\.meta\.env\.DEV\s*&&\s*import\.meta\.env\.VITE_TEST_HARNESS\s*===\s*'true'/);
+    assert.match(app, /import\('\.\/PrototypeApp'\)/);
+    assert.match(lifecycleE2E, /VITE_TEST_HARNESS:\s*'true'/);
+  });
+
+  it('runs local development and preview through the configured Worker and local bindings', () => {
+    const scripts = JSON.parse(readSource(join(repoRoot, 'package.json'))).scripts as Record<string, string>;
+    assert.match(scripts.dev, /npm run build\s*&&\s*wrangler dev --config wrangler\.jsonc/);
+    assert.match(scripts.preview, /wrangler dev --config wrangler\.jsonc/);
+    assert.doesNotMatch(scripts.preview, /vite preview/);
+    assert.equal(scripts['cloud:dev'], 'npm run dev');
+  });
+});
+
 describe('current-only route architecture', () => {
   it('RouteKey literals and ROUTE_CATALOG keys are exactly the same set', () => {
     const typesSource = readSource(join(repoRoot, 'src', 'types', 'index.ts'));

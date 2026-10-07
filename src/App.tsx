@@ -2,9 +2,9 @@ import React, { lazy, Suspense, useState, useSyncExternalStore } from 'react';
 import { BusinessWorkspaceConsole, BusinessWorkspaceSetupDialog } from './components/business/BusinessWorkspace';
 import { businessWorkspaceSnapshot, subscribeBusinessWorkspace } from './services/businessWorkspace';
 
-// The legacy prototype is a development/test harness only. Vite replaces DEV
-// with a build-time constant and removes this import from production output.
-const DevelopmentPrototypeApp = import.meta.env.DEV
+// The legacy prototype exists only for its isolated E2E harness. Ordinary Vite
+// development must use the real Worker-backed business workspace too.
+const DevelopmentPrototypeApp = import.meta.env.DEV && import.meta.env.VITE_TEST_HARNESS === 'true'
   ? lazy(() => import('./PrototypeApp').then(module => ({ default: module.PrototypeApp })))
   : null;
 

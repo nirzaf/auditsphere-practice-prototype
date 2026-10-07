@@ -25,7 +25,9 @@ before(
     vite = spawn(
       process.execPath,
       ['node_modules/vite/bin/vite.js', '--host', '127.0.0.1', '--port', '3007', '--strictPort'],
-      { stdio: 'ignore', env: { ...process.env } }
+      // The prototype-store UI is retained only as an explicitly requested
+      // test harness; ordinary development now opens the Worker-backed app.
+      { stdio: 'ignore', env: { ...process.env, VITE_TEST_HARNESS: 'true' } }
     );
     for (let n = 0; n < 100; n++) {
       if (
