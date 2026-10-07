@@ -504,7 +504,7 @@ it('US-ENG-001/002 creates a client-linked lead from the visible forms and advan
   });
   await chooseOption('business-pbc-contact', `item.textContent?.includes('QA Chief Accountant')`);
   await clickButton('Create request');
-  await waitFor('the Worker lifecycle gate to reject the early PBC request', `document.querySelector('.business-command-message[role="status"]')?.innerText.includes('PBC requests can be created after the engagement letter')`);
+  await waitFor('the Worker lifecycle gate to reject the early PBC request', `document.querySelector('.business-alert[role="alert"]')?.innerText.includes('PBC requests can be created after the engagement letter')`);
   const prematurePbcRequestCount = server.db.prepare(`SELECT COUNT(*) AS count FROM pbc_requests
     WHERE workspace_id=? AND engagement_id=? AND title='Year-end bank statements'`).bind(preference.workspaceId, persisted.converted_engagement_id).first<any>()?.count;
   assert.equal(prematurePbcRequestCount, 0, 'the early request is rejected atomically despite having a valid visible recipient route');
