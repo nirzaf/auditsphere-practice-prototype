@@ -1335,31 +1335,27 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
   const issuedLetter = await post(`/api/workspaces/${workspaceId}/commands`, {
     idempotencyKey: crypto.randomUUID(), command: { type: 'engagementLetter.issue', payload: {
       engagementId, jobId: renderedDraft.jobId, expectedProposalVersionId: renewedGate.body.commercialKey.proposalVersionId,
-      expectedRiskClearanceId: renewedGate.body.riskKey.clearanceId, contactRouteId: letterRouteId
+      expectedRiskClearanceId: renewedGate.body.riskKey.clearanceId, contactRouteId: letterRouteId,
+      invoiceContactRouteId: invoiceRouteId, invoiceDueDate: '2099-12-31'
     } }
   }, makeRiskHeaders(approverHeaders));
   assert.equal(issuedLetter.response.status, 202, JSON.stringify(issuedLetter.body));
   assert.equal(issuedLetter.body.result.state, 'ADVANCE_BILLING');
-  assert.deepEqual((await readWorkflowStage('ADVANCE_BILLING')).blockers.map((item: any) => item.code), ['ISSUED_ADVANCE_INVOICE_REQUIRED'],
-    'the issued engagement letter leaves the advance invoice as the next billing blocker');
-  const issuedDelivery = await call(deliveryPath, { headers: makeRiskHeaders(reviewerHeaders) });
-  const invoiceDraft = issuedDelivery.body.invoices.find((invoice: any) => invoice.id === issuedLetter.body.result.advanceInvoiceDraftId);
-  assert.equal(invoiceDraft?.status, 'DRAFT');
-  assert.equal(invoiceDraft?.subtotalMinor, '125001', 'the odd-minor-unit advance fee rounds half up');
-  const invoiceIssued = await post(`/api/workspaces/${workspaceId}/commands`, {
-    idempotencyKey: crypto.randomUUID(), command: { type: 'invoice.issueAdvance', payload: {
-      engagementId, engagementLetterId: issuedLetter.body.result.letterId, dueDate: '2099-12-31', contactRouteId: invoiceRouteId
-    } }
-  }, makeRiskHeaders(reviewerHeaders));
-  assert.equal(invoiceIssued.response.status, 202, JSON.stringify(invoiceIssued.body));
-  assert.equal(invoiceIssued.body.result.totalMinor, '125001');
+  assert.equal(issuedLetter.body.result.advanceInvoiceStatus, 'PENDING_DOCUMENT');
+  assert.equal(issuedLetter.body.result.invoiceDueDate, '2099-12-31');
   assert.deepEqual((await readWorkflowStage('ADVANCE_BILLING')).blockers.map((item: any) => item.code), ['ADVANCE_INVOICE_RENDER_PENDING'],
-    'an invoice remains blocked until its verified document is issued');
+    'issuing the engagement letter atomically queues the exact advance invoice render');
+  const issuedDelivery = await call(deliveryPath, { headers: makeRiskHeaders(reviewerHeaders) });
+  const invoiceDraft = issuedDelivery.body.invoices.find((invoice: any) => invoice.id === issuedLetter.body.result.advanceInvoiceId);
+  assert.equal(invoiceDraft?.status, 'PENDING_DOCUMENT');
+  assert.equal(invoiceDraft?.subtotalMinor, '125001', 'the odd-minor-unit advance fee rounds half up');
   await worker.scheduled({ scheduledTime: Date.now(), cron: '*/5 * * * *' } as any, env);
   const issuedInvoiceView = await call(deliveryPath, { headers: makeRiskHeaders(reviewerHeaders) });
-  const issuedInvoice = issuedInvoiceView.body.invoices.find((invoice: any) => invoice.id === invoiceIssued.body.result.invoiceId);
+  const issuedInvoice = issuedInvoiceView.body.invoices.find((invoice: any) => invoice.id === issuedLetter.body.result.advanceInvoiceId);
   assert.equal(issuedInvoice?.status, 'ISSUED');
   assert.ok(issuedInvoice?.fileVersionId);
+  assert.equal(issuedInvoice?.dueDate, '2099-12-31');
+  assert.equal(issuedInvoice?.totalMinor, '125001');
   assert.deepEqual((await readWorkflowStage('ADVANCE_BILLING')).blockers.map((item: any) => item.code), ['ADVANCE_PAYMENT_UNSETTLED']);
 
   const wrongPbcRecipient = await post(`/api/workspaces/${workspaceId}/commands`, {

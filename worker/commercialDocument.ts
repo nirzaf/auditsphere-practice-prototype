@@ -12,6 +12,7 @@ export type CommercialDocumentInput = {
   periodEnd: string;
   feeMinor: number;
   clauses?: string;
+  submissionDeadline?: string;
   dueDate?: string;
   subtotalMinor?: number;
   taxMinor?: number;
@@ -57,8 +58,9 @@ export function renderCommercialPdf(input: CommercialDocumentInput): Uint8Array 
     throw new CommercialDocumentError('INVALID_DOCUMENT_SNAPSHOT', 'The commercial document is missing a required party or number.');
   }
   if (input.kind === 'ENGAGEMENT_LETTER'
-    && (!input.signature || !isPng(input.signature.bytes) || !input.sealBytes || !isPng(input.sealBytes) || !input.clauses?.trim())) {
-    throw new CommercialDocumentError('ENGAGEMENT_ASSET_INVALID', 'The engagement letter needs its pinned PNG signature, PNG seal and approved clauses.');
+    && (!input.signature || !isPng(input.signature.bytes) || !input.sealBytes || !isPng(input.sealBytes) || !input.clauses?.trim()
+      || !input.submissionDeadline || !/^\d{4}-\d{2}-\d{2}$/.test(input.submissionDeadline))) {
+    throw new CommercialDocumentError('ENGAGEMENT_ASSET_INVALID', 'The engagement letter needs its pinned PNG signature, PNG seal, approved clauses and final accepted timetable deadline.');
   }
   const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4', compress: true });
   doc.setCreationDate(new Date(input.createdAt));
@@ -94,6 +96,7 @@ export function renderCommercialPdf(input: CommercialDocumentInput): Uint8Array 
   if (input.kind === 'ENGAGEMENT_LETTER') {
     line('Agreed professional fee', 11, 1, true);
     line(money(input.feeMinor), 12, 3);
+    line(`Target submission deadline (final accepted timetable milestone): ${input.submissionDeadline}`, 10, 3);
     line('Approved engagement terms', 11, 1, true);
     line(input.clauses ?? '', 10, 4);
     line('Partner signature image', 10, 1, true);

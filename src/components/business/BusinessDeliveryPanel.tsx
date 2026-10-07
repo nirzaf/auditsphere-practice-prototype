@@ -135,10 +135,11 @@ export function BusinessDeliveryPanel({ workspaceId, selected, context, engageme
   const issueLetter = async (draft: NonNullable<BusinessDeliveryWorkspace['letterDrafts']>[number]) => {
     const commercial = gate?.commercialKey as Record<string, unknown> | undefined;
     const risk = gate?.riskKey as Record<string, unknown> | undefined;
-    if (!commercial || !risk || !elRouteId) return;
+    if (!commercial || !risk || !elRouteId || !invoiceRouteId || !data?.taxPolicies?.length) return;
     await perform({ type: 'engagementLetter.issue', payload: { engagementId: engagement.id, jobId: draft.jobId,
-      expectedProposalVersionId: String(commercial.proposalVersionId ?? ''), expectedRiskClearanceId: String(risk.clearanceId ?? ''), contactRouteId: elRouteId } },
-      'Engagement letter issued; advance invoice draft created and email queued.');
+      expectedProposalVersionId: String(commercial.proposalVersionId ?? ''), expectedRiskClearanceId: String(risk.clearanceId ?? ''),
+      contactRouteId: elRouteId, invoiceContactRouteId: invoiceRouteId, invoiceDueDate: dueDate } },
+      'Engagement letter issued; its advance invoice PDF and engagement letter email were queued. The invoice email queues after PDF verification.');
   };
 
   const issueAdvanceInvoice = async (invoiceId: string) => {
@@ -265,12 +266,15 @@ export function BusinessDeliveryPanel({ workspaceId, selected, context, engageme
           {data.sealAssets?.filter(item => item.decision === 'APPROVE').map(item => <option key={item.id} value={item.id}>{item.originalName}</option>)}</select></label>
         <label className="business-field"><span>EL recipient route</span><select value={elRouteId} onChange={event => setElRouteId(event.target.value)}><option value="">Select route</option>
           {routeOptions.filter(route => route.purpose === 'EL').map(route => <option key={route.id} value={route.id}>{route.name} · {route.email}</option>)}</select></label>
+        <label className="business-field"><span>CFO / Finance Director invoice route</span><select value={invoiceRouteId} onChange={event => setInvoiceRouteId(event.target.value)}><option value="">Select CFO route</option>
+          {routeOptions.filter(route => route.purpose === 'INVOICE').map(route => <option key={route.id} value={route.id}>{route.name} · {route.email}</option>)}</select></label>
+        <label className="business-field"><span>Advance invoice due date</span><input type="date" required value={dueDate} onChange={event => setDueDate(event.target.value)} /></label>
       </div>
       <button type="button" className="btn primary" disabled={busy || !partnerReady || !selectedTemplate || !selectedSignature || !selectedSeal} onClick={() => void generateLetter()}>Generate pinned engagement letter</button>
       {data.letterDrafts?.map(draft => <div className="business-delivery-row" key={draft.id}>
         <strong>Letter revision {draft.revision} · {draft.status.replaceAll('_',' ')}</strong><span>Job {draft.jobId} · proposal {draft.proposalVersionId}</span>
         {draft.errorCode && <small role="alert">{draft.errorCode}</small>}
-        {draft.status === 'SUCCEEDED' && <button type="button" className="btn sm" disabled={busy || !gate?.ready || !elRouteId} onClick={() => void issueLetter(draft)}>Revalidate keys and issue</button>}
+        {draft.status === 'SUCCEEDED' && <button type="button" className="btn sm" disabled={busy || !gate?.ready || !elRouteId || !invoiceRouteId || !dueDate || !data.taxPolicies?.length} onClick={() => void issueLetter(draft)}>Revalidate keys and issue EL + advance invoice</button>}
         {draft.fileVersionId && <button type="button" className="btn sm" onClick={() => void download(draft.fileVersionId, `engagement-letter-r${draft.revision}.pdf`)}>Download rendered draft</button>}
       </div>)}
       {activeLetters.map(letter => <div className="business-delivery-row" key={letter.id}><strong>Issued engagement letter · revision {letter.revision}</strong>
@@ -279,14 +283,15 @@ export function BusinessDeliveryPanel({ workspaceId, selected, context, engageme
 
     {canIssueInvoice && <div className="business-delivery-workflow">
       <h3>Advance invoice · 50% of the pinned engagement fee</h3>
+      {isPartner && <p className="business-note">Issuing an engagement letter now queues its matching invoice automatically. The invoice below shows document and provider status; Reviewer issue controls are retained for existing draft records.</p>}
       <div className="business-form-grid">
-        <label className="business-field"><span>Invoice recipient route</span><select value={invoiceRouteId} onChange={event => setInvoiceRouteId(event.target.value)}><option value="">Select route</option>
-          {routeOptions.filter(route => route.purpose === 'INVOICE').map(route => <option key={route.id} value={route.id}>{route.name} · {route.email}</option>)}</select></label>
-        <label className="business-field"><span>Due date</span><input type="date" required value={dueDate} onChange={event => setDueDate(event.target.value)} /></label>
+        {!isPartner && <label className="business-field"><span>Invoice recipient route</span><select value={invoiceRouteId} onChange={event => setInvoiceRouteId(event.target.value)}><option value="">Select route</option>
+          {routeOptions.filter(route => route.purpose === 'INVOICE').map(route => <option key={route.id} value={route.id}>{route.name} · {route.email}</option>)}</select></label>}
+        {!isPartner && <label className="business-field"><span>Due date</span><input type="date" required value={dueDate} onChange={event => setDueDate(event.target.value)} /></label>}
       </div>
       {advanceInvoices.map(invoice => <div className="business-delivery-row" key={invoice.id}>
         <strong>{invoice.number} · {invoice.status.replaceAll('_',' ')}</strong><span>Subtotal QAR minor {invoice.subtotalMinor} · tax {invoice.taxMinor} · total {invoice.totalMinor} · outstanding {invoice.outstandingMinor}</span>
-        {invoice.status === 'DRAFT' && <button type="button" className="btn sm" disabled={busy || !invoiceRouteId || !data.taxPolicies?.length} onClick={() => void issueAdvanceInvoice(invoice.id)}>Prepare and issue invoice PDF</button>}
+        {invoice.status === 'DRAFT' && !isPartner && <button type="button" className="btn sm" disabled={busy || !invoiceRouteId || !data.taxPolicies?.length} onClick={() => void issueAdvanceInvoice(invoice.id)}>Prepare and issue invoice PDF</button>}
         {invoice.fileVersionId && invoice.status === 'ISSUED' && <button type="button" className="btn sm" onClick={() => void download(invoice.fileVersionId, `${invoice.number}.pdf`)}>Download invoice PDF</button>}
       </div>)}
     </div>}

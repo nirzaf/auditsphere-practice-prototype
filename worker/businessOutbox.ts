@@ -308,7 +308,7 @@ async function commercialInput(env: Env, job: OutboxJob, payload: Record<string,
   if (payload.documentType === 'ENGAGEMENT_LETTER') {
     const draft = await env.DB.prepare(`SELECT d.id,d.revision,d.client_id,d.engagement_id,d.proposal_version_id,d.commercial_acceptance_id,d.risk_clearance_id,
         d.template_version_id,d.signature_file_version_id,d.signature_consent_id,d.seal_file_version_id,d.seal_approval_id,d.dependency_hash,d.status,d.created_by_actor_id,
-        pv.fee_minor,e.version AS engagement_version,e.lifecycle_state,e.code AS engagement_code,e.period_start,e.period_end,e.engagement_type,
+        pv.fee_minor,pv.timeline_json,e.version AS engagement_version,e.lifecycle_state,e.code AS engagement_code,e.period_start,e.period_end,e.engagement_type,
         c.legal_name AS client_name,fp.legal_name AS firm_name,t.clauses,t.revision AS template_revision,
         t.content_sha256 AS template_sha256,sm.display_name AS partner_name,signfile.sha256 AS signature_sha256,sealf.sha256 AS seal_sha256,
         ca.decision AS consent_decision,sa.decision AS seal_decision
@@ -349,6 +349,15 @@ async function commercialInput(env: Env, job: OutboxJob, payload: Record<string,
       || !currentSealApproval || currentSealApproval.id !== draft.seal_approval_id || currentSealApproval.decision !== 'APPROVE') {
       throw new OutboxError('STALE_APPROVAL', 'The Partner signature consent or firm seal approval changed before render.');
     }
+    let submissionDeadline: string;
+    try {
+      const timeline = JSON.parse(String(draft.timeline_json)) as unknown;
+      if (!Array.isArray(timeline) || timeline.length < 1 || timeline.some(item => !item || typeof item.name !== 'string' || typeof item.date !== 'string')) throw new Error('timeline');
+      submissionDeadline = String(timeline[timeline.length - 1].date);
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(submissionDeadline)) throw new Error('deadline');
+    } catch {
+      throw new OutboxError('INVALID_ENGAGEMENT_TIMELINE', 'The accepted proposal does not contain a valid final delivery milestone for the engagement letter.');
+    }
     const dependencyHash = await sha256Hex(JSON.stringify({ base: baseDependencyHash, templateVersionId: draft.template_version_id,
       templateHash: draft.template_sha256, signatureFileVersionId: draft.signature_file_version_id, signatureSha256: draft.signature_sha256,
       signatureConsentId: currentConsent.id, sealFileVersionId: draft.seal_file_version_id, sealSha256: draft.seal_sha256,
@@ -368,7 +377,7 @@ async function commercialInput(env: Env, job: OutboxJob, payload: Record<string,
     return {
       kind: 'ENGAGEMENT_LETTER', number: `EL-${draft.engagement_code}-R${draft.revision}`, createdAt: nowIso(),
       firmName: draft.firm_name, clientName: draft.client_name, engagementCode: draft.engagement_code, serviceType: draft.engagement_type,
-      periodStart: draft.period_start, periodEnd: draft.period_end, feeMinor: Number(draft.fee_minor), clauses: draft.clauses,
+      periodStart: draft.period_start, periodEnd: draft.period_end, feeMinor: Number(draft.fee_minor), clauses: draft.clauses, submissionDeadline,
       signature: { bytes: signature.bytes, partnerName: draft.partner_name }, sealBytes: seal.bytes
     };
   }

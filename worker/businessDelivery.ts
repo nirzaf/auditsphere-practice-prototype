@@ -26,7 +26,10 @@ const letterGenerate = z.strictObject({
   type: z.literal('engagementLetter.generate'), payload: z.strictObject({ engagementId: uuid, templateVersionId: uuid, signatureFileVersionId: uuid, sealFileVersionId: uuid })
 });
 const letterIssue = z.strictObject({
-  type: z.literal('engagementLetter.issue'), payload: z.strictObject({ engagementId: uuid, jobId: uuid, expectedProposalVersionId: uuid, expectedRiskClearanceId: uuid, contactRouteId: uuid })
+  type: z.literal('engagementLetter.issue'), payload: z.strictObject({
+    engagementId: uuid, jobId: uuid, expectedProposalVersionId: uuid, expectedRiskClearanceId: uuid,
+    contactRouteId: uuid, invoiceContactRouteId: uuid, invoiceDueDate: date
+  })
 });
 const advanceInvoiceIssue = z.strictObject({
   type: z.literal('invoice.issueAdvance'), payload: z.strictObject({ engagementId: uuid, engagementLetterId: uuid, dueDate: date, contactRouteId: uuid })
@@ -79,6 +82,7 @@ function qatarToday(): string {
 interface EngagementPin {
   engagementId: string;
   clientId: string;
+  code: string;
   version: number;
   lifecycleState: string;
   proposalVersionId: string;
@@ -89,6 +93,7 @@ interface EngagementPin {
   serviceType: string;
   clientName: string;
   firmName: string;
+  submissionDeadline: string;
 }
 
 async function currentLetterPins(env: Env, workspaceId: string, context: BusinessContext, engagementId: string): Promise<{
@@ -98,14 +103,14 @@ async function currentLetterPins(env: Env, workspaceId: string, context: Busines
   const gate = await getBusinessAcceptanceGate(env, workspaceId, context, engagementId) as any;
   if (!gate.ready) throw new ApiError('GATE_BLOCKED', 'A current client commercial acceptance and Partner risk clearance are required before generating an engagement letter.', { blockers: gate.blockers });
   if (gate.lifecycleState !== 'ADVANCE_BILLING') throw new ApiError('INVALID_TRANSITION', 'Engagement letters can only be prepared during advance billing.');
-  const row = await env.DB.prepare(`SELECT e.id AS engagement_id,e.version,e.client_id,e.lifecycle_state,e.period_start,e.period_end,e.engagement_type,
-      pv.id AS proposal_version_id,pv.revision,pv.fee_minor,c.legal_name AS client_name,fp.legal_name AS firm_name
+  const row = await env.DB.prepare(`SELECT e.id AS engagement_id,e.version,e.client_id,e.code,e.lifecycle_state,e.period_start,e.period_end,e.engagement_type,
+      pv.id AS proposal_version_id,pv.revision,pv.fee_minor,pv.timeline_json,c.legal_name AS client_name,fp.legal_name AS firm_name
     FROM engagements e JOIN proposals p ON p.workspace_id=e.workspace_id AND p.engagement_id=e.id
     JOIN proposal_versions pv ON pv.workspace_id=p.workspace_id AND pv.id=p.current_version_id AND pv.id=e.active_proposal_version_id
     JOIN clients c ON c.workspace_id=e.workspace_id AND c.id=e.client_id AND c.active=1
     JOIN firm_profiles fp ON fp.workspace_id=e.workspace_id
     WHERE e.workspace_id=? AND e.id=?`).bind(workspaceId, engagementId)
-    .first<Record<string, unknown> & { engagement_id: string; version: number; client_id: string; lifecycle_state: string; proposal_version_id: string; revision: number; fee_minor: number; period_start: string; period_end: string; engagement_type: string; client_name: string; firm_name: string }>();
+    .first<Record<string, unknown> & { engagement_id: string; version: number; client_id: string; code: string; lifecycle_state: string; proposal_version_id: string; revision: number; fee_minor: number; timeline_json: string; period_start: string; period_end: string; engagement_type: string; client_name: string; firm_name: string }>();
   if (!row) throw new ApiError('NOT_FOUND', 'The active engagement, proposal or approved firm profile was not found.');
   requireClientScope(context, row.client_id);
   if (context.scope.engagementId && context.scope.engagementId !== engagementId) throw new ApiError('FORBIDDEN_SCOPE', 'The engagement does not match the selected request context.');
@@ -114,16 +119,26 @@ async function currentLetterPins(env: Env, workspaceId: string, context: Busines
   if (!commercialKey.acceptanceId || commercialKey.proposalVersionId !== row.proposal_version_id || !riskKey.clearanceId) {
     throw new ApiError('STALE_APPROVAL', 'The current client acceptance or Partner clearance no longer pins the active proposal revision.');
   }
+  let timeline: Array<{ name: string; date: string }>;
+  try {
+    const parsed = JSON.parse(row.timeline_json) as unknown;
+    if (!Array.isArray(parsed) || parsed.length < 1 || parsed.some(item => !item || typeof item.name !== 'string' || typeof item.date !== 'string')) throw new Error('invalid timeline');
+    timeline = parsed as Array<{ name: string; date: string }>;
+  } catch {
+    throw new ApiError('GATE_BLOCKED', 'The accepted proposal has no verified delivery timetable; revise it before issuing engagement terms.');
+  }
+  const submissionDeadline = timeline[timeline.length - 1].date;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(submissionDeadline)) throw new ApiError('GATE_BLOCKED', 'The final accepted timetable milestone must have an explicit submission deadline.');
   const dependencyHash = await sha256Hex(JSON.stringify({
     engagementId, engagementVersion: row.version, proposalVersionId: row.proposal_version_id,
     acceptanceId: commercialKey.acceptanceId, clearanceId: riskKey.clearanceId
   }));
   return {
     engagement: {
-      engagementId: row.engagement_id, clientId: row.client_id, version: row.version, lifecycleState: row.lifecycle_state,
+      engagementId: row.engagement_id, clientId: row.client_id, code: row.code, version: row.version, lifecycleState: row.lifecycle_state,
       proposalVersionId: row.proposal_version_id, proposalRevision: row.revision, feeMinor: row.fee_minor,
       periodStart: row.period_start, periodEnd: row.period_end, serviceType: row.engagement_type,
-      clientName: row.client_name, firmName: row.firm_name
+      clientName: row.client_name, firmName: row.firm_name, submissionDeadline
     },
     proposalVersionId: row.proposal_version_id, acceptanceId: commercialKey.acceptanceId, clearanceId: riskKey.clearanceId, dependencyHash
   };
@@ -256,9 +271,11 @@ async function buildLetterGenerate(env: Env, workspaceId: string, context: Busin
 
 async function buildLetterIssue(env: Env, workspaceId: string, context: BusinessContext, command: Extract<BusinessDeliveryCommand,{type:'engagementLetter.issue'}>, now: string): Promise<BusinessMutation> {
   requirePartner(context);
-  const { engagementId, jobId, expectedProposalVersionId, expectedRiskClearanceId, contactRouteId } = command.payload;
+  requireAction(context, 'invoice.issue');
+  const { engagementId, jobId, expectedProposalVersionId, expectedRiskClearanceId, contactRouteId, invoiceContactRouteId, invoiceDueDate } = command.payload;
   const pins = await currentLetterPins(env, workspaceId, context, engagementId);
   if (pins.proposalVersionId !== expectedProposalVersionId || pins.clearanceId !== expectedRiskClearanceId) throw new ApiError('STALE_APPROVAL', 'The current dual acceptance keys changed while the letter was rendering. Generate a new revision.');
+  if (invoiceDueDate < qatarToday()) throw new ApiError('VALIDATION_FAILED', 'The advance invoice due date cannot be before today in Asia/Qatar.');
   const draft = await env.DB.prepare(`SELECT d.id,d.version,d.revision,d.client_id,d.engagement_id,d.proposal_version_id,d.commercial_acceptance_id,d.risk_clearance_id,
       d.template_version_id,d.signature_file_version_id,d.signature_consent_id,d.seal_file_version_id,d.seal_approval_id,d.dependency_hash,d.status,d.artifact_id,d.file_version_id,
       ga.content_sha256,gj.status AS job_status
@@ -281,6 +298,17 @@ async function buildLetterIssue(env: Env, workspaceId: string, context: Business
     .bind(workspaceId, contactRouteId, pins.engagement.clientId)
     .first<{ version: number; client_id: string; contact_id: string; full_name: string; email: string }>();
   if (!route) throw new ApiError('GATE_BLOCKED', 'Select the active primary EL contact route for this client.');
+  const invoiceRoute = await env.DB.prepare(`SELECT cr.version,cr.client_id,cr.contact_id,ct.full_name,ct.email
+    FROM contact_routes cr JOIN contacts ct ON ct.workspace_id=cr.workspace_id AND ct.client_id=cr.client_id AND ct.id=cr.contact_id
+    WHERE cr.workspace_id=? AND cr.id=? AND cr.purpose='INVOICE' AND cr.client_id=? AND cr.is_primary=1
+      AND ct.active=1 AND ct.role='CFO_FINANCE_DIRECTOR' AND ct.email IS NOT NULL`)
+    .bind(workspaceId, invoiceContactRouteId, pins.engagement.clientId)
+    .first<{ version: number; client_id: string; contact_id: string; full_name: string; email: string }>();
+  if (!invoiceRoute) throw new ApiError('GATE_BLOCKED', 'Select the active primary CFO/Finance Director invoice route for this client.');
+  const taxPolicy = await env.DB.prepare(`SELECT id,revision,name,tax_basis_points FROM billing_tax_policy_versions
+    WHERE workspace_id=? ORDER BY revision DESC LIMIT 1`).bind(workspaceId)
+    .first<{ id: string; revision: number; name: string; tax_basis_points: number }>();
+  if (!taxPolicy) throw new ApiError('GATE_BLOCKED', 'A Partner-approved explicit tax policy is required before the engagement letter and advance invoice can be issued.');
   const latestTemplate = await env.DB.prepare(`SELECT MAX(revision) AS revision FROM document_template_versions WHERE workspace_id=? AND service_type=?`)
     .bind(workspaceId, pins.engagement.serviceType).first<{ revision: number }>();
   const template = await env.DB.prepare(`SELECT revision,content_sha256 FROM document_template_versions WHERE workspace_id=? AND id=?`)
@@ -305,10 +333,14 @@ async function buildLetterIssue(env: Env, workspaceId: string, context: Business
   if (draft.dependency_hash !== currentDependencyHash) throw new ApiError('STALE_APPROVAL', 'The engagement, proposal, acceptance key, clearance, template or image asset changed after render. Generate the letter again.');
   const letterId = crypto.randomUUID();
   const invoiceId = crypto.randomUUID();
-  const invoiceNumber = `DRAFT-${invoiceId.slice(0, 8).toUpperCase()}`;
+  const invoiceNumber = `AS-${pins.engagement.code.replace(/[^A-Z0-9]/gi, '').toUpperCase()}-ADV-${invoiceId.slice(0, 8).toUpperCase()}`;
   const advanceMinor = safeMoney((BigInt(pins.engagement.feeMinor) + 1n) / 2n);
+  const taxMinor = safeMoney((BigInt(advanceMinor) * BigInt(taxPolicy.tax_basis_points) + 5000n) / 10000n);
+  const totalMinor = safeMoney(BigInt(advanceMinor) + BigInt(taxMinor));
   const timestamp = new Date(now).toISOString();
   const recipientSnapshot = JSON.stringify({ contactRouteId, contactRouteVersion: route.version, contactId: route.contact_id, name: route.full_name, email: route.email });
+  const invoiceRecipient = { contactRouteId: invoiceContactRouteId, contactRouteVersion: invoiceRoute.version,
+    contactId: invoiceRoute.contact_id, name: invoiceRoute.full_name, email: invoiceRoute.email };
   const dispatchId = crypto.randomUUID();
   const emailJobId = crypto.randomUUID();
   const dispatchDedup = `engagement-letter-email:${letterId}`;
@@ -325,8 +357,18 @@ async function buildLetterIssue(env: Env, workspaceId: string, context: Business
           WHERE e.workspace_id=? AND e.id=? AND e.version=? AND e.lifecycle_state='ADVANCE_BILLING' AND pv.id=? AND d.risk_clearance_id=rc.id
             AND EXISTS(SELECT 1 FROM commercial_acceptances ca WHERE ca.workspace_id=e.workspace_id AND ca.id=d.commercial_acceptance_id
               AND ca.engagement_id=e.id AND ca.proposal_version_id=pv.id AND ca.decision='ACCEPT' AND ca.accepted_fee_minor=pv.fee_minor
-              AND ca.sequence=(SELECT MAX(latest.sequence) FROM commercial_acceptances latest WHERE latest.workspace_id=ca.workspace_id AND latest.proposal_version_id=ca.proposal_version_id)))
-        THEN 1 ELSE 0 END`).bind(workspaceId, jobId, expectedRiskClearanceId, workspaceId, engagementId, pins.engagement.version, expectedProposalVersionId),
+              AND ca.sequence=(SELECT MAX(latest.sequence) FROM commercial_acceptances latest WHERE latest.workspace_id=ca.workspace_id AND latest.proposal_version_id=ca.proposal_version_id))
+            AND EXISTS(SELECT 1 FROM contact_routes er JOIN contacts ec ON ec.workspace_id=er.workspace_id AND ec.client_id=er.client_id AND ec.id=er.contact_id
+              WHERE er.workspace_id=? AND er.id=? AND er.version=? AND er.client_id=e.client_id AND er.purpose='EL' AND er.is_primary=1
+                AND ec.id=? AND ec.full_name=? AND ec.email=? AND ec.active=1)
+            AND EXISTS(SELECT 1 FROM contact_routes cr JOIN contacts ct ON ct.workspace_id=cr.workspace_id AND ct.client_id=cr.client_id AND ct.id=cr.contact_id
+              WHERE cr.workspace_id=? AND cr.id=? AND cr.version=? AND cr.client_id=e.client_id AND cr.purpose='INVOICE' AND cr.is_primary=1
+                AND ct.id=? AND ct.full_name=? AND ct.email=? AND ct.role='CFO_FINANCE_DIRECTOR' AND ct.active=1)
+            AND EXISTS(SELECT 1 FROM billing_tax_policy_versions tp WHERE tp.workspace_id=? AND tp.id=?
+              AND tp.revision=(SELECT MAX(latest.revision) FROM billing_tax_policy_versions latest WHERE latest.workspace_id=tp.workspace_id))
+        THEN 1 ELSE 0 END`).bind(workspaceId, jobId, expectedRiskClearanceId, workspaceId, engagementId, pins.engagement.version, expectedProposalVersionId,
+        workspaceId, contactRouteId, route.version, route.contact_id, route.full_name, route.email,
+        workspaceId, invoiceContactRouteId, invoiceRoute.version, invoiceRoute.contact_id, invoiceRoute.full_name, invoiceRoute.email, workspaceId, taxPolicy.id),
       env.DB.prepare(`INSERT INTO engagement_letters(id,workspace_id,version,client_id,engagement_id,revision,proposal_version_id,commercial_acceptance_id,risk_clearance_id,template_version_id,artifact_id,file_version_id,signature_file_version_id,signature_consent_id,seal_file_version_id,seal_approval_id,content_sha256,fee_minor,period_start,period_end,issued_by_actor_id,issued_at)
         VALUES(?,?,1,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
         .bind(letterId, workspaceId, pins.engagement.clientId, engagementId, draft.revision, draft.proposal_version_id, draft.commercial_acceptance_id,
@@ -335,10 +377,15 @@ async function buildLetterIssue(env: Env, workspaceId: string, context: Business
           pins.engagement.periodStart, pins.engagement.periodEnd, context.actor.id, timestamp),
       env.DB.prepare(`UPDATE engagement_letter_drafts SET status='ISSUED',version=version+1,updated_at=? WHERE workspace_id=? AND id=? AND version=? AND status='SUCCEEDED'`)
         .bind(timestamp, workspaceId, draft.id, draft.version),
-      env.DB.prepare(`INSERT INTO invoices(id,workspace_id,version,client_id,engagement_id,engagement_letter_id,kind,number,fee_revision_id,tax_policy_version_id,subtotal_minor,tax_minor,total_minor,currency,issue_date,due_date,status,artifact_id,file_version_id,corrects_invoice_id,created_by_actor_id,issued_at,created_at,updated_at)
-        VALUES(?,?,1,?,? ,?,'ADVANCE',?, ?,NULL,?,0,?,'QAR',NULL,?,'DRAFT',NULL,NULL,NULL,?,NULL,?,?)`)
-        .bind(invoiceId, workspaceId, pins.engagement.clientId, engagementId, letterId, invoiceNumber, pins.proposalVersionId, advanceMinor,
-          advanceMinor, qatarToday(), context.actor.id, timestamp, timestamp),
+      env.DB.prepare(`INSERT INTO invoices(id,workspace_id,version,client_id,engagement_id,engagement_letter_id,kind,number,fee_revision_id,tax_policy_version_id,subtotal_minor,tax_minor,total_minor,currency,issue_date,due_date,contact_route_id,recipient_snapshot_json,status,artifact_id,file_version_id,corrects_invoice_id,created_by_actor_id,issued_at,created_at,updated_at)
+        VALUES(?,?,1,?,? ,?,'ADVANCE',?,?,?,?,?,?,'QAR',NULL,?,?,?,'PENDING_DOCUMENT',NULL,NULL,NULL,?,NULL,?,?)`)
+        .bind(invoiceId, workspaceId, pins.engagement.clientId, engagementId, letterId, invoiceNumber, pins.proposalVersionId,
+          taxPolicy.id, advanceMinor, taxMinor, totalMinor, invoiceDueDate, invoiceContactRouteId, JSON.stringify(invoiceRecipient),
+          context.actor.id, timestamp, timestamp),
+      env.DB.prepare(`INSERT INTO outbox_jobs(id,workspace_id,version,kind,aggregate_id,aggregate_version,payload_json,deduplication_key,status,attempts,next_attempt_at,lease_until,last_error_code,provider_reference,result_file_id,result_json,completed_at,created_at,updated_at)
+        VALUES(?,?,1,'GENERATE_DOCUMENT',?,?,?,?,'PENDING',0,?,NULL,NULL,NULL,NULL,NULL,NULL,?,?)`)
+        .bind(crypto.randomUUID(), workspaceId, invoiceId, 1, JSON.stringify({ documentType: 'ADVANCE_INVOICE', invoiceId, commandId: crypto.randomUUID(),
+          engagementId, clientId: pins.engagement.clientId, recipient: invoiceRecipient }), `advance-invoice:${invoiceId}`, timestamp, timestamp, timestamp),
       env.DB.prepare(`INSERT INTO outbox_jobs(id,workspace_id,version,kind,aggregate_id,aggregate_version,payload_json,deduplication_key,status,attempts,next_attempt_at,lease_until,last_error_code,provider_reference,result_file_id,result_json,completed_at,created_at,updated_at)
         VALUES(?,?,1,'EMAIL',?,?,?,?,'PENDING',0,?,NULL,NULL,NULL,NULL,NULL,NULL,?,?)`)
         .bind(emailJobId, workspaceId, dispatchId, 1, JSON.stringify(emailPayload), dispatchDedup, timestamp, timestamp, timestamp),
@@ -346,11 +393,14 @@ async function buildLetterIssue(env: Env, workspaceId: string, context: Business
         VALUES(?,?,1,?,?,'EL',?,?, 'QUEUED',NULL,NULL,?,?,?,?)`)
         .bind(dispatchId, workspaceId, pins.engagement.clientId, engagementId, draft.file_version_id, recipientSnapshot, dispatchDedup, emailJobId, timestamp, timestamp)
     ],
-    result: { letterId, fileId: draft.file_version_id, advanceInvoiceDraftId: invoiceId, state: 'ADVANCE_BILLING', dispatchId, dispatchStatus: 'QUEUED' },
+    result: { letterId, fileId: draft.file_version_id, advanceInvoiceId: invoiceId, advanceInvoiceNumber: invoiceNumber,
+      advanceInvoiceSubtotalMinor: String(advanceMinor), advanceInvoiceTaxMinor: String(taxMinor), advanceInvoiceTotalMinor: String(totalMinor),
+      advanceInvoiceStatus: 'PENDING_DOCUMENT', invoiceDueDate, state: 'ADVANCE_BILLING', dispatchId, dispatchStatus: 'QUEUED' },
     entityType: 'ENGAGEMENT_LETTER', entityId: letterId, beforeVersion: null, afterVersion: 1,
     auditDetails: { engagementId, proposalVersionId: draft.proposal_version_id, commercialAcceptanceId: draft.commercial_acceptance_id,
       riskClearanceId: draft.risk_clearance_id, templateVersionId: draft.template_version_id, signatureFileVersionId: draft.signature_file_version_id,
-      sealFileVersionId: draft.seal_file_version_id, recipient: route.email }
+      sealFileVersionId: draft.seal_file_version_id, recipient: route.email, invoiceRecipient: invoiceRoute.email, invoiceDueDate,
+      invoiceId, invoiceNumber, taxPolicyVersionId: taxPolicy.id }
   };
 }
 
