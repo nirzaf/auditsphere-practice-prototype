@@ -153,18 +153,24 @@ The firm-approved site path and client secret remain owner-supplied; tenant cons
 for `Sites.Selected` has already been granted. Keep all site-specific access on the
 acceptance site only.
 
-## 3. UAT environment and existing accounts (US-GAP-30 – US-GAP-32)
+## 3. UAT environment and persona journeys (US-GAP-30 – US-GAP-32)
 
-The behavioural journeys must run against the supplied accounts, deployed build and
-the live test site. Populate the non-secret manifest below before acceptance:
+The behavioural journeys run against the deployed build using the epic's explicit
+no-auth profile: a synthetic workspace with the four self-selected personas
+PREPARER, REVIEWER, APPROVER and CLIENT. Do not request or create login accounts,
+passwords, OAuth sessions or identity claims for these journeys. Persona selection
+is a workflow context, not verified identity. Populate the non-secret manifest
+below before acceptance:
 
 | Field | Source |
 | --- | --- |
 | Application URL | https://auditsphere-visual-prototype.quadrate-lk.workers.dev (readiness returns `ready`) |
-| Deployed build identity | `0689461738caf33ae13290809f063ccebf032374` |
-| Existing account → persona/grade | supplied login accounts mapped to PREPARER/REVIEWER/APPROVER/CLIENT |
-| Client / engagement ids | supplied workspace + seeded client/engagement |
-| SharePoint site/library/root ids | values returned by `/api/integrations/status` once CONNECTED |
-| Provider environment | which email transport (A or B) is active |
+| Deployed build identity | `bcd23de750459b99277d937df2205573cd505d99` (latest verified deployment) |
+| Workspace and actors | synthetic workspace created through the UI; verify all four selectable personas and persisted context |
+| Client / engagement ids | synthetic records created through visible UI journeys; record IDs in the restricted UAT evidence bundle |
+| SharePoint site/library/root ids | values returned by `/api/integrations/status` after the site grant and secret are configured |
+| Email provider | `SERVICE_BINDING` is configured; recipient verification and a controlled UAT delivery are still unverified |
 
-Do not store passwords, tokens or personal client evidence in this file.
+Do not store passwords, tokens, real client evidence or actor identity assertions
+in this file. The no-auth deployment boundary remains: use synthetic data and a
+trusted test environment; persona selection is not authentication.
