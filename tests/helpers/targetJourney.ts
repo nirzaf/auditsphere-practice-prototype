@@ -330,8 +330,14 @@ export async function runTargetJourney(options: { stopAtFieldwork?: boolean; sto
   )
     throw Error('Financial statements do not reconcile.');
   await route('financial-statements');
-  if (!document.querySelector('[data-testid="target-fsli"]'))
-    throw Error('FSLI drill-down missing');
+  const fsliReadyUntil = Date.now() + 5000;
+  while (!document.querySelector('[data-testid="target-fsli"]') && Date.now() < fsliReadyUntil) {
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  if (!document.querySelector('[data-testid="target-fsli"]')) {
+    const main = document.querySelector('main')?.innerText?.slice(0, 240) || '<empty main>';
+    throw Error(`FSLI drill-down missing after route render; hash=${location.hash}; main=${main}`);
+  }
   [...document.querySelectorAll('button')]
     .find((b) => b.textContent?.includes('Generate current P&L'))
     ?.click();
