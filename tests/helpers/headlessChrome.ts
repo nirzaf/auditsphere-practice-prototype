@@ -12,9 +12,12 @@ export async function stopHeadlessChrome(child: ChildProcess): Promise<void> {
     ? new Promise<void>(resolve => child.once('exit', () => resolve()))
     : Promise.resolve();
   if (process.platform === 'win32' && child.pid) {
-    await new Promise<void>(resolve => {
-      execFile('taskkill.exe', ['/PID', String(child.pid), '/T', '/F'], () => resolve());
-    });
+    await Promise.race([
+      new Promise<void>(resolve => {
+        execFile('taskkill.exe', ['/PID', String(child.pid), '/T', '/F'], () => resolve());
+      }),
+      sleep(5000)
+    ]);
   } else if (child.exitCode === null) {
     child.kill('SIGTERM');
   }

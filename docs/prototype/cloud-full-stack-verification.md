@@ -799,3 +799,21 @@ job cannot run until those isolated resources exist. This code-level
 implementation does not close US-SYS-005: Cloudflare 20-user p95 measurements,
 alert destination, and a Cloudflare D1/R2 restore remain unverified, and the
 full epic remains open.
+
+### PBC recipient route browser acceptance attempt — 2026-10-07
+
+Extended the visible BUSINESS browser journey to add an active Chief Accountant /
+Audit Liaison, configure its primary PBC route, select it in the PBC request form,
+and verify the Worker rejects a premature request while the engagement is still
+in `PROPOSAL_GENERATION`. The expected UI result is the actionable lifecycle
+message and no persisted PBC row. The test targets the route selector and the
+server-side stage gate without manufacturing an engagement-letter transition.
+
+`npm run build` passed and `npx tsx --test tests/unit/businessWorkspace.test.ts`
+passed **1/1**, including the Worker/D1 PBC route and lifecycle checks. The browser
+journey could not start in this Windows execution sandbox: the installed Chrome
+binary never exposed its DevTools endpoint on the isolated loopback port. The
+headless-browser cleanup now bounds `taskkill` waiting, so this environment
+reports that setup failure instead of hanging. This is not browser acceptance;
+run the scenario in a host with working headless Chrome before closing the UI
+subcase. US-ENG-001, US-ENG-007, and the 46-story epic remain open.

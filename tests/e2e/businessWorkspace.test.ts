@@ -92,11 +92,17 @@ before(async () => {
   chrome = browser.child;
   profileDirectory = browser.profileDirectory;
   browserPort = browser.port;
-  const target = await fetch(`http://127.0.0.1:${browserPort}/json/new?${server.origin}`, { method: 'PUT' }).then(response => response.json()) as { webSocketDebuggerUrl: string };
+  const targetResponse = await fetch(`http://127.0.0.1:${browserPort}/json/new?${server.origin}`, {
+    method: 'PUT', signal: AbortSignal.timeout(10000)
+  });
+  if (!targetResponse.ok) throw new Error(`Chrome could not create the E2E page (HTTP ${targetResponse.status}).`);
+  const target = await targetResponse.json() as { webSocketDebuggerUrl?: string };
+  if (!target.webSocketDebuggerUrl) throw new Error('Chrome did not provide a DevTools WebSocket URL for the E2E page.');
   const socket = new WebSocket(target.webSocketDebuggerUrl);
   await new Promise<void>((resolve, reject) => {
-    socket.addEventListener('open', () => resolve(), { once: true });
-    socket.addEventListener('error', () => reject(new Error('The business E2E browser could not connect over CDP.')), { once: true });
+    const timeout = setTimeout(() => reject(new Error('The business E2E browser did not connect over CDP within 10 seconds.')), 10000);
+    socket.addEventListener('open', () => { clearTimeout(timeout); resolve(); }, { once: true });
+    socket.addEventListener('error', () => { clearTimeout(timeout); reject(new Error('The business E2E browser could not connect over CDP.')); }, { once: true });
   });
   tab = new CdpTab(socket, server.origin);
   await tab.command('Runtime.enable');
@@ -300,7 +306,7 @@ it('US-SYS-001/002/005 creates a real workspace, assigns all personas, persists 
   assert.deepEqual(tab.exceptions, [], 'the production browser journey raised no uncaught JavaScript exceptions');
 });
 
-it('US-ENG-001/002 creates a client-linked lead from the visible forms and advances one real engagement', { timeout: 90000 }, async () => {
+it('US-ENG-001/002 creates a client-linked lead from the visible forms and advances one real engagement', { timeout: 180000 }, async () => {
   assert.ok(tab && server);
 
   // Observe the current real workspace before switching to a second, empty D1 workspace.
@@ -459,6 +465,49 @@ it('US-ENG-001/002 creates a client-linked lead from the visible forms and advan
     linked_leads: 1
   });
   assert.equal(server.db.prepare('SELECT COUNT(*) AS count FROM engagements WHERE workspace_id=? AND code=?').bind(preference.workspaceId, `QA-ENG-${unique}`).first<{ count: number }>()?.count, 1);
+
+  // US-ENG-001 / US-ENG-007: PBC request creation must use a visible,
+  // purpose-specific route to an active Chief Accountant / Audit Liaison.
+  await chooseOption('business-active-persona', `item.textContent?.includes('APPROVER · QA Lead Partner')`);
+  await waitFor('the approver directory', `document.querySelector('.business-actor-summary')?.innerText.includes('APPROVER') && !!document.querySelector('#business-contact-name')`);
+  await chooseOption('business-selected-client', `item.textContent?.includes(${JSON.stringify(`QA Lead Client ${unique} WLL`)})`);
+  await waitFor('the selected client directory', `document.querySelector('#business-contact-name') !== null`);
+  await fillFields({
+    'business-contact-name': 'QA Chief Accountant',
+    'business-contact-title': 'Chief Accountant',
+    'business-contact-role': 'CHIEF_ACCOUNTANT_LIAISON',
+    'business-contact-email': `qa.pbc.${unique}@example.invalid`,
+    'business-contact-effective-from': '2026-01-01'
+  });
+  await clickButton('Add contact to client');
+  await waitFor('the active Chief Accountant contact', `document.querySelector('.business-record-list')?.innerText.includes('QA Chief Accountant')`);
+  await chooseOption('business-client-route-purpose', `item.value === 'PBC'`);
+  await chooseOption('business-client-route-contact', `item.textContent?.includes('QA Chief Accountant')`);
+  await chooseOption('business-client-route-priority', `item.value === 'true'`);
+  await clickButton('Save recipient route');
+  await waitFor('the saved primary PBC recipient route', `document.querySelector('.business-route-list')?.innerText.includes('PBC')`);
+
+  await waitFor('the PBC engagement selector', `document.getElementById('business-pbc-engagement')?.options.length > 1`);
+  await chooseOption('business-pbc-engagement', `item.textContent?.includes(${JSON.stringify(`QA-ENG-${unique}`)})`);
+  await waitFor('the PBC recipient selector populated from the configured route', `([...document.querySelector('#business-pbc-contact')?.options ?? []].some(option => option.textContent?.includes('QA Chief Accountant')))`);
+  const pbcFormState = await tab.evaluate<{ recipient: string; requestDisabled: boolean }>(`(() => ({
+    recipient: document.querySelector('#business-pbc-contact')?.selectedOptions[0]?.textContent?.trim() ?? '',
+    requestDisabled: [...document.querySelectorAll('button')].find(button => button.innerText.trim() === 'Create request')?.disabled ?? true
+  }))()`);
+  assert.equal(pbcFormState.recipient, 'Select a configured PBC route');
+  assert.equal(pbcFormState.requestDisabled, false, 'the request action is enabled only after a configured route is available');
+  await fillFields({
+    'business-pbc-title': 'Year-end bank statements',
+    'business-pbc-category': 'BANK_STATEMENT',
+    'business-pbc-due': '2026-10-20',
+    'business-pbc-description': 'Provide the complete statements for all operating bank accounts for the audit period.'
+  });
+  await chooseOption('business-pbc-contact', `item.textContent?.includes('QA Chief Accountant')`);
+  await clickButton('Create request');
+  await waitFor('the Worker lifecycle gate to reject the early PBC request', `document.querySelector('.business-command-message[role="status"]')?.innerText.includes('PBC requests can be created after the engagement letter')`);
+  const prematurePbcRequestCount = server.db.prepare(`SELECT COUNT(*) AS count FROM pbc_requests
+    WHERE workspace_id=? AND engagement_id=? AND title='Year-end bank statements'`).bind(preference.workspaceId, persisted.converted_engagement_id).first<any>()?.count;
+  assert.equal(prematurePbcRequestCount, 0, 'the early request is rejected atomically despite having a valid visible recipient route');
   assert.equal(tab.blockedExternalRequests.length, 0);
   assert.deepEqual(tab.exceptions, []);
 });
