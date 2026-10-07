@@ -153,7 +153,7 @@ async function buildOpinionSelect(env:Env,workspaceId:string,context:BusinessCon
     .bind(workspaceId,...p.affectedFslis.map(item=>item.fsliId)).all<{id:string}>():{results:[] as Array<{id:string}>};
   if((fsliRows.results??[]).length!==p.affectedFslis.length||new Set(p.affectedFslis.map(row=>row.fsliId)).size!==p.affectedFslis.length)throw new ApiError('VALIDATION_FAILED','Each affected FSLI must be active and appear once.');
   const revision=await env.DB.prepare(`SELECT COALESCE(MAX(revision),0)+1 AS value FROM opinion_versions WHERE workspace_id=? AND engagement_id=?`).bind(workspaceId,engagement.id).first<{value:number}>();
-  const idValue=crypto.randomUUID(),category=reportType==='ISRS_4400_AUP'?null:p.category!,heading=category?basisHeading(category):null;
+  const idValue=crypto.randomUUID(),category=reportType==='ISRS_4400_AUP'?null:p.category!,heading=category&&category!=='UNMODIFIED'?basisHeading(category):null;
   const canonical={engagementId:engagement.id,revision:Number(revision?.value??1),srmVersionId:pins.srm.id,standardsProfileId:engagement.standards_profile_id,reportType,category,
     rationale:p.rationale,materialityAssessment:p.materialityAssessment,pervasivenessAssessment:p.pervasivenessAssessment,basisHeading:heading,basisText:p.basisText??null,
     goingConcernReportingText:p.goingConcernReportingText??null,additionalSections:p.additionalSections,aupReportType:p.aupReportType??null,aupProcedureSummary:p.aupProcedureSummary??null,
@@ -298,7 +298,7 @@ async function buildReportPrepare(env:Env,workspaceId:string,context:BusinessCon
 async function buildReportConsent(env:Env,workspaceId:string,context:BusinessContext,command:Extract<BusinessReportingCommand,{type:'report.consent'}>,now:string){
   partner(context);const p=command.payload,engagement=await engagementRow(env,workspaceId,context,p.engagementId);
   if(engagement.lifecycle_state!=='PARTNER_APPROVAL'||p.proposedReportDate!==currentQatarDate())throw new ApiError('STALE_DEPENDENCY','Report consent must be confirmed in Partner Approval for today’s Qatar calendar date.');
-  const candidate=await env.DB.prepare(`SELECT c.id,c.opinion_version_id,c.report_artifact_id,c.dependency_hash,c.proposed_report_date,c.status,c.signature_asset_id,g.content_sha256,a.file_version_id
+  const candidate=await env.DB.prepare(`SELECT c.id,c.opinion_version_id,c.report_artifact_id,c.dependency_hash,c.proposed_report_date,c.status,c.signature_asset_id,g.content_sha256,a.id AS file_version_id
     FROM report_candidates c JOIN generated_artifacts g ON g.workspace_id=c.workspace_id AND g.id=c.report_artifact_id JOIN file_versions a ON a.workspace_id=g.workspace_id AND a.id=g.file_version_id
     WHERE c.workspace_id=? AND c.id=? AND c.engagement_id=?`).bind(workspaceId,p.reportCandidateId,engagement.id)
     .first<{id:string;opinion_version_id:string;report_artifact_id:string;dependency_hash:string;proposed_report_date:string;status:string;signature_asset_id:string;content_sha256:string;file_version_id:string}>();
@@ -382,10 +382,10 @@ async function buildRepresentationSend(env:Env,workspaceId:string,context:Busine
   const payload={documentType:'COMMERCIAL_EMAIL',purpose:'BUNDLE',commandId:crypto.randomUUID(),engagementId:engagement.id,clientId:engagement.client_id,dispatchId,fileVersionId:request.template_file_id,recipient,
     subject:`Letter of representation · ${engagement.code}`,body:`Please review, sign and return the attached representation letter for ${engagement.client_name}, period ${engagement.period_start} to ${engagement.period_end}.`};
   const statements=[assertDb(env,workspaceId,703,`EXISTS(SELECT 1 FROM representation_requests WHERE workspace_id=? AND id=? AND version=? AND status='PREPARED' AND dependency_hash=?)`,workspaceId,request.id,request.version,request.dependency_hash),
-    env.DB.prepare(`UPDATE representation_requests SET version=version+1,status='SENT',dispatch_id=?,updated_at=? WHERE workspace_id=? AND id=? AND version=? AND status='PREPARED'`).bind(dispatchId,now,workspaceId,request.id,request.version),
     emailOutboxJob(env,workspaceId,jobId,dispatchId,1,payload,dedup,now),
     env.DB.prepare(`INSERT INTO dispatches(id,workspace_id,version,client_id,engagement_id,purpose,file_version_id,recipient_snapshot_json,status,provider_message_id,sent_at,deduplication_key,job_id,created_at,updated_at)
-      VALUES(?,?,1,?,?, 'BUNDLE',?,?,'QUEUED',NULL,NULL,?,?,?,?)`).bind(dispatchId,workspaceId,engagement.client_id,engagement.id,request.template_file_id,JSON.stringify(recipient),dedup,jobId,now,now)];
+      VALUES(?,?,1,?,?, 'BUNDLE',?,?,'QUEUED',NULL,NULL,?,?,?,?)`).bind(dispatchId,workspaceId,engagement.client_id,engagement.id,request.template_file_id,JSON.stringify(recipient),dedup,jobId,now,now),
+    env.DB.prepare(`UPDATE representation_requests SET version=version+1,status='SENT',dispatch_id=?,updated_at=? WHERE workspace_id=? AND id=? AND version=? AND status='PREPARED'`).bind(dispatchId,now,workspaceId,request.id,request.version)];
   return mut(statements,{requestId:request.id,dispatchId,status:'QUEUED',providerOutcome:'PENDING'},'DISPATCH',dispatchId,request.version,request.version+1,{requestId:request.id,dependencyHash:request.dependency_hash});
 }
 

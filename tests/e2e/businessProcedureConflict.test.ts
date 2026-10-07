@@ -48,6 +48,16 @@ async function connectTab(browser: HeadlessChromeInstance, origin: string): Prom
   return tab;
 }
 
+async function ensureBrowsers(): Promise<void> {
+  assert.ok(server);
+  if (browserA && browserB && tabA && tabB) return;
+  const executable = chromeExecutable();
+  assert.ok(executable, 'Chrome or Edge is available for the browser acceptance journeys.');
+  browserA = await launchHeadlessChrome(executable, { profilePrefix: 'auditsphere-conflict-a-', timeoutMs: 45000 });
+  browserB = await launchHeadlessChrome(executable, { profilePrefix: 'auditsphere-conflict-b-', timeoutMs: 45000 });
+  [tabA, tabB] = await Promise.all([connectTab(browserA, server.origin), connectTab(browserB, server.origin)]);
+}
+
 async function waitFor(tab: CdpTab, label: string, predicate: string, timeoutMs = 20000): Promise<void> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
@@ -347,11 +357,6 @@ async function setVisibleFieldByLabel(tab: CdpTab, labelText: string, value: str
 
 before(async () => {
   server = await startBusinessE2eServer();
-  const executable = chromeExecutable();
-  assert.ok(executable, 'Chrome or Edge is available for the two-browser acceptance journey.');
-  browserA = await launchHeadlessChrome(executable, { profilePrefix: 'auditsphere-conflict-a-', timeoutMs: 45000 });
-  browserB = await launchHeadlessChrome(executable, { profilePrefix: 'auditsphere-conflict-b-', timeoutMs: 45000 });
-  [tabA, tabB] = await Promise.all([connectTab(browserA, server.origin), connectTab(browserB, server.origin)]);
 }, { timeout: 120000 });
 
 after(async () => {
@@ -369,6 +374,7 @@ after(async () => {
 });
 
 it('US-FLD-006 preserves same-procedure drafts across a two-browser version conflict and requires rebase or discard', { timeout: 120000 }, async () => {
+  await ensureBrowsers();
   assert.ok(server && tabA && tabB);
   const fixture = await createFieldworkFixture();
 
@@ -607,6 +613,7 @@ it('US-FLD-006 preserves same-procedure drafts across a two-browser version conf
 });
 
 it('US-FLD-007, US-FLD-008 and US-FLD-009 verify MUS, systematic and stratified sampling', { timeout: 120000 }, async () => {
+  await ensureBrowsers();
   assert.ok(server && tabA);
   const fixture = await createFieldworkFixture();
   await selectWorkspace(tabA, fixture, fixture.actorProfileId);
@@ -659,6 +666,11 @@ it('US-FLD-007, US-FLD-008 and US-FLD-009 verify MUS, systematic and stratified 
 
   const populationName = 'UI MUS population with explicit exclusions';
   await setVisibleFieldByLabel(tabA, 'Population name', populationName);
+  await waitFor(tabA, 'the committed sampling source loaded from the Worker file query', `
+    (() => {
+      const label = [...document.querySelectorAll('label.business-field')].find(item => item.querySelector('span')?.textContent?.trim() === 'Committed source file');
+      return [...(label?.querySelectorAll('select option') ?? [])].some(option => option.textContent?.includes('qa-sampling-population.csv'));
+    })()`);
   const samplingSourceOptions = await tabA.evaluate<{ labelFound: boolean; options: string[] }>(`(() => {
     const label = [...document.querySelectorAll('label.business-field')].find(item => item.querySelector('span')?.textContent?.trim() === 'Committed source file');
     return { labelFound: !!label, options: [...(label?.querySelectorAll('select option') ?? [])].map(option => option.textContent?.trim() ?? '') };
@@ -877,6 +889,7 @@ it('US-FLD-007, US-FLD-008 and US-FLD-009 verify MUS, systematic and stratified 
 });
 
 it('US-FLD-010 retains hybrid provenance, links Findings, and preserves replacement and unlink history', { timeout: 120000 }, async () => {
+  await ensureBrowsers();
   assert.ok(server && tabA);
   const fixture = await createFieldworkFixture();
   await selectWorkspace(tabA, fixture, fixture.actorProfileId);
@@ -990,4 +1003,270 @@ it('US-FLD-010 retains hybrid provenance, links Findings, and preserves replacem
 
   assert.deepEqual(tabA.exceptions, [], 'the evidence and Finding workflow has no uncaught JavaScript exceptions');
   assert.deepEqual(tabA.blockedExternalRequests, [], 'the local acceptance journey makes no external network request');
+});
+
+it('US-FLD-012 compiles and clears a Worker SRM, then rejects clearance after an input changes', { timeout: 120000 }, async () => {
+  assert.ok(server);
+  const fixture = await createFieldworkFixture();
+  const now = new Date().toISOString();
+  const managerStaffId = randomUUID();
+  const managerActorId = randomUUID();
+  const idempotencyKey = () => randomUUID();
+  const send = async (actorId: string, persona: string, command: Record<string, unknown>) => {
+    const key = idempotencyKey();
+    const payload = command.payload as Record<string, unknown>;
+    const expectedVersions = ['procedure.update', 'procedure.mark-not-applicable', 'procedure.submit', 'procedure.review'].includes(String(command.type))
+      ? [{ entity: 'Procedure', id: payload.procedureId, version: payload.expectedVersion }]
+      : [];
+    const response = await fetch(`${server!.origin}/api/workspaces/${fixture.workspaceId}/commands`, {
+      method: 'POST',
+      headers: {
+        Origin: server!.origin,
+        'Content-Type': 'application/json',
+        'Idempotency-Key': key,
+        'X-Actor-Id': actorId,
+        'X-Active-Persona': persona,
+        'X-Client-Id': fixture.clientId,
+        'X-Engagement-Id': fixture.engagementId
+      },
+      body: JSON.stringify({
+        actor: { actorId, persona },
+        context: { clientId: fixture.clientId, engagementId: fixture.engagementId },
+        expectedVersions,
+        command
+      })
+    });
+    const body = await response.json() as { code?: string; message?: string; result?: Record<string, any> };
+    return { response, body: { ...body, commandType: String(command.type) } };
+  };
+  const readWorkflowStage = async (expectedState: string) => {
+    const response = await fetch(`${server!.origin}/api/workspaces/${fixture.workspaceId}/engagements/${fixture.engagementId}/workflow`, {
+      headers: { Origin: server!.origin, 'X-Actor-Id': fixture.actorProfileId, 'X-Active-Persona': 'APPROVER',
+        'X-Client-Id': fixture.clientId, 'X-Engagement-Id': fixture.engagementId }
+    });
+    const body = await response.json() as { state?: string; stages?: Array<{ id: string; blockerCoverage: string; blockers: Array<{ code: string }> }> };
+    assert.equal(response.status, 200, JSON.stringify(body));
+    assert.equal(body.state, expectedState);
+    const stage = body.stages?.find(item => item.id === expectedState);
+    assert.ok(stage, `the workflow returns the ${expectedState} stage`);
+    assert.equal(stage.blockerCoverage, 'evaluated', `${expectedState} blockers come from current Worker records`);
+    return stage;
+  };
+  const initialFieldworkStage = await readWorkflowStage('FIELDWORK_EXECUTION');
+  assert.ok(initialFieldworkStage.blockers.some(item => item.code === 'FIELDWORK_PROCEDURES_NOT_ACCEPTED'),
+    'the fieldwork stage names outstanding independently reviewed procedures');
+
+  runFixtureSql(`INSERT INTO staff_members(id,workspace_id,version,natural_person_key,display_name,email,grade,active,created_at,updated_at,created_by_actor_id,updated_by_actor_id)
+    VALUES(?,?,1,?,?,?,'MANAGER',1,?,?,?,?)`, managerStaffId, fixture.workspaceId, `QA-SRM-MANAGER-${managerStaffId}`, 'QA SRM Manager',
+  'srm.manager@example.invalid', now, now, fixture.actorProfileId, fixture.actorProfileId);
+  runFixtureSql(`INSERT INTO actor_profiles(id,workspace_id,version,persona,staff_member_id,contact_id,active,created_at,updated_at)
+    VALUES(?,?,1,'REVIEWER',?,NULL,1,?,?)`, managerActorId, fixture.workspaceId, managerStaffId, now, now);
+  const clientContactId = randomUUID();
+  const clientActorId = randomUUID();
+  const adjustmentOffsetFsliId = randomUUID();
+  runFixtureSql(`INSERT INTO contacts(id,workspace_id,version,client_id,full_name,email,title,role,is_primary,is_signatory,active,effective_from,created_at,updated_at,created_by_actor_id,updated_by_actor_id)
+    VALUES(?,?,1,?,?,'client@example.invalid','Chief Accountant','CHIEF_ACCOUNTANT_LIAISON',1,1,1,'2026-01-01',?,?,?,?)`,
+  clientContactId, fixture.workspaceId, fixture.clientId, 'QA Client Contact', now, now, fixture.actorProfileId, fixture.actorProfileId);
+  runFixtureSql(`INSERT INTO actor_profiles(id,workspace_id,version,persona,staff_member_id,contact_id,active,created_at,updated_at)
+    VALUES(?,?,1,'CLIENT',NULL,?,1,?,?)`, clientActorId, fixture.workspaceId, clientContactId, now, now);
+  runFixtureSql(`INSERT INTO fsli_catalog(id,workspace_id,reporting_framework,code,name,statement,category,normal_side,display_sign,presentation_order,active)
+    VALUES(?,?,'QA IFRS','QA-EXP','Synthetic expense','PROFIT_LOSS','EXPENSE','DEBIT',1,2,1)`, adjustmentOffsetFsliId, fixture.workspaceId);
+
+  const retainedEvidence = await send(fixture.actorProfileId, 'APPROVER', { type: 'evidence.create', payload: {
+    engagementId: fixture.engagementId, mode: 'DIGITAL', title: 'Synthetic SRM procedure evidence', fileVersionId: fixture.samplingFileId
+  } });
+  assert.equal(retainedEvidence.response.status, 200, JSON.stringify(retainedEvidence.body));
+  const reviewedEvidence = await send(managerActorId, 'REVIEWER', { type: 'evidence.review', payload: {
+    evidenceId: retainedEvidence.body.result?.evidenceId, evidenceVersion: 1, status: 'ADEQUATE',
+    rationale: 'The committed synthetic source bytes were independently inspected and support the procedure.'
+  } });
+  assert.equal(reviewedEvidence.response.status, 200, JSON.stringify(reviewedEvidence.body));
+
+  const procedureRows = server.db.prepare(`SELECT id FROM procedures WHERE workspace_id=? AND workprogram_id=? ORDER BY ordinal`)
+    .bind(fixture.workspaceId, fixture.workprogramId).all<any>().results;
+  assert.equal(procedureRows.length, 2, 'the synthetic FSLI has two applicable procedures');
+  for (const [index, procedure] of procedureRows.entries()) {
+    const prepared = await send(fixture.actorProfileId, 'APPROVER', { type: 'procedure.update', payload: {
+      procedureId: procedure.id, expectedVersion: 1,
+      workPerformed: `The Partner inspected synthetic source evidence for procedure ${index + 1} and reperformed the stated assertion.`,
+      conclusion: `The retained synthetic evidence supports the documented conclusion for procedure ${index + 1}.`
+    } });
+    assert.equal(prepared.response.status, 200, JSON.stringify(prepared.body));
+    const evidenceLink = await send(fixture.actorProfileId, 'APPROVER', { type: 'evidence.link', payload: {
+      evidenceId: retainedEvidence.body.result?.evidenceId, evidenceVersion: 1, targetVersion: 2, procedureId: procedure.id
+    } });
+    assert.equal(evidenceLink.response.status, 200, JSON.stringify(evidenceLink.body));
+    const submitted = await send(fixture.actorProfileId, 'APPROVER', { type: 'procedure.submit', payload: {
+      procedureId: procedure.id, expectedVersion: 3
+    } });
+    assert.equal(submitted.response.status, 200, JSON.stringify(submitted.body));
+    const accepted = await send(managerActorId, 'REVIEWER', { type: 'procedure.review', payload: {
+      procedureId: procedure.id, expectedVersion: 4, decision: 'ACCEPT',
+      comments: 'The exact current procedure submission and its version-pinned evidence were independently inspected.'
+    } });
+    assert.equal(accepted.response.status, 200, JSON.stringify(accepted.body));
+    assert.equal(accepted.body.result?.status, 'REVIEWED');
+  }
+
+  const submittedWorkprogram = await send(fixture.actorProfileId, 'APPROVER', { type: 'review.submit', payload: {
+    targetKind: 'WORKPROGRAM', targetId: fixture.workprogramId, targetVersion: 1
+  } });
+  assert.equal(submittedWorkprogram.response.status, 200, JSON.stringify(submittedWorkprogram.body));
+  const acceptedWorkprogram = await send(managerActorId, 'REVIEWER', { type: 'review.decide', payload: {
+    submissionId: submittedWorkprogram.body.result?.submissionId, decision: 'ACCEPT',
+    comment: 'All current procedures and the exact workprogram snapshot were independently accepted.'
+  } });
+  assert.equal(acceptedWorkprogram.response.status, 200, JSON.stringify(acceptedWorkprogram.body));
+
+  const goingConcern = await send(fixture.actorProfileId, 'APPROVER', { type: 'going-concern.save', payload: {
+    engagementId: fixture.engagementId, assessmentStart: '2026-01-01', assessmentEnd: '2027-01-01',
+    checklist: { managementAssessment: false, cashFlowForecasts: false, financingAndCovenants: false,
+      adverseEvents: false, mitigatingPlans: false, uncertaintyEvaluation: false },
+    evidenceFileIds: [], eventsText: '', mitigatingPlansText: 'Management supplied no cash-flow forecast; current receipts and financing remain available for the assessment.',
+    conclusion: 'NO_MATERIAL_UNCERTAINTY', rationale: 'The synthetic assessment found no material uncertainty at the reporting date.'
+  } });
+  assert.equal(goingConcern.response.status, 200, JSON.stringify(goingConcern.body));
+  const submittedGoingConcern = await send(fixture.actorProfileId, 'APPROVER', { type: 'review.submit', payload: {
+    targetKind: 'GOING_CONCERN', targetId: goingConcern.body.result?.assessmentId, targetVersion: 1
+  } });
+  assert.equal(submittedGoingConcern.response.status, 200, JSON.stringify(submittedGoingConcern.body));
+  const acceptedGoingConcern = await send(managerActorId, 'REVIEWER', { type: 'review.decide', payload: {
+    submissionId: submittedGoingConcern.body.result?.submissionId, decision: 'ACCEPT',
+    comment: 'The current going-concern conclusion and its source pins were independently accepted.'
+  } });
+  assert.equal(acceptedGoingConcern.response.status, 200, JSON.stringify(acceptedGoingConcern.body));
+
+  const managerHandover = await send(managerActorId, 'REVIEWER', { type: 'fieldwork.handover-manager', payload: {
+    engagementId: fixture.engagementId, expectedVersion: 1,
+    reason: 'Current workprograms, procedures and going-concern assessment have independent review.'
+  } });
+  assert.equal(managerHandover.response.status, 200, JSON.stringify(managerHandover.body));
+  assert.equal(managerHandover.body.result?.state, 'MANAGERIAL_REVIEW');
+  const managerialStage = await readWorkflowStage('MANAGERIAL_REVIEW');
+  assert.ok(managerialStage.blockers.some(item => item.code === 'PARTNER_AREA_CLEARANCE_REQUIRED'));
+  assert.ok(managerialStage.blockers.some(item => item.code === 'MANAGER_SRM_REQUIRED'));
+
+  const currentProgram = server.db.prepare(`SELECT version,source_hash,planning_version_id FROM workprograms WHERE workspace_id=? AND id=?`)
+    .bind(fixture.workspaceId, fixture.workprogramId).first<any>();
+  const currentProcedures = server.db.prepare(`SELECT id,version,status,source_hash,evidence_set_hash FROM procedures WHERE workspace_id=? AND workprogram_id=? ORDER BY ordinal`)
+    .bind(fixture.workspaceId, fixture.workprogramId).all<any>().results;
+  const areaDependencyHash = sha256(JSON.stringify({
+    workprogramSourceHash: currentProgram.source_hash,
+    planningVersionId: currentProgram.planning_version_id,
+    tbVersionId: fixture.tbVersionId,
+    mappingVersionId: fixture.mappingVersionId,
+    dependencies: currentProcedures.map((row: any) => ({
+      id: row.id, version: row.version, status: row.status, sourceHash: row.source_hash, evidenceSetHash: row.evidence_set_hash
+    }))
+  }));
+  const areaClearance = await send(fixture.actorProfileId, 'APPROVER', { type: 'partner.clear-area', payload: {
+    workprogramId: fixture.workprogramId, submissionId: submittedWorkprogram.body.result?.submissionId,
+    dependencyHash: areaDependencyHash,
+    rationale: 'The Partner reviewed the exact accepted workprogram, current procedures and evidence pins.'
+  } });
+  assert.equal(areaClearance.response.status, 200, JSON.stringify(areaClearance.body));
+
+  const positiveFinding = await send(fixture.actorProfileId, 'APPROVER', { type: 'finding.create', payload: {
+    engagementId: fixture.engagementId, fsliId: fixture.fsliId, title: 'Synthetic recorded overstatement',
+    description: 'The synthetic ledger contains a recorded amount requiring evaluation against its retained source evidence.',
+    severity: 'MODERATE', qualitativeSignificance: false
+  } });
+  assert.equal(positiveFinding.response.status, 200, JSON.stringify(positiveFinding.body));
+  const positiveDifference = await send(fixture.actorProfileId, 'APPROVER', { type: 'difference.create', payload: {
+    findingId: positiveFinding.body.result?.findingId, fsliId: fixture.fsliId, amountMinor: '300000', nature: 'FACTUAL',
+    qualitativeSignificance: false, disposition: 'UNADJUSTED', dispositionReason: 'Retain the current synthetic overstatement for aggregate assessment.'
+  } });
+  assert.equal(positiveDifference.response.status, 200, JSON.stringify(positiveDifference.body));
+  const negativeDifference = await send(fixture.actorProfileId, 'APPROVER', { type: 'difference.create', payload: {
+    findingId: positiveFinding.body.result?.findingId, fsliId: fixture.fsliId, amountMinor: '-250000', nature: 'PROJECTED',
+    qualitativeSignificance: false, disposition: 'UNADJUSTED', dispositionReason: 'Retain the unrelated projected understatement without netting away its gross amount.'
+  } });
+  assert.equal(negativeDifference.response.status, 200, JSON.stringify(negativeDifference.body));
+  const qualitativeFinding = await send(fixture.actorProfileId, 'APPROVER', { type: 'finding.create', payload: {
+    engagementId: fixture.engagementId, fsliId: fixture.fsliId, title: 'Synthetic management integrity concern',
+    description: 'A low-value synthetic exception remains qualitatively significant because it concerns management integrity.',
+    severity: 'HIGH', qualitativeSignificance: true
+  } });
+  assert.equal(qualitativeFinding.response.status, 200, JSON.stringify(qualitativeFinding.body));
+  const qualitativeDifference = await send(fixture.actorProfileId, 'APPROVER', { type: 'difference.create', payload: {
+    findingId: qualitativeFinding.body.result?.findingId, fsliId: fixture.fsliId, amountMinor: '10000', nature: 'JUDGMENTAL',
+    qualitativeSignificance: true, disposition: 'UNADJUSTED', dispositionReason: 'Retain the low-value qualitative exception for Partner assessment.'
+  } });
+  assert.equal(qualitativeDifference.response.status, 200, JSON.stringify(qualitativeDifference.body));
+
+  const compiled = await send(managerActorId, 'REVIEWER', { type: 'srm.compile', payload: {
+    engagementId: fixture.engagementId,
+    managerRecommendation: 'The synthetic unadjusted and qualitative matters remain visible for Partner consideration.',
+    estimatesText: 'The synthetic engagement contains no material accounting estimates requiring a separate conclusion.'
+  } });
+  assert.equal(compiled.response.status, 200, JSON.stringify(compiled.body));
+  assert.equal(compiled.body.result?.grossUnadjustedMinor, '560000', 'the SRM carries gross exposure without netting the positive and negative items');
+  assert.equal(compiled.body.result?.signedUnadjustedMinor, '60000');
+  assert.equal(compiled.body.result?.reviewSnapshot?.goingConcern?.decision, 'ACCEPT');
+  assert.equal(compiled.body.result?.reviewSnapshot?.procedures?.every((row: any) => row.status === 'REVIEWED'), true);
+  assert.equal(compiled.body.result?.reviewSnapshot?.partnerAreaClearances?.length, 1);
+
+  const partnerHandover = await send(fixture.actorProfileId, 'APPROVER', { type: 'fieldwork.handover-partner', payload: {
+    engagementId: fixture.engagementId, expectedVersion: 2,
+    reason: 'The Manager recommendation and every current area clearance are ready for Partner approval.'
+  } });
+  assert.equal(partnerHandover.response.status, 200, JSON.stringify(partnerHandover.body));
+  assert.equal(partnerHandover.body.result?.state, 'PARTNER_APPROVAL');
+
+  const partnerClearance = await send(fixture.actorB, 'APPROVER', { type: 'srm.clear', payload: {
+    srmVersionId: compiled.body.result?.srmVersionId, dependencyHash: compiled.body.result?.dependencyHash,
+    rationale: 'The Partner cleared the exact current Manager SRM after independent review.'
+  } });
+  assert.equal(partnerClearance.response.status, 200, JSON.stringify(partnerClearance.body));
+  assert.equal(partnerClearance.body.result?.dependencyHash, compiled.body.result?.dependencyHash);
+  const partnerStage = await readWorkflowStage('PARTNER_APPROVAL');
+  assert.ok(partnerStage.blockers.some(item => item.code === 'FIVE_PART_BUNDLE_CANDIDATE_REQUIRED'),
+    'Partner approval identifies the final reporting package as the remaining stage gate');
+
+  const statementBeforeLateAje = await fetch(`${server!.origin}/api/workspaces/${fixture.workspaceId}/engagements/${fixture.engagementId}/financial-statements`, {
+    headers: { Origin: server!.origin, 'X-Actor-Id': fixture.actorProfileId, 'X-Active-Persona': 'APPROVER', 'X-Client-Id': fixture.clientId, 'X-Engagement-Id': fixture.engagementId }
+  });
+  assert.equal(statementBeforeLateAje.status, 200);
+  const basisBeforeLateAje = await statementBeforeLateAje.json() as { sourceHash: string };
+  const lateAdjustment = await send(fixture.actorProfileId, 'APPROVER', { type: 'adjustment.create', payload: {
+    engagementId: fixture.engagementId, tbVersionId: fixture.tbVersionId,
+    description: 'A late client-accepted correction changes the financial basis after the prior Partner SRM clearance.',
+    evidenceIds: [retainedEvidence.body.result?.evidenceId],
+    lines: [
+      { fsliId: adjustmentOffsetFsliId, accountCode: 'EXP-900', debitMinor: '25000', creditMinor: '0' },
+      { fsliId: fixture.fsliId, accountCode: 'REV-900', debitMinor: '0', creditMinor: '25000' }
+    ]
+  } });
+  assert.equal(lateAdjustment.response.status, 200, JSON.stringify(lateAdjustment.body));
+  const lateAdjustmentId = String(lateAdjustment.body.result?.adjustmentId);
+  const lateAjeProposal = await send(fixture.actorProfileId, 'APPROVER', { type: 'adjustment.propose', payload: {
+    adjustmentId: lateAdjustmentId, expectedVersion: 1
+  } });
+  assert.equal(lateAjeProposal.response.status, 200, JSON.stringify(lateAjeProposal.body));
+  const lateClientResponse = await send(clientActorId, 'CLIENT', { type: 'adjustment.client-respond', payload: {
+    adjustmentId: lateAdjustmentId, expectedVersion: 2, decision: 'ACCEPTED',
+    responseText: 'Management accepts the supported correction and will record it in the accounting records.'
+  } });
+  assert.equal(lateClientResponse.response.status, 200, JSON.stringify(lateClientResponse.body));
+  const lateAjeApproval = await send(managerActorId, 'REVIEWER', { type: 'adjustment.approve', payload: {
+    adjustmentId: lateAdjustmentId, expectedVersion: 3, sourceHash: lateClientResponse.body.result?.sourceHash
+  } });
+  assert.equal(lateAjeApproval.response.status, 200, JSON.stringify(lateAjeApproval.body));
+  assert.equal(lateAjeApproval.body.result?.status, 'REVIEW_APPROVED');
+  const statementAfterLateAje = await fetch(`${server!.origin}/api/workspaces/${fixture.workspaceId}/engagements/${fixture.engagementId}/financial-statements`, {
+    headers: { Origin: server!.origin, 'X-Actor-Id': fixture.actorProfileId, 'X-Active-Persona': 'APPROVER', 'X-Client-Id': fixture.clientId, 'X-Engagement-Id': fixture.engagementId }
+  });
+  assert.equal(statementAfterLateAje.status, 200);
+  const basisAfterLateAje = await statementAfterLateAje.json() as { sourceHash: string };
+  assert.notEqual(basisAfterLateAje.sourceHash, basisBeforeLateAje.sourceHash, 'the newly accepted AJE changes the financial statement basis');
+  const staleClearance = await send(fixture.actorB, 'APPROVER', { type: 'srm.clear', payload: {
+    srmVersionId: compiled.body.result?.srmVersionId, dependencyHash: compiled.body.result?.dependencyHash,
+    rationale: 'A stale clearance attempt must not accept changed inputs.'
+  } });
+  assert.equal(staleClearance.response.status, 409, JSON.stringify(staleClearance.body));
+  assert.equal(staleClearance.body.code, 'STALE_DEPENDENCY');
+  assert.equal(staleClearance.body.commandType, 'srm.clear');
+  assert.equal(server.db.prepare(`SELECT COUNT(*) AS count FROM srm_clearances WHERE workspace_id=? AND srm_version_id=?`)
+    .bind(fixture.workspaceId, compiled.body.result?.srmVersionId).first<any>()?.count, 1,
+  'the immutable prior clearance remains historical after new fieldwork input invalidates it');
 });

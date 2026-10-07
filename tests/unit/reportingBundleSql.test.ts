@@ -61,12 +61,19 @@ describe('US-GAP-16 five-part bundle candidate SQL', () => {
     }
   });
 
-  it('keeps bootstrap trigger CASE expressions parenthesized for remote D1 parsing', () => {
+  it('keeps bootstrap actor and staff invariants in single-condition triggers', () => {
     const migration = readFileSync(join(repositoryRoot, 'worker', 'migrations', '0008_business_workspace_bootstrap.sql'), 'utf8');
-    assert.doesNotMatch(migration, /\bSELECT\s+CASE\b/i,
-      'D1 can misread an unparenthesized CASE END as the end of its trigger body');
-    assert.equal((migration.match(/\bSELECT\s+\(CASE\b/gi) ?? []).length, 6,
-      'all six trigger guards keep their CASE expression inside parentheses');
+    assert.doesNotMatch(migration, /\bSELECT\s+\(?CASE\b/i,
+      'each trigger has one condition and one explicit RAISE action');
+    for (const trigger of [
+      'actor_profiles_active_staff_insert', 'actor_profiles_active_client_insert',
+      'actor_profiles_approver_grade_insert', 'actor_profiles_reviewer_grade_insert',
+      'actor_profiles_approver_grade_update', 'actor_profiles_reviewer_grade_update',
+      'actor_profiles_active_staff_update', 'actor_profiles_active_client_update',
+      'staff_active_approver_grade_update', 'staff_active_reviewer_grade_update',
+      'staff_deactivate_profiles_guard'
+    ]) assert.match(migration, new RegExp(`CREATE TRIGGER IF NOT EXISTS ${trigger}\\b`), `${trigger} remains a separate guard`);
+    assert.equal((migration.match(/^WHEN\s+/gm) ?? []).length, 11, 'every explicit guard has exactly one trigger condition');
   });
 
   it('associates each bundle email dispatch with its own released report part', () => {

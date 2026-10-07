@@ -307,7 +307,7 @@ async function bundleCandidate(env:Env,job:Job,p:Payload,commit:Commit){
       rows:[]}];
   const correspondenceDoc=await storePdf(env,job,p,{number:`CORR-${candidate.code}-${candidate.revision}`,title:'Management Correspondences Audit Trail',firmName:candidate.firm_name,clientName:candidate.client_name,
     engagementCode:candidate.code,serviceType:candidate.engagement_type,periodStart:candidate.period_start,periodEnd:candidate.period_end,reportDate:candidate.proposed_report_date,sections:correspondence},
-    'CORRESPONDENCE_TRAIL','BUNDLE_CANDIDATE',candidate.id,candidate.revision,'bundle-candidates');
+    'RELEASE_BUNDLE','BUNDLE_CANDIDATE',candidate.id,candidate.revision,'bundle-candidates');
   const finalFee=BigInt(candidate.final_fee_minor),finalTax=BigInt(candidate.final_tax_minor);
   const feeDoc=await storePdf(env,job,p,{number:candidate.staged_invoice_number,title:'Final 50% Balance Fee Note',firmName:candidate.firm_name,clientName:candidate.client_name,
     engagementCode:candidate.code,serviceType:candidate.engagement_type,periodStart:candidate.period_start,periodEnd:candidate.period_end,reportDate:candidate.proposed_report_date,
@@ -316,7 +316,7 @@ async function bundleCandidate(env:Env,job:Job,p:Payload,commit:Commit){
       paragraphs:[`Original accepted contract fee: ${money(candidate.original_fee_minor)}.`,`Original accepted fee revision: ${candidate.fee_revision_id}.`,
         'The original advance invoice remains separately outstanding or settled according to the receivables ledger.',
         `Due date: ${candidate.invoice_due_date}.`,`Tax policy: ${candidate.tax_policy_version_id}. Final installment is calculated from the contractual fee less the original advance invoice subtotal, not cash received.`]}]},
-    'RELEASE_BUNDLE','BUNDLE_CANDIDATE',candidate.id,candidate.revision,'bundle-candidates');
+    'INVOICE','BUNDLE_CANDIDATE',candidate.id,candidate.revision,'bundle-candidates');
   const parts=[{kind:'REPORT_AND_FS',fileId:report.id,sha256:report.sha256,size:report.size_bytes},{kind:'MANAGEMENT_LETTER',fileId:management.id,sha256:management.sha256,size:management.size_bytes},
     {kind:'REPRESENTATION',fileId:template.id,sha256:template.sha256,size:template.size_bytes},{kind:'CORRESPONDENCE_TRAIL',fileId:correspondenceDoc.fileId,sha256:correspondenceDoc.digest,size:correspondenceDoc.size},
     {kind:'FINAL_FEE_NOTE',fileId:feeDoc.fileId,sha256:feeDoc.digest,size:feeDoc.size}].sort((a,b)=>a.kind.localeCompare(b.kind));

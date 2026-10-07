@@ -202,7 +202,7 @@ function requirePartner(context: RiskBusinessContext): void {
   }
 }
 
-async function getEngagement(env: Env, workspaceId: string, context: RiskBusinessContext, engagementId: string) {
+async function getEngagement(env: Env, workspaceId: string, context: RiskBusinessContext, engagementId: string, allowArchivedRead = false) {
   const engagement = await env.DB.prepare(`SELECT e.id,e.version,e.client_id,e.lifecycle_state,e.active_proposal_version_id,e.period_start,e.period_end,
       c.active AS client_active,c.legal_name
     FROM engagements e JOIN clients c ON c.workspace_id=e.workspace_id AND c.id=e.client_id
@@ -210,7 +210,9 @@ async function getEngagement(env: Env, workspaceId: string, context: RiskBusines
     .first<{ id: string; version: number; client_id: string; lifecycle_state: string; active_proposal_version_id: string | null; period_start: string; period_end: string; client_active: number; legal_name: string }>();
   if (!engagement) throw new ApiError('NOT_FOUND', 'The engagement was not found.');
   assertEngagementScope(context, engagement.client_id, engagementId);
-  if (engagement.client_active !== 1 || engagement.lifecycle_state === 'ARCHIVED_READ_ONLY') throw new ApiError('WORKSPACE_FROZEN', 'This engagement is not open for acceptance or risk changes.');
+  if (engagement.client_active !== 1 || (!allowArchivedRead && engagement.lifecycle_state === 'ARCHIVED_READ_ONLY')) {
+    throw new ApiError('WORKSPACE_FROZEN', 'This engagement is not open for acceptance or risk changes.');
+  }
   return engagement;
 }
 
@@ -1171,7 +1173,7 @@ export async function buildBusinessRiskMutation(
 
 export async function getBusinessAcceptanceGate(env: Env, workspaceId: string, context: RiskBusinessContext, engagementId: string): Promise<Record<string, unknown>> {
   if (!context.allowedActions.includes('commercialAcceptance.read')) throw new ApiError('PERSONA_ACTION_DENIED', 'This persona cannot read acceptance status.');
-  const engagement = await getEngagement(env, workspaceId, context, engagementId);
+  const engagement = await getEngagement(env, workspaceId, context, engagementId, true);
   const proposalVersionId = engagement.active_proposal_version_id;
   const proposal = proposalVersionId ? await env.DB.prepare(`SELECT pv.id,pv.revision,pv.fee_minor,pv.created_at,p.current_version_id
     FROM proposal_versions pv JOIN proposals p ON p.workspace_id=pv.workspace_id AND p.id=pv.proposal_id
@@ -1244,7 +1246,7 @@ export async function getBusinessAcceptanceGate(env: Env, workspaceId: string, c
 
 export async function getBusinessRiskWorkspace(env: Env, workspaceId: string, context: RiskBusinessContext, engagementId: string): Promise<Record<string, unknown>> {
   if (context.actor.persona === 'CLIENT' || !context.allowedActions.includes('risk.read')) throw new ApiError('PERSONA_ACTION_DENIED', 'This persona cannot read the internal risk dossier.');
-  const engagement = await getEngagement(env, workspaceId, context, engagementId);
+  const engagement = await getEngagement(env, workspaceId, context, engagementId, true);
   const [assessment, owners, acceptanceGate] = await Promise.all([
     env.DB.prepare(`SELECT ra.id,ra.version,ra.track,ra.current_version_id,ra.draft_version,rv.revision,rv.overall_risk,rv.questionnaire_template_version,
         rv.assessment_date,rv.management_integrity_conclusion,rv.viability_conclusion,rv.independence_conclusion,rv.submitted_at,
@@ -1264,11 +1266,15 @@ export async function getBusinessRiskWorkspace(env: Env, workspaceId: string, co
   }
   if (assessment?.id) {
     const rows = await env.DB.prepare(`SELECT re.id,re.version,re.assessment_version_id,re.check_id,re.check_code,re.reason,re.required_evidence,re.status,re.resolution,
-        re.evidence_file_id,fv.sha256 AS evidence_sha256,re.created_by_actor_id,creator.display_name AS created_by_name,re.created_at,
-        re.resolved_by_actor_id,resolver.display_name AS resolved_by_name,re.resolved_at
+        re.evidence_file_id,fv.sha256 AS evidence_sha256,re.created_by_actor_id,COALESCE(creator_staff.display_name,creator_contact.full_name) AS created_by_name,re.created_at,
+        re.resolved_by_actor_id,COALESCE(resolver_staff.display_name,resolver_contact.full_name) AS resolved_by_name,re.resolved_at
       FROM risk_escalations re LEFT JOIN file_versions fv ON fv.workspace_id=re.workspace_id AND fv.id=re.evidence_file_id
       LEFT JOIN actor_profiles creator ON creator.workspace_id=re.workspace_id AND creator.id=re.created_by_actor_id
       LEFT JOIN actor_profiles resolver ON resolver.workspace_id=re.workspace_id AND resolver.id=re.resolved_by_actor_id
+      LEFT JOIN staff_members creator_staff ON creator_staff.workspace_id=creator.workspace_id AND creator_staff.id=creator.staff_member_id
+      LEFT JOIN contacts creator_contact ON creator_contact.workspace_id=creator.workspace_id AND creator_contact.id=creator.contact_id
+      LEFT JOIN staff_members resolver_staff ON resolver_staff.workspace_id=resolver.workspace_id AND resolver_staff.id=resolver.staff_member_id
+      LEFT JOIN contacts resolver_contact ON resolver_contact.workspace_id=resolver.workspace_id AND resolver_contact.id=resolver.contact_id
       WHERE re.workspace_id=? AND re.assessment_id=? ORDER BY re.created_at DESC,re.id DESC`)
       .bind(workspaceId, assessment.id).all<Record<string, unknown>>();
     escalations = rows.results ?? [];

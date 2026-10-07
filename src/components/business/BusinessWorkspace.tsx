@@ -1032,6 +1032,8 @@ export function BusinessWorkspaceConsole() {
   };
 
   const riskEngagement = proposalWorkspace?.engagements.find(item => item.id === riskEngagementId) ?? null;
+  const reportingEngagementId = riskEngagement?.id
+    ?? (context?.actor.persona === 'CLIENT' ? preference?.engagementId : undefined);
   const assignedClientContactIds = new Set(profiles
     .filter(profile => profile.persona === 'CLIENT' && profile.contactId)
     .map(profile => profile.contactId));
@@ -1438,8 +1440,8 @@ export function BusinessWorkspaceConsole() {
         {context?.allowedActions.includes('pbc.read') && preference && <BusinessPbcPanel workspaceId={preference.workspaceId}
           selected={preference} context={context} onChanged={() => setRecordsKey(value => value + 1)} />}
 
-        {context?.allowedActions.includes('reporting.read') && preference && riskEngagement && <BusinessReportingPanel workspaceId={preference.workspaceId}
-          selected={preference} context={context} engagement={riskEngagement} files={files}
+        {context?.allowedActions.includes('reporting.read') && preference && reportingEngagementId && <BusinessReportingPanel workspaceId={preference.workspaceId}
+          selected={preference} context={context} engagement={riskEngagement ?? undefined} engagementId={reportingEngagementId} files={files}
           onChanged={() => setRecordsKey(value => value + 1)} />}
 
         {context?.allowedActions.includes('file.read') && context.actor.persona !== 'CLIENT' && <section className="business-directory-card" aria-labelledby="business-files-heading">

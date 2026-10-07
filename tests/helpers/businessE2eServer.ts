@@ -44,6 +44,7 @@ export interface BusinessE2eServer {
   origin: string;
   db: SqliteD1;
   putTestObject(key: string, bytes: Uint8Array): void;
+  getTestObject(key: string): Uint8Array | null;
   runScheduled(): Promise<void>;
   setApiAvailable(available: boolean): void;
   close(): Promise<void>;
@@ -141,6 +142,7 @@ export async function startBusinessE2eServer(): Promise<BusinessE2eServer> {
     origin,
     db,
     putTestObject(key, bytes) { objects.set(key, bytes.slice()); },
+    getTestObject(key) { return objects.get(key)?.slice() ?? null; },
     async runScheduled() {
       await worker.scheduled({ scheduledTime: Date.now(), cron: '* * * * *' } as any, env);
     },

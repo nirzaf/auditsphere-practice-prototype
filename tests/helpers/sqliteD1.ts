@@ -64,6 +64,17 @@ export class SqliteD1 {
     }
   }
 
+  /** Captures the complete isolated SQLite database image for backup/restore acceptance. */
+  serialize(): Uint8Array {
+    return new Uint8Array(this.database.serialize());
+  }
+
+  /** Restores an SQLite image into a fresh in-memory D1 test adapter. */
+  restore(image: Uint8Array): void {
+    this.database.deserialize(image);
+    this.database.exec('PRAGMA foreign_keys=ON');
+  }
+
   close(): void {
     this.database.close();
   }

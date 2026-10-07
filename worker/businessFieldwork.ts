@@ -638,14 +638,14 @@ async function evidenceSet(env:Env,workspaceId:string,kind:'procedure_id'|'analy
   if(requireAdequate&&deficient.length)throw new ApiError('GATE_BLOCKED','All linked evidence must have a current ADEQUATE reviewer decision.');
   return {rows,hash:await pinHash(rows.map(row=>({evidenceId:row.id,evidenceVersion:row.version,sha256:row.sha256,adequacy:row.adequacy}))),adequate:rows.filter(row=>row.adequacy==='ADEQUATE').length};
 }
-async function assertProcedureEvidenceCurrent(env:Env,workspaceId:string,procedureId:string,recordedEvidenceHash:unknown){
+export async function assertProcedureEvidenceCurrent(env:Env,workspaceId:string,procedureId:string,recordedEvidenceHash:unknown){
   const current=await evidenceSet(env,workspaceId,'procedure_id',procedureId,false);
   if(current.hash!==String(recordedEvidenceHash))throw new ApiError('STALE_DEPENDENCY','Procedure evidence changed after review. Reassess the evidence and procedure before clearance.');
   return current;
 }
 type ProcedureSamplingPin={planId:string;planRevision:number;populationId:string;populationSourceHash:string;populationTbVersionId:string;policyId:string;policyVersion:number;
   inputHash:string;evaluationId:string;evaluationRevision:number;testSetHash:string;result:string;selectedDrawCount:number;testedHitCount:number};
-async function procedureSamplingPins(env:Env,workspaceId:string,procedureId:string,activeTbVersionId:string,requireComplete:boolean):Promise<ProcedureSamplingPin[]>{
+export async function procedureSamplingPins(env:Env,workspaceId:string,procedureId:string,activeTbVersionId:string,requireComplete:boolean):Promise<ProcedureSamplingPin[]>{
   const plans=await env.DB.prepare(`SELECT p.id AS planId,p.revision AS planRevision,p.policy_id AS policyId,p.policy_version AS policyVersion,p.input_hash AS inputHash,
       pop.id AS populationId,pop.source_hash AS populationSourceHash,pop.tb_version_id AS populationTbVersionId,
       (SELECT e.id FROM sampling_evaluations e WHERE e.workspace_id=p.workspace_id AND e.plan_id=p.id ORDER BY e.revision DESC LIMIT 1) AS evaluationId,
@@ -2189,7 +2189,7 @@ async function respondToAdjustment(env:Env,workspaceId:string,context:BusinessCo
     .bind(workspaceId,p.adjustmentId).first<AdjustmentRow&{lifecycle_state:string;locked_at:string|null}>();
   if(!row)throw new ApiError('NOT_FOUND','The audit adjustment was not found.');
   if(context.actor.clientId!==row.client_id||(context.scope.clientId&&context.scope.clientId!==row.client_id)||(context.scope.engagementId&&context.scope.engagementId!==row.engagement_id))throw new ApiError('FORBIDDEN_SCOPE','The adjustment is outside the selected client engagement.');
-  if(row.locked_at||!['FIELDWORK_EXECUTION','MANAGERIAL_REVIEW'].includes(row.lifecycle_state))throw new ApiError('WORKSPACE_FROZEN','Client adjustment responses are closed for this engagement stage.');
+  if(row.locked_at||!['FIELDWORK_EXECUTION','MANAGERIAL_REVIEW','PARTNER_APPROVAL'].includes(row.lifecycle_state))throw new ApiError('WORKSPACE_FROZEN','Client adjustment responses are closed for this engagement stage.');
   if(row.status!=='PROPOSED'||row.client_response_decision!==null)throw new ApiError('INVALID_STATE','Only a proposed adjustment awaiting the client can receive a response.');
   if(row.version!==p.expectedVersion)throw new ApiError('VERSION_CONFLICT',JSON.stringify({entity:'AuditAdjustment',id:row.id,expectedVersion:p.expectedVersion,currentVersion:row.version}));
   let fileSha256:string|null=null;
@@ -2396,6 +2396,25 @@ async function collectSrmInputs(env:Env,workspaceId:string,context:BusinessConte
     signedUnadjustedMinor,grossUnadjustedMinor,thresholdAnalysis});
   return {engagement,planning,materiality,statementView,goingConcern:going,goingConcernSubmission:going,workprograms,procedures,analyticalReviews,findings,adjustments,adjustmentLines,adjustmentEvidence,adjustmentRevisions,differences,
     reviewSubmissions:submissions,reviewNotes:notes,areaClearances:clearancePins,signedUnadjustedMinor,grossUnadjustedMinor,thresholdAnalysis,inputDependencyHash};
+}
+
+export async function getBusinessSrmCurrentness(env:Env,workspaceId:string,context:BusinessContext,engagementId:string):Promise<{
+  srmVersionId:string|null;dependencyHash:string|null;current:boolean;reason:string|null
+}>{
+  const srm=await env.DB.prepare(`SELECT id,dependency_hash,manager_recommendation,estimates_text FROM srm_versions
+    WHERE workspace_id=? AND engagement_id=? ORDER BY revision DESC LIMIT 1`).bind(workspaceId,engagementId)
+    .first<{id:string;dependency_hash:string;manager_recommendation:string;estimates_text:string}>();
+  if(!srm)return {srmVersionId:null,dependencyHash:null,current:false,reason:'Compile the current Manager SRM recommendation.'};
+  try{
+    const inputs=await collectSrmInputs(env,workspaceId,context,engagementId);
+    const currentHash=await rowHash({inputDependencyHash:inputs.inputDependencyHash,managerRecommendation:srm.manager_recommendation,estimatesText:srm.estimates_text});
+    return currentHash===srm.dependency_hash
+      ? {srmVersionId:srm.id,dependencyHash:srm.dependency_hash,current:true,reason:null}
+      : {srmVersionId:srm.id,dependencyHash:srm.dependency_hash,current:false,reason:'A source changed after Manager compilation. Recompile the SRM before Partner handover.'};
+  }catch(error){
+    return {srmVersionId:srm.id,dependencyHash:srm.dependency_hash,current:false,
+      reason:error instanceof Error?error.message:'The SRM source readiness could not be evaluated.'};
+  }
 }
 
 async function compileSrm(env:Env,workspaceId:string,context:BusinessContext,command:Extract<BusinessFieldworkCommand,{type:'srm.compile'}>,now:string):Promise<BusinessMutation>{

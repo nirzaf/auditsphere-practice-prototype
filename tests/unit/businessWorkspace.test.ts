@@ -634,6 +634,8 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
   assert.equal(initialWorkflow.body.stages.length, 11);
   assert.equal(initialWorkflow.body.stages[0].status, 'current');
   assert.equal(initialWorkflow.body.stages[0].completedCount, 0);
+  assert.equal(initialWorkflow.body.stages[0].blockerCoverage, 'evaluated');
+  assert.deepEqual(initialWorkflow.body.stages[0].blockers, [], 'the active converted lead and primary contact satisfy intake readiness');
   assert.equal(initialWorkflow.body.stages.at(-1).status, 'pending');
   const wrongClientWorkflow = await call(`/api/workspaces/${workspaceId}/engagements/${engagementId}/workflow`, {
     headers: { ...preparerHeaders, 'X-Client-Id': crypto.randomUUID() }
@@ -647,6 +649,13 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
   }, preparerHeaders);
   assert.equal(advance.response.status, 200, JSON.stringify(advance.body));
   assert.equal(advance.body.result.state, 'PROPOSAL_GENERATION');
+  const proposalWorkflow = await call(`/api/workspaces/${workspaceId}/engagements/${engagementId}/workflow`, {
+    headers: { ...preparerHeaders, 'X-Client-Id': clientId }
+  });
+  assert.equal(proposalWorkflow.response.status, 200, JSON.stringify(proposalWorkflow.body));
+  assert.equal(proposalWorkflow.body.stages[1].status, 'blocked');
+  assert.equal(proposalWorkflow.body.stages[1].blockerCoverage, 'evaluated');
+  assert.deepEqual(proposalWorkflow.body.stages[1].blockers.map((item: any) => item.code), ['CURRENT_PROPOSAL_REQUIRED']);
   const engagementChanges = await call(`/api/workspaces/${workspaceId}/changes?after=${cursorBeforeFirstClient}&engagementId=${engagementId}`, {
     headers: { ...approverHeaders, 'X-Client-Id': clientId }
   });
@@ -1205,6 +1214,18 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
   assert.equal(renewedAcceptance.response.status, 200, JSON.stringify(renewedAcceptance.body));
   const renewedGate = await call(`/api/workspaces/${workspaceId}/engagements/${engagementId}/acceptance-gate`, { headers: makeRiskHeaders(approverHeaders) });
   assert.equal(renewedGate.body.ready, true);
+  const readWorkflowStage = async (state: string) => {
+    const workflow = await call(`/api/workspaces/${workspaceId}/engagements/${engagementId}/workflow`, { headers: makeRiskHeaders(approverHeaders) });
+    assert.equal(workflow.response.status, 200, JSON.stringify(workflow.body));
+    assert.equal(workflow.body.state, state);
+    const stage = workflow.body.stages.find((item: any) => item.id === state);
+    assert.ok(stage, `workflow includes ${state}`);
+    assert.equal(stage.blockerCoverage, 'evaluated', `${state} readiness is projected from persisted records`);
+    return stage;
+  };
+  const billingBeforeLetter = await readWorkflowStage('ADVANCE_BILLING');
+  assert.equal(billingBeforeLetter.status, 'blocked');
+  assert.deepEqual(billingBeforeLetter.blockers.map((item: any) => item.code), ['ISSUED_ENGAGEMENT_LETTER_REQUIRED']);
 
   const storeCommittedFile = async (purpose: string, originalName: string, mediaType: string, bytes: Uint8Array, headers: Record<string, string>, scope: Record<string, string> = {}) => {
     const reservation = await post(`/api/workspaces/${workspaceId}/files`, { ...scope, purpose, originalName, mediaType, sizeBytes: bytes.length },
@@ -1290,6 +1311,8 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
   }, makeRiskHeaders(approverHeaders));
   assert.equal(issuedLetter.response.status, 202, JSON.stringify(issuedLetter.body));
   assert.equal(issuedLetter.body.result.state, 'ADVANCE_BILLING');
+  assert.deepEqual((await readWorkflowStage('ADVANCE_BILLING')).blockers.map((item: any) => item.code), ['ISSUED_ADVANCE_INVOICE_REQUIRED'],
+    'the issued engagement letter leaves the advance invoice as the next billing blocker');
   const issuedDelivery = await call(deliveryPath, { headers: makeRiskHeaders(reviewerHeaders) });
   const invoiceDraft = issuedDelivery.body.invoices.find((invoice: any) => invoice.id === issuedLetter.body.result.advanceInvoiceDraftId);
   assert.equal(invoiceDraft?.status, 'DRAFT');
@@ -1301,11 +1324,14 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
   }, makeRiskHeaders(reviewerHeaders));
   assert.equal(invoiceIssued.response.status, 202, JSON.stringify(invoiceIssued.body));
   assert.equal(invoiceIssued.body.result.totalMinor, '125001');
+  assert.deepEqual((await readWorkflowStage('ADVANCE_BILLING')).blockers.map((item: any) => item.code), ['ADVANCE_INVOICE_RENDER_PENDING'],
+    'an invoice remains blocked until its verified document is issued');
   await worker.scheduled({ scheduledTime: Date.now(), cron: '*/5 * * * *' } as any, env);
   const issuedInvoiceView = await call(deliveryPath, { headers: makeRiskHeaders(reviewerHeaders) });
   const issuedInvoice = issuedInvoiceView.body.invoices.find((invoice: any) => invoice.id === invoiceIssued.body.result.invoiceId);
   assert.equal(issuedInvoice?.status, 'ISSUED');
   assert.ok(issuedInvoice?.fileVersionId);
+  assert.deepEqual((await readWorkflowStage('ADVANCE_BILLING')).blockers.map((item: any) => item.code), ['ADVANCE_PAYMENT_UNSETTLED']);
 
   const wrongPbcRecipient = await post(`/api/workspaces/${workspaceId}/commands`, {
     idempotencyKey: crypto.randomUUID(), command: { type: 'pbc.request.create', payload: {
@@ -1365,6 +1391,8 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
   assert.equal(partialPaymentView.body.engagement.lifecycleState, 'ADVANCE_BILLING');
   assert.equal(partialPaymentView.body.invoices.find((invoice: any) => invoice.id === issuedInvoice.id).outstandingMinor, '65001');
   assert.equal(partialPaymentView.body.payments.find((payment: any) => payment.id === partialPayment.body.result.paymentId).receiptStatus, 'ISSUED');
+  assert.deepEqual((await readWorkflowStage('ADVANCE_BILLING')).blockers.map((item: any) => item.code), ['ADVANCE_PAYMENT_UNSETTLED'],
+    'a partial payment with a committed receipt does not unlock planning');
   const overAllocation = await post(`/api/workspaces/${workspaceId}/commands`, {
     idempotencyKey: crypto.randomUUID(), command: { type: 'payment.record', payload: {
       clientId, engagementId, amountMinor: '70000', receivedOn: '2026-10-05', method: 'BANK_TRANSFER', reference: 'BANK-LOCAL-OVER',
@@ -1383,6 +1411,8 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
   const reversedView = await call(deliveryPath, { headers: makeRiskHeaders(reviewerHeaders) });
   assert.equal(reversedView.body.invoices.find((invoice: any) => invoice.id === issuedInvoice.id).outstandingMinor, '125001');
   assert.equal(reversedView.body.payments.find((payment: any) => payment.id === reversedPayment.body.result.paymentId).reversal, true);
+  assert.deepEqual((await readWorkflowStage('ADVANCE_BILLING')).blockers.map((item: any) => item.code), ['ADVANCE_PAYMENT_UNSETTLED'],
+    'a payment reversal restores the advance-billing blocker');
   const settlement = await post(`/api/workspaces/${workspaceId}/commands`, {
     idempotencyKey: crypto.randomUUID(), command: { type: 'payment.record', payload: {
       clientId, engagementId, amountMinor: '125001', receivedOn: '2026-10-05', method: 'BANK_TRANSFER', reference: 'BANK-LOCAL-SETTLEMENT',
@@ -1394,6 +1424,10 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
   const settledView = await call(deliveryPath, { headers: makeRiskHeaders(reviewerHeaders) });
   assert.equal(settledView.body.engagement.lifecycleState, 'PORTAL_ACTIVE_PLANNING', 'planning unlocks only when the full advance and committed final receipt exist');
   assert.equal(settledView.body.invoices.find((invoice: any) => invoice.id === issuedInvoice.id).outstandingMinor, '0');
+  const planningWorkflow = await readWorkflowStage('PORTAL_ACTIVE_PLANNING');
+  assert.equal(planningWorkflow.status, 'blocked');
+  assert.ok(planningWorkflow.blockers.some((item: any) => item.code === 'ACTIVE_TB_REQUIRED'),
+    'the workflow moves from the settled billing gate to authoritative planning blockers');
   const planDate = '2026-10-06';
   const availability = await post(`/api/workspaces/${workspaceId}/commands`, {
     idempotencyKey: crypto.randomUUID(), command: { type: 'staffing.availability.set', payload: {

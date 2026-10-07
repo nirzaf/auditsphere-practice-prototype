@@ -64,7 +64,7 @@ function requirePartner(context: BusinessContext): void {
   }
 }
 
-async function requirePlanningEngagement(env: Env, workspaceId: string, context: BusinessContext, engagementId: string): Promise<PlanningEngagement> {
+async function requirePlanningEngagement(env: Env, workspaceId: string, context: BusinessContext, engagementId: string, allowArchivedRead = false): Promise<PlanningEngagement> {
   const row = await env.DB.prepare(`SELECT id,client_id,lifecycle_state,period_start,period_end,locked_at
     FROM engagements WHERE workspace_id=? AND id=?`).bind(workspaceId, engagementId).first<PlanningEngagement>();
   if (!row) throw new ApiError('NOT_FOUND', 'The engagement was not found.');
@@ -72,7 +72,7 @@ async function requirePlanningEngagement(env: Env, workspaceId: string, context:
     || (context.scope.engagementId && context.scope.engagementId !== row.id)) {
     throw new ApiError('FORBIDDEN_SCOPE', 'The engagement is outside the selected planning context.');
   }
-  if (row.locked_at || row.lifecycle_state === 'ARCHIVED_READ_ONLY') throw new ApiError('WORKSPACE_FROZEN', 'Archived engagements are read-only.');
+  if (!allowArchivedRead && (row.locked_at || row.lifecycle_state === 'ARCHIVED_READ_ONLY')) throw new ApiError('WORKSPACE_FROZEN', 'Archived engagements are read-only.');
   return row;
 }
 
@@ -145,7 +145,7 @@ export async function getBusinessPlanningWorkspace(env: Env, workspaceId: string
   if (!context.allowedActions.includes('planning.read') || context.actor.persona === 'CLIENT') {
     throw new ApiError('PERSONA_ACTION_DENIED', 'Internal planning context is required for this engagement.');
   }
-  const engagement = await requirePlanningEngagement(env, workspaceId, context, engagementId);
+  const engagement = await requirePlanningEngagement(env, workspaceId, context, engagementId, true);
   const [staff, assignments, milestones, folders] = await Promise.all([
     env.DB.prepare(`SELECT id,display_name AS displayName,grade FROM staff_members WHERE workspace_id=? AND active=1 ORDER BY grade,display_name,id`)
       .bind(workspaceId).all<{ id: string; displayName: string; grade: string }>(),
@@ -382,7 +382,7 @@ export async function listBusinessEngagementFolders(env: Env, workspaceId: strin
   if (!context.allowedActions.includes('engagement.read') || context.actor.persona === 'CLIENT') {
     throw new ApiError('PERSONA_ACTION_DENIED', 'Internal engagement access is required to view the folder taxonomy.');
   }
-  const engagement = await requirePlanningEngagement(env, workspaceId, context, engagementId);
+  const engagement = await requirePlanningEngagement(env, workspaceId, context, engagementId, true);
   const result = await env.DB.prepare(`SELECT f.id,f.code,f.display_name AS displayName,f.ordinal,
       (SELECT COUNT(*) FROM file_versions fv WHERE fv.workspace_id=f.workspace_id AND fv.folder_id=f.id AND fv.state='COMMITTED') AS fileCount,
       CASE WHEN f.code='FINAL_SIGNED_ARCHIVE' THEN 1 ELSE 0 END AS readOnly

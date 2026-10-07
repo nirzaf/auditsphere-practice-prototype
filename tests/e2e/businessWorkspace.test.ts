@@ -407,11 +407,26 @@ it('US-ENG-001/002 creates a client-linked lead from the visible forms and advan
   assert.match(leadStage.state, /LEAD INGESTION/);
   assert.equal(leadStage.current, 'Lead ingestion');
   assert.equal(leadStage.request, true, 'the workflow strip loaded from the server endpoint');
+  const leadReadiness = await tab.evaluate<{ status: string; blockerCount: number }>(`(() => {
+    const stage = [...(document.querySelectorAll('.business-workflow-stages > li') ?? [])]
+      .find(item => item.querySelector('strong')?.textContent?.trim() === 'Lead ingestion');
+    return { status: stage?.getAttribute('data-status') ?? '', blockerCount: stage?.querySelectorAll('.business-workflow-blockers li').length ?? 0 };
+  })()`);
+  assert.deepEqual(leadReadiness, { status: 'current', blockerCount: 0 }, 'the active converted lead and contact have an evaluated, clear intake gate');
 
   // Advance through the actual profile gate and verify the persisted lifecycle projection.
   await clickButton('Validate profile and enter proposal generation');
   await waitFor('the proposal-generation handoff', `document.querySelector('.business-created-engagement')?.innerText.includes('Current state: PROPOSAL_GENERATION')`);
-  await waitFor('the refreshed proposal-generation stage', `document.querySelector('.business-workflow-state')?.innerText.includes('PROPOSAL GENERATION') && document.querySelector('.business-workflow-stages > li[data-status="completed"] strong')?.textContent?.trim() === 'Lead ingestion'`);
+  await waitFor('the refreshed blocked proposal-generation stage', `document.querySelector('.business-workflow-state')?.innerText.includes('PROPOSAL GENERATION') &&
+    document.querySelector('.business-workflow-stages > li[data-status="completed"] strong')?.textContent?.trim() === 'Lead ingestion' &&
+    [...document.querySelectorAll('.business-workflow-stages > li[data-status="blocked"]')].some(stage =>
+      stage.querySelector('strong')?.textContent?.trim() === 'Proposal generation' && stage.innerText.includes('Create a current proposal revision for this engagement.'))`);
+  const proposalReadiness = await tab.evaluate<{ status: string; blockers: string[] }>(`(() => {
+    const stage = [...(document.querySelectorAll('.business-workflow-stages > li') ?? [])]
+      .find(item => item.querySelector('strong')?.textContent?.trim() === 'Proposal generation');
+    return { status: stage?.getAttribute('data-status') ?? '', blockers: [...(stage?.querySelectorAll('.business-workflow-blockers li') ?? [])].map(item => item.innerText.trim()) };
+  })()`);
+  assert.deepEqual(proposalReadiness, { status: 'blocked', blockers: ['Create a current proposal revision for this engagement.\nResolve in proposals'] });
   await tab.command('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 1, mobile: true });
   try {
     await waitFor('the mobile workflow projection', `document.querySelector('.business-workflow-card')?.getClientRects().length === 1 && getComputedStyle(document.querySelector('.business-workflow-stages')).gridTemplateColumns.trim().split(/\\s+/).length === 1`);

@@ -329,7 +329,7 @@ async function seedFsliCatalog(env: Env, workspaceId: string, framework: string,
 }
 
 type TbSources = { engagement: Engagement; active_tb_version_id: string | null; active_mapping_version_id: string | null; active_materiality_version_id: string | null; approved_planning_version_id: string | null; portal_frozen_at: string | null };
-async function getTbSources(env: Env, workspaceId: string, context: BusinessContext, engagementId: string): Promise<TbSources> {
+async function getTbSources(env: Env, workspaceId: string, context: BusinessContext, engagementId: string, allowArchivedRead = false): Promise<TbSources> {
   const engagement = await env.DB.prepare(`SELECT e.id,e.client_id,e.lifecycle_state,e.period_start,e.period_end,e.locked_at,e.standards_profile_id,
       e.active_tb_version_id,e.active_mapping_version_id,e.active_materiality_version_id,e.approved_planning_version_id,e.portal_frozen_at
     FROM engagements e WHERE e.workspace_id=? AND e.id=?`).bind(workspaceId, engagementId)
@@ -338,7 +338,7 @@ async function getTbSources(env: Env, workspaceId: string, context: BusinessCont
   if ((context.scope.clientId && context.scope.clientId !== engagement.client_id) || (context.scope.engagementId && context.scope.engagementId !== engagement.id)) {
     throw new ApiError('FORBIDDEN_SCOPE', 'The engagement is outside the selected TB and planning context.');
   }
-  if (engagement.locked_at || engagement.lifecycle_state === 'ARCHIVED_READ_ONLY') throw new ApiError('WORKSPACE_FROZEN', 'Archived engagements are read-only.');
+  if (!allowArchivedRead && (engagement.locked_at || engagement.lifecycle_state === 'ARCHIVED_READ_ONLY')) throw new ApiError('WORKSPACE_FROZEN', 'Archived engagements are read-only.');
   const { id: _id, client_id: _clientId, lifecycle_state: _lifecycle, period_start: _start, period_end: _end,
     locked_at: _locked, standards_profile_id: _standards, ...pins } = engagement;
   return { engagement: { id: engagement.id, client_id: engagement.client_id, lifecycle_state: engagement.lifecycle_state,
@@ -843,8 +843,8 @@ type PlanningDependencySnapshot={
   blockers:Array<{code:string;entityId?:string;description:string;route:string;details?:Record<string,unknown>}>;dependencyHash:string;
 };
 
-async function collectPlanningDependencies(env:Env,workspaceId:string,context:BusinessContext,engagementId:string):Promise<PlanningDependencySnapshot>{
-  requireInternalRead(context);const sources=await getTbSources(env,workspaceId,context,engagementId);const engagement=sources.engagement;
+async function collectPlanningDependencies(env:Env,workspaceId:string,context:BusinessContext,engagementId:string,allowArchivedRead=false):Promise<PlanningDependencySnapshot>{
+  requireInternalRead(context);const sources=await getTbSources(env,workspaceId,context,engagementId,allowArchivedRead);const engagement=sources.engagement;
   const blockers:PlanningDependencySnapshot['blockers']=[];
   let tb:PlanningDependencySnapshot['tb']=null;let tbHash:string|null=null;
   if(!sources.active_tb_version_id){blockers.push({code:'ACTIVE_TB_REQUIRED',description:'Accept a balanced immutable trial-balance version before planning sign-off.',route:'trial-balance'});}
@@ -964,7 +964,7 @@ async function collectPlanningDependencies(env:Env,workspaceId:string,context:Bu
 }
 
 export async function getBusinessPlanningReadiness(env:Env,workspaceId:string,context:BusinessContext,engagementId:string){
-  const snapshot=await collectPlanningDependencies(env,workspaceId,context,engagementId);
+  const snapshot=await collectPlanningDependencies(env,workspaceId,context,engagementId,true);
   return {ready:snapshot.blockers.length===0,blockers:snapshot.blockers,dependencies:{tbVersionId:snapshot.tbVersionId,mappingVersionId:snapshot.mappingVersionId,
     materialityVersionId:snapshot.materialityVersionId,standardsProfileId:snapshot.standardsProfileId,tbHash:snapshot.tbHash,mappingHash:snapshot.mappingHash,
     materialityHash:snapshot.materialityHash,staffingCount:snapshot.staffing.length,milestoneCount:snapshot.milestones.length,requiredPbcCount:snapshot.pbc.length,
@@ -973,7 +973,7 @@ export async function getBusinessPlanningReadiness(env:Env,workspaceId:string,co
 
 export async function getBusinessTrialBalanceWorkspace(env:Env,workspaceId:string,context:BusinessContext,engagementId:string){
   const workspace=await requireWorkspace(env,workspaceId);if(workspace.data_mode!=='BUSINESS')throw new ApiError('BAD_REQUEST','Trial-balance workspace requires BUSINESS mode.');
-  requireInternalRead(context);const sources=await getTbSources(env,workspaceId,context,engagementId);const e=sources.engagement;
+  requireInternalRead(context);const sources=await getTbSources(env,workspaceId,context,engagementId,true);const e=sources.engagement;
   const [standard,imports,folders]=await Promise.all([
     env.DB.prepare(`SELECT reporting_framework FROM standards_profiles WHERE workspace_id=? AND id=?`).bind(workspaceId,e.standards_profile_id).first<{reporting_framework:string}>(),
     env.DB.prepare(`SELECT i.id,i.file_version_id AS fileVersionId,f.original_name AS fileName,i.status,i.worksheet,i.column_map_json AS columnMapJson,i.row_count AS rowCount,
@@ -1034,7 +1034,7 @@ export async function getBusinessTrialBalanceWorkspace(env:Env,workspaceId:strin
       materiality={...value,risks:risks.results??[]};
     }
   }
-  const readiness=await collectPlanningDependencies(env,workspaceId,context,engagementId);
+  const readiness=await collectPlanningDependencies(env,workspaceId,context,engagementId,true);
   const latestPlanning=await env.DB.prepare(`SELECT p.id,p.revision,p.tb_version_id AS tbVersionId,p.mapping_version_id AS mappingVersionId,
       p.materiality_version_id AS materialityVersionId,p.scope_text AS scopeText,p.strategy_text AS strategyText,p.source_sha256 AS sourceHash,p.prepared_at AS preparedAt,
       s.id AS signoffId,s.approved_at AS approvedAt,s.rationale AS signoffRationale,
@@ -1050,7 +1050,7 @@ export async function getBusinessTrialBalanceWorkspace(env:Env,workspaceId:strin
 }
 
 export async function getBusinessTrialBalanceImport(env:Env,workspaceId:string,context:BusinessContext,engagementId:string,importId:string){
-  requireInternalRead(context);await getTbSources(env,workspaceId,context,engagementId);
+  requireInternalRead(context);await getTbSources(env,workspaceId,context,engagementId,true);
   const row=await env.DB.prepare(`SELECT i.id,i.status,i.row_count AS rowCount,i.error_count AS errorCount,i.errors_json AS errorsJson,
       i.current_debits_minor AS currentDebitsMinor,i.current_credits_minor AS currentCreditsMinor,i.prior_debits_minor AS priorDebitsMinor,
       i.prior_credits_minor AS priorCreditsMinor,i.source_sha256 AS sourceSha256,i.file_version_id AS fileVersionId,i.worksheet,i.column_map_json AS columnMapJson

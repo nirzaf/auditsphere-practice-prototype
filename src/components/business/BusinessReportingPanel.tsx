@@ -44,7 +44,8 @@ interface Props {
   workspaceId: string;
   selected: BusinessWorkspacePreference;
   context: BusinessContextResponse;
-  engagement: BusinessEngagementOption;
+  engagement?: BusinessEngagementOption;
+  engagementId?: string;
   files: BusinessFileMetadata[];
   onChanged: () => void;
 }
@@ -82,8 +83,9 @@ async function digest(blob: Blob): Promise<string> {
   return [...new Uint8Array(hash)].map(byte => byte.toString(16).padStart(2, '0')).join('');
 }
 
-export function BusinessReportingPanel({ workspaceId, selected, context, engagement, files, onChanged }: Props) {
+export function BusinessReportingPanel({ workspaceId, selected, context, engagement, engagementId: suppliedEngagementId, files, onChanged }: Props) {
   const today = qatarDate();
+  const activeEngagementId = engagement?.id ?? suppliedEngagementId ?? selected.engagementId ?? '';
   const [data, setData] = useState<ReportingWorkspace | null>(null);
   const [archiveStatus, setArchiveStatus] = useState<ReportRow | null>(null);
   const [archiveStatusError, setArchiveStatusError] = useState('');
@@ -157,23 +159,34 @@ export function BusinessReportingPanel({ workspaceId, selected, context, engagem
   const [deliveryEvidenceFileId, setDeliveryEvidenceFileId] = useState('');
   const [confirmedConsentCandidateIds, setConfirmedConsentCandidateIds] = useState<string[]>([]);
 
+  const displayEngagement = {
+    id: activeEngagementId,
+    clientId: rowText(data?.engagement, 'clientId', engagement?.clientId ?? selected.clientId ?? ''),
+    clientName: rowText(data?.engagement, 'clientName', engagement?.clientName ?? 'Selected engagement'),
+    code: rowText(data?.engagement, 'code', engagement?.code ?? ''),
+    periodStart: rowText(data?.engagement, 'periodStart', engagement?.periodStart ?? ''),
+    periodEnd: rowText(data?.engagement, 'periodEnd', engagement?.periodEnd ?? ''),
+    lifecycleState: rowText(data?.engagement, 'lifecycleState', engagement?.lifecycleState ?? ''),
+    contractFeeMinor: engagement?.contractFeeMinor ?? rowNumber(data?.engagement, 'contractFeeMinor')
+  };
+
   useEffect(() => {
-    if (!selected.actorId || !selected.persona) return;
+    if (!selected.actorId || !selected.persona || !activeEngagementId) { setData(null); return; }
     const controller = new AbortController();
-    getBusinessReportingWorkspace(workspaceId, engagement.id, selected, controller.signal)
+    getBusinessReportingWorkspace(workspaceId, activeEngagementId, selected, controller.signal)
       .then(result => { if (!controller.signal.aborted) { setData(result as ReportingWorkspace); setError(''); } })
       .catch(reason => { if (!controller.signal.aborted) setError(reason instanceof Error ? reason.message : 'Reporting records could not be loaded.'); });
     return () => controller.abort();
-  }, [workspaceId, engagement.id, selected.actorId, selected.persona, selected.clientId, selected.engagementId, refresh]);
+  }, [workspaceId, activeEngagementId, selected.actorId, selected.persona, selected.clientId, selected.engagementId, refresh]);
 
   useEffect(() => {
-    if (!selected.actorId || !selected.persona) return;
+    if (!selected.actorId || !selected.persona || !activeEngagementId) { setArchiveStatus(null); return; }
     const controller = new AbortController();
-    getBusinessArchiveStatus(workspaceId, engagement.id, selected, controller.signal)
+    getBusinessArchiveStatus(workspaceId, activeEngagementId, selected, controller.signal)
       .then(result => { if (!controller.signal.aborted) { setArchiveStatus(result); setArchiveStatusError(''); } })
       .catch(reason => { if (!controller.signal.aborted) setArchiveStatusError(reason instanceof Error ? reason.message : 'Archive status could not be loaded.'); });
     return () => controller.abort();
-  }, [workspaceId, engagement.id, selected.actorId, selected.persona, selected.clientId, selected.engagementId, refresh]);
+  }, [workspaceId, activeEngagementId, selected.actorId, selected.persona, selected.clientId, selected.engagementId, refresh]);
 
   const perform = async (type: string, payload: Record<string, unknown>, success: string) => {
     setBusy(true); setError(''); setMessage('');
@@ -192,7 +205,7 @@ export function BusinessReportingPanel({ workspaceId, selected, context, engagem
     setBusy(true); setError(''); setMessage('');
     try {
       const input = { purpose: 'EVIDENCE' as const, originalName: file.name, mediaType: 'application/pdf' as const,
-        sizeBytes: file.size, clientId: engagement.clientId, engagementId: engagement.id, representationRequestId: requestId };
+        sizeBytes: file.size, clientId: displayEngagement.clientId, engagementId: activeEngagementId, representationRequestId: requestId };
       const reservation = await initializeBusinessFile(workspaceId, selected, input, newBusinessIdempotencyKey());
       const staged = await uploadBusinessFile(workspaceId, selected, reservation, file, 'application/pdf', newBusinessIdempotencyKey());
       const committed = await completeBusinessFile(workspaceId, selected, staged, newBusinessIdempotencyKey());
@@ -221,7 +234,7 @@ export function BusinessReportingPanel({ workspaceId, selected, context, engagem
     if (!archiveSha256 || !manifestSha256) { setError('A sealed archive with both recorded hashes is required.'); return; }
     setDownloading(`archive-${part}`); setError('');
     try {
-      const result = await downloadBusinessArchiveExport(workspaceId, engagement.id, part, selected, archiveSha256, manifestSha256);
+      const result = await downloadBusinessArchiveExport(workspaceId, activeEngagementId, part, selected, archiveSha256, manifestSha256);
       const url = URL.createObjectURL(result.blob), anchor = document.createElement('a');
       anchor.href = url; anchor.download = result.fileName; document.body.append(anchor); anchor.click(); anchor.remove(); URL.revokeObjectURL(url);
     } catch (reason) { setError(reason instanceof Error ? reason.message : 'The sealed archive export could not be verified.'); }
@@ -259,8 +272,8 @@ export function BusinessReportingPanel({ workspaceId, selected, context, engagem
   const firmFiles = useMemo(() => files.filter(file => file.state === 'COMMITTED' && file.immutable), [files]);
   const signatureFiles = firmFiles.filter(file => file.purpose === 'SIGNATURE' && file.mediaType === 'image/png');
   const sealFiles = firmFiles.filter(file => file.purpose === 'SEAL' && file.mediaType === 'image/png');
-  const signedReturns = firmFiles.filter(file => file.engagementId === engagement.id && ['EVIDENCE', 'GENERATED'].includes(file.purpose) && file.mediaType === 'application/pdf');
-  const deliveryEvidenceFiles = firmFiles.filter(file => file.engagementId === engagement.id);
+  const signedReturns = firmFiles.filter(file => file.engagementId === activeEngagementId && ['EVIDENCE', 'GENERATED'].includes(file.purpose) && file.mediaType === 'application/pdf');
+  const deliveryEvidenceFiles = firmFiles.filter(file => file.engagementId === activeEngagementId);
   const isClient = context.actor.persona === 'CLIENT';
   const isPartner = context.actor.persona === 'APPROVER' && context.actor.staffGrade === 'PARTNER';
   const partnerAssets = assets.filter(asset => asset.staffMemberId === context.actor.staffMemberId);
@@ -276,11 +289,11 @@ export function BusinessReportingPanel({ workspaceId, selected, context, engagem
     if (!isPartner || !previewVersionId) { setOpinionPreview(null); setOpinionPreviewError(''); return; }
     const controller = new AbortController();
     setOpinionPreview(null); setOpinionPreviewError('');
-    getBusinessOpinionPreview(workspaceId, engagement.id, previewVersionId, selected, controller.signal)
+    getBusinessOpinionPreview(workspaceId, activeEngagementId, previewVersionId, selected, controller.signal)
       .then(result => { if (!controller.signal.aborted) setOpinionPreview(result as OpinionPreview); })
       .catch(reason => { if (!controller.signal.aborted) setOpinionPreviewError(reason instanceof Error ? reason.message : 'The exact opinion preview could not be loaded.'); });
     return () => controller.abort();
-  }, [workspaceId, engagement.id, selected.actorId, selected.persona, selected.clientId, selected.engagementId, previewVersionId, isPartner, refresh]);
+  }, [workspaceId, activeEngagementId, selected.actorId, selected.persona, selected.clientId, selected.engagementId, previewVersionId, isPartner, refresh]);
   const pendingJobs = (data?.jobs ?? []).some(job => ['PENDING', 'RUNNING', 'RETRYABLE_FAILED'].includes(String(job.status)));
   useEffect(() => {
     if (!pendingJobs) return;
@@ -306,19 +319,21 @@ export function BusinessReportingPanel({ workspaceId, selected, context, engagem
   useEffect(() => {
     if (!isPartner || releasedBundles.length === 0) { setReleasedProvenance(null); setReleasedProvenanceError(''); return; }
     const controller = new AbortController();
-    getBusinessReleasedReportProvenance(workspaceId, engagement.id, selected, controller.signal)
+    getBusinessReleasedReportProvenance(workspaceId, activeEngagementId, selected, controller.signal)
       .then(result => { if (!controller.signal.aborted) { setReleasedProvenance(result as ReportRow); setReleasedProvenanceError(''); } })
       .catch(reason => { if (!controller.signal.aborted) { setReleasedProvenance(null); setReleasedProvenanceError(reason instanceof Error ? reason.message : 'Released report provenance is unavailable.'); } });
     return () => controller.abort();
-  }, [workspaceId, engagement.id, selected.actorId, selected.persona, selected.clientId, selected.engagementId, isPartner, releasedBundles[0]?.id]);
+  }, [workspaceId, activeEngagementId, selected.actorId, selected.persona, selected.clientId, selected.engagementId, isPartner, releasedBundles[0]?.id]);
 
-  return <section className="business-directory-card" aria-labelledby={`business-reporting-${engagement.id}`}>
+  if (!activeEngagementId) return null;
+
+  return <section className="business-directory-card" aria-labelledby={`business-reporting-${activeEngagementId}`}>
     <div className="business-section-heading">
-      <div><p className="business-eyebrow">REPORTING · PUBLICATION · RETENTION</p><h2 id={`business-reporting-${engagement.id}`}>Reporting and final deliverables</h2></div>
+      <div><p className="business-eyebrow">REPORTING · PUBLICATION · RETENTION</p><h2 id={`business-reporting-${activeEngagementId}`}>Reporting and final deliverables</h2></div>
       <button type="button" className="btn sm" disabled={busy} onClick={() => setRefresh(value => value + 1)}>Refresh reporting</button>
     </div>
     {error && <p className="business-alert" role="alert">{error}</p>}{message && <p className="business-command-message" role="status">{message}</p>}
-    <p className="business-note">{engagement.clientName} · {engagement.code} · {engagement.periodStart}–{engagement.periodEnd} · {engagement.lifecycleState.replaceAll('_', ' ')}. Signature images record self-asserted persona approval; they are not certificate-backed electronic signatures.</p>
+    <p className="business-note">{displayEngagement.clientName} · {displayEngagement.code} · {displayEngagement.periodStart}–{displayEngagement.periodEnd} · {displayEngagement.lifecycleState.replaceAll('_', ' ')}. Signature images record self-asserted persona approval; they are not certificate-backed electronic signatures.</p>
 
     {isClient ? <>
       <div className="business-delivery-grid">
@@ -355,7 +370,7 @@ export function BusinessReportingPanel({ workspaceId, selected, context, engagem
                   onChange={event => setSignedFileIds(current => ({ ...current, [requestId]: event.target.value }))}>
                   <option value="">Choose this request’s uploaded signed return</option>{requestFiles.map(file => <option key={file.id} value={file.id}>{file.originalName} · {file.sha256?.slice(0, 12)}</option>)}
                 </select></label>
-                <label className="business-field"><span>Representation date</span><input type="date" required min={engagement.periodEnd}
+                <label className="business-field"><span>Representation date</span><input type="date" required min={displayEngagement.periodEnd}
                   max={rowText(request, 'proposedReportDate')} value={representationDate} onChange={event => setRepresentationDate(event.target.value)} /></label>
                 <label className="business-field"><span>Names as signed</span><textarea required minLength={1} value={signatoryNames} onChange={event => setSignatoryNames(event.target.value)} /></label>
                 <button className="btn sm" disabled={busy || !clientUploadsOpen || !signedFileIds[requestId] || !signatoryNames.trim()}>Submit signed return for independent review</button>
@@ -394,7 +409,7 @@ export function BusinessReportingPanel({ workspaceId, selected, context, engagem
         const affectedValues = modified ? affectedFslis.map(item => ({ fsliId: item.fsliId,
           amountMinor: item.amount.trim() ? minorFromQar(item.amount) : null, explanation: item.explanation })) : [];
         const additionalValues = additionalSections.map(({ heading, body }) => ({ heading, body }));
-        void perform('opinion.select', { engagementId: engagement.id, category: isAup ? null : opinionCategory,
+        void perform('opinion.select', { engagementId: activeEngagementId, category: isAup ? null : opinionCategory,
           affectedFslis: affectedValues,
           rationale: isAup ? 'AUP report. No ISA audit opinion is expressed.' : opinionRationale,
           materialityAssessment: isAup ? 'Not applicable to an agreed-upon procedures report.' : materialityAssessment,
@@ -488,7 +503,7 @@ export function BusinessReportingPanel({ workspaceId, selected, context, engagem
             ...(ociApplicable ? [{ section: 'OCI', code: 'OCI-TOTAL', label: 'Other comprehensive income', currentMinor: minorFromQar(ociCurrent), priorMinor: prior(ociPrior), rationale: 'Include only where applicable under the approved reporting framework.' }] : [])
           ];
           const notes = [{ noteNumber: '1', title: noteTitle, body: noteBody, amountMinor: null, sortOrder: 1 }];
-          void perform('financial-statements.save-disclosures', { engagementId: engagement.id, statementSnapshotId: rowText(snapshot, 'id'), accountingPolicies: policyText,
+          void perform('financial-statements.save-disclosures', { engagementId: activeEngagementId, statementSnapshotId: rowText(snapshot, 'id'), accountingPolicies: policyText,
             ociApplicable, notes, supplementLines }, 'Disclosure draft saved with visible completeness checks.');
         } catch (reason) { setError(reason instanceof Error ? reason.message : 'Enter valid statement amounts.'); }
       }}>
@@ -509,7 +524,7 @@ export function BusinessReportingPanel({ workspaceId, selected, context, engagem
         {draft.status === 'DRAFT' && <button type="button" className="btn sm" disabled={busy} onClick={() => void perform('financial-statements.approve', { draftId: rowText(draft, 'id'), sourceHash: rowText(draft, 'sourceHash') }, 'Statements approved by the independent reviewer and pinned immutably.')}>Approve exact draft</button>}
       </div>)}</div>}
 
-      {isPartner && <form className="business-form business-commercial-form" onSubmit={event => { event.preventDefault(); void perform('report.prepare', { engagementId: engagement.id,
+      {isPartner && <form className="business-form business-commercial-form" onSubmit={event => { event.preventDefault(); void perform('report.prepare', { engagementId: activeEngagementId,
         opinionVersionId: selectedOpinionId || rowText(currentOpinion, 'id'), financialStatementApprovalId: selectedApprovalId || rowText(currentApproval, 'id'),
         signatureAssetId: selectedSignatureAssetId || rowText(partnerAssets[0], 'id'), proposedReportDate: today }, 'Report candidate queued for PDF generation.'); }}>
         <h3>{isAup ? 'Prepare exact AUP report candidate' : 'Prepare exact auditor-report and statement candidate'}</h3><div className="business-form-grid">
@@ -531,9 +546,9 @@ export function BusinessReportingPanel({ workspaceId, selected, context, engagem
           <span>Proposed Qatar report date {rowText(candidate, 'proposedReportDate')} · candidate content SHA-256 {rowText(candidate, 'contentSha256')} · job {rowText(candidate, 'failureCode', 'no failure')}</span>
           {isPartner && candidate.status === 'READY' && <section className="business-report-consent" aria-label={`Review report candidate ${id} before signature consent`}>
             <h4>Exact report and signature review</h4>
-            <dl><div><dt>Entity</dt><dd>{engagement.clientName}</dd></div><div><dt>Reporting period</dt><dd>{engagement.periodStart}–{engagement.periodEnd}</dd></div>
+            <dl><div><dt>Entity</dt><dd>{displayEngagement.clientName}</dd></div><div><dt>Reporting period</dt><dd>{displayEngagement.periodStart}–{displayEngagement.periodEnd}</dd></div>
               <div><dt>Opinion</dt><dd>{rowText(candidateOpinion, 'category', rowText(candidateOpinion, 'aup_report_type'))}</dd></div>
-              <div><dt>Contract fee</dt><dd>{formatQarMinor(engagement.contractFeeMinor)}</dd></div><div><dt>Signature owner</dt><dd>{rowText(candidateAsset, 'staffName', 'Asset owner unavailable')}</dd></div>
+              <div><dt>Contract fee</dt><dd>{formatQarMinor(displayEngagement.contractFeeMinor)}</dd></div><div><dt>Signature owner</dt><dd>{rowText(candidateAsset, 'staffName', 'Asset owner unavailable')}</dd></div>
               <div><dt>Signature asset</dt><dd>{rowText(candidateAsset, 'label', 'Asset unavailable')}</dd></div>
               <div><dt>Signature SHA-256</dt><dd>{candidateAssetSignature || 'Unavailable'}</dd></div><div><dt>Seal SHA-256</dt><dd>{candidateAssetSeal || 'Unavailable'}</dd></div></dl>
             <button type="button" className="btn sm" disabled={Boolean(downloading) || !rowText(candidate, 'fileId')}
@@ -544,7 +559,7 @@ export function BusinessReportingPanel({ workspaceId, selected, context, engagem
               <label><input type="checkbox" checked={confirmedConsentCandidateIds.includes(id)} onChange={event => setConfirmedConsentCandidateIds(current => event.target.checked ? [...current, id] : current.filter(item => item !== id))} /> I reviewed the exact PDF above, its full content hash, opinion, entity, period, fee, signature owner and seal hashes.</label>
               <button type="button" className="btn sm" disabled={busy || !confirmedConsentCandidateIds.includes(id)} onClick={() => {
                 const assetId = rowText(candidate, 'signatureAssetId'), contentHash = rowText(candidate, 'contentSha256'), date = rowText(candidate, 'proposedReportDate');
-                void perform('report.consent', { engagementId: engagement.id, reportCandidateId: id, signatureAssetId: assetId, candidateContentHash: contentHash, proposedReportDate: date, consentText: reportConsentText }, 'Explicit consent recorded for this exact report hash and image asset.');
+                void perform('report.consent', { engagementId: activeEngagementId, reportCandidateId: id, signatureAssetId: assetId, candidateContentHash: contentHash, proposedReportDate: date, consentText: reportConsentText }, 'Explicit consent recorded for this exact report hash and image asset.');
               }}>Consent to exact report hash</button>
             </>}
             {Boolean(candidate.consentId) && <span>Consent recorded for candidate hash {rowText(candidate, 'consentContentHash')} · signature event recorded only after final release.</span>}
@@ -556,7 +571,7 @@ export function BusinessReportingPanel({ workspaceId, selected, context, engagem
       {isPartner && <form className="business-form business-commercial-form" onSubmit={event => { event.preventDefault();
         const items = selectedFindingIds.map(findingId => ({ findingId, impact: findingDetails[findingId]?.impact ?? '',
           recommendation: findingDetails[findingId]?.recommendation ?? '', ...(responsibleParty.trim() ? { responsibleParty } : {}), ...(targetDate ? { targetDate } : {}) }));
-        void perform('management-letter.prepare', { engagementId: engagement.id, items, ...(items.length ? {} : { noReportableDeficienciesReason: noDeficienciesReason }) }, 'Management-letter version queued from selected findings or an explicit no-deficiencies rationale.'); }}>
+        void perform('management-letter.prepare', { engagementId: activeEngagementId, items, ...(items.length ? {} : { noReportableDeficienciesReason: noDeficienciesReason }) }, 'Management-letter version queued from selected findings or an explicit no-deficiencies rationale.'); }}>
         <h3>Prepare management letter</h3>
         {findings.length ? <div className="business-form-grid"><fieldset className="business-field"><legend>Findings to communicate</legend>{findings.map(finding => <label key={String(finding.id)}><input type="checkbox" checked={selectedFindingIds.includes(String(finding.id))} onChange={event => setSelectedFindingIds(current => event.target.checked ? [...current, String(finding.id)] : current.filter(id => id !== finding.id))} /> {rowText(finding, 'title')} · {rowText(finding, 'severity')}</label>)}</fieldset>
           {selectedFindingIds.map(findingId => {
@@ -580,7 +595,7 @@ export function BusinessReportingPanel({ workspaceId, selected, context, engagem
 
       {canReview && <form className="business-form business-commercial-form" onSubmit={event => { event.preventDefault();
         const names = requiredSignatories.split(/\r?\n/).map(value => value.trim()).filter(Boolean);
-        void perform('representation.prepare', { engagementId: engagement.id, proposedReportDate: today, requiredSignatories: names, contactRouteId: routeId }, 'Representation letter template queued before report signing.'); }}>
+        void perform('representation.prepare', { engagementId: activeEngagementId, proposedReportDate: today, requiredSignatories: names, contactRouteId: routeId }, 'Representation letter template queued before report signing.'); }}>
         <h3>Prepare pre-report letter of representation</h3><div className="business-form-grid">
           <label className="business-field"><span>Primary management report route</span><select required value={routeId} onChange={event => setRouteId(event.target.value)}><option value="">Choose FINAL_REPORT contact</option>{(data?.contactRoutes ?? []).map(item => <option key={String(item.id)} value={String(item.id)}>{rowText(item, 'contactName')} · {rowText(item, 'email')}</option>)}</select></label>
           <label className="business-field"><span>Required management signatories (one per line)</span><textarea required value={requiredSignatories} onChange={event => setRequiredSignatories(event.target.value)} /></label>
@@ -616,7 +631,7 @@ export function BusinessReportingPanel({ workspaceId, selected, context, engagem
         })}
       </div>)}</div>}
 
-      {isPartner && <form className="business-form business-commercial-form" onSubmit={event => { event.preventDefault(); void perform('bundle.prepare', { engagementId: engagement.id, reportCandidateId: reportCandidateId || rowText(candidates.find(row => row.status === 'READY'), 'id'),
+      {isPartner && <form className="business-form business-commercial-form" onSubmit={event => { event.preventDefault(); void perform('bundle.prepare', { engagementId: activeEngagementId, reportCandidateId: reportCandidateId || rowText(candidates.find(row => row.status === 'READY'), 'id'),
         managementLetterVersionId: selectedManagementId || rowText(management.find(row => row.status === 'READY'), 'id'), representationRequestId: selectedRepresentationRequestId || rowText(requests.find(row => row.status === 'ACCEPTED'), 'id') }, 'Private five-part bundle candidate queued; no client files are published yet.'); }}>
         <h3>Prepare private five-part deliverable bundle</h3><div className="business-form-grid">
           <label className="business-field"><span>Ready report with explicit consent</span><select required value={reportCandidateId} onChange={event => setReportCandidateId(event.target.value)}><option value="">Choose candidate</option>{candidates.filter(item => item.status === 'READY' && item.consentId).map(item => <option key={String(item.id)} value={String(item.id)}>{rowText(item, 'proposedReportDate')} · {rowText(item, 'contentSha256').slice(0, 12)}</option>)}</select></label>
@@ -640,8 +655,8 @@ export function BusinessReportingPanel({ workspaceId, selected, context, engagem
       {(data?.retentionPolicies ?? []).length > 0 && <div className="business-record-list"><h3>Retention policy history</h3>{data?.retentionPolicies?.map(policy => <p key={String(policy.id)}>v{rowText(policy, 'version')} · {rowText(policy, 'name')} · {policy.retainIndefinitely ? 'Indefinite' : `${rowText(policy, 'retentionYears')} years`} · approved {rowText(policy, 'approvedAt')}</p>)}</div>}
 
       {data?.engagement.lifecycleState === 'COMPLIANCE_COUNTDOWN' && <div className="business-form business-commercial-form"><h3>Administrative archive assembly</h3>
-        {isPartner && !rowText(data.engagement, 'lockedAt') && <button type="button" className="btn sm" disabled={busy} onClick={() => void perform('archive.lock', { engagementId: engagement.id, reason: 'EARLY_PARTNER_LOCK', rationale: 'Partner verified the released bundle and completed administrative archive assembly.' }, 'Engagement locked read-only; archive sealing is queued.')}>Lock and seal archive now</button>}
-        {canReview && !rowText(data.engagement, 'lockedAt') && <form className="business-form business-commercial-form" onSubmit={event => { event.preventDefault(); void perform('archive.note', { engagementId: engagement.id, text: archiveNote, relatedRecordType: archiveRecordType, relatedRecordId: archiveRecordId }, 'Administrative assembly note appended without changing audit evidence.'); }}>
+        {isPartner && !rowText(data.engagement, 'lockedAt') && <button type="button" className="btn sm" disabled={busy} onClick={() => void perform('archive.lock', { engagementId: activeEngagementId, reason: 'EARLY_PARTNER_LOCK', rationale: 'Partner verified the released bundle and completed administrative archive assembly.' }, 'Engagement locked read-only; archive sealing is queued.')}>Lock and seal archive now</button>}
+        {canReview && !rowText(data.engagement, 'lockedAt') && <form className="business-form business-commercial-form" onSubmit={event => { event.preventDefault(); void perform('archive.note', { engagementId: activeEngagementId, text: archiveNote, relatedRecordType: archiveRecordType, relatedRecordId: archiveRecordId }, 'Administrative assembly note appended without changing audit evidence.'); }}>
           <label className="business-field"><span>Assembly note</span><textarea required minLength={10} value={archiveNote} onChange={event => setArchiveNote(event.target.value)} /></label>
           <div className="business-form-grid"><label className="business-field"><span>Related record type</span><select value={archiveRecordType} onChange={event => setArchiveRecordType(event.target.value)}><option value="DELIVERABLE_BUNDLE">Released bundle</option><option value="REPORT_CANDIDATE">Report candidate</option><option value="STATEMENT_SNAPSHOT">Statement snapshot</option><option value="FINDING">Finding</option></select></label>
             <label className="business-field"><span>Related record</span><select required value={archiveRecordId} onChange={event => setArchiveRecordId(event.target.value)}><option value="">Choose retained record</option>
@@ -686,8 +701,8 @@ export function BusinessReportingPanel({ workspaceId, selected, context, engagem
           </div><button className="btn sm" disabled={busy || releasedBundles.length === 0 || deliveryMethod === 'EMAIL' && !deliveryDispatchId}>Record delivery outcome</button>
         </form>
       </section>}
-      {isPartner && releasedBundles.length > 0 && <section className="business-record-list business-report-provenance" aria-labelledby={`report-provenance-${engagement.id}`}>
-        <h3 id={`report-provenance-${engagement.id}`}>Released report signature provenance</h3>
+      {isPartner && releasedBundles.length > 0 && <section className="business-record-list business-report-provenance" aria-labelledby={`report-provenance-${activeEngagementId}`}>
+        <h3 id={`report-provenance-${activeEngagementId}`}>Released report signature provenance</h3>
         {releasedProvenanceError && <p className="business-alert" role="alert">{releasedProvenanceError}</p>}
         {!releasedProvenance && !releasedProvenanceError && <p role="status">Loading the released signature and source record…</p>}
         {releasedProvenance && <>
