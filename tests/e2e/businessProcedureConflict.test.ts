@@ -240,6 +240,7 @@ async function createFieldworkFixture() {
 
 function addTimeEntryPreparer(fixture: Awaited<ReturnType<typeof createFieldworkFixture>>) {
   const now = new Date().toISOString();
+  const workDate = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Qatar', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
   const staffMemberId = randomUUID(), actorId = randomUUID(), assignmentId = randomUUID();
   const unique = randomUUID();
   runFixtureSql(`INSERT INTO staff_members(id,workspace_id,version,natural_person_key,display_name,email,grade,active,created_at,updated_at,created_by_actor_id,updated_by_actor_id)
@@ -247,10 +248,12 @@ function addTimeEntryPreparer(fixture: Awaited<ReturnType<typeof createFieldwork
   'QA Time Entry Preparer', `time.preparer.${unique}@example.invalid`, now, now, fixture.actorProfileId, fixture.actorProfileId);
   runFixtureSql(`INSERT INTO actor_profiles(id,workspace_id,version,persona,staff_member_id,contact_id,active,created_at,updated_at)
     VALUES(?,?,1,'PREPARER',?,NULL,1,?,?)`, actorId, fixture.workspaceId, staffMemberId, now, now);
+  runFixtureSql(`INSERT INTO staff_availability(id,workspace_id,staff_member_id,work_date,version,scheduled_minutes,approved_leave_minutes,updated_by_actor_id,updated_at)
+    VALUES(?,?,?,?,1,60,0,?,?)`, randomUUID(), fixture.workspaceId, staffMemberId, workDate, fixture.actorProfileId, now);
   runFixtureSql(`INSERT INTO engagement_assignments(id,workspace_id,version,client_id,engagement_id,staff_member_id,persona,phase,start_date,end_date,planned_minutes,created_by_actor_id,created_at)
-    VALUES(?,?,1,?,?,?,'PREPARER','FIELDWORK','2026-01-01','2026-12-31',480,?,?)`, assignmentId, fixture.workspaceId,
-  fixture.clientId, fixture.engagementId, staffMemberId, fixture.actorProfileId, now);
-  return { staffMemberId, actorId, assignmentId };
+    VALUES(?,?,1,?,?,?,'PREPARER','FIELDWORK',?, ?,480,?,?)`, assignmentId, fixture.workspaceId,
+  fixture.clientId, fixture.engagementId, staffMemberId, workDate, workDate, fixture.actorProfileId, now);
+  return { staffMemberId, actorId, assignmentId, workDate };
 }
 
 async function selectPracticeWorkspace(tab: CdpTab, fixture: Awaited<ReturnType<typeof createFieldworkFixture>>,
@@ -291,6 +294,21 @@ async function setPracticeFieldByLabel(tab: CdpTab, engagementId: string, labelT
     return control.value === nextValue;
   })()`);
   assert.equal(set, true, `the visible practice field "${labelText}" accepted the intended value`);
+}
+
+async function setPracticeReportDate(tab: CdpTab, engagementId: string, labelText: 'Report from' | 'Report through', value: string): Promise<void> {
+  const set = await tab.evaluate<boolean>(`(() => {
+    const panel = document.querySelector('[aria-labelledby="business-practice-${engagementId}"]');
+    const label = [...(panel?.querySelectorAll('label.business-field') ?? [])].find(item => item.querySelector('span')?.textContent?.trim() === ${JSON.stringify(labelText)});
+    const input = label?.querySelector('input[type="date"]');
+    if (!(input instanceof HTMLInputElement)) return false;
+    const setter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(input), 'value')?.set;
+    setter?.call(input, ${JSON.stringify(value)});
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    input.dispatchEvent(new Event('change', { bubbles: true }));
+    return input.value === ${JSON.stringify(value)};
+  })()`);
+  assert.equal(set, true, `the visible practice period field "${labelText}" accepted the intended Qatar work date`);
 }
 
 async function readPracticeTimeRow(tab: CdpTab, engagementId: string, procedureTitle: string, minutes: number) {
@@ -1542,6 +1560,35 @@ it('US-PRC-001 records procedure-linked time in the browser and requires indepen
       const cells = [...(row?.querySelectorAll('td') ?? [])];
       return cells[6]?.textContent?.trim() === 'APPROVED' && cells[5]?.textContent?.trim() === 'QAR 300.00';
     })()`);
+
+    await waitFor(tabA, 'the report date controls and initial utilization panel', `(() => {
+      const panel = document.querySelector(${JSON.stringify(practiceSelector)});
+      const from = [...(panel?.querySelectorAll('label.business-field') ?? [])].find(item => item.querySelector('span')?.textContent?.trim() === 'Report from')?.querySelector('input[type="date"]');
+      const table = panel?.querySelector('.business-utilization-table');
+      return !!from && !!table && [...(table.querySelectorAll('thead th') ?? [])].some(item => item.textContent?.trim() === 'Recorded');
+    })()`);
+    await setPracticeReportDate(tabA, fixture.engagementId, 'Report from', preparer.workDate);
+    await waitFor(tabA, 'the inclusive one-day Qatar utilization period', `(() => {
+      const panel = document.querySelector(${JSON.stringify(practiceSelector)});
+      const title = [...(panel?.querySelectorAll('h3') ?? [])].find(item => item.textContent?.startsWith('Utilization'));
+      const card = title?.closest('.business-record-list');
+      return card?.querySelector('p.business-muted')?.textContent?.includes(${JSON.stringify(`Inclusive Qatar work dates ${preparer.workDate} to ${preparer.workDate}`)}) ?? false;
+    })()`);
+    await waitFor(tabA, 'the inclusive-date utilization row and over-capacity alert', `(() => {
+      const panel = document.querySelector(${JSON.stringify(practiceSelector)});
+      const table = panel?.querySelector('.business-utilization-table');
+      const row = [...(table?.querySelectorAll('tbody tr') ?? [])].find(item => item.textContent?.includes('QA Time Entry Preparer'));
+      const headers = [...(table?.querySelectorAll('thead th') ?? [])].map(item => item.textContent?.trim());
+      return headers.includes('Recorded') && headers.includes('Approved') && headers.includes('Nonbillable') &&
+        !!row && row.textContent?.includes('90 min') && row.textContent?.includes('60 min') &&
+        row.textContent?.includes('150.00%') && row.textContent?.includes('Over capacity') && row.textContent?.includes('30 min');
+    })()`);
+    const utilizationEvidence = await tabA.evaluate<string>(`(() => {
+      const panel = document.querySelector(${JSON.stringify(practiceSelector)});
+      return [...(panel?.querySelectorAll('.business-utilization-table tbody tr') ?? [])]
+        .find(item => item.textContent?.includes('QA Time Entry Preparer'))?.textContent?.replace(/\\s+/g, ' ').trim() ?? '';
+    })()`);
+    assert.match(utilizationEvidence, /150\.00%.*Over capacity.*30 min/, 'the approved 90 minutes against 60 available is visibly identified as 150% utilization and 30 minutes over capacity');
   } catch (error) {
     const diagnostics = await Promise.allSettled([readPracticeDiagnostics(tabA, fixture.engagementId), readPracticeDiagnostics(tabB, fixture.engagementId)]);
     const uiDiagnostics = diagnostics.map((result, index) => `browser${index + 1}=${result.status === 'fulfilled' ? result.value : 'diagnostics unavailable'}`).join(' ');

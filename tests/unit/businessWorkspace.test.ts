@@ -3991,6 +3991,47 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
   assert.equal(practiceData.body.profitability.phases.reduce((sum: bigint, phase: any) => sum + BigInt(phase.chargeOutValueMinor), 0n), 295000n,
     'residual allocation makes displayed phase totals reconcile to the once-rounded engagement total');
 
+  // PRC-002: explicit inclusive Qatar-date utilization reads distinguish recorded work,
+  // independently approved actuals, incomplete capacity, and over-capacity work.
+  const preparerUtilizationPath = `${practicePath}/utilization?from=${planDate}&to=${planDate}&staffMemberId=${preparerStaff.body.result.staffMemberId}`;
+  const preparerUtilization = await call(preparerUtilizationPath, { headers: preparerHeaders });
+  assert.equal(preparerUtilization.response.status, 200, JSON.stringify(preparerUtilization.body));
+  assert.deepEqual(preparerUtilization.body.period, { from: planDate, to: planDate, timezone: 'Asia/Qatar', inclusive: true });
+  assert.equal(preparerUtilization.body.availableMinutes, 360, 'eight scheduled hours less two approved leave hours are available');
+  assert.equal(preparerUtilization.body.approvedMinutes, 510, 'only independently approved entries count as approved actual time');
+  assert.equal(preparerUtilization.body.approvedBillableMinutes, 510);
+  assert.equal(preparerUtilization.body.approvedNonbillableMinutes, 0);
+  assert.ok(preparerUtilization.body.recordedMinutes > preparerUtilization.body.approvedMinutes,
+    'draft and submitted work is visible as recorded without inflating approved actuals');
+  assert.equal(preparerUtilization.body.utilizationBps, 14167, 'approved billable work above capacity remains above 100%, rounded to basis points');
+  assert.equal(preparerUtilization.body.resultReason, 'CALCULATED');
+  assert.match(preparerUtilization.body.sourceHash, /^[a-f0-9]{64}$/);
+  assert.ok(preparerUtilization.body.calculatedAt && preparerUtilization.body.sourceUpdatedAt,
+    'the response exposes calculation and underlying-source freshness timestamps');
+  const preparerCannotReadColleagueUtilization = await call(`${practicePath}/utilization?from=${planDate}&to=${planDate}&staffMemberId=${secondPartnerStaff.body.result.staffMemberId}`, { headers: preparerHeaders });
+  assert.equal(preparerCannotReadColleagueUtilization.response.status, 403, 'preparer reads are restricted to their own staff record');
+  const missingCapacityUtilization = await call(`${practicePath}/utilization?from=${planDate}&to=2026-10-07&staffMemberId=${preparerStaff.body.result.staffMemberId}`, { headers: preparerHeaders });
+  assert.equal(missingCapacityUtilization.response.status, 200, JSON.stringify(missingCapacityUtilization.body));
+  assert.equal(missingCapacityUtilization.body.resultReason, 'MISSING_CAPACITY');
+  assert.equal(missingCapacityUtilization.body.utilizationBps, null, 'a partial capacity denominator never produces a misleading percentage');
+  assert.deepEqual(missingCapacityUtilization.body.missingCapacityDates, ['2026-10-07']);
+  const zeroCapacityStaff = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'staff.create', payload: {
+      displayName: 'Zero Capacity Utilization Staff', naturalPersonKey: `TEST-ZERO-CAPACITY-${crypto.randomUUID()}`,
+      email: `zero.capacity.${crypto.randomUUID()}@example.invalid`, grade: 'ASSOCIATE' } }
+  }, approverHeaders);
+  assert.equal(zeroCapacityStaff.response.status, 200, JSON.stringify(zeroCapacityStaff.body));
+  const zeroCapacitySet = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'staffing.availability.set', payload: {
+      staffMemberId: zeroCapacityStaff.body.result.staffMemberId, workDate: planDate, scheduledMinutes: 0 } }
+  }, approverHeaders);
+  assert.equal(zeroCapacitySet.response.status, 200, JSON.stringify(zeroCapacitySet.body));
+  const zeroCapacityUtilization = await call(`${practicePath}/utilization?from=${planDate}&to=${planDate}&staffMemberId=${zeroCapacityStaff.body.result.staffMemberId}`, { headers: approverHeaders });
+  assert.equal(zeroCapacityUtilization.response.status, 200, JSON.stringify(zeroCapacityUtilization.body));
+  assert.equal(zeroCapacityUtilization.body.availableMinutes, 0);
+  assert.equal(zeroCapacityUtilization.body.utilizationBps, null);
+  assert.equal(zeroCapacityUtilization.body.resultReason, 'ZERO_AVAILABILITY');
+
   // PRC-006: the firm trial-balance export renders from an immutable source snapshot.
   const exportRequest = await post(`/api/workspaces/${workspaceId}/commands`, {
     idempotencyKey: crypto.randomUUID(), command: { type: 'practice.export-report', payload: {

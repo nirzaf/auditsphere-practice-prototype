@@ -701,3 +701,33 @@ isolated local Worker/SQLite workspace and two synthetic browser actors. These
 results do not validate remote D1, Cloudflare performance, or production
 deployment. The complete 46-story epic and the open US-SYS-005 Cloudflare
 load, alert, sandbox-restore, and trusted-ingestion criteria remain incomplete.
+
+### PRC-002 capacity-adjusted utilization API and dashboard — 2026-10-07
+
+The Worker now exposes the explicit inclusive Qatar-date read contract at
+`GET /api/workspaces/{workspaceId}/practice/utilization`. It returns recorded
+and approved minutes separately, splits approved billable/nonbillable actuals,
+subtracts approved leave once from scheduled capacity, lists missing daily
+capacity dates, and includes calculation time, last source update and a source
+hash. Preparers can read only their own staff record; internal reviewers can
+read workspace staff. Zero availability returns a null percentage and
+`ZERO_AVAILABILITY`; missing dates return a null percentage and
+`MISSING_CAPACITY`; over-capacity percentages remain above 100%.
+
+The dashboard displays recorded, approved, billable, nonbillable and available
+minutes, the approved-leave calculation, source freshness, missing dates and an
+explicit over-capacity status. A two-browser Chromium journey drove the visible
+Qatar one-day period with 90 approved billable minutes and 60 available minutes;
+it displayed 150.00% and a 30-minute over-capacity badge. The Worker integration
+also exercised 480 scheduled less 120 approved leave, pending time excluded
+from approved actuals, missing-capacity dates, zero availability, source hash
+and preparer-to-colleague denial.
+
+Verification on this local working tree: `npm run lint`, `npm run build`,
+`npm run cloud:typecheck`, `git diff --check`, full unit suite (**539/539**
+across 106 suites), the focused Worker integration (**1/1**), the focused PRC
+Chromium journey (**1/1**), and the full serialized Chromium suite (**31/31**).
+The browser/Worker runs use synthetic records, an in-memory SQLite D1 adapter,
+and local Chromium; they do not establish remote D1 compatibility, Cloudflare
+runtime performance, or production deployment. US-PRC-002 and the full
+46-story epic remain open for remaining acceptance and operational evidence.

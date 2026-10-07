@@ -246,6 +246,16 @@
 .business-tb-fieldset { min-width: 0; display: grid; gap: 12px; margin: 0; padding: 14px; border: 1px solid #d7e0e8; border-radius: 9px; }
 .business-tb-fieldset legend { padding: 0 6px; color: var(--ink); font-weight: 700; }
 .business-tb-preview-wrap, .business-tb-table-wrap { width: 100%; min-width: 0; overflow-x: auto; overscroll-behavior-inline: contain; border: 1px solid #d7e0e8; border-radius: 8px; }
+.business-utilization-table-wrap { width: 100%; min-width: 0; overflow-x: auto; overscroll-behavior-inline: contain; border: 1px solid #d7e0e8; border-radius: 8px; }
+.business-utilization-table { min-width: 900px; }
+.business-utilization-table th, .business-utilization-table td { max-width: 260px; padding: 9px 11px; border-top: 1px solid #e2e8f0; vertical-align: top; overflow-wrap: anywhere; }
+.business-utilization-table thead th { border-top: 0; background: #f8fafc; color: #17334a; font-weight: 700; text-align: left; }
+.business-utilization-table tbody th { text-align: left; }
+.business-utilization-table tbody th small, .business-utilization-table td small { display: block; margin-top: 4px; color: #496174; font-weight: 400; line-height: 1.4; }
+.business-utilization-over-capacity { margin: 5px 0 0; }
+.business-utilization-missing { max-width: 220px; margin-top: 6px; overflow-wrap: anywhere; }
+.business-utilization-missing summary { min-height: 44px; display: flex; align-items: center; cursor: pointer; color: #17334a; }
+.business-utilization-missing ul { max-height: 180px; overflow-y: auto; margin: 4px 0; padding-inline-start: 20px; }
 .business-tb-preview, .business-tb-data-table { width: 100%; border-collapse: collapse; text-align: left; font-size: .88rem; }
 .business-tb-preview { min-width: 540px; }
 .business-tb-data-table { min-width: 760px; }

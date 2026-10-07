@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import type { BusinessContextResponse, BusinessEngagementOption, BusinessFileMetadata, BusinessWorkspacePreference } from '../../shared/api/business';
 import { downloadBusinessFileVersion, getBusinessPracticeWorkspace, newBusinessIdempotencyKey, runBusinessCommand } from '../../services/businessWorkspace';
+import { StatusBadge } from '../common/StatusBadge';
 
 type Account = { id: string; code: string; name: string; accountType: string; normalSide: string; postingAllowed: number | boolean; active: number | boolean; controlType: string };
 type Staff = { id: string; displayName: string; grade: string };
@@ -9,7 +10,8 @@ type PracticeData = {
   staff: Staff[]; rates: Array<Record<string, unknown>>; timeEntries: TimeEntry[];
   fsliCatalog: Array<{ id: string; code: string; name: string; statement: string }>;
   procedureCatalog: Array<{ id: string; ordinal: number; title: string; status: string; fsliId: string; fsliCode: string | null }>;
-  utilization: Array<{ staffMemberId: string; displayName?: string; grade?: string; scheduledMinutes: number; leaveMinutes: number; availableMinutes: number; recordedMinutes: number; approvedBillableMinutes: number; approvedNonbillableMinutes: number; utilizationBps: number | null; resultReason: string; missingCapacityDates: string[] }>;
+  utilization: Array<{ staffMemberId: string; displayName?: string; grade?: string; scheduledMinutes: number; leaveMinutes: number; availableMinutes: number; recordedMinutes: number; approvedMinutes: number; approvedBillableMinutes: number; approvedNonbillableMinutes: number; utilizationBps: number | null; resultReason: string; missingCapacityDates: string[]; sourceUpdatedAt: string | null }>;
+  utilizationCalculatedAt: string;
   accounts: Account[]; accountingPeriods: Array<{ id: string; startDate: string; endDate: string; status: string }>;
   journals: Array<{ id: string; version: number; number: string; postingDate: string; description: string; sourceType: string; status: string; debitTotalMinor: string; creditTotalMinor: string }>;
   expenses: Array<{ id: string; date: string; payee: string; category: string; amountMinor: string; description: string; status: string }>;
@@ -42,6 +44,7 @@ const phases = ['COMMERCIAL', 'PLANNING', 'FIELDWORK', 'REVIEW', 'REPORTING', 'A
 const grades = ['PARTNER', 'MANAGER', 'SENIOR', 'ASSOCIATE'];
 function qatarToday(): string { return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Qatar', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date()); }
 function qatarTomorrow(): string { const date = new Date(`${qatarToday()}T00:00:00Z`); date.setUTCDate(date.getUTCDate() + 1); return date.toISOString().slice(0, 10); }
+function formatQatarTimestamp(value: string): string { return new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Qatar', dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value)); }
 function money(value: string | number | null | undefined): string {
   if (value === null || value === undefined || !/^-?\d+$/.test(String(value))) return '—';
   const n = BigInt(String(value)); const sign = n < 0n ? '−' : ''; const abs = n < 0n ? -n : n;
@@ -286,11 +289,29 @@ export function BusinessPracticePanel({ workspaceId, selected, context, engageme
 
       {(data.utilization.length > 0 || data.profitability) && <div className="business-delivery-grid">
         {data.utilization.length > 0 && <div className="business-record-list"><h3>Utilization · approved billable time against available capacity</h3>
-          <div className="business-table-wrap"><table className="business-table"><thead><tr><th>Staff / grade</th><th>Approved billable</th><th>Available</th><th>Utilization</th></tr></thead><tbody>
-            {data.utilization.map(row => <tr key={row.staffMemberId}><td>{row.displayName ?? row.staffMemberId} · {row.grade ?? '—'}</td><td>{row.approvedBillableMinutes} min</td><td>{row.availableMinutes} min</td>
-              <td>{row.utilizationBps === null ? `Not calculated · ${row.resultReason.replaceAll('_', ' ').toLowerCase()}` : `${(row.utilizationBps / 100).toFixed(2)}%`}</td></tr>)}
+          <p className="business-muted">Inclusive Qatar work dates {data.period.from} to {data.period.to}. Calculated {formatQatarTimestamp(data.utilizationCalculatedAt)}.</p>
+          <div className="business-utilization-table-wrap"><table className="business-table business-utilization-table"><caption className="business-sr-only">Recorded and approved time compared with scheduled capacity after approved leave.</caption><thead><tr>
+            <th scope="col">Staff / grade</th><th scope="col">Recorded</th><th scope="col">Approved</th><th scope="col">Billable</th><th scope="col">Nonbillable</th><th scope="col">Available</th><th scope="col">Utilization / status</th>
+          </tr></thead><tbody>
+            {data.utilization.map(row => {
+              const exceedsCapacity = row.resultReason === 'CALCULATED' && row.approvedBillableMinutes > row.availableMinutes;
+              const overCapacityMinutes = exceedsCapacity ? row.approvedBillableMinutes - row.availableMinutes : 0;
+              const roundedUtilizationPercent = row.utilizationBps === null ? null : (row.utilizationBps / 100).toFixed(2);
+              const utilizationLabel = roundedUtilizationPercent === '100.00' && exceedsCapacity ? '>100.00%' : `${roundedUtilizationPercent}%`;
+              return <tr key={row.staffMemberId}><th scope="row">{row.displayName ?? row.staffMemberId}<small>{row.grade ?? '—'}</small></th>
+                <td>{row.recordedMinutes} min<small>Includes unapproved entries</small></td><td>{row.approvedMinutes} min</td>
+                <td>{row.approvedBillableMinutes} min</td><td>{row.approvedNonbillableMinutes} min</td><td>{row.availableMinutes} min
+                  <small>{row.scheduledMinutes} scheduled − {row.leaveMinutes} approved leave</small></td>
+                <td>{row.utilizationBps === null
+                  ? <><StatusBadge status={row.resultReason === 'ZERO_AVAILABILITY' ? 'Not applicable' : 'Missing capacity'} kind={row.resultReason === 'ZERO_AVAILABILITY' ? 'neutral' : 'blocked'} />
+                    {row.missingCapacityDates.length > 0 && <details className="business-utilization-missing"><summary>View {row.missingCapacityDates.length} missing dates</summary><ul>{row.missingCapacityDates.map(date => <li key={date}>{date}</li>)}</ul></details>}</>
+                  : <>{utilizationLabel}{overCapacityMinutes > 0 && <p className="business-utilization-over-capacity"><StatusBadge status="Over capacity" kind="failed" detail={`${overCapacityMinutes} min`} title={`Approved billable time exceeds available capacity by ${overCapacityMinutes} minutes.`} /></p>}</>}
+                  <small>{row.sourceUpdatedAt ? `Source updated ${formatQatarTimestamp(row.sourceUpdatedAt)}` : 'No capacity or time source rows yet'}</small>
+                </td>
+              </tr>;
+            })}
           </tbody></table></div>
-          <small>Approved billable minutes divided by explicitly scheduled capacity after approved leave. Missing capacity is shown, never assumed.</small></div>}
+          <small>Utilization = approved billable minutes ÷ available minutes. Unapproved entries appear in Recorded only; missing capacity is listed and never assumed.</small></div>}
         {data.profitability && <div className="business-record-list"><h3>Engagement profitability · current approved budget and time</h3>
           <p>Accepted fee {money(data.profitability.feeMinor)} · charge-out value {money(data.profitability.chargeOutValueMinor)} · margin {money(data.profitability.profitabilityMinor)}</p>
           <small>{data.profitability.metricLabel} · {data.profitability.pendingMinutes} pending minutes · billed {money(data.profitability.billedMinor)} · collected {money(data.profitability.collectedMinor)}.</small>

@@ -412,23 +412,43 @@ async function buildTimeCorrection(env:Env,workspaceId:string,context:BusinessCo
 
 async function utilizationFor(env:Env,workspaceId:string,staffMemberId:string,from:string,to:string){
   const days=dateRange(from,to);
-  const availability=await env.DB.prepare(`SELECT work_date,scheduled_minutes,approved_leave_minutes FROM staff_availability
-    WHERE workspace_id=? AND staff_member_id=? AND work_date BETWEEN ? AND ? ORDER BY work_date`).bind(workspaceId,staffMemberId,from,to).all<{work_date:string;scheduled_minutes:number;approved_leave_minutes:number}>();
+  const availability=await env.DB.prepare(`SELECT work_date,scheduled_minutes,approved_leave_minutes,updated_at FROM staff_availability
+    WHERE workspace_id=? AND staff_member_id=? AND work_date BETWEEN ? AND ? ORDER BY work_date`).bind(workspaceId,staffMemberId,from,to).all<{work_date:string;scheduled_minutes:number;approved_leave_minutes:number;updated_at:string}>();
   const byDate=new Map((availability.results??[]).map(row=>[row.work_date,row]));
   const missing=days.filter(day=>!byDate.has(day));
   let scheduled=0,leave=0;
   for(const row of availability.results??[]){scheduled+=Number(row.scheduled_minutes);leave+=Number(row.approved_leave_minutes);}
-  const time=await env.DB.prepare(`SELECT COALESCE(SUM(CASE WHEN billable=1 THEN minutes ELSE 0 END),0) AS billable,
-      COALESCE(SUM(CASE WHEN billable=0 THEN minutes ELSE 0 END),0) AS nonbillable,
-      COALESCE(SUM(minutes),0) AS total
-    FROM firm_time_entries t WHERE t.workspace_id=? AND t.staff_member_id=? AND t.work_date BETWEEN ? AND ? AND t.status='APPROVED'
+  const time=await env.DB.prepare(`SELECT COALESCE(SUM(minutes),0) AS recorded,
+      COALESCE(SUM(CASE WHEN status='APPROVED' THEN minutes ELSE 0 END),0) AS approved,
+      COALESCE(SUM(CASE WHEN status='APPROVED' AND billable=1 THEN minutes ELSE 0 END),0) AS billable,
+      COALESCE(SUM(CASE WHEN status='APPROVED' AND billable=0 THEN minutes ELSE 0 END),0) AS nonbillable,
+      MAX(updated_at) AS updated_at
+    FROM firm_time_entries t WHERE t.workspace_id=? AND t.staff_member_id=? AND t.work_date BETWEEN ? AND ? AND t.status<>'REVERSED'
       AND NOT EXISTS(SELECT 1 FROM firm_time_corrections c WHERE c.workspace_id=t.workspace_id AND c.original_time_entry_id=t.id)`)
-    .bind(workspaceId,staffMemberId,from,to).first<{billable:number;nonbillable:number;total:number}>();
+    .bind(workspaceId,staffMemberId,from,to).first<{recorded:number;approved:number;billable:number;nonbillable:number;updated_at:string|null}>();
   const available=Math.max(0,scheduled-leave),billable=Number(time?.billable??0),nonbillable=Number(time?.nonbillable??0);
   const reason=missing.length?'MISSING_CAPACITY':available===0?'ZERO_AVAILABILITY':'CALCULATED';
+  const sourceUpdatedAt=[...(availability.results??[]).map(row=>row.updated_at),time?.updated_at]
+    .filter((value):value is string=>Boolean(value)).sort().at(-1)??null;
   return {staffMemberId,from,to,scheduledMinutes:scheduled,leaveMinutes:leave,availableMinutes:available,
-    recordedMinutes:Number(time?.total??0),approvedBillableMinutes:billable,approvedNonbillableMinutes:nonbillable,
-    utilizationBps:reason==='CALCULATED'?Math.round(billable*10000/available):null,resultReason:reason,missingCapacityDates:missing};
+    recordedMinutes:Number(time?.recorded??0),approvedMinutes:Number(time?.approved??0),approvedBillableMinutes:billable,approvedNonbillableMinutes:nonbillable,
+    utilizationBps:reason==='CALCULATED'?Math.round(billable*10000/available):null,resultReason:reason,missingCapacityDates:missing,sourceUpdatedAt};
+}
+
+/** Explicit, staff-scoped read API for a utilization period. Work dates are inclusive Qatar local dates. */
+export async function getBusinessUtilization(env:Env,workspaceId:string,context:BusinessContext,params:URLSearchParams):Promise<Record<string,unknown>>{
+  internal(context);
+  const from=params.get('from')??'',to=params.get('to')??'',staffMemberId=params.get('staffMemberId')??'';
+  dateRange(from,to,366);
+  if(!staffMemberId)throw new ApiError('BAD_REQUEST','A staffMemberId is required for a utilization query.');
+  if(context.actor.persona==='PREPARER'&&context.actor.staffMemberId!==staffMemberId)
+    throw new ApiError('FORBIDDEN_SCOPE','Preparers can view utilization only for their own time.');
+  const staff=await env.DB.prepare(`SELECT display_name AS displayName,grade FROM staff_members WHERE workspace_id=? AND id=?`)
+    .bind(workspaceId,staffMemberId).first<{displayName:string;grade:string}>();
+  if(!staff)throw new ApiError('NOT_FOUND','The staff member is not available in this workspace.');
+  const row=await utilizationFor(env,workspaceId,staffMemberId,from,to);
+  const sourceHash=await sha256Hex(JSON.stringify(row));
+  return {period:{from,to,timezone:'Asia/Qatar',inclusive:true},...row,...staff,sourceHash,calculatedAt:new Date().toISOString()};
 }
 
 async function buildCaptureUtilization(env:Env,workspaceId:string,context:BusinessContext,command:Extract<BusinessPracticeCommand,{type:'practice.capture-utilization-report'}>,now:string){
@@ -437,6 +457,10 @@ async function buildCaptureUtilization(env:Env,workspaceId:string,context:Busine
   const staffIds=p.staffMemberIds??(context.actor.persona==='PREPARER'&&context.actor.staffMemberId?[context.actor.staffMemberId]:allStaff.map(row=>row.id));
   if(context.actor.persona==='PREPARER'&&staffIds.some(staffId=>staffId!==context.actor.staffMemberId))throw new ApiError('FORBIDDEN_SCOPE','Preparers can capture utilization only for their own time.');
   if(new Set(staffIds).size!==staffIds.length)throw new ApiError('VALIDATION_FAILED','A staff member can appear only once in a utilization snapshot.');
+  if(staffIds.length===0)throw new ApiError('VALIDATION_FAILED','Select at least one staff member for a utilization snapshot.');
+  const scopedStaff=await env.DB.prepare(`SELECT id FROM staff_members WHERE workspace_id=? AND id IN (${staffIds.map(()=>'?').join(',')})`)
+    .bind(workspaceId,...staffIds).all<{id:string}>();
+  if((scopedStaff.results??[]).length!==staffIds.length)throw new ApiError('NOT_FOUND','One or more staff members are not available in this workspace.');
   const rows=[] as Array<Awaited<ReturnType<typeof utilizationFor>>>;
   for(const staffId of staffIds)rows.push(await utilizationFor(env,workspaceId,staffId,p.from,p.to));
   if(rows.some(row=>row.resultReason==='MISSING_CAPACITY'))throw new ApiError('GATE_BLOCKED','A reproducible utilization snapshot requires capacity for every inclusive calendar date; use the live dashboard to inspect missing dates.',{staff:rows.filter(row=>row.resultReason==='MISSING_CAPACITY')});
@@ -981,6 +1005,7 @@ async function buildPracticeReportExport(env:Env,workspaceId:string,context:Busi
 
 export async function getBusinessPracticeWorkspace(env:Env,workspaceId:string,context:BusinessContext,params:URLSearchParams):Promise<Record<string,unknown>>{
   internal(context);
+  const calculatedAt=new Date().toISOString();
   const today=qatarDate(),from=params.get('from')??`${today.slice(0,4)}-01-01`,to=params.get('to')??today;
   dateRange(from,to,366);
   const engagementId=params.get('engagementId')??context.scope.engagementId??undefined;
@@ -1060,7 +1085,7 @@ export async function getBusinessPracticeWorkspace(env:Env,workspaceId:string,co
       FROM payment_allocations a JOIN payments p ON p.workspace_id=a.workspace_id AND p.id=a.payment_id JOIN invoices i ON i.workspace_id=a.workspace_id AND i.id=a.invoice_id
       WHERE a.workspace_id=? ORDER BY a.allocated_on DESC,a.id DESC LIMIT 200`).bind(workspaceId).all<Record<string,unknown>>()
   ]);
-  return {period:{from,to},engagement:engagement?{id:engagement.id,version:engagement.version,clientId:engagement.client_id,code:engagement.code,
+  return {period:{from,to,timezone:'Asia/Qatar',inclusive:true},utilizationCalculatedAt:calculatedAt,engagement:engagement?{id:engagement.id,version:engagement.version,clientId:engagement.client_id,code:engagement.code,
     lifecycleState:engagement.lifecycle_state,contractFeeMinor:String(engagement.contract_fee_minor),activeProposalVersionId:engagement.active_proposal_version_id}:null,
     staff:staffRows,rates:rates.results??[],timeEntries:entryItems,utilization,fsliCatalog:fsliCatalog.results??[],procedureCatalog:procedures.results??[],
     utilizationNotes:{definition:'Approved billable minutes divided by explicitly scheduled capacity after approved leave. Missing daily capacity is shown, never assumed.',payrollCostAvailable:false},

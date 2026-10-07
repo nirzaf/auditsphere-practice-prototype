@@ -96,7 +96,7 @@ import { getBusinessDeliveryWorkspace } from './businessDelivery';
 import { getBusinessCapacity, getBusinessPlanningWorkspace, listBusinessEngagementFolders } from './businessPlanning';
 import { getBusinessPlanningReadiness, getBusinessTrialBalanceImport, getBusinessTrialBalancePreview, getBusinessTrialBalanceWorkspace } from './businessTb';
 import { getBusinessFinancialStatements, getBusinessFsliSourceLines, getBusinessFieldworkWorkspace, getBusinessSamplingPlan, getBusinessSamplingPopulation, getBusinessFieldworkChanges } from './businessFieldwork';
-import { getBusinessPracticeWorkspace } from './businessPractice';
+import { getBusinessPracticeWorkspace, getBusinessUtilization } from './businessPractice';
 import { getBusinessArchiveExport, getBusinessArchiveStatus, getBusinessOpinionPreview, getBusinessReleasedReportProvenance, getBusinessReportingWorkspace } from './businessReportingQuery';
 import { getBusinessWorkflow } from './businessWorkflow';
 
@@ -465,6 +465,12 @@ const handleBusinessCapacity = async (ctx: RouteContext): Promise<Response> => {
 const handleBusinessPracticeWorkspace = async (ctx: RouteContext): Promise<Response> => {
   const context = await resolveBusinessContext(ctx.env, ctx.params.workspaceId, ctx.request);
   const result = await getBusinessPracticeWorkspace(ctx.env, ctx.params.workspaceId, context, ctx.url.searchParams);
+  return jsonResponse(result, 200, ctx.requestId);
+};
+
+const handleBusinessUtilization = async (ctx: RouteContext): Promise<Response> => {
+  const context = await resolveBusinessContext(ctx.env, ctx.params.workspaceId, ctx.request);
+  const result = await getBusinessUtilization(ctx.env, ctx.params.workspaceId, context, ctx.url.searchParams);
   return jsonResponse(result, 200, ctx.requestId);
 };
 
@@ -1012,6 +1018,7 @@ const router = createRouter()
   .get('/api/workspaces/:workspaceId/engagements/:engagementId/planning-readiness', handleBusinessPlanningReadiness)
   .get('/api/workspaces/:workspaceId/engagements/:engagementId/folders', handleBusinessEngagementFolders)
   .get('/api/workspaces/:workspaceId/capacity', handleBusinessCapacity)
+  .get('/api/workspaces/:workspaceId/practice/utilization', handleBusinessUtilization)
   .get('/api/workspaces/:workspaceId/practice', handleBusinessPracticeWorkspace)
   .get('/api/workspaces/:workspaceId/engagements/:engagementId/reporting-workspace', handleBusinessReportingWorkspace)
   .get('/api/workspaces/:workspaceId/engagements/:engagementId/archive-status', handleBusinessArchiveStatus)
