@@ -67,9 +67,12 @@ async function storeDocx(env:Env,job:Job,payload:Payload,number:string,bytes:Uin
 async function reportCandidate(env:Env,job:Job,p:Payload,commit:Commit){
   const row=await env.DB.prepare(`SELECT c.id,c.client_id,c.engagement_id,c.opinion_version_id,c.financial_statement_approval_id,c.signature_asset_id,c.proposed_report_date,c.dependency_hash,c.status,
       e.code,e.period_start,e.period_end,e.engagement_type,e.lifecycle_state,e.active_tb_version_id,e.active_mapping_version_id,e.active_materiality_version_id,e.approved_planning_version_id,e.standards_profile_id,
+      sp.name AS standards_profile_name,sp.reporting_framework,sp.presentation_edition,sp.early_adoption,sp.isa_220_edition,sp.isa_570_edition,
       c0.legal_name AS client_name,fp.legal_name AS firm_name,o.srm_version_id AS opinion_srm_version_id,o.report_type,o.category,o.aup_report_type,o.aup_procedure_summary,o.rationale,o.materiality_assessment,o.pervasiveness_assessment,o.basis_heading,o.basis_text,o.going_concern_reporting_text,o.additional_sections_json,
       fs.statement_snapshot_id,a.draft_id,a.source_hash AS approval_hash,d.version AS draft_version,d.status AS draft_status,d.source_hash AS draft_hash,d.accounting_policies,d.oci_applicable,d.completeness_checklist_json,d.id AS draft_id
-    FROM report_candidates c JOIN engagements e ON e.workspace_id=c.workspace_id AND e.id=c.engagement_id JOIN clients c0 ON c0.workspace_id=e.workspace_id AND c0.id=e.client_id
+    FROM report_candidates c JOIN engagements e ON e.workspace_id=c.workspace_id AND e.id=c.engagement_id
+    JOIN standards_profiles sp ON sp.workspace_id=e.workspace_id AND sp.id=e.standards_profile_id
+    JOIN clients c0 ON c0.workspace_id=e.workspace_id AND c0.id=e.client_id
     JOIN firm_profiles fp ON fp.workspace_id=e.workspace_id JOIN opinion_versions o ON o.workspace_id=c.workspace_id AND o.id=c.opinion_version_id
     JOIN financial_statement_approvals a ON a.workspace_id=c.workspace_id AND a.id=c.financial_statement_approval_id
     JOIN financial_statement_drafts d ON d.workspace_id=a.workspace_id AND d.id=a.draft_id
@@ -120,18 +123,46 @@ async function reportCandidate(env:Env,job:Job,p:Payload,commit:Commit){
     pervasivenessAssessment:String(row.pervasiveness_assessment),basisHeading:row.basis_heading===null?null:String(row.basis_heading),basisText:row.basis_text===null?null:String(row.basis_text),
     goingConcernReportingText:row.going_concern_reporting_text===null?null:String(row.going_concern_reporting_text),additionalSections:JSON.parse(String(row.additional_sections_json))},affected);
   const byStatement=(name:string)=>lines.filter(line=>line.statement===name).map(line=>({label:`${line.code} · ${line.name}`,current:money(line.current_adjusted_minor),comparative:line.prior_minor===null?undefined:money(line.prior_minor)}));
-  const assetEquity=lines.filter(line=>line.statement==='BALANCE_SHEET'&&line.category==='ASSET').reduce((n,line)=>n+BigInt(line.current_adjusted_minor),0n);
-  const liabilities=lines.filter(line=>line.statement==='BALANCE_SHEET'&&line.category==='LIABILITY').reduce((n,line)=>n+BigInt(line.current_adjusted_minor),0n);
-  const equity=lines.filter(line=>line.statement==='BALANCE_SHEET'&&line.category==='EQUITY').reduce((n,line)=>n+BigInt(line.current_adjusted_minor),0n);
-  const revenue=lines.filter(line=>line.statement==='PROFIT_LOSS'&&line.category==='REVENUE').reduce((n,line)=>n+BigInt(line.current_adjusted_minor),0n);
-  const expenses=lines.filter(line=>line.statement==='PROFIT_LOSS'&&line.category==='EXPENSE').reduce((n,line)=>n+BigInt(line.current_adjusted_minor),0n);
-  if(assetEquity!==liabilities+equity+revenue-expenses)throw new Error('The approved financial statement snapshot does not cross-cast to zero.');
+  const sumLines=(predicate:(line:Record<string,any>)=>boolean,field:'current_adjusted_minor'|'prior_minor')=>lines.filter(predicate)
+    .reduce((total,line)=>total+BigInt(line[field]??0),0n);
+  const categoryTotal=(statementName:string,category:string,field:'current_adjusted_minor'|'prior_minor')=>sumLines(line=>line.statement===statementName&&line.category===category,field);
+  const hasComparatives=lines.every(line=>line.prior_minor!==null);
+  const assetEquity=categoryTotal('BALANCE_SHEET','ASSET','current_adjusted_minor');
+  const liabilities=categoryTotal('BALANCE_SHEET','LIABILITY','current_adjusted_minor');
+  const equity=categoryTotal('BALANCE_SHEET','EQUITY','current_adjusted_minor');
+  const revenue=categoryTotal('PROFIT_LOSS','REVENUE','current_adjusted_minor');
+  const expenses=categoryTotal('PROFIT_LOSS','EXPENSE','current_adjusted_minor');
+  const currentResult=revenue-expenses;
+  if(assetEquity!==liabilities+equity+currentResult)throw new Error('The approved financial statement snapshot does not cross-cast to zero.');
+  const comparativeTotals=hasComparatives?{
+    assets:categoryTotal('BALANCE_SHEET','ASSET','prior_minor'),liabilities:categoryTotal('BALANCE_SHEET','LIABILITY','prior_minor'),
+    equity:categoryTotal('BALANCE_SHEET','EQUITY','prior_minor'),revenue:categoryTotal('PROFIT_LOSS','REVENUE','prior_minor'),
+    expenses:categoryTotal('PROFIT_LOSS','EXPENSE','prior_minor')
+  }:null;
+  const priorResult=comparativeTotals?comparativeTotals.revenue-comparativeTotals.expenses:null;
+  if(comparativeTotals&&comparativeTotals.assets!==comparativeTotals.liabilities+comparativeTotals.equity+priorResult!)
+    throw new Error('The approved comparative financial statement snapshot does not cross-cast to zero.');
+  const totalRow=(label:string,current:bigint,comparative:bigint|null)=>({label,current:money(current),comparative:comparative===null?undefined:money(comparative)});
+  const balanceSheetRows=[...byStatement('BALANCE_SHEET'),
+    totalRow('Total assets',assetEquity,comparativeTotals?.assets??null),
+    totalRow('Total liabilities',liabilities,comparativeTotals?.liabilities??null),
+    totalRow('Total equity, including current-period result',equity+currentResult,comparativeTotals?comparativeTotals.equity+priorResult!:null),
+    totalRow('Total liabilities and equity',liabilities+equity+currentResult,comparativeTotals?comparativeTotals.liabilities+comparativeTotals.equity+priorResult!:null)];
+  const profitLossRows=[...byStatement('PROFIT_LOSS'),
+    totalRow('Total revenue',revenue,comparativeTotals?.revenue??null),
+    totalRow('Total expenses',expenses,comparativeTotals?.expenses??null),
+    totalRow('Profit or (loss) for the period',currentResult,priorResult)];
   const sections:ReportPdfSection[]=[...opinionSections,
-    {heading:'Statement of Financial Position',rows:byStatement('BALANCE_SHEET')},
-    {heading:'Statement of Profit or Loss and Other Comprehensive Income',rows:byStatement('PROFIT_LOSS')},
+    {heading:'Statement of Financial Position',rows:balanceSheetRows},
+    {heading:'Statement of Profit or Loss and Other Comprehensive Income',rows:profitLossRows},
     ...['CASH_FLOW','EQUITY_CHANGE','OCI'].filter(section=>supplements.some(line=>line.section===section)).map(section=>({heading:section.replaceAll('_',' '),rows:supplements.filter(line=>line.section===section).map(line=>({label:`${line.code} · ${line.label}`,current:money(line.current_minor),comparative:line.prior_minor===null?undefined:money(line.prior_minor),detail:String(line.rationale)}))})),
     {heading:'Approved Accounting Policies',paragraphs:[String(row.accounting_policies)]},
     ...notes.map(note=>({heading:`Note ${note.note_number} · ${note.title}`,paragraphs:[String(note.body),...(note.amount_minor===null?[]:[money(note.amount_minor)])]})),
+    {heading:'Approved framework and standards',paragraphs:[
+      `Financial reporting framework: ${row.reporting_framework}. Presentation edition: ${row.presentation_edition}${Number(row.early_adoption)===1?' (approved early adoption)':''}.`,
+      `Approved standards profile: ${row.standards_profile_name} · ${row.standards_profile_id}.`,
+      `ISA 220 edition: ${row.isa_220_edition}. ISA 570 edition: ${row.isa_570_edition}.`
+    ]},
     {heading:'Source and completeness',paragraphs:[`Statement snapshot ${row.statement_snapshot_id} · source ${pins.source_hash}.`,
       `Presentation profile ${row.standards_profile_id}. The statement set uses approved disclosures and supporting schedules; professional review remains required.`]}];
   const input:ReportingPdfInput={number:`REPORT-${row.code}-${String(p.proposedReportDate).replaceAll('-','')}`,

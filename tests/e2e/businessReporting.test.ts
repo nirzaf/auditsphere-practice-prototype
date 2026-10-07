@@ -812,22 +812,33 @@ it('US-REP-001–007 covers all report categories, representation, atomic releas
   assert.ok(reportContent.pageCount >= 2, 'the complete report and signature assets render across correctly numbered pages');
   for (const exactText of [
     'Independent Auditor’s Report · Qualified Opinion',
+    'QA Audit Partners WLL', 'QA Reporting Client WLL', '2025-01-01 to 2025-12-31', `Auditor’s report date: ${reportDate}`,
     'A single synthetic revenue presentation matter is material for this test report.',
     'Basis for Qualified Opinion',
     'A synthetic revenue source item is unsupported and remains unadjusted in this local test fixture.',
     'Affected financial statement lines',
     'QA-REV · Synthetic revenue', 'QAR 1000.00', 'comparative QAR 800.00',
     'Statement of Financial Position', 'QA-ASSET · Synthetic assets', 'QAR 2000.00', 'comparative QAR 1800.00',
+    'Total assets', 'Total liabilities and equity', 'QAR 2000.00', 'comparative QAR 1800.00',
     'Statement of Profit or Loss and Other Comprehensive Income',
+    'Total revenue', 'Total expenses', 'Profit or (loss) for the period',
     'CASH FLOW', 'QA-CF · Synthetic operating cash flow', 'QAR 250.00', 'comparative QAR 200.00',
     'EQUITY CHANGE', 'QA-EQ · Synthetic closing equity movement',
     'Approved Accounting Policies', 'Synthetic accounting policy disclosure for the local Worker-backed reporting browser acceptance journey.',
     'Note 1 · Synthetic basis of preparation', 'Synthetic statement note retained for local PDF rendering and hash verification.',
+    'Approved framework and standards', 'Financial reporting framework: IFRS for SMEs. Presentation edition: IAS1.',
+    `Approved standards profile: QA IFRS for SMEs profile · ${fixture.standardsProfileId}.`, 'ISA 220 edition: ISA 220 QA edition. ISA 570 edition: ISA 570 QA edition.',
     'Source and completeness', `Statement snapshot ${fixture.snapshotId} · source ${fixture.sourceHash}.`,
     `Presentation profile ${fixture.standardsProfileId}.`, 'professional review remains required.',
     'Partner approval assets displayed for review', 'Partner profile: QA Reporting Partner',
     'not a certificate-based digital signature or identity verification.'
   ]) assert.ok(normalizedReportText.includes(exactText.replace(/\s+/g, ' ')), `the persisted report PDF contains its required approved content: ${exactText}`);
+  const signaturePage = reportContent.pages.find(page => page.includes('Partner approval assets displayed for review'));
+  assert.ok(signaturePage, 'the rendered signature and seal block is placed on a readable PDF page');
+  assert.ok(signaturePage.includes('Partner profile: QA Reporting Partner'));
+  assert.ok(signaturePage.some(text => text.includes('not a certificate-based digital signature')));
+  assert.ok(signaturePage.some(text => text.includes(`Page `) && text.includes(` of ${reportContent.pageCount}`)),
+    'the signature page carries its matching page number');
   for (let page = 1; page <= reportContent.pageCount; page += 1) {
     assert.ok(normalizedReportText.includes(`REPORT-${fixture.engagementCode}-${reportDate.replaceAll('-', '')} · Page ${page} of ${reportContent.pageCount}`),
       `the report PDF includes the expected footer for page ${page}`);

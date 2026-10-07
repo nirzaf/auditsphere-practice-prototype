@@ -1,6 +1,6 @@
 import { inflateSync } from 'node:zlib';
 
-export type ExtractedPdfText = { pageCount: number; strings: string[]; text: string };
+export type ExtractedPdfText = { pageCount: number; pages: string[][]; strings: string[]; text: string };
 const WIN_ANSI_EXTENDED: Record<number, string> = {
   0x80: '€', 0x82: '‚', 0x83: 'ƒ', 0x84: '„', 0x85: '…', 0x86: '†', 0x87: '‡', 0x88: 'ˆ', 0x89: '‰',
   0x8a: 'Š', 0x8b: '‹', 0x8c: 'Œ', 0x8e: 'Ž', 0x91: '‘', 0x92: '’', 0x93: '“', 0x94: '”', 0x95: '•',
@@ -70,6 +70,7 @@ export function extractReportingPdfText(bytes: Uint8Array): ExtractedPdfText {
   if (!source.startsWith('%PDF-')) throw new Error('The report artifact is not a PDF document.');
 
   const pageCount = (source.match(/\/Type \/Page\b/g) ?? []).length;
+  const pages: string[][] = [];
   const strings: string[] = [];
   const streamMarkers = /\r?\nstream\r?\n/g;
   let marker: RegExpExecArray | null;
@@ -95,8 +96,11 @@ export function extractReportingPdfText(bytes: Uint8Array): ExtractedPdfText {
     else {
       continue;
     }
-    if (/\bBT\b/.test(content) && content.includes('Tj')) strings.push(...textFromContentStream(content));
+    if (/\bBT\b/.test(content) && content.includes('Tj')) {
+      const pageStrings=textFromContentStream(content);
+      if(pageStrings.length){pages.push(pageStrings);strings.push(...pageStrings);}
+    }
   }
 
-  return { pageCount, strings, text: strings.join('\n') };
+  return { pageCount, pages, strings, text: strings.join('\n') };
 }
