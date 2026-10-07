@@ -1378,17 +1378,20 @@ the rent, petty-cash disbursement/replenishment, account mapping, and Partner
 withdrawal accounting scenarios and their local support/custodian controls. Live
 source-document inspection and full epic acceptance remain open.
 
-## US-ENG-003 quote artifact content verification — 2026-10-08
+## US-ENG-003 quote and comprehensive proposal content verification — 2026-10-08
 
 **Verification:** `npx tsx --test --test-reporter=spec
 tests/unit/proposalDocument.test.ts` — 3/3; `git diff --check`.
 
-**Evidence:** The quote renderer test now inflates the generated PDF content
-streams and checks the actual output includes the synthetic client's legal name,
-reporting-period dates, complete scope, named timeline milestone, total QAR fee,
-and exact advance/final amounts for an odd-minor-unit fee. This supplements the
-existing one/two-page bound and actionable overflow failure. The rendered bytes
-remain deterministic for an identical proposal snapshot.
+**Evidence:** Renderer tests inflate the generated PDF content streams and check
+the actual output includes the synthetic client's legal name, reporting-period
+dates, complete scope, named timeline milestone, total QAR fee, and exact
+advance/final amounts for an odd-minor-unit fee. A comprehensive proposal places
+firm qualifications and the selected team on a separate page; its test verifies
+firm profile, credentials, portfolio, methodology, approved CV/evidence file
+names, fee totals, and both page-number footers. This supplements the quotation's
+one/two-page bound and actionable overflow failure. The rendered bytes remain
+deterministic for an identical proposal snapshot.
 
 **Boundary:** This verifies local synthetic PDF content, not visual page layout
 in an independent PDF viewer, all full-proposal content/overflow variants,

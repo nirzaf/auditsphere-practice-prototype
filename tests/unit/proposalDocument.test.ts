@@ -96,5 +96,25 @@ it('requires actual Partner-maintained credentials and portfolio in comprehensiv
     (error: unknown) => error instanceof ProposalDocumentError && error.code === 'FIRM_CREDENTIALS_REQUIRED');
   assert.throws(() => renderProposalPdf({ ...fullProposal, firm: { ...fullProposal.firm, industryPortfolioText: '' } }),
     (error: unknown) => error instanceof ProposalDocumentError && error.code === 'FIRM_PORTFOLIO_REQUIRED');
-  assert.match(new TextDecoder().decode(renderProposalPdf(fullProposal)), /%PDF/);
+  const bytes = renderProposalPdf(fullProposal);
+  assert.match(new TextDecoder().decode(bytes), /%PDF/);
+  assert.ok(pageCount(bytes) >= 2, 'a comprehensive proposal uses a separate qualifications/team page');
+  const renderedContent = decodedPdfStreams(bytes).join('\n');
+  for (const expected of [
+    fullProposal.firm.profileText,
+    fullProposal.firm.credentialsText!,
+    fullProposal.firm.industryPortfolioText!,
+    fullProposal.firm.methodologyText,
+    'Assigned Partner',
+    'partner-cv.pdf',
+    'firm-license.pdf',
+    'anonymized-experience.pdf',
+    'QAR 100,000.01',
+    'QAR 50,000.01',
+    'QAR 50,000.00',
+    'Page 1 of 2',
+    'Page 2 of 2'
+  ]) {
+    assert.ok(renderedContent.includes(expected), `the comprehensive PDF contains ${expected}`);
+  }
 });

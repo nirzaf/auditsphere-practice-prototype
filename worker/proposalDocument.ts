@@ -153,6 +153,13 @@ export function renderProposalPdf(input: ProposalDocumentInput, arabicFontBytes?
   drawLine(`Final balance (50%): ${currencyMinor(finalMinor)}`);
   drawLine('Payment percentages are fixed at 50% / 50%; the final amount is the residual so minor units reconcile exactly.', { size: 9, gap: 1 });
 
+  if (input.mode === 'FULL_PROPOSAL') {
+    // Keep the commercial summary readable on page one and place the full firm
+    // qualifications and proposed team on a separate, numbered page.
+    doc.addPage();
+    y = 22;
+  }
+
   drawSection('Firm profile');
   drawLine(input.firm.profileText, { gap: 1 });
   if (input.mode === 'FULL_PROPOSAL') {
