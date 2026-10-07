@@ -105,6 +105,8 @@ export function BusinessTrialBalancePanel({
   const [importDetail, setImportDetail] = useState<BusinessTrialBalanceImport | null>(null);
   const [benchmark, setBenchmark] = useState<Benchmark>('REVENUE');
   const [benchmarkRate, setBenchmarkRate] = useState('1.00');
+  const [performanceRate, setPerformanceRate] = useState('60');
+  const [sadRate, setSadRate] = useState('4');
   const [normalizationReason, setNormalizationReason] = useState('');
   const [adjustment, setAdjustment] = useState<AdjustmentDraft>({ description: '', amount: '', evidenceFileId: '' });
   const [roundingValues, setRoundingValues] = useState({ planning: '', performance: '', sad: '', reason: '' });
@@ -135,6 +137,7 @@ export function BusinessTrialBalancePanel({
         setImportId(current => current || data.imports[0]?.id || '');
         setBenchmark(current => data.materiality?.benchmark ?? current);
         setBenchmarkRate(current => data.materiality ? (data.materiality.benchmarkRateBps / 100).toFixed(2) : current);
+        if (data.materiality) { setPerformanceRate((data.materiality.performanceRateBps / 100).toFixed(2)); setSadRate((data.materiality.sadRateBps / 100).toFixed(2)); }
         if (data.materiality) setRoundingValues({ planning: qarFromMinor(data.materiality.planningMinor),
           performance: qarFromMinor(data.materiality.performanceMinor), sad: qarFromMinor(data.materiality.sadMinor), reason: data.materiality.roundingReason ?? '' });
         if (data.materiality) setRiskDrafts(Object.fromEntries(data.materiality.risks.map(risk => [risk.fsliId, {
@@ -253,8 +256,12 @@ export function BusinessTrialBalancePanel({
     if (!tbVersionId || !mappingVersionId) return;
     try {
       const rateBps = Math.round(Number(benchmarkRate) * 100);
+      const tePercent = Number(performanceRate);
+      const sadPercent = Number(sadRate);
+      if (!Number.isFinite(tePercent) || tePercent < 50 || tePercent > 75) throw new Error('Performance materiality (TE) must be between 50% and 75% of planning materiality.');
+      if (!Number.isFinite(sadPercent) || sadPercent < 3 || sadPercent > 5) throw new Error('Summary audit differences (SAD) must be between 3% and 5% of planning materiality.');
       const payload: Record<string, unknown> = { engagementId: engagement.id, tbVersionId, mappingVersionId, benchmark,
-        benchmarkRateBps: rateBps, performanceRateBps: 6000, sadRateBps: 400, adjustments: [] };
+        benchmarkRateBps: rateBps, performanceRateBps: Math.round(tePercent * 100), sadRateBps: Math.round(sadPercent * 100), adjustments: [] };
       const hasAnyAdjustment = adjustment.description.trim() || adjustment.amount.trim() || adjustment.evidenceFileId;
       if (hasAnyAdjustment) {
         if (!adjustment.description.trim() || !adjustment.amount.trim() || !adjustment.evidenceFileId) throw new Error('Complete the description, QAR amount and committed evidence file for each PBT normalization item.');
@@ -412,6 +419,8 @@ export function BusinessTrialBalancePanel({
             <label className="business-field"><span>Benchmark rate (%)</span><input type="number" min={benchmark === 'PBT' ? '5' : benchmark === 'REVENUE' ? '0.5' : benchmark === 'TOTAL_ASSETS' ? '0.5' : '1'}
               max={benchmark === 'PBT' ? '10' : benchmark === 'TOTAL_ASSETS' ? '1' : '2'} step="0.01" required value={benchmarkRate} onChange={event => setBenchmarkRate(event.target.value)} />
               <small>Firm policy range is applied by the Worker.</small></label>
+            <label className="business-field"><span>Performance materiality (TE) % of PM</span><input type="number" min="50" max="75" step="0.01" required value={performanceRate} onChange={event => setPerformanceRate(event.target.value)} /><small>Permitted 50–75% of planning materiality.</small></label>
+            <label className="business-field"><span>Summary audit difference (SAD) % of PM</span><input type="number" min="3" max="5" step="0.01" required value={sadRate} onChange={event => setSadRate(event.target.value)} /><small>Permitted 3–5% of planning materiality.</small></label>
           </div>
           {benchmark === 'PBT' && <fieldset className="business-tb-fieldset"><legend>Optional evidenced PBT normalization</legend>
             <p className="business-note">Loss or zero PBT cannot be treated as positive profit. Any normalization requires a committed evidence file from this engagement.</p>

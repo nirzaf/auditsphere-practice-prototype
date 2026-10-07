@@ -12,6 +12,7 @@ and live-SharePoint UAT the backlog requires.
 | --- | --- | --- |
 | US-GAP-29 (R01) | Directory services now forward an explicit page cursor/limit so clients, leads and other bounded lists are retrievable beyond the first 100 through the workspace UI (`Load more` on the client registry and lead pipeline). | `tests/unit/businessDirectoryPagination.test.ts`; backend cursor contract already covered by `tests/unit/businessWorkspace.test.ts`. |
 | US-GAP-24 (R50) | Firm expense capture derives the debit account from the operating category (rent 5000 / salaries 5100 / overheads 5200 / petty cash 5300 / other→overheads) and records an explicit accounting date instead of hardcoded `5200` + today. | `tests/unit/practiceAccounts.test.ts`; UI change in `BusinessPracticePanel.tsx`. |
+| US-GAP-09 (R22–R24) | The materiality form now exposes the permitted performance-materiality (TE 50–75% of PM) and clearly-trivial (SAD 3–5% of PM) inputs, validated client-side and by the existing Worker bounds, instead of always submitting 60% / 4%. | UI + validation in `BusinessTrialBalancePanel.tsx`; PBT exclusion already covered by `materialityBenchmark.test.ts`. |
 | US-GAP-07 (R19, partial) | Planning now shows a multi-date capacity calendar over a selectable range (available/assigned minutes, approved leave, overbooking/exception status per staff per day), alongside the existing capacity/leave/assignment controls. | Build + typecheck; additive UI in `BusinessPlanningPanel.tsx`. |
 | Documentation contract | Regenerated `docs/prototype/lifecycle-matrix.md`, which previously failed `tests/unit/docsContract.test.ts`. | `tests/unit/docsContract.test.ts` now passes. |
 
@@ -25,7 +26,6 @@ real-output acceptance for closure.
 | --- | --- |
 | US-GAP-01 | Client contact/signatory/recipient-route maintenance (`feat(directory) …`). |
 | US-GAP-08 | Prior-year-only mapping and comparative preservation. |
-| US-GAP-09 | PBT benchmark excludes income-tax expense (`materialityBenchmark.test.ts`). |
 | US-GAP-11 | In-place analytical-review rework variety. |
 | US-GAP-12 / 13 | Fieldwork completeness gates (`fieldworkGates.test.ts`). |
 | US-GAP-16 | Five-part bundle SQL alias and representation-return identity (`reportingBundleSql.test.ts`, `reportingReleaseIdentity.test.ts`). |
