@@ -23,6 +23,7 @@ export type Handler = (context: RouteContext) => Promise<Response> | Response;
 
 interface Route {
   method: string;
+  pattern: string;
   segments: string[];
   handler: Handler;
 }
@@ -32,7 +33,7 @@ export interface Router {
   post(pattern: string, handler: Handler): Router;
   put(pattern: string, handler: Handler): Router;
   delete(pattern: string, handler: Handler): Router;
-  match(method: string, pathname: string): { handler: Handler; params: RouteParams } | undefined;
+  match(method: string, pathname: string): { handler: Handler; params: RouteParams; routePattern: string } | undefined;
   /** True when the path exists but not for this method (used for 405 vs 404). */
   pathExists(pathname: string): boolean;
 }
@@ -47,7 +48,7 @@ const segmentMatch = (pattern: string, actual: string): string | undefined =>
 export function createRouter(): Router {
   const routes: Route[] = [];
   const add = (method: string) => (pattern: string, handler: Handler): Router => {
-    routes.push({ method, segments: pattern.split('/').filter(Boolean), handler });
+    routes.push({ method, pattern, segments: pattern.split('/').filter(Boolean), handler });
     return router;
   };
   const router: Router = {
@@ -66,7 +67,7 @@ export function createRouter(): Router {
           if (name === undefined) { matched = false; break; }
           if (name) params[name] = decodeURIComponent(actual[i]);
         }
-        if (matched) return { handler: route.handler, params };
+        if (matched) return { handler: route.handler, params, routePattern: route.pattern };
       }
       return undefined;
     },

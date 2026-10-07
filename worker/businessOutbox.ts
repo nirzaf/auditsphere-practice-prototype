@@ -7,6 +7,7 @@ import { prepareTrialBalanceImport } from './businessTb';
 import { prepareBusinessInvoiceJournal } from './businessPractice';
 import { processBusinessReportingDocument } from './businessReportingJobs';
 import { ApiError } from './errors';
+import { safeErrorKind } from './observability';
 
 type JobKind = 'GENERATE_DOCUMENT' | 'SEAL_ARCHIVE' | 'EMAIL' | 'IMPORT_TB';
 interface OutboxJob {
@@ -1037,7 +1038,7 @@ export async function processBusinessOutbox(env: Env, limit = 20): Promise<numbe
   let processed = 0;
   for (const candidate of expiredEmail.results ?? []) {
     try { await markExpiredEmailUnknown(env, candidate); processed += 1; }
-    catch (error) { console.error('expired email job reconciliation failed', candidate.id, String(error)); }
+    catch (error) { console.error(JSON.stringify({ event: 'workspace.outbox.expired_email_reconciliation_failed', errorKind: safeErrorKind(error) })); }
   }
   for (const candidate of ready.results ?? []) {
     const job = await claimJob(env, candidate.id, nowIso());
@@ -1058,7 +1059,7 @@ export async function processBusinessOutbox(env: Env, limit = 20): Promise<numbe
       processed += 1;
     } catch (error) {
       try { await recordJobFailure(env, job, error); processed += 1; }
-      catch (recordError) { console.error('business job result could not be committed', job.id, String(recordError)); }
+      catch (recordError) { console.error(JSON.stringify({ event: 'workspace.outbox.job_result_commit_failed', errorKind: safeErrorKind(recordError) })); }
     }
   }
   return processed;

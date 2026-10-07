@@ -5,6 +5,7 @@
 // reach the browser (task requirement: map errors to stable UI patterns).
 
 import { API_ERROR_STATUS, GUARD_CODE_TO_API_CODE, type ApiErrorBody, type ApiErrorCode } from '../src/shared/api/errors';
+import { safeErrorKind } from './observability';
 
 export class ApiError extends Error {
   readonly code: ApiErrorCode;
@@ -37,8 +38,7 @@ export function toApiError(error: unknown, requestId: string): { body: ApiErrorB
       return { body: { code: mapped, message: coded.message || 'The request was rejected.', requestId }, status: API_ERROR_STATUS[mapped] };
     }
   }
-  const message = error instanceof Error ? `${error.name}: ${error.message}` : String(error);
-  console.error(JSON.stringify({ event: 'workspace.api.unhandled', requestId, message }));
+  console.error(JSON.stringify({ event: 'workspace.api.unhandled', requestId, errorKind: safeErrorKind(error) }));
   return {
     body: { code: 'UNAVAILABLE', message: 'The cloud service is temporarily unavailable.', requestId },
     status: API_ERROR_STATUS.UNAVAILABLE

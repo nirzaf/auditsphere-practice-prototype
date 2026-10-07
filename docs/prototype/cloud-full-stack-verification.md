@@ -572,3 +572,41 @@ preview projection is covered by focused query tests, but this run did not
 drive a complete Worker reporting UI or candidate-PDF journey. US-REP-001’s
 full browser acceptance, all remaining stories, and the 46-story epic remain
 open. No Cloudflare deployment or external provider was used.
+
+## Workflow concurrency and operational telemetry — 2026-10-07
+
+The earlier notes about incomplete lifecycle blocker coverage and missing
+two-browser conflict UI evidence are superseded by current source/tests. All
+eleven canonical lifecycle states are represented in
+`worker/businessWorkflow.ts`; the Worker integration exercises stage readiness
+and blocker projections. The focused
+`US-FLD-006 preserves same-procedure drafts across a two-browser version conflict
+and requires rebase or discard` browser journey passed **1/1** on this working
+tree. It uses two isolated headless Chrome profiles against the same Worker/D1
+fixture, observes the single-winner stale write, preserves both drafts, and
+verifies explicit rebase, discard and independent-row updates.
+
+The Worker now emits redacted `workspace.api.request` latency/outcome records
+using route templates, aggregates durable outbox counts/age/attempts during the
+scheduled sweep, and emits `workspace.archive.overdue` when due archives remain
+unsealed or failed. Raw URLs, exception messages, client identifiers, financial
+data, job payloads and file bytes are omitted. The runbook documents signal
+consumption and D1/R2 recovery limits.
+
+Verification on the current working tree: production build, app typecheck,
+Worker typecheck, `git diff --check`, full `npm run test:unit` (**535/535**
+across 106 suites), `tests/unit/businessWorkspace.test.ts` (**1/1**),
+`tests/unit/workerObservability.test.ts` (**3/3**),
+`tests/unit/workerMigrations.test.ts` (**1/1** using Wrangler's migration
+splitter with an isolated in-memory SQLite database),
+`tests/e2e/businessProcedureConflict.test.ts` focused conflict journey (**1/1**),
+and `tests/e2e/businessBackupRestore.test.ts` (**1/1**). The migration replay
+does not prove remote D1 deployment compatibility. Historical hosted run
+`37505606782` failed during D1 migration on the older `ad07df6` revision; this
+working tree simplifies the actor-profile triggers in migration 0008, but no
+Cloudflare migration/deployment was retried.
+
+US-SYS-005 remains incomplete: the p95 read/command targets have not been
+measured under the documented 20-active-user workload, Cloudflare alert
+destinations are not configured here, and an isolated restore against actual
+sandbox D1/R2 resources has not been performed. The 46-story epic remains open.

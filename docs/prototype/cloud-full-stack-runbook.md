@@ -58,12 +58,88 @@ npm.cmd run test:cloud
 .\node_modules\.bin\wrangler.cmd r2 object list auditsphere-prototype-files
 ```
 
-## Operational logging
+## Operational telemetry
 
-Every API failure logs one structured line:
-`{"event":"workspace.api.error","requestId":...,"path":...,"method":...,"code":...,"status":...}`.
-Responses carry `X-Request-Id`. Access codes, session secrets and file bytes are
-never logged.
+Every API response logs a structured `workspace.api.request` record containing
+the request ID, declared route template, method, status, outcome and response
+header latency in milliseconds. Dynamic path parameters are represented by
+their route-template names; raw URLs and query strings are not logged. API
+errors also log the stable error code and status. Unhandled exceptions log only
+their error class, never the exception message. Responses carry `X-Request-Id`.
+Access codes, session secrets, workspace/client identifiers, financial values
+and file bytes are not included in these telemetry records.
+
+The daily scheduled sweep emits `workspace.scheduled.metrics` with outbox counts
+by job kind/status, oldest unfinished-job age, maximum attempt count, completed
+jobs and archive jobs queued. An overdue or failed due archive emits a
+`workspace.archive.overdue` error event containing aggregate counts only. In
+Cloudflare Workers Logs, configure notifications for
+`workspace.archive.overdue` and `workspace.scheduled.metrics_failed`; the
+repository emits these signals but does not select an operator notification
+destination. Use Cloudflare's built-in request analytics alongside these
+records when measuring p95 latency.
+
+The initial p95 targets (<500 ms for scoped reads and <1 s for commands, under
+20 active users and excluding provider jobs) are not asserted by this runbook.
+Record the deployed version, test environment, concurrency, request mix and
+measured p50/p95/p99 before claiming those targets. Do not run a load probe
+against the production Worker without an explicitly approved test window and
+sandbox data.
+
+## Backup, restore and file integrity
+
+D1 Time Travel is the database point-in-time recovery mechanism. To inspect the
+available bookmark for an incident timestamp:
+
+```powershell
+npx.cmd wrangler d1 time-travel info steaudit-prototype-demo --timestamp="2026-10-07T00:00:00Z" --json
+```
+
+Restoring a D1 bookmark overwrites the database in place. Treat this as a
+disaster-recovery action: first record the incident, selected bookmark and
+current state; obtain the required operational approval; coordinate application
+write suspension; then run the command for the approved point:
+
+```powershell
+npx.cmd wrangler d1 time-travel restore steaudit-prototype-demo --timestamp="<approved RFC3339 timestamp>"
+```
+
+Do not use the production database as the restore-verification target.
+Cloudflare Time Travel retention depends on the database plan; confirm the
+available window before relying on a recovery point.
+
+For an isolated SQL export used for analysis or test recovery:
+
+```powershell
+npx.cmd wrangler d1 export steaudit-prototype-demo --remote --output="$env:TEMP\auditsphere-d1-export.sql"
+```
+
+Treat that export as confidential client data: store it only in an approved
+encrypted location, restrict access and securely dispose of it under the firm's
+approved retention policy. Never commit it or attach it to routine CI logs.
+
+The application-level recovery acceptance test is local and isolated:
+
+```powershell
+npx.cmd tsx --test tests/e2e/businessBackupRestore.test.ts
+```
+
+It verifies isolated D1 records/totals, foreign keys, the committed-file
+manifest and exact object bytes/digests; a missing or corrupt object fails the
+restore. This test does not claim to restore the configured Cloudflare D1/R2
+resources. Any Cloudflare restore rehearsal must target separately provisioned
+sandbox resources and verify every manifest file digest before traffic is
+allowed.
+
+R2 bucket-lock rules are account-level configuration, not runtime settings.
+The organization must supply the approved retention duration, covered object
+prefixes, legal basis and operations-only credential before those rules can be
+configured. Do not lock a broad prefix without checking upload staging and
+cleanup behavior. Review the configured rules in the Cloudflare dashboard or
+with `wrangler r2 bucket lock list`; application status is not proof that an
+R2 bucket lock is configured. See [Cloudflare D1 Time Travel](https://developers.cloudflare.com/d1/reference/time-travel/),
+[D1 export](https://developers.cloudflare.com/d1/best-practices/import-export-data/)
+and [R2 bucket locks](https://developers.cloudflare.com/r2/buckets/bucket-locks/).
 
 ## Rollback
 

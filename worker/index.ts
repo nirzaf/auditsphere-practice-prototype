@@ -44,6 +44,7 @@ import { assertSameOrigin, baseHeaders, jsonResponse, readJson, sha256Hex } from
 import { createRouter, type RouteContext } from './router';
 import { processBusinessOutbox } from './businessOutbox';
 import { queueDueBusinessArchives } from './businessReporting';
+import { apiRequestMetric, outboxSnapshot, safeErrorKind, type OutboxMetricRow } from './observability';
 import {
   SESSION_TTL_SECONDS,
   WORKSPACE_TTL_SECONDS,
@@ -1006,6 +1007,14 @@ export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
     const requestId = crypto.randomUUID();
+    const startedAt = performance.now();
+    const finishApiResponse = (response: Response, route: string): Response => {
+      if (url.pathname.startsWith('/api/')) {
+        console.log(JSON.stringify(apiRequestMetric({ requestId, route, method: request.method, status: response.status,
+          durationMs: performance.now() - startedAt })));
+      }
+      return response;
+    };
 
     // Anything outside /api/* is the built React app (Workers Static Assets).
     if (!url.pathname.startsWith('/api/')) {
@@ -1026,7 +1035,7 @@ export default {
       origin: url.origin
     };
 
-    if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: baseHeaders(requestId) });
+    if (request.method === 'OPTIONS') return finishApiResponse(new Response(null, { status: 204, headers: baseHeaders(requestId) }), 'OPTIONS');
 
     const match = router.match(request.method, url.pathname);
     if (!match) {
@@ -1036,41 +1045,90 @@ export default {
         message: methodMismatch ? 'That API route does not accept this method.' : 'That API route does not exist.',
         requestId
       };
-      return jsonResponse(body, methodMismatch ? 400 : 404, requestId);
+      return finishApiResponse(jsonResponse(body, methodMismatch ? 400 : 404, requestId), methodMismatch ? 'method-mismatch' : 'unmatched');
     }
 
     try {
-      return await match.handler({ ...context, params: match.params });
+      return finishApiResponse(await match.handler({ ...context, params: match.params }), match.routePattern);
     } catch (error) {
       const mapped = toApiError(error, requestId);
       // Structured operational log; never includes secrets, codes or file bytes.
       console.log(JSON.stringify({
         event: 'workspace.api.error',
         requestId,
-        path: url.pathname,
+        route: match.routePattern,
         method: request.method,
         code: mapped.body.code,
         status: mapped.status
       }));
-      return jsonResponse(mapped.body, mapped.status, requestId);
+      return finishApiResponse(jsonResponse(mapped.body, mapped.status, requestId), match.routePattern);
     }
   },
 
   /** Process durable business jobs and clean expired legacy/session state. */
   async scheduled(_event: ScheduledController, env: Env): Promise<void> {
     const now = nowSeconds();
-    await queueDueBusinessArchives(env,new Date(now*1000).toISOString()).catch(error => console.error('business archive deadline enforcement failed', String(error)));
-    await processBusinessOutbox(env).catch(error => console.error('business outbox processing failed', String(error)));
-    await env.DB.prepare('DELETE FROM workspace_sessions WHERE expires_at<=?').bind(now).run();
-    await env.DB.prepare('DELETE FROM idempotency_keys WHERE expires_at<=?').bind(now).run();
-    await env.DB.prepare(`UPDATE workspaces SET status='deleted'
-                          WHERE data_mode='TEST' AND status<>'deleted'
-                            AND id IN (SELECT workspace_id FROM test_workspace_expiry WHERE expires_at<=?)`)
-      .bind(now).run();
-    await cleanupStagedFiles(env).catch(error => console.error('staged cleanup failed', String(error)));
-    // Preserve the existing legacy snapshot API's retention behaviour.
-    await env.DB.prepare('DELETE FROM demo_workspaces WHERE expires_at<=?').bind(now).run();
-    await env.DB.prepare('DELETE FROM demo_creation_limits WHERE window_start<?')
-      .bind(Math.floor(Date.now() / 3600000) - 24).run();
+    const at = new Date(now * 1000).toISOString();
+    const sweepId = crypto.randomUUID();
+    let archiveJobsQueued = 0;
+    let processedJobs = 0;
+    try {
+      archiveJobsQueued = await queueDueBusinessArchives(env, at).catch(error => {
+        console.error(JSON.stringify({ event: 'workspace.archive.sweep_failed', sweepId, errorKind: safeErrorKind(error) }));
+        return 0;
+      });
+      processedJobs = await processBusinessOutbox(env).catch(error => {
+        console.error(JSON.stringify({ event: 'workspace.outbox.sweep_failed', sweepId, errorKind: safeErrorKind(error) }));
+        return 0;
+      });
+      await env.DB.prepare('DELETE FROM workspace_sessions WHERE expires_at<=?').bind(now).run();
+      await env.DB.prepare('DELETE FROM idempotency_keys WHERE expires_at<=?').bind(now).run();
+      await env.DB.prepare(`UPDATE workspaces SET status='deleted'
+                            WHERE data_mode='TEST' AND status<>'deleted'
+                              AND id IN (SELECT workspace_id FROM test_workspace_expiry WHERE expires_at<=?)`)
+        .bind(now).run();
+      await cleanupStagedFiles(env).catch(error => console.error(JSON.stringify({
+        event: 'workspace.file_cleanup.failed', sweepId, errorKind: safeErrorKind(error)
+      })));
+      // Preserve the existing legacy snapshot API's retention behaviour.
+      await env.DB.prepare('DELETE FROM demo_workspaces WHERE expires_at<=?').bind(now).run();
+      await env.DB.prepare('DELETE FROM demo_creation_limits WHERE window_start<?')
+        .bind(Math.floor(Date.now() / 3600000) - 24).run();
+    } finally {
+      await logScheduledOperationalMetrics(env, sweepId, at, archiveJobsQueued, processedJobs);
+    }
   }
 };
+
+async function logScheduledOperationalMetrics(env: Env, sweepId: string, at: string, archiveJobsQueued: number, processedJobs: number): Promise<void> {
+  try {
+    const [queue, archives] = await Promise.all([
+      env.DB.prepare(`SELECT kind,status,COUNT(*) AS count,MIN(created_at) AS oldest_created_at,MAX(attempts) AS max_attempts
+        FROM outbox_jobs WHERE status<>'SUCCEEDED' GROUP BY kind,status`).all<OutboxMetricRow>(),
+      env.DB.prepare(`SELECT
+          SUM(CASE WHEN e.archive_due_at<=? THEN 1 ELSE 0 END) AS overdue_count,
+          SUM(CASE WHEN e.archive_due_at<=? AND (r.id IS NULL OR r.status<>'SEALED') THEN 1 ELSE 0 END) AS overdue_unsealed_count,
+          SUM(CASE WHEN e.archive_due_at<=? AND r.status='FAILED' THEN 1 ELSE 0 END) AS failed_due_count
+        FROM engagements e JOIN workspaces w ON w.id=e.workspace_id AND w.data_mode='BUSINESS'
+        LEFT JOIN archive_runs r ON r.workspace_id=e.workspace_id AND r.engagement_id=e.id
+          AND r.id=(SELECT latest.id FROM archive_runs latest WHERE latest.workspace_id=e.workspace_id AND latest.engagement_id=e.id
+            ORDER BY latest.updated_at DESC,latest.id DESC LIMIT 1)
+        WHERE e.lifecycle_state IN ('COMPLIANCE_COUNTDOWN','ARCHIVED_READ_ONLY') AND e.archive_due_at IS NOT NULL`)
+        .bind(at, at, at).first<{ overdue_count: number | null; overdue_unsealed_count: number | null; failed_due_count: number | null }>()
+    ]);
+    const rows = queue.results ?? [];
+    const summary = outboxSnapshot(rows, at, processedJobs, archiveJobsQueued);
+    console.log(JSON.stringify({ ...summary, sweepId, archives: {
+      overdueCount: Number(archives?.overdue_count ?? 0),
+      overdueUnsealedCount: Number(archives?.overdue_unsealed_count ?? 0),
+      failedDueCount: Number(archives?.failed_due_count ?? 0)
+    } }));
+    if (Number(archives?.overdue_unsealed_count ?? 0) > 0 || Number(archives?.failed_due_count ?? 0) > 0) {
+      console.error(JSON.stringify({ event: 'workspace.archive.overdue', severity: 'error', sweepId,
+        overdueUnsealedCount: Number(archives?.overdue_unsealed_count ?? 0),
+        failedDueCount: Number(archives?.failed_due_count ?? 0) }));
+    }
+  } catch (error) {
+    console.error(JSON.stringify({ event: 'workspace.scheduled.metrics_failed', sweepId, errorKind: safeErrorKind(error) }));
+  }
+}
