@@ -1451,6 +1451,24 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
   assert.ok(issuedInvoice?.fileVersionId);
   assert.equal(issuedInvoice?.dueDate, '2099-12-31');
   assert.equal(issuedInvoice?.totalMinor, '125001');
+  const invoiceFile = await worker.fetch(new Request(`https://local.auditsphere.test/api/workspaces/${workspaceId}/files/${issuedInvoice.fileVersionId}`,
+    { headers: makeRiskHeaders(reviewerHeaders) }), env, {} as any);
+  assert.equal(invoiceFile.status, 200);
+  const invoicePdfBytes = new Uint8Array(await invoiceFile.arrayBuffer());
+  assert.equal(new TextDecoder().decode(invoicePdfBytes.slice(0, 8)), '%PDF-1.3');
+  const invoicePdfContent = decodedPdfContent(invoicePdfBytes);
+  for (const expected of [
+    'ADVANCE INVOICE',
+    issuedInvoice.number,
+    clientLegalName,
+    'QAR 1,250.01',
+    'Local explicit zero-tax policy',
+    'QAR 0.00',
+    'Total due: QAR 1,250.01',
+    'Due date: 2099-12-31'
+  ]) {
+    assert.ok(invoicePdfContent.includes(expected), `the issued advance-invoice PDF contains ${expected}`);
+  }
   assert.deepEqual((await readWorkflowStage('ADVANCE_BILLING')).blockers.map((item: any) => item.code), ['ADVANCE_PAYMENT_UNSETTLED']);
 
   const wrongPbcRecipient = await post(`/api/workspaces/${workspaceId}/commands`, {
@@ -1510,7 +1528,34 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
   const partialPaymentView = await call(deliveryPath, { headers: makeRiskHeaders(reviewerHeaders) });
   assert.equal(partialPaymentView.body.engagement.lifecycleState, 'ADVANCE_BILLING');
   assert.equal(partialPaymentView.body.invoices.find((invoice: any) => invoice.id === issuedInvoice.id).outstandingMinor, '65001');
-  assert.equal(partialPaymentView.body.payments.find((payment: any) => payment.id === partialPayment.body.result.paymentId).receiptStatus, 'ISSUED');
+  const partialPaymentRecord = partialPaymentView.body.payments.find((payment: any) => payment.id === partialPayment.body.result.paymentId);
+  assert.equal(partialPaymentRecord.receiptStatus, 'ISSUED');
+  assert.ok(partialPaymentRecord.receiptFileId, 'payment verification commits an actual receipt PDF');
+  const receiptFile = await worker.fetch(new Request(`https://local.auditsphere.test/api/workspaces/${workspaceId}/files/${partialPaymentRecord.receiptFileId}`,
+    { headers: makeRiskHeaders(reviewerHeaders) }), env, {} as any);
+  assert.equal(receiptFile.status, 200);
+  const receiptPdfBytes = new Uint8Array(await receiptFile.arrayBuffer());
+  assert.equal(new TextDecoder().decode(receiptPdfBytes.slice(0, 8)), '%PDF-1.3');
+  const receiptPdfContent = decodedPdfContent(receiptPdfBytes);
+  for (const expected of [
+    'PAYMENT RECEIPT',
+    partialPaymentRecord.receiptNumber,
+    clientLegalName,
+    '2026-10-05',
+    'QAR 600.00',
+    'BANK-LOCAL-001',
+    'Allocated to this invoice: QAR 600.00'
+  ]) {
+    assert.ok(receiptPdfContent.includes(expected), `the committed receipt PDF contains ${expected}`);
+  }
+  await worker.scheduled({ scheduledTime: Date.now(), cron: '*/5 * * * *' } as any, env);
+  const receiptDelivery = db.prepare(`SELECT d.status,d.provider_message_id,j.status AS job_status
+    FROM dispatches d JOIN outbox_jobs j ON j.workspace_id=d.workspace_id AND j.id=d.job_id
+    WHERE d.workspace_id=? AND d.purpose='RECEIPT' AND d.file_version_id=?`)
+    .bind(workspaceId, partialPaymentRecord.receiptFileId).first<any>();
+  assert.deepEqual({ status: receiptDelivery?.status, jobStatus: receiptDelivery?.job_status },
+    { status: 'ACCEPTED', jobStatus: 'SUCCEEDED' }, 'the real receipt PDF is sent through the email outbox provider contract');
+  assert.ok(receiptDelivery.provider_message_id);
   assert.deepEqual((await readWorkflowStage('ADVANCE_BILLING')).blockers.map((item: any) => item.code), ['ADVANCE_PAYMENT_UNSETTLED'],
     'a partial payment with a committed receipt does not unlock planning');
   const overAllocation = await post(`/api/workspaces/${workspaceId}/commands`, {

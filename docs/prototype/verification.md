@@ -1416,3 +1416,23 @@ signature image, seal image, fee, period, and SHA-256 provenance.
 not verify visual appearance in an independent PDF viewer, a race-injected stale
 render, production document delivery, or actual Partner identity. US-ENG-005 and
 the broader epic remain open.
+
+## US-ENG-006 advance invoice and receipt artifact acceptance — 2026-10-08
+
+**Verification:** `npx tsx --test --test-reporter=dot
+tests/unit/businessWorkspace.test.ts` — 1/1; `git diff --check`.
+
+**Evidence:** The Worker journey downloads the committed advance invoice PDF and
+checks its document number, client, QAR 1,250.01 odd-unit installment, explicit
+zero-tax policy and amount, and due date. After recording a QAR 600.00 partial
+payment, it downloads the issued receipt PDF and checks its number, client,
+received date, bank reference, amount and allocation. The same test verifies the
+receipt email dispatch reaches `ACCEPTED` with a provider message ID while the
+invoice remains QAR 650.01 outstanding and planning stays blocked. Earlier
+journey steps verify reversal restores the full balance; final settlement plus
+committed receipt moves the engagement into planning.
+
+**Boundary:** These are synthetic local Worker/SQLite/R2-adapter journeys using
+a mock email provider. They do not verify a live bank source, Cloudflare email
+delivery or visual rendering in an independent PDF viewer. US-ENG-006 and the
+broader epic remain open.
