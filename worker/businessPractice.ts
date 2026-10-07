@@ -14,6 +14,7 @@ const reason = (min = 10, max = 5000) => z.string().trim().min(min).max(max);
 const phases = z.enum(['COMMERCIAL','PLANNING','FIELDWORK','REVIEW','REPORTING','ARCHIVE']);
 const grades = z.enum(['PARTNER','MANAGER','SENIOR','ASSOCIATE']);
 const phaseValues=['COMMERCIAL','PLANNING','FIELDWORK','REVIEW','REPORTING','ARCHIVE'] as const;
+const expenseAccountCodeByCategory={RENT:'5000',SALARIES_BENEFITS:'5100',OVERHEAD:'5200',PETTY_CASH:'5300',OTHER:'5200'} as const;
 const timeLine = z.strictObject({ accountId: id, debitMinor: amount, creditMinor: amount, clientId: id.nullable().optional(), engagementId: id.nullable().optional(), memo: z.string().trim().max(1000).optional() })
   .refine(line => (BigInt(line.debitMinor)>0n)!==(BigInt(line.creditMinor)>0n), 'Each journal line must have exactly one positive debit or credit.');
 
@@ -696,7 +697,7 @@ async function buildJournalReverse(env:Env,workspaceId:string,context:BusinessCo
 async function buildExpenseCreate(env:Env,workspaceId:string,context:BusinessContext,command:Extract<BusinessPracticeCommand,{type:'expense.create'}>,now:string){
   internal(context);const p=command.payload;
   const debitAccount=await accountById(env,workspaceId,p.debitAccountId),settlement=await accountById(env,workspaceId,p.settlementAccountId);
-  if(debitAccount.account_type!=='EXPENSE'&&!(p.category==='PETTY_CASH'&&debitAccount.control_type==='CASH'))throw new ApiError('VALIDATION_FAILED','Choose the approved expense account for this category.');
+  if(debitAccount.account_type!=='EXPENSE'||debitAccount.code!==expenseAccountCodeByCategory[p.category])throw new ApiError('VALIDATION_FAILED','Choose the approved expense account mapped to this category.');
   const control=p.paymentMethod==='BANK'?'BANK':p.paymentMethod==='CASH'?'CASH':'AP';
   if(settlement.control_type!==control)throw new ApiError('VALIDATION_FAILED',`The settlement account must be the configured ${control} control account.`);
   if(p.supportingFileId){const file=await env.DB.prepare(`SELECT id FROM file_versions WHERE workspace_id=? AND id=? AND state='COMMITTED' AND immutable=1`)
@@ -718,6 +719,9 @@ async function buildExpensePost(env:Env,workspaceId:string,context:BusinessConte
   if(expense.status!=='DRAFT')throw new ApiError('INVALID_TRANSITION','Only a draft expense can be approved and posted.');
   if(expense.created_by_actor_id===context.actor.id)throw new ApiError('PERSONA_ACTION_DENIED','The expense preparer cannot approve their own expense.');
   const debit=await accountById(env,workspaceId,expense.debit_account_id),credit=await accountById(env,workspaceId,expense.settlement_account_id);
+  const expectedSettlement=expense.payment_method==='BANK'?'BANK':expense.payment_method==='CASH'?'CASH':'AP';
+  if(debit.account_type!=='EXPENSE'||debit.code!==expenseAccountCodeByCategory[expense.category as keyof typeof expenseAccountCodeByCategory]
+    ||credit.control_type!==expectedSettlement)throw new ApiError('GATE_BLOCKED','The expense category or settlement account no longer matches its approved ledger mapping.');
   if(expense.supporting_file_id){const file=await env.DB.prepare(`SELECT id FROM file_versions WHERE workspace_id=? AND id=? AND state='COMMITTED' AND immutable=1`)
     .bind(workspaceId,expense.supporting_file_id).first<{id:string}>();if(!file)throw new ApiError('GATE_BLOCKED','The supporting expense voucher is unavailable.');}
   const amountMinor=BigInt(expense.amount_minor),linked={clientId:expense.client_id,engagementId:expense.engagement_id};

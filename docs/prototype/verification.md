@@ -1360,8 +1360,12 @@ does not touch an expense account or create a second voucher expense.
 
 Regression evidence in `tests/unit/businessWorkspace.test.ts` models a posted
 QAR 300 petty-cash voucher followed by the equal bank replenishment, rejects an
-expense account as the bank source, checks the two asset journal lines, retries
-the same command without duplicating the journal, and verifies the petty-cash
-expense account remains debited exactly once. This is implementation evidence for
-the replenishment scenario only; the remaining US-PRC-005 requirements and full
-epic acceptance remain open.
+cash asset misclassified as the voucher's expense debit and an expense account
+misclassified as the bank source, checks the two asset journal lines and closing
+petty-cash balance, retries the same command without duplicating the journal, and
+verifies the petty-cash expense account remains debited exactly once. Expense
+category-to-account mapping is also rechecked when the voucher is approved.
+`npm run build`, `npm run cloud:typecheck`, and the focused
+`tests/unit/businessWorkspace.test.ts` pass. This is implementation evidence for
+the replenishment and mapping scenarios only; the remaining US-PRC-005
+requirements and full epic acceptance remain open.

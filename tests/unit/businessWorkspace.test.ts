@@ -3932,6 +3932,14 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
 
   // PRC-005: a QAR 300 petty-cash voucher is the expense; replenishing that cash
   // from bank creates only an asset-to-asset transfer and never a second expense.
+  const invalidPettyCashVoucher = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'expense.create', payload: {
+      date: planDate, payee: 'Invalid cash-account debit', category: 'PETTY_CASH', amountMinor: '30000',
+      description: 'A cash asset must not be misclassified as the expense debit.',
+      missingSupportReason: 'No voucher is attached to this deliberately invalid draft.',
+      debitAccountId: accountId('1010'), settlementAccountId: accountId('1010'), paymentMethod: 'CASH' } }
+  }, preparerHeaders);
+  assert.equal(invalidPettyCashVoucher.response.status, 422, JSON.stringify(invalidPettyCashVoucher.body));
   const pettyVoucher = await post(`/api/workspaces/${workspaceId}/commands`, {
     idempotencyKey: crypto.randomUUID(), command: { type: 'expense.create', payload: {
       date: planDate, payee: 'Practice supplies', category: 'PETTY_CASH', amountMinor: '30000',
@@ -3979,6 +3987,11 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
     JOIN firm_accounts a ON a.workspace_id=l.workspace_id AND a.id=l.account_id
     WHERE l.workspace_id=? AND a.code='5300'`).bind(workspaceId).first<{ balance: number }>()?.balance;
   assert.equal(pettyCashExpenseBalance, 30000, 'replenishment must not add another debit to the petty-cash expense account');
+  const pettyCashAssetBalance = db.prepare(`SELECT COALESCE(SUM(l.debit_minor-l.credit_minor),0) AS balance
+    FROM firm_journal_lines l JOIN firm_journals j ON j.workspace_id=l.workspace_id AND j.id=l.journal_id AND j.status='POSTED'
+    JOIN firm_accounts a ON a.workspace_id=l.workspace_id AND a.id=l.account_id
+    WHERE l.workspace_id=? AND a.control_type='CASH'`).bind(workspaceId).first<{ balance: number }>()?.balance;
+  assert.equal(pettyCashAssetBalance, 0, 'the QAR 300 disbursement reduces petty cash and the transfer replenishes it exactly once');
 
   // PRC-004: atomic double-entry journals posted independently and reversed immutably.
   const journalDraft = await post(`/api/workspaces/${workspaceId}/commands`, {
