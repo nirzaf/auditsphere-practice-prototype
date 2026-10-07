@@ -2,7 +2,7 @@ import type { Env } from './env';
 import { ApiError } from './errors';
 import type { BusinessContext } from './business';
 import { buildOpinionReportSections, opinionReportingBlockers, type OpinionAffectedFsli } from './reportingOpinion';
-import { unzipSync } from 'fflate';
+import { toHex, verifyStreamingSha256 } from './streamingArchive';
 
 type Row = Record<string, unknown>;
 
@@ -63,7 +63,6 @@ export async function getBusinessOpinionPreview(env: Env, workspaceId: string, c
     aupReportType: opinion.aup_report_type, dependencyHash: opinion.dependency_hash, isCurrentForSrm, sections, reportingBlockers
   };
 }
-
 /** Released-only, Partner-scoped record of the immutable report signature and every pinned source hash. */
 export async function getBusinessReleasedReportProvenance(env: Env, workspaceId: string, context: BusinessContext, engagementId: string): Promise<Row> {
   if (context.actor.persona !== 'APPROVER' || context.actor.staffGrade !== 'PARTNER' || !context.allowedActions.includes('reporting.read')) {
@@ -437,47 +436,27 @@ export async function getBusinessArchiveExport(env:Env,workspaceId:string,contex
     if(typeof file.id!=='string'||typeof file.originalName!=='string'||typeof file.purpose!=='string'||typeof file.sha256!=='string'||!Number.isSafeInteger(file.sizeBytes))
       throw new ApiError('INTEGRITY_MISMATCH','The sealed manifest contains an incomplete file entry.');
   }
-  const archiveChecksum=archiveObject.checksums?.sha256;
-  const hasStorageChecksum=archiveChecksum instanceof ArrayBuffer
-    && toHex(new Uint8Array(archiveChecksum))===seal.archive_sha256;
-  if(archiveChecksum && !hasStorageChecksum)
-    throw new ApiError('INTEGRITY_MISMATCH','The stored ZIP checksum does not match its independently recorded seal hash.');
   let archiveBytes:Uint8Array|undefined;
   let archiveBody:ReadableStream<Uint8Array>|undefined;
-  if(hasStorageChecksum && 'body' in archiveObject){
-    // R2 validated this checksum when the object was written. Stream its body
-    // instead of buffering and inflating the entire archive on each download.
-    archiveBody=archiveObject.body as ReadableStream<Uint8Array>;
-  }else{
-    // Legacy archive objects predate persisted R2 checksums. Keep the strict
-    // byte-level ZIP verification for them, with a bounded compatibility path.
-    if(Number(archiveRow.size_bytes)>128*1024*1024)
-      throw new ApiError('INTEGRITY_MISMATCH','This legacy archive is too large for safe verification; reseal it to enable streamed export.');
-    const archiveBuffer=await archiveObject.arrayBuffer();
-    if(archiveBuffer.byteLength!==archiveRow.size_bytes||await digest(archiveBuffer)!==seal.archive_sha256)
-      throw new ApiError('INTEGRITY_MISMATCH','The stored archive bytes do not match their independently recorded seal hash.');
-    let entries:Record<string,Uint8Array>;
-    try{entries=unzipSync(new Uint8Array(archiveBuffer));}
-    catch{throw new ApiError('INTEGRITY_MISMATCH','The sealed archive is not a readable ZIP.');}
-    const embedded=entries['manifest.json'];
-    if(!embedded||!sameBytes(embedded,new Uint8Array(manifestBytes))||Object.keys(entries).length!==manifest.files.length+1)
-      throw new ApiError('INTEGRITY_MISMATCH','The ZIP does not contain the exact independently sealed manifest and file count.');
-    for(const raw of manifest.files){
-      const file=raw as Record<string,unknown>;
-      const originalName=String(file.originalName),purpose=String(file.purpose),fileId=String(file.id);
-      const safe=originalName.replace(/[\\/]+/g,'_').replace(/\.\./g,'_').slice(0,160);
-      const path=`files/${purpose.toLowerCase()}/${fileId}-${safe}`,bytes=entries[path];
-      if(!bytes||bytes.byteLength!==file.sizeBytes||await digest(bytes.slice().buffer)!==file.sha256)
-        throw new ApiError('INTEGRITY_MISMATCH',`A sealed archive member failed integrity verification: ${String(file.id)}.`);
+  if(part==='archive'){
+    const archiveChecksum=archiveObject.checksums?.sha256;
+    const hasStorageChecksum=archiveChecksum instanceof ArrayBuffer
+      && toHex(new Uint8Array(archiveChecksum))===seal.archive_sha256;
+    if(archiveChecksum && !hasStorageChecksum)
+      throw new ApiError('INTEGRITY_MISMATCH','The stored ZIP checksum does not match its independently recorded seal hash.');
+    if(hasStorageChecksum){
+      // R2 validated this checksum on write. Preserve the native stream for the response.
+      archiveBody=archiveObject.body as ReadableStream<Uint8Array>;
+    }else{
+      // Legacy and streamed archives without an R2 SHA-256 are verified while
+      // sent. A final digest mismatch errors the response stream and prevents
+      // the browser from closing a partial destination as a successful export.
+      archiveBody=verifyStreamingSha256(archiveObject.body as ReadableStream<Uint8Array>,Number(archiveRow.size_bytes),String(seal.archive_sha256));
     }
-    archiveBytes=new Uint8Array(archiveBuffer);
   }
   const now=new Date().toISOString();
   await accessEvent(env,workspaceId,engagementId,'SEALED_ARCHIVE',String(seal.archive_file_id),'EXPORT',context.actor.id,now);
-  return {...(part==='manifest'?{bytes:new Uint8Array(manifestBytes)}:archiveBytes?{bytes:archiveBytes}:{body:archiveBody}),
+  return {...(part==='manifest'?{bytes:new Uint8Array(manifestBytes)}:{body:archiveBody}),
     sizeBytes:part==='manifest'?manifestBytes.byteLength:Number(archiveRow.size_bytes),fileName:part==='manifest'?'archive-manifest.json':'sealed-audit-archive.zip',
     contentType:part==='manifest'?'application/json':'application/zip',archiveSha256:String(seal.archive_sha256),manifestSha256:String(seal.manifest_sha256)};
 }
-
-function sameBytes(a:Uint8Array,b:Uint8Array):boolean{return a.byteLength===b.byteLength&&a.every((byte,index)=>byte===b[index]);}
-function toHex(bytes:Uint8Array):string{return [...bytes].map(byte=>byte.toString(16).padStart(2,'0')).join('');}

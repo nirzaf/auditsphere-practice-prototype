@@ -48,9 +48,9 @@ async function archiveEnv(options:{tamperManifest?:boolean;streamArchive?:boolea
   const env={DB:db,FILES:{async get(key:string){const bytes=key==='manifest-object'?storedManifest:key==='archive-object'?archiveBytes:null;
     if(!bytes)return null;
     return {size:key==='archive-object'?storedArchiveSize:bytes.byteLength,...(key==='archive-object'&&options.streamArchive?{
-      checksums:{sha256:Uint8Array.from(archiveHash.match(/.{2}/g)!.map(value=>Number.parseInt(value,16))).map((value,index)=>options.badArchiveChecksum&&index===0?value^0xff:value).buffer},
-      body:new ReadableStream<Uint8Array>({start(controller){controller.enqueue(bytes.slice());controller.close();}})
-    }:{}),async arrayBuffer(){if(key==='archive-object')stats.archiveArrayBufferCalls++;return bytes.slice().buffer;}};}}} as unknown as Env;
+      checksums:{sha256:Uint8Array.from(archiveHash.match(/.{2}/g)!.map(value=>Number.parseInt(value,16))).map((value,index)=>options.badArchiveChecksum&&index===0?value^0xff:value).buffer}
+    }:{}),...(key==='archive-object'?{body:new ReadableStream<Uint8Array>({start(controller){controller.enqueue(bytes.slice());controller.close();}})}:{}),
+      async arrayBuffer(){if(key==='archive-object')stats.archiveArrayBufferCalls++;return bytes.slice().buffer;}};}}} as unknown as Env;
   return {env,archiveBytes,manifestBytes,manifestHash,archiveHash,inserted,stats};
 }
 
@@ -72,7 +72,10 @@ it('US-REP-007 restricts exports to review roles and rechecks the immutable ZIP 
   await assert.rejects(()=>getBusinessArchiveExport(env,workspaceId,context('CLIENT'),engagementId),
     (error:unknown)=>Boolean(error&&typeof error==='object'&&(error as {code?:string}).code==='PERSONA_ACTION_DENIED'));
   const archive=await getBusinessArchiveExport(env,workspaceId,context(),engagementId);
-  assert.deepEqual(archive.bytes,archiveBytes);
+  assert.equal(archive.bytes,undefined);
+  assert.ok(archive.body);
+  assert.deepEqual(new Uint8Array(await new Response(archive.body).arrayBuffer()),archiveBytes);
+  assert.equal(inserted.length,1);
   assert.equal(archive.archiveSha256,archiveHash);
   assert.equal(archive.manifestSha256,manifestHash);
   const manifest=await getBusinessArchiveExport(env,workspaceId,context(),engagementId,'manifest');
@@ -81,8 +84,8 @@ it('US-REP-007 restricts exports to review roles and rechecks the immutable ZIP 
   assert.ok(inserted.every(row=>row[6]==='EXPORT'));
 });
 
-it('streams a checksummed archive from R2 without buffering the ZIP in the Worker',async()=>{
-  const {env,archiveBytes,archiveHash,stats}=await archiveEnv({streamArchive:true});
+it('streams an archive without an R2 checksum while verifying its sealed digest',async()=>{
+  const {env,archiveBytes,archiveHash,stats}=await archiveEnv();
   const archive=await getBusinessArchiveExport(env,workspaceId,context(),engagementId);
   assert.equal(archive.archiveSha256,archiveHash);
   assert.equal(archive.bytes,undefined);

@@ -5,8 +5,8 @@ import { buildOpinionReportSections, opinionReportingBlockers, type OpinionAffec
 import { inspectReportingPng } from './reportingPng';
 import { renderRepresentationTemplateDocx } from './reportingRepresentationDocument';
 import { buildReportingStatementProjection, type ReportingStatementLine } from './reportingStatements';
-import { strToU8, zipSync } from 'fflate';
 import * as XLSX from 'xlsx';
+import { createStreamingArchive, verifyStreamingSha256 } from './streamingArchive';
 
 async function sha256BytesHex(bytes:Uint8Array):Promise<string>{
   const copy=new ArrayBuffer(bytes.byteLength);new Uint8Array(copy).set(bytes);
@@ -344,12 +344,20 @@ async function sealArchive(env:Env,job:Job,p:Payload,commit:Commit){
   if(!run||run.status==='SEALED'||run.lifecycle_state!=='COMPLIANCE_COUNTDOWN'||!run.locked_at||run.client_id!==p.clientId||!run.retention_policy_id)throw new Error('The locked engagement archive is not ready for sealing.');
   const files=(await env.DB.prepare(`SELECT id,original_name,media_type,size_bytes,sha256,object_key,purpose FROM file_versions WHERE workspace_id=? AND engagement_id=? AND state='COMMITTED' ORDER BY purpose,original_name,id`)
     .bind(job.workspace_id,p.engagementId).all<Record<string,any>>()).results??[];
-  const missing:string[]=[],verified:Array<{id:string;originalName:string;mediaType:string;sizeBytes:number;sha256:string;purpose:string;bytes:Uint8Array}>=[];
-  let total=0;
-  for(const row of files){try{const file=await exactFile(env,job.workspace_id,String(row.id));total+=file.bytes.byteLength;if(total>64*1024*1024)throw new Error('Archive input exceeds the 64 MiB Worker assembly bound.');
-      verified.push({id:file.id,originalName:file.original_name,mediaType:file.media_type,sizeBytes:file.size_bytes,sha256:file.sha256,purpose:file.purpose,bytes:file.bytes});}
-    catch(error){missing.push(`${row.id}: ${error instanceof Error?error.message:'file unavailable'}`);}}
+  const missing:string[]=[],verified=files.map(row=>({id:String(row.id),originalName:String(row.original_name),mediaType:String(row.media_type),
+    sizeBytes:Number(row.size_bytes),sha256:String(row.sha256??''),purpose:String(row.purpose),objectKey:String(row.object_key)}));
+  for(const file of verified){
+    if(!Number.isSafeInteger(file.sizeBytes)||file.sizeBytes<0||!/^[a-f0-9]{64}$/.test(file.sha256)||!file.objectKey){
+      missing.push(`${file.id}: committed file metadata is incomplete or invalid`);continue;
+    }
+    try{
+      const stored=await env.FILES.head(file.objectKey);
+      if(!stored)missing.push(`${file.id}: stored reporting bytes are missing`);
+      else if(stored.size!==file.sizeBytes)missing.push(`${file.id}: stored reporting bytes do not match the committed size`);
+    }catch(error){missing.push(`${file.id}: ${error instanceof Error?error.message:'file unavailable'}`);}
+  }
   if(missing.length)throw new Error(`ARCHIVE_INCOMPLETE:${JSON.stringify(missing)}`);
+  if(verified.length>65_534)throw new Error('The archive exceeds the supported ZIP entry count.');
   const [transitions,events,opinions,approvals,notes,management,representations,bundles,parts,signatures]=await Promise.all([
     env.DB.prepare(`SELECT id,from_state,to_state,command_id,reason,dependency_hash,transitioned_at FROM state_transitions WHERE workspace_id=? AND engagement_id=? ORDER BY transitioned_at,id`).bind(job.workspace_id,p.engagementId).all<Record<string,unknown>>(),
     env.DB.prepare(`SELECT sequence,command_type,entity_type,entity_id,before_version,after_version,details_json,previous_hash,event_hash FROM audit_events WHERE workspace_id=? AND engagement_id=? ORDER BY sequence`).bind(job.workspace_id,p.engagementId).all<Record<string,unknown>>(),
@@ -369,15 +377,45 @@ async function sealArchive(env:Env,job:Job,p:Payload,commit:Commit){
   const chainHead=chain?.last_event_hash??'0'.repeat(64);
   const manifest={format:'AuditSphere sealed archive manifest v1',engagementId:p.engagementId,workspaceId:job.workspace_id,bundleId:run.bundle_id,lockedAt:run.locked_at,
     sealedAt:nowIso(),reason:p.reason,retentionPolicyId:run.retention_policy_id,auditChainHead:chainHead,recordCount:Object.values(records).reduce((n,value)=>n+(Array.isArray(value)?value.length:1),0),
-    records,files:verified.map(file=>({id:file.id,originalName:file.originalName,mediaType:file.mediaType,sizeBytes:file.sizeBytes,sha256:file.sha256,purpose:file.purpose}))};
-  const manifestBytes=strToU8(JSON.stringify(manifest,null,2)),manifestHash=await sha256BytesHex(manifestBytes);
-  const entries:Record<string,Uint8Array>={'manifest.json':manifestBytes};
-  for(const file of verified){const safe=file.originalName.replace(/[\\/]+/g,'_').replace(/\.\./g,'_').slice(0,160);entries[`files/${file.purpose.toLowerCase()}/${file.id}-${safe}`]=file.bytes;}
-  const archiveBytes=zipSync(entries,{level:6}),archiveHash=await sha256BytesHex(archiveBytes),archiveId=crypto.randomUUID(),manifestFileId=crypto.randomUUID(),archiveArtifactId=crypto.randomUUID(),sealId=crypto.randomUUID(),at=nowIso();
-  const manifestKey=`workspaces/${job.workspace_id}/archive/${p.engagementId}/${manifestHash}.manifest.json`,archiveKey=`workspaces/${job.workspace_id}/archive/${p.engagementId}/${archiveHash}.zip`;
-  await Promise.all([env.FILES.put(manifestKey,manifestBytes,{httpMetadata:{contentType:'text/plain'},customMetadata:{sha256:manifestHash,archiveRunId:run.id},sha256:hexToArrayBuffer(manifestHash)}),
-    env.FILES.put(archiveKey,archiveBytes,{httpMetadata:{contentType:'application/zip'},customMetadata:{sha256:archiveHash,archiveRunId:run.id},sha256:hexToArrayBuffer(archiveHash)})]);
-  for(const [key,expected] of [[manifestKey,manifestHash],[archiveKey,archiveHash]] as const){const object=await env.FILES.get(key);if(!object||await sha256BytesHex(new Uint8Array(await object.arrayBuffer()))!==expected)throw new Error('The sealed archive did not pass object-store read-back verification.');}
+    records,files:verified.map(({id,originalName,mediaType,sizeBytes,sha256,purpose})=>({id,originalName,mediaType,sizeBytes,sha256,purpose}))};
+  const manifestBytes=new TextEncoder().encode(JSON.stringify(manifest,null,2)),manifestHash=await sha256BytesHex(manifestBytes);
+  const archiveId=crypto.randomUUID(),manifestFileId=crypto.randomUUID(),archiveArtifactId=crypto.randomUUID(),sealId=crypto.randomUUID(),at=nowIso();
+  const manifestKey=`workspaces/${job.workspace_id}/archive/${p.engagementId}/${manifestHash}.manifest.json`;
+  const archiveKey=`workspaces/${job.workspace_id}/archive/${p.engagementId}/${run.id}-${archiveId}.zip`;
+  const archiveFiles=verified.map(file=>{
+    const safe=file.originalName.replace(/[\\/]+/g,'_').replace(/\.\./g,'_').slice(0,160);
+    return {path:`files/${file.purpose.toLowerCase()}/${file.id}-${safe}`,sizeBytes:file.sizeBytes,sha256:file.sha256,
+      body:async()=>{
+        const object=await env.FILES.get(file.objectKey);
+        if(!object||object.size!==file.sizeBytes)throw new Error(`Stored reporting bytes are missing or changed for ${file.originalName}.`);
+        return object.body as ReadableStream<Uint8Array>;
+      }};
+  });
+  const archiveBuild=createStreamingArchive(manifestBytes,archiveFiles);
+  const archiveWrite=env.FILES.put(archiveKey,archiveBuild.body,{httpMetadata:{contentType:'application/zip'},customMetadata:{archiveRunId:run.id}});
+  let archiveInfo:{sizeBytes:number;sha256:string};
+  try{
+    archiveInfo=await archiveBuild.completed;
+    const written=await archiveWrite;
+    if(written.size!==archiveInfo.sizeBytes)throw new Error('The streamed archive size differs from the generated ZIP size.');
+    const storedArchive=await env.FILES.get(archiveKey);
+    if(!storedArchive||storedArchive.size!==archiveInfo.sizeBytes)throw new Error('The streamed archive could not be read back at its expected size.');
+    const verifiedArchive=verifyStreamingSha256(storedArchive.body as ReadableStream<Uint8Array>,archiveInfo.sizeBytes,archiveInfo.sha256);
+    const archiveReader=verifiedArchive.getReader();
+    try{while(!(await archiveReader.read()).done){/* verify each chunk without retaining the archive */}}
+    finally{archiveReader.releaseLock();}
+  }catch(error){
+    await archiveWrite.catch(()=>undefined);
+    await env.FILES.delete(archiveKey).catch(()=>undefined);
+    throw error;
+  }
+  const archiveHash=archiveInfo.sha256,archiveSizeBytes=archiveInfo.sizeBytes;
+  await env.FILES.put(manifestKey,manifestBytes,{httpMetadata:{contentType:'text/plain'},customMetadata:{sha256:manifestHash,archiveRunId:run.id},sha256:hexToArrayBuffer(manifestHash)});
+  const manifestObject=await env.FILES.get(manifestKey);
+  if(!manifestObject||manifestObject.size!==manifestBytes.byteLength||await sha256BytesHex(new Uint8Array(await manifestObject.arrayBuffer()))!==manifestHash){
+    await env.FILES.delete(archiveKey).catch(()=>undefined);
+    throw new Error('The sealed archive manifest did not pass object-store read-back verification.');
+  }
   const policy=await env.DB.prepare(`SELECT id FROM retention_policies WHERE workspace_id=? AND id=?`).bind(job.workspace_id,run.retention_policy_id).first<{id:string}>();if(!policy)throw new Error('The referenced retention policy is missing.');
   const systemCommandId=crypto.randomUUID(),systemRequestHash=await sha256Hex(JSON.stringify({jobId:job.id,engagementId:p.engagementId,archiveHash}));
   const stateTransitionId=crypto.randomUUID(),newBundleArtifactId=archiveArtifactId;
@@ -390,9 +428,9 @@ async function sealArchive(env:Env,job:Job,p:Payload,commit:Commit){
       .bind(manifestFileId,job.workspace_id,run.client_id,p.engagementId,manifestBytes.byteLength,manifestHash,manifestKey,at,at,at),
     env.DB.prepare(`INSERT INTO file_versions(id,workspace_id,version,client_id,engagement_id,original_name,media_type,size_bytes,sha256,object_key,purpose,state,committed_at,immutable,created_at,updated_at,created_by_actor_id,updated_by_actor_id)
       VALUES(?,?,1,?,?,'sealed-audit-archive.zip','application/zip',?,?,?,'ARCHIVE','COMMITTED',?,1,?,?,NULL,NULL)`)
-      .bind(archiveId,job.workspace_id,run.client_id,p.engagementId,archiveBytes.byteLength,archiveHash,archiveKey,at,at,at),
+      .bind(archiveId,job.workspace_id,run.client_id,p.engagementId,archiveSizeBytes,archiveHash,archiveKey,at,at,at),
     env.DB.prepare(`INSERT INTO generated_artifacts(id,workspace_id,client_id,engagement_id,artifact_kind,source_entity_type,source_entity_id,source_revision,file_version_id,content_sha256,size_bytes,generated_at,generated_by_job_id)
-      VALUES(?,?,?,?,'ARCHIVE','ARCHIVE_RUN',?,1,?,?,?,?,?)`).bind(newBundleArtifactId,job.workspace_id,run.client_id,p.engagementId,run.id,archiveId,archiveHash,archiveBytes.byteLength,at,job.id),
+      VALUES(?,?,?,?,'ARCHIVE','ARCHIVE_RUN',?,1,?,?,?,?,?)`).bind(newBundleArtifactId,job.workspace_id,run.client_id,p.engagementId,run.id,archiveId,archiveHash,archiveSizeBytes,at,job.id),
     env.DB.prepare(`UPDATE archive_runs SET status='SEALED',frozen_snapshot_hash=?,missing_files_json='[]',error_code=NULL,last_attempt_at=?,updated_at=? WHERE workspace_id=? AND id=? AND status<>'SEALED'`)
       .bind(manifestHash,at,at,job.workspace_id,run.id),
     env.DB.prepare(`UPDATE engagements SET lifecycle_state='ARCHIVED_READ_ONLY',version=version+1,updated_at=?,updated_by_actor_id=NULL WHERE workspace_id=? AND id=? AND lifecycle_state='COMPLIANCE_COUNTDOWN' AND locked_at IS NOT NULL`)

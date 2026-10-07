@@ -25,6 +25,7 @@
     "cf": "wrangler"
   },
   "dependencies": {
+    "@noble/hashes": "2.2.0",
     "docx": "^9.7.1",
     "fflate": "0.8.3",
     "jspdf": "^4.2.1",

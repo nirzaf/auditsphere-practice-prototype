@@ -1243,3 +1243,28 @@ and the archive export integrity cases remain green. This change has not yet
 been exercised in a browser with an intentionally skewed local clock or deployed
 to Cloudflare. US-REP-007 and the broader epic remain open for the other stated
 acceptance criteria and operational acceptance.
+
+## US-REP-007 bounded archive assembly and export — 2026-10-08
+
+**Verification:** `npm run build`; `npm run cloud:typecheck`; focused
+`npx tsx --test --test-concurrency=1 tests/unit/streamingArchive.test.ts
+tests/unit/businessArchiveExport.test.ts` — 11/11; full `npm run test:unit` —
+575/575; `git diff --check`.
+
+**Evidence:** The archive writer consumes and hashes one source stream at a time,
+splits upstream chunks before ZIP encoding, streams the ZIP to object storage,
+and validates the stored bytes on read-back without buffering the archive. Export
+without an R2 SHA-256 streams through size/digest verification; checksum-backed
+objects remain streamed. The 65 MiB regression exercises the former 64 MiB
+assembly ceiling and verifies output digest/size. Corrupt, truncated, wrong-size,
+and wrong-hash inputs are rejected. ZIP32 currently limits an archive/member to
+less than 4 GiB; the documented browser fallback still uses a verified Blob.
+
+**Browser gate:** Focused `tests/e2e/businessReporting.test.ts` did not reach the
+application: headless Chrome failed to expose its CDP endpoint within the
+configured 45-second startup window. No browser assertions ran. `npm audit --omit=dev`
+could not reach `registry.npmjs.org`, so the dependency advisory status is unknown.
+
+**Boundary:** These local checks do not establish full 4 GiB boundary behavior,
+Cloudflare production R2 acceptance, browser download behavior, or operational
+retention/recovery. US-REP-007 and the broader epic remain open.
