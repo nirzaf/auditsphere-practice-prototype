@@ -24,6 +24,7 @@ real-output acceptance for closure.
 
 | Story | Reference |
 | --- | --- |
+| US-GAP-02 | Client acceptance now synchronizes the exact active proposal fee to the engagement in the same atomic command; the prior estimate, immutable proposal revisions, acceptance record and signed terms remain separate. Regressions cover a revised fee of 250,001 minor units, the 50/50 odd-unit split, stale acceptance, revocation and idempotent commands (`businessWorkspace.test.ts`, `calculations.test.ts`). |
 | US-GAP-01 | Client contact/signatory/recipient-route maintenance (`feat(directory) …`). |
 | US-GAP-08 | Prior-year-only mapping and comparative preservation. |
 | US-GAP-11 | In-place analytical-review rework variety. |
@@ -33,7 +34,7 @@ real-output acceptance for closure.
 
 ## Not completed in this change set (source-grounded work remaining)
 
-US-GAP-02, 03, 04, 05, 06, 10, 14, 15, 17, 18, 19, 20, and the remaining
+US-GAP-03, 04, 05, 06, 10, 14, 15, 17, 18, 19, 20, and the remaining
 US-GAP-24 expense-scope items remain open. US-GAP-29 large-archive export is now
 partially implemented: archive creation reads and SHA-256-verifies one committed
 R2 object at a time, streams ZIP chunks to R2, verifies the stored object by

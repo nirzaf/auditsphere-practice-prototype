@@ -203,11 +203,11 @@ function requirePartner(context: RiskBusinessContext): void {
 }
 
 async function getEngagement(env: Env, workspaceId: string, context: RiskBusinessContext, engagementId: string, allowArchivedRead = false) {
-  const engagement = await env.DB.prepare(`SELECT e.id,e.version,e.client_id,e.lifecycle_state,e.active_proposal_version_id,e.period_start,e.period_end,
+  const engagement = await env.DB.prepare(`SELECT e.id,e.version,e.client_id,e.lifecycle_state,e.contract_fee_minor,e.active_proposal_version_id,e.period_start,e.period_end,
       c.active AS client_active,c.legal_name
     FROM engagements e JOIN clients c ON c.workspace_id=e.workspace_id AND c.id=e.client_id
     WHERE e.workspace_id=? AND e.id=?`).bind(workspaceId, engagementId)
-    .first<{ id: string; version: number; client_id: string; lifecycle_state: string; active_proposal_version_id: string | null; period_start: string; period_end: string; client_active: number; legal_name: string }>();
+    .first<{ id: string; version: number; client_id: string; lifecycle_state: string; contract_fee_minor: number; active_proposal_version_id: string | null; period_start: string; period_end: string; client_active: number; legal_name: string }>();
   if (!engagement) throw new ApiError('NOT_FOUND', 'The engagement was not found.');
   assertEngagementScope(context, engagement.client_id, engagementId);
   if (engagement.client_active !== 1 || (!allowArchivedRead && engagement.lifecycle_state === 'ARCHIVED_READ_ONLY')) {
@@ -1068,16 +1068,37 @@ async function buildCommercialAcceptance(env: Env, workspaceId: string, context:
       actor.contact_id, revoke ? 'REVOKE' : 'ACCEPT', acceptedFeeMinor, confirmationText, evidenceFileId, context.actor.id,
       revoke ? prior?.id ?? null : null, now)
   ];
+  let advancedWithAcceptance = false;
   if (!revoke && engagement.lifecycle_state === 'DUAL_KEY_PENDING') {
     const risk = await activeRiskClearance(env, workspaceId, engagement.id, engagement.client_id);
     if (risk) {
       const key = await riskDependencyHash(env, workspaceId, risk.assessment_version_id, risk.assessment_source_version!, engagement.client_id);
       const transitionHash = await sha256Hex(JSON.stringify({ proposalVersionId, commercialAcceptanceId: acceptanceId, riskClearanceId: risk.id, riskDependencyHash: key.dependencyHash }));
-      statements.push(...await appendAdvanceIfReady(env, workspaceId, engagement, commandId, now, context.actor.id, acceptanceId, risk.id, key.dependencyHash));
-      if (statements.length >= 5) statements[statements.length - 1] = env.DB.prepare(`INSERT INTO state_transitions(id,workspace_id,client_id,engagement_id,version,from_state,to_state,command_id,reason,dependency_hash,transitioned_at)
-        SELECT ?,?,?,?,1,'DUAL_KEY_PENDING','ADVANCE_BILLING',?,'Both current acceptance keys are active for the exact proposal and risk revisions.',?,?
-        WHERE changes()=1`).bind(crypto.randomUUID(), workspaceId, engagement.client_id, engagement.id, commandId, transitionHash, now);
+      const transitionStatements = await appendAdvanceIfReady(env, workspaceId, engagement, commandId, now, context.actor.id, acceptanceId, risk.id, key.dependencyHash);
+      if (transitionStatements.length) {
+        advancedWithAcceptance = true;
+        statements.push(...transitionStatements);
+        statements[statements.length - 1] = env.DB.prepare(`INSERT INTO state_transitions(id,workspace_id,client_id,engagement_id,version,from_state,to_state,command_id,reason,dependency_hash,transitioned_at)
+          SELECT ?,?,?,?,1,'DUAL_KEY_PENDING','ADVANCE_BILLING',?,'Both current acceptance keys are active for the exact proposal and risk revisions.',?,?
+          WHERE changes()=1`).bind(crypto.randomUUID(), workspaceId, engagement.client_id, engagement.id, commandId, transitionHash, now);
+      }
     }
+  }
+  if (!revoke) {
+    const expectedVersion = engagement.version + (advancedWithAcceptance ? 1 : 0);
+    const expectedState = advancedWithAcceptance ? 'ADVANCE_BILLING' : engagement.lifecycle_state;
+    if (engagement.contract_fee_minor !== acceptedFeeMinor) {
+      statements.push(env.DB.prepare(`UPDATE engagements SET contract_fee_minor=?,version=version+1,updated_at=?,updated_by_actor_id=?
+        WHERE workspace_id=? AND id=? AND version=? AND lifecycle_state=? AND active_proposal_version_id=?`)
+        .bind(acceptedFeeMinor, now, context.actor.id, workspaceId, engagement.id, expectedVersion, expectedState, proposalVersionId));
+    }
+    statements.push(env.DB.prepare(`INSERT INTO command_assertions(workspace_id,seq,ok)
+      SELECT ?,96,CASE WHEN EXISTS(SELECT 1 FROM engagements e
+        JOIN commercial_acceptances ca ON ca.workspace_id=e.workspace_id AND ca.engagement_id=e.id
+          AND ca.proposal_version_id=e.active_proposal_version_id AND ca.id=? AND ca.decision='ACCEPT'
+        WHERE e.workspace_id=? AND e.id=? AND e.active_proposal_version_id=? AND e.contract_fee_minor=?
+          AND ca.accepted_fee_minor=?) THEN 1 ELSE 0 END`)
+      .bind(workspaceId, acceptanceId, workspaceId, engagement.id, proposalVersionId, acceptedFeeMinor, acceptedFeeMinor));
   }
   return { statements, result: { acceptanceId, decision: revoke ? 'REVOKE' : 'ACCEPT', commercialKey: revoke ? 'REVOKED' : 'ACTIVE', proposalVersionId, acceptedFeeMinor: acceptedFeeMinor === null ? null : String(acceptedFeeMinor) }, entityType: 'COMMERCIAL_ACCEPTANCE', entityId: acceptanceId, beforeVersion: latest?.sequence ?? null, afterVersion: sequence, auditDetails: { engagementId: engagement.id, proposalVersionId, decision: revoke ? 'REVOKE' : 'ACCEPT', feeMinor: acceptedFeeMinor === null ? null : String(acceptedFeeMinor) } };
 }

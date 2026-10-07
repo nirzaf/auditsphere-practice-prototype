@@ -1211,6 +1211,9 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
   }, makeRiskHeaders(clientHeaders));
   assert.equal(accepted.response.status, 200, JSON.stringify(accepted.body));
   assert.equal(accepted.body.result.commercialKey, 'ACTIVE');
+  assert.equal(db.prepare(`SELECT contract_fee_minor FROM engagements WHERE workspace_id=? AND id=?`)
+    .bind(workspaceId, engagementId).first<any>()?.contract_fee_minor, 250001,
+    'acceptance atomically replaces the conversion estimate with the exact current proposal fee');
   assert.equal(db.prepare(`SELECT lifecycle_state FROM engagements WHERE workspace_id=? AND id=?`)
     .bind(workspaceId, engagementId).first<any>()?.lifecycle_state, 'ADVANCE_BILLING',
     'both current keys advance the engagement atomically into advance billing');
