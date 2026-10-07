@@ -1071,6 +1071,10 @@ it('US-REP-001–007 covers all report categories, representation, atomic releas
   });
   const countdownWorkflow = await countdownWorkflowResponse.json() as { state: string; stages: Array<{ id: string; status: string; blockerCoverage: string; blockers: unknown[] }> };
   assert.equal(countdownWorkflowResponse.status, 200, JSON.stringify(countdownWorkflow));
+  const releasedStage = countdownWorkflow.stages.find(item => item.id === 'DELIVERABLE_RELEASE');
+  assert.ok(releasedStage);
+  assert.equal(releasedStage.status, 'completed', 'the atomic report release remains visible as a completed lifecycle stage');
+  assert.deepEqual(releasedStage.blockers, []);
   const countdownStage = countdownWorkflow.stages.find(item => item.id === 'COMPLIANCE_COUNTDOWN');
   assert.ok(countdownStage);
   assert.equal(countdownStage.blockerCoverage, 'evaluated');

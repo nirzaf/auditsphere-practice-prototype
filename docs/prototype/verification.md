@@ -1182,7 +1182,15 @@ Current checks: dependency install, lint, 353/353 unit tests, 2/2 target Chrome 
 
 **Evidence:** The Worker workflow projection now derives intake, proposal, dual-key acceptance, advance-billing, and planning blockers from current scoped D1 records. The integration journey checks the pending engagement-letter gate, invoice document rendering, partial payment, a payment reversal, full settlement, and the resulting planning blockers. A generated or issued-but-not-rendered commercial document does not falsely report a ready gate.
 
-**Boundary:** Evaluated coverage remains limited to these five current lifecycle stages; fieldwork, Manager/Partner review, release, countdown and archive still direct users to their module-level controls. These checks use synthetic local Worker/SQLite data and do not exercise Cloudflare or operational approvals. US-SYS-003 and the 46-story epic remain open.
+**Boundary:** This initial entry covered the five commercial/planning stages. Supplemental lifecycle evidence below covers fieldwork, Manager/Partner review, the atomic release stage, countdown and archive. All checks use synthetic local Worker/SQLite data and do not exercise Cloudflare or operational approvals. US-SYS-003 and the 46-story epic remain open.
+
+## US-SYS-003 lifecycle projection supplemental coverage — 2026-10-07
+
+**Verification:** `npm run test:unit` — 526/526; `npm run test:e2e` — 30/30 serialized Chromium scenarios; focused `npx tsx --test --test-concurrency=1 tests/e2e/businessReporting.test.ts` — 1/1; focused `npx tsx --test tests/unit/currentOnlyArchitecture.test.ts` — 11/11; `git diff --check`.
+
+**Evidence:** The Worker returns its full eleven-stage lifecycle projection. Existing Worker-backed tests cover the current lead/proposal/acceptance/billing/planning stages, fieldwork, Manager review, Partner approval, countdown and sealed archive. The report-release journey now also asserts that `DELIVERABLE_RELEASE` is represented as completed when the atomic release advances to `COMPLIANCE_COUNTDOWN`. The production UI displays the returned stage status, counts and current-stage blockers; the legacy browser-store application is loaded only by its explicit E2E environment flag.
+
+**Boundary:** The focused reporting run and full E2E run use synthetic local Worker/SQLite/R2 fixtures and Chromium. They do not constitute operational professional approval or Cloudflare production acceptance. The epic remains open pending other story-specific evidence, firm-supplied policy inputs and independent acceptance.
 
 ## Combined main-worktree verification — 2026-10-07
 
@@ -1199,3 +1207,11 @@ Current checks: dependency install, lint, 353/353 unit tests, 2/2 target Chrome 
 **Evidence:** The local production Worker handler creates a synthetic BUSINESS workspace, client, engagement, accepted trial balance and committed original file. The recovery bundle contains a serialized SQLite image, record counts for every application table, contract-fee and current/prior trial-balance totals, and each committed object with its original key, size and SHA-256. Restore into a fresh SQLite adapter and object map reconciles every table count, foreign key, financial total and file row/hash/byte. A missing original and a corrupted database image both fail closed.
 
 **Boundary:** This is isolated recovery acceptance against the local Worker/SQLite/R2 test adapters. It does not configure or execute Cloudflare production D1/R2 backups, retention locks or a production restore. Production recovery remains an external operational gate; the 46-story epic remains open.
+
+## Worker-backed local development startup — 2026-10-07
+
+**Verification:** `npm run dev` completed its production build, then Wrangler failed before serving; direct `wrangler dev --local --persist-to .wrangler/state` and an isolated temp persistence path failed the same way. Requests to `http://127.0.0.1:3000/api/health/live` and `/` were refused because the Worker process had exited.
+
+**Evidence:** Wrangler identified D1 and R2 as local bindings and the Assets binding as local. The Windows workerd runtime exited with `CreateDirectory: #5 Access is denied.; path = miniflare-email-store`. This records an environment startup failure; no API/UI smoke assertion is counted as passed. The default development and preview scripts explicitly use `--local` to avoid production bindings.
+
+**Boundary:** The Worker runtime failure prevents a local served-app smoke check in this desktop session. The synthetic Worker adapter suites pass separately; Cloudflare production was not contacted or deployed.
