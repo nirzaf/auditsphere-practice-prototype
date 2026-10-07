@@ -1,5 +1,5 @@
 {
-  "name": "AuditSphere · Role Portals v2",
-  "description": "AuditSphere 14-role interactive prototype. Synthetic data only. No backend or real authorization.",
+  "name": "AuditSphere Practice Workspace",
+  "description": "Server-backed AuditSphere practice workspace for synthetic audit and accounting records. Persona selection does not verify identity.",
   "capabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

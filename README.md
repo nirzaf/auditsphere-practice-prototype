@@ -1,4 +1,4 @@
-# AuditSphere · Business workspace
+# AuditSphere Practice Workspace
 
 AuditSphere is a server-backed audit practice workspace spanning Commercial & CRM, Governance & Planning, Technical Fieldwork, Reporting & Archive, and Practice Management. The Cloudflare Worker serves the app and API on one origin; D1 holds business records and R2 holds committed file bytes. The browser retains the selected workspace and persona, not business records.
 
