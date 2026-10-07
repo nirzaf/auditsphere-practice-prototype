@@ -5,15 +5,14 @@ blocked. It records the integration code and configuration in the repository and
 the account-owner steps that still gate live acceptance. Integration status must
 come from the deployed Worker; local configuration is not evidence of connectivity.
 
-The last recorded production build identity is
-`0689461738caf33ae13290809f063ccebf032374`; its GitHub Actions run passed typecheck,
-unit tests, build, browser E2E, provider deployment, D1 migrations, Worker
-deployment, and readiness. Main has since advanced to
-`fa7cbc29deaf6216ad5a50ee8ddf9c4c0714d7a2`. The GitHub API could not be reached
-during the 2026-10-07 follow-up, so CI and production deployment for the newer
-commit have not been verified. The last recorded integration probe showed email
-bound through `SERVICE_BINDING`, while SharePoint remained unconfigured until its
-site grant and client secret are present. A healthy deployment does not by itself
+Production build identity `bcd23de750459b99277d937df2205573cd505d99` was deployed
+from `main` by [GitHub Actions run 37656134133](https://github.com/nirzaf/auditsphere-practice-prototype/actions/runs/37656134133).
+The run passed app/Worker typecheck, unit tests, production build, the complete
+browser E2E suite, Email Service provider deployment, D1 migrations, Worker/static
+asset deployment, and readiness. A live `GET /api/integrations/status` check at
+2026-10-07 17:09 UTC reported email `configured: true` with transport
+`SERVICE_BINDING`; SharePoint reported `UNCONFIGURED` because
+`SHAREPOINT_CLIENT_SECRET` is missing. A healthy deployment does not by itself
 establish email delivery or SharePoint connectivity.
 
 Verify the current state of every integration at any time:
@@ -65,11 +64,12 @@ The provider Worker has `workers_dev` disabled and is reachable only through the
 business Worker service binding.
 
 Current account state: `mail.steaudit.com` is Enabled with DNS Configured. The
-approved UAT recipient `testing@mail.steauditing.com` has been added to Cloudflare
-Email Service. Its verification was resent, but the dashboard still shows
-`Pending`. The mailbox owner must open the message and follow its verification link.
-Do not send an application message until Cloudflare shows it Verified and a
-controlled UAT delivery succeeds.
+approved UAT recipient `testing@mail.steauditing.com` was last observed as
+`Pending`; its verification was resent. The mailbox owner must open the message
+and follow its verification link. The live Worker status confirms its provider
+binding, not recipient verification or delivery. Do not claim a successful
+application send until Cloudflare shows the recipient Verified and a controlled
+UAT delivery succeeds.
 
 The requested inbound alias is `audit@steaudit.com` → `fazrin@quadrate.lk`; the
 destination is verified. On 2026-10-07, the Cloudflare dashboard showed
@@ -107,9 +107,11 @@ Required external inputs (firm-owned):
 The `AuditSphere SharePoint UAT` app is registered and has tenant-consented Graph
 application permission `Sites.Selected`. The site-specific `write` grant to
 `https://easyguide.sharepoint.com/sites/AuditSphereJSAcceptance` is approved by the
-site owner, but has not yet been applied. The Worker config already contains the
-non-secret tenant, app, site hostname/path, and `Documents` library values. Its
-`SHAREPOINT_CLIENT_SECRET` is still absent from Cloudflare.
+site owner, but the grant was not applied in the inspected SharePoint admin
+session. The Worker config already contains the non-secret tenant, app, site
+hostname/path, and `Documents` library values. Its `SHAREPOINT_CLIENT_SECRET` is
+still absent from Cloudflare; the live status endpoint confirms this secret is
+the current configuration failure.
 That separate grant must be applied by an authorized SharePoint administrator using
 a grant-authority session (for example, PnP PowerShell with delegated Graph
 `Sites.FullControl.All`). The target app remains limited to `Sites.Selected`; do not
