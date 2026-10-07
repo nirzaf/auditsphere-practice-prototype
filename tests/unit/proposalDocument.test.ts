@@ -1,6 +1,7 @@
 import { it } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { inflateSync } from 'node:zlib';
 import { renderProposalPdf, ProposalDocumentError, type ProposalDocumentInput } from '../../worker/proposalDocument.js';
 
 const shortProposal: ProposalDocumentInput = {
@@ -23,11 +24,47 @@ function pageCount(bytes: Uint8Array): number {
   return (new TextDecoder().decode(bytes).match(/\/Type \/Page\b/g) ?? []).length;
 }
 
+function decodedPdfStreams(bytes: Uint8Array): string[] {
+  const pdf = Buffer.from(bytes);
+  const streams: string[] = [];
+  const marker = Buffer.from('stream\n');
+  let cursor = 0;
+  while (cursor < pdf.length) {
+    const markerIndex = pdf.indexOf(marker, cursor);
+    if (markerIndex < 0) break;
+    const dictionaryStart = pdf.lastIndexOf(Buffer.from('<<'), markerIndex);
+    const dictionary = pdf.subarray(dictionaryStart, markerIndex).toString('latin1');
+    const dataStart = markerIndex + marker.length;
+    const dataEnd = pdf.indexOf(Buffer.from('endstream'), dataStart);
+    if (dataEnd < 0) break;
+    if (dictionary.includes('/FlateDecode')) {
+      let compressedEnd = dataEnd;
+      if (pdf[compressedEnd - 1] === 0x0a) compressedEnd -= 1;
+      if (pdf[compressedEnd - 1] === 0x0d) compressedEnd -= 1;
+      streams.push(inflateSync(pdf.subarray(dataStart, compressedEnd)).toString('latin1'));
+    }
+    cursor = dataEnd + Buffer.byteLength('endstream');
+  }
+  return streams;
+}
+
 it('renders a bounded quote with reconciled fees and refuses silent overflow', () => {
   const bytes = renderProposalPdf(shortProposal);
   assert.deepEqual(renderProposalPdf(shortProposal), bytes, 'the same proposal snapshot renders reproducible bytes');
   assert.match(new TextDecoder().decode(bytes.subarray(0, 8)), /^%PDF-\d\.\d$/);
   assert.ok(pageCount(bytes) >= 1 && pageCount(bytes) <= 2);
+  const renderedContent = decodedPdfStreams(bytes).join('\n');
+  for (const expected of [
+    'Local Trading WLL',
+    '2025-01-01 to 2025-12-31',
+    shortProposal.scope,
+    'Planning and fieldwork',
+    'QAR 100,000.01',
+    'QAR 50,000.01',
+    'QAR 50,000.00'
+  ]) {
+    assert.ok(renderedContent.includes(expected), `the generated PDF contains ${expected}`);
+  }
 
   assert.throws(() => renderProposalPdf({
     ...shortProposal,

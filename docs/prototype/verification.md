@@ -1377,3 +1377,20 @@ updates to prior reconciliation rows.
 the rent, petty-cash disbursement/replenishment, account mapping, and Partner
 withdrawal accounting scenarios and their local support/custodian controls. Live
 source-document inspection and full epic acceptance remain open.
+
+## US-ENG-003 quote artifact content verification — 2026-10-08
+
+**Verification:** `npx tsx --test --test-reporter=spec
+tests/unit/proposalDocument.test.ts` — 3/3; `git diff --check`.
+
+**Evidence:** The quote renderer test now inflates the generated PDF content
+streams and checks the actual output includes the synthetic client's legal name,
+reporting-period dates, complete scope, named timeline milestone, total QAR fee,
+and exact advance/final amounts for an odd-minor-unit fee. This supplements the
+existing one/two-page bound and actionable overflow failure. The rendered bytes
+remain deterministic for an identical proposal snapshot.
+
+**Boundary:** This verifies local synthetic PDF content, not visual page layout
+in an independent PDF viewer, all full-proposal content/overflow variants,
+current firm-source evidence, or successful live email delivery. US-ENG-003 and
+the broader epic remain open.
