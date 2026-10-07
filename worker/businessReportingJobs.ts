@@ -384,7 +384,10 @@ async function sealArchive(env:Env,job:Job,p:Payload,commit:Commit){
   const archiveId=crypto.randomUUID(),manifestFileId=crypto.randomUUID(),archiveArtifactId=crypto.randomUUID(),sealId=crypto.randomUUID(),at=nowIso();
   const retentionSegment=archiveRetentionSegment({retentionYears:run.retention_years,retainIndefinitely:run.retain_indefinitely});
   const archivePrefix=`sealed-archives/retention/${retentionSegment}/${job.workspace_id}/${p.engagementId}`;
-  const manifestKey=`${archivePrefix}/${manifestHash}.manifest.json`;
+  // A seal attempt can fail after the manifest upload but before its D1 commit.
+  // Give retries distinct keys because R2 retention rules prevent overwriting
+  // the first attempt's immutable manifest object.
+  const manifestKey=`${archivePrefix}/${run.id}-${archiveId}-${manifestHash}.manifest.json`;
   const archiveKey=`${archivePrefix}/${run.id}-${archiveId}.zip`;
   const archiveFiles=verified.map(file=>{
     const safe=file.originalName.replace(/[\\/]+/g,'_').replace(/\.\./g,'_').slice(0,160);
