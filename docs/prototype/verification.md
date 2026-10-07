@@ -1146,7 +1146,17 @@ Current checks: dependency install, lint, 353/353 unit tests, 2/2 target Chrome 
 
 **Supplemental Worker lifecycle acceptance — 2026-10-07:** `tests/e2e/businessProcedureConflict.test.ts` now drives current Worker procedures through independent Manager review, Manager handover, Partner handover, SRM compilation and a separate Partner clearance. It confirms signed and gross unadjusted totals, reviewed procedure/going-concern snapshots, then records a newly accepted AJE and verifies the old SRM clearance returns `409 STALE_DEPENDENCY` without deleting its immutable historical row.
 
-**Boundary:** The visible SRM journey still uses the prototype-store presentation flow. The Worker lifecycle test uses synthetic local Worker/SQLite data and does not constitute operational client or Partner approval or a Cloudflare production write. Other US-FLD-012 criteria and the broader 46-story epic remain open.
+**Boundary update — 2026-10-08:** The earlier note that the visible SRM used the
+prototype-store presentation flow is stale. The ordinary app routes to
+`BusinessWorkspaceConsole`; its `BusinessFieldworkPanel` renders persisted SRM
+revisions and submits `srm.compile` / `srm.clear` commands to the Worker. The
+legacy `ReviewSRMView` is reachable only through the explicit
+`VITE_TEST_HARNESS=true` development test harness, as guarded by
+`tests/unit/currentOnlyArchitecture.test.ts`. A fresh browser journey could not
+be rerun in this session because headless Chrome did not expose its CDP endpoint.
+The local Worker lifecycle tests still do not constitute operational client or
+Partner approval or a Cloudflare production write. Other US-FLD-012 criteria and
+the broader 46-story epic remain open.
 
 ## US-FLD-013 external confirmations and Holding Letter blocker — 2026-10-07
 
@@ -1267,4 +1277,9 @@ could not reach `registry.npmjs.org`, so the dependency advisory status is unkno
 
 **Boundary:** These local checks do not establish full 4 GiB boundary behavior,
 Cloudflare production R2 acceptance, browser download behavior, or operational
-retention/recovery. US-REP-007 and the broader epic remain open.
+retention/recovery. The authenticated Cloudflare dashboard was inspected on
+2026-10-08: `auditsphere-prototype-files` has **no bucket lock rules**, so an
+account operator can still overwrite/delete archive objects outside the Worker.
+Wrangler could not refresh its expired login while the Cloudflare auth endpoint
+was unreachable. Do not describe the current R2 archive as storage-locked or
+permanently deletion-protected. US-REP-007 and the broader epic remain open.
