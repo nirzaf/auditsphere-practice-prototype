@@ -1136,6 +1136,72 @@ it('US-FLD-012 compiles and clears a Worker SRM, then rejects clearance after an
   } });
   assert.equal(acceptedGoingConcern.response.status, 200, JSON.stringify(acceptedGoingConcern.body));
 
+  const holdingContactId = randomUUID();
+  const holdingLetterRouteId = randomUUID();
+  runFixtureSql(`INSERT INTO contacts(id,workspace_id,version,client_id,full_name,email,title,role,is_primary,is_signatory,active,effective_from,created_at,updated_at,created_by_actor_id,updated_by_actor_id)
+    VALUES(?,?,1,?,'QA Handover Managing Director','holding-md@example.invalid','Managing Director','MD_GM',0,1,1,'2026-01-01',?,?,?,?)`,
+  holdingContactId, fixture.workspaceId, fixture.clientId, now, now, fixture.actorProfileId, fixture.actorProfileId);
+  runFixtureSql(`INSERT INTO contact_routes(id,workspace_id,version,client_id,purpose,contact_id,is_primary,created_at,updated_at,created_by_actor_id,updated_by_actor_id)
+    VALUES(?,?,1,?,'HOLDING_LETTER',?,1,?,?,?,?)`, holdingLetterRouteId, fixture.workspaceId, fixture.clientId, holdingContactId,
+  now, now, fixture.actorProfileId, fixture.actorProfileId);
+  runFixtureSql(`INSERT INTO firm_profiles(id,workspace_id,version,legal_name,registration_number,address,profile_text,methodology_text,created_at,updated_at,created_by_actor_id,updated_by_actor_id)
+    VALUES(?,?,1,'QA Fieldwork Firm','CR-QA-FLD-013','Doha, Qatar','Synthetic firm profile for local Holding Letter acceptance.',
+      'Synthetic test data only; not professional methodology.',?,?,?,?)`, randomUUID(), fixture.workspaceId, now, now, fixture.actorProfileId, fixture.actorProfileId);
+  const localEmailPurposes: string[] = [];
+  server.setEmailProvider(async request => {
+    assert.equal(new URL(request.url).host, 'email-provider.local');
+    const form = await request.formData();
+    const message = JSON.parse(String(form.get('message'))) as { to?: string; purpose?: string };
+    assert.match(message.to ?? '', /@example\.invalid$/);
+    assert.ok(request.headers.get('Idempotency-Key'));
+    localEmailPurposes.push(message.purpose ?? '');
+    return Response.json({ messageId: `local-handover-provider-${localEmailPurposes.length}` }, { status: 202 });
+  });
+  const handoverConfirmation = await send(fixture.actorProfileId, 'APPROVER', { type: 'confirmation.create', payload: {
+    engagementId: fixture.engagementId, type: 'BANK', fsliId: fixture.fsliId,
+    externalPartyName: 'Synthetic Handover Gate Bank', externalPartyAddress: '1 Example Street, Doha', externalPartyEmail: 'bank@example.invalid',
+    recipientVerificationText: 'Verified against the synthetic engagement contact record.', critical: true,
+    criticalityReason: 'This confirmation is individually material to the synthetic audit fieldwork.', dueDate: '2026-12-31'
+  } });
+  assert.equal(handoverConfirmation.response.status, 200, JSON.stringify(handoverConfirmation.body));
+  const handoverConfirmationId = String(handoverConfirmation.body.result?.confirmationId ?? '');
+  assert.ok(handoverConfirmationId);
+  const blockedManagerHandover = await send(managerActorId, 'REVIEWER', { type: 'fieldwork.handover-manager', payload: {
+    engagementId: fixture.engagementId, expectedVersion: 1,
+    reason: 'Current workprograms, procedures and going-concern assessment have independent review.'
+  } });
+  assert.equal(blockedManagerHandover.response.status, 200, JSON.stringify(blockedManagerHandover.body));
+  assert.equal(blockedManagerHandover.body.result?.blocked, true, 'the Worker returns a blocker result for the critical confirmation');
+  assert.ok((blockedManagerHandover.body.result?.blockers as Array<{ entityId: string }>).some(item => item.entityId === handoverConfirmationId));
+  const handoverHoldingJobId = String(blockedManagerHandover.body.result?.holdingLetterJobId ?? '');
+  assert.ok(handoverHoldingJobId, 'Manager handover queues an idempotent Holding Letter job');
+  assert.equal(server.db.prepare('SELECT lifecycle_state FROM engagements WHERE workspace_id=? AND id=?')
+    .bind(fixture.workspaceId, fixture.engagementId).first<{ lifecycle_state: string }>()?.lifecycle_state, 'FIELDWORK_EXECUTION',
+    'the blocked handover does not advance the engagement lifecycle');
+  assert.equal(server.db.prepare(`SELECT COUNT(*) AS count FROM outbox_jobs WHERE workspace_id=? AND id=? AND deduplication_key LIKE 'holding-letter:%'`)
+    .bind(fixture.workspaceId, handoverHoldingJobId).first<{ count: number }>()?.count, 1);
+  let handoverLetter: { id: string; dispatch_status: string } | null = null;
+  for (let attempt = 0; attempt < 8 && handoverLetter?.dispatch_status !== 'ACCEPTED'; attempt += 1) {
+    await server.runScheduled();
+    handoverLetter = server.db.prepare(`SELECT h.id,d.status AS dispatch_status FROM holding_letters h
+      JOIN dispatches d ON d.workspace_id=h.workspace_id AND d.id=h.dispatch_id
+      WHERE h.workspace_id=? AND h.engagement_id=?`).bind(fixture.workspaceId, fixture.engagementId)
+      .first<{ id: string; dispatch_status: string }>();
+  }
+  const handoverJobDiagnostic = server.db.prepare('SELECT status,last_error_code FROM outbox_jobs WHERE workspace_id=? AND id=?')
+    .bind(fixture.workspaceId, handoverHoldingJobId).first<{ status: string; last_error_code: string | null }>();
+  assert.ok(handoverLetter?.id, `the Worker outbox generates the blocked handover Holding Letter; job=${JSON.stringify(handoverJobDiagnostic)}`);
+  assert.equal(handoverLetter.dispatch_status, 'ACCEPTED');
+  assert.ok(localEmailPurposes.includes('HOLDING_LETTER'));
+  const partnerScopeReassessment = await send(fixture.actorProfileId, 'APPROVER', { type: 'confirmation.scope-reassess', payload: {
+    confirmationId: handoverConfirmationId, expectedVersion: 1,
+    rationale: 'The Partner reviewed the current fieldwork sources and approved a noncritical replacement confirmation scope.',
+    replacementCritical: false, replacementCriticalityReason: null
+  } });
+  assert.equal(partnerScopeReassessment.response.status, 200, JSON.stringify(partnerScopeReassessment.body));
+  assert.equal(partnerScopeReassessment.body.result?.status, 'CANCELLED');
+  assert.equal(partnerScopeReassessment.body.result?.replacementCritical, false);
+
   const managerHandover = await send(managerActorId, 'REVIEWER', { type: 'fieldwork.handover-manager', payload: {
     engagementId: fixture.engagementId, expectedVersion: 1,
     reason: 'Current workprograms, procedures and going-concern assessment have independent review.'
