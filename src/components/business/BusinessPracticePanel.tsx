@@ -112,6 +112,11 @@ export function BusinessPracticePanel({ workspaceId, selected, context, engageme
   const [withdrawalDate, setWithdrawalDate] = useState(today);
   const [withdrawalAmount, setWithdrawalAmount] = useState('');
   const [withdrawalReason, setWithdrawalReason] = useState('');
+  const [replenishmentDate, setReplenishmentDate] = useState(today);
+  const [replenishmentAmount, setReplenishmentAmount] = useState('');
+  const [replenishmentBankId, setReplenishmentBankId] = useState('');
+  const [replenishmentCashId, setReplenishmentCashId] = useState('');
+  const [replenishmentReason, setReplenishmentReason] = useState('');
   const [pettyCashAccountId, setPettyCashAccountId] = useState('');
   const [pettyCashCustodianId, setPettyCashCustodianId] = useState('');
   const [pettyCashCount, setPettyCashCount] = useState('');
@@ -220,6 +225,14 @@ export function BusinessPracticePanel({ workspaceId, selected, context, engageme
     try { await perform('partner-withdrawal.post', { partnerStaffId: withdrawalPartnerId, date: withdrawalDate, amountMinor: qatarMinor(withdrawalAmount),
       equityAccountId: drawings.id, bankAccountId: bank.id, reason: withdrawalReason }, 'Partner withdrawal posted as an equity distribution, not a business expense.'); }
     catch (reason) { setError(reason instanceof Error ? reason.message : 'Enter a valid withdrawal amount.'); }
+  };
+  const replenishPettyCash = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    try {
+      await perform('petty-cash.replenish', { date: replenishmentDate, amountMinor: qatarMinor(replenishmentAmount),
+        bankAccountId: replenishmentBankId, pettyCashAccountId: replenishmentCashId, reason: replenishmentReason },
+      'Petty cash replenished from bank. The transfer increases cash and does not record another expense.');
+    } catch (reason) { setError(reason instanceof Error ? reason.message : 'Enter a valid QAR replenishment amount.'); }
   };
   const reconcilePettyCash = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -453,6 +466,17 @@ export function BusinessPracticePanel({ workspaceId, selected, context, engageme
         </div><button className="btn sm" disabled={busy}>Post approved equity withdrawal</button>
       </form>}
       {data.partnerWithdrawals.length > 0 && <div className="business-record-list"><h3>Partner withdrawal history</h3>{data.partnerWithdrawals.map(item => <div className="business-delivery-row" key={String(item.id)}><strong>{String(item.partnerName)} · {money(String(item.amountMinor))}</strong><span>{String(item.date)} · {String(item.reason)} · journal {String(item.journalId)}</span></div>)}</div>}
+
+      {canReview && <form className="business-form business-commercial-form" onSubmit={replenishPettyCash}>
+        <h3>Replenish petty cash from bank</h3><p className="business-muted">Posts a transfer between asset accounts. Existing petty-cash vouchers remain the expense; replenishment adds no second expense.</p>
+        <div className="business-form-grid">
+          <label className="business-field"><span>Bank control account</span><select required value={replenishmentBankId} onChange={event => setReplenishmentBankId(event.target.value)}><option value="">Choose bank account</option>{data.accounts.filter(account => account.controlType === 'BANK' && account.accountType === 'ASSET' && Boolean(account.active) && Boolean(account.postingAllowed)).map(account => <option key={account.id} value={account.id}>{account.code} · {account.name}</option>)}</select></label>
+          <label className="business-field"><span>Petty cash control account</span><select required value={replenishmentCashId} onChange={event => setReplenishmentCashId(event.target.value)}><option value="">Choose petty cash account</option>{data.accounts.filter(account => account.controlType === 'CASH' && account.accountType === 'ASSET' && Boolean(account.active) && Boolean(account.postingAllowed)).map(account => <option key={account.id} value={account.id}>{account.code} · {account.name}</option>)}</select></label>
+          <label className="business-field"><span>Transfer date</span><input type="date" required value={replenishmentDate} onChange={event => setReplenishmentDate(event.target.value)} /></label>
+          <label className="business-field"><span>Amount (QAR)</span><input required inputMode="decimal" value={replenishmentAmount} onChange={event => setReplenishmentAmount(event.target.value)} /></label>
+          <label className="business-field"><span>Transfer reference and reason</span><textarea required minLength={10} maxLength={5000} value={replenishmentReason} onChange={event => setReplenishmentReason(event.target.value)} /></label>
+        </div><button className="btn sm" disabled={busy}>Post bank-to-petty-cash transfer</button>
+      </form>}
 
       {canReview && <form className="business-form business-commercial-form" onSubmit={reconcilePettyCash}>
         <h3>Reconcile petty cash</h3><div className="business-form-grid">

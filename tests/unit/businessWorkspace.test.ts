@@ -3930,6 +3930,56 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
   }, reviewerHeaders);
   assert.equal(expensePost.response.status, 200, JSON.stringify(expensePost.body));
 
+  // PRC-005: a QAR 300 petty-cash voucher is the expense; replenishing that cash
+  // from bank creates only an asset-to-asset transfer and never a second expense.
+  const pettyVoucher = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'expense.create', payload: {
+      date: planDate, payee: 'Practice supplies', category: 'PETTY_CASH', amountMinor: '30000',
+      description: 'Small office supplies paid from the accountable petty cash float.',
+      missingSupportReason: 'Receipt is being recovered from the custodian before month-end.',
+      debitAccountId: accountId('5300'), settlementAccountId: accountId('1010'), paymentMethod: 'CASH' } }
+  }, preparerHeaders);
+  assert.equal(pettyVoucher.response.status, 200, JSON.stringify(pettyVoucher.body));
+  const pettyVoucherPost = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'expense.approve-and-post', payload: { expenseId: pettyVoucher.body.result.expenseId } }
+  }, reviewerHeaders);
+  assert.equal(pettyVoucherPost.response.status, 200, JSON.stringify(pettyVoucherPost.body));
+  const invalidPettyCashTransfer = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'petty-cash.replenish', payload: {
+      date: planDate, amountMinor: '30000', bankAccountId: accountId('5300'), pettyCashAccountId: accountId('1010'),
+      reason: 'Reject an expense account as the bank source.' } }
+  }, reviewerHeaders);
+  assert.equal(invalidPettyCashTransfer.response.status, 422, JSON.stringify(invalidPettyCashTransfer.body));
+  const replenishmentKey = crypto.randomUUID();
+  const pettyCashTransfer = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: replenishmentKey, command: { type: 'petty-cash.replenish', payload: {
+      date: planDate, amountMinor: '30000', bankAccountId: accountId('1000'), pettyCashAccountId: accountId('1010'),
+      reason: 'Bank transfer ref UAT-PC-300 replenishes posted petty cash vouchers.' } }
+  }, reviewerHeaders);
+  assert.equal(pettyCashTransfer.response.status, 200, JSON.stringify(pettyCashTransfer.body));
+  assert.equal(pettyCashTransfer.body.result.expenseDebitMinor, '0');
+  const repeatedPettyCashTransfer = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: replenishmentKey, command: { type: 'petty-cash.replenish', payload: {
+      date: planDate, amountMinor: '30000', bankAccountId: accountId('1000'), pettyCashAccountId: accountId('1010'),
+      reason: 'Bank transfer ref UAT-PC-300 replenishes posted petty cash vouchers.' } }
+  }, reviewerHeaders);
+  assert.equal(repeatedPettyCashTransfer.response.status, 200, JSON.stringify(repeatedPettyCashTransfer.body));
+  assert.equal(repeatedPettyCashTransfer.body.result.journalId, pettyCashTransfer.body.result.journalId);
+  assert.equal(db.prepare(`SELECT COUNT(*) AS count FROM firm_journals WHERE workspace_id=? AND source_type='PETTY_CASH_REPLENISHMENT'`)
+    .bind(workspaceId).first<{ count: number }>()?.count, 1, 'idempotent retry must not duplicate the replenishment journal');
+  const transferLines = await db.prepare(`SELECT l.account_id,l.debit_minor,l.credit_minor,a.control_type,a.account_type
+    FROM firm_journal_lines l JOIN firm_accounts a ON a.workspace_id=l.workspace_id AND a.id=l.account_id
+    WHERE l.workspace_id=? AND l.journal_id=? ORDER BY a.control_type`).bind(workspaceId,pettyCashTransfer.body.result.journalId).all<any>();
+  assert.deepEqual((transferLines.results??[]).map((line: any) => ({ control: line.control_type, type: line.account_type, debit: line.debit_minor, credit: line.credit_minor })), [
+    { control: 'BANK', type: 'ASSET', debit: 0, credit: 30000 },
+    { control: 'CASH', type: 'ASSET', debit: 30000, credit: 0 }
+  ]);
+  const pettyCashExpenseBalance = db.prepare(`SELECT COALESCE(SUM(l.debit_minor-l.credit_minor),0) AS balance
+    FROM firm_journal_lines l JOIN firm_journals j ON j.workspace_id=l.workspace_id AND j.id=l.journal_id AND j.status='POSTED'
+    JOIN firm_accounts a ON a.workspace_id=l.workspace_id AND a.id=l.account_id
+    WHERE l.workspace_id=? AND a.code='5300'`).bind(workspaceId).first<{ balance: number }>()?.balance;
+  assert.equal(pettyCashExpenseBalance, 30000, 'replenishment must not add another debit to the petty-cash expense account');
+
   // PRC-004: atomic double-entry journals posted independently and reversed immutably.
   const journalDraft = await post(`/api/workspaces/${workspaceId}/commands`, {
     idempotencyKey: crypto.randomUUID(), command: { type: 'ledger.create-draft', payload: {

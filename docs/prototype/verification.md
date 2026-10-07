@@ -1349,3 +1349,19 @@ Cloudflare, the Worker is redeployed, and its live probe reaches `CONNECTED`.
 Email delivery remains unaccepted until the test destination is verified and a
 controlled UAT send succeeds. The root `audit@steaudit.com` route is not active;
 the apex MX still points to Microsoft 365. The broader epic remains open.
+
+## US-PRC-005 petty-cash replenishment transfer
+
+The practice UI now exposes a Reviewer/Partner-only, dated petty-cash transfer
+command. The Worker requires distinct active posting Bank and Cash asset control
+accounts and records a posted journal that debits petty cash and credits bank.
+The command uses its idempotency key as the source-event identity; the transfer
+does not touch an expense account or create a second voucher expense.
+
+Regression evidence in `tests/unit/businessWorkspace.test.ts` models a posted
+QAR 300 petty-cash voucher followed by the equal bank replenishment, rejects an
+expense account as the bank source, checks the two asset journal lines, retries
+the same command without duplicating the journal, and verifies the petty-cash
+expense account remains debited exactly once. This is implementation evidence for
+the replenishment scenario only; the remaining US-PRC-005 requirements and full
+epic acceptance remain open.

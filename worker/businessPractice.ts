@@ -61,6 +61,9 @@ const expensePost = z.strictObject({ type:z.literal('expense.approve-and-post'),
 const withdrawalPost = z.strictObject({ type:z.literal('partner-withdrawal.post'),payload:z.strictObject({
   partnerStaffId:id,date,amountMinor:amount.refine(value=>BigInt(value)>0n),equityAccountId:id,bankAccountId:id,reason:reason()
 })});
+const pettyCashReplenish = z.strictObject({ type:z.literal('petty-cash.replenish'),payload:z.strictObject({
+  date,amountMinor:amount.refine(value=>BigInt(value)>0n),bankAccountId:id,pettyCashAccountId:id,reason:reason()
+})});
 const pettyCashReconcile = z.strictObject({ type:z.literal('petty-cash.reconcile'),payload:z.strictObject({accountId:id,asOf:date,countedCashMinor:amount,explanation:reason(),custodianStaffId:id})});
 const revenuePolicySave = z.strictObject({ type:z.literal('revenue-policy.save'),payload:z.strictObject({
   name:z.string().trim().min(1).max(200),effectiveFrom:date,recognitionMethod:z.enum(['DEFER_UNTIL_EARNED','APPROVED_MILESTONE']),recognitionRules:reason(10,10000)
@@ -79,7 +82,7 @@ const exportReport = z.strictObject({type:z.literal('practice.export-report'),pa
   periodStart:date,periodEnd:date,format:z.enum(['CSV','XLSX','PDF'])}).refine(value=>value.periodStart<=value.periodEnd,'The report period end must not precede its start.')});
 
 export const businessPracticeCommands = [chargeRateSet,timeCreate,timeSubmit,timeApprove,timeReturn,timeCorrect,captureUtilization,budgetApprove,accountCreate,periodOpen,periodClose,
-  journalCreate,journalPost,journalReverse,expenseCreate,expensePost,withdrawalPost,pettyCashReconcile,revenuePolicySave,revenueRecognize,captureProfitability,
+  journalCreate,journalPost,journalReverse,expenseCreate,expensePost,withdrawalPost,pettyCashReplenish,pettyCashReconcile,revenuePolicySave,revenueRecognize,captureProfitability,
   paymentAllocate,paymentReverseAllocation,creditNoteIssue,captureAr,exportReport] as const;
 export type BusinessPracticeCommand = z.infer<(typeof businessPracticeCommands)[number]>;
 export function isBusinessPracticeCommand(command:{type:string}):command is BusinessPracticeCommand {
@@ -741,6 +744,20 @@ async function buildWithdrawal(env:Env,workspaceId:string,context:BusinessContex
       VALUES(?,?,?,?,?,?,?,?,?,?,?)`).bind(idValue,workspaceId,staff.id,p.date,Number(value),equity.id,bank.id,p.reason,journal.id,context.actor.id,now)],
     {withdrawalId:idValue,journalId:journal.id,amountMinor:String(value),classification:'EQUITY_WITHDRAWAL'},'PARTNER_WITHDRAWAL',idValue,null,1,{partnerStaffId:staff.id,journalId:journal.id,reason:p.reason});
 }
+async function buildPettyCashReplenish(env:Env,workspaceId:string,context:BusinessContext,command:Extract<BusinessPracticeCommand,{type:'petty-cash.replenish'}>,commandId:string,now:string){
+  reviewerOrPartner(context);const p=command.payload;
+  const bank=await accountById(env,workspaceId,p.bankAccountId),cash=await accountById(env,workspaceId,p.pettyCashAccountId);
+  if(bank.id===cash.id||bank.account_type!=='ASSET'||bank.control_type!=='BANK'||cash.account_type!=='ASSET'||cash.control_type!=='CASH')
+    throw new ApiError('VALIDATION_FAILED','Choose distinct active Bank and Petty Cash asset control accounts.');
+  const amountMinor=BigInt(p.amountMinor);
+  const journal=await createPostedJournal(env,workspaceId,context.actor.id,{date:p.date,description:`Petty cash replenishment: ${p.reason}`,
+    sourceType:'PETTY_CASH_REPLENISHMENT',sourceId:commandId,sourceEventKey:`petty-cash-replenishment:${commandId}`,now,
+    lines:[{accountId:cash.id,debit:amountMinor,credit:0n,memo:'Replenishment transfer from bank'},
+      {accountId:bank.id,debit:0n,credit:amountMinor,memo:'Petty cash replenishment'}]});
+  return mutation(journal.statements,{transferId:journal.id,journalId:journal.id,number:journal.number,status:'POSTED',amountMinor:String(amountMinor),
+    debitAccountId:cash.id,creditAccountId:bank.id,expenseDebitMinor:'0'},'PETTY_CASH_REPLENISHMENT',journal.id,null,1,
+    {bankAccountId:bank.id,pettyCashAccountId:cash.id,amountMinor:String(amountMinor),reason:p.reason,sourceEventKey:`petty-cash-replenishment:${commandId}`});
+}
 async function accountBalance(env:Env,workspaceId:string,accountId:string,asOf:string,engagementId?:string){
   const row=await env.DB.prepare(`SELECT COALESCE(SUM(l.debit_minor-l.credit_minor),0) AS balance FROM firm_journal_lines l
     JOIN firm_journals j ON j.workspace_id=l.workspace_id AND j.id=l.journal_id AND j.status='POSTED'
@@ -1163,6 +1180,7 @@ export async function buildBusinessPracticeMutation(env:Env,workspaceId:string,c
     case 'expense.create':return buildExpenseCreate(env,workspaceId,context,command,now);
     case 'expense.approve-and-post':return buildExpensePost(env,workspaceId,context,command,now);
     case 'partner-withdrawal.post':return buildWithdrawal(env,workspaceId,context,command,now);
+    case 'petty-cash.replenish':return buildPettyCashReplenish(env,workspaceId,context,command,commandId,now);
     case 'petty-cash.reconcile':return buildPettyCashReconcile(env,workspaceId,context,command,now);
     case 'revenue-policy.save':return buildRevenuePolicy(env,workspaceId,context,command,now);
     case 'revenue.recognize':return buildRevenueRecognize(env,workspaceId,context,command,now);
