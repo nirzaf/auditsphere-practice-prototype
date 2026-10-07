@@ -71,6 +71,25 @@ async function waitFor(tab: CdpTab, label: string, predicate: string, timeoutMs 
   throw new Error(`Timed out waiting for ${label}. Fieldwork diagnostics: ${diagnostic}`);
 }
 
+async function waitForStable(tab: CdpTab, label: string, predicate: string, requiredObservations = 3, timeoutMs = 20000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  let consecutiveObservations = 0;
+  while (Date.now() < deadline) {
+    if (await tab.evaluate<boolean>(predicate)) {
+      consecutiveObservations++;
+      if (consecutiveObservations >= requiredObservations) return;
+    } else {
+      consecutiveObservations = 0;
+    }
+    await sleep(80);
+  }
+  const diagnostic = await tab.evaluate<string>(`(() => [
+    document.querySelector('.business-fieldwork-panel > .business-alert')?.textContent?.trim() ?? '',
+    document.querySelector('.business-fieldwork-panel')?.innerText ?? document.body.innerText.slice(-3000)
+  ].join('\\n'))()`);
+  throw new Error(`Timed out waiting for stable ${label}. Fieldwork diagnostics: ${diagnostic}`);
+}
+
 function runFixtureSql(sql: string, ...values: unknown[]): void {
   assert.ok(server);
   server.db.prepare(sql).bind(...values).run();
@@ -666,7 +685,7 @@ it('US-FLD-007, US-FLD-008 and US-FLD-009 verify MUS, systematic and stratified 
 
   const populationName = 'UI MUS population with explicit exclusions';
   await setVisibleFieldByLabel(tabA, 'Population name', populationName);
-  await waitFor(tabA, 'the committed sampling source loaded from the Worker file query', `
+  await waitForStable(tabA, 'the committed sampling source loaded from the Worker file query', `
     (() => {
       const label = [...document.querySelectorAll('label.business-field')].find(item => item.querySelector('span')?.textContent?.trim() === 'Committed source file');
       return [...(label?.querySelectorAll('select option') ?? [])].some(option => option.textContent?.includes('qa-sampling-population.csv'));

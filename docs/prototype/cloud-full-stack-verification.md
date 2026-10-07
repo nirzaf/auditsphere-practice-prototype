@@ -606,10 +606,11 @@ does not prove remote D1 deployment compatibility. Historical hosted run
 working tree simplifies the actor-profile triggers in migration 0008, but no
 Cloudflare migration/deployment was retried.
 
-US-SYS-005 remains incomplete: the p95 read/command targets have not been
-measured under the documented 20-active-user workload, Cloudflare alert
-destinations are not configured here, and an isolated restore against actual
-sandbox D1/R2 resources has not been performed. The 46-story epic remains open.
+US-SYS-005 remains incomplete: the deployed Cloudflare p95 read/command targets
+have not been measured under the documented 20-active-user workload, Cloudflare
+alert destinations are not configured here, and an isolated restore against
+actual sandbox D1/R2 resources has not been performed. Trusted CI-to-D1
+VerificationRun ingestion is also open. The 46-story epic remains open.
 
 ### SYS-005 verification record and support bundle — 2026-10-07
 
@@ -639,5 +640,39 @@ The CI workflow exports its VerificationRun-shaped metadata as a GitHub
 artifact; it does not ingest the result into application D1. The migration and
 schema are ready for trusted CI/staging ingestion, but durable D1 run recording
 is still open. These checks do not establish remote migration compatibility,
-that a hosted CI run produced the artifact, or that the remaining SYS-005 load,
-alert-destination and sandbox-restore criteria pass.
+that a hosted CI run produced the artifact, or that the remaining SYS-005
+deployed-load, alert-destination, sandbox-restore and trusted-ingestion
+criteria pass.
+
+### Local 20-user API workload and audit-chain contention — 2026-10-07
+
+The initial in-process workload exposed a real contention failure: when 20
+client-create commands raced to append to one workspace audit chain, the
+three-attempt compare-and-swap loop returned `VERSION_CONFLICT` for some valid
+independent commands. The Worker now retains the database compare-and-swap as
+the authority and retries a moved audit head up to 24 times with capped jittered
+backoff. A focused integration regression test verifies that 20 simultaneous
+commands each persist a distinct client and audit event.
+
+On commit `867dddefa87e65c0b95f463c53deeb057853be45`,
+`npm run benchmark:local-api` passed with a clean worktree and no external
+network requests. The isolated run created 20 synthetic preparer profiles and
+100 initial clients, then issued ten waves of 20 context reads, 20 paginated
+client-list reads and 20 client-create commands. All 744 Worker requests
+returned HTTP 200 or 201. Across 400 scoped reads, p50/p95/p99 were
+7.708/15.386/16.339 ms; across 200 commands, p50/p95/p99 were
+112.846/257.563/288.049 ms. Both local p95 values were below 500 ms and 1 s.
+
+The full unit suite passed **539/539** across 106 suites; `npm run build`,
+`npm run cloud:typecheck`, and `git diff --cached --check` passed. This uses the
+in-memory SQLite D1 adapter and does not measure Cloudflare runtime, network,
+production-sized persistence, or remote D1 contention. It is regression
+evidence only; the deployed 20-active-user p95 criterion remains open alongside
+the alert destination, sandbox restore and trusted CI-to-D1 ingestion items.
+
+The complete serialized Chromium suite passed **30/30** on rerun. Its first
+full run had one transient sampling-source dropdown assertion; the specific
+journey and all four tests in its E2E file passed in isolation, and the full
+suite rerun then passed. The source-option wait now requires three consecutive
+observations before interacting with the control; the containing E2E file
+passed **4/4** after that stabilization.
