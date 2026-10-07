@@ -3760,7 +3760,11 @@ export async function runBusinessDirectoryCommand(
   if (!workspace) throw new ApiError('NOT_FOUND', 'Workspace not found.');
   if (workspace.business_status !== 'ACTIVE') throw new ApiError('WORKSPACE_FROZEN', 'This workspace is read-only.');
 
-  for (let attempt = 0; attempt < 3; attempt++) {
+  // A workspace audit chain is intentionally linear, so independent commands can
+  // race to append at the same sequence. Keep the database compare-and-swap as the
+  // authority, but give a realistic burst of active users time to take turns.
+  const maxAuditHeadAttempts = 24;
+  for (let attempt = 0; attempt < maxAuditHeadAttempts; attempt++) {
     const head = await env.DB.prepare(`SELECT id,last_sequence,last_event_hash FROM audit_chain_heads
       WHERE workspace_id=? AND scope_kind='WORKSPACE' AND scope_id=?`).bind(workspaceId, workspaceId)
       .first<{ id: string; last_sequence: number; last_event_hash: string | null }>();
@@ -3874,7 +3878,11 @@ export async function runBusinessDirectoryCommand(
         WHERE id=? AND workspace_id=?`).bind(head.id, workspaceId)
         .first<{ last_sequence: number; last_event_hash: string | null }>();
       const headAdvanced = Boolean(currentHead && (currentHead.last_sequence !== head.last_sequence || currentHead.last_event_hash !== head.last_event_hash));
-      if (headAdvanced && attempt < 2) continue;
+      if (headAdvanced && attempt + 1 < maxAuditHeadAttempts) {
+        const backoffMs = Math.min(10, 2 * (attempt + 1)) + Math.floor(Math.random() * 3);
+        await new Promise(resolve => setTimeout(resolve, backoffMs));
+        continue;
+      }
       if (headAdvanced) throw new ApiError('VERSION_CONFLICT', 'The audit lineage is busy. Retry this command with the same idempotency key.');
       if (error instanceof Error && /command_assertions|CHECK constraint failed: ok = 1|version|audit_chain_heads/i.test(error.message)) {
         throw new ApiError('VERSION_CONFLICT', 'The record or audit lineage changed. Reload and retry with the current version.');

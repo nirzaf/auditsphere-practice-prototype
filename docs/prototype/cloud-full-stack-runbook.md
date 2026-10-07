@@ -86,6 +86,16 @@ measured p50/p95/p99 before claiming those targets. Do not run a load probe
 against the production Worker without an explicitly approved test window and
 sandbox data.
 
+For a network-free regression check against the actual Worker routes and
+command implementation, run `npm run benchmark:local-api`. It creates an
+isolated BUSINESS workspace, 20 synthetic preparer profiles and 100 persisted
+clients, then runs ten waves of concurrent context reads, paginated client
+list reads and client-create commands. The harness uses in-process
+`Worker.fetch`, the SQLite D1 test adapter and an in-memory R2 stub; it cannot
+reach a deployed Worker. A passing local result does not prove the Cloudflare
+latency target. Repeat the same documented workload against approved sandbox
+Cloudflare resources before closing the deployed p95 criterion.
+
 `GET /api/health/support-bundle` downloads a redacted operational JSON bundle.
 It contains the application and installed schema versions, readiness status,
 allowlisted dependency codes, and at most 20 verification-run summaries. It

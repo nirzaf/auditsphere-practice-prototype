@@ -13,6 +13,7 @@
     "lint": "tsc --noEmit",
     "preview": "wrangler dev --config wrangler.jsonc --local --port 3000",
     "test:unit": "tsx --test --test-concurrency=1 tests/unit/*.test.ts",
+    "benchmark:local-api": "tsx tools/benchmark-local-worker-20-users.ts",
     "cloud:seed": "tsx tools/seed-cloud-workspace.ts",
     "migration:audit": "tsx tools/business-migration-audit.ts",
     "cloud:typecheck": "tsc --noEmit -p worker/tsconfig.json",
