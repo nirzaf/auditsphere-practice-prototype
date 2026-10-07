@@ -1272,6 +1272,41 @@ it('US-REP-001–007 covers all report categories, representation, atomic releas
   assert.equal(signature.signature_file_sha256, registered.signature_sha256);
   assert.equal(signature.seal_file_sha256, registered.seal_sha256);
   assert.equal(signature.final_file_sha256, releasedParts?.find(part => part.kind === 'REPORT_AND_FS')?.sha256);
+  const provenanceResponse = await fetch(`${server.origin}/api/workspaces/${fixture.workspaceId}/engagements/${fixture.engagementId}/released-report/provenance`, {
+    headers: { Origin: server.origin, 'X-Actor-Id': fixture.actorId, 'X-Active-Persona': 'APPROVER', 'X-Client-Id': fixture.clientId,
+      'X-Engagement-Id': fixture.engagementId }
+  });
+  const provenance = await provenanceResponse.json() as {
+    bundle?: { id: string; contentSha256: string };
+    consent?: { candidateContentSha256: string; attribution: string };
+    reportSignature?: { finalFileSha256: string; signingMethod: string };
+    signatureAsset?: { owner: { grade: string }; signature: { sha256: string }; seal: { sha256: string } };
+    integrity?: { hashesAndPinnedVersionsMatch: boolean; signatureAttribution: string };
+  };
+  assert.equal(provenanceResponse.status, 200, JSON.stringify(provenance));
+  assert.equal(provenance.bundle?.id, released.id);
+  assert.equal(provenance.bundle?.contentSha256, readyBundle.content_hash);
+  assert.equal(provenance.consent?.candidateContentSha256, generated.content_sha256);
+  assert.equal(provenance.consent?.attribution, 'SELF_ASSERTED_PERSONA');
+  assert.equal(provenance.reportSignature?.finalFileSha256, signature.final_file_sha256);
+  assert.equal(provenance.reportSignature?.signingMethod, 'IMAGE_WITH_AUDIT_PROVENANCE');
+  assert.equal(provenance.signatureAsset?.owner.grade, 'PARTNER');
+  assert.equal(provenance.signatureAsset?.signature.sha256, registered.signature_sha256);
+  assert.equal(provenance.signatureAsset?.seal.sha256, registered.seal_sha256);
+  assert.deepEqual(provenance.integrity, { hashesAndPinnedVersionsMatch: true, signatureAttribution: 'SELF_ASSERTED_PERSONA' });
+  await refreshReporting();
+  await waitFor('the released signature provenance in the Partner reporting panel', `(() => {
+    const report=document.querySelector('#business-reporting-${fixture.engagementId}')?.closest('section');
+    const panel=report?.querySelector('.business-report-provenance');
+    const text=panel?.innerText ?? '';
+    return text.includes('Released report signature provenance') && text.includes('SELF_ASSERTED_PERSONA') &&
+      text.includes(${JSON.stringify(generated.content_sha256)}) &&
+      text.includes(${JSON.stringify(registered.signature_sha256)}) && text.includes(${JSON.stringify(registered.seal_sha256)}) &&
+      text.includes(${JSON.stringify(signature.final_file_sha256)});
+  })()`);
+  const visibleProvenance = await tab.evaluate<string>(`document.querySelector('#business-reporting-${fixture.engagementId}')?.closest('section')?.querySelector('.business-report-provenance')?.innerText ?? ''`);
+  assert.match(visibleProvenance, /not certificate-backed or verified identity/i);
+  assert.match(visibleProvenance, /Consented candidate SHA-256/);
   assert.equal(server.db.prepare(`SELECT COUNT(*) AS count FROM portal_freezes WHERE workspace_id=? AND engagement_id=? AND bundle_id=? AND frozen_at=? AND reason='FINAL_REPORT_RELEASE' AND actor_id=?`)
     .bind(fixture.workspaceId, fixture.engagementId, released.id, released.released_at, fixture.actorId).first<{ count: number }>()?.count, 1);
   const releaseTransitions = server.db.prepare(`SELECT from_state,to_state FROM state_transitions WHERE workspace_id=? AND engagement_id=? AND transitioned_at=? ORDER BY version`)

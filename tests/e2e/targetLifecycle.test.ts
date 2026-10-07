@@ -64,13 +64,19 @@ before(
     // Chrome on Windows can ignore the initial URL passed to /json/new; make
     // the harness navigation explicit before waiting for the React shell.
     await tab.command('Page.navigate', { url: origin });
-    for (let n = 0; n < 100; n++) {
+    // The isolated prototype harness eagerly compiles a large module graph on
+    // the first cold Vite request. Let Chrome finish loading that graph before
+    // classifying the page as broken; 10 seconds was shorter than observed
+    // cold starts on Windows and caused every test in this file to fail at the
+    // shared hook even though the application subsequently rendered.
+    for (let n = 0; n < 600; n++) {
       if (await tab.evaluate<boolean>('!!document.querySelector(".sidebar")')) return;
       await sleep(100);
     }
-    throw Error('React shell did not render');
+    const pageText = await tab.evaluate<string>('document.body?.innerText?.slice(0, 500) ?? "<empty body>"');
+    throw Error(`React shell did not render within 60 seconds; body: ${pageText}; browser exceptions: ${tab.exceptions.slice(-5).join(' | ') || '<none>'}; failed requests: ${tab.networkFailures.slice(-5).join(' | ') || '<none>'}`);
   },
-  { timeout: 75000 }
+  { timeout: 120000 }
 );
 after(async () => {
   tab?.close();
