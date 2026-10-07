@@ -832,7 +832,7 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
     timeline: [{ name: 'Planning and fieldwork', date: '2027-02-15' }]
   };
   const blockedFullProposal = await post(`/api/workspaces/${workspaceId}/commands`, {
-    idempotencyKey: crypto.randomUUID(), command: { type: 'proposal.create', payload: { ...proposalTerms, selectedTeamCvIds: [attachedCv.body.result.teamCvId], expectedEngagementVersion: advance.body.result.version } }
+    idempotencyKey: crypto.randomUUID(), command: { type: 'proposal.create', payload: { ...proposalTerms, expectedEngagementVersion: advance.body.result.version } }
   }, reviewerHeaders);
   assert.equal(blockedFullProposal.response.status, 409, JSON.stringify(blockedFullProposal.body));
   assert.equal(blockedFullProposal.body.code, 'GATE_BLOCKED');
@@ -867,7 +867,7 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
   assert.equal(approvedCv.body.result.status, 'APPROVED');
 
   const proposal = await post(`/api/workspaces/${workspaceId}/commands`, {
-    idempotencyKey: crypto.randomUUID(), command: { type: 'proposal.create', payload: { ...proposalTerms, expectedEngagementVersion: advance.body.result.version } }
+    idempotencyKey: crypto.randomUUID(), command: { type: 'proposal.create', payload: { ...proposalTerms, selectedTeamCvIds: [attachedCv.body.result.teamCvId], expectedEngagementVersion: advance.body.result.version } }
   }, reviewerHeaders);
   assert.equal(proposal.response.status, 200, JSON.stringify(proposal.body));
   assert.equal(proposal.body.result.revision, 1);
