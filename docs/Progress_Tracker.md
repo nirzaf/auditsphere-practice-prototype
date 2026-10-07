@@ -1,9 +1,9 @@
 
-# AuditSphere Visual Prototype
+# AuditSphere Practice Workspace
 ## Complete Requirements & Progress Tracker
 **Tracker version:** 1.0  
 **Snapshot date:** 2026-09-27 (UTC)
-**Repository:** `nirzaf/auditsphere-visual-prototype`  
+**Repository:** `nirzaf/auditsphere-practice-prototype`  
 **Overall status:** APPROVED_FOR_DEMO — browser-only prototype accepted by Claude Code under PROTOTYPE-AGENT-ACCEPTANCE-001 (AI-agent review; not production, professional or human sign-off). Baseline before closure: PARTIALLY IMPLEMENTED / ACCEPTANCE INCOMPLETE.<br>
 **Document purpose:** Complete requirement preservation, progress tracking and acceptance closure—not a production-readiness certificate.
 > **Read the status correctly:** “VERIFIED” below means the repository reports that story/module as accepted in its current evidence records. It is not a claim that new tests were executed while creating this tracker. “PARTIAL” can mean unfinished functionality, unfinished verification, or both. Missing evidence is never automatically classified as missing implementation.
