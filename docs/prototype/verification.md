@@ -1329,3 +1329,23 @@ configuration edit permission. Existing archives under the prior
 `workspaces/.../archive/` prefixes remain unprotected. US-REP-007 and the full
 epic remain open until a deploy succeeds and Cloudflare read-back confirms the
 rules.
+
+## SharePoint site-scoped UAT grant and live integration status — 2026-10-08
+
+**Evidence:** In the signed-in easyguide Graph Explorer session, the authorized
+`POST /sites/{site-id}/permissions` returned `201 Created` for
+`AuditSphere SharePoint UAT` with `roles: ["write"]`. A follow-up `GET` on the
+same site's permission collection returned the same app ID and `write` role.
+The existing application permission remains `Sites.Selected`; no tenant-wide
+SharePoint application permission was added. A live request to
+`/api/integrations/status` reports email transport `SERVICE_BINDING` and
+SharePoint `UNCONFIGURED` because `SHAREPOINT_CLIENT_SECRET` is still missing.
+Cloudflare's destination-address list shows the approved test recipient
+`testing@mail.steauditing.com` as Pending.
+
+**Boundary:** Site authorization is configured, but SharePoint connectivity is
+not accepted until the owner creates the client secret and enters it directly in
+Cloudflare, the Worker is redeployed, and its live probe reaches `CONNECTED`.
+Email delivery remains unaccepted until the test destination is verified and a
+controlled UAT send succeeds. The root `audit@steaudit.com` route is not active;
+the apex MX still points to Microsoft 365. The broader epic remains open.

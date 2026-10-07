@@ -81,15 +81,16 @@ the repository:
 | Story | Blocking prerequisite |
 | --- | --- |
 | US-GAP-05 / 06 | Cloudflare Email Sending is enabled and DNS is configured for `mail.steaudit.com`. The restricted provider is deployed and the latest integration probe reported `SERVICE_BINDING`. The approved recipient `testing@mail.steauditing.com` remains Pending after verification was resent; a real delivery has not been accepted. |
-| US-GAP-25 – 28 | Entra app `AuditSphere SharePoint UAT` is registered and `Sites.Selected` application consent is granted. The owner approved a single-site `write` grant for `/sites/AuditSphereJSAcceptance`, but it has not been applied; `SHAREPOINT_CLIENT_SECRET` is not configured. Do not report `CONNECTED` until the grant, secret and live probe succeed. |
+| US-GAP-25 – 28 | Entra app `AuditSphere SharePoint UAT` is registered, `Sites.Selected` application consent is granted, and Graph `GET /sites/{site-id}/permissions` verifies the app's site-only `write` role on `/sites/AuditSphereJSAcceptance` (2026-10-08). `SHAREPOINT_CLIENT_SECRET` is still missing; the live probe remains `UNCONFIGURED`. |
 | US-GAP-30 – 32 | Deployed URL/build identity are recorded. UAT follows the epic's no-auth profile with four self-selected personas and synthetic records; supplied login accounts are not required. Real email delivery and a connected SharePoint test-site probe remain unverified. |
 
-Application code build `bcd23de750459b99277d937df2205573cd505d99` is deployed.
-GitHub Actions run 37656134133 passed typecheck, unit tests, build, the complete
-browser E2E suite, Email Service provider deployment, D1 migrations, Worker/static
-asset deployment and readiness. The live integration probe at 2026-10-07 17:09 UTC
-reports email `SERVICE_BINDING`; SharePoint remains `UNCONFIGURED` because
-`SHAREPOINT_CLIENT_SECRET` is missing. The owner approved the narrowly scoped
-`write` grant; the inspected SharePoint admin session did not apply it. Email
-delivery remains unverified until the recipient is verified and an approved UAT
-send succeeds. Keep integration stories BLOCKED rather than simulating acceptance.
+Application build `bcd23de750459b99277d937df2205573cd505d99` was deployed by
+GitHub Actions run 37656134133, which passed typecheck, unit tests, build, the
+complete browser E2E suite, Email Service provider deployment, D1 migrations,
+Worker/static asset deployment and readiness. A live `/api/integrations/status`
+request on 2026-10-08 reports email `SERVICE_BINDING`; SharePoint remains
+`UNCONFIGURED` because `SHAREPOINT_CLIENT_SECRET` is missing. The site-only `write`
+grant has now been applied and independently read back from Graph. Email delivery
+remains unverified: `testing@mail.steauditing.com` is still Pending and an approved
+UAT send has not succeeded. Keep integration stories open rather than simulating
+acceptance.

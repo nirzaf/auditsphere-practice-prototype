@@ -105,22 +105,20 @@ Required external inputs (firm-owned):
 - `SHAREPOINT_DRIVE_NAME` — the document library (default `Documents`).
 
 The `AuditSphere SharePoint UAT` app is registered and has tenant-consented Graph
-application permission `Sites.Selected`. The site-specific `write` grant to
-`https://easyguide.sharepoint.com/sites/AuditSphereJSAcceptance` is approved by the
-site owner, but the grant was not applied in the inspected SharePoint admin
-session. The Worker config already contains the non-secret tenant, app, site
-hostname/path, and `Documents` library values. Its `SHAREPOINT_CLIENT_SECRET` is
-still absent from Cloudflare; the live status endpoint confirms this secret is
-the current configuration failure.
-That separate grant must be applied by an authorized SharePoint administrator using
-a grant-authority session (for example, PnP PowerShell with delegated Graph
-`Sites.FullControl.All`). The target app remains limited to `Sites.Selected`; do not
-give it tenant-wide `Sites.ReadWrite.All` or `Sites.FullControl.All`.
+application permission `Sites.Selected`. On 2026-10-08, the site owner-authorized
+Graph request created the site-specific grant. A follow-up `GET` on the site's
+permissions returned the target app with `roles: ["write"]` for
+`https://easyguide.sharepoint.com/sites/AuditSphereJSAcceptance`. The Worker config
+already contains the non-secret tenant, app, site hostname/path, and `Documents`
+library values. Its `SHAREPOINT_CLIENT_SECRET` is still absent from Cloudflare; the
+live status endpoint confirms this secret is the current configuration failure.
+The app remains limited to `Sites.Selected`; do not give it tenant-wide
+`Sites.ReadWrite.All` or `Sites.FullControl.All`.
 
 The SharePoint Admin Center session reviewed on 2026-10-07 can see the approved
 acceptance site and its site settings/membership, but does not expose a Graph
-`Sites.Selected` app-permission grant action. No site grant was applied in that
-session.
+`Sites.Selected` app-permission grant action. The site grant was subsequently
+applied and verified through Microsoft Graph.
 
 Example with an already-approved PnP grant-authority app and an authorized admin
 session (this grants only the target site and `Write` role):
