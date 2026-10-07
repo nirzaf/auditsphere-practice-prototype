@@ -469,7 +469,7 @@ it('US-ENG-001/002 creates a client-linked lead from the visible forms and advan
   // US-ENG-001 / US-ENG-007: PBC request creation must use a visible,
   // purpose-specific route to an active Chief Accountant / Audit Liaison.
   await chooseOption('business-active-persona', `item.textContent?.includes('APPROVER · QA Lead Partner')`);
-  await waitFor('the approver directory', `document.querySelector('.business-actor-summary')?.innerText.includes('APPROVER') && !!document.querySelector('#business-contact-name')`);
+  await waitFor('the approver context', `document.querySelector('.business-actor-summary')?.innerText.includes('APPROVER')`);
   await chooseOption('business-selected-client', `item.textContent?.includes(${JSON.stringify(`QA Lead Client ${unique} WLL`)})`);
   await waitFor('the selected client directory', `document.querySelector('#business-contact-name') !== null`);
   await fillFields({
