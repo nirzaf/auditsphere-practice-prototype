@@ -63,16 +63,16 @@ the repository:
 
 | Story | Blocking prerequisite |
 | --- | --- |
-| US-GAP-05 / 06 | Cloudflare Email Sending is enabled and DNS is configured for `mail.steaudit.com`. The restricted provider is deployed and the live status reports `SERVICE_BINDING`. The approved recipient `testing@mail.steauditing.com` is Pending verification, so a real delivery has not been accepted. |
-| US-GAP-25 – 28 | Entra app `AuditSphere SharePoint UAT` is registered and `Sites.Selected` application consent is granted. The approved single-site `write` grant and client secret are still pending; do not report `CONNECTED` until the site grant, secret and live probe succeed. |
+| US-GAP-05 / 06 | Cloudflare Email Sending is enabled and DNS is configured for `mail.steaudit.com`. The restricted provider is deployed and the latest integration probe reported `SERVICE_BINDING`. The approved recipient `testing@mail.steauditing.com` remains Pending after verification was resent; a real delivery has not been accepted. |
+| US-GAP-25 – 28 | Entra app `AuditSphere SharePoint UAT` is registered and `Sites.Selected` application consent is granted. The owner approved a single-site `write` grant for `/sites/AuditSphereJSAcceptance`, but it has not been applied; `SHAREPOINT_CLIENT_SECRET` is not configured. Do not report `CONNECTED` until the grant, secret and live probe succeed. |
 | US-GAP-30 – 32 | Deployed URL/build identity are recorded. Existing UAT login accounts/persona mappings and connected SharePoint site/library evidence remain required. |
 
-Production build `2f33ce45c52ed0ddb5c70a4ee55068ca28a11f78` is deployed. CI passed
+Production build `0689461738caf33ae13290809f063ccebf032374` is deployed. CI passed
 typecheck, unit tests, build, browser E2E, the Email Service provider deployment,
-D1 migrations and the Worker readiness check (`ready`, schema 35). Migration 0021
-uses a `VALUES` table to avoid D1's stricter compound-select limit. The live
-integration probe reports email `SERVICE_BINDING`; the SharePoint probe reports
-`UNCONFIGURED` and specifically names the missing `SHAREPOINT_CLIENT_SECRET`. The
-approved single-site `write` grant is also still pending. Email delivery remains
-unverified until the recipient is verified and an approved UAT send succeeds; keep
-the integration and UAT stories BLOCKED rather than simulating acceptance.
+D1 migrations, Worker deployment and readiness. The current integration evidence
+for this build reports email `SERVICE_BINDING`; SharePoint is `UNCONFIGURED`
+because its site grant and `SHAREPOINT_CLIENT_SECRET` are missing. The owner
+approved the narrowly scoped `write` grant; an authorized grant-authority session
+still needs to apply and verify it. Email delivery remains unverified until the
+recipient is verified and an approved UAT send succeeds. Keep integration and UAT
+stories BLOCKED rather than simulating acceptance.
