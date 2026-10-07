@@ -1046,6 +1046,161 @@ it('US-REP-001–007 covers all report categories, representation, atomic releas
   await refreshReporting();
   await waitFor('the visible READY bundle and Partner release action', `(() => { const report=document.querySelector('#business-reporting-${fixture.engagementId}')?.closest('section'); return report?.innerText.includes('READY') && [...(report?.querySelectorAll('button')??[])].some(item=>item.textContent?.trim()==='Release exact five-part bundle'); })()`);
 
+  // FLD-013: exercise the final release route with a genuinely SENT critical
+  // confirmation. Use only local synthetic addresses and an in-process email
+  // provider; no external delivery is possible from this acceptance fixture.
+  const localEmailPurposes: string[] = [];
+  server.setEmailProvider(async request => {
+    assert.equal(new URL(request.url).host, 'email-provider.local');
+    const form = await request.formData();
+    const message = JSON.parse(String(form.get('message'))) as { to?: string; purpose?: string };
+    const attachment = form.get('attachment');
+    assert.ok(attachment && typeof attachment !== 'string', 'synthetic dispatches attach the generated PDF');
+    assert.match(message.to ?? '', /@example\.invalid$/, 'the local provider accepts only synthetic recipients');
+    assert.ok(request.headers.get('Idempotency-Key'));
+    localEmailPurposes.push(message.purpose ?? '');
+    return Response.json({ messageId: `local-reporting-provider-${localEmailPurposes.length}` }, { status: 202 });
+  });
+  const holdingLetterRouteId = randomUUID();
+  const routeNow = new Date().toISOString();
+  runFixtureSql(`INSERT INTO contact_routes(id,workspace_id,version,client_id,purpose,contact_id,is_primary,created_at,updated_at,created_by_actor_id,updated_by_actor_id)
+    VALUES(?,?,1,?,'HOLDING_LETTER',?,1,?,?,?,?)`, holdingLetterRouteId, fixture.workspaceId, fixture.clientId,
+    fixture.managementContactId, routeNow, routeNow, fixture.actorId, fixture.actorId);
+  const confirmationFsli = server.db.prepare(`SELECT l.fsli_id FROM statement_snapshot_lines l
+    JOIN statement_snapshots s ON s.workspace_id=l.workspace_id AND s.id=l.snapshot_id
+    WHERE s.workspace_id=? AND s.engagement_id=? ORDER BY l.rowid LIMIT 1`).bind(fixture.workspaceId, fixture.engagementId)
+    .first<{ fsli_id: string }>();
+  assert.ok(confirmationFsli?.fsli_id, 'the release fixture has a current active statement line for confirmation scope');
+  const postWorkerCommand = async (actorId: string, persona: 'REVIEWER' | 'APPROVER', type: string, payload: Record<string, unknown>) => {
+    const response = await fetch(`${server!.origin}/api/workspaces/${fixture.workspaceId}/commands`, {
+      method: 'POST', headers: { Origin: server!.origin, 'Content-Type': 'application/json', 'X-Actor-Id': actorId, 'X-Active-Persona': persona,
+        'X-Client-Id': fixture.clientId, 'X-Engagement-Id': fixture.engagementId, 'Idempotency-Key': randomUUID() },
+      body: JSON.stringify({ actor: { actorId, persona }, context: { clientId: fixture.clientId, engagementId: fixture.engagementId },
+        expectedVersions: [], command: { type, payload } })
+    });
+    return { response, body: await response.json() as { code?: string; details?: Record<string, unknown>; result?: Record<string, unknown> } };
+  };
+  const createdConfirmation = await postWorkerCommand(fixture.reviewerActorId, 'REVIEWER', 'confirmation.create', {
+    engagementId: fixture.engagementId, type: 'BANK', fsliId: confirmationFsli.fsli_id,
+    externalPartyName: 'Synthetic Release Gate Bank', externalPartyAddress: '1 Example Street, Doha', externalPartyEmail: 'bank@example.invalid',
+    recipientVerificationText: 'Verified against the synthetic engagement contact record.', critical: true,
+    criticalityReason: 'The confirmation is individually material to this synthetic audit opinion.', dueDate: reportDate
+  });
+  assert.equal(createdConfirmation.response.status, 200, JSON.stringify(createdConfirmation.body));
+  const confirmationId = String(createdConfirmation.body.result?.confirmationId ?? '');
+  assert.ok(confirmationId);
+  const queuedConfirmation = await postWorkerCommand(fixture.reviewerActorId, 'REVIEWER', 'confirmation.dispatch', { confirmationId, expectedVersion: 1 });
+  assert.equal(queuedConfirmation.response.status, 202, JSON.stringify(queuedConfirmation.body));
+  assert.equal(queuedConfirmation.body.result?.status, 'QUEUED');
+  await server.runScheduled();
+  await server.runScheduled();
+  const sentConfirmation = server.db.prepare('SELECT status,version FROM confirmations WHERE workspace_id=? AND id=?')
+    .bind(fixture.workspaceId, confirmationId).first<{ status: string; version: number }>();
+  assert.equal(sentConfirmation?.status, 'SENT', 'the local provider accepted the request before release is attempted');
+  assert.equal(sentConfirmation?.version, 3);
+  assert.ok(localEmailPurposes.includes('CONFIRMATION'));
+
+  let holdingLetterJobId = '';
+  for (let retry = 0; retry <= 3; retry += 1) {
+    const blockedRelease = await postWorkerCommand(fixture.actorId, 'APPROVER', 'report.release', {
+      candidateId: readyBundle.id, expectedContentHash: readyBundle.content_hash, proposedReportDate: reportDate
+    });
+    assert.equal(blockedRelease.response.status, 409, JSON.stringify(blockedRelease.body), `release attempt ${retry + 1} is blocked at the Worker route`);
+    assert.equal(blockedRelease.body.code, 'GATE_BLOCKED');
+    assert.deepEqual(blockedRelease.body.details?.criticalConfirmationIds, [confirmationId]);
+    const currentJobId = String(blockedRelease.body.details?.holdingLetterJobId ?? '');
+    assert.ok(currentJobId, 'the route returns the durable Holding Letter job id');
+    if (holdingLetterJobId) assert.equal(currentJobId, holdingLetterJobId, `retry ${retry} reuses one job for the unchanged blocker set`);
+    holdingLetterJobId = currentJobId;
+  }
+  assert.equal(server.db.prepare(`SELECT COUNT(*) AS count FROM outbox_jobs WHERE workspace_id=? AND deduplication_key LIKE 'holding-letter:%'`)
+    .bind(fixture.workspaceId).first<{ count: number }>()?.count, 1, 'four real release requests create only one Holding Letter job');
+  assert.equal(server.db.prepare('SELECT COUNT(*) AS count FROM deliverable_bundles WHERE workspace_id=? AND engagement_id=?')
+    .bind(fixture.workspaceId, fixture.engagementId).first<{ count: number }>()?.count, 0, 'a blocked release creates no released bundle');
+  assert.equal(server.db.prepare('SELECT released_at FROM engagements WHERE workspace_id=? AND id=?')
+    .bind(fixture.workspaceId, fixture.engagementId).first<{ released_at: string | null }>()?.released_at, null,
+    'a blocked release does not advance engagement release state');
+
+  let holdingLetter: { id: string; artifact_id: string; dispatch_id: string; media_type: string; immutable: number; dispatch_status: string } | null = null;
+  for (let attempt = 0; attempt < 8 && holdingLetter?.dispatch_status !== 'ACCEPTED'; attempt += 1) {
+    await server.runScheduled();
+    holdingLetter = server.db.prepare(`SELECT h.id,h.artifact_id,h.dispatch_id,f.media_type,f.immutable,d.status AS dispatch_status
+      FROM holding_letters h JOIN generated_artifacts a ON a.workspace_id=h.workspace_id AND a.id=h.artifact_id
+      JOIN file_versions f ON f.workspace_id=a.workspace_id AND f.id=a.file_version_id
+      JOIN dispatches d ON d.workspace_id=h.workspace_id AND d.id=h.dispatch_id
+      WHERE h.workspace_id=? AND h.engagement_id=?`).bind(fixture.workspaceId, fixture.engagementId)
+      .first<{ id: string; artifact_id: string; dispatch_id: string; media_type: string; immutable: number; dispatch_status: string }>();
+  }
+  assert.ok(holdingLetter?.id, 'the queued job renders the Holding Letter through the Worker outbox');
+  assert.equal(holdingLetter.media_type, 'application/pdf');
+  assert.equal(holdingLetter.immutable, 1);
+  assert.equal(holdingLetter.dispatch_status, 'ACCEPTED');
+  assert.ok(localEmailPurposes.includes('HOLDING_LETTER'), 'the local provider accepts the generated Holding Letter dispatch');
+
+  const responseBytes = minimalPdf('Synthetic third-party bank confirmation response for the release-gate acceptance fixture.');
+  const reviewerHeaders = { Origin: server.origin, 'Content-Type': 'application/json', 'X-Actor-Id': fixture.reviewerActorId,
+    'X-Active-Persona': 'REVIEWER', 'X-Client-Id': fixture.clientId, 'X-Engagement-Id': fixture.engagementId };
+  const responseReservation = await fetch(`${server.origin}/api/workspaces/${fixture.workspaceId}/files`, {
+    method: 'POST', headers: { ...reviewerHeaders, 'Idempotency-Key': randomUUID() },
+    body: JSON.stringify({ purpose: 'EVIDENCE', originalName: 'qa-bank-confirmation-response.pdf', mediaType: 'application/pdf',
+      sizeBytes: responseBytes.byteLength, clientId: fixture.clientId, engagementId: fixture.engagementId })
+  });
+  assert.equal(responseReservation.status, 201, await responseReservation.clone().text());
+  const reservedResponseFile = await responseReservation.json() as { fileId: string; version: number; state: string };
+  assert.equal(reservedResponseFile.state, 'INITIALIZED');
+  const stagedResponse = await fetch(`${server.origin}/api/workspaces/${fixture.workspaceId}/files/${reservedResponseFile.fileId}/content`, {
+    method: 'PUT', headers: { ...reviewerHeaders, 'Idempotency-Key': randomUUID(), 'X-File-Version': String(reservedResponseFile.version), 'Content-Type': 'application/pdf' },
+    body: responseBytes
+  });
+  assert.equal(stagedResponse.status, 200, await stagedResponse.clone().text());
+  const stagedResponseFile = await stagedResponse.json() as { fileId: string; version: number; state: string; sha256: string };
+  assert.equal(stagedResponseFile.state, 'STAGED');
+  const committedResponse = await fetch(`${server.origin}/api/workspaces/${fixture.workspaceId}/files/${reservedResponseFile.fileId}/complete`, {
+    method: 'POST', headers: { ...reviewerHeaders, 'Idempotency-Key': randomUUID() },
+    body: JSON.stringify({ expectedVersion: stagedResponseFile.version, sizeBytes: responseBytes.byteLength, sha256: stagedResponseFile.sha256 })
+  });
+  assert.equal(committedResponse.status, 200, await committedResponse.clone().text());
+  const recordedResponse = await postWorkerCommand(fixture.reviewerActorId, 'REVIEWER', 'confirmation.record-response', {
+    confirmationId, expectedVersion: 3, responseFileId: reservedResponseFile.fileId, returnedAt: new Date(Date.now() - 1000).toISOString()
+  });
+  assert.equal(recordedResponse.response.status, 200, JSON.stringify(recordedResponse.body));
+  assert.equal(recordedResponse.body.result?.status, 'RETURNED_UNVERIFIED');
+  const unverifiedRelease = await postWorkerCommand(fixture.actorId, 'APPROVER', 'report.release', {
+    candidateId: readyBundle.id, expectedContentHash: readyBundle.content_hash, proposedReportDate: reportDate
+  });
+  assert.equal(unverifiedRelease.response.status, 409, JSON.stringify(unverifiedRelease.body), 'a committed but unverified response still blocks the Worker release route');
+  assert.deepEqual(unverifiedRelease.body.details?.criticalConfirmationIds, [confirmationId]);
+  const unverifiedHoldingLetterJobId = String(unverifiedRelease.body.details?.holdingLetterJobId ?? '');
+  assert.ok(unverifiedHoldingLetterJobId);
+  assert.notEqual(unverifiedHoldingLetterJobId, holdingLetterJobId, 'a changed outstanding-set snapshot receives its own idempotent Holding Letter job');
+  assert.equal(server.db.prepare(`SELECT COUNT(*) AS count FROM outbox_jobs WHERE workspace_id=? AND deduplication_key LIKE 'holding-letter:%'`)
+    .bind(fixture.workspaceId).first<{ count: number }>()?.count, 2);
+  const unverifiedJob = server.db.prepare('SELECT payload_json FROM outbox_jobs WHERE workspace_id=? AND id=?')
+    .bind(fixture.workspaceId, unverifiedHoldingLetterJobId).first<{ payload_json: string }>();
+  assert.ok(unverifiedJob);
+  const unverifiedLetterId = String((JSON.parse(unverifiedJob.payload_json) as { holdingLetterId?: string }).holdingLetterId ?? '');
+  assert.ok(unverifiedLetterId);
+  let unverifiedHoldingLetter: { dispatch_id: string; dispatch_status: string; snapshot_json: string } | null = null;
+  for (let attempt = 0; attempt < 8 && unverifiedHoldingLetter?.dispatch_status !== 'ACCEPTED'; attempt += 1) {
+    await server.runScheduled();
+    unverifiedHoldingLetter = server.db.prepare(`SELECT h.dispatch_id,h.confirmation_ids_snapshot_json AS snapshot_json,d.status AS dispatch_status
+      FROM holding_letters h JOIN dispatches d ON d.workspace_id=h.workspace_id AND d.id=h.dispatch_id WHERE h.workspace_id=? AND h.id=?`)
+      .bind(fixture.workspaceId, unverifiedLetterId).first<{ dispatch_id: string; dispatch_status: string; snapshot_json: string }>();
+  }
+  assert.ok(unverifiedHoldingLetter?.dispatch_id, 'the unverified blocker set also renders its own Holding Letter');
+  assert.equal(unverifiedHoldingLetter.dispatch_status, 'ACCEPTED');
+  assert.deepEqual((JSON.parse(unverifiedHoldingLetter.snapshot_json) as Array<{ status: string }>).map(item => item.status), ['RETURNED_UNVERIFIED']);
+  assert.equal(localEmailPurposes.filter(purpose => purpose === 'HOLDING_LETTER').length, 2);
+
+  const reassessedConfirmation = await postWorkerCommand(fixture.actorId, 'APPROVER', 'confirmation.scope-reassess', {
+    confirmationId, expectedVersion: 4, rationale: 'The Partner reviewed the returned confirmation scope and approved a noncritical replacement for this release fixture.',
+    replacementCritical: false, replacementCriticalityReason: null
+  });
+  assert.equal(reassessedConfirmation.response.status, 200, JSON.stringify(reassessedConfirmation.body));
+  assert.equal(reassessedConfirmation.body.result?.status, 'CANCELLED');
+  await refreshReporting();
+  await waitFor('the still-ready bundle after the approved confirmation scope reassessment', `(() => { const report=document.querySelector('#business-reporting-${fixture.engagementId}')?.closest('section'); return report?.innerText.includes('READY') && [...(report?.querySelectorAll('button')??[])].some(item=>item.textContent?.trim()==='Release exact five-part bundle'); })()`);
+
   await clickReportButton('Release exact five-part bundle');
   await waitFor('the atomic report release command result', `document.querySelector('#business-reporting-${fixture.engagementId}')?.closest('section')?.innerText.includes('Atomic release requested; delivery status will be shown separately from publication.')`);
   const released = await waitForDbRow('the immutable released five-part bundle', () => server!.db.prepare(`SELECT b.id,b.candidate_id,b.content_hash,b.released_by_actor_id,b.released_at,

@@ -45,6 +45,7 @@ export interface BusinessE2eServer {
   db: SqliteD1;
   putTestObject(key: string, bytes: Uint8Array): void;
   getTestObject(key: string): Uint8Array | null;
+  setEmailProvider(fetch: (request: Request) => Promise<Response>): void;
   runScheduled(): Promise<void>;
   setApiAvailable(available: boolean): void;
   close(): Promise<void>;
@@ -143,6 +144,7 @@ export async function startBusinessE2eServer(): Promise<BusinessE2eServer> {
     db,
     putTestObject(key, bytes) { objects.set(key, bytes.slice()); },
     getTestObject(key) { return objects.get(key)?.slice() ?? null; },
+    setEmailProvider(fetch) { env.EMAIL_PROVIDER = { fetch }; },
     async runScheduled() {
       await worker.scheduled({ scheduledTime: Date.now(), cron: '* * * * *' } as any, env);
     },
