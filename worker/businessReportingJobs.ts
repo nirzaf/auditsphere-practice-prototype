@@ -4,6 +4,7 @@ import { renderReportingPdf, type ReportingPdfInput, type ReportPdfSection } fro
 import { buildOpinionReportSections, opinionReportingBlockers, type OpinionAffectedFsli } from './reportingOpinion';
 import { inspectReportingPng } from './reportingPng';
 import { renderRepresentationTemplateDocx } from './reportingRepresentationDocument';
+import { buildReportingStatementProjection, type ReportingStatementLine } from './reportingStatements';
 import { strToU8, zipSync } from 'fflate';
 import * as XLSX from 'xlsx';
 
@@ -100,7 +101,7 @@ async function reportCandidate(env:Env,job:Job,p:Payload,commit:Commit){
   if(reportingBlockers.length)throw new Error(reportingBlockers.join(' '));
   const statement=await env.DB.prepare(`SELECT l.fsli_id,c.code,c.name,c.statement,c.category,l.current_adjusted_minor,l.prior_minor,c.display_sign
     FROM statement_snapshot_lines l JOIN fsli_catalog c ON c.workspace_id=l.workspace_id AND c.id=l.fsli_id
-    WHERE l.workspace_id=? AND l.snapshot_id=? ORDER BY c.presentation_order,c.code`).bind(job.workspace_id,pins.snapshot_id).all<Record<string,any>>();
+    WHERE l.workspace_id=? AND l.snapshot_id=? ORDER BY c.presentation_order,c.code`).bind(job.workspace_id,pins.snapshot_id).all<ReportingStatementLine&Record<string,any>>();
   const lines=statement.results??[];if(!lines.length)throw new Error('The approved statement snapshot contains no presentation lines.');
   const notes=(await env.DB.prepare(`SELECT note_number,title,body,amount_minor FROM disclosure_notes WHERE workspace_id=? AND draft_id=? ORDER BY sort_order,note_number`)
     .bind(job.workspace_id,row.draft_id).all<Record<string,any>>()).results??[];
@@ -122,39 +123,10 @@ async function reportCandidate(env:Env,job:Job,p:Payload,commit:Commit){
     aupProcedureSummary:row.aup_procedure_summary===null?null:String(row.aup_procedure_summary),rationale:String(row.rationale),materialityAssessment:String(row.materiality_assessment),
     pervasivenessAssessment:String(row.pervasiveness_assessment),basisHeading:row.basis_heading===null?null:String(row.basis_heading),basisText:row.basis_text===null?null:String(row.basis_text),
     goingConcernReportingText:row.going_concern_reporting_text===null?null:String(row.going_concern_reporting_text),additionalSections:JSON.parse(String(row.additional_sections_json))},affected);
-  const byStatement=(name:string)=>lines.filter(line=>line.statement===name).map(line=>({label:`${line.code} · ${line.name}`,current:money(line.current_adjusted_minor),comparative:line.prior_minor===null?undefined:money(line.prior_minor)}));
-  const sumLines=(predicate:(line:Record<string,any>)=>boolean,field:'current_adjusted_minor'|'prior_minor')=>lines.filter(predicate)
-    .reduce((total,line)=>total+BigInt(line[field]??0),0n);
-  const categoryTotal=(statementName:string,category:string,field:'current_adjusted_minor'|'prior_minor')=>sumLines(line=>line.statement===statementName&&line.category===category,field);
-  const hasComparatives=lines.every(line=>line.prior_minor!==null);
-  const assetEquity=categoryTotal('BALANCE_SHEET','ASSET','current_adjusted_minor');
-  const liabilities=categoryTotal('BALANCE_SHEET','LIABILITY','current_adjusted_minor');
-  const equity=categoryTotal('BALANCE_SHEET','EQUITY','current_adjusted_minor');
-  const revenue=categoryTotal('PROFIT_LOSS','REVENUE','current_adjusted_minor');
-  const expenses=categoryTotal('PROFIT_LOSS','EXPENSE','current_adjusted_minor');
-  const currentResult=revenue-expenses;
-  if(assetEquity!==liabilities+equity+currentResult)throw new Error('The approved financial statement snapshot does not cross-cast to zero.');
-  const comparativeTotals=hasComparatives?{
-    assets:categoryTotal('BALANCE_SHEET','ASSET','prior_minor'),liabilities:categoryTotal('BALANCE_SHEET','LIABILITY','prior_minor'),
-    equity:categoryTotal('BALANCE_SHEET','EQUITY','prior_minor'),revenue:categoryTotal('PROFIT_LOSS','REVENUE','prior_minor'),
-    expenses:categoryTotal('PROFIT_LOSS','EXPENSE','prior_minor')
-  }:null;
-  const priorResult=comparativeTotals?comparativeTotals.revenue-comparativeTotals.expenses:null;
-  if(comparativeTotals&&comparativeTotals.assets!==comparativeTotals.liabilities+comparativeTotals.equity+priorResult!)
-    throw new Error('The approved comparative financial statement snapshot does not cross-cast to zero.');
-  const totalRow=(label:string,current:bigint,comparative:bigint|null)=>({label,current:money(current),comparative:comparative===null?undefined:money(comparative)});
-  const balanceSheetRows=[...byStatement('BALANCE_SHEET'),
-    totalRow('Total assets',assetEquity,comparativeTotals?.assets??null),
-    totalRow('Total liabilities',liabilities,comparativeTotals?.liabilities??null),
-    totalRow('Total equity, including current-period result',equity+currentResult,comparativeTotals?comparativeTotals.equity+priorResult!:null),
-    totalRow('Total liabilities and equity',liabilities+equity+currentResult,comparativeTotals?comparativeTotals.liabilities+comparativeTotals.equity+priorResult!:null)];
-  const profitLossRows=[...byStatement('PROFIT_LOSS'),
-    totalRow('Total revenue',revenue,comparativeTotals?.revenue??null),
-    totalRow('Total expenses',expenses,comparativeTotals?.expenses??null),
-    totalRow('Profit or (loss) for the period',currentResult,priorResult)];
+  const statementProjection=buildReportingStatementProjection(lines);
   const sections:ReportPdfSection[]=[...opinionSections,
-    {heading:'Statement of Financial Position',rows:balanceSheetRows},
-    {heading:'Statement of Profit or Loss and Other Comprehensive Income',rows:profitLossRows},
+    {heading:'Statement of Financial Position',rows:statementProjection.balanceSheetRows},
+    {heading:'Statement of Profit or Loss and Other Comprehensive Income',rows:statementProjection.profitLossRows},
     ...['CASH_FLOW','EQUITY_CHANGE','OCI'].filter(section=>supplements.some(line=>line.section===section)).map(section=>({heading:section.replaceAll('_',' '),rows:supplements.filter(line=>line.section===section).map(line=>({label:`${line.code} · ${line.label}`,current:money(line.current_minor),comparative:line.prior_minor===null?undefined:money(line.prior_minor),detail:String(line.rationale)}))})),
     {heading:'Approved Accounting Policies',paragraphs:[String(row.accounting_policies)]},
     ...notes.map(note=>({heading:`Note ${note.note_number} · ${note.title}`,paragraphs:[String(note.body),...(note.amount_minor===null?[]:[money(note.amount_minor)])]})),
