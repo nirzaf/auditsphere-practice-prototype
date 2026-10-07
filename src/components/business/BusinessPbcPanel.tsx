@@ -128,17 +128,21 @@ export function BusinessPbcPanel({
     const requestedContactsScopeKey = [context.actor.id, engagement.clientId].join('|');
     getBusinessClient(workspaceId, engagement.clientId, clientContext).then(detail => {
       if (!controller.signal.aborted) {
-        const contactRoles = new Map(detail.contacts.map(contact => [contact.id, contact.role]));
+        const contactRoles = new Map(detail.contacts.map(contact => [String(contact.id), String(contact.role).trim().toUpperCase()]));
         setContacts(detail.routes
           .filter(route => route.purpose === 'PBC' && (
-            (route.is_primary === 1 && contactRoles.get(route.contact_id) === 'CHIEF_ACCOUNTANT_LIAISON')
-            || (route.is_primary === 0 && Boolean(route.rationale?.trim()))
+            (Number(route.is_primary) === 1 && contactRoles.get(String(route.contact_id)) === 'CHIEF_ACCOUNTANT_LIAISON')
+            || (Number(route.is_primary) === 0 && Boolean(route.rationale?.trim()))
           ))
-          .map(route => ({ id: route.contact_id, full_name: route.full_name, active: true, is_primary: route.is_primary === 1, rationale: route.rationale })));
+          .map(route => ({ id: route.contact_id, full_name: route.full_name, active: true, is_primary: Number(route.is_primary) === 1, rationale: route.rationale })));
         setContactsScopeKey(requestedContactsScopeKey);
       }
     }).catch(() => {
-      if (!controller.signal.aborted) { setContacts([]); setContactsScopeKey(''); }
+      if (!controller.signal.aborted) {
+        setContacts([]);
+        setContactsScopeKey('');
+        setError('PBC recipient routes could not be loaded. Refresh the client directory and try again.');
+      }
     });
     return () => controller.abort();
   }, [workspaceId, selected.actorId, selected.persona, selected.clientId, engagement?.id, engagement?.clientId, context.actor.id, context.actor.persona, context.allowedActions]);
