@@ -9,18 +9,21 @@ export interface RateLimiterBinding {
   limit(input: { key: string }): Promise<{ success: boolean }>;
 }
 
-/** Cloudflare Email Routing send binding (native delivery, no third-party provider required). */
-export interface EmailRoutingMessage {
+/** Cloudflare Email Service send binding (native delivery, no third-party provider required). */
+export interface EmailServiceMessage {
   to: string | string[];
   from: { email: string; name?: string } | string;
   subject: string;
   text?: string;
   html?: string;
-  attachments?: Array<{ filename: string; content: ArrayBuffer; type?: string }>;
+  attachments?: Array<{ filename: string; content: ArrayBuffer; type: string; disposition: 'attachment' }>;
 }
 
+/** @deprecated Kept as a source-compatible alias for earlier provider tests/integrations. */
+export type EmailRoutingMessage = EmailServiceMessage;
+
 export interface SendEmailBinding {
-  send(message: EmailRoutingMessage): Promise<{ messageId?: string }>;
+  send(message: EmailServiceMessage): Promise<{ messageId?: string }>;
 }
 
 export interface Env {
@@ -32,7 +35,7 @@ export interface Env {
   ASSETS: Fetcher;
   /** Optional Worker service binding implementing the proposal-email provider contract. */
   EMAIL_PROVIDER?: Fetcher;
-  /** Optional Cloudflare Email Routing binding used when no EMAIL_PROVIDER service binding is present. */
+  /** Optional Cloudflare Email Service binding used when no EMAIL_PROVIDER service binding is present. */
   SEND_EMAIL?: SendEmailBinding;
   /** Microsoft Graph / SharePoint document integration (see docs/prototype/integration-configuration.md). */
   SHAREPOINT_TENANT_ID?: string;

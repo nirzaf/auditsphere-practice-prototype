@@ -44,7 +44,7 @@ The application now **declares and implements** each integration with a fail-clo
 honest state (see `docs/prototype/integration-configuration.md`):
 
 - Email: standalone `worker/emailProvider` Worker implementing the `EMAIL_PROVIDER`
-  contract over Cloudflare Email Routing or a transactional email API; the business
+  contract over Cloudflare Email Service or a transactional email API; the business
   Worker's outbox already dispatches through `EMAIL_PROVIDER` and reports
   `EMAIL_PROVIDER_NOT_CONFIGURED` when absent.
 - SharePoint/Graph: `worker/integrations/sharepoint.ts` resolves the site to stable
@@ -58,9 +58,15 @@ the repository:
 
 | Story | Blocking prerequisite |
 | --- | --- |
-| US-GAP-05 / 06 | A verified sender domain/address plus either Email Routing enabled or an email-API key, and approved non-production test recipients (bind `EMAIL_PROVIDER` and deploy `worker/emailProvider`). |
-| US-GAP-25 – 28 | The designated existing SharePoint site/library and an approved Microsoft Entra app registration (tenant id, client id, client secret, `Sites.Selected` grant). Set the `SHAREPOINT_*` values and `/api/integrations/status` flips to `CONNECTED`. |
-| US-GAP-30 – 32 | The supplied existing login accounts, deployed build identity and the live SharePoint site for the UAT ledger. |
+| US-GAP-05 / 06 | Cloudflare Email Sending is enabled and DNS is configured for `mail.steaudit.com`. The approved recipient `testing@mail.steauditing.com` is Pending verification. The restricted provider and ordered CI deployment are configured in the working tree. The current live Worker API returns `NOT_FOUND` because deploy has not succeeded. |
+| US-GAP-25 – 28 | Entra app `AuditSphere SharePoint UAT` is registered and `Sites.Selected` application consent is granted. The approved single-site `write` grant and client secret are still pending; do not report `CONNECTED` until the site grant, secret and live probe succeed. |
+| US-GAP-30 – 32 | Existing UAT login accounts, a successful deployed build identity and the live SharePoint site evidence remain required. |
 
-Until those values exist, `sharepoint.state` is `UNCONFIGURED`/`FAILED` and email is
-`UNCONFIGURED`; the backlog requires that these remain BLOCKED rather than simulated.
+The current production deployment has not reached the new Worker: its integration
+and readiness API routes return `NOT_FOUND`. The latest deploy run passed typecheck,
+unit, build and browser E2E gates but D1 rejected migration 0021's compound `SELECT`
+seed expression. That migration now uses a `VALUES` table to avoid D1's stricter
+compound-select limit. Once deployed, SharePoint remains `UNCONFIGURED` until the
+site grant and Worker secret exist; email delivery remains unverified until the
+approved destination is verified and a real, approved UAT send succeeds. Keep the
+integration and UAT stories BLOCKED rather than simulating acceptance.

@@ -7,7 +7,7 @@
 import type { Env } from '../env';
 import { sharePointStatus, type SharePointStatus } from './sharepoint';
 
-export type EmailTransport = 'SERVICE_BINDING' | 'EMAIL_ROUTING' | 'UNCONFIGURED';
+export type EmailTransport = 'SERVICE_BINDING' | 'CLOUDFLARE_EMAIL_SERVICE' | 'UNCONFIGURED';
 
 export interface EmailTransportStatus {
   configured: boolean;
@@ -16,7 +16,7 @@ export interface EmailTransportStatus {
 
 export function emailTransportStatus(env: Env): EmailTransportStatus {
   if (env.EMAIL_PROVIDER) return { configured: true, transport: 'SERVICE_BINDING' };
-  if (env.SEND_EMAIL) return { configured: true, transport: 'EMAIL_ROUTING' };
+  if (env.SEND_EMAIL) return { configured: true, transport: 'CLOUDFLARE_EMAIL_SERVICE' };
   return { configured: false, transport: 'UNCONFIGURED' };
 }
 

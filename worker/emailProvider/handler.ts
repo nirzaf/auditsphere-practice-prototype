@@ -4,13 +4,13 @@
 // `Idempotency-Key` header and a `message` JSON field plus one or more `attachment`
 // files, and expects `{ messageId }` on success. This provider forwards the message
 // through one of two configurable transports:
-//   * `SEND_EMAIL`   â€” Cloudflare Email Routing (no third-party credentials).
+//   * `SEND_EMAIL`   - Cloudflare Email Service (no third-party credentials).
 //   * HTTP API       â€” EMAIL_API_URL + EMAIL_API_KEY pointing at a transactional
 //                      email API that accepts a multipart `message`/`attachment` body.
 // When neither transport is configured it fails closed with 503 and never reports
 // a synthetic success.
 
-import type { EmailRoutingMessage, SendEmailBinding } from '../env';
+import type { EmailServiceMessage, SendEmailBinding } from '../env';
 
 export interface EmailProviderEnv {
   SEND_EMAIL?: SendEmailBinding;
@@ -24,11 +24,11 @@ interface NormalizedMessage {
   to: string[];
   subject: string;
   text: string;
-  attachments: Array<{ filename: string; content: ArrayBuffer; type?: string }>;
+  attachments: Array<{ filename: string; content: ArrayBuffer; type: string; disposition: 'attachment' }>;
 }
 
-export function emailProviderTransport(env: EmailProviderEnv): 'EMAIL_ROUTING' | 'HTTP_API' | 'UNCONFIGURED' {
-  if (env.SEND_EMAIL) return 'EMAIL_ROUTING';
+export function emailProviderTransport(env: EmailProviderEnv): 'CLOUDFLARE_EMAIL_SERVICE' | 'HTTP_API' | 'UNCONFIGURED' {
+  if (env.SEND_EMAIL) return 'CLOUDFLARE_EMAIL_SERVICE';
   if (env.EMAIL_API_URL?.trim() && env.EMAIL_API_KEY) return 'HTTP_API';
   return 'UNCONFIGURED';
 }
@@ -81,12 +81,13 @@ export async function handleProviderSend(request: Request, env: EmailProviderEnv
     message.attachments.push({
       filename: asString(blob.name) ?? 'attachment',
       content: await blob.arrayBuffer(),
-      type: blob.type || undefined
+      type: blob.type || 'application/octet-stream',
+      disposition: 'attachment'
     });
   }
 
   const transport = emailProviderTransport(env);
-  if (transport === 'EMAIL_ROUTING' && env.SEND_EMAIL) {
+  if (transport === 'CLOUDFLARE_EMAIL_SERVICE' && env.SEND_EMAIL) {
     try {
       const result = await env.SEND_EMAIL.send({
         to: message.to,
@@ -94,10 +95,10 @@ export async function handleProviderSend(request: Request, env: EmailProviderEnv
         subject: message.subject,
         text: message.text,
         attachments: message.attachments
-      } satisfies EmailRoutingMessage);
-      return jsonResponse(200, { messageId: asString(result?.messageId) ?? (idempotencyKey || `routing-${Date.now()}`) });
+      } satisfies EmailServiceMessage);
+      return jsonResponse(200, { messageId: asString(result?.messageId) ?? (idempotencyKey || `email-service-${Date.now()}`) });
     } catch (error) {
-      return jsonResponse(502, { error: 'EMAIL_ROUTING_FAILED', detail: error instanceof Error ? error.message : 'Email Routing rejected the message.' });
+      return jsonResponse(502, { error: 'EMAIL_SERVICE_FAILED', detail: error instanceof Error ? error.message : 'Cloudflare Email Service rejected the message.' });
     }
   }
   if (transport === 'HTTP_API' && env.EMAIL_API_URL && env.EMAIL_API_KEY) {
@@ -116,6 +117,6 @@ export async function handleProviderSend(request: Request, env: EmailProviderEnv
   }
   return jsonResponse(503, {
     error: 'EMAIL_PROVIDER_NOT_CONFIGURED',
-    message: 'Configure SEND_EMAIL (Cloudflare Email Routing) or EMAIL_API_URL + EMAIL_API_KEY on the email-provider Worker.'
+    message: 'Configure SEND_EMAIL (Cloudflare Email Service) or EMAIL_API_URL + EMAIL_API_KEY on the email-provider Worker.'
   });
 }

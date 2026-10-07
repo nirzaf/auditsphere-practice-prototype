@@ -3,7 +3,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { emailProviderTransport, handleProviderSend, normalizeMessage } from '../../worker/emailProvider/handler.js';
-import type { EmailRoutingMessage } from '../../worker/env.js';
+import type { EmailServiceMessage } from '../../worker/env.js';
 
 type ProviderEnv = Parameters<typeof handleProviderSend>[1];
 
@@ -41,21 +41,22 @@ describe('email-provider transport selection (US-GAP-05/06)', () => {
     assert.equal(response.status, 400);
   });
 
-  it('delivers through Email Routing and returns the provider message id', async () => {
-    const captured: EmailRoutingMessage[] = [];
-    const env = { SEND_EMAIL: { send: async (message: EmailRoutingMessage) => { captured.push(message); return { messageId: 'routing-42' }; } } } as ProviderEnv;
+  it('delivers through Cloudflare Email Service and returns the provider message id', async () => {
+    const captured: EmailServiceMessage[] = [];
+    const env = { SEND_EMAIL: { send: async (message: EmailServiceMessage) => { captured.push(message); return { messageId: 'email-service-42' }; } } } as ProviderEnv;
+    assert.equal(emailProviderTransport(env), 'CLOUDFLARE_EMAIL_SERVICE');
     const response = await handleProviderSend(sendRequest({ message: JSON.stringify({ to: 'cfo@client.test', subject: 'Receipt', text: 'paid' }) }), env);
     assert.equal(response.status, 200);
-    assert.equal((await response.json() as { messageId: string }).messageId, 'routing-42');
+    assert.equal((await response.json() as { messageId: string }).messageId, 'email-service-42');
     assert.equal(captured.length, 1);
     assert.deepEqual(captured[0].to, ['cfo@client.test']);
     assert.equal(captured[0].subject, 'Receipt');
   });
 
-  it('reports a distinct failure when Email Routing rejects the message', async () => {
-    const env = { SEND_EMAIL: { send: async () => { throw new Error('routing down'); } } } as ProviderEnv;
+  it('reports a distinct failure when Cloudflare Email Service rejects the message', async () => {
+    const env = { SEND_EMAIL: { send: async () => { throw new Error('Email Service unavailable'); } } } as ProviderEnv;
     const response = await handleProviderSend(sendRequest({ message: JSON.stringify({ to: 'cfo@client.test', text: 'x' }) }), env);
     assert.equal(response.status, 502);
-    assert.equal((await response.json() as { error: string }).error, 'EMAIL_ROUTING_FAILED');
+    assert.equal((await response.json() as { error: string }).error, 'EMAIL_SERVICE_FAILED');
   });
 });

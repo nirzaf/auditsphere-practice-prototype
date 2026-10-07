@@ -173,6 +173,15 @@ jobs:
       - name: Build production assets
         run: npm run build
 
+      # Preflight the provider deployment before changing the production schema.
+      # Its config disables workers.dev and limits sending to the approved
+      # non-production destination.
+      - name: Deploy restricted Email Service provider
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: npx wrangler deploy --config worker/emailProvider/wrangler.jsonc --strict
+
       # The branch-restricted environment scopes deployment secrets to main.
       # Wrangler captures a D1 backup before applying migrations in non-interactive CI.
       - name: Apply approved D1 migrations

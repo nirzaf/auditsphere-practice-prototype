@@ -500,10 +500,13 @@ JOIN actor_profiles ap ON ap.workspace_id=w.id AND ap.id=(SELECT MIN(ap2.id) FRO
   JOIN staff_members sm2 ON sm2.workspace_id=ap2.workspace_id AND sm2.id=ap2.staff_member_id AND sm2.grade='PARTNER'
   WHERE ap2.workspace_id=w.id AND ap2.persona='APPROVER' AND ap2.active=1)
 JOIN (
-  SELECT 'PARTNER' AS grade,100000 AS hourly_minor,'6e2520f231fe3fe52ccc853159ac225c383886c351c6b15eb3f951c451c8705c' AS content_sha256
-  UNION ALL SELECT 'MANAGER',75000,'27c4cf9d14c713d42c78d34456b20087414d11219504a39123ce9a1ddea1e170'
-  UNION ALL SELECT 'SENIOR',50000,'d877374a80013f32e139ff89ea1089e6cefde0987a255982fc5d125c7581d30c'
-  UNION ALL SELECT 'ASSOCIATE',20000,'2958db15ed9012550ab9e753de4f4e0dc88b8617f244404f65755a610eb347f1'
+  SELECT column1 AS grade,column2 AS hourly_minor,column3 AS content_sha256
+  FROM (VALUES
+    ('PARTNER',100000,'6e2520f231fe3fe52ccc853159ac225c383886c351c6b15eb3f951c451c8705c'),
+    ('MANAGER',75000,'27c4cf9d14c713d42c78d34456b20087414d11219504a39123ce9a1ddea1e170'),
+    ('SENIOR',50000,'d877374a80013f32e139ff89ea1089e6cefde0987a255982fc5d125c7581d30c'),
+    ('ASSOCIATE',20000,'2958db15ed9012550ab9e753de4f4e0dc88b8617f244404f65755a610eb347f1')
+  )
 ) r
 WHERE w.data_mode='BUSINESS' AND NOT EXISTS(SELECT 1 FROM firm_charge_out_rates x WHERE x.workspace_id=w.id);
 
@@ -515,20 +518,23 @@ JOIN actor_profiles ap ON ap.workspace_id=w.id AND ap.id=(SELECT MIN(ap2.id) FRO
   JOIN staff_members sm2 ON sm2.workspace_id=ap2.workspace_id AND sm2.id=ap2.staff_member_id AND sm2.grade='PARTNER'
   WHERE ap2.workspace_id=w.id AND ap2.persona='APPROVER' AND ap2.active=1)
 JOIN (
-  SELECT '1000' AS code,'Bank' AS name,'ASSET' AS account_type,'DEBIT' AS normal_side,'BANK' AS control_type
-  UNION ALL SELECT '1010','Petty Cash','ASSET','DEBIT','CASH'
-  UNION ALL SELECT '1100','Trade Receivables','ASSET','DEBIT','AR'
-  UNION ALL SELECT '2100','Contract Liability','LIABILITY','CREDIT','CONTRACT_LIABILITY'
-  UNION ALL SELECT '2110','Unallocated Client Receipts','LIABILITY','CREDIT','UNALLOCATED_RECEIPTS'
-  UNION ALL SELECT '2190','Accounts Payable','LIABILITY','CREDIT','AP'
-  UNION ALL SELECT '2200','VAT Payable','LIABILITY','CREDIT','NONE'
-  UNION ALL SELECT '3000','Partner Capital','EQUITY','CREDIT','PARTNER_CAPITAL'
-  UNION ALL SELECT '3100','Partner Drawings','EQUITY','DEBIT','PARTNER_DRAWINGS'
-  UNION ALL SELECT '4000','Professional Fees','REVENUE','CREDIT','NONE'
-  UNION ALL SELECT '5000','Rent Expense','EXPENSE','DEBIT','NONE'
-  UNION ALL SELECT '5100','Salaries and Benefits','EXPENSE','DEBIT','NONE'
-  UNION ALL SELECT '5200','Operating Overheads','EXPENSE','DEBIT','NONE'
-  UNION ALL SELECT '5300','Petty Cash Expense','EXPENSE','DEBIT','NONE'
+  SELECT column1 AS code,column2 AS name,column3 AS account_type,column4 AS normal_side,column5 AS control_type
+  FROM (VALUES
+    ('1000','Bank','ASSET','DEBIT','BANK'),
+    ('1010','Petty Cash','ASSET','DEBIT','CASH'),
+    ('1100','Trade Receivables','ASSET','DEBIT','AR'),
+    ('2100','Contract Liability','LIABILITY','CREDIT','CONTRACT_LIABILITY'),
+    ('2110','Unallocated Client Receipts','LIABILITY','CREDIT','UNALLOCATED_RECEIPTS'),
+    ('2190','Accounts Payable','LIABILITY','CREDIT','AP'),
+    ('2200','VAT Payable','LIABILITY','CREDIT','NONE'),
+    ('3000','Partner Capital','EQUITY','CREDIT','PARTNER_CAPITAL'),
+    ('3100','Partner Drawings','EQUITY','DEBIT','PARTNER_DRAWINGS'),
+    ('4000','Professional Fees','REVENUE','CREDIT','NONE'),
+    ('5000','Rent Expense','EXPENSE','DEBIT','NONE'),
+    ('5100','Salaries and Benefits','EXPENSE','DEBIT','NONE'),
+    ('5200','Operating Overheads','EXPENSE','DEBIT','NONE'),
+    ('5300','Petty Cash Expense','EXPENSE','DEBIT','NONE')
+  )
 ) a
 WHERE w.data_mode='BUSINESS' AND NOT EXISTS(SELECT 1 FROM firm_accounts x WHERE x.workspace_id=w.id);
 

@@ -42,16 +42,21 @@
   ],
 
   // --- Optional integrations (see docs/prototype/integration-configuration.md) ---
-  // Email delivery (US-GAP-05/06): deploy worker/emailProvider and bind it as
-  // EMAIL_PROVIDER, or add a native Email Routing [[send_email]] binding. Without
-  // one of these, document dispatch reports EMAIL_PROVIDER_NOT_CONFIGURED and sends
-  // nothing (it never fabricates a send).
-  // "services": [{ "binding": "EMAIL_PROVIDER", "service": "auditsphere-email-provider" }],
+  // Email delivery (US-GAP-05/06): CI deploys the internal provider first; it uses
+  // Cloudflare Email Service with a one-recipient UAT allowlist. No public endpoint
+  // or unbounded client-recipient sending is enabled.
+  "services": [{ "binding": "EMAIL_PROVIDER", "service": "auditsphere-email-provider" }],
   //
-  // SharePoint / Microsoft Graph document integration (US-GAP-25..28): set the
-  // client secret with `wrangler secret put SHAREPOINT_CLIENT_SECRET` and the
-  // non-secret identifiers as vars. Leave unset to keep the integration UNCONFIGURED.
-  // "vars": { "SHAREPOINT_TENANT_ID": "", "SHAREPOINT_CLIENT_ID": "", "SHAREPOINT_SITE_HOSTNAME": "", "SHAREPOINT_SITE_PATH": "/sites/audit-test", "SHAREPOINT_DRIVE_NAME": "Documents" },
+  // SharePoint / Microsoft Graph document integration (US-GAP-25..28): site and
+  // app identifiers are configured below. Supply SHAREPOINT_CLIENT_SECRET using
+  // Cloudflare Worker secrets after the site-specific Sites.Selected grant.
+  "vars": {
+    "SHAREPOINT_TENANT_ID": "4de3e6fd-51aa-4ba7-b2c5-82106d2e45f0",
+    "SHAREPOINT_CLIENT_ID": "69eddc6b-194f-411a-9d77-5b96fa1602ad",
+    "SHAREPOINT_SITE_HOSTNAME": "easyguide.sharepoint.com",
+    "SHAREPOINT_SITE_PATH": "/sites/AuditSphereJSAcceptance",
+    "SHAREPOINT_DRIVE_NAME": "Documents"
+  },
 
   "observability": { "enabled": true },
 
