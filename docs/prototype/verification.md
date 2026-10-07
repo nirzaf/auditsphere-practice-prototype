@@ -1436,3 +1436,23 @@ committed receipt moves the engagement into planning.
 a mock email provider. They do not verify a live bank source, Cloudflare email
 delivery or visual rendering in an independent PDF viewer. US-ENG-006 and the
 broader epic remain open.
+
+## US-ENG-007/008 PBC exact-byte versions and review history — 2026-10-08
+
+**Verification:** `npx tsx --test --test-reporter=dot
+tests/unit/businessWorkspace.test.ts` — 1/1; `git diff --check`.
+
+**Evidence:** The Worker journey now downloads the original committed PBC upload
+and compares it byte-for-byte with the submitted input. After a mandatory-reason
+rejection and corrected replacement, it downloads both versions and verifies the
+rejected file and corrected file still match their respective bytes. The portal
+projection retains both submission sequence numbers, the superseded link, the
+rejection comment and decision; an approval attempt against the old submission
+returns `VERSION_CONFLICT`. Existing assertions also reject whitespace-only
+reasons and prove the unpaid advance keeps submission unavailable.
+
+**Boundary:** State/comment visibility is checked by a fresh client portal read;
+the separate-browser five-second live-update target has not been measured.
+Cross-client denial and a production SharePoint transfer are not established by
+this local storage-backed journey. US-ENG-007/008 and the broader epic remain
+open.

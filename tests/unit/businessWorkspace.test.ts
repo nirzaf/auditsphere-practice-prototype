@@ -1760,6 +1760,11 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
   const directPbcRequest = await call(`/api/workspaces/${workspaceId}/engagements/${engagementId}/pbc/${pbcRequestId}`, { headers: clientPbcHeaders });
   assert.equal(directPbcRequest.response.status, 200, JSON.stringify(directPbcRequest.body));
   assert.equal(directPbcRequest.body.request.currentSubmissionId, firstSubmissionId);
+  const originalPbcDownload = await worker.fetch(new Request(`https://local.auditsphere.test/api/workspaces/${workspaceId}/files/${firstPbcFile.fileId}`,
+    { headers: { Origin: 'https://local.auditsphere.test', ...clientPbcHeaders } }), env, {} as any);
+  assert.equal(originalPbcDownload.status, 200);
+  assert.deepEqual(new Uint8Array(await originalPbcDownload.arrayBuffer()), pdf,
+    'CLIENT can download the exact committed bytes submitted for review');
 
   const reviewerPbcHeaders = makeRiskHeaders(reviewerHeaders);
   const whitespaceRejection = await post(`/api/workspaces/${workspaceId}/commands`, {
@@ -1801,6 +1806,16 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
   assert.equal(historyAfterReplacement.body.requests[0].submissions.length, 2);
   assert.equal(historyAfterReplacement.body.requests[0].submissions[1].supersedesSubmissionId, firstSubmissionId);
   assert.equal(historyAfterReplacement.body.requests[0].submissions[0].reviews[0].decision, 'REJECT');
+  const retainedRejectedDownload = await worker.fetch(new Request(`https://local.auditsphere.test/api/workspaces/${workspaceId}/files/${firstPbcFile.fileId}`,
+    { headers: { Origin: 'https://local.auditsphere.test', ...clientPbcHeaders } }), env, {} as any);
+  const correctedPbcDownload = await worker.fetch(new Request(`https://local.auditsphere.test/api/workspaces/${workspaceId}/files/${replacementPbcFile.fileId}`,
+    { headers: { Origin: 'https://local.auditsphere.test', ...clientPbcHeaders } }), env, {} as any);
+  assert.equal(retainedRejectedDownload.status, 200);
+  assert.equal(correctedPbcDownload.status, 200);
+  assert.deepEqual(new Uint8Array(await retainedRejectedDownload.arrayBuffer()), pdf,
+    'the rejected source remains downloadable after replacement');
+  assert.deepEqual(new Uint8Array(await correctedPbcDownload.arrayBuffer()), replacementBytes,
+    'the replacement exposes its exact submitted bytes');
 
   const obsoleteApproval = await post(`/api/workspaces/${workspaceId}/commands`, {
     idempotencyKey: crypto.randomUUID(), command: { type: 'pbc.review', payload: {
