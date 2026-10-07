@@ -38,12 +38,29 @@ expense-scope items, and the US-GAP-29 large-archive export remain open. Each ha
 concrete acceptance criteria in the backlog and should be implemented through the
 active business UI/Worker with current-account evidence.
 
-## Externally blocked (cannot pass by substitution)
+## Externally blocked (integration layer implemented; external values still required)
+
+The application now **declares and implements** each integration with a fail-closed,
+honest state (see `docs/prototype/integration-configuration.md`):
+
+- Email: standalone `worker/emailProvider` Worker implementing the `EMAIL_PROVIDER`
+  contract over Cloudflare Email Routing or a transactional email API; the business
+  Worker's outbox already dispatches through `EMAIL_PROVIDER` and reports
+  `EMAIL_PROVIDER_NOT_CONFIGURED` when absent.
+- SharePoint/Graph: `worker/integrations/sharepoint.ts` resolves the site to stable
+  site/drive/root identifiers, creates folders, uploads bytes, lists versions and
+  reads retention, with bounded throttling retries.
+- A live probe is exposed at `GET /api/integrations/status` reporting
+  configured/connected/failed (never a synthetic success).
+
+Supplying the following firm-owned values is what remains; none can be created from
+the repository:
 
 | Story | Blocking prerequisite |
 | --- | --- |
-| US-GAP-05 / 06 | A configured non-production email provider and approved test recipients (no `EMAIL_PROVIDER` service binding is declared in `wrangler.jsonc`). |
-| US-GAP-25 – 28 | The designated existing SharePoint site/library and approved Microsoft Graph integration access. No Graph/SharePoint binding exists in `worker/env.ts` or `wrangler.jsonc`; the historical `m365Config` is explicitly synthetic. |
-| US-GAP-30 – 32 | The supplied existing login accounts, deployed build identity and live SharePoint site for the UAT ledger. |
+| US-GAP-05 / 06 | A verified sender domain/address plus either Email Routing enabled or an email-API key, and approved non-production test recipients (bind `EMAIL_PROVIDER` and deploy `worker/emailProvider`). |
+| US-GAP-25 – 28 | The designated existing SharePoint site/library and an approved Microsoft Entra app registration (tenant id, client id, client secret, `Sites.Selected` grant). Set the `SHAREPOINT_*` values and `/api/integrations/status` flips to `CONNECTED`. |
+| US-GAP-30 – 32 | The supplied existing login accounts, deployed build identity and the live SharePoint site for the UAT ledger. |
 
-These remain BLOCKED with the exact prerequisite recorded rather than simulated.
+Until those values exist, `sharepoint.state` is `UNCONFIGURED`/`FAILED` and email is
+`UNCONFIGURED`; the backlog requires that these remain BLOCKED rather than simulated.

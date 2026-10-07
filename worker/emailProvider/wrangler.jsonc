@@ -1,0 +1,20 @@
+// Cloudflare Worker configuration for the standalone AuditSphere email-provider.
+//
+// Deploy with:  wrangler deploy --config worker/emailProvider/wrangler.jsonc
+// Then bind it into the business Worker as the EMAIL_PROVIDER service binding
+// (see docs/prototype/integration-configuration.md). Configure exactly one transport:
+//   * Email Routing: add a [[send_email]] binding below and verify the sender domain.
+//   * HTTP API:      set the EMAIL_API_URL var and `wrangler secret put EMAIL_API_KEY`.
+{
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+  "name": "auditsphere-email-provider",
+  "main": "index.ts",
+  "compatibility_date": "2026-09-30",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": true,
+  "observability": { "enabled": true }//,
+  // --- Email Routing transport (uncomment after enabling Email Routing) ---
+  // ,"send_email": [{ "name": "SEND_EMAIL", "destination_address": "audit-dispatch@your-firm.example" }]
+  // --- HTTP API transport vars (set EMAIL_API_KEY with `wrangler secret put`) ---
+  // ,"vars": { "EMAIL_API_URL": "https://api.example.com/send", "EMAIL_FROM": "audit-dispatch@your-firm.example", "EMAIL_FROM_NAME": "AuditSphere" }
+}

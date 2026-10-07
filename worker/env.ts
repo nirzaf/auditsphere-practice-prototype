@@ -9,6 +9,20 @@ export interface RateLimiterBinding {
   limit(input: { key: string }): Promise<{ success: boolean }>;
 }
 
+/** Cloudflare Email Routing send binding (native delivery, no third-party provider required). */
+export interface EmailRoutingMessage {
+  to: string | string[];
+  from: { email: string; name?: string } | string;
+  subject: string;
+  text?: string;
+  html?: string;
+  attachments?: Array<{ filename: string; content: ArrayBuffer; type?: string }>;
+}
+
+export interface SendEmailBinding {
+  send(message: EmailRoutingMessage): Promise<{ messageId?: string }>;
+}
+
 export interface Env {
   /** D1 — authoritative structured workspace state. */
   DB: D1Database;
@@ -18,6 +32,17 @@ export interface Env {
   ASSETS: Fetcher;
   /** Optional Worker service binding implementing the proposal-email provider contract. */
   EMAIL_PROVIDER?: Fetcher;
+  /** Optional Cloudflare Email Routing binding used when no EMAIL_PROVIDER service binding is present. */
+  SEND_EMAIL?: SendEmailBinding;
+  /** Microsoft Graph / SharePoint document integration (see docs/prototype/integration-configuration.md). */
+  SHAREPOINT_TENANT_ID?: string;
+  SHAREPOINT_CLIENT_ID?: string;
+  SHAREPOINT_CLIENT_SECRET?: string;
+  SHAREPOINT_SITE_HOSTNAME?: string;
+  SHAREPOINT_SITE_PATH?: string;
+  SHAREPOINT_DRIVE_NAME?: string;
+  /** Optional sender mailbox used when dispatching through Microsoft Graph instead of Email Routing. */
+  SHAREPOINT_SENDER_MAILBOX?: string;
   /** Comma-separated allowed origins. Same-origin deployments need not list one. */
   ALLOWED_ORIGINS?: string;
   ENVIRONMENT?: string;

@@ -42,6 +42,7 @@ import type { Env } from './env';
 import { ApiError, toApiError } from './errors';
 import { assertSameOrigin, baseHeaders, jsonResponse, readJson, sha256Hex } from './http';
 import { createRouter, type RouteContext } from './router';
+import { integrationStatus } from './integrations/status';
 import { processBusinessOutbox } from './businessOutbox';
 import { queueDueBusinessArchives } from './businessReporting';
 import { apiRequestMetric, outboxSnapshot, safeErrorKind, type OutboxMetricRow } from './observability';
@@ -990,6 +991,9 @@ const handleFileMetadata = async (ctx: RouteContext): Promise<Response> => {
   return jsonResponse({ file: toFileMetadata(row) }, 200, ctx.requestId);
 };
 
+const handleIntegrationStatus = async (ctx: RouteContext): Promise<Response> =>
+  jsonResponse(await integrationStatus(ctx.env), 200, ctx.requestId);
+
 // --- Router -----------------------------------------------------------------
 
 const router = createRouter()
@@ -997,6 +1001,7 @@ const router = createRouter()
   .get('/api/health/live', handleHealthLive)
   .get('/api/health/ready', handleHealthReady)
   .get('/api/health/support-bundle', handleSupportBundle)
+  .get('/api/integrations/status', handleIntegrationStatus)
   .post('/api/internal/verification-runs', ingestVerificationRun)
   .get('/api/seeds', handleSeeds)
   .post('/api/workspaces', handleCreateWorkspace)

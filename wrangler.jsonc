@@ -41,6 +41,18 @@
     }
   ],
 
+  // --- Optional integrations (see docs/prototype/integration-configuration.md) ---
+  // Email delivery (US-GAP-05/06): deploy worker/emailProvider and bind it as
+  // EMAIL_PROVIDER, or add a native Email Routing [[send_email]] binding. Without
+  // one of these, document dispatch reports EMAIL_PROVIDER_NOT_CONFIGURED and sends
+  // nothing (it never fabricates a send).
+  // "services": [{ "binding": "EMAIL_PROVIDER", "service": "auditsphere-email-provider" }],
+  //
+  // SharePoint / Microsoft Graph document integration (US-GAP-25..28): set the
+  // client secret with `wrangler secret put SHAREPOINT_CLIENT_SECRET` and the
+  // non-secret identifiers as vars. Leave unset to keep the integration UNCONFIGURED.
+  // "vars": { "SHAREPOINT_TENANT_ID": "", "SHAREPOINT_CLIENT_ID": "", "SHAREPOINT_SITE_HOSTNAME": "", "SHAREPOINT_SITE_PATH": "/sites/audit-test", "SHAREPOINT_DRIVE_NAME": "Documents" },
+
   "observability": { "enabled": true },
 
   "triggers": { "crons": ["* * * * *"] }
