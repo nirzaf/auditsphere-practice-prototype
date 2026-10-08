@@ -1706,10 +1706,11 @@ epic remain open.
 
 ## US-PRC-006 firm trial balance and monthly profit and loss — 2026-10-08
 
-**Verification:** `npx tsx --test --test-reporter=spec
-tests/unit/businessWorkspace.test.ts` — 1/1; `npm run test:unit` —
-616 passed, 1 opt-in stress test skipped; `npm run lint`;
-`npm run cloud:typecheck`; `npm run build`; `git diff --check`.
+**Verification:** `npx tsx --test --test-name-pattern='bootstraps a no-session
+BUSINESS workspace' tests/unit/businessWorkspace.test.ts` — 1/1;
+`npm run lint`; `npm run build`; `git diff --check` — all pass for the
+2026-10-08 recognition-flow update. The earlier full unit result in this
+section predates this update.
 
 **Evidence:** Dedicated `/practice/reports/trial-balance` and
 `/practice/reports/profit-loss` endpoints expose journal-backed reports. The
@@ -1724,14 +1725,24 @@ created zero-activity expense account is present in the monthly P&L with a zero
 amount. The generated CSV/XLSX/PDF artifacts are read back from object storage;
 CSV safely escapes the formula-leading account name, the XLSX round-trips it as
 a string, and all formats include the snapshot cutoff and matching control
-totals.
+totals. The integrated journey also proves that issuing and fully collecting
+the QAR 1,250.01 advance invoice leaves revenue at zero under the deferred
+policy. The Partner must explicitly record earned service; that event posts a
+balanced Dr Contract Liability / Cr Professional Fees journal for exactly
+125,001 minor units and increases monthly P&L by the same amount. The practice
+UI shows the approved policy revision effective on the selected earned date,
+its effective date, recognition rules and digest, and asks for the earned date
+instead of silently using today.
 
 **Boundary:** This verifies local synthetic Worker/SQLite behavior and exact
 report projections and all three export formats generated from persisted
 snapshots. The practice panel now selects a reporting month, displays every
 revenue/expense account, and passes the displayed cutoff through to export.
-The panel has not yet received an interactive browser review. Deployed report
-reconciliation and independent presentation acceptance remain open.
+Local browser review was attempted, but the Worker preview runtime could not
+start because its local email-store directory was denied by the sandbox. The
+focused Worker journey and production build remain the available evidence.
+Deployed report reconciliation and independent presentation acceptance remain
+open.
 US-PRC-006 is partial and the 46-story epic remains open.
 
 ## US-PRC-007 exact aging boundaries and historical cutoff — 2026-10-08

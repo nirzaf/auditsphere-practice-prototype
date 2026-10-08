@@ -4838,6 +4838,37 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
   const invalidProfitLossMonth = await call(`${practicePath}/reports/profit-loss?month=2026-13`, { headers: practiceHeaders });
   assert.equal(invalidProfitLossMonth.response.status, 400);
 
+  // PRC-006: collecting an advance invoice remains a balance-sheet event;
+  // recognized revenue changes only after a Partner records earned service.
+  assert.equal(firmProfitLossBefore.body.revenueMinor, '0',
+    'issuing and collecting the advance invoice does not recognize revenue under the deferred policy');
+  const revenuePolicyView = await call(practicePath, { headers: practiceHeaders });
+  assert.equal(revenuePolicyView.response.status, 200, JSON.stringify(revenuePolicyView.body));
+  const deferredPolicy = revenuePolicyView.body.revenuePolicies.find((policy: any) => policy.recognitionMethod === 'DEFER_UNTIL_EARNED');
+  assert.ok(deferredPolicy?.revision && deferredPolicy?.contentSha256, 'recognition is tied to a versioned approved policy');
+  const earnedDate = new Date().toISOString().slice(0, 10);
+  const recognizedEarnedAdvance = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'revenue.recognize', payload: {
+      engagementId, policyId: deferredPolicy.id, date: earnedDate, amountMinor: '125001',
+      basis: 'The contracted audit fieldwork and reporting services have been completed.'
+    } }
+  }, approverHeaders);
+  assert.equal(recognizedEarnedAdvance.response.status, 200, JSON.stringify(recognizedEarnedAdvance.body));
+  const recognitionJournal = db.prepare(`SELECT status,debit_total_minor,credit_total_minor FROM firm_journals WHERE workspace_id=? AND id=?`)
+    .bind(workspaceId, recognizedEarnedAdvance.body.result.journalId).first<any>();
+  assert.deepEqual({ ...recognitionJournal }, { status: 'POSTED', debit_total_minor: 125001, credit_total_minor: 125001 });
+  const recognitionLines = db.prepare(`SELECT a.code,l.debit_minor,l.credit_minor FROM firm_journal_lines l
+    JOIN firm_accounts a ON a.workspace_id=l.workspace_id AND a.id=l.account_id
+    WHERE l.workspace_id=? AND l.journal_id=? ORDER BY a.code`).bind(workspaceId, recognizedEarnedAdvance.body.result.journalId).all<any>().results.map((row: any) => ({ ...row }));
+  assert.deepEqual(recognitionLines, [
+    { code: '2100', debit_minor: 125001, credit_minor: 0 },
+    { code: '4000', debit_minor: 0, credit_minor: 125001 }
+  ], 'earned-service recognition debits Contract Liability and credits Professional Fees');
+  const profitLossAfterRecognition = await call(`${practicePath}/reports/profit-loss?month=${earnedDate.slice(0, 7)}&asOf=${encodeURIComponent(new Date(Date.now() + 10_000).toISOString())}`, { headers: practiceHeaders });
+  assert.equal(profitLossAfterRecognition.response.status, 200, JSON.stringify(profitLossAfterRecognition.body));
+  assert.equal(BigInt(profitLossAfterRecognition.body.revenueMinor) - BigInt(reportsAfterPost[1].body.revenueMinor), 125001n,
+    'the P&L includes the earned event only after explicit Partner recognition');
+
   // PRC-002: explicit inclusive Qatar-date utilization reads distinguish recorded work,
   // independently approved actuals, incomplete capacity, and over-capacity work.
   const preparerUtilizationPath = `${practicePath}/utilization?from=${planDate}&to=${planDate}&staffMemberId=${preparerStaff.body.result.staffMemberId}`;

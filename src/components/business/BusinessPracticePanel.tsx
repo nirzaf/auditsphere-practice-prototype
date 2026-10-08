@@ -16,7 +16,7 @@ type PracticeData = {
   accounts: Account[]; accountingPeriods: Array<{ id: string; startDate: string; endDate: string; status: string }>;
   journals: Array<{ id: string; version: number; number: string; postingDate: string; description: string; sourceType: string; status: string; debitTotalMinor: string; creditTotalMinor: string }>;
   expenses: Array<{ id: string; date: string; payee: string; category: string; amountMinor: string; description: string; status: string }>;
-  revenuePolicies: Array<{ id: string; revision: number; name: string; recognitionMethod: string }>;
+  revenuePolicies: Array<{ id: string; revision: number; name: string; recognitionMethod: string; effectiveFrom: string; recognitionRules: string; contentSha256: string }>;
   payments: Array<{ id: string; clientId: string; engagementId: string; amountMinor: string; receivedOn: string; method: string; reference: string; receiptNumber: string | null; receiptStatus: string | null; fullyReversed: number | boolean; reversesPaymentId: string | null; remainingUnallocatedMinor: string }>;
   arAging: null | { asOf: string; invoices: Array<{ invoiceId: string; clientId: string; engagementId: string; kind: string; number: string; feeRevisionId: string; issueDate: string; dueDate: string; totalMinor: string; paidMinor: string; creditedMinor: string; outstandingMinor: string; bucket: string }>; buckets: Record<string, string>; outstandingTotalMinor: string; unallocatedMinor: string; controlAccountMinor: string; reconciliationDifferenceMinor: string; reconciliationStatus: string };
   trialBalance: { from: string; to: string; asOf: string; rows: Array<{ accountId: string; code: string; name: string; accountType: string; openingMinor: string; periodDebitMinor: string; periodCreditMinor: string; closingMinor: string }>; closingDebitMinor: string; closingCreditMinor: string; closingBalanced: boolean; sourceHash: string };
@@ -107,6 +107,7 @@ export function BusinessPracticePanel({ workspaceId, selected, context, engageme
   const [policyRules, setPolicyRules] = useState('');
   const [recognitionAmount, setRecognitionAmount] = useState('');
   const [recognitionBasis, setRecognitionBasis] = useState('');
+  const [recognitionDate, setRecognitionDate] = useState(today);
   const [journalDate, setJournalDate] = useState(today);
   const [journalMemo, setJournalMemo] = useState('');
   const [journalDebitAccount, setJournalDebitAccount] = useState('');
@@ -143,6 +144,7 @@ export function BusinessPracticePanel({ workspaceId, selected, context, engageme
   const canReview = context.allowedActions.includes('practice.approve') || isPartner;
   const canManage = context.allowedActions.includes('practice.manage') || isPartner;
   const monthlyProfitLoss = profitLossReport?.from.slice(0, 7) === profitLossMonth ? profitLossReport : null;
+  const revenuePolicyForRecognition = data?.revenuePolicies.find(policy => policy.effectiveFrom <= recognitionDate);
   const committedEvidence = useMemo(() => files.filter(file => file.purpose === 'EVIDENCE' && file.state === 'COMMITTED'
     && file.engagementId === engagement.id), [files, engagement.id]);
 
@@ -220,8 +222,8 @@ export function BusinessPracticePanel({ workspaceId, selected, context, engageme
   };
   const recognizeRevenue = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (!data?.revenuePolicies[0]) { setError('Create and approve a revenue policy first.'); return; }
-    try { await perform('revenue.recognize', { engagementId: engagement.id, policyId: data.revenuePolicies[0].id, date: today, amountMinor: qatarMinor(recognitionAmount), basis: recognitionBasis }, 'Revenue recognition event and balanced journal posted.'); }
+    if (!revenuePolicyForRecognition) { setError('No approved revenue policy is effective on the earned date.'); return; }
+    try { await perform('revenue.recognize', { engagementId: engagement.id, policyId: revenuePolicyForRecognition.id, date: recognitionDate, amountMinor: qatarMinor(recognitionAmount), basis: recognitionBasis }, 'Revenue recognition event and balanced journal posted.'); }
     catch (reason) { setError(reason instanceof Error ? reason.message : 'Enter a valid QAR amount.'); }
   };
   const saveBudget = async (event: React.FormEvent<HTMLFormElement>) => {
@@ -489,9 +491,18 @@ export function BusinessPracticePanel({ workspaceId, selected, context, engageme
       </div>
       <form className="business-form business-commercial-form" onSubmit={recognizeRevenue}>
         <h3>Recognize earned engagement revenue</h3>
-        <div className="business-form-grid"><label className="business-field"><span>Amount (QAR)</span><input required inputMode="decimal" value={recognitionAmount} onChange={event => setRecognitionAmount(event.target.value)} /></label>
+        {revenuePolicyForRecognition ? <section className="business-record-list" aria-labelledby={`business-revenue-policy-${engagement.id}`}>
+          <h4 id={`business-revenue-policy-${engagement.id}`}>Policy for earned date · revision {revenuePolicyForRecognition.revision}</h4>
+          <strong>{revenuePolicyForRecognition.name}</strong>
+          <span>Effective {revenuePolicyForRecognition.effectiveFrom} · {revenuePolicyForRecognition.recognitionMethod.replaceAll('_', ' ')}</span>
+          <p>{revenuePolicyForRecognition.recognitionRules}</p>
+          <small className="business-policy-digest">Policy digest {revenuePolicyForRecognition.contentSha256}</small>
+        </section> : <p className="business-muted">No approved revenue policy is effective on this earned date.</p>}
+        <p className="business-note">Advance invoices post to contract liability. Receiving cash settles receivables and does not recognize revenue. Use this action only when the approved policy’s service or milestone basis has been met.</p>
+        <div className="business-form-grid"><label className="business-field"><span>Earned date</span><input type="date" required value={recognitionDate} onChange={event => setRecognitionDate(event.target.value)} /></label>
+          <label className="business-field"><span>Amount (QAR)</span><input required inputMode="decimal" value={recognitionAmount} onChange={event => setRecognitionAmount(event.target.value)} /></label>
           <label className="business-field"><span>Service / milestone basis</span><input required minLength={10} maxLength={5000} value={recognitionBasis} onChange={event => setRecognitionBasis(event.target.value)} /></label></div>
-        <button className="btn sm" disabled={busy || !isPartner || !data.revenuePolicies.length}>Recognize revenue with current policy</button>
+        <button className="btn sm" disabled={busy || !isPartner || !revenuePolicyForRecognition}>Recognize revenue with revision {revenuePolicyForRecognition?.revision ?? '—'}</button>
       </form>
 
       {isPartner && <form className="business-form business-commercial-form" onSubmit={recordWithdrawal}>
