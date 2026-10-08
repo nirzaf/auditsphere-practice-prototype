@@ -13,7 +13,7 @@ Let staff record that an approved proposal PDF was sent outside email (WhatsApp 
 - `docs/contracts/data-model-delta.md` §3, `docs/contracts/api-delta.md` §3 (`proposal.dispatch.recordManual`)
 
 ## Acceptance criteria
-1. Migration `NNNN_manual_dispatch_records.sql` (label 0047) per data-model-delta §3, schema version bumped, append-only triggers tested.
+1. Migration `NNNN_manual_dispatch_records.sql` (label 0048) per data-model-delta §3, schema version bumped, append-only triggers tested.
 2. `proposal.dispatch.recordManual` requires: engagement in `PROPOSAL_GENERATION`; the referenced proposal version is the approved active one; `file_version_id` is that version's generated PDF; `contactId` belongs to the engagement's client; `sentAt` ≤ now and ≥ proposal approval time; allowed action `proposal.dispatch`.
 3. On success, in one batch: record inserted, engagement → `DUAL_KEY_PENDING` with `active_proposal_version_id`, `state_transitions` row (reason names the manual channel), `audit_events`.
 4. Email dispatch and manual dispatch for the same version are mutually idempotent: whichever lands first transitions; the second records history but does not transition again (no error).

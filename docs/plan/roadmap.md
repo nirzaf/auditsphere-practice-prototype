@@ -42,10 +42,10 @@ flowchart LR
 
 | Story | Title | Type | Depends |
 |---|---|---|---|
-| E03-S01 | Auth schema (0045) and `worker/auth` core primitives | Feature | SP-01, ADR-0005 accepted |
+| E03-S01 | Auth schema (0046) and `worker/auth` core primitives | Feature | SP-01, ADR-0005 accepted |
 | E03-S02 | Staff Entra ID OIDC login, callback, logout, `/me` | Feature | S01 |
 | E03-S03 | Session-derived actor in `resolveBusinessContext`; migrate test helpers | Refactor | S02 |
-| E03-S04 | Client portal credential provisioning on advance payment (0046) | Feature | S03, E04-S01 for real delivery (can merge with provider stub) |
+| E03-S04 | Client portal credential provisioning on advance payment (0047) | Feature | S03, E04-S01 for real delivery (can merge with provider stub) |
 | E03-S05 | Client login, forced password change gate, reset, lockout | Feature | S04 |
 | E03-S06 | Firm admin: invite staff, grants, disable; first-Partner bootstrap CLI | Feature | S03 |
 | E03-S07 | Engagement-assignment access scoping (verify-first) | Feature | S03, decision D3 |
@@ -56,8 +56,8 @@ flowchart LR
 | Story | Title | Type | Depends |
 |---|---|---|---|
 | E04-S01 | Production email: sender domain, route-bound recipients, delivery status | Feature | E02-S01 |
-| E04-S02 ∥ | Manual WhatsApp / hand-delivery proposal dispatch record (0047) | Feature | M3 |
-| E04-S03 ∥ | Public web-form lead intake and triage (0048) | Feature | M3, E06-S02 limiter |
+| E04-S02 ∥ | Manual WhatsApp / hand-delivery proposal dispatch record (0048) | Feature | M3 |
+| E04-S03 ∥ | Public web-form lead intake and triage (0049) | Feature | M3, E06-S02 limiter |
 | E04-S04 ∥ | SharePoint: finalise credentials or disable cleanly | Ops | owner action |
 
 ## M5 — Functional completion (E05)  ∥ with M4

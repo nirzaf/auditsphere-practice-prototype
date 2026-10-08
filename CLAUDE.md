@@ -26,6 +26,12 @@ npm run build
 npm run dev
 ```
 
+Auth primitive line coverage (Node 24 built-in coverage; last result: 100% across `worker/auth/**`):
+
+```sh
+node --experimental-test-coverage --import tsx --test tests/unit/authPrimitives.test.ts
+```
+
 `npm run dev` serves the UI and API using Wrangler's local D1/R2 emulators. It does not deploy to a remote environment. Set `CHROME_PATH` to the installed Chrome executable before running browser E2E tests on Windows.
 
 ## Code and data boundaries

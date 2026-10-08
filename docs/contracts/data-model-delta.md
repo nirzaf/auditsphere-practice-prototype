@@ -1,10 +1,10 @@
 # Data Model Delta (remaining work only)
 
-**Executable source of truth:** `worker/migrations/*.sql` (44 files, last = `0044_mapping_name_suggestions.sql`). This document specifies the **new** migrations the backlog requires. Agents copy the SQL into a new numbered migration file, adjust only what the story's acceptance criteria demand, and record any deviation in the story's report.
+**Executable source of truth:** `worker/migrations/*.sql` (46 files, last = `0046_auth_accounts_sessions.sql`). This document specifies the **new** migrations the backlog requires. Agents copy the SQL into a new numbered migration file, adjust only what the story's acceptance criteria demand, and record any deviation in the story's report.
 
 ## Migration rules (existing conventions — follow exactly)
 
-1. Forward-only, numbered `NNNN_snake_case.sql`, next free number at time of writing is **0045**. Never edit an applied migration. **The numbers below (0045–0050) are labels for review only — at implementation time use the next free number in execution order** (e.g. if E01-S05 runs first, its drop migration becomes 0045 and the auth migration 0046). Also bump `APPLICATION_SCHEMA_VERSION` in `worker/versions.ts` (currently `44`), which readiness compares against the DB (`handleHealthReady` → `SCHEMA_VERSION_MISMATCH`).
+1. Forward-only, numbered `NNNN_snake_case.sql`, next free number is **0047**. Never edit an applied migration. E01-S05 used 0045 and E03-S01 added auth tables in 0046. Also bump `APPLICATION_SCHEMA_VERSION` in `worker/versions.ts` (currently `46`), which readiness compares against the DB (`handleHealthReady` → `SCHEMA_VERSION_MISMATCH`).
 2. Every business table has `id TEXT PRIMARY KEY`, `workspace_id TEXT NOT NULL`, `UNIQUE (workspace_id, id)`, composite FKs `(workspace_id, x_id)` → `parent(workspace_id, id)`, `ON DELETE RESTRICT`.
 3. Mutable rows carry `version INTEGER NOT NULL DEFAULT 1 CHECK (version > 0)`; updates use `WHERE version = ?` and `version = version + 1`.
 4. Append-only tables get `BEFORE UPDATE` and `BEFORE DELETE` triggers that `RAISE(ABORT, '…')` (pattern: `worker/migrations/0006_business_foundation.sql` lines 301–304).
@@ -15,7 +15,7 @@
 
 ---
 
-## 1. `0045_auth_accounts_sessions.sql` — E03-S01
+## 1. `0046_auth_accounts_sessions.sql` — E03-S01
 
 ```sql
 -- User accounts: a login identity that owns one or more actor_profiles.
@@ -32,7 +32,7 @@ CREATE TABLE IF NOT EXISTS user_accounts (
   -- STAFF: OIDC subject (Entra 'oid'); CLIENT: NULL
   external_issuer TEXT,
   external_subject TEXT,
-  -- CLIENT only: password hash in PHC-like string, e.g. 'pbkdf2-sha256$i=600000$<salt_b64>$<hash_b64>'
+  -- CLIENT only: Argon2id v=19,m=19456,t=2,p=1; 16-byte salt and 32-byte hash, base64url encoded.
   password_hash TEXT,
   password_must_change INTEGER NOT NULL DEFAULT 0 CHECK (password_must_change IN (0,1)),
   password_changed_at TEXT,
@@ -151,7 +151,7 @@ CREATE TRIGGER IF NOT EXISTS auth_events_no_delete BEFORE DELETE ON auth_events
 
 **Invariants enforced in code (not expressible in SQL):** a grant's actor profile must match the account kind (STAFF account ↔ profile with `staff_member_id` equal to the account's; CLIENT account ↔ profile with `contact_id` equal to the account's); `active_actor_profile_id` must have an active grant for the session's user.
 
-## 2. `0046_portal_credential_provisioning.sql` — E03-S04
+## 2. `0047_portal_credential_provisioning.sql` — E03-S04
 
 ```sql
 CREATE TABLE IF NOT EXISTS portal_credential_issues (
@@ -183,7 +183,7 @@ CREATE TRIGGER IF NOT EXISTS portal_credential_issues_no_delete BEFORE DELETE ON
 
 > Verified: `contact_routes` and `proposal_versions` have `UNIQUE (workspace_id, id)`; all FKs in §1–§5 resolve against the real schema (SQL applied on top of migrations 0001–0044 in SQLite 3.45 during authoring). **Check during implementation:** the `EMAIL` outbox job payload format — `outbox_jobs.kind` stays `EMAIL`; the new `PORTAL_CREDENTIALS` sub-type lives in the job payload like the existing `CONFIRMATION_REQUEST`/`HOLDING_LETTER` types.
 
-## 3. `0047_manual_dispatch_records.sql` — E04-S02
+## 3. `0048_manual_dispatch_records.sql` — E04-S02
 
 ```sql
 CREATE TABLE IF NOT EXISTS manual_dispatch_records (
@@ -216,7 +216,7 @@ CREATE TRIGGER IF NOT EXISTS manual_dispatch_records_no_delete BEFORE DELETE ON 
 ```
 
 
-## 4. `0048_public_lead_submissions.sql` — E04-S03
+## 4. `0049_public_lead_submissions.sql` — E04-S03
 
 ```sql
 CREATE TABLE IF NOT EXISTS public_lead_submissions (
@@ -244,7 +244,7 @@ CREATE TABLE IF NOT EXISTS public_lead_submissions (
 CREATE INDEX IF NOT EXISTS public_lead_submissions_status_idx ON public_lead_submissions(workspace_id, status, created_at);
 ```
 
-## 5. `0049_client_import_runs.sql` — E05-S06 (after SP-03)
+## 5. `0050_client_import_runs.sql` — E05-S06 (after SP-03)
 
 ```sql
 CREATE TABLE IF NOT EXISTS client_import_runs (
