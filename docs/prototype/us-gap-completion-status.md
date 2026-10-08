@@ -113,13 +113,15 @@ the repository:
 | US-GAP-30 – 32 | Deployed URL/build identity are recorded. UAT follows the epic's no-auth profile with four self-selected personas and synthetic records; supplied login accounts are not required. Real email delivery and a connected SharePoint test-site probe remain unverified. |
 
 The last fully successful production deployment is main commit
-`b1b9df660feae87ebca4667cb71d75450008bf4d` from GitHub Actions run 37711971223
-(2026-10-08). It passed typecheck, unit tests, build, the complete browser E2E
-suite, all 101 R2 archive rule read-backs, Email Service provider deployment,
-D1 migrations, Worker/static asset deployment and readiness. Earlier main runs
+`87426710a9b53bd6bf8a8959d1a58b36384f7eb3` from [GitHub Actions run
+37713406554](https://github.com/nirzaf/auditsphere-practice-prototype/actions/runs/37713406554)
+(2026-10-08). It passed typecheck, unit tests, full hosted browser E2E,
+production build, schema-38 D1 migration, Worker/static asset deployment and
+readiness. Previous successful run 37711971223 applied and read back all 101
+R2 archive rules and deployed the restricted Email Service provider. Earlier main runs
 37710179893, 37710812829 and 37711380454 passed verification but failed the strict
-Worker config check; run 37711971223 verified the source-config deploy fix. A fresh
-live `/api/integrations/status` request on 2026-10-08 01:20:01 UTC reports email
+Worker config check; run 37711971223 verified the source-config deploy fix. The last
+live `/api/integrations/status` request on 2026-10-08 01:20:01 UTC reported email
 `SERVICE_BINDING` and SharePoint `FAILED` because the Graph token request is
 rejected. The site-only `write` grant remains independently verified. Email
 delivery remains unverified: `testing@mail.steauditing.com` was last observed as

@@ -6,18 +6,21 @@ the account-owner steps that still gate live acceptance. Integration status must
 come from the deployed Worker; local configuration is not evidence of connectivity.
 
 The last verified production Worker is main commit
-`b1b9df660feae87ebca4667cb71d75450008bf4d`, deployed by [GitHub Actions run
-37711971223](https://github.com/nirzaf/auditsphere-practice-prototype/actions/runs/37711971223)
-on 2026-10-08. It passed app/Worker typecheck, unit tests, the complete browser
-E2E suite, production build, 101 R2 archive-lock rule read-backs, restricted Email
-Service provider deployment, D1 migrations, Worker/static asset deployment, and
-readiness. The main Worker now deploys from the checked-in `wrangler.jsonc`; the
-earlier strict-mode conflict with dashboard-created config is resolved.
+`87426710a9b53bd6bf8a8959d1a58b36384f7eb3`, deployed by [GitHub Actions run
+37713406554](https://github.com/nirzaf/auditsphere-practice-prototype/actions/runs/37713406554)
+on 2026-10-08. CI reports success for typecheck, unit tests, browser E2E,
+production build, Worker/static asset deployment and readiness. It applied
+application schema version 38, including the mapping-history source-scope guard.
+The preceding run 37711971223 verified 101 R2 archive-lock rules and the
+restricted Email Service provider deployment. The main Worker deploys from the
+checked-in `wrangler.jsonc`; the earlier strict-mode config conflict is resolved.
 
-A fresh live `GET /api/integrations/status` at 2026-10-08 01:20:01 UTC reports
+A `GET /api/integrations/status` last successfully observed at 2026-10-08 01:20:01 UTC reported
 email `configured: true` with transport `SERVICE_BINDING`; SharePoint reports
 `FAILED` because Microsoft Graph rejected the token request. A healthy deployment
-does not by itself establish email delivery or SharePoint connectivity.
+does not by itself establish email delivery or SharePoint connectivity. A new
+direct probe could not be fetched from the local host after deployment; these
+integration values are therefore the last observed status, not a fresh result.
 
 Verify the current state of every integration at any time:
 
@@ -177,7 +180,7 @@ below before acceptance:
 | Field | Source |
 | --- | --- |
 | Application URL | https://auditsphere-visual-prototype.quadrate-lk.workers.dev (readiness returns `ready`) |
-| Deployed build identity | `b1b9df660feae87ebca4667cb71d75450008bf4d` (verified Worker deployment, 2026-10-08; GitHub Actions run 37711971223) |
+| Deployed build identity | `87426710a9b53bd6bf8a8959d1a58b36384f7eb3` (verified Worker deployment, 2026-10-08; GitHub Actions run 37713406554) |
 | Workspace and actors | synthetic workspace created through the UI; verify all four selectable personas and persisted context |
 | Client / engagement ids | synthetic records created through visible UI journeys; record IDs in the restricted UAT evidence bundle |
 | SharePoint site/library/root ids | values returned by `/api/integrations/status` after the site grant and secret are configured |
