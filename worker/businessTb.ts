@@ -118,12 +118,15 @@ async function getEngagement(env: Env, workspaceId: string, context: BusinessCon
   return row;
 }
 
-function toSheetRows(bytes: Uint8Array, worksheet?: string): { workbook: XLSX.WorkBook; sheetName: string; sheet: XLSX.WorkSheet } {
+export function toSheetRows(bytes: Uint8Array, worksheet?: string): { workbook: XLSX.WorkBook; sheetName: string; sheet: XLSX.WorkSheet } {
   let workbook: XLSX.WorkBook;
-  try { workbook = XLSX.read(bytes, { type: 'array', raw: true, cellFormula: true, cellNF: false, WTF: true }); }
+  try { workbook = XLSX.read(bytes, { type: 'array', raw: true, cellFormula: true, cellNF: false, bookVBA: true, bookFiles: true, WTF: true }); }
   catch { throw new ApiError('VALIDATION_FAILED', 'The workbook is encrypted, corrupt, or unsupported. Export a non-macro CSV/XLSX file with static values and retry.'); }
   if ((workbook as XLSX.WorkBook & { vbaraw?: unknown }).vbaraw) throw new ApiError('VALIDATION_FAILED', 'Macro-enabled workbooks are not accepted. Save a non-macro XLSX or CSV copy.');
-  if (Object.keys(workbook).some(key => /external.?link/i.test(key))) throw new ApiError('VALIDATION_FAILED', 'Workbooks with external links are not accepted. Replace linked cells with supported static values.');
+  const workbookFiles = workbook as XLSX.WorkBook & { keys?: string[] };
+  if ((workbookFiles.keys ?? []).some(key => /^\/?xl\/externalLinks\//i.test(key))) {
+    throw new ApiError('VALIDATION_FAILED', 'Workbooks with external links are not accepted. Replace linked cells with supported static values.');
+  }
   const sheetName = worksheet ?? workbook.SheetNames[0];
   const sheet = workbook.Sheets[sheetName];
   if (!sheet || !workbook.SheetNames.includes(sheetName)) throw new ApiError('VALIDATION_FAILED', 'Choose a worksheet that exists in the uploaded workbook.');
@@ -175,7 +178,8 @@ async function digestBytes(bytes: Uint8Array): Promise<string> {
 }
 
 type ParsedTbLine = { id: string; rowNumber: number; accountCode: string | null; accountName: string | null; currentMinor: number | null; priorMinor: number | null; sourceText: string; errors: string[] };
-type ColumnMap = z.infer<typeof columnMap>;
+export type TrialBalanceColumnMap = z.infer<typeof columnMap>;
+type ColumnMap = TrialBalanceColumnMap;
 type ImportRow = { id: string; workspace_id: string; client_id: string; engagement_id: string; file_version_id: string; worksheet: string | null; column_map_json: string; source_sha256: string };
 
 function exactMinor(value: unknown): number | null {
@@ -196,7 +200,10 @@ function exactMinor(value: unknown): number | null {
   return Number.isSafeInteger(numeric) ? numeric : null;
 }
 
-function parseImportSheet(sheet: XLSX.WorkSheet, config: ColumnMap): { lines: ParsedTbLine[]; errors: Array<{ row: number; code: string; message: string }>; debits: number; credits: number; priorDebits: number | null; priorCredits: number | null } {
+export function parseTrialBalanceSheet(sheet: XLSX.WorkSheet, config: TrialBalanceColumnMap): {
+  lines: ParsedTbLine[]; errors: Array<{ row: number; code: string; message: string }>;
+  debits: number; credits: number; priorDebits: number | null; priorCredits: number | null
+} {
   const range = XLSX.utils.decode_range(sheet['!ref'] ?? 'A1:A1');
   if (config.headerRow > range.e.r + 1) throw new ApiError('VALIDATION_FAILED', 'The configured header row is below the worksheet data range.');
   if (range.e.c + 1 > 256) throw new ApiError('VALIDATION_FAILED', 'This TB sheet exceeds the 256-column parser limit.');
@@ -262,7 +269,7 @@ function parseImportSheet(sheet: XLSX.WorkSheet, config: ColumnMap): { lines: Pa
 
 /** Worker-side import processor. Chunked rows remain hidden in staging until tb.activate's final atomic batch. */
 export async function prepareTrialBalanceImport(env: Env, job: { id: string; workspace_id: string; aggregate_id: string; payload_json: string }) {
-  let parsed: ReturnType<typeof parseImportSheet> | null = null;
+  let parsed: ReturnType<typeof parseTrialBalanceSheet> | null = null;
   let failure: { row: number; code: string; message: string } | null = null;
   const imported = await env.DB.prepare(`SELECT id,workspace_id,client_id,engagement_id,file_version_id,worksheet,column_map_json,source_sha256
     FROM tb_imports WHERE workspace_id=? AND id=?`).bind(job.workspace_id, job.aggregate_id).first<ImportRow>();
@@ -282,7 +289,7 @@ export async function prepareTrialBalanceImport(env: Env, job: { id: string; wor
       if (await digestBytes(bytes) !== file.sha256) throw new ApiError('UNAVAILABLE', 'The committed TB source bytes do not match their immutable hash.');
       const { sheet } = toSheetRows(bytes, imported.worksheet ?? undefined);
       const config = columnMap.parse(JSON.parse(imported.column_map_json));
-      parsed = parseImportSheet(sheet, config);
+      parsed = parseTrialBalanceSheet(sheet, config);
       rows = parsed.lines;
     } catch (error) {
       failure = { row: 0, code: error instanceof ApiError ? error.code : 'TB_PARSE_FAILED',
