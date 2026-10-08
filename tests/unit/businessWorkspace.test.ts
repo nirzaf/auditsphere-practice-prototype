@@ -4989,6 +4989,18 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
   assert.equal(agedAdvance.totalMinor, String(issuedInvoiceSource.total_minor));
   assert.equal(BigInt(agedAdvance.totalMinor), BigInt(agedAdvance.paidMinor) + BigInt(agedAdvance.creditedMinor) + BigInt(agedAdvance.outstandingMinor),
     'issued amount reconciles exactly to paid, credited and outstanding minor units');
+  const futurePaymentId = crypto.randomUUID();
+  db.prepare(`INSERT INTO payments(id,workspace_id,version,client_id,engagement_id,amount_minor,received_on,method,reference,evidence_file_id,verified_by_actor_id,reverses_payment_id,created_at)
+    VALUES(?,?,1,?,?,50000,'2099-01-01','BANK_TRANSFER',?,?,?,NULL,?)`)
+    .bind(futurePaymentId,workspaceId,clientId,engagementId,`QA-FUTURE-${futurePaymentId}`,evidenceFileId,partnerActorId,new Date().toISOString()).run();
+  const afterFuturePayment = await call(`${practicePath}?asOfDate=${arAsOfDate}`, { headers: practiceHeaders });
+  assert.equal(afterFuturePayment.response.status, 200, JSON.stringify(afterFuturePayment.body));
+  const advanceAfterFuturePayment = afterFuturePayment.body.arAging.invoices.find((row: any) => row.invoiceId === issuedInvoice.id);
+  assert.deepEqual({ paid: advanceAfterFuturePayment.paidMinor, credited: advanceAfterFuturePayment.creditedMinor, outstanding: advanceAfterFuturePayment.outstandingMinor },
+    { paid: agedAdvance.paidMinor, credited: agedAdvance.creditedMinor, outstanding: agedAdvance.outstandingMinor },
+    'a verified receipt dated after the selected cutoff does not change historical invoice aging');
+  assert.equal(afterFuturePayment.body.arAging.unallocatedMinor, beforeAllocationReversal.body.arAging.unallocatedMinor,
+    'future cash is not included in historical unallocated receipts');
   const malformedAgingDate = await call(`${practicePath}?asOfDate=2026-02-31`, { headers: practiceHeaders });
   assert.equal(malformedAgingDate.response.status, 422, 'an impossible Qatar aging date is rejected instead of producing a misleading bucket');
   const partialReversal = await post(`/api/workspaces/${workspaceId}/commands`, {
@@ -5009,6 +5021,21 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
   assert.equal(afterAllocationReversal.body.arAging.reconciliationDifferenceMinor,
     beforeAllocationReversal.body.arAging.reconciliationDifferenceMinor,
     'the appended allocation reversal increases both subledger AR and posted AR control by the same amount');
+  const futureCreditDate = new Date(Date.parse(`${arAsOfDate}T00:00:00Z`) + 86_400_000).toISOString().slice(0, 10);
+  const futureCredit = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'credit-note.issue', payload: {
+      invoiceId: issuedInvoice.id, date: futureCreditDate, amountMinor: '1000',
+      reason: 'Synthetic future-dated credit verifies historical AR cutoff behavior.'
+    } }
+  }, approverHeaders);
+  assert.equal(futureCredit.response.status, 200, JSON.stringify(futureCredit.body));
+  const afterFutureCredit = await call(`${practicePath}?asOfDate=${arAsOfDate}`, { headers: practiceHeaders });
+  assert.equal(afterFutureCredit.response.status, 200, JSON.stringify(afterFutureCredit.body));
+  const advanceAfterFutureCredit = afterFutureCredit.body.arAging.invoices.find((row: any) => row.invoiceId === issuedInvoice.id);
+  const advanceAfterReversal = afterAllocationReversal.body.arAging.invoices.find((row: any) => row.invoiceId === issuedInvoice.id);
+  assert.deepEqual({ paid: advanceAfterFutureCredit.paidMinor, credited: advanceAfterFutureCredit.creditedMinor, outstanding: advanceAfterFutureCredit.outstandingMinor },
+    { paid: advanceAfterReversal.paidMinor, credited: advanceAfterReversal.creditedMinor, outstanding: advanceAfterReversal.outstandingMinor },
+    'a future-dated credit note does not reduce historical invoice aging');
 
   // FLD-013: exercise the durable confirmation dispatch and response lifecycle,
   // retain an unverified return as a release blocker, and render/send one

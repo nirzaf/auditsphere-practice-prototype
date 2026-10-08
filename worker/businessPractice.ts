@@ -820,6 +820,22 @@ async function buildRevenueRecognize(env:Env,workspaceId:string,context:Business
 }
 
 type AgingInvoice={id:string;client_id:string;engagement_id:string;kind:string;number:string;fee_revision_id:string;subtotal_minor:number;tax_minor:number;total_minor:number;issue_date:string;due_date:string;}
+export type ArAgingBucket='CURRENT'|'DAYS_1_30'|'DAYS_31_60'|'DAYS_61_90'|'DAYS_91_PLUS';
+export function getArAgingBucket(dueDate:string,asOf:string):ArAgingBucket{
+  if(!date.safeParse(dueDate).success||!date.safeParse(asOf).success)
+    throw new ApiError('VALIDATION_FAILED','Invoice due date and Qatar aging cutoff must be valid calendar dates.');
+  const overdueDays=Math.floor((Date.parse(`${asOf}T00:00:00Z`)-Date.parse(`${dueDate}T00:00:00Z`))/86_400_000);
+  if(overdueDays<=0)return 'CURRENT';
+  if(overdueDays<=30)return 'DAYS_1_30';
+  if(overdueDays<=60)return 'DAYS_31_60';
+  if(overdueDays<=90)return 'DAYS_61_90';
+  return 'DAYS_91_PLUS';
+}
+export function calculateArOutstandingMinor(totalMinor:bigint,paidMinor:bigint,creditedMinor:bigint,invoiceNumber='invoice'):bigint{
+  const outstanding=totalMinor-paidMinor-creditedMinor;
+  if(outstanding<0n)throw new ApiError('VALIDATION_FAILED',`Invoice ${invoiceNumber} has credits or allocations greater than its issued amount.`);
+  return outstanding;
+}
 async function arAging(env:Env,workspaceId:string,context:BusinessContext,asOf:string,clientId?:string){
   if(context.actor.persona==='CLIENT')throw new ApiError('PERSONA_ACTION_DENIED','Client profiles cannot access firm receivables reporting.');
   if(!date.safeParse(asOf).success)throw new ApiError('VALIDATION_FAILED','Choose a valid Qatar calendar date for AR aging.');
@@ -849,10 +865,9 @@ async function arAging(env:Env,workspaceId:string,context:BusinessContext,asOf:s
     .bind(workspaceId,asOf,...invoiceIds).all<{invoice_id:string;amount:number}>()).results??[]) : [];
   const credited=new Map(credits.map(row=>[row.invoice_id,BigInt(row.amount)]));
   const items=invoices.map(invoice=>{
-    const paid=allocated.get(invoice.id)??0n,credit=credited.get(invoice.id)??0n,total=BigInt(invoice.total_minor),outstanding=total-paid-credit;
-    if(outstanding<0n)throw new ApiError('VALIDATION_FAILED',`Invoice ${invoice.number} has credits or allocations greater than its issued amount.`);
-    const dueDays=Math.floor((Date.parse(`${asOf}T00:00:00Z`)-Date.parse(`${invoice.due_date}T00:00:00Z`))/86_400_000);
-    const bucket=dueDays<=0?'CURRENT':dueDays<=30?'DAYS_1_30':dueDays<=60?'DAYS_31_60':dueDays<=90?'DAYS_61_90':'DAYS_91_PLUS';
+    const paid=allocated.get(invoice.id)??0n,credit=credited.get(invoice.id)??0n,total=BigInt(invoice.total_minor),
+      outstanding=calculateArOutstandingMinor(total,paid,credit,invoice.number);
+    const bucket=getArAgingBucket(invoice.due_date,asOf);
     return {invoiceId:invoice.id,clientId:invoice.client_id,engagementId:invoice.engagement_id,kind:invoice.kind,number:invoice.number,feeRevisionId:invoice.fee_revision_id,
       issueDate:invoice.issue_date,dueDate:invoice.due_date,totalMinor:String(total),paidMinor:String(paid),creditedMinor:String(credit),outstandingMinor:String(outstanding),bucket};
   });

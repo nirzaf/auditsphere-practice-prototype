@@ -1589,7 +1589,7 @@ it('US-REP-001–007 covers all report categories, representation, atomic releas
   const currentDate = reportDate;
   const practicePath = `${server.origin}/api/workspaces/${fixture.workspaceId}/practice?from=${currentDate}&to=${currentDate}&engagementId=${fixture.engagementId}&asOfDate=${currentDate}`;
   const beforeCollectionAgingResponse = await fetch(practicePath, { headers: reviewerHeaders });
-  const beforeCollectionAging = await beforeCollectionAgingResponse.json() as { arAging?: { invoices: Array<{ invoiceId: string; outstandingMinor: string }> } };
+  const beforeCollectionAging = await beforeCollectionAgingResponse.json() as { arAging?: { invoices: Array<{ invoiceId: string; kind: string; totalMinor: string; paidMinor: string; creditedMinor: string; outstandingMinor: string }>; unallocatedMinor: string } };
   assert.equal(beforeCollectionAgingResponse.status, 200, JSON.stringify(beforeCollectionAging));
   const outstandingBeforeCollection = beforeCollectionAging.arAging?.invoices.find(row => row.invoiceId === finalInvoiceSnapshot.id)?.outstandingMinor;
   assert.equal(outstandingBeforeCollection, String(finalInvoiceSnapshot.total_minor), 'the current as-of date shows the unpaid final invoice as due');
@@ -1657,10 +1657,20 @@ it('US-REP-001–007 covers all report categories, representation, atomic releas
   ], 'the post-archive receipt posts Bank and Accounts Receivable in one balanced bookkeeping journal');
 
   const currentAgingResponse = await fetch(practicePath, { headers: reviewerHeaders });
-  const currentAging = await currentAgingResponse.json() as { arAging?: { invoices: Array<{ invoiceId: string; outstandingMinor: string }> } };
+  const currentAging = await currentAgingResponse.json() as { arAging?: { invoices: Array<{ invoiceId: string; kind: string; totalMinor: string; paidMinor: string; creditedMinor: string; outstandingMinor: string }>; unallocatedMinor: string } };
   assert.equal(currentAgingResponse.status, 200, JSON.stringify(currentAging));
   assert.equal(currentAging.arAging?.invoices.find(row => row.invoiceId === finalInvoiceSnapshot.id)?.outstandingMinor, '0',
     'the verified final collection clears AR at its effective date');
+  const advanceBeforeCollection = beforeCollectionAging.arAging?.invoices.find(row => row.kind === 'ADVANCE');
+  const advanceAfterCollection = currentAging.arAging?.invoices.find(row => row.kind === 'ADVANCE');
+  assert.ok(advanceBeforeCollection && advanceAfterCollection, 'advance and final installments remain separate AR rows');
+  assert.deepEqual({ total: advanceAfterCollection.totalMinor, paid: advanceAfterCollection.paidMinor,
+    credited: advanceAfterCollection.creditedMinor, outstanding: advanceAfterCollection.outstandingMinor },
+  { total: advanceBeforeCollection.totalMinor, paid: advanceBeforeCollection.paidMinor,
+    credited: advanceBeforeCollection.creditedMinor, outstanding: advanceBeforeCollection.outstandingMinor },
+  'collecting the final invoice does not silently allocate cash to the separate advance invoice');
+  assert.equal(currentAging.arAging?.unallocatedMinor, beforeCollectionAging.arAging?.unallocatedMinor,
+    'the fully allocated final collection leaves unallocated cash unchanged');
   assert.deepEqual(server.db.prepare(`SELECT archive_sha256,manifest_sha256 FROM archive_seals WHERE workspace_id=? AND engagement_id=?`)
     .bind(fixture.workspaceId, fixture.engagementId).first(), archiveBeforeCollection, 'collection leaves the immutable archive hashes unchanged');
   assert.deepEqual(server.db.prepare(`SELECT e.portal_frozen_at,e.locked_at,e.lifecycle_state,pf.bundle_id,pf.frozen_at,pf.reason,pf.actor_id

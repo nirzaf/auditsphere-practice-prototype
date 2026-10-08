@@ -1733,3 +1733,11 @@ revenue/expense account, and passes the displayed cutoff through to export.
 The panel has not yet received an interactive browser review. Deployed report
 reconciliation and independent presentation acceptance remain open.
 US-PRC-006 is partial and the 46-story epic remains open.
+
+## US-PRC-007 exact aging boundaries and historical cutoff — 2026-10-08
+
+**Verification:** `npx tsx --test --test-concurrency=1 --test-reporter=spec tests/unit/businessPracticeAging.test.ts tests/unit/businessWorkspace.test.ts` — 4/4; `npm run test:unit` — 619 passed, 1 opt-in stress test skipped; `npm run lint`; `npm run cloud:typecheck`; `npm run build`; `git diff --check` — all pass.
+
+**Evidence:** The extracted Worker aging rule is tested at due day 0 and exact 1, 30, 31, 60, 61, 90 and 91 day boundaries, including the specified 15 August to 23 September (39-day) example. The integrated Worker journey inserts a verified receipt dated after its selected cutoff and proves invoice amounts and unallocated cash remain unchanged. After an allocation reversal returns cash to unallocated, it posts a credit note for the following day and proves historical paid, credited and outstanding amounts remain unchanged. The E2E archive journey now checks that collecting the final invoice leaves the separate advance invoice and unallocated balance unchanged while preserving archive hashes, issued invoice bytes and the portal freeze.
+
+**Boundary:** The full unit suite and local Worker journey passed. The updated post-archive browser assertion awaits hosted CI; local headless Chrome previously failed to expose its debugging endpoint during setup. Current-account AR reconciliation, live R2-to-browser transfer and independent report presentation acceptance remain open. US-PRC-007 is partial and the 46-story epic remains open.
