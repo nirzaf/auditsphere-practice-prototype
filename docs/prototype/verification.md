@@ -1782,7 +1782,7 @@ US-PRC-006 is partial and the 46-story epic remains open.
 
 ## US-FLD-002 temporal mapping-history scope — 2026-10-08
 
-**Verification:** `npx tsx --test --test-concurrency=1 --test-name-pattern="bootstraps a no-session BUSINESS workspace" tests/unit/businessWorkspace.test.ts` — 1/1; `npm run cloud:typecheck`; `npm run lint`; `git diff --check` — all pass.
+**Verification:** `npx tsx --test --test-concurrency=1 --test-name-pattern="bootstraps a no-session BUSINESS workspace" tests/unit/businessWorkspace.test.ts` — 1/1; `npm run cloud:typecheck`; `npm run lint`; `git diff --check` — all pass. [GitHub Actions run 37781910365](https://github.com/nirzaf/auditsphere-practice-prototype/actions/runs/37781910365) for commit `446f275` passed full CI, Cloudflare deployment and Worker readiness.
 
 **Evidence:** Mapping proposals now source prior history only when its accepted period ends strictly before the target engagement begins. Reviewer confirmation re-evaluates history using the same cutoff, so a stale draft cannot attach a same-period or later mapping. The Worker-backed scenario checks that a mapping from the same period is not labeled prior history, a later-period mapping cannot flow backward, and a next-period engagement can reuse the earlier approved mapping.
 

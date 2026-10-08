@@ -122,14 +122,14 @@ the repository:
 
 | Story | Blocking prerequisite |
 | --- | --- |
-| US-GAP-05 / 06 (partial) | The provider now requires an explicit `EMAIL_ALLOWED_RECIPIENTS` policy for both Cloudflare Email Service and HTTP API transports, reports the policy in readiness, normalizes addresses, and rejects unapproved recipients before contacting either provider. The checked-in UAT policy contains only `testing@mail.steauditing.com`. | `tests/unit/emailProvider.test.ts` covers policy validation, readiness, allowed delivery and pre-transport denial for both transports. This code change is not yet deployed. The approved recipient was last observed Pending, and no real delivery has been accepted. |
+| US-GAP-05 / 06 (partial) | The provider requires an explicit `EMAIL_ALLOWED_RECIPIENTS` policy for both Cloudflare Email Service and HTTP API transports, reports the policy in readiness, normalizes addresses, and rejects unapproved recipients before contacting either provider. The checked-in UAT policy contains only `testing@mail.steauditing.com`. | `tests/unit/emailProvider.test.ts` covers policy validation, readiness, allowed delivery and pre-transport denial for both transports. GitHub Actions run 37781910365 deployed the provider and the main Worker successfully. The approved recipient was last observed Pending, and no real delivery has been accepted. |
 | US-GAP-25 – 28 | Entra app `AuditSphere SharePoint UAT` has `Sites.Selected` consent and a verified site-only `write` grant on `/sites/AuditSphereJSAcceptance` (2026-10-08). The live probe at 2026-10-08 12:02:37 UTC returned `FAILED` because Microsoft Graph rejected the token request. Entra lists a replacement secret labeled `AuditSphere UAT Cloudflare Worker rotated (180-day)`, expiring 2027-04-06, but the deployed credential has not been proven to match; the secret value is not recoverable after creation. The owner must enter the current replacement directly into the Cloudflare Worker secret setting (or create a new one if the value is lost), then verify the probe and a real site read/write check. Commit `187eb8c` deploys the SHA-256 secret-fingerprint cache fix, so same-length rotations invalidate cached tokens. |
 | US-GAP-30 – 32 | The deployed URL/build identity is recorded, but the live UAT create attempt was rejected because business workspace setup is disabled on the unrestricted public Worker. No deployed UAT workspace, actors, client or engagement IDs were created. Keep the no-auth setup gate disabled on `workers.dev`; run persona journeys only after a trusted test perimeter is established. Real email delivery and a connected SharePoint test-site probe remain unverified. |
 
 The latest verified successful production deployment is main commit
-`6a27b0fac9363cd5e0b9e852becc368381ba7d8b` from [GitHub Actions run
-37777983673](https://github.com/nirzaf/auditsphere-practice-prototype/actions/runs/37777983673)
-(2026-10-08). It passed typecheck, unit tests, full hosted browser E2E,
+`446f27583bc261d3a66cc580b98713d0357edf83` from [GitHub Actions run
+37781910365](https://github.com/nirzaf/auditsphere-practice-prototype/actions/runs/37781910365)
+(2026-10-08 13:12 UTC). It passed typecheck, unit tests, full hosted browser E2E,
 production build, D1 migration, Worker/static asset deployment and readiness.
 Previous successful run 37711971223 applied and read back all 101
 R2 archive rules and deployed the restricted Email Service provider. Earlier main runs
