@@ -7,6 +7,7 @@ import { unstable_splitSqlQuery } from 'wrangler';
 import { buildMigrationApplyPlan } from '../../tools/business-migration-apply.js';
 import { buildMigrationAuditReport, type MigrationAuditSnapshot } from '../../tools/business-migration-audit-core.js';
 import { buildMigrationAuditSnapshotQuery } from '../../tools/business-migration-audit-query.js';
+import { APPLICATION_SCHEMA_VERSION } from '../../worker/versions.js';
 
 const snapshot = (): MigrationAuditSnapshot => ({
   workspace: { id: '00000000-0000-4000-8000-000000000031', schema_version: 30, data_mode: 'TEST' },
@@ -58,12 +59,14 @@ const createDatabase = (sourceSnapshot = snapshot()): DatabaseSync => {
 
 it('builds an atomic, source-guarded plan for reviewed clients and contacts', () => {
   const source = snapshot();
-  const report = buildMigrationAuditReport(source, new Map(), 31, 40);
+  const report = buildMigrationAuditReport(source, new Map(), APPLICATION_SCHEMA_VERSION, 40);
+  assert.equal(report.targetSchemaVersion, APPLICATION_SCHEMA_VERSION);
   const plan = buildMigrationApplyPlan(source, report, 40, '2026-10-08T10:00:00.000Z');
 
   assert.equal(plan.recordCount, 3);
   assert.match(plan.sql, /status='VALIDATED'/);
   assert.match(plan.sql, /UPDATE migration_runs SET status='APPLIED'/);
+  assert.match(plan.sql, new RegExp(`,${APPLICATION_SCHEMA_VERSION},.*'VALIDATED'`));
   assert.match(plan.sql, /payload_json=/);
   assert.ok(plan.sql.indexOf("SELECT 'client-parent'") < plan.sql.indexOf("SELECT 'client-child'"), 'parents are inserted before subsidiaries');
   assert.match(plan.sql, /contacts\(id,client_id,full_name,email,phone,title,role,is_primary,is_signatory,active/);
@@ -72,7 +75,7 @@ it('builds an atomic, source-guarded plan for reviewed clients and contacts', ()
 
 it('applies all planned rows atomically and rolls back when a source row changed after preflight', () => {
   const source = snapshot();
-  const report = buildMigrationAuditReport(source, new Map(), 31, 40);
+  const report = buildMigrationAuditReport(source, new Map(), APPLICATION_SCHEMA_VERSION, 40);
   const plan = buildMigrationApplyPlan(source, report, 40, '2026-10-08T10:00:00.000Z');
   const apply = (database: DatabaseSync, sql: string): void => {
     database.exec('BEGIN');
@@ -107,7 +110,7 @@ it('applies all planned rows atomically and rolls back when a source row changed
 it('blocks unmapped entity kinds instead of dropping them', () => {
   const source = snapshot();
   source.entities.push({ entity_kind: 'invoices', entity_id: 'invoice-1', payload_json: '{"id":"invoice-1"}' });
-  const report = buildMigrationAuditReport(source, new Map(), 31, 40);
+  const report = buildMigrationAuditReport(source, new Map(), APPLICATION_SCHEMA_VERSION, 40);
 
   assert.throws(() => buildMigrationApplyPlan(source, report, 40, '2026-10-08T10:00:00.000Z'), /ENTITY_KIND_NOT_SUPPORTED_BY_APPLY_MIGRATOR/);
 });
@@ -122,7 +125,7 @@ it('migrates verified committed files with exact IDs, hashes, and legacy provena
     state: 'COMMITTED', immutable: 1, created_by_user_id: 'legacy-user-7', created_at: 1760000000, committed_at: 1760000010
   });
   const verifiedObjects = new Map([['file-evidence-1', { found: true, sizeBytes: 12, sha256 }]]);
-  const report = buildMigrationAuditReport(source, verifiedObjects, 31, 40);
+  const report = buildMigrationAuditReport(source, verifiedObjects, APPLICATION_SCHEMA_VERSION, 40);
   const plan = buildMigrationApplyPlan(source, report, 40, '2026-10-08T10:00:00.000Z');
   const database = createDatabase(source);
   try {
@@ -147,7 +150,7 @@ it('migrates verified committed files with exact IDs, hashes, and legacy provena
 
     const auditRow = database.prepare(buildMigrationAuditSnapshotQuery(source.workspace.id)).get() as { snapshot_json: string };
     const after = JSON.parse(auditRow.snapshot_json) as MigrationAuditSnapshot;
-    const reconciled = buildMigrationAuditReport(after, verifiedObjects, 31, 40, report.runId);
+    const reconciled = buildMigrationAuditReport(after, verifiedObjects, APPLICATION_SCHEMA_VERSION, 40, report.runId);
     assert.equal(reconciled.validationStatus, 'VALIDATED');
     assert.ok(reconciled.fieldReconciliation.find(item => item.sourceKind === 'file_objects')?.fields.every(field => field.status === 'MATCHED'));
   } finally { database.close(); }
@@ -161,7 +164,7 @@ it('blocks file apply when its R2 bytes are missing or do not match the source h
     mime_type: 'application/pdf', size_bytes: 12, sha256: 'c'.repeat(64), state: 'COMMITTED', immutable: 1,
     created_by_user_id: null, created_at: 1760000000, committed_at: 1760000010
   });
-  const report = buildMigrationAuditReport(source, new Map(), 31, 40);
+  const report = buildMigrationAuditReport(source, new Map(), APPLICATION_SCHEMA_VERSION, 40);
   assert.throws(() => buildMigrationApplyPlan(source, report, 40, '2026-10-08T10:00:00.000Z'), /SOURCE_FILE_BYTES_NOT_VERIFIED/);
 });
 
@@ -170,7 +173,7 @@ it('requires the guarded schema and does not infer missing contact signatory dat
   const contact = JSON.parse(source.entities[2].payload_json) as Record<string, unknown>;
   delete contact.isSignatory;
   source.entities[2].payload_json = JSON.stringify(contact);
-  const report = buildMigrationAuditReport(source, new Map(), 31, 39);
+  const report = buildMigrationAuditReport(source, new Map(), APPLICATION_SCHEMA_VERSION, 39);
 
   assert.throws(() => buildMigrationApplyPlan(source, report, 39, '2026-10-08T10:00:00.000Z'), /MIGRATION_APPLY_GUARDS_NOT_INSTALLED/);
   assert.throws(() => buildMigrationApplyPlan(source, report, 40, '2026-10-08T10:00:00.000Z'), /SOURCE_FIELD_VALUE_NOT_MAPPABLE/);

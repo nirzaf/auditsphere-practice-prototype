@@ -1,6 +1,7 @@
 import { buildNormalizedMigrationPlan, type MigrationAuditReport, type MigrationAuditSnapshot } from './business-migration-audit-core.js';
+import { APPLICATION_SCHEMA_VERSION } from '../worker/versions.js';
 
-const TARGET_SCHEMA_VERSION = 31;
+const TARGET_SCHEMA_VERSION = APPLICATION_SCHEMA_VERSION;
 const SUPPORTED_ROOT_METADATA = new Set(['__manifest__', '__scalars__', '__settings__']);
 
 const sqlText = (value: string): string => `'${value.replaceAll("'", "''")}'`;

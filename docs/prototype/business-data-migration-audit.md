@@ -33,7 +33,7 @@ Every source row requires an explicit `migration_id_map` entry and an existing
 normalized target row. The tool blocks validation for unmapped rows, unresolved
 relationships, non-committed files, missing R2 objects, size/hash mismatches,
 count or monetary differences, and source schema versions newer than migration
-target 31. Explicit field-by-field comparisons cover client, contact, and
+target 40 (kept aligned with `worker/versions.ts`). Explicit field-by-field comparisons cover client, contact, and
 committed file metadata. File metadata retains the original creator and logical
 record link in dedicated legacy-provenance columns; values are represented in
 the report by SHA-256 hashes. Unmapped fields and other entity kinds remain

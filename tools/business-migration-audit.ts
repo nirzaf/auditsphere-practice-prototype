@@ -7,15 +7,15 @@ import { fileURLToPath } from 'node:url';
 import { buildMigrationAuditReport, type MigrationAuditSnapshot, type VerifiedR2Object } from './business-migration-audit-core';
 import { buildMigrationAuditSnapshotQuery } from './business-migration-audit-query';
 import { buildMigrationApplyPlan } from './business-migration-apply';
+import { APPLICATION_SCHEMA_VERSION } from '../worker/versions';
 
 const ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const WRANGLER = resolve(ROOT, 'node_modules/wrangler/bin/wrangler.js');
 const CONFIG = resolve(ROOT, 'wrangler.jsonc');
 const DATABASE = 'steaudit-prototype-demo';
 const BUCKET = 'auditsphere-prototype-files';
-// Current fixture-compatible source state is schema 30; normalized cutover uses
-// schema 31. The Worker SQL migration marker is reported separately below.
-const MIGRATION_TARGET_SCHEMA_VERSION = 31;
+// Use the same version that gates Worker schema compatibility and apply guards.
+const MIGRATION_TARGET_SCHEMA_VERSION = APPLICATION_SCHEMA_VERSION;
 const MAX_D1_OUTPUT_BYTES = 96 * 1024 * 1024;
 
 function usage(): string {
