@@ -4,6 +4,7 @@ import type { Env } from './env';
 import { ApiError } from './errors';
 import { requireWorkspace } from './db';
 import type { BusinessContext, BusinessMutation } from './business';
+import { suggestMilestones, type SuggestedMilestoneCode } from '../src/shared/milestoneDefaults';
 
 const id = z.uuid();
 const date = z.iso.date();
@@ -41,13 +42,20 @@ const milestoneSet = z.strictObject({
     targetDate: date, sourceReference: z.string().trim().min(1).max(1000), expectedVersion: z.number().int().positive().optional()
   })
 });
+const milestoneApplyDefaults = z.strictObject({
+  type: z.literal('milestone.applyDefaults'),
+  payload: z.strictObject({
+    engagementId: id, periodEnd: date, overwrite: z.boolean().default(false),
+    suggestedDates: z.strictObject({ FIELDWORK_START: date, DRAFT_REPORT: date, FINAL_REPORT: date }).optional()
+  })
+});
 
-export const businessPlanningCommands = [availabilitySet, leaveRecord, staffingAssign, capacityException, milestoneSet] as const;
+export const businessPlanningCommands = [availabilitySet, leaveRecord, staffingAssign, capacityException, milestoneSet, milestoneApplyDefaults] as const;
 export const businessPlanningCommandSchema = z.discriminatedUnion('type', businessPlanningCommands);
 export type BusinessPlanningCommand = z.infer<typeof businessPlanningCommandSchema>;
 
 export function isBusinessPlanningCommand(command: { type: string }): command is BusinessPlanningCommand {
-  return command.type.startsWith('staffing.') || command.type === 'milestone.set';
+  return command.type.startsWith('staffing.') || command.type === 'milestone.set' || command.type === 'milestone.applyDefaults';
 }
 
 type PlanningEngagement = { id: string; client_id: string; lifecycle_state: string; period_start: string; period_end: string; locked_at: string | null };
@@ -326,6 +334,63 @@ export async function buildBusinessPlanningMutation(env: Env, workspaceId: strin
         command.payload.reason, decisionId, context.actor.id, now)
     ], result: { exceptionId, approvalDecisionId: decisionId, staffMemberId: staff.id, workDate: command.payload.workDate,
       excessMinutes: command.payload.excessMinutes }, entityType: 'CAPACITY_EXCEPTION', entityId: exceptionId, beforeVersion: null, afterVersion: 1 };
+  }
+
+  if (command.type === 'milestone.applyDefaults') {
+    const engagement = await requirePlanningEngagement(env, workspaceId, context, command.payload.engagementId);
+    requirePlanner(context, 'staffing.manage');
+    if (command.payload.periodEnd !== engagement.period_end) {
+      throw new ApiError('VALIDATION_FAILED', 'The suggested period end must match the engagement period end.');
+    }
+    const defaults = suggestMilestones(engagement.period_end);
+    const dates = { ...defaults, ...command.payload.suggestedDates };
+    const sourceFor = () => `Suggested from period end ${engagement.period_end} (default rule v1)`;
+    const existingResult = await env.DB.prepare(`SELECT id,code,version,target_date FROM milestones
+      WHERE workspace_id=? AND engagement_id=? AND code IN ('FIELDWORK_START','DRAFT_REPORT','FINAL_REPORT')`)
+      .bind(workspaceId, engagement.id).all<{ id: string; code: SuggestedMilestoneCode; version: number; target_date: string }>();
+    const existing = new Map((existingResult.results ?? []).map(row => [row.code, row]));
+    const cutoffRow = await env.DB.prepare(`SELECT target_date FROM milestones
+      WHERE workspace_id=? AND engagement_id=? AND code='STATUTORY_CUTOFF'`)
+      .bind(workspaceId, engagement.id).first<{ target_date: string }>();
+    const cutoff = cutoffRow?.target_date ?? null;
+    const statements: D1PreparedStatement[] = [];
+    const applied: Array<{ code: SuggestedMilestoneCode; targetDate: string; version: number }> = [];
+    const preserved: SuggestedMilestoneCode[] = [];
+    const skipped: Array<{ code: SuggestedMilestoneCode; reason: string }> = [];
+    const codes: SuggestedMilestoneCode[] = ['FIELDWORK_START', 'DRAFT_REPORT', 'FINAL_REPORT'];
+    for (const [index, code] of codes.entries()) {
+      const prior = existing.get(code);
+      if (prior && !command.payload.overwrite) { preserved.push(code); continue; }
+      if (code !== 'FIELDWORK_START' && (!cutoff || dates[code] > cutoff)) {
+        skipped.push({ code, reason: !cutoff ? 'Record the firm-supplied statutory cutoff first.' : `Suggested date exceeds the recorded cutoff ${cutoff}.` });
+        continue;
+      }
+      const rowId = prior?.id ?? crypto.randomUUID();
+      const nextVersion = (prior?.version ?? 0) + 1;
+      const sequence = 100 + index;
+      statements.push(env.DB.prepare(`INSERT INTO command_assertions(workspace_id,seq,ok)
+        SELECT ?,?,CASE WHEN
+          ((? IS NULL AND NOT EXISTS(SELECT 1 FROM milestones WHERE workspace_id=? AND engagement_id=? AND code=?))
+            OR (? IS NOT NULL AND EXISTS(SELECT 1 FROM milestones WHERE workspace_id=? AND id=? AND engagement_id=? AND code=? AND version=?)))
+          AND (? NOT IN ('DRAFT_REPORT','FINAL_REPORT') OR EXISTS(SELECT 1 FROM milestones
+            WHERE workspace_id=? AND engagement_id=? AND code='STATUTORY_CUTOFF' AND target_date>=?))
+          THEN 1 ELSE 0 END`)
+        .bind(workspaceId, sequence, prior?.id ?? null, workspaceId, engagement.id, code, prior?.id ?? null,
+          workspaceId, prior?.id ?? null, engagement.id, code, prior?.version ?? null, code, workspaceId, engagement.id, dates[code]));
+      if (prior) {
+        statements.push(env.DB.prepare(`UPDATE milestones SET version=version+1,target_date=?,source_reference=?,approved_by_actor_id=NULL,updated_at=?
+          WHERE workspace_id=? AND id=? AND version=?`)
+          .bind(dates[code], sourceFor(), now, workspaceId, prior.id, prior.version));
+      } else {
+        statements.push(env.DB.prepare(`INSERT INTO milestones(id,workspace_id,version,client_id,engagement_id,code,target_date,actual_date,
+          source_reference,approved_by_actor_id,created_by_actor_id,created_at,updated_at) VALUES(?,?,1,?,?,?, ?,NULL,?,NULL,?,?,?)`)
+          .bind(rowId, workspaceId, engagement.client_id, engagement.id, code, dates[code], sourceFor(), context.actor.id, now, now));
+      }
+      applied.push({ code, targetDate: dates[code], version: nextVersion });
+    }
+    return { statements, result: { engagementId: engagement.id, periodEnd: engagement.period_end, applied, preserved, skipped },
+      entityType: 'MILESTONE_SCHEDULE', entityId: engagement.id, beforeVersion: null,
+      afterVersion: applied.reduce((maximum, item) => Math.max(maximum, item.version), 1) };
   }
 
   const payload = command.payload;

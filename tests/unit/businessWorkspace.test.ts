@@ -1668,6 +1668,27 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
     } }
   }, makeRiskHeaders(reviewerHeaders));
   assert.equal(finalTarget.response.status, 200, JSON.stringify(finalTarget.body));
+  const suggestedSchedule = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'milestone.applyDefaults', payload: {
+      engagementId, periodEnd: '2025-12-31', overwrite: false,
+      suggestedDates: { FIELDWORK_START: '2026-01-04', DRAFT_REPORT: '2026-02-15', FINAL_REPORT: '2026-03-15' }
+    } }
+  }, makeRiskHeaders(reviewerHeaders));
+  assert.equal(suggestedSchedule.response.status, 200, JSON.stringify(suggestedSchedule.body));
+  assert.deepEqual(suggestedSchedule.body.result.applied.map((item: any) => [item.code, item.targetDate]), [
+    ['FIELDWORK_START', '2026-01-04'], ['DRAFT_REPORT', '2026-02-15']
+  ]);
+  assert.deepEqual(suggestedSchedule.body.result.preserved, ['FINAL_REPORT'], 'the default schedule leaves an existing date unchanged');
+  assert.equal(db.prepare(`SELECT source_reference FROM milestones WHERE workspace_id=? AND engagement_id=? AND code='DRAFT_REPORT'`)
+    .bind(workspaceId, engagementId).first<any>()?.source_reference,
+    'Suggested from period end 2025-12-31 (default rule v1)');
+  const mismatchedPeriod = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'milestone.applyDefaults', payload: {
+      engagementId, periodEnd: '2026-01-01', overwrite: false
+    } }
+  }, makeRiskHeaders(reviewerHeaders));
+  assert.equal(mismatchedPeriod.response.status, 422);
+  assert.equal(mismatchedPeriod.body.code, 'VALIDATION_FAILED');
   const activePbcPortal = await call(pbcPortalPath, { headers: clientPbcHeaders });
   assert.equal(activePbcPortal.body.mode, 'ACTIVE');
   assert.equal(activePbcPortal.body.canUpload, true);

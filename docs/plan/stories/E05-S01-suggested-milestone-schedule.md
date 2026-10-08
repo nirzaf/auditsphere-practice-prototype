@@ -29,5 +29,14 @@ For period end `P` (Asia/Qatar date):
 npx tsx --test tests/unit/milestoneDefaults.test.ts && npm run test:unit && npm run test:e2e
 ```
 
+## Implementation progress — 2026-10-08
+- Added `suggestMilestones(periodEnd)` using UTC calendar-day arithmetic: first Sunday after period end, +46 days, and +74 days. This avoids locale/DST drift and does not invent a statutory cutoff.
+- Added `milestone.applyDefaults`; it checks the period end against the engagement, applies only missing dates by default, preserves existing values, and refuses report dates without a cutoff or beyond that cutoff. Explicit user edits can be submitted with the schedule.
+- The planning UI now has a “Suggest dates” control and editable date inputs. Suggesting is client-side only; saving requires the separate submit action.
+- Added date-boundary tests and API command coverage in `tests/unit/milestoneDefaults.test.ts` and `tests/unit/businessWorkspace.test.ts`.
+- Verification: `npm run build` and `npm run cloud:typecheck` passed; targeted `milestoneDefaults` and `businessWorkspace` unit cases passed 5/5; the targeted E05-S01 browser acceptance passed (1/1) against the local harness.
+- Cutoff behavior: the command preserves existing report-milestone validation. Draft and final suggestions are skipped until a firm-supplied statutory cutoff is recorded; the UI reports those skipped dates and never invents a cutoff.
+- Status: **implemented; targeted acceptance verified**.
+
 ## Stop and ask if
 The firm's working-week or default offsets differ from the rule above.

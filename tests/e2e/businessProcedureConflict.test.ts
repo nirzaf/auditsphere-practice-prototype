@@ -877,6 +877,57 @@ it('E05-S03 explains the going-concern forecast and material-uncertainty states 
   assert.deepEqual(tabA.blockedExternalRequests, [], 'the local form interaction makes no external requests');
 });
 
+it('E05-S01 pre-fills an editable suggested schedule and saves only after submit', { timeout: 120000 }, async () => {
+  await ensureBrowsers();
+  assert.ok(server && tabA);
+  const fixture = await createFieldworkFixture();
+  await selectWorkspace(tabA, fixture, fixture.actorProfileId);
+  await waitFor(tabA, 'the planning panel and unsaved suggestion control', `
+    !!document.querySelector('#business-planning-heading') &&
+    [...document.querySelectorAll('button')].some(button => button.textContent?.trim() === 'Suggest dates')`);
+  const startingCount = server.db.prepare('SELECT COUNT(*) AS count FROM milestones WHERE workspace_id=? AND engagement_id=?')
+    .bind(fixture.workspaceId, fixture.engagementId).first<{ count: number }>()?.count;
+  assert.equal(startingCount, 0, 'the planning fixture begins without saved milestones');
+
+  const clicked = await tabA.evaluate<boolean>(`(() => {
+    const button = [...document.querySelectorAll('button')].find(item => item.textContent?.trim() === 'Suggest dates');
+    if (!button || button.disabled || !button.getClientRects().length) return false;
+    button.click(); return true;
+  })()`);
+  assert.equal(clicked, true, 'the visible date-suggestion action is enabled');
+  await waitFor(tabA, 'the editable date suggestions', `
+    document.querySelector('#business-planning-suggested-fieldwork')?.value === '2027-01-03' &&
+    document.querySelector('#business-planning-suggested-draft')?.value === '2027-02-15' &&
+    document.querySelector('#business-planning-suggested-final')?.value === '2027-03-15'`);
+  const beforeSubmit = server.db.prepare('SELECT COUNT(*) AS count FROM milestones WHERE workspace_id=? AND engagement_id=?')
+    .bind(fixture.workspaceId, fixture.engagementId).first<{ count: number }>()?.count;
+  assert.equal(beforeSubmit, 0, 'suggesting and reviewing dates does not persist them');
+
+  const edited = await tabA.evaluate<boolean>(`(() => {
+    const input = document.querySelector('#business-planning-suggested-fieldwork');
+    if (!(input instanceof HTMLInputElement)) return false;
+    const setter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(input), 'value')?.set;
+    setter?.call(input, '2027-01-10');
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    input.dispatchEvent(new Event('change', { bubbles: true }));
+    return input.value === '2027-01-10';
+  })()`);
+  assert.equal(edited, true, 'the suggested date remains editable before submission');
+  const submitted = await tabA.evaluate<boolean>(`(() => {
+    const button = [...document.querySelectorAll('button')].find(item => item.textContent?.trim() === 'Save suggested schedule');
+    if (!button || button.disabled || !button.getClientRects().length) return false;
+    button.click(); return true;
+  })()`);
+  assert.equal(submitted, true);
+  await waitFor(tabA, 'the applied fieldwork date and cutoff-blocked report suggestions', `
+    document.querySelector('.business-planning-panel [role="status"]')?.textContent?.includes('1 suggested milestones applied') === true`);
+  const saved = server.db.prepare(`SELECT code,target_date,source_reference FROM milestones WHERE workspace_id=? AND engagement_id=? ORDER BY code`)
+    .bind(fixture.workspaceId, fixture.engagementId).all<{ code: string; target_date: string; source_reference: string }>().results ?? [];
+  assert.deepEqual(saved.map(item => [item.code, item.target_date]), [['FIELDWORK_START', '2027-01-10']]);
+  assert.equal(saved[0].source_reference, 'Suggested from period end 2026-12-31 (default rule v1)');
+  assert.deepEqual(tabA.exceptions, [], 'the suggestion journey produces no uncaught browser exceptions');
+});
+
 it('US-FLD-007, US-FLD-008 and US-FLD-009 verify MUS, systematic and stratified sampling', { timeout: 120000 }, async () => {
   await ensureBrowsers();
   assert.ok(server && tabA);

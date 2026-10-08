@@ -60,7 +60,7 @@ Evidence column: confirmed = seen in source during this audit; *reported* = take
 | US-M2-003 Partner acceptance gate | 🔐 DONE-UNAUTH | `risk.clear` Partner-only | E03 |
 | US-M2-004 Five-folder directory | ✅ DONE | `provisionEngagementFolders` exact names (`worker/businessPlanning.ts:394`) | — |
 | US-M2-005 Resource scheduling + capacity calendar | ✅ DONE | `staffing.*` commands; capacity calendar (*reported* US-GAP-07) | — |
-| US-M2-006 Statutory milestones | ✅ DONE | `milestone.set` per engagement for 4 codes — meets the story ACs (configurable per engagement; example dates *not* universal; saved dates visible) | Optional convenience: suggested schedule → E05-S01 (P2) |
+| US-M2-006 Statutory milestones | ✅ DONE | `milestone.set` per engagement for 4 codes — meets the story ACs (configurable per engagement; example dates *not* universal; saved dates visible); E05-S01 adds editable suggestions from the period end while retaining the statutory-cutoff gate | — |
 | US-M2-007 TB ingestion (XLSX/CSV) | ✅ DONE | `tb.import` staged chunks, macro/encrypted/external-link rejection (*reported* US-FLD-001) | Staging acceptance only (E05-S05) |
 | US-M2-008 Historical mapping memory | ✅ DONE | prior-period-only suggestions, name similarity (migrations 0038, 0043, 0044) | — |
 | US-M2-009 Benchmarks PBT/Revenue/Assets/Equity | ✅ DONE | `worker/businessTb.ts:701` ranges | — |

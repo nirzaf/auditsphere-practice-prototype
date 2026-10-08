@@ -1,8 +1,9 @@
 import React, { FormEvent, useEffect, useMemo, useState } from 'react';
 import type { BusinessCapacity, BusinessContextResponse, BusinessPlanningWorkspace, BusinessWorkspacePreference } from '../../shared/api/business';
 import { getBusinessCapacity, getBusinessPlanningWorkspace, newBusinessIdempotencyKey, runBusinessCommand } from '../../services/businessWorkspace';
+import { suggestMilestones, type SuggestedMilestones } from '../../shared/milestoneDefaults';
 
-type EngagementRef = { id: string; clientId: string; code: string; clientName: string; lifecycleState: string };
+type EngagementRef = { id: string; clientId: string; code: string; clientName: string; lifecycleState: string; periodEnd: string };
 type MilestoneCode = 'FIELDWORK_START' | 'DRAFT_REPORT' | 'FINAL_REPORT' | 'STATUTORY_CUTOFF';
 
 function parseDailySchedule(value: string): Array<{ date: string; minutes: number }> {
@@ -49,6 +50,7 @@ export function BusinessPlanningPanel({
   const [milestoneCode, setMilestoneCode] = useState<MilestoneCode>('STATUTORY_CUTOFF');
   const [milestoneDate, setMilestoneDate] = useState('');
   const [milestoneSource, setMilestoneSource] = useState('');
+  const [suggestedSchedule, setSuggestedSchedule] = useState<SuggestedMilestones | null>(null);
   const [leaveMinutes, setLeaveMinutes] = useState('');
   const [leaveReason, setLeaveReason] = useState('');
   const [exceptionMinutes, setExceptionMinutes] = useState('');
@@ -133,6 +135,39 @@ export function BusinessPlanningPanel({
     const prior = data?.milestones.find(item => item.code === milestoneCode);
     await command('milestone.set', { engagementId: engagement.id, code: milestoneCode, targetDate: milestoneDate,
       sourceReference: milestoneSource, ...(prior ? { expectedVersion: prior.version } : {}) }, 'Milestone saved with its source reference.');
+  }
+
+  function prefillSuggestedSchedule() {
+    try {
+      setSuggestedSchedule(suggestMilestones(engagement.periodEnd));
+      setError('');
+      setMessage('Suggested dates are ready to review. They are not saved until you submit this schedule.');
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'Suggested dates could not be calculated.');
+    }
+  }
+
+  async function saveSuggestedSchedule(event: FormEvent) {
+    event.preventDefault();
+    if (!suggestedSchedule) return;
+    setBusy(true); setError(''); setMessage('');
+    try {
+      const result = await runBusinessCommand<{
+        applied: Array<{ code: string }>;
+        preserved: string[];
+        skipped: Array<{ code: string; reason: string }>;
+      }>(workspaceId, scope, { type: 'milestone.applyDefaults', payload: {
+        engagementId: engagement.id, periodEnd: engagement.periodEnd, overwrite: false, suggestedDates: suggestedSchedule
+      } }, newBusinessIdempotencyKey());
+      const applied = result.result.applied.length;
+      const preserved = result.result.preserved.length;
+      const skipped = result.result.skipped.length;
+      setMessage(`Schedule saved: ${applied} suggested milestones applied, ${preserved} existing dates preserved, ${skipped} blocked by the statutory cutoff.`);
+      setRefresh(value => value + 1);
+      onChanged();
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'The suggested milestone schedule could not be saved.');
+    } finally { setBusy(false); }
   }
 
   async function recordLeave(event: FormEvent) {
@@ -237,6 +272,21 @@ export function BusinessPlanningPanel({
         <p className="business-note">Draft and final report dates require a recorded cutoff and cannot exceed it. The system does not invent statutory dates.</p>
         <button className="btn sm" type="submit" disabled={busy}>{busy ? 'Saving…' : 'Save sourced milestone'}</button>
       </form>
+
+      <section className="business-form business-commercial-form" aria-labelledby="business-planning-suggestions-heading">
+        <div className="business-section-heading"><div><h3 id="business-planning-suggestions-heading">Suggested milestone schedule</h3>
+          <p className="business-note">Suggestions use period end {engagement.periodEnd}, a Sunday work-week start, and 46 / 74 calendar-day report offsets. Statutory cutoffs are never inferred.</p></div>
+          <button className="btn sm" type="button" disabled={busy} onClick={prefillSuggestedSchedule}>Suggest dates</button></div>
+        {suggestedSchedule && <form onSubmit={saveSuggestedSchedule}>
+          <p className="business-note" role="status">Review and edit the suggested dates. Nothing is saved until you submit this schedule. Draft and final dates require a firm-supplied statutory cutoff.</p>
+          <div className="business-form-grid">
+            <label className="business-field" htmlFor="business-planning-suggested-fieldwork"><span>Fieldwork start</span><input id="business-planning-suggested-fieldwork" type="date" required value={suggestedSchedule.FIELDWORK_START} onChange={event => setSuggestedSchedule(current => current ? { ...current, FIELDWORK_START: event.target.value } : current)} /></label>
+            <label className="business-field" htmlFor="business-planning-suggested-draft"><span>Draft report</span><input id="business-planning-suggested-draft" type="date" required value={suggestedSchedule.DRAFT_REPORT} onChange={event => setSuggestedSchedule(current => current ? { ...current, DRAFT_REPORT: event.target.value } : current)} /></label>
+            <label className="business-field" htmlFor="business-planning-suggested-final"><span>Final report</span><input id="business-planning-suggested-final" type="date" required value={suggestedSchedule.FINAL_REPORT} onChange={event => setSuggestedSchedule(current => current ? { ...current, FINAL_REPORT: event.target.value } : current)} /></label>
+          </div>
+          <button className="btn sm" type="submit" disabled={busy}>{busy ? 'Saving…' : 'Save suggested schedule'}</button>
+        </form>}
+      </section>
 
       <div className="business-form-grid">
         <div><h3>Assigned staff</h3>{data.assignments.length ? <ul className="business-record-list">{data.assignments.map(item => <li key={item.id}><strong>{item.displayName} · {item.persona} · {item.phase}</strong><span>{item.startDate} to {item.endDate} · {item.plannedMinutes} minutes</span><small>{item.dailyMinutes.map(day => `${day.date}: ${day.minutes} min`).join(' · ')}</small></li>)}</ul> : <p className="business-muted">No staff assignments are recorded.</p>}</div>
