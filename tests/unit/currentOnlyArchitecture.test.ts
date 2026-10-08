@@ -5,7 +5,7 @@ import test from 'node:test';
 
 const root = process.cwd();
 
-test('the app entry contains only the BUSINESS workspace and has no browser-store prototype', () => {
+test('the app entry contains only the BUSINESS workspace and excludes the browser store', () => {
   assert.equal(existsSync(resolve(root, 'src/PrototypeApp.tsx')), false);
   assert.equal(existsSync(resolve(root, 'src/store')), false);
   const app = readFileSync(resolve(root, 'src/App.tsx'), 'utf8');

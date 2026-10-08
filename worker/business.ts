@@ -1,5 +1,5 @@
 // Real BUSINESS workspace setup and directory context.
-// BUSINESS records never use the TEST seed/session/PrototypeState path.
+// BUSINESS records never use the legacy TEST seed/session state path.
 
 import * as z from 'zod';
 import type { Env } from './env';

@@ -1111,7 +1111,7 @@ export function BusinessWorkspaceConsole() {
         <div className="business-overview-copy">
           <p className="business-eyebrow">SERVER-PERSISTED · QAR · ASIA/QATAR</p>
           <h1 id="business-workspace-heading">{workspace?.name ?? 'Business workspace'}</h1>
-          <p>Records in this workspace are read from the Worker database. A connection problem stays visible here; no prototype or browser-local business data will be loaded.</p>
+          <p>Records in this workspace are read from the Worker database. A connection problem stays visible here; no browser-local business data will be loaded.</p>
         </div>
         <div className="business-workspace-status">
           <span className={loading ? 'business-status-dot loading' : error ? 'business-status-dot error' : 'business-status-dot'} aria-hidden="true" />

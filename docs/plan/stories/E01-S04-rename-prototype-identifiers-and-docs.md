@@ -18,6 +18,7 @@ Remove "prototype/demo/visual" language from code-level identifiers and user-vis
 - Reworded the workspace reset control to “Switch workspace” and updated its E2E assertions. Kept the truthful self-asserted identity warning. Cloud resource identifiers remain unchanged per scope.
 - Added `tests/unit/docsPaths.test.ts` to validate repository paths linked in README and CLAUDE guidance.
 - `tests/unit/docsPaths.test.ts`, app and Worker typechecks, `npm run test:unit` (168 passed / 1 skipped), and `npm run build` passed. The local E2E run was stopped after six scenarios failed or timed out at roughly 55–60 seconds and Chrome profile cleanup reported Windows `EPERM`; full E2E remains open.
+- Final identifier sweep removed the obsolete “prototype” wording from BUSINESS connection-error copy and runtime comments. The filtered grep's remaining intentional matches are: `package.json`'s `cloud:migrate` target `steaudit-prototype-demo` (current D1 resource, E02-S01); `tools/apply-r2-archive-lock-rules.ts` fallback `auditsphere-prototype-files` (current R2 resource, E02-S01); generated `worker/worker-configuration.d.ts` origin declarations and standard TypeScript `prototype` members; E2E helpers using `Object.getPrototypeOf` and DOM prototype setters; and `currentOnlyArchitecture.test.ts` checking that `src/PrototypeApp.tsx` is absent.
 - Status: **implementation complete; browser acceptance pending**.
 
 ## Scope
