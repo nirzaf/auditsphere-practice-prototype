@@ -487,11 +487,15 @@ export async function activateTrialBalance(env: Env, workspaceId: string, contex
 }
 
 type MappingDraftRow = { id: string; version: number; tb_line_id: string; account_code: string; account_name: string; current_minor: number; prior_minor: number | null;
-  fsli_id: string | null; origin: string | null; source_historical_mapping_id: string | null; confirmed: number; reason: string | null };
+  fsli_id: string | null; origin: string | null; source_historical_mapping_id: string | null; history_period_end: string | null;
+  history_mapping_revision: number | null; confirmed: number; reason: string | null };
 async function mappingDraftRows(env: Env, workspaceId: string, draftId: string): Promise<MappingDraftRow[]> {
   const result = await env.DB.prepare(`SELECT d.id,d.version,d.tb_line_id,l.account_code,l.account_name,l.current_minor,l.prior_minor,d.fsli_id,d.origin,
-      d.source_historical_mapping_id,d.confirmed,d.reason
+      d.source_historical_mapping_id,history.effective_period_end AS history_period_end,source_version.revision AS history_mapping_revision,
+      d.confirmed,d.reason
     FROM mapping_draft_lines d JOIN tb_lines l ON l.workspace_id=d.workspace_id AND l.id=d.tb_line_id
+    LEFT JOIN mapping_memory history ON history.workspace_id=d.workspace_id AND history.id=d.source_historical_mapping_id
+    LEFT JOIN mapping_versions source_version ON source_version.workspace_id=history.workspace_id AND source_version.id=history.source_mapping_version_id
     WHERE d.workspace_id=? AND d.draft_id=? ORDER BY l.source_row_number,l.account_code`)
     .bind(workspaceId,draftId).all<MappingDraftRow>();
   return result.results ?? [];
@@ -1032,6 +1036,7 @@ export async function getBusinessTrialBalanceWorkspace(env:Env,workspaceId:strin
       const actualHash=await hashMappingDraft(draftLines);
       mappingDraft={...mappingDraft,draftHash:actualHash,lines:draftLines.map(row=>({id:row.id,version:row.version,tbLineId:row.tb_line_id,accountCode:row.account_code,
         accountName:row.account_name,balanceMinor:String(row.current_minor),priorBalanceMinor:row.prior_minor==null?null:String(row.prior_minor),fsliId:row.fsli_id,origin:row.origin,sourceHistoricalMappingId:row.source_historical_mapping_id,
+        historyPeriodEnd:row.history_period_end,historyMappingRevision:row.history_mapping_revision,
         confirmed:Boolean(row.confirmed),reason:row.reason}))};
     }
   }

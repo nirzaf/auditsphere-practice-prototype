@@ -1599,11 +1599,16 @@ engagements. The first mapping proposal contains no parent suggestions; after
 the subsidiary maps and approves its own rows, the later same-framework
 engagement receives the exact child history as unconfirmed suggestions. A
 third engagement under a different reporting framework receives no history.
-Focused `npx tsx --test tests/unit/businessWorkspace.test.ts` passed 1/1.
+The suggestion payload now includes the approved mapping revision and effective
+period end, and the mapping UI displays both so a reviewer can inspect the
+source before confirming. The integration test asserts those provenance values.
+Focused `npx tsx --test tests/unit/businessWorkspace.test.ts` passed 1/1, and
+`npm run lint` passed.
 
 **Boundary:** Parent/child and reporting-framework mapping isolation now have
-Worker-backed coverage. US-FLD-002 remains partial for its other criteria and
-broader current-account acceptance; the 46-story epic remains open.
+Worker-backed coverage and source provenance is visible during review.
+US-FLD-002 remains partial for its other criteria and broader current-account
+acceptance; the 46-story epic remains open.
 
 ## US-REP-007 native streaming download fallback — 2026-10-08
 

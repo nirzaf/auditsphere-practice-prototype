@@ -398,7 +398,9 @@ export function BusinessTrialBalancePanel({
               <td><label className="business-sr-only" htmlFor={`mapping-${line.tbLineId}`}>Financial statement line for {line.accountCode} {line.accountName}</label>
                 <select id={`mapping-${line.tbLineId}`} disabled={busy || !canWrite || !canPlan} value={line.fsliId ?? ''} onChange={event => void setMapping(line, event.target.value)}>
                   <option value="">Unmapped</option>{workspace.fsliCatalog.map(item => <option key={item.id} value={item.id}>{item.code} · {item.name}</option>)}</select>
-                <small>{line.origin === 'EXACT_HISTORY' ? 'Historical suggestion · confirm or change' : line.confirmed ? 'Manual selection' : 'Needs mapping confirmation'}</small></td>
+                <small>{line.origin === 'EXACT_HISTORY'
+                  ? `Prior approved mapping v${line.historyMappingRevision ?? '—'} · period ended ${line.historyPeriodEnd ?? 'unknown'} · confirm or change`
+                  : line.confirmed ? 'Manual selection' : 'Needs mapping confirmation'}</small></td>
               <td><label className="business-sr-only" htmlFor={`mapping-reason-${line.tbLineId}`}>Reason if changing prior mapping for {line.accountCode}</label>
                 <input id={`mapping-reason-${line.tbLineId}`} maxLength={2000} value={mappingReasons[line.tbLineId] ?? line.reason ?? ''}
                   disabled={busy || !canWrite || !canPlan} placeholder="Required when changing history" onChange={event => setMappingReasons(current => ({ ...current, [line.tbLineId]: event.target.value }))} /></td>

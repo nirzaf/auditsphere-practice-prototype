@@ -2162,8 +2162,9 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
     { headers: childHistoryProposalTarget.headers });
   assert.equal(childHistoryWorkspace.response.status, 200, JSON.stringify(childHistoryWorkspace.body));
   assert.ok(childHistoryWorkspace.body.mappingDraft.lines.every((row: any) => row.origin === 'EXACT_HISTORY'
-    && row.confirmed === false && row.sourceHistoricalMappingId),
-  'subsidiary suggestions retain exact child history sources while remaining explicitly unconfirmed');
+    && row.confirmed === false && row.sourceHistoricalMappingId && row.historyPeriodEnd === mappingParent.period_end
+    && Number.isInteger(row.historyMappingRevision) && row.historyMappingRevision > 0),
+  'subsidiary suggestions retain visible source-period and mapping-revision provenance while remaining explicitly unconfirmed');
   const differentFrameworkTarget = createMappingTestEngagement('MAPPING-SUBSIDIARY-OTHER-FRAMEWORK', 'OTHER-APPROVED-FRAMEWORK');
   const differentFrameworkProposal = await proposeMapping(differentFrameworkTarget);
   assert.equal(differentFrameworkProposal.response.status, 200, JSON.stringify(differentFrameworkProposal.body));
