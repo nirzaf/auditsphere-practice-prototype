@@ -29,6 +29,22 @@ export async function stopHeadlessChrome(child: ChildProcess): Promise<void> {
   await sleep(500);
 }
 
+/** Remove an isolated Chrome profile, tolerating transient Windows file locks. */
+export async function removeHeadlessChromeProfile(profileDirectory: string): Promise<void> {
+  let cleanupError: unknown;
+  for (let attempt = 0; attempt < 40; attempt++) {
+    try {
+      rmSync(profileDirectory, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+      return;
+    } catch (reason) {
+      if (!reason || typeof reason !== 'object' || !['EPERM', 'EBUSY'].includes(String((reason as NodeJS.ErrnoException).code))) throw reason;
+      cleanupError = reason;
+      await sleep(250);
+    }
+  }
+  if (cleanupError) console.warn(`Could not remove temporary Chrome profile yet: ${profileDirectory}`, cleanupError);
+}
+
 export interface HeadlessChromeInstance {
   child: ChildProcess;
   profileDirectory: string;

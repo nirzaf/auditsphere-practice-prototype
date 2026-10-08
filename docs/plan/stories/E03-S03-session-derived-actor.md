@@ -50,5 +50,20 @@ Actor = `X-Actor-Id` + `X-Active-Persona` headers (reads) and `envelope.actor` (
 npm run cloud:typecheck && npm run lint && npm run test:unit && npm run build && npm run test:e2e
 ```
 
+## Implementation record
+
+Implemented cookie-session authorization for every matched workspace route. `resolveBusinessContext` now caches validation per request, checks workspace binding and grant state, touches the session best-effort, and derives the actor exclusively from `active_actor_profile_id`. Legacy actor/persona headers are assertions; command-envelope identity is checked against the session. The actor-profile route requires a session and limits non-admins to granted profiles. The SPA now sends same-origin cookies, and test fixtures create real local sessions without calling Entra.
+
+Acceptance evidence:
+
+1. `tests/unit/businessAuthSession.test.ts` iterates the complete workspace route inventory and asserts `401 UNAUTHENTICATED` for every route without a cookie.
+2. The same test creates a real Preparer profile, then asserts that forging the actual Partner profile through either `X-Actor-Id`/`X-Active-Persona` or `envelope.actor` returns `403 PERSONA_ACTION_DENIED` and leaves both `command_receipts` and `audit_events` unchanged.
+3. A session bound to one workspace receives `404 NOT_FOUND` when used against another.
+4. `validateAuthSession` and session-backed workspace tests cover persona selection, self-review, self-approval, Partner-only opinion/SRM actions, and grant revocation (`401`, `GRANT_REVOKED`).
+5. Existing unit and browser acceptance suites pass after the helper migration. Two test-fixture corrections are recorded: the report preview assertion now expects the canonical rendered FSLI label `Synthetic revenue` (the UI was already rendering that title-case label); and the deferred-revenue acceptance fixture uses the Qatar business date so it does not post a recognition one day before an invoice around UTC midnight. Neither correction changes application behavior.
+6. Browser fixtures install a separate signed test session for each selected actor, including client/reviewer/Partner persona changes and two-browser fieldwork.
+
+Verification on 2026-10-09: prior full gates passed (`npm run cloud:typecheck`, `npm run lint`, `npm run test:unit` with 173 passed and 1 skipped, and `npm run test:e2e` with 13 passed including production build). The exact Preparer-versus-Partner forgery case was added after those full runs and is being re-run as a focused test before this story is committed.
+
 ## Stop and ask if
 - Any handler resolves identity without going through `resolveBusinessContext` (e.g. archive download tickets) — list them and propose the treatment before changing.

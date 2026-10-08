@@ -4,8 +4,9 @@
 import * as z from 'zod';
 import type { Env } from './env';
 import { ApiError } from './errors';
-import { sha256Hex } from './http';
+import { parseCookies, sha256Hex } from './http';
 import { requireWorkspace } from './db';
+import { SessionError, touchSession, validateAuthSession, type SessionContext } from './auth/sessions';
 import { businessRiskCommands, buildBusinessRiskMutation, isBusinessRiskCommand } from './businessRisk';
 import { businessDeliveryCommands, buildBusinessDeliveryMutation, isBusinessDeliveryCommand } from './businessDelivery';
 import { businessPlanningCommands, buildBusinessPlanningMutation, isBusinessPlanningCommand } from './businessPlanning';
@@ -550,19 +551,40 @@ async function findBusinessActorProfile(env: Env, workspaceId: string, actorId: 
     .bind(workspaceId, actorId).first<BusinessActorProfileRow>();
 }
 
-/** Resolves each request from its explicit self-selected profile; nothing is shared between browsers. */
-export async function resolveBusinessContext(env: Env, workspaceId: string, request: Request): Promise<BusinessContext> {
-  await requireBusinessWorkspace(env, workspaceId);
-  const actorId = request.headers.get('X-Actor-Id')?.trim();
-  const requestedPersona = request.headers.get('X-Active-Persona')?.trim();
-  if (!actorId || !requestedPersona) {
-    throw new ApiError('BAD_REQUEST', 'Select an active actor profile and persona for this request.');
+const businessSessions = new WeakMap<Request, Promise<SessionContext>>();
+
+/** Resolves and touches the cookie session once per Request. */
+export async function resolveBusinessSession(env: Env, request: Request): Promise<SessionContext> {
+  let pending = businessSessions.get(request);
+  if (!pending) {
+    pending = (async () => {
+      const token = parseCookies(request.headers.get('Cookie'))['__Host-as_session'];
+      if (!token) throw new SessionError('UNKNOWN');
+      const now = new Date().toISOString();
+      const session = await validateAuthSession(env, token, now);
+      try { session.idle_expires_at = await touchSession(env, session, now); } catch { /* session authorization remains valid if activity tracking is unavailable */ }
+      return session;
+    })();
+    businessSessions.set(request, pending);
   }
+  return pending;
+}
+
+/** Resolves each request from its authenticated session; legacy actor headers are assertions only. */
+export async function resolveBusinessContext(env: Env, workspaceId: string, request: Request): Promise<BusinessContext> {
+  const session = await resolveBusinessSession(env, request);
+  if (session.workspace_id !== workspaceId) throw new ApiError('NOT_FOUND', 'Workspace not found.');
+  await requireBusinessWorkspace(env, workspaceId);
+  const actorId = session.active_actor_profile_id;
+  if (!actorId) throw new ApiError('PERSONA_ACTION_DENIED', 'Choose an active profile before using this workspace.', { code: 'PROFILE_SELECTION_REQUIRED' });
+  const suppliedActorId = request.headers.get('X-Actor-Id')?.trim();
+  const requestedPersona = request.headers.get('X-Active-Persona')?.trim();
+  if ((suppliedActorId && suppliedActorId !== actorId)) throw new ApiError('PERSONA_ACTION_DENIED', 'The request actor does not match the signed-in session.');
   const row = await findBusinessActorProfile(env, workspaceId, actorId);
   if (!row || !isUsableProfile(row)) {
     throw new ApiError('DISABLED_IDENTITY', 'That actor profile is unavailable. Select another configured profile.');
   }
-  if (requestedPersona !== row.persona) {
+  if (requestedPersona && requestedPersona !== row.persona) {
     throw new ApiError('PERSONA_ACTION_DENIED', 'The selected persona does not match this actor profile.');
   }
 
@@ -3785,26 +3807,13 @@ export async function runBusinessDirectoryCommand(
   envelope: BusinessCommandEnvelope
 ): Promise<Record<string, unknown>> {
   await requireBusinessWorkspace(env, workspaceId);
-  const suppliedActorId = request.headers.get('X-Actor-Id');
-  const suppliedPersona = request.headers.get('X-Active-Persona');
-  if ((suppliedActorId && suppliedActorId !== envelope.actor.actorId)
-    || (suppliedPersona && suppliedPersona !== envelope.actor.persona)) {
-    throw new ApiError('PERSONA_ACTION_DENIED', 'The request actor context does not match the command envelope.');
-  }
   const suppliedClient = request.headers.get('X-Client-Id');
   const suppliedEngagement = request.headers.get('X-Engagement-Id');
   if ((suppliedClient && suppliedClient !== envelope.context.clientId)
     || (suppliedEngagement && suppliedEngagement !== envelope.context.engagementId)) {
     throw new ApiError('FORBIDDEN_SCOPE', 'The request scope does not match the command envelope.');
   }
-  const contextHeaders = new Headers(request.headers);
-  contextHeaders.set('X-Actor-Id', envelope.actor.actorId);
-  contextHeaders.set('X-Active-Persona', envelope.actor.persona);
-  if (envelope.context.clientId) contextHeaders.set('X-Client-Id', envelope.context.clientId);
-  else contextHeaders.delete('X-Client-Id');
-  if (envelope.context.engagementId) contextHeaders.set('X-Engagement-Id', envelope.context.engagementId);
-  else contextHeaders.delete('X-Engagement-Id');
-  const context = await resolveBusinessContext(env, workspaceId, new Request(request.url, { headers: contextHeaders }));
+  const context = await resolveBusinessContext(env, workspaceId, request);
   if (context.actor.id !== envelope.actor.actorId || context.actor.persona !== envelope.actor.persona) {
     throw new ApiError('PERSONA_ACTION_DENIED', 'The command actor does not match the active workspace profile.');
   }

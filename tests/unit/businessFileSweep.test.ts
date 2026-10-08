@@ -5,6 +5,7 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import worker from '../../worker/index';
 import { SqliteD1 } from '../helpers/sqliteD1';
+import { authSessionCookie } from '../helpers/authSession';
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 
@@ -48,7 +49,11 @@ it('expires an abandoned staged upload after 24 hours and preserves committed fi
     assert.equal(created.response.status, 201, JSON.stringify(created.body));
     const workspaceId = created.body.workspaceId as string;
     const actorId = created.body.actorProfileId as string;
-    const actorHeaders = { 'X-Actor-Id': actorId, 'X-Active-Persona': 'APPROVER' };
+    const actorHeaders = {
+      Cookie: await authSessionCookie(db as any, workspaceId, actorId),
+      'X-Actor-Id': actorId,
+      'X-Active-Persona': 'APPROVER'
+    };
     const bytes = new TextEncoder().encode('%PDF-1.4\n1 0 obj\n<< /Type /Catalog >>\nendobj\n%%EOF\n');
     const reserve = async (originalName: string) => {
       const result = await request('POST', `/api/workspaces/${workspaceId}/files`, {

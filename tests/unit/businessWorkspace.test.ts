@@ -8,6 +8,7 @@ import * as XLSX from 'xlsx';
 import worker, { businessCommandHttpResult } from '../../worker/index.js';
 import { criticalConfirmationBlockers, queueHoldingLetterForBlockers } from '../../worker/businessFieldwork.js';
 import { SqliteD1 } from '../helpers/sqliteD1.js';
+import { authSessionCookie } from '../helpers/authSession.js';
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 
@@ -124,6 +125,17 @@ const env = {
   BUSINESS_SETUP_ENABLED: 'true'
 } as any;
 
+async function testFetch(request: Request, requestEnv = env, executionContext = {} as any): Promise<Response> {
+  const workspaceId = new URL(request.url).pathname.match(/^\/api\/workspaces\/([^/?]+)/)?.[1];
+  if (workspaceId && !request.headers.has('Cookie')) {
+    const actorId = request.headers.get('X-Actor-Id') ?? undefined;
+    const headers = new Headers(request.headers);
+    headers.set('Cookie', await authSessionCookie(db, workspaceId, actorId));
+    request = new Request(request, { headers });
+  }
+  return worker.fetch(request, requestEnv, executionContext);
+}
+
 after(() => db.close());
 
 async function call(path: string, options: {
@@ -181,12 +193,14 @@ async function call(path: string, options: {
     };
   }
   if (options.payload !== undefined) headers.set('Content-Type', 'application/json');
+  const workspaceId = path.match(/^\/api\/workspaces\/([^/?]+)/)?.[1];
+  if (workspaceId) headers.set('Cookie', await authSessionCookie(db as any, workspaceId, headers.get('X-Actor-Id') ?? undefined));
   const request = new Request(`https://local.auditsphere.test${path}`, {
     method,
     headers,
     ...(options.payload === undefined ? {} : { body: JSON.stringify(payload) })
   });
-  const response = await worker.fetch(request, env, {} as any);
+  const response = await testFetch(request, env, {} as any);
   return { response, body: await response.json() };
 }
 
@@ -723,11 +737,12 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
       method: 'PUT',
       headers: {
         Origin: 'https://local.auditsphere.test', ...preparerHeaders, 'Idempotency-Key': idempotencyKey,
-        'X-File-Version': '1', 'Content-Type': 'application/pdf'
+        'X-File-Version': '1', 'Content-Type': 'application/pdf',
+        Cookie: await authSessionCookie(db, workspaceId, preparerHeaders['X-Actor-Id'])
       },
       body: bytes
     });
-    const response = await worker.fetch(uploadRequest, env, {} as any);
+    const response = await testFetch(uploadRequest, env, {} as any);
     return { response, body: await response.json() };
   };
   const disguisedBytes = new Uint8Array(pdf.length);
@@ -772,7 +787,7 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
   assert.equal(listedFiles.response.status, 200, JSON.stringify(listedFiles.body));
   assert.equal(listedFiles.body.files.length, 1);
   assert.equal(listedFiles.body.files[0].id, fileId);
-  const download = await worker.fetch(new Request(`https://local.auditsphere.test/api/workspaces/${workspaceId}/files/${fileId}`, { headers: preparerHeaders }), env, {} as any);
+  const download = await testFetch(new Request(`https://local.auditsphere.test/api/workspaces/${workspaceId}/files/${fileId}`, { headers: preparerHeaders }), env, {} as any);
   assert.equal(download.status, 200);
   assert.deepEqual(new Uint8Array(await download.arrayBuffer()), pdf, 'download returns the verified committed bytes');
   const otherClientFile = await call(`/api/workspaces/${workspaceId}/files/${crypto.randomUUID()}/metadata`, { headers: preparerHeaders });
@@ -836,7 +851,7 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
       purpose: 'TEMPLATE', originalName, mediaType: 'application/pdf', sizeBytes: bytes.length
     }, { ...approverHeaders, 'Idempotency-Key': crypto.randomUUID() });
     assert.equal(reservation.response.status, 201, JSON.stringify(reservation.body));
-    const staged = await worker.fetch(new Request(`https://local.auditsphere.test/api/workspaces/${workspaceId}/files/${reservation.body.fileId}/content`, {
+    const staged = await testFetch(new Request(`https://local.auditsphere.test/api/workspaces/${workspaceId}/files/${reservation.body.fileId}/content`, {
       method: 'PUT', headers: { Origin: 'https://local.auditsphere.test', ...approverHeaders, 'Idempotency-Key': crypto.randomUUID(),
         'X-File-Version': '1', 'Content-Type': 'application/pdf' }, body: bytes
     }), env, {} as any);
@@ -882,7 +897,7 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
     purpose: 'TEMPLATE', originalName: 'approved-partner-cv.pdf', mediaType: 'application/pdf', sizeBytes: cvBytes.length
   }, { ...approverHeaders, 'Idempotency-Key': crypto.randomUUID() });
   assert.equal(cvReservation.response.status, 201, JSON.stringify(cvReservation.body));
-  const cvUpload = await worker.fetch(new Request(`https://local.auditsphere.test/api/workspaces/${workspaceId}/files/${cvReservation.body.fileId}/content`, {
+  const cvUpload = await testFetch(new Request(`https://local.auditsphere.test/api/workspaces/${workspaceId}/files/${cvReservation.body.fileId}/content`, {
     method: 'PUT', headers: { Origin: 'https://local.auditsphere.test', ...approverHeaders, 'Idempotency-Key': crypto.randomUUID(), 'X-File-Version': '1', 'Content-Type': 'application/pdf' }, body: cvBytes
   }), env, {} as any);
   const cvStaged = await cvUpload.json() as any;
@@ -945,7 +960,7 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
   assert.ok(generatedFile.sha256 && generatedFile.size_bytes > 500);
   assert.equal(db.prepare(`SELECT COUNT(*) AS count FROM proposal_artifacts WHERE workspace_id=? AND proposal_version_id=?`)
     .bind(workspaceId, revisedProposal.body.result.proposalVersionId).first<any>()?.count, 1);
-  const downloadedProposal = await worker.fetch(new Request(`https://local.auditsphere.test/api/workspaces/${workspaceId}/files/${generatedJob.result_file_id}`, {
+  const downloadedProposal = await testFetch(new Request(`https://local.auditsphere.test/api/workspaces/${workspaceId}/files/${generatedJob.result_file_id}`, {
     headers: { Origin: 'https://local.auditsphere.test', ...reviewerHeaders }
   }), env, {} as any);
   const downloadedBytes = new Uint8Array(await downloadedProposal.arrayBuffer());
@@ -1326,7 +1341,7 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
       { ...headers, 'Idempotency-Key': crypto.randomUUID() });
     assert.equal(reservation.response.status, 201, JSON.stringify(reservation.body));
     const fileId = reservation.body.fileId as string;
-    const staged = await worker.fetch(new Request(`https://local.auditsphere.test/api/workspaces/${workspaceId}/files/${fileId}/content`, {
+    const staged = await testFetch(new Request(`https://local.auditsphere.test/api/workspaces/${workspaceId}/files/${fileId}/content`, {
       method: 'PUT', headers: { Origin: 'https://local.auditsphere.test', ...headers, 'Idempotency-Key': crypto.randomUUID(), 'X-File-Version': '1', 'Content-Type': mediaType }, body: bytes
     }), env, {} as any);
     const stagedBody = await staged.json() as any;
@@ -1392,7 +1407,7 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
   const renderedDraft = renderedDelivery.body.letterDrafts.find((draft: any) => draft.id === generatedLetter.body.result.draftId);
   assert.equal(renderedDraft?.status, 'SUCCEEDED', JSON.stringify(renderedDraft));
   assert.ok(renderedDraft.fileVersionId);
-  const renderedLetterFile = await worker.fetch(new Request(`https://local.auditsphere.test/api/workspaces/${workspaceId}/files/${renderedDraft.fileVersionId}`, { headers: makeRiskHeaders(approverHeaders) }), env, {} as any);
+  const renderedLetterFile = await testFetch(new Request(`https://local.auditsphere.test/api/workspaces/${workspaceId}/files/${renderedDraft.fileVersionId}`, { headers: makeRiskHeaders(approverHeaders) }), env, {} as any);
   const renderedLetterBytes = new Uint8Array(await renderedLetterFile.arrayBuffer());
   assert.equal(renderedLetterFile.status, 200);
   assert.equal(new TextDecoder().decode(renderedLetterBytes.slice(0, 8)), '%PDF-1.3', 'the approved clause and actual PNG assets produced a PDF');
@@ -1457,7 +1472,7 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
   assert.ok(issuedInvoice?.fileVersionId);
   assert.equal(issuedInvoice?.dueDate, '2099-12-31');
   assert.equal(issuedInvoice?.totalMinor, '125001');
-  const invoiceFile = await worker.fetch(new Request(`https://local.auditsphere.test/api/workspaces/${workspaceId}/files/${issuedInvoice.fileVersionId}`,
+  const invoiceFile = await testFetch(new Request(`https://local.auditsphere.test/api/workspaces/${workspaceId}/files/${issuedInvoice.fileVersionId}`,
     { headers: makeRiskHeaders(reviewerHeaders) }), env, {} as any);
   assert.equal(invoiceFile.status, 200);
   const invoicePdfBytes = new Uint8Array(await invoiceFile.arrayBuffer());
@@ -1537,7 +1552,7 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
   const partialPaymentRecord = partialPaymentView.body.payments.find((payment: any) => payment.id === partialPayment.body.result.paymentId);
   assert.equal(partialPaymentRecord.receiptStatus, 'ISSUED');
   assert.ok(partialPaymentRecord.receiptFileId, 'payment verification commits an actual receipt PDF');
-  const receiptFile = await worker.fetch(new Request(`https://local.auditsphere.test/api/workspaces/${workspaceId}/files/${partialPaymentRecord.receiptFileId}`,
+  const receiptFile = await testFetch(new Request(`https://local.auditsphere.test/api/workspaces/${workspaceId}/files/${partialPaymentRecord.receiptFileId}`,
     { headers: makeRiskHeaders(reviewerHeaders) }), env, {} as any);
   assert.equal(receiptFile.status, 200);
   const receiptPdfBytes = new Uint8Array(await receiptFile.arrayBuffer());
@@ -1707,7 +1722,7 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
     }, { ...clientPbcHeaders, 'Idempotency-Key': crypto.randomUUID() });
     assert.equal(reservation.response.status, 201, JSON.stringify(reservation.body));
     const fileId = reservation.body.fileId as string;
-    const staged = await worker.fetch(new Request(`https://local.auditsphere.test/api/workspaces/${workspaceId}/files/${fileId}/content`, {
+    const staged = await testFetch(new Request(`https://local.auditsphere.test/api/workspaces/${workspaceId}/files/${fileId}/content`, {
       method: 'PUT', headers: { Origin: 'https://local.auditsphere.test', ...clientPbcHeaders,
         'Idempotency-Key': crypto.randomUUID(), 'X-File-Version': '1', 'Content-Type': 'application/pdf' }, body: bytes
     }), env, {} as any);
@@ -1731,7 +1746,7 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
   }, { ...clientPbcHeaders, 'Idempotency-Key': crypto.randomUUID() });
   assert.equal(lateContentReservation.response.status, 201, JSON.stringify(lateContentReservation.body));
   const lateContentFileId = lateContentReservation.body.fileId as string;
-  const staleStage = await worker.fetch(new Request(`https://local.auditsphere.test/api/workspaces/${workspaceId}/files/${staleFileId}/content`, {
+  const staleStage = await testFetch(new Request(`https://local.auditsphere.test/api/workspaces/${workspaceId}/files/${staleFileId}/content`, {
     method: 'PUT', headers: { Origin: 'https://local.auditsphere.test', ...clientPbcHeaders,
       'Idempotency-Key': crypto.randomUUID(), 'X-File-Version': '1', 'Content-Type': 'application/pdf' }, body: pdf
   }), env, {} as any);
@@ -1758,7 +1773,7 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
   assert.deepEqual(pbcFrozenStaleCommit.body.details, { engagementId, frozenAt, bundleId: null });
   assert.equal(db.prepare('SELECT state FROM file_versions WHERE workspace_id=? AND id=?').bind(workspaceId, staleFileId).first<any>()?.state, 'STAGED',
     'a reservation staged before release cannot be committed after portal freeze');
-  const lateContent = await worker.fetch(new Request(`https://local.auditsphere.test/api/workspaces/${workspaceId}/files/${lateContentFileId}/content`, {
+  const lateContent = await testFetch(new Request(`https://local.auditsphere.test/api/workspaces/${workspaceId}/files/${lateContentFileId}/content`, {
     method: 'PUT', headers: { Origin: 'https://local.auditsphere.test', ...clientPbcHeaders,
       'Idempotency-Key': crypto.randomUUID(), 'X-File-Version': '1', 'Content-Type': 'application/pdf' }, body: pdf
   }), env, {} as any);
@@ -1810,7 +1825,7 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
   const directPbcRequest = await call(`/api/workspaces/${workspaceId}/engagements/${engagementId}/pbc/${pbcRequestId}`, { headers: clientPbcHeaders });
   assert.equal(directPbcRequest.response.status, 200, JSON.stringify(directPbcRequest.body));
   assert.equal(directPbcRequest.body.request.currentSubmissionId, firstSubmissionId);
-  const originalPbcDownload = await worker.fetch(new Request(`https://local.auditsphere.test/api/workspaces/${workspaceId}/files/${firstPbcFile.fileId}`,
+  const originalPbcDownload = await testFetch(new Request(`https://local.auditsphere.test/api/workspaces/${workspaceId}/files/${firstPbcFile.fileId}`,
     { headers: { Origin: 'https://local.auditsphere.test', ...clientPbcHeaders } }), env, {} as any);
   assert.equal(originalPbcDownload.status, 200);
   assert.deepEqual(new Uint8Array(await originalPbcDownload.arrayBuffer()), pdf,
@@ -1856,9 +1871,9 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
   assert.equal(historyAfterReplacement.body.requests[0].submissions.length, 2);
   assert.equal(historyAfterReplacement.body.requests[0].submissions[1].supersedesSubmissionId, firstSubmissionId);
   assert.equal(historyAfterReplacement.body.requests[0].submissions[0].reviews[0].decision, 'REJECT');
-  const retainedRejectedDownload = await worker.fetch(new Request(`https://local.auditsphere.test/api/workspaces/${workspaceId}/files/${firstPbcFile.fileId}`,
+  const retainedRejectedDownload = await testFetch(new Request(`https://local.auditsphere.test/api/workspaces/${workspaceId}/files/${firstPbcFile.fileId}`,
     { headers: { Origin: 'https://local.auditsphere.test', ...clientPbcHeaders } }), env, {} as any);
-  const correctedPbcDownload = await worker.fetch(new Request(`https://local.auditsphere.test/api/workspaces/${workspaceId}/files/${replacementPbcFile.fileId}`,
+  const correctedPbcDownload = await testFetch(new Request(`https://local.auditsphere.test/api/workspaces/${workspaceId}/files/${replacementPbcFile.fileId}`,
     { headers: { Origin: 'https://local.auditsphere.test', ...clientPbcHeaders } }), env, {} as any);
   assert.equal(retainedRejectedDownload.status, 200);
   assert.equal(correctedPbcDownload.status, 200);
@@ -4117,7 +4132,7 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
     'every difference pins the exact active TB, mapping and materiality versions');
 
   for (const file of [firstPbcFile, replacementPbcFile]) {
-    const downloaded = await worker.fetch(new Request(`https://local.auditsphere.test/api/workspaces/${workspaceId}/files/${file.fileId}`, {
+    const downloaded = await testFetch(new Request(`https://local.auditsphere.test/api/workspaces/${workspaceId}/files/${file.fileId}`, {
       headers: clientPbcHeaders
     }), env, {} as any);
     const downloadedBytes = new Uint8Array(await downloaded.arrayBuffer());
@@ -4133,7 +4148,7 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
   const clientInvoice = clientDelivery.body.invoices.find((invoice: any) => invoice.id === issuedInvoice.id);
   assert.equal(clientInvoice.status, 'ISSUED');
   for (const fileVersionId of [issuedLetter.body.result.fileId, clientInvoice.fileVersionId]) {
-    const clientDocument = await worker.fetch(new Request(`https://local.auditsphere.test/api/workspaces/${workspaceId}/files/${fileVersionId}`, { headers: makeRiskHeaders(clientHeaders) }), env, {} as any);
+    const clientDocument = await testFetch(new Request(`https://local.auditsphere.test/api/workspaces/${workspaceId}/files/${fileVersionId}`, { headers: makeRiskHeaders(clientHeaders) }), env, {} as any);
     assert.equal(clientDocument.status, 200, 'the client can download an issued document scoped to its engagement');
     assert.equal(new TextDecoder().decode(new Uint8Array(await clientDocument.arrayBuffer()).slice(0, 5)), '%PDF-');
   }
@@ -4953,7 +4968,9 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
   assert.equal(revenuePolicyView.response.status, 200, JSON.stringify(revenuePolicyView.body));
   const deferredPolicy = revenuePolicyView.body.revenuePolicies.find((policy: any) => policy.recognitionMethod === 'DEFER_UNTIL_EARNED');
   assert.ok(deferredPolicy?.revision && deferredPolicy?.contentSha256, 'recognition is tied to a versioned approved policy');
-  const earnedDate = new Date().toISOString().slice(0, 10);
+  const earnedDate = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Qatar', year: 'numeric', month: '2-digit', day: '2-digit'
+  }).format(new Date());
   const recognizedEarnedAdvance = await post(`/api/workspaces/${workspaceId}/commands`, {
     idempotencyKey: crypto.randomUUID(), command: { type: 'revenue.recognize', payload: {
       engagementId, policyId: deferredPolicy.id, date: earnedDate, amountMinor: '125001',

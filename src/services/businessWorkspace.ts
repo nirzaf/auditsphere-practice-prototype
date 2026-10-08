@@ -160,7 +160,7 @@ async function requestJson<T>(path: string, options: {
     response = await fetch(path, {
       method: options.method ?? 'GET',
       headers,
-      credentials: 'omit',
+      credentials: 'same-origin',
       cache: 'no-store',
       ...(options.body === undefined ? {} : { body: JSON.stringify(options.body) }),
       ...(options.signal ? { signal: options.signal } : {})
@@ -190,7 +190,7 @@ async function requestBinary<T>(path: string, file: Blob, options: {
   headers.set('Idempotency-Key', options.idempotencyKey);
   let response: Response;
   try {
-    response = await fetch(path, { method: 'PUT', /* raw file bytes go only to the file /content endpoint */ headers, body: file, credentials: 'omit', cache: 'no-store' });
+    response = await fetch(path, { method: 'PUT', /* raw file bytes go only to the file /content endpoint */ headers, body: file, credentials: 'same-origin', cache: 'no-store' });
   } catch (error) {
     if (error instanceof DOMException && error.name === 'AbortError') throw error;
     throw new Error('Business file storage is unavailable. Retry the upload with the same file.');
@@ -552,7 +552,7 @@ export async function downloadBusinessFileVersion(
   let response: Response;
   try {
     response = await fetch(getBusinessFileDownloadUrl(workspaceId, fileId), {
-      headers, credentials: 'omit', cache: 'no-store'
+      headers, credentials: 'same-origin', cache: 'no-store'
     });
   } catch {
     throw new Error('Business file storage is unavailable. Retry the download.');
@@ -591,7 +591,7 @@ export async function downloadBusinessArchiveExport(
   let response: Response;
   try {
     response = await fetch(`/api/workspaces/${encodeURIComponent(workspaceId)}/engagements/${encodeURIComponent(engagementId)}/archive/export?${query}`, {
-      headers: contextHeaders(selected), credentials: 'omit', cache: 'no-store'
+      headers: contextHeaders(selected), credentials: 'same-origin', cache: 'no-store'
     });
   } catch {
     throw new Error('The sealed archive service is unavailable. Retry the export.');
