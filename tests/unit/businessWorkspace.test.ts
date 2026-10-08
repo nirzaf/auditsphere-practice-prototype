@@ -2591,8 +2591,19 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
   }, samplingReviewerHeaders);
   assert.equal(blankProcedureSubmit.response.status, 422);
   assert.equal(blankProcedureSubmit.body.code, 'VALIDATION_FAILED');
+  assert.deepEqual(blankProcedureSubmit.body.details.fields, ['workPerformed', 'conclusion'], 'validation identifies both missing required records');
   assert.equal(db.prepare('SELECT COUNT(*) AS count FROM procedure_submissions WHERE workspace_id=? AND procedure_id=?')
     .bind(workspaceId, revenueProcedureIds[0]).first<any>()?.count, 0, 'blank work and conclusion cannot create a review submission');
+  const blankGenericReviewSubmit = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'review.submit', payload: {
+      targetKind: 'PROCEDURE', targetId: revenueProcedureIds[1], targetVersion: 1
+    } }
+  }, samplingReviewerHeaders);
+  assert.equal(blankGenericReviewSubmit.response.status, 422);
+  assert.equal(blankGenericReviewSubmit.body.code, 'VALIDATION_FAILED');
+  assert.deepEqual(blankGenericReviewSubmit.body.details.fields, ['workPerformed', 'conclusion'], 'generic review submission enforces the same required fields');
+  assert.equal(db.prepare('SELECT COUNT(*) AS count FROM procedure_submissions WHERE workspace_id=? AND procedure_id=?')
+    .bind(workspaceId, revenueProcedureIds[1]).first<any>()?.count, 0, 'generic review route cannot create a blank procedure submission');
 
   const updateProcedure = (procedureId: string, expectedVersion: number, suffix: string) => post(`/api/workspaces/${workspaceId}/commands`, {
     idempotencyKey: crypto.randomUUID(), command: { type: 'procedure.update', payload: {

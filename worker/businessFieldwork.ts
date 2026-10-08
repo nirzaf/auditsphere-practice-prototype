@@ -947,7 +947,11 @@ async function submitProcedure(env:Env,workspaceId:string,context:BusinessContex
   if(row.status!=='IN_PROGRESS'&&row.status!=='NOT_STARTED'&&row.status!=='UNDER_REWORK')throw new ApiError('INVALID_STATE','Only editable procedure work can be submitted.');
   if(row.applicable===0){if(!row.not_applicable_reason)throw new ApiError('VALIDATION_FAILED','A not-applicable procedure needs a reason and reviewer approval.');}
   else{
-    if(String(row.work_performed??'').trim().length<10||String(row.conclusion??'').trim().length<10)throw new ApiError('VALIDATION_FAILED','Work performed and a conclusion are required before submission.');
+    const missingFields=[
+      ...(String(row.work_performed??'').trim().length<10?['workPerformed']:[]),
+      ...(String(row.conclusion??'').trim().length<10?['conclusion']:[])
+    ];
+    if(missingFields.length)throw new ApiError('VALIDATION_FAILED','Work performed and a conclusion are required before submission.',{fields:missingFields});
     const support=await evidenceSet(env,workspaceId,'procedure_id',p.procedureId,true);if(Number(row.mandatory)===1&&support.adequate===0)throw new ApiError('GATE_BLOCKED','A mandatory procedure needs at least one adequate current evidence item.');
   }
   const evidence=await evidenceSet(env,workspaceId,'procedure_id',p.procedureId,false);

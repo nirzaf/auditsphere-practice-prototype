@@ -76,7 +76,10 @@ reviewer controls, and the `Approve N/A` action correctly recognizes the
 Worker's boolean `applicable=false` projection. A two-person browser regression
 is present; local execution currently fails before page load because Chrome
 does not expose CDP and Edge exits during startup. Required-step validation
-across all entry points and browser review acceptance remain open.
+across direct `procedure.submit` and generic `review.submit` now returns exact
+missing `workPerformed` and `conclusion` field names and creates no submission
+record. Browser review acceptance, procedure update/evidence matrices and the
+remaining workprogram gates stay open.
 
 ## Externally blocked (integration layer implemented; external values still required)
 
