@@ -50,7 +50,22 @@ relationship to `payments.amount_minor`; vouchers do not store an amount column.
 The target snapshot reports payment rows and reconciles the receipt total against
 both the linked voucher population and the payment ledger.
 
-This command is a validation gate, not an apply migrator. A blocked report must
-be reconciled and the target records/mappings must be created through a reviewed
-deployment operation before the workspace can pass cutover validation. No
-source snapshot or historical table is deleted by this tool.
+The deployment-only apply operation is intentionally narrower than the audit.
+It currently migrates only losslessly mapped `clients` and `contacts` rows, and
+only when the workspace has no existing target clients/contacts, no existing ID
+maps, no files, no non-metadata root documents, and no other source entity kinds.
+It requires schema 39 migration guards and must be invoked explicitly against
+remote D1:
+
+```powershell
+npm run migration:audit -- --workspace <uuid> --apply --remote
+```
+
+The command checks the source payloads again in the same atomic D1 batch,
+preserves IDs, records source-to-target maps, and changes the MigrationRun to
+`APPLIED` only after triggers verify every source row has a corresponding target
+and mapping. A stale source, FK/uniqueness failure, or incomplete map rolls back
+the entire batch. Existing source snapshots and files are never deleted. The
+apply operation refuses invoices, engagements, files, and all other unsupported
+data rather than reporting partial migration as complete; the epic's invoice
+and evidence-file cutover scenario remains open until those mappings are added.

@@ -1,11 +1,12 @@
 import { createHash } from 'node:crypto';
-import { createReadStream, existsSync, mkdtempSync, rmSync, statSync } from 'node:fs';
+import { createReadStream, existsSync, mkdtempSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, join, resolve } from 'node:path';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { buildMigrationAuditReport, type MigrationAuditSnapshot, type VerifiedR2Object } from './business-migration-audit-core';
 import { buildMigrationAuditSnapshotQuery } from './business-migration-audit-query';
+import { buildMigrationApplyPlan } from './business-migration-apply';
 
 const ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const WRANGLER = resolve(ROOT, 'node_modules/wrangler/bin/wrangler.js');
@@ -19,34 +20,38 @@ const MAX_D1_OUTPUT_BYTES = 96 * 1024 * 1024;
 
 function usage(): string {
   return [
-    'Usage: npm run migration:audit -- --workspace <uuid> --dry-run [--remote]',
+    'Usage: npm run migration:audit -- --workspace <uuid> (--dry-run | --apply) [--remote]',
     '',
-    'Reads one D1 workspace and verifies its committed R2 file bytes. No business rows are written.',
-    'Local Wrangler storage is used by default. Pass --remote to explicitly read the configured remote D1/R2.'
+    'Reads one D1 workspace and verifies its committed R2 file bytes.',
+    'Dry-run is read-only apart from its MigrationRun metadata. Apply is deployment-only and requires --remote.',
+    'Apply currently accepts only explicitly mapped clients and contacts with no files or other source entities.'
   ].join('\n');
 }
 
-function parseArgs(argv: string[]): { workspaceId: string; remote: boolean } {
+function parseArgs(argv: string[]): { workspaceId: string; remote: boolean; operation: 'dry-run' | 'apply' } {
   let workspaceId = '';
   let remote = false;
   let dryRun = false;
+  let apply = false;
   for (let index = 0; index < argv.length; index += 1) {
     const value = argv[index];
     if (value === '--workspace') workspaceId = argv[++index] ?? '';
     else if (value === '--remote') remote = true;
     else if (value === '--local') remote = false;
     else if (value === '--dry-run') dryRun = true;
+    else if (value === '--apply') apply = true;
     else if (value === '--help' || value === '-h') {
       console.log(usage());
       process.exit(0);
     } else throw new Error(`Unsupported argument: ${value}`);
   }
-  if (!dryRun) throw new Error('This operator command supports read-only --dry-run only.');
+  if (dryRun === apply) throw new Error('Choose exactly one of --dry-run or --apply.');
+  if (apply && !remote) throw new Error('--apply is a deployment operation and requires explicit --remote.');
   if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(workspaceId)) {
     throw new Error('--workspace must be a valid UUID.');
   }
   if (!existsSync(WRANGLER)) throw new Error('Wrangler is not installed. Run npm install before using the migration audit.');
-  return { workspaceId, remote };
+  return { workspaceId, remote, operation: apply ? 'apply' : 'dry-run' };
 }
 
 function runWrangler(args: string[], options: { maxOutputBytes?: number } = {}): Promise<{ stdout: string; stderr: string }> {
@@ -153,7 +158,7 @@ async function verifyR2Objects(snapshot: MigrationAuditSnapshot, remote: boolean
 }
 
 async function main(): Promise<void> {
-  const { workspaceId, remote } = parseArgs(process.argv.slice(2));
+  const { workspaceId, remote, operation } = parseArgs(process.argv.slice(2));
   const scopeFlag = remote ? '--remote' : '--local';
   const command = buildMigrationAuditSnapshotQuery(workspaceId);
   const result = await runWrangler(['d1', 'execute', DATABASE, '--json', '--command', command, '--config', CONFIG, scopeFlag], { maxOutputBytes: MAX_D1_OUTPUT_BYTES });
@@ -162,6 +167,28 @@ async function main(): Promise<void> {
   const installedVersion = await readSchemaVersion(remote);
   const verifiedObjects = await verifyR2Objects(snapshot, remote);
   const report = buildMigrationAuditReport(snapshot, verifiedObjects, MIGRATION_TARGET_SCHEMA_VERSION, installedVersion);
+  if (operation === 'apply') {
+    const appliedAt = new Date().toISOString();
+    const plan = buildMigrationApplyPlan(snapshot, report, installedVersion, appliedAt);
+    const tempDirectory = mkdtempSync(join(tmpdir(), 'auditsphere-migration-apply-'));
+    const sqlPath = join(tempDirectory, 'migration.sql');
+    try {
+      writeFileSync(sqlPath, plan.sql, { encoding: 'utf8', flag: 'wx' });
+      await runWrangler(['d1', 'execute', DATABASE, '--file', sqlPath, '--config', CONFIG, '--remote'], { maxOutputBytes: 1024 * 1024 });
+    } finally {
+      rmSync(tempDirectory, { recursive: true, force: true });
+    }
+    const afterResult = await runWrangler(['d1', 'execute', DATABASE, '--json', '--command', command, '--config', CONFIG, '--remote'], { maxOutputBytes: MAX_D1_OUTPUT_BYTES });
+    const afterSnapshot = parseD1Snapshot(afterResult.stdout);
+    if (!afterSnapshot) throw new Error('Workspace disappeared after the migration batch.');
+    const afterObjects = await verifyR2Objects(afterSnapshot, true);
+    const verified = buildMigrationAuditReport(afterSnapshot, afterObjects, MIGRATION_TARGET_SCHEMA_VERSION, installedVersion, report.runId);
+    if (verified.validationStatus !== 'VALIDATED' || verified.sourceSha256 !== report.sourceSha256) {
+      throw new Error('Atomic migration committed, but the follow-up reconciliation did not validate. Review the APPLIED run before cutover.');
+    }
+    console.log(JSON.stringify({ ...verified, status: 'APPLIED', businessRecordsChanged: true, auditMetadataRecorded: true, applyProfile: 'clients-contacts-v1' }, null, 2));
+    return;
+  }
   if (snapshot.workspace.schema_version < MIGRATION_TARGET_SCHEMA_VERSION) {
     await recordMigrationRun(report, remote);
     report.auditMetadataRecorded = true;

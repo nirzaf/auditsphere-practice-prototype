@@ -90,6 +90,19 @@ export interface MigrationAuditReport {
   blockers: number;
 }
 
+export interface NormalizedMigrationRecord {
+  sourceKind: string;
+  sourceId: string;
+  targetKind: string;
+  targetId: string;
+  values: Record<string, unknown>;
+}
+
+export interface NormalizedMigrationPlan {
+  records: NormalizedMigrationRecord[];
+  blockers: Array<{ sourceKind: string; sourceId: string; code: string }>;
+}
+
 /** Only direct, semantics-preserving identity mappings are registered here.
  * Transformed records must be mapped explicitly in migration_id_map after their
  * source relationships and provenance have been reviewed.
@@ -202,11 +215,97 @@ const FIELD_MAPPINGS: Readonly<Record<string, readonly MigrationFieldDefinition[
     { sourceField: 'title', targetField: 'title', transform: nullableText },
     { sourceField: 'contactRole', targetField: 'role', transform: contactRole },
     { sourceField: 'isPrimary', targetField: 'is_primary', transform: booleanInteger },
+    { sourceField: 'isSignatory', targetField: 'is_signatory', transform: booleanInteger },
     { sourceField: 'active', targetField: 'active', transform: booleanInteger },
     { sourceField: 'effectiveFrom', targetField: 'effective_from', transform: nullableText },
     { sourceField: 'effectiveTo', targetField: 'effective_to', optional: true, transform: nullableText }
   ]
 };
+
+/**
+ * Prepare the currently reviewed, lossless legacy row mappings for a deployment
+ * migrator. This intentionally supports only clients and contacts; the caller
+ * must reject any workspace containing other business entities or files.
+ */
+export function buildNormalizedMigrationPlan(snapshot: MigrationAuditSnapshot): NormalizedMigrationPlan {
+  const supportedKinds = new Set(['clients', 'contacts']);
+  const identityMaps: MigrationAuditIdMap[] = snapshot.entities
+    .filter(entity => supportedKinds.has(entity.entity_kind))
+    .map(entity => ({ source_kind: entity.entity_kind, source_id: entity.entity_id, target_kind: entity.entity_kind, target_id: entity.entity_id }));
+  const maps = new Map(identityMaps.map(mapping => [`${mapping.source_kind}\0${mapping.source_id}\0${mapping.target_kind}`, mapping]));
+  const blockers: NormalizedMigrationPlan['blockers'] = [];
+  const records: NormalizedMigrationRecord[] = [];
+  const payloads = new Map(snapshot.entities.map(entity => [`${entity.entity_kind}\0${entity.entity_id}`, parsePayload(entity.payload_json)]));
+
+  for (const entity of snapshot.entities) {
+    if (!supportedKinds.has(entity.entity_kind)) {
+      blockers.push({ sourceKind: entity.entity_kind, sourceId: entity.entity_id, code: 'ENTITY_KIND_NOT_SUPPORTED_BY_APPLY_MIGRATOR' });
+      continue;
+    }
+    const definitions = FIELD_MAPPINGS[entity.entity_kind];
+    const payload = payloads.get(`${entity.entity_kind}\0${entity.entity_id}`) ?? {};
+    if (payload.id !== entity.entity_id) {
+      blockers.push({ sourceKind: entity.entity_kind, sourceId: entity.entity_id, code: 'SOURCE_ID_PAYLOAD_MISMATCH' });
+      continue;
+    }
+    const allowedFields = new Set(['id', ...definitions.map(item => item.sourceField)]);
+    const extraFields = Object.keys(payload).filter(field => !allowedFields.has(field));
+    if (extraFields.length) {
+      blockers.push({ sourceKind: entity.entity_kind, sourceId: entity.entity_id, code: 'SOURCE_FIELDS_NOT_MAPPED' });
+      continue;
+    }
+    const values: Record<string, unknown> = { id: entity.entity_id };
+    let invalid = false;
+    for (const definition of definitions) {
+      const present = Object.hasOwn(payload, definition.sourceField);
+      const raw = present ? payload[definition.sourceField] : undefined;
+      const mapped = !present && definition.optional
+        ? null
+        : present
+          ? (definition.transform ?? direct)(raw, payload, maps)
+          : UNMAPPABLE;
+      if (mapped === UNMAPPABLE) { invalid = true; break; }
+      values[definition.targetField] = mapped;
+    }
+    if (invalid) {
+      blockers.push({ sourceKind: entity.entity_kind, sourceId: entity.entity_id, code: 'SOURCE_FIELD_VALUE_NOT_MAPPABLE' });
+      continue;
+    }
+    if (entity.entity_kind === 'contacts' && values.email == null && values.phone == null) {
+      blockers.push({ sourceKind: entity.entity_kind, sourceId: entity.entity_id, code: 'CONTACT_REQUIRES_EMAIL_OR_PHONE' });
+      continue;
+    }
+    const requiredTextFields = entity.entity_kind === 'clients'
+      ? ['code', 'legal_name', 'industry', 'address', 'country_code', 'entity_type']
+      : ['client_id', 'full_name', 'title', 'role', 'effective_from'];
+    if (requiredTextFields.some(field => typeof values[field] !== 'string' || values[field] === '')) {
+      blockers.push({ sourceKind: entity.entity_kind, sourceId: entity.entity_id, code: 'REQUIRED_MAPPED_FIELD_EMPTY' });
+      continue;
+    }
+    records.push({ sourceKind: entity.entity_kind, sourceId: entity.entity_id, targetKind: entity.entity_kind, targetId: entity.entity_id, values });
+  }
+
+  // Parent companies must exist before subsidiaries because the target FK is
+  // immediate. Fail closed on cycles rather than clearing or guessing links.
+  const clients = records.filter(record => record.targetKind === 'clients');
+  const pending = new Map(clients.map(record => [record.targetId, record]));
+  const orderedClients: NormalizedMigrationRecord[] = [];
+  const inserted = new Set<string>();
+  while (pending.size) {
+    const ready = [...pending.values()].filter(record => record.values.parent_client_id == null || inserted.has(String(record.values.parent_client_id)));
+    if (!ready.length) {
+      blockers.push({ sourceKind: 'clients', sourceId: '*', code: 'CLIENT_PARENT_CYCLE_OR_MISSING_PARENT' });
+      break;
+    }
+    for (const record of ready) {
+      orderedClients.push(record);
+      inserted.add(record.targetId);
+      pending.delete(record.targetId);
+    }
+  }
+  const orderedContacts = records.filter(record => record.targetKind === 'contacts');
+  return { records: [...orderedClients, ...orderedContacts], blockers };
+}
 
 function valueSha256(value: unknown): string {
   return createHash('sha256').update(canonical(value)).digest('hex');

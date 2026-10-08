@@ -14,7 +14,7 @@ export function buildMigrationAuditSnapshotQuery(workspaceId: string): string {
   const targetUnion = TARGET_TABLES.map(table => `SELECT '${table}' AS kind,id FROM ${table} WHERE workspace_id=${id}`).join(' UNION ALL ');
   const targetFieldUnion = [
     `SELECT 'clients' AS kind,id,json_object('code',code,'legal_name',legal_name,'trading_name',trading_name,'entity_type',entity_type,'parent_client_id',parent_client_id,'commercial_registration',commercial_registration,'tax_id',tax_id,'industry',industry,'address',address,'country_code',country_code,'active',active) AS fields_json FROM clients WHERE workspace_id=${id}`,
-    `SELECT 'contacts' AS kind,id,json_object('client_id',client_id,'full_name',full_name,'email',email,'phone',phone,'title',title,'role',role,'is_primary',is_primary,'active',active,'effective_from',effective_from,'effective_to',effective_to) AS fields_json FROM contacts WHERE workspace_id=${id}`
+    `SELECT 'contacts' AS kind,id,json_object('client_id',client_id,'full_name',full_name,'email',email,'phone',phone,'title',title,'role',role,'is_primary',is_primary,'is_signatory',is_signatory,'active',active,'effective_from',effective_from,'effective_to',effective_to) AS fields_json FROM contacts WHERE workspace_id=${id}`
   ].join(' UNION ALL ');
   const targetMoneyUnion = [
     `SELECT 'invoices' AS kind,CAST(COUNT(*) AS TEXT) AS row_count,CAST(COALESCE(SUM(total_minor),0) AS TEXT) AS amount_minor FROM invoices WHERE workspace_id=${id}`,

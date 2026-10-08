@@ -43,7 +43,7 @@ async function request(payload: unknown, options: {
 const validRun = (overrides: Record<string, unknown> = {}) => ({
   runId: 'GHA-731008-1',
   sourceCommit: 'a'.repeat(40),
-  schemaVersion: 38,
+  schemaVersion: 39,
   environment: 'CI',
   startedAt: '2026-10-07T12:00:00.000Z',
   completedAt: '2026-10-07T12:02:00.000Z',
@@ -87,7 +87,7 @@ it('ingests only redacted CI metadata into the configured workspace idempotently
   const stored = await db.prepare(`SELECT id,workspace_id,source_commit,schema_version,environment,
       started_at,completed_at,status FROM verification_runs WHERE id=?`).bind('GHA-731008-1').first<any>();
   assert.deepEqual({ ...stored }, {
-    id: 'GHA-731008-1', workspace_id: workspaceId, source_commit: 'a'.repeat(40), schema_version: 38,
+    id: 'GHA-731008-1', workspace_id: workspaceId, source_commit: 'a'.repeat(40), schema_version: 39,
     environment: 'CI', started_at: '2026-10-07T12:00:00.000Z',
     completed_at: '2026-10-07T12:02:00.000Z', status: 'PASSED'
   });

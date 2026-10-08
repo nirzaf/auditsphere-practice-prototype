@@ -1,0 +1,114 @@
+import { it } from 'node:test';
+import assert from 'node:assert/strict';
+import { readdirSync, readFileSync } from 'node:fs';
+import { join, resolve } from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
+import { unstable_splitSqlQuery } from 'wrangler';
+import { buildMigrationApplyPlan } from '../../tools/business-migration-apply.js';
+import { buildMigrationAuditReport, type MigrationAuditSnapshot } from '../../tools/business-migration-audit-core.js';
+
+const snapshot = (): MigrationAuditSnapshot => ({
+  workspace: { id: '00000000-0000-4000-8000-000000000031', schema_version: 30, data_mode: 'TEST' },
+  entities: [
+    { entity_kind: 'clients', entity_id: 'client-parent', payload_json: JSON.stringify({
+      id: 'client-parent', code: 'C-PARENT', name: 'Parent WLL', tradingName: null, entityRole: 'Holding',
+      parentClientId: null, registrationNumber: null, taxId: null, industry: 'Services', address: 'Doha',
+      jurisdiction: 'Qatar', status: 'Active'
+    }) },
+    { entity_kind: 'clients', entity_id: 'client-child', payload_json: JSON.stringify({
+      id: 'client-child', code: 'C-CHILD', name: 'Child WLL', tradingName: null, entityRole: 'Subsidiary',
+      parentClientId: 'client-parent', registrationNumber: null, taxId: null, industry: 'Services', address: 'Doha',
+      jurisdiction: 'QA', status: 'Active'
+    }) },
+    { entity_kind: 'contacts', entity_id: 'contact-1', payload_json: JSON.stringify({
+      id: 'contact-1', clientId: 'client-child', name: 'Finance Contact', email: 'FINANCE@example.test', phone: null,
+      title: 'Finance Director', contactRole: 'CFO/Finance Director', isPrimary: true, isSignatory: false,
+      active: true, effectiveFrom: '2026-01-01', effectiveTo: null
+    }) }
+  ],
+  rootDocuments: [{ document_key: '__manifest__', payload_json: JSON.stringify({ schemaVersion: 30 }) }],
+  files: [], idMaps: [], targetRows: [], targetMoneyTotals: []
+});
+
+it('builds an atomic, source-guarded plan for reviewed clients and contacts', () => {
+  const source = snapshot();
+  const report = buildMigrationAuditReport(source, new Map(), 31, 39);
+  const plan = buildMigrationApplyPlan(source, report, 39, '2026-10-08T10:00:00.000Z');
+
+  assert.equal(plan.recordCount, 3);
+  assert.match(plan.sql, /status='VALIDATED'/);
+  assert.match(plan.sql, /UPDATE migration_runs SET status='APPLIED'/);
+  assert.match(plan.sql, /payload_json=/);
+  assert.ok(plan.sql.indexOf("SELECT 'client-parent'") < plan.sql.indexOf("SELECT 'client-child'"), 'parents are inserted before subsidiaries');
+  assert.match(plan.sql, /contacts\(id,client_id,full_name,email,phone,title,role,is_primary,is_signatory,active/);
+  assert.equal(plan.sourceSha256, report.sourceSha256);
+});
+
+it('applies all planned rows atomically and rolls back when a source row changed after preflight', () => {
+  const createDatabase = (): DatabaseSync => {
+    const database = new DatabaseSync(':memory:');
+    database.exec('PRAGMA foreign_keys=ON');
+    const directory = resolve(process.cwd(), 'worker', 'migrations');
+    for (const file of readdirSync(directory).filter(name => /^\d{4}_.+\.sql$/.test(name)).sort()) {
+      for (const statement of unstable_splitSqlQuery(readFileSync(join(directory, file), 'utf8'))) database.prepare(statement).run();
+    }
+    database.prepare(`INSERT INTO workspaces(id,seed_id,name,schema_version,revision,status,created_at,updated_at)
+      VALUES (?,NULL,'Migration apply fixture',30,1,'active',0,0)`).run('00000000-0000-4000-8000-000000000031');
+    for (const entity of snapshot().entities) {
+      database.prepare(`INSERT INTO workspace_entities(workspace_id,entity_kind,entity_id,version,payload_json,created_at,updated_at)
+        VALUES (?,?,?,?,?,0,0)`).run(snapshot().workspace.id, entity.entity_kind, entity.entity_id, 1, entity.payload_json);
+    }
+    return database;
+  };
+  const source = snapshot();
+  const report = buildMigrationAuditReport(source, new Map(), 31, 39);
+  const plan = buildMigrationApplyPlan(source, report, 39, '2026-10-08T10:00:00.000Z');
+  const apply = (database: DatabaseSync, sql: string): void => {
+    database.exec('BEGIN');
+    try {
+      for (const statement of unstable_splitSqlQuery(sql)) database.prepare(statement).run();
+      database.exec('COMMIT');
+    } catch (error) {
+      database.exec('ROLLBACK');
+      throw error;
+    }
+  };
+
+  const validDatabase = createDatabase();
+  try {
+    apply(validDatabase, plan.sql);
+    assert.equal(validDatabase.prepare("SELECT COUNT(*) AS n FROM clients WHERE workspace_id=?").get(source.workspace.id)?.n, 2);
+    assert.equal(validDatabase.prepare("SELECT COUNT(*) AS n FROM contacts WHERE workspace_id=?").get(source.workspace.id)?.n, 1);
+    assert.equal(validDatabase.prepare("SELECT status FROM migration_runs WHERE id=?").get(report.runId)?.status, 'APPLIED');
+    assert.equal(validDatabase.prepare("SELECT COUNT(*) AS n FROM migration_id_map WHERE run_id=?").get(report.runId)?.n, 3);
+  } finally { validDatabase.close(); }
+
+  const staleDatabase = createDatabase();
+  try {
+    staleDatabase.prepare("UPDATE workspace_entities SET payload_json=? WHERE workspace_id=? AND entity_kind='contacts' AND entity_id='contact-1'")
+      .run('{"id":"contact-1","name":"Changed Contact"}', source.workspace.id);
+    assert.throws(() => apply(staleDatabase, plan.sql), /MIGRATION_TARGET_ROW_MISSING_OR_UNSUPPORTED/);
+    assert.equal(staleDatabase.prepare("SELECT COUNT(*) AS n FROM clients WHERE workspace_id=?").get(source.workspace.id)?.n, 0);
+    assert.equal(staleDatabase.prepare("SELECT COUNT(*) AS n FROM migration_runs WHERE workspace_id=?").get(source.workspace.id)?.n, 0);
+  } finally { staleDatabase.close(); }
+});
+
+it('blocks unmapped entity kinds and file bytes instead of dropping them', () => {
+  const source = snapshot();
+  source.entities.push({ entity_kind: 'invoices', entity_id: 'invoice-1', payload_json: '{"id":"invoice-1"}' });
+  source.files.push({ id: 'file-1', r2_key: 'w/file-1', original_name: 'evidence.pdf', size_bytes: 12, sha256: 'a'.repeat(64), state: 'COMMITTED' });
+  const report = buildMigrationAuditReport(source, new Map(), 31, 39);
+
+  assert.throws(() => buildMigrationApplyPlan(source, report, 39, '2026-10-08T10:00:00.000Z'), /ENTITY_KIND_NOT_SUPPORTED_BY_APPLY_MIGRATOR/);
+});
+
+it('requires the guarded schema and does not infer missing contact signatory data', () => {
+  const source = snapshot();
+  const contact = JSON.parse(source.entities[2].payload_json) as Record<string, unknown>;
+  delete contact.isSignatory;
+  source.entities[2].payload_json = JSON.stringify(contact);
+  const report = buildMigrationAuditReport(source, new Map(), 31, 38);
+
+  assert.throws(() => buildMigrationApplyPlan(source, report, 38, '2026-10-08T10:00:00.000Z'), /MIGRATION_APPLY_GUARDS_NOT_INSTALLED/);
+  assert.throws(() => buildMigrationApplyPlan(source, report, 39, '2026-10-08T10:00:00.000Z'), /SOURCE_FIELD_VALUE_NOT_MAPPABLE/);
+});

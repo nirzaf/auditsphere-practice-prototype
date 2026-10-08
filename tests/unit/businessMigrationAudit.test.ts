@@ -75,7 +75,7 @@ it('reconciles normalized contact fields and their mapped client reference', () 
     entity_id: 'contact-1',
     payload_json: JSON.stringify({
       id: 'contact-1', clientId: 'client-1', name: 'Synthetic Contact', email: 'CONTACT@EXAMPLE.TEST',
-      phone: null, title: 'Finance Director', contactRole: 'CFO/Finance Director', isPrimary: true,
+      phone: null, title: 'Finance Director', contactRole: 'CFO/Finance Director', isPrimary: true, isSignatory: false,
       active: true, effectiveFrom: '2026-01-01', effectiveTo: null
     })
   });
@@ -83,14 +83,14 @@ it('reconciles normalized contact fields and their mapped client reference', () 
   snapshot.targetRows.push({ kind: 'contacts', id: 'contact-1' });
   snapshot.targetFields = [{ kind: 'contacts', id: 'contact-1', fields: {
     client_id: 'client-1', full_name: 'Synthetic Contact', email: 'contact@example.test', phone: null,
-    title: 'Finance Director', role: 'CFO_FINANCE_DIRECTOR', is_primary: 1, active: 1,
+    title: 'Finance Director', role: 'CFO_FINANCE_DIRECTOR', is_primary: 1, is_signatory: 0, active: 1,
     effective_from: '2026-01-01', effective_to: null
   } }];
   const report = buildMigrationAuditReport(snapshot, new Map(), 31, 27, '00000000-0000-4000-8000-000000000009');
 
   const contact = report.fieldReconciliation.find(row => row.sourceKind === 'contacts');
   assert.ok(contact);
-  assert.equal(contact.fields.length, 10);
+  assert.equal(contact.fields.length, 11);
   assert.ok(contact.fields.every(field => field.status === 'MATCHED'));
   assert.equal(JSON.stringify(contact).includes('contact@example.test'), false);
 });
