@@ -627,15 +627,32 @@ it('US-REP-001–007 covers all report categories, representation, atomic releas
   assert.match(practiceUi.explanation, /does not recognize revenue/);
 
   await tab.command('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 1, mobile: true });
-  const mobilePracticeLayout = await tab.evaluate<{ pageWidth: number; viewportWidth: number; cardLeft: number; cardRight: number; earnedDateLeft: number; earnedDateRight: number }>(`(() => {
+  const mobilePracticeLayout = await tab.evaluate<{ bodyWidth: number; viewportWidth: number; cardLeft: number; cardRight: number; earnedDateLeft: number; earnedDateRight: number; overflowElements: Array<{ tag: string; id: string; className: string; left: number; right: number; width: number; ancestors: Array<{ tag: string; className: string; left: number; right: number; width: number; overflowX: string }> }> }>(`(() => {
     const card = document.querySelector('#business-practice-${fixture.engagementId}')?.closest('section');
     const earned = [...(card?.querySelectorAll('label') ?? [])].find(label => label.querySelector('span')?.textContent?.trim() === 'Earned date')?.querySelector('input');
     const cardBox = card?.getBoundingClientRect(), earnedBox = earned?.getBoundingClientRect();
-    return { pageWidth: document.documentElement.scrollWidth, viewportWidth: document.documentElement.clientWidth,
+    const overflowElements = [...document.querySelectorAll('body *')].map(element => {
+      const box = element.getBoundingClientRect();
+      return { element, box };
+    }).filter(({ element, box }) => {
+      if (box.width <= 0 || box.right <= document.documentElement.clientWidth + 1) return false;
+      for (let ancestor = element; ancestor && ancestor !== document.documentElement; ancestor = ancestor.parentElement) {
+        if (['auto', 'scroll', 'hidden', 'clip'].includes(getComputedStyle(ancestor).overflowX)) return false;
+      }
+      return true;
+    })
+      .sort((left, right) => right.box.right - left.box.right).slice(0, 8)
+      .map(({ element, box }) => ({ tag: element.tagName, id: element.id, className: String(element.className), left: box.left, right: box.right, width: box.width,
+        ancestors: [element.parentElement, element.parentElement?.parentElement, element.parentElement?.parentElement?.parentElement].filter(Boolean).map(parent => {
+          const parentBox = parent.getBoundingClientRect(), parentStyle = getComputedStyle(parent);
+          return { tag: parent.tagName, className: String(parent.className), left: parentBox.left, right: parentBox.right, width: parentBox.width, overflowX: parentStyle.overflowX };
+        }) }));
+    return { bodyWidth: document.body.scrollWidth, viewportWidth: document.documentElement.clientWidth,
       cardLeft: cardBox?.left ?? -1, cardRight: cardBox?.right ?? Infinity,
-      earnedDateLeft: earnedBox?.left ?? -1, earnedDateRight: earnedBox?.right ?? Infinity };
+      earnedDateLeft: earnedBox?.left ?? -1, earnedDateRight: earnedBox?.right ?? Infinity, overflowElements };
   })()`);
-  assert.ok(mobilePracticeLayout.pageWidth <= mobilePracticeLayout.viewportWidth, 'the 390px practice view has no horizontal page overflow');
+  assert.ok(mobilePracticeLayout.bodyWidth <= mobilePracticeLayout.viewportWidth && mobilePracticeLayout.overflowElements.length === 0,
+    `the 390px practice view has no uncontained horizontal overflow: ${JSON.stringify(mobilePracticeLayout)}`);
   assert.ok(mobilePracticeLayout.cardLeft >= 0 && mobilePracticeLayout.cardRight <= 390, 'the practice card fits the mobile viewport');
   assert.ok(mobilePracticeLayout.earnedDateLeft >= 0 && mobilePracticeLayout.earnedDateRight <= 390, 'the earned-date field remains visible on mobile');
   const mobilePracticeScreenshot = await tab.command('Page.captureScreenshot', { format: 'png' }) as { data: string };

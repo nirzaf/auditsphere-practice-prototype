@@ -2,6 +2,7 @@
 .business-setup-dialog { width: 760px; max-height: calc(100vh - 32px); overflow-y: auto; }
 .business-setup-head, .business-section-heading, .business-dialog-actions, .business-console-header, .business-console-brand, .business-workspace-status { display: flex; align-items: center; }
 .business-setup-head, .business-section-heading, .business-dialog-actions, .business-console-header { justify-content: space-between; gap: 14px; }
+.business-dialog-actions { min-width: 0; flex-wrap: wrap; }
 .business-setup-head h2, .business-context-card h2, .business-directory-card h2, .business-workflows-placeholder h2 { margin: 3px 0 8px; color: var(--ink); }
 .business-setup-head p, .business-overview-copy p, .business-context-card p, .business-workflows-placeholder p { line-height: 1.5; }
 .business-eyebrow { color: var(--muted); font-size: 11px; font-weight: 700; letter-spacing: .08em; margin: 0; }
@@ -10,9 +11,9 @@
 .business-mode-tab { min-height: 44px; border: 1px solid var(--line); border-radius: 7px; padding: 8px 13px; background: #fff; color: var(--ink); cursor: pointer; }
 .business-mode-tab.selected { border-color: var(--primary); box-shadow: inset 0 -2px 0 var(--primary); font-weight: 700; }
 .business-mode-tab:focus-visible, .business-setup-dialog button:focus-visible, .business-console button:focus-visible, .business-console select:focus-visible, .business-console input:focus-visible { outline: 3px solid #60a5fa; outline-offset: 2px; }
-.business-form { display: grid; gap: 14px; }
+.business-form { display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; min-width: 0; }
 .business-form h3 { margin: 2px 0 -4px; }
-.business-form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.business-form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; min-width: 0; }
 .business-field { display: grid; gap: 6px; min-width: 0; color: var(--ink); font-weight: 600; }
 .business-field input, .business-field select { min-width: 0; width: 100%; min-height: 44px; border: 1px solid var(--ui-control-border); border-radius: 7px; padding: 9px 11px; background: #fff; color: var(--ink); font: inherit; }
 .business-field small { color: var(--muted); font-size: 12px; font-weight: 400; line-height: 1.4; }
@@ -146,6 +147,7 @@
 .business-delivery-card h3 { font-size: 1rem; }
 .business-delivery-state { flex: none; border-radius: 99px; padding: 6px 10px; color: #17334a; background: #edf3f8; font-size: .78rem; font-weight: 700; }
 .business-delivery-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; gap: 14px; }
+.business-delivery-grid > .business-record-list { min-width: 0; }
 .business-delivery-assets { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-top: 14px; }
 .business-delivery-assets > div { min-width: 0; padding: 12px; border: 1px solid #d7e0e8; border-radius: 9px; }
 .business-delivery-assets p { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; margin: 10px 0 0; }
@@ -247,6 +249,7 @@
 .business-tb-fieldset { min-width: 0; display: grid; gap: 12px; margin: 0; padding: 14px; border: 1px solid #d7e0e8; border-radius: 9px; }
 .business-tb-fieldset legend { padding: 0 6px; color: var(--ink); font-weight: 700; }
 .business-tb-preview-wrap, .business-tb-table-wrap { width: 100%; min-width: 0; overflow-x: auto; overscroll-behavior-inline: contain; border: 1px solid #d7e0e8; border-radius: 8px; }
+.business-table-wrap { max-width: 100%; min-width: 0; overflow-x: auto; overscroll-behavior-inline: contain; }
 .business-utilization-table-wrap { width: 100%; min-width: 0; overflow-x: auto; overscroll-behavior-inline: contain; border: 1px solid #d7e0e8; border-radius: 8px; }
 .business-ar-aging-heading { align-items: flex-start; }
 .business-ar-aging-heading > div { min-width: 0; }
