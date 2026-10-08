@@ -49,6 +49,11 @@ export function sharePointConfigured(env: Env): boolean {
 
 let tokenCache: { key: string; token: string; expiresAt: number } | null = null;
 
+async function secretFingerprint(secret: string): Promise<string> {
+  const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(secret)));
+  return Array.from(digest, byte => byte.toString(16).padStart(2, '0')).join('');
+}
+
 function normalizePath(path: string): string {
   return path.startsWith('/') ? path : `/${path}`;
 }
@@ -60,7 +65,7 @@ async function defaultSleep(milliseconds: number): Promise<void> {
 export async function graphToken(config: SharePointConfig, deps: GraphDeps = {}): Promise<string> {
   const fetchImpl = deps.fetchImpl ?? fetch;
   const now = deps.now ?? Date.now;
-  const key = `${config.tenantId}:${config.clientId}:${config.clientSecret.length}`;
+  const key = `${config.tenantId}:${config.clientId}:${await secretFingerprint(config.clientSecret)}`;
   if (tokenCache && tokenCache.key === key && tokenCache.expiresAt > now() + 60_000) return tokenCache.token;
   const body = new URLSearchParams({
     client_id: config.clientId,

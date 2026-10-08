@@ -6,8 +6,8 @@ the account-owner steps that still gate live acceptance. Integration status must
 come from the deployed Worker; local configuration is not evidence of connectivity.
 
 The last verified production Worker is main commit
-`00f5607ef3af6318b220a15fcd3f48ce4e7fbeb0`, deployed by [GitHub Actions run
-37734321770](https://github.com/nirzaf/auditsphere-practice-prototype/actions/runs/37734321770)
+`313bf9793193101b1a3e9d1bc8300710160bfeec`, deployed by [GitHub Actions run
+37737228597](https://github.com/nirzaf/auditsphere-practice-prototype/actions/runs/37737228597)
 on 2026-10-08. CI passed application/Worker typecheck, unit tests, browser E2E,
 and production build. The deployment job applied and verified R2 archive-retention
 locks, deployed the restricted Email Service provider, applied approved D1
@@ -16,10 +16,10 @@ probe. This proves deployment health, not outbound email delivery or SharePoint
 authentication. The main Worker deploys from checked-in `wrangler.jsonc`; the
 earlier strict-mode config conflict is resolved.
 
-A `GET /api/integrations/status` observed at 2026-10-08 04:26:07 UTC reported
+A `GET /api/integrations/status` observed at 2026-10-08 06:26:50 UTC reported
 email `configured: true` with transport `SERVICE_BINDING`; SharePoint reports
-`FAILED` because Microsoft Graph rejected the token request. Health reported
-`ready` at schema version 41 with no dependency codes. A healthy deployment does
+`FAILED` because Microsoft Graph rejected the token request. The latest readiness
+probe returned `ready` at schema version 43 with no dependency codes. A healthy deployment does
 not by itself establish email delivery or SharePoint connectivity; the integration
 probe remains failed for SharePoint and pending for real email delivery.
 
@@ -131,6 +131,11 @@ revoke it, create a replacement, update the Cloudflare Worker secret, and redepl
 Do not copy either secret into this runbook, chat, or repository. Repeat the live
 status probe and a real site read/write check only after rotation; a successful
 token request alone does not prove the site grant works.
+
+The current source token cache keys entries by a non-reversible SHA-256 fingerprint of
+the client secret, tenant and app identity. A same-length secret rotation now
+invalidates the cached token; regression coverage is in
+`tests/unit/sharePointAdapter.test.ts`. This cache fix has not yet been deployed.
 
 The SharePoint Admin Center session reviewed on 2026-10-07 can see the approved
 acceptance site and its site settings/membership, but does not expose a Graph

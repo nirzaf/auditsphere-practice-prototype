@@ -5,6 +5,7 @@ import assert from 'node:assert/strict';
 import {
   GraphError,
   ensureFolder,
+  graphToken,
   resolveSharePointSite,
   sharePointConfig,
   sharePointStatus,
@@ -14,8 +15,8 @@ import type { Env } from '../../worker/env.js';
 
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
 
-function config(tenant: string) {
-  return { tenantId: tenant, clientId: 'client-1', clientSecret: 'secret', siteHostname: 'host.sharepoint.com', sitePath: '/sites/audit-test', driveName: 'Documents' };
+function config(tenant: string, clientSecret = 'secret') {
+  return { tenantId: tenant, clientId: 'client-1', clientSecret, siteHostname: 'host.sharepoint.com', sitePath: '/sites/audit-test', driveName: 'Documents' };
 }
 
 describe('SharePoint/Graph adapter (US-GAP-25..28)', () => {
@@ -35,6 +36,22 @@ describe('SharePoint/Graph adapter (US-GAP-25..28)', () => {
     } as Env);
     assert.equal(status.state, 'UNCONFIGURED');
     assert.equal(status.message, 'Missing SharePoint Worker settings: SHAREPOINT_CLIENT_SECRET.');
+  });
+
+  it('refreshes the Graph token cache when a same-length client secret is rotated', async () => {
+    let tokenRequests = 0;
+    const deps = {
+      now: () => 1_000,
+      fetchImpl: (async () => {
+        tokenRequests += 1;
+        return json({ access_token: `token-${tokenRequests}`, expires_in: 3600 });
+      }) as unknown as typeof fetch
+    };
+    const previous = await graphToken(config('tenant-secret-rotation', 'old-secret'), deps);
+    const replacement = await graphToken(config('tenant-secret-rotation', 'new-secret'), deps);
+    assert.equal(tokenRequests, 2, 'rotating to a secret of the same length must request a fresh Graph token');
+    assert.equal(previous, 'token-1');
+    assert.equal(replacement, 'token-2');
   });
 
   it('resolves the configured site, drive and root folder', async () => {
