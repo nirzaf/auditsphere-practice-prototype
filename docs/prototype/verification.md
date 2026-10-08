@@ -1708,9 +1708,12 @@ epic remain open.
 
 **Verification:** `npx tsx --test --test-name-pattern='bootstraps a no-session
 BUSINESS workspace' tests/unit/businessWorkspace.test.ts` — 1/1;
-`npm run lint`; `npm run build`; `git diff --check` — all pass for the
-2026-10-08 recognition-flow update. The earlier full unit result in this
-section predates this update.
+focused `tests/e2e/businessReporting.test.ts` report journey — 1/1 with mobile
+390px and desktop 1440px viewport assertions; `npm run test:unit` — 619 passed,
+1 opt-in stress test skipped; `npm run lint`; `npm run build`; and
+`git diff --check` pass. [GitHub Actions run 37764384741](https://github.com/nirzaf/auditsphere-practice-prototype/actions/runs/37764384741)
+also passed hosted typecheck, unit tests, browser E2E, production build, Cloudflare
+deployment and Worker readiness.
 
 **Evidence:** Dedicated `/practice/reports/trial-balance` and
 `/practice/reports/profit-loss` endpoints expose journal-backed reports. The
@@ -1743,11 +1746,11 @@ silently using today.
 report projections and all three export formats generated from persisted
 snapshots. The practice panel now selects a reporting month, displays every
 revenue/expense account, and passes the displayed cutoff through to export.
-Local browser review was attempted, but the Worker preview runtime could not
-start because its local email-store directory was denied by the sandbox. The
-focused Worker journey and production build remain the available evidence.
-Deployed report reconciliation and independent presentation acceptance remain
-open.
+The Worker-backed browser review passes with the responsive practice card and
+earned-date input visible at mobile and desktop sizes; designated wide report
+tables remain inside horizontal scrollers. Hosted deployment and readiness pass.
+Reconciliation against current deployed report data and independent presentation
+acceptance remain open.
 US-PRC-006 is partial and the 46-story epic remains open.
 
 ## US-PRC-007 exact aging boundaries and historical cutoff — 2026-10-08
