@@ -95,6 +95,23 @@ export const subscribeBusinessWorkspace = (listener: () => void): (() => void) =
   return () => listeners.delete(listener);
 };
 
+export interface LoadedBusinessContext {
+  workspaceId: string;
+  response: BusinessContextResponse;
+}
+
+export function isBusinessContextCurrent(
+  context: LoadedBusinessContext | null,
+  selected: BusinessWorkspacePreference | null
+): context is LoadedBusinessContext {
+  return Boolean(context && selected?.actorId && selected.persona
+    && context.workspaceId === selected.workspaceId
+    && context.response.actor.id === selected.actorId
+    && context.response.actor.persona === selected.persona
+    && context.response.scope.clientId === (selected.clientId ?? null)
+    && context.response.scope.engagementId === (selected.engagementId ?? null));
+}
+
 export function saveBusinessWorkspacePreference(next: BusinessWorkspacePreference): void {
   const parsed = parsePreference(next);
   if (!parsed) throw new Error('A valid business workspace selection is required.');

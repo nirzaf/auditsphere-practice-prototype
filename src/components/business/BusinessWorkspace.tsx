@@ -33,6 +33,7 @@ import {
   getBusinessStandardsProfiles,
   getBusinessWorkspace,
   initializeBusinessFile,
+  isBusinessContextCurrent,
   newBusinessIdempotencyKey,
   runBusinessCommand,
   saveBusinessWorkspacePreference,
@@ -40,6 +41,7 @@ import {
   subscribeBusinessWorkspace,
   uploadBusinessFile
 } from '../../services/businessWorkspace';
+import type { LoadedBusinessContext } from '../../services/businessWorkspace';
 import './business-workspace.css';
 import { BusinessAcceptanceRiskPanel } from './BusinessAcceptanceRiskPanel';
 import { BusinessDeliveryPanel } from './BusinessDeliveryPanel';
@@ -209,7 +211,7 @@ export function BusinessWorkspaceConsole() {
   const preference = useSyncExternalStore(subscribeBusinessWorkspace, businessWorkspaceSnapshot);
   const [workspace, setWorkspace] = useState<BusinessWorkspaceSummary | null>(null);
   const [profiles, setProfiles] = useState<BusinessActorProfile[]>([]);
-  const [context, setContext] = useState<BusinessContextResponse | null>(null);
+  const [loadedContext, setLoadedContext] = useState<LoadedBusinessContext | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [retryKey, setRetryKey] = useState(0);
@@ -312,11 +314,17 @@ export function BusinessWorkspaceConsole() {
     [profiles, preference?.actorId, preference?.persona]
   );
 
+  // A context response belongs to the exact browser selection that requested it.
+  // Hide its permissions immediately when the workspace, actor, persona or scope
+  // changes; effects run after render and must not leave one frame of the prior
+  // client's records or controls visible under the new selection.
+  const context = isBusinessContextCurrent(loadedContext, preference) ? loadedContext.response : null;
+
   useEffect(() => {
     if (!preference?.workspaceId) {
       setWorkspace(null);
       setProfiles([]);
-      setContext(null);
+      setLoadedContext(null);
       setLoading(false);
       setError('');
       return;
@@ -346,13 +354,13 @@ export function BusinessWorkspaceConsole() {
 
   useEffect(() => {
     if (!preference?.workspaceId || !preference.actorId || !preference.persona) {
-      setContext(null);
+      setLoadedContext(null);
       return;
     }
     const controller = new AbortController();
-    setContext(null);
+    setLoadedContext(null);
     getBusinessContext(preference.workspaceId, preference, controller.signal).then(next => {
-      if (!controller.signal.aborted) setContext(next);
+      if (!controller.signal.aborted) setLoadedContext({ workspaceId: preference.workspaceId, response: next });
     }).catch(reason => {
       if (controller.signal.aborted) return;
       if (reason && typeof reason === 'object' && 'code' in reason && ['DISABLED_IDENTITY', 'PERSONA_ACTION_DENIED'].includes(String(reason.code))) {

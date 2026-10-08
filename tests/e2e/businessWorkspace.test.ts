@@ -248,7 +248,17 @@ it('US-SYS-001/002/005 creates a real workspace, assigns all personas, persists 
   assert.deepEqual(new Set(personaInventory), new Set(['APPROVER', 'CLIENT', 'PREPARER', 'REVIEWER']));
 
   // A CLIENT profile can see its own client only and never gets the staff directory form.
+  server.setContextResponseDelay(750);
   await chooseOption('business-active-persona', `item.textContent?.includes('CLIENT · Finance ALPHA')`);
+  const duringPersonaSwitch = await tab.evaluate<{ selectedClientPersona: boolean; staleInternalDirectoryVisible: boolean; staleOtherClientVisible: boolean }>(`({
+    selectedClientPersona: document.querySelector('#business-active-persona')?.selectedOptions[0]?.textContent?.includes('CLIENT') ?? false,
+    staleInternalDirectoryVisible: !!document.querySelector('#business-directory-heading') || !!document.querySelector('.business-client-list'),
+    staleOtherClientVisible: document.body.innerText.includes('QA BETA Services LLC')
+  })`);
+  server.setContextResponseDelay(0);
+  assert.equal(duringPersonaSwitch.selectedClientPersona, true, 'the browser selection changes before the delayed context response');
+  assert.equal(duringPersonaSwitch.staleInternalDirectoryVisible, false, 'the prior context permissions and cached records are hidden immediately');
+  assert.equal(duringPersonaSwitch.staleOtherClientVisible, false, 'the prior broad client list cannot flash under the CLIENT selection');
   await waitFor('CLIENT-scoped Alpha records', `document.querySelector('.business-actor-summary')?.innerText.includes('CLIENT') && document.querySelector('.business-client-list')?.innerText.includes('QA ALPHA Services LLC')`);
   const clientProjection = await tab.evaluate<{ rows: string[]; staffDirectoryVisible: boolean; betaVisible: boolean }>(`({
     rows: [...(document.querySelectorAll('.business-client-list li') ?? [])].map(item => item.innerText),

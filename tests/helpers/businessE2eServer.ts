@@ -46,6 +46,7 @@ export interface BusinessE2eServer {
   putTestObject(key: string, bytes: Uint8Array): void;
   getTestObject(key: string): Uint8Array | null;
   setEmailProvider(fetch: (request: Request) => Promise<Response>): void;
+  setContextResponseDelay(milliseconds: number): void;
   runScheduled(): Promise<void>;
   setApiAvailable(available: boolean): void;
   close(): Promise<void>;
@@ -59,6 +60,7 @@ export async function startBusinessE2eServer(): Promise<BusinessE2eServer> {
   db.migrate(repositoryRoot);
   const objects = new Map<string, Uint8Array>();
   let apiAvailable = true;
+  let contextResponseDelayMs = 0;
   const files = {
     async put(key: string, body: BodyInit) {
       const bytes = new Uint8Array(await new Response(body).arrayBuffer());
@@ -107,6 +109,9 @@ export async function startBusinessE2eServer(): Promise<BusinessE2eServer> {
         const init: RequestInit = { method, headers: requestHeaders(incoming) };
         if (!['GET', 'HEAD'].includes(method)) init.body = await readRequestBody(incoming);
         const response = await worker.fetch(new Request(url, init), env, {} as any);
+        if (url.pathname.endsWith('/context') && contextResponseDelayMs > 0) {
+          await new Promise(resolvePromise => setTimeout(resolvePromise, contextResponseDelayMs));
+        }
         const responseHeaders = Object.fromEntries(response.headers.entries());
         outgoing.writeHead(response.status, responseHeaders);
         outgoing.end(Buffer.from(await response.arrayBuffer()));
@@ -145,6 +150,7 @@ export async function startBusinessE2eServer(): Promise<BusinessE2eServer> {
     putTestObject(key, bytes) { objects.set(key, bytes.slice()); },
     getTestObject(key) { return objects.get(key)?.slice() ?? null; },
     setEmailProvider(fetch) { env.EMAIL_PROVIDER = { fetch }; },
+    setContextResponseDelay(milliseconds) { contextResponseDelayMs = Math.max(0, milliseconds); },
     async runScheduled() {
       await worker.scheduled({ scheduledTime: Date.now(), cron: '* * * * *' } as any, env);
     },
