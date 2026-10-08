@@ -1,4 +1,5 @@
 import { isApiErrorBody } from '../shared/api/errors';
+import { sha256 } from '@noble/hashes/sha2.js';
 import type {
   BusinessActorProfile,
   BusinessWorkspaceChangeFeed,
@@ -585,9 +586,13 @@ export async function downloadBusinessArchiveExport(
   if (response.headers.get('Content-Type')?.split(';', 1)[0]?.trim() !== expectedType) {
     throw new Error('The archive export returned an unexpected media type.');
   }
+  const contentLength = response.headers.get('Content-Length');
+  const expectedSize = contentLength === null ? undefined : Number(contentLength);
+  if (contentLength !== null && (!/^\d+$/.test(contentLength) || !Number.isSafeInteger(expectedSize) || expectedSize! < 0)) {
+    throw new Error('The archive export response has an invalid content length.');
+  }
   if (writable && part === 'archive') {
-    const expectedSize = Number(response.headers.get('Content-Length'));
-    if (!Number.isSafeInteger(expectedSize) || expectedSize <= 0 || !response.body) {
+    if (expectedSize === undefined || expectedSize <= 0 || !response.body) {
       throw new Error('The streamed archive response is missing a valid size or body.');
     }
     const reader = response.body.getReader();
@@ -609,11 +614,30 @@ export async function downloadBusinessArchiveExport(
     }
     return { fileName: 'sealed-audit-archive.zip' };
   }
-  const blob = await response.blob();
+  if (!response.body) throw new Error('The archive export response has no readable body.');
+  const hash = sha256.create();
+  let received = 0;
+  const integrityStream = response.body.pipeThrough(new TransformStream<Uint8Array, Uint8Array>({
+    transform(value, controller) {
+      if (!value?.byteLength) return;
+      const nextSize = received + value.byteLength;
+      if (!Number.isSafeInteger(nextSize) || (expectedSize !== undefined && nextSize > expectedSize)) {
+        throw new Error('The archive export exceeded its declared exact byte count.');
+      }
+      received = nextSize;
+      hash.update(value);
+      controller.enqueue(value);
+    },
+    flush() {
+      if (expectedSize !== undefined && received !== expectedSize) {
+        throw new Error('The archive export was incomplete and did not match its declared size.');
+      }
+      const actualHash = [...hash.digest()].map(byte => byte.toString(16).padStart(2, '0')).join('');
+      if (actualHash !== expectedHash) throw new Error('The exported bytes failed the client-side SHA-256 check.');
+    }
+  }));
   const expectedHash = part === 'manifest' ? expectedManifestSha256 : expectedArchiveSha256;
-  const actualHash = [...new Uint8Array(await crypto.subtle.digest('SHA-256', await blob.arrayBuffer()))]
-    .map(byte => byte.toString(16).padStart(2, '0')).join('');
-  if (actualHash !== expectedHash) throw new Error('The exported bytes failed the client-side SHA-256 check.');
+  const blob = await new Response(integrityStream, { headers: { 'Content-Type': expectedType } }).blob();
   return { blob, fileName: part === 'manifest' ? 'archive-manifest.json' : 'sealed-audit-archive.zip' };
 }
 

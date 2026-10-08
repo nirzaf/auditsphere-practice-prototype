@@ -50,8 +50,10 @@ client; checksum-backed exports retain R2's verified body stream. The previous
 64 MiB assembly and 128 MiB export-buffer limits have been removed. The archive
 writer now emits streaming ZIP64 local headers, descriptors, central-directory
 entries and end records, removing the ZIP32 4 GiB archive/member cap; it still
-rejects byte counts beyond JavaScript's exact safe-integer range. Browser fallback
-behavior without the File System Access API remains a hash-verified Blob. Large-
+rejects byte counts beyond JavaScript's exact safe-integer range. The browser
+fallback now hashes and counts response chunks in a TransformStream before
+materializing its Blob, avoiding an extra whole-archive ArrayBuffer copy; it also
+rejects unsafe, truncated, oversized and digest-mismatched responses. Large-
 archive acceptance remains open until tests cover actual multi-gigabyte members,
 the full supported size range and all supported download paths end-to-end. Sealed objects now use dedicated
 retention-specific prefixes, and `worker/r2-archive-locks.json` contains generated

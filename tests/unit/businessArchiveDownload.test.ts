@@ -94,3 +94,44 @@ it('keeps the non-streaming fallback byte-hash verification for browsers without
   assert.equal(result.blob?.type, 'application/zip');
   assert.deepEqual(new Uint8Array(await result.blob!.arrayBuffer()), bytes);
 });
+
+it('hashes fallback response chunks as they arrive and checks the declared size', async () => {
+  const chunks = [new Uint8Array([0x50, 0x4b]), new Uint8Array([0x03, 0x04, 0x10, 0x20])];
+  const bytes = new Uint8Array([...chunks[0]!, ...chunks[1]!]);
+  const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', bytes));
+  const expected = [...digest].map(byte => byte.toString(16).padStart(2, '0')).join('');
+  const result = await withFetch(async () => response(chunks, { archiveHash: expected }), () => downloadBusinessArchiveExport(
+    'workspace-test', 'engagement-test', 'archive', selected, expected, manifestHash
+  ));
+  assert.deepEqual(new Uint8Array(await result.blob!.arrayBuffer()), bytes);
+
+  await assert.rejects(() => withFetch(async () => response(chunks, { archiveHash: expected, size: bytes.byteLength + 1 }), () => downloadBusinessArchiveExport(
+    'workspace-test', 'engagement-test', 'archive', selected, expected, manifestHash
+  )), /incomplete and did not match its declared size/);
+});
+
+it('rejects an unsafe declared archive size before reading the fallback body', async () => {
+  const body = new ReadableStream<Uint8Array>({ pull() { assert.fail('invalid size must be rejected before reading'); } });
+  const result = new Response(body, { headers: {
+    'Content-Type': 'application/zip', 'Content-Length': '9007199254740992',
+    'X-Archive-SHA256': archiveHash, 'X-Archive-Manifest-SHA256': manifestHash
+  } });
+  await assert.rejects(() => withFetch(async () => result, () => downloadBusinessArchiveExport(
+    'workspace-test', 'engagement-test', 'archive', selected, archiveHash, manifestHash
+  )), /invalid content length/);
+});
+
+it('rejects truncated, oversized, or digest-mismatched fallback downloads', async () => {
+  const chunks = [new Uint8Array([0x50, 0x4b]), new Uint8Array([0x03, 0x04])];
+  const bytes = new Uint8Array([...chunks[0]!, ...chunks[1]!]);
+  const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', bytes));
+  const expected = [...digest].map(byte => byte.toString(16).padStart(2, '0')).join('');
+  const oversized = new Uint8Array([...bytes, 0x00]);
+
+  await assert.rejects(() => withFetch(async () => response([oversized], { archiveHash: expected, size: bytes.byteLength }), () => downloadBusinessArchiveExport(
+    'workspace-test', 'engagement-test', 'archive', selected, expected, manifestHash
+  )), /exceeded its declared exact byte count/);
+  await assert.rejects(() => withFetch(async () => response(chunks, { archiveHash: 'c'.repeat(64) }), () => downloadBusinessArchiveExport(
+    'workspace-test', 'engagement-test', 'archive', selected, 'c'.repeat(64), manifestHash
+  )), /client-side SHA-256 check/);
+});
