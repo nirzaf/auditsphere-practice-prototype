@@ -551,6 +551,12 @@ it('US-REP-001–007 covers all report categories, representation, atomic releas
   await waitFor('the clean reporting landing page after opinion category acceptance', `document.querySelector('#production-workspace-heading')?.textContent?.trim() === 'Open your business workspace'`);
   const fixture = await seedReportingFixture();
   const reportDate = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Qatar', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+  const futureRevenuePolicy = { name: 'Future milestone recognition policy', effectiveFrom: '2999-01-01',
+    recognitionMethod: 'APPROVED_MILESTONE', recognitionRules: 'Future milestone claims require committed approval evidence.' };
+  const futurePolicyDigest = sha256(JSON.stringify({ ...futureRevenuePolicy, revision: 2 }));
+  runFixtureSql(`INSERT INTO firm_revenue_policies(id,workspace_id,revision,name,effective_from,recognition_method,recognition_rules,content_sha256,approved_by_actor_id,approved_at)
+    VALUES(?,?,2,?,?,?,?,?,?,?)`, randomUUID(), fixture.workspaceId, futureRevenuePolicy.name, futureRevenuePolicy.effectiveFrom,
+    futureRevenuePolicy.recognitionMethod, futureRevenuePolicy.recognitionRules, futurePolicyDigest, fixture.actorId, new Date().toISOString());
   const beforeAction = await tab.evaluate<{ heading: string; preference: string | null }>(`({
     heading: document.querySelector('#production-workspace-heading')?.textContent?.trim() ?? '',
     preference: localStorage.getItem('auditsphere.business-context.v1')
@@ -599,7 +605,7 @@ it('US-REP-001–007 covers all report categories, representation, atomic releas
     const box = field?.getBoundingClientRect();
     return Boolean(box && box.top >= 0 && box.bottom <= window.innerHeight);
   })()`);
-  const initialPracticeScreenshot = await tab.command<{ data: string }>('Page.captureScreenshot', { format: 'png' });
+  const initialPracticeScreenshot = await tab.command('Page.captureScreenshot', { format: 'png' }) as { data: string };
   assert.ok(initialPracticeScreenshot.data.length > 1000, 'the loaded Partner practice panel is captured before responsive checks');
   const practiceUi = await tab.evaluate<{ policy: string; digest: string; earnedDate: string; recognitionAction: string; recognitionDisabled: boolean; explanation: string }>(`(() => {
     const practice = document.querySelector('#business-practice-${fixture.engagementId}')?.closest('section');
@@ -612,6 +618,8 @@ it('US-REP-001–007 covers all report categories, representation, atomic releas
       explanation: [...(practice?.querySelectorAll('p') ?? [])].map(item => item.textContent ?? '').find(text => text.includes('Receiving cash settles receivables')) ?? '' };
   })()`);
   assert.match(practiceUi.policy, /Policy for earned date · revision 1/);
+  assert.doesNotMatch(practiceUi.policy, /Future milestone recognition policy/,
+    'a higher-numbered policy is not shown when it is not effective on the earned date');
   assert.match(practiceUi.digest, /Policy digest [a-f0-9]{64}/);
   assert.equal(practiceUi.earnedDate, reportDate);
   assert.equal(practiceUi.recognitionAction, 'Recognize revenue with revision 1');
@@ -630,7 +638,7 @@ it('US-REP-001–007 covers all report categories, representation, atomic releas
   assert.ok(mobilePracticeLayout.pageWidth <= mobilePracticeLayout.viewportWidth, 'the 390px practice view has no horizontal page overflow');
   assert.ok(mobilePracticeLayout.cardLeft >= 0 && mobilePracticeLayout.cardRight <= 390, 'the practice card fits the mobile viewport');
   assert.ok(mobilePracticeLayout.earnedDateLeft >= 0 && mobilePracticeLayout.earnedDateRight <= 390, 'the earned-date field remains visible on mobile');
-  const mobilePracticeScreenshot = await tab.command<{ data: string }>('Page.captureScreenshot', { format: 'png' });
+  const mobilePracticeScreenshot = await tab.command('Page.captureScreenshot', { format: 'png' }) as { data: string };
   assert.ok(mobilePracticeScreenshot.data.length > 1000, 'the rendered mobile practice layout is captured for visual acceptance');
 
   await tab.command('Emulation.setDeviceMetricsOverride', { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });
@@ -642,7 +650,7 @@ it('US-REP-001–007 covers all report categories, representation, atomic releas
   })()`);
   assert.ok(desktopPracticeLayout.pageWidth <= desktopPracticeLayout.viewportWidth, 'the 1440px practice view has no horizontal page overflow');
   assert.ok(desktopPracticeLayout.cardLeft >= 0 && desktopPracticeLayout.cardRight <= 1440, 'the practice card fits the desktop viewport');
-  const desktopPracticeScreenshot = await tab.command<{ data: string }>('Page.captureScreenshot', { format: 'png' });
+  const desktopPracticeScreenshot = await tab.command('Page.captureScreenshot', { format: 'png' }) as { data: string };
   assert.ok(desktopPracticeScreenshot.data.length > 1000, 'the rendered desktop practice layout is captured for visual acceptance');
   await tab.command('Emulation.clearDeviceMetricsOverride');
 
