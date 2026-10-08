@@ -17,7 +17,8 @@ Remove "prototype/demo/visual" language from code-level identifiers and user-vis
 - Renamed the npm package to `auditsphere` in `package.json` and the lockfile; replaced stale prototype README and contributor guidance with the current BUSINESS workspace architecture, commands, and documentation map.
 - Reworded the workspace reset control to “Switch workspace” and updated its E2E assertions. Kept the truthful self-asserted identity warning. Cloud resource identifiers remain unchanged per scope.
 - Added `tests/unit/docsPaths.test.ts` to validate repository paths linked in README and CLAUDE guidance.
-- Status: **implementation complete; verification pending**.
+- `tests/unit/docsPaths.test.ts`, app and Worker typechecks, `npm run test:unit` (168 passed / 1 skipped), and `npm run build` passed. The local E2E run was stopped after six scenarios failed or timed out at roughly 55–60 seconds and Chrome profile cleanup reported Windows `EPERM`; full E2E remains open.
+- Status: **implementation complete; browser acceptance pending**.
 
 ## Scope
 **In:** `package.json` `name` → `auditsphere`; README rewritten (purpose, architecture diagram from `docs/architecture/overview.md`, commands from `docs/quality/testing.md`, link index to `docs/`); `CLAUDE.md` installed from this doc set and paths fixed; UI copy strings that say "prototype".

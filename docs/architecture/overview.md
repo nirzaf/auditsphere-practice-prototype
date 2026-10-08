@@ -85,7 +85,7 @@ flowchart TB
 
 ## 6. Tech stack — pinned versions
 
-Versions are what `package-lock.json` resolves at `54ec5a3`. `package.json` currently uses `^` ranges; **E02-S02 pins them exactly.** Do not upgrade any of these without an ADR.
+Versions are pinned exactly in `package.json` and resolved by `package-lock.json`. Do not upgrade any of these without an ADR.
 
 | Layer | Package / platform | Version |
 |---|---|---|
