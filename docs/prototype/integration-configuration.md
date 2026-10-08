@@ -5,23 +5,24 @@ blocked. It records the integration code and configuration in the repository and
 the account-owner steps that still gate live acceptance. Integration status must
 come from the deployed Worker; local configuration is not evidence of connectivity.
 
-The last verified production Worker is main commit
-`b010b9c7dc63410b56919d66cef17839335b542f`, deployed by [GitHub Actions run
-37765095335](https://github.com/nirzaf/auditsphere-practice-prototype/actions/runs/37765095335)
+The latest verified production Worker is main commit
+`3349db7ca89cd90899f79bb13e732cb6a5f99f34`, deployed by [GitHub Actions run
+37773284817](https://github.com/nirzaf/auditsphere-practice-prototype/actions/runs/37773284817)
 on 2026-10-08. CI passed application/Worker typecheck, unit tests, browser E2E,
 and production build. The deployment job applied and verified R2 archive-retention
 locks, deployed the restricted Email Service provider, applied approved D1
 migrations, deployed the Worker/static assets, and passed the Worker readiness
-probe. This proves deployment health, not outbound email delivery or SharePoint
-authentication. The main Worker deploys from checked-in `wrangler.jsonc`; the
-earlier strict-mode config conflict is resolved.
+probe. A live readiness request returned `ready` at schema version 44 with no
+dependency codes. This proves deployment health, not outbound email delivery or
+SharePoint authentication. The main Worker deploys from checked-in `wrangler.jsonc`;
+the earlier strict-mode config conflict is resolved.
 
-A `GET /api/integrations/status` observed at 2026-10-08 10:47:32 UTC reported
-email `configured: true` with transport `SERVICE_BINDING`; SharePoint reports
-`FAILED` because Microsoft Graph rejected the token request. The latest readiness
-probe returned `ready` at schema version 44 with no dependency codes. A healthy deployment does
-not by itself establish email delivery or SharePoint connectivity; the integration
-probe remains failed for SharePoint and pending for real email delivery.
+A `GET /api/integrations/status` observed at 2026-10-08 12:02:37 UTC reported
+email `configured: true` with transport `SERVICE_BINDING` and
+`providerReadiness: READY`; SharePoint reports `FAILED` because Microsoft Graph
+rejected the token request. A healthy deployment does not by itself establish
+email delivery or SharePoint connectivity; the integration probe remains failed
+for SharePoint and pending for real email delivery.
 
 Verify the current state of every integration at any time:
 
@@ -143,18 +144,22 @@ The app remains limited to `Sites.Selected`; do not give it tenant-wide
 `Sites.ReadWrite.All` or `Sites.FullControl.All`.
 
 The configured SharePoint client secret was exposed in browser accessibility
-output during the setup session. Treat it as compromised: the tenant owner must
-revoke it, create a replacement, update the Cloudflare Worker secret, and redeploy.
-Do not copy either secret into this runbook, chat, or repository. Repeat the live
-status probe and a real site read/write check only after rotation; a successful
-token request alone does not prove the site grant works.
+output during the setup session. Treat it as compromised. The app currently lists
+one replacement secret labeled `AuditSphere UAT Cloudflare Worker rotated
+(180-day)`, expiring 2027-04-06. Microsoft shows secret values only at creation;
+the live Worker still receives a rejected Graph token response, so the deployed
+secret has not been proven to match. If the owner no longer has that replacement
+value, create another and enter it directly as `SHAREPOINT_CLIENT_SECRET` in the
+Cloudflare Worker secret UI. Never copy it into this runbook, chat, or repository.
+Repeat the live status probe and a real site read/write check after the Cloudflare
+secret is updated; a successful token request alone does not prove the site grant works.
 
 The deployed Worker token cache keys entries by a non-reversible SHA-256 fingerprint of
 the client secret, tenant and app identity. A same-length secret rotation now
 invalidates the cached token; regression coverage is in
-`tests/unit/sharePointAdapter.test.ts`. The current `FAILED` probe is still using
-the existing rejected credential; owner rotation and a site read/write check are
-still required.
+`tests/unit/sharePointAdapter.test.ts`. The current `FAILED` probe at
+2026-10-08 12:02:37 UTC is still using a rejected credential; matching the
+deployed credential and a site read/write check are still required.
 
 The SharePoint Admin Center session reviewed on 2026-10-07 can see the approved
 acceptance site and its site settings/membership, but does not expose a Graph
@@ -205,7 +210,7 @@ below before acceptance:
 | Field | Source |
 | --- | --- |
 | Application URL | https://auditsphere-visual-prototype.quadrate-lk.workers.dev (readiness returns `ready`) |
-| Deployed build identity | `b010b9c7dc63410b56919d66cef17839335b542f` (verified Worker deployment, 2026-10-08; GitHub Actions run 37765095335) |
+| Deployed build identity | `3349db7ca89cd90899f79bb13e732cb6a5f99f34` (verified Worker deployment, 2026-10-08; GitHub Actions run 37773284817) |
 | Workspace and actors | **Blocked.** The deployed public `workers.dev` Worker returned `Business workspace setup is not enabled for this trusted deployment.` when the synthetic create flow was submitted. No workspace or actors were created. Keep the setup gate disabled on this unrestricted, no-auth endpoint; establish a trusted test perimeter and explicitly enable bootstrap there before recording UAT evidence. |
 | Client / engagement ids | **Not created.** There are no deployed UAT records or IDs to record until the trusted test workspace flow is enabled and verified. |
 | SharePoint site/library/root ids | values returned by `/api/integrations/status` after the site grant and secret are configured |
