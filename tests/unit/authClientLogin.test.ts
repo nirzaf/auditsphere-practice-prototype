@@ -195,12 +195,12 @@ it('enforces client login, forced password change, lockout, reset, rate limits, 
     return Object.keys(payload).sort().join(',') === 'documentType,userAccountId'
       && payload.documentType === 'PASSWORD_RESET' && payload.userAccountId === account.id;
   }));
-  const processedResetJobs = await processBusinessOutbox(env, 3);
+  const processedResetJobs = await processBusinessOutbox(env, 4);
   const resetJobOutcomes = db.prepare(`SELECT status,last_error_code,result_json FROM outbox_jobs WHERE workspace_id=? AND id IN (${resetJobs.map(() => '?').join(',')})`)
     .bind(workspace.workspaceId, ...resetJobs.map(job => job.id)).all<any>().results;
-  assert.equal(sentMessages.length, 3, `reset dispatch processed=${processedResetJobs}; outcomes=${JSON.stringify(resetJobOutcomes)}`);
-  assert.ok(sentMessages.every(message => message.purpose === 'PASSWORD_RESET' && message.to === account.email_normalized));
-  const resetLink = sentMessages.at(-1)!.text.match(/https:\/\/audit\.example\/reset\?token=([^\s]+)/);
+  const sentResetMessages = sentMessages.filter(message => message.purpose === 'PASSWORD_RESET' && message.to === account.email_normalized);
+  assert.equal(sentResetMessages.length, 3, `reset dispatch processed=${processedResetJobs}; outcomes=${JSON.stringify(resetJobOutcomes)}`);
+  const resetLink = sentResetMessages.at(-1)!.text.match(/https:\/\/audit\.example\/reset\?token=([^\s]+)/);
   assert.ok(resetLink, 'the recipient email includes the one-time reset link');
   const bearerToken = decodeURIComponent(resetLink[1]);
   const resetTokenHash = await tokenHash(bearerToken);

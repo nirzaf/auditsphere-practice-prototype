@@ -115,6 +115,12 @@ function parseRawPayload(job: OutboxJob): Record<string, any> {
         || Object.keys(payload).sort().join(',') !== 'documentType,userAccountId') throw new Error('password reset shape');
       return payload;
     }
+    if (job.kind === 'EMAIL' && payload?.documentType === 'STAFF_INVITE') {
+      if (typeof payload.userAccountId !== 'string' || typeof payload.credentialTokenId !== 'string'
+        || payload.userAccountId !== job.aggregate_id
+        || Object.keys(payload).sort().join(',') !== 'credentialTokenId,documentType,userAccountId') throw new Error('staff invite shape');
+      return payload;
+    }
     if (job.kind === 'GENERATE_DOCUMENT' && payload?.documentType === 'PRACTICE_REPORT') {
       if (typeof payload.reportSnapshotId !== 'string' || payload.reportSnapshotId !== job.aggregate_id
         || !['TRIAL_BALANCE','MONTHLY_PROFIT_LOSS'].includes(String(payload.kind))
@@ -1037,6 +1043,76 @@ async function dispatchPasswordReset(env: Env, job: OutboxJob, payload: Record<s
   });
 }
 
+async function dispatchStaffInvite(env: Env, job: OutboxJob, payload: Record<string, any>): Promise<void> {
+  if (payload.documentType !== 'STAFF_INVITE' || typeof payload.userAccountId !== 'string'
+    || typeof payload.credentialTokenId !== 'string') {
+    throw new OutboxError('INVALID_STAFF_INVITE_PAYLOAD', 'The staff invitation job is missing its account or token reference.');
+  }
+  const createdAt = nowIso();
+  const invite = await env.DB.prepare(`SELECT u.id,u.version,u.email_normalized,u.display_name,u.status,u.external_subject,
+      t.id AS token_id,t.expires_at
+    FROM user_accounts u JOIN credential_tokens t ON t.workspace_id=u.workspace_id AND t.user_account_id=u.id
+    WHERE u.workspace_id=? AND u.id=? AND u.kind='STAFF' AND u.status='INVITED' AND u.external_subject IS NULL
+      AND t.id=? AND t.purpose='STAFF_INVITE' AND t.consumed_at IS NULL AND t.expires_at>?
+      AND NOT EXISTS(SELECT 1 FROM credential_tokens newer WHERE newer.workspace_id=t.workspace_id AND newer.user_account_id=t.user_account_id
+        AND newer.purpose='STAFF_INVITE' AND (newer.created_at>t.created_at OR (newer.created_at=t.created_at AND newer.id>t.id)))`)
+    .bind(job.workspace_id, payload.userAccountId, payload.credentialTokenId, createdAt)
+    .first<{ id: string; version: number; email_normalized: string; display_name: string; status: string; external_subject: string | null; token_id: string; expires_at: string }>();
+  if (!invite) throw new OutboxError('STAFF_INVITE_UNAVAILABLE', 'The staff invitation is expired, superseded, consumed or no longer eligible.');
+  let appUrl: string;
+  try {
+    const url = new URL(env.PUBLIC_APP_URL ?? '');
+    if ((url.protocol !== 'https:' && !(url.protocol === 'http:' && ['localhost', '127.0.0.1'].includes(url.hostname)))
+      || url.username || url.password || url.search || url.hash) throw new Error('invalid URL');
+    appUrl = url.href.replace(/\/$/, '');
+  } catch {
+    throw new OutboxError('PUBLIC_APP_URL_NOT_CONFIGURED', 'Set PUBLIC_APP_URL to the HTTPS application origin before sending staff invitations.');
+  }
+  if (!env.EMAIL_PROVIDER) throw new OutboxError('EMAIL_PROVIDER_NOT_CONFIGURED', 'Configure the EMAIL_PROVIDER service binding before sending staff invitations.');
+  const signInUrl = `${appUrl}/api/auth/staff/login`;
+  const form = new FormData();
+  form.set('message', JSON.stringify({ to: invite.email_normalized, recipientName: invite.display_name,
+    subject: 'You are invited to AuditSphere',
+    text: `Hello ${invite.display_name},\n\nYou have been invited to sign in to AuditSphere using your organization's Microsoft account.\n\nSign in: ${signInUrl}\n\nThis invitation expires at ${invite.expires_at}. If you did not expect this invitation, contact your firm administrator.`,
+    purpose: 'STAFF_INVITE' }));
+  let response: Response;
+  try {
+    response = await env.EMAIL_PROVIDER.fetch(new Request('https://email-provider.local/send', {
+      method: 'POST', headers: { 'Idempotency-Key': job.deduplication_key }, body: form
+    }));
+  } catch {
+    throw new OutboxError('EMAIL_PROVIDER_OUTCOME_UNKNOWN', 'The staff invitation provider connection ended without a verifiable outcome.', 'UNKNOWN');
+  }
+  if (response.status === 408 || response.status === 429) throw new OutboxError(`EMAIL_PROVIDER_HTTP_${response.status}`, `The provider returned HTTP ${response.status}; the invitation will retry.`, 'RETRY');
+  if (response.status >= 500) throw new OutboxError(`EMAIL_PROVIDER_HTTP_${response.status}`, `The provider returned HTTP ${response.status}; acceptance is unknown.`, 'UNKNOWN');
+  if (!response.ok) throw new OutboxError(`EMAIL_PROVIDER_HTTP_${response.status}`, `The provider rejected the staff invitation with HTTP ${response.status}.`);
+  let providerMessageId: string;
+  try {
+    const result = await response.json() as { messageId?: unknown };
+    if (typeof result.messageId !== 'string' || !result.messageId.trim() || result.messageId.length > 512) throw new Error('missing message id');
+    providerMessageId = result.messageId.trim();
+  } catch {
+    throw new OutboxError('EMAIL_PROVIDER_RESPONSE_INVALID', 'The provider returned success without a verifiable message ID.', 'UNKNOWN');
+  }
+  const acceptedAt = nowIso();
+  await commitJobMutation(env, job, {
+    entityType: 'USER_ACCOUNT', entityId: invite.id,
+    details: { jobId: job.id, credentialTokenId: invite.token_id, providerMessageId, status: 'ACCEPTED' },
+    result: { providerMessageId, status: 'ACCEPTED' },
+    statements: [
+      env.DB.prepare(`INSERT INTO command_assertions(workspace_id,seq,ok)
+        SELECT ?,993,CASE WHEN EXISTS(SELECT 1 FROM user_accounts u JOIN credential_tokens t
+          ON t.workspace_id=u.workspace_id AND t.user_account_id=u.id
+          WHERE u.workspace_id=? AND u.id=? AND u.kind='STAFF' AND u.status='INVITED' AND u.email_normalized=?
+            AND t.id=? AND t.purpose='STAFF_INVITE' AND t.consumed_at IS NULL AND t.expires_at>?) THEN 1 ELSE 0 END`)
+        .bind(job.workspace_id, job.workspace_id, invite.id, invite.email_normalized, invite.token_id, acceptedAt),
+      env.DB.prepare(`UPDATE outbox_jobs SET status='SUCCEEDED',provider_reference=?,result_json=?,last_error_code=NULL,
+        completed_at=?,lease_until=NULL,updated_at=?,version=version+1 WHERE workspace_id=? AND id=? AND status='RUNNING' AND lease_until=?`)
+        .bind(providerMessageId, JSON.stringify({ providerMessageId, status: 'ACCEPTED' }), acceptedAt, acceptedAt, job.workspace_id, job.id, job.lease_until)
+    ]
+  });
+}
+
 async function dispatchPortalCredentials(env: Env, job: OutboxJob, payload: Record<string, any>): Promise<void> {
   if (payload.documentType !== 'PORTAL_CREDENTIALS'
     || !['TEMP_PASSWORD', 'ACCESS_NOTICE'].includes(payload.mode)
@@ -1305,9 +1381,10 @@ async function recordJobFailure(env: Env, job: OutboxJob, error: unknown): Promi
                     : documentType === 'PRACTICE_REPORT' && typeof payload.reportSnapshotId === 'string' ? { type: 'FIRM_REPORT_SNAPSHOT', id: payload.reportSnapshotId } : null;
   const portalIssueId = typeof payload.portalCredentialIssueId === 'string' ? payload.portalCredentialIssueId : null;
   const passwordResetUserId = documentType === 'PASSWORD_RESET' && typeof payload.userAccountId === 'string' ? payload.userAccountId : null;
+  const staffInviteUserId = documentType === 'STAFF_INVITE' && typeof payload.userAccountId === 'string' ? payload.userAccountId : null;
   const portalEntityType = documentType === 'PORTAL_CREDENTIALS' ? portalIssueId ? 'PORTAL_CREDENTIAL_ISSUE' : 'USER_ACCOUNT' : null;
-  const failureEntityType = job.kind === 'IMPORT_TB' ? 'TB_IMPORT' : job.kind === 'EMAIL' ? portalEntityType ?? (passwordResetUserId ? 'USER_ACCOUNT' : 'DISPATCH') : documentEntity?.type ?? 'PROPOSAL_VERSION';
-  const failureEntityId = dispatchId ?? portalIssueId ?? passwordResetUserId ?? documentEntity?.id ?? job.aggregate_id;
+  const failureEntityType = job.kind === 'IMPORT_TB' ? 'TB_IMPORT' : job.kind === 'EMAIL' ? portalEntityType ?? (passwordResetUserId || staffInviteUserId ? 'USER_ACCOUNT' : 'DISPATCH') : documentEntity?.type ?? 'PROPOSAL_VERSION';
+  const failureEntityId = dispatchId ?? portalIssueId ?? passwordResetUserId ?? staffInviteUserId ?? documentEntity?.id ?? job.aggregate_id;
   await commitJobMutation(env, job, {
     entityType: failureEntityType,
     entityId: failureEntityId,
@@ -1354,9 +1431,10 @@ async function markExpiredEmailUnknown(env: Env, candidate: { id: string; worksp
   const now = nowIso();
   const portalIssueId = typeof payload.portalCredentialIssueId === 'string' ? payload.portalCredentialIssueId : null;
   const passwordResetUserId = payload.documentType === 'PASSWORD_RESET' && typeof payload.userAccountId === 'string' ? payload.userAccountId : null;
+  const staffInviteUserId = payload.documentType === 'STAFF_INVITE' && typeof payload.userAccountId === 'string' ? payload.userAccountId : null;
   await commitJobMutation(env, job, {
-    entityType: payload.documentType === 'PORTAL_CREDENTIALS' ? portalIssueId ? 'PORTAL_CREDENTIAL_ISSUE' : 'USER_ACCOUNT' : passwordResetUserId ? 'USER_ACCOUNT' : 'DISPATCH',
-    entityId: typeof payload.dispatchId === 'string' ? payload.dispatchId : portalIssueId ?? passwordResetUserId ?? job.aggregate_id,
+    entityType: payload.documentType === 'PORTAL_CREDENTIALS' ? portalIssueId ? 'PORTAL_CREDENTIAL_ISSUE' : 'USER_ACCOUNT' : passwordResetUserId || staffInviteUserId ? 'USER_ACCOUNT' : 'DISPATCH',
+    entityId: typeof payload.dispatchId === 'string' ? payload.dispatchId : portalIssueId ?? passwordResetUserId ?? staffInviteUserId ?? job.aggregate_id,
     clientId: payload.clientId, engagementId: payload.engagementId,
     details: { jobId: job.id, status: 'UNKNOWN', errorCode: 'EMAIL_PROVIDER_OUTCOME_UNKNOWN',
       errorMessage: 'The Worker stopped after the provider call began. Reconcile the provider record before any retry.' },
@@ -1407,7 +1485,8 @@ export async function processBusinessOutbox(env: Env, limit = 20): Promise<numbe
           if(!reportingHandled)await renderAndStoreCommercialDocument(env,job);
         }
         else await renderAndStoreProposal(env, job);
-      } else if (payload.documentType === 'PORTAL_CREDENTIALS') await dispatchPortalCredentials(env, job, payload);
+      } else if (payload.documentType === 'STAFF_INVITE') await dispatchStaffInvite(env, job, payload);
+      else if (payload.documentType === 'PORTAL_CREDENTIALS') await dispatchPortalCredentials(env, job, payload);
       else if (payload.documentType === 'PASSWORD_RESET') await dispatchPasswordReset(env, job, payload);
       else if (payload.documentType === 'COMMERCIAL_EMAIL') await dispatchCommercial(env, job);
       else await dispatchProposal(env, job);

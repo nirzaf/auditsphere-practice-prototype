@@ -27,6 +27,7 @@ import { ingestVerificationRun } from './verificationIngest';
 import {
   bootstrapBusinessWorkspace,
   listBusinessActorProfiles,
+  listBusinessUsers,
   listBusinessClients,
   getBusinessClient,
   listBusinessLeads,
@@ -234,6 +235,44 @@ const handleCreateWorkspace = async (ctx: RouteContext): Promise<Response> => {
   return jsonResponse(created, created.replayed ? 200 : 201, ctx.requestId);
 };
 
+const bootstrapTokenMatches = async (supplied: string, expected: string): Promise<boolean> => {
+  const encoder = new TextEncoder();
+  const [left, right] = await Promise.all([
+    crypto.subtle.digest('SHA-256', encoder.encode(supplied)),
+    crypto.subtle.digest('SHA-256', encoder.encode(expected))
+  ]);
+  const suppliedDigest = new Uint8Array(left);
+  const expectedDigest = new Uint8Array(right);
+  let mismatch = 0;
+  for (let index = 0; index < expectedDigest.length; index += 1) mismatch |= suppliedDigest[index] ^ expectedDigest[index];
+  return mismatch === 0;
+};
+
+const handleInternalBootstrap = async (ctx: RouteContext): Promise<Response> => {
+  const expected = ctx.env.BOOTSTRAP_TOKEN;
+  const authorization = ctx.request.headers.get('Authorization') ?? '';
+  const supplied = /^Bearer ([A-Za-z0-9._~-]{32,512})$/.exec(authorization)?.[1] ?? '';
+  if (!expected || expected.length < 32 || !supplied || !await bootstrapTokenMatches(supplied, expected)) {
+    throw new ApiError('NOT_FOUND', 'That API route does not exist.');
+  }
+  const idempotencyKey = ctx.request.headers.get('Idempotency-Key')?.trim();
+  if (!idempotencyKey || idempotencyKey.length < 8 || idempotencyKey.length > 200) {
+    throw new ApiError('BAD_REQUEST', 'A unique Idempotency-Key header is required for first-Partner bootstrap.');
+  }
+  const input = parseBusinessBootstrapInput(await readJson<unknown>(ctx.request, 16 * 1024));
+  const keyHash = await sha256Hex(`auditsphere:business-bootstrap:${idempotencyKey}`);
+  const [existing, receipt] = await Promise.all([
+    ctx.env.DB.prepare(`SELECT COUNT(*) AS count FROM workspaces WHERE data_mode='BUSINESS'`).first<{ count: number }>(),
+    ctx.env.DB.prepare(`SELECT idempotency_key_hash FROM business_bootstrap_receipts WHERE idempotency_key_hash=?`)
+      .bind(keyHash).first<{ idempotency_key_hash: string }>()
+  ]);
+  if ((existing?.count ?? 0) > 0 && !receipt) {
+    throw new ApiError('GATE_BLOCKED', 'First-Partner bootstrap is disabled because a BUSINESS workspace already exists.');
+  }
+  const created = await bootstrapBusinessWorkspace(ctx.env, input, idempotencyKey, { oneTime: true });
+  return jsonResponse(created, created.replayed ? 200 : 201, ctx.requestId);
+};
+
 const handleBusinessActorProfiles = async (ctx: RouteContext): Promise<Response> => {
   const session = await resolveBusinessSession(ctx.env, ctx.request);
   if (session.workspace_id !== ctx.params.workspaceId) throw new ApiError('NOT_FOUND', 'Workspace not found.');
@@ -250,6 +289,9 @@ const handleBusinessActorProfiles = async (ctx: RouteContext): Promise<Response>
   }
   return jsonResponse(profiles, 200, ctx.requestId);
 };
+
+const handleBusinessUsers = async (ctx: RouteContext): Promise<Response> =>
+  jsonResponse(await listBusinessUsers(ctx.env, ctx.params.workspaceId, ctx.request), 200, ctx.requestId);
 
 const handleBusinessContext = async (ctx: RouteContext): Promise<Response> => {
   const context = await resolveBusinessContext(ctx.env, ctx.params.workspaceId, ctx.request);
@@ -642,8 +684,10 @@ const router = createRouter()
   .get('/api/health/support-bundle', handleSupportBundle)
   .get('/api/integrations/status', handleIntegrationStatus)
   .post('/api/internal/verification-runs', ingestVerificationRun)
+  .post('/api/internal/bootstrap', handleInternalBootstrap)
   .post('/api/workspaces', handleCreateWorkspace)
   .get('/api/workspaces/:workspaceId/actor-profiles', handleBusinessActorProfiles)
+  .get('/api/workspaces/:workspaceId/users', handleBusinessUsers)
   .get('/api/workspaces/:workspaceId/context', handleBusinessContext)
   .get('/api/workspaces/:workspaceId/clients', handleBusinessClients)
   .get('/api/workspaces/:workspaceId/clients/:clientId', handleBusinessClient)

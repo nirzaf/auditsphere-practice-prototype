@@ -18,8 +18,10 @@ GET /api/health/ready
 GET /api/health/support-bundle
 GET /api/integrations/status
 POST /api/internal/verification-runs
+POST /api/internal/bootstrap
 POST /api/workspaces
 GET /api/workspaces/:workspaceId/actor-profiles
+GET /api/workspaces/:workspaceId/users
 GET /api/workspaces/:workspaceId/context
 GET /api/workspaces/:workspaceId/clients
 GET /api/workspaces/:workspaceId/clients/:clientId

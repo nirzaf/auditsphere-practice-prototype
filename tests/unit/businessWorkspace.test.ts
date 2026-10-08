@@ -25,15 +25,20 @@ function decodedPdfContent(bytes: Uint8Array): string {
     const dictionaryStart = pdf.lastIndexOf(Buffer.from('<<'), markerIndex);
     const dictionary = pdf.subarray(dictionaryStart, markerIndex).toString('latin1');
     const dataStart = markerIndex + marker.length;
-    const dataEnd = pdf.indexOf(Buffer.from('endstream'), dataStart);
+    const declaredLength = dictionary.match(/\/Length\s+(\d+)\b/);
+    const dataEnd = declaredLength
+      ? dataStart + Number(declaredLength[1])
+      : pdf.indexOf(Buffer.from('endstream'), dataStart);
     if (dataEnd < 0) break;
     if (dictionary.includes('/FlateDecode')) {
       let compressedEnd = dataEnd;
-      if (pdf[compressedEnd - 1] === 0x0a) compressedEnd -= 1;
-      if (pdf[compressedEnd - 1] === 0x0d) compressedEnd -= 1;
+      if (!declaredLength && pdf[compressedEnd - 1] === 0x0a) compressedEnd -= 1;
+      if (!declaredLength && pdf[compressedEnd - 1] === 0x0d) compressedEnd -= 1;
       streams.push(inflateSync(pdf.subarray(dataStart, compressedEnd)).toString('latin1'));
     }
-    cursor = dataEnd + Buffer.byteLength('endstream');
+    const endMarker = pdf.indexOf(Buffer.from('endstream'), dataEnd);
+    if (endMarker < 0) break;
+    cursor = endMarker + Buffer.byteLength('endstream');
   }
   return streams.join('\n');
 }
@@ -217,13 +222,13 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
   const ready = await call('/api/health/ready');
   assert.equal(ready.response.status, 200, JSON.stringify(ready.body));
   assert.equal(ready.body.status, 'ready');
-  assert.equal(ready.body.schemaVersion, 47);
+  assert.equal(ready.body.schemaVersion, 48);
   assert.deepEqual(ready.body.dependencyCodes, []);
   const supportBundle = await call('/api/health/support-bundle');
   assert.equal(supportBundle.response.status, 200);
   assert.match(supportBundle.response.headers.get('content-disposition') ?? '', /attachment; filename="auditsphere-support-bundle.json"/);
-  assert.equal(supportBundle.body.applicationSchemaVersion, 47);
-  assert.equal(supportBundle.body.installedSchemaVersion, 47);
+  assert.equal(supportBundle.body.applicationSchemaVersion, 48);
+  assert.equal(supportBundle.body.installedSchemaVersion, 48);
   assert.equal(supportBundle.body.readiness, 'ready');
   assert.deepEqual(supportBundle.body.verificationRuns, []);
   assert.equal(JSON.stringify(supportBundle.body).includes('workspaceId'), false);
@@ -318,7 +323,7 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
   const approverContext = await call(`/api/workspaces/${workspaceId}/context`, { headers: approverHeaders });
   assert.equal(approverContext.response.status, 200, JSON.stringify(approverContext.body));
   assert.deepEqual(approverContext.body.allowedActions, [
-    'directory.manage', 'client.read', 'client.manage', 'lead.read', 'lead.manage', 'lead.convert', 'engagement.read', 'engagement.advance', 'standards.read', 'standards.manage', 'file.read', 'file.upload', 'proposal.read', 'proposal.create', 'proposal.generate', 'proposal.approve', 'proposal.dispatch', 'firm.manage', 'risk.read', 'riskAssessment.draft', 'riskAssessment.submit', 'riskAssessment.resolveEscalation', 'risk.clear', 'commercialAcceptance.read', 'engagementLetter.manage', 'invoice.issue', 'payment.record', 'payment.reverse', 'billing.read', 'pbc.read', 'pbc.manage', 'pbc.review', 'planning.read', 'staffing.manage', 'tb.manage', 'fieldwork.read', 'fieldwork.manage', 'fieldwork.review', 'sampling.manage', 'evidence.review', 'practice.read', 'practice.manage', 'practice.approve', 'ledger.read', 'ledger.manage', 'ledger.post', 'reporting.read', 'reporting.prepare', 'reporting.approve', 'reporting.release'
+    'directory.manage', 'client.read', 'client.manage', 'lead.read', 'lead.manage', 'lead.convert', 'engagement.read', 'engagement.advance', 'standards.read', 'standards.manage', 'file.read', 'file.upload', 'proposal.read', 'proposal.create', 'proposal.generate', 'proposal.approve', 'proposal.dispatch', 'firm.manage', 'risk.read', 'riskAssessment.draft', 'riskAssessment.submit', 'riskAssessment.resolveEscalation', 'risk.clear', 'commercialAcceptance.read', 'engagementLetter.manage', 'invoice.issue', 'payment.record', 'payment.reverse', 'billing.read', 'pbc.read', 'pbc.manage', 'pbc.review', 'planning.read', 'staffing.manage', 'tb.manage', 'fieldwork.read', 'fieldwork.manage', 'fieldwork.review', 'sampling.manage', 'evidence.review', 'practice.read', 'practice.manage', 'practice.approve', 'ledger.read', 'ledger.manage', 'ledger.post', 'reporting.read', 'reporting.prepare', 'reporting.approve', 'reporting.release', 'firm.admin'
   ]);
 
   const staffKey = crypto.randomUUID();

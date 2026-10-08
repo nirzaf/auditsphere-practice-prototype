@@ -40,15 +40,33 @@ export async function authSessionCookie(db: TestDatabase, workspaceId: string, r
   const email = profile.persona === 'CLIENT' && profile.client_email ? profile.client_email.trim().toLowerCase() : `${userAccountId}@auditsphere.test`;
   const displayName = profile.persona === 'CLIENT' ? profile.client_name || 'Test Client' : profile.staff_name || 'Test Staff';
   const now = new Date().toISOString();
-  await db.prepare(`INSERT OR IGNORE INTO user_accounts(id,workspace_id,kind,email_normalized,display_name,staff_member_id,contact_id,status,
-      external_issuer,external_subject,created_at,updated_at)
-    VALUES(?,?,?,?,?,?,?,'ACTIVE',NULL,NULL,?,?)`).bind(userAccountId, workspaceId,
-    profile.persona === 'CLIENT' ? 'CLIENT' : 'STAFF', email, displayName, profile.staff_member_id, profile.contact_id, now, now).run();
+  const kind = profile.persona === 'CLIENT' ? 'CLIENT' : 'STAFF';
+  const linkedAccount = await db.prepare(`SELECT id,status FROM user_accounts WHERE workspace_id=? AND kind=? AND
+      ((? IS NOT NULL AND staff_member_id=?) OR (? IS NOT NULL AND contact_id=?)) LIMIT 1`)
+    .bind(workspaceId, kind, profile.staff_member_id, profile.staff_member_id, profile.contact_id, profile.contact_id)
+    .first<{ id: string; status: string }>();
+  const accountId = linkedAccount?.id ?? userAccountId;
+  if (!linkedAccount) {
+    await db.prepare(`INSERT INTO user_accounts(id,workspace_id,kind,email_normalized,display_name,staff_member_id,contact_id,status,
+        external_issuer,external_subject,created_at,updated_at)
+      VALUES(?,?,?,?,?,?,?,'ACTIVE',NULL,NULL,?,?)`).bind(accountId, workspaceId,
+      kind, email, displayName, profile.staff_member_id, profile.contact_id, now, now).run();
+  } else if (linkedAccount.status === 'INVITED') {
+    // Local API fixtures stand in for a completed Entra callback; the dedicated
+    // OIDC tests cover invitation-token expiry and atomic activation.
+    await db.prepare(`UPDATE user_accounts SET status='ACTIVE',updated_at=?,version=version+1 WHERE workspace_id=? AND id=? AND status='INVITED'`)
+      .bind(now, workspaceId, accountId).run();
+    await db.prepare(`UPDATE credential_tokens SET consumed_at=? WHERE workspace_id=? AND user_account_id=?
+      AND purpose='STAFF_INVITE' AND consumed_at IS NULL`).bind(now, workspaceId, accountId).run();
+  }
   await db.prepare(`INSERT OR IGNORE INTO user_profile_grants(id,workspace_id,user_account_id,actor_profile_id,granted_by_actor_id,granted_at)
-    VALUES(?,?,?,?,NULL,?)`).bind(crypto.randomUUID(), workspaceId, userAccountId, actorProfileId, now).run();
+    VALUES(?,?,?,?,NULL,?)`).bind(crypto.randomUUID(), workspaceId, accountId, actorProfileId, now).run();
+  const ownedGrant = await db.prepare(`SELECT id FROM user_profile_grants WHERE workspace_id=? AND user_account_id=?
+    AND actor_profile_id=? AND revoked_at IS NULL`).bind(workspaceId, accountId, actorProfileId).first<{ id: string }>();
+  if (!ownedGrant) throw new Error(`Actor profile ${actorProfileId} is already granted to another account.`);
 
   const created = await createAuthSession({ DB: db } as unknown as Env, {
-    workspaceId, userAccountId, authMethod: 'OIDC_ENTRA', activeActorProfileId: actorProfileId, now
+    workspaceId, userAccountId: accountId, authMethod: 'OIDC_ENTRA', activeActorProfileId: actorProfileId, now
   });
   const cookie = `__Host-as_session=${created.token}`;
   byProfile.set(key, cookie);

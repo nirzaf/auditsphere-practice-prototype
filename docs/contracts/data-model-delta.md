@@ -1,10 +1,10 @@
 # Data Model Delta (remaining work only)
 
-**Executable source of truth:** `worker/migrations/*.sql` (47 files, last = `0047_portal_credential_provisioning.sql`). This document specifies the **new** migrations the backlog requires. Agents copy the SQL into a new numbered migration file, adjust only what the story's acceptance criteria demand, and record any deviation in the story's report.
+**Executable source of truth:** `worker/migrations/*.sql` (48 files, last = `0048_first_partner_bootstrap_lock.sql`). This document specifies the **new** migrations the backlog requires. Agents copy the SQL into a new numbered migration file, adjust only what the story's acceptance criteria demand, and record any deviation in the story's report.
 
 ## Migration rules (existing conventions — follow exactly)
 
-1. Forward-only, numbered `NNNN_snake_case.sql`, next free number is **0048**. Never edit an applied migration. E01-S05 used 0045, E03-S01 added auth tables in 0046, and E03-S04 added portal credential issues in 0047. Also bump `APPLICATION_SCHEMA_VERSION` in `worker/versions.ts` (currently `47`), which readiness compares against the DB (`handleHealthReady` → `SCHEMA_VERSION_MISMATCH`).
+1. Forward-only, numbered `NNNN_snake_case.sql`, next free number is **0049**. Never edit an applied migration. E01-S05 used 0045, E03-S01 added auth tables in 0046, E03-S04 added portal credential issues in 0047, and E03-S06 added the single-use first-Partner lock in 0048. Also bump `APPLICATION_SCHEMA_VERSION` in `worker/versions.ts` (currently `48`), which readiness compares against the DB (`handleHealthReady` → `SCHEMA_VERSION_MISMATCH`).
 2. Every business table has `id TEXT PRIMARY KEY`, `workspace_id TEXT NOT NULL`, `UNIQUE (workspace_id, id)`, composite FKs `(workspace_id, x_id)` → `parent(workspace_id, id)`, `ON DELETE RESTRICT`.
 3. Mutable rows carry `version INTEGER NOT NULL DEFAULT 1 CHECK (version > 0)`; updates use `WHERE version = ?` and `version = version + 1`.
 4. Append-only tables get `BEFORE UPDATE` and `BEFORE DELETE` triggers that `RAISE(ABORT, '…')` (pattern: `worker/migrations/0006_business_foundation.sql` lines 301–304).
@@ -182,6 +182,10 @@ CREATE TRIGGER IF NOT EXISTS portal_credential_issues_no_delete BEFORE DELETE ON
 ```
 
 > Verified by the isolated migration and BUSINESS workspace suites: all §2 foreign keys resolve against the schema through migration 0047. `outbox_jobs.kind` stays `EMAIL`; `PORTAL_CREDENTIALS` is a subtype in the job payload alongside `CONFIRMATION_REQUEST` and `HOLDING_LETTER`.
+
+## 3. `0048_first_partner_bootstrap_lock.sql` — E03-S06
+
+Creates `business_bootstrap_lock`, a single append-only row that the protected first-Partner bootstrap endpoint inserts in the same D1 batch as the first workspace. The singleton key rejects concurrent first-run requests with distinct idempotency keys; the route also refuses to start if any BUSINESS workspace pre-exists.
 
 ## 3. `0048_manual_dispatch_records.sql` — E04-S02
 
