@@ -9,7 +9,7 @@ CREATE TRIGGER migration_id_map_validated_target_guard
 BEFORE INSERT ON migration_id_map
 WHEN (SELECT status FROM migration_runs WHERE workspace_id = NEW.workspace_id AND id = NEW.run_id) = 'VALIDATED'
 BEGIN
-  SELECT CASE WHEN NOT (
+  SELECT (CASE WHEN NOT (
     (NEW.source_kind <> 'file_objects' AND EXISTS (
       SELECT 1 FROM workspace_entities e WHERE e.workspace_id=NEW.workspace_id
         AND e.entity_kind=NEW.source_kind AND e.entity_id=NEW.source_id AND e.deleted_at IS NULL
@@ -18,8 +18,8 @@ BEGIN
     (NEW.source_kind='file_objects' AND EXISTS (
       SELECT 1 FROM file_objects f WHERE f.workspace_id=NEW.workspace_id AND f.id=NEW.source_id AND f.deleted_at IS NULL
     ))
-  ) THEN RAISE(ABORT, 'MIGRATION_SOURCE_ROW_CHANGED_OR_MISSING') END;
-  SELECT CASE WHEN NOT (
+  ) THEN RAISE(ABORT, 'MIGRATION_SOURCE_ROW_CHANGED_OR_MISSING') END);
+  SELECT (CASE WHEN NOT (
     (NEW.target_kind='clients' AND NEW.source_kind='clients' AND NEW.target_id=NEW.source_id
       AND EXISTS (SELECT 1 FROM clients t WHERE t.workspace_id=NEW.workspace_id AND t.id=NEW.target_id))
     OR
@@ -28,7 +28,7 @@ BEGIN
     OR
     (NEW.target_kind='file_versions' AND NEW.source_kind='file_objects' AND NEW.target_id=NEW.source_id
       AND EXISTS (SELECT 1 FROM file_versions t WHERE t.workspace_id=NEW.workspace_id AND t.id=NEW.target_id AND t.state='COMMITTED'))
-  ) THEN RAISE(ABORT, 'MIGRATION_TARGET_ROW_MISSING_OR_UNSUPPORTED') END;
+  ) THEN RAISE(ABORT, 'MIGRATION_TARGET_ROW_MISSING_OR_UNSUPPORTED') END);
 END;
 
 DROP TRIGGER IF EXISTS migration_runs_applied_cutover_guard;
@@ -36,36 +36,36 @@ CREATE TRIGGER migration_runs_applied_cutover_guard
 BEFORE UPDATE OF status ON migration_runs
 WHEN NEW.status='APPLIED' AND OLD.status<>'APPLIED'
 BEGIN
-  SELECT CASE WHEN NEW.source_count <> (
+  SELECT (CASE WHEN NEW.source_count <> (
     SELECT COUNT(*) FROM workspace_entities e WHERE e.workspace_id=NEW.workspace_id AND e.deleted_at IS NULL
   ) + (
     SELECT COUNT(*) FROM file_objects f WHERE f.workspace_id=NEW.workspace_id AND f.deleted_at IS NULL
-  ) THEN RAISE(ABORT, 'MIGRATION_SOURCE_COUNT_CHANGED') END;
-  SELECT CASE WHEN NEW.target_count<>NEW.source_count OR NEW.target_count<>(
+  ) THEN RAISE(ABORT, 'MIGRATION_SOURCE_COUNT_CHANGED') END);
+  SELECT (CASE WHEN NEW.target_count<>NEW.source_count OR NEW.target_count<>(
     SELECT COUNT(*) FROM migration_id_map m WHERE m.workspace_id=NEW.workspace_id AND m.run_id=NEW.id
-  ) THEN RAISE(ABORT, 'MIGRATION_MAPPING_COUNT_MISMATCH') END;
-  SELECT CASE WHEN EXISTS (
+  ) THEN RAISE(ABORT, 'MIGRATION_MAPPING_COUNT_MISMATCH') END);
+  SELECT (CASE WHEN EXISTS (
     SELECT 1 FROM workspace_entities e
     LEFT JOIN migration_id_map m ON m.workspace_id=e.workspace_id AND m.run_id=NEW.id
       AND m.source_kind=e.entity_kind AND m.source_id=e.entity_id
       AND m.target_kind=e.entity_kind AND m.target_id=e.entity_id
     WHERE e.workspace_id=NEW.workspace_id AND e.deleted_at IS NULL AND m.id IS NULL
-  ) THEN RAISE(ABORT, 'MIGRATION_SOURCE_MAPPING_INCOMPLETE') END;
-  SELECT CASE WHEN EXISTS (
+  ) THEN RAISE(ABORT, 'MIGRATION_SOURCE_MAPPING_INCOMPLETE') END);
+  SELECT (CASE WHEN EXISTS (
     SELECT 1 FROM file_objects f
     LEFT JOIN migration_id_map m ON m.workspace_id=f.workspace_id AND m.run_id=NEW.id
       AND m.source_kind='file_objects' AND m.source_id=f.id
       AND m.target_kind='file_versions' AND m.target_id=f.id
     WHERE f.workspace_id=NEW.workspace_id AND f.deleted_at IS NULL AND m.id IS NULL
-  ) THEN RAISE(ABORT, 'MIGRATION_FILE_MAPPING_INCOMPLETE') END;
-  SELECT CASE WHEN EXISTS (
+  ) THEN RAISE(ABORT, 'MIGRATION_FILE_MAPPING_INCOMPLETE') END);
+  SELECT (CASE WHEN EXISTS (
     SELECT 1 FROM migration_id_map m WHERE m.workspace_id=NEW.workspace_id AND m.run_id=NEW.id
       AND NOT (
         (m.target_kind='clients' AND EXISTS (SELECT 1 FROM clients t WHERE t.workspace_id=m.workspace_id AND t.id=m.target_id))
         OR (m.target_kind='contacts' AND EXISTS (SELECT 1 FROM contacts t WHERE t.workspace_id=m.workspace_id AND t.id=m.target_id))
         OR (m.target_kind='file_versions' AND EXISTS (SELECT 1 FROM file_versions t WHERE t.workspace_id=m.workspace_id AND t.id=m.target_id AND t.state='COMMITTED'))
       )
-  ) THEN RAISE(ABORT, 'MIGRATION_TARGET_MAPPING_INCOMPLETE') END;
+  ) THEN RAISE(ABORT, 'MIGRATION_TARGET_MAPPING_INCOMPLETE') END);
 END;
 
 UPDATE application_schema_version

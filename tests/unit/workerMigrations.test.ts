@@ -17,6 +17,13 @@ it('applies each migration using Wrangler statement splitting to an isolated SQL
       const source = readFileSync(join(directory, migration), 'utf8');
       const statements = unstable_splitSqlQuery(source);
       assert.ok(statements.length > 0, `${migration} contains SQL statements`);
+      if (/^0039_|^0040_|^0041_/.test(migration)) {
+        for (const trigger of statements.filter(statement => /^CREATE TRIGGER/i.test(statement.trimStart()))) {
+          const guardedLines = trigger.split(/\r?\n/).filter(line => line.includes('THEN RAISE(ABORT,'));
+          assert.ok(guardedLines.every(line => line.trimEnd().endsWith('END);')),
+            `${migration} parenthesizes trigger CASE expressions so Cloudflare D1 does not split at CASE END`);
+        }
+      }
       for (let index = 0; index < statements.length; index += 1) {
         try {
           database.prepare(statements[index]).run();
