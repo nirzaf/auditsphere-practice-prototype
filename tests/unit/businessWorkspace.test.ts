@@ -1714,6 +1714,12 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
   }, { ...clientPbcHeaders, 'Idempotency-Key': crypto.randomUUID() });
   assert.equal(staleReservation.response.status, 201, JSON.stringify(staleReservation.body));
   const staleFileId = staleReservation.body.fileId as string;
+  const lateContentReservation = await post(`/api/workspaces/${workspaceId}/files`, {
+    clientId, engagementId, pbcRequestId, expectedPbcRequestVersion: 1, purpose: 'PBC', originalName: 'frozen-content-upload.pdf',
+    mediaType: 'application/pdf', sizeBytes: pdf.length
+  }, { ...clientPbcHeaders, 'Idempotency-Key': crypto.randomUUID() });
+  assert.equal(lateContentReservation.response.status, 201, JSON.stringify(lateContentReservation.body));
+  const lateContentFileId = lateContentReservation.body.fileId as string;
   const staleStage = await worker.fetch(new Request(`https://local.auditsphere.test/api/workspaces/${workspaceId}/files/${staleFileId}/content`, {
     method: 'PUT', headers: { Origin: 'https://local.auditsphere.test', ...clientPbcHeaders,
       'Idempotency-Key': crypto.randomUUID(), 'X-File-Version': '1', 'Content-Type': 'application/pdf' }, body: pdf
@@ -1741,6 +1747,23 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
   assert.deepEqual(pbcFrozenStaleCommit.body.details, { engagementId, frozenAt, bundleId: null });
   assert.equal(db.prepare('SELECT state FROM file_versions WHERE workspace_id=? AND id=?').bind(workspaceId, staleFileId).first<any>()?.state, 'STAGED',
     'a reservation staged before release cannot be committed after portal freeze');
+  const lateContent = await worker.fetch(new Request(`https://local.auditsphere.test/api/workspaces/${workspaceId}/files/${lateContentFileId}/content`, {
+    method: 'PUT', headers: { Origin: 'https://local.auditsphere.test', ...clientPbcHeaders,
+      'Idempotency-Key': crypto.randomUUID(), 'X-File-Version': '1', 'Content-Type': 'application/pdf' }, body: pdf
+  }), env, {} as any);
+  const lateContentBody = await lateContent.json() as { code?: string; details?: unknown };
+  assert.equal(lateContent.status, 423, JSON.stringify(lateContentBody));
+  assert.equal(lateContentBody.code, 'PORTAL_FROZEN', 'an initialized reservation cannot accept bytes after portal freeze');
+  assert.deepEqual(lateContentBody.details, { engagementId, frozenAt, bundleId: null });
+  assert.equal(db.prepare('SELECT state FROM file_versions WHERE workspace_id=? AND id=?').bind(workspaceId, lateContentFileId).first<any>()?.state, 'INITIALIZED',
+    'a post-release content attempt leaves its reservation unmodified');
+  const frozenReservation = await post(`/api/workspaces/${workspaceId}/files`, {
+    clientId, engagementId, pbcRequestId, expectedPbcRequestVersion: 1, purpose: 'PBC', originalName: 'reserved-after-release.pdf',
+    mediaType: 'application/pdf', sizeBytes: pdf.length
+  }, { ...clientPbcHeaders, 'Idempotency-Key': crypto.randomUUID() });
+  assert.equal(frozenReservation.response.status, 423, JSON.stringify(frozenReservation.body));
+  assert.equal(frozenReservation.body.code, 'PORTAL_FROZEN', 'the API rejects new client reservations after portal freeze');
+  assert.deepEqual(frozenReservation.body.details, { engagementId, frozenAt, bundleId: null });
   db.prepare('UPDATE engagements SET portal_frozen_at=NULL WHERE workspace_id=? AND id=?').bind(workspaceId, engagementId).run();
   const firstPbcFile = await uploadPbcResponse('year-end-tb.pdf', pdf, 1);
   db.prepare('UPDATE engagements SET portal_frozen_at=? WHERE workspace_id=? AND id=?').bind(frozenAt, workspaceId, engagementId).run();
