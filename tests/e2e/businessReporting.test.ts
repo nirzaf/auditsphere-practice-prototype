@@ -1667,8 +1667,8 @@ it('US-REP-001–007 covers all report categories, representation, atomic releas
     FROM engagements e JOIN portal_freezes pf ON pf.workspace_id=e.workspace_id AND pf.engagement_id=e.id
     WHERE e.workspace_id=? AND e.id=?`).bind(fixture.workspaceId, fixture.engagementId).first(),
     engagementBeforeCollection, 'collection does not unfreeze the portal, alter its immutable freeze record, or reopen the engagement');
-  const finalInvoiceAfterCollection = server.db.prepare(`SELECT id,fee_revision_id,total_minor,file_version_id,status FROM invoices WHERE workspace_id=? AND id=?`)
-    .bind(fixture.workspaceId, finalInvoiceSnapshot.id).first();
+  const finalInvoiceAfterCollection = { ...server.db.prepare(`SELECT id,fee_revision_id,total_minor,file_version_id,status FROM invoices WHERE workspace_id=? AND id=?`)
+    .bind(fixture.workspaceId, finalInvoiceSnapshot.id).first() };
   assert.deepEqual(finalInvoiceAfterCollection, { ...finalInvoiceSnapshot, status: 'ISSUED' }, 'late collection keeps the issued commercial invoice immutable');
   const issuedInvoiceBytesAfter = server.getTestObject(issuedInvoiceFile.object_key);
   assert.deepEqual(issuedInvoiceBytesAfter, issuedInvoiceBytesBefore, 'late collection does not rewrite the archived invoice bytes');
