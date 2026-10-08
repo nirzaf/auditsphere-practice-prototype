@@ -882,9 +882,29 @@ async function insertProcedure(env:Env,workspaceId:string,context:BusinessContex
   if(['SUBMITTED','REVIEWED','PARTNER_CLEARED'].includes(String(program.status)))throw new ApiError('INVALID_STATE','A submitted workprogram must be returned for rework before its scope changes.');
   const steps=await env.DB.prepare(`SELECT id,ordinal FROM procedures WHERE workspace_id=? AND workprogram_id=? ORDER BY ordinal`).bind(workspaceId,p.workprogramId).all<{id:string;ordinal:number}>();
   let ordinal=(steps.results??[]).length+1;const statements:D1PreparedStatement[]=[];
+  const shiftedProcedures:Array<{row:Record<string,unknown>;nextOrdinal:number;nextVersion:number;evidenceHash:string;sourceHash:string;content:Record<string,unknown>}>=[];
   if(p.afterProcedureId){const after=(steps.results??[]).find(item=>item.id===p.afterProcedureId);if(!after)throw new ApiError('NOT_FOUND','The procedure selected as the insertion point was not found.');ordinal=after.ordinal+1;
-    statements.push(env.DB.prepare(`UPDATE procedures SET ordinal=ordinal+1000000 WHERE workspace_id=? AND workprogram_id=? AND ordinal>=?`).bind(workspaceId,p.workprogramId,ordinal));
-    statements.push(env.DB.prepare(`UPDATE procedures SET ordinal=ordinal-999999 WHERE workspace_id=? AND workprogram_id=? AND ordinal>=1000001`).bind(workspaceId,p.workprogramId));
+    const affected=(steps.results??[]).filter(item=>item.ordinal>=ordinal).sort((left,right)=>left.ordinal-right.ordinal);
+    for(const item of affected){
+      const row=await currentProcedure(env,workspaceId,item.id);
+      if(!['NOT_STARTED','IN_PROGRESS','UNDER_REWORK'].includes(String(row.status)))throw new ApiError('INVALID_STATE','Return every affected submitted or reviewed procedure for rework before changing workprogram order.');
+      const evidence=await evidenceSet(env,workspaceId,'procedure_id',item.id,false);const nextOrdinal=Number(row.ordinal)+1;const nextVersion=Number(row.version)+1;
+      const content={procedureId:item.id,workprogramId:p.workprogramId,ordinal:nextOrdinal,title:row.title,instructions:row.instructions,assertion:row.assertion,origin:row.origin,mandatory:row.mandatory,
+        scopeReason:row.scope_reason,workPerformed:row.work_performed,conclusion:row.conclusion,applicable:Boolean(row.applicable),notApplicableReason:row.not_applicable_reason,status:row.status,
+        preparedByStaffId:row.prepared_by_staff_id,executedByStaffId:row.executed_by_staff_id};
+      const sourceHash=await rowHash({content,evidence:evidence.hash,planningVersionId:row.planning_version_id,tbVersionId:row.active_tb_version_id,mappingVersionId:row.active_mapping_version_id});
+      shiftedProcedures.push({row,nextOrdinal,nextVersion,evidenceHash:evidence.hash,sourceHash,content});
+    }
+    if(shiftedProcedures.length)statements.push(env.DB.prepare(`UPDATE procedures SET ordinal=ordinal+1000000 WHERE workspace_id=? AND workprogram_id=? AND ordinal>=?`).bind(workspaceId,p.workprogramId,ordinal));
+    shiftedProcedures.forEach((shifted,index)=>{
+      const id=String(shifted.row.id);const oldVersion=Number(shifted.row.version);
+      statements.push(versionGuard(env,workspaceId,700+index,'procedures','id',id,oldVersion));
+      statements.push(env.DB.prepare(`UPDATE procedures SET version=?,ordinal=?,evidence_set_hash=?,source_hash=?,updated_at=? WHERE workspace_id=? AND id=? AND version=?`)
+        .bind(shifted.nextVersion,shifted.nextOrdinal,shifted.evidenceHash,shifted.sourceHash,now,workspaceId,id,oldVersion));
+      statements.push(env.DB.prepare(`INSERT INTO procedure_revisions(id,workspace_id,procedure_id,row_version,content_snapshot_json,evidence_set_hash,changed_by_actor_id,changed_at,reason) VALUES(?,?,?,?,?,?,?,?,?)`)
+        .bind(crypto.randomUUID(),workspaceId,id,shifted.nextVersion,JSON.stringify({...shifted.content,version:shifted.nextVersion}),shifted.evidenceHash,context.actor.id,now,p.scopeReason));
+      statements.push(pushChange(env,workspaceId,String(program.engagement_id),'Procedure',id,shifted.nextVersion,now));
+    });
   }
   const procedureId=crypto.randomUUID();const emptyHash=await rowHash([]);const content={version:1,workprogramId:p.workprogramId,ordinal,title:p.title,instructions:p.instructions,assertion:p.assertion,origin:'AD_HOC',mandatory:true,scopeReason:p.scopeReason,workPerformed:null,conclusion:null,applicable:true,status:'NOT_STARTED'};const sourceHash=await rowHash(content);
   statements.push(env.DB.prepare(`INSERT INTO procedures(id,workspace_id,version,workprogram_id,template_step_id,ordinal,title,instructions,assertion,origin,mandatory,scope_reason,work_performed,conclusion,applicable,not_applicable_reason,status,prepared_by_staff_id,executed_by_staff_id,evidence_set_hash,source_hash,created_at,updated_at)

@@ -78,7 +78,10 @@ is present; local execution currently fails before page load because Chrome
 does not expose CDP and Edge exits during startup. Required-step validation
 across direct `procedure.submit` and generic `review.submit` now returns exact
 missing `workPerformed` and `conclusion` field names and creates no submission
-record. Browser review acceptance, procedure update/evidence matrices and the
+record. Inserting an ad-hoc procedure also versions each shifted editable row,
+stores the rationale in a new immutable procedure revision and emits a change
+feed entry; insertion is rejected when it would shift a submitted or reviewed
+row. Browser review acceptance, procedure update/evidence matrices and the
 remaining workprogram gates stay open.
 
 ## Externally blocked (integration layer implemented; external values still required)

@@ -2586,6 +2586,16 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
   assert.equal(revenueProcedureRows.length, 6, 'five copied standard steps coexist with one persistent ad-hoc procedure');
   assert.equal(revenueProcedureRows.filter((row: any) => row.origin === 'STANDARD').length, 5);
   assert.equal(revenueProcedureRows.filter((row: any) => row.origin === 'AD_HOC').length, 1);
+  const shiftedRevenueProcedures = db.prepare(`SELECT id,version,ordinal,status FROM procedures WHERE workspace_id=? AND workprogram_id=? AND origin='STANDARD' AND ordinal>1 ORDER BY ordinal`)
+    .bind(workspaceId,revenueWorkprogramId).all<any>().results;
+  assert.equal(shiftedRevenueProcedures.length, 4);
+  assert.ok(shiftedRevenueProcedures.every((row: any,index: number) => row.ordinal === index + 3 && row.version === 2 && row.status === 'NOT_STARTED'),
+    `each shifted standard step advances its row version when the scope order changes: ${JSON.stringify(shiftedRevenueProcedures)}`);
+  assert.ok(shiftedRevenueProcedures.every((row: any) => db.prepare(`SELECT COUNT(*) AS count FROM procedure_revisions WHERE workspace_id=? AND procedure_id=? AND row_version=2 AND reason=?`)
+    .bind(workspaceId,row.id,'Current-year analytics identified an unusual year-end credit requiring an engagement-specific procedure.').first<any>()?.count === 1),
+    'each shifted row retains an append-only revision with the scope-change rationale');
+  assert.ok(shiftedRevenueProcedures.every((row: any) => db.prepare(`SELECT COUNT(*) AS count FROM fieldwork_change_feed WHERE workspace_id=? AND entity_type='Procedure' AND entity_id=? AND row_version=2`)
+    .bind(workspaceId,row.id).first<any>()?.count === 1), 'each changed ordinal is available to other clients through the change feed');
   const blankProcedureSubmit = await post(`/api/workspaces/${workspaceId}/commands`, {
     idempotencyKey: crypto.randomUUID(), command: { type: 'procedure.submit', payload: { procedureId: revenueProcedureIds[0], expectedVersion: 1 } }
   }, samplingReviewerHeaders);
@@ -2596,7 +2606,7 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
     .bind(workspaceId, revenueProcedureIds[0]).first<any>()?.count, 0, 'blank work and conclusion cannot create a review submission');
   const blankGenericReviewSubmit = await post(`/api/workspaces/${workspaceId}/commands`, {
     idempotencyKey: crypto.randomUUID(), command: { type: 'review.submit', payload: {
-      targetKind: 'PROCEDURE', targetId: revenueProcedureIds[1], targetVersion: 1
+      targetKind: 'PROCEDURE', targetId: revenueProcedureIds[1], targetVersion: 2
     } }
   }, samplingReviewerHeaders);
   assert.equal(blankGenericReviewSubmit.response.status, 422);
@@ -2612,10 +2622,10 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
     } }
   }, samplingReviewerHeaders);
   const independentProcedureUpdates = await Promise.all([
-    updateProcedure(revenueProcedureIds[0], 1, 'Sales'), updateProcedure(revenueProcedureIds[1], 1, 'PPE')
+    updateProcedure(revenueProcedureIds[0], 1, 'Sales'), updateProcedure(revenueProcedureIds[1], 2, 'PPE')
   ]);
   assert.deepEqual(independentProcedureUpdates.map(item => item.response.status), [200, 200], 'different procedure rows save concurrently');
-  assert.deepEqual(independentProcedureUpdates.map(item => item.body.result.version), [2, 2]);
+  assert.deepEqual(independentProcedureUpdates.map(item => item.body.result.version), [2, 3]);
   const concurrentSameRow = await Promise.all([
     updateProcedure(revenueProcedureIds[0], 2, 'first concurrent writer'), updateProcedure(revenueProcedureIds[0], 2, 'second concurrent writer')
   ]);
@@ -2713,12 +2723,25 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
     } }
   }, samplingReviewerHeaders);
   assert.equal(approveNotApplicable.response.status, 200, JSON.stringify(approveNotApplicable.body));
-  const reviewedNotApplicable = db.prepare(`SELECT applicable,status,not_applicable_reason FROM procedures WHERE workspace_id=? AND id=?`)
+  const reviewedNotApplicable = db.prepare(`SELECT applicable,status,version,not_applicable_reason FROM procedures WHERE workspace_id=? AND id=?`)
     .bind(workspaceId, conditionalAdHoc.body.result.procedureId).first<any>();
-  assert.deepEqual({ applicable: reviewedNotApplicable.applicable, status: reviewedNotApplicable.status,
-    reason: reviewedNotApplicable.not_applicable_reason }, { applicable: 0, status: 'REVIEWED', reason: 'The retained general-ledger detail and account policy confirm this balance contains no foreign-currency activity.' });
+  assert.deepEqual({ applicable: reviewedNotApplicable.applicable, status: reviewedNotApplicable.status, version: reviewedNotApplicable.version,
+    reason: reviewedNotApplicable.not_applicable_reason }, { applicable: 0, status: 'REVIEWED', version: 3,
+    reason: 'The retained general-ledger detail and account policy confirm this balance contains no foreign-currency activity.' });
   assert.equal(db.prepare(`SELECT decision FROM procedure_review_decisions WHERE workspace_id=? AND submission_id=?`)
     .bind(workspaceId, requestNotApplicable.body.result.submissionId).first<any>()?.decision, 'NOT_APPLICABLE_APPROVED');
+  const insertionBeforeReviewedProcedure = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'procedure.insert', payload: {
+      workprogramId: greenProgram.body.result.workprogramId, afterProcedureId: greenProcedureId,
+      title: 'Additional current-asset scope step', instructions: 'Inspect any remaining support for this current-asset balance.', assertion: 'EXISTENCE',
+      scopeReason: 'A current-year risk review identified an additional support requirement for this balance.'
+    } }
+  }, technicalHeaders);
+  assert.equal(insertionBeforeReviewedProcedure.body.code, 'INVALID_STATE', 'scope insertion cannot silently shift a reviewed procedure');
+  assert.equal(db.prepare('SELECT COUNT(*) AS count FROM procedures WHERE workspace_id=? AND workprogram_id=?')
+    .bind(workspaceId,greenProgram.body.result.workprogramId).first<any>()?.count, 2, 'rejected insertion leaves reviewed scope unchanged');
+  assert.equal(db.prepare('SELECT version FROM procedures WHERE workspace_id=? AND id=?').bind(workspaceId,conditionalAdHoc.body.result.procedureId).first<any>()?.version, reviewedNotApplicable.version,
+    'rejected insertion preserves the reviewed procedure version');
   const greenProcedureUpdate = await post(`/api/workspaces/${workspaceId}/commands`, {
     idempotencyKey: crypto.randomUUID(), command: { type: 'procedure.update', payload: {
       procedureId: greenProcedureId, expectedVersion: 1,
