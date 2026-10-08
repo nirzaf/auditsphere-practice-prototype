@@ -34,6 +34,7 @@ export interface Router {
   put(pattern: string, handler: Handler): Router;
   delete(pattern: string, handler: Handler): Router;
   match(method: string, pathname: string): { handler: Handler; params: RouteParams; routePattern: string } | undefined;
+  listRoutes(): Array<{ method: string; pattern: string }>;
   /** True when the path exists but not for this method (used for 405 vs 404). */
   pathExists(pathname: string): boolean;
 }
@@ -70,6 +71,9 @@ export function createRouter(): Router {
         if (matched) return { handler: route.handler, params, routePattern: route.pattern };
       }
       return undefined;
+    },
+    listRoutes() {
+      return routes.map(({ method, pattern }) => ({ method, pattern }));
     },
     pathExists(pathname) {
       const actual = pathname.split('/').filter(Boolean);

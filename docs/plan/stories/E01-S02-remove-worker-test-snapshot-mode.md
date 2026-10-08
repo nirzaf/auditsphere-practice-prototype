@@ -7,6 +7,14 @@
 ## Intent
 Delete the legacy seed/snapshot/session API so `worker/` contains only the BUSINESS path. After this story, `worker/index.ts` no longer imports anything from `src/domain/commands.ts`, `src/store/**` or `worker/state.ts`.
 
+## Implementation progress — 2026-10-08
+- Removed the seed catalog, seeded workspace creation, resume/state/event/delete/persona/logout handlers and routes. `POST /api/workspaces` rejects a `seedId` with `400 BAD_REQUEST`; BUSINESS bootstrap is unchanged.
+- Removed every TEST fallback from workspace, change-feed, command and file handlers. TEST-mode workspaces now return `404 NOT_FOUND` on the remaining BUSINESS routes.
+- Replaced the generic `PrototypeState` D1 adapter with BUSINESS workspace lookups, removed the session/state/file modules, deleted the isolated cloud API suite and TEST expiry unit suite, removed its npm script and binding contract, and removed legacy scheduled sweeps including the obsolete `idempotency_keys` purge.
+- Added a static full-route inventory test. `npm run cloud:typecheck`, `npm run lint`, and `npx tsx --test tests/unit/routeInventory.test.ts` pass. Browser verification remains blocked by the local Chrome E2E timeout/profile cleanup issue previously recorded in E01-S01; the retained BUSINESS E2E test now asserts the removed routes and seeded-create rejection.
+- Deleted tests: `tests/cloud/api.test.ts`, `tests/unit/workspaceExpiry.test.ts`.
+- Status: **implementation complete; acceptance verification partial** pending a working E2E browser harness and the milestone suite rerun.
+
 ## Read first
 - `docs/plan/removal-guideline.md` §2.2, §2.3
 - `worker/index.ts` (router ~L1035–1098, `handleCommand` L755+, `scheduled()` L1162+)
