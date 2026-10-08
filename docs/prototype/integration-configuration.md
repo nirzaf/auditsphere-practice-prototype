@@ -181,7 +181,7 @@ below before acceptance:
 | Field | Source |
 | --- | --- |
 | Application URL | https://auditsphere-visual-prototype.quadrate-lk.workers.dev (readiness returns `ready`) |
-| Deployed build identity | `87426710a9b53bd6bf8a8959d1a58b36384f7eb3` (verified Worker deployment, 2026-10-08; GitHub Actions run 37713406554) |
+| Deployed build identity | `f296976d6b3b7f96bd1b9242a178f1777a3ff062` (verified Worker deployment, 2026-10-08; GitHub Actions run 37734797940) |
 | Workspace and actors | synthetic workspace created through the UI; verify all four selectable personas and persisted context |
 | Client / engagement ids | synthetic records created through visible UI journeys; record IDs in the restricted UAT evidence bundle |
 | SharePoint site/library/root ids | values returned by `/api/integrations/status` after the site grant and secret are configured |

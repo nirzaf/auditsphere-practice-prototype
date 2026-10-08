@@ -123,11 +123,11 @@ the repository:
 | US-GAP-25 – 28 | Entra app `AuditSphere SharePoint UAT` has `Sites.Selected` consent and a verified site-only `write` grant on `/sites/AuditSphereJSAcceptance` (2026-10-08). The latest live probe at 2026-10-08 04:26:07 UTC returned `FAILED` because the Microsoft Graph token request was rejected. The configured client secret must be owner-rotated before the probe can reach `CONNECTED`. |
 | US-GAP-30 – 32 | Deployed URL/build identity are recorded. UAT follows the epic's no-auth profile with four self-selected personas and synthetic records; supplied login accounts are not required. Real email delivery and a connected SharePoint test-site probe remain unverified. |
 
-The last fully successful production deployment is main commit `d8197c1` from
-[GitHub Actions run 37727121265](https://github.com/nirzaf/auditsphere-practice-prototype/actions/runs/37727121265)
+The latest verified successful production deployment is main commit `f296976`
+from [GitHub Actions run 37734797940](https://github.com/nirzaf/auditsphere-practice-prototype/actions/runs/37734797940)
 (2026-10-08). It passed typecheck, unit tests, full hosted browser E2E,
-production build, schema-41 D1 migration, Worker/static asset deployment and
-readiness. Previous successful run 37711971223 applied and read back all 101
+production build, D1 migration, Worker/static asset deployment and readiness.
+Previous successful run 37711971223 applied and read back all 101
 R2 archive rules and deployed the restricted Email Service provider. Earlier main runs
 37710179893, 37710812829 and 37711380454 passed verification but failed the strict
 Worker config check; run 37711971223 verified the source-config deploy fix. The latest
