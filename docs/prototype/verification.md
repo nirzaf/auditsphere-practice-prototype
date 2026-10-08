@@ -1593,11 +1593,17 @@ different framework; both inserts are rejected. Normal approved mapping still
 creates ten history rows, and the next proposal receives all ten exact-history
 suggestions as unconfirmed rows. Application schema version is 38.
 
-**Boundary:** This proves invalid source rows cannot enter history and confirms
-the current valid-client proposal path. A second independently mapped
-subsidiary and a second approved framework edition have not yet been carried
-through their full TB and proposal journeys. US-FLD-002 and the broader epic
-remain open.
+**Additional verification:** The business integration test now carries a
+synthetic subsidiary with matching parent account codes through three separate
+engagements. The first mapping proposal contains no parent suggestions; after
+the subsidiary maps and approves its own rows, the later same-framework
+engagement receives the exact child history as unconfirmed suggestions. A
+third engagement under a different reporting framework receives no history.
+Focused `npx tsx --test tests/unit/businessWorkspace.test.ts` passed 1/1.
+
+**Boundary:** Parent/child and reporting-framework mapping isolation now have
+Worker-backed coverage. US-FLD-002 remains partial for its other criteria and
+broader current-account acceptance; the 46-story epic remains open.
 
 ## US-REP-007 native streaming download fallback — 2026-10-08
 

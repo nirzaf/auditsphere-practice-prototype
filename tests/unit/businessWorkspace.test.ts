@@ -2066,6 +2066,110 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
       AND mm.reporting_framework=? AND mm.source_mapping_version_id=?`)
     .bind(workspaceId, clientId, historicalDraft.reportingFramework, mappingApproved.body.result.mappingVersionId).first<any>()?.count;
   assert.equal(historyClientScope, 10, 'approved historical rows are retained under the source client and reporting framework');
+
+  // Prove mapping history is reusable within a subsidiary while the parent’s
+  // otherwise matching account/framework history remains outside its scope.
+  const mappingParent = db.prepare(`SELECT e.period_start,e.period_end,e.standards_profile_id,p.reporting_framework,
+      p.isa_220_edition,p.isa_570_edition,p.presentation_edition,p.early_adoption,p.approved_by_actor_id,p.approved_at,p.content_sha256
+    FROM engagements e JOIN standards_profiles p ON p.workspace_id=e.workspace_id AND p.id=e.standards_profile_id
+    WHERE e.workspace_id=? AND e.id=?`).bind(workspaceId, engagementId).first<any>();
+  assert.ok(mappingParent);
+  const createMappingTestEngagement = (code: string, reportingFramework = mappingParent.reporting_framework) => {
+    const id = crypto.randomUUID();
+    const now = new Date().toISOString();
+    let standardsProfileId = mappingParent.standards_profile_id as string;
+    if (reportingFramework !== mappingParent.reporting_framework) {
+      standardsProfileId = crypto.randomUUID();
+      db.prepare(`INSERT INTO standards_profiles(id,workspace_id,version,name,effective_period_start,effective_period_end,
+        isa_220_edition,isa_570_edition,reporting_framework,presentation_edition,early_adoption,approved_by_actor_id,
+        approved_at,content_sha256,created_at,updated_at)
+        VALUES(?,?,1,?,?,?,?,?,?,?,?,?,?,?,?,?)`).bind(standardsProfileId, workspaceId, `Mapping test ${reportingFramework}`,
+        mappingParent.period_start, mappingParent.period_end, mappingParent.isa_220_edition, mappingParent.isa_570_edition,
+        reportingFramework, mappingParent.presentation_edition, mappingParent.early_adoption, mappingParent.approved_by_actor_id,
+        mappingParent.approved_at, mappingParent.content_sha256, now, now).run();
+    }
+    db.prepare(`INSERT INTO engagements(id,workspace_id,version,client_id,code,period_start,period_end,engagement_type,
+        lifecycle_state,contract_fee_minor,standards_profile_id,created_at,updated_at,created_by_actor_id,updated_by_actor_id)
+      VALUES(?,?,1,?,?,?,?,'STATUTORY_AUDIT','PORTAL_ACTIVE_PLANNING',0,?,?,?, ?,?)`)
+      .bind(id, workspaceId, childClientId, code, mappingParent.period_start, mappingParent.period_end,
+        standardsProfileId, now, now, mappingParent.approved_by_actor_id, mappingParent.approved_by_actor_id).run();
+    const fileId = crypto.randomUUID();
+    db.prepare(`INSERT INTO file_versions(id,workspace_id,client_id,engagement_id,original_name,media_type,size_bytes,
+        object_key,purpose,state,created_at,updated_at,created_by_actor_id,updated_by_actor_id)
+      VALUES(?,?,?,?,?,'text/csv',0,?,'TB','STAGED',?,?,?,?)`)
+      .bind(fileId, workspaceId, childClientId, id, `${code}.csv`, `test/mapping/${fileId}.csv`, now, now,
+        mappingParent.approved_by_actor_id, mappingParent.approved_by_actor_id).run();
+    const importId = crypto.randomUUID();
+    db.prepare(`INSERT INTO tb_imports(id,workspace_id,client_id,engagement_id,file_version_id,status,worksheet,column_map_json,
+        row_count,source_sha256,current_debits_minor,current_credits_minor,error_count,errors_json,created_by_actor_id,created_at,updated_at)
+      VALUES(?,?,?,?,?,'ACTIVATED',NULL,'{}',2,?,10000,10000,0,'[]',?,?,?)`)
+      .bind(importId, workspaceId, childClientId, id, fileId, 'a'.repeat(64), mappingParent.approved_by_actor_id, now, now).run();
+    const tbVersionId = crypto.randomUUID();
+    db.prepare(`INSERT INTO tb_versions(id,workspace_id,client_id,engagement_id,revision,import_id,period_start,period_end,currency,
+        current_debits_minor,current_credits_minor,prior_present,row_count,content_sha256,accepted_by_actor_id,accepted_at)
+      VALUES(?,?,?,?,1,?,?,?,'QAR',10000,10000,0,2,?,?,?)`)
+      .bind(tbVersionId, workspaceId, childClientId, id, importId, mappingParent.period_start, mappingParent.period_end,
+        'b'.repeat(64), mappingParent.approved_by_actor_id, now).run();
+    db.prepare(`INSERT INTO tb_lines(id,workspace_id,client_id,engagement_id,tb_version_id,source_row_number,account_code,
+        account_name,current_minor,source_text_json) VALUES(?,?,?,?,?,1,'1000','Cash',10000,'{}'),
+        (?,?,?,?,?,2,'3000','Equity',-10000,'{}')`)
+      .bind(crypto.randomUUID(), workspaceId, childClientId, id, tbVersionId,
+        crypto.randomUUID(), workspaceId, childClientId, id, tbVersionId).run();
+    db.prepare(`UPDATE engagements SET active_tb_version_id=?,updated_at=?,version=version+1 WHERE workspace_id=? AND id=?`)
+      .bind(tbVersionId, now, workspaceId, id).run();
+    return { id, tbVersionId, headers: { ...reviewerHeaders, 'X-Client-Id': childClientId, 'X-Engagement-Id': id } };
+  };
+  const proposeMapping = async (target: ReturnType<typeof createMappingTestEngagement>) => post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'tb.mapping.propose', payload: { engagementId: target.id, tbVersionId: target.tbVersionId } }
+  }, target.headers);
+  const childFirstPeriod = createMappingTestEngagement('MAPPING-SUBSIDIARY-2025');
+  const childFirstProposal = await proposeMapping(childFirstPeriod);
+  assert.equal(childFirstProposal.response.status, 200, JSON.stringify(childFirstProposal.body));
+  assert.equal(childFirstProposal.body.result.suggestedCount, 0,
+    'the subsidiary does not inherit matching account codes from its parent client');
+  assert.equal(childFirstProposal.body.result.unmappedCount, 2);
+  const childFirstWorkspace = await call(`/api/workspaces/${workspaceId}/engagements/${childFirstPeriod.id}/trial-balance-workspace`,
+    { headers: childFirstPeriod.headers });
+  assert.equal(childFirstWorkspace.response.status, 200, JSON.stringify(childFirstWorkspace.body));
+  const childFirstDraft = childFirstWorkspace.body.mappingDraft;
+  for (const row of childFirstDraft.lines) {
+    const fsliCode = row.accountCode === '1000' ? 'CASH' : 'EQUITY';
+    const fsli = childFirstWorkspace.body.fsliCatalog.find((item: any) => item.code === fsliCode);
+    assert.ok(fsli, `the current framework includes ${fsliCode}`);
+    const setMapping = await post(`/api/workspaces/${workspaceId}/commands`, {
+      idempotencyKey: crypto.randomUUID(), command: { type: 'tb.mapping.set', payload: {
+        draftId: childFirstDraft.id, tbLineId: row.tbLineId, expectedVersion: row.version, fsliId: fsli.id
+      } }
+    }, childFirstPeriod.headers);
+    assert.equal(setMapping.response.status, 200, JSON.stringify(setMapping.body));
+  }
+  const childReadyWorkspace = await call(`/api/workspaces/${workspaceId}/engagements/${childFirstPeriod.id}/trial-balance-workspace`,
+    { headers: childFirstPeriod.headers });
+  const childMappingApproval = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'tb.mapping.approve', payload: {
+      engagementId: childFirstPeriod.id, draftId: childReadyWorkspace.body.mappingDraft.id,
+      draftHash: childReadyWorkspace.body.mappingDraft.draftHash
+    } }
+  }, childFirstPeriod.headers);
+  assert.equal(childMappingApproval.response.status, 200, JSON.stringify(childMappingApproval.body));
+  const childHistoryProposalTarget = createMappingTestEngagement('MAPPING-SUBSIDIARY-2026');
+  const childHistoryProposal = await proposeMapping(childHistoryProposalTarget);
+  assert.equal(childHistoryProposal.response.status, 200, JSON.stringify(childHistoryProposal.body));
+  assert.equal(childHistoryProposal.body.result.suggestedCount, 2,
+    'approved history is reusable for a later period of the same subsidiary');
+  assert.equal(childHistoryProposal.body.result.unmappedCount, 0);
+  const childHistoryWorkspace = await call(`/api/workspaces/${workspaceId}/engagements/${childHistoryProposalTarget.id}/trial-balance-workspace`,
+    { headers: childHistoryProposalTarget.headers });
+  assert.equal(childHistoryWorkspace.response.status, 200, JSON.stringify(childHistoryWorkspace.body));
+  assert.ok(childHistoryWorkspace.body.mappingDraft.lines.every((row: any) => row.origin === 'EXACT_HISTORY'
+    && row.confirmed === false && row.sourceHistoricalMappingId),
+  'subsidiary suggestions retain exact child history sources while remaining explicitly unconfirmed');
+  const differentFrameworkTarget = createMappingTestEngagement('MAPPING-SUBSIDIARY-OTHER-FRAMEWORK', 'OTHER-APPROVED-FRAMEWORK');
+  const differentFrameworkProposal = await proposeMapping(differentFrameworkTarget);
+  assert.equal(differentFrameworkProposal.response.status, 200, JSON.stringify(differentFrameworkProposal.body));
+  assert.equal(differentFrameworkProposal.body.result.suggestedCount, 0,
+    'approved subsidiary history is not applied under a different reporting framework');
+
   const materialityCalculated = await post(`/api/workspaces/${workspaceId}/commands`, {
     idempotencyKey: crypto.randomUUID(), command: { type: 'materiality.calculate', payload: {
       engagementId, tbVersionId: tbActivated.body.result.tbVersionId, mappingVersionId: mappingApproved.body.result.mappingVersionId,
