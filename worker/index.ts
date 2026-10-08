@@ -15,7 +15,8 @@ import type { Env } from './env';
 import { ApiError, toApiError } from './errors';
 import { assertSameOrigin, baseHeaders, jsonResponse, readJson, sha256Hex } from './http';
 import { createRouter, type RouteContext } from './router';
-import { integrationStatus } from './integrations/status';
+import { emailTransportStatus, integrationStatus } from './integrations/status';
+import { sharePointStatus } from './integrations/sharepoint';
 import { processBusinessOutbox } from './businessOutbox';
 import { sweepStaleBusinessFiles } from './businessFileSweep';
 import { queueDueBusinessArchives } from './businessReporting';
@@ -146,8 +147,31 @@ const handleHealthReady = async (ctx: RouteContext): Promise<Response> => {
   } catch {
     dependencyCodes.push('R2_UNAVAILABLE');
   }
+  const environment = ctx.env.ENVIRONMENT ?? 'local';
+  const [email, sharepoint] = await Promise.all([
+    emailTransportStatus(ctx.env),
+    sharePointStatus(ctx.env)
+  ]);
+  const readinessChecks = {
+    environment,
+    rateLimiter: ctx.env.RATE_LIMITER ? 'BOUND' : 'MISSING',
+    emailProvider: email.providerReadiness === 'NOT_PROBED' ? email.transport : email.providerReadiness,
+    auth: { entra: ctx.env.OIDC_TENANT_ID && ctx.env.OIDC_CLIENT_ID && ctx.env.OIDC_CLIENT_SECRET && ctx.env.OIDC_REDIRECT_URI
+      ? 'CONFIGURED' : 'NOT_CONFIGURED' },
+    turnstile: ctx.env.TURNSTILE_SECRET_KEY ? 'CONFIGURED' : 'NOT_CONFIGURED',
+    sharepoint: sharepoint.state === 'UNCONFIGURED' ? 'NOT_CONFIGURED' : sharepoint.state
+  };
+  if (environment === 'production' || environment === 'staging') {
+    if (!ctx.env.RATE_LIMITER) dependencyCodes.push('RATE_LIMITER_UNBOUND');
+    if (!ctx.env.EMAIL_PROVIDER) dependencyCodes.push('EMAIL_PROVIDER_UNBOUND');
+    else if (email.providerReadiness !== 'READY') dependencyCodes.push('EMAIL_PROVIDER_NOT_READY');
+  }
+  if (environment === 'production') {
+    if (readinessChecks.auth.entra !== 'CONFIGURED') dependencyCodes.push('OIDC_NOT_CONFIGURED');
+    if (readinessChecks.turnstile !== 'CONFIGURED') dependencyCodes.push('TURNSTILE_NOT_CONFIGURED');
+  }
   const ready = dependencyCodes.length === 0;
-  return jsonResponse({ status: ready ? 'ready' : 'degraded', schemaVersion, dependencyCodes }, ready ? 200 : 503, ctx.requestId);
+  return jsonResponse({ status: ready ? 'ready' : 'degraded', schemaVersion, dependencyCodes, readinessChecks }, ready ? 200 : 503, ctx.requestId);
 };
 
 const handleSupportBundle = async (ctx: RouteContext): Promise<Response> => {

@@ -63,9 +63,10 @@ const constantTimeTokenMatch = async (supplied: string, expected: string): Promi
 const requireTrustedSandbox = (ctx: RouteContext): { token: string; workspaceId: string } => {
   const token = ctx.env.VERIFICATION_INGEST_TOKEN;
   const workspaceId = ctx.env.VERIFICATION_INGEST_WORKSPACE_ID;
-  // This endpoint is deliberately unavailable on production and ordinary dev
-  // deployments. CI can only write to the one workspace pinned by sandbox env.
-  if (ctx.env.ENVIRONMENT !== 'verification-sandbox'
+  // A dedicated opt-in flag enables this endpoint independently of deployment
+  // environment naming. It remains unavailable on production and can only
+  // write to the one workspace pinned by its dedicated Worker configuration.
+  if (ctx.env.VERIFICATION_INGEST_ENABLED !== 'true' || ctx.env.ENVIRONMENT === 'production'
     || typeof token !== 'string' || token.length < 32
     || typeof workspaceId !== 'string' || workspaceId.length < 1 || workspaceId.length > 128) {
     throw new ApiError('NOT_FOUND', 'That API route does not exist.');

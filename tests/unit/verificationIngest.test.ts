@@ -18,7 +18,8 @@ const baseEnv = {
   DB: db,
   FILES: {} as any,
   ASSETS: { fetch: async () => new Response('not found', { status: 404 }) } as any,
-  ENVIRONMENT: 'verification-sandbox',
+  ENVIRONMENT: 'staging',
+  VERIFICATION_INGEST_ENABLED: 'true',
   VERIFICATION_INGEST_TOKEN: token,
   VERIFICATION_INGEST_WORKSPACE_ID: workspaceId
 } as any;
@@ -53,12 +54,12 @@ const validRun = (overrides: Record<string, unknown> = {}) => ({
 
 it('keeps verification ingestion sandbox-only and requires a bearer credential', async () => {
   const production = await request(validRun(), {
-    env: { ENVIRONMENT: 'production' }, authorization: `Bearer ${token}`
+    env: { ENVIRONMENT: 'production', VERIFICATION_INGEST_ENABLED: 'true' }, authorization: `Bearer ${token}`
   });
   assert.equal(production.response.status, 404);
 
   const disabled = await request(validRun(), {
-    env: { ENVIRONMENT: undefined }, authorization: `Bearer ${token}`
+    env: { VERIFICATION_INGEST_ENABLED: 'false' }, authorization: `Bearer ${token}`
   });
   assert.equal(disabled.response.status, 404);
 

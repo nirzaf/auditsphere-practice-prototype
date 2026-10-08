@@ -46,12 +46,20 @@ export interface Env {
   SHAREPOINT_DRIVE_NAME?: string;
   /** Optional sender mailbox used when dispatching through Microsoft Graph instead of Email Routing. */
   SHAREPOINT_SENDER_MAILBOX?: string;
+  /** Microsoft Entra OIDC configuration; the client secret is supplied as a Worker secret. */
+  OIDC_TENANT_ID?: string;
+  OIDC_CLIENT_ID?: string;
+  OIDC_CLIENT_SECRET?: string;
+  OIDC_REDIRECT_URI?: string;
+  /** Cloudflare Turnstile verification secret for public lead intake. */
+  TURNSTILE_SECRET_KEY?: string;
   /** Comma-separated allowed origins. Same-origin deployments need not list one. */
   ALLOWED_ORIGINS?: string;
   ENVIRONMENT?: string;
   /** Enable first-time BUSINESS workspace setup only in a trusted deployment. */
   BUSINESS_SETUP_ENABLED?: string;
   /** Enables CI metadata ingestion only on a separately configured verification sandbox Worker. */
+  VERIFICATION_INGEST_ENABLED?: string;
   VERIFICATION_INGEST_TOKEN?: string;
   /** Fixed workspace scope for trusted CI metadata; never supplied by the caller. */
   VERIFICATION_INGEST_WORKSPACE_ID?: string;
