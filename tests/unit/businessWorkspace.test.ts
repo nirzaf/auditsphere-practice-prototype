@@ -4835,6 +4835,24 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
   assert.equal(BigInt(reportsAfterPost[1].body.expenseMinor) - BigInt(firmProfitLossBefore.body.expenseMinor), 500_000n);
   assert.equal(BigInt(reportsAfterPost[1].body.profitMinor) - BigInt(firmProfitLossBefore.body.profitMinor), 500_000n,
     'Partner drawings debit equity and never inflate P&L expenses');
+  const reportJournalReversal = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'ledger.reverse', payload: {
+      journalId: postForHistoricalCutoff.body.result.journalId, postingDate: '2026-10-07',
+      reason: 'Reverse this posted report fixture in the following Qatar reporting day.'
+    } }
+  }, reviewerHeaders);
+  assert.equal(reportJournalReversal.response.status, 200, JSON.stringify(reportJournalReversal.body));
+  const reportsAfterReversal = await Promise.all([
+    call(`${practicePath}/reports/trial-balance?from=${planDate}&to=${planDate}&asOf=${encodeURIComponent(new Date(Date.now() + 10_000).toISOString())}`, { headers: practiceHeaders }),
+    call(`${practicePath}/reports/profit-loss?month=${planDate.slice(0, 7)}&asOf=${encodeURIComponent(new Date(Date.now() + 10_000).toISOString())}`, { headers: practiceHeaders })
+  ]);
+  assert.deepEqual(reportsAfterReversal.map((report: any) => report.response.status), [200, 200]);
+  assert.equal(reportsAfterReversal[0].body.rows.find((row: any) => row.code === '4000').periodCreditMinor, reportsAfterPost[0].body.rows.find((row: any) => row.code === '4000').periodCreditMinor,
+    'the original-period TB uses the original journal posting date, not its later reversal date');
+  assert.equal(reportsAfterReversal[1].body.revenueMinor, firmProfitLossBefore.body.revenueMinor,
+    'monthly P&L nets a posted reversal in its actual posting month');
+  assert.equal(reportsAfterReversal[1].body.expenseMinor, firmProfitLossBefore.body.expenseMinor,
+    'reversed expense debits clear only after the reversal is posted');
   const invalidProfitLossMonth = await call(`${practicePath}/reports/profit-loss?month=2026-13`, { headers: practiceHeaders });
   assert.equal(invalidProfitLossMonth.response.status, 400);
 
@@ -4866,7 +4884,7 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
   ], 'earned-service recognition debits Contract Liability and credits Professional Fees');
   const profitLossAfterRecognition = await call(`${practicePath}/reports/profit-loss?month=${earnedDate.slice(0, 7)}&asOf=${encodeURIComponent(new Date(Date.now() + 10_000).toISOString())}`, { headers: practiceHeaders });
   assert.equal(profitLossAfterRecognition.response.status, 200, JSON.stringify(profitLossAfterRecognition.body));
-  assert.equal(BigInt(profitLossAfterRecognition.body.revenueMinor) - BigInt(reportsAfterPost[1].body.revenueMinor), 125001n,
+  assert.equal(BigInt(profitLossAfterRecognition.body.revenueMinor) - BigInt(reportsAfterReversal[1].body.revenueMinor), 125001n,
     'the P&L includes the earned event only after explicit Partner recognition');
 
   // PRC-002: explicit inclusive Qatar-date utilization reads distinguish recorded work,
