@@ -24,7 +24,7 @@ function usage(): string {
     '',
     'Reads one D1 workspace and verifies its committed R2 file bytes.',
     'Dry-run is read-only apart from its MigrationRun metadata. Apply is deployment-only and requires --remote.',
-    'Apply currently accepts only explicitly mapped clients and contacts with no files or other source entities.'
+    'Apply currently accepts explicitly mapped clients, contacts and verified committed files; other source entities block it.'
   ].join('\n');
 }
 
@@ -186,7 +186,7 @@ async function main(): Promise<void> {
     if (verified.validationStatus !== 'VALIDATED' || verified.sourceSha256 !== report.sourceSha256) {
       throw new Error('Atomic migration committed, but the follow-up reconciliation did not validate. Review the APPLIED run before cutover.');
     }
-    console.log(JSON.stringify({ ...verified, status: 'APPLIED', businessRecordsChanged: true, auditMetadataRecorded: true, applyProfile: 'clients-contacts-v1' }, null, 2));
+    console.log(JSON.stringify({ ...verified, status: 'APPLIED', businessRecordsChanged: true, auditMetadataRecorded: true, applyProfile: 'clients-contacts-files-v2' }, null, 2));
     return;
   }
   if (snapshot.workspace.schema_version < MIGRATION_TARGET_SCHEMA_VERSION) {

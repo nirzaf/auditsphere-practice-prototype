@@ -18,8 +18,8 @@ export interface MigrationApplyPlan {
 }
 
 /**
- * Build a deployment-only, atomic D1 apply batch for the currently reviewed
- * client/contact mappings. Unsupported source data always fails closed.
+ * Build a deployment-only, atomic D1 apply batch for the reviewed client,
+ * contact and committed-file mappings. Unsupported source data fails closed.
  */
 export function buildMigrationApplyPlan(
   snapshot: MigrationAuditSnapshot,
@@ -32,17 +32,21 @@ export function buildMigrationApplyPlan(
   const addBlocker = (sourceKind: string, sourceId: string, code: string) => blockers.push({ sourceKind, sourceId, code });
 
   if (snapshot.workspace.schema_version >= TARGET_SCHEMA_VERSION) addBlocker('workspace', snapshot.workspace.id, 'SOURCE_SCHEMA_NOT_BELOW_MIGRATION_TARGET');
-  if (installedApplicationSchemaVersion < 39) addBlocker('application', String(installedApplicationSchemaVersion), 'MIGRATION_APPLY_GUARDS_NOT_INSTALLED');
-  if (snapshot.files.length) addBlocker('file_objects', '*', 'FILE_MIGRATION_NOT_SUPPORTED');
+  if (installedApplicationSchemaVersion < 40) addBlocker('application', String(installedApplicationSchemaVersion), 'MIGRATION_APPLY_GUARDS_NOT_INSTALLED');
+  if (report.workspaceId !== snapshot.workspace.id || report.sourceSchemaVersion !== snapshot.workspace.schema_version) {
+    addBlocker('workspace', snapshot.workspace.id, 'AUDIT_REPORT_DOES_NOT_MATCH_SOURCE_SNAPSHOT');
+  }
+  if (report.missingFiles.length) addBlocker('file_objects', '*', 'SOURCE_FILE_BYTES_NOT_VERIFIED');
   for (const root of snapshot.rootDocuments) {
     if (!SUPPORTED_ROOT_METADATA.has(root.document_key)) addBlocker('ROOT_DOCUMENT', root.document_key, 'ROOT_DOCUMENT_MIGRATION_NOT_SUPPORTED');
   }
   if (snapshot.idMaps.length) addBlocker('migration_id_map', '*', 'WORKSPACE_ALREADY_HAS_ID_MAPPINGS');
-  for (const row of snapshot.targetRows.filter(row => row.kind === 'clients' || row.kind === 'contacts')) {
+  for (const row of snapshot.targetRows.filter(row => row.kind === 'clients' || row.kind === 'contacts' || row.kind === 'file_versions')) {
     addBlocker(`normalized:${row.kind}`, row.id, 'TARGET_ROW_ALREADY_EXISTS');
   }
-  if (snapshot.entities.length === 0) addBlocker('workspace', snapshot.workspace.id, 'NO_SOURCE_RECORDS_TO_MIGRATE');
-  if (plan.records.length !== snapshot.entities.length) addBlocker('workspace', snapshot.workspace.id, 'MIGRATION_PLAN_ROW_COUNT_MISMATCH');
+  const sourceRecordCount = snapshot.entities.length + snapshot.files.length;
+  if (sourceRecordCount === 0) addBlocker('workspace', snapshot.workspace.id, 'NO_SOURCE_RECORDS_TO_MIGRATE');
+  if (plan.records.length !== sourceRecordCount) addBlocker('workspace', snapshot.workspace.id, 'MIGRATION_PLAN_ROW_COUNT_MISMATCH');
 
   const sourceClients = snapshot.entities.filter(entity => entity.entity_kind === 'clients');
   const clientCodes = new Set<string>();
@@ -69,7 +73,7 @@ export function buildMigrationApplyPlan(
   }
 
   const workspaceId = snapshot.workspace.id;
-  const sourceCount = plan.records.length;
+  const sourceCount = sourceRecordCount;
   const runId = report.runId;
   const mappings = plan.records.map(record => ({
     id: crypto.randomUUID(), sourceKind: record.sourceKind, sourceId: record.sourceId,
@@ -81,7 +85,7 @@ export function buildMigrationApplyPlan(
     sourceCount,
     targetCount: sourceCount,
     validationStatus: 'VALIDATED',
-    applyProfile: 'clients-contacts-v1',
+    applyProfile: 'clients-contacts-files-v2',
     preservedSourceSnapshot: true,
     unsupportedRowsCreated: 0
   });
@@ -91,12 +95,17 @@ export function buildMigrationApplyPlan(
 
   for (const record of plan.records) {
     const source = snapshot.entities.find(entity => entity.entity_kind === record.sourceKind && entity.entity_id === record.sourceId);
-    if (!source) throw new Error('Migration plan lost its source row; no SQL batch was produced.');
+    const sourceFile = snapshot.files.find(file => record.sourceKind === 'file_objects' && file.id === record.sourceId);
+    if (!source && !sourceFile) throw new Error('Migration plan lost its source row; no SQL batch was produced.');
     const values: Record<string, unknown> = record.targetKind === 'clients'
       ? { ...record.values, workspace_id: workspaceId, version: 1, created_at: appliedAt, updated_at: appliedAt, created_by_actor_id: null, updated_by_actor_id: null }
-      : { ...record.values, is_signatory: record.values.is_signatory, workspace_id: workspaceId, version: 1, created_at: appliedAt, updated_at: appliedAt, created_by_actor_id: null, updated_by_actor_id: null };
+      : record.targetKind === 'contacts'
+        ? { ...record.values, workspace_id: workspaceId, version: 1, created_at: appliedAt, updated_at: appliedAt, created_by_actor_id: null, updated_by_actor_id: null }
+        : { ...record.values, workspace_id: workspaceId, version: 1, folder_id: null, previous_version_id: null, updated_at: appliedAt, created_by_actor_id: null, updated_by_actor_id: null };
     const columns = Object.keys(values);
-    const guardedSource = `EXISTS (SELECT 1 FROM workspace_entities WHERE workspace_id=${sqlText(workspaceId)} AND entity_kind=${sqlText(record.sourceKind)} AND entity_id=${sqlText(record.sourceId)} AND payload_json=${sqlText(source.payload_json)} AND deleted_at IS NULL)`;
+    const guardedSource = source
+      ? `EXISTS (SELECT 1 FROM workspace_entities WHERE workspace_id=${sqlText(workspaceId)} AND entity_kind=${sqlText(record.sourceKind)} AND entity_id=${sqlText(record.sourceId)} AND payload_json=${sqlText(source.payload_json)} AND deleted_at IS NULL)`
+      : `EXISTS (SELECT 1 FROM file_objects WHERE workspace_id=${sqlText(workspaceId)} AND id=${sqlText(sourceFile!.id)} AND client_id IS ${sqlValue(sourceFile!.client_id)} AND engagement_id IS ${sqlValue(sourceFile!.engagement_id)} AND category=${sqlText(sourceFile!.category)} AND logical_record_type IS ${sqlValue(sourceFile!.logical_record_type)} AND logical_record_id IS ${sqlValue(sourceFile!.logical_record_id)} AND r2_key=${sqlText(sourceFile!.r2_key)} AND original_name=${sqlText(sourceFile!.original_name)} AND mime_type=${sqlText(sourceFile!.mime_type)} AND size_bytes=${sqlValue(sourceFile!.size_bytes)} AND sha256 IS ${sqlValue(sourceFile!.sha256)} AND state=${sqlText(sourceFile!.state)} AND immutable=${sqlValue(sourceFile!.immutable)} AND created_by_user_id IS ${sqlValue(sourceFile!.created_by_user_id)} AND created_at=${sqlValue(sourceFile!.created_at)} AND committed_at IS ${sqlValue(sourceFile!.committed_at)} AND deleted_at IS NULL)`;
     statements.push(`INSERT INTO ${record.targetKind}(${columns.join(',')}) SELECT ${columns.map(column => sqlValue(values[column])).join(',')} WHERE ${guardedSource}`);
   }
 

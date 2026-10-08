@@ -13,11 +13,21 @@ export interface MigrationAuditSourceRoot {
 
 export interface MigrationAuditSourceFile {
   id: string;
+  client_id: string | null;
+  engagement_id: string | null;
+  category: string;
+  logical_record_type: string | null;
+  logical_record_id: string | null;
   r2_key: string;
   original_name: string;
+  mime_type: string;
   size_bytes: number;
   sha256: string | null;
   state: string;
+  immutable: number;
+  created_by_user_id: string | null;
+  created_at: number;
+  committed_at: number | null;
 }
 
 export interface MigrationAuditIdMap {
@@ -186,6 +196,23 @@ const contactRole = (value: unknown): unknown => ({
   Other: 'OTHER'
 } as Record<string, string>)[String(value)] ?? UNMAPPABLE;
 const booleanInteger = (value: unknown): unknown => typeof value === 'boolean' ? Number(value) : UNMAPPABLE;
+const integerFlag = (value: unknown): unknown => value === 0 || value === 1 ? value : UNMAPPABLE;
+const nonnegativeInteger = (value: unknown): unknown => typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 ? value : UNMAPPABLE;
+const requiredText = (value: unknown): unknown => typeof value === 'string' && value.trim().length > 0 ? value.trim() : UNMAPPABLE;
+const utcFromEpochSeconds = (value: unknown): unknown => {
+  if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0) return UNMAPPABLE;
+  const date = new Date(value * 1000);
+  return Number.isNaN(date.valueOf()) || Math.abs(date.valueOf()) > 8.64e15 ? UNMAPPABLE : date.toISOString();
+};
+const filePurpose = (value: unknown): unknown => ({ PBC: 'PBC', TB_SOURCE: 'TB', EVIDENCE: 'EVIDENCE', GENERATED: 'GENERATED', RELEASE: 'RELEASE', ARCHIVE: 'ARCHIVE' } as Record<string, string>)[String(value)] ?? UNMAPPABLE;
+const fileMediaType = (value: unknown): unknown => typeof value === 'string' && new Set([
+  'application/pdf', 'text/plain', 'text/csv',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'image/png', 'image/jpeg', 'application/zip'
+]).has(value) ? value : UNMAPPABLE;
+const committedFileState = (value: unknown): unknown => value === 'COMMITTED' ? value : UNMAPPABLE;
+const fileDigest = (value: unknown): unknown => typeof value === 'string' && /^[0-9a-f]{64}$/i.test(value) ? value.toLowerCase() : UNMAPPABLE;
 const mappedRelation = (kind: string) => (value: unknown, _payload: Record<string, unknown>, maps: ReadonlyMap<string, MigrationAuditIdMap>): unknown => {
   if (value === null || value === undefined || value === '') return null;
   if (typeof value !== 'string') return UNMAPPABLE;
@@ -219,19 +246,37 @@ const FIELD_MAPPINGS: Readonly<Record<string, readonly MigrationFieldDefinition[
     { sourceField: 'active', targetField: 'active', transform: booleanInteger },
     { sourceField: 'effectiveFrom', targetField: 'effective_from', transform: nullableText },
     { sourceField: 'effectiveTo', targetField: 'effective_to', optional: true, transform: nullableText }
+  ],
+  file_objects: [
+    { sourceField: 'client_id', targetField: 'client_id', optional: true, transform: mappedRelation('clients') },
+    { sourceField: 'engagement_id', targetField: 'engagement_id', optional: true, transform: mappedRelation('engagements') },
+    { sourceField: 'original_name', targetField: 'original_name', transform: requiredText },
+    { sourceField: 'mime_type', targetField: 'media_type', transform: fileMediaType },
+    { sourceField: 'size_bytes', targetField: 'size_bytes', transform: nonnegativeInteger },
+    { sourceField: 'sha256', targetField: 'sha256', transform: fileDigest },
+    { sourceField: 'r2_key', targetField: 'object_key', transform: requiredText },
+    { sourceField: 'category', targetField: 'purpose', transform: filePurpose },
+    { sourceField: 'state', targetField: 'state', transform: committedFileState },
+    { sourceField: 'immutable', targetField: 'immutable', transform: integerFlag },
+    { sourceField: 'created_at', targetField: 'created_at', transform: utcFromEpochSeconds },
+    { sourceField: 'committed_at', targetField: 'committed_at', transform: utcFromEpochSeconds },
+    { sourceField: 'created_by_user_id', targetField: 'legacy_created_by_user_id', optional: true, transform: nullableText },
+    { sourceField: 'logical_record_type', targetField: 'legacy_logical_record_type', optional: true, transform: nullableText },
+    { sourceField: 'logical_record_id', targetField: 'legacy_logical_record_id', optional: true, transform: nullableText }
   ]
 };
 
 /**
  * Prepare the currently reviewed, lossless legacy row mappings for a deployment
- * migrator. This intentionally supports only clients and contacts; the caller
- * must reject any workspace containing other business entities or files.
+ * migrator. This supports clients, contacts and committed file objects; other
+ * business entities remain blockers until their field maps are reviewed.
  */
 export function buildNormalizedMigrationPlan(snapshot: MigrationAuditSnapshot): NormalizedMigrationPlan {
   const supportedKinds = new Set(['clients', 'contacts']);
   const identityMaps: MigrationAuditIdMap[] = snapshot.entities
     .filter(entity => supportedKinds.has(entity.entity_kind))
-    .map(entity => ({ source_kind: entity.entity_kind, source_id: entity.entity_id, target_kind: entity.entity_kind, target_id: entity.entity_id }));
+    .map(entity => ({ source_kind: entity.entity_kind, source_id: entity.entity_id, target_kind: entity.entity_kind, target_id: entity.entity_id }))
+    .concat(snapshot.files.map(file => ({ source_kind: 'file_objects', source_id: file.id, target_kind: 'file_versions', target_id: file.id })));
   const maps = new Map(identityMaps.map(mapping => [`${mapping.source_kind}\0${mapping.source_id}\0${mapping.target_kind}`, mapping]));
   const blockers: NormalizedMigrationPlan['blockers'] = [];
   const records: NormalizedMigrationRecord[] = [];
@@ -285,6 +330,36 @@ export function buildNormalizedMigrationPlan(snapshot: MigrationAuditSnapshot): 
     records.push({ sourceKind: entity.entity_kind, sourceId: entity.entity_id, targetKind: entity.entity_kind, targetId: entity.entity_id, values });
   }
 
+  for (const file of snapshot.files) {
+    const payload: Record<string, unknown> = {
+      client_id: file.client_id, engagement_id: file.engagement_id, original_name: file.original_name,
+      mime_type: file.mime_type, size_bytes: file.size_bytes, sha256: file.sha256, r2_key: file.r2_key,
+      category: file.category, state: file.state, immutable: file.immutable,
+      created_at: file.created_at, committed_at: file.committed_at,
+      created_by_user_id: file.created_by_user_id, logical_record_type: file.logical_record_type,
+      logical_record_id: file.logical_record_id
+    };
+    const values: Record<string, unknown> = { id: file.id };
+    let invalid = false;
+    for (const definition of FIELD_MAPPINGS.file_objects) {
+      const raw = payload[definition.sourceField];
+      const mapped = raw === null && definition.optional
+        ? null
+        : (definition.transform ?? direct)(raw, payload, maps);
+      if (mapped === UNMAPPABLE) { invalid = true; break; }
+      values[definition.targetField] = mapped;
+    }
+    if (file.state !== 'COMMITTED' || !file.sha256) {
+      blockers.push({ sourceKind: 'file_objects', sourceId: file.id, code: 'FILE_BYTES_NOT_COMMITTED_AND_HASHED' });
+      continue;
+    }
+    if (invalid) {
+      blockers.push({ sourceKind: 'file_objects', sourceId: file.id, code: 'FILE_METADATA_OR_RELATION_NOT_MAPPABLE' });
+      continue;
+    }
+    records.push({ sourceKind: 'file_objects', sourceId: file.id, targetKind: 'file_versions', targetId: file.id, values });
+  }
+
   // Parent companies must exist before subsidiaries because the target FK is
   // immediate. Fail closed on cycles rather than clearing or guessing links.
   const clients = records.filter(record => record.targetKind === 'clients');
@@ -304,7 +379,8 @@ export function buildNormalizedMigrationPlan(snapshot: MigrationAuditSnapshot): 
     }
   }
   const orderedContacts = records.filter(record => record.targetKind === 'contacts');
-  return { records: [...orderedClients, ...orderedContacts], blockers };
+  const orderedFiles = records.filter(record => record.targetKind === 'file_versions');
+  return { records: [...orderedClients, ...orderedContacts, ...orderedFiles], blockers };
 }
 
 function valueSha256(value: unknown): string {
@@ -442,6 +518,15 @@ export function buildMigrationAuditReport(
     const ids = idsByKind.get(entity.entity_kind) ?? new Set<string>();
     ids.add(entity.entity_id);
     idsByKind.set(entity.entity_kind, ids);
+  }
+  for (const file of files) {
+    payloads.set(`file_objects\0${file.id}`, {
+      client_id: file.client_id, engagement_id: file.engagement_id, category: file.category,
+      logical_record_type: file.logical_record_type, logical_record_id: file.logical_record_id,
+      r2_key: file.r2_key, original_name: file.original_name, mime_type: file.mime_type,
+      size_bytes: file.size_bytes, sha256: file.sha256, state: file.state, immutable: file.immutable,
+      created_by_user_id: file.created_by_user_id, created_at: file.created_at, committed_at: file.committed_at
+    });
   }
   const fileIds = new Set(files.map(file => file.id));
   idsByKind.set('file_objects', fileIds);

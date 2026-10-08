@@ -117,7 +117,12 @@ it('blocks unmapped, orphaned and missing or altered R2 source records', () => {
     entity_id: 'engagement-1',
     payload_json: JSON.stringify({ id: 'engagement-1', clientId: 'client-missing', fileVersionId: 'file-version-missing' })
   });
-  snapshot.files.push({ id: 'file-1', r2_key: 'workspaces/test/file-1', original_name: 'evidence.pdf', size_bytes: 4, sha256: 'a'.repeat(64), state: 'COMMITTED' });
+  snapshot.files.push({
+    id: 'file-1', client_id: null, engagement_id: null, category: 'EVIDENCE', logical_record_type: null,
+    logical_record_id: null, r2_key: 'workspaces/test/file-1', original_name: 'evidence.pdf', mime_type: 'application/pdf',
+    size_bytes: 4, sha256: 'a'.repeat(64), state: 'COMMITTED', immutable: 1, created_by_user_id: null,
+    created_at: 1760000000, committed_at: 1760000000
+  });
   const report = buildMigrationAuditReport(snapshot, new Map([['file-1', { found: true, sizeBytes: 4, sha256: 'b'.repeat(64) }]]), 31, 27, '00000000-0000-4000-8000-000000000004');
 
   assert.equal(report.validationStatus, 'BLOCKED');
