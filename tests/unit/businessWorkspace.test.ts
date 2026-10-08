@@ -2086,8 +2086,35 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
   }, makeRiskHeaders(reviewerHeaders));
   assert.equal(excessiveRounding.response.status, 422);
   assert.equal(excessiveRounding.body.code, 'VALIDATION_FAILED');
+  const lowerBoundaryRounding = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'materiality.adjust', payload: {
+      materialityVersionId: roundedMateriality.body.result.materialityVersionId, planningMinor: '5700000', performanceMinor: '3420000', sadMinor: '228000',
+      reason: 'The partner reviewed all three tiers at the inclusive lower five percent boundary.'
+    } }
+  }, makeRiskHeaders(reviewerHeaders));
+  assert.equal(lowerBoundaryRounding.response.status, 200, JSON.stringify(lowerBoundaryRounding.body));
+  assert.equal(lowerBoundaryRounding.body.result.planningMinor, '5700000');
+  assert.equal(lowerBoundaryRounding.body.result.performanceMinor, '3420000');
+  assert.equal(lowerBoundaryRounding.body.result.sadMinor, '228000');
+  const belowLowerBoundaryRounding = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'materiality.adjust', payload: {
+      materialityVersionId: lowerBoundaryRounding.body.result.materialityVersionId, planningMinor: '5699999', performanceMinor: '3420000', sadMinor: '228000',
+      reason: 'This amount is one minor unit below the inclusive lower five percent boundary.'
+    } }
+  }, makeRiskHeaders(reviewerHeaders));
+  assert.equal(belowLowerBoundaryRounding.response.status, 422);
+  assert.equal(belowLowerBoundaryRounding.body.code, 'VALIDATION_FAILED');
+  const restoredMateriality = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'materiality.adjust', payload: {
+      materialityVersionId: lowerBoundaryRounding.body.result.materialityVersionId, planningMinor: '6300000', performanceMinor: '3780000', sadMinor: '252000',
+      reason: 'Restore the thresholds active before the independent lower-bound check.'
+    } }
+  }, makeRiskHeaders(reviewerHeaders));
+  assert.equal(restoredMateriality.response.status, 200, JSON.stringify(restoredMateriality.body));
   const currentTbWorkspace = await call(tbWorkspacePath, { headers: makeRiskHeaders(reviewerHeaders) });
   const activeMaterialityId = currentTbWorkspace.body.engagement.activeMaterialityVersionId;
+  assert.equal(activeMaterialityId, restoredMateriality.body.result.materialityVersionId);
+  assert.equal(currentTbWorkspace.body.materiality.planningMinor, 6300000);
   const riskAssessments = [
     ['CASH','LOW'],['RECEIVABLES','LOW'],['PROPERTY_EQUIPMENT','LOW'],['OTHER_CURRENT_ASSETS','LOW'],['ADMIN_EXPENSE','LOW'],
     ['PAYABLES','LOW'],['BORROWINGS','LOW'],['EQUITY','LOW'],['REVENUE','HIGH']
