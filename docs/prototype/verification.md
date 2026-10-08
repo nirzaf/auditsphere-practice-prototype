@@ -1456,3 +1456,20 @@ the separate-browser five-second live-update target has not been measured.
 Cross-client denial and a production SharePoint transfer are not established by
 this local storage-backed journey. US-ENG-007/008 and the broader epic remain
 open.
+
+## US-FLD-001 interrupted TB staging recovery — 2026-10-08
+
+**Verification:** `npx tsx --test --test-reporter=spec
+tests/unit/businessWorkspace.test.ts` — 1/1; `git diff --check`.
+
+**Evidence:** The Worker integration journey imports a balanced, 320-row
+synthetic TB in eight 40-row chunks and injects a transient D1 batch failure
+before chunk five. It verifies exactly 160 staged rows remain, the import stays
+`VALIDATING`, and the prior accepted TB remains active. The retry processes the
+same import to `READY`, retains exactly 320 unique staging rows, and still does
+not replace the active TB before explicit activation.
+
+**Boundary:** This is a local SQLite D1-adapter fault injection, not a Cloudflare
+production D1 interruption test. Formula, macro and external-link rejection
+are covered by their own parser paths; broader XLSX and large-file limits remain
+subject to full epic acceptance. US-FLD-001 and the broader epic remain open.

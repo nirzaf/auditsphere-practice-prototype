@@ -1908,6 +1908,66 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
   assert.equal(tbActivated.body.result.rowCount, 10);
   assert.equal(tbActivated.body.result.priorPresent, true);
 
+  // US-FLD-001 — an import interrupted after four committed staging chunks can
+  // be retried idempotently without exposing partial rows or replacing the
+  // currently active trial balance.
+  const largeTbRows = ['Account Code,Account Name,Current Balance'];
+  for (let index = 0; index < 160; index += 1) {
+    largeTbRows.push(`D${String(index).padStart(3, '0')},Debit account ${index},100.00`);
+    largeTbRows.push(`C${String(index).padStart(3, '0')},Credit account ${index},-100.00`);
+  }
+  const largeTbBytes = new TextEncoder().encode(largeTbRows.join('\n'));
+  const activeTbBeforeInterruptedImport = db.prepare(`SELECT active_tb_version_id FROM engagements WHERE workspace_id=? AND id=?`)
+    .bind(workspaceId, engagementId).first<any>()?.active_tb_version_id;
+  const largeTbFileId = await storeCommittedFile('TB', 'large-retry-trial-balance.csv', 'text/csv', largeTbBytes,
+    makeRiskHeaders(reviewerHeaders), { clientId, engagementId, folderId: tbFolderId });
+  const largeTbStarted = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'tb.import', payload: {
+      engagementId, fileVersionId: largeTbFileId,
+      columnMap: { headerRow: 1, accountCodeColumn: 0, accountNameColumn: 1, balanceColumn: 2 }
+    } }
+  }, makeRiskHeaders(reviewerHeaders));
+  assert.equal(largeTbStarted.response.status, 200, JSON.stringify(largeTbStarted.body));
+  const largeImportId = largeTbStarted.body.result.importId as string;
+  assert.equal(db.prepare(`SELECT COUNT(*) AS count FROM outbox_jobs WHERE workspace_id=? AND kind='IMPORT_TB'
+      AND status IN ('PENDING','RETRYABLE_FAILED') AND next_attempt_at<=?`)
+    .bind(workspaceId, new Date().toISOString()).first<any>()?.count, 1, 'the interruption test has one due TB job');
+  const interruptedImportOriginalBatch = db.batch.bind(db);
+  let stagingBatches = 0;
+  db.batch = ((statements: unknown[]) => {
+    stagingBatches += 1;
+    if (stagingBatches === 5) throw new Error('Simulated transient interruption after four staging chunks.');
+    return interruptedImportOriginalBatch(statements as any);
+  }) as any;
+  try {
+    await worker.scheduled({ scheduledTime: Date.now(), cron: '*/5 * * * *' } as any, env);
+  } finally {
+    db.batch = interruptedImportOriginalBatch as any;
+  }
+  assert.equal(stagingBatches, 6, 'the fifth chunk fails after four D1 batch commits, then the Worker records a retry');
+  assert.equal(db.prepare('SELECT COUNT(*) AS count FROM tb_staging_lines WHERE workspace_id=? AND import_id=?')
+    .bind(workspaceId, largeImportId).first<any>()?.count, 160, 'only the first four of eight 40-row chunks are staged');
+  assert.equal(db.prepare(`SELECT status FROM tb_imports WHERE workspace_id=? AND id=?`).bind(workspaceId, largeImportId).first<any>()?.status, 'VALIDATING');
+  assert.equal(db.prepare(`SELECT active_tb_version_id FROM engagements WHERE workspace_id=? AND id=?`)
+    .bind(workspaceId, engagementId).first<any>()?.active_tb_version_id, activeTbBeforeInterruptedImport,
+    'a partial import leaves the existing accepted TB active');
+  const failedLargeImportJob = db.prepare(`SELECT id FROM outbox_jobs WHERE workspace_id=? AND kind='IMPORT_TB' AND aggregate_id=?`)
+    .bind(workspaceId, largeImportId).first<any>();
+  assert.ok(failedLargeImportJob?.id);
+  db.prepare(`UPDATE outbox_jobs SET next_attempt_at=? WHERE workspace_id=? AND id=? AND status='RETRYABLE_FAILED'`)
+    .bind(new Date(Date.now() - 1000).toISOString(), workspaceId, failedLargeImportJob.id).run();
+  await worker.scheduled({ scheduledTime: Date.now(), cron: '*/5 * * * *' } as any, env);
+  const retriedLargeImport = await call(`/api/workspaces/${workspaceId}/engagements/${engagementId}/tb-imports/${largeImportId}`,
+    { headers: makeRiskHeaders(reviewerHeaders) });
+  assert.equal(retriedLargeImport.response.status, 200, JSON.stringify(retriedLargeImport.body));
+  assert.equal(retriedLargeImport.body.status, 'READY');
+  assert.equal(retriedLargeImport.body.rowCount, 320);
+  assert.equal(db.prepare('SELECT COUNT(*) AS count FROM tb_staging_lines WHERE workspace_id=? AND import_id=?')
+    .bind(workspaceId, largeImportId).first<any>()?.count, 320, 'retry resumes the missing rows without duplicates');
+  assert.equal(db.prepare(`SELECT active_tb_version_id FROM engagements WHERE workspace_id=? AND id=?`)
+    .bind(workspaceId, engagementId).first<any>()?.active_tb_version_id, activeTbBeforeInterruptedImport,
+    'retry validation does not replace the active TB before explicit activation');
+
   const tbWorkspacePath = `/api/workspaces/${workspaceId}/engagements/${engagementId}/trial-balance-workspace`;
   const tbWorkspace = await call(tbWorkspacePath, { headers: makeRiskHeaders(reviewerHeaders) });
   assert.equal(tbWorkspace.response.status, 200, JSON.stringify(tbWorkspace.body));
