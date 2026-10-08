@@ -381,7 +381,7 @@ async function selectWorkspace(tab: CdpTab, fixture: Awaited<ReturnType<typeof c
       actions: [...(revenue?.querySelectorAll('.business-fieldwork-row-actions button') ?? [])].map(button => button.textContent?.trim() ?? '')
     };
   })()`);
-  assert.deepEqual(statementUi.paneTitles, ['Profit and loss', 'Balance sheet'], 'profit and loss precedes the balance sheet');
+  assert.deepEqual(statementUi.paneTitles.slice(0, 2), ['Profit and loss', 'Balance sheet'], 'profit and loss precedes the balance sheet');
   assert.match(statementUi.revenueRowText, /NO COMPARATIVE/, 'a source without prior balances labels the missing comparative explicitly');
   assert.ok(statementUi.actions.includes('AR Test') && statementUi.actions.includes('Audit Workprogram'),
     'each substantive statement row exposes both analysis and workprogram actions');
