@@ -750,6 +750,54 @@ it('US-FLD-006 preserves same-procedure drafts across a two-browser version conf
   assert.deepEqual(tabB.blockedExternalRequests, []);
 });
 
+it('US-FLD-005 displays a not-applicable rationale before independent Partner approval', { timeout: 120000 }, async () => {
+  await ensureBrowsers();
+  assert.ok(server && tabA && tabB);
+  const fixture = await createFieldworkFixture();
+  const procedureTitle = 'Same-row concurrent edits';
+  const rationale = 'The retained source and account policy show this zero balance has no foreign-currency activity.';
+  await selectWorkspace(tabA, fixture, fixture.actorProfileId);
+  await openWorkprograms(tabA);
+
+  // Observe the blank reason and disabled action before requesting an exception.
+  const initialAction = await tabA.evaluate<{ reason: string; disabled: boolean }>(`(() => {
+    const article = [...document.querySelectorAll('.business-fieldwork-procedure')].find(item => item.querySelector('.business-section-heading strong')?.textContent?.includes(${JSON.stringify(procedureTitle)}));
+    const reason = [...(article?.querySelectorAll('label.business-field') ?? [])].find(item => item.querySelector('span')?.textContent?.trim() === 'Reason this step is not applicable')?.querySelector('textarea');
+    const action = [...(article?.querySelectorAll('button') ?? [])].find(item => item.textContent?.trim() === 'Propose N/A');
+    return { reason: reason?.value ?? '', disabled: action?.disabled ?? false };
+  })()`);
+  assert.deepEqual(initialAction, { reason: '', disabled: true }, 'an N/A proposal cannot be submitted without a reason');
+
+  await setVisibleFieldByLabel(tabA, 'Reason this step is not applicable', rationale);
+  await clickProcedureButton(tabA, procedureTitle, 'Propose N/A');
+  await waitFor(tabA, 'the submitted N/A decision and its reason in the preparer view', `(() => {
+    const article = [...document.querySelectorAll('.business-fieldwork-procedure')].find(item => item.querySelector('.business-section-heading strong')?.textContent?.includes(${JSON.stringify(procedureTitle)}));
+    return article?.textContent?.includes('SUBMITTED') && article.textContent.includes(${JSON.stringify(rationale)});
+  })()`);
+
+  // Switch identity only after verifying the submission; the second Partner sees the same Worker record.
+  await selectWorkspace(tabB, fixture, fixture.actorB);
+  await openWorkprograms(tabB);
+  await waitFor(tabB, 'the independent reviewer to see the reason and explicit N/A decision', `(() => {
+    const article = [...document.querySelectorAll('.business-fieldwork-procedure')].find(item => item.querySelector('.business-section-heading strong')?.textContent?.includes(${JSON.stringify(procedureTitle)}));
+    return article?.textContent?.includes('SUBMITTED') && article.textContent.includes('Not-applicable rationale: ' + ${JSON.stringify(rationale)}) &&
+      [...(article?.querySelectorAll('button') ?? [])].some(item => item.textContent?.trim() === 'Approve N/A');
+  })()`);
+  await setVisibleFieldByLabel(tabB, 'Independent review rationale', 'I inspected the recorded scope and approve the documented not-applicable conclusion.');
+  await clickProcedureButton(tabB, procedureTitle, 'Approve N/A');
+  await waitFor(tabB, 'the independently approved N/A decision', `(() => {
+    const article = [...document.querySelectorAll('.business-fieldwork-procedure')].find(item => item.querySelector('.business-section-heading strong')?.textContent?.includes(${JSON.stringify(procedureTitle)}));
+    return article?.textContent?.includes('REVIEWED') && article.textContent.includes(${JSON.stringify(rationale)}) && ![...(article?.querySelectorAll('button') ?? [])].some(item => item.textContent?.trim() === 'Approve N/A');
+  })()`);
+
+  assert.ok(tabA.requests.some(url => new URL(url).pathname.endsWith('/commands')));
+  assert.ok(tabB.requests.some(url => new URL(url).pathname.endsWith('/commands')));
+  assert.deepEqual(tabA.exceptions, [], 'preparer browser has no uncaught JavaScript exceptions');
+  assert.deepEqual(tabB.exceptions, [], 'independent reviewer browser has no uncaught JavaScript exceptions');
+  assert.deepEqual(tabA.blockedExternalRequests, []);
+  assert.deepEqual(tabB.blockedExternalRequests, []);
+});
+
 it('US-FLD-007, US-FLD-008 and US-FLD-009 verify MUS, systematic and stratified sampling', { timeout: 120000 }, async () => {
   await ensureBrowsers();
   assert.ok(server && tabA);

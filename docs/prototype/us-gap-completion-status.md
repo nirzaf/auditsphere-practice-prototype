@@ -71,8 +71,12 @@ This exposed and fixed a stale-review dependency mismatch: the not-applicable
 submission now snapshots the same sampling pins as other procedure submissions.
 The test also approves a second template revision and confirms the active
 workprogram remains pinned to the original template and copied standard steps.
-Required-step validation across all entry points and browser review visibility
-remain open.
+The fieldwork UI now displays the preparer's N/A rationale alongside the
+reviewer controls, and the `Approve N/A` action correctly recognizes the
+Worker's boolean `applicable=false` projection. A two-person browser regression
+is present; local execution currently fails before page load because Chrome
+does not expose CDP and Edge exits during startup. Required-step validation
+across all entry points and browser review acceptance remain open.
 
 ## Externally blocked (integration layer implemented; external values still required)
 

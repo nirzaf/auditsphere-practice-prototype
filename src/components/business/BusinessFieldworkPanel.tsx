@@ -687,6 +687,7 @@ export function BusinessFieldworkPanel({ workspaceId, selected, context, engagem
               return <article className="business-fieldwork-procedure" key={procedure.id}>
               <div className="business-section-heading"><div><strong>{procedure.ordinal}. {procedure.title}</strong><span>{procedure.assertion} · {procedure.origin} · {label(procedure.status)}</span></div><span>v{procedure.version}</span></div>
               <p>{procedure.instructions}</p>{procedure.scopeReason && <p className="business-muted">Scope: {procedure.scopeReason}</p>}
+              {procedure.notApplicableReason && <p className="business-note">Not-applicable rationale: {procedure.notApplicableReason}</p>}
               <label className="business-field"><span>Work performed</span><textarea minLength={10} value={draft?.workPerformed ?? procedure.workPerformed ?? ''} onChange={event => updateProcedureDraft(procedure, 'workPerformed', event.target.value)} /></label>
               <label className="business-field"><span>Conclusion</span><textarea minLength={10} value={draft?.conclusion ?? procedure.conclusion ?? ''} onChange={event => updateProcedureDraft(procedure, 'conclusion', event.target.value)} /></label>
               {versionConflict && draftBase && draft && <ProcedureConflictReview title={procedure.title} baseVersion={draftBase.version} serverVersion={procedure.version}
@@ -706,7 +707,7 @@ export function BusinessFieldworkPanel({ workspaceId, selected, context, engagem
                 <label className="business-field"><span>Independent review rationale</span><textarea minLength={10} value={procedureReviewDrafts[procedure.id] ?? ''} onChange={event => setProcedureReviewDrafts(current => ({ ...current, [procedure.id]: event.target.value }))} /></label>
                 <div className="business-fieldwork-action-row"><button className="btn sm" type="button" disabled={busy || (procedureReviewDrafts[procedure.id] ?? '').trim().length < 10} onClick={() => void reviewProcedure(procedure,'ACCEPT')}>Accept</button>
                   <button className="btn sm" type="button" disabled={busy || (procedureReviewDrafts[procedure.id] ?? '').trim().length < 10} onClick={() => void reviewProcedure(procedure,'REWORK')}>Return for rework</button>
-                  {procedure.applicable === 0 && <button className="btn sm" type="button" disabled={busy || (procedureReviewDrafts[procedure.id] ?? '').trim().length < 10} onClick={() => void reviewProcedure(procedure,'NOT_APPLICABLE_APPROVED')}>Approve N/A</button>}</div>
+                  {!procedure.applicable && <button className="btn sm" type="button" disabled={busy || (procedureReviewDrafts[procedure.id] ?? '').trim().length < 10} onClick={() => void reviewProcedure(procedure,'NOT_APPLICABLE_APPROVED')}>Approve N/A</button>}</div>
               </div>}
               <small>Evidence pins: {workspace.evidenceLinks.filter(link => link.targetType === 'PROCEDURE' && link.targetId === procedure.id && !link.unlinkReason).length} · {procedure.evidenceSetHash.slice(0, 12)}</small>
             </article>;
