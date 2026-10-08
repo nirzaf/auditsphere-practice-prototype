@@ -199,13 +199,13 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
   const ready = await call('/api/health/ready');
   assert.equal(ready.response.status, 200, JSON.stringify(ready.body));
   assert.equal(ready.body.status, 'ready');
-  assert.equal(ready.body.schemaVersion, 37);
+  assert.equal(ready.body.schemaVersion, 38);
   assert.deepEqual(ready.body.dependencyCodes, []);
   const supportBundle = await call('/api/health/support-bundle');
   assert.equal(supportBundle.response.status, 200);
   assert.match(supportBundle.response.headers.get('content-disposition') ?? '', /attachment; filename="auditsphere-support-bundle.json"/);
-  assert.equal(supportBundle.body.applicationSchemaVersion, 37);
-  assert.equal(supportBundle.body.installedSchemaVersion, 37);
+  assert.equal(supportBundle.body.applicationSchemaVersion, 38);
+  assert.equal(supportBundle.body.installedSchemaVersion, 38);
   assert.equal(supportBundle.body.readiness, 'ready');
   assert.deepEqual(supportBundle.body.verificationRuns, []);
   assert.equal(JSON.stringify(supportBundle.body).includes('workspaceId'), false);
@@ -244,13 +244,13 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
   await db.prepare(`INSERT INTO verification_runs(id,workspace_id,source_commit,schema_version,environment,started_at,
     completed_at,status,created_at,updated_at)
     VALUES (?,?,?,?,?,?,?,?,?,?)`).bind(
-    verificationRunId, workspaceId, 'a'.repeat(40), 37, 'CI', verificationStartedAt,
+    verificationRunId, workspaceId, 'a'.repeat(40), 38, 'CI', verificationStartedAt,
     verificationCompletedAt, 'PASSED', verificationCompletedAt, verificationCompletedAt
   ).run();
   const populatedSupportBundle = await call('/api/health/support-bundle');
   assert.equal(populatedSupportBundle.response.status, 200);
   assert.deepEqual(populatedSupportBundle.body.verificationRuns, [{
-    sourceCommit: 'a'.repeat(40), schemaVersion: 37, environment: 'CI',
+    sourceCommit: 'a'.repeat(40), schemaVersion: 38, environment: 'CI',
     startedAt: verificationStartedAt, completedAt: verificationCompletedAt, status: 'PASSED'
   }]);
   assert.equal(JSON.stringify(populatedSupportBundle.body).includes(workspaceId), false,
@@ -258,7 +258,7 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
 
   const migrationStatus = await call(`/api/workspaces/${workspaceId}/migration-status`);
   assert.equal(migrationStatus.response.status, 200, JSON.stringify(migrationStatus.body));
-  assert.deepEqual(migrationStatus.body, { schemaVersion: 37, lastRunId: null, status: null });
+  assert.deepEqual(migrationStatus.body, { schemaVersion: 38, lastRunId: null, status: null });
   const missingMigrationWorkspace = await call(`/api/workspaces/${crypto.randomUUID()}/migration-status`);
   assert.equal(missingMigrationWorkspace.response.status, 404);
 
@@ -2027,6 +2027,22 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
   }, makeRiskHeaders(reviewerHeaders));
   assert.equal(mappingApproved.response.status, 200, JSON.stringify(mappingApproved.body));
   assert.equal(mappingApproved.body.result.mappedCount, 10);
+  const approvedHistorySource = db.prepare(`SELECT mm.account_code,mm.reporting_framework,mm.source_mapping_version_id,mm.fsli_id
+    FROM mapping_memory mm WHERE mm.workspace_id=? AND mm.client_id=? AND mm.source_mapping_version_id=?
+    ORDER BY mm.account_code LIMIT 1`).bind(workspaceId,clientId,mappingApproved.body.result.mappingVersionId).first<any>();
+  assert.ok(approvedHistorySource, 'the approved client mapping writes a history source');
+  assert.throws(() => db.prepare(`INSERT INTO mapping_memory(id,workspace_id,client_id,account_code,reporting_framework,
+      source_mapping_version_id,fsli_id,effective_period_end) VALUES(?,?,?,?,?,?,?,?)`)
+    .bind(crypto.randomUUID(),workspaceId,childClientId,approvedHistorySource.account_code,approvedHistorySource.reporting_framework,
+      approvedHistorySource.source_mapping_version_id,approvedHistorySource.fsli_id,'2026-12-31').run(),
+  /historical mapping source scope mismatch/,
+  'a subsidiary cannot inherit a parent entity history row whose source mapping belongs to the parent');
+  assert.throws(() => db.prepare(`INSERT INTO mapping_memory(id,workspace_id,client_id,account_code,reporting_framework,
+      source_mapping_version_id,fsli_id,effective_period_end) VALUES(?,?,?,?,?,?,?,?)`)
+    .bind(crypto.randomUUID(),workspaceId,clientId,approvedHistorySource.account_code,'OTHER-FRAMEWORK',
+      approvedHistorySource.source_mapping_version_id,approvedHistorySource.fsli_id,'2026-12-31').run(),
+  /historical mapping source scope mismatch/,
+  'historical suggestions cannot be relabeled as belonging to a different reporting framework');
   const historicalMappingProposal = await post(`/api/workspaces/${workspaceId}/commands`, {
     idempotencyKey: crypto.randomUUID(), command: { type: 'tb.mapping.propose', payload: {
       engagementId, tbVersionId: tbActivated.body.result.tbVersionId

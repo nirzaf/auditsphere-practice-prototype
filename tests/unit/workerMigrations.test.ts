@@ -28,7 +28,7 @@ it('applies each migration using Wrangler statement splitting to an isolated SQL
     assert.deepEqual(database.prepare('PRAGMA foreign_key_check').all(), [], 'the migrated schema has no foreign-key violations');
     assert.ok(database.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='report_signatures'").get(),
       'the latest reporting migrations are present');
-    assert.equal(database.prepare('SELECT version FROM application_schema_version WHERE singleton=1').get()?.version, 37);
+    assert.equal(database.prepare('SELECT version FROM application_schema_version WHERE singleton=1').get()?.version, 38);
     assert.ok(database.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='verification_runs'").get(),
       'verification runs have a dedicated relational table');
 

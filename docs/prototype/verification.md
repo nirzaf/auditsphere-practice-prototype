@@ -1540,3 +1540,24 @@ the retained profile edition; a separate post-15-Dec-2026 engagement/profile
 matrix, review acceptance of completed going-concern work, material-uncertainty
 report escalation, and browser visibility for missing forecasts remain open.
 US-FLD-004 and the broader epic remain open.
+
+## US-FLD-002 mapping-history source scope — 2026-10-08
+
+**Verification:** `npx tsx --test --test-concurrency=1 --test-reporter=spec
+tests/unit/businessWorkspace.test.ts tests/unit/workerMigrations.test.ts
+tests/unit/verificationIngest.test.ts` — 5/5 after the schema-version update;
+`git diff --check`.
+
+**Evidence:** Migration 0038 adds an insert guard for immutable mapping memory.
+Every history row must match its approved mapping version's client/entity,
+reporting framework, account code and FSLI. The integrated business journey
+attempts to attach a parent mapping to its subsidiary and to relabel it under a
+different framework; both inserts are rejected. Normal approved mapping still
+creates ten history rows, and the next proposal receives all ten exact-history
+suggestions as unconfirmed rows. Application schema version is 38.
+
+**Boundary:** This proves invalid source rows cannot enter history and confirms
+the current valid-client proposal path. A second independently mapped
+subsidiary and a second approved framework edition have not yet been carried
+through their full TB and proposal journeys. US-FLD-002 and the broader epic
+remain open.
