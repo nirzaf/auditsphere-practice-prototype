@@ -1103,7 +1103,7 @@ export function BusinessWorkspaceConsole() {
         <span className="business-brand-mark" aria-hidden="true">AS</span>
         <div><strong>AuditSphere</strong><span>Business workspace</span></div>
       </div>
-      <button type="button" className="btn sm" onClick={clearBusinessWorkspacePreference}>Switch to prototype / TEST</button>
+      <button type="button" className="btn sm" onClick={clearBusinessWorkspacePreference}>Switch workspace</button>
     </header>
 
     <div className="business-console-content">

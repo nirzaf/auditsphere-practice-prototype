@@ -16,6 +16,13 @@ Leave `src/` with only the BUSINESS UI and its 20 reachable files; retire legacy
 - BUSINESS UI reachability set (keep): `src/components/business/**`, `src/components/common/StatusBadge.tsx`, `src/domain/{procedureConflict,reportingStandards}.ts`, `src/services/{businessWorkspace,practiceAccounts,statusSemantics}.ts`, `src/shared/api/{business,errors}.ts` + `src/App.tsx`, `src/main.tsx`, `src/vite-env.d.ts`.
 - CSS: 172 class names used by BUSINESS UI; definitions found — `business-workspace.css` 150, `src/enterprise.css` 7, `styles.css` 5, `roles.css` 1, `src/host.css` 0, `src/persona.css` 0.
 
+## Implementation progress — 2026-10-08
+- Removed the legacy browser-store UI, associated service/domain/type layers, legacy-only test suites and fixtures, deck generator, and prototype stylesheet entrypoints listed in the removal guideline. `src/` now contains the BUSINESS UI, its imports, and the global base stylesheet.
+- Replaced the legacy architecture assertion with a focused check that the app entry imports only the BUSINESS workspace and its workspace service and that the prototype app/store are absent.
+- Kept all retained business/API tests and updated their workspace-switch assertions for the neutral “Switch workspace” label. The retirement audit found no deleted suite that was the sole test for a rule still reachable through the BUSINESS UI; deleted suites were scoped to removed modules and legacy browser-store behavior. The retained BUSINESS suite remains the regression gate.
+- `npm run lint`, `npm run cloud:typecheck`, `npm run test:unit` (168 passed, 0 failed, 1 opt-in archive stress test skipped), and `npm run build` pass. A Vite-only preview rendered the production landing page at desktop size. Full Worker-backed E2E and before/after screenshots at 390×844 and 1440×900 remain pending: local Chrome E2E previously timed out and Wrangler local preview cannot create its Miniflare email-store directory in this Windows environment.
+- Status: **implementation complete; visual comparison and browser E2E acceptance pending**.
+
 ## Scope
 **In:** every "Delete" bullet of removal-guideline §2.1 and every retired test in §2.3; build script deck step; CSS consolidation.
 **Out:** changes to BUSINESS component behaviour or markup (except class-name-neutral CSS moves).

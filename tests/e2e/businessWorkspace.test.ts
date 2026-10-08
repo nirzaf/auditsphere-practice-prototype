@@ -344,11 +344,11 @@ it('US-ENG-001/002 creates a client-linked lead from the visible forms and advan
   // Observe the current real workspace before switching to a second, empty D1 workspace.
   const current = await tab.evaluate<{ heading: string; switchButton: boolean }>(`({
     heading: document.querySelector('#business-workspace-heading')?.textContent?.trim() ?? '',
-    switchButton: [...document.querySelectorAll('button')].some(button => button.textContent?.trim() === 'Switch to prototype / TEST' && !button.disabled)
+    switchButton: [...document.querySelectorAll('button')].some(button => button.textContent?.trim() === 'Switch workspace' && !button.disabled)
   })`);
   assert.ok(current.heading.startsWith('QA Workspace '));
   assert.equal(current.switchButton, true);
-  await clickButton('Switch to prototype / TEST');
+  await clickButton('Switch workspace');
   await waitFor('the empty-workspace landing page', `document.querySelector('#production-workspace-heading')?.textContent === 'Open your business workspace'`);
   const landing = await tab.evaluate<{ preference: string | null; createButton: boolean }>(`({
     preference: localStorage.getItem('auditsphere.business-context.v1'),
@@ -554,12 +554,12 @@ it('US-ENG-003 renders and approves an exact quote revision, then fails closed w
   const current = await tab.evaluate<{ workspaceHeading: string; landingHeading: string; switchButton: boolean }>(`({
     workspaceHeading: document.querySelector('#business-workspace-heading')?.textContent?.trim() ?? '',
     landingHeading: document.querySelector('#production-workspace-heading')?.textContent?.trim() ?? '',
-    switchButton: [...document.querySelectorAll('button')].some(button => button.textContent?.trim() === 'Switch to prototype / TEST' && !button.disabled)
+    switchButton: [...document.querySelectorAll('button')].some(button => button.textContent?.trim() === 'Switch workspace' && !button.disabled)
   })`);
   if (current.workspaceHeading) {
     assert.ok(current.workspaceHeading.startsWith('Lead Journey '));
     assert.equal(current.switchButton, true);
-    await clickButton('Switch to prototype / TEST');
+    await clickButton('Switch workspace');
     await waitFor('the empty-workspace landing page', `document.querySelector('#production-workspace-heading')?.textContent === 'Open your business workspace'`);
   } else {
     assert.equal(current.landingHeading, 'Open your business workspace');

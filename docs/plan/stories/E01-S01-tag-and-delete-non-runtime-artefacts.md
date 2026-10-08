@@ -8,11 +8,11 @@
 Remove files that no runtime path, CI job or retained test uses, so the repository shows one product. No behaviour change.
 
 ## Implementation progress — 2026-10-08
-- Status: **in progress**. The pushed `archive/prototype-2026-10` tag points to pre-change commit `54ec5a354089898de3afa31737e53929792ee65d`.
+- Status: **implementation complete; browser acceptance pending**. The pushed `archive/prototype-2026-10` tag points to pre-change commit `54ec5a354089898de3afa31737e53929792ee65d`.
 - Installed the remaining-work documentation pack at its repository-relative paths; SHA-256 matched all 63 copied files before removing the duplicate input directory. Moved the canonical STE user-story source and the two operational guides to their planned paths.
 - Removed the unreferenced artifacts, the `ste-audit/` demo, Python prototype tooling, root duplicate templates, and stale preview configuration. Updated live integration-guide references.
-- Kept `tracking/`, the prototype evidence directory, and the six docs read by `docsContract.test.ts` until E01-S03 retires the legacy suites. This is the staged cleanup required by the implementation notes below; do not close this story until those remaining paths are removed.
-- Verification so far: lint, Worker typecheck, unit suite (630 pass / 0 fail / 1 opt-in skip), and production build pass. The local E2E run was interrupted after repeated browser-test timeouts and Windows Chrome profile cleanup `EPERM`; it did not produce the final TAP diagnostics. Re-run the hosted/browser gate after the harness issue is resolved.
+- E01-S03 has now removed `tracking/`, `docs/prototype/`, and the retired legacy tests that read them; no retained source/test/tool path requires those files.
+- Verification: lint, Worker typecheck, unit suite (168 pass / 0 fail / 1 opt-in skip after S03/S04 replacements), and production build pass. The local E2E run was interrupted after repeated browser-test timeouts and Windows Chrome profile cleanup `EPERM`; it did not produce final TAP diagnostics. Re-run the hosted/browser gate after the harness issue is resolved.
 
 ## Read first
 - `docs/plan/removal-guideline.md` §0, §1, §6

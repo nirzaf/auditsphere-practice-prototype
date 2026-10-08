@@ -12,7 +12,7 @@ export interface StatusSemantic {
   kind: StatusKind;
   /** Short meaning announced to assistive technology alongside the visible status text. */
   meaning: string;
-  /** Visual tone; one of the shared badge tones in enterprise.css. */
+  /** Visual tone; one of the shared badge tones in the global base stylesheet. */
   tone: 'gray' | 'blue' | 'amber' | 'purple' | 'orange' | 'red' | 'green' | 'teal' | 'indigo';
   /** Shared glyph name rendered by StatusBadge. */
   glyph: 'dot' | 'half' | 'clock' | 'up' | 'eye' | 'undo' | 'stop' | 'alert' | 'check' | 'checkcircle' | 'send' | 'lock' | 'x' | 'box' | 'layers' | 'flask';

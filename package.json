@@ -1,5 +1,5 @@
 {
-  "name": "auditsphere-practice-prototype",
+  "name": "auditsphere",
   "private": true,
   "version": "2.0.0",
   "type": "module",
@@ -9,12 +9,11 @@
   },
   "scripts": {
     "dev": "npm run build && wrangler dev --config wrangler.jsonc --local --port 3000",
-    "build": "node tools/generate-requirements-deck.mjs && tsc --noEmit && vite build",
+    "build": "tsc --noEmit && vite build",
     "lint": "tsc --noEmit",
     "preview": "wrangler dev --config wrangler.jsonc --local --port 3000",
     "test:unit": "tsx --test --test-concurrency=1 tests/unit/*.test.ts",
     "benchmark:local-api": "tsx tools/benchmark-local-worker-20-users.ts",
-    "cloud:seed": "tsx tools/seed-cloud-workspace.ts",
     "migration:audit": "tsx tools/business-migration-audit.ts",
     "cloud:typecheck": "tsc --noEmit -p worker/tsconfig.json",
     "cloud:migrate": "wrangler d1 migrations apply steaudit-prototype-demo --remote --config wrangler.jsonc",

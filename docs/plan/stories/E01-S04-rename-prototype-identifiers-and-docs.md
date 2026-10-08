@@ -13,6 +13,12 @@ Remove "prototype/demo/visual" language from code-level identifiers and user-vis
 ## Current state
 - `package.json` `name: auditsphere-practice-prototype`; landing copy says "self-selected personas … does not verify identity"; `wrangler.jsonc` name `auditsphere-visual-prototype` (cloud resource — **not** renamed here; E02-S01 creates properly named environments).
 
+## Implementation progress — 2026-10-08
+- Renamed the npm package to `auditsphere` in `package.json` and the lockfile; replaced stale prototype README and contributor guidance with the current BUSINESS workspace architecture, commands, and documentation map.
+- Reworded the workspace reset control to “Switch workspace” and updated its E2E assertions. Kept the truthful self-asserted identity warning. Cloud resource identifiers remain unchanged per scope.
+- Added `tests/unit/docsPaths.test.ts` to validate repository paths linked in README and CLAUDE guidance.
+- Status: **implementation complete; verification pending**.
+
 ## Scope
 **In:** `package.json` `name` → `auditsphere`; README rewritten (purpose, architecture diagram from `docs/architecture/overview.md`, commands from `docs/quality/testing.md`, link index to `docs/`); `CLAUDE.md` installed from this doc set and paths fixed; UI copy strings that say "prototype".
 **Out:** Worker/D1/R2 names, `wrangler.jsonc` resource IDs, the self-asserted-persona warning (keep it until E03-S08 removes self-selection — it is truthful until then).

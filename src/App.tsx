@@ -1,12 +1,6 @@
-import React, { lazy, Suspense, useState, useSyncExternalStore } from 'react';
+import React, { useState, useSyncExternalStore } from 'react';
 import { BusinessWorkspaceConsole, BusinessWorkspaceSetupDialog } from './components/business/BusinessWorkspace';
 import { businessWorkspaceSnapshot, subscribeBusinessWorkspace } from './services/businessWorkspace';
-
-// The legacy prototype exists only for its isolated E2E harness. Ordinary Vite
-// development must use the real Worker-backed business workspace too.
-const DevelopmentPrototypeApp = import.meta.env.DEV && import.meta.env.VITE_TEST_HARNESS === 'true'
-  ? lazy(() => import('./PrototypeApp').then(module => ({ default: module.PrototypeApp })))
-  : null;
 
 function ProductionWorkspaceLanding() {
   const [setupOpen, setSetupOpen] = useState(false);
@@ -36,10 +30,6 @@ function ProductionWorkspaceLanding() {
 export const App: React.FC = () => {
   const businessWorkspace = useSyncExternalStore(subscribeBusinessWorkspace, businessWorkspaceSnapshot);
   if (businessWorkspace) return <BusinessWorkspaceConsole />;
-
-  if (DevelopmentPrototypeApp) {
-    return <Suspense fallback={<main className="business-console" role="status">Loading development workspace…</main>}><DevelopmentPrototypeApp /></Suspense>;
-  }
 
   return <ProductionWorkspaceLanding />;
 };

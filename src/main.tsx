@@ -1,11 +1,7 @@
 import React from 'react';
 import { createRoot } from 'react-dom/client';
 import App from './App';
-import '../roles.css';
-import '../styles.css';
-import './host.css';
-import './enterprise.css';
-import './persona.css';
+import './styles/base.css';
 
 const rootElement = document.getElementById('root');
 if (!rootElement) {

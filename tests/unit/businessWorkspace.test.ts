@@ -284,7 +284,7 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
   assert.equal(stored.business_status, 'ACTIVE');
   assert.equal(db.prepare('PRAGMA table_info(workspaces)').all<any>().results.some(column => column.name === 'expires_at'), false,
     'legacy expiry column was removed');
-  assert.equal(stored.generic_entities, 0, 'bootstrap must not materialize generic PrototypeState records');
+  assert.equal(stored.generic_entities, 0, 'bootstrap must not materialize legacy generic state records');
   assert.equal(stored.test_expiries, 0);
   assert.equal(stored.event_count, 1);
   assert.equal(stored.actor_assurance, 'SYSTEM');
