@@ -1488,3 +1488,22 @@ the approved mapping version under that client and framework.
 **Boundary:** The journey verifies same-client reuse, but does not yet construct
 a second client and framework to prove cross-scope isolation end-to-end. The
 broader US-FLD-002 mapping lifecycle remains open.
+
+## US-FLD-003 statement totals, source rows, adjustments and variances — 2026-10-08
+
+**Verification:** `npx tsx --test --test-concurrency=1 --test-reporter=spec
+tests/unit/statementVariance.test.ts tests/unit/businessWorkspace.test.ts` — 2/2.
+
+**Evidence:** The accepted 10-row TB produces QAR 23,000 assets, QAR 10,000
+liabilities and QAR 3,000 current profit; equity including result is QAR 13,000.
+The dashboard response carries active TB and mapping pins, a positive current
+revenue row has the `NEW_BALANCE` reason, and its source API returns the exact
+account row. A balanced accepted adjustment appears as one QAR 100 overlay on
+repeated reads while the source TB stays unchanged. The extracted variance
+calculation passes the five story cases: positive and negative 20% movements,
+new balance, zero both and no comparative.
+
+**Boundary:** The integration values are local synthetic records. An independent
+browser check of the visual P&L/Balance Sheet split, mobile action visibility
+and a TB with no comparative is still open. US-FLD-003 and the broader epic
+remain open.

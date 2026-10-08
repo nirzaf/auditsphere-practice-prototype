@@ -151,6 +151,17 @@ export type ConfirmationGateEngagement = Pick<Engagement, 'id' | 'version' | 'cl
 export type CriticalConfirmationBlocker = { id: string; version: number; type: string; status: string; dueDate: string; sourceHash: string; externalPartyName: string; criticalityReason: string; stalePins: boolean };
 type StatementLine = { fsliId: string; code: string; name: string; statement: string; category: string; displaySign: number; currentBaseMinor: number; currentAdjustmentMinor: number; currentAdjustedMinor: number; priorMinor: number | null; varianceNumerator: string | null; varianceDenominator: string | null; variancePercent: number | null; varianceReason: string; riskBand: string; sourceRows: Array<Record<string, unknown>> };
 
+export function calculateStatementVariance(currentMinor: number, priorMinor: number | null): {
+  numerator: string | null; denominator: string | null; percent: number | null;
+  reason: 'CALCULATED' | 'NEW_BALANCE' | 'ZERO_BOTH' | 'NO_COMPARATIVE';
+} {
+  if (priorMinor === null) return { numerator: null, denominator: null, percent: null, reason: 'NO_COMPARATIVE' };
+  if (priorMinor === 0) return { numerator: null, denominator: null, percent: null, reason: currentMinor === 0 ? 'ZERO_BOTH' : 'NEW_BALANCE' };
+  const numerator = currentMinor - priorMinor;
+  const percent = numerator / Math.abs(priorMinor) * 100;
+  return { numerator: String(numerator), denominator: String(Math.abs(priorMinor)), percent: Math.round(percent * 100) / 100, reason: 'CALCULATED' };
+}
+
 function requireInternal(context: BusinessContext, action = 'fieldwork.read'): void {
   if (context.actor.persona === 'CLIENT' || !context.allowedActions.includes(action)) throw new ApiError('PERSONA_ACTION_DENIED', 'Internal fieldwork access is required for this action.');
 }
@@ -307,12 +318,10 @@ async function financialStatements(env:Env,workspaceId:string,context:BusinessCo
     const currentBase=currentRaw*sign;const adjustment=Number(adjustmentByFsli.get(fsliId)??0n)*sign;
     if(!Number.isSafeInteger(adjustment))throw new ApiError('CALCULATION_DOMAIN_EXCEEDED','The approved adjustment total exceeds safe QAR minor-unit precision for this statement line.');
     const current=currentBase+adjustment;const prior=priorRaw===null?null:priorRaw*sign;
-    const reason=prior===null?'NO_COMPARATIVE':prior===0?(current===0?'ZERO_BOTH':'NEW_BALANCE'):'CALCULATED';
-    const numerator=prior===null||prior===0?null:String(current-prior);const denominator=prior===null||prior===0?null:String(Math.abs(prior));
-    const percent=reason==='CALCULATED'&&prior!==null?(current-prior)/Math.abs(prior)*100:null;
+    const variance=calculateStatementVariance(current,prior);
     return {fsliId,code:String(item.code),name:String(item.name),statement:String(item.statement),category:String(item.category),displaySign:sign,
-      currentBaseMinor:currentBase,currentAdjustmentMinor:adjustment,currentAdjustedMinor:current,priorMinor:prior,varianceNumerator:numerator,varianceDenominator:denominator,
-      variancePercent:percent===null?null:Math.round(percent*100)/100,varianceReason:reason,riskBand:riskMap.get(fsliId)??'GREEN',
+      currentBaseMinor:currentBase,currentAdjustmentMinor:adjustment,currentAdjustedMinor:current,priorMinor:prior,varianceNumerator:variance.numerator,varianceDenominator:variance.denominator,
+      variancePercent:variance.percent,varianceReason:variance.reason,riskBand:riskMap.get(fsliId)??'GREEN',
       sourceRows:contributors.map(row=>({tbLineId:row.tbLineId,sourceRowNumber:row.sourceRowNumber,accountCode:row.accountCode,accountName:row.accountName,
         currentRawMinor:String(row.currentRawMinor),currentPresentedMinor:String(Number(row.currentRawMinor)*sign),priorRawMinor:row.priorRawMinor===null?null:String(row.priorRawMinor),
         priorPresentedMinor:row.priorRawMinor===null?null:String(Number(row.priorRawMinor)*sign),displaySign:sign}))};

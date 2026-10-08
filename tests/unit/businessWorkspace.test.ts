@@ -2174,8 +2174,23 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
   const statements = await call(`/api/workspaces/${workspaceId}/engagements/${engagementId}/financial-statements`, { headers: technicalHeaders });
   assert.equal(statements.response.status, 200, JSON.stringify(statements.body));
   assert.equal(statements.body.reconciliation.balanced, true, 'the live split statements reconcile without a suspense line');
+  assert.deepEqual({ assets: statements.body.reconciliation.assetsMinor, liabilities: statements.body.reconciliation.liabilitiesMinor,
+    currentProfit: statements.body.reconciliation.currentResultMinor, equityIncludingProfit: statements.body.reconciliation.equityIncludingCurrentResultMinor },
+  { assets: '2300000000', liabilities: '1000000000', currentProfit: '300000000', equityIncludingProfit: '1300000000' },
+  'the accepted ten-row trial balance presents QAR 23,000 assets, QAR 10,000 liabilities and QAR 3,000 current profit');
+  assert.ok(statements.body.sourcePins.tbVersionId && statements.body.sourcePins.mappingVersionId,
+    'the live statement exposes the exact active TB and mapping revisions');
   const revenueLine = statements.body.profitLoss.find((line: any) => line.category === 'REVENUE');
   assert.ok(revenueLine?.fsliId, 'the current mapped revenue source resolves to its FSLI');
+  assert.deepEqual({ current: revenueLine.currentAdjustedMinor, prior: revenueLine.priorMinor, reason: revenueLine.varianceReason },
+    { current: 600000000, prior: 0, reason: 'NEW_BALANCE' }, 'a new current-period revenue balance has an explicit comparison state');
+  assert.ok(revenueLine.sourceRows.length > 0 && revenueLine.sourceRows.every((row: any) => row.tbLineId && row.sourceRowNumber),
+    'statement values retain links to every contributing TB source row');
+  const revenueSourcePage = await call(`/api/workspaces/${workspaceId}/engagements/${engagementId}/fslis/${revenueLine.fsliId}/source-lines?limit=100&cursor=0`,
+    { headers: technicalHeaders });
+  assert.equal(revenueSourcePage.response.status, 200, JSON.stringify(revenueSourcePage.body));
+  assert.equal(revenueSourcePage.body.rows[0].accountCode, '4000');
+  assert.equal(revenueSourcePage.body.rows[0].currentPresentedMinor, '600000000');
   const fieldworkWorkspace = await call(`/api/workspaces/${workspaceId}/engagements/${engagementId}/fieldwork-workspace`, { headers: technicalHeaders });
   assert.equal(fieldworkWorkspace.response.status, 200, JSON.stringify(fieldworkWorkspace.body));
   assert.equal(fieldworkWorkspace.body.statements.sourceHash, statements.body.sourceHash);
@@ -3581,6 +3596,14 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
   assert.equal(statementsAfterApprovedAje.body.reconciliation.balanced, true, 'the balanced AJE preserves statement reconciliation');
   const expenseAfterAje = statementsAfterApprovedAje.body.profitLoss.find((line: any) => line.fsliId === adjustmentExpenseLine.fsliId);
   assert.notEqual(expenseAfterAje.currentAdjustmentMinor, 0, 'the reporting overlay appears on its exact mapped FSLI');
+  const statementsAfterApprovedAjeAgain = await call(`/api/workspaces/${workspaceId}/engagements/${engagementId}/financial-statements`, { headers: technicalHeaders });
+  assert.equal(statementsAfterApprovedAjeAgain.response.status, 200, JSON.stringify(statementsAfterApprovedAjeAgain.body));
+  const expenseAfterAjeAgain = statementsAfterApprovedAjeAgain.body.profitLoss.find((line: any) => line.fsliId === adjustmentExpenseLine.fsliId);
+  assert.deepEqual({ firstBase: expenseAfterAje.currentBaseMinor, firstAdjustment: expenseAfterAje.currentAdjustmentMinor,
+    secondBase: expenseAfterAjeAgain.currentBaseMinor, secondAdjustment: expenseAfterAjeAgain.currentAdjustmentMinor },
+  { firstBase: expenseAfterAje.currentBaseMinor, firstAdjustment: 10000, secondBase: expenseAfterAje.currentBaseMinor, secondAdjustment: 10000 },
+  'reading adjusted statements repeatedly applies the accepted QAR 100 adjustment exactly once');
+  assert.equal(statementsAfterApprovedAjeAgain.body.reconciliation.balanced, true);
   const tbLinesAfterAje = db.prepare('SELECT COUNT(*) AS count,SUM(current_minor) AS movement FROM tb_lines WHERE workspace_id=? AND tb_version_id=?')
     .bind(workspaceId, tbVersionId).first<any>();
   assert.deepEqual(tbLinesAfterAje, tbLinesBeforeAje, 'the AJE does not post into or rewrite the client trial balance');
