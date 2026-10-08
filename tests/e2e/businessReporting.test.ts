@@ -1627,7 +1627,7 @@ it('US-REP-001–007 covers all report categories, representation, atomic releas
     method: 'BANK_TRANSFER', reference: 'QA-POST-ARCHIVE-FINAL-COLLECTION', evidenceFileId: stagedPaymentEvidence.fileId,
     receiptContactRouteId: receiptRouteId, allocations: [{ invoiceId: finalInvoiceSnapshot.id, amountMinor: String(finalInvoiceSnapshot.total_minor) }]
   });
-  assert.equal(postArchiveCollection.response.status, 200, JSON.stringify(postArchiveCollection.body));
+  assert.equal(postArchiveCollection.response.status, 202, JSON.stringify(postArchiveCollection.body));
   await server.runScheduled();
   const issuedPostArchiveReceipt = await waitForDbRow('the post-archive payment receipt', () => server!.db.prepare(`SELECT rv.id,rv.status,rv.file_version_id,p.amount_minor,p.received_on
     FROM receipt_vouchers rv JOIN payments p ON p.workspace_id=rv.workspace_id AND p.id=rv.payment_id
