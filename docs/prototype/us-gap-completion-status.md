@@ -69,8 +69,10 @@ workspace test verifies that a conditional ad-hoc procedure can be marked not
 applicable with a reason, submitted, and independently approved by a reviewer.
 This exposed and fixed a stale-review dependency mismatch: the not-applicable
 submission now snapshots the same sampling pins as other procedure submissions.
-Broader template revision immutability, required-step validation across all
-entry points, and browser review visibility remain open.
+The test also approves a second template revision and confirms the active
+workprogram remains pinned to the original template and copied standard steps.
+Required-step validation across all entry points and browser review visibility
+remain open.
 
 ## Externally blocked (integration layer implemented; external values still required)
 

@@ -2529,6 +2529,32 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
   assert.equal(managerRedProvision.body.result.procedureCount, 5);
   const revenueWorkprogramId = managerRedProvision.body.result.workprogramId as string;
   const revenueProcedureIds = managerRedProvision.body.result.procedureIds as string[];
+  const revenueTemplateRevision = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'workprogram.template.create', payload: {
+      fsliCode: 'REVENUE', title: 'Revenue assertions and cutoff — revised', standardsProfileId: planningApproved.body.result.standardsProfileId ?? fieldworkWorkspace.body.engagement.standardsProfileId,
+      procedures: [
+        { title: 'Revised vouch recorded revenue', instructions: 'Trace recorded invoices to signed delivery and customer acceptance evidence.', assertion: 'EXISTENCE', mandatory: true },
+        { title: 'Confirm rights and obligations', instructions: 'Inspect customer contracts and terms.', assertion: 'RIGHTS_OBLIGATIONS', mandatory: true },
+        { title: 'Trace completeness', instructions: 'Trace service records into the revenue ledger.', assertion: 'COMPLETENESS', mandatory: true },
+        { title: 'Recalculate valuation', instructions: 'Recalculate invoice amounts from signed orders.', assertion: 'VALUATION', mandatory: true },
+        { title: 'Test cutoff', instructions: 'Inspect transactions around period end.', assertion: 'CUTOFF', mandatory: true }
+      ]
+    } }
+  }, samplingApproverHeaders);
+  assert.equal(revenueTemplateRevision.response.status, 200, JSON.stringify(revenueTemplateRevision.body));
+  assert.equal(revenueTemplateRevision.body.result.revision, 2);
+  const approveRevenueTemplateRevision = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'workprogram.template.approve', payload: { templateId: revenueTemplateRevision.body.result.templateId, expectedVersion: 1 } }
+  }, samplingApproverHeaders);
+  assert.equal(approveRevenueTemplateRevision.response.status, 200, JSON.stringify(approveRevenueTemplateRevision.body));
+  const activeWorkprogramTemplate = db.prepare('SELECT template_id FROM workprograms WHERE workspace_id=? AND id=?')
+    .bind(workspaceId, revenueWorkprogramId).first<any>()?.template_id;
+  assert.equal(activeWorkprogramTemplate, revenueTemplateId, 'approving a later template revision does not repoint an active workprogram');
+  const copiedRevenueSteps = db.prepare('SELECT template_step_id,title FROM procedures WHERE workspace_id=? AND workprogram_id=? AND origin=\'STANDARD\' ORDER BY ordinal')
+    .bind(workspaceId, revenueWorkprogramId).all<any>().results;
+  assert.equal(copiedRevenueSteps.length, 5);
+  assert.ok(copiedRevenueSteps.every((step: any) => step.template_step_id && step.title !== 'Revised vouch recorded revenue'),
+    'the active procedure copies preserve their original template-step provenance and content');
   const partnerCannotClearAreaDuringExecution = await post(`/api/workspaces/${workspaceId}/commands`, {
     idempotencyKey: crypto.randomUUID(), command: { type: 'partner.clear-area', payload: {
       workprogramId: revenueWorkprogramId, submissionId: crypto.randomUUID(), dependencyHash: 'a'.repeat(64),
