@@ -120,6 +120,13 @@ async function getEngagement(env: Env, workspaceId: string, context: BusinessCon
 }
 
 export function toSheetRows(bytes: Uint8Array, worksheet?: string): { workbook: XLSX.WorkBook; sheetName: string; sheet: XLSX.WorkSheet } {
+  // Office encrypts OOXML workbooks into an OLE Compound File Binary container.
+  // Reject that format before asking SheetJS to parse it; password-protected
+  // workbooks cannot be safely previewed or imported by this workflow.
+  if (bytes.length >= 8 && bytes[0] === 0xd0 && bytes[1] === 0xcf && bytes[2] === 0x11 && bytes[3] === 0xe0
+    && bytes[4] === 0xa1 && bytes[5] === 0xb1 && bytes[6] === 0x1a && bytes[7] === 0xe1) {
+    throw new ApiError('VALIDATION_FAILED', 'Password-protected or legacy binary Excel workbooks are not supported. If password-protected, remove the password, then export a non-macro XLSX or CSV file with static values and retry.');
+  }
   let workbook: XLSX.WorkBook;
   try { workbook = XLSX.read(bytes, { type: 'array', raw: true, cellFormula: true, cellNF: false, bookVBA: true, bookFiles: true, WTF: true }); }
   catch { throw new ApiError('VALIDATION_FAILED', 'The workbook is encrypted, corrupt, or unsupported. Export a non-macro CSV/XLSX file with static values and retry.'); }

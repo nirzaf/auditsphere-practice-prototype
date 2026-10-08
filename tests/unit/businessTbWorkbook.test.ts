@@ -32,6 +32,15 @@ it('rejects VBA macro content even when an XLSM workbook is submitted as a workb
     error instanceof ApiError && error.code === 'VALIDATION_FAILED' && /Macro-enabled/.test(error.message));
 });
 
+it('rejects Office encrypted-package containers with an actionable export error', () => {
+  const compoundFileHeader = Uint8Array.of(0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1);
+  assert.throws(() => toSheetRows(compoundFileHeader), (error: unknown) =>
+    error instanceof ApiError && error.code === 'VALIDATION_FAILED'
+      && /Password-protected or legacy binary Excel workbooks/.test(error.message)
+      && /remove the password/i.test(error.message)
+      && /non-macro XLSX or CSV/.test(error.message));
+});
+
 it('rejects ZIP workbooks containing external-link package parts', () => {
   const files = unzipSync(workbookBytes());
   files['xl/externalLinks/externalLink1.xml'] = strToU8(

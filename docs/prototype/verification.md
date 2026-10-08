@@ -1639,3 +1639,20 @@ places, optional QAR currency validation, and exact 20,000-row/256-column bounds
 **Boundary:** These deterministic parser tests do not cover Cloudflare D1
 interruption, encrypted workbook fixtures, or current-account/browser
 acceptance. US-FLD-001 and the full epic remain open.
+
+## US-FLD-001 reject encrypted Office containers — 2026-10-08
+
+**Verification:** `npx tsx --test tests/unit/businessTbWorkbook.test.ts`;
+`git diff --check`.
+
+**Evidence:** Before invoking SheetJS, the TB parser rejects the OLE Compound
+File Binary signature used to wrap password-encrypted OOXML with a validation
+message that tells the preparer to remove the password and export a static-value
+non-macro XLSX or CSV. The focused test asserts the format rejection and all
+parts of the recovery guidance.
+
+**Boundary:** The fixture contains the compound-file signature, not a full
+password-encrypted Office workbook produced by Excel. This verifies the
+deterministic rejection path but not compatibility across encrypted Office
+variants. Production D1 interruption and current-account/browser acceptance
+remain open; US-FLD-001 and the full epic remain open.
