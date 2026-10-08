@@ -113,19 +113,18 @@ the repository:
 | Story | Blocking prerequisite |
 | --- | --- |
 | US-GAP-05 / 06 | Cloudflare Email Sending is enabled and DNS is configured for `mail.steaudit.com`. The restricted provider is deployed and the latest integration probe reported `SERVICE_BINDING`. The approved recipient `testing@mail.steauditing.com` remains Pending after verification was resent; a real delivery has not been accepted. |
-| US-GAP-25 – 28 | Entra app `AuditSphere SharePoint UAT` has `Sites.Selected` consent and a verified site-only `write` grant on `/sites/AuditSphereJSAcceptance` (2026-10-08). The latest live probe returned `FAILED` at 2026-10-08 01:20:01 UTC because the Microsoft Graph token request was rejected. The configured client secret must be owner-rotated before the probe can reach `CONNECTED`. |
+| US-GAP-25 – 28 | Entra app `AuditSphere SharePoint UAT` has `Sites.Selected` consent and a verified site-only `write` grant on `/sites/AuditSphereJSAcceptance` (2026-10-08). The latest live probe at 2026-10-08 04:26:07 UTC returned `FAILED` because the Microsoft Graph token request was rejected. The configured client secret must be owner-rotated before the probe can reach `CONNECTED`. |
 | US-GAP-30 – 32 | Deployed URL/build identity are recorded. UAT follows the epic's no-auth profile with four self-selected personas and synthetic records; supplied login accounts are not required. Real email delivery and a connected SharePoint test-site probe remain unverified. |
 
-The last fully successful production deployment is main commit
-`87426710a9b53bd6bf8a8959d1a58b36384f7eb3` from [GitHub Actions run
-37713406554](https://github.com/nirzaf/auditsphere-practice-prototype/actions/runs/37713406554)
+The last fully successful production deployment is main commit `d8197c1` from
+[GitHub Actions run 37727121265](https://github.com/nirzaf/auditsphere-practice-prototype/actions/runs/37727121265)
 (2026-10-08). It passed typecheck, unit tests, full hosted browser E2E,
-production build, schema-38 D1 migration, Worker/static asset deployment and
+production build, schema-41 D1 migration, Worker/static asset deployment and
 readiness. Previous successful run 37711971223 applied and read back all 101
 R2 archive rules and deployed the restricted Email Service provider. Earlier main runs
 37710179893, 37710812829 and 37711380454 passed verification but failed the strict
-Worker config check; run 37711971223 verified the source-config deploy fix. The last
-live `/api/integrations/status` request on 2026-10-08 01:20:01 UTC reported email
+Worker config check; run 37711971223 verified the source-config deploy fix. The latest
+live `/api/integrations/status` request on 2026-10-08 04:26:07 UTC reported email
 `SERVICE_BINDING` and SharePoint `FAILED` because the Graph token request is
 rejected. The site-only `write` grant remains independently verified. Email
 delivery remains unverified: `testing@mail.steauditing.com` was last observed as

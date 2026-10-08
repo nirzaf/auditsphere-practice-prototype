@@ -6,21 +6,21 @@ the account-owner steps that still gate live acceptance. Integration status must
 come from the deployed Worker; local configuration is not evidence of connectivity.
 
 The last verified production Worker is main commit
-`87426710a9b53bd6bf8a8959d1a58b36384f7eb3`, deployed by [GitHub Actions run
-37713406554](https://github.com/nirzaf/auditsphere-practice-prototype/actions/runs/37713406554)
-on 2026-10-08. CI reports success for typecheck, unit tests, browser E2E,
-production build, Worker/static asset deployment and readiness. It applied
-application schema version 38, including the mapping-history source-scope guard.
-The preceding run 37711971223 verified 101 R2 archive-lock rules and the
-restricted Email Service provider deployment. The main Worker deploys from the
-checked-in `wrangler.jsonc`; the earlier strict-mode config conflict is resolved.
+`d8197c1`, deployed by [GitHub Actions run
+37727121265](https://github.com/nirzaf/auditsphere-practice-prototype/actions/runs/37727121265)
+on 2026-10-08. CI passed typecheck, unit tests, browser E2E, production build,
+Worker/static asset deployment and readiness. It applied application schema
+version 41, including the canonical-lead migration and D1 trigger syntax fix.
+Run 37711971223 verified 101 R2 archive-lock rules and the restricted Email
+Service provider deployment. The main Worker deploys from checked-in
+`wrangler.jsonc`; the earlier strict-mode config conflict is resolved.
 
-A `GET /api/integrations/status` last successfully observed at 2026-10-08 01:20:01 UTC reported
+A `GET /api/integrations/status` observed at 2026-10-08 04:26:07 UTC reported
 email `configured: true` with transport `SERVICE_BINDING`; SharePoint reports
-`FAILED` because Microsoft Graph rejected the token request. A healthy deployment
-does not by itself establish email delivery or SharePoint connectivity. A new
-direct probe could not be fetched from the local host after deployment; these
-integration values are therefore the last observed status, not a fresh result.
+`FAILED` because Microsoft Graph rejected the token request. Health reported
+`ready` at schema version 41 with no dependency codes. A healthy deployment does
+not by itself establish email delivery or SharePoint connectivity; the integration
+probe remains failed for SharePoint and pending for real email delivery.
 
 Verify the current state of every integration at any time:
 
