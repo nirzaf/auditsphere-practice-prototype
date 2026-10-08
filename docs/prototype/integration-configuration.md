@@ -6,14 +6,15 @@ the account-owner steps that still gate live acceptance. Integration status must
 come from the deployed Worker; local configuration is not evidence of connectivity.
 
 The last verified production Worker is main commit
-`d8197c1`, deployed by [GitHub Actions run
-37727121265](https://github.com/nirzaf/auditsphere-practice-prototype/actions/runs/37727121265)
-on 2026-10-08. CI passed typecheck, unit tests, browser E2E, production build,
-Worker/static asset deployment and readiness. It applied application schema
-version 41, including the canonical-lead migration and D1 trigger syntax fix.
-Run 37711971223 verified 101 R2 archive-lock rules and the restricted Email
-Service provider deployment. The main Worker deploys from checked-in
-`wrangler.jsonc`; the earlier strict-mode config conflict is resolved.
+`aa87f836584df5ed950b73d29ef583780a9d8bdd`, deployed by [GitHub Actions run
+37732558308](https://github.com/nirzaf/auditsphere-practice-prototype/actions/runs/37732558308)
+on 2026-10-08. CI passed application/Worker typecheck, unit tests, browser E2E,
+and production build. The deployment job applied and verified R2 archive-retention
+locks, deployed the restricted Email Service provider, applied approved D1
+migrations, deployed the Worker/static assets, and passed the Worker readiness
+probe. This proves deployment health, not outbound email delivery or SharePoint
+authentication. The main Worker deploys from checked-in `wrangler.jsonc`; the
+earlier strict-mode config conflict is resolved.
 
 A `GET /api/integrations/status` observed at 2026-10-08 04:26:07 UTC reported
 email `configured: true` with transport `SERVICE_BINDING`; SharePoint reports

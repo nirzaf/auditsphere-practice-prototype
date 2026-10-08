@@ -1642,8 +1642,11 @@ acceptance. US-FLD-001 and the full epic remain open.
 
 ## US-FLD-001 reject encrypted Office containers — 2026-10-08
 
-**Verification:** `npx tsx --test tests/unit/businessTbWorkbook.test.ts`;
-`git diff --check`.
+**Verification:** `npx tsx --test tests/unit/businessTbWorkbook.test.ts` (8/8);
+`npm run test:unit` (615 passed, 1 opt-in stress test skipped);
+`npm run lint`; `npm run cloud:typecheck`; `npm run build`;
+`git diff --check`; [GitHub Actions run 37732558308](https://github.com/nirzaf/auditsphere-practice-prototype/actions/runs/37732558308)
+(browser E2E and Cloudflare deploy/readiness passed).
 
 **Evidence:** Before invoking SheetJS, the TB parser rejects the OLE Compound
 File Binary signature used to wrap password-encrypted OOXML with a validation
