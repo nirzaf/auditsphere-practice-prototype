@@ -15,6 +15,18 @@ Staff should see and act on only the engagements they are assigned to, unless th
 ## Step 1 — Verify (no code change)
 Produce a matrix (persona × endpoint/command family) showing whether an unassigned Preparer/Reviewer can read or mutate another engagement today. Use a Worker-integration test that creates two engagements with disjoint assignments. Commit the test as `tests/unit/assignmentScopeAudit.test.ts` with `todo` markers for current gaps.
 
+### Initial main-branch audit (2026-10-09)
+
+`tests/unit/assignmentScopeAudit.test.ts` creates three post-commercial engagements: one assigned only to the Reviewer, one assigned only to the Preparer, and another assigned to the Reviewer for pagination coverage. All assignments end in 2020; both assigned users can still open their engagement workflows. The audit ran against `worker.fetch` before adding S07 enforcement.
+
+| Persona | Assigned control | Unassigned engagement reads | Unassigned engagement commands |
+|---|---|---|---|
+| Partner (`APPROVER`) | Workflow reads succeeded for both sample engagements. | Firm-wide access remains the control. | Existing Partner command behavior remains the control. |
+| Reviewer | Workflow read succeeded for both historical assignment rows. | 12 of 24 engagement read routes returned 200, including workflow, risk, delivery, planning, trial balance, reporting, archive status, PBC portal and planning readiness. Other routes returned 400/403/404/409/422 for unrelated validation, persona, missing-record or lifecycle gates; none consistently returned `FORBIDDEN_SCOPE`. | `staffing.assign` succeeded against an engagement where the reviewer had no assignment and inserted a new assignment plus audit record. |
+| Preparer | Workflow read succeeded for the historical assignment row. | 12 of 24 engagement read routes returned 200, including workflow, risk, delivery, planning, trial balance, reporting, archive status, PBC portal and planning readiness. Other routes returned 400/403/404/409/422 for unrelated validation, persona, missing-record or lifecycle gates; none consistently returned `FORBIDDEN_SCOPE`. | `pbc.request.create` succeeded against an engagement where the preparer had no assignment and inserted a PBC request plus audit record. |
+
+The unfiltered client endpoint also returned the Reviewer’s unassigned client on a subsequent page. No direct `lead.read` restriction is inferred from the audit: leads remain commercial records and are visible to personas with the existing lead action. Three tests are marked TODO for the gaps; they will become required passing assertions as implementation lands. This matrix is recorded here because the authorized workflow is direct work on `main`, without a pull request.
+
 ## Step 2 — Implement per D3 (default rule if D3 unanswered)
 | Persona | Engagement-scoped reads/commands | Firm-level lists |
 |---|---|---|
