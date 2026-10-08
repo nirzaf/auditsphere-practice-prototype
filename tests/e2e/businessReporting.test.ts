@@ -580,6 +580,72 @@ it('US-REP-001–007 covers all report categories, representation, atomic releas
   assert.match(visibleStart.reportTitle, /Reporting and final deliverables/);
   assert.deepEqual(visibleStart.errors, [], 'the initial Worker projections load without alerts');
 
+  // US-PRC-006: browser acceptance for the policy and earned-date context in
+  // the internal firm reporting panel, including the required small viewport.
+  await waitFor('the Partner practice panel and effective revenue policy', `(() => {
+    const practice = document.querySelector('#business-practice-${fixture.engagementId}')?.closest('section');
+    return practice?.innerText.includes('Policy for earned date') &&
+      practice?.innerText.includes('Advance invoices post to contract liability') &&
+      [...(practice?.querySelectorAll('label') ?? [])].some(label => label.querySelector('span')?.textContent?.trim() === 'Earned date');
+  })()`);
+  await tab.evaluate(`(() => {
+    const card = document.querySelector('#business-practice-${fixture.engagementId}')?.closest('section');
+    const field = [...(card?.querySelectorAll('label') ?? [])].find(label => label.querySelector('span')?.textContent?.trim() === 'Earned date')?.querySelector('input');
+    field?.scrollIntoView({ block: 'center' });
+  })()`);
+  await waitFor('the earned-date field centered in the viewport', `(() => {
+    const card = document.querySelector('#business-practice-${fixture.engagementId}')?.closest('section');
+    const field = [...(card?.querySelectorAll('label') ?? [])].find(label => label.querySelector('span')?.textContent?.trim() === 'Earned date')?.querySelector('input');
+    const box = field?.getBoundingClientRect();
+    return Boolean(box && box.top >= 0 && box.bottom <= window.innerHeight);
+  })()`);
+  const initialPracticeScreenshot = await tab.command<{ data: string }>('Page.captureScreenshot', { format: 'png' });
+  assert.ok(initialPracticeScreenshot.data.length > 1000, 'the loaded Partner practice panel is captured before responsive checks');
+  const practiceUi = await tab.evaluate<{ policy: string; digest: string; earnedDate: string; recognitionAction: string; recognitionDisabled: boolean; explanation: string }>(`(() => {
+    const practice = document.querySelector('#business-practice-${fixture.engagementId}')?.closest('section');
+    const dateLabel = [...(practice?.querySelectorAll('label') ?? [])].find(label => label.querySelector('span')?.textContent?.trim() === 'Earned date');
+    const action = [...(practice?.querySelectorAll('button') ?? [])].find(button => button.textContent?.trim().startsWith('Recognize revenue with revision '));
+    return { policy: practice?.querySelector('[aria-labelledby]')?.innerText ?? '',
+      digest: practice?.querySelector('.business-policy-digest')?.textContent ?? '',
+      earnedDate: (dateLabel?.querySelector('input') as HTMLInputElement | null)?.value ?? '',
+      recognitionAction: action?.textContent?.trim() ?? '', recognitionDisabled: action?.disabled ?? true,
+      explanation: [...(practice?.querySelectorAll('p') ?? [])].map(item => item.textContent ?? '').find(text => text.includes('Receiving cash settles receivables')) ?? '' };
+  })()`);
+  assert.match(practiceUi.policy, /Policy for earned date · revision 1/);
+  assert.match(practiceUi.digest, /Policy digest [a-f0-9]{64}/);
+  assert.equal(practiceUi.earnedDate, reportDate);
+  assert.equal(practiceUi.recognitionAction, 'Recognize revenue with revision 1');
+  assert.equal(practiceUi.recognitionDisabled, false);
+  assert.match(practiceUi.explanation, /does not recognize revenue/);
+
+  await tab.command('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 1, mobile: true });
+  const mobilePracticeLayout = await tab.evaluate<{ pageWidth: number; viewportWidth: number; cardLeft: number; cardRight: number; earnedDateLeft: number; earnedDateRight: number }>(`(() => {
+    const card = document.querySelector('#business-practice-${fixture.engagementId}')?.closest('section');
+    const earned = [...(card?.querySelectorAll('label') ?? [])].find(label => label.querySelector('span')?.textContent?.trim() === 'Earned date')?.querySelector('input');
+    const cardBox = card?.getBoundingClientRect(), earnedBox = earned?.getBoundingClientRect();
+    return { pageWidth: document.documentElement.scrollWidth, viewportWidth: document.documentElement.clientWidth,
+      cardLeft: cardBox?.left ?? -1, cardRight: cardBox?.right ?? Infinity,
+      earnedDateLeft: earnedBox?.left ?? -1, earnedDateRight: earnedBox?.right ?? Infinity };
+  })()`);
+  assert.ok(mobilePracticeLayout.pageWidth <= mobilePracticeLayout.viewportWidth, 'the 390px practice view has no horizontal page overflow');
+  assert.ok(mobilePracticeLayout.cardLeft >= 0 && mobilePracticeLayout.cardRight <= 390, 'the practice card fits the mobile viewport');
+  assert.ok(mobilePracticeLayout.earnedDateLeft >= 0 && mobilePracticeLayout.earnedDateRight <= 390, 'the earned-date field remains visible on mobile');
+  const mobilePracticeScreenshot = await tab.command<{ data: string }>('Page.captureScreenshot', { format: 'png' });
+  assert.ok(mobilePracticeScreenshot.data.length > 1000, 'the rendered mobile practice layout is captured for visual acceptance');
+
+  await tab.command('Emulation.setDeviceMetricsOverride', { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });
+  const desktopPracticeLayout = await tab.evaluate<{ pageWidth: number; viewportWidth: number; cardLeft: number; cardRight: number }>(`(() => {
+    const card = document.querySelector('#business-practice-${fixture.engagementId}')?.closest('section');
+    const box = card?.getBoundingClientRect();
+    return { pageWidth: document.documentElement.scrollWidth, viewportWidth: document.documentElement.clientWidth,
+      cardLeft: box?.left ?? -1, cardRight: box?.right ?? Infinity };
+  })()`);
+  assert.ok(desktopPracticeLayout.pageWidth <= desktopPracticeLayout.viewportWidth, 'the 1440px practice view has no horizontal page overflow');
+  assert.ok(desktopPracticeLayout.cardLeft >= 0 && desktopPracticeLayout.cardRight <= 1440, 'the practice card fits the desktop viewport');
+  const desktopPracticeScreenshot = await tab.command<{ data: string }>('Page.captureScreenshot', { format: 'png' });
+  assert.ok(desktopPracticeScreenshot.data.length > 1000, 'the rendered desktop practice layout is captured for visual acceptance');
+  await tab.command('Emulation.clearDeviceMetricsOverride');
+
   const fillReportField = async (labelPrefix: string, value: string, select = false) => {
     const observed = await tab!.evaluate<{ found: boolean; value: string }>(`(() => {
       const report = document.querySelector('#business-reporting-${fixture.engagementId}')?.closest('section');
