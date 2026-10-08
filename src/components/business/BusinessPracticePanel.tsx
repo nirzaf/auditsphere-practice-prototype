@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import type { BusinessContextResponse, BusinessEngagementOption, BusinessFileMetadata, BusinessWorkspacePreference } from '../../shared/api/business';
-import { downloadBusinessFileVersion, getBusinessPracticeWorkspace, newBusinessIdempotencyKey, runBusinessCommand } from '../../services/businessWorkspace';
+import { downloadBusinessFileVersion, getBusinessFirmProfitLossReport, getBusinessPracticeWorkspace, newBusinessIdempotencyKey, runBusinessCommand } from '../../services/businessWorkspace';
 import { expenseAccountCodeForCategory, type FirmExpenseCategory } from '../../services/practiceAccounts';
 import { StatusBadge } from '../common/StatusBadge';
 
@@ -19,7 +19,7 @@ type PracticeData = {
   revenuePolicies: Array<{ id: string; revision: number; name: string; recognitionMethod: string }>;
   payments: Array<{ id: string; clientId: string; engagementId: string; amountMinor: string; receivedOn: string; method: string; reference: string; receiptNumber: string | null; receiptStatus: string | null; fullyReversed: number | boolean; reversesPaymentId: string | null; remainingUnallocatedMinor: string }>;
   arAging: null | { asOf: string; invoices: Array<{ invoiceId: string; clientId: string; engagementId: string; kind: string; number: string; dueDate: string; outstandingMinor: string; bucket: string }>; buckets: Record<string, string>; outstandingTotalMinor: string; unallocatedMinor: string; controlAccountMinor: string; reconciliationDifferenceMinor: string; reconciliationStatus: string };
-  trialBalance: { rows: Array<{ accountId: string; code: string; name: string; accountType: string; openingMinor: string; periodDebitMinor: string; periodCreditMinor: string; closingMinor: string }>; closingDebitMinor: string; closingCreditMinor: string; closingBalanced: boolean; sourceHash: string };
+  trialBalance: { from: string; to: string; asOf: string; rows: Array<{ accountId: string; code: string; name: string; accountType: string; openingMinor: string; periodDebitMinor: string; periodCreditMinor: string; closingMinor: string }>; closingDebitMinor: string; closingCreditMinor: string; closingBalanced: boolean; sourceHash: string };
   profitLoss: { revenueMinor: string; expenseMinor: string; profitMinor: string; sourceHash: string; recognitionNote: string };
   budget: { id: string; revision: number; sourceHash: string } | null;
   profitability: { engagementId: string; asOf: string; budgetRevision: number; feeProposalVersionId: string; feeProposalRevision: number; engagementLetterId: string; letterRevision: number; acceptedAt: string; acceptedFeeRevisions: Array<{ engagementLetterId: string; letterRevision: number; feeProposalVersionId: string; feeProposalRevision: number; feeMinor: string; acceptedAt: string }>; feeMinor: string; chargeOutValueMinor: string; profitabilityMinor: string; approvedMinutes: number; pendingMinutes: number; billedMinor: string; collectedMinor: string; metricLabel: string; formula: string; sourceHash: string; phases: Array<{ phase: string; plannedMinutes: number; actualMinutes: number; varianceMinutes: number; varianceBps: number | null; varianceStatus: string; chargeOutValueMinor: string }> } | null;
@@ -32,6 +32,11 @@ type PracticeData = {
   controlAccountBalances: Array<{ accountId: string; code: string; name: string; balanceMinor: string }>;
   reportSnapshots: Array<{ id: string; kind: string; periodStart: string; periodEnd: string; sourceHash: string; fileVersionId: string | null; fileName: string | null; sha256: string | null; generatedAt: string }>;
   period: { from: string; to: string };
+};
+type MonthlyProfitLossReport = {
+  from: string; to: string; asOf: string; sourceHash: string;
+  accounts: Array<{ accountId: string; code: string; name: string; accountType: string; amountMinor: string }>;
+  revenueMinor: string; expenseMinor: string; profitMinor: string;
 };
 
 interface Props {
@@ -63,6 +68,8 @@ export function BusinessPracticePanel({ workspaceId, selected, context, engageme
   const today = qatarToday();
   const [from, setFrom] = useState(`${today.slice(0, 4)}-01-01`);
   const [to, setTo] = useState(today);
+  const [profitLossMonth, setProfitLossMonth] = useState(today.slice(0, 7));
+  const [profitLossReport, setProfitLossReport] = useState<MonthlyProfitLossReport | null>(null);
   const [data, setData] = useState<PracticeData | null>(null);
   const [refresh, setRefresh] = useState(0);
   const [busy, setBusy] = useState(false);
@@ -134,6 +141,7 @@ export function BusinessPracticePanel({ workspaceId, selected, context, engageme
   const isPartner = context.actor.persona === 'APPROVER' && context.actor.staffGrade === 'PARTNER';
   const canReview = context.allowedActions.includes('practice.approve') || isPartner;
   const canManage = context.allowedActions.includes('practice.manage') || isPartner;
+  const monthlyProfitLoss = profitLossReport?.from.slice(0, 7) === profitLossMonth ? profitLossReport : null;
   const committedEvidence = useMemo(() => files.filter(file => file.purpose === 'EVIDENCE' && file.state === 'COMMITTED'
     && file.engagementId === engagement.id), [files, engagement.id]);
 
@@ -145,6 +153,15 @@ export function BusinessPracticePanel({ workspaceId, selected, context, engageme
       .catch(reason => { if (!controller.signal.aborted) setError(reason instanceof Error ? reason.message : 'Firm practice data could not be loaded.'); });
     return () => controller.abort();
   }, [workspaceId, selected.actorId, selected.persona, selected.clientId, selected.engagementId, engagement.id, from, to, refresh]);
+
+  useEffect(() => {
+    if (!selected.actorId || !selected.persona) return;
+    const controller = new AbortController();
+    getBusinessFirmProfitLossReport(workspaceId, selected, profitLossMonth, controller.signal)
+      .then(result => { if (!controller.signal.aborted) setProfitLossReport(result as unknown as MonthlyProfitLossReport); })
+      .catch(reason => { if (!controller.signal.aborted) setError(reason instanceof Error ? reason.message : 'Monthly firm profit and loss could not be loaded.'); });
+    return () => controller.abort();
+  }, [workspaceId, selected.actorId, selected.persona, selected.clientId, selected.engagementId, profitLossMonth, refresh]);
 
   const perform = async (type: string, payload: Record<string, unknown>, success: string) => {
     setBusy(true); setError(''); setMessage('');
@@ -254,7 +271,16 @@ export function BusinessPracticePanel({ workspaceId, selected, context, engageme
   };
   const exportPracticeReport = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    await perform('practice.export-report', { kind: exportKind, periodStart: from, periodEnd: to, format: exportFormat }, `${exportKind === 'TRIAL_BALANCE' ? 'Trial balance' : 'Profit and loss'} export queued from an immutable source snapshot.`);
+    const report = exportKind === 'TRIAL_BALANCE' ? data?.trialBalance : monthlyProfitLoss;
+    if (!report) { setError('Load the selected firm report before exporting it.'); return; }
+    if (exportKind === 'TRIAL_BALANCE' && (report.from !== from || report.to !== to)) {
+      setError('Wait for the trial balance to refresh for the selected date range before exporting.'); return;
+    }
+    await perform('practice.export-report', { kind: exportKind,
+      periodStart: exportKind === 'TRIAL_BALANCE' ? from : report.from,
+      periodEnd: exportKind === 'TRIAL_BALANCE' ? to : report.to,
+      asOf: report.asOf, format: exportFormat
+    }, `${exportKind === 'TRIAL_BALANCE' ? 'Trial balance' : 'Profit and loss'} export queued from the displayed report cutoff.`);
   };
   const downloadReport = async (snapshot: PracticeData['reportSnapshots'][number]) => {
     if (!snapshot.fileVersionId) { setError('This report snapshot has no committed file yet.'); return; }
@@ -296,11 +322,21 @@ export function BusinessPracticePanel({ workspaceId, selected, context, engageme
           <p><strong>{data.trialBalance.closingBalanced ? 'Balanced exactly' : 'Out of balance'}</strong> · debit {money(data.trialBalance.closingDebitMinor)} · credit {money(data.trialBalance.closingCreditMinor)}</p>
           <small>Source {data.trialBalance.sourceHash.slice(0, 16)}… · opening balances and posted movements through {to}.</small>
         </div>
-        <div className="business-record-list"><h3>Monthly profit and loss · selected period</h3>
-          <p>Revenue {money(data.profitLoss.revenueMinor)} · expenses {money(data.profitLoss.expenseMinor)} · profit {money(data.profitLoss.profitMinor)}</p>
+        <div className="business-record-list"><h3>Monthly profit and loss</h3>
+          <label className="business-field"><span>Reporting month</span><input type="month" value={profitLossMonth} onChange={event => setProfitLossMonth(event.target.value)} /></label>
+          {monthlyProfitLoss ? <>
+            <p>Revenue {money(monthlyProfitLoss.revenueMinor)} · expenses {money(monthlyProfitLoss.expenseMinor)} · profit {money(monthlyProfitLoss.profitMinor)}</p>
+            <small>{monthlyProfitLoss.from} to {monthlyProfitLoss.to} · as of {formatQatarTimestamp(monthlyProfitLoss.asOf)} · source {monthlyProfitLoss.sourceHash.slice(0, 16)}…</small>
+          </> : <p className="business-muted">Loading the selected reporting month…</p>}
           <small>{data.profitLoss.recognitionNote}</small>
         </div>
       </div>
+
+      {monthlyProfitLoss && <><h3>Monthly P&amp;L by firm account · {profitLossMonth}</h3>
+        <div className="business-table-wrap"><table className="business-table"><thead><tr><th>Account</th><th>Type</th><th>Amount</th></tr></thead><tbody>
+          {monthlyProfitLoss.accounts.map(row => <tr key={row.accountId}><td>{row.code} · {row.name}</td><td>{row.accountType}</td><td>{money(row.amountMinor)}</td></tr>)}
+        </tbody></table></div>
+      </>}
 
       <div className="business-practice-actions">
         <button type="button" className="btn sm" disabled={busy} onClick={() => void perform('practice.capture-utilization-report', { from, to }, 'Utilization snapshot captured from explicit capacity and approved time.')}>Capture utilization snapshot</button>
@@ -521,8 +557,10 @@ export function BusinessPracticePanel({ workspaceId, selected, context, engageme
         <h3>Export an immutable internal firm report</h3><div className="business-form-grid">
           <label className="business-field"><span>Report</span><select value={exportKind} onChange={event => setExportKind(event.target.value as typeof exportKind)}><option value="TRIAL_BALANCE">Firm trial balance</option><option value="MONTHLY_PROFIT_LOSS">Firm profit and loss</option></select></label>
           <label className="business-field"><span>Format</span><select value={exportFormat} onChange={event => setExportFormat(event.target.value as typeof exportFormat)}><option>CSV</option><option>XLSX</option><option>PDF</option></select></label>
-          <label className="business-field"><span>Period start</span><input type="date" required value={from} onChange={event => setFrom(event.target.value)} /></label>
-          <label className="business-field"><span>Period end</span><input type="date" required value={to} onChange={event => setTo(event.target.value)} /></label>
+          {exportKind === 'TRIAL_BALANCE'
+            ? <><label className="business-field"><span>Period start</span><input type="date" required value={from} onChange={event => setFrom(event.target.value)} /></label>
+              <label className="business-field"><span>Period end</span><input type="date" required value={to} onChange={event => setTo(event.target.value)} /></label></>
+            : <label className="business-field"><span>Monthly period</span><input type="month" readOnly value={profitLossMonth} /></label>}
         </div><button className="btn sm" disabled={busy}>Generate verified report file</button>
       </form>}
       {data.reportSnapshots.length > 0 && <div className="business-record-list"><h3>Generated report snapshots</h3>{data.reportSnapshots.map(snapshot => <div className="business-delivery-row" key={snapshot.id}>

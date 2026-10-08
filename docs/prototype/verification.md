@@ -1706,7 +1706,8 @@ epic remain open.
 ## US-PRC-006 firm trial balance and monthly profit and loss — 2026-10-08
 
 **Verification:** `npx tsx --test --test-reporter=spec
-tests/unit/businessWorkspace.test.ts` — 1/1; `npm run lint`;
+tests/unit/businessWorkspace.test.ts` — 1/1; `npm run test:unit` —
+616 passed, 1 opt-in stress test skipped; `npm run lint`;
 `npm run cloud:typecheck`; `npm run build`; `git diff --check`.
 
 **Evidence:** Dedicated `/practice/reports/trial-balance` and
@@ -1726,6 +1727,8 @@ totals.
 
 **Boundary:** This verifies local synthetic Worker/SQLite behavior and exact
 report projections and all three export formats generated from persisted
-snapshots. Deployed report reconciliation and independent presentation
-acceptance remain open. US-PRC-006 is partial and the 46-story epic remains
-open.
+snapshots. The practice panel now selects a reporting month, displays every
+revenue/expense account, and passes the displayed cutoff through to export.
+The panel has not yet received an interactive browser review. Deployed report
+reconciliation and independent presentation acceptance remain open.
+US-PRC-006 is partial and the 46-story epic remains open.

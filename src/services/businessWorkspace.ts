@@ -346,6 +346,16 @@ export async function getBusinessPracticeWorkspace(
   return requestJson(`/api/workspaces/${encodeURIComponent(workspaceId)}/practice?${query}`, { context: selected, signal });
 }
 
+export async function getBusinessFirmProfitLossReport(
+  workspaceId: string,
+  selected: BusinessWorkspacePreference,
+  month: string,
+  signal?: AbortSignal
+): Promise<Record<string, unknown>> {
+  const query = new URLSearchParams({ month });
+  return requestJson(`/api/workspaces/${encodeURIComponent(workspaceId)}/practice/reports/profit-loss?${query}`, { context: selected, signal });
+}
+
 export async function getBusinessReportingWorkspace(
   workspaceId: string,
   engagementId: string,

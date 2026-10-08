@@ -4880,9 +4880,16 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
   assert.equal(zeroCapacityUtilization.body.resultReason, 'ZERO_AVAILABILITY');
 
   // PRC-006: the firm trial-balance export renders from an immutable source snapshot.
+  const reportExportAsOf = new Date(Date.now() - 1_000).toISOString();
+  const [tbAtExportCutoff, profitLossAtExportCutoff] = await Promise.all([
+    call(`${practicePath}/reports/trial-balance?from=${planDate}&to=${planDate}&asOf=${encodeURIComponent(reportExportAsOf)}`, { headers: practiceHeaders }),
+    call(`${practicePath}/reports/profit-loss?month=${planDate.slice(0, 7)}&asOf=${encodeURIComponent(reportExportAsOf)}`, { headers: practiceHeaders })
+  ]);
+  assert.equal(tbAtExportCutoff.response.status, 200, JSON.stringify(tbAtExportCutoff.body));
+  assert.equal(profitLossAtExportCutoff.response.status, 200, JSON.stringify(profitLossAtExportCutoff.body));
   const exportRequest = await post(`/api/workspaces/${workspaceId}/commands`, {
     idempotencyKey: crypto.randomUUID(), command: { type: 'practice.export-report', payload: {
-      kind: 'TRIAL_BALANCE', periodStart: planDate, periodEnd: planDate, format: 'CSV' } }
+      kind: 'TRIAL_BALANCE', periodStart: planDate, periodEnd: planDate, asOf: reportExportAsOf, format: 'CSV' } }
   }, approverHeaders);
   assert.equal(exportRequest.response.status, 200, JSON.stringify(exportRequest.body));
   await worker.scheduled({ scheduledTime: Date.now(), cron: '*/5 * * * *' } as any, env);
@@ -4898,10 +4905,14 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
   assert.ok(exportCsv.includes("'=SUM(1,1)"), 'CSV escapes formula-leading account names before spreadsheet import');
   const reportSnapshot = db.prepare('SELECT rows_snapshot_json,as_of,journal_cutoff_hash FROM firm_report_snapshots WHERE workspace_id=? AND id=?')
     .bind(workspaceId, exportRequest.body.result.reportSnapshotId).first<any>();
+  assert.equal(reportSnapshot.journal_cutoff_hash, tbAtExportCutoff.body.sourceHash);
   assert.equal(reportSnapshot.journal_cutoff_hash, exportRequest.body.result.sourceHash);
+  assert.equal(reportSnapshot.as_of, reportExportAsOf, 'the TB export reuses the displayed report cutoff exactly');
   assert.equal(JSON.parse(reportSnapshot.rows_snapshot_json).asOf, reportSnapshot.as_of);
   assert.ok(exportCsv.includes(`\"As of (UTC)\",\"${reportSnapshot.as_of}\"`), 'CSV carries the exact immutable report cutoff');
   const tbSnapshot = JSON.parse(reportSnapshot.rows_snapshot_json);
+  assert.equal(tbSnapshot.debitTotalMinor, tbAtExportCutoff.body.debitTotalMinor);
+  assert.equal(tbSnapshot.creditTotalMinor, tbAtExportCutoff.body.creditTotalMinor);
   assert.ok(exportCsv.includes(`\"Period debit total (QAR minor)\",\"${tbSnapshot.debitTotalMinor}\"`));
   assert.ok(exportCsv.includes(`\"Period credit total (QAR minor)\",\"${tbSnapshot.creditTotalMinor}\"`));
 
@@ -4910,7 +4921,7 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
   for (const format of ['CSV', 'XLSX', 'PDF'] as const) {
     const profitLossExport = await post(`/api/workspaces/${workspaceId}/commands`, {
       idempotencyKey: crypto.randomUUID(), command: { type: 'practice.export-report', payload: {
-        kind: 'MONTHLY_PROFIT_LOSS', periodStart: reportMonthStart, periodEnd: reportMonthEnd, format
+        kind: 'MONTHLY_PROFIT_LOSS', periodStart: reportMonthStart, periodEnd: reportMonthEnd, asOf: reportExportAsOf, format
       } }
     }, approverHeaders);
     assert.equal(profitLossExport.response.status, 200, JSON.stringify(profitLossExport.body));
@@ -4927,9 +4938,11 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
       .bind(workspaceId, profitLossExport.body.result.reportSnapshotId).first<any>();
     const snapshotData = JSON.parse(snapshot.rows_snapshot_json);
     assert.equal(snapshotData.asOf, snapshot.as_of);
+    assert.equal(snapshot.as_of, reportExportAsOf, 'the export reuses the displayed report cutoff exactly');
+    assert.equal(snapshot.journal_cutoff_hash, profitLossAtExportCutoff.body.sourceHash);
     assert.equal(snapshot.journal_cutoff_hash, profitLossExport.body.result.sourceHash);
     assert.deepEqual({ revenue: snapshotData.revenueMinor, expenses: snapshotData.expenseMinor, profit: snapshotData.profitMinor }, {
-      revenue: reportsAfterPost[1].body.revenueMinor, expenses: reportsAfterPost[1].body.expenseMinor, profit: reportsAfterPost[1].body.profitMinor
+    revenue: profitLossAtExportCutoff.body.revenueMinor, expenses: profitLossAtExportCutoff.body.expenseMinor, profit: profitLossAtExportCutoff.body.profitMinor
     }, 'the persisted P&L snapshot preserves the selected report projection and cutoff');
     if (format === 'CSV') {
       const csv = new TextDecoder().decode(bytes);

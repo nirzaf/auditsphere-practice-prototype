@@ -80,7 +80,7 @@ const paymentReverseAllocation = z.strictObject({ type:z.literal('payment.revers
 const creditNoteIssue = z.strictObject({ type:z.literal('credit-note.issue'),payload:z.strictObject({invoiceId:id,date,amountMinor:amount.refine(value=>BigInt(value)>0n),reason:reason()})});
 const captureAr = z.strictObject({ type:z.literal('practice.capture-ar-aging-report'),payload:z.strictObject({asOf:date,clientId:id.optional()})});
 const exportReport = z.strictObject({type:z.literal('practice.export-report'),payload:z.strictObject({kind:z.enum(['TRIAL_BALANCE','MONTHLY_PROFIT_LOSS']),
-  periodStart:date,periodEnd:date,format:z.enum(['CSV','XLSX','PDF'])}).refine(value=>value.periodStart<=value.periodEnd,'The report period end must not precede its start.')});
+  periodStart:date,periodEnd:date,asOf:z.iso.datetime().optional(),format:z.enum(['CSV','XLSX','PDF'])}).refine(value=>value.periodStart<=value.periodEnd,'The report period end must not precede its start.')});
 
 export const businessPracticeCommands = [chargeRateSet,timeCreate,timeSubmit,timeApprove,timeReturn,timeCorrect,captureUtilization,budgetApprove,accountCreate,periodOpen,periodClose,
   journalCreate,journalPost,journalReverse,expenseCreate,expensePost,withdrawalPost,pettyCashReplenish,pettyCashReconcile,revenuePolicySave,revenueRecognize,captureProfitability,
@@ -1048,23 +1048,25 @@ async function buildPracticeReportExport(env:Env,workspaceId:string,context:Busi
   const p=command.payload;
   if(Date.parse(`${p.periodEnd}T00:00:00Z`)-Date.parse(`${p.periodStart}T00:00:00Z`)>366*86_400_000)
     throw new ApiError('VALIDATION_FAILED','A firm report export may cover at most 367 calendar dates.');
+  const asOf=reportAsOf(p.asOf??now);
+  if(Date.parse(asOf)>Date.parse(now))throw new ApiError('BAD_REQUEST','A firm report export cutoff cannot be in the future.');
   let snapshot:Record<string,unknown>;
   let sourceHash:string;
   if(p.kind==='TRIAL_BALANCE'){
-    const report=await firmTrialBalance(env,workspaceId,p.periodStart,p.periodEnd,now);
+    const report=await firmTrialBalance(env,workspaceId,p.periodStart,p.periodEnd,asOf);
     sourceHash=report.sourceHash;
-    snapshot={kind:p.kind,periodStart:p.periodStart,periodEnd:p.periodEnd,asOf:now,rows:report.rows,revenueMinor:null,expenseMinor:null,
+    snapshot={kind:p.kind,periodStart:p.periodStart,periodEnd:p.periodEnd,asOf,rows:report.rows,revenueMinor:null,expenseMinor:null,
       debitTotalMinor:report.debitTotalMinor,creditTotalMinor:report.creditTotalMinor,profitMinor:null,balanced:report.balanced,
       closingDebitMinor:report.closingDebitMinor,closingCreditMinor:report.closingCreditMinor,closingBalanced:report.closingBalanced,sourceHash};
   }else{
-    const report=await firmProfitLoss(env,workspaceId,p.periodStart,p.periodEnd,now);
+    const report=await firmProfitLoss(env,workspaceId,p.periodStart,p.periodEnd,asOf);
     sourceHash=report.sourceHash;
-    snapshot={kind:p.kind,periodStart:p.periodStart,periodEnd:p.periodEnd,asOf:now,rows:report.accounts,revenueMinor:report.revenueMinor,
+    snapshot={kind:p.kind,periodStart:p.periodStart,periodEnd:p.periodEnd,asOf,rows:report.accounts,revenueMinor:report.revenueMinor,
       expenseMinor:report.expenseMinor,debitTotalMinor:null,creditTotalMinor:null,profitMinor:report.profitMinor,balanced:null,
       closingDebitMinor:null,closingCreditMinor:null,closingBalanced:null,sourceHash};
   }
   const snapshotId=crypto.randomUUID(),jobId=crypto.randomUUID(),payload={documentType:'PRACTICE_REPORT',reportSnapshotId:snapshotId,kind:p.kind,
-    periodStart:p.periodStart,periodEnd:p.periodEnd,format:p.format,asOf:now,sourceHash,rowsJson:JSON.stringify(snapshot),generatedByActorId:context.actor.id};
+    periodStart:p.periodStart,periodEnd:p.periodEnd,format:p.format,asOf,sourceHash,rowsJson:JSON.stringify(snapshot),generatedByActorId:context.actor.id};
   const statements=[env.DB.prepare(`INSERT INTO outbox_jobs(id,workspace_id,version,kind,aggregate_id,aggregate_version,payload_json,deduplication_key,status,attempts,next_attempt_at,lease_until,
       last_error_code,provider_reference,result_file_id,result_json,completed_at,created_at,updated_at)
     VALUES(?,?,1,'GENERATE_DOCUMENT',?,1,?,?,'PENDING',0,?,NULL,NULL,NULL,NULL,NULL,NULL,?,?)`)
