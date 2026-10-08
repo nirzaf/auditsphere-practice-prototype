@@ -24,6 +24,20 @@ it('applies each migration using Wrangler statement splitting to an isolated SQL
             `${migration} parenthesizes trigger CASE expressions so Cloudflare D1 does not split at CASE END`);
         }
       }
+      if (migration === '0045_drop_legacy_snapshot_tables.sql') {
+        database.prepare(`INSERT INTO workspaces(id,seed_id,name,schema_version,revision,status,created_at,updated_at,data_mode)
+          VALUES ('active-test-workspace',NULL,'Legacy TEST fixture',10,1,'active',1,1,'TEST')`).run();
+        assert.throws(() => {
+          for (const statement of statements) database.prepare(statement).run();
+        }, /E01-S05 blocked: active TEST workspaces remain/,
+        'the migration refuses to drop legacy tables while an active TEST workspace remains');
+        assert.ok(database.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='workspace_entities'").get(),
+          'a rejected preflight leaves legacy tables intact');
+        assert.ok(database.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='demo_workspaces'").get(),
+          'a rejected preflight leaves demo workspaces intact');
+        database.prepare("UPDATE workspaces SET status='deleted' WHERE id='active-test-workspace'").run();
+      }
+
       for (let index = 0; index < statements.length; index += 1) {
         try {
           database.prepare(statements[index]).run();

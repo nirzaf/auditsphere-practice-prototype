@@ -8,7 +8,7 @@
 - Owner instruction: “drop it” — authorizes retiring the legacy TEST schema and migration tooling. This is not evidence that remote TEST workspaces contain no live records.
 - Implemented locally in migration `0045_drop_legacy_snapshot_tables.sql`; retained migration rows are not dropped.
 - Live D1 inventory is **pending**: Wrangler authentication expired and the auth server could not be reached. Do not report the remote data precondition as verified.
-- The deployment workflow applies D1 migrations from `main` after verification. A push will therefore execute this destructive migration if the Cloudflare deploy switch and secrets are active.
+- The deployment workflow applies D1 migrations from `main` after verification. Migration 0045 runs a D1 preflight first and aborts before table removal if any active TEST workspace remains.
 
 ## Intent
 Remove dead schema and the US-SYS-002 legacy-to-BUSINESS cutover tooling once it is certain no real records live in legacy `TEST` workspaces.

@@ -1,6 +1,20 @@
 -- Retire the unreachable TEST snapshot schema after the D2 data review.
 -- Keep demo_seeds because workspaces.seed_id still references it. Existing
 -- seed rows remain readable, but new use of the legacy catalogue is blocked.
+-- This first, harmless schema-version update is a preflight gate. If a live
+-- TEST workspace remains, the migration aborts before any table is removed.
+CREATE TRIGGER IF NOT EXISTS migration_0045_test_workspace_gate
+BEFORE UPDATE OF version ON application_schema_version
+WHEN EXISTS (
+  SELECT 1 FROM workspaces WHERE data_mode='TEST' AND status<>'deleted'
+)
+BEGIN
+  SELECT RAISE(ABORT, 'E01-S05 blocked: active TEST workspaces remain');
+END;
+
+UPDATE application_schema_version SET version=version WHERE singleton=1;
+DROP TRIGGER migration_0045_test_workspace_gate;
+
 DROP TRIGGER IF EXISTS count_demo_creation;
 
 -- The migration cutover tools are retired. These guards reference the legacy
