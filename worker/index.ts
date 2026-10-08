@@ -98,7 +98,7 @@ import { getBusinessDeliveryWorkspace } from './businessDelivery';
 import { getBusinessCapacity, getBusinessPlanningWorkspace, listBusinessEngagementFolders } from './businessPlanning';
 import { getBusinessPlanningReadiness, getBusinessTrialBalanceImport, getBusinessTrialBalancePreview, getBusinessTrialBalanceWorkspace } from './businessTb';
 import { getBusinessFinancialStatements, getBusinessFsliSourceLines, getBusinessFieldworkWorkspace, getBusinessSamplingPlan, getBusinessSamplingPopulation, getBusinessFieldworkChanges } from './businessFieldwork';
-import { getBusinessPracticeWorkspace, getBusinessProfitability, getBusinessUtilization } from './businessPractice';
+import { getBusinessPracticeWorkspace, getBusinessProfitability, getBusinessUtilization, getFirmProfitLossReport, getFirmTrialBalanceReport } from './businessPractice';
 import { consumeBusinessArchiveDownloadTicket, createBusinessArchiveDownloadTicket, getBusinessArchiveExport, getBusinessArchiveStatus, getBusinessOpinionPreview, getBusinessReleasedReportProvenance, getBusinessReportingWorkspace } from './businessReportingQuery';
 import { getBusinessWorkflow } from './businessWorkflow';
 
@@ -467,6 +467,18 @@ const handleBusinessCapacity = async (ctx: RouteContext): Promise<Response> => {
 const handleBusinessPracticeWorkspace = async (ctx: RouteContext): Promise<Response> => {
   const context = await resolveBusinessContext(ctx.env, ctx.params.workspaceId, ctx.request);
   const result = await getBusinessPracticeWorkspace(ctx.env, ctx.params.workspaceId, context, ctx.url.searchParams);
+  return jsonResponse(result, 200, ctx.requestId);
+};
+
+const handleFirmTrialBalanceReport = async (ctx: RouteContext): Promise<Response> => {
+  const context = await resolveBusinessContext(ctx.env, ctx.params.workspaceId, ctx.request);
+  const result = await getFirmTrialBalanceReport(ctx.env, ctx.params.workspaceId, context, ctx.url.searchParams);
+  return jsonResponse(result, 200, ctx.requestId);
+};
+
+const handleFirmProfitLossReport = async (ctx: RouteContext): Promise<Response> => {
+  const context = await resolveBusinessContext(ctx.env, ctx.params.workspaceId, ctx.request);
+  const result = await getFirmProfitLossReport(ctx.env, ctx.params.workspaceId, context, ctx.url.searchParams);
   return jsonResponse(result, 200, ctx.requestId);
 };
 
@@ -1056,6 +1068,8 @@ const router = createRouter()
   .get('/api/workspaces/:workspaceId/capacity', handleBusinessCapacity)
   .get('/api/workspaces/:workspaceId/practice/utilization', handleBusinessUtilization)
   .get('/api/workspaces/:workspaceId/practice/engagements/:engagementId/profitability', handleBusinessProfitability)
+  .get('/api/workspaces/:workspaceId/practice/reports/trial-balance', handleFirmTrialBalanceReport)
+  .get('/api/workspaces/:workspaceId/practice/reports/profit-loss', handleFirmProfitLossReport)
   .get('/api/workspaces/:workspaceId/practice', handleBusinessPracticeWorkspace)
   .get('/api/workspaces/:workspaceId/engagements/:engagementId/reporting-workspace', handleBusinessReportingWorkspace)
   .get('/api/workspaces/:workspaceId/engagements/:engagementId/archive-status', handleBusinessArchiveStatus)

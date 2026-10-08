@@ -4332,6 +4332,10 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
   // PRC scope: CLIENT personas never reach firm practice records or bookkeeping.
   const clientPracticeDenied = await call(practicePath, { headers: clientHeaders });
   assert.equal(clientPracticeDenied.response.status, 403, JSON.stringify(clientPracticeDenied.body));
+  const clientFirmTrialBalanceDenied = await call(`${practicePath}/reports/trial-balance?from=${planDate}&to=${planDate}`, { headers: clientHeaders });
+  assert.equal(clientFirmTrialBalanceDenied.response.status, 403, 'client personas cannot read the internal firm trial balance');
+  const clientFirmProfitLossDenied = await call(`${practicePath}/reports/profit-loss?month=${planDate.slice(0, 7)}`, { headers: clientHeaders });
+  assert.equal(clientFirmProfitLossDenied.response.status, 403, 'client personas cannot read internal firm profit and loss');
   const clientTimeDenied = await post(`/api/workspaces/${workspaceId}/commands`, {
     idempotencyKey: crypto.randomUUID(), command: { type: 'time.create', payload: {
       engagementId, staffMemberId: preparerStaff.body.result.staffMemberId, workDate: planDate, phase: 'FIELDWORK',
@@ -4770,6 +4774,59 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
     'residual allocation makes displayed phase totals reconcile to the once-rounded engagement total');
   assert.equal(practiceData.body.profitabilitySnapshots.length, 1, 'partners can review saved profitability snapshots in the practice workspace');
   assert.equal(practiceData.body.profitabilitySnapshots[0].sourceHash, profitabilityRows.source_hash);
+
+  // PRC-006: report routes calculate exact posted-journal balances and honor
+  // the posting timestamp cutoff even when a later journal is backdated.
+  const reportsAsOf = new Date().toISOString();
+  const firmTbPath = `${practicePath}/reports/trial-balance?from=${planDate}&to=${planDate}&asOf=${encodeURIComponent(reportsAsOf)}`;
+  const firmProfitLossPath = `${practicePath}/reports/profit-loss?month=${planDate.slice(0, 7)}&asOf=${encodeURIComponent(reportsAsOf)}`;
+  const [firmTbBefore, firmProfitLossBefore] = await Promise.all([
+    call(firmTbPath, { headers: practiceHeaders }), call(firmProfitLossPath, { headers: practiceHeaders })
+  ]);
+  assert.equal(firmTbBefore.response.status, 200, JSON.stringify(firmTbBefore.body));
+  assert.equal(firmProfitLossBefore.response.status, 200, JSON.stringify(firmProfitLossBefore.body));
+  assert.equal(firmTbBefore.body.asOf, reportsAsOf);
+  assert.equal(firmTbBefore.body.balanced, true);
+  assert.equal(firmTbBefore.body.closingBalanced, true, 'the report exposes exact minor-unit period and closing balance checks');
+  const draftForHistoricalCutoff = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'ledger.create-draft', payload: {
+      postingDate: planDate, description: 'Posted-period trial balance and monthly profit test entry.', sourceType: 'REPORT_TEST', lines: [
+        { accountId: accountId('1000'), debitMinor: '300000', creditMinor: '0' },
+        { accountId: accountId('5000'), debitMinor: '100000', creditMinor: '0' },
+        { accountId: accountId('5100'), debitMinor: '400000', creditMinor: '0' },
+        { accountId: accountId('3100'), debitMinor: '200000', creditMinor: '0' },
+        { accountId: accountId('4000'), debitMinor: '0', creditMinor: '1000000' }
+      ] } }
+  }, reviewerHeaders);
+  assert.equal(draftForHistoricalCutoff.response.status, 200, JSON.stringify(draftForHistoricalCutoff.body));
+  const reportsWithDraft = await Promise.all([
+    call(firmTbPath, { headers: practiceHeaders }), call(firmProfitLossPath, { headers: practiceHeaders })
+  ]);
+  assert.equal(reportsWithDraft[0].body.sourceHash, firmTbBefore.body.sourceHash, 'an unposted draft cannot change the trial balance');
+  assert.equal(reportsWithDraft[1].body.sourceHash, firmProfitLossBefore.body.sourceHash, 'an unposted draft cannot change monthly P&L');
+  const postForHistoricalCutoff = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'ledger.post', payload: { journalId: draftForHistoricalCutoff.body.result.journalId, expectedVersion: 1 } }
+  }, approverHeaders);
+  assert.equal(postForHistoricalCutoff.response.status, 200, JSON.stringify(postForHistoricalCutoff.body));
+  const reportsStillAtOldCutoff = await Promise.all([
+    call(firmTbPath, { headers: practiceHeaders }), call(firmProfitLossPath, { headers: practiceHeaders })
+  ]);
+  assert.equal(reportsStillAtOldCutoff[0].body.sourceHash, firmTbBefore.body.sourceHash,
+    'posting a backdated journal later does not rewrite the requested TB cutoff');
+  assert.equal(reportsStillAtOldCutoff[1].body.sourceHash, firmProfitLossBefore.body.sourceHash,
+    'posting a backdated journal later does not rewrite the requested monthly P&L cutoff');
+  const reportsAfterPost = await Promise.all([
+    call(`${practicePath}/reports/trial-balance?from=${planDate}&to=${planDate}&asOf=${encodeURIComponent(new Date(Date.now() + 10_000).toISOString())}`, { headers: practiceHeaders }),
+    call(`${practicePath}/reports/profit-loss?month=${planDate.slice(0, 7)}&asOf=${encodeURIComponent(new Date(Date.now() + 10_000).toISOString())}`, { headers: practiceHeaders })
+  ]);
+  assert.equal(BigInt(reportsAfterPost[0].body.debitTotalMinor) - BigInt(firmTbBefore.body.debitTotalMinor), 1_000_000n);
+  assert.equal(BigInt(reportsAfterPost[0].body.creditTotalMinor) - BigInt(firmTbBefore.body.creditTotalMinor), 1_000_000n);
+  assert.equal(BigInt(reportsAfterPost[1].body.revenueMinor) - BigInt(firmProfitLossBefore.body.revenueMinor), 1_000_000n);
+  assert.equal(BigInt(reportsAfterPost[1].body.expenseMinor) - BigInt(firmProfitLossBefore.body.expenseMinor), 500_000n);
+  assert.equal(BigInt(reportsAfterPost[1].body.profitMinor) - BigInt(firmProfitLossBefore.body.profitMinor), 500_000n,
+    'Partner drawings debit equity and never inflate P&L expenses');
+  const invalidProfitLossMonth = await call(`${practicePath}/reports/profit-loss?month=2026-13`, { headers: practiceHeaders });
+  assert.equal(invalidProfitLossMonth.response.status, 400);
 
   // PRC-002: explicit inclusive Qatar-date utilization reads distinguish recorded work,
   // independently approved actuals, incomplete capacity, and over-capacity work.

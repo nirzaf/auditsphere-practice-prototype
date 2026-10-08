@@ -1702,3 +1702,25 @@ the device metrics override is cleared after the check.
 It does not constitute a live current-account journey or independent visual
 acceptance at the epic's 1440px/1920px desktop viewports. US-FLD-003 and the full
 epic remain open.
+
+## US-PRC-006 firm trial balance and monthly profit and loss — 2026-10-08
+
+**Verification:** `npx tsx --test --test-reporter=spec
+tests/unit/businessWorkspace.test.ts` — 1/1; `npm run lint`;
+`npm run cloud:typecheck`; `npm run build`; `git diff --check`.
+
+**Evidence:** Dedicated `/practice/reports/trial-balance` and
+`/practice/reports/profit-loss` endpoints expose journal-backed reports. The
+same query cutoff is stable before and after a later-posted backdated journal;
+unposted drafts do not change either source hash. The test posts a balanced
+synthetic journal for QAR 10,000 revenue, QAR 1,000 rent, QAR 4,000 salaries,
+and QAR 2,000 Partner drawings. The reports add QAR 10,000 to revenue, QAR
+5,000 to expenses, and QAR 5,000 to profit; both trial-balance movement and
+closing debit/credit totals balance exactly in minor units. Client persona
+access is denied. Report hashes include the posting timestamp cutoff.
+
+**Boundary:** This verifies local synthetic Worker/SQLite behavior and exact
+report projections. The existing export worker still generates CSV/XLSX/PDF
+from persisted snapshots; deployed report reconciliation and independent
+presentation acceptance remain open. US-PRC-006 is partial and the 46-story
+epic remains open.

@@ -979,12 +979,12 @@ async function buildCaptureAr(env:Env,workspaceId:string,context:BusinessContext
     {asOf:p.asOf,clientId:result.clientId,sourceHash:result.sourceHash,reconciliationStatus:result.reconciliationStatus});
 }
 
-async function firmTrialBalance(env:Env,workspaceId:string,from:string,to:string){
+async function firmTrialBalance(env:Env,workspaceId:string,from:string,to:string,asOf:string){
   const accounts=(await env.DB.prepare(`SELECT id,code,name,account_type,normal_side,control_type FROM firm_accounts WHERE workspace_id=? ORDER BY code,id`)
     .bind(workspaceId).all<{id:string;code:string;name:string;account_type:string;normal_side:string;control_type:string}>()).results??[];
   const movements=(await env.DB.prepare(`SELECT l.account_id,j.posting_date,l.debit_minor,l.credit_minor FROM firm_journal_lines l
     JOIN firm_journals j ON j.workspace_id=l.workspace_id AND j.id=l.journal_id AND j.status='POSTED'
-    WHERE l.workspace_id=? AND j.posting_date<=? ORDER BY j.posting_date,j.id,l.id`).bind(workspaceId,to)
+    WHERE l.workspace_id=? AND j.posting_date<=? AND j.posted_at<=? ORDER BY j.posting_date,j.id,l.id`).bind(workspaceId,to,asOf)
     .all<{account_id:string;posting_date:string;debit_minor:number;credit_minor:number}>()).results??[];
   const totals=new Map<string,{opening:bigint;debit:bigint;credit:bigint}>();
   for(const account of accounts)totals.set(account.id,{opening:0n,debit:0n,credit:0n});
@@ -997,17 +997,17 @@ async function firmTrialBalance(env:Env,workspaceId:string,from:string,to:string
   const rows=accounts.map(account=>{const totalsFor=totals.get(account.id)!;return {accountId:account.id,code:account.code,name:account.name,accountType:account.account_type,
     normalSide:account.normal_side,controlType:account.control_type,openingMinor:String(totalsFor.opening),periodDebitMinor:String(totalsFor.debit),periodCreditMinor:String(totalsFor.credit),
     closingMinor:String(totalsFor.opening+totalsFor.debit-totalsFor.credit)};});
-  const sourceHash=await sha256Hex(JSON.stringify({from,to,rows}));
+  const sourceHash=await sha256Hex(JSON.stringify({from,to,asOf,rows}));
   const closingDebit=rows.reduce((sum,row)=>sum+(BigInt(row.closingMinor)>0n?BigInt(row.closingMinor):0n),0n);
   const closingCredit=rows.reduce((sum,row)=>sum+(BigInt(row.closingMinor)<0n?-BigInt(row.closingMinor):0n),0n);
-  return {from,to,rows,debitTotalMinor:String(periodDebit),creditTotalMinor:String(periodCredit),balanced:periodDebit===periodCredit,
+  return {from,to,asOf,rows,debitTotalMinor:String(periodDebit),creditTotalMinor:String(periodCredit),balanced:periodDebit===periodCredit,
     closingDebitMinor:String(closingDebit),closingCreditMinor:String(closingCredit),closingBalanced:closingDebit===closingCredit,sourceHash};
 }
-async function firmProfitLoss(env:Env,workspaceId:string,from:string,to:string){
+async function firmProfitLoss(env:Env,workspaceId:string,from:string,to:string,asOf:string){
   const rows=(await env.DB.prepare(`SELECT a.id,a.code,a.name,a.account_type,l.debit_minor,l.credit_minor FROM firm_journal_lines l
     JOIN firm_journals j ON j.workspace_id=l.workspace_id AND j.id=l.journal_id AND j.status='POSTED'
     JOIN firm_accounts a ON a.workspace_id=l.workspace_id AND a.id=l.account_id WHERE l.workspace_id=? AND j.posting_date BETWEEN ? AND ?
-      AND a.account_type IN ('REVENUE','EXPENSE') ORDER BY a.code,j.posting_date,j.id,l.id`).bind(workspaceId,from,to)
+      AND j.posted_at<=? AND a.account_type IN ('REVENUE','EXPENSE') ORDER BY a.code,j.posting_date,j.id,l.id`).bind(workspaceId,from,to,asOf)
     .all<{id:string;code:string;name:string;account_type:string;debit_minor:number;credit_minor:number}>()).results??[];
   const accounts=new Map<string,{code:string;name:string;accountType:string;amount:bigint}>();
   for(const row of rows){const prior=accounts.get(row.id)??{code:row.code,name:row.name,accountType:row.account_type,amount:0n};
@@ -1015,9 +1015,31 @@ async function firmProfitLoss(env:Env,workspaceId:string,from:string,to:string){
   const result=[...accounts.entries()].map(([id,row])=>({accountId:id,code:row.code,name:row.name,accountType:row.accountType,amountMinor:String(row.amount)}));
   const revenue=[...accounts.values()].filter(row=>row.accountType==='REVENUE').reduce((sum,row)=>sum+row.amount,0n);
   const expense=[...accounts.values()].filter(row=>row.accountType==='EXPENSE').reduce((sum,row)=>sum+row.amount,0n);
-  const sourceHash=await sha256Hex(JSON.stringify({from,to,accounts:result}));
-  return {from,to,accounts:result,revenueMinor:String(revenue),expenseMinor:String(expense),profitMinor:String(revenue-expense),sourceHash,
+  const sourceHash=await sha256Hex(JSON.stringify({from,to,asOf,accounts:result}));
+  return {from,to,asOf,accounts:result,revenueMinor:String(revenue),expenseMinor:String(expense),profitMinor:String(revenue-expense),sourceHash,
     recognitionNote:'Revenue reflects only posted journal entries. Invoices remain deferred contract liabilities under the baseline policy until a Partner records an earned-service event.'};
+}
+
+function reportAsOf(value:string|null):string {
+  const asOf=value??new Date().toISOString();
+  if(!z.iso.datetime().safeParse(asOf).success)throw new ApiError('BAD_REQUEST','Provide an ISO 8601 asOf timestamp with a timezone.');
+  return asOf;
+}
+export async function getFirmTrialBalanceReport(env:Env,workspaceId:string,context:BusinessContext,params:URLSearchParams){
+  internal(context);
+  const from=params.get('from')??'',to=params.get('to')??'';
+  if(!date.safeParse(from).success||!date.safeParse(to).success)throw new ApiError('BAD_REQUEST','Provide valid from and to dates for the report.');
+  dateRange(from,to,367);
+  return firmTrialBalance(env,workspaceId,from,to,reportAsOf(params.get('asOf')));
+}
+export async function getFirmProfitLossReport(env:Env,workspaceId:string,context:BusinessContext,params:URLSearchParams){
+  internal(context);
+  const month=params.get('month')??'';
+  const match=/^(\d{4})-(0[1-9]|1[0-2])$/.exec(month);
+  if(!match||Number(match[1])<1000)throw new ApiError('BAD_REQUEST','Provide a reporting month in YYYY-MM format.');
+  const from=`${month}-01`;
+  const to=new Date(Date.UTC(Number(match[1]),Number(match[2]),0)).toISOString().slice(0,10);
+  return firmProfitLoss(env,workspaceId,from,to,reportAsOf(params.get('asOf')));
 }
 
 async function buildPracticeReportExport(env:Env,workspaceId:string,context:BusinessContext,command:Extract<BusinessPracticeCommand,{type:'practice.export-report'}>,now:string){
@@ -1028,13 +1050,13 @@ async function buildPracticeReportExport(env:Env,workspaceId:string,context:Busi
   let snapshot:Record<string,unknown>;
   let sourceHash:string;
   if(p.kind==='TRIAL_BALANCE'){
-    const report=await firmTrialBalance(env,workspaceId,p.periodStart,p.periodEnd);
+    const report=await firmTrialBalance(env,workspaceId,p.periodStart,p.periodEnd,now);
     sourceHash=report.sourceHash;
     snapshot={kind:p.kind,periodStart:p.periodStart,periodEnd:p.periodEnd,asOf:now,rows:report.rows,revenueMinor:null,expenseMinor:null,
       debitTotalMinor:report.debitTotalMinor,creditTotalMinor:report.creditTotalMinor,profitMinor:null,balanced:report.balanced,
       closingDebitMinor:report.closingDebitMinor,closingCreditMinor:report.closingCreditMinor,closingBalanced:report.closingBalanced,sourceHash};
   }else{
-    const report=await firmProfitLoss(env,workspaceId,p.periodStart,p.periodEnd);
+    const report=await firmProfitLoss(env,workspaceId,p.periodStart,p.periodEnd,now);
     sourceHash=report.sourceHash;
     snapshot={kind:p.kind,periodStart:p.periodStart,periodEnd:p.periodEnd,asOf:now,rows:report.accounts,revenueMinor:report.revenueMinor,
       expenseMinor:report.expenseMinor,debitTotalMinor:null,creditTotalMinor:null,profitMinor:report.profitMinor,balanced:null,
@@ -1087,7 +1109,7 @@ export async function getBusinessPracticeWorkspace(env:Env,workspaceId:string,co
       FROM firm_expenses WHERE workspace_id=? ORDER BY expense_date DESC,created_at DESC LIMIT 100`).bind(workspaceId).all<Record<string,unknown>>(),
     env.DB.prepare(`SELECT id,revision,name,effective_from AS effectiveFrom,recognition_method AS recognitionMethod,recognition_rules AS recognitionRules,content_sha256 AS contentSha256
       FROM firm_revenue_policies WHERE workspace_id=? ORDER BY revision DESC`).bind(workspaceId).all<Record<string,unknown>>(),
-    firmTrialBalance(env,workspaceId,from,to),firmProfitLoss(env,workspaceId,from,to),
+    firmTrialBalance(env,workspaceId,from,to,calculatedAt),firmProfitLoss(env,workspaceId,from,to,calculatedAt),
     engagementId
       ? env.DB.prepare(`SELECT p.id,p.ordinal,p.title,p.status,w.fsli_id AS fsliId,c.code AS fsliCode
           FROM procedures p JOIN workprograms w ON w.workspace_id=p.workspace_id AND w.id=p.workprogram_id
