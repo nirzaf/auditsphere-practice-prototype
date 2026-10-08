@@ -16,3 +16,11 @@ Repository status lists "visual no-forecast state" as open for US-FLD-004. Serve
 ```bash
 npm run test:e2e && npm run test:unit
 ```
+
+## Implementation progress — 2026-10-08
+- The form already initialized its conclusion to `UNASSESSED` and exposed the cash-flow forecasts checkbox.
+- Added a conditional, announced explanation when forecasts are unavailable and the preparer selects `NO_MATERIAL_UNCERTAINTY`; it describes the required mitigating-plans support already enforced by the Worker.
+- Added an announced reporting consequence for `MATERIAL_UNCERTAINTY`. Server rules and validation are unchanged.
+- Added `E05-S03 explains the going-concern forecast and material-uncertainty states at desktop and mobile widths` to the CDP E2E suite. It checks the initial, no-forecast, and material-uncertainty states at 1440×900 and 390×844 and asserts no browser exceptions.
+- Verification: `npm run build` passed; the targeted CDP browser case passed (1/1) with isolated Worker fixtures and no external requests.
+- Status: **complete**.

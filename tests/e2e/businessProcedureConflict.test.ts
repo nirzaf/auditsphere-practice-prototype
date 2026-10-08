@@ -832,6 +832,51 @@ it('US-FLD-005 displays a not-applicable rationale before independent Partner ap
   assert.deepEqual(tabB.blockedExternalRequests, []);
 });
 
+it('E05-S03 explains the going-concern forecast and material-uncertainty states at desktop and mobile widths', { timeout: 120000 }, async () => {
+  await ensureBrowsers();
+  assert.ok(server && tabA);
+  const fixture = await createFieldworkFixture();
+  await selectWorkspace(tabA, fixture, fixture.actorProfileId);
+
+  for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 }]) {
+    await tabA.command('Emulation.setDeviceMetricsOverride', {
+      width: viewport.width, height: viewport.height, deviceScaleFactor: 1, mobile: false,
+      screenWidth: viewport.width, screenHeight: viewport.height
+    });
+    try {
+      const initial = await tabA.evaluate<{ width: number; conclusion: string; forecastHint: boolean; uncertaintyHint: boolean }>(`(() => {
+        const form = [...document.querySelectorAll('.business-fieldwork-card form')]
+          .find(item => item.querySelector('label span')?.textContent?.trim() === 'Assessment start');
+        const conclusion = [...(form?.querySelectorAll('label.business-field') ?? [])]
+          .find(item => item.querySelector('span')?.textContent?.trim() === 'Conclusion')?.querySelector('select');
+        const text = form?.innerText ?? '';
+        return { width: window.innerWidth, conclusion: conclusion?.value ?? '',
+          forecastHint: text.includes('Cash-flow forecasts are not available.'),
+          uncertaintyHint: text.includes('Material Uncertainty Related to Going Concern') };
+      })()`);
+      assert.equal(initial.width, viewport.width);
+      assert.equal(initial.conclusion, 'UNASSESSED', `the first visible assessment conclusion is Unassessed: ${JSON.stringify(initial)}`);
+      assert.equal(initial.forecastHint, false);
+      assert.equal(initial.uncertaintyHint, false);
+
+      await setVisibleFieldByLabel(tabA, 'Conclusion', 'NO_MATERIAL_UNCERTAINTY', 'No material uncertainty');
+      const noForecastHint = await tabA.evaluate<boolean>(`[...document.querySelectorAll('.business-fieldwork-card form')]
+        .find(item => item.querySelector('label span')?.textContent?.trim() === 'Assessment start')?.querySelector('[role="status"]')?.textContent?.includes('Cash-flow forecasts are not available.') ?? false`);
+      assert.equal(noForecastHint, true, `missing forecasts explain the required support at ${viewport.width}px`);
+
+      await setVisibleFieldByLabel(tabA, 'Conclusion', 'MATERIAL_UNCERTAINTY', 'Material uncertainty');
+      const uncertaintyHint = await tabA.evaluate<boolean>(`[...document.querySelectorAll('.business-fieldwork-card form')]
+        .find(item => item.querySelector('label span')?.textContent?.trim() === 'Assessment start')?.querySelector('[role="status"]')?.textContent?.includes('Material Uncertainty Related to Going Concern') ?? false`);
+      assert.equal(uncertaintyHint, true, `material uncertainty explains its reporting consequence at ${viewport.width}px`);
+      await setVisibleFieldByLabel(tabA, 'Conclusion', 'UNASSESSED', 'Unassessed');
+    } finally {
+      await tabA.command('Emulation.clearDeviceMetricsOverride');
+    }
+  }
+  assert.deepEqual(tabA.exceptions, [], 'the form state changes produce no uncaught browser exceptions');
+  assert.deepEqual(tabA.blockedExternalRequests, [], 'the local form interaction makes no external requests');
+});
+
 it('US-FLD-007, US-FLD-008 and US-FLD-009 verify MUS, systematic and stratified sampling', { timeout: 120000 }, async () => {
   await ensureBrowsers();
   assert.ok(server && tabA);
