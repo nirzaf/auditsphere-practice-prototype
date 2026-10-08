@@ -535,11 +535,14 @@ async function proposeMapping(env: Env, workspaceId: string, context: BusinessCo
   if (!standard) throw new ApiError('GATE_BLOCKED', 'The engagement reporting framework is unavailable.');
   const lines = await env.DB.prepare(`SELECT l.id,l.account_code,l.account_name,l.current_minor,
       (SELECT mm.id FROM mapping_memory mm WHERE mm.workspace_id=l.workspace_id AND mm.client_id=l.client_id AND mm.reporting_framework=? AND mm.account_code=l.account_code
+        AND mm.effective_period_end<?
         ORDER BY mm.effective_period_end DESC,mm.id DESC LIMIT 1) AS history_id,
       (SELECT mm.fsli_id FROM mapping_memory mm WHERE mm.workspace_id=l.workspace_id AND mm.client_id=l.client_id AND mm.reporting_framework=? AND mm.account_code=l.account_code
+        AND mm.effective_period_end<?
         ORDER BY mm.effective_period_end DESC,mm.id DESC LIMIT 1) AS history_fsli_id
     FROM tb_lines l WHERE l.workspace_id=? AND l.engagement_id=? AND l.tb_version_id=? ORDER BY l.source_row_number,l.account_code`)
-    .bind(standard.reporting_framework,standard.reporting_framework,workspaceId,command.payload.engagementId,command.payload.tbVersionId)
+    .bind(standard.reporting_framework,sources.engagement.period_start,standard.reporting_framework,sources.engagement.period_start,
+      workspaceId,command.payload.engagementId,command.payload.tbVersionId)
     .all<{id:string;account_code:string;account_name:string;current_minor:number;history_id:string|null;history_fsli_id:string|null}>();
   if (!(lines.results?.length)) throw new ApiError('GATE_BLOCKED', 'The selected TB version contains no accepted account rows.');
   const catalog = await env.DB.prepare(`SELECT id,name FROM fsli_catalog WHERE workspace_id=? AND reporting_framework=? AND active=1`)
@@ -576,9 +579,9 @@ async function setMapping(env: Env, workspaceId: string, context: BusinessContex
   command: Extract<BusinessTbCommand,{type:'tb.mapping.set'}>, now: string): Promise<BusinessMutation> {
   requireTbWriter(context);
   const { draftId,tbLineId,fsliId,expectedVersion }=command.payload;
-  const draft=await env.DB.prepare(`SELECT d.id,d.status,d.client_id,d.engagement_id,d.tb_version_id,d.reporting_framework,e.lifecycle_state
+  const draft=await env.DB.prepare(`SELECT d.id,d.status,d.client_id,d.engagement_id,d.tb_version_id,d.reporting_framework,e.lifecycle_state,e.period_start
     FROM mapping_drafts d JOIN engagements e ON e.workspace_id=d.workspace_id AND e.id=d.engagement_id WHERE d.workspace_id=? AND d.id=?`)
-    .bind(workspaceId,draftId).first<{id:string;status:string;client_id:string;engagement_id:string;tb_version_id:string;reporting_framework:string;lifecycle_state:string}>();
+    .bind(workspaceId,draftId).first<{id:string;status:string;client_id:string;engagement_id:string;tb_version_id:string;reporting_framework:string;lifecycle_state:string;period_start:string}>();
   if(!draft)throw new ApiError('NOT_FOUND','The mapping draft was not found.');
   await getTbSources(env,workspaceId,context,draft.engagement_id);
   if(draft.status!=='DRAFT'||draft.lifecycle_state!=='PORTAL_ACTIVE_PLANNING')throw new ApiError('INVALID_STATE','Only a draft for the active planning stage can be mapped.');
@@ -591,7 +594,8 @@ async function setMapping(env: Env, workspaceId: string, context: BusinessContex
   if(row.version!==expectedVersion)throw new ApiError('VERSION_CONFLICT','This account mapping changed. Reload that row and apply your choice to its current version.');
   let historicalId:string|null=null; let historicalFsli:string|null=null;
   const history=await env.DB.prepare(`SELECT id,fsli_id FROM mapping_memory WHERE workspace_id=? AND client_id=? AND reporting_framework=? AND account_code=?
-    ORDER BY effective_period_end DESC,id DESC LIMIT 1`).bind(workspaceId,draft.client_id,draft.reporting_framework,row.account_code)
+    AND effective_period_end<?
+    ORDER BY effective_period_end DESC,id DESC LIMIT 1`).bind(workspaceId,draft.client_id,draft.reporting_framework,row.account_code,draft.period_start)
     .first<{id:string;fsli_id:string}>();
   historicalId=history?.id??null;historicalFsli=history?.fsli_id??null;
   let origin:string|null=null;let sourceHistory:string|null=null;

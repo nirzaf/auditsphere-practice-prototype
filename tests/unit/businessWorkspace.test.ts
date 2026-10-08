@@ -2088,18 +2088,18 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
       approvedHistorySource.source_mapping_version_id,approvedHistorySource.fsli_id,'2099-12-31').run(),
   /historical mapping source scope mismatch/,
   'historical mappings cannot claim an effective period different from the approved source engagement');
-  const historicalMappingProposal = await post(`/api/workspaces/${workspaceId}/commands`, {
+  const samePeriodMappingProposal = await post(`/api/workspaces/${workspaceId}/commands`, {
     idempotencyKey: crypto.randomUUID(), command: { type: 'tb.mapping.propose', payload: {
       engagementId, tbVersionId: tbActivated.body.result.tbVersionId
     } }
   }, makeRiskHeaders(reviewerHeaders));
-  assert.equal(historicalMappingProposal.response.status, 200, JSON.stringify(historicalMappingProposal.body));
-  assert.equal(historicalMappingProposal.body.result.suggestedCount, 10);
-  assert.equal(historicalMappingProposal.body.result.unmappedCount, 0);
+  assert.equal(samePeriodMappingProposal.response.status, 200, JSON.stringify(samePeriodMappingProposal.body));
+  assert.equal(samePeriodMappingProposal.body.result.suggestedCount, 0,
+    'a mapping from the same period is not misrepresented as a previous-period historical suggestion');
   const historicalDraft = (await call(tbWorkspacePath, { headers: makeRiskHeaders(reviewerHeaders) })).body.mappingDraft;
-  assert.ok(historicalDraft.lines.every((row: any) => row.origin === 'EXACT_HISTORY'
-    && row.sourceHistoricalMappingId && row.confirmed === false),
-  'historical suggestions preserve their source IDs but remain unconfirmed until a reviewer explicitly maps each account');
+  assert.ok(historicalDraft.lines.every((row: any) => row.origin !== 'EXACT_HISTORY'
+    && row.sourceHistoricalMappingId === null && row.confirmed === false),
+  'same-period approved mappings are not offered as prior-period history');
   const historyClientScope = db.prepare(`SELECT COUNT(*) AS count FROM mapping_memory mm JOIN clients c
       ON c.workspace_id=mm.workspace_id AND c.id=mm.client_id WHERE mm.workspace_id=? AND mm.client_id=?
       AND mm.reporting_framework=? AND mm.source_mapping_version_id=?`)
@@ -2113,24 +2113,31 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
     FROM engagements e JOIN standards_profiles p ON p.workspace_id=e.workspace_id AND p.id=e.standards_profile_id
     WHERE e.workspace_id=? AND e.id=?`).bind(workspaceId, engagementId).first<any>();
   assert.ok(mappingParent);
-  const createMappingTestEngagement = (code: string, reportingFramework = mappingParent.reporting_framework) => {
+  const shiftCalendarYear = (value: string, years: number) => {
+    const [year, month, day] = value.split('-').map(Number);
+    const shiftedYear = year + years;
+    const shiftedDay = Math.min(day, new Date(Date.UTC(shiftedYear, month, 0)).getUTCDate());
+    return new Date(Date.UTC(shiftedYear, month - 1, shiftedDay)).toISOString().slice(0, 10);
+  };
+  const createMappingTestEngagement = (code: string, reportingFramework = mappingParent.reporting_framework,
+    periodStart = mappingParent.period_start, periodEnd = mappingParent.period_end) => {
     const id = crypto.randomUUID();
     const now = new Date().toISOString();
     let standardsProfileId = mappingParent.standards_profile_id as string;
-    if (reportingFramework !== mappingParent.reporting_framework) {
+    if (reportingFramework !== mappingParent.reporting_framework || periodStart !== mappingParent.period_start || periodEnd !== mappingParent.period_end) {
       standardsProfileId = crypto.randomUUID();
       db.prepare(`INSERT INTO standards_profiles(id,workspace_id,version,name,effective_period_start,effective_period_end,
         isa_220_edition,isa_570_edition,reporting_framework,presentation_edition,early_adoption,approved_by_actor_id,
         approved_at,content_sha256,created_at,updated_at)
-        VALUES(?,?,1,?,?,?,?,?,?,?,?,?,?,?,?,?)`).bind(standardsProfileId, workspaceId, `Mapping test ${reportingFramework}`,
-        mappingParent.period_start, mappingParent.period_end, mappingParent.isa_220_edition, mappingParent.isa_570_edition,
+      VALUES(?,?,1,?,?,?,?,?,?,?,?,?,?,?,?,?)`).bind(standardsProfileId, workspaceId, `Mapping test ${reportingFramework}`,
+        periodStart, periodEnd, mappingParent.isa_220_edition, mappingParent.isa_570_edition,
         reportingFramework, mappingParent.presentation_edition, mappingParent.early_adoption, mappingParent.approved_by_actor_id,
         mappingParent.approved_at, mappingParent.content_sha256, now, now).run();
     }
     db.prepare(`INSERT INTO engagements(id,workspace_id,version,client_id,code,period_start,period_end,engagement_type,
         lifecycle_state,contract_fee_minor,standards_profile_id,created_at,updated_at,created_by_actor_id,updated_by_actor_id)
       VALUES(?,?,1,?,?,?,?,'STATUTORY_AUDIT','PORTAL_ACTIVE_PLANNING',0,?,?,?, ?,?)`)
-      .bind(id, workspaceId, childClientId, code, mappingParent.period_start, mappingParent.period_end,
+      .bind(id, workspaceId, childClientId, code, periodStart, periodEnd,
         standardsProfileId, now, now, mappingParent.approved_by_actor_id, mappingParent.approved_by_actor_id).run();
     const fileId = crypto.randomUUID();
     db.prepare(`INSERT INTO file_versions(id,workspace_id,client_id,engagement_id,original_name,media_type,size_bytes,
@@ -2147,7 +2154,7 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
     db.prepare(`INSERT INTO tb_versions(id,workspace_id,client_id,engagement_id,revision,import_id,period_start,period_end,currency,
         current_debits_minor,current_credits_minor,prior_present,row_count,content_sha256,accepted_by_actor_id,accepted_at)
       VALUES(?,?,?,?,1,?,?,?,'QAR',10000,10000,0,2,?,?,?)`)
-      .bind(tbVersionId, workspaceId, childClientId, id, importId, mappingParent.period_start, mappingParent.period_end,
+      .bind(tbVersionId, workspaceId, childClientId, id, importId, periodStart, periodEnd,
         'b'.repeat(64), mappingParent.approved_by_actor_id, now).run();
     db.prepare(`INSERT INTO tb_lines(id,workspace_id,client_id,engagement_id,tb_version_id,source_row_number,account_code,
         account_name,current_minor,source_text_json) VALUES(?,?,?,?,?,1,'1000','Cash',10000,'{}'),
@@ -2161,7 +2168,7 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
   const proposeMapping = async (target: ReturnType<typeof createMappingTestEngagement>) => post(`/api/workspaces/${workspaceId}/commands`, {
     idempotencyKey: crypto.randomUUID(), command: { type: 'tb.mapping.propose', payload: { engagementId: target.id, tbVersionId: target.tbVersionId } }
   }, target.headers);
-  const childFirstPeriod = createMappingTestEngagement('MAPPING-SUBSIDIARY-2025');
+  const childFirstPeriod = createMappingTestEngagement('MAPPING-SUBSIDIARY-SOURCE-PERIOD');
   const childFirstProposal = await proposeMapping(childFirstPeriod);
   assert.equal(childFirstProposal.response.status, 200, JSON.stringify(childFirstProposal.body));
   assert.equal(childFirstProposal.body.result.suggestedCount, 0,
@@ -2211,7 +2218,19 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
     } }
   }, childFirstPeriod.headers);
   assert.equal(childMappingApproval.response.status, 200, JSON.stringify(childMappingApproval.body));
-  const childHistoryProposalTarget = createMappingTestEngagement('MAPPING-SUBSIDIARY-2026');
+  const childEarlierPeriod = createMappingTestEngagement('MAPPING-SUBSIDIARY-EARLIER-PERIOD', mappingParent.reporting_framework,
+    shiftCalendarYear(mappingParent.period_start, -1), shiftCalendarYear(mappingParent.period_end, -1));
+  const childEarlierProposal = await proposeMapping(childEarlierPeriod);
+  assert.equal(childEarlierProposal.response.status, 200, JSON.stringify(childEarlierProposal.body));
+  const childEarlierWorkspace = await call(`/api/workspaces/${workspaceId}/engagements/${childEarlierPeriod.id}/trial-balance-workspace`,
+    { headers: childEarlierPeriod.headers });
+  assert.equal(childEarlierWorkspace.response.status, 200, JSON.stringify(childEarlierWorkspace.body));
+  assert.ok(childEarlierWorkspace.body.mappingDraft.lines.every((row: any) => row.origin !== 'EXACT_HISTORY'
+    && row.sourceHistoricalMappingId === null),
+  'a same-client mapping from a later accepted period cannot flow backward into an earlier engagement');
+
+  const childHistoryProposalTarget = createMappingTestEngagement('MAPPING-SUBSIDIARY-NEXT-PERIOD', mappingParent.reporting_framework,
+    shiftCalendarYear(mappingParent.period_start, 1), shiftCalendarYear(mappingParent.period_end, 1));
   const childHistoryProposal = await proposeMapping(childHistoryProposalTarget);
   assert.equal(childHistoryProposal.response.status, 200, JSON.stringify(childHistoryProposal.body));
   assert.equal(childHistoryProposal.body.result.suggestedCount, 2,

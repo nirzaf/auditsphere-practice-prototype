@@ -1779,3 +1779,11 @@ US-PRC-006 is partial and the 46-story epic remains open.
 **Evidence:** The standalone provider requires a syntactically valid `EMAIL_ALLOWED_RECIPIENTS` list before becoming ready. It canonicalizes recipient addresses and rejects unapproved destinations before dispatch through either Cloudflare Email Service or the HTTP API. The configured UAT list contains only `testing@mail.steauditing.com`; the readiness endpoint exposes the policy state, and the business Worker's integration probe refuses to report `READY` from an older provider that omits it.
 
 **Boundary:** This change is not yet deployed. Cloudflare last reported the UAT destination Pending, and no real delivery has been accepted. US-GAP-05/06 and the 46-story epic remain open.
+
+## US-FLD-002 temporal mapping-history scope — 2026-10-08
+
+**Verification:** `npx tsx --test --test-concurrency=1 --test-name-pattern="bootstraps a no-session BUSINESS workspace" tests/unit/businessWorkspace.test.ts` — 1/1; `npm run cloud:typecheck`; `npm run lint`; `git diff --check` — all pass.
+
+**Evidence:** Mapping proposals now source prior history only when its accepted period ends strictly before the target engagement begins. Reviewer confirmation re-evaluates history using the same cutoff, so a stale draft cannot attach a same-period or later mapping. The Worker-backed scenario checks that a mapping from the same period is not labeled prior history, a later-period mapping cannot flow backward, and a next-period engagement can reuse the earlier approved mapping.
+
+**Boundary:** These are synthetic local Worker/SQLite results. Live-account acceptance remains open; US-FLD-002 and the 46-story epic remain partial.
