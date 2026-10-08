@@ -18,6 +18,8 @@ export interface EmailProviderEnv {
   EMAIL_API_KEY?: string;
   EMAIL_FROM?: string;
   EMAIL_FROM_NAME?: string;
+  /** Comma-separated explicit recipient allowlist for this deployment. */
+  EMAIL_ALLOWED_RECIPIENTS?: string;
 }
 
 interface NormalizedMessage {
@@ -46,6 +48,13 @@ export function isConfiguredSenderAddress(value: unknown): value is string {
     && labels.every(label => label.length > 0 && label.length <= 63 && /^[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?$/.test(label))
     && /^[a-z]{2,63}$/.test(topLevelDomain)
     && !new Set(['example', 'invalid', 'local', 'test']).has(topLevelDomain);
+}
+
+export function configuredRecipientAllowlist(value: unknown): ReadonlySet<string> | null {
+  if (typeof value !== 'string' || !value.trim()) return null;
+  const addresses = value.split(',').map(address => address.trim().toLocaleLowerCase());
+  if (addresses.some(address => !isConfiguredSenderAddress(address))) return null;
+  return new Set(addresses);
 }
 
 function jsonResponse(status: number, body: Record<string, unknown>): Response {
@@ -91,6 +100,21 @@ export async function handleProviderSend(request: Request, env: EmailProviderEnv
   }
   const message = normalizeMessage(parsed);
   if (!message.to.length) return jsonResponse(400, { error: 'MISSING_RECIPIENT' });
+  const allowedRecipients = configuredRecipientAllowlist(env.EMAIL_ALLOWED_RECIPIENTS);
+  if (!allowedRecipients) {
+    return jsonResponse(424, {
+      error: 'EMAIL_RECIPIENT_POLICY_NOT_CONFIGURED',
+      message: 'Configure EMAIL_ALLOWED_RECIPIENTS with the explicitly approved recipients for this deployment.'
+    });
+  }
+  const normalizedRecipients = message.to.map(address => address.trim().toLocaleLowerCase());
+  if (normalizedRecipients.some(address => !isConfiguredSenderAddress(address) || !allowedRecipients.has(address))) {
+    return jsonResponse(403, {
+      error: 'EMAIL_RECIPIENT_NOT_ALLOWED',
+      message: 'The message includes a recipient outside the approved email destinations for this deployment.'
+    });
+  }
+  message.to = normalizedRecipients;
   for (const entry of form.getAll('attachment')) {
     const blob = entry as unknown as Blob & { name?: string };
     message.attachments.push({

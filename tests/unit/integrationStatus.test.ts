@@ -9,8 +9,11 @@ function envWithProvider(fetch: (input: RequestInfo | URL) => Promise<Response>)
 
 describe('integration email provider readiness', () => {
   it('reports a service binding as configured only when its provider is ready', async () => {
-    const ready = await emailTransportStatus(envWithProvider(async () => Response.json({ ok: true, senderConfigured: true })));
+    const ready = await emailTransportStatus(envWithProvider(async () => Response.json({ ok: true, senderConfigured: true, recipientPolicyConfigured: true })));
     assert.deepEqual(ready, { configured: true, transport: 'SERVICE_BINDING', providerReadiness: 'READY' });
+
+    const missingRecipientPolicy = await emailTransportStatus(envWithProvider(async () => Response.json({ ok: true, senderConfigured: true })));
+    assert.deepEqual(missingRecipientPolicy, { configured: false, transport: 'SERVICE_BINDING', providerReadiness: 'UNAVAILABLE' });
 
     const missingSender = await emailTransportStatus(envWithProvider(async () => Response.json({ ok: false, senderConfigured: false })));
     assert.deepEqual(missingSender, { configured: false, transport: 'SERVICE_BINDING', providerReadiness: 'UNAVAILABLE' });

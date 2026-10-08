@@ -4,7 +4,7 @@
 // docs/prototype/integration-configuration.md). It implements the provider contract
 // consumed by worker/businessOutbox.ts (`POST /send` -> `{ messageId }`).
 
-import { emailProviderTransport, handleProviderSend, isConfiguredSenderAddress, type EmailProviderEnv } from './handler';
+import { configuredRecipientAllowlist, emailProviderTransport, handleProviderSend, isConfiguredSenderAddress, type EmailProviderEnv } from './handler';
 
 export default {
   async fetch(request: Request, env: EmailProviderEnv): Promise<Response> {
@@ -12,8 +12,9 @@ export default {
     if (request.method === 'GET' && url.pathname === '/health') {
       const transport = emailProviderTransport(env);
       const senderConfigured = isConfiguredSenderAddress(env.EMAIL_FROM);
-      const ready = transport !== 'UNCONFIGURED' && senderConfigured;
-      return new Response(JSON.stringify({ ok: ready, transport, senderConfigured }), {
+      const recipientPolicyConfigured = configuredRecipientAllowlist(env.EMAIL_ALLOWED_RECIPIENTS) !== null;
+      const ready = transport !== 'UNCONFIGURED' && senderConfigured && recipientPolicyConfigured;
+      return new Response(JSON.stringify({ ok: ready, transport, senderConfigured, recipientPolicyConfigured }), {
         status: ready ? 200 : 503,
         headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }
       });

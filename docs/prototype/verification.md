@@ -1771,3 +1771,11 @@ US-PRC-006 is partial and the 46-story epic remains open.
 **Evidence:** The shared archive-export helper now rejects an archive request without a writable streaming destination before issuing a fetch. The UI continues to use a single-use native download ticket for browsers without the File System Access API, so this helper cannot allocate a full archive `Blob`; the smaller manifest retains its chunk-hashed `Blob` path.
 
 **Boundary:** This verifies local helper behavior only. Deployed R2-to-browser transfer and full-size acceptance remain open; US-REP-007 and the full epic remain incomplete.
+
+## US-GAP-05/06 restrict provider destinations during UAT — 2026-10-08
+
+**Verification:** `npx tsx --test --test-concurrency=1 tests/unit/emailProvider.test.ts` — 13/13; `npx tsx --test --test-concurrency=1 tests/unit/integrationStatus.test.ts` — 3/3; `npx tsx --test --test-concurrency=1 tests/unit/docsContract.test.ts` — 4/4; `npm run cloud:typecheck`; `npm run lint`; `git diff --check` — all pass.
+
+**Evidence:** The standalone provider requires a syntactically valid `EMAIL_ALLOWED_RECIPIENTS` list before becoming ready. It canonicalizes recipient addresses and rejects unapproved destinations before dispatch through either Cloudflare Email Service or the HTTP API. The configured UAT list contains only `testing@mail.steauditing.com`; the readiness endpoint exposes the policy state, and the business Worker's integration probe refuses to report `READY` from an older provider that omits it.
+
+**Boundary:** This change is not yet deployed. Cloudflare last reported the UAT destination Pending, and no real delivery has been accepted. US-GAP-05/06 and the 46-story epic remain open.

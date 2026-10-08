@@ -20,8 +20,8 @@ export async function emailTransportStatus(env: Env): Promise<EmailTransportStat
     try {
       const response = await env.EMAIL_PROVIDER.fetch('https://email-provider.internal/health');
       if (response.ok) {
-        const body = await response.json() as { ok?: unknown; senderConfigured?: unknown };
-        if (body.ok === true && body.senderConfigured === true) {
+        const body = await response.json() as { ok?: unknown; senderConfigured?: unknown; recipientPolicyConfigured?: unknown };
+        if (body.ok === true && body.senderConfigured === true && body.recipientPolicyConfigured === true) {
           return { configured: true, transport: 'SERVICE_BINDING', providerReadiness: 'READY' };
         }
       }

@@ -39,10 +39,10 @@ curl -s https://<worker-url>/api/integrations/status
 ```
 
 For a service-bound email provider, `configured` is true only when the provider's
-`/health` probe confirms an active transport and a syntactically valid
-`EMAIL_FROM` address. An unreachable provider, absent transport, or
-missing/placeholder sender reports `configured: false` and
-`providerReadiness: "UNAVAILABLE"`. The probe does not verify the sender domain,
+`/health` probe confirms an active transport, a syntactically valid `EMAIL_FROM`
+address, and a valid `EMAIL_ALLOWED_RECIPIENTS` list. An unreachable provider,
+absent transport, missing/placeholder sender, or missing recipient policy reports
+`configured: false` and `providerReadiness: "UNAVAILABLE"`. The probe does not verify the sender domain,
 destination allowlist, recipient verification, or successful delivery; those
 still require Cloudflare account evidence and a controlled test send. A send
 request rejected with HTTP 424 means the provider did not attempt delivery
@@ -73,8 +73,8 @@ npm run cloud:deploy
 
 ```sh
 wrangler secret put EMAIL_API_KEY --config worker/emailProvider/wrangler.jsonc
-# remove the send_email binding and set EMAIL_API_URL / EMAIL_FROM / EMAIL_FROM_NAME
-# vars in the same config, then
+# remove the send_email binding and set EMAIL_API_URL / EMAIL_FROM / EMAIL_FROM_NAME /
+# EMAIL_ALLOWED_RECIPIENTS vars in the same config, then
 wrangler deploy --config worker/emailProvider/wrangler.jsonc
 # deploy the business Worker with its EMAIL_PROVIDER service binding.
 ```
@@ -86,6 +86,11 @@ Required external inputs (firm-owned):
 
 Cloudflare Email Routing handles inbound forwarding; it is not the outbound
 transactional sender. The Email Service binding restricts both sender and recipient.
+The provider Worker independently requires `EMAIL_ALLOWED_RECIPIENTS` for both
+Cloudflare Email Service and HTTP API transports and rejects any other destination
+before contacting a provider. Keep this list limited to approved non-production
+mailboxes during UAT; adding real client routes is a separate firm-approved release
+configuration change.
 The provider Worker has `workers_dev` disabled and is reachable only through the
 business Worker service binding.
 

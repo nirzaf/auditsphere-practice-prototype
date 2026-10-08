@@ -19,7 +19,8 @@
   }],
   "vars": {
     "EMAIL_FROM": "audit-dispatch@mail.steaudit.com",
-    "EMAIL_FROM_NAME": "AuditSphere"
+    "EMAIL_FROM_NAME": "AuditSphere",
+    "EMAIL_ALLOWED_RECIPIENTS": "testing@mail.steauditing.com"
   },
   "observability": { "enabled": true }
 }
