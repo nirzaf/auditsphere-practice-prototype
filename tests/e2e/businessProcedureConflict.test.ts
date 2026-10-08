@@ -371,6 +371,38 @@ async function selectWorkspace(tab: CdpTab, fixture: Awaited<ReturnType<typeof c
   await waitFor(tab, 'the Worker-projected engagement fieldwork panel', `
     document.querySelector('#business-fieldwork-heading')?.getClientRects().length === 1 &&
     !!document.querySelector('.business-fieldwork-tabs button')`);
+  const statementUi = await tab.evaluate<{ paneTitles: string[]; revenueRowText: string; actions: string[] }>(`(() => {
+    const body = document.querySelector('.business-fieldwork-body');
+    const panes = [...(body?.querySelectorAll(':scope > .business-fieldwork-card') ?? [])];
+    const revenue = panes[0]?.querySelector('tbody tr');
+    return {
+      paneTitles: panes.map(pane => pane.querySelector('h3')?.textContent?.trim() ?? ''),
+      revenueRowText: revenue?.innerText ?? '',
+      actions: [...(revenue?.querySelectorAll('.business-fieldwork-row-actions button') ?? [])].map(button => button.textContent?.trim() ?? '')
+    };
+  })()`);
+  assert.deepEqual(statementUi.paneTitles, ['Profit and loss', 'Balance sheet'], 'profit and loss precedes the balance sheet');
+  assert.match(statementUi.revenueRowText, /NO COMPARATIVE/, 'a source without prior balances labels the missing comparative explicitly');
+  assert.ok(statementUi.actions.includes('AR Test') && statementUi.actions.includes('Audit Workprogram'),
+    'each substantive statement row exposes both analysis and workprogram actions');
+  await tab.command('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 1, mobile: true });
+  try {
+    const mobileLayout = await tab.evaluate<{ width: number; pnlTop: number; pnlBottom: number; balanceTop: number; actionsVisible: boolean }>(`(() => {
+      const body = document.querySelector('.business-fieldwork-body');
+      const panes = [...(body?.querySelectorAll(':scope > .business-fieldwork-card') ?? [])];
+      const pnl = panes[0]?.getBoundingClientRect();
+      const balance = panes[1]?.getBoundingClientRect();
+      const actions = panes[0]?.querySelector('.business-fieldwork-row-actions button');
+      return { width: window.innerWidth, pnlTop: pnl?.top ?? -1, pnlBottom: pnl?.bottom ?? -1,
+        balanceTop: balance?.top ?? -1, actionsVisible: !!actions?.getClientRects().length };
+    })()`);
+    assert.equal(mobileLayout.width, 390);
+    assert.ok(mobileLayout.pnlTop >= 0 && mobileLayout.balanceTop >= mobileLayout.pnlBottom,
+      'the same P&L and balance-sheet panes stack vertically at mobile width');
+    assert.equal(mobileLayout.actionsVisible, true, 'row actions remain visible without hover at mobile width');
+  } finally {
+    await tab.command('Emulation.clearDeviceMetricsOverride');
+  }
   const observed = await tab.evaluate<{ workspaceId: string; actorId: string; procedureCount: number }>(`({
     workspaceId: JSON.parse(localStorage.getItem('auditsphere.business-context.v1') ?? '{}').workspaceId,
     actorId: JSON.parse(localStorage.getItem('auditsphere.business-context.v1') ?? '{}').actorId,
