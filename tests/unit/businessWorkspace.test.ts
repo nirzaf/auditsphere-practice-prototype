@@ -4,6 +4,7 @@ import { createHmac } from 'node:crypto';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { inflateSync } from 'node:zlib';
+import * as XLSX from 'xlsx';
 import worker, { businessCommandHttpResult } from '../../worker/index.js';
 import { criticalConfirmationBlockers, queueHoldingLetterForBlockers } from '../../worker/businessFieldwork.js';
 import { SqliteD1 } from '../helpers/sqliteD1.js';
@@ -4895,6 +4896,67 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
   assert.ok(exportObject, 'the committed report bytes remain available in object storage');
   const exportCsv = new TextDecoder().decode(await exportObject!.arrayBuffer());
   assert.ok(exportCsv.includes("'=SUM(1,1)"), 'CSV escapes formula-leading account names before spreadsheet import');
+  const reportSnapshot = db.prepare('SELECT rows_snapshot_json,as_of,journal_cutoff_hash FROM firm_report_snapshots WHERE workspace_id=? AND id=?')
+    .bind(workspaceId, exportRequest.body.result.reportSnapshotId).first<any>();
+  assert.equal(reportSnapshot.journal_cutoff_hash, exportRequest.body.result.sourceHash);
+  assert.equal(JSON.parse(reportSnapshot.rows_snapshot_json).asOf, reportSnapshot.as_of);
+  assert.ok(exportCsv.includes(`\"As of (UTC)\",\"${reportSnapshot.as_of}\"`), 'CSV carries the exact immutable report cutoff');
+  const tbSnapshot = JSON.parse(reportSnapshot.rows_snapshot_json);
+  assert.ok(exportCsv.includes(`\"Period debit total (QAR minor)\",\"${tbSnapshot.debitTotalMinor}\"`));
+  assert.ok(exportCsv.includes(`\"Period credit total (QAR minor)\",\"${tbSnapshot.creditTotalMinor}\"`));
+
+  const reportMonthStart = `${planDate.slice(0, 7)}-01`;
+  const reportMonthEnd = new Date(Date.UTC(Number(planDate.slice(0, 4)), Number(planDate.slice(5, 7)), 0)).toISOString().slice(0, 10);
+  for (const format of ['CSV', 'XLSX', 'PDF'] as const) {
+    const profitLossExport = await post(`/api/workspaces/${workspaceId}/commands`, {
+      idempotencyKey: crypto.randomUUID(), command: { type: 'practice.export-report', payload: {
+        kind: 'MONTHLY_PROFIT_LOSS', periodStart: reportMonthStart, periodEnd: reportMonthEnd, format
+      } }
+    }, approverHeaders);
+    assert.equal(profitLossExport.response.status, 200, JSON.stringify(profitLossExport.body));
+    await worker.scheduled({ scheduledTime: Date.now(), cron: '*/5 * * * *' } as any, env);
+    const profitLossJob = db.prepare('SELECT status,result_file_id,last_error_code FROM outbox_jobs WHERE workspace_id=? AND id=?')
+      .bind(workspaceId, profitLossExport.body.result.jobId).first<any>();
+    assert.equal(profitLossJob?.status, 'SUCCEEDED', JSON.stringify(profitLossJob));
+    const profitLossFile = db.prepare('SELECT object_key,media_type FROM file_versions WHERE workspace_id=? AND id=?')
+      .bind(workspaceId, profitLossJob.result_file_id).first<any>();
+    const profitLossObject = await env.FILES.get(profitLossFile.object_key);
+    assert.ok(profitLossObject, `${format} P&L bytes are stored and readable`);
+    const bytes = new Uint8Array(await profitLossObject!.arrayBuffer());
+    const snapshot = db.prepare('SELECT rows_snapshot_json,period_start,period_end,as_of,journal_cutoff_hash FROM firm_report_snapshots WHERE workspace_id=? AND id=?')
+      .bind(workspaceId, profitLossExport.body.result.reportSnapshotId).first<any>();
+    const snapshotData = JSON.parse(snapshot.rows_snapshot_json);
+    assert.equal(snapshotData.asOf, snapshot.as_of);
+    assert.equal(snapshot.journal_cutoff_hash, profitLossExport.body.result.sourceHash);
+    assert.deepEqual({ revenue: snapshotData.revenueMinor, expenses: snapshotData.expenseMinor, profit: snapshotData.profitMinor }, {
+      revenue: reportsAfterPost[1].body.revenueMinor, expenses: reportsAfterPost[1].body.expenseMinor, profit: reportsAfterPost[1].body.profitMinor
+    }, 'the persisted P&L snapshot preserves the selected report projection and cutoff');
+    if (format === 'CSV') {
+      const csv = new TextDecoder().decode(bytes);
+      assert.ok(csv.includes(`\"Revenue total (QAR minor)\",\"${snapshotData.revenueMinor}\"`));
+      assert.ok(csv.includes(`\"Expense total (QAR minor)\",\"${snapshotData.expenseMinor}\"`));
+      assert.ok(csv.includes(`\"Profit total (QAR minor)\",\"${snapshotData.profitMinor}\"`));
+      assert.ok(csv.includes("'=SUM(1,1)"));
+    } else if (format === 'XLSX') {
+      const workbook = XLSX.read(bytes, { type: 'array' });
+      const sheet = workbook.Sheets['Profit and Loss'];
+      assert.ok(sheet, 'the XLSX contains the monthly P&L worksheet');
+      const grid = XLSX.utils.sheet_to_json<unknown[]>(sheet, { header: 1, raw: false });
+      const zeroAccountRow = grid.find(row => row[0] === '5999');
+      assert.equal(zeroAccountRow?.[3], '0', 'the XLSX retains zero-activity accounts');
+      const zeroAccountRowIndex = grid.findIndex(row => row[0] === '5999');
+      const accountNameCell = sheet[`B${zeroAccountRowIndex + 1}`] as XLSX.CellObject | undefined;
+      assert.equal(accountNameCell?.v, '=SUM(1,1)');
+      assert.equal(accountNameCell?.f, undefined, 'an account name beginning with = stays a string, not a formula');
+      assert.ok(grid.some(row => row[0] === 'Profit total (QAR minor)' && row[1] === snapshotData.profitMinor));
+    } else {
+      const pdf = Buffer.from(bytes);
+      assert.ok(pdf.subarray(0, 8).toString('latin1').startsWith('%PDF-'));
+      const content = decodedPdfContent(bytes);
+      assert.ok(content.includes(`Period ${snapshot.period_start} to ${snapshot.period_end}; as of UTC ${snapshot.as_of}.`));
+      assert.ok(content.includes(`Revenue ${snapshotData.revenueMinor} minor units; expenses ${snapshotData.expenseMinor} minor units; profit ${snapshotData.profitMinor} minor units.`));
+    }
+  }
 
   // PRC-007: a partial allocation reversal increases invoice AR and returns the same
   // verified amount to unallocated cash without touching the issued commercial record.

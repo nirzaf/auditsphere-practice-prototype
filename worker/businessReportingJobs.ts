@@ -208,7 +208,7 @@ async function practiceReport(env:Env,job:Job,p:Payload,commit:Commit){
     ||typeof p.reportSnapshotId!=='string'||typeof p.generatedByActorId!=='string'||typeof p.sourceHash!=='string'||typeof p.rowsJson!=='string')
     throw new Error('The firm report export job is missing its exact snapshot or output format.');
   const snapshot=JSON.parse(p.rowsJson) as Record<string,any>;
-  if(snapshot.sourceHash!==p.sourceHash||snapshot.kind!==p.kind||snapshot.periodStart!==p.periodStart||snapshot.periodEnd!==p.periodEnd)
+  if(snapshot.sourceHash!==p.sourceHash||snapshot.kind!==p.kind||snapshot.periodStart!==p.periodStart||snapshot.periodEnd!==p.periodEnd||snapshot.asOf!==p.asOf)
     throw new Error('The firm report snapshot does not match the queued source hash and period.');
   const trialBalance=p.kind==='TRIAL_BALANCE',format=String(p.format),extension=format==='XLSX'?'xlsx':format.toLowerCase();
   const rawRows:Array<Record<string,unknown>>=Array.isArray(snapshot.rows)?snapshot.rows.map((row:unknown)=>row&&typeof row==='object'?row as Record<string,unknown>:{}):[];
@@ -219,6 +219,16 @@ async function practiceReport(env:Env,job:Job,p:Payload,commit:Commit){
     :['code','name','accountType','amountMinor'];
   const labels=trialBalance?['Account code','Account name','Account type','Opening balance (QAR minor)','Period debits (QAR minor)','Period credits (QAR minor)','Closing balance (QAR minor)']
     :['Account code','Account name','Account type','Amount (QAR minor)'];
+  const title=trialBalance?'Internal Firm Trial Balance':'Monthly Firm Profit and Loss';
+  const metadataRows=[['Report',title],['Period start',String(snapshot.periodStart)],['Period end',String(snapshot.periodEnd)],
+    ['As of (UTC)',String(snapshot.asOf)],['Source hash',String(snapshot.sourceHash)],[]];
+  const controlRows=trialBalance
+    ?[['Period debit total (QAR minor)',String(snapshot.debitTotalMinor)],['Period credit total (QAR minor)',String(snapshot.creditTotalMinor)],
+      ['Period balanced',String(snapshot.balanced)],['Closing debit total (QAR minor)',String(snapshot.closingDebitMinor)],
+      ['Closing credit total (QAR minor)',String(snapshot.closingCreditMinor)],['Closing balanced',String(snapshot.closingBalanced)]]
+    :[['Revenue total (QAR minor)',String(snapshot.revenueMinor)],['Expense total (QAR minor)',String(snapshot.expenseMinor)],
+      ['Profit total (QAR minor)',String(snapshot.profitMinor)]];
+  const outputRows=[...metadataRows,labels,...rows.map(row=>columns.map(column=>String(row[column]??''))),[],...controlRows];
   let bytes:Uint8Array,mediaType:string;
   if(format==='CSV'){
     const csvCell=(value:unknown)=>{
@@ -227,21 +237,22 @@ async function practiceReport(env:Env,job:Job,p:Payload,commit:Commit){
       if(/^[=+@\t\r]/.test(text)||/^-[^0-9]/.test(text))text=`'${text}`;
       return `"${text.replaceAll('"','""')}"`;
     };
-    const content=[labels,...rows.map(row=>columns.map(column=>row[column]))].map(line=>line.map(csvCell).join(',')).join('\r\n');
+    const content=outputRows.map(line=>line.map(csvCell).join(',')).join('\r\n');
     bytes=new TextEncoder().encode(`\uFEFF${content}`);mediaType='text/csv';
   }else if(format==='XLSX'){
-    const sheet=XLSX.utils.aoa_to_sheet([labels,...rows.map(row=>columns.map(column=>String(row[column]??'')))]);
+    const sheet=XLSX.utils.aoa_to_sheet(outputRows);
     const workbook=XLSX.utils.book_new();XLSX.utils.book_append_sheet(workbook,sheet,trialBalance?'Trial Balance':'Profit and Loss');
     const output=XLSX.write(workbook,{bookType:'xlsx',type:'array'});bytes=output instanceof Uint8Array?new Uint8Array(output):new Uint8Array(output as ArrayBuffer);
     mediaType='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
   }else{
     const firm=await env.DB.prepare(`SELECT legal_name FROM firm_profiles WHERE workspace_id=?`).bind(job.workspace_id).first<{legal_name:string}>();
-    bytes=renderReportingPdf({number:`FIRM-${trialBalance?'TB':'PL'}-${String(p.periodEnd).replaceAll('-','')}`,title:trialBalance?'Internal Firm Trial Balance':'Monthly Firm Profit and Loss',
+    bytes=renderReportingPdf({number:`FIRM-${trialBalance?'TB':'PL'}-${String(p.periodEnd).replaceAll('-','')}`,title,
       firmName:firm?.legal_name??'AuditSphere Firm',clientName:'Internal firm records',engagementCode:'FIRM-PRACTICE',serviceType:'INTERNAL_REPORT',
       periodStart:String(p.periodStart),periodEnd:String(p.periodEnd),reportDate:String(p.asOf).slice(0,10),sections:[{heading:trialBalance?'Trial balance by account':'Revenue and expenses by account',
         rows:rows.map(row=>({label:`${String(row.code??'')} · ${String(row.name??'')} · ${String(row.accountType??'')}`,
           current:`${String(row.amountMinor??row.closingMinor??'0')} QAR minor units`}))},
-        {heading:'Source and control totals',paragraphs:[`Source hash: ${String(p.sourceHash)}`,
+        {heading:'Source and control totals',paragraphs:[`Period ${String(snapshot.periodStart)} to ${String(snapshot.periodEnd)}; as of UTC ${String(snapshot.asOf)}.`,
+          `Source hash: ${String(p.sourceHash)}`,
           trialBalance?`Period debit total ${String(snapshot.debitTotalMinor)} minor units; period credit total ${String(snapshot.creditTotalMinor)} minor units; exact balance ${String(snapshot.balanced)}.`
             :`Revenue ${String(snapshot.revenueMinor)} minor units; expenses ${String(snapshot.expenseMinor)} minor units; profit ${String(snapshot.profitMinor)} minor units.`]}]});
     mediaType='application/pdf';

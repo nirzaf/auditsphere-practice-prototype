@@ -1719,11 +1719,13 @@ and QAR 2,000 Partner drawings. The reports add QAR 10,000 to revenue, QAR
 closing debit/credit totals balance exactly in minor units. Client persona
 access is denied. Report hashes include the posting timestamp cutoff. A newly
 created zero-activity expense account is present in the monthly P&L with a zero
-amount. CSV bytes read back from the committed object store escape a
-formula-leading account name before spreadsheet import.
+amount. The generated CSV/XLSX/PDF artifacts are read back from object storage;
+CSV safely escapes the formula-leading account name, the XLSX round-trips it as
+a string, and all formats include the snapshot cutoff and matching control
+totals.
 
 **Boundary:** This verifies local synthetic Worker/SQLite behavior and exact
-report projections and formula-safe CSV export bytes from a persisted snapshot.
-The export worker supports CSV/XLSX/PDF; deployed report reconciliation and
-independent presentation acceptance remain open. US-PRC-006 is partial and the
-46-story epic remains open.
+report projections and all three export formats generated from persisted
+snapshots. Deployed report reconciliation and independent presentation
+acceptance remain open. US-PRC-006 is partial and the 46-story epic remains
+open.
