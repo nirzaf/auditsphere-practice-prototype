@@ -534,8 +534,7 @@ export function buildMigrationAuditReport(
     workspace: snapshot.workspace,
     entities: entities.map(entity => ({ kind: entity.entity_kind, id: entity.entity_id, payload: payloads.get(`${entity.entity_kind}\0${entity.entity_id}`) })),
     rootDocuments: roots.map(root => ({ key: root.document_key, payload: parsePayload(root.payload_json) })),
-    files,
-    idMaps: maps
+    files
   };
   const sourceSha256 = createHash('sha256').update(canonical(hashInput)).digest('hex');
   const sourceCount = sourceRows.length;

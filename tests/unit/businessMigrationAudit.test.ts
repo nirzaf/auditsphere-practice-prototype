@@ -32,6 +32,18 @@ it('reconciles row counts but blocks cutover until mapped target fields are veri
   assert.equal(first.sourceSha256, second.sourceSha256);
 });
 
+it('keeps the source digest stable when migration ID-map evidence changes', () => {
+  const source = baseSnapshot();
+  const beforeMapping = buildMigrationAuditReport({ ...source, idMaps: [] }, new Map(), 31, 38, '00000000-0000-4000-8000-000000000020');
+  const afterMapping = buildMigrationAuditReport({
+    ...source,
+    idMaps: [{ source_kind: 'clients', source_id: 'client-1', target_kind: 'clients', target_id: 'client-1' }]
+  }, new Map(), 31, 38, '00000000-0000-4000-8000-000000000021');
+
+  assert.equal(beforeMapping.sourceSha256, afterMapping.sourceSha256);
+  assert.notDeepEqual(beforeMapping.reconciliationByTarget, afterMapping.reconciliationByTarget);
+});
+
 it('compares explicitly mapped legacy client fields without exposing values', () => {
   const snapshot = baseSnapshot();
   snapshot.entities[0].payload_json = JSON.stringify({

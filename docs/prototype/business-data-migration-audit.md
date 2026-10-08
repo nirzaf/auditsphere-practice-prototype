@@ -7,6 +7,10 @@ source-to-target ID mapping and normalized table counts, verifies committed
 legacy file bytes in R2, and prints stable source hashes, native money totals,
 missing files, orphans and unmapped rows.
 
+`sourceSha256` is calculated from the source workspace, entity/root payloads and
+file manifest. The mutable `migration_id_map` is reconciled separately, so
+recording reviewed mappings cannot change the digest of unchanged source data.
+
 ## Run
 
 Local Wrangler D1 and R2 are the default:
