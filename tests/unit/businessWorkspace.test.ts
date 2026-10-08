@@ -2649,6 +2649,39 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
   }, technicalHeaders);
   assert.equal(greenProgram.response.status, 200, JSON.stringify(greenProgram.body));
   const greenProcedureId = greenProgram.body.result.procedureIds[0] as string;
+  const conditionalAdHoc = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'procedure.insert', payload: {
+      workprogramId: greenProgram.body.result.workprogramId,
+      title: 'Inspect foreign-currency valuation where applicable',
+      instructions: 'Determine whether this account includes foreign-currency transactions and inspect the supporting rate evidence if present.',
+      assertion: 'VALUATION', scopeReason: 'This step is conditional on the account containing foreign-currency activity; reviewer approval is required if absent.'
+    } }
+  }, technicalHeaders);
+  assert.equal(conditionalAdHoc.response.status, 200, JSON.stringify(conditionalAdHoc.body));
+  const requestNotApplicable = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'procedure.mark-not-applicable', payload: {
+      procedureId: conditionalAdHoc.body.result.procedureId, expectedVersion: 1,
+      reason: 'The retained general-ledger detail and account policy confirm this balance contains no foreign-currency activity.'
+    } }
+  }, technicalHeaders);
+  assert.equal(requestNotApplicable.response.status, 200, JSON.stringify(requestNotApplicable.body));
+  const notApplicablePending = db.prepare(`SELECT applicable,status,not_applicable_reason,version FROM procedures WHERE workspace_id=? AND id=?`)
+    .bind(workspaceId, conditionalAdHoc.body.result.procedureId).first<any>();
+  assert.deepEqual({ applicable: notApplicablePending.applicable, status: notApplicablePending.status, version: notApplicablePending.version },
+    { applicable: 0, status: 'SUBMITTED', version: 2 }, 'not-applicable status is submitted for independent review, not silently cleared');
+  const approveNotApplicable = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'procedure.review', payload: {
+      procedureId: conditionalAdHoc.body.result.procedureId, expectedVersion: 2, decision: 'NOT_APPLICABLE_APPROVED',
+      comments: 'The reviewer verified the source details and approved this evidence-based not-applicable conclusion.'
+    } }
+  }, samplingReviewerHeaders);
+  assert.equal(approveNotApplicable.response.status, 200, JSON.stringify(approveNotApplicable.body));
+  const reviewedNotApplicable = db.prepare(`SELECT applicable,status,not_applicable_reason FROM procedures WHERE workspace_id=? AND id=?`)
+    .bind(workspaceId, conditionalAdHoc.body.result.procedureId).first<any>();
+  assert.deepEqual({ applicable: reviewedNotApplicable.applicable, status: reviewedNotApplicable.status,
+    reason: reviewedNotApplicable.not_applicable_reason }, { applicable: 0, status: 'REVIEWED', reason: 'The retained general-ledger detail and account policy confirm this balance contains no foreign-currency activity.' });
+  assert.equal(db.prepare(`SELECT decision FROM procedure_review_decisions WHERE workspace_id=? AND submission_id=?`)
+    .bind(workspaceId, requestNotApplicable.body.result.submissionId).first<any>()?.decision, 'NOT_APPLICABLE_APPROVED');
   const greenProcedureUpdate = await post(`/api/workspaces/${workspaceId}/commands`, {
     idempotencyKey: crypto.randomUUID(), command: { type: 'procedure.update', payload: {
       procedureId: greenProcedureId, expectedVersion: 1,

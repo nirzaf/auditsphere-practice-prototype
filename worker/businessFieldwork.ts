@@ -923,11 +923,12 @@ async function markNotApplicable(env:Env,workspaceId:string,context:BusinessCont
   const content={procedureId:p.procedureId,version:nextVersion,workprogramId:row.workprogram_id,ordinal:row.ordinal,title:row.title,instructions:row.instructions,assertion:row.assertion,
     origin:row.origin,mandatory:row.mandatory,scopeReason:row.scope_reason,workPerformed:null,conclusion:null,applicable:false,notApplicableReason:p.reason,status:'SUBMITTED'};
   const sourceHash=await rowHash({content,evidence:evidence.hash,planningVersionId:row.planning_version_id});
+  const samplingPins=await procedureSamplingPins(env,workspaceId,p.procedureId,String(row.active_tb_version_id),true);
   const submissionId=crypto.randomUUID();const reviewSubmissionId=crypto.randomUUID();const submittingStaff=await actorStaff(env,workspaceId,context);
   const contributorIds=[...new Set([row.prepared_by_staff_id,row.executed_by_staff_id,submittingStaff.id].filter((value):value is string=>typeof value==='string'))];
   const contributorRows=await env.DB.prepare(`SELECT natural_person_key AS naturalPersonKey FROM staff_members WHERE workspace_id=? AND id IN (${contributorIds.map(()=>'?').join(',')})`).bind(workspaceId,...contributorIds).all<{naturalPersonKey:string}>();
   const contributorKeys=[...new Set((contributorRows.results??[]).map(person=>person.naturalPersonKey))];
-  const dependencyHash=await rowHash({sourceHash,evidenceHash:evidence.hash,targetVersion:nextVersion});const statements=[versionGuard(env,workspaceId,990,'procedures','id',p.procedureId,p.expectedVersion),
+  const dependencyHash=await rowHash({sourceHash,evidenceHash:evidence.hash,targetVersion:nextVersion,samplingPins});const statements=[versionGuard(env,workspaceId,990,'procedures','id',p.procedureId,p.expectedVersion),
     env.DB.prepare(`UPDATE procedures SET version=?,applicable=0,not_applicable_reason=?,status='SUBMITTED',prepared_by_staff_id=?,evidence_set_hash=?,source_hash=?,updated_at=? WHERE workspace_id=? AND id=? AND version=?`)
       .bind(nextVersion,p.reason,submittingStaff.id,evidence.hash,sourceHash,now,workspaceId,p.procedureId,p.expectedVersion),
     env.DB.prepare(`INSERT INTO procedure_revisions(id,workspace_id,procedure_id,row_version,content_snapshot_json,evidence_set_hash,changed_by_actor_id,changed_at,reason) VALUES(?,?,?,?,?,?,?,?,?)`)
@@ -935,7 +936,7 @@ async function markNotApplicable(env:Env,workspaceId:string,context:BusinessCont
     env.DB.prepare(`INSERT INTO procedure_submissions(id,workspace_id,procedure_id,row_version,content_version,evidence_set_hash,source_hash,submitted_by_actor_id,submitted_at,status) VALUES(?,?,?,?,?,?,?,?,?,'SUBMITTED')`)
       .bind(submissionId,workspaceId,p.procedureId,nextVersion,p.expectedVersion,evidence.hash,sourceHash,context.actor.id,now),
     env.DB.prepare(`INSERT INTO review_submissions(id,workspace_id,client_id,engagement_id,target_kind,procedure_id,workprogram_id,analytical_review_id,going_concern_id,srm_version_id,target_version,snapshot_json,dependency_hash,submitted_by_actor_id,submitted_natural_person_key,contributor_natural_person_keys_json,submitted_at)
-      VALUES(?,?,?,?, 'PROCEDURE',?,NULL,NULL,NULL,NULL,?,?,?,?,?,?,?)`).bind(reviewSubmissionId,workspaceId,row.client_id,row.engagement_id,p.procedureId,nextVersion,JSON.stringify({...content,sourceHash,evidenceSetHash:evidence.hash}),dependencyHash,context.actor.id,submittingStaff.natural_person_key,JSON.stringify(contributorKeys),now),
+      VALUES(?,?,?,?, 'PROCEDURE',?,NULL,NULL,NULL,NULL,?,?,?,?,?,?,?)`).bind(reviewSubmissionId,workspaceId,row.client_id,row.engagement_id,p.procedureId,nextVersion,JSON.stringify({...content,sourceHash,evidenceSetHash:evidence.hash,samplingPins}),dependencyHash,context.actor.id,submittingStaff.natural_person_key,JSON.stringify(contributorKeys),now),
     pushChange(env,workspaceId,String(row.engagement_id),'Procedure',p.procedureId,nextVersion,now)];
   return commandMutation(statements,{procedureId:p.procedureId,submissionId,reviewSubmissionId,version:nextVersion,status:'SUBMITTED',applicable:false,reviewRequired:true,dependencyHash},'PROCEDURE',p.procedureId,p.expectedVersion,nextVersion,{notApplicableReason:p.reason});
 }

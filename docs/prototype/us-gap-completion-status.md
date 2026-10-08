@@ -64,6 +64,14 @@ Each open story has concrete
 acceptance criteria in the backlog and should be implemented through the active
 business UI/Worker with current-account evidence.
 
+US-FLD-005/006 have additional partial implementation evidence: the fieldwork
+workspace test verifies that a conditional ad-hoc procedure can be marked not
+applicable with a reason, submitted, and independently approved by a reviewer.
+This exposed and fixed a stale-review dependency mismatch: the not-applicable
+submission now snapshots the same sampling pins as other procedure submissions.
+Broader template revision immutability, required-step validation across all
+entry points, and browser review visibility remain open.
+
 ## Externally blocked (integration layer implemented; external values still required)
 
 The application now **declares and implements** each integration with a fail-closed,
