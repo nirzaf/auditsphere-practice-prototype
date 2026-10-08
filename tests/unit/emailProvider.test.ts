@@ -49,9 +49,9 @@ describe('email-provider transport selection (US-GAP-05/06)', () => {
     assert.deepEqual(await ready.json(), { ok: true, transport: 'CLOUDFLARE_EMAIL_SERVICE', senderConfigured: true });
   });
 
-  it('fails closed with 503 when no transport is configured', async () => {
+  it('returns a definite no-send rejection when no transport is configured', async () => {
     const response = await handleProviderSend(sendRequest({ message: JSON.stringify({ to: 'cfo@client.test', text: 'x' }) }), {} as ProviderEnv);
-    assert.equal(response.status, 503);
+    assert.equal(response.status, 424);
     assert.equal((await response.json() as { error: string }).error, 'EMAIL_PROVIDER_NOT_CONFIGURED');
   });
 
@@ -77,7 +77,7 @@ describe('email-provider transport selection (US-GAP-05/06)', () => {
   it('fails closed instead of using a synthetic sender address', async () => {
     const env = { SEND_EMAIL: { send: async () => ({ messageId: 'must-not-send' }) } } as ProviderEnv;
     const response = await handleProviderSend(sendRequest({ message: JSON.stringify({ to: 'cfo@client.test', text: 'x' }) }), env);
-    assert.equal(response.status, 503);
+    assert.equal(response.status, 424);
     assert.equal((await response.json() as { error: string }).error, 'EMAIL_SENDER_NOT_CONFIGURED');
   });
 

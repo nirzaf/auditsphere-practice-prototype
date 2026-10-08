@@ -1038,9 +1038,24 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
   assert.equal(failureView.body.proposals[0].dispatchStatus, 'FAILED');
   assert.equal(failureView.body.proposals[0].dispatchErrorCode, 'EMAIL_PROVIDER_NOT_CONFIGURED');
 
-  const retryDispatch = await post(`/api/workspaces/${workspaceId}/commands`, {
+  const retryWithoutSender = await post(`/api/workspaces/${workspaceId}/commands`, {
     idempotencyKey: crypto.randomUUID(), command: { type: 'proposal.dispatch.retry', payload: {
       dispatchId: queuedDispatch.body.result.dispatchId, expectedVersion: failedDispatch.version
+    } }
+  }, approverHeaders);
+  assert.equal(retryWithoutSender.response.status, 202, JSON.stringify(retryWithoutSender.body));
+  env.EMAIL_PROVIDER = { fetch: async () => Response.json({ error: 'EMAIL_SENDER_NOT_CONFIGURED' }, { status: 424 }) };
+  await worker.scheduled({ scheduledTime: Date.now(), cron: '*/5 * * * *' } as any, env);
+  const rejectedSenderDispatch = db.prepare(`SELECT d.status,d.version,j.status AS job_status,j.last_error_code
+    FROM dispatches d JOIN outbox_jobs j ON j.workspace_id=d.workspace_id AND j.id=d.job_id
+    WHERE d.workspace_id=? AND d.id=?`).bind(workspaceId, retryWithoutSender.body.result.dispatchId).first<any>();
+  assert.equal(rejectedSenderDispatch?.status, 'FAILED');
+  assert.equal(rejectedSenderDispatch?.job_status, 'PERMANENT_FAILED');
+  assert.equal(rejectedSenderDispatch?.last_error_code, 'EMAIL_PROVIDER_HTTP_424');
+
+  const retryDispatch = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'proposal.dispatch.retry', payload: {
+      dispatchId: retryWithoutSender.body.result.dispatchId, expectedVersion: rejectedSenderDispatch.version
     } }
   }, approverHeaders);
   assert.equal(retryDispatch.response.status, 202, JSON.stringify(retryDispatch.body));

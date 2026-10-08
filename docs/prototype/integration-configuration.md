@@ -43,7 +43,12 @@ For a service-bound email provider, `configured` is true only when the provider'
 missing/placeholder sender reports `configured: false` and
 `providerReadiness: "UNAVAILABLE"`. The probe does not verify the sender domain,
 destination allowlist, recipient verification, or successful delivery; those
-still require Cloudflare account evidence and a controlled test send.
+still require Cloudflare account evidence and a controlled test send. A send
+request rejected with HTTP 424 means the provider did not attempt delivery
+(transport or sender configuration is unavailable); the outbox records a
+definite failure that can be retried after the configuration is corrected. A
+transport error after the provider call begins remains an unknown outcome and
+requires reconciliation before retry.
 
 ## 1. Email delivery (US-GAP-05 / US-GAP-06)
 

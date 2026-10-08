@@ -103,13 +103,13 @@ export async function handleProviderSend(request: Request, env: EmailProviderEnv
 
   const transport = emailProviderTransport(env);
   if (transport === 'UNCONFIGURED') {
-    return jsonResponse(503, {
+    return jsonResponse(424, {
       error: 'EMAIL_PROVIDER_NOT_CONFIGURED',
       message: 'Configure SEND_EMAIL (Cloudflare Email Service) or EMAIL_API_URL + EMAIL_API_KEY on the email-provider Worker.'
     });
   }
   if (!isConfiguredSenderAddress(env.EMAIL_FROM)) {
-    return jsonResponse(503, {
+    return jsonResponse(424, {
       error: 'EMAIL_SENDER_NOT_CONFIGURED',
       message: 'Configure EMAIL_FROM with an address authorized by the selected email provider.'
     });
