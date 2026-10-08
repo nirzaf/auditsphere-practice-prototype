@@ -134,6 +134,48 @@ it('reconciles legacy invoice totals against normalized QAR minor-unit totals', 
   assert.equal(report.validationStatus, 'BLOCKED');
 });
 
+it('reconciles legacy receipts against both receipt vouchers and their normalized payment ledger', () => {
+  const snapshot = baseSnapshot();
+  snapshot.entities = [{
+    entity_kind: 'receipts', entity_id: 'receipt-1',
+    payload_json: JSON.stringify({ id: 'receipt-1', amount: 1275, currency: 'QAR' })
+  }];
+  snapshot.idMaps = [{ source_kind: 'receipts', source_id: 'receipt-1', target_kind: 'receipt_vouchers', target_id: 'voucher-1' }];
+  snapshot.targetRows = [
+    { kind: 'receipt_vouchers', id: 'voucher-1' },
+    { kind: 'payments', id: 'payment-1' }
+  ];
+  snapshot.targetMoneyTotals = [
+    { kind: 'receipt_vouchers', row_count: '1', amount_minor: '1275' },
+    { kind: 'payments', row_count: '1', amount_minor: '1275' }
+  ];
+
+  const report = buildMigrationAuditReport(snapshot, new Map(), 31, 38, '00000000-0000-4000-8000-000000000010');
+  assert.deepEqual(report.moneyTotals.reconciliation.map(row => [row.targetKind, row.targetRows, row.targetAmountMinor, row.status]), [
+    ['receipt_vouchers', 1, '1275', 'MATCHED'],
+    ['payments', 1, '1275', 'MATCHED']
+  ]);
+});
+
+it('blocks receipt cutover when payment row counts or amounts do not reconcile', () => {
+  const snapshot = baseSnapshot();
+  snapshot.entities = [{
+    entity_kind: 'receipts', entity_id: 'receipt-1',
+    payload_json: JSON.stringify({ id: 'receipt-1', amount: 1275, currency: 'QAR' })
+  }];
+  snapshot.idMaps = [{ source_kind: 'receipts', source_id: 'receipt-1', target_kind: 'receipt_vouchers', target_id: 'voucher-1' }];
+  snapshot.targetRows = [{ kind: 'receipt_vouchers', id: 'voucher-1' }, { kind: 'payments', id: 'payment-1' }];
+  snapshot.targetMoneyTotals = [
+    { kind: 'receipt_vouchers', row_count: '1', amount_minor: '1275' },
+    { kind: 'payments', row_count: '2', amount_minor: '1276' }
+  ];
+
+  const report = buildMigrationAuditReport(snapshot, new Map(), 31, 38, '00000000-0000-4000-8000-000000000011');
+  assert.equal(report.moneyTotals.reconciliation.find(row => row.targetKind === 'payments')?.status, 'UNVERIFIED');
+  assert.ok(report.unmappedRows.some(row => row.reason === 'MONEY_TOTAL_REQUIRES_EXPLICIT_RECONCILIATION'));
+  assert.equal(report.validationStatus, 'BLOCKED');
+});
+
 it('refuses a source schema newer than its migration target', () => {
   const snapshot = baseSnapshot();
   snapshot.workspace.schema_version = 31;

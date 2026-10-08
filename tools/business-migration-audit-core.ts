@@ -490,7 +490,8 @@ export function buildMigrationAuditReport(
   const moneyPairs = [
     { sourceKind: 'invoices', targetKind: 'invoices', sourceField: 'amount', extraField: 'taxTotal', targetKindForRows: 'invoices' },
     { sourceKind: 'creditNotes', targetKind: 'firm_credit_notes', sourceField: 'amount', targetKindForRows: 'firm_credit_notes' },
-    { sourceKind: 'receipts', targetKind: 'receipt_vouchers', sourceField: 'amount', targetKindForRows: 'receipt_vouchers' }
+    { sourceKind: 'receipts', targetKind: 'receipt_vouchers', sourceField: 'amount', targetKindForRows: 'receipt_vouchers' },
+    { sourceKind: 'receipts', targetKind: 'payments', sourceField: 'amount', targetKindForRows: 'payments', relatedTargetKind: 'receipt_vouchers' }
   ] as const;
   const moneyReconciliation = moneyPairs.flatMap(pair => {
     const sourceEntities = entities.filter(entity => entity.entity_kind === pair.sourceKind);
@@ -516,7 +517,10 @@ export function buildMigrationAuditReport(
       const payload = payloads.get(`${entity.entity_kind}\0${entity.entity_id}`) ?? {};
       return typeof payload[pair.sourceField] === 'number' && Number.isSafeInteger(payload[pair.sourceField]);
     });
-    const matchedCounts = reconciliationByTarget.find(item => item.targetKind === pair.targetKind)?.status === 'COUNTS_MATCHED';
+    const matchedCounts = pair.relatedTargetKind
+      ? reconciliationByTarget.find(item => item.targetKind === pair.relatedTargetKind)?.status === 'COUNTS_MATCHED'
+        && normalizedTargetRows === sourceEntities.length
+      : reconciliationByTarget.find(item => item.targetKind === pair.targetKind)?.status === 'COUNTS_MATCHED';
     const status = !sourceCurrencyKnown || !hasAmounts || !matchedCounts ? 'UNVERIFIED' as const
       : sourceAmount === targetAmount ? 'MATCHED' as const : 'MISMATCHED' as const;
     if (status === 'MISMATCHED') {

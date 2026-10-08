@@ -41,6 +41,11 @@ data. It never invents a target record, approval, ID mapping, or missing file.
 are intentionally separate because legacy prototype fields have no uniform
 currency-unit contract.
 
+Receipt-voucher amounts are read through each voucher's immutable `payment_id`
+relationship to `payments.amount_minor`; vouchers do not store an amount column.
+The target snapshot reports payment rows and reconciles the receipt total against
+both the linked voucher population and the payment ledger.
+
 This command is a validation gate, not an apply migrator. A blocked report must
 be reconciled and the target records/mappings must be created through a reviewed
 deployment operation before the workspace can pass cutover validation. No
