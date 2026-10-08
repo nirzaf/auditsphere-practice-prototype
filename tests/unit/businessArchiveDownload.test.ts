@@ -6,7 +6,7 @@ const selected = { version: 1 as const, workspaceId: 'workspace-test', actorId: 
 const archiveHash = 'a'.repeat(64);
 const manifestHash = 'b'.repeat(64);
 
-function response(bytes: Uint8Array[], options: { size?: number; archiveHash?: string; type?: string } = {}): Response {
+function response(bytes: Uint8Array[], options: { size?: number; archiveHash?: string; manifestHash?: string; type?: string } = {}): Response {
   const total = bytes.reduce((sum, chunk) => sum + chunk.byteLength, 0);
   const body = new ReadableStream<Uint8Array>({
     start(controller) {
@@ -18,7 +18,7 @@ function response(bytes: Uint8Array[], options: { size?: number; archiveHash?: s
     'Content-Type': options.type ?? 'application/zip',
     'Content-Length': String(options.size ?? total),
     'X-Archive-SHA256': options.archiveHash ?? archiveHash,
-    'X-Archive-Manifest-SHA256': manifestHash
+    'X-Archive-Manifest-SHA256': options.manifestHash ?? manifestHash
   } });
 }
 
@@ -84,54 +84,65 @@ it('rejects an oversized streamed response and aborts the partial file', async (
   assert.equal(aborted, true);
 });
 
-it('keeps the non-streaming fallback byte-hash verification for browsers without file streaming', async () => {
+it('refuses to buffer an archive when no streamed destination is available', async () => {
+  let requested = false;
+  await assert.rejects(() => withFetch(async () => {
+    requested = true;
+    return response([new Uint8Array([0x50, 0x4b])]);
+  }, () => downloadBusinessArchiveExport(
+    'workspace-test', 'engagement-test', 'archive', selected, archiveHash, manifestHash
+  )), /native download ticket/);
+  assert.equal(requested, false);
+});
+
+it('keeps the verified Blob path for the small archive manifest', async () => {
   const bytes = new Uint8Array([0x50, 0x4b, 0x03, 0x04]);
   const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', bytes));
   const expected = [...digest].map(byte => byte.toString(16).padStart(2, '0')).join('');
-  const result = await withFetch(async () => response([bytes], { archiveHash: expected }), () => downloadBusinessArchiveExport(
-    'workspace-test', 'engagement-test', 'archive', selected, expected, manifestHash
+  const result = await withFetch(async () => response([bytes], { type: 'application/json', manifestHash: expected }), () => downloadBusinessArchiveExport(
+    'workspace-test', 'engagement-test', 'manifest', selected, archiveHash, expected
   ));
-  assert.equal(result.blob?.type, 'application/zip');
+  assert.equal(result.blob?.type, 'application/json');
   assert.deepEqual(new Uint8Array(await result.blob!.arrayBuffer()), bytes);
 });
 
-it('hashes fallback response chunks as they arrive and checks the declared size', async () => {
+it('hashes manifest response chunks as they arrive and checks the declared size', async () => {
   const chunks = [new Uint8Array([0x50, 0x4b]), new Uint8Array([0x03, 0x04, 0x10, 0x20])];
   const bytes = new Uint8Array([...chunks[0]!, ...chunks[1]!]);
   const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', bytes));
   const expected = [...digest].map(byte => byte.toString(16).padStart(2, '0')).join('');
-  const result = await withFetch(async () => response(chunks, { archiveHash: expected }), () => downloadBusinessArchiveExport(
-    'workspace-test', 'engagement-test', 'archive', selected, expected, manifestHash
+  const result = await withFetch(async () => response(chunks, { type: 'application/json', manifestHash: expected }), () => downloadBusinessArchiveExport(
+    'workspace-test', 'engagement-test', 'manifest', selected, archiveHash, expected
   ));
   assert.deepEqual(new Uint8Array(await result.blob!.arrayBuffer()), bytes);
 
-  await assert.rejects(() => withFetch(async () => response(chunks, { archiveHash: expected, size: bytes.byteLength + 1 }), () => downloadBusinessArchiveExport(
-    'workspace-test', 'engagement-test', 'archive', selected, expected, manifestHash
+  await assert.rejects(() => withFetch(async () => response(chunks, { type: 'application/json', manifestHash: expected, size: bytes.byteLength + 1 }), () => downloadBusinessArchiveExport(
+    'workspace-test', 'engagement-test', 'manifest', selected, archiveHash, expected
   )), /incomplete and did not match its declared size/);
 });
 
-it('rejects an unsafe declared archive size before reading the fallback body', async () => {
+it('rejects an unsafe declared manifest size before reading its body', async () => {
   const body = new ReadableStream<Uint8Array>({ pull() { assert.fail('invalid size must be rejected before reading'); } });
   const result = new Response(body, { headers: {
-    'Content-Type': 'application/zip', 'Content-Length': '9007199254740992',
+    'Content-Type': 'application/json', 'Content-Length': '9007199254740992',
     'X-Archive-SHA256': archiveHash, 'X-Archive-Manifest-SHA256': manifestHash
   } });
   await assert.rejects(() => withFetch(async () => result, () => downloadBusinessArchiveExport(
-    'workspace-test', 'engagement-test', 'archive', selected, archiveHash, manifestHash
+    'workspace-test', 'engagement-test', 'manifest', selected, archiveHash, manifestHash
   )), /invalid content length/);
 });
 
-it('rejects truncated, oversized, or digest-mismatched fallback downloads', async () => {
+it('rejects truncated, oversized, or digest-mismatched manifest downloads', async () => {
   const chunks = [new Uint8Array([0x50, 0x4b]), new Uint8Array([0x03, 0x04])];
   const bytes = new Uint8Array([...chunks[0]!, ...chunks[1]!]);
   const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', bytes));
   const expected = [...digest].map(byte => byte.toString(16).padStart(2, '0')).join('');
   const oversized = new Uint8Array([...bytes, 0x00]);
 
-  await assert.rejects(() => withFetch(async () => response([oversized], { archiveHash: expected, size: bytes.byteLength }), () => downloadBusinessArchiveExport(
-    'workspace-test', 'engagement-test', 'archive', selected, expected, manifestHash
+  await assert.rejects(() => withFetch(async () => response([oversized], { type: 'application/json', manifestHash: expected, size: bytes.byteLength }), () => downloadBusinessArchiveExport(
+    'workspace-test', 'engagement-test', 'manifest', selected, archiveHash, expected
   )), /exceeded its declared exact byte count/);
-  await assert.rejects(() => withFetch(async () => response(chunks, { archiveHash: 'c'.repeat(64) }), () => downloadBusinessArchiveExport(
-    'workspace-test', 'engagement-test', 'archive', selected, 'c'.repeat(64), manifestHash
+  await assert.rejects(() => withFetch(async () => response(chunks, { type: 'application/json', manifestHash: 'c'.repeat(64) }), () => downloadBusinessArchiveExport(
+    'workspace-test', 'engagement-test', 'manifest', selected, archiveHash, 'c'.repeat(64)
   )), /client-side SHA-256 check/);
 });

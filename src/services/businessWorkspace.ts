@@ -584,6 +584,9 @@ export async function downloadBusinessArchiveExport(
   expectedManifestSha256: string,
   writable?: { write(chunk: Uint8Array): Promise<void>; close(): Promise<void>; abort?(reason?: unknown): Promise<void> }
 ): Promise<{ blob?: Blob; fileName: string }> {
+  if (part === 'archive' && !writable) {
+    throw new Error('Use the native download ticket for archives unless a streamed file destination is available.');
+  }
   const query = new URLSearchParams({ part });
   let response: Response;
   try {

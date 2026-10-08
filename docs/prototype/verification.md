@@ -1762,3 +1762,11 @@ US-PRC-006 is partial and the 46-story epic remains open.
 **Hosted verification:** [GitHub Actions run 37756161615](https://github.com/nirzaf/auditsphere-practice-prototype/actions/runs/37756161615) passed typechecks, unit tests, production build and browser E2E, then deployed the Worker and Static Assets to Cloudflare and passed Worker readiness. The hosted E2E executed the added post-archive advance-invoice and unallocated-cash assertions.
 
 **Boundary:** This run does not establish current-account AR reconciliation, live R2-to-browser transfer or independent report presentation acceptance. US-PRC-007 is partial and the 46-story epic remains open.
+
+## US-REP-007 prevent accidental full-archive Blob allocation — 2026-10-08
+
+**Verification:** `npx tsx --test --test-concurrency=1 tests/unit/businessArchiveDownload.test.ts` — 9/9; `npm run lint`; `npm run cloud:typecheck`; `npm run build`; `git diff --check` — all pass.
+
+**Evidence:** The shared archive-export helper now rejects an archive request without a writable streaming destination before issuing a fetch. The UI continues to use a single-use native download ticket for browsers without the File System Access API, so this helper cannot allocate a full archive `Blob`; the smaller manifest retains its chunk-hashed `Blob` path.
+
+**Boundary:** This verifies local helper behavior only. Deployed R2-to-browser transfer and full-size acceptance remain open; US-REP-007 and the full epic remain incomplete.
