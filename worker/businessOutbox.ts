@@ -8,6 +8,7 @@ import { prepareBusinessInvoiceJournal } from './businessPractice';
 import { processBusinessReportingDocument } from './businessReportingJobs';
 import { preparePortalCredentialProvisioning } from './businessPortalCredentials';
 import { generateTemporaryPassword, hashPassword } from './auth/passwords';
+import { newOpaqueToken, tokenHash } from './auth/tokens';
 import { ApiError } from './errors';
 import { safeErrorKind } from './observability';
 
@@ -109,6 +110,11 @@ function parsePayload(job: OutboxJob): JobPayload {
 function parseRawPayload(job: OutboxJob): Record<string, any> {
   try {
     const payload = JSON.parse(job.payload_json) as Record<string, unknown>;
+    if (job.kind === 'EMAIL' && payload?.documentType === 'PASSWORD_RESET') {
+      if (typeof payload.userAccountId !== 'string'
+        || Object.keys(payload).sort().join(',') !== 'documentType,userAccountId') throw new Error('password reset shape');
+      return payload;
+    }
     if (job.kind === 'GENERATE_DOCUMENT' && payload?.documentType === 'PRACTICE_REPORT') {
       if (typeof payload.reportSnapshotId !== 'string' || payload.reportSnapshotId !== job.aggregate_id
         || !['TRIAL_BALANCE','MONTHLY_PROFIT_LOSS'].includes(String(payload.kind))
@@ -934,6 +940,103 @@ async function dispatchCommercial(env: Env, job: OutboxJob): Promise<void> {
   });
 }
 
+async function dispatchPasswordReset(env: Env, job: OutboxJob, payload: Record<string, any>): Promise<void> {
+  if (payload.documentType !== 'PASSWORD_RESET' || typeof payload.userAccountId !== 'string') {
+    throw new OutboxError('INVALID_PASSWORD_RESET_PAYLOAD', 'The password reset job is missing its client account reference.');
+  }
+  const account = await env.DB.prepare(`SELECT id,version,email_normalized,display_name,status FROM user_accounts
+    WHERE workspace_id=? AND id=? AND kind='CLIENT' AND status IN ('ACTIVE','LOCKED')`)
+    .bind(job.workspace_id, payload.userAccountId)
+    .first<{ id: string; version: number; email_normalized: string; display_name: string; status: string }>();
+  if (!account) throw new OutboxError('PASSWORD_RESET_ACCOUNT_UNAVAILABLE', 'The client account is no longer eligible for a password reset.');
+  let appUrl: string;
+  try {
+    const url = new URL(env.PUBLIC_APP_URL ?? '');
+    if ((url.protocol !== 'https:' && !(url.protocol === 'http:' && ['localhost', '127.0.0.1'].includes(url.hostname)))
+      || url.username || url.password || url.search || url.hash) throw new Error('invalid URL');
+    appUrl = url.href.replace(/\/$/, '');
+  } catch {
+    throw new OutboxError('PUBLIC_APP_URL_NOT_CONFIGURED', 'Set PUBLIC_APP_URL to the HTTPS application origin before sending password reset links.');
+  }
+  if (!env.EMAIL_PROVIDER) throw new OutboxError('EMAIL_PROVIDER_NOT_CONFIGURED', 'Configure the EMAIL_PROVIDER service binding before sending password reset links.');
+
+  // The durable queue contains only the account identifier. The one-time bearer
+  // token exists only in worker memory and the recipient's email; only its hash
+  // is persisted, before provider I/O, so a provider timeout cannot invalidate a
+  // link that may already have been delivered.
+  const token = newOpaqueToken();
+  const digest = await tokenHash(token);
+  const tokenId = crypto.randomUUID();
+  const createdAt = nowIso();
+  const initialExpiry = new Date(Date.parse(createdAt) + 30 * 60 * 1000).toISOString();
+  await commitJobMutation(env, job, {
+    entityType: 'USER_ACCOUNT', entityId: account.id,
+    details: { jobId: job.id, status: 'RESET_TOKEN_ISSUED' },
+    result: { status: 'RESET_TOKEN_ISSUED' },
+    statements: [
+      env.DB.prepare(`INSERT INTO command_assertions(workspace_id,seq,ok)
+        SELECT ?,993,CASE WHEN EXISTS(SELECT 1 FROM user_accounts WHERE workspace_id=? AND id=? AND version=?
+          AND kind='CLIENT' AND email_normalized=? AND status IN ('ACTIVE','LOCKED')) THEN 1 ELSE 0 END`)
+        .bind(job.workspace_id, job.workspace_id, account.id, account.version, account.email_normalized),
+      env.DB.prepare(`UPDATE credential_tokens SET consumed_at=? WHERE workspace_id=? AND user_account_id=?
+        AND purpose='PASSWORD_RESET' AND consumed_at IS NULL`)
+        .bind(createdAt, job.workspace_id, account.id),
+      env.DB.prepare(`INSERT INTO credential_tokens(id,workspace_id,user_account_id,purpose,token_sha256,expires_at,consumed_at,created_by_actor_id,created_at)
+        SELECT ?,?,u.id,'PASSWORD_RESET',?,?,NULL,NULL,? FROM user_accounts u
+        WHERE u.workspace_id=? AND u.id=? AND u.version=? AND u.kind='CLIENT' AND u.email_normalized=? AND u.status IN ('ACTIVE','LOCKED')`)
+        .bind(tokenId, job.workspace_id, digest, initialExpiry, createdAt, job.workspace_id, account.id, account.version, account.email_normalized)
+    ]
+  });
+  const resetUrl = `${appUrl}/reset?token=${encodeURIComponent(token)}`;
+  const form = new FormData();
+  form.set('message', JSON.stringify({ to: account.email_normalized, subject: 'Reset your AuditSphere password',
+    text: `Use this secure link to reset your AuditSphere client portal password:\n\n${resetUrl}\n\nThe link expires in 30 minutes. If you did not request a reset, you can ignore this email.`,
+    purpose: 'PASSWORD_RESET' }));
+  let response: Response;
+  try {
+    response = await env.EMAIL_PROVIDER.fetch(new Request('https://email-provider.local/send', {
+      method: 'POST', headers: { 'Idempotency-Key': job.deduplication_key }, body: form
+    }));
+  } catch {
+    throw new OutboxError('EMAIL_PROVIDER_OUTCOME_UNKNOWN', 'The password reset email provider connection ended without a verifiable outcome.', 'UNKNOWN');
+  }
+  if (response.status === 408 || response.status === 429) {
+    throw new OutboxError(`EMAIL_PROVIDER_HTTP_${response.status}`, `The password reset email provider returned HTTP ${response.status}; delivery will retry.`, 'RETRY');
+  }
+  if (response.status >= 500) {
+    throw new OutboxError(`EMAIL_PROVIDER_HTTP_${response.status}`, `The password reset email provider returned HTTP ${response.status}; delivery status is unknown.`, 'UNKNOWN');
+  }
+  if (!response.ok) throw new OutboxError(`EMAIL_PROVIDER_HTTP_${response.status}`, `The password reset email provider rejected the message with HTTP ${response.status}.`);
+  let providerMessageId: string;
+  try {
+    const result = await response.json() as { messageId?: unknown };
+    if (typeof result.messageId !== 'string' || !result.messageId.trim() || result.messageId.length > 512) throw new Error('missing message id');
+    providerMessageId = result.messageId.trim();
+  } catch {
+    throw new OutboxError('EMAIL_PROVIDER_RESPONSE_INVALID', 'The password reset email provider returned success without a verifiable message ID.', 'UNKNOWN');
+  }
+  const acceptedAt = nowIso();
+  const expiresAt = new Date(Date.parse(acceptedAt) + 30 * 60 * 1000).toISOString();
+  await commitJobMutation(env, job, {
+    entityType: 'USER_ACCOUNT', entityId: account.id,
+    details: { jobId: job.id, providerMessageId, status: 'ACCEPTED' },
+    result: { providerMessageId, status: 'ACCEPTED' },
+    statements: [
+      env.DB.prepare(`INSERT INTO command_assertions(workspace_id,seq,ok)
+        SELECT ?,993,CASE WHEN EXISTS(SELECT 1 FROM credential_tokens t JOIN user_accounts u
+          ON u.workspace_id=t.workspace_id AND u.id=t.user_account_id WHERE t.workspace_id=? AND t.id=?
+          AND t.user_account_id=? AND t.token_sha256=? AND t.purpose='PASSWORD_RESET' AND t.consumed_at IS NULL
+          AND u.kind='CLIENT' AND u.status IN ('ACTIVE','LOCKED')) THEN 1 ELSE 0 END`)
+        .bind(job.workspace_id, job.workspace_id, tokenId, account.id, digest),
+      env.DB.prepare(`UPDATE credential_tokens SET expires_at=? WHERE workspace_id=? AND id=? AND purpose='PASSWORD_RESET' AND consumed_at IS NULL`)
+        .bind(expiresAt, job.workspace_id, tokenId),
+      env.DB.prepare(`UPDATE outbox_jobs SET status='SUCCEEDED',provider_reference=?,result_json=?,last_error_code=NULL,
+        completed_at=?,lease_until=NULL,updated_at=?,version=version+1 WHERE workspace_id=? AND id=? AND status='RUNNING' AND lease_until=?`)
+        .bind(providerMessageId, JSON.stringify({ providerMessageId, status: 'ACCEPTED' }), acceptedAt, acceptedAt, job.workspace_id, job.id, job.lease_until)
+    ]
+  });
+}
+
 async function dispatchPortalCredentials(env: Env, job: OutboxJob, payload: Record<string, any>): Promise<void> {
   if (payload.documentType !== 'PORTAL_CREDENTIALS'
     || !['TEMP_PASSWORD', 'ACCESS_NOTICE'].includes(payload.mode)
@@ -1201,9 +1304,10 @@ async function recordJobFailure(env: Env, job: OutboxJob, error: unknown): Promi
                   : documentType === 'SEAL_ARCHIVE' && typeof payload.archiveRunId === 'string' ? { type: 'ARCHIVE_RUN', id: payload.archiveRunId }
                     : documentType === 'PRACTICE_REPORT' && typeof payload.reportSnapshotId === 'string' ? { type: 'FIRM_REPORT_SNAPSHOT', id: payload.reportSnapshotId } : null;
   const portalIssueId = typeof payload.portalCredentialIssueId === 'string' ? payload.portalCredentialIssueId : null;
+  const passwordResetUserId = documentType === 'PASSWORD_RESET' && typeof payload.userAccountId === 'string' ? payload.userAccountId : null;
   const portalEntityType = documentType === 'PORTAL_CREDENTIALS' ? portalIssueId ? 'PORTAL_CREDENTIAL_ISSUE' : 'USER_ACCOUNT' : null;
-  const failureEntityType = job.kind === 'IMPORT_TB' ? 'TB_IMPORT' : job.kind === 'EMAIL' ? portalEntityType ?? 'DISPATCH' : documentEntity?.type ?? 'PROPOSAL_VERSION';
-  const failureEntityId = dispatchId ?? portalIssueId ?? documentEntity?.id ?? job.aggregate_id;
+  const failureEntityType = job.kind === 'IMPORT_TB' ? 'TB_IMPORT' : job.kind === 'EMAIL' ? portalEntityType ?? (passwordResetUserId ? 'USER_ACCOUNT' : 'DISPATCH') : documentEntity?.type ?? 'PROPOSAL_VERSION';
+  const failureEntityId = dispatchId ?? portalIssueId ?? passwordResetUserId ?? documentEntity?.id ?? job.aggregate_id;
   await commitJobMutation(env, job, {
     entityType: failureEntityType,
     entityId: failureEntityId,
@@ -1249,9 +1353,10 @@ async function markExpiredEmailUnknown(env: Env, candidate: { id: string; worksp
   const payload = parseRawPayload(job);
   const now = nowIso();
   const portalIssueId = typeof payload.portalCredentialIssueId === 'string' ? payload.portalCredentialIssueId : null;
+  const passwordResetUserId = payload.documentType === 'PASSWORD_RESET' && typeof payload.userAccountId === 'string' ? payload.userAccountId : null;
   await commitJobMutation(env, job, {
-    entityType: payload.documentType === 'PORTAL_CREDENTIALS' ? portalIssueId ? 'PORTAL_CREDENTIAL_ISSUE' : 'USER_ACCOUNT' : 'DISPATCH',
-    entityId: typeof payload.dispatchId === 'string' ? payload.dispatchId : portalIssueId ?? job.aggregate_id,
+    entityType: payload.documentType === 'PORTAL_CREDENTIALS' ? portalIssueId ? 'PORTAL_CREDENTIAL_ISSUE' : 'USER_ACCOUNT' : passwordResetUserId ? 'USER_ACCOUNT' : 'DISPATCH',
+    entityId: typeof payload.dispatchId === 'string' ? payload.dispatchId : portalIssueId ?? passwordResetUserId ?? job.aggregate_id,
     clientId: payload.clientId, engagementId: payload.engagementId,
     details: { jobId: job.id, status: 'UNKNOWN', errorCode: 'EMAIL_PROVIDER_OUTCOME_UNKNOWN',
       errorMessage: 'The Worker stopped after the provider call began. Reconcile the provider record before any retry.' },
@@ -1303,6 +1408,7 @@ export async function processBusinessOutbox(env: Env, limit = 20): Promise<numbe
         }
         else await renderAndStoreProposal(env, job);
       } else if (payload.documentType === 'PORTAL_CREDENTIALS') await dispatchPortalCredentials(env, job, payload);
+      else if (payload.documentType === 'PASSWORD_RESET') await dispatchPasswordReset(env, job, payload);
       else if (payload.documentType === 'COMMERCIAL_EMAIL') await dispatchCommercial(env, job);
       else await dispatchProposal(env, job);
       processed += 1;

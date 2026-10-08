@@ -5,7 +5,11 @@ import { authHandlerRoutes } from '../../worker/auth/oidcRoutes';
 
 const expectedRoutes = `GET /api/auth/staff/login
 GET /api/auth/staff/callback
+POST /api/auth/client/login
 GET /api/auth/me
+POST /api/auth/password
+POST /api/auth/password-reset/request
+POST /api/auth/password-reset/confirm
 POST /api/auth/active-profile
 POST /api/auth/logout
 GET /api/health

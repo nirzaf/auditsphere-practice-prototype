@@ -31,5 +31,17 @@ Clients sign in with email + password; a temporary password only lets them chang
 npx tsx --test tests/unit/authClientLogin.test.ts tests/unit/businessWorkspace.test.ts && npm run test:unit
 ```
 
+## Implementation and verification
+
+**Status: implemented on 2026-10-09.** Added client password login, the forced-password-change gate and endpoint, single-use email reset flow, per-IP rate limits, atomic three-per-hour reset queuing, escalating account lockout, and firm-admin-only unlock. Reset tokens are hashed in storage and never included in outbox payloads or auth-event details. No schema migration was needed; E03-S04's account/session/token schema supports the flow.
+
+- `node --import tsx --test tests/unit/authClientLogin.test.ts` — passed. Covers generic credential failures, expired temporary/reset tokens, business and PBC gates, password change and session revocation, reset delivery/privacy/reuse, request throttling, lockout escalation through the 24-hour cap, and admin unlock.
+- `node --import tsx --test tests/unit/routeInventory.test.ts` — passed with all four client-auth routes in the inventory.
+- `node --import tsx --test --test-name-pattern="bootstraps a no-session BUSINESS workspace" tests/unit/businessWorkspace.test.ts` — passed after the fixture models the client completing its required password change before using the portal.
+- `npm run test:unit` — 174 passed, 0 failed, 1 opt-in stress test skipped.
+- `npm run cloud:typecheck`, `npm run lint`, and `npm run build` — passed.
+
+The frozen-portal assertion verifies that changing the password restores read-only portal access with `mode: FROZEN`; the existing BUSINESS integration suite separately exercises client document downloads.
+
 ## Stop and ask if
 - The spec owner wants clients to also use Entra B2B instead of passwords (would supersede this story).
