@@ -199,13 +199,13 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
   const ready = await call('/api/health/ready');
   assert.equal(ready.response.status, 200, JSON.stringify(ready.body));
   assert.equal(ready.body.status, 'ready');
-  assert.equal(ready.body.schemaVersion, 42);
+  assert.equal(ready.body.schemaVersion, 43);
   assert.deepEqual(ready.body.dependencyCodes, []);
   const supportBundle = await call('/api/health/support-bundle');
   assert.equal(supportBundle.response.status, 200);
   assert.match(supportBundle.response.headers.get('content-disposition') ?? '', /attachment; filename="auditsphere-support-bundle.json"/);
-  assert.equal(supportBundle.body.applicationSchemaVersion, 42);
-  assert.equal(supportBundle.body.installedSchemaVersion, 42);
+  assert.equal(supportBundle.body.applicationSchemaVersion, 43);
+  assert.equal(supportBundle.body.installedSchemaVersion, 43);
   assert.equal(supportBundle.body.readiness, 'ready');
   assert.deepEqual(supportBundle.body.verificationRuns, []);
   assert.equal(JSON.stringify(supportBundle.body).includes('workspaceId'), false);
@@ -258,7 +258,7 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
 
   const migrationStatus = await call(`/api/workspaces/${workspaceId}/migration-status`);
   assert.equal(migrationStatus.response.status, 200, JSON.stringify(migrationStatus.body));
-  assert.deepEqual(migrationStatus.body, { schemaVersion: 42, lastRunId: null, status: null });
+  assert.deepEqual(migrationStatus.body, { schemaVersion: 43, lastRunId: null, status: null });
   const missingMigrationWorkspace = await call(`/api/workspaces/${crypto.randomUUID()}/migration-status`);
   assert.equal(missingMigrationWorkspace.response.status, 404);
 
@@ -2043,6 +2043,12 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
       approvedHistorySource.source_mapping_version_id,approvedHistorySource.fsli_id,'2026-12-31').run(),
   /historical mapping source scope mismatch/,
   'historical suggestions cannot be relabeled as belonging to a different reporting framework');
+  assert.throws(() => db.prepare(`INSERT INTO mapping_memory(id,workspace_id,client_id,account_code,reporting_framework,
+      source_mapping_version_id,fsli_id,effective_period_end) VALUES(?,?,?,?,?,?,?,?)`)
+    .bind(crypto.randomUUID(),workspaceId,clientId,approvedHistorySource.account_code,approvedHistorySource.reporting_framework,
+      approvedHistorySource.source_mapping_version_id,approvedHistorySource.fsli_id,'2099-12-31').run(),
+  /historical mapping source scope mismatch/,
+  'historical mappings cannot claim an effective period different from the approved source engagement');
   const historicalMappingProposal = await post(`/api/workspaces/${workspaceId}/commands`, {
     idempotencyKey: crypto.randomUUID(), command: { type: 'tb.mapping.propose', payload: {
       engagementId, tbVersionId: tbActivated.body.result.tbVersionId
