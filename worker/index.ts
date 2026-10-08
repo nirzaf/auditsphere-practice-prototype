@@ -184,19 +184,6 @@ const handleSupportBundle = async (ctx: RouteContext): Promise<Response> => {
   });
 };
 
-const handleMigrationStatus = async (ctx: RouteContext): Promise<Response> => {
-  const workspace = await ctx.env.DB.prepare('SELECT id FROM workspaces WHERE id=?')
-    .bind(ctx.params.workspaceId).first<{ id: string }>();
-  if (!workspace) throw new ApiError('NOT_FOUND', 'Workspace not found.');
-  const [schema, run] = await Promise.all([
-    ctx.env.DB.prepare('SELECT version FROM application_schema_version WHERE singleton=1').first<{ version: number }>(),
-    ctx.env.DB.prepare(`SELECT id,status FROM migration_runs WHERE workspace_id=? ORDER BY started_at DESC,id DESC LIMIT 1`)
-      .bind(ctx.params.workspaceId).first<{ id: string; status: string }>()
-  ]);
-  if (!schema) throw new ApiError('UNAVAILABLE', 'The installed application schema version is unavailable.');
-  return jsonResponse({ schemaVersion: schema.version, lastRunId: run?.id ?? null, status: run?.status ?? null }, 200, ctx.requestId);
-};
-
 // --- Workspaces -------------------------------------------------------------
 
 const handleCreateWorkspace = async (ctx: RouteContext): Promise<Response> => {
@@ -609,7 +596,6 @@ const router = createRouter()
   .post('/api/workspaces', handleCreateWorkspace)
   .get('/api/workspaces/:workspaceId/actor-profiles', handleBusinessActorProfiles)
   .get('/api/workspaces/:workspaceId/context', handleBusinessContext)
-  .get('/api/workspaces/:workspaceId/migration-status', handleMigrationStatus)
   .get('/api/workspaces/:workspaceId/clients', handleBusinessClients)
   .get('/api/workspaces/:workspaceId/clients/:clientId', handleBusinessClient)
   .get('/api/workspaces/:workspaceId/leads', handleBusinessLeads)

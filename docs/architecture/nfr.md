@@ -32,7 +32,7 @@ Workload model: ≤ 40 staff, ≤ 300 active client contacts, ≤ 400 engagement
 | PERF-04 | P1 | TB import of 10,000 rows reaches `READY` < 3 min. | Staging run with synthetic TB |
 | PERF-05 | P1 | Login (password) p95 < 1.5 s including hashing; hashing CPU < 50 % of the Worker CPU limit configured. | Benchmark in SP-01 |
 | CAP-01 | P1 | Projected D1 size after 5 years of the workload model < 50 % of the D1 per-database limit current at go-live. | SP-02 report with measured bytes/engagement |
-| CAP-02 | P0 | No count-based gates on clients, engagements, files or workpapers (spec §1.1). | Existing; grep test that `demo_creation_limits` is unreferenced after E01 |
+| CAP-02 | P0 | No count-based gates on clients, engagements, files or workpapers (spec §1.1). | Existing; the legacy `demo_creation_limits` table is removed by migration 0045 |
 
 ## 3. Reliability, backup & recovery
 

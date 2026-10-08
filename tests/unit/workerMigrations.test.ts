@@ -17,7 +17,7 @@ it('applies each migration using Wrangler statement splitting to an isolated SQL
       const source = readFileSync(join(directory, migration), 'utf8');
       const statements = unstable_splitSqlQuery(source);
       assert.ok(statements.length > 0, `${migration} contains SQL statements`);
-      if (/^0039_|^0040_|^0041_|^0042_|^0043_|^0044_/.test(migration)) {
+      if (/^0039_|^0040_|^0041_|^0042_|^0043_|^0044_|^0045_/.test(migration)) {
         for (const trigger of statements.filter(statement => /^CREATE TRIGGER/i.test(statement.trimStart()))) {
           const guardedLines = trigger.split(/\r?\n/).filter(line => line.includes('THEN RAISE(ABORT,'));
           assert.ok(guardedLines.every(line => line.trimEnd().endsWith('END);')),
@@ -35,7 +35,18 @@ it('applies each migration using Wrangler statement splitting to an isolated SQL
     assert.deepEqual(database.prepare('PRAGMA foreign_key_check').all(), [], 'the migrated schema has no foreign-key violations');
     assert.ok(database.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='report_signatures'").get(),
       'the latest reporting migrations are present');
-    assert.equal(database.prepare('SELECT version FROM application_schema_version WHERE singleton=1').get()?.version, 44);
+    assert.equal(database.prepare('SELECT version FROM application_schema_version WHERE singleton=1').get()?.version, 45);
+    for (const table of [
+      'workspace_entities', 'workspace_root_documents', 'workspace_sessions', 'workspace_seeds',
+      'test_workspace_expiry', 'demo_workspaces', 'demo_creation_limits'
+    ]) {
+      assert.equal(database.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?").get(table), undefined,
+        `${table} is removed from the latest schema`);
+    }
+    assert.ok(database.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='demo_seeds'").get(),
+      'demo seeds remain because workspaces retains its nullable seed foreign key');
+    assert.throws(() => database.prepare(`INSERT INTO demo_seeds(id,title,description,state_json)
+      VALUES ('retired-seed','Retired','', '{}')`).run(), /legacy demo seeds are retired/);
     assert.ok(database.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='archive_download_tickets'").get(),
       'short-lived archive download tickets are present');
     assert.ok(database.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='archive_download_ticket_uses'").get(),

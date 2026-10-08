@@ -56,7 +56,7 @@ flowchart TB
 | Async work | D1 `outbox_jobs` | Kinds `EMAIL, GENERATE_DOCUMENT, IMPORT_TB, SEAL_ARCHIVE, VERIFY_FILE`; processed by the minute cron (`processBusinessOutbox`). |
 | Audit history | D1 `audit_events` + `audit_chain_heads` | Append-only, hash-chained. |
 | Browser | `localStorage` via `src/services/businessWorkspace.ts` | Only workspace ID + selected actor/scope. **[TARGET E03]** Only workspace ID; actor comes from the session cookie. |
-| Legacy (to delete, E01) | D1 `workspace_entities`, `workspace_root_documents`, `workspace_sessions`, `workspace_seeds`, `demo_*` | TEST snapshot mode only. |
+| Retired (E01-S05 / migration 0045) | Legacy TEST snapshot tables removed; `demo_seeds` is retained read-only because `workspaces.seed_id` references it. | No runtime BUSINESS dependency. |
 
 ## 4. Request path (current)
 

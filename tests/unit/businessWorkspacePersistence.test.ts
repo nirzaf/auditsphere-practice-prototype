@@ -82,9 +82,6 @@ it('BUSINESS records survive a Worker restart and scheduled maintenance after ei
     db.prepare(`UPDATE workspaces SET created_at=?,updated_at=?,created_at_utc=?,updated_at_utc=? WHERE id=?`)
       .bind(eightDaysAgo, eightDaysAgo, new Date(eightDaysAgo * 1000).toISOString(),
         new Date(eightDaysAgo * 1000).toISOString(), workspaceId).run();
-    assert.equal(db.prepare('SELECT COUNT(*) AS count FROM test_workspace_expiry WHERE workspace_id=?')
-      .bind(workspaceId).first<{ count: number }>()?.count, 0);
-
     db.close();
     db = new SqliteD1(databasePath);
     const beforeMaintenance = await invoke('GET', `/api/workspaces/${workspaceId}/clients`, {

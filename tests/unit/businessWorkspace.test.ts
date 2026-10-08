@@ -200,13 +200,13 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
   const ready = await call('/api/health/ready');
   assert.equal(ready.response.status, 200, JSON.stringify(ready.body));
   assert.equal(ready.body.status, 'ready');
-  assert.equal(ready.body.schemaVersion, 44);
+  assert.equal(ready.body.schemaVersion, 45);
   assert.deepEqual(ready.body.dependencyCodes, []);
   const supportBundle = await call('/api/health/support-bundle');
   assert.equal(supportBundle.response.status, 200);
   assert.match(supportBundle.response.headers.get('content-disposition') ?? '', /attachment; filename="auditsphere-support-bundle.json"/);
-  assert.equal(supportBundle.body.applicationSchemaVersion, 44);
-  assert.equal(supportBundle.body.installedSchemaVersion, 44);
+  assert.equal(supportBundle.body.applicationSchemaVersion, 45);
+  assert.equal(supportBundle.body.installedSchemaVersion, 45);
   assert.equal(supportBundle.body.readiness, 'ready');
   assert.deepEqual(supportBundle.body.verificationRuns, []);
   assert.equal(JSON.stringify(supportBundle.body).includes('workspaceId'), false);
@@ -257,12 +257,6 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
   assert.equal(JSON.stringify(populatedSupportBundle.body).includes(workspaceId), false,
     'the operational export must not reveal the owning workspace ID');
 
-  const migrationStatus = await call(`/api/workspaces/${workspaceId}/migration-status`);
-  assert.equal(migrationStatus.response.status, 200, JSON.stringify(migrationStatus.body));
-  assert.deepEqual(migrationStatus.body, { schemaVersion: 44, lastRunId: null, status: null });
-  const missingMigrationWorkspace = await call(`/api/workspaces/${crypto.randomUUID()}/migration-status`);
-  assert.equal(missingMigrationWorkspace.response.status, 404);
-
   const replay = await post('/api/workspaces', input, { 'Idempotency-Key': bootstrapKey });
   assert.equal(replay.response.status, 200);
   assert.equal(replay.body.workspaceId, workspaceId);
@@ -272,8 +266,6 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
   assert.equal(keyReuse.body.code, 'IDEMPOTENCY_MISMATCH');
 
   const stored = db.prepare(`SELECT w.data_mode,w.seed_id,w.business_status,
-      (SELECT COUNT(*) FROM workspace_entities WHERE workspace_id=w.id) AS generic_entities,
-      (SELECT COUNT(*) FROM test_workspace_expiry WHERE workspace_id=w.id) AS test_expiries,
       (SELECT COUNT(*) FROM audit_events WHERE workspace_id=w.id) AS event_count,
       (SELECT actor_assurance FROM audit_events WHERE workspace_id=w.id) AS actor_assurance,
       (SELECT source FROM audit_events WHERE workspace_id=w.id) AS event_source,
@@ -284,8 +276,6 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
   assert.equal(stored.business_status, 'ACTIVE');
   assert.equal(db.prepare('PRAGMA table_info(workspaces)').all<any>().results.some(column => column.name === 'expires_at'), false,
     'legacy expiry column was removed');
-  assert.equal(stored.generic_entities, 0, 'bootstrap must not materialize legacy generic state records');
-  assert.equal(stored.test_expiries, 0);
   assert.equal(stored.event_count, 1);
   assert.equal(stored.actor_assurance, 'SYSTEM');
   assert.equal(stored.event_source, 'JOB');

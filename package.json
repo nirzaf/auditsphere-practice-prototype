@@ -14,7 +14,6 @@
     "preview": "wrangler dev --config wrangler.jsonc --local --port 3000",
     "test:unit": "tsx --test --test-concurrency=1 tests/unit/*.test.ts",
     "benchmark:local-api": "tsx tools/benchmark-local-worker-20-users.ts",
-    "migration:audit": "tsx tools/business-migration-audit.ts",
     "cloud:typecheck": "tsc --noEmit -p worker/tsconfig.json",
     "cloud:migrate": "wrangler d1 migrations apply steaudit-prototype-demo --remote --config wrangler.jsonc",
     "cloud:r2-archive-locks:generate": "tsx tools/generate-r2-archive-lock-rules.ts",

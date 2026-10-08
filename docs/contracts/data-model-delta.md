@@ -278,9 +278,9 @@ CREATE TABLE IF NOT EXISTS client_import_row_map (
 );
 ```
 
-## 6. `0050_drop_legacy_snapshot_tables.sql` — E01-S05 (CONDITIONAL on decision D2)
+## 6. `0045_drop_legacy_snapshot_tables.sql` — E01-S05 (CONDITIONAL on decision D2)
 
-Only after: (a) the operator query in E01-S05 shows zero rows in `workspaces WHERE data_mode='TEST' AND status<>'deleted'` in **every** environment, and (b) no code references the tables (`rg -n "workspace_entities|workspace_root_documents|workspace_sessions|workspace_seeds|demo_workspaces|demo_seeds|demo_creation_limits|test_workspace_expiry"` returns only this migration).
+The owner directed retirement of the legacy tables. The remote per-environment row count is still unverified because the configured Wrangler session has expired. Do not claim that no TEST records remain; before any manual migration outside the already-authorized deployment path, run the E01-S05 query against every environment. Runtime code, tests, and tooling must not reference the dropped tables; historical migrations are retained and the forward migration removes their dependent trigger objects.
 
 ```sql
 DROP TABLE IF EXISTS workspace_entities;
@@ -292,12 +292,12 @@ DROP TABLE IF EXISTS demo_workspaces;
 DROP TABLE IF EXISTS demo_creation_limits;
 -- DO NOT DROP demo_seeds: workspaces.seed_id REFERENCES demo_seeds(id) (0003_cloud_full_stack.sql:12).
 --   Rebuilding `workspaces` is unsafe (every business table FKs to it). Leave demo_seeds empty and
---   add: CREATE TRIGGER demo_seeds_no_insert BEFORE INSERT ON demo_seeds BEGIN SELECT RAISE(ABORT,'retired'); END;
+--   add: CREATE TRIGGER demo_seeds_no_insert BEFORE INSERT ON demo_seeds BEGIN SELECT RAISE(ABORT,'legacy demo seeds are retired'); END;
 -- DO NOT DROP idempotency_keys / file_objects until `rg` proves no remaining code path (scheduled() purges idempotency_keys).
 -- Agent MUST grep every remaining migration for FKs/triggers referencing a dropped table before finalising this list.
 ```
 
-> `migration_runs`, `migration_id_map` and the guard triggers from 0039–0041 belong to the US-SYS-002 cutover tooling; drop them only if E01-S05 also retires that tooling.
+> `migration_runs` and `migration_id_map` are retained to avoid an unrequested second data deletion. The US-SYS-002 tooling is retired, so migration 0045 removes its 0039–0041 guard triggers that depend on the legacy snapshot tables.
 
 ## 7. No schema change required
 

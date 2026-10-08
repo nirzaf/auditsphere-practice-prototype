@@ -11,7 +11,6 @@ POST /api/internal/verification-runs
 POST /api/workspaces
 GET /api/workspaces/:workspaceId/actor-profiles
 GET /api/workspaces/:workspaceId/context
-GET /api/workspaces/:workspaceId/migration-status
 GET /api/workspaces/:workspaceId/clients
 GET /api/workspaces/:workspaceId/clients/:clientId
 GET /api/workspaces/:workspaceId/leads

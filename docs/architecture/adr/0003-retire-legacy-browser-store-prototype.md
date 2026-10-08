@@ -1,6 +1,6 @@
 # ADR-0003 — Retire the legacy browser-store prototype and TEST snapshot API
 
-- **Status:** Proposed — accept with E01
+- **Status:** Accepted — implementation in E01-S02 through E01-S05
 - **Date:** 2026-10-08
 
 ## Context
@@ -10,7 +10,7 @@
 - Everything else under `src/` is legacy.
 
 ## Decision
-Delete the legacy UI, legacy domain/services/store, legacy Worker TEST handlers and their tests (E01-S02, E01-S03). Drop legacy D1 tables in a forward migration only after D2 is confirmed (E01-S05).
+Delete the legacy UI, legacy domain/services/store, legacy Worker TEST handlers and their tests (E01-S02, E01-S03). The owner authorized retirement of the legacy TEST tables; migration 0045 drops those tables while preserving the referenced `demo_seeds` table with inserts blocked (E01-S05). Remote TEST-row counts remain unverified while Wrangler authentication is unavailable.
 
 ## Consequences
 - ~40 legacy unit tests and `tests/e2e/targetLifecycle.test.ts` are retired, not "fixed".
