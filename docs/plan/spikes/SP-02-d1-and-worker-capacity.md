@@ -17,4 +17,9 @@
 - If projected D1 usage at 10 years > 50 %: propose (as a new ADR draft) archival of sealed engagements' high-volume tables to R2 JSON, or per-year databases — **do not implement** in the spike.
 
 ## Result
-*(fill in)*
+
+**Partial — local footprint and current platform limits recorded in [`docs/architecture/capacity.md`](../../architecture/capacity.md).** The full `businessWorkspace.test.ts` synthetic journey finished with six engagements and one workspace. A temporary diagnostic hook reported 1,643 pages × 4,096 bytes = 6,729,728 bytes after `VACUUM`, 4,325 total rows (721/engagement rounded), 478 audit events, and 145 fieldwork change-feed rows. The hook was removed after measurement; no diagnostic code was retained.
+
+The modeled Paid D1 use is 22.4% after five years and 44.9% after ten years, so the local estimate does not trigger the >50% archival/sharding ADR exit. Free D1 does not meet the five-year model. CAP-01 is a provisional local-model pass only; a staging measurement remains required.
+
+Not completed: deployed Worker CPU timings for PDF generation, TB parsing and archive streaming; 50-session latency/load acceptance; representative staging growth/index overhead; and confirmation of the account's actual Workers plan. These all require the staged isolated environment from E02-S01, which is still gated on the residency/location and production-hostname decisions recorded by that story. No performance claim is inferred from local Node timings.
