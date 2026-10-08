@@ -822,6 +822,7 @@ async function buildRevenueRecognize(env:Env,workspaceId:string,context:Business
 type AgingInvoice={id:string;client_id:string;engagement_id:string;kind:string;number:string;fee_revision_id:string;subtotal_minor:number;tax_minor:number;total_minor:number;issue_date:string;due_date:string;}
 async function arAging(env:Env,workspaceId:string,context:BusinessContext,asOf:string,clientId?:string){
   if(context.actor.persona==='CLIENT')throw new ApiError('PERSONA_ACTION_DENIED','Client profiles cannot access firm receivables reporting.');
+  if(!date.safeParse(asOf).success)throw new ApiError('VALIDATION_FAILED','Choose a valid Qatar calendar date for AR aging.');
   if(context.scope.clientId&&clientId&&context.scope.clientId!==clientId)throw new ApiError('FORBIDDEN_SCOPE','AR aging is outside the selected client.');
   const scopedClient=clientId??context.scope.clientId;
   const invoices=(await env.DB.prepare(`SELECT id,client_id,engagement_id,kind,number,fee_revision_id,subtotal_minor,tax_minor,total_minor,issue_date,due_date
@@ -853,7 +854,7 @@ async function arAging(env:Env,workspaceId:string,context:BusinessContext,asOf:s
     const dueDays=Math.floor((Date.parse(`${asOf}T00:00:00Z`)-Date.parse(`${invoice.due_date}T00:00:00Z`))/86_400_000);
     const bucket=dueDays<=0?'CURRENT':dueDays<=30?'DAYS_1_30':dueDays<=60?'DAYS_31_60':dueDays<=90?'DAYS_61_90':'DAYS_91_PLUS';
     return {invoiceId:invoice.id,clientId:invoice.client_id,engagementId:invoice.engagement_id,kind:invoice.kind,number:invoice.number,feeRevisionId:invoice.fee_revision_id,
-      issueDate:invoice.issue_date,dueDate:invoice.due_date,paidMinor:String(paid),creditedMinor:String(credit),outstandingMinor:String(outstanding),bucket};
+      issueDate:invoice.issue_date,dueDate:invoice.due_date,totalMinor:String(total),paidMinor:String(paid),creditedMinor:String(credit),outstandingMinor:String(outstanding),bucket};
   });
   let paymentsQuery=`SELECT p.id,p.client_id,p.amount_minor,p.received_on,p.reverses_payment_id FROM payments p WHERE p.workspace_id=? AND p.received_on<=?`;
   const paymentBindings:unknown[]=[workspaceId,asOf];

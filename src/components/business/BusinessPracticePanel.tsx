@@ -18,7 +18,7 @@ type PracticeData = {
   expenses: Array<{ id: string; date: string; payee: string; category: string; amountMinor: string; description: string; status: string }>;
   revenuePolicies: Array<{ id: string; revision: number; name: string; recognitionMethod: string }>;
   payments: Array<{ id: string; clientId: string; engagementId: string; amountMinor: string; receivedOn: string; method: string; reference: string; receiptNumber: string | null; receiptStatus: string | null; fullyReversed: number | boolean; reversesPaymentId: string | null; remainingUnallocatedMinor: string }>;
-  arAging: null | { asOf: string; invoices: Array<{ invoiceId: string; clientId: string; engagementId: string; kind: string; number: string; dueDate: string; outstandingMinor: string; bucket: string }>; buckets: Record<string, string>; outstandingTotalMinor: string; unallocatedMinor: string; controlAccountMinor: string; reconciliationDifferenceMinor: string; reconciliationStatus: string };
+  arAging: null | { asOf: string; invoices: Array<{ invoiceId: string; clientId: string; engagementId: string; kind: string; number: string; feeRevisionId: string; issueDate: string; dueDate: string; totalMinor: string; paidMinor: string; creditedMinor: string; outstandingMinor: string; bucket: string }>; buckets: Record<string, string>; outstandingTotalMinor: string; unallocatedMinor: string; controlAccountMinor: string; reconciliationDifferenceMinor: string; reconciliationStatus: string };
   trialBalance: { from: string; to: string; asOf: string; rows: Array<{ accountId: string; code: string; name: string; accountType: string; openingMinor: string; periodDebitMinor: string; periodCreditMinor: string; closingMinor: string }>; closingDebitMinor: string; closingCreditMinor: string; closingBalanced: boolean; sourceHash: string };
   profitLoss: { revenueMinor: string; expenseMinor: string; profitMinor: string; sourceHash: string; recognitionNote: string };
   budget: { id: string; revision: number; sourceHash: string } | null;
@@ -68,6 +68,7 @@ export function BusinessPracticePanel({ workspaceId, selected, context, engageme
   const today = qatarToday();
   const [from, setFrom] = useState(`${today.slice(0, 4)}-01-01`);
   const [to, setTo] = useState(today);
+  const [arAgingAsOf, setArAgingAsOf] = useState(today);
   const [profitLossMonth, setProfitLossMonth] = useState(today.slice(0, 7));
   const [profitLossReport, setProfitLossReport] = useState<MonthlyProfitLossReport | null>(null);
   const [data, setData] = useState<PracticeData | null>(null);
@@ -148,11 +149,11 @@ export function BusinessPracticePanel({ workspaceId, selected, context, engageme
   useEffect(() => {
     if (!selected.actorId || !selected.persona) return;
     const controller = new AbortController();
-    getBusinessPracticeWorkspace(workspaceId, selected, { from, to, engagementId: engagement.id, asOfDate: to }, controller.signal)
+    getBusinessPracticeWorkspace(workspaceId, selected, { from, to, engagementId: engagement.id, asOfDate: arAgingAsOf }, controller.signal)
       .then(result => { if (!controller.signal.aborted) { setData(result as unknown as PracticeData); setError(''); } })
       .catch(reason => { if (!controller.signal.aborted) setError(reason instanceof Error ? reason.message : 'Firm practice data could not be loaded.'); });
     return () => controller.abort();
-  }, [workspaceId, selected.actorId, selected.persona, selected.clientId, selected.engagementId, engagement.id, from, to, refresh]);
+  }, [workspaceId, selected.actorId, selected.persona, selected.clientId, selected.engagementId, engagement.id, from, to, arAgingAsOf, refresh]);
 
   useEffect(() => {
     if (!selected.actorId || !selected.persona) return;
@@ -341,7 +342,7 @@ export function BusinessPracticePanel({ workspaceId, selected, context, engageme
       <div className="business-practice-actions">
         <button type="button" className="btn sm" disabled={busy} onClick={() => void perform('practice.capture-utilization-report', { from, to }, 'Utilization snapshot captured from explicit capacity and approved time.')}>Capture utilization snapshot</button>
         <button type="button" className="btn sm" disabled={busy || !data.profitability} onClick={() => void perform('practice.capture-profitability-report', { engagementId: engagement.id, asOf: new Date().toISOString() }, 'Profitability snapshot captured against the accepted fee, approved time and phase budget.')}>Capture profitability snapshot</button>
-        <button type="button" className="btn sm" disabled={busy} onClick={() => void perform('practice.capture-ar-aging-report', { asOf: to }, 'AR aging snapshot captured with the current reconciliation result.')}>Capture AR aging snapshot</button>
+        <button type="button" className="btn sm" disabled={busy} onClick={() => void perform('practice.capture-ar-aging-report', { asOf: arAgingAsOf }, 'AR aging snapshot captured with the current reconciliation result.')}>Capture AR aging snapshot</button>
       </div>
 
       {data.profitabilityBlocker && <div className="business-record-list"><h3>Engagement profitability unavailable</h3><p>{data.profitabilityBlocker}</p></div>}
@@ -569,13 +570,17 @@ export function BusinessPracticePanel({ workspaceId, selected, context, engageme
       </div>)}</div>}
 
       {data.arAging && <>
-        <div className="business-section-heading"><div><h3>Invoice aging as of {data.arAging.asOf}</h3><p>{data.arAging.reconciliationStatus}: difference {money(data.arAging.reconciliationDifferenceMinor)}</p></div></div>
-        <div className="business-table-wrap"><table className="business-table"><thead><tr><th>Installment</th><th>Due date</th><th>Bucket</th><th>Outstanding</th><th>Allocate receipt</th></tr></thead><tbody>
-          {data.arAging.invoices.map(invoice => <tr key={invoice.invoiceId}><td>{invoice.kind} · {invoice.number}</td><td>{invoice.dueDate}</td><td>{invoice.bucket}</td><td>{money(invoice.outstandingMinor)}</td><td>
+        <div className="business-section-heading business-ar-aging-heading"><div><h3>Invoice aging as of {data.arAging.asOf}</h3><p>{data.arAging.reconciliationStatus}: difference {money(data.arAging.reconciliationDifferenceMinor)}</p></div>
+          <label className="business-field"><span>Qatar aging as of</span><input aria-label="AR aging as of date" type="date" required value={arAgingAsOf} onChange={event => setArAgingAsOf(event.target.value)} /></label>
+        </div>
+        <div className="business-table-wrap business-ar-aging-table"><table className="business-table"><caption className="business-sr-only">Issued advance and final invoices, fee revision, amount paid, credits and remaining balance at the selected Qatar date.</caption><thead><tr>
+          <th scope="col">Installment</th><th scope="col">Invoice total</th><th scope="col">Fee revision</th><th scope="col">Due date</th><th scope="col">Bucket</th><th scope="col">Paid</th><th scope="col">Credited</th><th scope="col">Outstanding</th><th scope="col">Allocate receipt</th>
+        </tr></thead><tbody>
+          {data.arAging.invoices.map(invoice => <tr key={invoice.invoiceId}><th scope="row">{invoice.kind} · {invoice.number}</th><td>{money(invoice.totalMinor)}</td><td><span title={invoice.feeRevisionId}>{invoice.feeRevisionId}</span></td><td>{invoice.dueDate}</td><td>{invoice.bucket}</td><td>{money(invoice.paidMinor)}</td><td>{money(invoice.creditedMinor)}</td><td>{money(invoice.outstandingMinor)}</td><td>
             <button type="button" className="btn sm" onClick={() => setSelectedInvoiceId(invoice.invoiceId)}>Select invoice</button>
           </td></tr>)}
         </tbody></table></div>
-        <p className="business-note">Current {money(data.arAging.buckets.CURRENT)} · 1–30 {money(data.arAging.buckets.DAYS_1_30)} · 31–60 {money(data.arAging.buckets.DAYS_31_60)} · 61–90 {money(data.arAging.buckets.DAYS_61_90)} · 91+ {money(data.arAging.buckets.DAYS_91_PLUS)} · unallocated cash {money(data.arAging.unallocatedMinor)} · AR control {money(data.arAging.controlAccountMinor)}</p>
+        <p className="business-note">Outstanding {money(data.arAging.outstandingTotalMinor)} · Current {money(data.arAging.buckets.CURRENT)} · 1–30 {money(data.arAging.buckets.DAYS_1_30)} · 31–60 {money(data.arAging.buckets.DAYS_31_60)} · 61–90 {money(data.arAging.buckets.DAYS_61_90)} · 91+ {money(data.arAging.buckets.DAYS_91_PLUS)} · unallocated cash {money(data.arAging.unallocatedMinor)} · AR control {money(data.arAging.controlAccountMinor)}</p>
         <form className="business-form business-commercial-form" onSubmit={event => { event.preventDefault(); if (!currentPayment || !currentInvoice) { setError('Choose a verified receipt and invoice before allocating.'); return; }
           try { void perform('payment.allocate', { paymentId: currentPayment.id, effectiveDate: today, allocations: [{ invoiceId: currentInvoice.invoiceId, amountMinor: qatarMinor(allocationAmount) }] }, 'Receipt allocation posted to firm AR.'); }
           catch (reason) { setError(reason instanceof Error ? reason.message : 'Enter a valid allocation amount.'); } }}>

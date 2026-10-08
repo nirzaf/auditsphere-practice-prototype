@@ -4980,6 +4980,17 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
   assert.match(arAsOfDate, /^\d{4}-\d{2}-\d{2}$/, 'the issued invoice supplies its effective accounting date');
   const beforeAllocationReversal = await call(`${practicePath}?asOfDate=${arAsOfDate}`, { headers: practiceHeaders });
   assert.equal(beforeAllocationReversal.response.status, 200, JSON.stringify(beforeAllocationReversal.body));
+  assert.equal(beforeAllocationReversal.body.arAging.asOf, arAsOfDate, 'AR aging uses the independently selected Qatar cutoff');
+  const agedAdvance = beforeAllocationReversal.body.arAging.invoices.find((row: any) => row.invoiceId === issuedInvoice.id);
+  assert.ok(agedAdvance, 'the advance invoice remains a separate aging row');
+  assert.equal(agedAdvance.kind, 'ADVANCE');
+  const issuedInvoiceSource = db.prepare('SELECT fee_revision_id,total_minor FROM invoices WHERE workspace_id=? AND id=?').bind(workspaceId, issuedInvoice.id).first<any>();
+  assert.equal(agedAdvance.feeRevisionId, issuedInvoiceSource.fee_revision_id, 'the issued installment retains its original accepted fee revision');
+  assert.equal(agedAdvance.totalMinor, String(issuedInvoiceSource.total_minor));
+  assert.equal(BigInt(agedAdvance.totalMinor), BigInt(agedAdvance.paidMinor) + BigInt(agedAdvance.creditedMinor) + BigInt(agedAdvance.outstandingMinor),
+    'issued amount reconciles exactly to paid, credited and outstanding minor units');
+  const malformedAgingDate = await call(`${practicePath}?asOfDate=2026-02-31`, { headers: practiceHeaders });
+  assert.equal(malformedAgingDate.response.status, 422, 'an impossible Qatar aging date is rejected instead of producing a misleading bucket');
   const partialReversal = await post(`/api/workspaces/${workspaceId}/commands`, {
     idempotencyKey: crypto.randomUUID(), command: { type: 'payment.reverse-allocation', payload: {
       allocationId: settlementAllocation.id, effectiveDate: arAsOfDate, amountMinor: '50000',

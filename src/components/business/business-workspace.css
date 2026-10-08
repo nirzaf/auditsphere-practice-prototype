@@ -247,6 +247,16 @@
 .business-tb-fieldset legend { padding: 0 6px; color: var(--ink); font-weight: 700; }
 .business-tb-preview-wrap, .business-tb-table-wrap { width: 100%; min-width: 0; overflow-x: auto; overscroll-behavior-inline: contain; border: 1px solid #d7e0e8; border-radius: 8px; }
 .business-utilization-table-wrap { width: 100%; min-width: 0; overflow-x: auto; overscroll-behavior-inline: contain; border: 1px solid #d7e0e8; border-radius: 8px; }
+.business-ar-aging-heading { align-items: flex-start; }
+.business-ar-aging-heading > div { min-width: 0; }
+.business-ar-aging-heading .business-field { width: min(260px, 40%); }
+.business-ar-aging-table { width: 100%; min-width: 0; overflow-x: auto; overscroll-behavior-inline: contain; border: 1px solid #d7e0e8; border-radius: 8px; }
+.business-ar-aging-table .business-table { min-width: 1050px; }
+.business-ar-aging-table th, .business-ar-aging-table td { padding: 9px 11px; border-top: 1px solid #e2e8f0; vertical-align: top; }
+.business-ar-aging-table thead th { border-top: 0; background: #f8fafc; color: #17334a; font-weight: 700; text-align: left; }
+.business-ar-aging-table tbody th { text-align: left; white-space: nowrap; }
+.business-ar-aging-table tbody td { overflow-wrap: anywhere; }
+.business-ar-aging-table tbody td:nth-child(3) { min-width: 180px; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: .78rem; }
 .business-utilization-table { min-width: 900px; }
 .business-utilization-table th, .business-utilization-table td { max-width: 260px; padding: 9px 11px; border-top: 1px solid #e2e8f0; vertical-align: top; overflow-wrap: anywhere; }
 .business-utilization-table thead th { border-top: 0; background: #f8fafc; color: #17334a; font-weight: 700; text-align: left; }
@@ -292,6 +302,8 @@
 .business-tb-panel button, .business-tb-panel input, .business-tb-panel select { touch-action: manipulation; }
 .business-sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
 @media (max-width: 700px) {
+  .business-ar-aging-heading { align-items: stretch; flex-direction: column; }
+  .business-ar-aging-heading .business-field { width: 100%; }
   .business-tb-panel { padding: 12px; }
   .business-tb-step { padding: 12px; }
   .business-tb-step-heading { align-items: flex-start; }
