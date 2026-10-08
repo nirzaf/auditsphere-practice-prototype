@@ -385,7 +385,9 @@ async function selectWorkspace(tab: CdpTab, fixture: Awaited<ReturnType<typeof c
   assert.match(statementUi.revenueRowText, /NO COMPARATIVE/, 'a source without prior balances labels the missing comparative explicitly');
   assert.ok(statementUi.actions.includes('AR Test') && statementUi.actions.includes('Audit Workprogram'),
     'each substantive statement row exposes both analysis and workprogram actions');
-  await tab.command('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 1, mobile: true });
+  await tab.command('Emulation.setDeviceMetricsOverride', {
+    width: 390, height: 844, deviceScaleFactor: 1, mobile: false, screenWidth: 390, screenHeight: 844
+  });
   try {
     const mobileLayout = await tab.evaluate<{ width: number; pnlTop: number; pnlBottom: number; balanceTop: number; actionsVisible: boolean }>(`(() => {
       const body = document.querySelector('.business-fieldwork-body');
