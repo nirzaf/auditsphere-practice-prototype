@@ -6,19 +6,18 @@ the account-owner steps that still gate live acceptance. Integration status must
 come from the deployed Worker; local configuration is not evidence of connectivity.
 
 The last verified production Worker is main commit
-`abb346f852c4bd77f97540ff9a1523f041af2ae6`, deployed by [GitHub Actions run
-37708607176](https://github.com/nirzaf/auditsphere-practice-prototype/actions/runs/37708607176)
-on 2026-10-08 00:35 UTC. Later main runs 37710179893, 37710812829 and
-37711380454 passed verification but failed Wrangler's strict remote configuration
-check before Worker upload. The checked-in deploy command now uses the full local
-configuration as source of truth; the next workflow must verify its deployment.
-The run passed app/Worker typecheck, unit tests, production build, the complete
-browser E2E suite, Email Service provider deployment, D1 migrations, Worker/static
-asset deployment, and readiness. A live `GET /api/integrations/status` check at
-2026-10-07 17:09 UTC reported email `configured: true` with transport
-`SERVICE_BINDING`; SharePoint reported `UNCONFIGURED` because
-`SHAREPOINT_CLIENT_SECRET` is missing. A healthy deployment does not by itself
-establish email delivery or SharePoint connectivity.
+`b1b9df660feae87ebca4667cb71d75450008bf4d`, deployed by [GitHub Actions run
+37711971223](https://github.com/nirzaf/auditsphere-practice-prototype/actions/runs/37711971223)
+on 2026-10-08. It passed app/Worker typecheck, unit tests, the complete browser
+E2E suite, production build, 101 R2 archive-lock rule read-backs, restricted Email
+Service provider deployment, D1 migrations, Worker/static asset deployment, and
+readiness. The main Worker now deploys from the checked-in `wrangler.jsonc`; the
+earlier strict-mode conflict with dashboard-created config is resolved.
+
+A fresh live `GET /api/integrations/status` at 2026-10-08 01:20:01 UTC reports
+email `configured: true` with transport `SERVICE_BINDING`; SharePoint reports
+`FAILED` because Microsoft Graph rejected the token request. A healthy deployment
+does not by itself establish email delivery or SharePoint connectivity.
 
 Verify the current state of every integration at any time:
 
@@ -26,7 +25,7 @@ Verify the current state of every integration at any time:
 curl -s https://<worker-url>/api/integrations/status
 # {
 #   "email": { "configured": true, "transport": "SERVICE_BINDING" },
-#   "sharepoint": { "state": "UNCONFIGURED", "siteHostname": "easyguide.sharepoint.com", ... }
+#   "sharepoint": { "state": "FAILED", "siteHostname": "easyguide.sharepoint.com", ... }
 # }
 ```
 
@@ -178,7 +177,7 @@ below before acceptance:
 | Field | Source |
 | --- | --- |
 | Application URL | https://auditsphere-visual-prototype.quadrate-lk.workers.dev (readiness returns `ready`) |
-| Deployed build identity | `abb346f852c4bd77f97540ff9a1523f041af2ae6` (last verified Worker deployment, 2026-10-08 00:35 UTC; later deploy attempts failed before upload) |
+| Deployed build identity | `b1b9df660feae87ebca4667cb71d75450008bf4d` (verified Worker deployment, 2026-10-08; GitHub Actions run 37711971223) |
 | Workspace and actors | synthetic workspace created through the UI; verify all four selectable personas and persisted context |
 | Client / engagement ids | synthetic records created through visible UI journeys; record IDs in the restricted UAT evidence bundle |
 | SharePoint site/library/root ids | values returned by `/api/integrations/status` after the site grant and secret are configured |

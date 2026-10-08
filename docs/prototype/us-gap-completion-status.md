@@ -58,12 +58,11 @@ retention-specific prefixes, and `worker/r2-archive-locks.json` contains generat
 prefix rules for every supported term. CI and `npm run cloud:deploy` now apply
 these rules idempotently and verify their Cloudflare read-back before Worker
 deployment; a Cloudflare API token with R2 bucket configuration edit permission
-is required. GitHub Actions run 37710812829 successfully applied and read back all
+is required. Successful GitHub Actions run 37711971223 applied and read back all
 101 managed rules on `auditsphere-prototype-files`, preserving zero unrelated
-rules, before its later Worker-config check failed. The bucket policy is now
-configured and API-read-back verified. A live attempt to overwrite/delete a
-retained canary object is not claimed; full storage-path enforcement and
-multi-gigabyte acceptance remain open.
+rules. The bucket policy is configured and API-read-back verified. A live attempt
+to overwrite/delete a retained canary object is not claimed; full storage-path
+enforcement and multi-gigabyte acceptance remain open.
 Each open story has concrete
 acceptance criteria in the backlog and should be implemented through the active
 business UI/Worker with current-account evidence.
@@ -77,16 +76,17 @@ The test also approves a second template revision and confirms the active
 workprogram remains pinned to the original template and copied standard steps.
 The fieldwork UI now displays the preparer's N/A rationale alongside the
 reviewer controls, and the `Approve N/A` action correctly recognizes the
-Worker's boolean `applicable=false` projection. A two-person browser regression
-is present; local execution currently fails before page load because Chrome
-does not expose CDP and Edge exits during startup. Required-step validation
+Worker's boolean `applicable=false` projection. The two-person browser regression
+passed in the hosted full E2E suite on run 37711971223; local execution still fails
+before page load because Chrome does not expose CDP and Edge exits during startup.
+Required-step validation
 across direct `procedure.submit` and generic `review.submit` now returns exact
 missing `workPerformed` and `conclusion` field names and creates no submission
 record. Inserting an ad-hoc procedure also versions each shifted editable row,
 stores the rationale in a new immutable procedure revision and emits a change
 feed entry; insertion is rejected when it would shift a submitted or reviewed
-row. Browser review acceptance, procedure update/evidence matrices and the
-remaining workprogram gates stay open.
+row. Procedure update/evidence matrices and the remaining workprogram gates stay
+open.
 
 ## Externally blocked (integration layer implemented; external values still required)
 
@@ -109,19 +109,17 @@ the repository:
 | Story | Blocking prerequisite |
 | --- | --- |
 | US-GAP-05 / 06 | Cloudflare Email Sending is enabled and DNS is configured for `mail.steaudit.com`. The restricted provider is deployed and the latest integration probe reported `SERVICE_BINDING`. The approved recipient `testing@mail.steauditing.com` remains Pending after verification was resent; a real delivery has not been accepted. |
-| US-GAP-25 – 28 | Entra app `AuditSphere SharePoint UAT` has `Sites.Selected` consent and a verified site-only `write` grant on `/sites/AuditSphereJSAcceptance` (2026-10-08). The live probe returned `FAILED` at 2026-10-08 01:02:32 UTC because the Microsoft Graph token request was rejected. A working client secret must be owner-rotated and entered before the probe can reach `CONNECTED`. |
+| US-GAP-25 – 28 | Entra app `AuditSphere SharePoint UAT` has `Sites.Selected` consent and a verified site-only `write` grant on `/sites/AuditSphereJSAcceptance` (2026-10-08). The latest live probe returned `FAILED` at 2026-10-08 01:20:01 UTC because the Microsoft Graph token request was rejected. The configured client secret must be owner-rotated before the probe can reach `CONNECTED`. |
 | US-GAP-30 – 32 | Deployed URL/build identity are recorded. UAT follows the epic's no-auth profile with four self-selected personas and synthetic records; supplied login accounts are not required. Real email delivery and a connected SharePoint test-site probe remain unverified. |
 
 The last fully successful production deployment is main commit
-`abb346f852c4bd77f97540ff9a1523f041af2ae6` from GitHub Actions run 37708607176
-(2026-10-08 00:35 UTC). It passed typecheck, unit tests, build, the complete
-browser E2E suite, Email Service provider deployment, D1 migrations, Worker/static
-asset deployment and readiness. Later main runs 37710179893 and 37710812829
-and 37711380454 passed verification but failed the strict Worker deployment
-config check before upload. The deployment now uses the checked-in Wrangler
-configuration as source of truth; that fix still needs a successful hosted run.
-A fresh live
-`/api/integrations/status` request on 2026-10-08 01:02:32 UTC reports email
+`b1b9df660feae87ebca4667cb71d75450008bf4d` from GitHub Actions run 37711971223
+(2026-10-08). It passed typecheck, unit tests, build, the complete browser E2E
+suite, all 101 R2 archive rule read-backs, Email Service provider deployment,
+D1 migrations, Worker/static asset deployment and readiness. Earlier main runs
+37710179893, 37710812829 and 37711380454 passed verification but failed the strict
+Worker config check; run 37711971223 verified the source-config deploy fix. A fresh
+live `/api/integrations/status` request on 2026-10-08 01:20:01 UTC reports email
 `SERVICE_BINDING` and SharePoint `FAILED` because the Graph token request is
 rejected. The site-only `write` grant remains independently verified. Email
 delivery remains unverified: `testing@mail.steauditing.com` was last observed as
