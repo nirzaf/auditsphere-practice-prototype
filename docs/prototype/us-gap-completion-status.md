@@ -122,20 +122,22 @@ the repository:
 | Story | Blocking prerequisite |
 | --- | --- |
 | US-GAP-05 / 06 | Cloudflare Email Sending is enabled and DNS is configured for `mail.steaudit.com`. The restricted provider is deployed and the latest integration probe reported `SERVICE_BINDING`. The approved recipient `testing@mail.steauditing.com` remains Pending after verification was resent; a real delivery has not been accepted. |
-| US-GAP-25 – 28 | Entra app `AuditSphere SharePoint UAT` has `Sites.Selected` consent and a verified site-only `write` grant on `/sites/AuditSphereJSAcceptance` (2026-10-08). The latest live probe at 2026-10-08 10:47:32 UTC returned `FAILED` because the Microsoft Graph token request was rejected. Commit `187eb8c` deploys the SHA-256 secret-fingerprint cache fix; same-length secret rotation now invalidates cached tokens. The client secret still must be owner-rotated before the probe can reach `CONNECTED`. |
+| US-GAP-25 – 28 | Entra app `AuditSphere SharePoint UAT` has `Sites.Selected` consent and a verified site-only `write` grant on `/sites/AuditSphereJSAcceptance` (2026-10-08). The live probe at 2026-10-08 12:02:37 UTC returned `FAILED` because Microsoft Graph rejected the token request. Entra lists a replacement secret labeled `AuditSphere UAT Cloudflare Worker rotated (180-day)`, expiring 2027-04-06, but the deployed credential has not been proven to match; the secret value is not recoverable after creation. The owner must enter the current replacement directly into the Cloudflare Worker secret setting (or create a new one if the value is lost), then verify the probe and a real site read/write check. Commit `187eb8c` deploys the SHA-256 secret-fingerprint cache fix, so same-length rotations invalidate cached tokens. |
 | US-GAP-30 – 32 | The deployed URL/build identity is recorded, but the live UAT create attempt was rejected because business workspace setup is disabled on the unrestricted public Worker. No deployed UAT workspace, actors, client or engagement IDs were created. Keep the no-auth setup gate disabled on `workers.dev`; run persona journeys only after a trusted test perimeter is established. Real email delivery and a connected SharePoint test-site probe remain unverified. |
 
-The latest verified successful production deployment is main commit `b010b9c`
-from [GitHub Actions run 37765095335](https://github.com/nirzaf/auditsphere-practice-prototype/actions/runs/37765095335)
+The latest verified successful production deployment is main commit
+`3349db7ca89cd90899f79bb13e732cb6a5f99f34` from [GitHub Actions run
+37773284817](https://github.com/nirzaf/auditsphere-practice-prototype/actions/runs/37773284817)
 (2026-10-08). It passed typecheck, unit tests, full hosted browser E2E,
 production build, D1 migration, Worker/static asset deployment and readiness.
 Previous successful run 37711971223 applied and read back all 101
 R2 archive rules and deployed the restricted Email Service provider. Earlier main runs
 37710179893, 37710812829 and 37711380454 passed verification but failed the strict
 Worker config check; run 37711971223 verified the source-config deploy fix. The latest
-live `/api/integrations/status` request on 2026-10-08 10:47:32 UTC reported email
-`SERVICE_BINDING` and SharePoint `FAILED` because the Graph token request is
-rejected. The site-only `write` grant remains independently verified. Email
+live `/api/integrations/status` request on 2026-10-08 12:02:37 UTC reported email
+`SERVICE_BINDING` with provider readiness `READY` and SharePoint `FAILED` because the
+Graph token request is rejected. The readiness endpoint returned schema version 44.
+The site-only `write` grant remains independently verified. Email
 delivery remains unverified: `testing@mail.steauditing.com` was last observed as
 Pending and an approved UAT send has not succeeded. Keep integration stories open
 until current delivery and connected SharePoint evidence exists.
