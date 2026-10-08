@@ -33,7 +33,7 @@ Every source row requires an explicit `migration_id_map` entry and an existing
 normalized target row. The tool blocks validation for unmapped rows, unresolved
 relationships, non-committed files, missing R2 objects, size/hash mismatches,
 count or monetary differences, and source schema versions newer than migration
-target 40 (kept aligned with `worker/versions.ts`). Explicit field-by-field comparisons cover client, contact, and
+target 41 (kept aligned with `worker/versions.ts`). Explicit field-by-field comparisons cover client, contact, lead, and
 committed file metadata. File metadata retains the original creator and logical
 record link in dedicated legacy-provenance columns; values are represented in
 the report by SHA-256 hashes. Unmapped fields and other entity kinds remain
@@ -50,14 +50,18 @@ relationship to `payments.amount_minor`; vouchers do not store an amount column.
 The target snapshot reports payment rows and reconciles the receipt total against
 both the linked voucher population and the payment ledger.
 
-The deployment-only apply operation is intentionally narrower than the audit.
-It migrates losslessly mapped `clients` and `contacts` plus committed,
-byte-verified `file_objects` whose target client relationship resolves when
-present. A
+The deployment-only apply operation migrates losslessly mapped `clients`,
+`contacts`, canonical `leads`, and committed, byte-verified `file_objects` whose
+target client relationship resolves when present. Lead fields are mapped only
+from the exact normalized source shape (including already-minor-unit fees,
+canonical enums, a real ISO timestamp, and source-preserved relationship IDs).
+Unknown fields, converted leads without an engagement mapping, invalid periods,
+and lost leads without their original reason block apply. The migration keeps
+the source lead status and does not synthesize state transitions or approvals. A
 non-null engagement relationship still requires an engagement mapping, which
 this apply profile does not create. Apply also requires no existing target
-clients/contacts/files, no existing ID maps, no non-metadata root documents,
-and no other source entity kinds. It requires schema 40 migration guards and
+clients/contacts/leads/files, no existing ID maps, no non-metadata root documents,
+and no other source entity kinds. It requires schema 41 migration guards and
 must be invoked explicitly against remote D1:
 
 ```powershell

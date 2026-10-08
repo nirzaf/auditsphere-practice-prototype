@@ -14,8 +14,8 @@ const baseSnapshot = (): MigrationAuditSnapshot => ({
 
 it('reconciles row counts but blocks cutover until mapped target fields are verified', () => {
   const snapshot = baseSnapshot();
-  const first = buildMigrationAuditReport(snapshot, new Map(), 40, 27, '00000000-0000-4000-8000-000000000002');
-  const second = buildMigrationAuditReport({ ...snapshot, entities: [...snapshot.entities].reverse() }, new Map(), 40, 27, '00000000-0000-4000-8000-000000000003');
+  const first = buildMigrationAuditReport(snapshot, new Map(), 41, 27, '00000000-0000-4000-8000-000000000002');
+  const second = buildMigrationAuditReport({ ...snapshot, entities: [...snapshot.entities].reverse() }, new Map(), 41, 27, '00000000-0000-4000-8000-000000000003');
 
   assert.equal(first.status, 'DRY_RUN');
   assert.equal(first.validationStatus, 'BLOCKED');
@@ -34,11 +34,11 @@ it('reconciles row counts but blocks cutover until mapped target fields are veri
 
 it('keeps the source digest stable when migration ID-map evidence changes', () => {
   const source = baseSnapshot();
-  const beforeMapping = buildMigrationAuditReport({ ...source, idMaps: [] }, new Map(), 40, 38, '00000000-0000-4000-8000-000000000020');
+  const beforeMapping = buildMigrationAuditReport({ ...source, idMaps: [] }, new Map(), 41, 38, '00000000-0000-4000-8000-000000000020');
   const afterMapping = buildMigrationAuditReport({
     ...source,
     idMaps: [{ source_kind: 'clients', source_id: 'client-1', target_kind: 'clients', target_id: 'client-1' }]
-  }, new Map(), 40, 38, '00000000-0000-4000-8000-000000000021');
+  }, new Map(), 41, 38, '00000000-0000-4000-8000-000000000021');
 
   assert.equal(beforeMapping.sourceSha256, afterMapping.sourceSha256);
   assert.notDeepEqual(beforeMapping.reconciliationByTarget, afterMapping.reconciliationByTarget);
@@ -58,7 +58,7 @@ it('compares explicitly mapped legacy client fields without exposing values', ()
       address: 'Doha', country_code: 'QA', active: 1
     }
   }];
-  const report = buildMigrationAuditReport(snapshot, new Map(), 40, 27, '00000000-0000-4000-8000-000000000007');
+  const report = buildMigrationAuditReport(snapshot, new Map(), 41, 27, '00000000-0000-4000-8000-000000000007');
 
   assert.equal(report.validationStatus, 'VALIDATED');
   assert.equal(report.fieldReconciliation.length, 1);
@@ -86,7 +86,7 @@ it('reconciles normalized contact fields and their mapped client reference', () 
     title: 'Finance Director', role: 'CFO_FINANCE_DIRECTOR', is_primary: 1, is_signatory: 0, active: 1,
     effective_from: '2026-01-01', effective_to: null
   } }];
-  const report = buildMigrationAuditReport(snapshot, new Map(), 40, 27, '00000000-0000-4000-8000-000000000009');
+  const report = buildMigrationAuditReport(snapshot, new Map(), 41, 27, '00000000-0000-4000-8000-000000000009');
 
   const contact = report.fieldReconciliation.find(row => row.sourceKind === 'contacts');
   assert.ok(contact);
@@ -99,7 +99,7 @@ it('blocks a mapped client field mismatch and identifies the field using hashes 
   const snapshot = baseSnapshot();
   snapshot.entities[0].payload_json = JSON.stringify({ id: 'client-1', code: 'C-1', name: 'Source Name' });
   snapshot.targetFields = [{ kind: 'clients', id: 'client-1', fields: { code: 'C-1', legal_name: 'Different Name' } }];
-  const report = buildMigrationAuditReport(snapshot, new Map(), 40, 27, '00000000-0000-4000-8000-000000000008');
+  const report = buildMigrationAuditReport(snapshot, new Map(), 41, 27, '00000000-0000-4000-8000-000000000008');
 
   assert.equal(report.validationStatus, 'BLOCKED');
   assert.ok(report.reconciliationIssues.some(issue => issue.code === 'TARGET_FIELD_MISMATCH'));
@@ -123,7 +123,7 @@ it('blocks unmapped, orphaned and missing or altered R2 source records', () => {
     size_bytes: 4, sha256: 'a'.repeat(64), state: 'COMMITTED', immutable: 1, created_by_user_id: null,
     created_at: 1760000000, committed_at: 1760000000
   });
-  const report = buildMigrationAuditReport(snapshot, new Map([['file-1', { found: true, sizeBytes: 4, sha256: 'b'.repeat(64) }]]), 40, 27, '00000000-0000-4000-8000-000000000004');
+  const report = buildMigrationAuditReport(snapshot, new Map([['file-1', { found: true, sizeBytes: 4, sha256: 'b'.repeat(64) }]]), 41, 27, '00000000-0000-4000-8000-000000000004');
 
   assert.equal(report.validationStatus, 'BLOCKED');
   assert.ok(report.unmappedRows.some(row => row.sourceKind === 'engagements' && row.sourceId === 'engagement-1'));
@@ -144,7 +144,7 @@ it('reconciles legacy invoice totals against normalized QAR minor-unit totals', 
   snapshot.idMaps.push({ source_kind: 'invoices', source_id: 'invoice-1', target_kind: 'invoices', target_id: 'invoice-1' });
   snapshot.targetRows.push({ kind: 'invoices', id: 'invoice-1' });
   snapshot.targetMoneyTotals = [{ kind: 'invoices', row_count: '1', amount_minor: '101' }];
-  const report = buildMigrationAuditReport(snapshot, new Map(), 40, 27, '00000000-0000-4000-8000-000000000006');
+  const report = buildMigrationAuditReport(snapshot, new Map(), 41, 27, '00000000-0000-4000-8000-000000000006');
 
   assert.equal(report.moneyTotals.reconciliation[0]?.status, 'MISMATCHED');
   assert.ok(report.orphanRows.some(row => row.field === 'moneyTotal' && row.reason.includes('source=102 target=101')));
@@ -167,7 +167,7 @@ it('reconciles legacy receipts against both receipt vouchers and their normalize
     { kind: 'payments', row_count: '1', amount_minor: '1275' }
   ];
 
-  const report = buildMigrationAuditReport(snapshot, new Map(), 40, 38, '00000000-0000-4000-8000-000000000010');
+  const report = buildMigrationAuditReport(snapshot, new Map(), 41, 38, '00000000-0000-4000-8000-000000000010');
   assert.deepEqual(report.moneyTotals.reconciliation.map(row => [row.targetKind, row.targetRows, row.targetAmountMinor, row.status]), [
     ['receipt_vouchers', 1, '1275', 'MATCHED'],
     ['payments', 1, '1275', 'MATCHED']
@@ -187,7 +187,7 @@ it('blocks receipt cutover when payment row counts or amounts do not reconcile',
     { kind: 'payments', row_count: '2', amount_minor: '1276' }
   ];
 
-  const report = buildMigrationAuditReport(snapshot, new Map(), 40, 38, '00000000-0000-4000-8000-000000000011');
+  const report = buildMigrationAuditReport(snapshot, new Map(), 41, 38, '00000000-0000-4000-8000-000000000011');
   assert.equal(report.moneyTotals.reconciliation.find(row => row.targetKind === 'payments')?.status, 'UNVERIFIED');
   assert.ok(report.unmappedRows.some(row => row.reason === 'MONEY_TOTAL_REQUIRES_EXPLICIT_RECONCILIATION'));
   assert.equal(report.validationStatus, 'BLOCKED');
@@ -196,7 +196,7 @@ it('blocks receipt cutover when payment row counts or amounts do not reconcile',
 it('refuses a source schema newer than its migration target', () => {
   const snapshot = baseSnapshot();
   snapshot.workspace.schema_version = 41;
-  const report = buildMigrationAuditReport(snapshot, new Map(), 40, 27, '00000000-0000-4000-8000-000000000005');
+  const report = buildMigrationAuditReport(snapshot, new Map(), 41, 27, '00000000-0000-4000-8000-000000000005');
   assert.equal(report.validationStatus, 'BLOCKED');
   assert.equal(report.auditMetadataRecorded, false);
   assert.ok(report.unmappedRows.some(row => row.reason === 'SOURCE_SCHEMA_NOT_SUPPORTED_BY_MIGRATION_TARGET'));

@@ -204,6 +204,22 @@ const utcFromEpochSeconds = (value: unknown): unknown => {
   const date = new Date(value * 1000);
   return Number.isNaN(date.valueOf()) || Math.abs(date.valueOf()) > 8.64e15 ? UNMAPPABLE : date.toISOString();
 };
+const isoTimestamp = (value: unknown): unknown => {
+  if (typeof value !== 'string' || !/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d{1,3})?(?:Z|[+-]\d\d:\d\d)$/.test(value)) return UNMAPPABLE;
+  if (calendarDate(value.slice(0, 10)) === UNMAPPABLE) return UNMAPPABLE;
+  const clock = value.slice(11, 19).split(':').map(Number);
+  if (clock[0] > 23 || clock[1] > 59 || clock[2] > 59) return UNMAPPABLE;
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.valueOf()) ? UNMAPPABLE : parsed.toISOString();
+};
+const calendarDate = (value: unknown): unknown => {
+  if (typeof value !== 'string' || !/^\d{4}-\d\d-\d\d$/.test(value)) return UNMAPPABLE;
+  const parsed = new Date(`${value}T00:00:00.000Z`);
+  return !Number.isNaN(parsed.valueOf()) && parsed.toISOString().slice(0, 10) === value ? value : UNMAPPABLE;
+};
+const leadSource = (value: unknown): unknown => ['PHONE', 'WHATSAPP', 'EMAIL', 'WEB_FORM', 'REFERRAL'].includes(String(value)) ? value : UNMAPPABLE;
+const leadService = (value: unknown): unknown => ['STATUTORY_AUDIT', 'INTERNAL_AUDIT', 'AGREED_UPON_PROCEDURES'].includes(String(value)) ? value : UNMAPPABLE;
+const leadStatus = (value: unknown): unknown => ['OPEN', 'QUALIFIED', 'CONVERTED', 'LOST'].includes(String(value)) ? value : UNMAPPABLE;
 const filePurpose = (value: unknown): unknown => ({ PBC: 'PBC', TB_SOURCE: 'TB', EVIDENCE: 'EVIDENCE', GENERATED: 'GENERATED', RELEASE: 'RELEASE', ARCHIVE: 'ARCHIVE' } as Record<string, string>)[String(value)] ?? UNMAPPABLE;
 const fileMediaType = (value: unknown): unknown => typeof value === 'string' && new Set([
   'application/pdf', 'text/plain', 'text/csv',
@@ -247,6 +263,19 @@ const FIELD_MAPPINGS: Readonly<Record<string, readonly MigrationFieldDefinition[
     { sourceField: 'effectiveFrom', targetField: 'effective_from', transform: nullableText },
     { sourceField: 'effectiveTo', targetField: 'effective_to', optional: true, transform: nullableText }
   ],
+  leads: [
+    { sourceField: 'clientId', targetField: 'client_id', optional: true, transform: mappedRelation('clients') },
+    { sourceField: 'primaryContactId', targetField: 'primary_contact_id', optional: true, transform: mappedRelation('contacts') },
+    { sourceField: 'source', targetField: 'source', transform: leadSource },
+    { sourceField: 'receivedAt', targetField: 'received_at', transform: isoTimestamp },
+    { sourceField: 'requestedService', targetField: 'requested_service', transform: leadService },
+    { sourceField: 'periodStart', targetField: 'period_start', transform: calendarDate },
+    { sourceField: 'periodEnd', targetField: 'period_end', transform: calendarDate },
+    { sourceField: 'estimatedFeeMinor', targetField: 'estimated_fee_minor', optional: true, transform: value => value === null || value === undefined ? null : nonnegativeInteger(value) },
+    { sourceField: 'status', targetField: 'status', transform: leadStatus },
+    { sourceField: 'lossReason', targetField: 'loss_reason', optional: true, transform: nullableText },
+    { sourceField: 'convertedEngagementId', targetField: 'converted_engagement_id', optional: true, transform: mappedRelation('engagements') }
+  ],
   file_objects: [
     { sourceField: 'client_id', targetField: 'client_id', optional: true, transform: mappedRelation('clients') },
     { sourceField: 'engagement_id', targetField: 'engagement_id', optional: true, transform: mappedRelation('engagements') },
@@ -268,11 +297,12 @@ const FIELD_MAPPINGS: Readonly<Record<string, readonly MigrationFieldDefinition[
 
 /**
  * Prepare the currently reviewed, lossless legacy row mappings for a deployment
- * migrator. This supports clients, contacts and committed file objects; other
- * business entities remain blockers until their field maps are reviewed.
+ * migrator. This supports clients, contacts, canonical leads and committed
+ * file objects; other business entities remain blockers until their field maps
+ * are reviewed.
  */
 export function buildNormalizedMigrationPlan(snapshot: MigrationAuditSnapshot): NormalizedMigrationPlan {
-  const supportedKinds = new Set(['clients', 'contacts']);
+  const supportedKinds = new Set(['clients', 'contacts', 'leads']);
   const identityMaps: MigrationAuditIdMap[] = snapshot.entities
     .filter(entity => supportedKinds.has(entity.entity_kind))
     .map(entity => ({ source_kind: entity.entity_kind, source_id: entity.entity_id, target_kind: entity.entity_kind, target_id: entity.entity_id }))
@@ -320,9 +350,19 @@ export function buildNormalizedMigrationPlan(snapshot: MigrationAuditSnapshot): 
       blockers.push({ sourceKind: entity.entity_kind, sourceId: entity.entity_id, code: 'CONTACT_REQUIRES_EMAIL_OR_PHONE' });
       continue;
     }
+    if (entity.entity_kind === 'leads' && values.period_start > values.period_end) {
+      blockers.push({ sourceKind: entity.entity_kind, sourceId: entity.entity_id, code: 'LEAD_PERIOD_END_PRECEDES_START' });
+      continue;
+    }
+    if (entity.entity_kind === 'leads' && values.status === 'LOST' && (typeof values.loss_reason !== 'string' || values.loss_reason.trim().length < 10)) {
+      blockers.push({ sourceKind: entity.entity_kind, sourceId: entity.entity_id, code: 'LOST_LEAD_REQUIRES_SOURCE_REASON' });
+      continue;
+    }
     const requiredTextFields = entity.entity_kind === 'clients'
       ? ['code', 'legal_name', 'industry', 'address', 'country_code', 'entity_type']
-      : ['client_id', 'full_name', 'title', 'role', 'effective_from'];
+      : entity.entity_kind === 'contacts'
+        ? ['client_id', 'full_name', 'title', 'role', 'effective_from']
+        : ['source', 'received_at', 'requested_service', 'period_start', 'period_end', 'status'];
     if (requiredTextFields.some(field => typeof values[field] !== 'string' || values[field] === '')) {
       blockers.push({ sourceKind: entity.entity_kind, sourceId: entity.entity_id, code: 'REQUIRED_MAPPED_FIELD_EMPTY' });
       continue;
@@ -379,8 +419,9 @@ export function buildNormalizedMigrationPlan(snapshot: MigrationAuditSnapshot): 
     }
   }
   const orderedContacts = records.filter(record => record.targetKind === 'contacts');
+  const orderedLeads = records.filter(record => record.targetKind === 'leads');
   const orderedFiles = records.filter(record => record.targetKind === 'file_versions');
-  return { records: [...orderedClients, ...orderedContacts, ...orderedFiles], blockers };
+  return { records: [...orderedClients, ...orderedContacts, ...orderedLeads, ...orderedFiles], blockers };
 }
 
 function valueSha256(value: unknown): string {

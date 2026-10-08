@@ -20,7 +20,8 @@ export interface MigrationApplyPlan {
 
 /**
  * Build a deployment-only, atomic D1 apply batch for the reviewed client,
- * contact and committed-file mappings. Unsupported source data fails closed.
+ * contact, canonical lead and committed-file mappings. Unsupported source data
+ * fails closed.
  */
 export function buildMigrationApplyPlan(
   snapshot: MigrationAuditSnapshot,
@@ -45,7 +46,7 @@ export function buildMigrationApplyPlan(
     if (!SUPPORTED_ROOT_METADATA.has(root.document_key)) addBlocker('ROOT_DOCUMENT', root.document_key, 'ROOT_DOCUMENT_MIGRATION_NOT_SUPPORTED');
   }
   if (snapshot.idMaps.length) addBlocker('migration_id_map', '*', 'WORKSPACE_ALREADY_HAS_ID_MAPPINGS');
-  for (const row of snapshot.targetRows.filter(row => row.kind === 'clients' || row.kind === 'contacts' || row.kind === 'file_versions')) {
+  for (const row of snapshot.targetRows.filter(row => ['clients', 'contacts', 'leads', 'file_versions'].includes(row.kind))) {
     addBlocker(`normalized:${row.kind}`, row.id, 'TARGET_ROW_ALREADY_EXISTS');
   }
   const sourceRecordCount = snapshot.entities.length + snapshot.files.length;
@@ -89,7 +90,7 @@ export function buildMigrationApplyPlan(
     sourceCount,
     targetCount: sourceCount,
     validationStatus: 'VALIDATED',
-    applyProfile: 'clients-contacts-files-v2',
+    applyProfile: 'clients-contacts-leads-files-v3',
     preservedSourceSnapshot: true,
     unsupportedRowsCreated: 0
   });
@@ -109,7 +110,9 @@ export function buildMigrationApplyPlan(
       ? { ...record.values, workspace_id: workspaceId, version: 1, created_at: appliedAt, updated_at: appliedAt, created_by_actor_id: null, updated_by_actor_id: null }
       : record.targetKind === 'contacts'
         ? { ...record.values, workspace_id: workspaceId, version: 1, created_at: appliedAt, updated_at: appliedAt, created_by_actor_id: null, updated_by_actor_id: null }
-        : { ...record.values, workspace_id: workspaceId, version: 1, folder_id: null, previous_version_id: null, updated_at: appliedAt, created_by_actor_id: null, updated_by_actor_id: null };
+        : record.targetKind === 'leads'
+          ? { ...record.values, workspace_id: workspaceId, version: 1, created_at: appliedAt, updated_at: appliedAt, created_by_actor_id: null, updated_by_actor_id: null }
+          : { ...record.values, workspace_id: workspaceId, version: 1, folder_id: null, previous_version_id: null, updated_at: appliedAt, created_by_actor_id: null, updated_by_actor_id: null };
     const columns = Object.keys(values);
     const guardedSource = source
       ? `EXISTS (SELECT 1 FROM workspace_entities WHERE workspace_id=${sqlText(workspaceId)} AND entity_kind=${sqlText(record.sourceKind)} AND entity_id=${sqlText(record.sourceId)} AND payload_json=${sqlText(source.payload_json)} AND deleted_at IS NULL)`

@@ -24,7 +24,7 @@ function usage(): string {
     '',
     'Reads one D1 workspace and verifies its committed R2 file bytes.',
     'Dry-run is read-only apart from its MigrationRun metadata. Apply is deployment-only and requires --remote.',
-    'Apply currently accepts explicitly mapped clients, contacts and verified committed files; other source entities block it.'
+    'Apply currently accepts explicitly mapped clients, contacts, canonical leads and verified committed files; other source entities block it.'
   ].join('\n');
 }
 
