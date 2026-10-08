@@ -16,3 +16,9 @@ Add a bounded sweep (≤ 200 per run) in `scheduled()` that, for `file_versions`
 ## Acceptance criteria
 1. Step-1 finding recorded in the PR.
 2. If implemented: orphan count returns to 0 after one sweep; committed/sealed files untouched; operation logged as `workspace.file_sweep` with counts only.
+
+## Result
+
+**Implemented and focused acceptance passed.** Repository inspection found that `scheduled()` previously queued archives, processed `outbox_jobs`, and logged operational metrics; it did not sweep `file_versions`. `rejected_upload_attempts` had a schema definition but no Worker writer, and `VERIFY_FILE` was allowed by the outbox schema but had no processor. The new `sweepStaleBusinessFiles` rejects stale uncommitted file rows after 24 hours and deletes R2 objects below their per-file staging prefix. It limits each run to 200 candidate rows and 200 object deletions, skips sealed engagements, and logs only aggregate counts.
+
+`tests/unit/businessFileSweep.test.ts` stages a file, ages it 48 hours, runs scheduled maintenance, and asserts the row becomes `REJECTED`, the R2 object is removed, and separate committed and sealed file rows/objects remain unchanged. It also asserts no rejected-upload or `VERIFY_FILE` handling already exists and checks the aggregate log fields. Focused test, full unit suite (170 pass, 0 fail, 1 opt-in stress skip), `npm run cloud:typecheck`, `npm run lint`, and `git diff --check` passed.

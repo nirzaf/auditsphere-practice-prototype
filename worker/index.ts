@@ -17,6 +17,7 @@ import { assertSameOrigin, baseHeaders, jsonResponse, readJson, sha256Hex } from
 import { createRouter, type RouteContext } from './router';
 import { integrationStatus } from './integrations/status';
 import { processBusinessOutbox } from './businessOutbox';
+import { sweepStaleBusinessFiles } from './businessFileSweep';
 import { queueDueBusinessArchives } from './businessReporting';
 import { apiRequestMetric, outboxSnapshot, safeErrorKind, type OutboxMetricRow } from './observability';
 import { APPLICATION_SCHEMA_VERSION } from './versions';
@@ -729,6 +730,9 @@ export default {
     let archiveJobsQueued = 0;
     let processedJobs = 0;
     try {
+      await sweepStaleBusinessFiles(env, now).catch(() => {
+        console.error(JSON.stringify({ event: 'workspace.file_sweep', examined: 0, rejected: 0, objectsDeleted: 0, errors: 1 }));
+      });
       archiveJobsQueued = await queueDueBusinessArchives(env, at).catch(error => {
         console.error(JSON.stringify({ event: 'workspace.archive.sweep_failed', sweepId, errorKind: safeErrorKind(error) }));
         return 0;
