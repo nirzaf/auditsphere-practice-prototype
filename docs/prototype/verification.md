@@ -1318,8 +1318,30 @@ bytes and hash/size mismatches. The existing 65 MiB streaming case still passes.
 **Boundary:** The tests validate ZIP64 structure and ordinary-size extraction,
 but do not stream a real member larger than 4 GiB. Full supported-range,
 Cloudflare R2, restore, and browser end-to-end acceptance remain open. The
-non-File-System-Access browser fallback still buffers a verified Blob. The
+non-File-System-Access browser fallback still materializes a verified Blob. The
 broader US-REP-007 story remains open.
+
+## US-REP-007 multi-gigabyte ZIP64 member — 2026-10-08
+
+**Verification:**
+`$env:AUDITSPHERE_LARGE_ARCHIVE_TEST='1'; npx tsx --test --test-concurrency=1
+--test-name-pattern='streams a member larger than 4 GiB'
+tests/unit/streamingArchive.test.ts` — 1/1 pass in 142 seconds. The regular
+`tests/unit/streamingArchive.test.ts` suite passed 8 tests and skipped this
+opt-in case.
+
+**Evidence:** The writer streamed a 4 GiB + 64 KiB source member through
+64 KiB chunks without retaining the archive. The test retained only a 4 KiB
+rolling tail, then verified the ZIP64 data descriptor, central-directory
+uncompressed/compressed sizes, entry name, ZIP64 end record, output size and
+archive digest shape. CRC32 now uses a slicing-by-eight lookup implementation;
+small ZIP extraction and the existing 65 MiB stream regression also pass.
+
+**Boundary:** This proves the local ZIP writer's >4 GiB member handling. It does
+not prove Cloudflare R2 multipart/streaming behavior, deployed export, the
+JavaScript safe-integer upper bound, backup/restore, retention enforcement, or
+large downloads in browsers without the File System Access API. That fallback
+still materializes a Blob; US-REP-007 remains open.
 
 ## US-REP-007 retention-specific R2 prefixes — 2026-10-08
 

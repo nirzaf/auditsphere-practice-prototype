@@ -15,11 +15,19 @@ export type StreamingArchiveResult = {
 const ZIP_CHUNK_BYTES = 64 * 1024;
 const ZIP64_EXTRA_ID = 0x0001;
 const UTF8_AND_DESCRIPTOR_FLAGS = 0x0808;
-const CRC32_TABLE = new Uint32Array(256);
-for (let index = 0; index < CRC32_TABLE.length; index += 1) {
+const CRC32_TABLES = Array.from({ length: 8 }, () => new Uint32Array(256));
+for (let index = 0; index < CRC32_TABLES[0]!.length; index += 1) {
   let value = index;
   for (let bit = 0; bit < 8; bit += 1) value = value & 1 ? 0xedb88320 ^ (value >>> 1) : value >>> 1;
-  CRC32_TABLE[index] = value >>> 0;
+  CRC32_TABLES[0]![index] = value >>> 0;
+}
+for (let slice = 1; slice < CRC32_TABLES.length; slice += 1) {
+  const previous = CRC32_TABLES[slice - 1]!;
+  const current = CRC32_TABLES[slice]!;
+  for (let index = 0; index < current.length; index += 1) {
+    const value = previous[index]!;
+    current[index] = CRC32_TABLES[0]![(value & 0xff)]! ^ (value >>> 8);
+  }
 }
 
 type CentralDirectoryEntry = {
@@ -52,7 +60,20 @@ function put64(target: Uint8Array, offset: number, value: number): void {
 
 function crc32Update(crc: number, bytes: Uint8Array): number {
   let value = crc;
-  for (const byte of bytes) value = CRC32_TABLE[(value ^ byte) & 0xff] ^ (value >>> 8);
+  let offset = 0;
+  while (offset + 8 <= bytes.byteLength) {
+    const word = (value ^ (bytes[offset]! | (bytes[offset + 1]! << 8) | (bytes[offset + 2]! << 16) | (bytes[offset + 3]! << 24))) >>> 0;
+    value = CRC32_TABLES[7]![(word & 0xff)]!
+      ^ CRC32_TABLES[6]![(word >>> 8) & 0xff]!
+      ^ CRC32_TABLES[5]![(word >>> 16) & 0xff]!
+      ^ CRC32_TABLES[4]![(word >>> 24) & 0xff]!
+      ^ CRC32_TABLES[3]![bytes[offset + 4]!]!
+      ^ CRC32_TABLES[2]![bytes[offset + 5]!]!
+      ^ CRC32_TABLES[1]![bytes[offset + 6]!]!
+      ^ CRC32_TABLES[0]![bytes[offset + 7]!]!;
+    offset += 8;
+  }
+  for (; offset < bytes.byteLength; offset += 1) value = CRC32_TABLES[0]![(value ^ bytes[offset]!) & 0xff]! ^ (value >>> 8);
   return value >>> 0;
 }
 

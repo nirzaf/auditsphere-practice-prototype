@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { it } from 'node:test';
 import { sha256 } from '@noble/hashes/sha2.js';
 import { unzipSync } from 'fflate';
@@ -108,6 +109,85 @@ it('builds and verifies a ZIP larger than the former 64 MiB input ceiling with b
   assert.ok(outputSize > sourceSize);
   assert.equal(result.sizeBytes, outputSize);
   assert.equal(result.sha256, toHex(outputHash.digest()));
+});
+
+it('streams a member larger than 4 GiB with ZIP64 sizes and bounded memory', {
+  skip: process.env.AUDITSPHERE_LARGE_ARCHIVE_TEST !== '1', timeout: 900_000
+}, async () => {
+  const chunk = new Uint8Array(64 * 1024).fill(0x5a);
+  const chunkCount = 65_537;
+  const sourceSize = chunk.byteLength * chunkCount;
+  const sourceHash = createHash('sha256');
+  for (let index = 0; index < chunkCount; index += 1) sourceHash.update(chunk);
+  let sent = 0;
+  const sourceBody = new ReadableStream<Uint8Array>({
+    pull(controller) {
+      if (sent === chunkCount) { controller.close(); return; }
+      controller.enqueue(chunk);
+      sent += 1;
+    }
+  });
+  const path = 'files/large.bin';
+  const archive = createStreamingArchive(encoder.encode('{}'), [{
+    path, sizeBytes: sourceSize, sha256: sourceHash.digest('hex'), body: sourceBody
+  }]);
+
+  // Keep only the final structural records, never the multi-gigabyte output.
+  const tail = new Uint8Array(4096);
+  let tailOffset = 0;
+  let outputSize = 0;
+  const reader = archive.body.getReader();
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    const start = outputSize;
+    outputSize += value.byteLength;
+    if (value.byteLength >= tail.byteLength) {
+      tail.set(value.subarray(value.byteLength - tail.byteLength));
+    } else {
+      const first = Math.min(value.byteLength, tail.byteLength - tailOffset);
+      tail.set(value.subarray(0, first), tailOffset);
+      if (first < value.byteLength) tail.set(value.subarray(first), 0);
+    }
+    tailOffset = (start + value.byteLength) % tail.byteLength;
+  }
+  const result = await archive.completed;
+  const orderedTail = new Uint8Array(tail.byteLength);
+  orderedTail.set(tail.subarray(tailOffset));
+  orderedTail.set(tail.subarray(0, tailOffset), tail.byteLength - tailOffset);
+  const view = new DataView(orderedTail.buffer);
+  const signatures: number[] = [];
+  for (let offset = 0; offset + 4 <= orderedTail.byteLength; offset += 1) {
+    if (view.getUint32(offset, true) === 0x02014b50) signatures.push(offset);
+  }
+  assert.ok(sourceSize > 0xffff_ffff, 'the synthetic source crosses the ZIP32 member-size ceiling');
+  assert.ok(outputSize > sourceSize);
+  assert.equal(result.sizeBytes, outputSize);
+  assert.match(result.sha256, /^[a-f0-9]{64}$/);
+  assert.equal(signatures.length, 2, 'manifest and large member central-directory entries are present');
+
+  const central = signatures[1]!;
+  const nameLength = view.getUint16(central + 28, true);
+  const extraLength = view.getUint16(central + 30, true);
+  const extra = central + 46 + nameLength;
+  assert.equal(new TextDecoder().decode(orderedTail.subarray(central + 46, extra)), path);
+  assert.equal(view.getUint16(extra, true), 0x0001, 'the large entry uses a ZIP64 extra field');
+  assert.equal(view.getUint16(extra + 2, true), 24);
+  const readUint64 = (offset: number) => {
+    let value = 0n;
+    for (let byte = 0; byte < 8; byte += 1) value |= BigInt(orderedTail[offset + byte]!) << BigInt(byte * 8);
+    return value;
+  };
+  assert.equal(extraLength, 28);
+  assert.equal(readUint64(extra + 4), BigInt(sourceSize));
+  assert.equal(readUint64(extra + 12), BigInt(sourceSize));
+
+  const descriptor = signatures[0]! - 24;
+  assert.equal(view.getUint32(descriptor, true), 0x08074b50, 'the streamed member ends with a ZIP64 data descriptor');
+  assert.equal(readUint64(descriptor + 8), BigInt(sourceSize));
+  assert.equal(readUint64(descriptor + 16), BigInt(sourceSize));
+  assert.ok(orderedTail.some((_, index) => index + 4 <= orderedTail.byteLength
+    && view.getUint32(index, true) === 0x06064b50), 'the ZIP64 end record is present');
 });
 
 it('splits oversized upstream chunks before passing them to the ZIP writer', async () => {
