@@ -105,16 +105,19 @@ the repository:
 | Story | Blocking prerequisite |
 | --- | --- |
 | US-GAP-05 / 06 | Cloudflare Email Sending is enabled and DNS is configured for `mail.steaudit.com`. The restricted provider is deployed and the latest integration probe reported `SERVICE_BINDING`. The approved recipient `testing@mail.steauditing.com` remains Pending after verification was resent; a real delivery has not been accepted. |
-| US-GAP-25 – 28 | Entra app `AuditSphere SharePoint UAT` is registered, `Sites.Selected` application consent is granted, and Graph `GET /sites/{site-id}/permissions` verifies the app's site-only `write` role on `/sites/AuditSphereJSAcceptance` (2026-10-08). `SHAREPOINT_CLIENT_SECRET` is still missing; the live probe remains `UNCONFIGURED`. |
+| US-GAP-25 – 28 | Entra app `AuditSphere SharePoint UAT` has `Sites.Selected` consent and a verified site-only `write` grant on `/sites/AuditSphereJSAcceptance` (2026-10-08). The live probe returned `FAILED` at 2026-10-08 01:02:32 UTC because the Microsoft Graph token request was rejected. A working client secret must be owner-rotated and entered before the probe can reach `CONNECTED`. |
 | US-GAP-30 – 32 | Deployed URL/build identity are recorded. UAT follows the epic's no-auth profile with four self-selected personas and synthetic records; supplied login accounts are not required. Real email delivery and a connected SharePoint test-site probe remain unverified. |
 
-Application build `bcd23de750459b99277d937df2205573cd505d99` was deployed by
-GitHub Actions run 37656134133, which passed typecheck, unit tests, build, the
-complete browser E2E suite, Email Service provider deployment, D1 migrations,
-Worker/static asset deployment and readiness. A live `/api/integrations/status`
-request on 2026-10-08 reports email `SERVICE_BINDING`; SharePoint remains
-`UNCONFIGURED` because `SHAREPOINT_CLIENT_SECRET` is missing. The site-only `write`
-grant has now been applied and independently read back from Graph. Email delivery
-remains unverified: `testing@mail.steauditing.com` is still Pending and an approved
-UAT send has not succeeded. Keep integration stories open rather than simulating
-acceptance.
+The last fully successful production deployment is main commit
+`abb346f852c4bd77f97540ff9a1523f041af2ae6` from GitHub Actions run 37708607176
+(2026-10-08 00:35 UTC). It passed typecheck, unit tests, build, the complete
+browser E2E suite, Email Service provider deployment, D1 migrations, Worker/static
+asset deployment and readiness. Later main runs 37710179893 and 37710812829
+passed verification but failed the strict Worker deployment config check before
+upload. A fresh live
+`/api/integrations/status` request on 2026-10-08 01:02:32 UTC reports email
+`SERVICE_BINDING` and SharePoint `FAILED` because the Graph token request is
+rejected. The site-only `write` grant remains independently verified. Email
+delivery remains unverified: `testing@mail.steauditing.com` was last observed as
+Pending and an approved UAT send has not succeeded. Keep integration stories open
+until current delivery and connected SharePoint evidence exists.

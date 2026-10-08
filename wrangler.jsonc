@@ -45,7 +45,7 @@
   // Email delivery (US-GAP-05/06): CI deploys the internal provider first; it uses
   // Cloudflare Email Service with a one-recipient UAT allowlist. No public endpoint
   // or unbounded client-recipient sending is enabled.
-  "services": [{ "binding": "EMAIL_PROVIDER", "service": "auditsphere-email-provider" }],
+  "services": [{ "binding": "EMAIL_PROVIDER", "service": "auditsphere-email-provider", "environment": "production" }],
   //
   // SharePoint / Microsoft Graph document integration (US-GAP-25..28): site and
   // app identifiers are configured below. Supply SHAREPOINT_CLIENT_SECRET using

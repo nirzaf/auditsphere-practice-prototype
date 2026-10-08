@@ -5,8 +5,12 @@ blocked. It records the integration code and configuration in the repository and
 the account-owner steps that still gate live acceptance. Integration status must
 come from the deployed Worker; local configuration is not evidence of connectivity.
 
-Production build identity `157a30f26a0498a3dbbcd31af6fcdd42eac24c53` was deployed
-from `main` by [GitHub Actions run 37685670419](https://github.com/nirzaf/auditsphere-practice-prototype/actions/runs/37685670419).
+The last verified production Worker is main commit
+`abb346f852c4bd77f97540ff9a1523f041af2ae6`, deployed by [GitHub Actions run
+37708607176](https://github.com/nirzaf/auditsphere-practice-prototype/actions/runs/37708607176)
+on 2026-10-08 00:35 UTC. Later main runs 37710179893 and 37710812829 passed
+verification but failed Wrangler's strict remote configuration check before Worker
+upload.
 The run passed app/Worker typecheck, unit tests, production build, the complete
 browser E2E suite, Email Service provider deployment, D1 migrations, Worker/static
 asset deployment, and readiness. A live `GET /api/integrations/status` check at
@@ -110,10 +114,19 @@ Graph request created the site-specific grant. A follow-up `GET` on the site's
 permissions returned the target app with `roles: ["write"]` for
 `https://easyguide.sharepoint.com/sites/AuditSphereJSAcceptance`. The Worker config
 already contains the non-secret tenant, app, site hostname/path, and `Documents`
-library values. Its `SHAREPOINT_CLIENT_SECRET` is still absent from Cloudflare; the
-live status endpoint confirms this secret is the current configuration failure.
+library values. A fresh live `GET /api/integrations/status` on 2026-10-08 at
+01:02:32 UTC returned `sharepoint.state: FAILED` with the message that Microsoft
+Graph rejected the token request. The Worker is therefore not connected. A client
+secret is configured but is not currently authenticating successfully.
 The app remains limited to `Sites.Selected`; do not give it tenant-wide
 `Sites.ReadWrite.All` or `Sites.FullControl.All`.
+
+The configured SharePoint client secret was exposed in browser accessibility
+output during the setup session. Treat it as compromised: the tenant owner must
+revoke it, create a replacement, update the Cloudflare Worker secret, and redeploy.
+Do not copy either secret into this runbook, chat, or repository. Repeat the live
+status probe and a real site read/write check only after rotation; a successful
+token request alone does not prove the site grant works.
 
 The SharePoint Admin Center session reviewed on 2026-10-07 can see the approved
 acceptance site and its site settings/membership, but does not expose a Graph
@@ -137,7 +150,8 @@ Grant-PnPEntraIDAppSitePermission `
 ```
 
 Verify the resulting permission with `Get-PnPEntraIDAppSitePermission` for the
-same site and app before supplying the client secret.
+same site and app. The site-only `write` grant has already been read back from
+Microsoft Graph; do not broaden the app's permission scope.
 
 ```sh
 # configure the SHAREPOINT_* non-secret vars in wrangler.jsonc
@@ -147,9 +161,9 @@ npm run cloud:deploy
 curl -s https://<worker-url>/api/integrations/status   # sharepoint.state should become CONNECTED
 ```
 
-The firm-approved site path and client secret remain owner-supplied; tenant consent
-for `Sites.Selected` has already been granted. Keep all site-specific access on the
-acceptance site only.
+The firm-approved site path and replacement client secret remain owner-managed;
+tenant consent for `Sites.Selected` and the site-specific `write` grant are already
+verified. Keep all site-specific access on the acceptance site only.
 
 ## 3. UAT environment and persona journeys (US-GAP-30 – US-GAP-32)
 
@@ -163,7 +177,7 @@ below before acceptance:
 | Field | Source |
 | --- | --- |
 | Application URL | https://auditsphere-visual-prototype.quadrate-lk.workers.dev (readiness returns `ready`) |
-| Deployed build identity | `157a30f26a0498a3dbbcd31af6fcdd42eac24c53` (latest verified deployment recorded 2026-10-08) |
+| Deployed build identity | `abb346f852c4bd77f97540ff9a1523f041af2ae6` (last verified Worker deployment, 2026-10-08 00:35 UTC; later deploy attempts failed before upload) |
 | Workspace and actors | synthetic workspace created through the UI; verify all four selectable personas and persisted context |
 | Client / engagement ids | synthetic records created through visible UI journeys; record IDs in the restricted UAT evidence bundle |
 | SharePoint site/library/root ids | values returned by `/api/integrations/status` after the site grant and secret are configured |
