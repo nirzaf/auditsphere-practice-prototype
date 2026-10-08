@@ -151,6 +151,10 @@ export type ConfirmationGateEngagement = Pick<Engagement, 'id' | 'version' | 'cl
 export type CriticalConfirmationBlocker = { id: string; version: number; type: string; status: string; dueDate: string; sourceHash: string; externalPartyName: string; criticalityReason: string; stalePins: boolean };
 type StatementLine = { fsliId: string; code: string; name: string; statement: string; category: string; displaySign: number; currentBaseMinor: number; currentAdjustmentMinor: number; currentAdjustedMinor: number; priorMinor: number | null; varianceNumerator: string | null; varianceDenominator: string | null; variancePercent: number | null; varianceReason: string; riskBand: string; sourceRows: Array<Record<string, unknown>> };
 
+export function isIsa570EditionCompatible(periodStart: string, isa570Edition: string): boolean {
+  return periodStart < '2026-12-15' || /2024/i.test(isa570Edition);
+}
+
 export function calculateStatementVariance(currentMinor: number, priorMinor: number | null): {
   numerator: string | null; denominator: string | null; percent: number | null;
   reason: 'CALCULATED' | 'NEW_BALANCE' | 'ZERO_BOTH' | 'NO_COMPARATIVE';
@@ -780,12 +784,15 @@ async function submitAnalyticalReview(env:Env,workspaceId:string,context:Busines
   if(Number(review.version)!==p.expectedVersion)throw new ApiError('VERSION_CONFLICT',JSON.stringify({entity:'AnalyticalReview',id:review.id,expectedVersion:p.expectedVersion,currentVersion:review.version}));
   const engagement=await getEngagement(env,workspaceId,context,String(review.engagement_id));if(engagement.client_id!==review.client_id)throw new ApiError('FORBIDDEN_SCOPE','Analytical review is outside the engagement.');
   if(review.status!=='DRAFT'&&review.status!=='UNDER_REWORK')throw new ApiError('INVALID_STATE','Only a draft analytical review can be submitted.');
-  if(!review.explanation||String(review.explanation).trim().length<10||!review.conclusion||String(review.conclusion).trim().length<10)throw new ApiError('VALIDATION_FAILED','An explanation and conclusion are required before submission.');
   const view=await financialStatements(env,workspaceId,context,engagement.id);const snapshot=await env.DB.prepare(`SELECT source_hash FROM statement_snapshots WHERE workspace_id=? AND id=?`).bind(workspaceId,review.statement_snapshot_id).first<{source_hash:string}>();
   if(snapshot?.source_hash!==view.sourceHash)throw new ApiError('STALE_DEPENDENCY','The statement source changed after this review was drafted. Rebuild the analysis on a current snapshot.');
   const support=await evidenceSet(env,workspaceId,'analytical_review_id',p.analyticalReviewId,true);
   if(support.rows.some(item=>item.target_version!==p.expectedVersion))throw new ApiError('STALE_DEPENDENCY','Analytical-review evidence is linked to an older review version. Re-link it to the current analysis.');
-  if(!support.adequate)throw new ApiError('GATE_BLOCKED','At least one adequate, current evidence item must support the analytical conclusion.');
+  const missingFields:string[]=[];
+  if(!review.explanation||String(review.explanation).trim().length<10)missingFields.push('explanation');
+  if(!review.conclusion||String(review.conclusion).trim().length<10)missingFields.push('conclusion');
+  if(!support.adequate)missingFields.push('supportingEvidence');
+  if(missingFields.length)throw new ApiError('VALIDATION_FAILED','Complete the explanation, conclusion and current supporting evidence before submitting the analytical review.',{missingFields});
   const dependencyHash=await rowHash({sourceHash:review.source_hash,evidenceHash:support.hash,tbVersionId:engagement.active_tb_version_id,mappingVersionId:engagement.active_mapping_version_id});
   const preparer=await env.DB.prepare(`SELECT staff_member_id AS staffMemberId FROM actor_profiles WHERE workspace_id=? AND id=?`).bind(workspaceId,review.prepared_by_actor_id).first<{staffMemberId:string}>();
   const nextVersion=p.expectedVersion+1;
@@ -799,7 +806,7 @@ async function saveGoingConcern(env:Env,workspaceId:string,context:BusinessConte
   requireWriter(context);const p=command.payload;const engagement=await getEngagement(env,workspaceId,context,p.engagementId);
   const profile=await env.DB.prepare(`SELECT isa_570_edition FROM standards_profiles WHERE workspace_id=? AND id=?`).bind(workspaceId,engagement.standards_profile_id).first<{isa_570_edition:string}>();
   if(!profile)throw new ApiError('STALE_DEPENDENCY','The engagement standards profile is missing.');
-  if(engagement.period_start>='2026-12-15'&&!/2024/i.test(profile.isa_570_edition))throw new ApiError('STANDARDS_PROFILE_INCOMPATIBLE','Periods beginning on or after 15 December 2026 require an approved ISA 570 (Revised 2024) profile.');
+  if(!isIsa570EditionCompatible(engagement.period_start,profile.isa_570_edition))throw new ApiError('STANDARDS_PROFILE_INCOMPATIBLE','Periods beginning on or after 15 December 2026 require an approved ISA 570 (Revised 2024) profile.');
   if(p.assessmentEnd<engagement.period_end)throw new ApiError('VALIDATION_FAILED','The going-concern assessment horizon must include the engagement period end.');
   const files=new Set<string>(p.evidenceFileIds);if(p.managementAssessmentFileId)files.add(p.managementAssessmentFileId);
   const evidencePins=[] as Array<{id:string;sha256:string}>;

@@ -2207,6 +2207,64 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
   assert.equal(reusedSnapshot.body.result.statementSnapshotId, statementSnapshot.body.result.statementSnapshotId,
     'an identical source hash reuses the immutable statement snapshot');
 
+  // US-FLD-004 — going-concern evidence and the assessment horizon are
+  // validated, and the applicable ISA 570 edition is pinned from the
+  // engagement's approved profile rather than today's date.
+  const engagementStandards = db.prepare(`SELECT e.period_start,e.period_end,e.standards_profile_id,p.isa_570_edition
+    FROM engagements e JOIN standards_profiles p ON p.workspace_id=e.workspace_id AND p.id=e.standards_profile_id
+    WHERE e.workspace_id=? AND e.id=?`).bind(workspaceId, engagementId).first<any>();
+  const goingConcernChecklist = { managementAssessment: false, cashFlowForecasts: false, financingAndCovenants: false,
+    adverseEvents: false, mitigatingPlans: false, uncertaintyEvaluation: false };
+  const unsupportedGoingConcern = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'going-concern.save', payload: {
+      engagementId, assessmentStart: engagementStandards.period_start, assessmentEnd: engagementStandards.period_end,
+      checklist: { ...goingConcernChecklist, managementAssessment: true }, conclusion: 'UNASSESSED',
+      rationale: 'The assessment source is intentionally absent in this rejected draft.'
+    } }
+  }, technicalHeaders);
+  assert.equal(unsupportedGoingConcern.response.status, 422, JSON.stringify(unsupportedGoingConcern.body));
+  assert.equal(unsupportedGoingConcern.body.code, 'VALIDATION_FAILED');
+  const shortGoingConcernHorizon = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'going-concern.save', payload: {
+      engagementId, assessmentStart: '2024-01-01', assessmentEnd: '2024-12-31',
+      checklist: goingConcernChecklist, conclusion: 'UNASSESSED',
+      rationale: 'This horizon does not cover the engagement reporting date.'
+    } }
+  }, technicalHeaders);
+  assert.equal(shortGoingConcernHorizon.response.status, 422, JSON.stringify(shortGoingConcernHorizon.body));
+  assert.equal(shortGoingConcernHorizon.body.code, 'VALIDATION_FAILED');
+  assert.equal(db.prepare(`SELECT COUNT(*) AS count FROM going_concern_assessments WHERE workspace_id=? AND engagement_id=?`)
+    .bind(workspaceId, engagementId).first<any>()?.count, 0, 'invalid evidence and horizon drafts leave no assessment rows');
+  const savedGoingConcern = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'going-concern.save', payload: {
+      engagementId, assessmentStart: engagementStandards.period_start, assessmentEnd: engagementStandards.period_end,
+      checklist: goingConcernChecklist, conclusion: 'UNASSESSED',
+      rationale: 'The viability assessment remains incomplete and no conclusion is asserted.'
+    } }
+  }, technicalHeaders);
+  assert.equal(savedGoingConcern.response.status, 200, JSON.stringify(savedGoingConcern.body));
+  assert.equal(savedGoingConcern.body.result.edition, engagementStandards.isa_570_edition,
+    'the assessment retains the edition selected on the engagement standards profile');
+  const goingConcernProjection = await call(`/api/workspaces/${workspaceId}/engagements/${engagementId}/fieldwork-workspace`, { headers: technicalHeaders });
+  assert.equal(goingConcernProjection.response.status, 200, JSON.stringify(goingConcernProjection.body));
+  assert.equal(goingConcernProjection.body.goingConcern.id, savedGoingConcern.body.result.assessmentId);
+  assert.equal(goingConcernProjection.body.goingConcern.status, 'DRAFT');
+  assert.equal(goingConcernProjection.body.goingConcern.conclusion, 'UNASSESSED', 'incomplete work is not defaulted to no material uncertainty');
+  assert.equal(goingConcernProjection.body.goingConcern.isa570Edition, engagementStandards.isa_570_edition);
+  const unassessedGoingConcernSubmit = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'review.submit', payload: {
+      targetKind: 'GOING_CONCERN', targetId: savedGoingConcern.body.result.assessmentId, targetVersion: 1
+    } }
+  }, technicalHeaders);
+  assert.equal(unassessedGoingConcernSubmit.response.status, 409, JSON.stringify(unassessedGoingConcernSubmit.body));
+  assert.equal(unassessedGoingConcernSubmit.body.code, 'GATE_BLOCKED');
+  assert.equal(db.prepare(`SELECT COUNT(*) AS count FROM review_submissions WHERE workspace_id=? AND going_concern_id=?`)
+    .bind(workspaceId, savedGoingConcern.body.result.assessmentId).first<any>()?.count, 0,
+  'an unassessed going-concern draft cannot enter independent review');
+  assert.equal(db.prepare(`SELECT isa_570_edition FROM standards_profiles WHERE workspace_id=? AND id=?`)
+    .bind(workspaceId, engagementStandards.standards_profile_id).first<any>()?.isa_570_edition, engagementStandards.isa_570_edition,
+  'opening and saving an older-period assessment does not silently revise its approved standards profile');
+
   const analyticalReview = await post(`/api/workspaces/${workspaceId}/commands`, {
     idempotencyKey: crypto.randomUUID(), command: { type: 'analytical-review.save', payload: {
       engagementId, fsliId: revenueLine.fsliId, statementSnapshotId: statementSnapshot.body.result.statementSnapshotId,
@@ -2222,13 +2280,33 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
   const ratio = db.prepare('SELECT result_numerator,result_denominator,undefined_reason FROM analytical_ratios WHERE workspace_id=? AND analytical_review_id=?')
     .bind(workspaceId, analyticalReview.body.result.analyticalReviewId).first<any>();
   assert.deepEqual({ ...ratio }, { result_numerator: null, result_denominator: null, undefined_reason: 'ZERO_DENOMINATOR' });
+  const incompleteAnalysis = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'analytical-review.save', payload: {
+      engagementId, fsliId: revenueLine.fsliId, statementSnapshotId: statementSnapshot.body.result.statementSnapshotId,
+      expectationText: 'Revenue movement must be compared with the approved period expectation.', thresholdBps: 1000, ratios: []
+    } }
+  }, technicalHeaders);
+  assert.equal(incompleteAnalysis.response.status, 200, JSON.stringify(incompleteAnalysis.body));
+  const incompleteAnalysisSubmit = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'analytical-review.submit', payload: {
+      analyticalReviewId: incompleteAnalysis.body.result.analyticalReviewId, expectedVersion: 1
+    } }
+  }, technicalHeaders);
+  assert.equal(incompleteAnalysisSubmit.response.status, 422, JSON.stringify(incompleteAnalysisSubmit.body));
+  assert.equal(incompleteAnalysisSubmit.body.code, 'VALIDATION_FAILED');
+  assert.deepEqual(incompleteAnalysisSubmit.body.details.missingFields, ['explanation', 'conclusion', 'supportingEvidence'],
+    'the significant movement cannot be submitted without an explanation, conclusion and reviewed support');
+  assert.equal(db.prepare(`SELECT status FROM analytical_reviews WHERE workspace_id=? AND id=?`)
+    .bind(workspaceId, incompleteAnalysis.body.result.analyticalReviewId).first<any>()?.status, 'DRAFT',
+  'missing analysis components do not create an independent review submission');
   const blockedAnalysisSubmit = await post(`/api/workspaces/${workspaceId}/commands`, {
     idempotencyKey: crypto.randomUUID(), command: { type: 'analytical-review.submit', payload: {
       analyticalReviewId: analyticalReview.body.result.analyticalReviewId, expectedVersion: 1
     } }
   }, technicalHeaders);
-  assert.equal(blockedAnalysisSubmit.response.status, 409, JSON.stringify(blockedAnalysisSubmit.body));
-  assert.equal(blockedAnalysisSubmit.body.code, 'GATE_BLOCKED', 'an analytical conclusion needs independently reviewed current evidence');
+  assert.equal(blockedAnalysisSubmit.response.status, 422, JSON.stringify(blockedAnalysisSubmit.body));
+  assert.equal(blockedAnalysisSubmit.body.code, 'VALIDATION_FAILED', 'an analytical conclusion needs independently reviewed current evidence');
+  assert.deepEqual(blockedAnalysisSubmit.body.details.missingFields, ['supportingEvidence']);
 
   const urlOnlyEvidence = await post(`/api/workspaces/${workspaceId}/commands`, {
     idempotencyKey: crypto.randomUUID(), command: { type: 'evidence.create', payload: {

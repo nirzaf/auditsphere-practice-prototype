@@ -1507,3 +1507,28 @@ new balance, zero both and no comparative.
 browser check of the visual P&L/Balance Sheet split, mobile action visibility
 and a TB with no comparative is still open. US-FLD-003 and the broader epic
 remain open.
+
+## US-FLD-004 analytical-review and going-concern validation — 2026-10-08
+
+**Verification:** `npx tsx --test --test-concurrency=1 --test-reporter=spec
+tests/unit/businessWorkspace.test.ts tests/unit/statementVariance.test.ts
+tests/unit/goingConcernStandards.test.ts` — 3/3 after the validation change.
+
+**Evidence:** An analytical review missing its explanation, conclusion and
+adequate current evidence now returns `422 VALIDATION_FAILED` with all missing
+field names; the draft remains unsubmitted. Going-concern commands reject a
+checked management-assessment item without a committed source and reject an
+assessment horizon ending before the engagement reporting date without writing
+an assessment. A valid incomplete assessment stays visibly `UNASSESSED`, stores
+the edition from the engagement's approved standards profile, and cannot be
+submitted for review. The approved profile row remains unchanged.
+
+The separate effective-date check accepts an older approved edition through
+2026-12-14, rejects it from 2026-12-15 onward, and accepts Revised 2024 for a
+2027 period.
+
+**Boundary:** The test uses an older-period synthetic engagement and verifies
+the retained profile edition; a separate post-15-Dec-2026 engagement/profile
+matrix, review acceptance of completed going-concern work, material-uncertainty
+report escalation, and browser visibility for missing forecasts remain open.
+US-FLD-004 and the broader epic remain open.
