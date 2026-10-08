@@ -58,8 +58,12 @@ retention-specific prefixes, and `worker/r2-archive-locks.json` contains generat
 prefix rules for every supported term. CI and `npm run cloud:deploy` now apply
 these rules idempotently and verify their Cloudflare read-back before Worker
 deployment; a Cloudflare API token with R2 bucket configuration edit permission
-is required. The rule set has not yet been applied successfully, so
-storage-level overwrite/deletion protection remains unverified.
+is required. GitHub Actions run 37710812829 successfully applied and read back all
+101 managed rules on `auditsphere-prototype-files`, preserving zero unrelated
+rules, before its later Worker-config check failed. The bucket policy is now
+configured and API-read-back verified. A live attempt to overwrite/delete a
+retained canary object is not claimed; full storage-path enforcement and
+multi-gigabyte acceptance remain open.
 Each open story has concrete
 acceptance criteria in the backlog and should be implemented through the active
 business UI/Worker with current-account evidence.
@@ -113,8 +117,10 @@ The last fully successful production deployment is main commit
 (2026-10-08 00:35 UTC). It passed typecheck, unit tests, build, the complete
 browser E2E suite, Email Service provider deployment, D1 migrations, Worker/static
 asset deployment and readiness. Later main runs 37710179893 and 37710812829
-passed verification but failed the strict Worker deployment config check before
-upload. A fresh live
+and 37711380454 passed verification but failed the strict Worker deployment
+config check before upload. The deployment now uses the checked-in Wrangler
+configuration as source of truth; that fix still needs a successful hosted run.
+A fresh live
 `/api/integrations/status` request on 2026-10-08 01:02:32 UTC reports email
 `SERVICE_BINDING` and SharePoint `FAILED` because the Graph token request is
 rejected. The site-only `write` grant remains independently verified. Email

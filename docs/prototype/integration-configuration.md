@@ -8,9 +8,10 @@ come from the deployed Worker; local configuration is not evidence of connectivi
 The last verified production Worker is main commit
 `abb346f852c4bd77f97540ff9a1523f041af2ae6`, deployed by [GitHub Actions run
 37708607176](https://github.com/nirzaf/auditsphere-practice-prototype/actions/runs/37708607176)
-on 2026-10-08 00:35 UTC. Later main runs 37710179893 and 37710812829 passed
-verification but failed Wrangler's strict remote configuration check before Worker
-upload.
+on 2026-10-08 00:35 UTC. Later main runs 37710179893, 37710812829 and
+37711380454 passed verification but failed Wrangler's strict remote configuration
+check before Worker upload. The checked-in deploy command now uses the full local
+configuration as source of truth; the next workflow must verify its deployment.
 The run passed app/Worker typecheck, unit tests, production build, the complete
 browser E2E suite, Email Service provider deployment, D1 migrations, Worker/static
 asset deployment, and readiness. A live `GET /api/integrations/status` check at

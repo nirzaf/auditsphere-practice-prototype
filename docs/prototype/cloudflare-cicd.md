@@ -42,8 +42,14 @@ applying migrations in CI. Reviewers should inspect the pending migration files
 in the verified commit before approving because the first enabled deployment
 may apply the full outstanding migration backlog. A maintainer can also run the
 workflow manually on `main` and select `confirm_production_deploy`; it still
-runs the complete verification job first. The job uses Wrangler strict mode
-and serializes production deployments.
+runs the complete verification job first. Production deployments are serialized.
+The restricted email-provider Worker deploy keeps Wrangler strict mode. The main
+Worker deploy uses the checked-in `wrangler.jsonc` as the source of truth because
+the existing dashboard-created Worker snapshot omits local-only D1 fields
+(`database_name`, `migrations_dir`); strict mode treated those additions as a
+deployment conflict even though the runtime D1/R2/service bindings match. Do not
+make dashboard-only binding changes; add intended configuration to source control
+and verify the next CI deployment.
 
 If the enable variable is unset or false, the deploy job is skipped. If it is
 enabled before the environment secrets are configured, the deploy job fails
