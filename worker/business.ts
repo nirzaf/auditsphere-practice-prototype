@@ -3820,7 +3820,14 @@ export async function runBusinessDirectoryCommand(
   const commandPayload=(envelope.command as {payload?:Record<string,unknown>}).payload;
   const targetEngagementId=typeof commandPayload?.engagementId==='string'?commandPayload.engagementId:null;
   const postArchiveBookkeeping=new Set(['payment.record','payment.reverse','payment.allocate','payment.reverse-allocation','credit-note.issue','revenue.recognize']);
-  if(targetEngagementId&&!postArchiveBookkeeping.has(envelope.command.type)&&envelope.command.type!=='archive.lock'){
+  const postArchivePaymentEvidenceReservation=envelope.command.type==='file.reserve'
+    &&typeof commandPayload?.paymentEvidenceReservationId==='string'
+    &&commandPayload.purpose==='EVIDENCE'
+    &&context.actor.persona!=='CLIENT'
+    &&commandPayload.clientId===envelope.context.clientId
+    &&commandPayload.engagementId===envelope.context.engagementId
+    &&['application/pdf','image/png','image/jpeg'].includes(String(commandPayload.mediaType));
+  if(targetEngagementId&&!postArchiveBookkeeping.has(envelope.command.type)&&envelope.command.type!=='archive.lock'&&!postArchivePaymentEvidenceReservation){
     const engagement=await env.DB.prepare(`SELECT lifecycle_state,locked_at,archive_due_at FROM engagements WHERE workspace_id=? AND id=?`)
       .bind(workspaceId,targetEngagementId).first<{lifecycle_state:string;locked_at:string|null;archive_due_at:string|null}>();
     if(!engagement)throw new ApiError('NOT_FOUND','The engagement was not found.');

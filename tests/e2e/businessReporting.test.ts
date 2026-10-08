@@ -1596,6 +1596,12 @@ it('US-REP-001–007 covers all report categories, representation, atomic releas
 
   const postArchivePaymentEvidenceId = randomUUID();
   const postArchivePaymentEvidenceBytes = minimalPdf('Synthetic verified final collection evidence recorded after archive seal.');
+  const ordinaryPostArchiveEvidence = await fetch(`${server.origin}/api/workspaces/${fixture.workspaceId}/files`, {
+    method: 'POST', headers: { ...reviewerHeaders, 'Idempotency-Key': randomUUID() },
+    body: JSON.stringify({ purpose: 'EVIDENCE', originalName: 'qa-unrelated-post-archive-evidence.pdf', mediaType: 'application/pdf',
+      sizeBytes: postArchivePaymentEvidenceBytes.byteLength, clientId: fixture.clientId, engagementId: fixture.engagementId })
+  });
+  assert.equal(ordinaryPostArchiveEvidence.status, 423, await ordinaryPostArchiveEvidence.clone().text());
   const postArchivePaymentEvidenceReservation = await fetch(`${server.origin}/api/workspaces/${fixture.workspaceId}/files`, {
     method: 'POST', headers: { ...reviewerHeaders, 'Idempotency-Key': randomUUID() },
     body: JSON.stringify({ purpose: 'EVIDENCE', originalName: 'qa-post-archive-final-payment.pdf', mediaType: 'application/pdf',
