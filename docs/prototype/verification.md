@@ -1659,3 +1659,19 @@ password-encrypted Office workbook produced by Excel. This verifies the
 deterministic rejection path but not compatibility across encrypted Office
 variants. Production D1 interruption and current-account/browser acceptance
 remain open; US-FLD-001 and the full epic remain open.
+
+## US-FLD-003 responsive statement browser acceptance — 2026-10-08
+
+**Verification:** [GitHub Actions run 37734321770](https://github.com/nirzaf/auditsphere-practice-prototype/actions/runs/37734321770) — typecheck, unit tests, production build, browser E2E, Cloudflare deployment and Worker readiness passed; `git diff --check`.
+
+**Evidence:** `tests/e2e/businessProcedureConflict.test.ts` reads the visible
+synthetic statement view and asserts P&L appears before the balance sheet, a
+missing prior period is labeled `NO COMPARATIVE`, and the revenue row exposes
+both AR Test and Audit Workprogram actions. It then sets a 390×844 CSS viewport
+and verifies the two panes stack and row actions remain visible without hover;
+the device metrics override is cleared after the check.
+
+**Boundary:** This is a synthetic local Worker/browser fixture exercised in CI.
+It does not constitute a live current-account journey or independent visual
+acceptance at the epic's 1440px/1920px desktop viewports. US-FLD-003 and the full
+epic remain open.

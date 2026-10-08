@@ -6,8 +6,8 @@ the account-owner steps that still gate live acceptance. Integration status must
 come from the deployed Worker; local configuration is not evidence of connectivity.
 
 The last verified production Worker is main commit
-`aa87f836584df5ed950b73d29ef583780a9d8bdd`, deployed by [GitHub Actions run
-37732558308](https://github.com/nirzaf/auditsphere-practice-prototype/actions/runs/37732558308)
+`00f5607ef3af6318b220a15fcd3f48ce4e7fbeb0`, deployed by [GitHub Actions run
+37734321770](https://github.com/nirzaf/auditsphere-practice-prototype/actions/runs/37734321770)
 on 2026-10-08. CI passed application/Worker typecheck, unit tests, browser E2E,
 and production build. The deployment job applied and verified R2 archive-retention
 locks, deployed the restricted Email Service provider, applied approved D1
