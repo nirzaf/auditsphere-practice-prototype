@@ -1004,17 +1004,18 @@ async function firmTrialBalance(env:Env,workspaceId:string,from:string,to:string
     closingDebitMinor:String(closingDebit),closingCreditMinor:String(closingCredit),closingBalanced:closingDebit===closingCredit,sourceHash};
 }
 async function firmProfitLoss(env:Env,workspaceId:string,from:string,to:string,asOf:string){
-  const rows=(await env.DB.prepare(`SELECT a.id,a.code,a.name,a.account_type,l.debit_minor,l.credit_minor FROM firm_journal_lines l
-    JOIN firm_journals j ON j.workspace_id=l.workspace_id AND j.id=l.journal_id AND j.status='POSTED'
-    JOIN firm_accounts a ON a.workspace_id=l.workspace_id AND a.id=l.account_id WHERE l.workspace_id=? AND j.posting_date BETWEEN ? AND ?
-      AND j.posted_at<=? AND a.account_type IN ('REVENUE','EXPENSE') ORDER BY a.code,j.posting_date,j.id,l.id`).bind(workspaceId,from,to,asOf)
+  const accounts=(await env.DB.prepare(`SELECT a.id,a.code,a.name,a.account_type,COALESCE(m.debit_minor,0) AS debit_minor,COALESCE(m.credit_minor,0) AS credit_minor
+    FROM firm_accounts a LEFT JOIN (
+      SELECT l.account_id,SUM(l.debit_minor) AS debit_minor,SUM(l.credit_minor) AS credit_minor
+      FROM firm_journal_lines l JOIN firm_journals j ON j.workspace_id=l.workspace_id AND j.id=l.journal_id AND j.status='POSTED'
+      WHERE l.workspace_id=? AND j.posting_date BETWEEN ? AND ? AND j.posted_at<=? GROUP BY l.account_id
+    ) m ON m.account_id=a.id WHERE a.workspace_id=? AND a.account_type IN ('REVENUE','EXPENSE') ORDER BY a.code,a.id`)
+    .bind(workspaceId,from,to,asOf,workspaceId)
     .all<{id:string;code:string;name:string;account_type:string;debit_minor:number;credit_minor:number}>()).results??[];
-  const accounts=new Map<string,{code:string;name:string;accountType:string;amount:bigint}>();
-  for(const row of rows){const prior=accounts.get(row.id)??{code:row.code,name:row.name,accountType:row.account_type,amount:0n};
-    prior.amount+=row.account_type==='REVENUE'?BigInt(row.credit_minor)-BigInt(row.debit_minor):BigInt(row.debit_minor)-BigInt(row.credit_minor);accounts.set(row.id,prior);}
-  const result=[...accounts.entries()].map(([id,row])=>({accountId:id,code:row.code,name:row.name,accountType:row.accountType,amountMinor:String(row.amount)}));
-  const revenue=[...accounts.values()].filter(row=>row.accountType==='REVENUE').reduce((sum,row)=>sum+row.amount,0n);
-  const expense=[...accounts.values()].filter(row=>row.accountType==='EXPENSE').reduce((sum,row)=>sum+row.amount,0n);
+  const result=accounts.map(row=>({accountId:row.id,code:row.code,name:row.name,accountType:row.account_type,
+    amountMinor:String(row.account_type==='REVENUE'?BigInt(row.credit_minor)-BigInt(row.debit_minor):BigInt(row.debit_minor)-BigInt(row.credit_minor))}));
+  const revenue=accounts.filter(row=>row.account_type==='REVENUE').reduce((sum,row)=>sum+BigInt(row.credit_minor)-BigInt(row.debit_minor),0n);
+  const expense=accounts.filter(row=>row.account_type==='EXPENSE').reduce((sum,row)=>sum+BigInt(row.debit_minor)-BigInt(row.credit_minor),0n);
   const sourceHash=await sha256Hex(JSON.stringify({from,to,asOf,accounts:result}));
   return {from,to,asOf,accounts:result,revenueMinor:String(revenue),expenseMinor:String(expense),profitMinor:String(revenue-expense),sourceHash,
     recognitionNote:'Revenue reflects only posted journal entries. Invoices remain deferred contract liabilities under the baseline policy until a Partner records an earned-service event.'};

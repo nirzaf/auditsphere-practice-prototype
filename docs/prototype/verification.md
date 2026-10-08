@@ -1717,10 +1717,13 @@ synthetic journal for QAR 10,000 revenue, QAR 1,000 rent, QAR 4,000 salaries,
 and QAR 2,000 Partner drawings. The reports add QAR 10,000 to revenue, QAR
 5,000 to expenses, and QAR 5,000 to profit; both trial-balance movement and
 closing debit/credit totals balance exactly in minor units. Client persona
-access is denied. Report hashes include the posting timestamp cutoff.
+access is denied. Report hashes include the posting timestamp cutoff. A newly
+created zero-activity expense account is present in the monthly P&L with a zero
+amount. CSV bytes read back from the committed object store escape a
+formula-leading account name before spreadsheet import.
 
 **Boundary:** This verifies local synthetic Worker/SQLite behavior and exact
-report projections. The existing export worker still generates CSV/XLSX/PDF
-from persisted snapshots; deployed report reconciliation and independent
-presentation acceptance remain open. US-PRC-006 is partial and the 46-story
-epic remains open.
+report projections and formula-safe CSV export bytes from a persisted snapshot.
+The export worker supports CSV/XLSX/PDF; deployed report reconciliation and
+independent presentation acceptance remain open. US-PRC-006 is partial and the
+46-story epic remains open.

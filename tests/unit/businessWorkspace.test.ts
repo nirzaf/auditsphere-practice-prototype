@@ -4777,6 +4777,12 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
 
   // PRC-006: report routes calculate exact posted-journal balances and honor
   // the posting timestamp cutoff even when a later journal is backdated.
+  const zeroActivityAccount = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'ledger.account.create', payload: {
+      code: '5999', name: '=SUM(1,1)', accountType: 'EXPENSE', normalSide: 'DEBIT', controlType: 'NONE'
+    } }
+  }, approverHeaders);
+  assert.equal(zeroActivityAccount.response.status, 200, JSON.stringify(zeroActivityAccount.body));
   const reportsAsOf = new Date().toISOString();
   const firmTbPath = `${practicePath}/reports/trial-balance?from=${planDate}&to=${planDate}&asOf=${encodeURIComponent(reportsAsOf)}`;
   const firmProfitLossPath = `${practicePath}/reports/profit-loss?month=${planDate.slice(0, 7)}&asOf=${encodeURIComponent(reportsAsOf)}`;
@@ -4788,6 +4794,9 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
   assert.equal(firmTbBefore.body.asOf, reportsAsOf);
   assert.equal(firmTbBefore.body.balanced, true);
   assert.equal(firmTbBefore.body.closingBalanced, true, 'the report exposes exact minor-unit period and closing balance checks');
+  assert.deepEqual(firmProfitLossBefore.body.accounts.find((row: any) => row.accountId === zeroActivityAccount.body.result.accountId), {
+    accountId: zeroActivityAccount.body.result.accountId, code: '5999', name: '=SUM(1,1)', accountType: 'EXPENSE', amountMinor: '0'
+  }, 'monthly P&L retains revenue and expense chart accounts with no posted activity');
   const draftForHistoricalCutoff = await post(`/api/workspaces/${workspaceId}/commands`, {
     idempotencyKey: crypto.randomUUID(), command: { type: 'ledger.create-draft', payload: {
       postingDate: planDate, description: 'Posted-period trial balance and monthly profit test entry.', sourceType: 'REPORT_TEST', lines: [
@@ -4880,6 +4889,12 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
     .bind(workspaceId, exportRequest.body.result.jobId).first<any>();
   assert.equal(exportJob?.status, 'SUCCEEDED', JSON.stringify(exportJob));
   assert.ok(exportJob?.result_file_id, 'the export commits a real downloadable artifact');
+  const exportFile = db.prepare('SELECT object_key FROM file_versions WHERE workspace_id=? AND id=?')
+    .bind(workspaceId, exportJob.result_file_id).first<any>();
+  const exportObject = await env.FILES.get(exportFile.object_key);
+  assert.ok(exportObject, 'the committed report bytes remain available in object storage');
+  const exportCsv = new TextDecoder().decode(await exportObject!.arrayBuffer());
+  assert.ok(exportCsv.includes("'=SUM(1,1)"), 'CSV escapes formula-leading account names before spreadsheet import');
 
   // PRC-007: a partial allocation reversal increases invoice AR and returns the same
   // verified amount to unallocated cash without touching the issued commercial record.
