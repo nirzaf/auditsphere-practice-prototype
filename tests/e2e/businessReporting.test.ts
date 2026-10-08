@@ -1533,6 +1533,24 @@ it('US-REP-001–007 covers all report categories, representation, atomic releas
   assert.equal(portalControls.enabledFileInputs, 0, 'portal freeze disables client upload fields');
   assert.equal(portalControls.enabledUploadButtons, 0, 'portal freeze disables every signed-return upload and submission action');
 
+  await switchActor(fixture.reviewerActorId, 'REVIEWER');
+  const freezeAfterReviewerSwitch = server.db.prepare('SELECT portal_frozen_at FROM engagements WHERE workspace_id=? AND id=?')
+    .bind(fixture.workspaceId, fixture.engagementId).first<{ portal_frozen_at: string }>();
+  assert.equal(freezeAfterReviewerSwitch?.portal_frozen_at, released.released_at,
+    'switching away from CLIENT does not clear the authoritative server freeze');
+  await switchActor(fixture.clientActorId, 'CLIENT');
+  const clientAfterPersonaSwitch = await tab.evaluate<{ readOnly: boolean; frozenAtVisible: boolean; enabledFileInputs: number; enabledUploadButtons: number }>(`(() => {
+    const engagement=document.querySelector('#business-reporting-${fixture.engagementId}')?.closest('section');
+    const inputs=[...(engagement?.querySelectorAll('input[type="file"]')??[])];
+    const uploads=[...(engagement?.querySelectorAll('button')??[])].filter(button=>/upload|submit signed return/i.test(button.textContent??''));
+    return { readOnly: engagement?.innerText.includes('Read only') ?? false,
+      frozenAtVisible: engagement?.innerText.includes('Frozen at ${released.released_at}') ?? false,
+      enabledFileInputs: inputs.filter(input=>!input.disabled).length,
+      enabledUploadButtons: uploads.filter(button=>!button.disabled).length };
+  })()`);
+  assert.deepEqual(clientAfterPersonaSwitch, { readOnly: true, frozenAtVisible: true, enabledFileInputs: 0, enabledUploadButtons: 0 },
+    'switching away from CLIENT and back preserves the freeze timestamp and disabled upload controls');
+
   await installDownloadCapture();
   const portalDownloadRows = releasedParts ?? [];
   assert.equal(portalDownloadRows.length, 5);
