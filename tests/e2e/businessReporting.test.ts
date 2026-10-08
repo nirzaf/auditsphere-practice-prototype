@@ -613,7 +613,7 @@ it('US-REP-001–007 covers all report categories, representation, atomic releas
     const action = [...(practice?.querySelectorAll('button') ?? [])].find(button => button.textContent?.trim().startsWith('Recognize revenue with revision '));
     return { policy: practice?.querySelector('[aria-labelledby]')?.innerText ?? '',
       digest: practice?.querySelector('.business-policy-digest')?.textContent ?? '',
-      earnedDate: (dateLabel?.querySelector('input') as HTMLInputElement | null)?.value ?? '',
+      earnedDate: dateLabel?.querySelector('input')?.value ?? '',
       recognitionAction: action?.textContent?.trim() ?? '', recognitionDisabled: action?.disabled ?? true,
       explanation: [...(practice?.querySelectorAll('p') ?? [])].map(item => item.textContent ?? '').find(text => text.includes('Receiving cash settles receivables')) ?? '' };
   })()`);
