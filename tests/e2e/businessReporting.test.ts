@@ -1576,9 +1576,10 @@ it('US-REP-001–007 covers all report categories, representation, atomic releas
   const archiveBeforeCollection = server.db.prepare(`SELECT archive_sha256,manifest_sha256 FROM archive_seals
     WHERE workspace_id=? AND engagement_id=?`).bind(fixture.workspaceId, fixture.engagementId)
     .first<{ archive_sha256: string; manifest_sha256: string }>();
-  const engagementBeforeCollection = server.db.prepare(`SELECT portal_frozen_at,portal_freeze_recorded_at,portal_freeze_bundle_id,locked_at,lifecycle_state
-    FROM engagements WHERE workspace_id=? AND id=?`).bind(fixture.workspaceId, fixture.engagementId)
-    .first<{ portal_frozen_at: string; portal_freeze_recorded_at: string; portal_freeze_bundle_id: string; locked_at: string; lifecycle_state: string }>();
+  const engagementBeforeCollection = server.db.prepare(`SELECT e.portal_frozen_at,e.locked_at,e.lifecycle_state,pf.bundle_id,pf.frozen_at,pf.reason,pf.actor_id
+    FROM engagements e JOIN portal_freezes pf ON pf.workspace_id=e.workspace_id AND pf.engagement_id=e.id
+    WHERE e.workspace_id=? AND e.id=?`).bind(fixture.workspaceId, fixture.engagementId)
+    .first<{ portal_frozen_at: string; locked_at: string; lifecycle_state: string; bundle_id: string; frozen_at: string; reason: string; actor_id: string }>();
   assert.ok(archiveBeforeCollection && engagementBeforeCollection);
   const issuedInvoiceFile = server.db.prepare('SELECT object_key,sha256,size_bytes FROM file_versions WHERE workspace_id=? AND id=?')
     .bind(fixture.workspaceId, finalInvoiceSnapshot.file_version_id).first<{ object_key: string; sha256: string; size_bytes: number }>();
@@ -1630,6 +1631,23 @@ it('US-REP-001–007 covers all report categories, representation, atomic releas
   assert.equal(issuedPostArchiveReceipt.status, 'ISSUED');
   assert.ok(issuedPostArchiveReceipt.file_version_id);
   assert.equal(issuedPostArchiveReceipt.amount_minor, finalInvoiceSnapshot.total_minor);
+  const receiptFile = server.db.prepare('SELECT object_key,sha256,size_bytes FROM file_versions WHERE workspace_id=? AND id=?')
+    .bind(fixture.workspaceId, issuedPostArchiveReceipt.file_version_id).first<{ object_key: string; sha256: string; size_bytes: number }>();
+  assert.ok(receiptFile, 'the issued receipt references committed file metadata');
+  const receiptBytes = server.getTestObject(receiptFile.object_key);
+  assert.ok(receiptBytes, 'the generated post-archive receipt bytes remain in object storage');
+  assert.equal(sha256(receiptBytes!), receiptFile.sha256);
+  assert.equal(receiptBytes!.byteLength, receiptFile.size_bytes);
+  const paymentJournalLines = server.db.prepare(`SELECT a.code,l.debit_minor,l.credit_minor FROM firm_journal_lines l
+    JOIN firm_journals j ON j.workspace_id=l.workspace_id AND j.id=l.journal_id
+    JOIN firm_accounts a ON a.workspace_id=l.workspace_id AND a.id=l.account_id
+    WHERE j.workspace_id=? AND j.source_event_key=? AND j.status='POSTED' ORDER BY a.code`)
+    .bind(fixture.workspaceId, `payment:${postArchiveCollection.body.result?.paymentId}`)
+    .all<{ code: string; debit_minor: number; credit_minor: number }>().results;
+  assert.deepEqual(paymentJournalLines, [
+    { code: '1000', debit_minor: finalInvoiceSnapshot.total_minor, credit_minor: 0 },
+    { code: '1100', debit_minor: 0, credit_minor: finalInvoiceSnapshot.total_minor }
+  ], 'the post-archive receipt posts Bank and Accounts Receivable in one balanced bookkeeping journal');
 
   const currentAgingResponse = await fetch(practicePath, { headers: reviewerHeaders });
   const currentAging = await currentAgingResponse.json() as { arAging?: { invoices: Array<{ invoiceId: string; outstandingMinor: string }> } };
@@ -1638,9 +1656,11 @@ it('US-REP-001–007 covers all report categories, representation, atomic releas
     'the verified final collection clears AR at its effective date');
   assert.deepEqual(server.db.prepare(`SELECT archive_sha256,manifest_sha256 FROM archive_seals WHERE workspace_id=? AND engagement_id=?`)
     .bind(fixture.workspaceId, fixture.engagementId).first(), archiveBeforeCollection, 'collection leaves the immutable archive hashes unchanged');
-  assert.deepEqual(server.db.prepare(`SELECT portal_frozen_at,portal_freeze_recorded_at,portal_freeze_bundle_id,locked_at,lifecycle_state FROM engagements WHERE workspace_id=? AND id=?`)
-    .bind(fixture.workspaceId, fixture.engagementId).first(), engagementBeforeCollection, 'collection does not unfreeze or reopen the engagement');
-  const finalInvoiceAfterCollection = server.db.prepare(`SELECT fee_revision_id,total_minor,file_version_id,status FROM invoices WHERE workspace_id=? AND id=?`)
+  assert.deepEqual(server.db.prepare(`SELECT e.portal_frozen_at,e.locked_at,e.lifecycle_state,pf.bundle_id,pf.frozen_at,pf.reason,pf.actor_id
+    FROM engagements e JOIN portal_freezes pf ON pf.workspace_id=e.workspace_id AND pf.engagement_id=e.id
+    WHERE e.workspace_id=? AND e.id=?`).bind(fixture.workspaceId, fixture.engagementId).first(),
+    engagementBeforeCollection, 'collection does not unfreeze the portal, alter its immutable freeze record, or reopen the engagement');
+  const finalInvoiceAfterCollection = server.db.prepare(`SELECT id,fee_revision_id,total_minor,file_version_id,status FROM invoices WHERE workspace_id=? AND id=?`)
     .bind(fixture.workspaceId, finalInvoiceSnapshot.id).first();
   assert.deepEqual(finalInvoiceAfterCollection, { ...finalInvoiceSnapshot, status: 'ISSUED' }, 'late collection keeps the issued commercial invoice immutable');
   const issuedInvoiceBytesAfter = server.getTestObject(issuedInvoiceFile.object_key);
