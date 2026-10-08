@@ -21,7 +21,7 @@ import {
 
 type EngagementRef = { id: string; clientId: string; code: string; clientName: string; lifecycleState: string };
 type ColumnMap = { headerRow: number; accountCodeColumn: number; accountNameColumn: number; balanceColumn?: number;
-  debitColumn?: number; creditColumn?: number; priorBalanceColumn?: number };
+  debitColumn?: number; creditColumn?: number; priorBalanceColumn?: number; currencyColumn?: number };
 type Benchmark = 'PBT' | 'REVENUE' | 'TOTAL_ASSETS' | 'EQUITY';
 type AdjustmentDraft = { description: string; amount: string; evidenceFileId: string };
 type RiskDraft = { inherentRisk: 'LOW' | 'MODERATE' | 'HIGH'; criticalEstimate: boolean; rationale: string };
@@ -74,9 +74,12 @@ function suggestedColumns(preview: BusinessTrialBalancePreview): ColumnMap {
   const credit = headers.findIndex(value => /^(credit|cr)(\s|$)/i.test(value.trim()));
   const balance = headers.findIndex(value => /balance|amount|current/i.test(value));
   const prior = headers.findIndex(value => /prior|previous|comparative|py\b/i.test(value));
+  const currency = headers.findIndex(value => /^(currency|ccy)(\b|\s|$)/i.test(value.trim()));
+  const selected = new Set([code, name, debit, credit, balance, prior].filter(index => index >= 0));
   return { headerRow: preview.previewStartsAtRow, accountCodeColumn: code, accountNameColumn: name,
     ...(debit >= 0 && credit >= 0 ? { debitColumn: debit, creditColumn: credit } : { balanceColumn: balance >= 0 && balance !== code && balance !== name ? balance : Math.min(2, preview.maxColumns - 1) }),
-    ...(prior >= 0 && prior !== code && prior !== name && prior !== balance && prior !== debit && prior !== credit ? { priorBalanceColumn: prior } : {}) };
+    ...(prior >= 0 && prior !== code && prior !== name && prior !== balance && prior !== debit && prior !== credit ? { priorBalanceColumn: prior } : {}),
+    ...(currency >= 0 && !selected.has(currency) ? { currencyColumn: currency } : {}) };
 }
 
 export function BusinessTrialBalancePanel({
@@ -316,7 +319,7 @@ export function BusinessTrialBalancePanel({
     return totals;
   }, [workspace?.tbLines]);
 
-  function renderColumn(label: string, key: 'accountCodeColumn' | 'accountNameColumn' | 'balanceColumn' | 'debitColumn' | 'creditColumn' | 'priorBalanceColumn', optional = false) {
+  function renderColumn(label: string, key: 'accountCodeColumn' | 'accountNameColumn' | 'balanceColumn' | 'debitColumn' | 'creditColumn' | 'priorBalanceColumn' | 'currencyColumn', optional = false) {
     const value = columns[key];
     return <label className="business-field" key={key}><span>{label}</span><select value={value ?? ''} required={!optional}
       onChange={event => setColumns(current => ({ ...current, [key]: event.target.value === '' ? undefined : Number(event.target.value) }))}>
@@ -358,7 +361,8 @@ export function BusinessTrialBalancePanel({
           <div className="business-form-grid">{renderColumn('Account code', 'accountCodeColumn')}{renderColumn('Account name', 'accountNameColumn')}
             {columns.balanceColumn !== undefined ? renderColumn('Signed current balance', 'balanceColumn') : <>
               {renderColumn('Current debit', 'debitColumn')}{renderColumn('Current credit', 'creditColumn')}</>}
-            {renderColumn('Prior-year signed balance', 'priorBalanceColumn', true)}</div>
+            {renderColumn('Prior-year signed balance', 'priorBalanceColumn', true)}
+            {renderColumn('Currency (QAR only)', 'currencyColumn', true)}</div>
           <div className="business-tb-preview-wrap"><table className="business-tb-preview"><caption>First worksheet rows · formula cells are identified for rejection</caption>
             <tbody>{preview.preview.slice(0, 6).map((row, index) => <tr key={index}><th scope="row">{preview.previewStartsAtRow + index}</th>
               {row.map((cell, cellIndex) => <td key={cellIndex}>{cell || '—'}</td>)}</tr>)}</tbody></table></div>

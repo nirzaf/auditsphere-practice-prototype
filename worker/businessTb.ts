@@ -15,7 +15,8 @@ const columnMap = z.strictObject({
   balanceColumn: z.number().int().min(0).max(255).optional(),
   debitColumn: z.number().int().min(0).max(255).optional(),
   creditColumn: z.number().int().min(0).max(255).optional(),
-  priorBalanceColumn: z.number().int().min(0).max(255).optional()
+  priorBalanceColumn: z.number().int().min(0).max(255).optional(),
+  currencyColumn: z.number().int().min(0).max(255).optional()
 }).superRefine((value, ctx) => {
   if (value.balanceColumn === undefined && (value.debitColumn === undefined || value.creditColumn === undefined)) {
     ctx.addIssue({ code: 'custom', path: ['balanceColumn'], message: 'Select one signed balance column or both debit and credit columns.' });
@@ -23,7 +24,7 @@ const columnMap = z.strictObject({
   if (value.balanceColumn !== undefined && (value.debitColumn !== undefined || value.creditColumn !== undefined)) {
     ctx.addIssue({ code: 'custom', path: ['balanceColumn'], message: 'Choose signed balance or debit/credit columns, not both.' });
   }
-  const selected = [value.accountCodeColumn, value.accountNameColumn, value.balanceColumn, value.debitColumn, value.creditColumn, value.priorBalanceColumn]
+  const selected = [value.accountCodeColumn, value.accountNameColumn, value.balanceColumn, value.debitColumn, value.creditColumn, value.priorBalanceColumn, value.currencyColumn]
     .filter((column): column is number => column !== undefined);
   if (new Set(selected).size !== selected.length) ctx.addIssue({ code: 'custom', path: ['accountCodeColumn'], message: 'Each imported field must use a different source column.' });
 });
@@ -213,7 +214,7 @@ export function parseTrialBalanceSheet(sheet: XLSX.WorkSheet, config: TrialBalan
   const seen = new Map<string, number>();
   let debits = 0n; let credits = 0n; let priorDebits = 0n; let priorCredits = 0n; let hasPrior = config.priorBalanceColumn !== undefined;
   for (let row = config.headerRow; row <= range.e.r; row += 1) {
-    const fields = [config.accountCodeColumn, config.accountNameColumn, config.balanceColumn, config.debitColumn, config.creditColumn, config.priorBalanceColumn]
+    const fields = [config.accountCodeColumn, config.accountNameColumn, config.balanceColumn, config.debitColumn, config.creditColumn, config.priorBalanceColumn, config.currencyColumn]
       .filter((column): column is number => column !== undefined);
     const values = fields.map(column => cellValue(sheet, row, column));
     if (values.every(value => value === undefined || value === null || value === '')) continue;
@@ -228,6 +229,11 @@ export function parseTrialBalanceSheet(sheet: XLSX.WorkSheet, config: TrialBalan
     const codeCell = sheet[XLSX.utils.encode_cell({ r: row, c: config.accountCodeColumn })];
     const accountCode = String(codeCell?.w ?? codeCell?.v ?? '').trim();
     const accountName = String(cellValue(sheet, row, config.accountNameColumn) ?? '').trim();
+    if (config.currencyColumn !== undefined) {
+      const currencyValue = cellValue(sheet, row, config.currencyColumn);
+      const currency = typeof currencyValue === 'string' || typeof currencyValue === 'number' ? String(currencyValue).trim().toUpperCase() : '';
+      if (currency !== 'QAR') rowErrors.push('Currency must be QAR for this workspace; convert the source before importing.');
+    }
     if (!accountCode) rowErrors.push('Account code is required.');
     if (!accountName) rowErrors.push('Account name is required.');
     if (accountCode && seen.has(accountCode)) rowErrors.push(`Duplicate account code also appears at source row ${seen.get(accountCode)}.`);
@@ -251,7 +257,8 @@ export function parseTrialBalanceSheet(sheet: XLSX.WorkSheet, config: TrialBalan
     if (priorMinor !== null) { if (priorMinor >= 0) priorDebits += BigInt(priorMinor); else priorCredits += BigInt(-priorMinor); }
     const sourceText = JSON.stringify({ accountCode, accountName,
       current: config.balanceColumn !== undefined ? cellValue(sheet, row, config.balanceColumn) : { debit: cellValue(sheet, row, config.debitColumn!), credit: cellValue(sheet, row, config.creditColumn!) },
-      prior: hasPrior ? cellValue(sheet, row, config.priorBalanceColumn!) : null });
+      prior: hasPrior ? cellValue(sheet, row, config.priorBalanceColumn!) : null,
+      currency: config.currencyColumn === undefined ? 'QAR' : cellValue(sheet, row, config.currencyColumn) });
     const line: ParsedTbLine = { id: crypto.randomUUID(), rowNumber, accountCode: accountCode || null, accountName: accountName || null,
       currentMinor, priorMinor, sourceText, errors: rowErrors };
     lines.push(line);

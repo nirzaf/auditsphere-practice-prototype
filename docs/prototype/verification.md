@@ -1624,7 +1624,7 @@ live archive transfer, and the remaining US-REP-007 criteria remain open.
 
 ## US-FLD-001 reject unsupported workbook packages — 2026-10-08
 
-**Verification:** `npx tsx --test tests/unit/businessTbWorkbook.test.ts` — 5/5;
+**Verification:** `npx tsx --test tests/unit/businessTbWorkbook.test.ts` — 7/7;
 full serialized unit suite; `npm run lint`; `npm run cloud:typecheck`;
 `npm run build`; `git diff --check` — all pass.
 
@@ -1633,9 +1633,9 @@ paths. It rejects an XLSM workbook that is mislabeled as an ordinary workbook
 and rejects a ZIP package containing an `xl/externalLinks/` part. Focused parser
 checks also verify a selected worksheet, missing-sheet failure, non-first header
 row, signed debit/credit conversion, formula-only balance rejection with its
-cell reference, duplicate account detection and rejection of more than two
-decimal places.
+cell reference, duplicate account detection, rejection of more than two decimal
+places, optional QAR currency validation, and exact 20,000-row/256-column bounds.
 
 **Boundary:** These deterministic parser tests do not cover Cloudflare D1
-interruption, encrypted workbook fixtures, maximum-size/20,000-row boundaries,
-or current-account/browser acceptance. US-FLD-001 and the full epic remain open.
+interruption, encrypted workbook fixtures, or current-account/browser
+acceptance. US-FLD-001 and the full epic remain open.

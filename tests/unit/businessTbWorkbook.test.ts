@@ -86,3 +86,31 @@ it('rejects formula-only values, duplicate account codes, and amounts with exces
   const precisionResult = parseTrialBalanceSheet(precisionSheet, signedBalanceMap);
   assert.ok(precisionResult.errors.some(error => error.code === 'INVALID_ROW' && /more than two decimal places/.test(error.message)));
 });
+
+it('rejects a declared non-QAR source currency before reconciliation', () => {
+  const sheet = XLSX.utils.aoa_to_sheet([
+    ['Account', 'Name', 'Balance', 'Currency'],
+    ['1000', 'Cash', 100, 'USD'],
+    ['2000', 'Equity', -100, 'USD']
+  ]);
+  const result = parseTrialBalanceSheet(sheet, { ...signedBalanceMap, currencyColumn: 3 });
+  assert.equal(result.errors.filter(error => /Currency must be QAR/.test(error.message)).length, 2);
+
+  const qarSheet = XLSX.utils.aoa_to_sheet([
+    ['Account', 'Name', 'Balance', 'Currency'],
+    ['1000', 'Cash', 100, ' qar '],
+    ['2000', 'Equity', -100, 'QAR']
+  ]);
+  assert.deepEqual(parseTrialBalanceSheet(qarSheet, { ...signedBalanceMap, currencyColumn: 3 }).errors, []);
+});
+
+it('enforces the documented 20,000-row and 256-column limits at their boundaries', () => {
+  const maxRows = { '!ref': 'A1:A20001' } as XLSX.WorkSheet;
+  const rowBoundary = parseTrialBalanceSheet(maxRows, signedBalanceMap);
+  assert.ok(rowBoundary.errors.some(error => error.code === 'EMPTY_TRIAL_BALANCE'));
+  assert.throws(() => parseTrialBalanceSheet({ '!ref': 'A1:A20002' } as XLSX.WorkSheet, signedBalanceMap), /20,000-row import limit/);
+
+  const maxColumns = { '!ref': 'A1:IV1' } as XLSX.WorkSheet;
+  assert.ok(parseTrialBalanceSheet(maxColumns, signedBalanceMap).errors.some(error => error.code === 'EMPTY_TRIAL_BALANCE'));
+  assert.throws(() => parseTrialBalanceSheet({ '!ref': 'A1:IW1' } as XLSX.WorkSheet, signedBalanceMap), /256-column parser limit/);
+});
