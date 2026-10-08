@@ -188,6 +188,34 @@ async function advanceBillingBlockers(env: Env, workspaceId: string, context: Bu
   return blockers;
 }
 
+async function portalCredentialBlockers(env: Env, workspaceId: string, engagement: WorkflowEngagement): Promise<StageBlocker[]> {
+  const route = await env.DB.prepare(`SELECT cr.id FROM engagements e
+    JOIN contact_routes cr ON cr.workspace_id=e.workspace_id AND cr.client_id=e.client_id
+    JOIN contacts ct ON ct.workspace_id=cr.workspace_id AND ct.client_id=cr.client_id AND ct.id=cr.contact_id
+    JOIN clients c ON c.workspace_id=e.workspace_id AND c.id=e.client_id
+    WHERE e.workspace_id=? AND e.id=? AND c.active=1 AND cr.purpose='PBC' AND cr.is_primary=1
+      AND ct.role='CHIEF_ACCOUNTANT_LIAISON' AND ct.active=1 AND ct.email IS NOT NULL
+    ORDER BY cr.created_at,cr.id LIMIT 1`)
+    .bind(workspaceId, engagement.id).first<{ id: string }>();
+  if (!route) return [blocker('PORTAL_LIAISON_ROUTE_MISSING', 'Add an active primary PBC route for an Audit Liaison with an email address before issuing portal credentials.', 'clients')];
+
+  const latestJob = await env.DB.prepare(`SELECT status,last_error_code FROM outbox_jobs
+    WHERE workspace_id=? AND kind='EMAIL' AND json_extract(payload_json,'$.documentType')='PORTAL_CREDENTIALS'
+      AND json_extract(payload_json,'$.engagementId')=? AND json_extract(payload_json,'$.contactRouteId')=?
+    ORDER BY created_at DESC,id DESC LIMIT 1`)
+    .bind(workspaceId, engagement.id, route.id).first<{ status: string; last_error_code: string | null }>();
+  if (latestJob?.status === 'PERMANENT_FAILED' || latestJob?.status === 'UNKNOWN') {
+    return [blocker('PORTAL_CREDENTIAL_EMAIL_FAILED', `Portal credential email delivery needs staff reconciliation${latestJob.last_error_code ? ` (${latestJob.last_error_code})` : ''}. Reissue credentials after resolving the provider or route issue.`, 'clients')];
+  }
+  if (latestJob && latestJob.status !== 'SUCCEEDED') {
+    return [blocker('PORTAL_CREDENTIAL_EMAIL_PENDING', 'Portal credential email delivery is queued or retrying; wait for provider acceptance.', 'clients')];
+  }
+  if (!latestJob) {
+    return [blocker('PORTAL_CREDENTIAL_PROVISIONING_BLOCKED', 'The active Audit Liaison route has no portal credential issue. Resolve the account or contact conflict, then reissue credentials.', 'clients')];
+  }
+  return [];
+}
+
 async function criticalConfirmationStageBlockers(env: Env, workspaceId: string, engagement: WorkflowEngagement): Promise<StageBlocker[]> {
   const rows = await criticalConfirmationBlockers(env, workspaceId, engagement);
   return rows.map(row => blocker(row.stalePins ? 'STALE_CRITICAL_CONFIRMATION' : 'CRITICAL_CONFIRMATION_OUTSTANDING',
@@ -415,6 +443,7 @@ export async function getBusinessWorkflow(
     blockerCoverage = 'evaluated';
   } else if (engagement.lifecycle_state === 'PORTAL_ACTIVE_PLANNING' && context.allowedActions.includes('planning.read')) {
     blockers = planningBlockers(await getBusinessPlanningReadiness(env, workspaceId, context, engagementId));
+    if (context.actor.persona !== 'CLIENT') blockers.push(...await portalCredentialBlockers(env, workspaceId, engagement));
     blockerCoverage = 'evaluated';
   } else if (engagement.lifecycle_state === 'FIELDWORK_EXECUTION') {
     if (context.allowedActions.includes('fieldwork.read')) blockers = await fieldworkExecutionBlockers(env, workspaceId, engagement);

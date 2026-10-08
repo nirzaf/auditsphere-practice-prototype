@@ -14,6 +14,7 @@ import { businessTbCommands, buildBusinessTbMutation, isBusinessTbCommand } from
 import { businessFieldworkCommands, buildBusinessFieldworkMutation, isBusinessFieldworkCommand } from './businessFieldwork';
 import { businessPracticeCommands, buildBusinessPracticeMutation, businessPracticeBootstrapStatements, getBusinessPracticeWorkspace, isBusinessPracticeCommand } from './businessPractice';
 import { businessReportingCommands, buildBusinessReportingMutation, isBusinessReportingCommand } from './businessReporting';
+import { businessPortalCredentialCommands, buildPortalCredentialReissueMutation } from './businessPortalCredentials';
 import { presentationEditionBlocker } from '../src/domain/reportingStandards';
 
 export const BUSINESS_SCHEMA_VERSION = 10;
@@ -1264,7 +1265,8 @@ export const businessCommandSchema = z.discriminatedUnion('type', [
   ...businessTbCommands,
   ...businessFieldworkCommands,
   ...businessPracticeCommands,
-  ...businessReportingCommands
+  ...businessReportingCommands,
+  ...businessPortalCredentialCommands
 ]);
 
 const expectedVersionSchema = z.strictObject({
@@ -1292,7 +1294,7 @@ type BusinessTbCommandType = import('./businessTb').BusinessTbCommand;
 type BusinessFieldworkCommandType = import('./businessFieldwork').BusinessFieldworkCommand;
 type BusinessPracticeCommandType = import('./businessPractice').BusinessPracticeCommand;
 type BusinessReportingCommandType = import('./businessReporting').BusinessReportingCommand;
-type BusinessCommercialCommand = Exclude<BusinessCommand, BusinessDirectoryCommand | BusinessFileCommand | BusinessPbcCommand | BusinessProposalCommand | BusinessPlanningCommandType | BusinessTbCommandType | BusinessFieldworkCommandType | BusinessPracticeCommandType | BusinessReportingCommandType | import('./businessRisk').BusinessRiskCommand | import('./businessDelivery').BusinessDeliveryCommand>;
+type BusinessCommercialCommand = Exclude<BusinessCommand, BusinessDirectoryCommand | BusinessFileCommand | BusinessPbcCommand | BusinessProposalCommand | BusinessPlanningCommandType | BusinessTbCommandType | BusinessFieldworkCommandType | BusinessPracticeCommandType | BusinessReportingCommandType | import('./businessRisk').BusinessRiskCommand | import('./businessDelivery').BusinessDeliveryCommand | import('./businessPortalCredentials').PortalCredentialReissueCommand>;
 
 function isBusinessDirectoryCommand(command: BusinessCommand): command is BusinessDirectoryCommand {
   return command.type === 'staff.create' || command.type === 'staff.update'
@@ -1311,6 +1313,10 @@ function isBusinessPbcCommand(command: BusinessCommand): command is BusinessPbcC
 function isBusinessProposalCommand(command: BusinessCommand): command is BusinessProposalCommand {
   return command.type.startsWith('proposal.') || command.type === 'firm-profile.save'
     || command.type === 'team-cv.attach' || command.type === 'team-cv.approve';
+}
+
+function isBusinessPortalCredentialCommand(command: BusinessCommand): command is import('./businessPortalCredentials').PortalCredentialReissueCommand {
+  return command.type === 'portal.credentials.reissue';
 }
 
 export function parseBusinessCommandEnvelope(value: unknown, idempotencyKey: string | null): BusinessCommandEnvelope {
@@ -3864,7 +3870,9 @@ export async function runBusinessDirectoryCommand(
     const auditEventId = crypto.randomUUID();
     const timestamp = new Date().toISOString();
     const now = Math.floor(Date.now() / 1000);
-    const mutation = isBusinessDirectoryCommand(envelope.command)
+    const mutation = isBusinessPortalCredentialCommand(envelope.command)
+      ? await buildPortalCredentialReissueMutation(env, workspaceId, context, envelope.command, commandId, timestamp)
+      : isBusinessDirectoryCommand(envelope.command)
       ? await buildDirectoryMutation(env, workspaceId, context, envelope.command, commandId, timestamp)
       : isBusinessFileCommand(envelope.command)
         ? await buildBusinessFileMutation(env, workspaceId, context, envelope.command, timestamp)

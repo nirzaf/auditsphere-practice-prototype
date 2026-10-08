@@ -26,18 +26,18 @@ export async function authSessionCookie(db: TestDatabase, workspaceId: string, r
   if (cached) return cached;
 
   const profile = await db.prepare(`SELECT ap.persona,ap.staff_member_id,ap.contact_id,sm.display_name AS staff_name,
-      sm.grade, c.full_name AS client_name
+      sm.grade, c.full_name AS client_name,c.email AS client_email
     FROM actor_profiles ap LEFT JOIN staff_members sm ON sm.workspace_id=ap.workspace_id AND sm.id=ap.staff_member_id
     LEFT JOIN contacts c ON c.workspace_id=ap.workspace_id AND c.id=ap.contact_id
     WHERE ap.workspace_id=? AND ap.id=?`).bind(workspaceId, actorProfileId)
-    .first<{ persona: string; staff_member_id: string | null; contact_id: string | null; staff_name: string | null; grade: string | null; client_name: string | null }>();
+    .first<{ persona: string; staff_member_id: string | null; contact_id: string | null; staff_name: string | null; grade: string | null; client_name: string | null; client_email: string | null }>();
   if (!profile) throw new Error(`Cannot create test authentication for missing actor profile ${actorProfileId}.`);
 
   const identityKey = profile.persona === 'CLIENT' ? `contact:${profile.contact_id}` : `staff:${profile.staff_member_id}`;
   const identityDigest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(`${workspaceId}:${identityKey}`));
   const identityHash = [...new Uint8Array(identityDigest)].map(value => value.toString(16).padStart(2, '0')).join('');
   const userAccountId = `test-user-${identityHash.slice(0, 24)}`;
-  const email = `${userAccountId}@auditsphere.test`;
+  const email = profile.persona === 'CLIENT' && profile.client_email ? profile.client_email.trim().toLowerCase() : `${userAccountId}@auditsphere.test`;
   const displayName = profile.persona === 'CLIENT' ? profile.client_name || 'Test Client' : profile.staff_name || 'Test Staff';
   const now = new Date().toISOString();
   await db.prepare(`INSERT OR IGNORE INTO user_accounts(id,workspace_id,kind,email_normalized,display_name,staff_member_id,contact_id,status,

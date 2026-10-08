@@ -9,6 +9,8 @@ import worker, { businessCommandHttpResult } from '../../worker/index.js';
 import { criticalConfirmationBlockers, queueHoldingLetterForBlockers } from '../../worker/businessFieldwork.js';
 import { SqliteD1 } from '../helpers/sqliteD1.js';
 import { authSessionCookie } from '../helpers/authSession.js';
+import { verifyPassword } from '../../worker/auth/passwords.js';
+import { preparePortalCredentialProvisioning } from '../../worker/businessPortalCredentials.js';
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 
@@ -122,7 +124,8 @@ const env = {
   DB: db,
   FILES: fakeR2 as any,
   ASSETS: { fetch: async () => new Response('not found', { status: 404 }) } as any,
-  BUSINESS_SETUP_ENABLED: 'true'
+  BUSINESS_SETUP_ENABLED: 'true',
+  PUBLIC_APP_URL: 'https://local.auditsphere.test'
 } as any;
 
 async function testFetch(request: Request, requestEnv = env, executionContext = {} as any): Promise<Response> {
@@ -214,13 +217,13 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
   const ready = await call('/api/health/ready');
   assert.equal(ready.response.status, 200, JSON.stringify(ready.body));
   assert.equal(ready.body.status, 'ready');
-  assert.equal(ready.body.schemaVersion, 46);
+  assert.equal(ready.body.schemaVersion, 47);
   assert.deepEqual(ready.body.dependencyCodes, []);
   const supportBundle = await call('/api/health/support-bundle');
   assert.equal(supportBundle.response.status, 200);
   assert.match(supportBundle.response.headers.get('content-disposition') ?? '', /attachment; filename="auditsphere-support-bundle.json"/);
-  assert.equal(supportBundle.body.applicationSchemaVersion, 46);
-  assert.equal(supportBundle.body.installedSchemaVersion, 46);
+  assert.equal(supportBundle.body.applicationSchemaVersion, 47);
+  assert.equal(supportBundle.body.installedSchemaVersion, 47);
   assert.equal(supportBundle.body.readiness, 'ready');
   assert.deepEqual(supportBundle.body.verificationRuns, []);
   assert.equal(JSON.stringify(supportBundle.body).includes('workspaceId'), false);
@@ -1067,16 +1070,24 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
   let deliveredAttachments = 0;
   let deliveredAttachmentNames: string[] = [];
   const deliveredRecipients: string[] = [];
+  const deliveredPortalMessages: Array<{ to: string; subject: string; text: string; purpose: string }> = [];
+  let emailProviderMessageSequence = 0;
   env.EMAIL_PROVIDER = { fetch: async (request: Request) => {
     const form = await request.formData();
     const message = JSON.parse(String(form.get('message')));
     assert.match(message.to, /^[^@]+@example\.invalid$/);
     deliveredRecipients.push(message.to);
     const files = form.getAll('attachment').filter((item): item is File => typeof item !== 'string');
-    deliveredAttachments = files.length;
-    deliveredAttachmentNames = files.map(file => file.name);
+    if (message.purpose === 'PORTAL_CREDENTIALS' || message.purpose === 'PORTAL_ACCESS_NOTICE') {
+      assert.equal(files.length, 0, 'portal credentials are never written into a document attachment');
+      deliveredPortalMessages.push(message);
+    } else {
+      deliveredAttachments = files.length;
+      deliveredAttachmentNames = files.map(file => file.name);
+    }
     assert.ok(request.headers.get('Idempotency-Key'));
-    return Response.json({ messageId: 'local-provider-message-001' }, { status: 202 });
+    emailProviderMessageSequence += 1;
+    return Response.json({ messageId: `local-provider-message-${emailProviderMessageSequence}` }, { status: 202 });
   } };
   await worker.scheduled({ scheduledTime: Date.now(), cron: '*/5 * * * *' } as any, env);
   assert.equal(deliveredAttachments, 4, 'dispatch contains the proposal PDF, Partner CV and both selected firm evidence files');
@@ -1599,6 +1610,21 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
   assert.equal(reversedView.body.payments.find((payment: any) => payment.id === reversedPayment.body.result.paymentId).reversal, true);
   assert.deepEqual((await readWorkflowStage('ADVANCE_BILLING')).blockers.map((item: any) => item.code), ['ADVANCE_PAYMENT_UNSETTLED'],
     'a payment reversal restores the advance-billing blocker');
+  const portalRouteFixture = db.prepare(`SELECT cr.id,cr.version,cr.purpose,cr.is_primary,ct.id AS contact_id,ct.version AS contact_version,
+      ct.role,ct.active,ct.email,c.active AS client_active FROM contact_routes cr
+    JOIN contacts ct ON ct.workspace_id=cr.workspace_id AND ct.client_id=cr.client_id AND ct.id=cr.contact_id
+    JOIN clients c ON c.workspace_id=cr.workspace_id AND c.id=cr.client_id
+    WHERE cr.workspace_id=? AND cr.client_id=? AND cr.purpose='PBC'`)
+    .bind(workspaceId, clientId).all<any>().results;
+  assert.equal(portalRouteFixture?.length, 1);
+  assert.deepEqual({ purpose: portalRouteFixture?.[0]?.purpose, primary: portalRouteFixture?.[0]?.is_primary,
+    role: portalRouteFixture?.[0]?.role, active: portalRouteFixture?.[0]?.active, hasEmail: Boolean(portalRouteFixture?.[0]?.email),
+    clientActive: portalRouteFixture?.[0]?.client_active },
+  { purpose: 'PBC', primary: 1, role: 'CHIEF_ACCOUNTANT_LIAISON', active: 1, hasEmail: true, clientActive: 1 },
+  `the PBC Audit Liaison route is fully eligible for portal provisioning: ${JSON.stringify(portalRouteFixture)}`);
+  db.prepare(`UPDATE user_accounts SET password_must_change=1,version=version+1
+    WHERE workspace_id=? AND contact_id=? AND kind='CLIENT' AND status='ACTIVE'`)
+    .bind(workspaceId, pbcContactId).run();
   const settlement = await post(`/api/workspaces/${workspaceId}/commands`, {
     idempotencyKey: crypto.randomUUID(), command: { type: 'payment.record', payload: {
       clientId, engagementId, amountMinor: '125001', receivedOn: '2026-10-05', method: 'BANK_TRANSFER', reference: 'BANK-LOCAL-SETTLEMENT',
@@ -1610,6 +1636,195 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
   const settledView = await call(deliveryPath, { headers: makeRiskHeaders(reviewerHeaders) });
   assert.equal(settledView.body.engagement.lifecycleState, 'PORTAL_ACTIVE_PLANNING', 'planning unlocks only when the full advance and committed final receipt exist');
   assert.equal(settledView.body.invoices.find((invoice: any) => invoice.id === issuedInvoice.id).outstandingMinor, '0');
+  assert.deepEqual(deliveredPortalMessages, [], 'credential delivery is queued atomically with the receipt transition and runs in the next outbox pass');
+  const credentialJobLogs: string[] = [];
+  const mutableConsole = console as unknown as Record<string, (...args: unknown[]) => void>;
+  const savedConsoleMethods = new Map<string, (...args: unknown[]) => void>();
+  for (const method of ['log', 'info', 'warn', 'error']) {
+    savedConsoleMethods.set(method, mutableConsole[method]);
+    mutableConsole[method] = (...args) => credentialJobLogs.push(args.map(value => typeof value === 'string' ? value : JSON.stringify(value)).join(' '));
+  }
+  try {
+    await worker.scheduled({ scheduledTime: Date.now(), cron: '*/5 * * * *' } as any, env);
+  } finally {
+    for (const [method, original] of savedConsoleMethods) mutableConsole[method] = original;
+  }
+  const portalJobStates = db.prepare(`SELECT status,last_error_code FROM outbox_jobs WHERE workspace_id=?
+    AND json_extract(payload_json,'$.documentType')='PORTAL_CREDENTIALS' AND json_extract(payload_json,'$.engagementId')=?`)
+    .bind(workspaceId, engagementId).all<any>().results;
+  assert.equal(deliveredPortalMessages.length, 1, `settling the advance sends one Audit Liaison portal credential email; jobs=${JSON.stringify(portalJobStates)}, logs=${credentialJobLogs.join('|')}`);
+  const portalEmail = deliveredPortalMessages[0];
+  assert.equal(portalEmail.purpose, 'PORTAL_CREDENTIALS');
+  assert.equal(portalEmail.to, 'chief-accountant@example.invalid');
+  assert.match(portalEmail.text, /Portal: https:\/\/local\.auditsphere\.test/);
+  assert.match(portalEmail.text, /Login email: chief-accountant@example\.invalid/);
+  assert.match(portalEmail.text, /Temporary password: [A-Za-z0-9!@#$%]{24}/);
+  assert.match(portalEmail.text, /Expires: .* \(seven days after issue\)/);
+  assert.match(portalEmail.text, /must change this password at your first sign-in/i);
+  assert.equal(portalEmail.text.includes(clientLegalName), false, 'credential email contains no other engagement or client data');
+  assert.equal(portalEmail.text.includes('E2026-001'), false, 'credential email does not disclose an engagement code');
+  const temporaryPassword = portalEmail.text.match(/Temporary password: ([^\r\n]+)/)?.[1];
+  assert.ok(temporaryPassword, 'the delivered message has a temporary password');
+  const portalIssue = db.prepare(`SELECT id,trigger,contact_route_id,user_account_id,credential_token_id,outbox_job_id,created_at
+    FROM portal_credential_issues WHERE workspace_id=? AND engagement_id=? AND trigger='ADVANCE_PAYMENT'`)
+    .bind(workspaceId, engagementId).first<any>();
+  assert.ok(portalIssue);
+  assert.equal(db.prepare(`SELECT COUNT(*) AS count FROM portal_credential_issues WHERE workspace_id=? AND engagement_id=? AND trigger='ADVANCE_PAYMENT'`)
+    .bind(workspaceId, engagementId).first<any>()?.count, 1);
+  const portalAccount = db.prepare(`SELECT id,status,password_hash,password_must_change,email_normalized FROM user_accounts
+    WHERE workspace_id=? AND contact_id=? AND kind='CLIENT'`).bind(workspaceId, pbcContactId).first<any>();
+  assert.deepEqual({ status: portalAccount?.status, passwordMustChange: portalAccount?.password_must_change, email: portalAccount?.email_normalized },
+    { status: 'ACTIVE', passwordMustChange: 1, email: 'chief-accountant@example.invalid' });
+  assert.equal(await verifyPassword(temporaryPassword, portalAccount.password_hash), true, 'the delivered password matches the stored Argon2id hash');
+  assert.equal(db.prepare(`SELECT COUNT(*) AS count FROM user_profile_grants WHERE workspace_id=? AND user_account_id=?
+    AND actor_profile_id=? AND revoked_at IS NULL`).bind(workspaceId, portalAccount.id, pbcClientProfile.body.result.actorProfileId)
+    .first<any>()?.count, 1, 'the client portal account receives one active grant to its CLIENT actor profile');
+  const portalToken = db.prepare(`SELECT purpose,expires_at,created_at FROM credential_tokens WHERE workspace_id=? AND id=?`)
+    .bind(workspaceId, portalIssue.credential_token_id).first<any>();
+  assert.equal(portalToken.purpose, 'CLIENT_TEMP_PASSWORD');
+  assert.equal(Date.parse(portalToken.expires_at) - Date.parse(portalToken.created_at), 7 * 24 * 60 * 60 * 1000);
+  const portalPayload = db.prepare('SELECT payload_json FROM outbox_jobs WHERE workspace_id=? AND id=?')
+    .bind(workspaceId, portalIssue.outbox_job_id).first<any>()?.payload_json as string;
+  const portalAudit = db.prepare(`SELECT COALESCE(group_concat(details_json,''),'') AS details FROM audit_events
+    WHERE workspace_id=? AND engagement_id=?`).bind(workspaceId, engagementId).first<any>()?.details as string;
+  const portalAuthEvent = db.prepare(`SELECT detail_json FROM auth_events WHERE workspace_id=? AND user_account_id=?
+    AND event='TEMP_PASSWORD_ISSUED' ORDER BY created_at DESC,id DESC LIMIT 1`).bind(workspaceId, portalAccount.id).first<any>()?.detail_json as string;
+  assert.equal([portalPayload, portalAudit, portalAuthEvent, ...credentialJobLogs].join('\n').includes(temporaryPassword), false,
+    'neither durable outbox/audit/auth data nor captured Worker logs contain the plaintext password');
+  await worker.scheduled({ scheduledTime: Date.now(), cron: '*/5 * * * *' } as any, env);
+  assert.equal(deliveredPortalMessages.length, 1, 'replaying an idle outbox pass does not send a second automatic credential message');
+  const currentPbcContactVersion = db.prepare('SELECT version FROM contacts WHERE workspace_id=? AND id=?')
+    .bind(workspaceId, pbcContactId).first<any>()?.version as number;
+  const deactivateLiaison = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'contact.update', payload: {
+      contactId: pbcContactId, expectedVersion: currentPbcContactVersion, active: false
+    } }
+  }, makeRiskHeaders(preparerHeaders));
+  assert.equal(deactivateLiaison.response.status, 200, JSON.stringify(deactivateLiaison.body));
+  const missingRoutePreparation = await preparePortalCredentialProvisioning(env, {
+    workspaceId, clientId, engagementId, trigger: 'ADVANCE_PAYMENT', commandId: crypto.randomUUID(),
+    createdByActorId: reviewerHeaders['X-Actor-Id'], createdAt: new Date().toISOString()
+  });
+  assert.equal(missingRoutePreparation.blockedCode, 'PORTAL_LIAISON_ROUTE_MISSING');
+  assert.equal(missingRoutePreparation.statements.length, 0, 'a missing active PBC Audit Liaison never queues credentials');
+  const missingRouteWorkflow = await readWorkflowStage('PORTAL_ACTIVE_PLANNING');
+  assert.ok(missingRouteWorkflow.blockers.some((item: any) => item.code === 'PORTAL_LIAISON_ROUTE_MISSING'),
+    'staff workflow names the missing liaison route while keeping the lifecycle active');
+  const replacementLiaison = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'contact.create', payload: {
+      clientId, contact: { fullName: 'Replacement Audit Liaison', email: 'replacement-liaison@example.invalid',
+        title: 'Chief Accountant', role: 'CHIEF_ACCOUNTANT_LIAISON', effectiveFrom: '2026-10-08' }
+    } }
+  }, makeRiskHeaders(preparerHeaders));
+  assert.equal(replacementLiaison.response.status, 200, JSON.stringify(replacementLiaison.body));
+  assert.deepEqual(replacementLiaison.body.result.routePurposes, [], 'a replacement contact does not silently take over an existing route');
+  const replacementPrimaryRoute = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'contact.route', payload: {
+      clientId, contactId: replacementLiaison.body.result.contactId, purpose: 'PBC', isPrimary: true,
+      rationale: 'The prior liaison is inactive; assign this active contact as the replacement portal recipient.', expectedVersion: null
+    } }
+  }, makeRiskHeaders(preparerHeaders));
+  assert.equal(replacementPrimaryRoute.response.status, 200, JSON.stringify(replacementPrimaryRoute.body));
+  const replacementRouteId = replacementPrimaryRoute.body.result.contactRouteId as string;
+  const deniedCredentialReissue = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'portal.credentials.reissue', payload: {
+      engagementId, contactRouteId: replacementRouteId, reason: 'A Preparer cannot reissue a client credential.'
+    } }
+  }, makeRiskHeaders(preparerHeaders));
+  assert.equal(deniedCredentialReissue.response.status, 403);
+  assert.equal(deniedCredentialReissue.body.code, 'PERSONA_ACTION_DENIED');
+  const reissueCommand = () => ({ idempotencyKey: crypto.randomUUID(), command: { type: 'portal.credentials.reissue', payload: {
+    engagementId, contactRouteId: replacementRouteId, reason: 'The Reviewer approved a replacement client portal credential.'
+  } } });
+  const reviewerReissue = await post(`/api/workspaces/${workspaceId}/commands`, reissueCommand(), makeRiskHeaders(reviewerHeaders));
+  assert.equal(reviewerReissue.response.status, 200, JSON.stringify(reviewerReissue.body));
+  assert.equal(reviewerReissue.body.result.status, 'QUEUED');
+  const queuedReissue = db.prepare(`SELECT id,credential_token_id,outbox_job_id FROM portal_credential_issues
+    WHERE workspace_id=? AND id=? AND trigger='MANUAL_REISSUE'`).bind(workspaceId, reviewerReissue.body.result.issueId).first<any>();
+  assert.ok(queuedReissue);
+  await worker.scheduled({ scheduledTime: Date.now(), cron: '*/5 * * * *' } as any, env);
+  assert.equal(deliveredPortalMessages.length, 2, 'a Reviewer reissue delivers a fresh credential');
+  const replacementPassword = deliveredPortalMessages[1].text.match(/Temporary password: ([^\r\n]+)/)?.[1];
+  assert.ok(replacementPassword);
+  const replacementAccount = db.prepare(`SELECT id,status,password_hash,password_must_change FROM user_accounts
+    WHERE workspace_id=? AND contact_id=? AND kind='CLIENT'`).bind(workspaceId, replacementLiaison.body.result.contactId).first<any>();
+  assert.equal(replacementAccount.status, 'ACTIVE');
+  assert.equal(replacementAccount.password_must_change, 1);
+  assert.equal(await verifyPassword(replacementPassword, replacementAccount.password_hash), true);
+  const replacementProfile = db.prepare(`SELECT id FROM actor_profiles WHERE workspace_id=? AND contact_id=? AND persona='CLIENT' AND active=1`)
+    .bind(workspaceId, replacementLiaison.body.result.contactId).first<any>();
+  assert.ok(replacementProfile, 'credential reissue provisions a CLIENT actor profile when the contact has none');
+  assert.equal(db.prepare(`SELECT COUNT(*) AS count FROM user_profile_grants WHERE workspace_id=? AND user_account_id=?
+    AND actor_profile_id=? AND revoked_at IS NULL`).bind(workspaceId, replacementAccount.id, replacementProfile.id).first<any>()?.count, 1,
+    'credential reissue grants the account its new CLIENT actor profile');
+  const secondReviewerReissue = await post(`/api/workspaces/${workspaceId}/commands`, reissueCommand(), makeRiskHeaders(reviewerHeaders));
+  assert.equal(secondReviewerReissue.response.status, 200, JSON.stringify(secondReviewerReissue.body));
+  await worker.scheduled({ scheduledTime: Date.now(), cron: '*/5 * * * *' } as any, env);
+  assert.equal(deliveredPortalMessages.length, 3);
+  const latestReplacementPassword = deliveredPortalMessages[2].text.match(/Temporary password: ([^\r\n]+)/)?.[1];
+  assert.ok(latestReplacementPassword);
+  const latestReplacementAccount = db.prepare('SELECT password_hash FROM user_accounts WHERE workspace_id=? AND id=?')
+    .bind(workspaceId, replacementAccount.id).first<any>();
+  assert.equal(await verifyPassword(latestReplacementPassword, latestReplacementAccount.password_hash), true);
+  assert.equal(await verifyPassword(replacementPassword, latestReplacementAccount.password_hash), false,
+    'a new delivered credential invalidates the prior temporary password');
+  const latestQueuedReissue = db.prepare(`SELECT id,credential_token_id,outbox_job_id FROM portal_credential_issues
+    WHERE workspace_id=? AND id=? AND trigger='MANUAL_REISSUE'`).bind(workspaceId, secondReviewerReissue.body.result.issueId).first<any>();
+  assert.ok(latestQueuedReissue);
+  assert.equal(db.prepare(`SELECT id FROM credential_tokens WHERE workspace_id=? AND user_account_id=? AND purpose='CLIENT_TEMP_PASSWORD'
+    ORDER BY created_at DESC,id DESC LIMIT 1`).bind(workspaceId, replacementAccount.id).first<any>()?.id, latestQueuedReissue.credential_token_id,
+    'the latest issued token controls expiry and invalidates earlier password issuance');
+  db.prepare(`UPDATE user_accounts SET password_must_change=0,version=version+1,updated_at=? WHERE workspace_id=? AND id=?`)
+    .bind(new Date().toISOString(), workspaceId, replacementAccount.id).run();
+  const accessNoticePreparation = await preparePortalCredentialProvisioning(env, {
+    workspaceId, clientId, engagementId, contactRouteId: replacementRouteId, trigger: 'ADVANCE_PAYMENT',
+    commandId: crypto.randomUUID(), createdByActorId: reviewerHeaders['X-Actor-Id'], createdAt: new Date().toISOString()
+  });
+  assert.equal(accessNoticePreparation.mode, 'ACCESS_NOTICE', 'an active CLIENT account that has completed its password change receives an access notice');
+  assert.equal(accessNoticePreparation.issueId, undefined, 'an access notice does not create a temporary-password issue');
+  assert.ok(accessNoticePreparation.jobId);
+  db.batch(accessNoticePreparation.statements);
+  const accessNoticePayload = db.prepare('SELECT payload_json FROM outbox_jobs WHERE workspace_id=? AND id=?')
+    .bind(workspaceId, accessNoticePreparation.jobId).first<any>()?.payload_json as string;
+  assert.equal(accessNoticePayload.includes(latestReplacementPassword), false, 'the access-notice job does not contain the existing password');
+  await worker.scheduled({ scheduledTime: Date.now(), cron: '*/5 * * * *' } as any, env);
+  assert.equal(deliveredPortalMessages.length, 4);
+  assert.equal(deliveredPortalMessages[3].purpose, 'PORTAL_ACCESS_NOTICE');
+  assert.match(deliveredPortalMessages[3].text, /portal is now open for/i);
+  assert.equal(/Temporary password:/i.test(deliveredPortalMessages[3].text), false, 'an access notice never includes a new password');
+  const accountAfterAccessNotice = db.prepare('SELECT password_hash,password_must_change FROM user_accounts WHERE workspace_id=? AND id=?')
+    .bind(workspaceId, replacementAccount.id).first<any>();
+  assert.equal(accountAfterAccessNotice.password_must_change, 0);
+  assert.equal(await verifyPassword(latestReplacementPassword, accountAfterAccessNotice.password_hash), true,
+    'an access notice reuses the active account without changing its password');
+  const workingEmailProvider = env.EMAIL_PROVIDER;
+  env.EMAIL_PROVIDER = { fetch: async () => Response.json({ error: 'EMAIL_PROVIDER_THROTTLED' }, { status: 429 }) };
+  const retryableReissue = await post(`/api/workspaces/${workspaceId}/commands`, reissueCommand(), makeRiskHeaders(reviewerHeaders));
+  assert.equal(retryableReissue.response.status, 200, JSON.stringify(retryableReissue.body));
+  const retryableIssue = db.prepare('SELECT outbox_job_id FROM portal_credential_issues WHERE workspace_id=? AND id=?')
+    .bind(workspaceId, retryableReissue.body.result.issueId).first<any>();
+  await worker.scheduled({ scheduledTime: Date.now(), cron: '*/5 * * * *' } as any, env);
+  const retryableJob = db.prepare('SELECT status,attempts FROM outbox_jobs WHERE workspace_id=? AND id=?')
+    .bind(workspaceId, retryableIssue.outbox_job_id).first<any>();
+  assert.deepEqual({ status: retryableJob.status, attempts: retryableJob.attempts }, { status: 'RETRYABLE_FAILED', attempts: 1 });
+  db.prepare('UPDATE outbox_jobs SET attempts=4,next_attempt_at=? WHERE workspace_id=? AND id=?')
+    .bind(new Date().toISOString(), workspaceId, retryableIssue.outbox_job_id).run();
+  await worker.scheduled({ scheduledTime: Date.now(), cron: '*/5 * * * *' } as any, env);
+  assert.equal(db.prepare('SELECT status FROM outbox_jobs WHERE workspace_id=? AND id=?')
+    .bind(workspaceId, retryableIssue.outbox_job_id).first<any>()?.status, 'PERMANENT_FAILED',
+    'the last retry after provider throttling becomes a terminal failure');
+  env.EMAIL_PROVIDER = workingEmailProvider;
+  const failedEmailWorkflow = await readWorkflowStage('PORTAL_ACTIVE_PLANNING');
+  assert.ok(failedEmailWorkflow.blockers.some((item: any) => item.code === 'PORTAL_CREDENTIAL_EMAIL_FAILED'),
+    'staff workflow exposes the exhausted credential email failure');
+  const replacementRoute = db.prepare(`SELECT id FROM contact_routes WHERE workspace_id=? AND contact_id=? AND purpose='PBC'`)
+    .bind(workspaceId, replacementLiaison.body.result.contactId).first<any>();
+  db.prepare(`UPDATE contact_routes SET is_primary=0,rationale='Synthetic test fixture cleanup restores its original liaison route.',version=version+1
+    WHERE workspace_id=? AND id=? AND is_primary=1`).bind(workspaceId, replacementRoute.id).run();
+  db.prepare(`UPDATE contacts SET active=1,version=version+1,updated_at=? WHERE workspace_id=? AND id=? AND active=0`)
+    .bind(new Date().toISOString(), workspaceId, pbcContactId).run();
+  db.prepare(`UPDATE contact_routes SET is_primary=1,rationale=NULL,version=version+1 WHERE workspace_id=? AND id=?`)
+    .bind(workspaceId, portalIssue.contact_route_id).run();
   const planningWorkflow = await readWorkflowStage('PORTAL_ACTIVE_PLANNING');
   assert.equal(planningWorkflow.status, 'blocked');
   assert.ok(planningWorkflow.blockers.some((item: any) => item.code === 'ACTIVE_TB_REQUIRED'),

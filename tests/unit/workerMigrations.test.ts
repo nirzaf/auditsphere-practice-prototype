@@ -49,7 +49,7 @@ it('applies each migration using Wrangler statement splitting to an isolated SQL
     assert.deepEqual(database.prepare('PRAGMA foreign_key_check').all(), [], 'the migrated schema has no foreign-key violations');
     assert.ok(database.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='report_signatures'").get(),
       'the latest reporting migrations are present');
-    assert.equal(database.prepare('SELECT version FROM application_schema_version WHERE singleton=1').get()?.version, 46);
+    assert.equal(database.prepare('SELECT version FROM application_schema_version WHERE singleton=1').get()?.version, 47);
     for (const table of [
       'workspace_entities', 'workspace_root_documents', 'workspace_sessions', 'workspace_seeds',
       'test_workspace_expiry', 'demo_workspaces', 'demo_creation_limits'
@@ -70,6 +70,17 @@ it('applies each migration using Wrangler statement splitting to an isolated SQL
     for (const table of ['user_accounts', 'user_profile_grants', 'auth_sessions', 'credential_tokens', 'auth_events']) {
       assert.ok(database.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?").get(table), `${table} exists`);
     }
+    const now = '2026-10-07T12:00:00.000Z';
+    assert.ok(database.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='portal_credential_issues'").get());
+    assert.ok(database.prepare("SELECT 1 FROM sqlite_master WHERE type='trigger' AND name='portal_credential_issues_no_update'").get());
+    assert.ok(database.prepare("SELECT 1 FROM sqlite_master WHERE type='trigger' AND name='portal_credential_issues_no_delete'").get());
+    database.exec('PRAGMA foreign_keys=OFF; SAVEPOINT portal_issue_append_only');
+    database.prepare(`INSERT INTO portal_credential_issues(id,workspace_id,client_id,engagement_id,contact_route_id,user_account_id,
+      credential_token_id,outbox_job_id,trigger,created_at) VALUES('portal-issue-test','verification-workspace','client','engagement','route','user','token','job','MANUAL_REISSUE',?)`)
+      .run(now);
+    assert.throws(() => database.prepare("UPDATE portal_credential_issues SET created_at=? WHERE id='portal-issue-test'").run(now), /portal_credential_issues are append-only/);
+    assert.throws(() => database.prepare("DELETE FROM portal_credential_issues WHERE id='portal-issue-test'").run(), /portal_credential_issues are append-only/);
+    database.exec('ROLLBACK TO portal_issue_append_only; RELEASE portal_issue_append_only; PRAGMA foreign_keys=ON');
     assert.ok(database.prepare("SELECT 1 FROM sqlite_master WHERE type='trigger' AND name='auth_events_no_update'").get());
     assert.ok(database.prepare("SELECT 1 FROM sqlite_master WHERE type='trigger' AND name='auth_events_no_delete'").get());
     assert.ok(database.prepare("SELECT 1 FROM sqlite_master WHERE type='trigger' AND name='credential_tokens_consume_once'").get());
@@ -79,7 +90,6 @@ it('applies each migration using Wrangler statement splitting to an isolated SQL
     assert.ok(database.prepare("SELECT 1 FROM sqlite_master WHERE type='trigger' AND name='mapping_name_suggestion_update_guard'").get(),
       'mapping edits cannot leave incomplete name similarity provenance');
 
-    const now = '2026-10-07T12:00:00.000Z';
     database.prepare(`INSERT INTO workspaces(id,seed_id,name,schema_version,revision,status,created_at,updated_at)
       VALUES ('verification-workspace',NULL,'Verification fixture',10,1,'active',1,1)`).run();
     database.prepare(`INSERT INTO verification_runs(id,workspace_id,source_commit,schema_version,environment,started_at,

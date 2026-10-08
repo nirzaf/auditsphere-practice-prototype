@@ -12,8 +12,8 @@ When the advance invoice is fully settled and the engagement moves to `PORTAL_AC
 - `worker/business.ts` contact routes (`contact.route`, purposes incl. `PBC`), actor-profile creation (L1505–1545)
 - `docs/contracts/data-model-delta.md` §2; `docs/contracts/api-delta.md` §3 (`portal.credentials.reissue`)
 
-## Current state (verified)
-Portal activation sets `engagements.portal_activated_at`; no account, credential or email is produced.
+## Implementation status (verified)
+Implemented in migration `0047_portal_credential_provisioning.sql` and the receipt-settlement/outbox flow. On full verified advance payment, the receipt batch provisions or reuses the active primary PBC liaison's CLIENT account, profile and grant, stores only a hashed correlation token, creates one identifier-only `PORTAL_CREDENTIALS` job and records the issue. Missing routes do not block the lifecycle transition and surface a staff workflow blocker. Reviewer/Partner reissue is supported; reissues supersede the prior temporary password. The job creates the random password only at delivery time, stores its Argon2id hash after provider acceptance, and never persists the plaintext in its payload or logs.
 
 ## Design (must follow)
 - **Never persist a plaintext temporary password.** In the same batch as the lifecycle transition, the receipt job inserts: the CLIENT `user_accounts` row (if new, status `INVITED`), the CLIENT `actor_profile` + grant (if new), a `CLIENT_TEMP_PASSWORD` `credential_tokens` row (hash of a random correlation token; `expires_at` = now + 7 days; it carries **no** password), an `EMAIL` outbox job of new type `PORTAL_CREDENTIALS` referencing `{ userAccountId, credentialTokenId, engagementId, contactRouteId }`, and the `portal_credential_issues` row linking them. The email job **generates** the temporary password at send time, sets `user_accounts.password_hash` + `password_must_change=1` + `status='ACTIVE'`, sends the email, and commits in one job mutation. A retry of the same job generates a new password and overwrites the hash — only the last emailed password works. Temporary-password expiry is read from the latest `CLIENT_TEMP_PASSWORD` token for the account.
@@ -37,9 +37,11 @@ Portal activation sets `engagements.portal_activated_at`; no account, credential
 
 ## Verify with
 ```bash
-npx tsx --test --test-name-pattern="portal credential" tests/unit/businessWorkspace.test.ts
-npx tsx --test tests/unit/portalCredentials.test.ts && npm run test:unit
+npx tsx --test tests/unit/workerMigrations.test.ts tests/unit/businessWorkspace.test.ts
+npm run cloud:typecheck
 ```
+
+The focused verification passes: the migration test asserts schema version 47, the issue table and append-only triggers; the BUSINESS workspace journey verifies automatic issuance, idempotency, missing-route recovery, Reviewer reissue, prior-password invalidation, reuse of an already-active account through a password-free access notice, 429 retry, terminal email failure, and secret absence from durable payloads and captured logs. `npm run test:unit` also passed (173 passed, 0 failed, 1 opt-in stress test skipped). E03-S05 owns password-expiry enforcement at login; this migration and email provide the seven-day token expiry.
 
 ## Stop and ask if
 - The outbox `EMAIL` job model cannot generate content at send time without a schema change beyond data-model-delta §2.
