@@ -54,17 +54,18 @@ this approximately 2.4-minute stress case. The previous
 64 MiB assembly and 128 MiB export-buffer limits have been removed. The archive
 writer now emits streaming ZIP64 local headers, descriptors, central-directory
 entries and end records, removing the ZIP32 4 GiB archive/member cap; it still
-rejects byte counts beyond JavaScript's exact safe-integer range. The browser
-fallback now hashes and counts response chunks in a TransformStream before
-materializing its Blob, avoiding an extra whole-archive ArrayBuffer copy; it still
-requires a full Blob allocation on browsers without the File System Access API. It also
-rejects unsafe, truncated, oversized and digest-mismatched responses. The Worker
-rejects unsafe D1 byte counts before either checksum-backed or digest-streamed
-exports and validates the sealed hash before reading archive bytes. Large-archive
-acceptance remains open for the full supported size range, a native large-download
-fallback when File System Access is unavailable, and R2-to-browser end-to-end
-verification. Sealed objects now use dedicated
-retention-specific prefixes, and `worker/r2-archive-locks.json` contains generated
+rejects byte counts beyond JavaScript's exact safe-integer range. Browsers with
+the File System Access API stream verified chunks to disk. Other browsers now
+request a five-minute, single-use download ticket and hand the same-origin URL
+to the native download manager, avoiding a full-archive Blob allocation. The
+Worker rechecks that the requesting reviewer or Partner remains active, then
+streams the archive while verifying its sealed digest and exact size. The smaller
+manifest remains a verified Blob download. Large-archive acceptance remains
+open for the full supported size range and deployed R2-to-browser verification.
+The Worker rejects unsafe D1 byte counts before either checksum-backed or
+digest-streamed exports and validates the sealed hash before reading archive
+bytes. Sealed objects now use dedicated retention-specific prefixes, and
+`worker/r2-archive-locks.json` contains generated
 prefix rules for every supported term. CI and `npm run cloud:deploy` now apply
 these rules idempotently and verify their Cloudflare read-back before Worker
 deployment; a Cloudflare API token with R2 bucket configuration edit permission

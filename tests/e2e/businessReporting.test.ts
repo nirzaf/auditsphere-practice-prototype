@@ -680,8 +680,32 @@ it('US-REP-001–007 covers all report categories, representation, atomic releas
       HTMLAnchorElement.prototype.click = function() {
         if (!this.download) return state.originalClick.call(this);
         const blob = state.urls.get(this.href);
-        if (!blob) { state.errors.push('Download link did not refer to a captured object URL.'); return; }
-        const item = { fileName: this.download, size: blob.size, type: blob.type, base64: '', done: false };
+        if (!blob && new URL(this.href).pathname.startsWith('/api/archive-download/')) {
+          const item = { fileName: this.download, size: 0, type: '', base64: '', done: false, status: 0, url: this.href,
+            archiveSha256: '', manifestSha256: '', contentDisposition: '' };
+          state.downloads.push(item);
+          fetch(this.href, { credentials: 'omit', cache: 'no-store' }).then(async response => {
+            item.status = response.status;
+            item.size = Number(response.headers.get('Content-Length') ?? 0);
+            item.type = response.headers.get('Content-Type') ?? '';
+            item.archiveSha256 = response.headers.get('X-Archive-SHA256') ?? '';
+            item.manifestSha256 = response.headers.get('X-Archive-Manifest-SHA256') ?? '';
+            item.contentDisposition = response.headers.get('Content-Disposition') ?? '';
+            if (!response.ok) throw new Error('Native archive download returned HTTP ' + response.status + '.');
+            const bytes = new Uint8Array(await response.arrayBuffer());
+            if (bytes.byteLength !== item.size) throw new Error('Native archive response did not match Content-Length.');
+            let binary = '';
+            for (let offset = 0; offset < bytes.length; offset += 32768) {
+              binary += String.fromCharCode(...bytes.subarray(offset, Math.min(offset + 32768, bytes.length)));
+            }
+            item.base64 = btoa(binary);
+            item.done = true;
+          }).catch(error => state.errors.push(String(error)));
+          return;
+        }
+        if (!blob) { state.errors.push('Download link did not refer to a captured object URL or native archive ticket.'); return; }
+        const item = { fileName: this.download, size: blob.size, type: blob.type, base64: '', done: false, status: 200, url: this.href,
+          archiveSha256: '', manifestSha256: '', contentDisposition: '' };
         state.downloads.push(item);
         blob.arrayBuffer().then(buffer => {
           const bytes = new Uint8Array(buffer);
@@ -699,7 +723,8 @@ it('US-REP-001–007 covers all report categories, representation, atomic releas
   };
   const readCapturedDownload = async (index: number, label: string) => {
     await waitFor(`${label} bytes to reach the browser download control`, `Boolean(window.__qaDownloadCapture?.downloads[${index}]?.done)`);
-    const result = await tab!.evaluate<{ fileName: string; size: number; type: string; base64: string; done: boolean }>(
+    const result = await tab!.evaluate<{ fileName: string; size: number; type: string; base64: string; done: boolean; status:number; url:string;
+      archiveSha256:string; manifestSha256:string; contentDisposition:string }>(
       `window.__qaDownloadCapture.downloads[${index}]`);
     assert.equal(result.done, true);
     const bytes = Buffer.from(result.base64, 'base64');
@@ -1600,16 +1625,21 @@ it('US-REP-001–007 covers all report categories, representation, atomic releas
   await refreshReporting();
   await waitFor('the Partner sealed archive export controls', `(() => {
     const report=document.querySelector('#business-reporting-${fixture.engagementId}')?.closest('section');
-    return report?.innerText.includes('SEALED') && [...(report?.querySelectorAll('button')??[])].some(item=>item.textContent?.trim()==='Export verified sealed archive') &&
+      return report?.innerText.includes('SEALED') && [...(report?.querySelectorAll('button')??[])].some(item=>item.textContent?.trim()==='Download sealed archive') &&
       [...(report?.querySelectorAll('button')??[])].some(item=>item.textContent?.trim()==='Export verified manifest');
   })()`);
   await installDownloadCapture();
   const archiveDownloadIndex = await tab.evaluate<number>('window.__qaDownloadCapture?.downloads.length ?? 0');
-  await clickReportButton('Export verified sealed archive');
-  const exportedArchive = await readCapturedDownload(archiveDownloadIndex, 'sealed archive export');
+  await clickReportButton('Download sealed archive');
+  const exportedArchive = await readCapturedDownload(archiveDownloadIndex, 'native streamed sealed archive download');
   assert.equal(exportedArchive.fileName, 'sealed-audit-archive.zip');
   assert.equal(exportedArchive.type, 'application/zip');
-  assert.equal(sha256(exportedArchive.bytes), sealedArchive.archive_sha256, 'the UI export verifies the exact sealed ZIP hash');
+  assert.equal(exportedArchive.status, 200);
+  assert.ok(new URL(exportedArchive.url).pathname.startsWith('/api/archive-download/'), 'the archive uses the native download ticket path');
+  assert.equal(exportedArchive.archiveSha256, sealedArchive.archive_sha256, 'the response carries the independently recorded archive seal');
+  assert.equal(exportedArchive.manifestSha256, sealedArchive.manifest_sha256);
+  assert.match(exportedArchive.contentDisposition, /attachment; filename="sealed-audit-archive\.zip"/);
+  assert.equal(sha256(exportedArchive.bytes), sealedArchive.archive_sha256, 'the native download endpoint streams the exact sealed ZIP hash');
   await waitFor('the enabled manifest export control', `(() => { const report=document.querySelector('#business-reporting-${fixture.engagementId}')?.closest('section'); const button=[...(report?.querySelectorAll('button')??[])].find(item=>item.textContent?.trim()==='Export verified manifest'); return Boolean(button&&!button.disabled); })()`);
   await installDownloadCapture();
   const manifestDownloadIndex = await tab.evaluate<number>('window.__qaDownloadCapture?.downloads.length ?? 0');

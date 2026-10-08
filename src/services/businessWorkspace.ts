@@ -555,6 +555,16 @@ export async function downloadBusinessFileVersion(
   return response.blob();
 }
 
+export async function createBusinessArchiveDownloadTicket(
+  workspaceId:string,
+  engagementId:string,
+  selected:BusinessWorkspacePreference
+):Promise<{downloadUrl:string;expiresAt:string}>{
+  return requestJson(`/api/workspaces/${encodeURIComponent(workspaceId)}/engagements/${encodeURIComponent(engagementId)}/archive/download-ticket`,{
+    method:'POST',context:selected
+  });
+}
+
 export async function downloadBusinessArchiveExport(
   workspaceId: string,
   engagementId: string,

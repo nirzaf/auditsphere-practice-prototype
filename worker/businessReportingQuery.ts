@@ -1,6 +1,7 @@
 import type { Env } from './env';
 import { ApiError } from './errors';
 import type { BusinessContext } from './business';
+import { sha256Hex } from './http';
 import { buildOpinionReportSections, opinionReportingBlockers, type OpinionAffectedFsli } from './reportingOpinion';
 import { toHex, verifyStreamingSha256 } from './streamingArchive';
 
@@ -395,6 +396,51 @@ export async function getBusinessArchiveStatus(env:Env,workspaceId:string,contex
     effectiveReadOnly,lockedAt:row.locked_at??null,sealedAt:row.sealed_at??null,assemblyStatus:status,missingFiles,errorCode:staff?(row.error_code??null):null,sealed:Boolean(row.seal_id)};
 }
 
+const ARCHIVE_DOWNLOAD_TICKET_TTL_MS=5*60*1000;
+
+/** Issues a hashed, short-lived one-use capability for the browser's native download manager. */
+export async function createBusinessArchiveDownloadTicket(env:Env,workspaceId:string,context:BusinessContext,engagementId:string,now:string=new Date().toISOString()):Promise<{downloadUrl:string;expiresAt:string}>{
+  if(!context.allowedActions.includes('reporting.read')||!(context.actor.persona==='REVIEWER'||context.actor.persona==='APPROVER'&&context.actor.staffGrade==='PARTNER'))
+    throw new ApiError('PERSONA_ACTION_DENIED','Only a Reviewer or Partner may export a sealed internal audit archive.');
+  if(!Number.isFinite(Date.parse(now)))throw new ApiError('BAD_REQUEST','The archive download ticket clock is invalid.');
+  const status=await getBusinessArchiveStatus(env,workspaceId,context,engagementId,now);
+  if(status.sealed!==true)throw new ApiError('GATE_BLOCKED','A successfully sealed archive is required before download.');
+  const rawToken=Array.from(crypto.getRandomValues(new Uint8Array(32)),byte=>byte.toString(16).padStart(2,'0')).join('');
+  const ticketId=crypto.randomUUID(),expiresAt=new Date(Date.parse(now)+ARCHIVE_DOWNLOAD_TICKET_TTL_MS).toISOString();
+  await env.DB.prepare(`INSERT INTO archive_download_tickets(workspace_id,id,token_sha256,engagement_id,actor_id,actor_persona,actor_staff_grade,expires_at,created_at)
+    VALUES(?,?,?,?,?,?,?,?,?)`).bind(workspaceId,ticketId,await sha256Hex(rawToken),engagementId,context.actor.id,context.actor.persona,context.actor.staffGrade,expiresAt,now).run();
+  return {downloadUrl:`/api/archive-download/${rawToken}`,expiresAt};
+}
+
+/** Consumes a capability atomically, rechecks the actor and seal, and streams the verified archive. */
+export async function consumeBusinessArchiveDownloadTicket(env:Env,rawToken:string,now:string=new Date().toISOString()):Promise<{
+  body:ReadableStream<Uint8Array>;sizeBytes:number;fileName:string;contentType:string;archiveSha256:string;manifestSha256:string
+}>{
+  if(!/^[a-f0-9]{64}$/.test(rawToken)||!Number.isFinite(Date.parse(now)))throw new ApiError('NOT_FOUND','The archive download link is invalid or expired.');
+  const tokenHash=await sha256Hex(rawToken);
+  const ticket=await env.DB.prepare(`SELECT workspace_id,id,engagement_id,actor_id,actor_persona,actor_staff_grade,expires_at
+    FROM archive_download_tickets WHERE token_sha256=? AND expires_at>?`).bind(tokenHash,now).first<Row>();
+  if(!ticket||!['REVIEWER','APPROVER'].includes(String(ticket.actor_persona)))throw new ApiError('NOT_FOUND','The archive download link is invalid or expired.');
+  const consumed=await env.DB.prepare(`INSERT INTO archive_download_ticket_uses(workspace_id,ticket_id,used_at)
+    SELECT ?,?,? WHERE EXISTS(SELECT 1 FROM archive_download_tickets t WHERE t.workspace_id=? AND t.id=? AND t.token_sha256=? AND t.expires_at>?)
+      AND NOT EXISTS(SELECT 1 FROM archive_download_ticket_uses u WHERE u.workspace_id=? AND u.ticket_id=?)
+    RETURNING ticket_id`).bind(ticket.workspace_id,ticket.id,now,ticket.workspace_id,ticket.id,tokenHash,now,ticket.workspace_id,ticket.id).first<{ticket_id:string}>();
+  if(!consumed)throw new ApiError('NOT_FOUND','The archive download link is invalid, expired, or already used.');
+  const actor=await env.DB.prepare(`SELECT ap.persona,ap.active,sm.grade,sm.active AS staff_active
+    FROM actor_profiles ap JOIN staff_members sm ON sm.workspace_id=ap.workspace_id AND sm.id=ap.staff_member_id
+    WHERE ap.workspace_id=? AND ap.id=?`).bind(ticket.workspace_id,ticket.actor_id).first<Row>();
+  if(!actor||Number(actor.active)!==1||Number(actor.staff_active)!==1||actor.persona!==ticket.actor_persona||actor.grade!==ticket.actor_staff_grade
+    ||!(actor.persona==='REVIEWER'||actor.persona==='APPROVER'&&actor.grade==='PARTNER'))
+    throw new ApiError('DISABLED_IDENTITY','The reviewer profile that requested this download is no longer active.');
+  const context:BusinessContext={actor:{id:String(ticket.actor_id),persona:actor.persona as BusinessContext['actor']['persona'],displayName:'',
+      staffGrade:actor.grade as BusinessContext['actor']['staffGrade'],clientId:null,staffMemberId:null},
+    scope:{clientId:null,engagementId:String(ticket.engagement_id)},allowedActions:['reporting.read'],readOnlyReasons:[]};
+  const result=await getBusinessArchiveExport(env,String(ticket.workspace_id),context,String(ticket.engagement_id),'archive');
+  if(!result.body)throw new ApiError('INTEGRITY_MISMATCH','The sealed archive bytes are unavailable.');
+  return {body:result.body,sizeBytes:result.sizeBytes,fileName:result.fileName,contentType:result.contentType,
+    archiveSha256:result.archiveSha256,manifestSha256:result.manifestSha256};
+}
+
 export async function getBusinessArchiveExport(env:Env,workspaceId:string,context:BusinessContext,engagementId:string,part:'archive'|'manifest'='archive'):
   Promise<{bytes?:Uint8Array;body?:ReadableStream<Uint8Array>;sizeBytes:number;fileName:string;contentType:string;archiveSha256:string;manifestSha256:string}>{
   if(!context.allowedActions.includes('reporting.read')||!(context.actor.persona==='REVIEWER'||context.actor.persona==='APPROVER'&&context.actor.staffGrade==='PARTNER'))
@@ -447,15 +493,10 @@ export async function getBusinessArchiveExport(env:Env,workspaceId:string,contex
       && toHex(new Uint8Array(archiveChecksum))===seal.archive_sha256;
     if(archiveChecksum && !hasStorageChecksum)
       throw new ApiError('INTEGRITY_MISMATCH','The stored ZIP checksum does not match its independently recorded seal hash.');
-    if(hasStorageChecksum){
-      // R2 validated this checksum on write. Preserve the native stream for the response.
-      archiveBody=archiveObject.body as ReadableStream<Uint8Array>;
-    }else{
-      // Legacy and streamed archives without an R2 SHA-256 are verified while
-      // sent. A final digest mismatch errors the response stream and prevents
-      // the browser from closing a partial destination as a successful export.
-      archiveBody=verifyStreamingSha256(archiveObject.body as ReadableStream<Uint8Array>,archiveSize,String(seal.archive_sha256));
-    }
+    // Object metadata only proves the upload-time digest. Rehash the bytes on
+    // every export, including objects with R2 checksum metadata, while keeping
+    // the body streaming so native browser downloads never require a Blob.
+    archiveBody=verifyStreamingSha256(archiveObject.body as ReadableStream<Uint8Array>,archiveSize,String(seal.archive_sha256));
   }
   const now=new Date().toISOString();
   await accessEvent(env,workspaceId,engagementId,'SEALED_ARCHIVE',String(seal.archive_file_id),'EXPORT',context.actor.id,now);

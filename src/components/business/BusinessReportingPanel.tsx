@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import type { BusinessContextResponse, BusinessEngagementOption, BusinessFileMetadata, BusinessWorkspacePreference } from '../../shared/api/business';
-import { completeBusinessFile, downloadBusinessArchiveExport, downloadBusinessFileVersion, getBusinessArchiveStatus, getBusinessOpinionPreview, getBusinessReportingWorkspace, initializeBusinessFile,
+import { completeBusinessFile, createBusinessArchiveDownloadTicket, downloadBusinessArchiveExport, downloadBusinessFileVersion, getBusinessArchiveStatus, getBusinessOpinionPreview, getBusinessReportingWorkspace, initializeBusinessFile,
   getBusinessReleasedReportProvenance, newBusinessIdempotencyKey, runBusinessCommand, uploadBusinessFile } from '../../services/businessWorkspace';
 
 type ReportRow = Record<string, unknown>;
@@ -265,6 +265,7 @@ export function BusinessReportingPanel({ workspaceId, selected, context, engagem
     try {
       const saveWindow = window as Window & { showSaveFilePicker?: (options: { suggestedName: string; types: Array<{ description: string; accept: Record<string, string[]> }> }) => Promise<{ createWritable(): Promise<{ write(chunk: Uint8Array): Promise<void>; close(): Promise<void>; abort(reason?: unknown): Promise<void> }> }> };
       let saveHandle: Awaited<ReturnType<NonNullable<typeof saveWindow.showSaveFilePicker>>> | undefined;
+      let useNativeDownload=part==='archive'&&!streamToDisk;
       if (streamToDisk && part === 'archive' && saveWindow.showSaveFilePicker) {
         try {
           saveHandle = await saveWindow.showSaveFilePicker({
@@ -272,10 +273,19 @@ export function BusinessReportingPanel({ workspaceId, selected, context, engagem
             types: [{ description: 'Sealed AuditSphere archive', accept: { 'application/zip': ['.zip'] } }]
           });
         } catch (reason) {
-          // Automation and embedded browsers may not provide transient user activation.
-          // Keep those downloads working through the hash-verified Blob fallback.
-          if (!(reason instanceof DOMException && ['SecurityError', 'NotAllowedError'].includes(reason.name))) throw reason;
+          // If an embedded browser blocks the picker, fall back to its native
+          // streamed download manager rather than buffering a whole archive Blob.
+          if (reason instanceof DOMException && ['SecurityError', 'NotAllowedError'].includes(reason.name)) useNativeDownload=true;
+          else throw reason;
         }
+      } else if(streamToDisk&&part==='archive') useNativeDownload=true;
+      if(useNativeDownload){
+        const ticket=await createBusinessArchiveDownloadTicket(workspaceId,activeEngagementId,selected);
+        const target=new URL(ticket.downloadUrl,window.location.origin);
+        if(target.origin!==window.location.origin)throw new Error('The archive download link was not issued by this application.');
+        const anchor=document.createElement('a');anchor.href=target.href;anchor.download='sealed-audit-archive.zip';anchor.rel='noreferrer';
+        document.body.append(anchor);anchor.click();anchor.remove();
+        return;
       }
       writable = saveHandle ? await saveHandle.createWritable() : undefined;
       const result = await downloadBusinessArchiveExport(workspaceId, activeEngagementId, part, selected, archiveSha256, manifestSha256, writable);
@@ -729,7 +739,7 @@ export function BusinessReportingPanel({ workspaceId, selected, context, engagem
         {archiveStatusError && <p className="business-alert" role="alert">{archiveStatusError}</p>}
         {rowText(data.archive, 'archiveSha256') && <><small>Sealed archive SHA-256 {rowText(data.archive, 'archiveSha256')} · manifest SHA-256 {rowText(data.archive, 'manifestSha256')}</small>
           {canReview && <div className="business-practice-actions">
-            <button type="button" className="btn sm" disabled={Boolean(downloading)} onClick={() => void downloadArchiveExport('archive')}>{downloading === 'archive-archive' ? 'Verifying archive…' : 'Export verified sealed archive'}</button>
+            <button type="button" className="btn sm" disabled={Boolean(downloading)} onClick={() => void downloadArchiveExport('archive')}>{downloading === 'archive-archive' ? 'Starting secure download…' : 'Download sealed archive'}</button>
             {typeof window !== 'undefined' && 'showSaveFilePicker' in window && <button type="button" className="btn sm" disabled={Boolean(downloading)} onClick={() => void downloadArchiveExport('archive', true)}>{downloading === 'archive-archive' ? 'Saving archive…' : 'Save large archive without buffering'}</button>}
             <button type="button" className="btn sm" disabled={Boolean(downloading)} onClick={() => void downloadArchiveExport('manifest')}>{downloading === 'archive-manifest' ? 'Verifying manifest…' : 'Export verified manifest'}</button>
           </div>}

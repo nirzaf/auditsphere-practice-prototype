@@ -1595,3 +1595,29 @@ the current valid-client proposal path. A second independently mapped
 subsidiary and a second approved framework edition have not yet been carried
 through their full TB and proposal journeys. US-FLD-002 and the broader epic
 remain open.
+
+## US-REP-007 native streaming download fallback — 2026-10-08
+
+**Verification:** `npx tsx --test --test-concurrency=1
+tests/unit/archiveDownloadTickets.test.ts tests/unit/businessArchiveDownload.test.ts
+tests/unit/businessArchiveExport.test.ts tests/unit/workerMigrations.test.ts`;
+`npx tsx --test --test-reporter=dot --test-concurrency=1 tests/unit/*.test.ts`
+(607 passed, 1 opt-in stress test skipped); `npm run lint`;
+`npm run cloud:typecheck`; `npm run build`; `git diff --check`. Focused
+ticket/export/migration checks, the full unit suite, lint, Worker typecheck,
+production build, and diff check pass. The focused browser journey was attempted with
+`npx tsx --test --test-force-exit --test-reporter=spec --test-concurrency=1
+tests/e2e/businessReporting.test.ts` but is blocked in setup: headless Chrome did
+not expose its debugging endpoint within 45 seconds, before the journey began.
+
+**Evidence:** Non-File-System-Access browsers receive a five-minute, single-use
+same-origin capability. Only its SHA-256 is stored; consumption is atomic,
+rechecks that the requesting Reviewer or Partner is still active, and streams
+the sealed object through size and digest verification with attachment headers.
+Tests cover token secrecy, expiry, malformed/unknown tokens, single consumption,
+archive verification, and migration to application schema version 42. Only the
+smaller manifest uses a Blob.
+
+**Boundary:** The browser journey did not run, and no deployed Cloudflare R2 to
+native-browser transfer was exercised. The complete supported byte-count range,
+live archive transfer, and the remaining US-REP-007 criteria remain open.

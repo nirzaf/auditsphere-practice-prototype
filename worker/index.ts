@@ -99,7 +99,7 @@ import { getBusinessCapacity, getBusinessPlanningWorkspace, listBusinessEngageme
 import { getBusinessPlanningReadiness, getBusinessTrialBalanceImport, getBusinessTrialBalancePreview, getBusinessTrialBalanceWorkspace } from './businessTb';
 import { getBusinessFinancialStatements, getBusinessFsliSourceLines, getBusinessFieldworkWorkspace, getBusinessSamplingPlan, getBusinessSamplingPopulation, getBusinessFieldworkChanges } from './businessFieldwork';
 import { getBusinessPracticeWorkspace, getBusinessProfitability, getBusinessUtilization } from './businessPractice';
-import { getBusinessArchiveExport, getBusinessArchiveStatus, getBusinessOpinionPreview, getBusinessReleasedReportProvenance, getBusinessReportingWorkspace } from './businessReportingQuery';
+import { consumeBusinessArchiveDownloadTicket, createBusinessArchiveDownloadTicket, getBusinessArchiveExport, getBusinessArchiveStatus, getBusinessOpinionPreview, getBusinessReleasedReportProvenance, getBusinessReportingWorkspace } from './businessReportingQuery';
 import { getBusinessWorkflow } from './businessWorkflow';
 
 const JSON_BODY_LIMIT = 1_000_000;
@@ -512,6 +512,28 @@ const handleBusinessArchiveExport = async (ctx: RouteContext): Promise<Response>
     'X-Request-Id': ctx.requestId,
     'Referrer-Policy': 'no-referrer'
   } });
+};
+
+const handleBusinessArchiveDownloadTicket = async (ctx: RouteContext): Promise<Response> => {
+  await assertSameOrigin(ctx.request,ctx.url);
+  const context=await resolveBusinessContext(ctx.env,ctx.params.workspaceId,ctx.request);
+  const result=await createBusinessArchiveDownloadTicket(ctx.env,ctx.params.workspaceId,context,ctx.params.engagementId);
+  return jsonResponse(result,201,ctx.requestId,{'Referrer-Policy':'no-referrer'});
+};
+
+const handleNativeArchiveDownload = async (ctx: RouteContext): Promise<Response> => {
+  const result=await consumeBusinessArchiveDownloadTicket(ctx.env,ctx.params.token);
+  return new Response(result.body,{headers:{
+    'Content-Type':result.contentType,
+    'Content-Disposition':`attachment; filename="${result.fileName}"`,
+    'Content-Length':String(result.sizeBytes),
+    'Cache-Control':'no-store',
+    'X-Content-Type-Options':'nosniff',
+    'X-Archive-SHA256':result.archiveSha256,
+    'X-Archive-Manifest-SHA256':result.manifestSha256,
+    'X-Request-Id':ctx.requestId,
+    'Referrer-Policy':'no-referrer'
+  }});
 };
 
 const handleBusinessOpinionPreview = async (ctx: RouteContext): Promise<Response> => {
@@ -1038,6 +1060,8 @@ const router = createRouter()
   .get('/api/workspaces/:workspaceId/engagements/:engagementId/reporting-workspace', handleBusinessReportingWorkspace)
   .get('/api/workspaces/:workspaceId/engagements/:engagementId/archive-status', handleBusinessArchiveStatus)
   .get('/api/workspaces/:workspaceId/engagements/:engagementId/archive/export', handleBusinessArchiveExport)
+  .post('/api/workspaces/:workspaceId/engagements/:engagementId/archive/download-ticket', handleBusinessArchiveDownloadTicket)
+  .get('/api/archive-download/:token', handleNativeArchiveDownload)
   .get('/api/workspaces/:workspaceId/engagements/:engagementId/opinion-preview', handleBusinessOpinionPreview)
   .get('/api/workspaces/:workspaceId/engagements/:engagementId/released-report/provenance', handleBusinessReleasedReportProvenance)
   .get('/api/workspaces/:workspaceId/pbc-engagements', handleBusinessPbcEngagements)
