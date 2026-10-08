@@ -6,8 +6,8 @@ the account-owner steps that still gate live acceptance. Integration status must
 come from the deployed Worker; local configuration is not evidence of connectivity.
 
 The last verified production Worker is main commit
-`424956c7c61075f5c17f4c10280cab89b5a72654`, deployed by [GitHub Actions run
-37740288441](https://github.com/nirzaf/auditsphere-practice-prototype/actions/runs/37740288441)
+`b010b9c7dc63410b56919d66cef17839335b542f`, deployed by [GitHub Actions run
+37765095335](https://github.com/nirzaf/auditsphere-practice-prototype/actions/runs/37765095335)
 on 2026-10-08. CI passed application/Worker typecheck, unit tests, browser E2E,
 and production build. The deployment job applied and verified R2 archive-retention
 locks, deployed the restricted Email Service provider, applied approved D1
@@ -16,10 +16,10 @@ probe. This proves deployment health, not outbound email delivery or SharePoint
 authentication. The main Worker deploys from checked-in `wrangler.jsonc`; the
 earlier strict-mode config conflict is resolved.
 
-A `GET /api/integrations/status` observed at 2026-10-08 06:59:22 UTC reported
+A `GET /api/integrations/status` observed at 2026-10-08 10:47:32 UTC reported
 email `configured: true` with transport `SERVICE_BINDING`; SharePoint reports
 `FAILED` because Microsoft Graph rejected the token request. The latest readiness
-probe returned `ready` at schema version 43 with no dependency codes. A healthy deployment does
+probe returned `ready` at schema version 44 with no dependency codes. A healthy deployment does
 not by itself establish email delivery or SharePoint connectivity; the integration
 probe remains failed for SharePoint and pending for real email delivery.
 
@@ -188,9 +188,9 @@ below before acceptance:
 | Field | Source |
 | --- | --- |
 | Application URL | https://auditsphere-visual-prototype.quadrate-lk.workers.dev (readiness returns `ready`) |
-| Deployed build identity | `f296976d6b3b7f96bd1b9242a178f1777a3ff062` (verified Worker deployment, 2026-10-08; GitHub Actions run 37734797940) |
-| Workspace and actors | synthetic workspace created through the UI; verify all four selectable personas and persisted context |
-| Client / engagement ids | synthetic records created through visible UI journeys; record IDs in the restricted UAT evidence bundle |
+| Deployed build identity | `b010b9c7dc63410b56919d66cef17839335b542f` (verified Worker deployment, 2026-10-08; GitHub Actions run 37765095335) |
+| Workspace and actors | **Blocked.** The deployed public `workers.dev` Worker returned `Business workspace setup is not enabled for this trusted deployment.` when the synthetic create flow was submitted. No workspace or actors were created. Keep the setup gate disabled on this unrestricted, no-auth endpoint; establish a trusted test perimeter and explicitly enable bootstrap there before recording UAT evidence. |
+| Client / engagement ids | **Not created.** There are no deployed UAT records or IDs to record until the trusted test workspace flow is enabled and verified. |
 | SharePoint site/library/root ids | values returned by `/api/integrations/status` after the site grant and secret are configured |
 | Email provider | `SERVICE_BINDING` is configured; recipient verification and a controlled UAT delivery are still unverified |
 
