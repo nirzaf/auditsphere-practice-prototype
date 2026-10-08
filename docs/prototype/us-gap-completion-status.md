@@ -120,11 +120,11 @@ the repository:
 | Story | Blocking prerequisite |
 | --- | --- |
 | US-GAP-05 / 06 | Cloudflare Email Sending is enabled and DNS is configured for `mail.steaudit.com`. The restricted provider is deployed and the latest integration probe reported `SERVICE_BINDING`. The approved recipient `testing@mail.steauditing.com` remains Pending after verification was resent; a real delivery has not been accepted. |
-| US-GAP-25 – 28 | Entra app `AuditSphere SharePoint UAT` has `Sites.Selected` consent and a verified site-only `write` grant on `/sites/AuditSphereJSAcceptance` (2026-10-08). The latest live probe at 2026-10-08 06:36:00 UTC returned `FAILED` because the Microsoft Graph token request was rejected. Commit `187eb8c` deploys the SHA-256 secret-fingerprint cache fix; same-length secret rotation now invalidates cached tokens. The client secret still must be owner-rotated before the probe can reach `CONNECTED`. |
+| US-GAP-25 – 28 | Entra app `AuditSphere SharePoint UAT` has `Sites.Selected` consent and a verified site-only `write` grant on `/sites/AuditSphereJSAcceptance` (2026-10-08). The latest live probe at 2026-10-08 06:41:53 UTC returned `FAILED` because the Microsoft Graph token request was rejected. Commit `187eb8c` deploys the SHA-256 secret-fingerprint cache fix; same-length secret rotation now invalidates cached tokens. The client secret still must be owner-rotated before the probe can reach `CONNECTED`. |
 | US-GAP-30 – 32 | Deployed URL/build identity are recorded. UAT follows the epic's no-auth profile with four self-selected personas and synthetic records; supplied login accounts are not required. Real email delivery and a connected SharePoint test-site probe remain unverified. |
 
-The latest verified successful production deployment is main commit `187eb8c`
-from [GitHub Actions run 37738043075](https://github.com/nirzaf/auditsphere-practice-prototype/actions/runs/37738043075)
+The latest verified successful production deployment is main commit `e6f3627`
+from [GitHub Actions run 37738565117](https://github.com/nirzaf/auditsphere-practice-prototype/actions/runs/37738565117)
 (2026-10-08). It passed typecheck, unit tests, full hosted browser E2E,
 production build, D1 migration, Worker/static asset deployment and readiness.
 Previous successful run 37711971223 applied and read back all 101

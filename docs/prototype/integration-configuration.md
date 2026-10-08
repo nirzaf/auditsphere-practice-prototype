@@ -6,8 +6,8 @@ the account-owner steps that still gate live acceptance. Integration status must
 come from the deployed Worker; local configuration is not evidence of connectivity.
 
 The last verified production Worker is main commit
-`187eb8c72e1377f23fc1c6f845d20562d1aac99b`, deployed by [GitHub Actions run
-37738043075](https://github.com/nirzaf/auditsphere-practice-prototype/actions/runs/37738043075)
+`e6f3627`, deployed by [GitHub Actions run
+37738565117](https://github.com/nirzaf/auditsphere-practice-prototype/actions/runs/37738565117)
 on 2026-10-08. CI passed application/Worker typecheck, unit tests, browser E2E,
 and production build. The deployment job applied and verified R2 archive-retention
 locks, deployed the restricted Email Service provider, applied approved D1
@@ -16,7 +16,7 @@ probe. This proves deployment health, not outbound email delivery or SharePoint
 authentication. The main Worker deploys from checked-in `wrangler.jsonc`; the
 earlier strict-mode config conflict is resolved.
 
-A `GET /api/integrations/status` observed at 2026-10-08 06:36:00 UTC reported
+A `GET /api/integrations/status` observed at 2026-10-08 06:41:53 UTC reported
 email `configured: true` with transport `SERVICE_BINDING`; SharePoint reports
 `FAILED` because Microsoft Graph rejected the token request. The latest readiness
 probe returned `ready` at schema version 43 with no dependency codes. A healthy deployment does
