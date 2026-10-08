@@ -416,13 +416,16 @@ export async function getBusinessArchiveExport(env:Env,workspaceId:string,contex
     ||manifestRow.immutable!==1||archiveRow.immutable!==1||manifestRow.media_type!=='text/plain'||archiveRow.media_type!=='application/zip'
     ||manifestRow.sha256!==seal.manifest_sha256||archiveRow.sha256!==seal.archive_sha256)
     throw new ApiError('INTEGRITY_MISMATCH','The archive seal does not match its committed immutable manifest and ZIP metadata.');
+  const manifestSize=Number(manifestRow.size_bytes),archiveSize=Number(archiveRow.size_bytes);
+  if(!Number.isSafeInteger(manifestSize)||manifestSize<=0||!Number.isSafeInteger(archiveSize)||archiveSize<=0)
+    throw new ApiError('INTEGRITY_MISMATCH','The sealed archive or manifest size exceeds the supported exact byte-count range.');
   const [manifestObject,archiveObject]=await Promise.all([env.FILES.get(String(manifestRow.object_key)),env.FILES.get(String(archiveRow.object_key))]);
   if(!manifestObject||!archiveObject)throw new ApiError('INTEGRITY_MISMATCH','The sealed archive or manifest bytes are missing from storage.');
-  if(manifestObject.size!==Number(manifestRow.size_bytes)||archiveObject.size!==Number(archiveRow.size_bytes))
+  if(manifestObject.size!==manifestSize||archiveObject.size!==archiveSize)
     throw new ApiError('INTEGRITY_MISMATCH','The stored archive object sizes do not match the immutable file records.');
   const manifestBytes=await manifestObject.arrayBuffer();
   const digest=async(bytes:ArrayBuffer)=>{const value=await crypto.subtle.digest('SHA-256',bytes);return [...new Uint8Array(value)].map(byte=>byte.toString(16).padStart(2,'0')).join('');};
-  if(manifestBytes.byteLength!==manifestRow.size_bytes||await digest(manifestBytes)!==seal.manifest_sha256)
+  if(manifestBytes.byteLength!==manifestSize||await digest(manifestBytes)!==seal.manifest_sha256)
     throw new ApiError('INTEGRITY_MISMATCH','The stored archive manifest does not match its independently recorded seal hash.');
   let manifest:Record<string,unknown>;
   try{manifest=JSON.parse(new TextDecoder().decode(manifestBytes)) as Record<string,unknown>;}
@@ -451,12 +454,12 @@ export async function getBusinessArchiveExport(env:Env,workspaceId:string,contex
       // Legacy and streamed archives without an R2 SHA-256 are verified while
       // sent. A final digest mismatch errors the response stream and prevents
       // the browser from closing a partial destination as a successful export.
-      archiveBody=verifyStreamingSha256(archiveObject.body as ReadableStream<Uint8Array>,Number(archiveRow.size_bytes),String(seal.archive_sha256));
+      archiveBody=verifyStreamingSha256(archiveObject.body as ReadableStream<Uint8Array>,archiveSize,String(seal.archive_sha256));
     }
   }
   const now=new Date().toISOString();
   await accessEvent(env,workspaceId,engagementId,'SEALED_ARCHIVE',String(seal.archive_file_id),'EXPORT',context.actor.id,now);
   return {...(part==='manifest'?{bytes:new Uint8Array(manifestBytes)}:{body:archiveBody}),
-    sizeBytes:part==='manifest'?manifestBytes.byteLength:Number(archiveRow.size_bytes),fileName:part==='manifest'?'archive-manifest.json':'sealed-audit-archive.zip',
+    sizeBytes:part==='manifest'?manifestBytes.byteLength:archiveSize,fileName:part==='manifest'?'archive-manifest.json':'sealed-audit-archive.zip',
     contentType:part==='manifest'?'application/json':'application/zip',archiveSha256:String(seal.archive_sha256),manifestSha256:String(seal.manifest_sha256)};
 }

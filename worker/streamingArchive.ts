@@ -244,12 +244,20 @@ export function createStreamingArchive(manifestBytes: Uint8Array, files: Streami
 export function verifyStreamingSha256(
   body: ReadableStream<Uint8Array>, expectedSizeBytes: number, expectedSha256: string
 ): ReadableStream<Uint8Array> {
+  if (!Number.isSafeInteger(expectedSizeBytes) || expectedSizeBytes < 0) {
+    throw new Error('The sealed archive size is outside the supported exact byte-count range.');
+  }
+  if (!/^[a-f0-9]{64}$/.test(expectedSha256)) {
+    throw new Error('The sealed archive SHA-256 value is invalid.');
+  }
   const hash = sha256.create();
   let sizeBytes = 0;
   return body.pipeThrough(new TransformStream<Uint8Array, Uint8Array>({
     transform(chunk, controller) {
-      sizeBytes += chunk.byteLength;
-      if (sizeBytes > expectedSizeBytes) throw new Error('The stored archive exceeded its sealed size.');
+      const nextSize = sizeBytes + chunk.byteLength;
+      if (!Number.isSafeInteger(nextSize)) throw new Error('The stored archive exceeds the supported exact byte-count range.');
+      if (nextSize > expectedSizeBytes) throw new Error('The stored archive exceeded its sealed size.');
+      sizeBytes = nextSize;
       hash.update(chunk);
       controller.enqueue(chunk);
     },

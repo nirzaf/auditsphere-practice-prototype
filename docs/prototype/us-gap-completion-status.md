@@ -53,8 +53,10 @@ entries and end records, removing the ZIP32 4 GiB archive/member cap; it still
 rejects byte counts beyond JavaScript's exact safe-integer range. The browser
 fallback now hashes and counts response chunks in a TransformStream before
 materializing its Blob, avoiding an extra whole-archive ArrayBuffer copy; it also
-rejects unsafe, truncated, oversized and digest-mismatched responses. Large-
-archive acceptance remains open until tests cover actual multi-gigabyte members,
+rejects unsafe, truncated, oversized and digest-mismatched responses. The Worker
+rejects unsafe D1 byte counts before either checksum-backed or digest-streamed
+exports and validates the sealed hash before reading archive bytes. Large-
+Large-archive acceptance remains open until tests cover actual multi-gigabyte members,
 the full supported size range and all supported download paths end-to-end. Sealed objects now use dedicated
 retention-specific prefixes, and `worker/r2-archive-locks.json` contains generated
 prefix rules for every supported term. CI and `npm run cloud:deploy` now apply

@@ -137,3 +137,10 @@ it('fails streamed verification when the stored bytes differ from the sealed has
   const incorrectSize = verifyStreamingSha256(bytesStream(source), source.byteLength + 1, toHex(sha256(source)));
   await assert.rejects(new Response(incorrectSize).arrayBuffer(), /sealed size and SHA-256/);
 });
+
+it('rejects unsafe sealed sizes and malformed hashes before consuming an archive stream', () => {
+  const unopened = new ReadableStream<Uint8Array>({ pull() { assert.fail('invalid seal metadata must be rejected before reading'); } });
+  assert.throws(() => verifyStreamingSha256(unopened, Number.MAX_SAFE_INTEGER + 1, 'a'.repeat(64)), /outside the supported exact byte-count range/);
+  assert.throws(() => verifyStreamingSha256(unopened, 1, 'A'.repeat(64)), /SHA-256 value is invalid/);
+  assert.throws(() => verifyStreamingSha256(unopened, -1, 'a'.repeat(64)), /outside the supported exact byte-count range/);
+});
