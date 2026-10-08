@@ -488,11 +488,30 @@ export async function activateTrialBalance(env: Env, workspaceId: string, contex
 
 type MappingDraftRow = { id: string; version: number; tb_line_id: string; account_code: string; account_name: string; current_minor: number; prior_minor: number | null;
   fsli_id: string | null; origin: string | null; source_historical_mapping_id: string | null; history_period_end: string | null;
-  history_mapping_revision: number | null; confirmed: number; reason: string | null };
+  history_mapping_revision: number | null; suggestion_kind: string | null; suggestion_score: number | null;
+  confirmed: number; reason: string | null };
+function mappingNameTokens(value: string): Set<string> {
+  const ignored = new Set(['account','accounts','balance','balances','current','noncurrent','and','or','the','other']);
+  return new Set(value.normalize('NFKD').toLocaleLowerCase('en-US').replace(/[\u0300-\u036f]/g, '')
+    .split(/[^a-z0-9]+/).filter(token => token.length > 1 && !ignored.has(token)));
+}
+function mappingNameSimilarity(left: string, right: string): number {
+  const leftTokens = mappingNameTokens(left); const rightTokens = mappingNameTokens(right);
+  if (!leftTokens.size || !rightTokens.size) return 0;
+  const intersection = [...leftTokens].filter(token => rightTokens.has(token)).length;
+  return Math.round(intersection / new Set([...leftTokens, ...rightTokens]).size * 100);
+}
+function nameSimilaritySuggestion(accountName: string, definitions: Array<{ id: string; name: string }>) {
+  const ranked = definitions.map(definition => ({ fsliId: definition.id, score: mappingNameSimilarity(accountName, definition.name) }))
+    .sort((left, right) => right.score - left.score || left.fsliId.localeCompare(right.fsliId));
+  const best = ranked[0]; const second = ranked[1];
+  if (!best || best.score < 60 || (second && best.score - second.score < 15)) return null;
+  return best;
+}
 async function mappingDraftRows(env: Env, workspaceId: string, draftId: string): Promise<MappingDraftRow[]> {
   const result = await env.DB.prepare(`SELECT d.id,d.version,d.tb_line_id,l.account_code,l.account_name,l.current_minor,l.prior_minor,d.fsli_id,d.origin,
       d.source_historical_mapping_id,history.effective_period_end AS history_period_end,source_version.revision AS history_mapping_revision,
-      d.confirmed,d.reason
+      d.suggestion_kind,d.suggestion_score,d.confirmed,d.reason
     FROM mapping_draft_lines d JOIN tb_lines l ON l.workspace_id=d.workspace_id AND l.id=d.tb_line_id
     LEFT JOIN mapping_memory history ON history.workspace_id=d.workspace_id AND history.id=d.source_historical_mapping_id
     LEFT JOIN mapping_versions source_version ON source_version.workspace_id=history.workspace_id AND source_version.id=history.source_mapping_version_id
@@ -501,7 +520,8 @@ async function mappingDraftRows(env: Env, workspaceId: string, draftId: string):
   return result.results ?? [];
 }
 async function hashMappingDraft(rows: MappingDraftRow[]): Promise<string> {
-  return sha256Hex(JSON.stringify(rows.map(row => [row.tb_line_id,row.fsli_id,row.origin,row.source_historical_mapping_id,row.confirmed,row.reason])));
+  return sha256Hex(JSON.stringify(rows.map(row => [row.tb_line_id,row.fsli_id,row.origin,row.source_historical_mapping_id,
+    row.suggestion_kind,row.suggestion_score,row.confirmed,row.reason])));
 }
 
 async function proposeMapping(env: Env, workspaceId: string, context: BusinessContext,
@@ -522,12 +542,17 @@ async function proposeMapping(env: Env, workspaceId: string, context: BusinessCo
     .bind(standard.reporting_framework,standard.reporting_framework,workspaceId,command.payload.engagementId,command.payload.tbVersionId)
     .all<{id:string;account_code:string;account_name:string;current_minor:number;history_id:string|null;history_fsli_id:string|null}>();
   if (!(lines.results?.length)) throw new ApiError('GATE_BLOCKED', 'The selected TB version contains no accepted account rows.');
+  const catalog = await env.DB.prepare(`SELECT id,name FROM fsli_catalog WHERE workspace_id=? AND reporting_framework=? AND active=1`)
+    .bind(workspaceId,standard.reporting_framework).all<{ id: string; name: string }>();
+  const definitions = catalog.results ?? [];
   const revision = (await env.DB.prepare(`SELECT COALESCE(MAX(revision),0)+1 AS revision FROM mapping_drafts WHERE workspace_id=? AND engagement_id=? AND tb_version_id=?`)
     .bind(workspaceId,command.payload.engagementId,command.payload.tbVersionId).first<{revision:number}>())?.revision ?? 1;
   const draftId = crypto.randomUUID();
-  const initial = (lines.results ?? []).map(line => ({ line, id: crypto.randomUUID() }));
-  const previewRows = initial.map(({line}) => ({tb_line_id:line.id,fsli_id:line.history_fsli_id,origin:line.history_id?'EXACT_HISTORY':null,
-    source_historical_mapping_id:line.history_id,confirmed:0,reason:null} as MappingDraftRow));
+  const initial = (lines.results ?? []).map(line => ({ line, id: crypto.randomUUID(),
+    suggestion: line.history_fsli_id ? null : nameSimilaritySuggestion(line.account_name, definitions) }));
+  const previewRows = initial.map(({line,suggestion}) => ({tb_line_id:line.id,fsli_id:line.history_fsli_id??suggestion?.fsliId??null,
+    origin:line.history_id?'EXACT_HISTORY':null,source_historical_mapping_id:line.history_id,history_period_end:null,history_mapping_revision:null,
+    suggestion_kind:suggestion?'NAME_SIMILARITY':null,suggestion_score:suggestion?.score??null,confirmed:0,reason:null} as MappingDraftRow));
   const draftHash = await hashMappingDraft(previewRows);
   const nowIso = new Date(now).toISOString();
   return { statements: [
@@ -538,10 +563,12 @@ async function proposeMapping(env: Env, workspaceId: string, context: BusinessCo
     env.DB.prepare(`INSERT INTO mapping_drafts(id,workspace_id,client_id,engagement_id,tb_version_id,revision,status,reporting_framework,content_sha256,created_by_actor_id,created_at)
       VALUES(?,?,?,?,?,?,'DRAFT',?,?,?,?)`).bind(draftId,workspaceId,sources.engagement.client_id,command.payload.engagementId,command.payload.tbVersionId,
         revision,standard.reporting_framework,draftHash,context.actor.id,nowIso),
-    ...initial.map(({line,id:lineId}) => env.DB.prepare(`INSERT INTO mapping_draft_lines(id,workspace_id,draft_id,tb_line_id,fsli_id,origin,source_historical_mapping_id,confirmed,reason)
-      VALUES(?,?,?,?,?,?,?,0,NULL)`).bind(lineId,workspaceId,draftId,line.id,line.history_fsli_id,line.history_id?'EXACT_HISTORY':null,line.history_id))
+    ...initial.map(({line,id:lineId,suggestion}) => env.DB.prepare(`INSERT INTO mapping_draft_lines(id,workspace_id,draft_id,tb_line_id,fsli_id,origin,source_historical_mapping_id,suggestion_kind,suggestion_score,confirmed,reason)
+      VALUES(?,?,?,?,?,?,?,?,?,0,NULL)`).bind(lineId,workspaceId,draftId,line.id,line.history_fsli_id??suggestion?.fsliId??null,
+        line.history_id?'EXACT_HISTORY':null,line.history_id,suggestion?'NAME_SIMILARITY':null,suggestion?.score??null))
   ], result: { draftId, revision, draftHash, suggestedCount: initial.filter(({line})=>line.history_fsli_id).length,
-    unmappedCount: initial.filter(({line})=>!line.history_fsli_id).length }, entityType:'MAPPING_DRAFT',entityId:draftId,beforeVersion:null,afterVersion:revision,
+    nameSimilaritySuggestedCount:initial.filter(({suggestion})=>suggestion).length,
+    unmappedCount: initial.filter(({line,suggestion})=>!line.history_fsli_id&&!suggestion).length }, entityType:'MAPPING_DRAFT',entityId:draftId,beforeVersion:null,afterVersion:revision,
     auditDetails:{engagementId:command.payload.engagementId,tbVersionId:command.payload.tbVersionId,reportingFramework:standard.reporting_framework} };
 }
 
@@ -555,10 +582,11 @@ async function setMapping(env: Env, workspaceId: string, context: BusinessContex
   if(!draft)throw new ApiError('NOT_FOUND','The mapping draft was not found.');
   await getTbSources(env,workspaceId,context,draft.engagement_id);
   if(draft.status!=='DRAFT'||draft.lifecycle_state!=='PORTAL_ACTIVE_PLANNING')throw new ApiError('INVALID_STATE','Only a draft for the active planning stage can be mapped.');
-  const row=await env.DB.prepare(`SELECT d.id,d.version,d.tb_line_id,l.account_code,d.fsli_id,d.source_historical_mapping_id,d.confirmed,d.reason
+  const row=await env.DB.prepare(`SELECT d.id,d.version,d.tb_line_id,l.account_code,d.fsli_id,d.source_historical_mapping_id,d.suggestion_kind,d.suggestion_score,d.confirmed,d.reason
     FROM mapping_draft_lines d JOIN tb_lines l ON l.workspace_id=d.workspace_id AND l.id=d.tb_line_id
     WHERE d.workspace_id=? AND d.draft_id=? AND d.tb_line_id=?`).bind(workspaceId,draftId,tbLineId)
-    .first<{id:string;version:number;tb_line_id:string;account_code:string;fsli_id:string|null;source_historical_mapping_id:string|null;confirmed:number;reason:string|null}>();
+    .first<{id:string;version:number;tb_line_id:string;account_code:string;fsli_id:string|null;source_historical_mapping_id:string|null;
+      suggestion_kind:string|null;suggestion_score:number|null;confirmed:number;reason:string|null}>();
   if(!row)throw new ApiError('NOT_FOUND','The TB account is not part of this mapping draft.');
   if(row.version!==expectedVersion)throw new ApiError('VERSION_CONFLICT','This account mapping changed. Reload that row and apply your choice to its current version.');
   let historicalId:string|null=null; let historicalFsli:string|null=null;
@@ -578,6 +606,8 @@ async function setMapping(env: Env, workspaceId: string, context: BusinessContex
   }
   const rows=await mappingDraftRows(env,workspaceId,draftId);
   const nextRows=rows.map(item=>item.tb_line_id!==tbLineId?item:{...item,fsli_id:fsliId,origin,source_historical_mapping_id:sourceHistory,
+    suggestion_kind:item.suggestion_kind==='NAME_SIMILARITY'&&item.fsli_id===fsliId?item.suggestion_kind:null,
+    suggestion_score:item.suggestion_kind==='NAME_SIMILARITY'&&item.fsli_id===fsliId?item.suggestion_score:null,
     confirmed:fsliId?1:0,reason:command.payload.reason??null});
   const nextHash=await hashMappingDraft(nextRows);
   const statements=[
@@ -585,9 +615,11 @@ async function setMapping(env: Env, workspaceId: string, context: BusinessContex
       ON l.workspace_id=d.workspace_id AND l.draft_id=d.id WHERE d.workspace_id=? AND d.id=? AND d.status='DRAFT' AND l.tb_line_id=? AND l.version=?
       AND EXISTS(SELECT 1 FROM engagements e WHERE e.workspace_id=d.workspace_id AND e.id=d.engagement_id AND e.lifecycle_state='PORTAL_ACTIVE_PLANNING'))
       THEN 1 ELSE 0 END`).bind(workspaceId,workspaceId,draftId,tbLineId,expectedVersion),
-    env.DB.prepare(`UPDATE mapping_draft_lines SET version=version+1,fsli_id=?,origin=?,source_historical_mapping_id=?,confirmed=?,reason=?
+    env.DB.prepare(`UPDATE mapping_draft_lines SET version=version+1,fsli_id=?,origin=?,source_historical_mapping_id=?,suggestion_kind=?,suggestion_score=?,confirmed=?,reason=?
       WHERE workspace_id=? AND draft_id=? AND tb_line_id=? AND version=?`)
-      .bind(fsliId,origin,sourceHistory,fsliId?1:0,command.payload.reason??null,workspaceId,draftId,tbLineId,expectedVersion),
+      .bind(fsliId,origin,sourceHistory,row.suggestion_kind==='NAME_SIMILARITY'&&row.fsli_id===fsliId?row.suggestion_kind:null,
+        row.suggestion_kind==='NAME_SIMILARITY'&&row.fsli_id===fsliId?row.suggestion_score:null,
+        fsliId?1:0,command.payload.reason??null,workspaceId,draftId,tbLineId,expectedVersion),
     env.DB.prepare(`UPDATE mapping_drafts SET content_sha256=? WHERE workspace_id=? AND id=? AND status='DRAFT'`).bind(nextHash,workspaceId,draftId)
   ];
   return {statements,result:{draftId,tbLineId,version:expectedVersion+1,fsliId,confirmed:Boolean(fsliId),draftHash:nextHash},entityType:'MAPPING_DRAFT_LINE',entityId:row.id,
@@ -1037,6 +1069,7 @@ export async function getBusinessTrialBalanceWorkspace(env:Env,workspaceId:strin
       mappingDraft={...mappingDraft,draftHash:actualHash,lines:draftLines.map(row=>({id:row.id,version:row.version,tbLineId:row.tb_line_id,accountCode:row.account_code,
         accountName:row.account_name,balanceMinor:String(row.current_minor),priorBalanceMinor:row.prior_minor==null?null:String(row.prior_minor),fsliId:row.fsli_id,origin:row.origin,sourceHistoricalMappingId:row.source_historical_mapping_id,
         historyPeriodEnd:row.history_period_end,historyMappingRevision:row.history_mapping_revision,
+        suggestionKind:row.suggestion_kind,suggestionScore:row.suggestion_score,
         confirmed:Boolean(row.confirmed),reason:row.reason}))};
     }
   }

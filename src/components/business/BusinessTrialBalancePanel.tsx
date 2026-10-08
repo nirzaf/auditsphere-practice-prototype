@@ -399,12 +399,20 @@ export function BusinessTrialBalancePanel({
                 <select id={`mapping-${line.tbLineId}`} disabled={busy || !canWrite || !canPlan} value={line.fsliId ?? ''} onChange={event => void setMapping(line, event.target.value)}>
                   <option value="">Unmapped</option>{workspace.fsliCatalog.map(item => <option key={item.id} value={item.id}>{item.code} · {item.name}</option>)}</select>
                 <small>{line.origin === 'EXACT_HISTORY'
-                  ? `Prior approved mapping v${line.historyMappingRevision ?? '—'} · period ended ${line.historyPeriodEnd ?? 'unknown'} · confirm or change`
-                  : line.confirmed ? 'Manual selection' : 'Needs mapping confirmation'}</small></td>
+                  ? `Prior approved mapping v${line.historyMappingRevision ?? '—'} · period ended ${line.historyPeriodEnd ?? 'unknown'}${line.confirmed ? '' : ' · confirm or change'}`
+                  : line.suggestionKind === 'NAME_SIMILARITY' && line.suggestionScore !== null
+                    ? `${line.confirmed ? 'Reviewer-confirmed' : 'Unapproved'} name similarity suggestion · ${line.suggestionScore}% match${line.confirmed ? '' : ' · confirm or change'}`
+                    : line.confirmed ? 'Manual selection' : 'Needs mapping confirmation'}</small></td>
               <td><label className="business-sr-only" htmlFor={`mapping-reason-${line.tbLineId}`}>Reason if changing prior mapping for {line.accountCode}</label>
                 <input id={`mapping-reason-${line.tbLineId}`} maxLength={2000} value={mappingReasons[line.tbLineId] ?? line.reason ?? ''}
                   disabled={busy || !canWrite || !canPlan} placeholder="Required when changing history" onChange={event => setMappingReasons(current => ({ ...current, [line.tbLineId]: event.target.value }))} /></td>
-              <td>{line.confirmed ? 'Confirmed' : 'Pending'}</td></tr>)}</tbody></table></div>
+              <td>{line.confirmed ? 'Confirmed' : <>
+                Pending
+                {(line.origin === 'EXACT_HISTORY' || line.suggestionKind === 'NAME_SIMILARITY') && line.fsliId && <button type="button"
+                  className="btn" disabled={busy || !canWrite || !canPlan || !canReview}
+                  aria-label={`Confirm suggested mapping for ${line.accountCode}`}
+                  onClick={() => void setMapping(line, line.fsliId!)}>Confirm suggestion</button>}
+              </>}</td></tr>)}</tbody></table></div>
           <p className="business-tb-hash">Draft source hash · {mappingDraft.draftHash}</p>
           <button type="button" className="btn primary" disabled={busy || !canReview || !canPlan || mappingDraft.lines.some(line => !line.confirmed
             && (Number(line.balanceMinor) !== 0 || Number(line.priorBalanceMinor ?? 0) !== 0))}

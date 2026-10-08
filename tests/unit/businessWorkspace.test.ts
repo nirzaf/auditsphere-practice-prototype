@@ -199,13 +199,13 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
   const ready = await call('/api/health/ready');
   assert.equal(ready.response.status, 200, JSON.stringify(ready.body));
   assert.equal(ready.body.status, 'ready');
-  assert.equal(ready.body.schemaVersion, 43);
+  assert.equal(ready.body.schemaVersion, 44);
   assert.deepEqual(ready.body.dependencyCodes, []);
   const supportBundle = await call('/api/health/support-bundle');
   assert.equal(supportBundle.response.status, 200);
   assert.match(supportBundle.response.headers.get('content-disposition') ?? '', /attachment; filename="auditsphere-support-bundle.json"/);
-  assert.equal(supportBundle.body.applicationSchemaVersion, 43);
-  assert.equal(supportBundle.body.installedSchemaVersion, 43);
+  assert.equal(supportBundle.body.applicationSchemaVersion, 44);
+  assert.equal(supportBundle.body.installedSchemaVersion, 44);
   assert.equal(supportBundle.body.readiness, 'ready');
   assert.deepEqual(supportBundle.body.verificationRuns, []);
   assert.equal(JSON.stringify(supportBundle.body).includes('workspaceId'), false);
@@ -258,7 +258,7 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
 
   const migrationStatus = await call(`/api/workspaces/${workspaceId}/migration-status`);
   assert.equal(migrationStatus.response.status, 200, JSON.stringify(migrationStatus.body));
-  assert.deepEqual(migrationStatus.body, { schemaVersion: 43, lastRunId: null, status: null });
+  assert.deepEqual(migrationStatus.body, { schemaVersion: 44, lastRunId: null, status: null });
   const missingMigrationWorkspace = await call(`/api/workspaces/${crypto.randomUUID()}/migration-status`);
   assert.equal(missingMigrationWorkspace.response.status, 404);
 
@@ -2127,11 +2127,27 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
   assert.equal(childFirstProposal.response.status, 200, JSON.stringify(childFirstProposal.body));
   assert.equal(childFirstProposal.body.result.suggestedCount, 0,
     'the subsidiary does not inherit matching account codes from its parent client');
-  assert.equal(childFirstProposal.body.result.unmappedCount, 2);
+  assert.equal(childFirstProposal.body.result.unmappedCount, 1);
+  assert.equal(childFirstProposal.body.result.nameSimilaritySuggestedCount, 1,
+    'a strong account-name match is offered separately from historical memory');
   const childFirstWorkspace = await call(`/api/workspaces/${workspaceId}/engagements/${childFirstPeriod.id}/trial-balance-workspace`,
     { headers: childFirstPeriod.headers });
   assert.equal(childFirstWorkspace.response.status, 200, JSON.stringify(childFirstWorkspace.body));
   const childFirstDraft = childFirstWorkspace.body.mappingDraft;
+  const nameSuggestion = childFirstDraft.lines.find((row: any) => row.accountCode === '3000');
+  assert.equal(nameSuggestion.suggestionKind, 'NAME_SIMILARITY');
+  assert.equal(nameSuggestion.suggestionScore, 100);
+  assert.equal(nameSuggestion.confirmed, false, 'similarity never confirms an FSLI automatically');
+  assert.equal(nameSuggestion.sourceHistoricalMappingId, null, 'name similarity does not borrow the parent history source');
+  const unconfirmedSimilarityApproval = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'tb.mapping.approve', payload: {
+      engagementId: childFirstPeriod.id, draftId: childFirstDraft.id, draftHash: childFirstDraft.draftHash
+    } }
+  }, childFirstPeriod.headers);
+  assert.equal(unconfirmedSimilarityApproval.response.status, 409);
+  assert.equal(unconfirmedSimilarityApproval.body.code, 'GATE_BLOCKED');
+  assert.equal(unconfirmedSimilarityApproval.body.details.blockers.length, 2,
+    'nonzero historical and name-similarity suggestions both require explicit reviewer confirmation');
   for (const row of childFirstDraft.lines) {
     const fsliCode = row.accountCode === '1000' ? 'CASH' : 'EQUITY';
     const fsli = childFirstWorkspace.body.fsliCatalog.find((item: any) => item.code === fsliCode);
@@ -2145,6 +2161,10 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
   }
   const childReadyWorkspace = await call(`/api/workspaces/${workspaceId}/engagements/${childFirstPeriod.id}/trial-balance-workspace`,
     { headers: childFirstPeriod.headers });
+  const confirmedNameSuggestion = childReadyWorkspace.body.mappingDraft.lines.find((row: any) => row.accountCode === '3000');
+  assert.equal(confirmedNameSuggestion.confirmed, true);
+  assert.equal(confirmedNameSuggestion.origin, 'MANUAL', 'confirming a name suggestion creates a manual mapping decision');
+  assert.equal(confirmedNameSuggestion.suggestionKind, 'NAME_SIMILARITY', 'the draft retains the advisory source as review provenance');
   const childMappingApproval = await post(`/api/workspaces/${workspaceId}/commands`, {
     idempotencyKey: crypto.randomUUID(), command: { type: 'tb.mapping.approve', payload: {
       engagementId: childFirstPeriod.id, draftId: childReadyWorkspace.body.mappingDraft.id,
@@ -2165,6 +2185,20 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
     && row.confirmed === false && row.sourceHistoricalMappingId && row.historyPeriodEnd === mappingParent.period_end
     && Number.isInteger(row.historyMappingRevision) && row.historyMappingRevision > 0),
   'subsidiary suggestions retain visible source-period and mapping-revision provenance while remaining explicitly unconfirmed');
+  const exactHistorySuggestion = childHistoryWorkspace.body.mappingDraft.lines[0];
+  const explicitHistoryConfirmation = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'tb.mapping.set', payload: {
+      draftId: childHistoryWorkspace.body.mappingDraft.id, tbLineId: exactHistorySuggestion.tbLineId,
+      expectedVersion: exactHistorySuggestion.version, fsliId: exactHistorySuggestion.fsliId
+    } }
+  }, childHistoryProposalTarget.headers);
+  assert.equal(explicitHistoryConfirmation.response.status, 200, JSON.stringify(explicitHistoryConfirmation.body));
+  const confirmedHistoryWorkspace = await call(`/api/workspaces/${workspaceId}/engagements/${childHistoryProposalTarget.id}/trial-balance-workspace`,
+    { headers: childHistoryProposalTarget.headers });
+  const confirmedHistoryRow = confirmedHistoryWorkspace.body.mappingDraft.lines.find((row: any) => row.tbLineId === exactHistorySuggestion.tbLineId);
+  assert.equal(confirmedHistoryRow.confirmed, true, 'the explicit UI confirmation action accepts the unchanged exact-history suggestion');
+  assert.equal(confirmedHistoryRow.origin, 'EXACT_HISTORY');
+  assert.equal(confirmedHistoryRow.sourceHistoricalMappingId, exactHistorySuggestion.sourceHistoricalMappingId);
   const differentFrameworkTarget = createMappingTestEngagement('MAPPING-SUBSIDIARY-OTHER-FRAMEWORK', 'OTHER-APPROVED-FRAMEWORK');
   const differentFrameworkProposal = await proposeMapping(differentFrameworkTarget);
   assert.equal(differentFrameworkProposal.response.status, 200, JSON.stringify(differentFrameworkProposal.body));

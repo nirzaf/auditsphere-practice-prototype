@@ -1601,13 +1601,26 @@ engagement receives the exact child history as unconfirmed suggestions. A
 third engagement under a different reporting framework receives no history.
 The suggestion payload now includes the approved mapping revision and effective
 period end, and the mapping UI displays both so a reviewer can inspect the
-source before confirming. The integration test asserts those provenance values.
-Focused `npx tsx --test tests/unit/businessWorkspace.test.ts` passed 1/1, and
-`npm run lint` passed.
+source before confirming. A per-row “Confirm suggestion” action accepts an
+unchanged historical or name-based FSLI without requiring the reviewer to
+change the dropdown selection. The integration test verifies an unchanged
+history suggestion can be confirmed and that nonzero unconfirmed suggestions
+block approval.
+When no exact history exists, a unique account-name Jaccard match of at least
+60% and 15 points above the next candidate is now offered as a `NAME_SIMILARITY`
+draft suggestion. It remains unconfirmed, is visibly labeled with its score,
+and is cleared if the reviewer selects another FSLI. Migration 0044 stores this
+draft-only provenance without changing approved mapping authority.
+
+**Verification update:** Migration, mapping-journey and verification-ingest
+checks passed 5/5. Full `npm run test:unit` passed 616 tests with one opt-in
+stress test skipped. `npm run lint`, `npm run cloud:typecheck`, `npm run build`,
+and `git diff --check` passed. The build retains the existing large JavaScript
+chunk warning.
 
 **Boundary:** Parent/child and reporting-framework mapping isolation now have
 Worker-backed coverage and source provenance is visible during review.
-US-FLD-002 remains partial for its other criteria and broader current-account
+US-FLD-002 remains partial for other criteria and broader current-account
 acceptance; the 46-story epic remains open.
 
 ## US-REP-007 native streaming download fallback — 2026-10-08

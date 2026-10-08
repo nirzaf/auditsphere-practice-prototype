@@ -427,7 +427,8 @@ export interface BusinessTrialBalanceWorkspace {
     mappingOrigin: string | null; mappingReason: string | null }>;
   mappingDraft: null | { id: string; revision: number; draftHash: string; lines: Array<{ id: string; version: number; tbLineId: string;
     accountCode: string; accountName: string; balanceMinor: string; priorBalanceMinor: string | null; fsliId: string | null; origin: string | null;
-    sourceHistoricalMappingId: string | null; historyPeriodEnd: string | null; historyMappingRevision: number | null; confirmed: boolean; reason: string | null }> };
+    sourceHistoricalMappingId: string | null; historyPeriodEnd: string | null; historyMappingRevision: number | null;
+    suggestionKind: 'NAME_SIMILARITY' | null; suggestionScore: number | null; confirmed: boolean; reason: string | null }> };
   fsliCatalog: Array<{ id: string; code: string; name: string; statement: string; category: string; normalSide: string; displaySign: number; presentationOrder: number }>;
   materiality: null | {
     id: string; revision: number; tbVersionId: string; mappingVersionId: string;
