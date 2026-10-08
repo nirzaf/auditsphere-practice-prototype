@@ -2027,6 +2027,23 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
   }, makeRiskHeaders(reviewerHeaders));
   assert.equal(mappingApproved.response.status, 200, JSON.stringify(mappingApproved.body));
   assert.equal(mappingApproved.body.result.mappedCount, 10);
+  const historicalMappingProposal = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'tb.mapping.propose', payload: {
+      engagementId, tbVersionId: tbActivated.body.result.tbVersionId
+    } }
+  }, makeRiskHeaders(reviewerHeaders));
+  assert.equal(historicalMappingProposal.response.status, 200, JSON.stringify(historicalMappingProposal.body));
+  assert.equal(historicalMappingProposal.body.result.suggestedCount, 10);
+  assert.equal(historicalMappingProposal.body.result.unmappedCount, 0);
+  const historicalDraft = (await call(tbWorkspacePath, { headers: makeRiskHeaders(reviewerHeaders) })).body.mappingDraft;
+  assert.ok(historicalDraft.lines.every((row: any) => row.origin === 'EXACT_HISTORY'
+    && row.sourceHistoricalMappingId && row.confirmed === false),
+  'historical suggestions preserve their source IDs but remain unconfirmed until a reviewer explicitly maps each account');
+  const historyClientScope = db.prepare(`SELECT COUNT(*) AS count FROM mapping_memory mm JOIN clients c
+      ON c.workspace_id=mm.workspace_id AND c.id=mm.client_id WHERE mm.workspace_id=? AND mm.client_id=?
+      AND mm.reporting_framework=? AND mm.source_mapping_version_id=?`)
+    .bind(workspaceId, clientId, historicalDraft.reportingFramework, mappingApproved.body.result.mappingVersionId).first<any>()?.count;
+  assert.equal(historyClientScope, 10, 'approved historical rows are retained under the source client and reporting framework');
   const materialityCalculated = await post(`/api/workspaces/${workspaceId}/commands`, {
     idempotencyKey: crypto.randomUUID(), command: { type: 'materiality.calculate', payload: {
       engagementId, tbVersionId: tbActivated.body.result.tbVersionId, mappingVersionId: mappingApproved.body.result.mappingVersionId,

@@ -1473,3 +1473,18 @@ not replace the active TB before explicit activation.
 production D1 interruption test. Formula, macro and external-link rejection
 are covered by their own parser paths; broader XLSX and large-file limits remain
 subject to full epic acceptance. US-FLD-001 and the broader epic remain open.
+
+## US-FLD-002 exact historical mapping confirmation — 2026-10-08
+
+**Verification:** `npx tsx --test --test-reporter=spec
+tests/unit/businessWorkspace.test.ts` — 1/1; `git diff --check`.
+
+**Evidence:** After the synthetic client mapping is approved, the journey
+proposes the same account rows again for the same active TB and framework. All
+ten rows are returned as `EXACT_HISTORY` suggestions with source mapping IDs,
+none marked confirmed. The test also checks ten mapping-memory rows reference
+the approved mapping version under that client and framework.
+
+**Boundary:** The journey verifies same-client reuse, but does not yet construct
+a second client and framework to prove cross-scope isolation end-to-end. The
+broader US-FLD-002 mapping lifecycle remains open.
