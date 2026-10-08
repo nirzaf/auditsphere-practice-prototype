@@ -22,4 +22,7 @@ Research primary sources (official law texts, QFC Authority site, Cloudflare doc
 - Default retention term confirmed.
 
 ## Result
-*(fill in)*
+
+**Partial — preliminary inventory and product-location facts recorded in [`docs/ops/data-protection.md`](../../ops/data-protection.md).** Official Cloudflare docs checked 2026-10-08 show that D1 and R2 offer `apac` as a best-effort location hint, not a residency guarantee; neither documents a Qatar/GCC jurisdiction. Current D1/R2 jurisdictions are `eu`, `us` and `fedramp`, and cannot be changed after resource creation. D1 also documents that a jurisdiction constrains storage/operation but not where Workers may access it.
+
+The Qatar legal portal and QFC Data Protection Office sources are linked in the inventory. Applicability, controller/processor roles, cross-border safeguards, subprocessors and retention remain for the firm and legal adviser to decide. D5 is unanswered; do not create staging/production data resources until the firm records the required location/jurisdiction and accepts the provider implications. This is not legal advice or a compliance determination.
