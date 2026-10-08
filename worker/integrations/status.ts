@@ -12,12 +12,26 @@ export type EmailTransport = 'SERVICE_BINDING' | 'CLOUDFLARE_EMAIL_SERVICE' | 'U
 export interface EmailTransportStatus {
   configured: boolean;
   transport: EmailTransport;
+  providerReadiness: 'READY' | 'UNAVAILABLE' | 'NOT_PROBED';
 }
 
-export function emailTransportStatus(env: Env): EmailTransportStatus {
-  if (env.EMAIL_PROVIDER) return { configured: true, transport: 'SERVICE_BINDING' };
-  if (env.SEND_EMAIL) return { configured: true, transport: 'CLOUDFLARE_EMAIL_SERVICE' };
-  return { configured: false, transport: 'UNCONFIGURED' };
+export async function emailTransportStatus(env: Env): Promise<EmailTransportStatus> {
+  if (env.EMAIL_PROVIDER) {
+    try {
+      const response = await env.EMAIL_PROVIDER.fetch('https://email-provider.internal/health');
+      if (response.ok) {
+        const body = await response.json() as { ok?: unknown; senderConfigured?: unknown };
+        if (body.ok === true && body.senderConfigured === true) {
+          return { configured: true, transport: 'SERVICE_BINDING', providerReadiness: 'READY' };
+        }
+      }
+    } catch {
+      // A binding alone is not proof that the provider can accept a delivery.
+    }
+    return { configured: false, transport: 'SERVICE_BINDING', providerReadiness: 'UNAVAILABLE' };
+  }
+  if (env.SEND_EMAIL) return { configured: true, transport: 'CLOUDFLARE_EMAIL_SERVICE', providerReadiness: 'NOT_PROBED' };
+  return { configured: false, transport: 'UNCONFIGURED', providerReadiness: 'NOT_PROBED' };
 }
 
 export interface IntegrationStatus {
@@ -26,5 +40,6 @@ export interface IntegrationStatus {
 }
 
 export async function integrationStatus(env: Env): Promise<IntegrationStatus> {
-  return { email: emailTransportStatus(env), sharepoint: await sharePointStatus(env) };
+  const [email, sharepoint] = await Promise.all([emailTransportStatus(env), sharePointStatus(env)]);
+  return { email, sharepoint };
 }

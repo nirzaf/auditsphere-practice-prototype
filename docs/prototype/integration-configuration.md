@@ -28,10 +28,22 @@ Verify the current state of every integration at any time:
 ```sh
 curl -s https://<worker-url>/api/integrations/status
 # {
-#   "email": { "configured": true, "transport": "SERVICE_BINDING" },
+#   "email": {
+#     "configured": true,
+#     "transport": "SERVICE_BINDING",
+#     "providerReadiness": "READY"
+#   },
 #   "sharepoint": { "state": "FAILED", "siteHostname": "easyguide.sharepoint.com", ... }
 # }
 ```
+
+For a service-bound email provider, `configured` is true only when the provider's
+`/health` probe confirms an active transport and a syntactically valid
+`EMAIL_FROM` address. An unreachable provider, absent transport, or
+missing/placeholder sender reports `configured: false` and
+`providerReadiness: "UNAVAILABLE"`. The probe does not verify the sender domain,
+destination allowlist, recipient verification, or successful delivery; those
+still require Cloudflare account evidence and a controlled test send.
 
 ## 1. Email delivery (US-GAP-05 / US-GAP-06)
 

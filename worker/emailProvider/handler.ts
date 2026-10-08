@@ -33,6 +33,21 @@ export function emailProviderTransport(env: EmailProviderEnv): 'CLOUDFLARE_EMAIL
   return 'UNCONFIGURED';
 }
 
+export function isConfiguredSenderAddress(value: unknown): value is string {
+  if (typeof value !== 'string' || value.length > 254 || /[\r\n\s<>]/.test(value)) return false;
+  const separator = value.lastIndexOf('@');
+  if (separator < 1 || separator === value.length - 1) return false;
+  const localPart = value.slice(0, separator);
+  const domain = value.slice(separator + 1);
+  const labels = domain.split('.');
+  const topLevelDomain = labels.at(-1)?.toLowerCase() ?? '';
+  return localPart.length <= 64 && /^[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+$/.test(localPart)
+    && domain.length <= 253 && labels.length >= 2
+    && labels.every(label => label.length > 0 && label.length <= 63 && /^[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?$/.test(label))
+    && /^[a-z]{2,63}$/.test(topLevelDomain)
+    && !new Set(['example', 'invalid', 'local', 'test']).has(topLevelDomain);
+}
+
 function jsonResponse(status: number, body: Record<string, unknown>): Response {
   return new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
 }
@@ -87,11 +102,23 @@ export async function handleProviderSend(request: Request, env: EmailProviderEnv
   }
 
   const transport = emailProviderTransport(env);
+  if (transport === 'UNCONFIGURED') {
+    return jsonResponse(503, {
+      error: 'EMAIL_PROVIDER_NOT_CONFIGURED',
+      message: 'Configure SEND_EMAIL (Cloudflare Email Service) or EMAIL_API_URL + EMAIL_API_KEY on the email-provider Worker.'
+    });
+  }
+  if (!isConfiguredSenderAddress(env.EMAIL_FROM)) {
+    return jsonResponse(503, {
+      error: 'EMAIL_SENDER_NOT_CONFIGURED',
+      message: 'Configure EMAIL_FROM with an address authorized by the selected email provider.'
+    });
+  }
   if (transport === 'CLOUDFLARE_EMAIL_SERVICE' && env.SEND_EMAIL) {
     try {
       const result = await env.SEND_EMAIL.send({
         to: message.to,
-        from: { email: env.EMAIL_FROM?.trim() || 'no-reply@auditsphere.local', ...(env.EMAIL_FROM_NAME ? { name: env.EMAIL_FROM_NAME } : {}) },
+        from: { email: env.EMAIL_FROM.trim(), ...(env.EMAIL_FROM_NAME && !/[\r\n]/.test(env.EMAIL_FROM_NAME) ? { name: env.EMAIL_FROM_NAME } : {}) },
         subject: message.subject,
         text: message.text,
         attachments: message.attachments
