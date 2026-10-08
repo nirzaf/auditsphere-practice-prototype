@@ -453,6 +453,20 @@ const parsePayload = (value: string): Record<string, unknown> => {
   return parsed as Record<string, unknown>;
 };
 
+/** Stable digest of the exact business source snapshot; ID-map evidence is deliberately excluded. */
+export function hashMigrationSourceSnapshot(snapshot: MigrationAuditSnapshot): string {
+  const entities = [...snapshot.entities].sort((a, b) => a.entity_kind.localeCompare(b.entity_kind) || a.entity_id.localeCompare(b.entity_id));
+  const roots = [...snapshot.rootDocuments].sort((a, b) => a.document_key.localeCompare(b.document_key));
+  const files = [...snapshot.files].sort((a, b) => a.id.localeCompare(b.id));
+  const hashInput = {
+    workspace: snapshot.workspace,
+    entities: entities.map(entity => ({ kind: entity.entity_kind, id: entity.entity_id, payload: parsePayload(entity.payload_json) })),
+    rootDocuments: roots.map(root => ({ key: root.document_key, payload: parsePayload(root.payload_json) })),
+    files
+  };
+  return createHash('sha256').update(canonical(hashInput)).digest('hex');
+}
+
 const compareSource = (a: { source_kind: string; source_id: string }, b: { source_kind: string; source_id: string }) =>
   a.source_kind.localeCompare(b.source_kind) || a.source_id.localeCompare(b.source_id);
 
@@ -714,13 +728,7 @@ export function buildMigrationAuditReport(
     }
     return [{ sourceKind: pair.sourceKind, sourceRows: sourceEntities.length, targetKind: pair.targetKind, targetRows: normalizedTargetRows, sourceAmountMinor: sourceAmount.toString(), targetAmountMinor: targetAmount.toString(), status }];
   });
-  const hashInput = {
-    workspace: snapshot.workspace,
-    entities: entities.map(entity => ({ kind: entity.entity_kind, id: entity.entity_id, payload: payloads.get(`${entity.entity_kind}\0${entity.entity_id}`) })),
-    rootDocuments: roots.map(root => ({ key: root.document_key, payload: parsePayload(root.payload_json) })),
-    files
-  };
-  const sourceSha256 = createHash('sha256').update(canonical(hashInput)).digest('hex');
+  const sourceSha256 = hashMigrationSourceSnapshot(snapshot);
   const sourceCount = sourceRows.length;
   const targetCount = reconciledTargetCount;
   const blockers = missingFiles.length + orphanRows.length + unmappedRows.length + reconciliationIssues.length;

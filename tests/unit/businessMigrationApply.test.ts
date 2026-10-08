@@ -45,6 +45,10 @@ const createDatabase = (sourceSnapshot = snapshot()): DatabaseSync => {
     database.prepare(`INSERT INTO workspace_entities(workspace_id,entity_kind,entity_id,version,payload_json,created_at,updated_at)
       VALUES (?,?,?,?,?,0,0)`).run(sourceSnapshot.workspace.id, entity.entity_kind, entity.entity_id, 1, entity.payload_json);
   }
+  for (const root of sourceSnapshot.rootDocuments) {
+    database.prepare(`INSERT INTO workspace_root_documents(workspace_id,document_key,version,payload_json,created_at,updated_at)
+      VALUES(?,?,1,?,0,0)`).run(sourceSnapshot.workspace.id, root.document_key, root.payload_json);
+  }
   for (const file of sourceSnapshot.files) {
     database.prepare(`INSERT INTO file_objects(id,workspace_id,client_id,engagement_id,category,logical_record_type,logical_record_id,
       r2_key,original_name,mime_type,size_bytes,sha256,state,immutable,created_by_user_id,created_at,committed_at)
@@ -71,6 +75,23 @@ it('builds an atomic, source-guarded plan for reviewed clients and contacts', ()
   assert.ok(plan.sql.indexOf("SELECT 'client-parent'") < plan.sql.indexOf("SELECT 'client-child'"), 'parents are inserted before subsidiaries');
   assert.match(plan.sql, /contacts\(id,client_id,full_name,email,phone,title,role,is_primary,is_signatory,active/);
   assert.equal(plan.sourceSha256, report.sourceSha256);
+});
+
+it('rejects a dry-run report when root or entity source data changed before apply planning', () => {
+  const source = snapshot();
+  const report = buildMigrationAuditReport(source, new Map(), APPLICATION_SCHEMA_VERSION, 40);
+  const changed = structuredClone(source);
+  changed.rootDocuments[0].payload_json = JSON.stringify({ schemaVersion: 30, changed: true });
+  assert.throws(
+    () => buildMigrationApplyPlan(changed, report, 40, '2026-10-08T10:00:00.000Z'),
+    /AUDIT_REPORT_SOURCE_DIGEST_MISMATCH/
+  );
+
+  const staleSchemaReport = buildMigrationAuditReport(source, new Map(), APPLICATION_SCHEMA_VERSION - 1, 40);
+  assert.throws(
+    () => buildMigrationApplyPlan(source, staleSchemaReport, 40, '2026-10-08T10:00:00.000Z'),
+    /AUDIT_REPORT_TARGET_SCHEMA_MISMATCH/
+  );
 });
 
 it('applies all planned rows atomically and rolls back when a source row changed after preflight', () => {
@@ -105,6 +126,15 @@ it('applies all planned rows atomically and rolls back when a source row changed
     assert.equal(staleDatabase.prepare("SELECT COUNT(*) AS n FROM clients WHERE workspace_id=?").get(source.workspace.id)?.n, 0);
     assert.equal(staleDatabase.prepare("SELECT COUNT(*) AS n FROM migration_runs WHERE workspace_id=?").get(source.workspace.id)?.n, 0);
   } finally { staleDatabase.close(); }
+
+  const changedRootDatabase = createDatabase();
+  try {
+    changedRootDatabase.prepare('UPDATE workspace_root_documents SET payload_json=? WHERE workspace_id=? AND document_key=?')
+      .run('{"schemaVersion":30,"changed":true}', source.workspace.id, '__manifest__');
+    assert.throws(() => apply(changedRootDatabase, plan.sql));
+    assert.equal(changedRootDatabase.prepare('SELECT COUNT(*) AS n FROM migration_runs WHERE workspace_id=?').get(source.workspace.id)?.n, 0);
+    assert.equal(changedRootDatabase.prepare('SELECT COUNT(*) AS n FROM clients WHERE workspace_id=?').get(source.workspace.id)?.n, 0);
+  } finally { changedRootDatabase.close(); }
 });
 
 it('blocks unmapped entity kinds instead of dropping them', () => {

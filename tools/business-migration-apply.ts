@@ -1,4 +1,4 @@
-import { buildNormalizedMigrationPlan, type MigrationAuditReport, type MigrationAuditSnapshot } from './business-migration-audit-core.js';
+import { buildNormalizedMigrationPlan, hashMigrationSourceSnapshot, type MigrationAuditReport, type MigrationAuditSnapshot } from './business-migration-audit-core.js';
 import { APPLICATION_SCHEMA_VERSION } from '../worker/versions.js';
 
 const TARGET_SCHEMA_VERSION = APPLICATION_SCHEMA_VERSION;
@@ -33,10 +33,13 @@ export function buildMigrationApplyPlan(
   const addBlocker = (sourceKind: string, sourceId: string, code: string) => blockers.push({ sourceKind, sourceId, code });
 
   if (snapshot.workspace.schema_version >= TARGET_SCHEMA_VERSION) addBlocker('workspace', snapshot.workspace.id, 'SOURCE_SCHEMA_NOT_BELOW_MIGRATION_TARGET');
-  if (installedApplicationSchemaVersion < 40) addBlocker('application', String(installedApplicationSchemaVersion), 'MIGRATION_APPLY_GUARDS_NOT_INSTALLED');
+  if (installedApplicationSchemaVersion < APPLICATION_SCHEMA_VERSION) addBlocker('application', String(installedApplicationSchemaVersion), 'MIGRATION_APPLY_GUARDS_NOT_INSTALLED');
+  if (report.targetSchemaVersion !== TARGET_SCHEMA_VERSION) addBlocker('application', String(report.targetSchemaVersion), 'AUDIT_REPORT_TARGET_SCHEMA_MISMATCH');
+  if (report.installedApplicationSchemaVersion !== installedApplicationSchemaVersion) addBlocker('application', String(report.installedApplicationSchemaVersion), 'AUDIT_REPORT_APPLICATION_SCHEMA_MISMATCH');
   if (report.workspaceId !== snapshot.workspace.id || report.sourceSchemaVersion !== snapshot.workspace.schema_version) {
     addBlocker('workspace', snapshot.workspace.id, 'AUDIT_REPORT_DOES_NOT_MATCH_SOURCE_SNAPSHOT');
   }
+  if (report.sourceSha256 !== hashMigrationSourceSnapshot(snapshot)) addBlocker('workspace', snapshot.workspace.id, 'AUDIT_REPORT_SOURCE_DIGEST_MISMATCH');
   if (report.missingFiles.length) addBlocker('file_objects', '*', 'SOURCE_FILE_BYTES_NOT_VERIFIED');
   for (const root of snapshot.rootDocuments) {
     if (!SUPPORTED_ROOT_METADATA.has(root.document_key)) addBlocker('ROOT_DOCUMENT', root.document_key, 'ROOT_DOCUMENT_MIGRATION_NOT_SUPPORTED');
@@ -90,8 +93,12 @@ export function buildMigrationApplyPlan(
     preservedSourceSnapshot: true,
     unsupportedRowsCreated: 0
   });
+  const rootSnapshotGuard = [
+    `(SELECT COUNT(*) FROM workspace_root_documents WHERE workspace_id=${sqlText(workspaceId)})=${snapshot.rootDocuments.length}`,
+    ...snapshot.rootDocuments.map(root => `EXISTS (SELECT 1 FROM workspace_root_documents WHERE workspace_id=${sqlText(workspaceId)} AND document_key=${sqlText(root.document_key)} AND payload_json=${sqlText(root.payload_json)})`)
+  ].join(' AND ');
   const statements: string[] = [
-    `INSERT INTO migration_runs(id,workspace_id,source_schema_version,target_schema_version,source_sha256,status,started_at,completed_at,source_count,target_count,reconciliation_json,error_code) VALUES(${sqlText(runId)},${sqlText(workspaceId)},${snapshot.workspace.schema_version},${TARGET_SCHEMA_VERSION},${sqlText(report.sourceSha256)},'VALIDATED',${sqlText(appliedAt)},NULL,${sourceCount},0,${sqlText(reconciliation)},NULL)`
+    `INSERT INTO migration_runs(id,workspace_id,source_schema_version,target_schema_version,source_sha256,status,started_at,completed_at,source_count,target_count,reconciliation_json,error_code) SELECT ${sqlText(runId)},${sqlText(workspaceId)},${snapshot.workspace.schema_version},${TARGET_SCHEMA_VERSION},${sqlText(report.sourceSha256)},'VALIDATED',${sqlText(appliedAt)},NULL,${sourceCount},0,${sqlText(reconciliation)},NULL FROM workspaces w WHERE w.id=${sqlText(workspaceId)} AND w.schema_version=${snapshot.workspace.schema_version} AND w.data_mode=${sqlText(snapshot.workspace.data_mode)} AND ${rootSnapshotGuard}`
   ];
 
   for (const record of plan.records) {

@@ -75,3 +75,11 @@ entire batch. Existing source snapshots and files are never deleted. The apply
 operation still refuses invoices, engagements, and all other unsupported entity
 kinds; the epic's invoice cutover scenario and engagement-linked evidence-file
 scenario remain open.
+
+Apply also binds the preflight report to the exact source digest and application
+schema version. The first D1 statement rechecks workspace schema/data mode and
+the complete root-document set/content in the same transaction as the target
+inserts and mappings. Entity/file rows are individually rechecked, and the
+cutover triggers recheck complete row counts and mapping coverage. A stale
+report or source snapshot aborts the batch instead of recording an APPLIED run
+against different source data.
