@@ -1649,7 +1649,8 @@ it('US-REP-001–007 covers all report categories, representation, atomic releas
     JOIN firm_accounts a ON a.workspace_id=l.workspace_id AND a.id=l.account_id
     WHERE j.workspace_id=? AND j.source_event_key=? AND j.status='POSTED' ORDER BY a.code`)
     .bind(fixture.workspaceId, `payment:${postArchiveCollection.body.result?.paymentId}`)
-    .all<{ code: string; debit_minor: number; credit_minor: number }>().results;
+    .all<{ code: string; debit_minor: number; credit_minor: number }>().results
+    .map(line => ({ code: line.code, debit_minor: line.debit_minor, credit_minor: line.credit_minor }));
   assert.deepEqual(paymentJournalLines, [
     { code: '1000', debit_minor: finalInvoiceSnapshot.total_minor, credit_minor: 0 },
     { code: '1100', debit_minor: 0, credit_minor: finalInvoiceSnapshot.total_minor }
