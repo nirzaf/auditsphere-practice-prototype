@@ -45,11 +45,13 @@ export async function validateAuthSession(env: Env, token: string, now: string):
   return context as SessionContext;
 }
 
-export async function touchSession(env: Env, session: AuthSessionRow, now: string): Promise<void> {
-  if (Date.parse(now) - Date.parse(session.last_seen_at) < 60_000) return;
+export async function touchSession(env: Env, session: AuthSessionRow, now: string): Promise<string> {
+  if (Date.parse(now) - Date.parse(session.last_seen_at) < 60_000) return session.idle_expires_at;
   const idleMinutes = session.auth_method === 'OIDC_ENTRA' ? 30 : 15;
+  const idleExpiresAt = new Date(Math.min(Date.parse(now) + idleMinutes * 60_000, Date.parse(session.absolute_expires_at))).toISOString();
   await env.DB.prepare(`UPDATE auth_sessions SET last_seen_at=?,idle_expires_at=? WHERE id=? AND revoked_at IS NULL`)
-    .bind(now, new Date(Math.min(Date.parse(now) + idleMinutes * 60_000, Date.parse(session.absolute_expires_at))).toISOString(), session.id).run();
+    .bind(now, idleExpiresAt, session.id).run();
+  return idleExpiresAt;
 }
 export async function revokeSession(env: Env, sessionId: string, reason: string, now: string): Promise<void> {
   await env.DB.prepare('UPDATE auth_sessions SET revoked_at=?,revoked_reason=? WHERE id=? AND revoked_at IS NULL').bind(now, reason, sessionId).run();

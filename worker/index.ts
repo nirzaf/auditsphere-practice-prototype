@@ -54,6 +54,7 @@ import { getBusinessFinancialStatements, getBusinessFsliSourceLines, getBusiness
 import { getBusinessPracticeWorkspace, getBusinessProfitability, getBusinessUtilization, getFirmProfitLossReport, getFirmTrialBalanceReport } from './businessPractice';
 import { consumeBusinessArchiveDownloadTicket, createBusinessArchiveDownloadTicket, getBusinessArchiveExport, getBusinessArchiveStatus, getBusinessOpinionPreview, getBusinessReleasedReportProvenance, getBusinessReportingWorkspace } from './businessReportingQuery';
 import { getBusinessWorkflow } from './businessWorkflow';
+import { handleActiveProfile, handleAuthLogout, handleAuthMe, handleStaffCallback, handleStaffLogin } from './auth/oidcRoutes';
 
 const JSON_BODY_LIMIT = 1_000_000;
 /** Hard ceiling for a single command payload; the domain model is small. */
@@ -611,6 +612,11 @@ const handleIntegrationStatus = async (ctx: RouteContext): Promise<Response> =>
 // --- Router -----------------------------------------------------------------
 
 const router = createRouter()
+  .get('/api/auth/staff/login', handleStaffLogin)
+  .get('/api/auth/staff/callback', handleStaffCallback)
+  .get('/api/auth/me', handleAuthMe)
+  .post('/api/auth/active-profile', handleActiveProfile)
+  .post('/api/auth/logout', handleAuthLogout)
   .get('/api/health', handleHealth)
   .get('/api/health/live', handleHealthLive)
   .get('/api/health/ready', handleHealthReady)
