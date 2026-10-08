@@ -953,7 +953,8 @@ it('US-FLD-007, US-FLD-008 and US-FLD-009 verify MUS, systematic and stratified 
   const finalUi = await tabA.evaluate<{ withinToleranceVisible: boolean; boundVisible: boolean; evidenceVisible: boolean; alert: string | null }>(`({
     withinToleranceVisible: document.body.innerText.includes('WITHIN TOLERANCE'),
     boundVisible: document.body.innerText.includes('49,507.61'),
-    evidenceVisible: document.body.innerText.includes(${JSON.stringify(evidenceTitle)}),
+    evidenceVisible: [...document.querySelectorAll('.business-fieldwork-sample-test select')]
+      .some(select => select.selectedOptions[0]?.textContent?.includes(${JSON.stringify(evidenceTitle)})),
     alert: document.querySelector('.business-fieldwork-panel > .business-alert')?.textContent?.trim() ?? null
   })`);
   assert.equal(finalUi.alert, null, `sampling evaluation was rejected: ${finalUi.alert}`);
