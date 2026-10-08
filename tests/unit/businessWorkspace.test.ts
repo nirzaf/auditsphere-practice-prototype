@@ -4860,6 +4860,27 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
   // recognized revenue changes only after a Partner records earned service.
   assert.equal(firmProfitLossBefore.body.revenueMinor, '0',
     'issuing and collecting the advance invoice does not recognize revenue under the deferred policy');
+  const advanceInvoiceJournal = db.prepare(`SELECT id,status FROM firm_journals WHERE workspace_id=? AND source_type='INVOICE_ISSUED' AND source_id=?`)
+    .bind(workspaceId, issuedInvoice.id).first<any>();
+  assert.ok(advanceInvoiceJournal?.id);
+  assert.equal(advanceInvoiceJournal.status, 'POSTED');
+  const advanceInvoiceJournalLines = db.prepare(`SELECT a.code,l.debit_minor,l.credit_minor FROM firm_journal_lines l
+    JOIN firm_accounts a ON a.workspace_id=l.workspace_id AND a.id=l.account_id WHERE l.workspace_id=? AND l.journal_id=? ORDER BY a.code`)
+    .bind(workspaceId, advanceInvoiceJournal.id).all<any>().results.map((row: any) => ({ ...row }));
+  assert.deepEqual(advanceInvoiceJournalLines, [
+    { code: '1100', debit_minor: 125001, credit_minor: 0 },
+    { code: '2100', debit_minor: 0, credit_minor: 125001 }
+  ], 'advance billing debits Trade Receivables and credits Contract Liability');
+  const settledPaymentJournal = db.prepare(`SELECT id,status FROM firm_journals WHERE workspace_id=? AND source_type='PAYMENT' AND source_id=?`)
+    .bind(workspaceId, settlement.body.result.paymentId).first<any>();
+  assert.equal(settledPaymentJournal?.status, 'POSTED');
+  const settledPaymentJournalLines = db.prepare(`SELECT a.code,l.debit_minor,l.credit_minor FROM firm_journal_lines l
+    JOIN firm_accounts a ON a.workspace_id=l.workspace_id AND a.id=l.account_id WHERE l.workspace_id=? AND l.journal_id=? ORDER BY a.code`)
+    .bind(workspaceId, settledPaymentJournal.id).all<any>().results.map((row: any) => ({ ...row }));
+  assert.deepEqual(settledPaymentJournalLines, [
+    { code: '1000', debit_minor: 125001, credit_minor: 0 },
+    { code: '1100', debit_minor: 0, credit_minor: 125001 }
+  ], 'settlement debits Bank and credits Trade Receivables without changing revenue');
   const revenuePolicyView = await call(practicePath, { headers: practiceHeaders });
   assert.equal(revenuePolicyView.response.status, 200, JSON.stringify(revenuePolicyView.body));
   const deferredPolicy = revenuePolicyView.body.revenuePolicies.find((policy: any) => policy.recognitionMethod === 'DEFER_UNTIL_EARNED');

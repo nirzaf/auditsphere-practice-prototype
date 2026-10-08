@@ -1730,9 +1730,11 @@ business date through an independent Reviewer: the original-date TB remains
 unchanged, while monthly P&L nets the reversal in its actual posting month. The
 integrated journey also proves that issuing and fully collecting the QAR
 1,250.01 advance invoice leaves revenue at zero under the deferred policy. The
-Partner must explicitly record earned service; that event posts a balanced Dr
-Contract Liability / Cr Professional Fees journal for exactly 125,001 minor
-units and increases monthly P&L by the same amount. The practice UI shows the
+test inspects the exact posted lines: invoice Dr Trade Receivables / Cr Contract
+Liability, receipt Dr Bank / Cr Trade Receivables. The Partner must explicitly
+record earned service; that event posts a balanced Dr Contract Liability / Cr
+Professional Fees journal for exactly 125,001 minor units and increases monthly
+P&L by the same amount. The practice UI shows the
 approved policy revision effective on the selected earned date, its effective
 date, recognition rules and digest, and asks for the earned date instead of
 silently using today.
