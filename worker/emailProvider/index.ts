@@ -1,7 +1,7 @@
 // Entry point for the standalone email-provider Worker.
 //
 // Deploy this Worker and bind it into the business Worker as EMAIL_PROVIDER (see
-// docs/prototype/integration-configuration.md). It implements the provider contract
+// docs/ops/integrations.md). It implements the provider contract
 // consumed by worker/businessOutbox.ts (`POST /send` -> `{ messageId }`).
 
 import { configuredRecipientAllowlist, emailProviderTransport, handleProviderSend, isConfiguredSenderAddress, type EmailProviderEnv } from './handler';

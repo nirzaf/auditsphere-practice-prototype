@@ -1,5 +1,0 @@
-{
-  "name": "AuditSphere Practice Workspace",
-  "description": "Server-backed AuditSphere practice workspace for synthetic audit and accounting records. Persona selection does not verify identity.",
-  "capabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
-}

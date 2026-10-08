@@ -1,7 +1,7 @@
 // Microsoft Graph / SharePoint adapter for the AuditSphere business Worker.
 //
 // Configuration is supplied through `SHAREPOINT_*` bindings (see
-// docs/prototype/integration-configuration.md). When the configuration is absent
+// docs/ops/integrations.md). When the configuration is absent
 // every call fails closed with an explicit "unconfigured" error; it never reports
 // a synthetic success. A `fetch` implementation can be injected for tests.
 

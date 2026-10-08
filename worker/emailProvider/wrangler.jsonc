@@ -2,7 +2,7 @@
 //
 // Deploy with:  wrangler deploy --config worker/emailProvider/wrangler.jsonc
 // Then bind it into the business Worker as the EMAIL_PROVIDER service binding
-// (see docs/prototype/integration-configuration.md). Configure exactly one transport:
+// (see docs/ops/integrations.md). Configure exactly one transport:
 //   * Cloudflare Email Service: use the restricted send_email binding below.
 //   * HTTP API: remove that binding, set EMAIL_API_URL, then set EMAIL_API_KEY as a secret.
 {

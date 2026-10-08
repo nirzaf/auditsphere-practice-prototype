@@ -57,7 +57,6 @@ jobs:
       # package-lock.json still matches package.json. Only the download cache is
       # kept (setup-node above), and this now matches the deploy job, which has
       # always run `npm ci` unconditionally. Keying nothing on node_modules also
-      # keeps `ste-audit/`'s separate lockfile out of this job's cache identity.
       - name: Install dependencies
         run: npm ci
 

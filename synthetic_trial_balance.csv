@@ -1,9 +1,0 @@
-Code,Account,Type,Balance
-1000,Cash,asset,10000.00
-1100,Trade receivables,asset,5000.00
-1500,Equipment cost,asset,8000.00
-5000,Operating expenses,expense,3000.00
-2000,Trade payables,liability,-3000.00
-2200,Loan,liability,-7000.00
-3000,Opening equity,equity,-10000.00
-4000,Revenue,revenue,-6000.00

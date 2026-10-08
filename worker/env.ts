@@ -37,7 +37,7 @@ export interface Env {
   EMAIL_PROVIDER?: Fetcher;
   /** Optional Cloudflare Email Service binding used when no EMAIL_PROVIDER service binding is present. */
   SEND_EMAIL?: SendEmailBinding;
-  /** Microsoft Graph / SharePoint document integration (see docs/prototype/integration-configuration.md). */
+  /** Microsoft Graph / SharePoint document integration (see docs/ops/integrations.md). */
   SHAREPOINT_TENANT_ID?: string;
   SHAREPOINT_CLIENT_ID?: string;
   SHAREPOINT_CLIENT_SECRET?: string;
