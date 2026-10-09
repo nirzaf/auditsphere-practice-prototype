@@ -61,6 +61,19 @@ setup: `steaudit.com` inbound mail currently uses Microsoft 365. Do not enable
 Cloudflare Email Routing on the apex unless the firm explicitly migrates inbound
 mail.
 
+### Inbound alias forwarding
+
+The `steaudit.com` domain is Healthy in the Microsoft 365 tenant whose default
+domain is `gbskandy.onmicrosoft.com`. `audit@steaudit.com` is an alias on
+`fazrin@gbschool.cc`. On 2026-10-09, Exchange Admin Center enabled the rule
+**AuditSphere route audit alias to Quadrate**: recipient address matches the
+exact pattern `^audit@steaudit\.com$`, and Exchange adds `fazrin@quadrate.lk` to
+Bcc. This keeps the normal alias mailbox delivery and adds a copy only for that
+alias. The domain MX remains on Microsoft 365; Cloudflare Email Routing is not
+used for this path. Configuration is confirmed in Exchange, but end-to-end mail
+receipt has not been tested. The rule does not prove outbound application email
+delivery through the Cloudflare provider.
+
 ## Route proof and delivery statuses
 
 For `ROUTED`, each provider request must contain exactly one syntactically valid

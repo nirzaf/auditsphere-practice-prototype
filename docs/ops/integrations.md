@@ -79,17 +79,18 @@ as the Worker secret `EMAIL_API_KEY`. DNS, HMAC callback, and rotation steps are
 `mail.steaudit.com` is **Enabled / DNS Configured** for Email Sending. Cloudflare
 dashboard inspection shows the production Worker is bound to the private
 `auditsphere-email-provider` service and sets
-`PUBLIC_LEAD_NOTIFICATION_EMAIL=audit@steaudit.com`. The owner clarified that
-`audit@steaudit.com` is an existing Microsoft 365 mailbox intended to receive
-inbound mail, and requested that mail for this mailbox be routed to
-`fazrin@quadrate.lk`. Configure this as a mailbox-scoped Exchange forwarding
-rule in the tenant that owns `steaudit.com`; do not change the domain MX or turn
-on Cloudflare Email Routing for the apex. The current easyguide tenant does not
-contain that domain or mailbox, so the forwarding rule has not been applied.
-The application also queues website-inquiry notifications to the configured
-mailbox, but this remains outbound-only Worker behavior; the Worker does not
-receive or parse arbitrary inbound mail. No successful application send is
-recorded, so delivery remains unverified.
+`PUBLIC_LEAD_NOTIFICATION_EMAIL=audit@steaudit.com`. The owner confirmed that
+`audit@steaudit.com` is an alias on the `fazrin@gbschool.cc` mailbox in the
+Microsoft 365 tenant that owns `steaudit.com` (tenant default domain
+`gbskandy.onmicrosoft.com`). On 2026-10-09, Exchange Admin Center created and
+enabled the transport rule **AuditSphere route audit alias to Quadrate**. Its
+recipient condition is the exact regex `^audit@steaudit\.com$`, and its action
+adds `fazrin@quadrate.lk` as a BCC. This preserves delivery to the original
+mailbox and scopes the extra copy to that alias; it does not redirect other
+`@steaudit.com` mail. The `steaudit.com` apex MX remains on Microsoft 365 and
+Cloudflare Email Routing remains disabled for the apex. No end-to-end message
+receipt or successful application send has been recorded; outbound delivery
+remains unverified.
 
 A 2026-10-09 built-in-browser configuration change added
 `audit@steaudit.com` to the production Worker's `EMAIL_ALLOWED_RECIPIENTS`,
@@ -102,26 +103,10 @@ a future configuration-based redeploy could replace the dashboard-only binding
 and recipient settings. Resolve that transport choice before deploying the email
 provider from the repository.
 
-Cloudflare Email Routing is still disabled (the dashboard offers “Enable Email
-Routing”), and no email-routing trigger sends mail to this Worker. The destination
-`audit@steaudit.com` is Pending verification; `fazrin@quadrate.lk` is Verified,
-and the test destination is also Pending. Adding the audit mailbox to the send
-allowlist does not verify it or prove delivery. The M365 web app returned
-`MailboxUnavailableException` when opening `audit@steaudit.com`. In the currently
-signed-in `easyguide` tenant, the verified-domain list does not include
-`steaudit.com`, and neither Active users nor Exchange mailboxes contains
-`audit@steaudit.com`. The mailbox may belong to a different M365 tenant. Do not
-add `steaudit.com` to this tenant or change its MX without confirming domain
-ownership and the intended mail tenant; that could move or interrupt domain-wide
-mail. The mailbox provisioning and Cloudflare verification message remain
-unresolved. Keep the apex MX on Microsoft 365; do not enable Cloudflare Email
-Routing at the apex.
-
-On 2026-10-09, the Cloudflare dashboard accepted a resend of the destination
-verification message to `audit@steaudit.com` and displayed “Verification resent
-successfully.” The address still shows **Pending** in Cloudflare. The verification
-link must be opened in the mailbox that owns the address; this resend did not
-change Email Routing, DNS, or MX records.
+Cloudflare Email Routing is not used for this inbound path. A prior Cloudflare
+destination-verification entry is not evidence of mailbox delivery and is not
+needed for the Exchange rule. Keep Email Routing disabled for the apex; do not
+change the Microsoft 365 MX records.
 
 The `steaudit.com` apex MX still points to Microsoft 365
 (`steaudit-com.mail.protection.outlook.com`); Cloudflare DNS inspection confirms
@@ -136,12 +121,10 @@ Accepted public inquiry submissions queue a notification to that mailbox
 through the private `EMAIL_PROVIDER` service binding and Cloudflare Email
 Sending. A notification contains the submitted company and contact name, email,
 phone (if provided), service interest, received time, and message. Honeypot/spam
-submissions do not send notifications. Separately, the owner requested that
-inbound messages delivered to the `audit@steaudit.com` M365 mailbox forward to
-`fazrin@quadrate.lk`. This mailbox-specific rule is still pending because the
-current M365 tenant does not own the domain or expose the mailbox. Cloudflare
-Email Routing remains disabled for `steaudit.com`, and no DNS/MX or other
-mailbox route has been changed.
+submissions do not send notifications. The Exchange rule above adds a copy of
+messages addressed exactly to `audit@steaudit.com` to `fazrin@quadrate.lk` while
+retaining the alias mailbox's normal delivery. It does not change any other
+mailbox route or domain DNS/MX record.
 
 The production Worker now has a dedicated managed Turnstile widget named
 `AuditSphere website inquiries`, allowed for the Cloudflare-managed
