@@ -117,6 +117,12 @@ mail. The mailbox provisioning and Cloudflare verification message remain
 unresolved. Keep the apex MX on Microsoft 365; do not enable Cloudflare Email
 Routing at the apex.
 
+On 2026-10-09, the Cloudflare dashboard accepted a resend of the destination
+verification message to `audit@steaudit.com` and displayed “Verification resent
+successfully.” The address still shows **Pending** in Cloudflare. The verification
+link must be opened in the mailbox that owns the address; this resend did not
+change Email Routing, DNS, or MX records.
+
 The `steaudit.com` apex MX still points to Microsoft 365
 (`steaudit-com.mail.protection.outlook.com`); Cloudflare DNS inspection confirms
 it remains DNS-only with a 1-hour TTL. No Cloudflare Email Routing rule was added

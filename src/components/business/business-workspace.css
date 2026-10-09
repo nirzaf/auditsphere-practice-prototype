@@ -266,6 +266,7 @@
 .business-ar-aging-heading > div { min-width: 0; }
 .business-ar-aging-heading .business-field { width: min(260px, 40%); }
 .business-ar-aging-table { width: 100%; min-width: 0; overflow-x: auto; overscroll-behavior-inline: contain; border: 1px solid #d7e0e8; border-radius: 8px; }
+.business-ar-aging-table:focus-visible { outline: 3px solid #1768b5; outline-offset: 2px; }
 .business-ar-aging-table .business-table { min-width: 1050px; }
 .business-ar-aging-table th, .business-ar-aging-table td { padding: 9px 11px; border-top: 1px solid #e2e8f0; vertical-align: top; }
 .business-ar-aging-table thead th { border-top: 0; background: #f8fafc; color: #17334a; font-weight: 700; text-align: left; }

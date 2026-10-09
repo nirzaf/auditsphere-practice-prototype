@@ -318,11 +318,11 @@ export function BusinessAcceptanceRiskPanel({
     </div>
     {error && <p role="alert" className="business-alert">{error}</p>}
     {message && <p role="status" className="business-command-message">{message}</p>}
-    {gate && <div className="business-key-grid" aria-label="Current acceptance gate">
+    {gate && <div className="business-key-grid" role="group" aria-label="Current acceptance gate">
       {status('Client commercial key', gate.commercialKey.status)}
       {status('Partner risk key', gate.riskKey.status)}
     </div>}
-    {gate && <div className="business-key-details" aria-label="Acceptance source revisions and evidence">
+    {gate && <div className="business-key-details" role="group" aria-label="Acceptance source revisions and evidence">
       {gate.commercialKey.status === 'ACTIVE' && <p>Commercial source: proposal revision {String(commercialKey.proposalRevision ?? clientProposal?.revision ?? 'current')}
         {typeof commercialKey.feeMinor === 'string' ? ` · QAR ${commercialKey.feeMinor} minor units` : clientProposal ? ` · QAR ${clientProposal.feeMinor} minor units` : ''}
         {typeof commercialKey.contactName === 'string' ? ` · accepted by ${commercialKey.contactName}` : ''}

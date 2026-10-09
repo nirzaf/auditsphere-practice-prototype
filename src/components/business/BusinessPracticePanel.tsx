@@ -319,7 +319,7 @@ export function BusinessPracticePanel({ workspaceId, selected, context, engageme
     <div className="business-form-grid">
       <label className="business-field"><span>Report from</span><input type="date" value={from} onChange={event => setFrom(event.target.value)} /></label>
       <label className="business-field"><span>Report through</span><input type="date" value={to} onChange={event => setTo(event.target.value)} /></label>
-      <div className="business-field"><span>Engagement</span><input readOnly value={`${engagement.clientName} · ${engagement.id}`} /></div>
+      <label className="business-field"><span>Engagement</span><input readOnly value={`${engagement.clientName} · ${engagement.id}`} /></label>
     </div>
 
     {data && <>
@@ -590,7 +590,7 @@ export function BusinessPracticePanel({ workspaceId, selected, context, engageme
         <div className="business-section-heading business-ar-aging-heading"><div><h3>Invoice aging as of {data.arAging.asOf}</h3><p>{data.arAging.reconciliationStatus}: difference {money(data.arAging.reconciliationDifferenceMinor)}</p></div>
           <label className="business-field"><span>Qatar aging as of</span><input aria-label="AR aging as of date" type="date" required value={arAgingAsOf} onChange={event => setArAgingAsOf(event.target.value)} /></label>
         </div>
-        <div className="business-table-wrap business-ar-aging-table"><table className="business-table"><caption className="business-sr-only">Issued advance and final invoices, fee revision, amount paid, credits and remaining balance at the selected Qatar date.</caption><thead><tr>
+        <div className="business-table-wrap business-ar-aging-table" role="region" aria-label="Accounts receivable aging table; scroll horizontally to view all columns" tabIndex={0}><table className="business-table"><caption className="business-sr-only">Issued advance and final invoices, fee revision, amount paid, credits and remaining balance at the selected Qatar date.</caption><thead><tr>
           <th scope="col">Installment</th><th scope="col">Invoice total</th><th scope="col">Fee revision</th><th scope="col">Due date</th><th scope="col">Bucket</th><th scope="col">Paid</th><th scope="col">Credited</th><th scope="col">Outstanding</th><th scope="col">Allocate receipt</th>
         </tr></thead><tbody>
           {data.arAging.invoices.map(invoice => <tr key={invoice.invoiceId}><th scope="row">{invoice.kind} · {invoice.number}</th><td>{money(invoice.totalMinor)}</td><td><span title={invoice.feeRevisionId}>{invoice.feeRevisionId}</span></td><td>{invoice.dueDate}</td><td>{invoice.bucket}</td><td>{money(invoice.paidMinor)}</td><td>{money(invoice.creditedMinor)}</td><td>{money(invoice.outstandingMinor)}</td><td>

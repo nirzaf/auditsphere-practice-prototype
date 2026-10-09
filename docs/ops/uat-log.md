@@ -22,3 +22,9 @@ D1 database, and R2 bucket. Include the synthetic source/archive sizes, both
 download paths' durations and hashes, lock canary outcomes, and the operator.
 Do not record a production-bucket overwrite or deletion attempt as a staging
 canary.
+
+## Accessibility and keyboard-only acceptance
+
+| Story | Date | Environment | Test | Observed result / evidence |
+|---|---|---|---|---|
+| E06-S04 | 2026-10-09 | Local synthetic D1/R2 Worker; not deployed UAT | Keyboard-only lead-to-CLIENT-portal walkthrough | **Partial; upload blocked by workflow prerequisites.** Using Tab, typing, arrow keys and Enter only, created a synthetic workspace, Partner-approved test standards profile, PREPARER profile, lead/client/contact and engagement, then assigned a contact-scoped CLIENT profile and entered the CLIENT projection. The portal showed `Portal not active`; the UI states that uploads open only after commercial handover and the advance is fully settled with committed receipt evidence. No risk conclusions, commercial approvals, payment, receipt, or upload were fabricated. The separate automated axe run passed eight desktop/mobile scans (landing, setup, populated staff modules and CLIENT projection) with zero critical, serious or moderate violations. This local evidence does not establish deployed UAT or complete the upload acceptance criterion. |
