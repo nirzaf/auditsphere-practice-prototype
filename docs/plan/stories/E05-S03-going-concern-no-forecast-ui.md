@@ -1,4 +1,4 @@
-# E05-S03 — (P2) Going-concern no-forecast UI polish (VERIFY FIRST)
+# E05-S03 — (P2) Going-concern no-forecast UI polish (COMPLETE)
 
 | ID | Epic | Type | Priority | Size | Depends on | Spec trace |
 |---|---|---|---|---|---|---|

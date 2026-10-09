@@ -83,6 +83,16 @@ notifications. This is outbound application notification delivery into the
 mailbox; it does not make the Worker receive arbitrary inbound email. No
 successful application send is recorded, so delivery remains unverified.
 
+A 2026-10-09 built-in-browser inspection of the production
+`auditsphere-email-provider` Worker showed `EMAIL_ALLOWED_RECIPIENTS` contains
+only `testing@mail.steauditing.com`, while the business Worker's inquiry
+notification destination is `audit@steaudit.com`. The requested mailbox is not
+currently allowed by the provider policy, so a successful delivery cannot be
+claimed. The Worker settings also show no inbound email-routing rule. Keep the
+apex MX on Microsoft 365; do not point Cloudflare Email Routing at the apex.
+Change the production allowlist only after an isolated, trusted test path is
+available.
+
 The `steaudit.com` apex MX still points to Microsoft 365
 (`steaudit-com.mail.protection.outlook.com`); Cloudflare DNS inspection confirms
 it remains DNS-only with a 1-hour TTL. No Cloudflare Email Routing rule was added

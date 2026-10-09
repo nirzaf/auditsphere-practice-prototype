@@ -77,7 +77,7 @@ Evidence column: confirmed = seen in source during this audit; *reported* = take
 |---|---|---|---|
 | US-M3-001 Split P&L / BS dashboard | ✅ DONE | `GET …/financial-statements`, source-line drill-down | — |
 | US-M3-002 Analytical review | ✅ DONE | *reported* US-FLD-004 validation | — |
-| US-M3-003 ISA 570 going concern | ✅ DONE | starts `UNASSESSED`; explicit conclusions incl. `MATERIAL_UNCERTAINTY`; mandatory rationale (`worker/businessFieldwork.ts:815-816`); report section `worker/reportingOpinion.ts:90` | UI polish for the no-forecast state (repo-reported open) → E05-S03 (P2) |
+| US-M3-003 ISA 570 going concern | ✅ DONE | starts `UNASSESSED`; explicit conclusions incl. `MATERIAL_UNCERTAINTY`; mandatory rationale (`worker/businessFieldwork.ts:815-816`); report section (`worker/reportingOpinion.ts:90`); E05-S03 browser assertions at 1440×900 and 390×844 | — |
 | US-M3-004 FSLI workprograms | ✅ DONE | `tests/unit/fieldworkAcceptance.test.ts` (M3-004.1–.4), registered in `tests/unit/businessWorkspace.test.ts`; required assertions, persisted projection, evidence invalidation and submission outcomes pass | — |
 | US-M3-005 Ad-hoc procedures | ✅ DONE | `tests/unit/fieldworkAcceptance.test.ts` (M3-005.1–.3), registered in `tests/unit/businessWorkspace.test.ts`; required inputs, mandatory submission snapshot, actor/reason revision, audit and change feed pass | — |
 | US-M3-006 Sampling (MUS / systematic / stratified attribute) | ✅ DONE | method CHECK in 0016:277 | — |
