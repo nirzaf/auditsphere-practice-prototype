@@ -13,11 +13,11 @@ Let staff record that an approved proposal PDF was sent outside email (WhatsApp 
 - `docs/contracts/data-model-delta.md` §3, `docs/contracts/api-delta.md` §3 (`proposal.dispatch.recordManual`)
 
 ## Acceptance criteria
-1. Migration `NNNN_manual_dispatch_records.sql` (label 0048) per data-model-delta §3, schema version bumped, append-only triggers tested.
-2. `proposal.dispatch.recordManual` requires: engagement in `PROPOSAL_GENERATION`; the referenced proposal version is the approved active one; `file_version_id` is that version's generated PDF; `contactId` belongs to the engagement's client; `sentAt` ≤ now and ≥ proposal approval time; allowed action `proposal.dispatch`.
+1. Migration `0050_manual_dispatch_records.sql` per data-model-delta §4, schema version bumped, append-only triggers tested.
+2. `proposal.dispatch.recordManual` requires the engagement to be in `PROPOSAL_GENERATION`, except when the same approved proposal version has already advanced it to or beyond `DUAL_KEY_PENDING`; the referenced proposal version is current and Partner-approved; the persisted `file_version_id` is that version's committed generated PDF; `contactId` belongs to the engagement's client; `sentAt` ≤ now and ≥ proposal approval time; and the actor has `proposal.dispatch`.
 3. On success, in one batch: record inserted, engagement → `DUAL_KEY_PENDING` with `active_proposal_version_id`, `state_transitions` row (reason names the manual channel), `audit_events`.
 4. Email dispatch and manual dispatch for the same version are mutually idempotent: whichever lands first transitions; the second records history but does not transition again (no error).
-5. UI: in the proposal section, a "Record WhatsApp / hand delivery" form (channel, recipient contact, date-time, optional evidence upload, note) visible only with `proposal.dispatch`.
+5. UI: in the proposal section, a "Record WhatsApp / hand delivery" form (channel, recipient contact, date-time, optional already-committed engagement evidence file, note) visible only with `proposal.dispatch`.
 6. Correspondence trail (deliverable 4) lists manual dispatches with channel label.
 
 ## Constraints

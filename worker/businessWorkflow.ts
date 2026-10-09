@@ -122,12 +122,14 @@ async function proposalGenerationBlockers(env: Env, workspaceId: string, engagem
           AND d.file_version_id=(SELECT ga.file_version_id FROM proposal_artifacts pa
             JOIN generated_artifacts ga ON ga.workspace_id=pa.workspace_id AND ga.id=pa.artifact_id
             WHERE pa.workspace_id=p.workspace_id AND pa.proposal_version_id=pv.id ORDER BY ga.generated_at DESC LIMIT 1)
-        ORDER BY d.created_at DESC,d.id DESC LIMIT 1) AS dispatchError
+        ORDER BY d.created_at DESC,d.id DESC LIMIT 1) AS dispatchError,
+      EXISTS(SELECT 1 FROM manual_dispatch_records md WHERE md.workspace_id=p.workspace_id AND md.proposal_version_id=pv.id) AS manualDispatchRecorded
     FROM engagements e LEFT JOIN proposals p ON p.workspace_id=e.workspace_id AND p.engagement_id=e.id
     LEFT JOIN proposal_versions pv ON pv.workspace_id=p.workspace_id AND pv.id=p.current_version_id
     WHERE e.workspace_id=? AND e.id=?`).bind(workspaceId, engagementId).first<{
       currentVersionId: string | null; versionId: string | null; approvalDecision: string; artifactFileId: string | null;
-      renderStatus: string | null; renderError: string | null; dispatchStatus: string | null; dispatchError: string | null
+      renderStatus: string | null; renderError: string | null; dispatchStatus: string | null; dispatchError: string | null;
+      manualDispatchRecorded: number
     }>();
   const blockers: StageBlocker[] = [];
   if (!row?.versionId || row.versionId !== row.currentVersionId) {
@@ -143,7 +145,7 @@ async function proposalGenerationBlockers(env: Env, workspaceId: string, engagem
       failed ? `The current proposal PDF failed to render${row.renderError ? ` (${row.renderError})` : ''}; retry rendering before dispatch.`
         : 'Generate and verify the current proposal PDF before dispatch.', 'proposals'));
   }
-  if (row.artifactFileId && row.dispatchStatus !== 'ACCEPTED') {
+  if (row.artifactFileId && row.manualDispatchRecorded !== 1 && !['ACCEPTED', 'DELIVERED'].includes(row.dispatchStatus ?? '')) {
     if (row.dispatchStatus === 'FAILED' || row.dispatchStatus === 'BOUNCED' || row.dispatchStatus === 'UNKNOWN') {
       blockers.push(blocker('PROPOSAL_DISPATCH_FAILED', `The proposal dispatch is ${String(row.dispatchStatus).toLowerCase()}${row.dispatchError ? ` (${row.dispatchError})` : ''}; reconcile or retry it before the acceptance stage.`, 'proposals'));
     } else {

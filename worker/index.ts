@@ -60,6 +60,7 @@ import { consumeBusinessArchiveDownloadTicket, createBusinessArchiveDownloadTick
 import { getBusinessWorkflow } from './businessWorkflow';
 import { handleActiveProfile, handleAuthLogout, handleAuthMe, handleStaffCallback, handleStaffLogin } from './auth/oidcRoutes';
 import { handleClientPasswordChange, handleClientPasswordLogin, handlePasswordResetConfirm, handlePasswordResetRequest } from './auth/clientPasswordRoutes';
+import { handleEmailStatusWebhook } from './emailStatusWebhook';
 
 const JSON_BODY_LIMIT = 1_000_000;
 /** Hard ceiling for a single command payload; the domain model is small. */
@@ -659,6 +660,7 @@ const router = createRouter()
   .get('/api/health/ready', handleHealthReady)
   .get('/api/health/support-bundle', handleSupportBundle)
   .get('/api/integrations/status', handleIntegrationStatus)
+  .post('/api/webhooks/email-status', ctx => handleEmailStatusWebhook(ctx.request, ctx.env, ctx.requestId))
   .post('/api/internal/verification-runs', ingestVerificationRun)
   .post('/api/internal/bootstrap', handleInternalBootstrap)
   .get('/api/workspaces/:workspaceId/actor-profiles', handleBusinessActorProfiles)

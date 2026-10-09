@@ -216,20 +216,20 @@ async function call(path: string, options: {
 const post = (path: string, payload: unknown, headers: Record<string, string> = {}) =>
   call(path, { method: 'POST', payload, headers });
 
-it('bootstraps a no-session BUSINESS workspace and maintains atomic directory profiles', async () => {
+it('bootstraps a no-session BUSINESS workspace, records manual dispatch and maintains atomic directory profiles', async () => {
   const live = await call('/api/health/live');
   assert.equal(live.response.status, 200);
   assert.deepEqual(live.body, { status: 'ok' });
   const ready = await call('/api/health/ready');
   assert.equal(ready.response.status, 200, JSON.stringify(ready.body));
   assert.equal(ready.body.status, 'ready');
-  assert.equal(ready.body.schemaVersion, 48);
+  assert.equal(ready.body.schemaVersion, 50);
   assert.deepEqual(ready.body.dependencyCodes, []);
   const supportBundle = await call('/api/health/support-bundle');
   assert.equal(supportBundle.response.status, 200);
   assert.match(supportBundle.response.headers.get('content-disposition') ?? '', /attachment; filename="auditsphere-support-bundle.json"/);
-  assert.equal(supportBundle.body.applicationSchemaVersion, 48);
-  assert.equal(supportBundle.body.installedSchemaVersion, 48);
+  assert.equal(supportBundle.body.applicationSchemaVersion, 50);
+  assert.equal(supportBundle.body.installedSchemaVersion, 50);
   assert.equal(supportBundle.body.readiness, 'ready');
   assert.deepEqual(supportBundle.body.verificationRuns, []);
   assert.equal(JSON.stringify(supportBundle.body).includes('workspaceId'), false);
@@ -1072,6 +1072,35 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
     } }
   }, approverHeaders);
   assert.equal(retryDispatch.response.status, 202, JSON.stringify(retryDispatch.body));
+  const latestApproval = db.prepare(`SELECT decided_at FROM proposal_approvals WHERE workspace_id=? AND proposal_version_id=?
+    ORDER BY decided_at DESC,id DESC LIMIT 1`).bind(workspaceId, thirdProposal.body.result.proposalVersionId).first<any>();
+  assert.ok(latestApproval?.decided_at, 'the exact proposal revision has a recorded Partner approval');
+  const manualFirst = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'proposal.dispatch.recordManual', payload: {
+      engagementId: conversion.body.result.engagementId, proposalVersionId: thirdProposal.body.result.proposalVersionId,
+      channel: 'WHATSAPP', contactId: financeContactId, sentAt: latestApproval.decided_at,
+      note: 'Synthetic acceptance fixture: approved proposal sent manually.'
+    } }
+  }, approverHeaders);
+  assert.equal(manualFirst.response.status, 200, JSON.stringify(manualFirst.body));
+  assert.equal(manualFirst.body.result.status, 'RECORDED');
+  assert.equal(manualFirst.body.result.lifecycleState, 'DUAL_KEY_PENDING');
+  assert.equal(manualFirst.body.result.channel, 'WHATSAPP');
+  assert.equal(db.prepare(`SELECT file_version_id FROM manual_dispatch_records WHERE workspace_id=? AND id=?`)
+    .bind(workspaceId, manualFirst.body.result.manualDispatchId).first<any>()?.file_version_id,
+  db.prepare(`SELECT ga.file_version_id FROM proposal_artifacts pa JOIN generated_artifacts ga
+    ON ga.workspace_id=pa.workspace_id AND ga.id=pa.artifact_id WHERE pa.workspace_id=? AND pa.proposal_version_id=?`)
+    .bind(workspaceId, thirdProposal.body.result.proposalVersionId).first<any>()?.file_version_id,
+  'manual dispatch history pins the exact generated PDF for the approved proposal');
+  assert.equal(db.prepare(`SELECT COUNT(*) AS count FROM state_transitions WHERE workspace_id=? AND engagement_id=?
+    AND to_state='DUAL_KEY_PENDING'`).bind(workspaceId, conversion.body.result.engagementId).first<any>()?.count, 1,
+  'manual delivery writes one proposal acceptance transition');
+  const manualWorkflow = await call(`/api/workspaces/${workspaceId}/engagements/${conversion.body.result.engagementId}/workflow`, {
+    headers: { ...approverHeaders, 'X-Client-Id': clientId }
+  });
+  assert.equal(manualWorkflow.response.status, 200, JSON.stringify(manualWorkflow.body));
+  assert.equal(manualWorkflow.body.stages[1].status, 'completed',
+    'a recorded manual send satisfies proposal dispatch readiness for the exact current revision');
   let deliveredAttachments = 0;
   let deliveredAttachmentNames: string[] = [];
   const deliveredRecipients: string[] = [];
@@ -1102,7 +1131,24 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
     .bind(workspaceId, retryDispatch.body.result.dispatchId).first<any>()?.status, 'ACCEPTED');
   assert.equal(db.prepare(`SELECT lifecycle_state FROM engagements WHERE workspace_id=? AND id=?`)
     .bind(workspaceId, conversion.body.result.engagementId).first<any>()?.lifecycle_state, 'DUAL_KEY_PENDING',
-    'the lifecycle advances only after the email provider returns a verifiable message ID');
+    'email-provider acceptance preserves the lifecycle state already advanced by manual delivery');
+  const manualAfterEmail = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'proposal.dispatch.recordManual', payload: {
+      engagementId: conversion.body.result.engagementId, proposalVersionId: thirdProposal.body.result.proposalVersionId,
+      channel: 'HAND_DELIVERY', contactId: financeContactId, sentAt: new Date().toISOString(),
+      note: 'Synthetic acceptance fixture: a second delivery channel was recorded after the email acceptance.'
+    } }
+  }, approverHeaders);
+  assert.equal(manualAfterEmail.response.status, 200, JSON.stringify(manualAfterEmail.body));
+  assert.equal(manualAfterEmail.body.result.lifecycleState, 'DUAL_KEY_PENDING',
+    'recording a later delivery channel preserves the already-advanced lifecycle state');
+  assert.equal(db.prepare(`SELECT COUNT(*) AS count FROM state_transitions WHERE workspace_id=? AND engagement_id=?
+    AND to_state='DUAL_KEY_PENDING'`).bind(workspaceId, conversion.body.result.engagementId).first<any>()?.count, 1,
+  'email acceptance after manual delivery does not duplicate the lifecycle transition');
+  const manualDispatchHistory = await call(`/api/workspaces/${workspaceId}/proposal-workspace`, { headers: approverHeaders });
+  assert.equal(manualDispatchHistory.response.status, 200, JSON.stringify(manualDispatchHistory.body));
+  assert.deepEqual(manualDispatchHistory.body.proposals[0].manualDispatches.map((item: any) => item.channel).sort(),
+    ['HAND_DELIVERY', 'WHATSAPP']);
 
   const makeRiskHeaders = (headers: Record<string, string>) => ({ ...headers, 'X-Client-Id': clientId, 'X-Engagement-Id': engagementId });
   // US-REP-001 — a visible Partner opinion control is not an authorization boundary.

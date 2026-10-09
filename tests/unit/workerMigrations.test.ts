@@ -49,10 +49,34 @@ it('applies each migration using Wrangler statement splitting to an isolated SQL
     assert.deepEqual(database.prepare('PRAGMA foreign_key_check').all(), [], 'the migrated schema has no foreign-key violations');
     assert.ok(database.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='report_signatures'").get(),
       'the latest reporting migrations are present');
-    assert.equal(database.prepare('SELECT version FROM application_schema_version WHERE singleton=1').get()?.version, 48);
+    assert.equal(database.prepare('SELECT version FROM application_schema_version WHERE singleton=1').get()?.version, 50);
     assert.ok(database.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='business_bootstrap_lock'").get());
     assert.ok(database.prepare("SELECT 1 FROM sqlite_master WHERE type='trigger' AND name='business_bootstrap_lock_no_update'").get());
     assert.ok(database.prepare("SELECT 1 FROM sqlite_master WHERE type='trigger' AND name='business_bootstrap_lock_no_delete'").get());
+    assert.ok(database.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='dispatch_delivery_events'").get());
+    assert.ok(database.prepare("SELECT 1 FROM sqlite_master WHERE type='trigger' AND name='dispatch_delivery_events_no_update'").get());
+    assert.ok(database.prepare("SELECT 1 FROM sqlite_master WHERE type='trigger' AND name='dispatch_delivery_events_no_delete'").get());
+    assert.ok(database.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='manual_dispatch_records'").get());
+    assert.ok(database.prepare("SELECT 1 FROM sqlite_master WHERE type='trigger' AND name='manual_dispatch_records_no_update'").get());
+    assert.ok(database.prepare("SELECT 1 FROM sqlite_master WHERE type='trigger' AND name='manual_dispatch_records_no_delete'").get());
+    database.exec('PRAGMA foreign_keys=OFF; SAVEPOINT manual_dispatch_records_append_only');
+    database.prepare(`INSERT INTO manual_dispatch_records(id,workspace_id,client_id,engagement_id,purpose,channel,proposal_version_id,
+      contact_id,contact_name_snapshot,recipient_phone_snapshot,file_version_id,evidence_file_version_id,sent_at,note,recorded_by_actor_id,created_at)
+      VALUES('manual-dispatch-test','verification-workspace','client','engagement','PROPOSAL','WHATSAPP','proposal','contact',
+        'Synthetic contact',NULL,'proposal-file',NULL,'2026-10-09T12:00:00.000Z',NULL,'actor','2026-10-09T12:00:00.000Z')`).run();
+    assert.throws(() => database.prepare("UPDATE manual_dispatch_records SET note='edited' WHERE id='manual-dispatch-test'").run(),
+      /manual dispatch records are append-only/);
+    assert.throws(() => database.prepare("DELETE FROM manual_dispatch_records WHERE id='manual-dispatch-test'").run(),
+      /manual dispatch records are append-only/);
+    database.exec('ROLLBACK TO manual_dispatch_records_append_only; RELEASE manual_dispatch_records_append_only; PRAGMA foreign_keys=ON');
+    database.exec('PRAGMA foreign_keys=OFF; SAVEPOINT email_delivery_events_append_only');
+    database.prepare(`INSERT INTO dispatch_delivery_events(workspace_id,provider_event_id,dispatch_id,status,occurred_at,received_at)
+      VALUES('email-test-workspace','provider-event-test','dispatch-test','DELIVERED','2026-10-09T12:00:00.000Z','2026-10-09T12:00:00.000Z')`).run();
+    assert.throws(() => database.prepare("UPDATE dispatch_delivery_events SET status='BOUNCED' WHERE provider_event_id='provider-event-test'").run(),
+      /dispatch delivery events are append-only/);
+    assert.throws(() => database.prepare("DELETE FROM dispatch_delivery_events WHERE provider_event_id='provider-event-test'").run(),
+      /dispatch delivery events are append-only/);
+    database.exec('ROLLBACK TO email_delivery_events_append_only; RELEASE email_delivery_events_append_only; PRAGMA foreign_keys=ON');
     for (const table of [
       'workspace_entities', 'workspace_root_documents', 'workspace_sessions', 'workspace_seeds',
       'test_workspace_expiry', 'demo_workspaces', 'demo_creation_limits'

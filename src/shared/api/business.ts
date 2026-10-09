@@ -293,6 +293,7 @@ export interface BusinessProposal {
   timeline: Array<{ name: string; date: string }>;
   clientName: string;
   lifecycleState: string;
+  activeProposalVersionId?: string | null;
   documentStatus: 'NOT_GENERATED' | 'PENDING' | 'RUNNING' | 'SUCCEEDED' | 'RETRYABLE_FAILED' | 'PERMANENT_FAILED' | 'UNKNOWN';
   documentJobId?: string | null;
   documentErrorCode?: string | null;
@@ -304,6 +305,8 @@ export interface BusinessProposal {
   artifactFileId: string | null;
   artifactSha256: string | null;
   teamCvFileIds?: string[];
+  manualDispatches?: Array<{ id: string; channel: 'WHATSAPP' | 'HAND_DELIVERY'; contactId: string; contactName: string;
+    sentAt: string; evidenceFileVersionId: string | null; note: string | null }>;
   methodologyVersion?: string;
   firmProfileVersion?: number;
   createdAt?: string;
@@ -326,11 +329,19 @@ export interface BusinessProposalContactRoute {
   email: string;
 }
 
+export interface BusinessProposalContact {
+  id: string;
+  clientId: string;
+  fullName: string;
+  phone: string | null;
+}
+
 export interface BusinessProposalWorkspace {
   engagements: BusinessEngagementOption[];
   firmProfile: BusinessFirmProfile | null;
   staffMembers: BusinessStaffMember[];
   teamCvs: BusinessTeamCv[];
+  contacts: BusinessProposalContact[];
   contactRoutes: BusinessProposalContactRoute[];
   proposals: BusinessProposal[];
 }

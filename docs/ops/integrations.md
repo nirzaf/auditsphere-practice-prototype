@@ -54,69 +54,34 @@ requires reconciliation before retry.
 
 The business Worker dispatches proposal and commercial documents through the
 `EMAIL_PROVIDER` service binding (`worker/businessOutbox.ts`), which expects a
-`POST /send` multipart request and a `{ messageId }` reply. Two supported options:
+`POST /send` multipart request and a `{ messageId, status }` reply. Provider
+policies are environment-specific:
 
-### Option A — standalone provider Worker + Cloudflare Email Service
+- Local uses no transport and fails closed. Staging uses Cloudflare's restricted
+  `send_email` binding with `ALLOWLIST`; only the explicitly approved UAT recipient is allowed.
+- Production uses Cloudflare Email Sending REST with `ROUTED`; each request needs
+  a contact-route ID and SHA-256 proof of its normalized recipient address. The
+  provider is private (`workers_dev:false`) and the business Worker is its only caller.
 
-```sh
-# 1. Cloudflare Email Sending is enabled and DNS configured for mail.steaudit.com.
-# 2. The provider binding is restricted to audit-dispatch@mail.steaudit.com and
-#    testing@mail.steauditing.com. Verify that destination from its mailbox before
-#    attempting a send; Cloudflare currently lists it as Pending.
-# 3. CI deploys this provider before the business Worker service binding. The
-#    cloudflare-production token must include Workers deployment and Email Sending: Edit.
-npm run cloud:deploy
-```
+Cloudflare's native binding can send only to destinations verified in the account.
+The REST API supports routed recipients from an onboarded sender domain and returns
+recipient-specific `delivered`, `queued`, and `permanent_bounces` statuses. The
+production provider needs an account-scoped token with `Email Sending: Edit`, stored
+as the Worker secret `EMAIL_API_KEY`. DNS, HMAC callback, and rotation steps are in
+[`email.md`](email.md).
 
-### Option B — standalone provider Worker + transactional email API
+`mail.steaudit.com` was last observed as **Enabled / DNS Configured** for Email
+Sending. The approved UAT destination `testing@mail.steauditing.com` was last
+observed as **Pending**. No successful application send is recorded; recheck the
+destination and complete a controlled staging delivery before claiming the live
+email acceptance criterion.
 
-```sh
-wrangler secret put EMAIL_API_KEY --config worker/emailProvider/wrangler.jsonc
-# remove the send_email binding and set EMAIL_API_URL / EMAIL_FROM / EMAIL_FROM_NAME /
-# EMAIL_ALLOWED_RECIPIENTS vars in the same config, then
-wrangler deploy --config worker/emailProvider/wrangler.jsonc
-# deploy the business Worker with its EMAIL_PROVIDER service binding.
-```
-
-Required external inputs (firm-owned):
-- A verified sender domain/address the firm is authorised to send from.
-- A verified Cloudflare Email Service destination address, or an API key for a transactional email provider.
-- Approved **test recipients** (no real client recipients during UAT).
-
-Cloudflare Email Routing handles inbound forwarding; it is not the outbound
-transactional sender. The Email Service binding restricts both sender and recipient.
-The provider Worker independently requires `EMAIL_ALLOWED_RECIPIENTS` for both
-Cloudflare Email Service and HTTP API transports and rejects any other destination
-before contacting a provider. Keep this list limited to approved non-production
-mailboxes during UAT; adding real client routes is a separate firm-approved release
-configuration change.
-The provider Worker has `workers_dev` disabled and is reachable only through the
-business Worker service binding.
-
-Current account state: `mail.steaudit.com` is Enabled with DNS Configured. The
-approved UAT recipient `testing@mail.steauditing.com` was last observed as
-`Pending`; its verification was resent. The mailbox owner must open the message
-and follow its verification link. The live Worker status confirms its provider
-binding, not recipient verification or delivery. Do not claim a successful
-application send until Cloudflare shows the recipient Verified and a controlled
-UAT delivery succeeds.
-
-The requested inbound alias is `audit@steaudit.com` → `fazrin@quadrate.lk`; the
-destination is verified. On 2026-10-07, the Cloudflare dashboard showed
-`fazrin@quadrate.lk` as **Verified** and the approved UAT test destination
-`testing@mail.steauditing.com` as **Pending**. The `mail.steaudit.com` Email Sending
-domain showed **Enabled / Configured** with zero sends in the dashboard's last-7-day
-view. This confirms sender-domain setup only; it does not confirm a provider send or
-live application delivery.
-
-Do not enable Cloudflare Email Routing for the root zone while its apex MX points
-to Microsoft 365: the onboarding preview proposes replacing that MX with three
-Cloudflare MX records and adding a root SPF record, which can interrupt all
-`@steaudit.com` inbound mail and change sender authorization. The DNS records page
-confirmed the apex MX target is `steaudit-com.mail.protection.outlook.com`. Keep the
-current MX and configure the alias through Microsoft 365, or obtain explicit
-approval for a full mail migration before switching the root MX to Cloudflare.
-The alias is not active until a routing rule has been created and tested.
+Cloudflare Email Routing is inbound forwarding and separate from outbound Email
+Sending. The requested inbound alias `audit@steaudit.com` → `fazrin@quadrate.lk`
+is not active until a routing rule is created and tested. Do not enable Email
+Routing on the root zone while its apex MX points to Microsoft 365; the onboarding
+preview proposes replacing that MX and could interrupt existing `@steaudit.com`
+mail. Keep the current inbound provider while configuring outbound sender records.
 
 ## 2. SharePoint / Microsoft Graph (US-GAP-25 – US-GAP-28)
 

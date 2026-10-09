@@ -37,6 +37,8 @@ export interface Env {
   EMAIL_PROVIDER?: Fetcher;
   /** Optional Cloudflare Email Service binding used when no EMAIL_PROVIDER service binding is present. */
   SEND_EMAIL?: SendEmailBinding;
+  /** HMAC-SHA256 secret for signed email provider delivery callbacks. */
+  EMAIL_STATUS_WEBHOOK_SECRET?: string;
   /** Microsoft Graph / SharePoint document integration (see docs/ops/integrations.md). */
   SHAREPOINT_TENANT_ID?: string;
   SHAREPOINT_CLIENT_ID?: string;

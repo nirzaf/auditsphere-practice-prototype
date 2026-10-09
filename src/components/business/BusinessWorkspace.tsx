@@ -113,6 +113,9 @@ export function BusinessWorkspaceConsole({ auth, onProfileSwitch, onSignOut }: {
   const [cvStaffMemberId, setCvStaffMemberId] = useState('');
   const [cvFileVersionId, setCvFileVersionId] = useState('');
   const [proposalRouteIds, setProposalRouteIds] = useState<Record<string, string>>({});
+  const [manualProposalDispatchDrafts, setManualProposalDispatchDrafts] = useState<Record<string, {
+    channel: 'WHATSAPP' | 'HAND_DELIVERY'; contactId: string; sentAt: string; evidenceFileVersionId: string; note: string
+  }>>({});
   const [approvalNotes, setApprovalNotes] = useState<Record<string, string>>({});
   const [firmLegalName, setFirmLegalName] = useState('');
   const [firmRegistrationNumber, setFirmRegistrationNumber] = useState('');
@@ -828,13 +831,48 @@ export function BusinessWorkspaceConsole({ auth, onProfileSwitch, onSignOut }: {
     setCommandBusy(true);
     setCommandMessage('');
     try {
-      const queued = await runBusinessCommand<{ dispatchId: string; jobId: string; status: string }>(
+      const queued = await runBusinessCommand<{ dispatchId: string; jobId: string; status: string; lifecycleAlreadyAdvanced?: boolean }>(
         selected.workspaceId, selected, { type: 'proposal.dispatch', payload }, commandKeyFor(`proposal.dispatch.${proposal.proposalVersionId}`, payload)
       );
-      setCommandMessage(`Dispatch ${queued.result.status.toLowerCase()} for the saved recipient snapshot. Lifecycle advances only after provider acceptance.`);
+      setCommandMessage(queued.result.lifecycleAlreadyAdvanced
+        ? `Dispatch ${queued.result.status.toLowerCase()} for the saved recipient snapshot. The approved proposal already advanced the lifecycle through another delivery channel.`
+        : `Dispatch ${queued.result.status.toLowerCase()} for the saved recipient snapshot. Lifecycle advances only after provider acceptance.`);
       setRecordsKey(value => value + 1);
     } catch (reason) {
       setCommandMessage(reason instanceof Error ? reason.message : 'The proposal dispatch could not be queued.');
+    } finally { setCommandBusy(false); }
+  };
+
+  const recordManualProposalDispatch = async (proposal: BusinessProposal) => {
+    const selected = currentSelection();
+    const contacts = proposalWorkspace?.contacts.filter(contact => contact.clientId === proposal.clientId) ?? [];
+    const draft = manualProposalDispatchDrafts[proposal.proposalVersionId] ?? {
+      channel: 'WHATSAPP' as const, contactId: contacts[0]?.id ?? '', sentAt: '', evidenceFileVersionId: '', note: ''
+    };
+    if (!selected || !context?.allowedActions.includes('proposal.dispatch')) return;
+    const sentAtMs = Date.parse(draft.sentAt);
+    if (!draft.contactId || !draft.sentAt || !Number.isFinite(sentAtMs)) {
+      setCommandMessage('Choose the recipient contact and the actual sent date and time before recording dispatch.');
+      return;
+    }
+    const payload = {
+      engagementId: proposal.engagementId, proposalVersionId: proposal.proposalVersionId, channel: draft.channel,
+      contactId: draft.contactId, sentAt: new Date(sentAtMs).toISOString(),
+      ...(draft.evidenceFileVersionId ? { evidenceFileVersionId: draft.evidenceFileVersionId } : {}),
+      ...(draft.note.trim() ? { note: draft.note.trim() } : {})
+    };
+    setCommandBusy(true);
+    setCommandMessage('');
+    try {
+      const recorded = await runBusinessCommand<{ manualDispatchId: string; channel: string; status: string; lifecycleState: string }>(
+        selected.workspaceId, selected, { type: 'proposal.dispatch.recordManual', payload },
+        commandKeyFor(`proposal.dispatch.recordManual.${proposal.proposalVersionId}`, payload)
+      );
+      setCommandMessage(`${recorded.result.channel === 'WHATSAPP' ? 'WhatsApp' : 'Hand delivery'} dispatch recorded. Lifecycle: ${recorded.result.lifecycleState.replaceAll('_', ' ')}.`);
+      businessCommandKeys.current.delete(`proposal.dispatch.recordManual.${proposal.proposalVersionId}`);
+      setRecordsKey(value => value + 1);
+    } catch (reason) {
+      setCommandMessage(reason instanceof Error ? reason.message : 'The manual proposal dispatch could not be recorded.');
     } finally { setCommandBusy(false); }
   };
 
@@ -1367,12 +1405,28 @@ export function BusinessWorkspaceConsole({ auth, onProfileSwitch, onSignOut }: {
               const routeOptions = proposalWorkspace.contactRoutes.filter(route => route.clientId === proposal.clientId);
               const routeValue = proposalRouteIds[proposal.proposalVersionId] ?? routeOptions[0]?.id ?? '';
               const artifact = files.find(file => file.id === proposal.artifactFileId);
+              const manualContacts = proposalWorkspace.contacts.filter(contact => contact.clientId === proposal.clientId);
+              const manualDraft = manualProposalDispatchDrafts[proposal.proposalVersionId] ?? {
+                channel: 'WHATSAPP' as const, contactId: manualContacts[0]?.id ?? '', sentAt: '', evidenceFileVersionId: '', note: ''
+              };
+              const manualEvidence = files.filter(file => file.clientId === proposal.clientId && file.engagementId === proposal.engagementId
+                && file.purpose === 'EVIDENCE' && file.state === 'COMMITTED' && file.immutable);
+              const canRecordManualDispatch = proposal.lifecycleState !== 'ARCHIVED_READ_ONLY'
+                && (proposal.lifecycleState === 'PROPOSAL_GENERATION' || proposal.activeProposalVersionId === proposal.proposalVersionId);
               return <li key={proposal.proposalVersionId}>
                 <strong>{proposal.clientName} · {proposal.mode === 'QUOTE' ? 'Quotation' : 'Full proposal'} · Revision {proposal.revision}</strong>
                 <span>{proposal.lifecycleState} · QAR {proposal.feeMinor} minor · {proposal.advanceBps / 100}% / {proposal.finalBps / 100}% · valid until {proposal.validUntil}</span>
                 <small>Document {proposal.documentStatus.replaceAll('_', ' ')} · Partner approval {proposal.approvalStatus} · dispatch {proposal.dispatchStatus.replaceAll('_', ' ')}{proposal.artifactSha256 ? ` · SHA-256 ${proposal.artifactSha256.slice(0, 12)}…` : ''}</small>
                 {proposal.documentErrorCode && <small role="status">Document job: {proposal.documentErrorCode.replaceAll('_', ' ').toLowerCase()}.</small>}
                 {proposal.dispatchErrorCode && <small role="status">Dispatch job: {proposal.dispatchErrorCode.replaceAll('_', ' ').toLowerCase()}.</small>}
+                {!!proposal.manualDispatches?.length && <div className="business-proposal-correspondence" aria-label="Manual proposal correspondence">
+                  <strong>Manual delivery history</strong>
+                  <ul>{proposal.manualDispatches.map(dispatch => <li key={dispatch.id}>
+                    <span>{dispatch.channel === 'WHATSAPP' ? 'WhatsApp' : 'Hand delivery'} · {dispatch.contactName} · {new Date(dispatch.sentAt).toLocaleString()}</span>
+                    {dispatch.note && <small>{dispatch.note}</small>}
+                    {dispatch.evidenceFileVersionId && <small>Evidence file {dispatch.evidenceFileVersionId}</small>}
+                  </li>)}</ul>
+                </div>}
                 {proposal.documentStatus === 'NOT_GENERATED' && <button type="button" className="btn sm" disabled={commandBusy} onClick={() => void generateProposal(proposal)}>Generate verified PDF</button>}
                 {['PENDING', 'RUNNING'].includes(proposal.documentStatus) && <button type="button" className="btn sm" disabled>Generating PDF…</button>}
                 {['RETRYABLE_FAILED', 'PERMANENT_FAILED'].includes(proposal.documentStatus) && <button type="button" className="btn sm" disabled={commandBusy || !proposal.documentJobId} onClick={() => void retryProposalDocument(proposal)}>Retry PDF generation</button>}
@@ -1390,6 +1444,56 @@ export function BusinessWorkspaceConsole({ auth, onProfileSwitch, onSignOut }: {
                   {context.allowedActions.includes('proposal.dispatch') && <button type="button" className="btn sm" disabled={commandBusy || !proposal.dispatchId || !proposal.dispatchVersion} onClick={() => void retryProposalDispatch(proposal)}>Retry failed dispatch</button>}
                 </>}
                 {proposal.dispatchStatus === 'UNKNOWN' && <p className="business-alert" role="alert">The provider outcome is unknown. Reconcile the provider message before sending again; automatic retry is blocked to avoid a duplicate email.</p>}
+                {context.allowedActions.includes('proposal.dispatch') && proposal.approvalStatus === 'APPROVE'
+                  && proposal.documentStatus === 'SUCCEEDED' && canRecordManualDispatch && <form className="business-form business-commercial-form"
+                    aria-label="Record WhatsApp or hand delivery" onSubmit={event => { event.preventDefault(); void recordManualProposalDispatch(proposal); }}>
+                    <h4>Record WhatsApp / hand delivery</h4>
+                    <div className="business-form-grid">
+                      <label className="business-field" htmlFor={`business-manual-dispatch-channel-${proposal.proposalVersionId}`}><span>Delivery channel</span>
+                        <select id={`business-manual-dispatch-channel-${proposal.proposalVersionId}`} value={manualDraft.channel}
+                          onChange={event => setManualProposalDispatchDrafts(current => ({ ...current, [proposal.proposalVersionId]: {
+                            ...manualDraft, channel: event.target.value as 'WHATSAPP' | 'HAND_DELIVERY'
+                          } }))}>
+                          <option value="WHATSAPP">WhatsApp (sent manually)</option><option value="HAND_DELIVERY">Hand delivery</option>
+                        </select>
+                      </label>
+                      <label className="business-field" htmlFor={`business-manual-dispatch-contact-${proposal.proposalVersionId}`}><span>Recipient contact</span>
+                        <select id={`business-manual-dispatch-contact-${proposal.proposalVersionId}`} required value={manualDraft.contactId}
+                          onChange={event => setManualProposalDispatchDrafts(current => ({ ...current, [proposal.proposalVersionId]: {
+                            ...manualDraft, contactId: event.target.value
+                          } }))}>
+                          <option value="">Select a client contact</option>{manualContacts.map(contact => <option key={contact.id} value={contact.id}>
+                            {contact.fullName}{contact.phone ? ` · ${contact.phone}` : ''}
+                          </option>)}
+                        </select>
+                      </label>
+                      <label className="business-field" htmlFor={`business-manual-dispatch-sent-at-${proposal.proposalVersionId}`}><span>Sent date and time</span>
+                        <input id={`business-manual-dispatch-sent-at-${proposal.proposalVersionId}`} type="datetime-local" required value={manualDraft.sentAt}
+                          onChange={event => setManualProposalDispatchDrafts(current => ({ ...current, [proposal.proposalVersionId]: {
+                            ...manualDraft, sentAt: event.target.value
+                          } }))} />
+                      </label>
+                      <label className="business-field" htmlFor={`business-manual-dispatch-evidence-${proposal.proposalVersionId}`}><span>Evidence file · optional</span>
+                        <select id={`business-manual-dispatch-evidence-${proposal.proposalVersionId}`} value={manualDraft.evidenceFileVersionId}
+                          onChange={event => setManualProposalDispatchDrafts(current => ({ ...current, [proposal.proposalVersionId]: {
+                            ...manualDraft, evidenceFileVersionId: event.target.value
+                          } }))}>
+                          <option value="">No evidence attached</option>{manualEvidence.map(file => <option key={file.id} value={file.id}>{file.originalName}</option>)}
+                        </select>
+                        {!manualEvidence.length && <small>Upload and commit evidence under Stored files for this engagement before attaching it here.</small>}
+                      </label>
+                    </div>
+                    <label className="business-field" htmlFor={`business-manual-dispatch-note-${proposal.proposalVersionId}`}><span>Note · optional</span>
+                      <textarea id={`business-manual-dispatch-note-${proposal.proposalVersionId}`} maxLength={2000} rows={2} value={manualDraft.note}
+                        onChange={event => setManualProposalDispatchDrafts(current => ({ ...current, [proposal.proposalVersionId]: {
+                          ...manualDraft, note: event.target.value
+                        } }))} />
+                    </label>
+                    <p className="business-note">This records the human delivery event only; it does not send a WhatsApp message. The server pins the exact approved PDF and preserves an append-only correspondence record.</p>
+                    <div className="business-dialog-actions"><button type="submit" className="btn sm" disabled={commandBusy || !manualDraft.contactId || !manualDraft.sentAt}>
+                      {commandBusy ? 'Recording…' : 'Record WhatsApp / hand delivery'}
+                    </button></div>
+                  </form>}
               </li>;
             })}</ul> : <p className="business-muted">No proposal revisions exist in this workspace scope.</p>}
           </>}

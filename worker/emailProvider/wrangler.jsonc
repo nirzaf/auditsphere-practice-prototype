@@ -2,9 +2,10 @@
 //
 // Deploy with:  wrangler deploy --config worker/emailProvider/wrangler.jsonc
 // Then bind it into the business Worker as the EMAIL_PROVIDER service binding
-// (see docs/ops/integrations.md). Configure exactly one transport:
-//   * Cloudflare Email Service: use the restricted send_email binding below.
-//   * HTTP API: remove that binding, set EMAIL_API_URL, then set EMAIL_API_KEY as a secret.
+// (see docs/ops/integrations.md). The default and staging environments use a
+// no local transport by default; staging uses a restricted send_email binding.
+// Production uses the Cloudflare Email Sending
+// REST API with EMAIL_API_KEY stored as an encrypted Worker secret.
 {
   "$schema": "../../node_modules/wrangler/config-schema.json",
   "name": "auditsphere-email-provider",
@@ -12,15 +13,41 @@
   "compatibility_date": "2026-09-30",
   "compatibility_flags": ["nodejs_compat"],
   "workers_dev": false,
-  "send_email": [{
-    "name": "SEND_EMAIL",
-    "allowed_sender_addresses": ["audit-dispatch@mail.steaudit.com"],
-    "allowed_destination_addresses": ["testing@mail.steauditing.com"]
-  }],
   "vars": {
     "EMAIL_FROM": "audit-dispatch@mail.steaudit.com",
     "EMAIL_FROM_NAME": "AuditSphere",
+    "EMAIL_RECIPIENT_POLICY": "ALLOWLIST",
     "EMAIL_ALLOWED_RECIPIENTS": "testing@mail.steauditing.com"
+  },
+  "env": {
+    "staging": {
+      "name": "auditsphere-email-provider-staging",
+      "workers_dev": false,
+      "send_email": [{
+        "name": "SEND_EMAIL",
+        "allowed_sender_addresses": ["audit-dispatch@mail.steaudit.com"],
+        "allowed_destination_addresses": ["testing@mail.steauditing.com"]
+      }],
+      "vars": {
+        "EMAIL_FROM": "audit-dispatch@mail.steaudit.com",
+        "EMAIL_FROM_NAME": "AuditSphere",
+        "EMAIL_RECIPIENT_POLICY": "ALLOWLIST",
+        "EMAIL_ALLOWED_RECIPIENTS": "testing@mail.steauditing.com"
+      }
+    },
+    "production": {
+      "name": "auditsphere-email-provider",
+      "workers_dev": false,
+      "send_email": [],
+      "vars": {
+        "EMAIL_FROM": "audit-dispatch@mail.steaudit.com",
+        "EMAIL_FROM_NAME": "AuditSphere",
+        "EMAIL_RECIPIENT_POLICY": "ROUTED",
+        "EMAIL_ALLOWED_RECIPIENTS": "testing@mail.steauditing.com",
+        "EMAIL_API_FORMAT": "CLOUDFLARE_EMAIL_SERVICE_REST",
+        "EMAIL_API_URL": "https://api.cloudflare.com/client/v4/accounts/2db09fcf0200901fe505244faa2f81d9/email/sending/send"
+      }
+    }
   },
   "observability": { "enabled": true }
 }

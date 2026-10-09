@@ -12,7 +12,7 @@ Prospects submit an inquiry from the firm's website; staff triage it into a `WEB
 - `worker/business.ts` `lead.create` (pattern + validation), `leadSourceSchema` (L832)
 
 ## Acceptance criteria
-1. Migration `0049_public_lead_submissions.sql`; schema version bump.
+1. Migration `0051_public_lead_submissions.sql`; schema version bump.
 2. `POST /api/public/leads`: no session; validates body (zod strict); verifies Cloudflare Turnstile token server-side (`TURNSTILE_SECRET_KEY`); honeypot field `website` non-empty → stored `REJECTED_SPAM`, `202`; rate limit 5/hour per IP hash; CORS only for `PUBLIC_LEAD_ALLOWED_ORIGINS`; stores `ip_sha256` (salted with a secret, never raw IP).
 3. Duplicate detection: same normalised email within 30 days → status `DUPLICATE` linked to existing lead if any; still `202`.
 4. Staff list: "Web inquiries" queue (`lead.read`) with status filter; `publicLead.triage` ACCEPT creates a lead (`source='WEB_FORM'`, receipt time = submission time) and links it; SPAM/DUPLICATE close it. Optimistic version on the submission row.

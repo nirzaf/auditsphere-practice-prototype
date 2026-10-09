@@ -11,6 +11,7 @@ import { generateTemporaryPassword, hashPassword } from './auth/passwords';
 import { newOpaqueToken, tokenHash } from './auth/tokens';
 import { ApiError } from './errors';
 import { safeErrorKind } from './observability';
+import { emailRecipientSha256 } from './emailProvider/recipientPolicy';
 
 type JobKind = 'GENERATE_DOCUMENT' | 'SEAL_ARCHIVE' | 'EMAIL' | 'IMPORT_TB';
 interface OutboxJob {
@@ -714,17 +715,19 @@ async function renderAndStoreCommercialDocument(env: Env, job: OutboxJob): Promi
   }
 }
 
-function bytesToFormData(bytes: Uint8Array, input: {
+async function bytesToFormData(bytes: Uint8Array, input: {
   recipient: { contactRouteId: string; contactRouteVersion: number; name: string; email: string };
   proposalVersionId: string;
   proposalId: string;
   revision: number;
   attachments: Array<{ name: string; mediaType: string; sha256: string; bytes: Uint8Array }>;
-}): FormData {
+}): Promise<FormData> {
   const form = new FormData();
   form.set('message', JSON.stringify({
     to: input.recipient.email,
     recipientName: input.recipient.name,
+    routeId: input.recipient.contactRouteId,
+    recipientSha256: await emailRecipientSha256(input.recipient.email),
     subject: `Audit proposal ${input.proposalId} — revision ${input.revision}`,
     text: `Please find the approved AuditSphere proposal for ${input.proposalId}, revision ${input.revision}, attached.`,
     proposalVersionId: input.proposalVersionId
@@ -736,22 +739,38 @@ function bytesToFormData(bytes: Uint8Array, input: {
   return form;
 }
 
+type ProviderDeliveryStatus = 'ACCEPTED' | 'DELIVERED' | 'BOUNCED';
+async function readEmailProviderOutcome(response: Response): Promise<{ providerMessageId: string; status: ProviderDeliveryStatus }> {
+  try {
+    const result = await response.json() as { messageId?: unknown; status?: unknown };
+    if (typeof result.messageId !== 'string' || !result.messageId.trim() || result.messageId.length > 512) throw new Error('missing message id');
+    const status = result.status === undefined ? 'ACCEPTED' : result.status;
+    if (status !== 'ACCEPTED' && status !== 'DELIVERED' && status !== 'BOUNCED') throw new Error('invalid delivery status');
+    if (status === 'BOUNCED') throw new OutboxError('EMAIL_RECIPIENT_BOUNCED', 'The email provider permanently bounced the routed recipient.');
+    return { providerMessageId: result.messageId.trim(), status };
+  } catch (error) {
+    if (error instanceof OutboxError) throw error;
+    throw new OutboxError('EMAIL_PROVIDER_RESPONSE_INVALID', 'The provider returned success without a verifiable message ID and delivery status.', 'UNKNOWN');
+  }
+}
+
 async function dispatchProposal(env: Env, job: OutboxJob): Promise<void> {
   const payload = parsePayload(job);
   if (!env.EMAIL_PROVIDER) throw new OutboxError('EMAIL_PROVIDER_NOT_CONFIGURED', 'Configure the EMAIL_PROVIDER service binding before sending proposal emails. The message has not been sent.');
   if (!payload.dispatchId || !payload.fileVersionId || !payload.recipient) {
     throw new OutboxError('INVALID_DISPATCH_PAYLOAD', 'The dispatch is missing its exact proposal artifact or recipient snapshot.');
   }
-  const approved = await env.DB.prepare(`SELECT pv.proposal_id,pv.revision,pv.mode,pv.team_cv_file_ids_json,pv.firm_credential_file_ids_json,pv.firm_portfolio_file_ids_json,p.current_version_id,e.version AS engagement_version,e.lifecycle_state,
+  const approved = await env.DB.prepare(`SELECT pv.proposal_id,pv.revision,pv.mode,pv.team_cv_file_ids_json,pv.firm_credential_file_ids_json,pv.firm_portfolio_file_ids_json,p.current_version_id,e.version AS engagement_version,e.lifecycle_state,e.active_proposal_version_id,
       a.approval_decision_id
     FROM proposal_versions pv JOIN proposals p ON p.workspace_id=pv.workspace_id AND p.id=pv.proposal_id
     JOIN engagements e ON e.workspace_id=pv.workspace_id AND e.client_id=pv.client_id AND e.id=pv.engagement_id
     JOIN proposal_approvals a ON a.workspace_id=pv.workspace_id AND a.proposal_version_id=pv.id AND a.decision='APPROVE'
     WHERE pv.workspace_id=? AND pv.id=? ORDER BY a.decided_at DESC,a.id DESC LIMIT 1`)
     .bind(job.workspace_id, payload.proposalVersionId)
-    .first<{ proposal_id: string; revision: number; mode: string; team_cv_file_ids_json: string; firm_credential_file_ids_json: string; firm_portfolio_file_ids_json: string; current_version_id: string; engagement_version: number; lifecycle_state: string; approval_decision_id: string }>();
-  if (!approved || approved.current_version_id !== payload.proposalVersionId || approved.lifecycle_state !== 'PROPOSAL_GENERATION') {
-    throw new OutboxError('STALE_APPROVED_PROPOSAL', 'Dispatch requires Partner approval of the current proposal revision while its engagement remains in proposal generation.');
+    .first<{ proposal_id: string; revision: number; mode: string; team_cv_file_ids_json: string; firm_credential_file_ids_json: string; firm_portfolio_file_ids_json: string; current_version_id: string; engagement_version: number; lifecycle_state: string; active_proposal_version_id: string | null; approval_decision_id: string }>();
+  if (!approved || approved.current_version_id !== payload.proposalVersionId
+    || (approved.lifecycle_state !== 'PROPOSAL_GENERATION' && approved.active_proposal_version_id !== payload.proposalVersionId)) {
+    throw new OutboxError('STALE_APPROVED_PROPOSAL', 'Dispatch requires Partner approval of the current proposal revision while it is still eligible for delivery.');
   }
   const primary = await exactFile(env, job.workspace_id, payload.fileVersionId);
   if (primary.metadata.purpose !== 'GENERATED' || primary.metadata.media_type !== 'application/pdf') {
@@ -791,7 +810,7 @@ async function dispatchProposal(env: Env, job: OutboxJob): Promise<void> {
     response = await env.EMAIL_PROVIDER.fetch(new Request('https://email-provider.local/send', {
       method: 'POST',
       headers: { 'Idempotency-Key': job.deduplication_key },
-      body: bytesToFormData(primary.bytes, {
+      body: await bytesToFormData(primary.bytes, {
         recipient: payload.recipient, proposalVersionId: payload.proposalVersionId,
         proposalId: approved.proposal_id, revision: approved.revision, attachments
       })
@@ -806,14 +825,7 @@ async function dispatchProposal(env: Env, job: OutboxJob): Promise<void> {
     throw new OutboxError(`EMAIL_PROVIDER_HTTP_${response.status}`, `The provider returned HTTP ${response.status}; whether it accepted the message is unknown.`, 'UNKNOWN');
   }
   if (!response.ok) throw new OutboxError(`EMAIL_PROVIDER_HTTP_${response.status}`, `The provider rejected the email with HTTP ${response.status}.`);
-  let providerMessageId: string;
-  try {
-    const result = await response.json() as { messageId?: unknown };
-    if (typeof result.messageId !== 'string' || !result.messageId.trim() || result.messageId.length > 512) throw new Error('missing message id');
-    providerMessageId = result.messageId.trim();
-  } catch {
-    throw new OutboxError('EMAIL_PROVIDER_RESPONSE_INVALID', 'The provider returned success without a verifiable message ID; delivery status is unknown.', 'UNKNOWN');
-  }
+  const { providerMessageId, status: deliveryStatus } = await readEmailProviderOutcome(response);
 
   const acceptedAt = nowIso();
   const transitionId = crypto.randomUUID();
@@ -835,23 +847,27 @@ async function dispatchProposal(env: Env, job: OutboxJob): Promise<void> {
             JOIN proposal_versions pv ON pv.workspace_id=p.workspace_id AND pv.id=p.current_version_id
             JOIN engagements e ON e.workspace_id=d.workspace_id AND e.client_id=d.client_id AND e.id=d.engagement_id
           WHERE d.workspace_id=? AND d.id=? AND d.job_id=? AND d.status='QUEUED' AND pv.id=?
-            AND e.version=? AND e.lifecycle_state='PROPOSAL_GENERATION') THEN 1 ELSE 0 END`)
+            AND ((e.lifecycle_state='PROPOSAL_GENERATION' AND e.version=? AND e.active_proposal_version_id IS NULL)
+              OR e.active_proposal_version_id=pv.id)) THEN 1 ELSE 0 END`)
         .bind(job.workspace_id, job.workspace_id, payload.dispatchId, job.id, payload.proposalVersionId, approved.engagement_version),
       env.DB.prepare(`UPDATE outbox_jobs SET status='SUCCEEDED',provider_reference=?,result_json=?,last_error_code=NULL,completed_at=?,lease_until=NULL,updated_at=?,version=version+1
         WHERE workspace_id=? AND id=? AND status='RUNNING' AND lease_until=?`)
-        .bind(providerMessageId, JSON.stringify({ dispatchId: payload.dispatchId, providerMessageId, status: 'ACCEPTED' }), acceptedAt, acceptedAt,
+        .bind(providerMessageId, JSON.stringify({ dispatchId: payload.dispatchId, providerMessageId, status: deliveryStatus }), acceptedAt, acceptedAt,
           job.workspace_id, job.id, job.lease_until),
-      env.DB.prepare(`UPDATE dispatches SET status='ACCEPTED',provider_message_id=?,sent_at=?,updated_at=?,version=version+1
+      env.DB.prepare(`UPDATE dispatches SET status=?,provider_message_id=?,sent_at=?,updated_at=?,version=version+1
         WHERE workspace_id=? AND id=? AND job_id=? AND status='QUEUED'`)
-        .bind(providerMessageId, acceptedAt, acceptedAt, job.workspace_id, payload.dispatchId, job.id),
+        .bind(deliveryStatus, providerMessageId, acceptedAt, acceptedAt, job.workspace_id, payload.dispatchId, job.id),
+      env.DB.prepare(`INSERT INTO state_transitions(id,workspace_id,client_id,engagement_id,version,from_state,to_state,command_id,reason,dependency_hash,transitioned_at)
+        SELECT ?,?,?,?,1,'PROPOSAL_GENERATION','DUAL_KEY_PENDING',?,?,?,? FROM engagements e
+        WHERE e.workspace_id=? AND e.client_id=? AND e.id=? AND e.version=? AND e.lifecycle_state='PROPOSAL_GENERATION'
+          AND e.active_proposal_version_id IS NULL`)
+        .bind(transitionId, job.workspace_id, payload.clientId, payload.engagementId, payload.commandId, reason, dependencyHash, acceptedAt,
+          job.workspace_id, payload.clientId, payload.engagementId, approved.engagement_version),
       env.DB.prepare(`UPDATE engagements SET lifecycle_state='DUAL_KEY_PENDING',active_proposal_version_id=?,version=version+1,updated_at=?,updated_by_actor_id=NULL
         WHERE workspace_id=? AND client_id=? AND id=? AND version=? AND lifecycle_state='PROPOSAL_GENERATION'`)
-        .bind(payload.proposalVersionId, acceptedAt, job.workspace_id, payload.clientId, payload.engagementId, approved.engagement_version),
-      env.DB.prepare(`INSERT INTO state_transitions(id,workspace_id,client_id,engagement_id,version,from_state,to_state,command_id,reason,dependency_hash,transitioned_at)
-        VALUES(?,?,?, ?,1,'PROPOSAL_GENERATION','DUAL_KEY_PENDING',?,?,?,?)`)
-        .bind(transitionId, job.workspace_id, payload.clientId, payload.engagementId, payload.commandId, reason, dependencyHash, acceptedAt)
+        .bind(payload.proposalVersionId, acceptedAt, job.workspace_id, payload.clientId, payload.engagementId, approved.engagement_version)
     ],
-    result: { dispatchId: payload.dispatchId, providerMessageId, status: 'ACCEPTED', transitionId }
+    result: { dispatchId: payload.dispatchId, providerMessageId, status: deliveryStatus }
   });
 }
 
@@ -897,6 +913,8 @@ async function dispatchCommercial(env: Env, job: OutboxJob): Promise<void> {
   }
   const form = new FormData();
   form.set('message', JSON.stringify({ to: payload.recipient.email, recipientName: payload.recipient.name,
+    routeId: payload.recipient.contactRouteId ?? payload.dispatchId,
+    recipientSha256: await emailRecipientSha256(payload.recipient.email),
     subject: payload.subject, text: payload.body, dispatchId: payload.dispatchId, purpose: dispatch.purpose }));
   form.append('attachment', new Blob([document.bytes], { type: 'application/pdf' }), document.metadata.original_name);
   let response: Response;
@@ -910,14 +928,7 @@ async function dispatchCommercial(env: Env, job: OutboxJob): Promise<void> {
   if (response.status === 408 || response.status === 429) throw new OutboxError(`EMAIL_PROVIDER_HTTP_${response.status}`, `The provider returned HTTP ${response.status}; the dispatch will retry with the same idempotency key.`, 'RETRY');
   if (response.status >= 500) throw new OutboxError(`EMAIL_PROVIDER_HTTP_${response.status}`, `The provider returned HTTP ${response.status}; whether it accepted the message is unknown.`, 'UNKNOWN');
   if (!response.ok) throw new OutboxError(`EMAIL_PROVIDER_HTTP_${response.status}`, `The provider rejected the email with HTTP ${response.status}.`);
-  let providerMessageId: string;
-  try {
-    const result = await response.json() as { messageId?: unknown };
-    if (typeof result.messageId !== 'string' || !result.messageId.trim() || result.messageId.length > 512) throw new Error('missing message id');
-    providerMessageId = result.messageId.trim();
-  } catch {
-    throw new OutboxError('EMAIL_PROVIDER_RESPONSE_INVALID', 'The provider returned success without a verifiable message ID; delivery status is unknown.', 'UNKNOWN');
-  }
+  const { providerMessageId, status: deliveryStatus } = await readEmailProviderOutcome(response);
   const acceptedAt = nowIso();
   const acceptanceStatements:D1PreparedStatement[]=[];
   if(dispatch.purpose==='CONFIRMATION'){
@@ -929,18 +940,18 @@ async function dispatchCommercial(env: Env, job: OutboxJob): Promise<void> {
   }
   await commitJobMutation(env, job, {
     entityType: 'DISPATCH', entityId: payload.dispatchId, clientId: payload.clientId, engagementId: payload.engagementId,
-    details: { dispatchId: payload.dispatchId, fileVersionId: payload.fileVersionId, providerMessageId, recipient: payload.recipient.email, purpose: dispatch.purpose },
-    result: { dispatchId: payload.dispatchId, providerMessageId, status: 'ACCEPTED' },
+    details: { dispatchId: payload.dispatchId, fileVersionId: payload.fileVersionId, providerMessageId, recipient: payload.recipient.email, purpose: dispatch.purpose, status: deliveryStatus },
+    result: { dispatchId: payload.dispatchId, providerMessageId, status: deliveryStatus },
     statements: [
       env.DB.prepare(`INSERT INTO command_assertions(workspace_id,seq,ok)
         SELECT ?,994,CASE WHEN EXISTS(SELECT 1 FROM dispatches WHERE workspace_id=? AND id=? AND job_id=? AND status='QUEUED' AND file_version_id=?)
           THEN 1 ELSE 0 END`).bind(job.workspace_id, job.workspace_id, payload.dispatchId, job.id, payload.fileVersionId),
       env.DB.prepare(`UPDATE outbox_jobs SET status='SUCCEEDED',provider_reference=?,result_json=?,last_error_code=NULL,completed_at=?,lease_until=NULL,updated_at=?,version=version+1
         WHERE workspace_id=? AND id=? AND status='RUNNING' AND lease_until=?`)
-        .bind(providerMessageId, JSON.stringify({ dispatchId: payload.dispatchId, providerMessageId, status: 'ACCEPTED' }), acceptedAt, acceptedAt,
+        .bind(providerMessageId, JSON.stringify({ dispatchId: payload.dispatchId, providerMessageId, status: deliveryStatus }), acceptedAt, acceptedAt,
           job.workspace_id, job.id, job.lease_until),
-      env.DB.prepare(`UPDATE dispatches SET status='ACCEPTED',provider_message_id=?,sent_at=?,updated_at=?,version=version+1
-        WHERE workspace_id=? AND id=? AND job_id=? AND status='QUEUED'`).bind(providerMessageId, acceptedAt, acceptedAt, job.workspace_id, payload.dispatchId, job.id),
+      env.DB.prepare(`UPDATE dispatches SET status=?,provider_message_id=?,sent_at=?,updated_at=?,version=version+1
+        WHERE workspace_id=? AND id=? AND job_id=? AND status='QUEUED'`).bind(deliveryStatus, providerMessageId, acceptedAt, acceptedAt, job.workspace_id, payload.dispatchId, job.id),
       ...acceptanceStatements
     ]
   });
@@ -995,7 +1006,8 @@ async function dispatchPasswordReset(env: Env, job: OutboxJob, payload: Record<s
   });
   const resetUrl = `${appUrl}/reset?token=${encodeURIComponent(token)}`;
   const form = new FormData();
-  form.set('message', JSON.stringify({ to: account.email_normalized, subject: 'Reset your AuditSphere password',
+  form.set('message', JSON.stringify({ to: account.email_normalized, routeId: account.id,
+    recipientSha256: await emailRecipientSha256(account.email_normalized), subject: 'Reset your AuditSphere password',
     text: `Use this secure link to reset your AuditSphere client portal password:\n\n${resetUrl}\n\nThe link expires in 30 minutes. If you did not request a reset, you can ignore this email.`,
     purpose: 'PASSWORD_RESET' }));
   let response: Response;
@@ -1013,20 +1025,13 @@ async function dispatchPasswordReset(env: Env, job: OutboxJob, payload: Record<s
     throw new OutboxError(`EMAIL_PROVIDER_HTTP_${response.status}`, `The password reset email provider returned HTTP ${response.status}; delivery status is unknown.`, 'UNKNOWN');
   }
   if (!response.ok) throw new OutboxError(`EMAIL_PROVIDER_HTTP_${response.status}`, `The password reset email provider rejected the message with HTTP ${response.status}.`);
-  let providerMessageId: string;
-  try {
-    const result = await response.json() as { messageId?: unknown };
-    if (typeof result.messageId !== 'string' || !result.messageId.trim() || result.messageId.length > 512) throw new Error('missing message id');
-    providerMessageId = result.messageId.trim();
-  } catch {
-    throw new OutboxError('EMAIL_PROVIDER_RESPONSE_INVALID', 'The password reset email provider returned success without a verifiable message ID.', 'UNKNOWN');
-  }
+  const { providerMessageId, status: deliveryStatus } = await readEmailProviderOutcome(response);
   const acceptedAt = nowIso();
   const expiresAt = new Date(Date.parse(acceptedAt) + 30 * 60 * 1000).toISOString();
   await commitJobMutation(env, job, {
     entityType: 'USER_ACCOUNT', entityId: account.id,
-    details: { jobId: job.id, providerMessageId, status: 'ACCEPTED' },
-    result: { providerMessageId, status: 'ACCEPTED' },
+    details: { jobId: job.id, providerMessageId, status: deliveryStatus },
+    result: { providerMessageId, status: deliveryStatus },
     statements: [
       env.DB.prepare(`INSERT INTO command_assertions(workspace_id,seq,ok)
         SELECT ?,993,CASE WHEN EXISTS(SELECT 1 FROM credential_tokens t JOIN user_accounts u
@@ -1038,7 +1043,7 @@ async function dispatchPasswordReset(env: Env, job: OutboxJob, payload: Record<s
         .bind(expiresAt, job.workspace_id, tokenId),
       env.DB.prepare(`UPDATE outbox_jobs SET status='SUCCEEDED',provider_reference=?,result_json=?,last_error_code=NULL,
         completed_at=?,lease_until=NULL,updated_at=?,version=version+1 WHERE workspace_id=? AND id=? AND status='RUNNING' AND lease_until=?`)
-        .bind(providerMessageId, JSON.stringify({ providerMessageId, status: 'ACCEPTED' }), acceptedAt, acceptedAt, job.workspace_id, job.id, job.lease_until)
+        .bind(providerMessageId, JSON.stringify({ providerMessageId, status: deliveryStatus }), acceptedAt, acceptedAt, job.workspace_id, job.id, job.lease_until)
     ]
   });
 }
@@ -1071,7 +1076,8 @@ async function dispatchStaffInvite(env: Env, job: OutboxJob, payload: Record<str
   if (!env.EMAIL_PROVIDER) throw new OutboxError('EMAIL_PROVIDER_NOT_CONFIGURED', 'Configure the EMAIL_PROVIDER service binding before sending staff invitations.');
   const signInUrl = `${appUrl}/api/auth/staff/login`;
   const form = new FormData();
-  form.set('message', JSON.stringify({ to: invite.email_normalized, recipientName: invite.display_name,
+  form.set('message', JSON.stringify({ to: invite.email_normalized, routeId: invite.id,
+    recipientSha256: await emailRecipientSha256(invite.email_normalized), recipientName: invite.display_name,
     subject: 'You are invited to AuditSphere',
     text: `Hello ${invite.display_name},\n\nYou have been invited to sign in to AuditSphere using your organization's Microsoft account.\n\nSign in: ${signInUrl}\n\nThis invitation expires at ${invite.expires_at}. If you did not expect this invitation, contact your firm administrator.`,
     purpose: 'STAFF_INVITE' }));
@@ -1086,19 +1092,12 @@ async function dispatchStaffInvite(env: Env, job: OutboxJob, payload: Record<str
   if (response.status === 408 || response.status === 429) throw new OutboxError(`EMAIL_PROVIDER_HTTP_${response.status}`, `The provider returned HTTP ${response.status}; the invitation will retry.`, 'RETRY');
   if (response.status >= 500) throw new OutboxError(`EMAIL_PROVIDER_HTTP_${response.status}`, `The provider returned HTTP ${response.status}; acceptance is unknown.`, 'UNKNOWN');
   if (!response.ok) throw new OutboxError(`EMAIL_PROVIDER_HTTP_${response.status}`, `The provider rejected the staff invitation with HTTP ${response.status}.`);
-  let providerMessageId: string;
-  try {
-    const result = await response.json() as { messageId?: unknown };
-    if (typeof result.messageId !== 'string' || !result.messageId.trim() || result.messageId.length > 512) throw new Error('missing message id');
-    providerMessageId = result.messageId.trim();
-  } catch {
-    throw new OutboxError('EMAIL_PROVIDER_RESPONSE_INVALID', 'The provider returned success without a verifiable message ID.', 'UNKNOWN');
-  }
+  const { providerMessageId, status: deliveryStatus } = await readEmailProviderOutcome(response);
   const acceptedAt = nowIso();
   await commitJobMutation(env, job, {
     entityType: 'USER_ACCOUNT', entityId: invite.id,
-    details: { jobId: job.id, credentialTokenId: invite.token_id, providerMessageId, status: 'ACCEPTED' },
-    result: { providerMessageId, status: 'ACCEPTED' },
+    details: { jobId: job.id, credentialTokenId: invite.token_id, providerMessageId, status: deliveryStatus },
+    result: { providerMessageId, status: deliveryStatus },
     statements: [
       env.DB.prepare(`INSERT INTO command_assertions(workspace_id,seq,ok)
         SELECT ?,993,CASE WHEN EXISTS(SELECT 1 FROM user_accounts u JOIN credential_tokens t
@@ -1108,7 +1107,7 @@ async function dispatchStaffInvite(env: Env, job: OutboxJob, payload: Record<str
         .bind(job.workspace_id, job.workspace_id, invite.id, invite.email_normalized, invite.token_id, acceptedAt),
       env.DB.prepare(`UPDATE outbox_jobs SET status='SUCCEEDED',provider_reference=?,result_json=?,last_error_code=NULL,
         completed_at=?,lease_until=NULL,updated_at=?,version=version+1 WHERE workspace_id=? AND id=? AND status='RUNNING' AND lease_until=?`)
-        .bind(providerMessageId, JSON.stringify({ providerMessageId, status: 'ACCEPTED' }), acceptedAt, acceptedAt, job.workspace_id, job.id, job.lease_until)
+        .bind(providerMessageId, JSON.stringify({ providerMessageId, status: deliveryStatus }), acceptedAt, acceptedAt, job.workspace_id, job.id, job.lease_until)
     ]
   });
 }
@@ -1190,7 +1189,8 @@ async function dispatchPortalCredentials(env: Env, job: OutboxJob, payload: Reco
     ? `Your AuditSphere client portal is ready.\n\nPortal: ${portalUrl}\nLogin email: ${recipient.email}\nTemporary password: ${temporaryPassword}\nExpires: ${expiresAt} (seven days after issue).\n\nYou must change this password at your first sign-in.`
     : `The AuditSphere client portal is now open for ${recipient.engagement_code}.\n\nPortal: ${portalUrl}\nLogin email: ${recipient.email}`;
   const form = new FormData();
-  form.set('message', JSON.stringify({ to: recipient.email, subject, text,
+  form.set('message', JSON.stringify({ to: recipient.email, routeId: payload.contactRouteId,
+    recipientSha256: await emailRecipientSha256(recipient.email), subject, text,
     purpose: isTemporaryPassword ? 'PORTAL_CREDENTIALS' : 'PORTAL_ACCESS_NOTICE' }));
   let response: Response;
   try {
@@ -1207,14 +1207,7 @@ async function dispatchPortalCredentials(env: Env, job: OutboxJob, payload: Reco
     throw new OutboxError(`EMAIL_PROVIDER_HTTP_${response.status}`, `The portal email provider returned HTTP ${response.status}; delivery status is unknown.`, 'UNKNOWN');
   }
   if (!response.ok) throw new OutboxError(`EMAIL_PROVIDER_HTTP_${response.status}`, `The portal email provider rejected the message with HTTP ${response.status}.`);
-  let providerMessageId: string;
-  try {
-    const result = await response.json() as { messageId?: unknown };
-    if (typeof result.messageId !== 'string' || !result.messageId.trim() || result.messageId.length > 512) throw new Error('missing message id');
-    providerMessageId = result.messageId.trim();
-  } catch {
-    throw new OutboxError('EMAIL_PROVIDER_RESPONSE_INVALID', 'The portal email provider returned success without a verifiable message ID.', 'UNKNOWN');
-  }
+  const { providerMessageId, status: deliveryStatus } = await readEmailProviderOutcome(response);
 
   const acceptedAt = nowIso();
   const successStatements: D1PreparedStatement[] = [];
@@ -1266,15 +1259,15 @@ async function dispatchPortalCredentials(env: Env, job: OutboxJob, payload: Reco
   }
   successStatements.push(env.DB.prepare(`UPDATE outbox_jobs SET status='SUCCEEDED',provider_reference=?,result_json=?,last_error_code=NULL,completed_at=?,lease_until=NULL,updated_at=?,version=version+1
     WHERE workspace_id=? AND id=? AND status='RUNNING' AND lease_until=?`)
-    .bind(providerMessageId, JSON.stringify({ status: 'ACCEPTED', providerMessageId, mode: payload.mode }), acceptedAt, acceptedAt,
+    .bind(providerMessageId, JSON.stringify({ status: deliveryStatus, providerMessageId, mode: payload.mode }), acceptedAt, acceptedAt,
       job.workspace_id, job.id, job.lease_until));
   await commitJobMutation(env, job, {
     entityType: isTemporaryPassword ? 'PORTAL_CREDENTIAL_ISSUE' : 'USER_ACCOUNT',
     entityId: isTemporaryPassword ? payload.portalCredentialIssueId : payload.userAccountId,
     clientId: payload.clientId,
     engagementId: payload.engagementId,
-    details: { jobId: job.id, mode: payload.mode, providerMessageId, status: 'ACCEPTED' },
-    result: { status: 'ACCEPTED', providerMessageId, mode: payload.mode },
+    details: { jobId: job.id, mode: payload.mode, providerMessageId, status: deliveryStatus },
+    result: { status: deliveryStatus, providerMessageId, mode: payload.mode },
     statements: successStatements
   });
 }
@@ -1360,7 +1353,8 @@ async function recordJobFailure(env: Env, job: OutboxJob, error: unknown): Promi
   const delaySeconds = Math.min(60 * 2 ** Math.min(job.attempts, 6), 3600);
   const nextAttempt = new Date(Date.parse(now) + delaySeconds * 1000).toISOString();
   const payload = (() => { try { return JSON.parse(job.payload_json) as Record<string, unknown>; } catch { return {}; } })();
-  const dispatchStatus = disposition === 'UNKNOWN' ? 'UNKNOWN' : disposition === 'FAIL' ? 'FAILED' : null;
+  const dispatchStatus = failure.code === 'EMAIL_RECIPIENT_BOUNCED' ? 'BOUNCED'
+    : disposition === 'UNKNOWN' ? 'UNKNOWN' : disposition === 'FAIL' ? 'FAILED' : null;
   const dispatchId = job.kind === 'EMAIL' && typeof payload.dispatchId === 'string' ? payload.dispatchId : null;
   const documentType = typeof payload.documentType === 'string' ? payload.documentType : null;
   let archiveMissingFiles: string[] = [];

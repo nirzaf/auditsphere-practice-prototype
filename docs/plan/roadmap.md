@@ -56,8 +56,8 @@ flowchart LR
 | Story | Title | Type | Depends |
 |---|---|---|---|
 | E04-S01 | Production email: sender domain, route-bound recipients, delivery status | Feature | E02-S01 |
-| E04-S02 ∥ | Manual WhatsApp / hand-delivery proposal dispatch record (0048) | Feature | M3 |
-| E04-S03 ∥ | Public web-form lead intake and triage (0049) | Feature | M3, E06-S02 limiter |
+| E04-S02 ∥ | Manual WhatsApp / hand-delivery proposal dispatch record (0050) | Feature | M3 |
+| E04-S03 ∥ | Public web-form lead intake and triage (0051) | Feature | M3, E06-S02 limiter |
 | E04-S04 ∥ | SharePoint: finalise credentials or disable cleanly | Ops | owner action |
 
 ## M5 — Functional completion (E05)  ∥ with M4
@@ -69,7 +69,7 @@ flowchart LR
 | E05-S03 ∥ | *(P2)* Going-concern no-forecast UI polish (verify-first) | Feature | M3 |
 | E05-S04 ∥ | Client document centre (verify-first) | Verify/Feature | E03-S05 |
 | E05-S05 | Large-archive and R2 retention-lock acceptance on staging | Verify | E02-S01 |
-| E05-S06 | Bulk client/contact import (0049) | Feature | SP-03 |
+| E05-S06 | Bulk client/contact import (0052) | Feature | SP-03 |
 
 ## M6 — Hardening & go-live (E06)
 

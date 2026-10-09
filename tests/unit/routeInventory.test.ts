@@ -17,6 +17,7 @@ GET /api/health/live
 GET /api/health/ready
 GET /api/health/support-bundle
 GET /api/integrations/status
+POST /api/webhooks/email-status
 POST /api/internal/verification-runs
 POST /api/internal/bootstrap
 GET /api/workspaces/:workspaceId/actor-profiles
