@@ -2406,6 +2406,38 @@ it('bootstraps a no-session BUSINESS workspace, records manual dispatch and main
   assert.equal(differentFrameworkProposal.body.result.suggestedCount, 0,
     'approved subsidiary history is not applied under a different reporting framework');
 
+  const pbtEvidenceOne = await storeCommittedFile('EVIDENCE', 'pbt-normalization-settlement.pdf', 'application/pdf', pdf,
+    makeRiskHeaders(reviewerHeaders), { clientId, engagementId });
+  const pbtEvidenceTwo = await storeCommittedFile('EVIDENCE', 'pbt-normalization-advisory.pdf', 'application/pdf', pdf,
+    makeRiskHeaders(reviewerHeaders), { clientId, engagementId });
+  const normalizedPbt = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'materiality.calculate', payload: {
+      engagementId, tbVersionId: tbActivated.body.result.tbVersionId, mappingVersionId: mappingApproved.body.result.mappingVersionId,
+      benchmark: 'PBT', benchmarkRateBps: 500, performanceRateBps: 6000, sadRateBps: 400,
+      adjustments: [
+        { description: 'One-time legal settlement charge', amountMinor: '1500', evidenceFileId: pbtEvidenceOne },
+        { description: 'Non-recurring advisory fee', amountMinor: '2500', evidenceFileId: pbtEvidenceTwo }
+      ], normalizationReason: 'Exclude two separately evidenced non-recurring expenses from maintainable profit.'
+    } }
+  }, makeRiskHeaders(reviewerHeaders));
+  assert.equal(normalizedPbt.response.status, 200, JSON.stringify(normalizedPbt.body));
+  assert.equal(normalizedPbt.body.result.benchmarkMinor, '300004000');
+  const roundedNormalizedPbt = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'materiality.adjust', payload: {
+      materialityVersionId: normalizedPbt.body.result.materialityVersionId,
+      planningMinor: normalizedPbt.body.result.planningMinor, performanceMinor: normalizedPbt.body.result.performanceMinor, sadMinor: normalizedPbt.body.result.sadMinor,
+      reason: 'Reviewer retained the supported normalized PBT tiers against their fixed raw calculation basis.'
+    } }
+  }, makeRiskHeaders(reviewerHeaders));
+  assert.equal(roundedNormalizedPbt.response.status, 200, JSON.stringify(roundedNormalizedPbt.body));
+  const normalizedPbtWorkspace = await call(tbWorkspacePath, { headers: makeRiskHeaders(reviewerHeaders) });
+  assert.equal(normalizedPbtWorkspace.body.materiality.id, roundedNormalizedPbt.body.result.materialityVersionId);
+  assert.deepEqual(normalizedPbtWorkspace.body.materiality.adjustments.map((item: any) => ({ description: item.description, amountMinor: item.amountMinor, evidenceFileId: item.evidenceFileId })), [
+    { description: 'One-time legal settlement charge', amountMinor: '1500', evidenceFileId: pbtEvidenceOne },
+    { description: 'Non-recurring advisory fee', amountMinor: '2500', evidenceFileId: pbtEvidenceTwo }
+  ], 'materiality readback preserves each supported normalization item in insertion order');
+  assert.equal(normalizedPbtWorkspace.body.materiality.normalizationReason, 'Exclude two separately evidenced non-recurring expenses from maintainable profit.');
+
   const materialityCalculated = await post(`/api/workspaces/${workspaceId}/commands`, {
     idempotencyKey: crypto.randomUUID(), command: { type: 'materiality.calculate', payload: {
       engagementId, tbVersionId: tbActivated.body.result.tbVersionId, mappingVersionId: mappingApproved.body.result.mappingVersionId,

@@ -469,6 +469,7 @@ export interface BusinessTrialBalanceWorkspace {
     id: string; revision: number; tbVersionId: string; mappingVersionId: string;
     benchmark: 'PBT' | 'REVENUE' | 'TOTAL_ASSETS' | 'EQUITY'; benchmarkMinor: number; normalizationMinor: number;
     normalizationReason: string | null; benchmarkRateBps: number; performanceRateBps: number; sadRateBps: number;
+    adjustments: Array<{ id: string; description: string; amountMinor: string; evidenceFileId: string }>;
     pmRawNumerator: string; pmRawDenominator: string; teRawNumerator: string; teRawDenominator: string;
     sadRawNumerator: string; sadRawDenominator: string; planningMinor: number; performanceMinor: number; sadMinor: number;
     roundingReason: string | null; sourceHash: string; calculatedAt: string;

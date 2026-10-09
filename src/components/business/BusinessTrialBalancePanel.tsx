@@ -24,10 +24,11 @@ type EngagementRef = { id: string; clientId: string; code: string; clientName: s
 type ColumnMap = { headerRow: number; accountCodeColumn: number; accountNameColumn: number; balanceColumn?: number;
   debitColumn?: number; creditColumn?: number; priorBalanceColumn?: number; currencyColumn?: number };
 type Benchmark = 'PBT' | 'REVENUE' | 'TOTAL_ASSETS' | 'EQUITY';
-type AdjustmentDraft = { description: string; amount: string; evidenceFileId: string };
+type AdjustmentDraft = { key: string; description: string; amount: string; evidenceFileId: string };
 type RiskDraft = { inherentRisk: 'LOW' | 'MODERATE' | 'HIGH'; criticalEstimate: boolean; rationale: string };
 
 const emptyColumns: ColumnMap = { headerRow: 1, accountCodeColumn: 0, accountNameColumn: 1, balanceColumn: 2 };
+function newAdjustmentDraft(): AdjustmentDraft { return { key: crypto.randomUUID(), description: '', amount: '', evidenceFileId: '' }; }
 
 function fileMediaType(file: File): BusinessFileMediaType | null {
   const extension = file.name.split('.').pop()?.toLowerCase();
@@ -112,7 +113,7 @@ export function BusinessTrialBalancePanel({
   const [performanceRate, setPerformanceRate] = useState('60');
   const [sadRate, setSadRate] = useState('4');
   const [normalizationReason, setNormalizationReason] = useState('');
-  const [adjustment, setAdjustment] = useState<AdjustmentDraft>({ description: '', amount: '', evidenceFileId: '' });
+  const [adjustmentItems, setAdjustmentItems] = useState<AdjustmentDraft[]>([]);
   const [roundingValues, setRoundingValues] = useState({ planning: '', performance: '', sad: '', reason: '' });
   const [riskDrafts, setRiskDrafts] = useState<Record<string, RiskDraft>>({});
   const [scopeText, setScopeText] = useState('Perform the statutory audit for the approved reporting period using the accepted source records.');
@@ -139,9 +140,15 @@ export function BusinessTrialBalancePanel({
         if (controller.signal.aborted) return;
         setWorkspace(data);
         setImportId(current => current || data.imports[0]?.id || '');
-        setBenchmark(current => data.materiality?.benchmark ?? current);
-        setBenchmarkRate(current => data.materiality ? (data.materiality.benchmarkRateBps / 100).toFixed(2) : current);
+        setBenchmark(data.materiality?.benchmark ?? 'REVENUE');
+        setBenchmarkRate(data.materiality ? (data.materiality.benchmarkRateBps / 100).toFixed(2) : defaultBenchmarkRate('REVENUE'));
         if (data.materiality) { setPerformanceRate((data.materiality.performanceRateBps / 100).toFixed(2)); setSadRate((data.materiality.sadRateBps / 100).toFixed(2)); }
+        else { setPerformanceRate('60'); setSadRate('4'); }
+        setNormalizationReason(data.materiality?.normalizationReason ?? '');
+        const restoredAdjustments = (data.materiality?.adjustments ?? []).map(item => ({
+          key: crypto.randomUUID(), description: item.description, amount: qarFromMinor(item.amountMinor), evidenceFileId: item.evidenceFileId
+        }));
+        setAdjustmentItems(restoredAdjustments.length ? restoredAdjustments : data.materiality?.benchmark === 'PBT' ? [newAdjustmentDraft()] : []);
         if (data.materiality) setRoundingValues({ planning: qarFromMinor(data.materiality.planningMinor),
           performance: qarFromMinor(data.materiality.performanceMinor), sad: qarFromMinor(data.materiality.sadMinor), reason: data.materiality.roundingReason ?? '' });
         if (data.materiality) setRiskDrafts(Object.fromEntries(data.materiality.risks.map(risk => [risk.fsliId, {
@@ -266,11 +273,12 @@ export function BusinessTrialBalancePanel({
       if (!Number.isFinite(sadPercent) || sadPercent < 3 || sadPercent > 5) throw new Error('Summary audit differences (SAD) must be between 3% and 5% of planning materiality.');
       const payload: Record<string, unknown> = { engagementId: engagement.id, tbVersionId, mappingVersionId, benchmark,
         benchmarkRateBps: rateBps, performanceRateBps: Math.round(tePercent * 100), sadRateBps: Math.round(sadPercent * 100), adjustments: [] };
-      const hasAnyAdjustment = adjustment.description.trim() || adjustment.amount.trim() || adjustment.evidenceFileId;
-      if (hasAnyAdjustment) {
-        if (!adjustment.description.trim() || !adjustment.amount.trim() || !adjustment.evidenceFileId) throw new Error('Complete the description, QAR amount and committed evidence file for each PBT normalization item.');
-        payload.adjustments = [{ description: adjustment.description.trim(), amountMinor: minorFromQar(adjustment.amount), evidenceFileId: adjustment.evidenceFileId }];
+      const enteredAdjustments = adjustmentItems.filter(item => item.description.trim() || item.amount.trim() || item.evidenceFileId);
+      if (enteredAdjustments.some(item => !item.description.trim() || !item.amount.trim() || !item.evidenceFileId)) {
+        throw new Error('Complete the description, QAR amount and committed evidence file for every PBT normalization item.');
       }
+      if (enteredAdjustments.length && normalizationReason.trim().length < 10) throw new Error('PBT normalization needs an itemized reviewer rationale of at least 10 characters.');
+      payload.adjustments = enteredAdjustments.map(item => ({ description: item.description.trim(), amountMinor: minorFromQar(item.amount), evidenceFileId: item.evidenceFileId }));
       if (normalizationReason.trim()) payload.normalizationReason = normalizationReason.trim();
       await command('materiality.calculate', payload, 'Materiality calculated from the active mapped trial balance.');
     } catch (reason) { setError(reason instanceof Error ? reason.message : 'Check the materiality inputs.'); }
@@ -429,7 +437,8 @@ export function BusinessTrialBalancePanel({
         {canReview && canPlan && <form className="business-form" onSubmit={calculateMateriality}>
           <div className="business-form-grid"><label className="business-field"><span>Benchmark</span><select value={benchmark} onChange={event => {
             const next = event.target.value as Benchmark; setBenchmark(next); setBenchmarkRate(defaultBenchmarkRate(next));
-            if (next !== 'PBT') { setAdjustment({ description: '', amount: '', evidenceFileId: '' }); setNormalizationReason(''); } }}>
+            if (next !== 'PBT') { setAdjustmentItems([]); setNormalizationReason(''); }
+            else setAdjustmentItems(current => current.length ? current : [newAdjustmentDraft()]); }}>
               <option value="PBT">Profit before tax</option><option value="REVENUE">Revenue</option><option value="TOTAL_ASSETS">Total assets</option><option value="EQUITY">Equity</option></select></label>
             <label className="business-field"><span>Benchmark rate (%)</span><input type="number" min={benchmark === 'PBT' ? '5' : benchmark === 'REVENUE' ? '0.5' : benchmark === 'TOTAL_ASSETS' ? '0.5' : '1'}
               max={benchmark === 'PBT' ? '10' : benchmark === 'TOTAL_ASSETS' ? '1' : '2'} step="0.01" required value={benchmarkRate} onChange={event => setBenchmarkRate(event.target.value)} />
@@ -438,13 +447,23 @@ export function BusinessTrialBalancePanel({
             <label className="business-field"><span>Summary audit difference (SAD) % of PM</span><input type="number" min="3" max="5" step="0.01" required value={sadRate} onChange={event => setSadRate(event.target.value)} /><small>Permitted 3–5% of planning materiality.</small></label>
           </div>
           {benchmark === 'PBT' && <fieldset className="business-tb-fieldset"><legend>Optional evidenced PBT normalization</legend>
-            <p className="business-note">Loss or zero PBT cannot be treated as positive profit. Any normalization requires a committed evidence file from this engagement.</p>
-            <div className="business-form-grid"><label className="business-field"><span>Adjustment description</span><input maxLength={1000} value={adjustment.description} onChange={event => setAdjustment(current => ({ ...current, description: event.target.value }))} /></label>
-              <label className="business-field"><span>Adjustment amount · QAR</span><input inputMode="decimal" value={adjustment.amount} onChange={event => setAdjustment(current => ({ ...current, amount: event.target.value }))} /></label>
-              <label className="business-field"><span>Committed support file</span><select value={adjustment.evidenceFileId} onChange={event => setAdjustment(current => ({ ...current, evidenceFileId: event.target.value }))}>
-                <option value="">Select evidence</option>{files.filter(file => ['EVIDENCE','PBC'].includes(file.purpose) && file.state === 'COMMITTED' && file.engagementId === engagement.id).map(file =>
-                  <option key={file.id} value={file.id}>{file.originalName}</option>)}</select></label>
-              <label className="business-field"><span>Normalization rationale</span><input minLength={10} maxLength={2000} value={normalizationReason} onChange={event => setNormalizationReason(event.target.value)} /></label></div>
+            <p className="business-note">Loss or zero PBT cannot be treated as positive profit. Add a separate description, QAR amount and committed support file for every normalization item.</p>
+            {adjustmentItems.map((item, index) => <div className="business-tb-normalization-item" key={item.key}>
+              <div className="business-form-grid"><label className="business-field"><span>Adjustment {index + 1} description</span>
+                <input maxLength={1000} value={item.description} onChange={event => setAdjustmentItems(current => current.map(row => row.key === item.key ? { ...row, description: event.target.value } : row))} /></label>
+                <label className="business-field"><span>Adjustment amount · QAR</span>
+                  <input inputMode="decimal" value={item.amount} onChange={event => setAdjustmentItems(current => current.map(row => row.key === item.key ? { ...row, amount: event.target.value } : row))} /></label>
+                <label className="business-field"><span>Committed support file</span><select value={item.evidenceFileId}
+                  onChange={event => setAdjustmentItems(current => current.map(row => row.key === item.key ? { ...row, evidenceFileId: event.target.value } : row))}>
+                  <option value="">Select evidence</option>{files.filter(file => ['EVIDENCE','PBC'].includes(file.purpose) && file.state === 'COMMITTED' && file.engagementId === engagement.id).map(file =>
+                    <option key={file.id} value={file.id}>{file.originalName}</option>)}</select></label>
+                <button className="btn" type="button" onClick={() => setAdjustmentItems(current => current.filter(row => row.key !== item.key))}>Remove item {index + 1}</button>
+              </div>
+            </div>)}
+            <button className="btn" type="button" onClick={() => setAdjustmentItems(current => [...current, newAdjustmentDraft()])}>Add PBT adjustment item</button>
+            <label className="business-field"><span>Normalization rationale</span><input minLength={10} maxLength={2000}
+              required={adjustmentItems.some(item => item.description.trim() || item.amount.trim() || item.evidenceFileId)}
+              value={normalizationReason} onChange={event => setNormalizationReason(event.target.value)} /></label>
           </fieldset>}
           <button className="btn primary" type="submit" disabled={busy}>{busy ? 'Calculating…' : materiality ? 'Recalculate from current TB and mapping' : 'Calculate materiality'}</button>
         </form>}
@@ -481,6 +500,20 @@ export function BusinessTrialBalancePanel({
               </table>
             </div>
           </details>
+          {materiality.adjustments.length > 0 && <details className="business-tb-materiality-sources">
+            <summary>Saved PBT normalization items ({materiality.adjustments.length})</summary>
+            <p className="business-note">Total normalization: QAR {qarFromMinor(materiality.normalizationMinor)} · Rationale: {materiality.normalizationReason}</p>
+            <div className="business-tb-materiality-source-scroll">
+              <table className="business-tb-materiality-source-table">
+                <caption>Version-pinned adjustment descriptions, amounts and evidence</caption>
+                <thead><tr><th scope="col">Description</th><th scope="col">Amount</th><th scope="col">Evidence file</th><th scope="col">Evidence ID</th></tr></thead>
+                <tbody>{materiality.adjustments.map(item => <tr key={item.id}>
+                  <td>{item.description}</td><td>QAR {qarFromMinor(item.amountMinor)}</td>
+                  <td>{files.find(file => file.id === item.evidenceFileId)?.originalName ?? 'Evidence file unavailable'}</td><td>{item.evidenceFileId}</td>
+                </tr>)}</tbody>
+              </table>
+            </div>
+          </details>}
           {canReview && canPlan && <form className="business-form business-tb-rounding" onSubmit={adjustMateriality}><h4>Bounded rounding adjustment</h4>
             <p className="business-note">Each adjusted threshold is checked against ±5% of its own raw value; TE/PM and SAD/PM ratios are also enforced.</p>
             <div className="business-form-grid"><label className="business-field"><span>PM · QAR</span><input inputMode="decimal" required value={roundingValues.planning} onChange={event => setRoundingValues(current => ({ ...current, planning: event.target.value }))} /></label>

@@ -317,6 +317,8 @@
 .business-tb-materiality-source-table caption { padding: 9px 10px; color: #496174; text-align: left; }
 .business-tb-materiality-source-table th, .business-tb-materiality-source-table td { padding: 8px 10px; border-top: 1px solid #e2e8f0; vertical-align: top; overflow-wrap: anywhere; }
 .business-tb-materiality-source-table thead th { position: sticky; top: 0; border-top: 0; background: #f8fafc; color: #17334a; }
+.business-tb-normalization-item { min-width: 0; padding: 12px; border: 1px solid #d7e0e8; border-radius: 8px; background: #fbfdff; }
+.business-tb-normalization-item .business-form-grid { align-items: end; }
 .business-tb-rounding { padding: 14px; border: 1px solid #d7e0e8; border-radius: 9px; background: #fbfdff; }
 .business-tb-rounding h4 { margin-top: 0; }
 .business-tb-checkbox { display: inline-flex; min-height: 42px; align-items: center; gap: 8px; }

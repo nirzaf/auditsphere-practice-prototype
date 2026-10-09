@@ -741,6 +741,15 @@ export function benchmarkContributingLines<T extends {code:string;statement:stri
       :benchmark==='TOTAL_ASSETS'?lines.filter(row=>row.category==='ASSET'):lines.filter(row=>row.category==='EQUITY');
 }
 
+export function materialityBenchmarkValue(benchmark:string,rawBase:bigint,normalization:bigint,adjustmentCount:number,normalizationReason?:string):bigint{
+  if(benchmark!=='PBT'&&(adjustmentCount>0||normalizationReason))throw new ApiError('VALIDATION_FAILED','Normalization adjustments are available only for a PBT benchmark.');
+  if(benchmark==='PBT'&&adjustmentCount>0&&!normalizationReason)throw new ApiError('VALIDATION_FAILED','PBT normalization needs an itemized reviewer rationale.');
+  if(benchmark==='PBT'&&adjustmentCount===0&&normalizationReason)throw new ApiError('VALIDATION_FAILED','A PBT normalization rationale requires at least one evidenced adjustment item.');
+  const benchmarkValue=rawBase+normalization;
+  if(benchmarkValue<=0n)throw new ApiError('VALIDATION_FAILED','PBT is zero or loss-making. Select a supported alternative benchmark or provide documented, evidenced normalization; loss is never treated as positive profit.');
+  return benchmarkValue;
+}
+
 async function calculateMateriality(env:Env,workspaceId:string,context:BusinessContext,
   command:Extract<BusinessTbCommand,{type:'materiality.calculate'}>,now:string):Promise<BusinessMutation>{
   requireTbWriter(context,true);
@@ -768,10 +777,7 @@ async function calculateMateriality(env:Env,workspaceId:string,context:BusinessC
     const amount=amountBigInt(adjustment.amountMinor);normalization+=amount;
     adjustmentFiles.push({id:adjustment.evidenceFileId,amount,description:adjustment.description});
   }
-  if(p.benchmark!=='PBT'&&(adjustmentFiles.length||p.normalizationReason))throw new ApiError('VALIDATION_FAILED','Normalization adjustments are available only for a PBT benchmark.');
-  if(adjustmentFiles.length&&(!p.normalizationReason||p.normalizationReason.length<10))throw new ApiError('VALIDATION_FAILED','PBT normalization needs an itemized reviewer rationale.');
-  const benchmarkValue=rawBase+normalization;
-  if(benchmarkValue<=0n){throw new ApiError('VALIDATION_FAILED','PBT is zero or loss-making. Select a supported alternative benchmark or provide documented, evidenced normalization; loss is never treated as positive profit.');}
+  const benchmarkValue=materialityBenchmarkValue(p.benchmark,rawBase,normalization,adjustmentFiles.length,p.normalizationReason);
   if(benchmarkValue>BigInt(Number.MAX_SAFE_INTEGER))throw new ApiError('VALIDATION_FAILED','The selected benchmark exceeds supported minor-unit precision.');
   const pmN=benchmarkValue*BigInt(p.benchmarkRateBps),pmD=10000n;
   const teN=pmN*BigInt(p.performanceRateBps),teD=pmD*10000n;
@@ -842,7 +848,7 @@ async function adjustMateriality(env:Env,workspaceId:string,context:BusinessCont
         prior.pm_raw_numerator,prior.pm_raw_denominator,prior.te_raw_numerator,prior.te_raw_denominator,prior.sad_raw_numerator,prior.sad_raw_denominator,
         Number(values.pm),Number(values.te),Number(values.sad),command.payload.reason,context.actor.id,timestamp,adjustedHash),
     env.DB.prepare(`INSERT INTO benchmark_adjustments(id,workspace_id,materiality_version_id,description,amount_minor,evidence_file_id)
-      SELECT lower(hex(randomblob(16))),workspace_id,?,description,amount_minor,evidence_file_id FROM benchmark_adjustments WHERE workspace_id=? AND materiality_version_id=?`)
+      SELECT lower(hex(randomblob(16))),workspace_id,?,description,amount_minor,evidence_file_id FROM benchmark_adjustments WHERE workspace_id=? AND materiality_version_id=? ORDER BY rowid`)
       .bind(newId,workspaceId,prior.id),
     env.DB.prepare(`INSERT INTO fsli_risks(id,workspace_id,client_id,engagement_id,fsli_id,materiality_version_id,revision,balance_minor,inherent_risk,critical_estimate,band,rationale,source_sha256,created_at)
       SELECT lower(hex(randomblob(16))),r.workspace_id,r.client_id,r.engagement_id,r.fsli_id,?,(SELECT COALESCE(MAX(r2.revision),0)+1 FROM fsli_risks r2 WHERE r2.workspace_id=r.workspace_id AND r2.engagement_id=r.engagement_id AND r2.fsli_id=r.fsli_id),
@@ -1093,12 +1099,15 @@ export async function getBusinessTrialBalanceWorkspace(env:Env,workspaceId:strin
       const sourceAccounts=benchmarkContributingLines(sourceLines,String(value.benchmark))
         .flatMap(line=>line.account_ids.map((accountId,index)=>({id:accountId,code:line.account_codes[index],fsliId:line.fsli_id,fsliCode:line.code})))
         .sort((a,b)=>a.code.localeCompare(b.code));
+      const adjustments=await env.DB.prepare(`SELECT id,description,CAST(amount_minor AS TEXT) AS amountMinor,evidence_file_id AS evidenceFileId
+        FROM benchmark_adjustments WHERE workspace_id=? AND materiality_version_id=? ORDER BY rowid`)
+        .bind(workspaceId,value.id).all<{id:string;description:string;amountMinor:string;evidenceFileId:string}>();
       const risks=await env.DB.prepare(`SELECT r.id,r.revision,r.fsli_id AS fsliId,c.code,c.name,CAST(r.balance_minor AS TEXT) AS balanceMinor,r.inherent_risk AS inherentRisk,
           r.critical_estimate AS criticalEstimate,r.band,r.rationale,r.source_sha256 AS sourceHash
         FROM fsli_risks r JOIN fsli_catalog c ON c.workspace_id=r.workspace_id AND c.id=r.fsli_id WHERE r.workspace_id=? AND r.engagement_id=? AND r.materiality_version_id=?
           AND r.revision=(SELECT MAX(r2.revision) FROM fsli_risks r2 WHERE r2.workspace_id=r.workspace_id AND r2.engagement_id=r.engagement_id AND r2.fsli_id=r.fsli_id)
         ORDER BY c.presentation_order,c.code`).bind(workspaceId,engagementId,value.id).all<Record<string,unknown>>();
-      materiality={...value,sourceAccounts,risks:risks.results??[]};
+      materiality={...value,sourceAccounts,adjustments:adjustments.results??[],risks:risks.results??[]};
     }
   }
   const readiness=await collectPlanningDependencies(env,workspaceId,context,engagementId,true);
