@@ -93,6 +93,13 @@ async function chooseOption(selectId: string, predicate: string): Promise<string
   return selected;
 }
 
+async function pressRouteKey(key: 'Home' | 'ArrowDown'): Promise<void> {
+  const windowsVirtualKeyCode = key === 'Home' ? 36 : 40;
+  await tab!.evaluate(`document.getElementById('business-route-select')?.focus()`);
+  await tab!.command('Input.dispatchKeyEvent', { type: 'keyDown', key, code: key, windowsVirtualKeyCode });
+  await tab!.command('Input.dispatchKeyEvent', { type: 'keyUp', key, code: key, windowsVirtualKeyCode });
+}
+
 async function setViewport(width: number, height: number, mobile: boolean): Promise<void> {
   await tab!.command('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor: 1, mobile });
   try {
@@ -352,12 +359,16 @@ it('E06-S04 keeps the no-auth workspace, CLIENT portal, and populated business m
       .map(option => ({ value: option.value, label: option.textContent?.trim() ?? '' }))
   `);
   assert.equal(routes.length, 30, 'the navigation exposes all 30 current business routes');
-  for (const [width, height, mobile] of [[1440, 900, false], [390, 844, true]] as const) {
+  for (const [viewportIndex, width, height, mobile] of [[0, 1440, 900, false], [1, 390, 844, true]] as const) {
     await setViewport(width, height, mobile);
-    for (const route of routes) {
+    for (const [routeIndex, route] of routes.entries()) {
       const targetId = `route-${route.value}`;
-      const selectedRoute = await chooseOption('business-route-select', `item.value === ${JSON.stringify(route.value)}`);
-      assert.equal(selectedRoute, route.value, `${route.label} can be selected from the route menu`);
+      if (viewportIndex === 0 && routeIndex === 0) {
+        const selectedRoute = await chooseOption('business-route-select', `item.value === ${JSON.stringify(route.value)}`);
+        assert.equal(selectedRoute, route.value, `${route.label} can be selected from the route menu`);
+      } else {
+        await pressRouteKey(routeIndex === 0 ? 'Home' : 'ArrowDown');
+      }
       await waitFor(`${route.label} route focus`, `
         document.querySelector('#business-route-select')?.value === ${JSON.stringify(route.value)}
         && (document.activeElement?.id === ${JSON.stringify(targetId)}
