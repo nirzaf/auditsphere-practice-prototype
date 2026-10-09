@@ -173,16 +173,16 @@ export function BusinessReportingPanel({ workspaceId, selected, context, engagem
   };
 
   useEffect(() => {
-    if (!activeEngagementId) { setData(null); return; }
+    if (!selected.actorId || !selected.persona || !activeEngagementId) { setData(null); return; }
     const controller = new AbortController();
     getBusinessReportingWorkspace(workspaceId, activeEngagementId, selected, controller.signal)
       .then(result => { if (!controller.signal.aborted) { setData(result as ReportingWorkspace); setError(''); } })
       .catch(reason => { if (!controller.signal.aborted) setError(reason instanceof Error ? reason.message : 'Reporting records could not be loaded.'); });
     return () => controller.abort();
-  }, [workspaceId, activeEngagementId, selected.clientId, selected.engagementId, refresh]);
+  }, [workspaceId, activeEngagementId, selected.actorId, selected.persona, selected.clientId, selected.engagementId, refresh]);
 
   useEffect(() => {
-    if (!activeEngagementId) {
+    if (!selected.actorId || !selected.persona || !activeEngagementId) {
       setArchiveStatus(null); setArchiveClockOffset(null); return;
     }
     const controller = new AbortController();
@@ -208,7 +208,7 @@ export function BusinessReportingPanel({ workspaceId, selected, context, engagem
         }
       });
     return () => controller.abort();
-  }, [workspaceId, activeEngagementId, selected.clientId, selected.engagementId, refresh]);
+  }, [workspaceId, activeEngagementId, selected.actorId, selected.persona, selected.clientId, selected.engagementId, refresh]);
 
   useEffect(() => {
     if (archiveClockOffset === null) return;
@@ -354,7 +354,7 @@ export function BusinessReportingPanel({ workspaceId, selected, context, engagem
       .then(result => { if (!controller.signal.aborted) setOpinionPreview(result as OpinionPreview); })
       .catch(reason => { if (!controller.signal.aborted) setOpinionPreviewError(reason instanceof Error ? reason.message : 'The exact opinion preview could not be loaded.'); });
     return () => controller.abort();
-  }, [workspaceId, activeEngagementId, selected.clientId, selected.engagementId, previewVersionId, isPartner, refresh]);
+  }, [workspaceId, activeEngagementId, selected.actorId, selected.persona, selected.clientId, selected.engagementId, previewVersionId, isPartner, refresh]);
   const pendingJobs = (data?.jobs ?? []).some(job => ['PENDING', 'RUNNING', 'RETRYABLE_FAILED'].includes(String(job.status)));
   useEffect(() => {
     if (!pendingJobs) return;
@@ -393,7 +393,7 @@ export function BusinessReportingPanel({ workspaceId, selected, context, engagem
       .then(result => { if (!controller.signal.aborted) { setReleasedProvenance(result as ReportRow); setReleasedProvenanceError(''); } })
       .catch(reason => { if (!controller.signal.aborted) { setReleasedProvenance(null); setReleasedProvenanceError(reason instanceof Error ? reason.message : 'Released report provenance is unavailable.'); } });
     return () => controller.abort();
-  }, [workspaceId, activeEngagementId, selected.clientId, selected.engagementId, isPartner, releasedBundles[0]?.id]);
+  }, [workspaceId, activeEngagementId, selected.actorId, selected.persona, selected.clientId, selected.engagementId, isPartner, releasedBundles[0]?.id]);
 
   if (!activeEngagementId) return null;
 
@@ -403,7 +403,7 @@ export function BusinessReportingPanel({ workspaceId, selected, context, engagem
       <button type="button" className="btn sm" disabled={busy} onClick={() => setRefresh(value => value + 1)}>Refresh reporting</button>
     </div>
     {error && <p className="business-alert" role="alert">{error}</p>}{message && <p className="business-command-message" role="status">{message}</p>}
-    <p className="business-note">{displayEngagement.clientName} · {displayEngagement.code} · {displayEngagement.periodStart}–{displayEngagement.periodEnd} · {displayEngagement.lifecycleState.replaceAll('_', ' ')}. Signature images are attributed to an authenticated Partner approval record; they are not a certificate-based digital signature or independent identity verification.</p>
+    <p className="business-note">{displayEngagement.clientName} · {displayEngagement.code} · {displayEngagement.periodStart}–{displayEngagement.periodEnd} · {displayEngagement.lifecycleState.replaceAll('_', ' ')}. Signature images record self-asserted persona approval; they are not certificate-backed electronic signatures.</p>
 
     {isClient ? <>
       <div className="business-delivery-grid">
@@ -778,7 +778,7 @@ export function BusinessReportingPanel({ workspaceId, selected, context, engagem
         {!releasedProvenance && !releasedProvenanceError && <p role="status">Loading the released signature and source record…</p>}
         {releasedProvenance && <>
           <p>Report {rowText(provenanceEngagement, 'code')} for {rowText(provenanceEngagement, 'clientName')} · {rowText(provenanceEngagement, 'periodStart')}–{rowText(provenanceEngagement, 'periodEnd')} · report date {rowText(provenanceEngagement, 'reportDate')} · signed {rowText(provenanceSignature, 'signedAt')}.</p>
-          <p>Signature method: {rowText(provenanceSignature, 'signingMethod')} · attribution: {rowText(provenanceSignature, 'attribution')}. This attribution comes from the authenticated Partner approval record and is not a certificate-based digital signature or independent identity verification.</p>
+          <p>Signature method: {rowText(provenanceSignature, 'signingMethod')} · attribution: {rowText(provenanceSignature, 'attribution')}. This records a self-asserted persona action and is not certificate-backed or verified identity.</p>
           <dl><div><dt>Consent actor</dt><dd>{rowText(provenanceConsent, 'actorDisplayName', 'Historical actor display name unavailable')} · {rowText(provenanceConsent, 'actorStaffMemberId', 'staff snapshot unavailable')}</dd></div>
             <div><dt>Consented candidate SHA-256</dt><dd>{rowText(provenanceConsent, 'candidateContentSha256')}</dd></div>
             <div><dt>Signature owner</dt><dd>{rowText(provenanceOwner, 'displayName')} · {rowText(provenanceOwner, 'grade')} · {rowText(provenanceAsset, 'label')} ({rowText(provenanceAsset, 'status')})</dd></div>

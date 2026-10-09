@@ -26,9 +26,7 @@ import { buildVerificationSupportBundle, type VerificationRunRow } from './verif
 import { ingestVerificationRun } from './verificationIngest';
 import {
   bootstrapBusinessWorkspace,
-  parseBusinessBootstrapInput,
   listBusinessActorProfiles,
-  listBusinessUsers,
   listBusinessClients,
   getBusinessClient,
   listBusinessLeads,
@@ -37,13 +35,12 @@ import {
   getBusinessPbcRequestPortal,
   getBusinessPbcPortal,
   listBusinessPbcEngagements,
-  assertBusinessEngagementAccess,
-  assertBusinessClientAccess,
   getBusinessChanges,
   businessEnvelopeFromRequest,
   getBusinessFileDownload,
   getBusinessFileMetadata,
   listBusinessFiles,
+  parseBusinessBootstrapInput,
   parseBusinessCommandEnvelope,
   runBusinessFileContent,
   resolveBusinessContext,
@@ -217,41 +214,24 @@ const handleSupportBundle = async (ctx: RouteContext): Promise<Response> => {
 
 // --- Workspaces -------------------------------------------------------------
 
-const bootstrapTokenMatches = async (supplied: string, expected: string): Promise<boolean> => {
-  const encoder = new TextEncoder();
-  const [left, right] = await Promise.all([
-    crypto.subtle.digest('SHA-256', encoder.encode(supplied)),
-    crypto.subtle.digest('SHA-256', encoder.encode(expected))
-  ]);
-  const suppliedDigest = new Uint8Array(left);
-  const expectedDigest = new Uint8Array(right);
-  let mismatch = 0;
-  for (let index = 0; index < expectedDigest.length; index += 1) mismatch |= suppliedDigest[index] ^ expectedDigest[index];
-  return mismatch === 0;
-};
+const handleCreateWorkspace = async (ctx: RouteContext): Promise<Response> => {
+  await assertSameOrigin(ctx.request, ctx.url);
+  await enforceRateLimit(ctx, 'workspace.create', clientKey(ctx));
+  const requestBody = await readJson<unknown>(ctx.request, 64 * 1024);
+  if (!requestBody || typeof requestBody !== 'object' || Array.isArray(requestBody)) {
+    throw new ApiError('BAD_REQUEST', 'Workspace details are required.');
+  }
 
-const handleInternalBootstrap = async (ctx: RouteContext): Promise<Response> => {
-  const expected = ctx.env.BOOTSTRAP_TOKEN;
-  const authorization = ctx.request.headers.get('Authorization') ?? '';
-  const supplied = /^Bearer ([A-Za-z0-9._~-]{32,512})$/.exec(authorization)?.[1] ?? '';
-  if (!expected || expected.length < 32 || !supplied || !await bootstrapTokenMatches(supplied, expected)) {
-    throw new ApiError('NOT_FOUND', 'That API route does not exist.');
+  if (Object.hasOwn(requestBody, 'seedId')) throw new ApiError('BAD_REQUEST', 'Seeded workspace creation is no longer supported.');
+  if (ctx.env.BUSINESS_SETUP_ENABLED !== 'true') {
+    throw new ApiError('UNAVAILABLE', 'Business workspace setup is not enabled for this trusted deployment.');
   }
-  const idempotencyKey = ctx.request.headers.get('Idempotency-Key')?.trim();
-  if (!idempotencyKey || idempotencyKey.length < 8 || idempotencyKey.length > 200) {
-    throw new ApiError('BAD_REQUEST', 'A unique Idempotency-Key header is required for first-Partner bootstrap.');
+  const setupKey = ctx.request.headers.get('Idempotency-Key')?.trim();
+  if (!setupKey || setupKey.length < 8 || setupKey.length > 200) {
+    throw new ApiError('BAD_REQUEST', 'A unique Idempotency-Key header is required for workspace setup.');
   }
-  const input = parseBusinessBootstrapInput(await readJson<unknown>(ctx.request, 16 * 1024));
-  const keyHash = await sha256Hex(`auditsphere:business-bootstrap:${idempotencyKey}`);
-  const [existing, receipt] = await Promise.all([
-    ctx.env.DB.prepare(`SELECT COUNT(*) AS count FROM workspaces WHERE data_mode='BUSINESS'`).first<{ count: number }>(),
-    ctx.env.DB.prepare(`SELECT idempotency_key_hash FROM business_bootstrap_receipts WHERE idempotency_key_hash=?`)
-      .bind(keyHash).first<{ idempotency_key_hash: string }>()
-  ]);
-  if ((existing?.count ?? 0) > 0 && !receipt) {
-    throw new ApiError('GATE_BLOCKED', 'First-Partner bootstrap is disabled because a BUSINESS workspace already exists.');
-  }
-  const created = await bootstrapBusinessWorkspace(ctx.env, input, idempotencyKey, { oneTime: true });
+  const input = parseBusinessBootstrapInput(requestBody);
+  const created = await bootstrapBusinessWorkspace(ctx.env, input, setupKey);
   return jsonResponse(created, created.replayed ? 200 : 201, ctx.requestId);
 };
 
@@ -261,14 +241,16 @@ const handleBusinessActorProfiles = async (ctx: RouteContext): Promise<Response>
   const account = await ctx.env.DB.prepare('SELECT is_firm_admin FROM user_accounts WHERE workspace_id=? AND id=?')
     .bind(session.workspace_id, session.user_account_id).first<{ is_firm_admin: number }>();
   if (!account) throw new ApiError('UNAUTHENTICATED', 'The session is not valid.');
-  if (session.kind !== 'STAFF' || account.is_firm_admin !== 1) {
-    throw new ApiError('PERSONA_ACTION_DENIED', 'Only a firm administrator can list workspace actor profiles.');
+  const profiles = await listBusinessActorProfiles(ctx.env, ctx.params.workspaceId);
+  if (account.is_firm_admin !== 1) {
+    const grants = await ctx.env.DB.prepare(`SELECT actor_profile_id FROM user_profile_grants
+      WHERE workspace_id=? AND user_account_id=? AND revoked_at IS NULL`)
+      .bind(session.workspace_id, session.user_account_id).all<{ actor_profile_id: string }>();
+    const allowed = new Set((grants.results ?? []).map(item => item.actor_profile_id));
+    return jsonResponse({ ...profiles, items: profiles.items.filter(profile => allowed.has(profile.id)) }, 200, ctx.requestId);
   }
-  return jsonResponse(await listBusinessActorProfiles(ctx.env, ctx.params.workspaceId), 200, ctx.requestId);
+  return jsonResponse(profiles, 200, ctx.requestId);
 };
-
-const handleBusinessUsers = async (ctx: RouteContext): Promise<Response> =>
-  jsonResponse(await listBusinessUsers(ctx.env, ctx.params.workspaceId, ctx.request), 200, ctx.requestId);
 
 const handleBusinessContext = async (ctx: RouteContext): Promise<Response> => {
   const context = await resolveBusinessContext(ctx.env, ctx.params.workspaceId, ctx.request);
@@ -662,9 +644,8 @@ const router = createRouter()
   .get('/api/integrations/status', handleIntegrationStatus)
   .post('/api/webhooks/email-status', ctx => handleEmailStatusWebhook(ctx.request, ctx.env, ctx.requestId))
   .post('/api/internal/verification-runs', ingestVerificationRun)
-  .post('/api/internal/bootstrap', handleInternalBootstrap)
+  .post('/api/workspaces', handleCreateWorkspace)
   .get('/api/workspaces/:workspaceId/actor-profiles', handleBusinessActorProfiles)
-  .get('/api/workspaces/:workspaceId/users', handleBusinessUsers)
   .get('/api/workspaces/:workspaceId/context', handleBusinessContext)
   .get('/api/workspaces/:workspaceId/clients', handleBusinessClients)
   .get('/api/workspaces/:workspaceId/clients/:clientId', handleBusinessClient)
@@ -765,14 +746,6 @@ export default {
       if (match.params.workspaceId) {
         const session = await resolveBusinessSession(env, request);
         if (session.workspace_id !== match.params.workspaceId) throw new ApiError('NOT_FOUND', 'Workspace not found.');
-      }
-      if (match.params.workspaceId && match.params.engagementId) {
-        const businessContext = await resolveBusinessContext(env, match.params.workspaceId, request);
-        await assertBusinessEngagementAccess(env, match.params.workspaceId, businessContext, match.params.engagementId);
-      }
-      if (match.params.workspaceId && match.params.clientId) {
-        const businessContext = await resolveBusinessContext(env, match.params.workspaceId, request);
-        await assertBusinessClientAccess(env, match.params.workspaceId, businessContext, match.params.clientId);
       }
       return finishApiResponse(await match.handler({ ...context, params: match.params }), match.routePattern);
     } catch (error) {

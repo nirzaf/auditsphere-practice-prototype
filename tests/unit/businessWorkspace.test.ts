@@ -129,17 +129,16 @@ const env = {
   DB: db,
   FILES: fakeR2 as any,
   ASSETS: { fetch: async () => new Response('not found', { status: 404 }) } as any,
-  BOOTSTRAP_TOKEN: 'unit-bootstrap-token-for-fixtures-only-at-least-32',
+  BUSINESS_SETUP_ENABLED: 'true',
   PUBLIC_APP_URL: 'https://local.auditsphere.test'
 } as any;
 
 async function testFetch(request: Request, requestEnv = env, executionContext = {} as any): Promise<Response> {
   const workspaceId = new URL(request.url).pathname.match(/^\/api\/workspaces\/([^/?]+)/)?.[1];
-  const testProfileId = request.headers.get('X-Test-Session-Profile') ?? undefined;
-  if (workspaceId && testProfileId && !request.headers.has('Cookie')) {
+  if (workspaceId && !request.headers.has('Cookie')) {
+    const actorId = request.headers.get('X-Actor-Id') ?? undefined;
     const headers = new Headers(request.headers);
-    headers.delete('X-Test-Session-Profile');
-    headers.set('Cookie', await authSessionCookie(db, workspaceId, testProfileId));
+    headers.set('Cookie', await authSessionCookie(db, workspaceId, actorId));
     request = new Request(request, { headers });
   }
   return worker.fetch(request, requestEnv, executionContext);
@@ -190,6 +189,7 @@ async function call(path: string, options: {
                   : null
       : null;
     payload = {
+      actor: { actorId: headers.get('X-Actor-Id'), persona: headers.get('X-Active-Persona') },
       context: {
         ...(headers.get('X-Client-Id') ? { clientId: headers.get('X-Client-Id') } : {}),
         ...(headers.get('X-Engagement-Id') ? { engagementId: headers.get('X-Engagement-Id') } : {})
@@ -202,8 +202,7 @@ async function call(path: string, options: {
   }
   if (options.payload !== undefined) headers.set('Content-Type', 'application/json');
   const workspaceId = path.match(/^\/api\/workspaces\/([^/?]+)/)?.[1];
-  if (workspaceId) headers.set('Cookie', await authSessionCookie(db as any, workspaceId, headers.get('X-Test-Session-Profile') ?? undefined));
-  headers.delete('X-Test-Session-Profile');
+  if (workspaceId) headers.set('Cookie', await authSessionCookie(db as any, workspaceId, headers.get('X-Actor-Id') ?? undefined));
   const request = new Request(`https://local.auditsphere.test${path}`, {
     method,
     headers,
@@ -248,12 +247,13 @@ it('bootstraps a no-session BUSINESS workspace, records manual dispatch and main
       email: 'local.partner@example.invalid'
     }
   };
-  const removedBootstrap = await post('/api/workspaces', input, { 'Idempotency-Key': crypto.randomUUID() });
-  assert.equal(removedBootstrap.response.status, 404);
+  env.BUSINESS_SETUP_ENABLED = 'false';
+  const disabled = await post('/api/workspaces', input, { 'Idempotency-Key': crypto.randomUUID() });
+  assert.equal(disabled.response.status, 503);
+  env.BUSINESS_SETUP_ENABLED = 'true';
 
   const bootstrapKey = crypto.randomUUID();
-  const bootstrapHeaders = { Authorization: `Bearer ${env.BOOTSTRAP_TOKEN}`, 'Idempotency-Key': bootstrapKey };
-  const created = await post('/api/internal/bootstrap', input, bootstrapHeaders);
+  const created = await post('/api/workspaces', input, { 'Idempotency-Key': bootstrapKey });
   assert.equal(created.response.status, 201, JSON.stringify(created.body));
   assert.equal(created.response.headers.get('set-cookie'), null, 'BUSINESS setup must not create a session cookie');
   assert.match(created.body.workspaceId, /^[a-f0-9-]{36}$/);
@@ -279,11 +279,11 @@ it('bootstraps a no-session BUSINESS workspace, records manual dispatch and main
   assert.equal(JSON.stringify(populatedSupportBundle.body).includes(workspaceId), false,
     'the operational export must not reveal the owning workspace ID');
 
-  const replay = await post('/api/internal/bootstrap', input, bootstrapHeaders);
+  const replay = await post('/api/workspaces', input, { 'Idempotency-Key': bootstrapKey });
   assert.equal(replay.response.status, 200);
   assert.equal(replay.body.workspaceId, workspaceId);
   assert.equal(replay.body.replayed, true);
-  const keyReuse = await post('/api/internal/bootstrap', { ...input, name: 'Different request' }, bootstrapHeaders);
+  const keyReuse = await post('/api/workspaces', { ...input, name: 'Different request' }, { 'Idempotency-Key': bootstrapKey });
   assert.equal(keyReuse.response.status, 409);
   assert.equal(keyReuse.body.code, 'IDEMPOTENCY_MISMATCH');
 
@@ -306,7 +306,7 @@ it('bootstraps a no-session BUSINESS workspace, records manual dispatch and main
   const profiles = await call(`/api/workspaces/${workspaceId}/actor-profiles`);
   assert.equal(profiles.response.status, 200, JSON.stringify(profiles.body));
   assert.deepEqual(profiles.body.items.map((profile: any) => profile.persona), ['APPROVER']);
-  const approverHeaders = { 'X-Test-Session-Profile': created.body.actorProfileId, };
+  const approverHeaders = { 'X-Actor-Id': created.body.actorProfileId, 'X-Active-Persona': 'APPROVER' };
   const bootstrapChanges = await call(`/api/workspaces/${workspaceId}/changes?after=0`, { headers: approverHeaders });
   assert.equal(bootstrapChanges.response.status, 200, JSON.stringify(bootstrapChanges.body));
   assert.deepEqual(Object.keys(bootstrapChanges.body).sort(), ['events', 'hasMore', 'nextCursor']);
@@ -360,7 +360,7 @@ it('bootstraps a no-session BUSINESS workspace, records manual dispatch and main
   }, approverHeaders);
   assert.equal(assigned.response.status, 200, JSON.stringify(assigned.body));
   const reviewerId = assigned.body.result.actorProfileId as string;
-  const reviewerHeaders = { 'X-Test-Session-Profile': reviewerId, };
+  const reviewerHeaders = { 'X-Actor-Id': reviewerId, 'X-Active-Persona': 'REVIEWER' };
 
   const reviewerContext = await call(`/api/workspaces/${workspaceId}/context`, { headers: reviewerHeaders });
   assert.equal(reviewerContext.response.status, 200, JSON.stringify(reviewerContext.body));
@@ -419,7 +419,7 @@ it('bootstraps a no-session BUSINESS workspace, records manual dispatch and main
     command: { type: 'actor-profile.assign', payload: { persona: 'PREPARER', staffMemberId: preparerStaff.body.result.staffMemberId } }
   }, approverHeaders);
   assert.equal(preparerProfile.response.status, 200, JSON.stringify(preparerProfile.body));
-  const preparerHeaders = { 'X-Test-Session-Profile': preparerProfile.body.result.actorProfileId as string, };
+  const preparerHeaders = { 'X-Actor-Id': preparerProfile.body.result.actorProfileId as string, 'X-Active-Persona': 'PREPARER' };
   const makeClient = (code: string, entityType: 'HOLDING' | 'SUBSIDIARY' | 'STANDALONE', parentClientId?: string) => ({
     code,
     legalName: `${code} Trading WLL`,
@@ -600,7 +600,7 @@ it('bootstraps a no-session BUSINESS workspace, records manual dispatch and main
     idempotencyKey: crypto.randomUUID(), command: { type: 'actor-profile.assign', payload: { persona: 'CLIENT', contactId: financeContactId } }
   }, approverHeaders);
   assert.equal(clientProfile.response.status, 200, JSON.stringify(clientProfile.body));
-  const clientHeaders = { 'X-Test-Session-Profile': clientProfile.body.result.actorProfileId as string, };
+  const clientHeaders = { 'X-Actor-Id': clientProfile.body.result.actorProfileId as string, 'X-Active-Persona': 'CLIENT' };
   const clientChanges = await call(`/api/workspaces/${workspaceId}/changes?after=${cursorBeforeFirstClient}`, { headers: clientHeaders });
   assert.equal(clientChanges.response.status, 200, JSON.stringify(clientChanges.body));
   assert.equal(clientChanges.body.resyncRequired, undefined);
@@ -611,7 +611,7 @@ it('bootstraps a no-session BUSINESS workspace, records manual dispatch and main
     idempotencyKey: crypto.randomUUID(), command: { type: 'actor-profile.assign', payload: { persona: 'CLIENT', contactId: pbcContactId } }
   }, approverHeaders);
   assert.equal(pbcClientProfile.response.status, 200, JSON.stringify(pbcClientProfile.body));
-  const pbcClientIdentity = { 'X-Test-Session-Profile': pbcClientProfile.body.result.actorProfileId as string, };
+  const pbcClientIdentity = { 'X-Actor-Id': pbcClientProfile.body.result.actorProfileId as string, 'X-Active-Persona': 'CLIENT' };
 
   const clientProjection = await call(`/api/workspaces/${workspaceId}/clients`, { headers: clientHeaders });
   assert.equal(clientProjection.response.status, 200, JSON.stringify(clientProjection.body));
@@ -746,7 +746,7 @@ it('bootstraps a no-session BUSINESS workspace, records manual dispatch and main
       headers: {
         Origin: 'https://local.auditsphere.test', ...preparerHeaders, 'Idempotency-Key': idempotencyKey,
         'X-File-Version': '1', 'Content-Type': 'application/pdf',
-        Cookie: await authSessionCookie(db, workspaceId, preparerHeaders['X-Test-Session-Profile'])
+        Cookie: await authSessionCookie(db, workspaceId, preparerHeaders['X-Actor-Id'])
       },
       body: bytes
     });
@@ -1684,21 +1684,6 @@ it('bootstraps a no-session BUSINESS workspace, records manual dispatch and main
   }, makeRiskHeaders(reviewerHeaders));
   assert.equal(settlement.response.status, 202, JSON.stringify(settlement.body));
   await worker.scheduled({ scheduledTime: Date.now(), cron: '*/5 * * * *' } as any, env);
-  // D3 requires named staff assignments as soon as the commercial billing phase
-  // advances into client planning. Keep this end-to-end fixture representative
-  // of the authorization state used by its remaining internal reads/commands.
-  for (const [actorHeaders, persona, phase] of [
-    [preparerHeaders, 'PREPARER', 'PLANNING'], [reviewerHeaders, 'REVIEWER', 'REVIEW']
-  ] as const) {
-    const staffMemberId = db.prepare(`SELECT staff_member_id FROM actor_profiles WHERE workspace_id=? AND id=?`)
-      .bind(workspaceId, actorHeaders['X-Test-Session-Profile']).first<{ staff_member_id: string }>()?.staff_member_id;
-    assert.ok(staffMemberId, `${persona} profile has a staff identity for its engagement assignment`);
-    db.prepare(`INSERT INTO engagement_assignments(id,workspace_id,version,client_id,engagement_id,staff_member_id,persona,phase,
-      start_date,end_date,planned_minutes,created_by_actor_id,created_at)
-      VALUES(?,?,1,?,?,?,?,?,'2020-01-01','2020-01-02',240,?,?)`)
-      .bind(crypto.randomUUID(), workspaceId, clientId, engagementId, staffMemberId, persona, phase,
-        approverHeaders['X-Test-Session-Profile'], new Date().toISOString()).run();
-  }
   const settledView = await call(deliveryPath, { headers: makeRiskHeaders(reviewerHeaders) });
   assert.equal(settledView.body.engagement.lifecycleState, 'PORTAL_ACTIVE_PLANNING', 'planning unlocks only when the full advance and committed final receipt exist');
   assert.equal(settledView.body.invoices.find((invoice: any) => invoice.id === issuedInvoice.id).outstandingMinor, '0');
@@ -1772,7 +1757,7 @@ it('bootstraps a no-session BUSINESS workspace, records manual dispatch and main
   assert.equal(deactivateLiaison.response.status, 200, JSON.stringify(deactivateLiaison.body));
   const missingRoutePreparation = await preparePortalCredentialProvisioning(env, {
     workspaceId, clientId, engagementId, trigger: 'ADVANCE_PAYMENT', commandId: crypto.randomUUID(),
-    createdByActorId: reviewerHeaders['X-Test-Session-Profile'], createdAt: new Date().toISOString()
+    createdByActorId: reviewerHeaders['X-Actor-Id'], createdAt: new Date().toISOString()
   });
   assert.equal(missingRoutePreparation.blockedCode, 'PORTAL_LIAISON_ROUTE_MISSING');
   assert.equal(missingRoutePreparation.statements.length, 0, 'a missing active PBC Audit Liaison never queues credentials');
@@ -1847,7 +1832,7 @@ it('bootstraps a no-session BUSINESS workspace, records manual dispatch and main
     .bind(new Date().toISOString(), workspaceId, replacementAccount.id).run();
   const accessNoticePreparation = await preparePortalCredentialProvisioning(env, {
     workspaceId, clientId, engagementId, contactRouteId: replacementRouteId, trigger: 'ADVANCE_PAYMENT',
-    commandId: crypto.randomUUID(), createdByActorId: reviewerHeaders['X-Test-Session-Profile'], createdAt: new Date().toISOString()
+    commandId: crypto.randomUUID(), createdByActorId: reviewerHeaders['X-Actor-Id'], createdAt: new Date().toISOString()
   });
   assert.equal(accessNoticePreparation.mode, 'ACCESS_NOTICE', 'an active CLIENT account that has completed its password change receives an access notice');
   assert.equal(accessNoticePreparation.issueId, undefined, 'an access notice does not create a temporary-password issue');
@@ -1915,15 +1900,13 @@ it('bootstraps a no-session BUSINESS workspace, records manual dispatch and main
   assert.equal(approvedLeave.body.result.availableMinutes, 360);
   const assignmentPayload = { engagementId, staffMemberId: preparerStaff.body.result.staffMemberId, persona: 'PREPARER', phase: 'FIELDWORK',
     startDate: planDate, endDate: planDate, plannedMinutes: 420, dailyMinutes: [{ date: planDate, minutes: 420 }] };
-  const assignmentsBeforeCapacityAttempt = db.prepare('SELECT COUNT(*) AS count FROM engagement_assignments WHERE workspace_id=? AND engagement_id=?')
-    .bind(workspaceId, engagementId).first<any>()?.count;
   const overCapacity = await post(`/api/workspaces/${workspaceId}/commands`, {
     idempotencyKey: crypto.randomUUID(), command: { type: 'staffing.assign', payload: assignmentPayload }
   }, makeRiskHeaders(reviewerHeaders));
   assert.equal(overCapacity.response.status, 409, JSON.stringify(overCapacity.body));
   assert.equal(overCapacity.body.code, 'GATE_BLOCKED');
   assert.equal(db.prepare('SELECT COUNT(*) AS count FROM engagement_assignments WHERE workspace_id=? AND engagement_id=?')
-    .bind(workspaceId, engagementId).first<any>()?.count, assignmentsBeforeCapacityAttempt, 'over-capacity assignment does not persist a partial row');
+    .bind(workspaceId, engagementId).first<any>()?.count, 0, 'over-capacity assignment does not persist a partial row');
   const capacityException = await post(`/api/workspaces/${workspaceId}/commands`, {
     idempotencyKey: crypto.randomUUID(), command: { type: 'staffing.capacityException.approve', payload: {
       staffMemberId: preparerStaff.body.result.staffMemberId, workDate: planDate, excessMinutes: 60,
@@ -2475,14 +2458,6 @@ it('bootstraps a no-session BUSINESS workspace, records manual dispatch and main
         crypto.randomUUID(), workspaceId, childClientId, id, tbVersionId).run();
     db.prepare(`UPDATE engagements SET active_tb_version_id=?,updated_at=?,version=version+1 WHERE workspace_id=? AND id=?`)
       .bind(tbVersionId, now, workspaceId, id).run();
-    const reviewerStaffMemberId = db.prepare(`SELECT staff_member_id FROM actor_profiles WHERE workspace_id=? AND id=?`)
-      .bind(workspaceId, reviewerHeaders['X-Test-Session-Profile']).first<{ staff_member_id: string }>()?.staff_member_id;
-    assert.ok(reviewerStaffMemberId, 'mapping history fixture has an assigned Reviewer identity');
-    db.prepare(`INSERT INTO engagement_assignments(id,workspace_id,version,client_id,engagement_id,staff_member_id,persona,phase,
-      start_date,end_date,planned_minutes,created_by_actor_id,created_at)
-      VALUES(?,?,1,?,?,?,'REVIEWER','REVIEW','2020-01-01','2020-01-02',240,?,?)`)
-      .bind(crypto.randomUUID(), workspaceId, childClientId, id, reviewerStaffMemberId,
-        approverHeaders['X-Test-Session-Profile'], now).run();
     return { id, tbVersionId, headers: { ...reviewerHeaders, 'X-Client-Id': childClientId, 'X-Engagement-Id': id } };
   };
   const proposeMapping = async (target: ReturnType<typeof createMappingTestEngagement>) => post(`/api/workspaces/${workspaceId}/commands`, {
@@ -3212,7 +3187,7 @@ it('bootstraps a no-session BUSINESS workspace, records manual dispatch and main
     } }
   }, approverHeaders);
   assert.equal(managerPreparerProfile.response.status, 200, JSON.stringify(managerPreparerProfile.body));
-  const managerPreparerHeaders = { 'X-Test-Session-Profile': managerPreparerProfile.body.result.actorProfileId as string, };
+  const managerPreparerHeaders = { 'X-Actor-Id': managerPreparerProfile.body.result.actorProfileId as string, 'X-Active-Persona': 'PREPARER' };
   const redProcedureEvidenceLink = await post(`/api/workspaces/${workspaceId}/commands`, {
     idempotencyKey: crypto.randomUUID(), command: { type: 'evidence.link', payload: {
       evidenceId: hybridEvidence.body.result.evidenceId, evidenceVersion: 1, targetVersion: 3, procedureId: revenueProcedureIds[0]
@@ -4484,7 +4459,7 @@ it('bootstraps a no-session BUSINESS workspace, records manual dispatch and main
   const partialPriorPaymentId = crypto.randomUUID();
   db.prepare(`INSERT INTO payments(id,workspace_id,version,client_id,engagement_id,amount_minor,received_on,method,reference,evidence_file_id,
       verified_by_actor_id,reverses_payment_id,created_at) VALUES(?,?,1,?,?,15000,?,'BANK_TRANSFER','TEST-PRIOR-PARTIAL',?,?,NULL,?)`)
-    .bind(partialPriorPaymentId, workspaceId, clientId, engagementId, ledgerPaymentOn, evidenceFileId, reviewerHeaders['X-Test-Session-Profile'], continuanceTimestamp).run();
+    .bind(partialPriorPaymentId, workspaceId, clientId, engagementId, ledgerPaymentOn, evidenceFileId, reviewerHeaders['X-Actor-Id'], continuanceTimestamp).run();
   db.prepare(`INSERT INTO payment_allocations(id,workspace_id,version,client_id,engagement_id,payment_id,invoice_id,amount_minor,allocated_on)
     VALUES(?,?,1,?,?,?,?,15000,?)`).bind(crypto.randomUUID(), workspaceId, clientId, engagementId, partialPriorPaymentId, priorInvoiceId, ledgerPaymentOn).run();
   const continuanceHeaders = { ...reviewerHeaders, 'X-Client-Id': clientId, 'X-Engagement-Id': continuationEngagementId };
@@ -5036,7 +5011,7 @@ it('bootstraps a no-session BUSINESS workspace, records manual dispatch and main
       persona: 'APPROVER', staffMemberId: secondPartnerStaff.body.result.staffMemberId } }
   }, approverHeaders);
   assert.equal(secondPartnerProfile.response.status, 200, JSON.stringify(secondPartnerProfile.body));
-  const secondPartnerHeaders = { 'X-Test-Session-Profile': secondPartnerProfile.body.result.actorProfileId as string, };
+  const secondPartnerHeaders = { 'X-Actor-Id': secondPartnerProfile.body.result.actorProfileId as string, 'X-Active-Persona': 'APPROVER' };
   const secondPartnerCapacity = await post(`/api/workspaces/${workspaceId}/commands`, {
     idempotencyKey: crypto.randomUUID(), command: { type: 'staffing.availability.set', payload: {
       staffMemberId: secondPartnerStaff.body.result.staffMemberId, workDate: planDate, scheduledMinutes: 480 } }

@@ -5,7 +5,6 @@ import { unzipSync, zipSync } from 'fflate';
 import { createBusinessRecoveryBundle, restoreBusinessRecoveryBundle } from '../helpers/businessBackupRestore.js';
 import { startBusinessE2eServer, type BusinessE2eServer } from '../helpers/businessE2eServer.js';
 import { SqliteD1 } from '../helpers/sqliteD1.js';
-import { bootstrapBusinessFixture } from '../helpers/authSession.js';
 
 let server: BusinessE2eServer | undefined;
 
@@ -18,12 +17,18 @@ it('US-REP-007 restores isolated business records, financial totals, manifest an
   assert.ok(server);
   const fixtureId = randomUUID();
   const now = new Date().toISOString();
-  const workspace = await bootstrapBusinessFixture(server.db, {
-    name: `Recovery acceptance ${fixtureId.slice(0, 8)}`,
-    currency: 'QAR',
-    timezone: 'Asia/Qatar',
-    initialPartner: { displayName: 'QA Recovery Partner', naturalPersonKey: `QA-RESTORE-${fixtureId}`, email: 'qa.restore@example.invalid' }
-  }, `restore-${fixtureId}`);
+  const workspaceResponse = await fetch(`${server.origin}/api/workspaces`, {
+    method: 'POST',
+    headers: { Origin: server.origin, 'Content-Type': 'application/json', 'Idempotency-Key': `restore-${fixtureId}` },
+    body: JSON.stringify({
+      name: `Recovery acceptance ${fixtureId.slice(0, 8)}`,
+      currency: 'QAR',
+      timezone: 'Asia/Qatar',
+      initialPartner: { displayName: 'QA Recovery Partner', naturalPersonKey: `QA-RESTORE-${fixtureId}`, email: 'qa.restore@example.invalid' }
+    })
+  });
+  assert.equal(workspaceResponse.status, 201, 'the real local Worker creates the isolated BUSINESS workspace');
+  const workspace = await workspaceResponse.json() as { workspaceId: string; actorProfileId: string };
   const { workspaceId, actorProfileId } = workspace;
   const clientId = randomUUID();
   const standardsProfileId = randomUUID();

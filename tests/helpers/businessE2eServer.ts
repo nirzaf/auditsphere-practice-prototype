@@ -8,7 +8,6 @@ import { authSessionCookie } from './authSession.js';
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const builtAssets = resolve(repositoryRoot, 'dist');
-export const businessE2eBootstrapToken = 'e2e-bootstrap-token-for-local-worker-fixtures-only';
 
 function contentType(path: string): string {
   switch (extname(path).toLowerCase()) {
@@ -54,7 +53,7 @@ export interface BusinessE2eServer {
   close(): Promise<void>;
 }
 
-/** Sends a real local API request with a cookie-backed test session for its selected profile. */
+/** Sends a real local API request with a cookie-backed test session for its selected actor. */
 export async function authenticatedBusinessFetch(server: BusinessE2eServer, input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
   const requestUrl = input instanceof Request ? input.url : String(input);
   const url = new URL(requestUrl);
@@ -62,10 +61,13 @@ export async function authenticatedBusinessFetch(server: BusinessE2eServer, inpu
   if (!workspaceId) return fetch(input, init);
   const headers = new Headers(input instanceof Request ? input.headers : undefined);
   new Headers(init?.headers).forEach((value, key) => headers.set(key, value));
-  const testProfileId = headers.get('X-Test-Session-Profile') ?? undefined;
-  headers.delete('X-Test-Session-Profile');
   if (!headers.has('Cookie')) {
-    headers.set('Cookie', await authSessionCookie(server.db, workspaceId, testProfileId));
+    let actorId = headers.get('X-Actor-Id') ?? undefined;
+    const body = typeof init?.body === 'string' ? init.body : input instanceof Request ? await input.clone().text().catch(() => '') : '';
+    if (!actorId && body) {
+      try { actorId = (JSON.parse(body) as { actor?: { actorId?: string } }).actor?.actorId; } catch { /* not a JSON command request */ }
+    }
+    headers.set('Cookie', await authSessionCookie(server.db, workspaceId, actorId));
   }
   return fetch(input, { ...init, headers });
 }
@@ -108,7 +110,7 @@ export async function startBusinessE2eServer(): Promise<BusinessE2eServer> {
     DB: db,
     FILES: files,
     ASSETS: { fetch: async () => new Response('Not found', { status: 404 }) },
-    BOOTSTRAP_TOKEN: businessE2eBootstrapToken
+    BUSINESS_SETUP_ENABLED: 'true'
   } as any;
 
   const server = createServer(async (incoming, outgoing) => {

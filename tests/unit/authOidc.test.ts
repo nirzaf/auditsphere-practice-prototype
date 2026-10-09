@@ -46,7 +46,7 @@ const testUser = {
 };
 const testProfile = { id: '11111111-2222-4333-8444-555555555555', persona: 'PREPARER' as const, display_name: 'Staff Member', staff_grade: 'SENIOR', client_id: null };
 
-function testDb(inviteExpiresAt = new Date(Date.now() + 7 * 24 * 60 * 60_000).toISOString()) {
+function testDb() {
   const calls: Array<{ sql: string; values: unknown[] }> = [];
   const db = {
     prepare(sql: string) {
@@ -55,13 +55,12 @@ function testDb(inviteExpiresAt = new Date(Date.now() + 7 * 24 * 60 * 60_000).to
         bind(...bound: unknown[]) { values = bound; return this; },
         async all() {
           if (sql.includes('FROM user_accounts WHERE kind=\'STAFF\' AND external_issuer')) return { results: [] };
-          if (sql.includes("FROM user_accounts u WHERE u.kind='STAFF' AND u.status='INVITED'")) return { results: [testUser] };
+          if (sql.includes("status='INVITED' AND external_subject IS NULL")) return { results: [testUser] };
           if (sql.includes('FROM user_profile_grants g JOIN actor_profiles')) return { results: [testProfile] };
           if (sql.includes('FROM workspaces WHERE data_mode')) return { results: [{ id: 'workspace-id' }] };
           return { results: [] };
         },
         async first() {
-          if (sql.includes('FROM credential_tokens t')) return { id: 'invite-token-id', expires_at: inviteExpiresAt };
           if (sql.includes('SELECT s.*,u.email_normalized')) {
             const now = Date.now();
             return { id: 'session-id', ...testUser, status: 'ACTIVE', active_actor_profile_id: testProfile.id, token_sha256: 'a'.repeat(64), auth_method: 'OIDC_ENTRA',
@@ -78,8 +77,7 @@ function testDb(inviteExpiresAt = new Date(Date.now() + 7 * 24 * 60 * 60_000).to
           return { meta: { changes: 1 } };
         }
       };
-    },
-    async batch(statements: Array<{ run(): Promise<unknown> }>) { return Promise.all(statements.map(statement => statement.run())); }
+    }
   };
   return { db, calls };
 }
@@ -213,25 +211,6 @@ test('callback activates an invited staff account, creates a hashed session, and
   assert.notEqual(sessionInsert.values[3], idToken);
   assert.equal(String(sessionInsert.values[3]).length, 64);
   assert.ok(store.calls.some(call => call.sql.includes('INSERT INTO auth_events') && call.values.includes('LOGIN_SUCCEEDED')));
-  assert.ok(store.calls.some(call => call.sql.includes('INSERT INTO auth_events') && call.values.includes('INVITE_ACCEPTED')));
-  assert.ok(store.calls.some(call => call.sql.includes("UPDATE credential_tokens SET consumed_at=?") && call.values.includes('invite-token-id')));
-});
-
-test('callback rejects an expired staff invitation before binding the Entra identity', async () => {
-  clearOidcCachesForTests();
-  const fixture = await keyFixture();
-  const idToken = await signedToken(fixture.privateKey);
-  const injected = deps(fixture.jwk, Date.now, idToken);
-  const handlers = createStaffOidcHandlers(() => injected);
-  const stateCookie = await signStateCookie({ state: 'expected', nonce: 'nonce-value', verifier: 'verifier', returnTo: '/', exp: Date.now() + 600_000 }, 'test-secret');
-  const request = new Request('https://audit.example/api/auth/staff/callback?code=one-time-code&state=expected', { headers: { Cookie: `__Host-as_oidc=${stateCookie}` } });
-  const store = testDb(new Date(Date.now() - 1000).toISOString());
-  const response = await handlers.callback({ request, env: { ...config, DB: store.db } as unknown as Env, ctx: {} as ExecutionContext,
-    url: new URL(request.url), params: {}, requestId: 'req', origin: 'https://audit.example' });
-  assert.equal(response.status, 401);
-  assert.equal((await response.json() as { reasonCode: string }).reasonCode, 'INVITATION_EXPIRED');
-  assert.equal(store.calls.some(call => call.sql.includes("UPDATE user_accounts SET status='ACTIVE'")), false);
-  assert.equal(store.calls.some(call => call.sql.includes('INSERT INTO auth_sessions')), false);
 });
 
 test('me exposes only safe identity fields; profile switching checks grants and logout revokes', async () => {

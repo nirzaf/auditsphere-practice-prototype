@@ -5,7 +5,6 @@ import type { Env } from './env';
 import { ApiError } from './errors';
 import { sha256Hex } from './http';
 import type { BusinessContext, BusinessMutation } from './business';
-import { assertBusinessEngagementAccess } from './businessScope';
 
 const id = z.uuid();
 const date = z.iso.date();
@@ -164,7 +163,6 @@ async function requireEngagement(env:Env,workspaceId:string,context:BusinessCont
   if(context.actor.persona==='CLIENT'&&context.actor.clientId!==row.client_id)throw new ApiError('FORBIDDEN_SCOPE','The engagement is outside this client profile.');
   if(context.scope.clientId&&context.scope.clientId!==row.client_id)throw new ApiError('FORBIDDEN_SCOPE','The engagement is outside the selected client scope.');
   if(context.scope.engagementId&&context.scope.engagementId!==row.id)throw new ApiError('FORBIDDEN_SCOPE','The engagement does not match the selected engagement scope.');
-  await assertBusinessEngagementAccess(env,workspaceId,context,row.id);
   return row;
 }
 async function requireWritableEngagement(env:Env,workspaceId:string,context:BusinessContext,engagementId:string){
@@ -413,7 +411,7 @@ async function buildTimeCorrection(env:Env,workspaceId:string,context:BusinessCo
   statements.push(env.DB.prepare(`INSERT INTO firm_time_corrections(id,workspace_id,original_time_entry_id,replacement_time_entry_id,reason,approved_by_actor_id,approved_at)
     VALUES(?,?,?,?,?,?,?)`).bind(correctionId,workspaceId,original.id,replacementId,p.reason,context.actor.id,now));
   return mutation(statements,{correctionId,timeEntryId:original.id,replacementTimeEntryId:replacementId,status:'CORRECTED'},'TIME_CORRECTION',correctionId,original.version,original.version+1,
-    {clientId:original.client_id,engagementId:original.engagement_id,originalTimeEntryId:original.id,replacementTimeEntryId:replacementId,reason:p.reason});
+    {originalTimeEntryId:original.id,replacementTimeEntryId:replacementId,reason:p.reason});
 }
 
 async function utilizationFor(env:Env,workspaceId:string,staffMemberId:string,from:string,to:string){
@@ -957,8 +955,7 @@ async function buildReverseAllocation(env:Env,workspaceId:string,context:Busines
       {accountId:unallocated.id,debit:0n,credit:value,clientId:allocation.client_id,engagementId:allocation.engagement_id,memo:`Receipt ${allocation.payment_id}`} ]});
   return mutation([...journal.statements,env.DB.prepare(`INSERT INTO payment_allocation_reversals(id,workspace_id,allocation_id,effective_date,amount_minor,reason,journal_id,approved_by_actor_id,approved_at)
     VALUES(?,?,?,?,?,?,?,?,?)`).bind(idValue,workspaceId,allocation.id,p.effectiveDate,Number(value),p.reason,journal.id,context.actor.id,now)],
-    {reversalId:idValue,journalId:journal.id,amountMinor:String(value)},'PAYMENT_ALLOCATION_REVERSAL',idValue,null,1,
-    {clientId:allocation.client_id,engagementId:allocation.engagement_id,allocationId:allocation.id,amountMinor:String(value),reason:p.reason});
+    {reversalId:idValue,journalId:journal.id,amountMinor:String(value)},'PAYMENT_ALLOCATION_REVERSAL',idValue,null,1,{allocationId:allocation.id,amountMinor:String(value),reason:p.reason});
 }
 
 async function buildCreditNote(env:Env,workspaceId:string,context:BusinessContext,command:Extract<BusinessPracticeCommand,{type:'credit-note.issue'}>,now:string){
@@ -984,8 +981,7 @@ async function buildCreditNote(env:Env,workspaceId:string,context:BusinessContex
   const journal=await createPostedJournal(env,workspaceId,context.actor.id,{date:p.date,description:`Credit note ${number}: ${p.reason}`,sourceType:'CREDIT_NOTE',sourceId:idValue,sourceEventKey:`credit-note:${invoice.id}:${number}`,now,lines});
   return mutation([...journal.statements,env.DB.prepare(`INSERT INTO firm_credit_notes(id,workspace_id,client_id,engagement_id,invoice_id,number,credit_date,amount_minor,reason,journal_id,approved_by_actor_id,approved_at)
     VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`).bind(idValue,workspaceId,invoice.client_id,invoice.engagement_id,invoice.id,number,p.date,Number(value),p.reason,journal.id,context.actor.id,now)],
-    {creditNoteId:idValue,number,journalId:journal.id,amountMinor:String(value),status:'ISSUED'},'CREDIT_NOTE',idValue,null,1,
-    {clientId:invoice.client_id,engagementId:invoice.engagement_id,invoiceId:invoice.id,number,amountMinor:String(value),reason:p.reason});
+    {creditNoteId:idValue,number,journalId:journal.id,amountMinor:String(value),status:'ISSUED'},'CREDIT_NOTE',idValue,null,1,{invoiceId:invoice.id,number,amountMinor:String(value),reason:p.reason});
 }
 
 async function buildCaptureAr(env:Env,workspaceId:string,context:BusinessContext,command:Extract<BusinessPracticeCommand,{type:'practice.capture-ar-aging-report'}>,now:string){

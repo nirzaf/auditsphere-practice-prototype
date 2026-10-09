@@ -22,7 +22,7 @@ export type UserRow = {
   status: 'INVITED' | 'ACTIVE' | 'LOCKED' | 'DISABLED'; external_issuer: string | null; external_subject: string | null;
   is_firm_admin: number; password_must_change: number;
 };
-export type ProfileRow = { id: string; persona: 'PREPARER' | 'REVIEWER' | 'APPROVER' | 'CLIENT'; display_name: string; staff_grade: string | null; client_id: string | null; staff_member_id: string | null; contact_id: string | null };
+export type ProfileRow = { id: string; persona: 'PREPARER' | 'REVIEWER' | 'APPROVER' | 'CLIENT'; display_name: string; staff_grade: string | null; client_id: string | null };
 
 function appendCookie(headers: Headers, value: string): void { headers.append('Set-Cookie', value); }
 function cookieState(value: string, secret: string, now: number) {
@@ -42,8 +42,7 @@ function safeReturnTo(value: string | null, origin: string): string {
 }
 
 export async function profilesFor(env: RouteContext['env'], user: UserRow): Promise<ProfileRow[]> {
-  return (await env.DB.prepare(`SELECT ap.id,ap.persona,COALESCE(sm.display_name,ct.full_name,'') AS display_name,
-      sm.grade AS staff_grade,ct.client_id,ap.staff_member_id,ap.contact_id
+  return (await env.DB.prepare(`SELECT ap.id,ap.persona,COALESCE(sm.display_name,ct.full_name,'') AS display_name,sm.grade AS staff_grade,ct.client_id
     FROM user_profile_grants g JOIN actor_profiles ap ON ap.workspace_id=g.workspace_id AND ap.id=g.actor_profile_id
     LEFT JOIN staff_members sm ON sm.workspace_id=ap.workspace_id AND sm.id=ap.staff_member_id
     LEFT JOIN contacts ct ON ct.workspace_id=ap.workspace_id AND ct.id=ap.contact_id
@@ -57,8 +56,7 @@ export async function meBody(env: RouteContext['env'], user: UserRow, session: A
   return {
     user: { id: user.id, kind: user.kind, displayName: user.display_name, email: user.email_normalized, isFirmAdmin: user.is_firm_admin === 1 },
     workspaceId: user.workspace_id,
-    profiles: profiles.map(profile => ({ id: profile.id, persona: profile.persona, displayName: profile.display_name,
-      staffGrade: profile.staff_grade, clientId: profile.client_id, staffMemberId: profile.staff_member_id, contactId: profile.contact_id })),
+    profiles: profiles.map(profile => ({ id: profile.id, persona: profile.persona, displayName: profile.display_name, staffGrade: profile.staff_grade, clientId: profile.client_id })),
     activeProfileId: session.active_actor_profile_id,
     passwordMustChange: user.password_must_change === 1,
     idleExpiresAt: session.idle_expires_at
@@ -98,7 +96,7 @@ async function fail(ctx: RouteContext, reason: string, user?: UserRow): Promise<
   return response;
 }
 
-async function findAccount(ctx: RouteContext, claims: Awaited<ReturnType<typeof verifyIdToken>>, issuer: string, now: string): Promise<UserRow | null> {
+async function findAccount(ctx: RouteContext, claims: Awaited<ReturnType<typeof verifyIdToken>>, issuer: string): Promise<UserRow | null> {
   const bound = await ctx.env.DB.prepare(`SELECT id,workspace_id,kind,email_normalized,display_name,status,external_issuer,external_subject,is_firm_admin,password_must_change
     FROM user_accounts WHERE kind='STAFF' AND external_issuer=? AND external_subject=?`).bind(issuer, claims.oid).all<UserRow>();
   if (bound.results.length > 1) return null;
@@ -106,13 +104,8 @@ async function findAccount(ctx: RouteContext, claims: Awaited<ReturnType<typeof 
   if (!claims.emailVerified) return null;
   const email = (claims.email ?? claims.preferredUsername)?.trim().toLowerCase();
   if (!email) return null;
-  const invited = await ctx.env.DB.prepare(`SELECT u.id,u.workspace_id,u.kind,u.email_normalized,u.display_name,u.status,u.external_issuer,u.external_subject,u.is_firm_admin,u.password_must_change
-    FROM user_accounts u WHERE u.kind='STAFF' AND u.status='INVITED' AND u.external_subject IS NULL AND u.email_normalized=?
-      AND EXISTS(SELECT 1 FROM credential_tokens t WHERE t.workspace_id=u.workspace_id AND t.user_account_id=u.id
-        AND t.purpose='STAFF_INVITE' AND t.consumed_at IS NULL AND t.expires_at>?
-        AND NOT EXISTS(SELECT 1 FROM credential_tokens newer WHERE newer.workspace_id=t.workspace_id AND newer.user_account_id=t.user_account_id
-          AND newer.purpose='STAFF_INVITE' AND (newer.created_at>t.created_at OR (newer.created_at=t.created_at AND newer.id>t.id))))`)
-    .bind(email, now).all<UserRow>();
+  const invited = await ctx.env.DB.prepare(`SELECT id,workspace_id,kind,email_normalized,display_name,status,external_issuer,external_subject,is_firm_admin,password_must_change
+    FROM user_accounts WHERE kind='STAFF' AND status='INVITED' AND external_subject IS NULL AND email_normalized=?`).bind(email).all<UserRow>();
   return invited.results.length === 1 ? invited.results[0] : null;
 }
 
@@ -177,50 +170,19 @@ export function createStaffOidcHandlers(depsFactory: (env: RouteContext['env']) 
         const tokens = await tokenResponse.json() as { id_token?: unknown };
         if (typeof tokens.id_token !== 'string') return await fail(ctx, 'ID_TOKEN_MISSING');
         const claims = await verifyIdToken(tokens.id_token, ctx.env, state.nonce, deps);
-        const oidcIssuer = `https://login.microsoftonline.com/${config.tenant}/v2.0`;
-        const now = new Date(deps.now()).toISOString();
-        matchedUser = await findAccount(ctx, claims, oidcIssuer, now) ?? undefined;
+        matchedUser = await findAccount(ctx, claims, `https://login.microsoftonline.com/${config.tenant}/v2.0` ) ?? undefined;
         if (!matchedUser) return await fail(ctx, 'ACCOUNT_NOT_ELIGIBLE');
         if (matchedUser.status === 'LOCKED' || matchedUser.status === 'DISABLED') return await fail(ctx, matchedUser.status === 'LOCKED' ? 'ACCOUNT_LOCKED' : 'ACCOUNT_DISABLED', matchedUser);
         if (matchedUser.status !== 'INVITED' && matchedUser.status !== 'ACTIVE') return await fail(ctx, 'ACCOUNT_NOT_ACTIVE', matchedUser);
         const profiles = await profilesFor(ctx.env, matchedUser);
         if (!profiles.length) return await fail(ctx, 'NO_ACTIVE_GRANTS', matchedUser);
+        const now = new Date(deps.now()).toISOString();
         if (matchedUser.status === 'INVITED') {
-          const invitation = await ctx.env.DB.prepare(`SELECT t.id,t.expires_at FROM credential_tokens t
-            WHERE t.workspace_id=? AND t.user_account_id=? AND t.purpose='STAFF_INVITE' AND t.consumed_at IS NULL AND t.expires_at>?
-              AND NOT EXISTS(SELECT 1 FROM credential_tokens newer WHERE newer.workspace_id=t.workspace_id AND newer.user_account_id=t.user_account_id
-                AND newer.purpose='STAFF_INVITE' AND (newer.created_at>t.created_at OR (newer.created_at=t.created_at AND newer.id>t.id)))`)
-            .bind(matchedUser.workspace_id, matchedUser.id, now).first<{ id: string; expires_at: string }>();
-          if (!invitation || !Number.isFinite(Date.parse(invitation.expires_at)) || Date.parse(invitation.expires_at) <= Date.parse(now)) {
-            return await fail(ctx, 'INVITATION_EXPIRED', matchedUser);
-          }
-          try {
-            await ctx.env.DB.batch([
-              ctx.env.DB.prepare(`INSERT INTO command_assertions(workspace_id,seq,ok)
-                SELECT ?,998,CASE WHEN EXISTS(SELECT 1 FROM user_accounts u JOIN credential_tokens t
-                  ON t.workspace_id=u.workspace_id AND t.user_account_id=u.id
-                  WHERE u.workspace_id=? AND u.id=? AND u.kind='STAFF' AND u.status='INVITED' AND u.email_normalized=?
-                    AND (u.external_subject IS NULL OR u.external_subject=?) AND (u.external_issuer IS NULL OR u.external_issuer=?)
-                    AND t.id=? AND t.purpose='STAFF_INVITE' AND t.consumed_at IS NULL AND t.expires_at>?) THEN 1 ELSE 0 END`)
-                .bind(matchedUser.workspace_id, matchedUser.workspace_id, matchedUser.id, matchedUser.email_normalized,
-                  claims.oid, oidcIssuer, invitation.id, now),
-              ctx.env.DB.prepare(`UPDATE user_accounts SET status='ACTIVE',external_issuer=?,external_subject=?,last_login_at=?,updated_at=?,version=version+1
-                WHERE workspace_id=? AND id=? AND status='INVITED' AND email_normalized=?
-                  AND (external_subject IS NULL OR (external_subject=? AND (external_issuer IS NULL OR external_issuer=?)))
-                  AND EXISTS(SELECT 1 FROM credential_tokens t WHERE t.workspace_id=user_accounts.workspace_id AND t.user_account_id=user_accounts.id
-                    AND t.id=? AND t.purpose='STAFF_INVITE' AND t.consumed_at IS NULL AND t.expires_at>?)`)
-                .bind(oidcIssuer, claims.oid, now, now, matchedUser.workspace_id, matchedUser.id, matchedUser.email_normalized,
-                  claims.oid, oidcIssuer, invitation.id, now),
-              ctx.env.DB.prepare(`UPDATE credential_tokens SET consumed_at=? WHERE workspace_id=? AND id=? AND user_account_id=?
-                AND purpose='STAFF_INVITE' AND consumed_at IS NULL AND expires_at>?`)
-                .bind(now, matchedUser.workspace_id, invitation.id, matchedUser.id, now),
-              authEventStatement(ctx.env, { id: crypto.randomUUID(), workspaceId: matchedUser.workspace_id, userAccountId: matchedUser.id,
-                event: 'INVITE_ACCEPTED', detail: { method: 'OIDC_ENTRA', issuer: oidcIssuer, tokenId: invitation.id }, now }),
-              ctx.env.DB.prepare('DELETE FROM command_assertions WHERE workspace_id=?').bind(matchedUser.workspace_id)
-            ]);
-          } catch {
-            return await fail(ctx, 'ACCOUNT_BINDING_CONFLICT', matchedUser);
-          }
+          const oidcIssuer = `https://login.microsoftonline.com/${config.tenant}/v2.0`;
+          const activated = await ctx.env.DB.prepare(`UPDATE user_accounts SET status='ACTIVE',external_issuer=?,external_subject=?,last_login_at=?,updated_at=?,version=version+1
+            WHERE workspace_id=? AND id=? AND status='INVITED' AND (external_subject IS NULL OR (external_subject=? AND (external_issuer IS NULL OR external_issuer=?)))`)
+            .bind(oidcIssuer, claims.oid, now, now, matchedUser.workspace_id, matchedUser.id, claims.oid, oidcIssuer).run();
+          if ((activated.meta?.changes ?? 0) !== 1) return await fail(ctx, 'ACCOUNT_BINDING_CONFLICT', matchedUser);
           matchedUser = { ...matchedUser, status: 'ACTIVE', external_issuer: oidcIssuer, external_subject: claims.oid };
         } else {
           await ctx.env.DB.prepare('UPDATE user_accounts SET last_login_at=?,updated_at=? WHERE workspace_id=? AND id=?').bind(now, now, matchedUser.workspace_id, matchedUser.id).run();

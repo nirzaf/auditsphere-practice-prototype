@@ -4,22 +4,27 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import worker, { routeInventory } from '../../worker/index.js';
 import { SqliteD1 } from '../helpers/sqliteD1.js';
-import { authSessionCookie, bootstrapBusinessFixture } from '../helpers/authSession.js';
+import { authSessionCookie } from '../helpers/authSession.js';
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const db = new SqliteD1();
 db.migrate(repositoryRoot);
 const env = {
   DB: db, FILES: { put: async () => { throw new Error('Not used by this test.'); } },
-  ASSETS: { fetch: async () => new Response('not found', { status: 404 }) }
+  ASSETS: { fetch: async () => new Response('not found', { status: 404 }) }, BUSINESS_SETUP_ENABLED: 'true'
 } as any;
 after(() => db.close());
 
 it('requires a cookie session, rejects forged actors, isolates workspaces, and invalidates revoked grants', async () => {
   const bootstrap = async (name: string) => {
-    return bootstrapBusinessFixture(db, { name, currency: 'QAR', timezone: 'Asia/Qatar', initialPartner: {
+    const response = await worker.fetch(new Request('https://auth.auditsphere.test/api/workspaces', {
+      method: 'POST', headers: { Origin: 'https://auth.auditsphere.test', 'Content-Type': 'application/json', 'Idempotency-Key': crypto.randomUUID() },
+      body: JSON.stringify({ name, currency: 'QAR', timezone: 'Asia/Qatar', initialPartner: {
         displayName: `${name} Partner`, naturalPersonKey: `${name.toUpperCase()}-${crypto.randomUUID()}`, email: `${crypto.randomUUID()}@example.invalid`
-      } });
+      } })
+    }), env, {} as any);
+    assert.equal(response.status, 201, await response.clone().text());
+    return await response.json() as { workspaceId: string; actorProfileId: string };
   };
   const request = async (workspaceId: string, cookie?: string, headers: Record<string, string> = {}, body?: unknown) => {
     const requestHeaders = new Headers({ Origin: 'https://auth.auditsphere.test', ...headers });
@@ -35,10 +40,13 @@ it('requires a cookie session, rejects forged actors, isolates workspaces, and i
   const second = await bootstrap('Session Auth Other');
   const partnerCookie = await authSessionCookie(db, first.workspaceId, first.actorProfileId);
   const partner = { actorId: first.actorProfileId, persona: 'APPROVER' };
-  const command = async (cookie: string, _actor: { actorId: string; persona: string }, type: string, payload: unknown) =>
+  const command = async (cookie: string, actor: { actorId: string; persona: string }, type: string, payload: unknown) =>
     request(first.workspaceId, cookie, {
+      'X-Actor-Id': actor.actorId,
+      'X-Active-Persona': actor.persona,
       'Idempotency-Key': crypto.randomUUID()
     }, {
+      actor: { actorId: actor.actorId, persona: actor.persona },
       context: {},
       expectedVersions: [],
       command: { type, payload }
@@ -74,8 +82,20 @@ it('requires a cookie session, rejects forged actors, isolates workspaces, and i
   const receiptsBefore = db.prepare('SELECT COUNT(*) AS count FROM command_receipts WHERE workspace_id=?').bind(first.workspaceId).first<any>()?.count;
   const auditBefore = db.prepare('SELECT COUNT(*) AS count FROM audit_events WHERE workspace_id=?').bind(first.workspaceId).first<any>()?.count;
 
-  const actorEnvelope = await request(first.workspaceId, preparerCookie, {
-    'Idempotency-Key': crypto.randomUUID()
+  const forgedHeader = await request(first.workspaceId, preparerCookie, {
+    'X-Actor-Id': first.actorProfileId, 'X-Active-Persona': 'APPROVER', 'Idempotency-Key': crypto.randomUUID()
+  }, {
+    actor: { actorId: preparerActorProfileId, persona: 'PREPARER' }, context: {}, expectedVersions: [],
+    command: { type: 'staff.create', payload: {
+      displayName: 'Must not persist', naturalPersonKey: `NO-WRITE-${crypto.randomUUID()}`,
+      email: `${crypto.randomUUID()}@example.invalid`, grade: 'ASSOCIATE'
+    } }
+  });
+  assert.equal(forgedHeader.status, 403);
+  assert.equal((await forgedHeader.json() as any).code, 'PERSONA_ACTION_DENIED');
+
+  const forgedEnvelope = await request(first.workspaceId, preparerCookie, {
+    'X-Actor-Id': preparerActorProfileId, 'X-Active-Persona': 'PREPARER', 'Idempotency-Key': crypto.randomUUID()
   }, {
     actor: { actorId: first.actorProfileId, persona: 'APPROVER' }, context: {}, expectedVersions: [],
     command: { type: 'staff.create', payload: {
@@ -83,8 +103,8 @@ it('requires a cookie session, rejects forged actors, isolates workspaces, and i
       email: `${crypto.randomUUID()}@example.invalid`, grade: 'ASSOCIATE'
     } }
   });
-  assert.equal(actorEnvelope.status, 400);
-  assert.equal((await actorEnvelope.json() as any).code, 'BAD_REQUEST');
+  assert.equal(forgedEnvelope.status, 403);
+  assert.equal((await forgedEnvelope.json() as any).code, 'PERSONA_ACTION_DENIED');
   assert.equal(db.prepare('SELECT COUNT(*) AS count FROM command_receipts WHERE workspace_id=?').bind(first.workspaceId).first<any>()?.count, receiptsBefore);
   assert.equal(db.prepare('SELECT COUNT(*) AS count FROM audit_events WHERE workspace_id=?').bind(first.workspaceId).first<any>()?.count, auditBefore);
 

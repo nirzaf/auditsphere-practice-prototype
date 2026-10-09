@@ -38,25 +38,6 @@ npm.cmd run cloud:deploy     # npm run build && wrangler deploy --config wrangle
 npx.cmd wrangler types --config wrangler.jsonc worker/worker-configuration.d.ts
 ```
 
-## First Partner bootstrap (staging)
-
-The first firm administrator is created only through the bearer-protected,
-one-time `/api/internal/bootstrap` endpoint. Set `BOOTSTRAP_TOKEN` as a Worker
-secret using a randomly generated value of at least 32 characters. On the
-operator machine set `AUDITSPHERE_STAGING_URL` to the staging HTTPS origin and
-`AUDITSPHERE_BOOTSTRAP_TOKEN` to the same secret, then run:
-
-```powershell
-npx.cmd tsx tools/bootstrap-first-partner.ts --env staging --name "Example Audit Firm" --email partner@example.com --natural-person-key partner-001
-```
-
-The command prints an idempotency key before the request so an uncertain
-network result can be retried with `--idempotency-key <printed-key>`. It never
-prints the bootstrap token. The route refuses a new key when any BUSINESS
-workspace exists and serializes concurrent first-run attempts in D1. The
-invitation email is queued; provider readiness and recipient authorization
-remain deployment prerequisites.
-
 If that command fails with `CreateDirectory: Access is denied; path =
 miniflare-CacheObject`, the environment blocks miniflare's cache directory. In
 that case `worker/cloudflare-env.d.ts` already references the repo's generated

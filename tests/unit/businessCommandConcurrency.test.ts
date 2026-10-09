@@ -4,7 +4,7 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import worker from '../../worker/index.js';
 import { SqliteD1 } from '../helpers/sqliteD1.js';
-import { authSessionCookie, bootstrapBusinessFixture } from '../helpers/authSession.js';
+import { authSessionCookie } from '../helpers/authSession.js';
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const db = new SqliteD1();
@@ -12,7 +12,8 @@ db.migrate(repositoryRoot);
 const env = {
   DB: db,
   FILES: { put: async () => { throw new Error('File storage is not part of this test.'); } } as any,
-  ASSETS: { fetch: async () => new Response('not found', { status: 404 }) } as any
+  ASSETS: { fetch: async () => new Response('not found', { status: 404 }) } as any,
+  BUSINESS_SETUP_ENABLED: 'true'
 } as any;
 
 after(() => db.close());
@@ -25,13 +26,13 @@ async function call(path: string, options: {
 } = {}) {
   const headers = new Headers({ Origin: 'https://local.auditsphere.test' });
   if (options.actor) {
-    headers.set('X-Test-Session-Profile', options.actor.actorId);
+    headers.set('X-Actor-Id', options.actor.actorId);
+    headers.set('X-Active-Persona', options.actor.persona);
   }
   if (options.idempotencyKey) headers.set('Idempotency-Key', options.idempotencyKey);
   if (options.payload !== undefined) headers.set('Content-Type', 'application/json');
   const workspaceId = path.match(/^\/api\/workspaces\/([^/?]+)/)?.[1];
   if (workspaceId) headers.set('Cookie', await authSessionCookie(db, workspaceId, options.actor?.actorId));
-  headers.delete('X-Test-Session-Profile');
   const response = await worker.fetch(new Request(`https://local.auditsphere.test${path}`, {
     method: options.method ?? 'GET', headers,
     ...(options.payload === undefined ? {} : { body: JSON.stringify(options.payload) })
@@ -44,6 +45,7 @@ async function command(workspaceId: string, actor: { actorId: string; persona: s
   return call(`/api/workspaces/${workspaceId}/commands`, {
     method: 'POST', actor, idempotencyKey,
     payload: {
+      actor: { actorId: actor.actorId, persona: actor.persona },
       context: {},
       expectedVersions: [],
       command: { type, payload }
@@ -52,7 +54,10 @@ async function command(workspaceId: string, actor: { actorId: string; persona: s
 }
 
 it('retries audit-head compare-and-swap races so 20 concurrent commands persist', async () => {
-  const bootstrap = await bootstrapBusinessFixture(db, {
+  const bootstrap = await call('/api/workspaces', {
+    method: 'POST',
+    idempotencyKey: crypto.randomUUID(),
+    payload: {
       name: 'Concurrent command regression',
       currency: 'QAR',
       timezone: 'Asia/Qatar',
@@ -61,9 +66,11 @@ it('retries audit-head compare-and-swap races so 20 concurrent commands persist'
         naturalPersonKey: `CONCURRENCY-${crypto.randomUUID()}`,
         email: 'concurrency.partner@example.invalid'
       }
+    }
   });
-  const workspaceId = bootstrap.workspaceId;
-  const approver = { actorId: bootstrap.actorProfileId, persona: 'APPROVER' };
+  assert.equal(bootstrap.response.status, 201, JSON.stringify(bootstrap.body));
+  const workspaceId = bootstrap.body.workspaceId as string;
+  const approver = { actorId: bootstrap.body.actorProfileId as string, persona: 'APPROVER' };
 
   const staff = await command(workspaceId, approver, 'staff.create', {
     displayName: 'Concurrency Test Preparer',

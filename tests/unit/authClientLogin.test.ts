@@ -9,7 +9,7 @@ import { tokenHash } from '../../worker/auth/tokens.js';
 import { processBusinessOutbox } from '../../worker/businessOutbox.js';
 import type { Env } from '../../worker/env.js';
 import { SqliteD1 } from '../helpers/sqliteD1.js';
-import { authSessionCookie, bootstrapBusinessFixture } from '../helpers/authSession.js';
+import { authSessionCookie } from '../helpers/authSession.js';
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const db = new SqliteD1();
@@ -21,6 +21,7 @@ const env = {
   DB: db,
   FILES: { put: async () => { throw new Error('Not used by this test.'); } },
   ASSETS: { fetch: async () => new Response('not found', { status: 404 }) },
+  BUSINESS_SETUP_ENABLED: 'true',
   PUBLIC_APP_URL: 'https://audit.example',
   RATE_LIMITER: { limit: async ({ key }: { key: string }) => { limiterKeys.push(key); return { success: !rejectRateLimit }; } },
   EMAIL_PROVIDER: { fetch: async (request: Request) => {
@@ -36,10 +37,6 @@ const origin = 'https://client-auth.auditsphere.test';
 async function call(path: string, options: { method?: string; cookie?: string; body?: unknown; headers?: Record<string, string> } = {}): Promise<Response> {
   const headers = new Headers({ Origin: origin, ...options.headers });
   if (options.cookie) headers.set('Cookie', options.cookie);
-  const workspaceId = path.match(/^\/api\/workspaces\/([^/?]+)/)?.[1];
-  const testProfileId = headers.get('X-Test-Session-Profile') ?? undefined;
-  headers.delete('X-Test-Session-Profile');
-  if (workspaceId && !headers.has('Cookie')) headers.set('Cookie', await authSessionCookie(db, workspaceId, testProfileId));
   if (options.body !== undefined) headers.set('Content-Type', 'application/json');
   return worker.fetch(new Request(`${origin}${path}`, {
     method: options.method ?? (options.body === undefined ? 'GET' : 'POST'), headers,
@@ -51,16 +48,18 @@ async function command(workspaceId: string, cookie: string, actorId: string, per
   type: string, payload: unknown, expectedVersions: Array<{ entity: string; id: string; version: number }> = []): Promise<Response> {
   return call(`/api/workspaces/${workspaceId}/commands`, {
     method: 'POST', cookie,
-    headers: { 'Idempotency-Key': crypto.randomUUID() },
-    body: { context: {}, expectedVersions, command: { type, payload } }
+    headers: { 'X-Actor-Id': actorId, 'X-Active-Persona': persona, 'Idempotency-Key': crypto.randomUUID() },
+    body: { actor: { actorId, persona }, context: {}, expectedVersions, command: { type, payload } }
   });
 }
 
 it('enforces client login, forced password change, lockout, reset, rate limits, and firm-admin unlock', async () => {
-  const workspace = await bootstrapBusinessFixture(db, {
+  const createdWorkspace = await call('/api/workspaces', { method: 'POST', body: {
     name: 'Client Auth Acceptance', currency: 'QAR', timezone: 'Asia/Qatar',
     initialPartner: { displayName: 'Auth Partner', naturalPersonKey: `AUTH-PARTNER-${crypto.randomUUID()}`, email: 'auth.partner@example.invalid' }
-  });
+  }, headers: { 'Idempotency-Key': crypto.randomUUID() } });
+  assert.equal(createdWorkspace.status, 201, await createdWorkspace.clone().text());
+  const workspace = await createdWorkspace.json() as { workspaceId: string; actorProfileId: string };
   const partnerCookie = await authSessionCookie(db, workspace.workspaceId, workspace.actorProfileId);
 
   const associate = await command(workspace.workspaceId, partnerCookie, workspace.actorProfileId, 'APPROVER', 'staff.create', {
@@ -196,12 +195,12 @@ it('enforces client login, forced password change, lockout, reset, rate limits, 
     return Object.keys(payload).sort().join(',') === 'documentType,userAccountId'
       && payload.documentType === 'PASSWORD_RESET' && payload.userAccountId === account.id;
   }));
-  const processedResetJobs = await processBusinessOutbox(env, 4);
+  const processedResetJobs = await processBusinessOutbox(env, 3);
   const resetJobOutcomes = db.prepare(`SELECT status,last_error_code,result_json FROM outbox_jobs WHERE workspace_id=? AND id IN (${resetJobs.map(() => '?').join(',')})`)
     .bind(workspace.workspaceId, ...resetJobs.map(job => job.id)).all<any>().results;
-  const sentResetMessages = sentMessages.filter(message => message.purpose === 'PASSWORD_RESET' && message.to === account.email_normalized);
-  assert.equal(sentResetMessages.length, 3, `reset dispatch processed=${processedResetJobs}; outcomes=${JSON.stringify(resetJobOutcomes)}`);
-  const resetLink = sentResetMessages.at(-1)!.text.match(/https:\/\/audit\.example\/reset\?token=([^\s]+)/);
+  assert.equal(sentMessages.length, 3, `reset dispatch processed=${processedResetJobs}; outcomes=${JSON.stringify(resetJobOutcomes)}`);
+  assert.ok(sentMessages.every(message => message.purpose === 'PASSWORD_RESET' && message.to === account.email_normalized));
+  const resetLink = sentMessages.at(-1)!.text.match(/https:\/\/audit\.example\/reset\?token=([^\s]+)/);
   assert.ok(resetLink, 'the recipient email includes the one-time reset link');
   const bearerToken = decodeURIComponent(resetLink[1]);
   const resetTokenHash = await tokenHash(bearerToken);

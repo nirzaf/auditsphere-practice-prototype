@@ -60,6 +60,7 @@ export function BusinessDeliveryPanel({ workspaceId, selected, context, engageme
     || data?.payments.some(item => item.receiptStatus === 'PENDING'));
 
   useEffect(() => {
+    if (!selected.actorId || !selected.persona) return;
     const controller = new AbortController();
     Promise.all([
       getBusinessDeliveryWorkspace(workspaceId, engagement.id, selected, controller.signal),
@@ -78,7 +79,7 @@ export function BusinessDeliveryPanel({ workspaceId, selected, context, engageme
       setSelectedSeal(current => current || nextData.sealAssets?.find(item => item.decision === 'APPROVE')?.id || '');
     }).catch(reason => { if (!controller.signal.aborted) setError(reason instanceof Error ? reason.message : 'Commercial records could not be loaded.'); });
     return () => controller.abort();
-  }, [workspaceId, engagement.id, selected.clientId, refresh]);
+  }, [workspaceId, engagement.id, selected.actorId, selected.persona, selected.clientId, refresh]);
 
   useEffect(() => {
     if (!pendingJobs) return;

@@ -2,7 +2,7 @@
 
 AuditSphere is a server-backed audit practice workspace for commercial, audit planning, fieldwork, reporting, archive, and practice operations. The React application and API are served from one Cloudflare Worker. D1 stores structured business records; R2 stores committed file bytes.
 
-The repository includes an authenticated BUSINESS workspace and Worker-backed audit workflows. Firm staff sign in with Microsoft Entra ID, client portal users sign in with provisioned credentials, and the active profile is restricted to access granted to that account. Use synthetic data until the remaining security and go-live gates are complete.
+The repository currently includes the BUSINESS workspace and Worker-backed workflows. Authentication and several external integrations remain in the implementation roadmap; the current persona selector is self-asserted and does not establish identity. Use synthetic data until the security and go-live gates are complete.
 
 ## Run locally
 

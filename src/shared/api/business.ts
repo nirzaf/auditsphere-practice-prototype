@@ -1,12 +1,28 @@
 export type BusinessPersona = 'PREPARER' | 'REVIEWER' | 'APPROVER' | 'CLIENT';
 export type StaffGrade = 'PARTNER' | 'MANAGER' | 'SENIOR' | 'ASSOCIATE';
 
-/** Non-identity browser scope preference. Authentication and profile selection are session-backed. */
+/** Non-secret, browser-local selection only. There is no token or login session. */
 export interface BusinessWorkspacePreference {
   version: 1;
   workspaceId: string;
+  actorId?: string;
+  persona?: BusinessPersona;
   clientId?: string;
   engagementId?: string;
+}
+
+export interface BusinessWorkspaceBootstrapRequest {
+  name: string;
+  currency: 'QAR';
+  timezone: 'Asia/Qatar';
+  initialPartner: { displayName: string; naturalPersonKey: string; email: string };
+}
+
+export interface BusinessWorkspaceBootstrapResponse {
+  workspaceId: string;
+  staffMemberId: string;
+  actorProfileId: string;
+  replayed?: boolean;
 }
 
 export interface BusinessActorProfile {
@@ -17,31 +33,6 @@ export interface BusinessActorProfile {
   clientId: string | null;
   staffMemberId?: string | null;
   contactId?: string | null;
-}
-
-export interface BusinessUserGrant {
-  id: string;
-  actorProfileId: string;
-  persona: BusinessPersona;
-  displayName: string;
-  staffGrade: StaffGrade | null;
-  clientId: string | null;
-  grantedAt: string;
-  revokedAt: string | null;
-}
-
-export interface BusinessUserSummary {
-  id: string;
-  version: number;
-  kind: 'STAFF' | 'CLIENT';
-  email: string;
-  displayName: string;
-  status: 'INVITED' | 'ACTIVE' | 'LOCKED' | 'DISABLED';
-  isFirmAdmin: boolean;
-  lastLoginAt: string | null;
-  createdAt: string;
-  staffGrade: StaffGrade | null;
-  grants: BusinessUserGrant[];
 }
 
 export interface BusinessWorkspaceSummary {

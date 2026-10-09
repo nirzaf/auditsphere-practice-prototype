@@ -108,7 +108,7 @@ export function renderCommercialPdf(input: CommercialDocumentInput): Uint8Array 
     line('Firm seal', 10, 1, true);
     doc.addImage(`data:image/png;base64,${toBase64(input.sealBytes!)}`, 'PNG', margin, y, 28, 28);
     y += 34;
-    line('The signature is an image associated with the authenticated Partner approval record. It is not a certificate-based digital signature.', 8, 0);
+    line('The signature is an image associated with a self-selected Partner profile. It is not a certificate-based digital signature.', 8, 0);
   } else if (input.kind === 'INVOICE') {
     line('Advance invoice amount', 11, 1, true);
     line(`Subtotal: ${money(input.subtotalMinor ?? 0)}`);

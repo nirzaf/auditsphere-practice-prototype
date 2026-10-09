@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import worker from '../../worker/index.js';
 import { SqliteD1 } from '../helpers/sqliteD1.js';
-import { authSessionCookie, bootstrapBusinessFixture } from '../helpers/authSession.js';
+import { authSessionCookie } from '../helpers/authSession.js';
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 
@@ -30,17 +30,18 @@ it('BUSINESS records survive a Worker restart and scheduled maintenance after ei
   } = {}) => {
     const headers = new Headers({ Origin: 'https://restart.auditsphere.test' });
     if (options.body !== undefined) headers.set('Content-Type', 'application/json');
+    if (options.actorId) headers.set('X-Actor-Id', options.actorId);
+    if (options.persona) headers.set('X-Active-Persona', options.persona);
     if (options.idempotencyKey) headers.set('Idempotency-Key', options.idempotencyKey);
     const workspaceId = path.match(/^\/api\/workspaces\/([^/?]+)/)?.[1];
     if (workspaceId) headers.set('Cookie', await authSessionCookie(db!, workspaceId, options.actorId));
-    headers.delete('X-Test-Session-Profile');
     const request = new Request(`https://restart.auditsphere.test${path}`, {
       method,
       headers,
       ...(options.body === undefined ? {} : { body: JSON.stringify(options.body) })
     });
     const response = await worker.fetch(request, {
-      DB: db!, FILES: r2, ASSETS: assets
+      DB: db!, FILES: r2, ASSETS: assets, BUSINESS_SETUP_ENABLED: 'true'
     } as any, {} as any);
     return { response, body: await response.json() as any };
   };
@@ -48,16 +49,20 @@ it('BUSINESS records survive a Worker restart and scheduled maintenance after ei
   try {
     assert.ok(db);
     db.migrate(repositoryRoot);
-    const createdWorkspace = await bootstrapBusinessFixture(db, {
+    const createdWorkspace = await invoke('POST', '/api/workspaces', {
+      body: {
         name: 'Restart persistence test', currency: 'QAR', timezone: 'Asia/Qatar',
         initialPartner: {
           displayName: 'Restart Partner', naturalPersonKey: 'TEST-RESTART-PARTNER',
           email: 'restart.partner@example.invalid'
         }
+      },
+      idempotencyKey: crypto.randomUUID()
     });
+    assert.equal(createdWorkspace.response.status, 201, JSON.stringify(createdWorkspace.body));
 
-    const workspaceId = createdWorkspace.workspaceId;
-    const actorId = createdWorkspace.actorProfileId;
+    const workspaceId = createdWorkspace.body.workspaceId as string;
+    const actorId = createdWorkspace.body.actorProfileId as string;
     const client = {
       code: 'RESTART-CLIENT', legalName: 'Restart Client LLC', entityType: 'STANDALONE',
       industry: 'Professional services', address: 'Doha, Qatar', countryCode: 'QA',
@@ -69,7 +74,7 @@ it('BUSINESS records survive a Worker restart and scheduled maintenance after ei
     const savedClient = await invoke('POST', `/api/workspaces/${workspaceId}/commands`, {
       actorId, persona: 'APPROVER', idempotencyKey: crypto.randomUUID(),
       body: {
-        context: {}, expectedVersions: [],
+        actor: { actorId, persona: 'APPROVER' }, context: {}, expectedVersions: [],
         command: { type: 'client.create', payload: client }
       }
     });
@@ -90,7 +95,7 @@ it('BUSINESS records survive a Worker restart and scheduled maintenance after ei
       item.id === clientId && item.legalName === 'Restart Client LLC'));
 
     await worker.scheduled({ scheduledTime: Date.now(), cron: '* * * * *' } as any, {
-      DB: db, FILES: r2, ASSETS: assets
+      DB: db, FILES: r2, ASSETS: assets, BUSINESS_SETUP_ENABLED: 'true'
     } as any);
 
     const afterMaintenance = await invoke('GET', `/api/workspaces/${workspaceId}/clients`, {

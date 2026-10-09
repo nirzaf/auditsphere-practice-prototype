@@ -8,7 +8,6 @@ import { after, before, it } from 'node:test';
 import { CdpTab } from '../helpers/cdp.js';
 import { launchHeadlessChrome, removeHeadlessChromeProfile, stopHeadlessChrome, type HeadlessChromeInstance } from '../helpers/headlessChrome.js';
 import { authenticatedBusinessFetch, startBusinessE2eServer, type BusinessE2eServer } from '../helpers/businessE2eServer.js';
-import { bootstrapBusinessFixture } from '../helpers/authSession.js';
 import { setBrowserAuthSession } from '../helpers/authSession.js';
 
 let server: BusinessE2eServer | undefined;
@@ -103,12 +102,18 @@ async function createFieldworkFixture() {
   assert.ok(server);
   const now = new Date().toISOString();
   const key = randomUUID();
-  const workspace = await bootstrapBusinessFixture(server.db, {
+  const response = await fetch(`${server.origin}/api/workspaces`, {
+    method: 'POST',
+    headers: { Origin: server.origin, 'Content-Type': 'application/json', 'Idempotency-Key': `fieldwork-${key}` },
+    body: JSON.stringify({
       name: `Conflict Journey ${key.slice(0, 8)}`,
       currency: 'QAR',
       timezone: 'Asia/Qatar',
       initialPartner: { displayName: 'QA Partner A', naturalPersonKey: `QA-PARTNER-A-${key}`, email: 'partner.a@example.invalid' }
+    })
   });
+  assert.equal(response.status, 201, 'real Worker bootstrap creates an isolated BUSINESS workspace');
+  const workspace = await response.json() as { workspaceId: string; staffMemberId: string; actorProfileId: string };
   const ids = {
     clientId: randomUUID(), standardsId: randomUUID(), engagementId: randomUUID(),
     fileId: randomUUID(), samplingFileId: randomUUID(), systematicSamplingFileId: randomUUID(), importId: randomUUID(), tbVersionId: randomUUID(), tbLineId: randomUUID(),
@@ -257,9 +262,15 @@ async function selectPracticeWorkspace(tab: CdpTab, fixture: Awaited<ReturnType<
   await setBrowserAuthSession(tab, server!, fixture.workspaceId, actorId);
   await tab.command('Page.navigate', { url: server!.origin });
   await waitFor(tab, 'the isolated local BUSINESS app origin', `location.origin === ${JSON.stringify(new URL(server!.origin).origin)}`);
+  await tab.evaluate(`localStorage.removeItem('auditsphere.business-context.v1')`);
+  await tab.command('Page.reload');
+  await waitFor(tab, 'the isolated local BUSINESS landing page', `document.querySelector('#production-workspace-heading')?.textContent?.trim() === 'Open your business workspace'`);
+  const preference = { version: 1, workspaceId: fixture.workspaceId, actorId, persona, clientId: fixture.clientId, engagementId: fixture.engagementId };
+  await tab.evaluate(`localStorage.setItem('auditsphere.business-context.v1', ${JSON.stringify(JSON.stringify(preference))})`);
+  await tab.command('Page.reload');
   await waitFor(tab, `the selected ${persona} profile and BUSINESS workspace`, `
     document.querySelector('#business-workspace-heading')?.textContent?.trim() === ${JSON.stringify(fixture.name)} &&
-    document.querySelector('.business-actor-summary')?.textContent?.includes(${JSON.stringify(persona)}) &&
+    document.querySelector('#business-active-persona')?.selectedOptions[0]?.textContent?.includes(${JSON.stringify(persona)}) &&
     document.querySelector('.business-actor-summary')?.textContent?.includes(${JSON.stringify(grade)})`);
   await waitFor(tab, 'the Worker-projected practice management panel', `
     !!document.querySelector('[aria-labelledby="business-practice-${fixture.engagementId}"]')`);
@@ -350,9 +361,15 @@ async function selectWorkspace(tab: CdpTab, fixture: Awaited<ReturnType<typeof c
   await setBrowserAuthSession(tab, server!, fixture.workspaceId, actorId);
   await tab.command('Page.navigate', { url: server!.origin });
   await waitFor(tab, 'the isolated local BUSINESS app origin', `location.origin === ${JSON.stringify(new URL(server!.origin).origin)}`);
+  await tab.evaluate(`localStorage.removeItem('auditsphere.business-context.v1')`);
+  await tab.command('Page.reload');
+  await waitFor(tab, 'the isolated local BUSINESS landing page', `document.querySelector('#production-workspace-heading')?.textContent?.trim() === 'Open your business workspace'`);
+  const preference = { version: 1, workspaceId: fixture.workspaceId, actorId, persona: 'APPROVER', clientId: fixture.clientId, engagementId: fixture.engagementId };
+  await tab.evaluate(`localStorage.setItem('auditsphere.business-context.v1', ${JSON.stringify(JSON.stringify(preference))})`);
+  await tab.command('Page.reload');
   await waitFor(tab, 'the selected distinct Partner profile and BUSINESS workspace', `
     document.querySelector('#business-workspace-heading')?.textContent?.trim() === ${JSON.stringify(fixture.name)} &&
-    document.querySelector('.business-actor-summary')?.textContent?.includes('APPROVER') &&
+    document.querySelector('#business-active-persona')?.selectedOptions[0]?.textContent?.includes('APPROVER') &&
     document.querySelector('.business-actor-summary')?.textContent?.includes('PARTNER')`);
   await waitFor(tab, 'the Worker-projected engagement fieldwork panel', `
     document.querySelector('#business-fieldwork-heading')?.getClientRects().length === 1 &&
@@ -391,10 +408,11 @@ async function selectWorkspace(tab: CdpTab, fixture: Awaited<ReturnType<typeof c
   } finally {
     await tab.command('Emulation.clearDeviceMetricsOverride');
   }
-  const observed = await tab.evaluate<{ workspaceId: string; actorId: string | null; procedureCount: number }>(`(async () => {
-    const me = await fetch('/api/auth/me', { credentials: 'same-origin', cache: 'no-store' }).then(response => response.json());
-    return { workspaceId: me.workspaceId, actorId: me.activeProfileId, procedureCount: document.querySelectorAll('.business-fieldwork-procedure').length };
-  })()`);
+  const observed = await tab.evaluate<{ workspaceId: string; actorId: string; procedureCount: number }>(`({
+    workspaceId: JSON.parse(localStorage.getItem('auditsphere.business-context.v1') ?? '{}').workspaceId,
+    actorId: JSON.parse(localStorage.getItem('auditsphere.business-context.v1') ?? '{}').actorId,
+    procedureCount: document.querySelectorAll('.business-fieldwork-procedure').length
+  })`);
   assert.equal(observed.workspaceId, fixture.workspaceId);
   assert.equal(observed.actorId, actorId);
   assert.equal(observed.procedureCount, 0, 'procedures remain behind the visible Workprograms tab');
@@ -538,10 +556,9 @@ it('US-FLD-006 preserves same-procedure drafts across a two-browser version conf
 
   // Observe each isolated browser before switching into the same BUSINESS workspace.
   await Promise.all([selectWorkspace(tabA, fixture, fixture.actorProfileId), selectWorkspace(tabB, fixture, fixture.actorB)]);
-  const actors = await Promise.all([tabA, tabB].map(tab => tab!.evaluate<{ actorId: string; persona: string }>(`(async () => {
-    const me = await fetch('/api/auth/me', { credentials: 'same-origin', cache: 'no-store' }).then(response => response.json());
-    const active = me.profiles.find(profile => profile.id === me.activeProfileId);
-    return { actorId: me.activeProfileId, persona: active?.persona };
+  const actors = await Promise.all([tabA, tabB].map(tab => tab!.evaluate<{ actorId: string; persona: string }>(`(() => {
+    const preference = JSON.parse(localStorage.getItem('auditsphere.business-context.v1') ?? '{}');
+    return { actorId: preference.actorId, persona: preference.persona };
   })()`)));
   assert.deepEqual(actors, [
     { actorId: fixture.actorProfileId, persona: 'APPROVER' },
@@ -924,7 +941,7 @@ it('US-FLD-007, US-FLD-008 and US-FLD-009 verify MUS, systematic and stratified 
   // Observe the rendered, settled fieldwork shell before starting the UI journey.
   const initialUi = await tabA.evaluate<{ heading: string; persona: string; tabs: string[] }>(`({
     heading: document.querySelector('#business-fieldwork-heading')?.textContent?.trim() ?? '',
-    persona: document.querySelector('.business-actor-summary')?.textContent?.trim() ?? '',
+    persona: document.querySelector('#business-active-persona')?.selectedOptions[0]?.textContent?.trim() ?? '',
     tabs: [...document.querySelectorAll('.business-fieldwork-tabs button')].map(button => button.textContent?.trim() ?? '')
   })`);
   assert.ok(initialUi.heading.length > 0);
@@ -1201,7 +1218,7 @@ it('US-FLD-010 retains hybrid provenance, links Findings, and preserves replacem
   // Observe the settled Worker-backed workspace before the evidence journey.
   const initialUi = await tabA.evaluate<{ heading: string; persona: string; evidenceTabVisible: boolean }>(`({
     heading: document.querySelector('#business-fieldwork-heading')?.textContent?.trim() ?? '',
-    persona: document.querySelector('.business-actor-summary')?.textContent?.trim() ?? '',
+    persona: document.querySelector('#business-active-persona')?.selectedOptions[0]?.textContent?.trim() ?? '',
     evidenceTabVisible: [...document.querySelectorAll('.business-fieldwork-tabs button')].some(button => button.textContent?.trim() === 'Evidence')
   })`);
   assert.ok(initialUi.heading.length > 0);
@@ -1316,7 +1333,7 @@ it('US-FLD-012 compiles and clears a Worker SRM, then rejects clearance after an
   const managerStaffId = randomUUID();
   const managerActorId = randomUUID();
   const idempotencyKey = () => randomUUID();
-  const send = async (actorId: string, _persona: string, command: Record<string, unknown>) => {
+  const send = async (actorId: string, persona: string, command: Record<string, unknown>) => {
     const key = idempotencyKey();
     const payload = command.payload as Record<string, unknown>;
     const expectedVersions = ['procedure.update', 'procedure.mark-not-applicable', 'procedure.submit', 'procedure.review'].includes(String(command.type))
@@ -1328,11 +1345,13 @@ it('US-FLD-012 compiles and clears a Worker SRM, then rejects clearance after an
         Origin: server!.origin,
         'Content-Type': 'application/json',
         'Idempotency-Key': key,
-        'X-Test-Session-Profile': actorId,
+        'X-Actor-Id': actorId,
+        'X-Active-Persona': persona,
         'X-Client-Id': fixture.clientId,
         'X-Engagement-Id': fixture.engagementId
       },
       body: JSON.stringify({
+        actor: { actorId, persona },
         context: { clientId: fixture.clientId, engagementId: fixture.engagementId },
         expectedVersions,
         command
@@ -1343,7 +1362,7 @@ it('US-FLD-012 compiles and clears a Worker SRM, then rejects clearance after an
   };
   const readWorkflowStage = async (expectedState: string) => {
     const response = await authenticatedBusinessFetch(server!, `${server!.origin}/api/workspaces/${fixture.workspaceId}/engagements/${fixture.engagementId}/workflow`, {
-      headers: { Origin: server!.origin, 'X-Test-Session-Profile': fixture.actorProfileId,
+      headers: { Origin: server!.origin, 'X-Actor-Id': fixture.actorProfileId, 'X-Active-Persona': 'APPROVER',
         'X-Client-Id': fixture.clientId, 'X-Engagement-Id': fixture.engagementId }
     });
     const body = await response.json() as { state?: string; stages?: Array<{ id: string; blockerCoverage: string; blockers: Array<{ code: string }> }> };
@@ -1363,10 +1382,6 @@ it('US-FLD-012 compiles and clears a Worker SRM, then rejects clearance after an
   'srm.manager@example.invalid', now, now, fixture.actorProfileId, fixture.actorProfileId);
   runFixtureSql(`INSERT INTO actor_profiles(id,workspace_id,version,persona,staff_member_id,contact_id,active,created_at,updated_at)
     VALUES(?,?,1,'REVIEWER',?,NULL,1,?,?)`, managerActorId, fixture.workspaceId, managerStaffId, now, now);
-  runFixtureSql(`INSERT INTO engagement_assignments(id,workspace_id,version,client_id,engagement_id,staff_member_id,persona,phase,
-      start_date,end_date,planned_minutes,created_by_actor_id,created_at)
-    VALUES(?,?,1,?,?,?,'REVIEWER','FIELDWORK','2025-01-01','2025-12-31',600,?,?)`,
-  randomUUID(), fixture.workspaceId, fixture.clientId, fixture.engagementId, managerStaffId, fixture.actorProfileId, now);
   const clientContactId = randomUUID();
   const clientActorId = randomUUID();
   const adjustmentOffsetFsliId = randomUUID();
@@ -1596,7 +1611,7 @@ it('US-FLD-012 compiles and clears a Worker SRM, then rejects clearance after an
     'Partner approval identifies the final reporting package as the remaining stage gate');
 
   const statementBeforeLateAje = await authenticatedBusinessFetch(server!, `${server!.origin}/api/workspaces/${fixture.workspaceId}/engagements/${fixture.engagementId}/financial-statements`, {
-    headers: { Origin: server!.origin, 'X-Test-Session-Profile': fixture.actorProfileId,  'X-Client-Id': fixture.clientId, 'X-Engagement-Id': fixture.engagementId }
+    headers: { Origin: server!.origin, 'X-Actor-Id': fixture.actorProfileId, 'X-Active-Persona': 'APPROVER', 'X-Client-Id': fixture.clientId, 'X-Engagement-Id': fixture.engagementId }
   });
   assert.equal(statementBeforeLateAje.status, 200);
   const basisBeforeLateAje = await statementBeforeLateAje.json() as { sourceHash: string };
@@ -1626,7 +1641,7 @@ it('US-FLD-012 compiles and clears a Worker SRM, then rejects clearance after an
   assert.equal(lateAjeApproval.response.status, 200, JSON.stringify(lateAjeApproval.body));
   assert.equal(lateAjeApproval.body.result?.status, 'REVIEW_APPROVED');
   const statementAfterLateAje = await authenticatedBusinessFetch(server!, `${server!.origin}/api/workspaces/${fixture.workspaceId}/engagements/${fixture.engagementId}/financial-statements`, {
-    headers: { Origin: server!.origin, 'X-Test-Session-Profile': fixture.actorProfileId,  'X-Client-Id': fixture.clientId, 'X-Engagement-Id': fixture.engagementId }
+    headers: { Origin: server!.origin, 'X-Actor-Id': fixture.actorProfileId, 'X-Active-Persona': 'APPROVER', 'X-Client-Id': fixture.clientId, 'X-Engagement-Id': fixture.engagementId }
   });
   assert.equal(statementAfterLateAje.status, 200);
   const basisAfterLateAje = await statementAfterLateAje.json() as { sourceHash: string };

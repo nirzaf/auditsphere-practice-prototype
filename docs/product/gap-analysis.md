@@ -1,13 +1,14 @@
 # Gap Analysis — STE v2.1 vs. repository `main@54ec5a3`
 
 **Purpose:** tell an agent, per requirement, whether to build, finish, verify, or leave alone.
-**Method:** source inspection of the BUSINESS workspace path (`worker/business*.ts`, `worker/auth/**`, `worker/migrations/`, `src/components/business/*`, `src/components/auth/*`, `src/shared/api/business.ts`), cross-checked with focused unit and browser journeys. The legacy browser-store prototype (`src/PrototypeApp.tsx`, `src/store/**`) is **not** counted as implementation.
+**Method:** source inspection of the BUSINESS workspace path only (`worker/business*.ts`, `worker/migrations/0006…0044`, `src/components/business/*`, `src/shared/api/business.ts`), cross-checked with `docs/prototype/us-gap-completion-status.md` and a local run of the unit suite (630/631 pass). The legacy browser-store prototype (`src/PrototypeApp.tsx`, `src/store/**`) is **not** counted as implementation.
 
 ## Legend
 
 | Status | Meaning | Agent action |
 |---|---|---|
 | ✅ DONE | Behaviour implemented on the BUSINESS path with server-side enforcement and tests | **Do not rebuild.** Touch only if a story says so. |
+| 🔐 DONE-UNAUTH | Implemented, but the control depends on the self-asserted actor and is not trustworthy until E03 ships | No functional change; E03 makes it real. |
 | 🟡 PARTIAL | Implemented core; named remainder open | Implement only the named remainder. |
 | 🔎 VERIFY | Repository-reported, not confirmed by this audit | Run the verify story first; build only a reproduced gap. |
 | ❌ MISSING | Not implemented | Build. |
@@ -20,10 +21,10 @@ Evidence column: confirmed = seen in source during this audit; *reported* = take
 
 | Requirement | Status | Evidence | Remaining → story |
 |---|---|---|---|
-| Real user identity for all four personas | ✅ DONE | `resolveBusinessContext` derives the actor from the authenticated session; OIDC staff and password client sign-in, account grants, password lifecycle and firm-admin controls are covered by `tests/unit/auth*.test.ts` and browser journeys | E03-S01…S08 |
-| Authority rules (Preparer/Reviewer/Partner/Client) | ✅ DONE | Session profile is grant-checked; `allowedActions` matrix and Partner/Reviewer/Manager guards are enforced in Worker commands; auth and fieldwork tests exercise denials | E03 |
-| Segregation of duties (no self-review/self-approval) | ✅ DONE | Review, approval and release paths compare immutable natural-person keys across profile switches; `SELF_APPROVAL`/`SELF_REVIEW_BLOCKED` tests cover those guards | E03 |
-| Engagement-assignment scoping for staff reads/writes | ✅ DONE | `worker/businessScope.ts` enforces session-profile assignment scope; route, command, file, PBC, and practice reads/writes check the engagement. `tests/unit/assignmentScopeAudit.test.ts` denies all inventoried unassigned engagement reads, cross-scope filters, and representative explicit-ID commands without writes; historical assignments remain valid. | E03-S07 |
+| Real user identity for all four personas | ❌ MISSING | `resolveBusinessContext` trusts `X-Actor-Id`/`X-Active-Persona` (confirmed); actor list is public (`GET …/actor-profiles`, confirmed) | E03-S01…S05 |
+| Authority rules (Preparer/Reviewer/Partner/Client) | 🔐 DONE-UNAUTH | `allowedActions` matrix per persona; `partner()`/`reviewer()` guards in `worker/businessReporting.ts:56-57`; RED execution Manager+ (`worker/businessFieldwork.ts:858,923`) | E03 |
+| Segregation of duties (no self-review/self-approval) | 🔐 DONE-UNAUTH | `SELF_APPROVAL`, `SELF_REVIEW_BLOCKED` error codes; `staff_members.natural_person_key` unique | E03 |
+| Engagement-assignment scoping for staff reads/writes | 🔎 VERIFY | Assignments drive planning readiness (`worker/businessTb.ts:1222`); context resolution does **not** check assignment (confirmed) | E03-S07 |
 | Unlimited clients/engagements/files (no licence gate) | ✅ DONE | No count gates on BUSINESS path; `demo_creation_limits` is legacy only | Capacity spike SP-02 |
 | QAR primary currency, minor units | ✅ DONE | `*_minor` integer columns; QAR-only TB currency column (*reported* US-FLD-001) | — |
 | 11-state lifecycle + immutable transitions | ✅ DONE | `engagements.lifecycle_state` CHECK (0006:224); `state_transitions_no_update/no_delete` triggers | — |
@@ -42,12 +43,12 @@ Evidence column: confirmed = seen in source during this audit; *reported* = take
 | US-M1-004 Brief quotation | ✅ DONE | `worker/proposalDocument.ts`; *reported* 1–2-page enforcement | — |
 | US-M1-005 Comprehensive proposal | ✅ DONE | CVs, credentials, portfolio, evidence files (migrations 0036–0037) | — |
 | US-M1-006 Proposal dispatch | 🟡 PARTIAL | Email via outbox (`COMMERCIAL_EMAIL`); WhatsApp explicitly rejected as a provider (`worker/business.ts:3657`) | Live email → E04-S01; manual WhatsApp record → E04-S02 |
-| US-M1-007 Client commercial approval | ✅ DONE | `commercialAcceptance.record/revoke` is restricted to the authenticated CLIENT session and its client scope | E03 |
+| US-M1-007 Client commercial approval | 🔐 DONE-UNAUTH | `commercialAcceptance.record/revoke` (CLIENT action) | E03 |
 | US-M1-008 Dual-key gate | ✅ DONE | acceptance + `risk.clear`; EL generation blocked otherwise | — |
 | US-M1-009 Engagement Letter (statutory / IA / AUP) | ✅ DONE | `serviceType` enum incl. `AGREED_UPON_PROCEDURES`; `engagementLetter.generate/issue` | — |
 | US-M1-010 50 % advance invoice | ✅ DONE | `invoice.issueAdvance`; issued atomically with EL (*reported* US-GAP-04) | — |
 | US-M1-011 Payment & official receipt | ✅ DONE | `payment.record/allocate/reverse`; `receipt_vouchers`; `RECEIPT` outbox doc | — |
-| US-M1-012 Client portal onboarding | 🟡 PARTIAL | Advance settlement provisions a client account and queues temporary credentials; client login, forced change, expiry, lockout and reset are implemented. Live delivery still depends on the configured email provider and approved UAT recipient | E03-S04, E03-S05, E04-S01 |
+| US-M1-012 Client portal onboarding | 🟡 PARTIAL | Portal activates on payment (`worker/businessOutbox.ts:664`). **No** credential issue, email, or forced reset (confirmed: no password/credential code) | E03-S04, E03-S05 |
 | US-M1-013 PBC status lifecycle + rejection reason | ✅ DONE | `pbc_requests.status` 4 values; reject needs ≥ 10-char reason (`parseBusinessCommandEnvelope`) | — |
 
 ## Module 2 — Governance & Planning
@@ -56,7 +57,7 @@ Evidence column: confirmed = seen in source during this audit; *reported* = take
 |---|---|---|---|
 | US-M2-001 Track A acceptance (UBO/AML/KYC/integrity/viability/independence/conflicts) | ✅ DONE | check codes in 0010:76 | — |
 | US-M2-002 Track B continuance delta | ✅ DONE | `riskAssessment.startContinuance/recordDelta`; topics in 0012 | — |
-| US-M2-003 Partner acceptance gate | ✅ DONE | `risk.clear` requires an authenticated Partner profile and its granted workspace scope | E03 |
+| US-M2-003 Partner acceptance gate | 🔐 DONE-UNAUTH | `risk.clear` Partner-only | E03 |
 | US-M2-004 Five-folder directory | ✅ DONE | `provisionEngagementFolders` exact names (`worker/businessPlanning.ts:394`) | — |
 | US-M2-005 Resource scheduling + capacity calendar | ✅ DONE | `staffing.*` commands; capacity calendar (*reported* US-GAP-07) | — |
 | US-M2-006 Statutory milestones | ✅ DONE | `milestone.set` per engagement for 4 codes — meets the story ACs (configurable per engagement; example dates *not* universal; saved dates visible); E05-S01 adds editable suggestions from the period end while retaining the statutory-cutoff gate | — |
@@ -66,7 +67,7 @@ Evidence column: confirmed = seen in source during this audit; *reported* = take
 | US-M2-010 PM/TE/SAD | ✅ DONE | TE 50–75 %, SAD 3–5 % inputs (*reported* US-GAP-09) | — |
 | US-M2-011 ±5 % rounding | ✅ DONE | `materiality.adjust`; boundary test (commit `2a815c7`) | — |
 | US-M2-012 RAG stratification | ✅ DONE | `fsli.risk.set`, `risk_band` | — |
-| US-M2-013 Partner planning approval | ✅ DONE | `planning.approve` derives the Partner actor from the authenticated session | E03 |
+| US-M2-013 Partner planning approval | 🔐 DONE-UNAUTH | `planning.approve` | E03 |
 
 ## Module 3 — Fieldwork
 
@@ -83,7 +84,7 @@ Evidence column: confirmed = seen in source during this audit; *reported* = take
 | US-M3-009 Preparer submission | ✅ DONE | `procedure.submit`, `review.submit` exact missing-field errors | — |
 | US-M3-010 Reviewer return & rework | ✅ DONE | `review.decide` / `review.respond` | — |
 | US-M3-011 SRM | ✅ DONE | `srm.compile` | — |
-| US-M3-012 Partner high-risk review | ✅ DONE | `srm.clear` → `requirePartner` (`worker/businessFieldwork.ts:2495`); actor is session-derived | E03 |
+| US-M3-012 Partner high-risk review | 🔐 DONE-UNAUTH | `srm.clear` → `requirePartner` (`worker/businessFieldwork.ts:2495`) | E03 |
 | US-M3-013 Confirmations (Bank/AR/AP/Inventory/Legal) | ✅ DONE | type CHECK in 0019:42 | — |
 | US-M3-014 Holding letter blocker | ✅ DONE | `holding_letters`, `queueHoldingLetterForBlockers` | — |
 
@@ -91,7 +92,7 @@ Evidence column: confirmed = seen in source during this audit; *reported* = take
 
 | Story | Status | Evidence | Remaining → story |
 |---|---|---|---|
-| US-M4-001 Partner-only opinion | ✅ DONE | `partner()` guard resolves the actor from the authenticated session | E03 |
+| US-M4-001 Partner-only opinion | 🔐 DONE-UNAUTH | `partner()` guard | E03 |
 | US-M4-002 Modified-opinion builder | ✅ DONE | discriminated union in `worker/businessReporting.ts:26` | — |
 | US-M4-003 Signature PNG + seal | ✅ DONE | `signature_asset_decisions`, `seal_asset_approvals`, `worker/reportingPng.ts` | — |
 | US-M4-004 Five-part bundle | ✅ DONE | `bundle.prepare`, `report.release` | — |
@@ -118,7 +119,7 @@ Evidence column: confirmed = seen in source during this audit; *reported* = take
 
 | Story | Status | Evidence | Remaining → story |
 |---|---|---|---|
-| US-PBC-001 Isolated client workspace | ✅ DONE | CLIENT account grants are bound to profiles with a single `client_id`; Worker session and scope checks deny cross-client access | E03-S03…S08 |
+| US-PBC-001 Isolated client workspace | 🔐 DONE-UNAUTH | CLIENT profile bound to `client_id`; scope checks | E03-S03…S05 |
 | US-PBC-002 Upload | ✅ DONE | file reserve/content/commit + SHA-256 | Forced-reset gate → E03-S05 |
 | US-PBC-003 Review feedback | ✅ DONE | `pbc.review` | — |
 | US-PBC-004 Finance documents (invoices, receipts) | 🔎 VERIFY | CLIENT has `billing.read`; consolidated client view not confirmed | E05-S04 |

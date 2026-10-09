@@ -169,22 +169,22 @@ verified. Keep all site-specific access on the acceptance site only.
 
 ## 3. UAT environment and persona journeys (US-GAP-30 – US-GAP-32)
 
-The behavioural journeys run against the deployed build using synthetic STAFF
-and CLIENT accounts, with each browser session restricted to profiles granted to
-that account. Staff sign in through the configured Microsoft Entra OIDC client;
-clients use credentials provisioned through the firm-admin workflow. Do not use
-real client evidence or share credentials in the manifest. Populate the
-non-secret manifest below before acceptance:
+The behavioural journeys run against the deployed build using the epic's explicit
+no-auth profile: a synthetic workspace with the four self-selected personas
+PREPARER, REVIEWER, APPROVER and CLIENT. Do not request or create login accounts,
+passwords, OAuth sessions or identity claims for these journeys. Persona selection
+is a workflow context, not verified identity. Populate the non-secret manifest
+below before acceptance:
 
 | Field | Source |
 | --- | --- |
 | Application URL | https://auditsphere-visual-prototype.quadrate-lk.workers.dev (readiness returns `ready`) |
 | Deployed build identity | `446f27583bc261d3a66cc580b98713d0357edf83` (verified Worker deployment, 2026-10-08; GitHub Actions run 37781910365) |
-| Workspace and actors | **Blocked.** A synthetic UAT workspace and granted STAFF/CLIENT test accounts must be provisioned through the authenticated firm-admin/bootstrap workflow before acceptance. Do not enable unauthenticated public workspace setup. |
+| Workspace and actors | **Blocked.** The deployed public `workers.dev` Worker returned `Business workspace setup is not enabled for this trusted deployment.` when the synthetic create flow was submitted. No workspace or actors were created. Keep the setup gate disabled on this unrestricted, no-auth endpoint; establish a trusted test perimeter and explicitly enable bootstrap there before recording UAT evidence. |
 | Client / engagement ids | **Not created.** There are no deployed UAT records or IDs to record until the trusted test workspace flow is enabled and verified. |
 | SharePoint site/library/root ids | values returned by `/api/integrations/status` after the site grant and secret are configured |
 | Email provider | `SERVICE_BINDING` is configured; recipient verification and a controlled UAT delivery are still unverified |
 
-Do not store passwords, tokens, real client evidence or session cookies in this
-file. Use synthetic data and a trusted test environment; actor identity and
-available profile grants are derived from the authenticated session.
+Do not store passwords, tokens, real client evidence or actor identity assertions
+in this file. The no-auth deployment boundary remains: use synthetic data and a
+trusted test environment; persona selection is not authentication.

@@ -5,7 +5,6 @@ import * as z from 'zod';
 import type { Env } from './env';
 import { ApiError } from './errors';
 import { parseCookies, sha256Hex } from './http';
-import { newOpaqueToken, tokenHash } from './auth/tokens';
 import { requireWorkspace } from './db';
 import { SessionError, touchSession, validateAuthSession, type SessionContext } from './auth/sessions';
 import { businessRiskCommands, buildBusinessRiskMutation, isBusinessRiskCommand } from './businessRisk';
@@ -16,9 +15,6 @@ import { businessFieldworkCommands, buildBusinessFieldworkMutation, isBusinessFi
 import { businessPracticeCommands, buildBusinessPracticeMutation, businessPracticeBootstrapStatements, getBusinessPracticeWorkspace, isBusinessPracticeCommand } from './businessPractice';
 import { businessReportingCommands, buildBusinessReportingMutation, isBusinessReportingCommand } from './businessReporting';
 import { businessPortalCredentialCommands, buildPortalCredentialReissueMutation } from './businessPortalCredentials';
-import { assertBusinessEngagementAccess, assertBusinessClientAccess } from './businessScope';
-export { assertBusinessEngagementAccess, assertBusinessClientAccess } from './businessScope';
-import { authEventStatement } from './auth/events';
 import { presentationEditionBlocker } from '../src/domain/reportingStandards';
 
 export const BUSINESS_SCHEMA_VERSION = 10;
@@ -41,7 +37,6 @@ export interface BusinessBootstrapResponse {
   workspaceId: string;
   staffMemberId: string;
   actorProfileId: string;
-  userAccountId?: string;
   replayed?: boolean;
 }
 
@@ -78,8 +73,7 @@ function replayBootstrap(receipt: BootstrapReceiptRow, requestHash: string): Bus
 export async function bootstrapBusinessWorkspace(
   env: Env,
   input: BusinessBootstrapInput,
-  idempotencyKey: string,
-  options: { oneTime?: boolean } = {}
+  idempotencyKey: string
 ): Promise<BusinessBootstrapResponse> {
   const requestHash = await sha256Hex(JSON.stringify(input));
   const keyHash = await sha256Hex(`auditsphere:business-bootstrap:${idempotencyKey}`);
@@ -89,18 +83,11 @@ export async function bootstrapBusinessWorkspace(
   const workspaceId = crypto.randomUUID();
   const staffMemberId = crypto.randomUUID();
   const actorProfileId = crypto.randomUUID();
-  const userAccountId = crypto.randomUUID();
-  const grantId = crypto.randomUUID();
-  const inviteTokenId = crypto.randomUUID();
-  const inviteJobId = crypto.randomUUID();
   const auditEventId = crypto.randomUUID();
   const auditHeadId = crypto.randomUUID();
   const now = Math.floor(Date.now() / 1000);
   const timestamp = new Date(now * 1000).toISOString();
-  const response: Omit<BusinessBootstrapResponse, 'replayed'> = { workspaceId, staffMemberId, actorProfileId, userAccountId };
-  const inviteTokenHash = await tokenHash(newOpaqueToken());
-  const inviteExpiresAt = new Date(now * 1000 + 7 * 24 * 60 * 60 * 1000).toISOString();
-  const invitePayload = JSON.stringify({ documentType: 'STAFF_INVITE', userAccountId, credentialTokenId: inviteTokenId });
+  const response: Omit<BusinessBootstrapResponse, 'replayed'> = { workspaceId, staffMemberId, actorProfileId };
   const details = JSON.stringify({ provenance: 'SYSTEM/BOOTSTRAP', dataMode: 'BUSINESS', scope: { clientId: null, engagementId: null } });
   const hashInput = JSON.stringify({
     id: auditEventId,
@@ -123,8 +110,6 @@ export async function bootstrapBusinessWorkspace(
         version,business_status,created_at_utc,updated_at_utc
       ) VALUES(?,NULL,?,?,1,'active',?,?,'BUSINESS','QAR','Asia/Qatar',1,'ACTIVE',?,?)`)
         .bind(workspaceId, input.name, BUSINESS_SCHEMA_VERSION, now, now, timestamp, timestamp),
-      ...(options.oneTime ? [env.DB.prepare(`INSERT INTO business_bootstrap_lock(singleton,workspace_id,created_at) VALUES(1,?,?)`)
-        .bind(workspaceId, timestamp)] : []),
       env.DB.prepare(`INSERT INTO staff_members(
         id,workspace_id,version,natural_person_key,display_name,email,grade,active,created_at,updated_at,created_by_actor_id,updated_by_actor_id
       ) VALUES(?,?,1,?,?,?,'PARTNER',1,?,?,NULL,NULL)`)
@@ -133,20 +118,6 @@ export async function bootstrapBusinessWorkspace(
         id,workspace_id,version,persona,staff_member_id,contact_id,active,created_at,updated_at
       ) VALUES(?,?,1,'APPROVER',?,NULL,1,?,?)`)
         .bind(actorProfileId, workspaceId, staffMemberId, timestamp, timestamp),
-      env.DB.prepare(`INSERT INTO user_accounts(id,workspace_id,version,kind,email_normalized,display_name,staff_member_id,contact_id,
-          status,external_issuer,external_subject,password_hash,password_must_change,is_firm_admin,created_by_actor_id,created_at,updated_at)
-        VALUES(?,?,1,'STAFF',?,?,?,NULL,'INVITED',NULL,NULL,NULL,0,1,NULL,?,?)`)
-        .bind(userAccountId, workspaceId, input.initialPartner.email, input.initialPartner.displayName, staffMemberId, timestamp, timestamp),
-      env.DB.prepare(`INSERT INTO user_profile_grants(id,workspace_id,user_account_id,actor_profile_id,granted_by_actor_id,granted_at)
-        VALUES(?,?,?, ?,NULL,?)`).bind(grantId, workspaceId, userAccountId, actorProfileId, timestamp),
-      env.DB.prepare(`INSERT INTO credential_tokens(id,workspace_id,user_account_id,purpose,token_sha256,expires_at,created_by_actor_id,created_at)
-        VALUES(?,?,?,'STAFF_INVITE',?,?,NULL,?)`).bind(inviteTokenId, workspaceId, userAccountId, inviteTokenHash, inviteExpiresAt, timestamp),
-      env.DB.prepare(`INSERT INTO outbox_jobs(id,workspace_id,version,kind,aggregate_id,aggregate_version,payload_json,deduplication_key,status,attempts,
-          next_attempt_at,lease_until,last_error_code,provider_reference,result_file_id,result_json,completed_at,created_at,updated_at)
-        VALUES(?,?,1,'EMAIL',?,1,?,?,'PENDING',0,?,NULL,NULL,NULL,NULL,NULL,NULL,?,?)`)
-        .bind(inviteJobId, workspaceId, userAccountId, invitePayload, `staff-invite:${inviteJobId}`, timestamp, timestamp, timestamp),
-      authEventStatement(env, { id: crypto.randomUUID(), workspaceId, userAccountId, event: 'INVITE_ISSUED',
-        detail: { credentialTokenId: inviteTokenId, outboxJobId: inviteJobId, expiresAt: inviteExpiresAt, source: 'FIRST_PARTNER_BOOTSTRAP' }, now: timestamp }),
       ...await businessPracticeBootstrapStatements(env, workspaceId, actorProfileId, timestamp),
       env.DB.prepare(`INSERT INTO audit_chain_heads(
         id,workspace_id,version,scope_kind,scope_id,last_sequence,last_event_hash,created_at,updated_at
@@ -171,10 +142,6 @@ export async function bootstrapBusinessWorkspace(
     // after confirming that the winning request had identical content.
     const raced = await findBootstrapReceipt(env, keyHash);
     if (raced) return replayBootstrap(raced, requestHash);
-    if (options.oneTime) {
-      const lock = await env.DB.prepare('SELECT workspace_id FROM business_bootstrap_lock WHERE singleton=1').first<{ workspace_id: string }>();
-      if (lock) throw new ApiError('GATE_BLOCKED', 'First-Partner bootstrap has already completed for this database.');
-    }
     throw error;
   }
 }
@@ -241,43 +208,6 @@ export async function listBusinessActorProfiles(env: Env, workspaceId: string): 
   return { items, nextCursor: null };
 }
 
-export async function listBusinessUsers(env: Env, workspaceId: string, request: Request): Promise<{ items: Array<Record<string, unknown>>; nextCursor: null }> {
-  const session = await resolveBusinessSession(env, request);
-  if (session.workspace_id !== workspaceId) throw new ApiError('NOT_FOUND', 'Workspace not found.');
-  if (session.kind !== 'STAFF' || session.is_firm_admin !== 1) {
-    throw new ApiError('PERSONA_ACTION_DENIED', 'Only a firm administrator can list workspace users.');
-  }
-  const accounts = await env.DB.prepare(`SELECT u.id,u.version,u.kind,u.email_normalized,u.display_name,u.status,u.is_firm_admin,
-      u.last_login_at,u.created_at,s.grade AS staff_grade,COALESCE(s.display_name,u.display_name) AS current_display_name
-    FROM user_accounts u LEFT JOIN staff_members s ON s.workspace_id=u.workspace_id AND s.id=u.staff_member_id
-    WHERE u.workspace_id=? ORDER BY current_display_name,u.email_normalized,u.id LIMIT 501`)
-    .bind(workspaceId).all<{ id: string; version: number; kind: string; email_normalized: string; display_name: string; status: string;
-      is_firm_admin: number; last_login_at: string | null; created_at: string; staff_grade: string | null; current_display_name: string }>();
-  if ((accounts.results ?? []).length > 500) throw new ApiError('UNAVAILABLE', 'The workspace user list exceeds the supported read limit.');
-  const grants = await env.DB.prepare(`SELECT g.id AS grant_id,g.user_account_id,g.actor_profile_id,g.granted_at,g.revoked_at,
-      ap.persona,COALESCE(sm.display_name,ct.full_name,'') AS profile_name,sm.grade AS staff_grade,ct.client_id
-    FROM user_profile_grants g JOIN actor_profiles ap ON ap.workspace_id=g.workspace_id AND ap.id=g.actor_profile_id
-    LEFT JOIN staff_members sm ON sm.workspace_id=ap.workspace_id AND sm.id=ap.staff_member_id
-    LEFT JOIN contacts ct ON ct.workspace_id=ap.workspace_id AND ct.id=ap.contact_id
-    WHERE g.workspace_id=? ORDER BY g.user_account_id,ap.persona,profile_name,g.id`).bind(workspaceId)
-    .all<{ grant_id: string; user_account_id: string; actor_profile_id: string; granted_at: string; revoked_at: string | null;
-      persona: BusinessPersona; profile_name: string; staff_grade: string | null; client_id: string | null }>();
-  const byUser = new Map<string, Array<Record<string, unknown>>>();
-  for (const grant of grants.results ?? []) {
-    const items = byUser.get(grant.user_account_id) ?? [];
-    items.push({ id: grant.grant_id, actorProfileId: grant.actor_profile_id, persona: grant.persona, displayName: grant.profile_name,
-      staffGrade: grant.staff_grade, clientId: grant.client_id, grantedAt: grant.granted_at, revokedAt: grant.revoked_at });
-    byUser.set(grant.user_account_id, items);
-  }
-  return {
-    items: (accounts.results ?? []).map(account => ({ id: account.id, version: account.version, kind: account.kind,
-      email: account.email_normalized, displayName: account.current_display_name, status: account.status,
-      isFirmAdmin: account.is_firm_admin === 1, lastLoginAt: account.last_login_at, createdAt: account.created_at,
-      staffGrade: account.staff_grade, grants: byUser.get(account.id) ?? [] })),
-    nextCursor: null
-  };
-}
-
 type BusinessReadContext = Pick<BusinessContext, 'actor' | 'scope' | 'allowedActions'>;
 type BusinessCursor = { kind: 'CLIENT' | 'LEAD'; sort: string; id: string };
 
@@ -324,19 +254,6 @@ export async function listBusinessClients(
     clauses.push('id=?');
     bindings.push(context.scope.clientId);
   }
-  if (isAssignmentScopedStaff(context)) {
-    if (!context.actor.staffMemberId) clauses.push('0=1');
-    else {
-      clauses.push(`(clients.created_by_actor_id=? OR EXISTS(SELECT 1 FROM engagements scoped_engagement
-        WHERE scoped_engagement.workspace_id=clients.workspace_id AND scoped_engagement.client_id=clients.id AND (
-          EXISTS(SELECT 1 FROM engagement_assignments scoped_assignment
-            WHERE scoped_assignment.workspace_id=scoped_engagement.workspace_id
-              AND scoped_assignment.engagement_id=scoped_engagement.id AND scoped_assignment.staff_member_id=?)
-          OR (?=1 AND scoped_engagement.lifecycle_state IN ('LEAD_INGESTION','PROPOSAL_GENERATION','DUAL_KEY_PENDING','ADVANCE_BILLING'))
-        )))`);
-      bindings.push(context.actor.id, context.actor.staffMemberId, hasCommercialEngagementAccess(context) ? 1 : 0);
-    }
-  }
   if (cursor) {
     clauses.push('(legal_name>? OR (legal_name=? AND id>?))');
     bindings.push(cursor.sort, cursor.sort, cursor.id);
@@ -376,13 +293,12 @@ export async function getBusinessClient(
 ): Promise<Record<string, unknown>> {
   const context = await resolveBusinessContext(env, workspaceId, request) as BusinessReadContext;
   if (!context.allowedActions.includes('client.read')) throw new ApiError('PERSONA_ACTION_DENIED', 'This persona cannot read client records.');
-  if (context.scope.clientId && context.scope.clientId !== clientId) throw new ApiError('FORBIDDEN_SCOPE', 'This client record is outside the active profile scope.');
+  if (context.scope.clientId && context.scope.clientId !== clientId) throw new ApiError('FORBIDDEN_SCOPE', 'This client record is outside the selected persona scope.');
   const row = await env.DB.prepare(`SELECT id,version,code,legal_name,trading_name,entity_type,parent_client_id,
       commercial_registration,tax_id,industry,address,country_code,active
     FROM clients WHERE workspace_id=? AND id=? AND active=1`).bind(workspaceId, clientId)
     .first<Record<string, unknown> & { id: string; version: number; legal_name: string }>();
   if (!row) throw new ApiError('NOT_FOUND', 'Active client not found.');
-  await assertBusinessClientAccess(env, workspaceId, context, clientId);
   if (context.actor.persona === 'CLIENT') {
     const profile = await env.DB.prepare(`SELECT contact_id FROM actor_profiles WHERE workspace_id=? AND id=? AND active=1`)
       .bind(workspaceId, context.actor.id).first<{ contact_id: string }>();
@@ -657,30 +573,6 @@ export interface BusinessContext {
   readOnlyReasons: string[];
 }
 
-const COMMERCIAL_ENGAGEMENT_STATES = ['LEAD_INGESTION', 'PROPOSAL_GENERATION', 'DUAL_KEY_PENDING', 'ADVANCE_BILLING'] as const;
-type BusinessScopeContext = Pick<BusinessContext, 'actor' | 'scope' | 'allowedActions'>;
-const ENGAGEMENT_SCOPED_MUTATION_ENTITIES = new Set([
-  'ENGAGEMENT', 'MILESTONE_SCHEDULE', 'ENGAGEMENT_ASSIGNMENT', 'MILESTONE', 'PROPOSAL_VERSION', 'DISPATCH',
-  'ENGAGEMENT_LETTER_DRAFT', 'ENGAGEMENT_LETTER', 'INVOICE', 'PAYMENT', 'PORTAL_CREDENTIAL_ISSUE',
-  'FILE_VERSION', 'PBC_REQUEST', 'PBC_SUBMISSION', 'PBC_REVIEW', 'CONTINUANCE_REVIEW', 'COMMERCIAL_ACCEPTANCE',
-  'RISK_ASSESSMENT_DRAFT', 'RISK_ASSESSMENT_VERSION', 'RISK_ESCALATION', 'RISK_CLEARANCE', 'TB_IMPORT', 'TB_VERSION',
-  'MAPPING_DRAFT', 'MAPPING_DRAFT_LINE', 'MAPPING_VERSION', 'MATERIALITY_VERSION', 'FSLI_RISK', 'PLANNING_VERSION',
-  'PLANNING_SIGNOFF', 'STATEMENT_SNAPSHOT', 'GOING_CONCERN_ASSESSMENT', 'EVIDENCE', 'EVIDENCE_ADEQUACY_DECISION',
-  'EVIDENCE_LINK', 'EVIDENCE_UNLINK', 'FINDING', 'PROCEDURE', 'WORKPROGRAM', 'ANALYTICAL_REVIEW', 'SAMPLE_POPULATION',
-  'SAMPLE_TEST', 'SAMPLING_PLAN', 'SAMPLING_EVALUATION', 'AUDIT_ADJUSTMENT', 'AUDIT_DIFFERENCE', 'REVIEW_SUBMISSION',
-  'REVIEW_NOTE', 'CONFIRMATION', 'CONFIRMATION_FOLLOWUP', 'CONFIRMATION_ALTERNATIVE_PROCEDURE',
-  'CONFIRMATION_SCOPE_REASSESSMENT', 'CONFIRMATION_GATE', 'SRM', 'SRM_CLEARANCE', 'TIME_ENTRY', 'TIME_CORRECTION',
-  'PAYMENT_ALLOCATION', 'PAYMENT_ALLOCATION_REVERSAL', 'CREDIT_NOTE'
-]);
-
-function hasCommercialEngagementAccess(context: BusinessScopeContext): boolean {
-  return context.allowedActions.some(action => action.startsWith('proposal.') || action.startsWith('lead.') || action === 'billing.read');
-}
-
-function isAssignmentScopedStaff(context: BusinessScopeContext): boolean {
-  return context.actor.persona === 'PREPARER' || context.actor.persona === 'REVIEWER';
-}
-
 async function findBusinessActorProfile(env: Env, workspaceId: string, actorId: string): Promise<BusinessActorProfileRow | null> {
   return env.DB.prepare(`${actorProfileSelect} WHERE ap.workspace_id=? AND ap.id=?`)
     .bind(workspaceId, actorId).first<BusinessActorProfileRow>();
@@ -708,17 +600,24 @@ export async function resolveBusinessSession(env: Env, request: Request): Promis
   return pending;
 }
 
-/** Resolves the actor only from the authenticated session; browser identity claims are never trusted. */
+/** Resolves each request from its authenticated session; legacy actor headers are assertions only. */
 export async function resolveBusinessContext(env: Env, workspaceId: string, request: Request): Promise<BusinessContext> {
   const session = await resolveBusinessSession(env, request);
   if (session.workspace_id !== workspaceId) throw new ApiError('NOT_FOUND', 'Workspace not found.');
   await requireBusinessWorkspace(env, workspaceId);
   const actorId = session.active_actor_profile_id;
   if (!actorId) throw new ApiError('PERSONA_ACTION_DENIED', 'Choose an active profile before using this workspace.', { code: 'PROFILE_SELECTION_REQUIRED' });
+  const suppliedActorId = request.headers.get('X-Actor-Id')?.trim();
+  const requestedPersona = request.headers.get('X-Active-Persona')?.trim();
+  if ((suppliedActorId && suppliedActorId !== actorId)) throw new ApiError('PERSONA_ACTION_DENIED', 'The request actor does not match the signed-in session.');
   const row = await findBusinessActorProfile(env, workspaceId, actorId);
   if (!row || !isUsableProfile(row)) {
     throw new ApiError('DISABLED_IDENTITY', 'That actor profile is unavailable. Select another configured profile.');
   }
+  if (requestedPersona && requestedPersona !== row.persona) {
+    throw new ApiError('PERSONA_ACTION_DENIED', 'The selected persona does not match this actor profile.');
+  }
+
   const requestedClientId = request.headers.get('X-Client-Id')?.trim() || null;
   const requestedEngagementId = request.headers.get('X-Engagement-Id')?.trim() || null;
   const actorClientId = row.persona === 'CLIENT' ? row.clientId : null;
@@ -734,13 +633,7 @@ export async function resolveBusinessContext(env: Env, workspaceId: string, requ
   }
 
   const isClient = row.persona === 'CLIENT';
-  const allowedActions = row.persona === 'APPROVER' && row.staffGrade === 'PARTNER'
-      ? ['directory.manage', 'client.read', 'client.manage', 'lead.read', 'lead.manage', 'lead.convert', 'engagement.read', 'engagement.advance', 'standards.read', 'standards.manage', 'file.read', 'file.upload', 'proposal.read', 'proposal.create', 'proposal.generate', 'proposal.approve', 'proposal.dispatch', 'firm.manage', 'risk.read', 'riskAssessment.draft', 'riskAssessment.submit', 'riskAssessment.resolveEscalation', 'risk.clear', 'commercialAcceptance.read', 'engagementLetter.manage', 'invoice.issue', 'payment.record', 'payment.reverse', 'billing.read', 'pbc.read', 'pbc.manage', 'pbc.review', 'planning.read', 'staffing.manage', 'tb.manage', 'fieldwork.read', 'fieldwork.manage', 'fieldwork.review', 'sampling.manage', 'evidence.review', 'practice.read', 'practice.manage', 'practice.approve', 'ledger.read', 'ledger.manage', 'ledger.post', 'reporting.read', 'reporting.prepare', 'reporting.approve', 'reporting.release']
-      : row.persona === 'PREPARER' ? ['client.read', 'client.manage', 'lead.read', 'lead.manage', 'lead.convert', 'engagement.read', 'engagement.advance', 'standards.read', 'file.read', 'file.upload', 'proposal.read', 'proposal.create', 'proposal.generate', 'risk.read', 'riskAssessment.draft', 'riskAssessment.submit', 'commercialAcceptance.read', 'billing.read', 'pbc.read', 'pbc.manage', 'planning.read', 'tb.manage', 'fieldwork.read', 'fieldwork.manage', 'practice.read', 'practice.time', 'reporting.read']
-        : row.persona === 'REVIEWER' ? ['client.read', 'lead.read', 'engagement.read', 'standards.read', 'file.read', 'file.upload', 'proposal.read', 'proposal.create', 'proposal.generate', 'risk.read', 'riskAssessment.draft', 'riskAssessment.submit', 'riskAssessment.escalate', 'commercialAcceptance.read', 'invoice.issue', 'payment.record', 'payment.reverse', 'billing.read', 'pbc.read', 'pbc.manage', 'pbc.review', 'planning.read', 'staffing.manage', 'tb.manage', 'fieldwork.read', 'fieldwork.manage', 'fieldwork.review', 'sampling.manage', 'evidence.review', 'practice.read', 'practice.approve', 'ledger.read', 'ledger.post', 'reporting.read', 'reporting.prepare', 'reporting.approve']
-          : ['client.read', 'engagement.read', 'file.read', 'file.upload', 'proposal.read', 'commercialAcceptance.read', 'commercialAcceptance.record', 'commercialAcceptance.revoke', 'billing.read', 'pbc.read', 'pbc.submit', 'reporting.read'];
-  if (!isClient && session.is_firm_admin === 1) allowedActions.push('firm.admin');
-  const context: BusinessContext = {
+  return {
     actor: {
       id: row.id,
       persona: row.persona,
@@ -750,13 +643,13 @@ export async function resolveBusinessContext(env: Env, workspaceId: string, requ
       staffMemberId: isClient ? null : row.staffMemberId
     },
     scope: { clientId, engagementId: requestedEngagementId },
-    allowedActions,
+    allowedActions: row.persona === 'APPROVER' && row.staffGrade === 'PARTNER'
+      ? ['directory.manage', 'client.read', 'client.manage', 'lead.read', 'lead.manage', 'lead.convert', 'engagement.read', 'engagement.advance', 'standards.read', 'standards.manage', 'file.read', 'file.upload', 'proposal.read', 'proposal.create', 'proposal.generate', 'proposal.approve', 'proposal.dispatch', 'firm.manage', 'risk.read', 'riskAssessment.draft', 'riskAssessment.submit', 'riskAssessment.resolveEscalation', 'risk.clear', 'commercialAcceptance.read', 'engagementLetter.manage', 'invoice.issue', 'payment.record', 'payment.reverse', 'billing.read', 'pbc.read', 'pbc.manage', 'pbc.review', 'planning.read', 'staffing.manage', 'tb.manage', 'fieldwork.read', 'fieldwork.manage', 'fieldwork.review', 'sampling.manage', 'evidence.review', 'practice.read', 'practice.manage', 'practice.approve', 'ledger.read', 'ledger.manage', 'ledger.post', 'reporting.read', 'reporting.prepare', 'reporting.approve', 'reporting.release']
+      : row.persona === 'PREPARER' ? ['client.read', 'client.manage', 'lead.read', 'lead.manage', 'lead.convert', 'engagement.read', 'engagement.advance', 'standards.read', 'file.read', 'file.upload', 'proposal.read', 'proposal.create', 'proposal.generate', 'risk.read', 'riskAssessment.draft', 'riskAssessment.submit', 'commercialAcceptance.read', 'billing.read', 'pbc.read', 'pbc.manage', 'planning.read', 'tb.manage', 'fieldwork.read', 'fieldwork.manage', 'practice.read', 'practice.time', 'reporting.read']
+        : row.persona === 'REVIEWER' ? ['client.read', 'lead.read', 'engagement.read', 'standards.read', 'file.read', 'file.upload', 'proposal.read', 'proposal.create', 'proposal.generate', 'risk.read', 'riskAssessment.draft', 'riskAssessment.submit', 'riskAssessment.escalate', 'commercialAcceptance.read', 'invoice.issue', 'payment.record', 'payment.reverse', 'billing.read', 'pbc.read', 'pbc.manage', 'pbc.review', 'planning.read', 'staffing.manage', 'tb.manage', 'fieldwork.read', 'fieldwork.manage', 'fieldwork.review', 'sampling.manage', 'evidence.review', 'practice.read', 'practice.approve', 'ledger.read', 'ledger.post', 'reporting.read', 'reporting.prepare', 'reporting.approve']
+          : ['client.read', 'engagement.read', 'file.read', 'file.upload', 'proposal.read', 'commercialAcceptance.read', 'commercialAcceptance.record', 'commercialAcceptance.revoke', 'billing.read', 'pbc.read', 'pbc.submit', 'reporting.read'],
     readOnlyReasons: isClient ? ['CLIENT_PROJECTION_ONLY'] : []
   };
-  if (requestedEngagementId && !isClient) {
-    await assertBusinessEngagementAccess(env, workspaceId, context, requestedEngagementId);
-  }
-  return context;
 }
 
 interface BusinessChangeEventRow {
@@ -844,64 +737,12 @@ async function businessCommandScope(
     const ownerScopeQueryByEntity: Record<string, string> = {
       CONTACT: `SELECT client_id,NULL AS engagement_id FROM contacts WHERE workspace_id=? AND id=?`,
       CONTACT_ROUTE: `SELECT client_id,NULL AS engagement_id FROM contact_routes WHERE workspace_id=? AND id=?`,
-      CLIENT_AFFILIATION: `SELECT client_id,NULL AS engagement_id FROM client_affiliations WHERE workspace_id=? AND id=?`,
       LEAD: `SELECT client_id,converted_engagement_id AS engagement_id FROM leads WHERE workspace_id=? AND id=?`,
       ENGAGEMENT: `SELECT client_id,id AS engagement_id FROM engagements WHERE workspace_id=? AND id=?`,
-      MILESTONE_SCHEDULE: `SELECT client_id,id AS engagement_id FROM engagements WHERE workspace_id=? AND id=?`,
-      ENGAGEMENT_ASSIGNMENT: `SELECT client_id,engagement_id FROM engagement_assignments WHERE workspace_id=? AND id=?`,
-      MILESTONE: `SELECT client_id,engagement_id FROM milestones WHERE workspace_id=? AND id=?`,
-      PROPOSAL_VERSION: `SELECT client_id,engagement_id FROM proposal_versions WHERE workspace_id=? AND id=?`,
-      DISPATCH: `SELECT client_id,engagement_id FROM dispatches WHERE workspace_id=? AND id=?`,
-      ENGAGEMENT_LETTER_DRAFT: `SELECT client_id,engagement_id FROM engagement_letter_drafts WHERE workspace_id=? AND id=?`,
-      ENGAGEMENT_LETTER: `SELECT client_id,engagement_id FROM engagement_letters WHERE workspace_id=? AND id=?`,
-      INVOICE: `SELECT client_id,engagement_id FROM invoices WHERE workspace_id=? AND id=?`,
-      PAYMENT: `SELECT client_id,engagement_id FROM payments WHERE workspace_id=? AND id=?`,
-      PAYMENT_ALLOCATION: `SELECT client_id,engagement_id FROM payments WHERE workspace_id=? AND id=?`,
-      PAYMENT_ALLOCATION_REVERSAL: `SELECT a.client_id,a.engagement_id FROM payment_allocation_reversals r
-        JOIN payment_allocations a ON a.workspace_id=r.workspace_id AND a.id=r.allocation_id WHERE r.workspace_id=? AND r.id=?`,
-      CREDIT_NOTE: `SELECT client_id,engagement_id FROM firm_credit_notes WHERE workspace_id=? AND id=?`,
-      TIME_ENTRY: `SELECT client_id,engagement_id FROM firm_time_entries WHERE workspace_id=? AND id=?`,
-      TIME_CORRECTION: `SELECT t.client_id,t.engagement_id FROM firm_time_corrections c
-        JOIN firm_time_entries t ON t.workspace_id=c.workspace_id AND t.id=c.original_time_entry_id WHERE c.workspace_id=? AND c.id=?`,
-      PORTAL_CREDENTIAL_ISSUE: `SELECT client_id,engagement_id FROM portal_credential_issues WHERE workspace_id=? AND id=?`,
-      PBC_SUBMISSION: `SELECT r.client_id,r.engagement_id FROM pbc_submissions s JOIN pbc_requests r ON r.workspace_id=s.workspace_id AND r.id=s.request_id WHERE s.workspace_id=? AND s.id=?`,
-      PBC_REVIEW: `SELECT r.client_id,r.engagement_id FROM pbc_reviews v JOIN pbc_requests r ON r.workspace_id=v.workspace_id AND r.id=v.request_id WHERE v.workspace_id=? AND v.id=?`,
-      CONTINUANCE_REVIEW: `SELECT client_id,engagement_id FROM continuance_reviews WHERE workspace_id=? AND id=?`,
-      COMMERCIAL_ACCEPTANCE: `SELECT client_id,engagement_id FROM commercial_acceptances WHERE workspace_id=? AND id=?`,
-      RISK_ASSESSMENT_VERSION: `SELECT client_id,engagement_id FROM risk_assessment_versions WHERE workspace_id=? AND id=?`,
-      RISK_ESCALATION: `SELECT client_id,engagement_id FROM risk_escalations WHERE workspace_id=? AND id=?`,
-      RISK_CLEARANCE: `SELECT client_id,engagement_id FROM risk_clearances WHERE workspace_id=? AND id=?`,
-      TB_IMPORT: `SELECT client_id,engagement_id FROM tb_imports WHERE workspace_id=? AND id=?`,
-      TB_VERSION: `SELECT client_id,engagement_id FROM tb_versions WHERE workspace_id=? AND id=?`,
-      MAPPING_DRAFT: `SELECT client_id,engagement_id FROM mapping_drafts WHERE workspace_id=? AND id=?`,
-      MAPPING_DRAFT_LINE: `SELECT d.client_id,d.engagement_id FROM mapping_draft_lines l JOIN mapping_drafts d ON d.workspace_id=l.workspace_id AND d.id=l.draft_id WHERE l.workspace_id=? AND l.id=?`,
-      MAPPING_VERSION: `SELECT client_id,engagement_id FROM mapping_versions WHERE workspace_id=? AND id=?`,
-      MATERIALITY_VERSION: `SELECT client_id,engagement_id FROM materiality_versions WHERE workspace_id=? AND id=?`,
-      FSLI_RISK: `SELECT client_id,engagement_id FROM fsli_risks WHERE workspace_id=? AND id=?`,
-      PLANNING_VERSION: `SELECT client_id,engagement_id FROM planning_versions WHERE workspace_id=? AND id=?`,
-      PLANNING_SIGNOFF: `SELECT p.client_id,p.engagement_id FROM planning_signoffs s JOIN planning_versions p ON p.workspace_id=s.workspace_id AND p.id=s.planning_version_id WHERE s.workspace_id=? AND s.id=?`,
-      STATEMENT_SNAPSHOT: `SELECT client_id,engagement_id FROM statement_snapshots WHERE workspace_id=? AND id=?`,
-      GOING_CONCERN_ASSESSMENT: `SELECT client_id,engagement_id FROM going_concern_assessments WHERE workspace_id=? AND id=?`,
-      EVIDENCE: `SELECT client_id,engagement_id FROM evidence_records WHERE workspace_id=? AND id=?`,
-      EVIDENCE_ADEQUACY_DECISION: `SELECT e.client_id,e.engagement_id FROM evidence_adequacy_decisions d JOIN evidence_records e ON e.workspace_id=d.workspace_id AND e.id=d.evidence_id WHERE d.workspace_id=? AND d.id=?`,
-      EVIDENCE_LINK: `SELECT client_id,engagement_id FROM evidence_links WHERE workspace_id=? AND id=?`,
-      EVIDENCE_UNLINK: `SELECT e.client_id,e.engagement_id FROM evidence_unlinks u JOIN evidence_links l ON l.workspace_id=u.workspace_id AND l.id=u.evidence_link_id JOIN evidence_records e ON e.workspace_id=l.workspace_id AND e.id=l.evidence_id WHERE u.workspace_id=? AND u.id=?`,
-      FINDING: `SELECT client_id,engagement_id FROM findings WHERE workspace_id=? AND id=?`,
-      REVIEW_SUBMISSION: `SELECT client_id,engagement_id FROM review_submissions WHERE workspace_id=? AND id=?`,
-      REVIEW_NOTE: `SELECT s.client_id,s.engagement_id FROM review_notes n JOIN review_submissions s ON s.workspace_id=n.workspace_id AND s.id=n.submission_id WHERE n.workspace_id=? AND n.id=?`,
-      AUDIT_DIFFERENCE: `SELECT client_id,engagement_id FROM audit_differences WHERE workspace_id=? AND id=?`,
-      CONFIRMATION: `SELECT client_id,engagement_id FROM confirmations WHERE workspace_id=? AND id=?`,
-      CONFIRMATION_FOLLOWUP: `SELECT c.client_id,c.engagement_id FROM confirmation_followups f JOIN confirmations c ON c.workspace_id=f.workspace_id AND c.id=f.confirmation_id WHERE f.workspace_id=? AND f.id=?`,
-      CONFIRMATION_ALTERNATIVE_PROCEDURE: `SELECT c.client_id,c.engagement_id FROM confirmation_alternative_procedures a JOIN confirmations c ON c.workspace_id=a.workspace_id AND c.id=a.confirmation_id WHERE a.workspace_id=? AND a.id=?`,
-      CONFIRMATION_SCOPE_REASSESSMENT: `SELECT client_id,engagement_id FROM confirmation_scope_reassessments WHERE workspace_id=? AND id=?`,
-      CONFIRMATION_GATE: `SELECT client_id,id AS engagement_id FROM engagements WHERE workspace_id=? AND id=?`,
-      SRM: `SELECT client_id,engagement_id FROM srm_versions WHERE workspace_id=? AND id=?`,
-      SRM_CLEARANCE: `SELECT s.client_id,s.engagement_id FROM srm_clearances c JOIN srm_versions s ON s.workspace_id=c.workspace_id AND s.id=c.srm_version_id WHERE c.workspace_id=? AND c.id=?`,
       PROCEDURE: `SELECT w.client_id,w.engagement_id FROM procedures p JOIN workprograms w ON w.workspace_id=p.workspace_id AND w.id=p.workprogram_id WHERE p.workspace_id=? AND p.id=?`,
       WORKPROGRAM: `SELECT client_id,engagement_id FROM workprograms WHERE workspace_id=? AND id=?`,
       SAMPLE_POPULATION: `SELECT client_id,engagement_id FROM sample_populations WHERE workspace_id=? AND id=?`,
       SAMPLE_TEST: `SELECT pop.client_id,pop.engagement_id FROM sample_tests t JOIN sampling_plans sp ON sp.workspace_id=t.workspace_id AND sp.id=t.plan_id JOIN sample_populations pop ON pop.workspace_id=sp.workspace_id AND pop.id=sp.population_id WHERE t.workspace_id=? AND t.id=?`,
-      SAMPLING_EVALUATION: `SELECT pop.client_id,pop.engagement_id FROM sampling_evaluations v JOIN sampling_plans sp ON sp.workspace_id=v.workspace_id AND sp.id=v.plan_id JOIN sample_populations pop ON pop.workspace_id=sp.workspace_id AND pop.id=sp.population_id WHERE v.workspace_id=? AND v.id=?`,
       SAMPLING_PLAN: `SELECT pop.client_id,pop.engagement_id FROM sampling_plans sp JOIN sample_populations pop ON pop.workspace_id=sp.workspace_id AND pop.id=sp.population_id WHERE sp.workspace_id=? AND sp.id=?`,
       AUDIT_ADJUSTMENT: `SELECT client_id,engagement_id FROM audit_adjustments WHERE workspace_id=? AND id=?`,
       ANALYTICAL_REVIEW: `SELECT client_id,engagement_id FROM analytical_reviews WHERE workspace_id=? AND id=?`,
@@ -918,10 +759,6 @@ async function businessCommandScope(
         known = true;
       }
     }
-  }
-
-  if (!known && isAssignmentScopedStaff(context) && ENGAGEMENT_SCOPED_MUTATION_ENTITIES.has(mutation.entityType)) {
-    throw new ApiError('FORBIDDEN_SCOPE', 'The command could not be tied to an engagement assigned to this staff member.');
   }
 
   if (context.actor.persona === 'CLIENT' && context.actor.clientId !== clientId) {
@@ -971,7 +808,6 @@ export async function getBusinessChanges(
   const engagementId = context.scope.engagementId ?? queryEngagementId;
   let clientId = context.scope.clientId ?? context.actor.clientId;
   if (engagementId) {
-    await assertBusinessEngagementAccess(env, workspaceId, context, engagementId);
     const engagement = await env.DB.prepare(`SELECT client_id FROM engagements WHERE workspace_id=? AND id=?`)
       .bind(workspaceId, engagementId).first<{ client_id: string }>();
     if (!engagement) throw new ApiError('NOT_FOUND', 'The engagement was not found in this workspace.');
@@ -1097,26 +933,6 @@ const actorProfileDeactivate = z.strictObject({
 const userUnlockCommand = z.strictObject({
   type: z.literal('user.unlock'),
   payload: z.strictObject({ userAccountId: z.string().trim().min(1).max(120), expectedVersion: z.number().int().positive() })
-});
-const userInviteStaffCommand = z.strictObject({
-  type: z.literal('user.inviteStaff'),
-  payload: z.strictObject({ staffMemberId: staffIdSchema, email: emailSchema })
-});
-const userGrantProfileCommand = z.strictObject({
-  type: z.literal('user.grantProfile'),
-  payload: z.strictObject({ userAccountId: z.string().trim().min(1).max(120), actorProfileId: staffIdSchema, expectedVersion: z.number().int().positive() })
-});
-const userRevokeProfileCommand = z.strictObject({
-  type: z.literal('user.revokeProfile'),
-  payload: z.strictObject({ grantId: staffIdSchema })
-});
-const userDisableCommand = z.strictObject({
-  type: z.literal('user.disable'),
-  payload: z.strictObject({ userAccountId: z.string().trim().min(1).max(120), expectedVersion: z.number().int().positive(), reason: z.string().trim().min(10).max(1000) })
-});
-const userEnableCommand = z.strictObject({
-  type: z.literal('user.enable'),
-  payload: z.strictObject({ userAccountId: z.string().trim().min(1).max(120), expectedVersion: z.number().int().positive(), reason: z.string().trim().min(10).max(1000) })
 });
 
 const clientCreateCommand = z.strictObject({
@@ -1459,11 +1275,6 @@ export const businessCommandSchema = z.discriminatedUnion('type', [
   staffActorAssignment,
   actorProfileDeactivate,
   userUnlockCommand,
-  userInviteStaffCommand,
-  userGrantProfileCommand,
-  userRevokeProfileCommand,
-  userDisableCommand,
-  userEnableCommand,
   clientCreateCommand,
   clientUpdateCommand,
   clientDeactivateCommand,
@@ -1512,6 +1323,7 @@ const expectedVersionSchema = z.strictObject({
 });
 
 export const businessCommandEnvelopeSchema = z.strictObject({
+  actor: z.strictObject({ persona: z.enum(['PREPARER', 'REVIEWER', 'APPROVER', 'CLIENT']), actorId: z.uuid() }),
   context: z.strictObject({ clientId: clientIdSchema.optional(), engagementId: clientIdSchema.optional() }).default({}),
   expectedVersions: z.array(expectedVersionSchema).max(20).default([]),
   command: businessCommandSchema
@@ -1520,10 +1332,7 @@ export const businessCommandEnvelopeSchema = z.strictObject({
 type BusinessCommandBody = z.infer<typeof businessCommandEnvelopeSchema>;
 export type BusinessCommandEnvelope = BusinessCommandBody & { idempotencyKey: string };
 type BusinessCommand = BusinessCommandBody['command'];
-type BusinessUserAdminCommand = Extract<BusinessCommand, { type: 'user.unlock' | 'user.inviteStaff' | 'user.grantProfile'
-  | 'user.revokeProfile' | 'user.disable' | 'user.enable' }>;
-type BusinessDirectoryCommand = Extract<BusinessCommand, { type: 'staff.create' | 'staff.update' | 'actor-profile.assign' | 'actor-profile.deactivate'
-  | 'user.unlock' | 'user.inviteStaff' | 'user.grantProfile' | 'user.revokeProfile' | 'user.disable' | 'user.enable' }>;
+type BusinessDirectoryCommand = Extract<BusinessCommand, { type: 'staff.create' | 'staff.update' | 'actor-profile.assign' | 'actor-profile.deactivate' | 'user.unlock' }>;
 type BusinessFileCommand = Extract<BusinessCommand, { type: 'file.reserve' | 'file.stage' | 'file.commit' | 'file.reject' }>;
 type BusinessPbcCommand = Extract<BusinessCommand, { type: 'pbc.request.create' | 'pbc.submit' | 'pbc.review' }>;
 type BusinessProposalCommand = Extract<BusinessCommand, { type: 'firm-profile.save' | 'team-cv.attach' | 'team-cv.approve' | 'proposal.create' | 'proposal.revise' | 'proposal.generate' | 'proposal.generate.retry' | 'proposal.approve' | 'proposal.dispatch' | 'proposal.dispatch.recordManual' | 'proposal.dispatch.retry' }>;
@@ -1536,12 +1345,7 @@ type BusinessCommercialCommand = Exclude<BusinessCommand, BusinessDirectoryComma
 
 function isBusinessDirectoryCommand(command: BusinessCommand): command is BusinessDirectoryCommand {
   return command.type === 'staff.create' || command.type === 'staff.update'
-    || command.type === 'actor-profile.assign' || command.type === 'actor-profile.deactivate' || isBusinessUserAdminCommand(command);
-}
-
-function isBusinessUserAdminCommand(command: BusinessCommand): command is BusinessUserAdminCommand {
-  return command.type === 'user.unlock' || command.type === 'user.inviteStaff' || command.type === 'user.grantProfile'
-    || command.type === 'user.revokeProfile' || command.type === 'user.disable' || command.type === 'user.enable';
+    || command.type === 'actor-profile.assign' || command.type === 'actor-profile.deactivate' || command.type === 'user.unlock';
 }
 
 function isBusinessFileCommand(command: BusinessCommand): command is BusinessFileCommand {
@@ -1590,8 +1394,6 @@ export function parseBusinessCommandEnvelope(value: unknown, idempotencyKey: str
   const command = parsed.data.command;
   const versionTarget = command.type === 'staff.update' ? { entity: 'StaffMember', id: command.payload.staffMemberId, version: command.payload.expectedVersion }
     : command.type === 'actor-profile.deactivate' ? { entity: 'ActorProfile', id: command.payload.actorProfileId, version: command.payload.expectedVersion }
-      : command.type === 'user.grantProfile' || command.type === 'user.disable' || command.type === 'user.enable'
-        ? { entity: 'UserAccount', id: command.payload.userAccountId, version: command.payload.expectedVersion }
       : command.type === 'client.update' || command.type === 'client.deactivate' ? { entity: 'Client', id: command.payload.clientId, version: command.payload.expectedVersion }
         : command.type === 'contact.update' ? { entity: 'Contact', id: command.payload.contactId, version: command.payload.expectedVersion }
           : command.type === 'lead.update' || command.type === 'lead.lose' || command.type === 'lead.convert'
@@ -1636,9 +1438,12 @@ export function businessEnvelopeFromRequest(
   command: unknown,
   expectedVersions: Array<{ entity: string; id: string; version: number }> = []
 ): BusinessCommandEnvelope {
+  const actorId = request.headers.get('X-Actor-Id');
+  const persona = request.headers.get('X-Active-Persona');
   const clientId = request.headers.get('X-Client-Id');
   const engagementId = request.headers.get('X-Engagement-Id');
   return parseBusinessCommandEnvelope({
+    actor: { actorId, persona },
     context: {
       ...(clientId ? { clientId } : {}),
       ...(engagementId ? { engagementId } : {})
@@ -1665,10 +1470,10 @@ function replayCommand(receipt: CommandReceiptRow, requestHash: string): Record<
   return { ...(JSON.parse(receipt.response_json) as Record<string, unknown>), replayed: true };
 }
 
-function businessRequestHash(envelope: BusinessCommandEnvelope, actor: BusinessContext['actor']): Promise<string> {
+function businessRequestHash(envelope: BusinessCommandEnvelope): Promise<string> {
   return sha256Hex(JSON.stringify({
     command: envelope.command,
-    actor: { id: actor.id, persona: actor.persona },
+    actor: envelope.actor,
     context: envelope.context,
     expectedVersions: envelope.expectedVersions
   }));
@@ -1677,13 +1482,10 @@ function businessRequestHash(envelope: BusinessCommandEnvelope, actor: BusinessC
 export async function findBusinessCommandReplay(
   env: Env,
   workspaceId: string,
-  request: Request,
   envelope: BusinessCommandEnvelope
 ): Promise<Record<string, unknown> | null> {
   const prior = await findCommandReceipt(env, workspaceId, envelope.idempotencyKey);
-  if (!prior) return null;
-  const context = await resolveBusinessContext(env, workspaceId, request);
-  return replayCommand(prior, await businessRequestHash(envelope, context.actor));
+  return prior ? replayCommand(prior, await businessRequestHash(envelope)) : null;
 }
 
 function requireDirectoryApprover(context: BusinessContext): void {
@@ -1729,13 +1531,13 @@ async function buildDirectoryMutation(
 ): Promise<BusinessMutation> {
   const actorId = context.actor.id;
 
-  if (isBusinessUserAdminCommand(command)) {
+  if (command.type === 'user.unlock') {
     const session = await resolveBusinessSession(env, request);
-    if (session.kind !== 'STAFF' || session.is_firm_admin !== 1 || !context.allowedActions.includes('firm.admin')) {
-      throw new ApiError('PERSONA_ACTION_DENIED', 'Only an active firm administrator can manage workspace users.');
+    const administrator = await env.DB.prepare(`SELECT kind,status,is_firm_admin FROM user_accounts WHERE workspace_id=? AND id=?`)
+      .bind(workspaceId, session.user_account_id).first<{ kind: string; status: string; is_firm_admin: number }>();
+    if (!administrator || administrator.kind !== 'STAFF' || administrator.status !== 'ACTIVE' || administrator.is_firm_admin !== 1) {
+      throw new ApiError('PERSONA_ACTION_DENIED', 'Only an active firm administrator can unlock a client portal account.');
     }
-
-    if (command.type === 'user.unlock') {
     const target = await env.DB.prepare(`SELECT id,version,kind,status FROM user_accounts WHERE workspace_id=? AND id=?`)
       .bind(workspaceId, command.payload.userAccountId).first<{ id: string; version: number; kind: string; status: string }>();
     if (!target) throw new ApiError('NOT_FOUND', 'Client account not found.');
@@ -1757,287 +1559,6 @@ async function buildDirectoryMutation(
       result: { userAccountId: target.id, version: expected + 1 }, entityType: 'USER_ACCOUNT', entityId: target.id,
       beforeVersion: expected, afterVersion: expected + 1
     };
-    }
-
-    if (command.type === 'user.inviteStaff') {
-      const { staffMemberId, email } = command.payload;
-      const staff = await env.DB.prepare(`SELECT id,version,active,email,grade,display_name FROM staff_members
-        WHERE workspace_id=? AND id=?`).bind(workspaceId, staffMemberId)
-        .first<{ id: string; version: number; active: number; email: string | null; grade: string; display_name: string }>();
-      if (!staff || staff.active !== 1) throw new ApiError('NOT_FOUND', 'Active staff member not found.');
-      if (staff.email && staff.email.trim().toLowerCase() !== email) {
-        throw new ApiError('VERSION_CONFLICT', 'Update the staff member email before sending an invitation to a different address.');
-      }
-      const emailOwner = await env.DB.prepare(`SELECT id,staff_member_id FROM user_accounts WHERE workspace_id=? AND email_normalized=?`)
-        .bind(workspaceId, email).first<{ id: string; staff_member_id: string | null }>();
-      if (emailOwner && emailOwner.staff_member_id !== staffMemberId) {
-        throw new ApiError('VERSION_CONFLICT', 'That email address is already assigned to another workspace user.');
-      }
-      const existing = await env.DB.prepare(`SELECT id,version,email_normalized,status FROM user_accounts
-        WHERE workspace_id=? AND kind='STAFF' AND staff_member_id=?`)
-        .bind(workspaceId, staffMemberId).first<{ id: string; version: number; email_normalized: string; status: string }>();
-      if (existing && (existing.status !== 'INVITED' || existing.email_normalized !== email)) {
-        throw new ApiError('VERSION_CONFLICT', 'This staff member already has an account. Use enable or grantProfile to manage it.');
-      }
-      const accountId = existing?.id ?? crypto.randomUUID();
-      const nextAccountVersion = existing ? existing.version + 1 : 1;
-      const tokenId = crypto.randomUUID();
-      const jobId = crypto.randomUUID();
-      const credentialHash = await tokenHash(newOpaqueToken());
-      const expiresAt = new Date(Date.parse(now) + 7 * 24 * 60 * 60 * 1000).toISOString();
-      const payload = JSON.stringify({ documentType: 'STAFF_INVITE', userAccountId: accountId, credentialTokenId: tokenId });
-      const statements: D1PreparedStatement[] = [
-        env.DB.prepare(`INSERT INTO command_assertions(workspace_id,seq,ok)
-          SELECT ?,13,CASE WHEN EXISTS(SELECT 1 FROM staff_members WHERE workspace_id=? AND id=? AND version=? AND active=1
-            AND (email IS NULL OR lower(trim(email))=?)) THEN 1 ELSE 0 END`)
-          .bind(workspaceId, workspaceId, staffMemberId, staff.version, email),
-        ...(staff.email ? [] : [env.DB.prepare(`UPDATE staff_members SET email=?,version=version+1,updated_at=?,updated_by_actor_id=?
-          WHERE workspace_id=? AND id=? AND version=? AND active=1 AND email IS NULL`)
-          .bind(email, now, actorId, workspaceId, staffMemberId, staff.version)]),
-        ...(existing
-          ? [env.DB.prepare(`UPDATE user_accounts SET version=version+1,updated_at=?
-              WHERE workspace_id=? AND id=? AND version=? AND status='INVITED' AND email_normalized=?`)
-              .bind(now, workspaceId, accountId, existing.version, email)]
-          : [env.DB.prepare(`INSERT INTO user_accounts(id,workspace_id,version,kind,email_normalized,display_name,staff_member_id,
-              contact_id,status,external_issuer,external_subject,password_hash,password_must_change,is_firm_admin,created_by_actor_id,created_at,updated_at)
-              SELECT ?,?,1,'STAFF',?,?,?,NULL,'INVITED',NULL,NULL,NULL,0,0,?,?,? FROM staff_members s
-              WHERE s.workspace_id=? AND s.id=? AND s.active=1`)
-              .bind(accountId, workspaceId, email, staff.display_name, staffMemberId, actorId, now, now, workspaceId, staffMemberId)]),
-        env.DB.prepare(`INSERT INTO credential_tokens(id,workspace_id,user_account_id,purpose,token_sha256,expires_at,created_by_actor_id,created_at)
-          SELECT ?,?,u.id,'STAFF_INVITE',?,?,?,? FROM user_accounts u
-          WHERE u.workspace_id=? AND u.id=? AND u.kind='STAFF' AND u.status='INVITED' AND u.email_normalized=?`)
-          .bind(tokenId, workspaceId, credentialHash, expiresAt, actorId, now, workspaceId, accountId, email),
-        env.DB.prepare(`INSERT INTO outbox_jobs(id,workspace_id,version,kind,aggregate_id,aggregate_version,payload_json,deduplication_key,status,attempts,
-            next_attempt_at,lease_until,last_error_code,provider_reference,result_file_id,result_json,completed_at,created_at,updated_at)
-          SELECT ?,?,1,'EMAIL',?,? ,?,?,'PENDING',0,?,NULL,NULL,NULL,NULL,NULL,NULL,?,? WHERE EXISTS(
-            SELECT 1 FROM credential_tokens WHERE workspace_id=? AND id=? AND user_account_id=? AND purpose='STAFF_INVITE' AND consumed_at IS NULL)`)
-          .bind(jobId, workspaceId, accountId, nextAccountVersion, payload, `staff-invite:${jobId}`, now, now, now, workspaceId, tokenId, accountId),
-        authEventStatement(env, { id: crypto.randomUUID(), workspaceId, userAccountId: accountId, event: 'INVITE_ISSUED',
-          detail: { jobId, credentialTokenId: tokenId, expiresAt }, now })
-      ];
-      return {
-        statements,
-        result: { userAccountId: accountId, status: 'INVITED', credentialTokenId: tokenId, outboxJobId: jobId, version: nextAccountVersion },
-        entityType: 'USER_ACCOUNT', entityId: accountId, beforeVersion: existing?.version ?? null, afterVersion: nextAccountVersion,
-        auditDetails: { userAccountId: accountId, staffMemberId, email, credentialTokenId: tokenId, outboxJobId: jobId, expiresAt }
-      };
-    }
-
-    if (command.type === 'user.grantProfile') {
-      const { userAccountId, actorProfileId: profileId, expectedVersion } = command.payload;
-      const target = await env.DB.prepare(`SELECT id,version,kind,status,staff_member_id,contact_id FROM user_accounts
-        WHERE workspace_id=? AND id=?`).bind(workspaceId, userAccountId)
-        .first<{ id: string; version: number; kind: string; status: string; staff_member_id: string | null; contact_id: string | null }>();
-      if (!target) throw new ApiError('NOT_FOUND', 'Workspace user not found.');
-      if (target.version !== expectedVersion) throw new ApiError('VERSION_CONFLICT', 'The user account changed. Refresh the user list and try again.');
-      if (target.status === 'DISABLED') throw new ApiError('PERSONA_ACTION_DENIED', 'Enable the account before granting a profile.');
-      const profile = await env.DB.prepare(`SELECT ap.id,ap.persona,ap.active,ap.staff_member_id,ap.contact_id,sm.active AS staff_active,sm.grade,
-          ct.active AS contact_active
-        FROM actor_profiles ap LEFT JOIN staff_members sm ON sm.workspace_id=ap.workspace_id AND sm.id=ap.staff_member_id
-        LEFT JOIN contacts ct ON ct.workspace_id=ap.workspace_id AND ct.id=ap.contact_id
-        WHERE ap.workspace_id=? AND ap.id=?`).bind(workspaceId, profileId)
-        .first<{ id: string; persona: string; active: number; staff_member_id: string | null; contact_id: string | null;
-          staff_active: number | null; grade: string | null; contact_active: number | null }>();
-      if (!profile || profile.active !== 1 || (profile.persona === 'CLIENT' ? profile.contact_active !== 1 : profile.staff_active !== 1)) {
-        throw new ApiError('NOT_FOUND', 'Active actor profile not found.');
-      }
-      const staffProfile = profile.persona !== 'CLIENT';
-      if ((target.kind === 'STAFF') !== staffProfile
-        || (staffProfile ? target.staff_member_id !== profile.staff_member_id : target.contact_id !== profile.contact_id)) {
-        throw new ApiError('PERSONA_ACTION_DENIED', 'The selected profile does not belong to this user account.');
-      }
-      if (profile.persona === 'APPROVER' && profile.grade !== 'PARTNER') {
-        throw new ApiError('PERSONA_ACTION_DENIED', 'APPROVER grants require a PARTNER grade.');
-      }
-      if (profile.persona === 'REVIEWER' && profile.grade !== 'MANAGER' && profile.grade !== 'SENIOR') {
-        throw new ApiError('PERSONA_ACTION_DENIED', 'REVIEWER grants require a MANAGER or SENIOR grade.');
-      }
-      const duplicate = await env.DB.prepare(`SELECT id FROM user_profile_grants WHERE workspace_id=? AND user_account_id=?
-        AND actor_profile_id=? AND revoked_at IS NULL`).bind(workspaceId, userAccountId, profileId).first<{ id: string }>();
-      if (duplicate) throw new ApiError('VERSION_CONFLICT', 'This profile is already granted to the user.');
-      const grantId = crypto.randomUUID();
-      return {
-        statements: [
-          env.DB.prepare(`INSERT INTO command_assertions(workspace_id,seq,ok)
-            SELECT ?,13,CASE WHEN EXISTS(SELECT 1 FROM user_accounts u JOIN actor_profiles ap ON ap.workspace_id=u.workspace_id AND ap.id=?
-              WHERE u.workspace_id=? AND u.id=? AND u.version=? AND u.status IN ('INVITED','ACTIVE','LOCKED') AND ap.active=1
-                AND ((u.kind='STAFF' AND u.staff_member_id=ap.staff_member_id AND ap.persona<>'CLIENT'
-                      AND EXISTS(SELECT 1 FROM staff_members s WHERE s.workspace_id=u.workspace_id AND s.id=ap.staff_member_id AND s.active=1
-                        AND (ap.persona<>'APPROVER' OR s.grade='PARTNER') AND (ap.persona<>'REVIEWER' OR s.grade IN ('MANAGER','SENIOR'))))
-                  OR (u.kind='CLIENT' AND u.contact_id=ap.contact_id AND ap.persona='CLIENT'
-                      AND EXISTS(SELECT 1 FROM contacts c WHERE c.workspace_id=u.workspace_id AND c.id=ap.contact_id AND c.active=1)))
-                AND NOT EXISTS(SELECT 1 FROM user_profile_grants g WHERE g.workspace_id=u.workspace_id AND g.user_account_id=u.id
-                  AND g.actor_profile_id=ap.id AND g.revoked_at IS NULL)) THEN 1 ELSE 0 END`)
-            .bind(workspaceId, profileId, workspaceId, userAccountId, expectedVersion),
-          env.DB.prepare(`UPDATE user_accounts SET version=version+1,updated_at=? WHERE workspace_id=? AND id=? AND version=?`)
-            .bind(now, workspaceId, userAccountId, expectedVersion),
-          env.DB.prepare(`INSERT INTO user_profile_grants(id,workspace_id,user_account_id,actor_profile_id,granted_by_actor_id,granted_at)
-            VALUES(?,?,?,?,?,?)`).bind(grantId, workspaceId, userAccountId, profileId, actorId, now),
-          authEventStatement(env, { id: crypto.randomUUID(), workspaceId, userAccountId, event: 'GRANT_ADDED',
-            detail: { grantId, actorProfileId: profileId, actorId }, now })
-        ],
-        result: { userAccountId, actorProfileId: profileId, grantId, version: expectedVersion + 1 },
-        entityType: 'USER_ACCOUNT', entityId: userAccountId, beforeVersion: expectedVersion, afterVersion: expectedVersion + 1,
-        auditDetails: { grantId, actorProfileId: profileId }
-      };
-    }
-
-    if (command.type === 'user.revokeProfile') {
-      const grant = await env.DB.prepare(`SELECT g.id,g.user_account_id,g.actor_profile_id,u.kind,u.status,u.version,u.is_firm_admin
-        FROM user_profile_grants g JOIN user_accounts u ON u.workspace_id=g.workspace_id AND u.id=g.user_account_id
-        JOIN actor_profiles ap ON ap.workspace_id=g.workspace_id AND ap.id=g.actor_profile_id
-        WHERE g.workspace_id=? AND g.id=? AND g.revoked_at IS NULL AND ap.active=1`)
-        .bind(workspaceId, command.payload.grantId)
-        .first<{ id: string; user_account_id: string; actor_profile_id: string; kind: string; status: string; version: number; is_firm_admin: number }>();
-      if (!grant) throw new ApiError('NOT_FOUND', 'Active user profile grant not found.');
-      if (grant.user_account_id === session.user_account_id) throw new ApiError('GATE_BLOCKED', 'You cannot revoke your own profile grant.');
-      if (grant.is_firm_admin === 1 && grant.status === 'ACTIVE') {
-        const otherAdmin = await env.DB.prepare(`SELECT 1 FROM user_accounts u WHERE u.workspace_id=? AND u.kind='STAFF' AND u.status='ACTIVE'
-          AND u.is_firm_admin=1 AND u.id<>? AND EXISTS(SELECT 1 FROM user_profile_grants g JOIN actor_profiles ap
-            ON ap.workspace_id=g.workspace_id AND ap.id=g.actor_profile_id JOIN staff_members sm
-            ON sm.workspace_id=ap.workspace_id AND sm.id=ap.staff_member_id
-            WHERE g.workspace_id=u.workspace_id AND g.user_account_id=u.id AND g.revoked_at IS NULL AND ap.active=1 AND sm.active=1
-              AND (ap.persona NOT IN ('APPROVER','REVIEWER') OR (ap.persona='APPROVER' AND sm.grade='PARTNER')
-                OR (ap.persona='REVIEWER' AND sm.grade IN ('MANAGER','SENIOR')))) LIMIT 1`)
-          .bind(workspaceId, grant.user_account_id).first<{ 1: number }>();
-        const otherGrant = await env.DB.prepare(`SELECT 1 FROM user_profile_grants g JOIN actor_profiles ap
-          ON ap.workspace_id=g.workspace_id AND ap.id=g.actor_profile_id
-          LEFT JOIN staff_members sm ON sm.workspace_id=ap.workspace_id AND sm.id=ap.staff_member_id
-          LEFT JOIN contacts ct ON ct.workspace_id=ap.workspace_id AND ct.id=ap.contact_id
-          WHERE g.workspace_id=? AND g.user_account_id=? AND g.id<>? AND g.revoked_at IS NULL AND ap.active=1
-            AND (ap.persona='CLIENT' AND ct.active=1 OR ap.persona<>'CLIENT' AND sm.active=1) LIMIT 1`)
-          .bind(workspaceId, grant.user_account_id, grant.id).first<{ 1: number }>();
-        if (!otherAdmin && !otherGrant) throw new ApiError('GATE_BLOCKED', 'The last usable firm administrator cannot lose their only active profile.');
-      }
-      return {
-        statements: [
-          env.DB.prepare(`INSERT INTO command_assertions(workspace_id,seq,ok)
-            SELECT ?,13,CASE WHEN EXISTS(SELECT 1 FROM user_profile_grants g JOIN actor_profiles ap
-              ON ap.workspace_id=g.workspace_id AND ap.id=g.actor_profile_id JOIN user_accounts u
-              ON u.workspace_id=g.workspace_id AND u.id=g.user_account_id WHERE g.workspace_id=? AND g.id=?
-                AND g.user_account_id=? AND g.actor_profile_id=? AND g.revoked_at IS NULL AND ap.active=1
-                AND (u.is_firm_admin=0 OR u.status<>'ACTIVE'
-                  OR EXISTS(SELECT 1 FROM user_accounts other WHERE other.workspace_id=u.workspace_id AND other.kind='STAFF'
-                    AND other.status='ACTIVE' AND other.is_firm_admin=1 AND other.id<>u.id
-                    AND EXISTS(SELECT 1 FROM user_profile_grants og JOIN actor_profiles oap
-                      ON oap.workspace_id=og.workspace_id AND oap.id=og.actor_profile_id
-                      LEFT JOIN staff_members osm ON osm.workspace_id=oap.workspace_id AND osm.id=oap.staff_member_id
-                      LEFT JOIN contacts oct ON oct.workspace_id=oap.workspace_id AND oct.id=oap.contact_id
-                      WHERE og.workspace_id=other.workspace_id AND og.user_account_id=other.id AND og.revoked_at IS NULL
-                        AND oap.active=1 AND (oap.persona='CLIENT' AND oct.active=1 OR oap.persona NOT IN ('CLIENT','APPROVER','REVIEWER') AND osm.active=1
-                          OR oap.persona='APPROVER' AND osm.active=1 AND osm.grade='PARTNER'
-                          OR oap.persona='REVIEWER' AND osm.active=1 AND osm.grade IN ('MANAGER','SENIOR'))))
-                  OR EXISTS(SELECT 1 FROM user_profile_grants og JOIN actor_profiles oap
-                    ON oap.workspace_id=og.workspace_id AND oap.id=og.actor_profile_id
-                    LEFT JOIN staff_members osm ON osm.workspace_id=oap.workspace_id AND osm.id=oap.staff_member_id
-                    LEFT JOIN contacts oct ON oct.workspace_id=oap.workspace_id AND oct.id=oap.contact_id
-                    WHERE og.workspace_id=u.workspace_id AND og.user_account_id=u.id AND og.id<>g.id AND og.revoked_at IS NULL
-                      AND oap.active=1 AND (oap.persona='CLIENT' AND oct.active=1 OR oap.persona<>'CLIENT' AND osm.active=1))))
-              THEN 1 ELSE 0 END`)
-            .bind(workspaceId, workspaceId, grant.id, grant.user_account_id, grant.actor_profile_id),
-          env.DB.prepare(`UPDATE user_profile_grants SET revoked_at=?,revoked_by_actor_id=?
-            WHERE workspace_id=? AND id=? AND user_account_id=? AND actor_profile_id=? AND revoked_at IS NULL`)
-            .bind(now, actorId, workspaceId, grant.id, grant.user_account_id, grant.actor_profile_id),
-          env.DB.prepare(`UPDATE auth_sessions SET revoked_at=?,revoked_reason='GRANT_REVOKED'
-            WHERE workspace_id=? AND user_account_id=? AND active_actor_profile_id=? AND revoked_at IS NULL`)
-            .bind(now, workspaceId, grant.user_account_id, grant.actor_profile_id),
-          authEventStatement(env, { id: crypto.randomUUID(), workspaceId, userAccountId: grant.user_account_id, event: 'GRANT_REVOKED',
-            detail: { grantId: grant.id, actorProfileId: grant.actor_profile_id, actorId }, now })
-        ],
-        result: { grantId: grant.id, userAccountId: grant.user_account_id, actorProfileId: grant.actor_profile_id, revoked: true },
-        entityType: 'USER_PROFILE_GRANT', entityId: grant.id, beforeVersion: null, afterVersion: 1,
-        auditDetails: { grantId: grant.id, userAccountId: grant.user_account_id, actorProfileId: grant.actor_profile_id }
-      };
-    }
-
-    if (command.type === 'user.disable' || command.type === 'user.enable') {
-      const { userAccountId, expectedVersion, reason } = command.payload;
-      const target = await env.DB.prepare(`SELECT id,version,kind,status,is_firm_admin,external_subject,staff_member_id FROM user_accounts
-        WHERE workspace_id=? AND id=?`).bind(workspaceId, userAccountId)
-        .first<{ id: string; version: number; kind: string; status: string; is_firm_admin: number; external_subject: string | null; staff_member_id: string | null }>();
-      if (!target || target.kind !== 'STAFF') throw new ApiError('NOT_FOUND', 'Staff user account not found.');
-      if (target.version !== expectedVersion) throw new ApiError('VERSION_CONFLICT', 'The user account changed. Refresh the user list and try again.');
-      if (target.id === session.user_account_id) throw new ApiError('GATE_BLOCKED', 'You cannot disable or re-enable your own account.');
-      if (command.type === 'user.disable') {
-        if (target.status === 'DISABLED') throw new ApiError('VERSION_CONFLICT', 'This account is already disabled.');
-        if (target.is_firm_admin === 1 && target.status === 'ACTIVE') {
-          const admins = await env.DB.prepare(`SELECT COUNT(*) AS count FROM user_accounts u WHERE u.workspace_id=? AND u.kind='STAFF'
-            AND u.status='ACTIVE' AND u.is_firm_admin=1 AND EXISTS(SELECT 1 FROM user_profile_grants g
-              JOIN actor_profiles ap ON ap.workspace_id=g.workspace_id AND ap.id=g.actor_profile_id
-              JOIN staff_members sm ON sm.workspace_id=ap.workspace_id AND sm.id=ap.staff_member_id
-              WHERE g.workspace_id=u.workspace_id AND g.user_account_id=u.id AND g.revoked_at IS NULL AND ap.active=1 AND sm.active=1
-                AND (ap.persona NOT IN ('APPROVER','REVIEWER') OR ap.persona='APPROVER' AND sm.grade='PARTNER'
-                  OR ap.persona='REVIEWER' AND sm.grade IN ('MANAGER','SENIOR')))`).bind(workspaceId).first<{ count: number }>();
-          if ((admins?.count ?? 0) <= 1) throw new ApiError('GATE_BLOCKED', 'The last active firm administrator cannot be disabled.');
-        }
-        return {
-          statements: [
-            env.DB.prepare(`INSERT INTO command_assertions(workspace_id,seq,ok)
-              SELECT ?,13,CASE WHEN EXISTS(SELECT 1 FROM user_accounts WHERE workspace_id=? AND id=? AND version=? AND kind='STAFF'
-                AND status<>'DISABLED' AND (?=0 OR (SELECT COUNT(*) FROM user_accounts WHERE workspace_id=? AND kind='STAFF'
-                  AND status='ACTIVE' AND is_firm_admin=1 AND EXISTS(SELECT 1 FROM user_profile_grants g
-                    JOIN actor_profiles ap ON ap.workspace_id=g.workspace_id AND ap.id=g.actor_profile_id
-                    JOIN staff_members sm ON sm.workspace_id=ap.workspace_id AND sm.id=ap.staff_member_id
-                    WHERE g.workspace_id=user_accounts.workspace_id AND g.user_account_id=user_accounts.id AND g.revoked_at IS NULL
-                      AND ap.active=1 AND sm.active=1 AND (ap.persona<>'APPROVER' OR sm.grade='PARTNER')
-                        AND (ap.persona<>'REVIEWER' OR sm.grade IN ('MANAGER','SENIOR'))))>1)) THEN 1 ELSE 0 END`)
-              .bind(workspaceId, workspaceId, userAccountId, expectedVersion, target.is_firm_admin, workspaceId),
-            env.DB.prepare(`UPDATE user_accounts SET status='DISABLED',version=version+1,updated_at=?
-              WHERE workspace_id=? AND id=? AND version=? AND kind='STAFF' AND status<>'DISABLED'`)
-              .bind(now, workspaceId, userAccountId, expectedVersion),
-            env.DB.prepare(`UPDATE auth_sessions SET revoked_at=?,revoked_reason='ACCOUNT_DISABLED'
-              WHERE workspace_id=? AND user_account_id=? AND revoked_at IS NULL`)
-              .bind(now, workspaceId, userAccountId),
-            authEventStatement(env, { id: crypto.randomUUID(), workspaceId, userAccountId, event: 'ACCOUNT_DISABLED',
-              detail: { actorProfileId: actorId, reason }, now })
-          ],
-          result: { userAccountId, status: 'DISABLED', version: expectedVersion + 1 },
-          entityType: 'USER_ACCOUNT', entityId: userAccountId, beforeVersion: expectedVersion, afterVersion: expectedVersion + 1,
-          auditDetails: { userAccountId, reason }
-        };
-      }
-      if (target.status !== 'DISABLED') throw new ApiError('VERSION_CONFLICT', 'Only a disabled account can be enabled.');
-      const staff = await env.DB.prepare(`SELECT active FROM staff_members WHERE workspace_id=? AND id=?`)
-        .bind(workspaceId, target.staff_member_id).first<{ active: number }>();
-      if (staff?.active !== 1) throw new ApiError('PERSONA_ACTION_DENIED', 'Reactivate the staff member before enabling their account.');
-      const nextStatus = target.external_subject ? 'ACTIVE' : 'INVITED';
-      const inviteTokenId = nextStatus === 'INVITED' ? crypto.randomUUID() : null;
-      const inviteJobId = nextStatus === 'INVITED' ? crypto.randomUUID() : null;
-      const inviteExpiresAt = nextStatus === 'INVITED' ? new Date(Date.parse(now) + 7 * 24 * 60 * 60 * 1000).toISOString() : null;
-      const inviteTokenHash = nextStatus === 'INVITED' ? await tokenHash(newOpaqueToken()) : null;
-      const invitePayload = nextStatus === 'INVITED' ? JSON.stringify({ documentType: 'STAFF_INVITE', userAccountId, credentialTokenId: inviteTokenId }) : null;
-      return {
-        statements: [
-          env.DB.prepare(`INSERT INTO command_assertions(workspace_id,seq,ok)
-            SELECT ?,13,CASE WHEN EXISTS(SELECT 1 FROM user_accounts WHERE workspace_id=? AND id=? AND version=?
-              AND kind='STAFF' AND status='DISABLED') THEN 1 ELSE 0 END`)
-            .bind(workspaceId, workspaceId, userAccountId, expectedVersion),
-          env.DB.prepare(`UPDATE user_accounts SET status=?,failed_login_count=0,locked_until=NULL,version=version+1,updated_at=? WHERE workspace_id=? AND id=?
-            AND version=? AND kind='STAFF' AND status='DISABLED'`).bind(nextStatus, now, workspaceId, userAccountId, expectedVersion),
-          ...(inviteTokenId && inviteJobId && inviteExpiresAt && inviteTokenHash && invitePayload ? [
-            env.DB.prepare(`UPDATE credential_tokens SET consumed_at=? WHERE workspace_id=? AND user_account_id=?
-              AND purpose='STAFF_INVITE' AND consumed_at IS NULL`).bind(now, workspaceId, userAccountId),
-            env.DB.prepare(`INSERT INTO credential_tokens(id,workspace_id,user_account_id,purpose,token_sha256,expires_at,created_by_actor_id,created_at)
-              SELECT ?,workspace_id,id,'STAFF_INVITE',?,?,?,? FROM user_accounts WHERE workspace_id=? AND id=? AND status='INVITED'`)
-              .bind(inviteTokenId, inviteTokenHash, inviteExpiresAt, actorId, now, workspaceId, userAccountId),
-            env.DB.prepare(`INSERT INTO outbox_jobs(id,workspace_id,version,kind,aggregate_id,aggregate_version,payload_json,deduplication_key,status,attempts,
-                next_attempt_at,lease_until,last_error_code,provider_reference,result_file_id,result_json,completed_at,created_at,updated_at)
-              SELECT ?,?,1,'EMAIL',?, ?,?,?,'PENDING',0,?,NULL,NULL,NULL,NULL,NULL,NULL,?,? WHERE EXISTS(
-                SELECT 1 FROM credential_tokens WHERE workspace_id=? AND id=? AND user_account_id=? AND purpose='STAFF_INVITE' AND consumed_at IS NULL)`)
-              .bind(inviteJobId, workspaceId, userAccountId, expectedVersion + 1, invitePayload, `staff-invite:${inviteJobId}`, now, now, now,
-                workspaceId, inviteTokenId, userAccountId),
-            authEventStatement(env, { id: crypto.randomUUID(), workspaceId, userAccountId, event: 'INVITE_ISSUED',
-              detail: { credentialTokenId: inviteTokenId, outboxJobId: inviteJobId, expiresAt: inviteExpiresAt, source: 'ACCOUNT_ENABLED' }, now })
-          ] : []),
-          authEventStatement(env, { id: crypto.randomUUID(), workspaceId, userAccountId, event: 'ACCOUNT_ENABLED',
-            detail: { actorProfileId: actorId, reason, restoredStatus: nextStatus }, now })
-        ],
-        result: { userAccountId, status: nextStatus, version: expectedVersion + 1,
-          ...(inviteJobId ? { invitationQueued: true, outboxJobId: inviteJobId } : {}) },
-        entityType: 'USER_ACCOUNT', entityId: userAccountId, beforeVersion: expectedVersion, afterVersion: expectedVersion + 1,
-        auditDetails: { userAccountId, reason, restoredStatus: nextStatus, ...(inviteJobId ? { outboxJobId: inviteJobId, inviteExpiresAt } : {}) }
-      };
-    }
   }
 
   requireDirectoryApprover(context);
@@ -2439,8 +1960,6 @@ export async function getBusinessFileForUpload(
   const file = await businessFileRow(env, workspaceId, fileId);
   if (!file) throw new ApiError('NOT_FOUND', 'File reservation not found.');
   assertBusinessFileAction(context, file, 'upload');
-  if (file.engagement_id) await assertBusinessEngagementAccess(env, workspaceId, context, file.engagement_id);
-  else if (file.client_id) await assertBusinessClientAccess(env, workspaceId, context, file.client_id);
   if (file.client_id && file.engagement_id) {
     await assertFileEngagementWritable(env, workspaceId, file.client_id, file.engagement_id, context.actor.persona === 'CLIENT', Boolean(file.payment_evidence_reservation_id));
   }
@@ -2855,8 +2374,7 @@ async function buildBusinessPbcMutation(
     ],
     result: { requestId: request.id, reviewId, submissionId: submission.id, status, version: payload.expectedRequestVersion + 1 },
     entityType: 'PBC_REVIEW', entityId: reviewId, beforeVersion: payload.expectedRequestVersion, afterVersion: payload.expectedRequestVersion + 1,
-    auditDetails: { clientId: request.client_id, engagementId: request.engagement_id, requestId: request.id,
-      submissionId: submission.id, decision: payload.decision, comments: payload.comments ?? null, fileSha256: submission.sha256 }
+    auditDetails: { requestId: request.id, submissionId: submission.id, decision: payload.decision, comments: payload.comments ?? null, fileSha256: submission.sha256 }
   };
 }
 
@@ -2904,7 +2422,7 @@ export async function runBusinessFileContent(
     type: 'file.stage',
     payload: { fileId, expectedVersion, sizeBytes: bytes.length, sha256: digest }
   }, [{ entity: 'FileVersion', id: fileId, version: expectedVersion }]);
-  const replay = await findBusinessCommandReplay(env, workspaceId, request, envelope);
+  const replay = await findBusinessCommandReplay(env, workspaceId, envelope);
   if (replay) return replay;
   if (file.version !== expectedVersion || file.state !== 'INITIALIZED') {
     throw new ApiError(file.state === 'COMMITTED' ? 'IMMUTABLE_RECORD' : 'VERSION_CONFLICT', 'The file is not an open reservation at that version.');
@@ -2944,35 +2462,6 @@ export async function listBusinessFiles(
       clauses.push(`(engagement_id=? OR engagement_id IS NULL OR engagement_id=(SELECT cr.prior_engagement_id FROM continuance_reviews cr
         WHERE cr.workspace_id=file_versions.workspace_id AND cr.engagement_id=?))`);
       bindings.push(context.scope.engagementId, context.scope.engagementId);
-    }
-  }
-  if (isAssignmentScopedStaff(context)) {
-    if (!context.actor.staffMemberId) clauses.push('0=1');
-    else {
-      clauses.push(`(
-        (engagement_id IS NOT NULL AND (
-          EXISTS(SELECT 1 FROM engagements scoped_engagement WHERE scoped_engagement.workspace_id=file_versions.workspace_id
-            AND scoped_engagement.id=file_versions.engagement_id AND (
-              EXISTS(SELECT 1 FROM engagement_assignments scoped_assignment WHERE scoped_assignment.workspace_id=scoped_engagement.workspace_id
-                AND scoped_assignment.engagement_id=scoped_engagement.id AND scoped_assignment.staff_member_id=?)
-              OR (?=1 AND scoped_engagement.lifecycle_state IN ('LEAD_INGESTION','PROPOSAL_GENERATION','DUAL_KEY_PENDING','ADVANCE_BILLING'))
-            ))
-          OR (? IS NOT NULL AND EXISTS(SELECT 1 FROM continuance_reviews scoped_continuance
-            WHERE scoped_continuance.workspace_id=file_versions.workspace_id AND scoped_continuance.engagement_id=?
-              AND scoped_continuance.prior_engagement_id=file_versions.engagement_id))
-        ))
-        OR (engagement_id IS NULL AND (client_id IS NULL OR EXISTS(SELECT 1 FROM engagements scoped_engagement
-          WHERE scoped_engagement.workspace_id=file_versions.workspace_id AND scoped_engagement.client_id=file_versions.client_id AND (
-            EXISTS(SELECT 1 FROM engagement_assignments scoped_assignment WHERE scoped_assignment.workspace_id=scoped_engagement.workspace_id
-              AND scoped_assignment.engagement_id=scoped_engagement.id AND scoped_assignment.staff_member_id=?)
-            OR (?=1 AND scoped_engagement.lifecycle_state IN ('LEAD_INGESTION','PROPOSAL_GENERATION','DUAL_KEY_PENDING','ADVANCE_BILLING'))
-          )) OR EXISTS(SELECT 1 FROM clients accessible_client WHERE accessible_client.workspace_id=file_versions.workspace_id
-            AND accessible_client.id=file_versions.client_id AND accessible_client.created_by_actor_id=?)))
-      )`);
-      const staffMemberId = context.actor.staffMemberId;
-      const commercial = hasCommercialEngagementAccess(context) ? 1 : 0;
-      bindings.push(staffMemberId, commercial, context.scope.engagementId, context.scope.engagementId,
-        staffMemberId, commercial, context.actor.id);
     }
   }
   if (context.actor.persona === 'CLIENT') clauses.push(`(
@@ -3020,17 +2509,6 @@ export async function listBusinessPbcEngagements(env: Env, workspaceId: string, 
   const bindings: unknown[] = [workspaceId];
   if (clientId) { clauses.push('e.client_id=?'); bindings.push(clientId); }
   if (context.scope.engagementId) { clauses.push('e.id=?'); bindings.push(context.scope.engagementId); }
-  if (isAssignmentScopedStaff(context)) {
-    if (!context.actor.staffMemberId) clauses.push('0=1');
-    else {
-      clauses.push(`(
-        EXISTS(SELECT 1 FROM engagement_assignments a WHERE a.workspace_id=e.workspace_id
-          AND a.engagement_id=e.id AND a.staff_member_id=?)
-        OR (?=1 AND e.lifecycle_state IN ('LEAD_INGESTION','PROPOSAL_GENERATION','DUAL_KEY_PENDING','ADVANCE_BILLING'))
-      )`);
-      bindings.push(context.actor.staffMemberId, hasCommercialEngagementAccess(context) ? 1 : 0);
-    }
-  }
   const result = await env.DB.prepare(`SELECT e.id,e.client_id,e.code,e.period_start,e.period_end,e.lifecycle_state,e.portal_activated_at,e.portal_frozen_at,e.locked_at
     FROM engagements e WHERE ${clauses.join(' AND ')} ORDER BY e.period_end DESC,e.code,e.id LIMIT 100`)
     .bind(...bindings).all<{ id: string; code: string; period_start: string; period_end: string; lifecycle_state: string;
@@ -3169,12 +2647,6 @@ async function readableBusinessFile(env: Env, workspaceId: string, request: Requ
       WHERE cr.workspace_id=? AND cr.client_id=? AND cr.engagement_id=? AND cr.prior_engagement_id=?`)
       .bind(workspaceId, context.scope.clientId, context.scope.engagementId, file.engagement_id).first<{ found: number }>();
     if (linkedPrior) fileContext = { ...context, scope: { ...context.scope, engagementId: null } };
-  }
-  if (file.engagement_id) {
-    await assertBusinessEngagementAccess(env, workspaceId,
-      fileContext === context ? fileContext : context, fileContext === context ? file.engagement_id : context.scope.engagementId!);
-  } else if (file.client_id) {
-    await assertBusinessClientAccess(env, workspaceId, fileContext, file.client_id);
   }
   assertBusinessFileAction(fileContext, file, 'read');
   await assertClientPbcDownloadScope(env, workspaceId, context, file);
@@ -4544,10 +4016,15 @@ export async function runBusinessDirectoryCommand(
     throw new ApiError('FORBIDDEN_SCOPE', 'The request scope does not match the command envelope.');
   }
   const context = await resolveBusinessContext(env, workspaceId, request);
-  if (envelope.context.engagementId) {
-    await assertBusinessEngagementAccess(env, workspaceId, context, envelope.context.engagementId);
+  if (context.actor.id !== envelope.actor.actorId || context.actor.persona !== envelope.actor.persona) {
+    throw new ApiError('PERSONA_ACTION_DENIED', 'The command actor does not match the active workspace profile.');
   }
-  const requestHash = await businessRequestHash(envelope, context.actor);
+  const requestHash = await sha256Hex(JSON.stringify({
+    command: envelope.command,
+    actor: envelope.actor,
+    context: envelope.context,
+    expectedVersions: envelope.expectedVersions
+  }));
   const prior = await findCommandReceipt(env, workspaceId, envelope.idempotencyKey);
   if (prior) return replayCommand(prior, requestHash);
 
@@ -4562,7 +4039,6 @@ export async function runBusinessDirectoryCommand(
     &&commandPayload.engagementId===envelope.context.engagementId
     &&['application/pdf','image/png','image/jpeg'].includes(String(commandPayload.mediaType));
   if(targetEngagementId&&!postArchiveBookkeeping.has(envelope.command.type)&&envelope.command.type!=='archive.lock'&&!postArchivePaymentEvidenceReservation){
-    await assertBusinessEngagementAccess(env, workspaceId, context, targetEngagementId);
     const engagement=await env.DB.prepare(`SELECT lifecycle_state,locked_at,archive_due_at FROM engagements WHERE workspace_id=? AND id=?`)
       .bind(workspaceId,targetEngagementId).first<{lifecycle_state:string;locked_at:string|null;archive_due_at:string|null}>();
     if(!engagement)throw new ApiError('NOT_FOUND','The engagement was not found.');
@@ -4618,11 +4094,6 @@ export async function runBusinessDirectoryCommand(
     const sequence = head.last_sequence + 1;
     const scope = await businessCommandScope(env, workspaceId, context,
       envelope.command as { type?: string; payload?: Record<string, unknown> }, mutation);
-    if (scope.engagementId && envelope.command.type !== 'lead.convert') {
-      await assertBusinessEngagementAccess(env, workspaceId, context, scope.engagementId);
-    } else if (scope.clientId && envelope.command.type !== 'client.create' && !envelope.command.type.startsWith('lead.')) {
-      await assertBusinessClientAccess(env, workspaceId, context, scope.clientId);
-    }
     const eventDetails = JSON.stringify({
       commandId,
       result: mutation.result,

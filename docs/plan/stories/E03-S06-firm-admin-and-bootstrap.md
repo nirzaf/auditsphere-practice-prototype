@@ -34,16 +34,5 @@ A Partner with the firm-admin capability manages who can sign in and which perso
 npx tsx --test tests/unit/authAdmin.test.ts tests/unit/bootstrapFirstPartner.test.ts && npm run test:unit
 ```
 
-## Implementation notes
-- First Partner creation uses a bearer-protected `POST /api/internal/bootstrap` endpoint called by `tools/bootstrap-first-partner.ts`. The deployment secret is never sent in the response or logged; the database lock makes the endpoint one-time even when distinct requests race. A matching idempotency key safely replays the original result. Existing BUSINESS workspaces block a fresh bootstrap.
-- Invitation delivery remains in the EMAIL outbox. It sends the same-origin Entra sign-in URL, requires the latest unconsumed invitation token to be within seven days, and consumes that token atomically with verified OIDC account binding.
-- `POST /api/workspaces` is retained behind its existing trusted deployment flag until E03-S08 removes the public setup route. New S06 fixtures and operator bootstrap do not depend on that flag.
-
-## Verification evidence
-- `npm run test:unit` — passed: 177 tests, 0 failures, 1 skipped.
-- `npm run cloud:typecheck` — passed.
-- `npm run lint` — passed.
-- `git diff --check` — passed.
-
 ## Stop and ask if
 - The firm wants more than one firm admin by default, or wants non-Partner admins.

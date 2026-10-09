@@ -172,7 +172,7 @@ async function buildOpinionSelect(env:Env,workspaceId:string,context:BusinessCon
 async function buildSignatureRegister(env:Env,workspaceId:string,context:BusinessContext,command:Extract<BusinessReportingCommand,{type:'signature-asset.register'}>,now:string){
   partner(context);const p=command.payload;
   const ownerId=context.actor.staffMemberId;
-  if(!ownerId||p.staffMemberId!==ownerId)throw new ApiError('PERSONA_ACTION_DENIED','A Partner can register only their own signature and seal assets.');
+  if(!ownerId||p.staffMemberId!==ownerId)throw new ApiError('PERSONA_ACTION_DENIED','A Partner can register only their own signature and seal assets in the self-asserted persona workflow.');
   const staff=await env.DB.prepare(`SELECT id,grade,active,display_name FROM staff_members WHERE workspace_id=? AND id=?`).bind(workspaceId,ownerId)
     .first<{id:string;grade:string;active:number;display_name:string}>();
   if(!staff||staff.grade!=='PARTNER'||staff.active!==1)throw new ApiError('GATE_BLOCKED','The image owner must be an active Partner-grade staff record.');

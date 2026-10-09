@@ -26,7 +26,7 @@ export function BusinessPlanningPanel({
   onChanged: () => void;
 }) {
   const scope = useMemo(() => ({ ...selected, clientId: engagement.clientId, engagementId: engagement.id }),
-    [selected.clientId, engagement.clientId, engagement.id]);
+    [selected.actorId, selected.persona, selected.clientId, engagement.clientId, engagement.id]);
   const today = new Date().toISOString().slice(0, 10);
   const [capacityDate, setCapacityDate] = useState(today);
   const [capacityRangeEnd, setCapacityRangeEnd] = useState(today);
@@ -95,7 +95,7 @@ export function BusinessPlanningPanel({
       if (!controller.signal.aborted) setError(reason instanceof Error ? reason.message : 'Planning records could not be loaded.');
     }).finally(() => { if (!controller.signal.aborted) setLoading(false); });
     return () => controller.abort();
-  }, [workspaceId, engagement.id, scope.clientId, scope.engagementId, capacityDate, capacityRangeEnd, refresh, scopeKey]);
+  }, [workspaceId, engagement.id, scope.actorId, scope.persona, scope.clientId, scope.engagementId, capacityDate, capacityRangeEnd, refresh, scopeKey]);
 
   async function command(type: string, payload: Record<string, unknown>, success: string) {
     setBusy(true); setError(''); setMessage('');

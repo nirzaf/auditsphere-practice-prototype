@@ -60,8 +60,8 @@ export interface Env {
   /** Comma-separated allowed origins. Same-origin deployments need not list one. */
   ALLOWED_ORIGINS?: string;
   ENVIRONMENT?: string;
-  /** One-time operator credential for creating the first BUSINESS workspace. */
-  BOOTSTRAP_TOKEN?: string;
+  /** Enable first-time BUSINESS workspace setup only in a trusted deployment. */
+  BUSINESS_SETUP_ENABLED?: string;
   /** Enables CI metadata ingestion only on a separately configured verification sandbox Worker. */
   VERIFICATION_INGEST_ENABLED?: string;
   /** Public Worker URL included in client portal sign-in emails. */
