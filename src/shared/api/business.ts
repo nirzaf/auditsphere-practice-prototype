@@ -472,6 +472,7 @@ export interface BusinessTrialBalanceWorkspace {
     pmRawNumerator: string; pmRawDenominator: string; teRawNumerator: string; teRawDenominator: string;
     sadRawNumerator: string; sadRawDenominator: string; planningMinor: number; performanceMinor: number; sadMinor: number;
     roundingReason: string | null; sourceHash: string; calculatedAt: string;
+    sourceAccounts: Array<{ id: string; code: string; fsliId: string; fsliCode: string }>;
     risks: Array<{ id: string; revision: number; fsliId: string; code: string; name: string; balanceMinor: string;
       inherentRisk: 'LOW' | 'MODERATE' | 'HIGH'; criticalEstimate: number; band: 'GREEN' | 'AMBER' | 'RED'; rationale: string; sourceHash: string }>;
   };

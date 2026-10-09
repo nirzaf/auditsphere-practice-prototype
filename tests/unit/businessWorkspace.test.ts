@@ -2461,6 +2461,10 @@ it('bootstraps a no-session BUSINESS workspace, records manual dispatch and main
   const activeMaterialityId = currentTbWorkspace.body.engagement.activeMaterialityVersionId;
   assert.equal(activeMaterialityId, restoredMateriality.body.result.materialityVersionId);
   assert.equal(currentTbWorkspace.body.materiality.planningMinor, 6300000);
+  assert.deepEqual(currentTbWorkspace.body.materiality.sourceAccounts, materialityCalculated.body.result.sourceAccounts,
+    'the materiality GET projection preserves exact contributing account and FSLI IDs from the pinned TB and mapping versions');
+  assert.deepEqual(currentTbWorkspace.body.materiality.sourceAccounts.map((account: any) => account.code), ['4000'],
+    'the revenue benchmark identifies only the mapped revenue account as its calculation source');
   const riskAssessments = [
     ['CASH','LOW'],['RECEIVABLES','LOW'],['PROPERTY_EQUIPMENT','LOW'],['OTHER_CURRENT_ASSETS','LOW'],['ADMIN_EXPENSE','LOW'],
     ['PAYABLES','LOW'],['BORROWINGS','LOW'],['EQUITY','LOW'],['REVENUE','HIGH']

@@ -18,6 +18,7 @@ import {
   runBusinessCommand,
   uploadBusinessFile
 } from '../../services/businessWorkspace';
+import { formatRawDifferencePercent, formatRawQar } from './materialityFormatting';
 
 type EngagementRef = { id: string; clientId: string; code: string; clientName: string; lifecycleState: string };
 type ColumnMap = { headerRow: number; accountCodeColumn: number; accountNameColumn: number; balanceColumn?: number;
@@ -448,10 +449,38 @@ export function BusinessTrialBalancePanel({
           <button className="btn primary" type="submit" disabled={busy}>{busy ? 'Calculating…' : materiality ? 'Recalculate from current TB and mapping' : 'Calculate materiality'}</button>
         </form>}
         {materiality && <>
-          <div className="business-tb-threshold-grid"><div><span>Benchmark</span><strong>{materiality.benchmark.replaceAll('_', ' ')} · QAR {qarFromMinor(materiality.benchmarkMinor)}</strong></div>
-            <div><span>Planning materiality (PM)</span><strong>QAR {qarFromMinor(materiality.planningMinor)}</strong><small>Raw {materiality.pmRawNumerator}/{materiality.pmRawDenominator} minor units</small></div>
-            <div><span>Performance materiality (TE)</span><strong>QAR {qarFromMinor(materiality.performanceMinor)}</strong><small>Raw {materiality.teRawNumerator}/{materiality.teRawDenominator} minor units</small></div>
-            <div><span>Clearly trivial (SAD)</span><strong>QAR {qarFromMinor(materiality.sadMinor)}</strong><small>Raw {materiality.sadRawNumerator}/{materiality.sadRawDenominator} minor units</small></div></div>
+          <div className="business-tb-threshold-grid"><div><span>Benchmark</span><strong>{materiality.benchmark.replaceAll('_', ' ')} · QAR {qarFromMinor(materiality.benchmarkMinor)}</strong></div></div>
+          <section className="business-tb-materiality-comparison" aria-labelledby="business-materiality-comparison-heading">
+            <h4 id="business-materiality-comparison-heading">Fixed raw-basis rounding comparison</h4>
+            <p className="business-note">Each variance compares the saved threshold with its own original unrounded calculation; rounding tolerance does not compound across versions.</p>
+            <div className="business-tb-materiality-tiers">
+              {[
+                { name: 'Planning materiality (PM)', numerator: materiality.pmRawNumerator, denominator: materiality.pmRawDenominator, adjusted: materiality.planningMinor },
+                { name: 'Performance materiality (TE)', numerator: materiality.teRawNumerator, denominator: materiality.teRawDenominator, adjusted: materiality.performanceMinor },
+                { name: 'Clearly trivial (SAD)', numerator: materiality.sadRawNumerator, denominator: materiality.sadRawDenominator, adjusted: materiality.sadMinor }
+              ].map(tier => <article className="business-tb-materiality-tier" key={tier.name}>
+                <h5>{tier.name}</h5>
+                <dl>
+                  <div><dt>Raw result</dt><dd>{formatRawQar(tier.numerator, tier.denominator)}<small>{tier.numerator}/{tier.denominator} minor units</small></dd></div>
+                  <div><dt>Adjusted value</dt><dd>QAR {qarFromMinor(tier.adjusted)}</dd></div>
+                  <div><dt>Difference from raw</dt><dd>{formatRawDifferencePercent(tier.numerator, tier.denominator, tier.adjusted)}</dd></div>
+                  <div className="business-tb-materiality-rationale"><dt>Reviewer rationale</dt><dd>{materiality.roundingReason ?? 'No manual adjustment; nearest minor unit applied.'}</dd></div>
+                </dl>
+              </article>)}
+            </div>
+          </section>
+          <details className="business-tb-materiality-sources">
+            <summary>Benchmark source accounts ({materiality.sourceAccounts.length})</summary>
+            <div className="business-tb-materiality-source-scroll">
+              <table className="business-tb-materiality-source-table">
+                <caption>Accounts contributing to the saved {materiality.benchmark.replaceAll('_', ' ')} benchmark</caption>
+                <thead><tr><th scope="col">Account code</th><th scope="col">Account ID</th><th scope="col">FSLI</th><th scope="col">FSLI ID</th></tr></thead>
+                <tbody>{materiality.sourceAccounts.map(account => <tr key={account.id}>
+                  <td>{account.code}</td><td>{account.id}</td><td>{account.fsliCode}</td><td>{account.fsliId}</td>
+                </tr>)}</tbody>
+              </table>
+            </div>
+          </details>
           {canReview && canPlan && <form className="business-form business-tb-rounding" onSubmit={adjustMateriality}><h4>Bounded rounding adjustment</h4>
             <p className="business-note">Each adjusted threshold is checked against ±5% of its own raw value; TE/PM and SAD/PM ratios are also enforced.</p>
             <div className="business-form-grid"><label className="business-field"><span>PM · QAR</span><input inputMode="decimal" required value={roundingValues.planning} onChange={event => setRoundingValues(current => ({ ...current, planning: event.target.value }))} /></label>

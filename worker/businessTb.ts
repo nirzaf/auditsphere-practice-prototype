@@ -1089,12 +1089,16 @@ export async function getBusinessTrialBalanceWorkspace(env:Env,workspaceId:strin
         planning_minor AS planningMinor,performance_minor AS performanceMinor,sad_minor AS sadMinor,rounding_reason AS roundingReason,source_sha256 AS sourceHash,calculated_at AS calculatedAt
       FROM materiality_versions WHERE workspace_id=? AND id=?`).bind(workspaceId,sources.active_materiality_version_id).first<Record<string,unknown>>();
     if(value){
+      const sourceLines=await mappedMaterialityLines(env,workspaceId,engagementId,String(value.tbVersionId),String(value.mappingVersionId));
+      const sourceAccounts=benchmarkContributingLines(sourceLines,String(value.benchmark))
+        .flatMap(line=>line.account_ids.map((accountId,index)=>({id:accountId,code:line.account_codes[index],fsliId:line.fsli_id,fsliCode:line.code})))
+        .sort((a,b)=>a.code.localeCompare(b.code));
       const risks=await env.DB.prepare(`SELECT r.id,r.revision,r.fsli_id AS fsliId,c.code,c.name,CAST(r.balance_minor AS TEXT) AS balanceMinor,r.inherent_risk AS inherentRisk,
           r.critical_estimate AS criticalEstimate,r.band,r.rationale,r.source_sha256 AS sourceHash
         FROM fsli_risks r JOIN fsli_catalog c ON c.workspace_id=r.workspace_id AND c.id=r.fsli_id WHERE r.workspace_id=? AND r.engagement_id=? AND r.materiality_version_id=?
           AND r.revision=(SELECT MAX(r2.revision) FROM fsli_risks r2 WHERE r2.workspace_id=r.workspace_id AND r2.engagement_id=r.engagement_id AND r2.fsli_id=r.fsli_id)
         ORDER BY c.presentation_order,c.code`).bind(workspaceId,engagementId,value.id).all<Record<string,unknown>>();
-      materiality={...value,risks:risks.results??[]};
+      materiality={...value,sourceAccounts,risks:risks.results??[]};
     }
   }
   const readiness=await collectPlanningDependencies(env,workspaceId,context,engagementId,true);
