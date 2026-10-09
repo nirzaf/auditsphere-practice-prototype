@@ -80,12 +80,12 @@ as the Worker secret `EMAIL_API_KEY`. DNS, HMAC callback, and rotation steps are
 dashboard inspection shows the production Worker is bound to the private
 `auditsphere-email-provider` service and sets
 `PUBLIC_LEAD_NOTIFICATION_EMAIL=audit@steaudit.com`. The owner confirmed that
-`audit@steaudit.com` is an alias on the `fazrin@gbschool.cc` mailbox in the
+`audit@steaudit.com` is an alias on their Microsoft 365 mailbox in the
 Microsoft 365 tenant that owns `steaudit.com` (tenant default domain
 `gbskandy.onmicrosoft.com`). On 2026-10-09, Exchange Admin Center created and
 enabled the transport rule **AuditSphere route audit alias to Quadrate**. Its
 recipient condition is the exact regex `^audit@steaudit\.com$`, and its action
-adds `fazrin@quadrate.lk` as a BCC. This preserves delivery to the original
+adds the owner-selected external mailbox as a BCC. This preserves delivery to the original
 mailbox and scopes the extra copy to that alias; it does not redirect other
 `@steaudit.com` mail. The `steaudit.com` apex MX remains on Microsoft 365 and
 Cloudflare Email Routing remains disabled for the apex. No end-to-end message
@@ -112,8 +112,8 @@ The `steaudit.com` apex MX still points to Microsoft 365
 (`steaudit-com.mail.protection.outlook.com`); Cloudflare DNS inspection confirms
 it remains DNS-only with a 1-hour TTL. No Cloudflare Email Routing rule was added
 for the apex, and no apex MX change was made. This preserves mail delivery for
-all `@steaudit.com` addresses. `fazrin@quadrate.lk` is separately verified as an
-Email Routing destination, but that does not change the M365 mailbox route or
+all `@steaudit.com` addresses. A destination address is separately verified for
+Email Routing, but that does not change the M365 mailbox route or
 prove outbound Email Sending delivery.
 
 The production Worker sets `PUBLIC_LEAD_NOTIFICATION_EMAIL=audit@steaudit.com`.
@@ -122,7 +122,8 @@ through the private `EMAIL_PROVIDER` service binding and Cloudflare Email
 Sending. A notification contains the submitted company and contact name, email,
 phone (if provided), service interest, received time, and message. Honeypot/spam
 submissions do not send notifications. The Exchange rule above adds a copy of
-messages addressed exactly to `audit@steaudit.com` to `fazrin@quadrate.lk` while
+messages addressed exactly to `audit@steaudit.com` to the owner-selected external
+mailbox while
 retaining the alias mailbox's normal delivery. It does not change any other
 mailbox route or domain DNS/MX record.
 
