@@ -28,16 +28,25 @@ const ROUTE_GROUPS = routeGroups();
 
 export function BusinessModuleNavigation() {
   const [activeRoute, setActiveRoute] = useState(readRoute);
+  const [navigationVersion, setNavigationVersion] = useState(0);
   const [targetUnavailable, setTargetUnavailable] = useState(false);
 
   useEffect(() => {
-    const onHashChange = () => setActiveRoute(readRoute());
+    const onHashChange = () => {
+      setActiveRoute(readRoute());
+      setNavigationVersion(version => version + 1);
+    };
     window.addEventListener('hashchange', onHashChange);
     return () => window.removeEventListener('hashchange', onHashChange);
   }, []);
 
   useEffect(() => {
     const route = ROUTE_CATALOG[activeRoute];
+    // Loading the default workspace should not steal focus from the browser's
+    // normal page entry point. Explicit deep links and subsequent route changes
+    // still move focus to their destination.
+    if (activeRoute === DEFAULT_ROUTE && window.location.hash === '') return;
+    setTargetUnavailable(false);
     const focusTarget = () => {
       const target = document.getElementById(route.targetId);
       if (!target) return false;
@@ -48,6 +57,9 @@ export function BusinessModuleNavigation() {
       if (disclosure) disclosure.open = true;
       const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
       target.scrollIntoView({ behavior: reducedMotion ? 'auto' : 'smooth', block: 'start' });
+      const nativelyFocusable = target.matches('a[href], button, input, select, textarea, summary, iframe, object, embed, [contenteditable="true"]');
+      if (!nativelyFocusable && !target.hasAttribute('tabindex')) target.tabIndex = -1;
+      target.focus({ preventScroll: true });
       return true;
     };
     const observer = new MutationObserver(() => { focusTarget(); });
@@ -60,7 +72,7 @@ export function BusinessModuleNavigation() {
       observer.disconnect();
       window.clearTimeout(unavailableTimer);
     };
-  }, [activeRoute]);
+  }, [activeRoute, navigationVersion]);
 
   const activeModule = ROUTE_CATALOG[activeRoute].moduleId;
 

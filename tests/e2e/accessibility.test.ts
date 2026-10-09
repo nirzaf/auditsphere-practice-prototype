@@ -340,6 +340,45 @@ it('E06-S04 keeps the no-auth workspace, CLIENT portal, and populated business m
   await audit('populated staff modules · desktop', 1440, 900, false);
   await audit('populated staff modules · mobile', 390, 844, true);
 
+  const routes = await tab.evaluate<Array<{ value: string; label: string }>>(`
+    [...document.querySelectorAll('#business-route-select option')]
+      .map(option => ({ value: option.value, label: option.textContent?.trim() ?? '' }))
+  `);
+  assert.equal(routes.length, 30, 'the navigation exposes all 30 current business routes');
+  for (const [width, height, mobile] of [[1440, 900, false], [390, 844, true]] as const) {
+    await setViewport(width, height, mobile);
+    for (const route of routes) {
+      const targetId = `route-${route.value}`;
+      await tab.evaluate(`window.location.hash = ${JSON.stringify(`#${route.value}`)}`);
+      await waitFor(`${route.label} route focus`, `
+        document.querySelector('#business-route-select')?.value === ${JSON.stringify(route.value)}
+        && document.activeElement?.id === ${JSON.stringify(targetId)}
+      `);
+      const routeState = await tab.evaluate<{ hash: string; selected: string; focused: string; targetVisible: boolean; outlineStyle: string; outlineWidth: string; clientWidth: number; scrollWidth: number }>(`(() => {
+        const target = document.getElementById(${JSON.stringify(targetId)});
+        const style = target ? getComputedStyle(target) : null;
+        return {
+          hash: window.location.hash,
+          selected: (document.querySelector('#business-route-select') as HTMLSelectElement | null)?.value ?? '',
+          focused: (document.activeElement as HTMLElement | null)?.id ?? '',
+          targetVisible: Boolean(target?.getClientRects().length),
+          outlineStyle: style?.outlineStyle ?? '',
+          outlineWidth: style?.outlineWidth ?? '',
+          clientWidth: document.documentElement.clientWidth,
+          scrollWidth: document.documentElement.scrollWidth
+        };
+      })()`);
+      assert.equal(routeState.hash, `#${route.value}`, `${route.label} updates the route hash`);
+      assert.equal(routeState.selected, route.value, `${route.label} synchronizes the route selector`);
+      assert.equal(routeState.focused, targetId, `${route.label} moves keyboard focus to its section`);
+      assert.equal(routeState.targetVisible, true, `${route.label} destination is visible in the populated staff workspace`);
+      assert.equal(routeState.outlineStyle, 'solid', `${route.label} destination shows a visible focus ring`);
+      assert.equal(routeState.outlineWidth, '3px', `${route.label} focus ring is clearly visible`);
+      assert.ok(routeState.scrollWidth <= routeState.clientWidth,
+        `${route.label} has no horizontal page overflow at ${width}px: ${JSON.stringify(routeState)}`);
+    }
+  }
+
   await chooseOption('business-active-persona', `item.textContent?.includes('CLIENT · QA Finance Contact')`);
   await waitFor('the CLIENT portal projection', `document.querySelector('.business-actor-summary')?.innerText.includes('CLIENT') && document.body.innerText.includes('QA Accessibility Client ${unique} WLL')`);
   await audit('CLIENT portal · desktop', 1440, 900, false);
