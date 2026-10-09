@@ -269,6 +269,15 @@ export function BusinessWorkspaceConsole() {
   const fileInput = useRef<HTMLInputElement>(null);
   const [recordError, setRecordError] = useState('');
   const [recordsKey, setRecordsKey] = useState(0);
+  const [clientImportFile, setClientImportFile] = useState<File | null>(null);
+  const [clientImportBusy, setClientImportBusy] = useState(false);
+  const [clientImportRun, setClientImportRun] = useState<{
+    runId: string; status: 'VALIDATED' | 'REJECTED' | 'APPLIED'; rowCount: number; errorCount: number;
+    appliedCount?: number; report?: { errors: Array<{ sourceRow: number; issues: Array<{ field: string; message: string }> }> };
+  } | null>(null);
+  const [clientImportMessage, setClientImportMessage] = useState('');
+  const clientImportFileInput = useRef<HTMLInputElement>(null);
+  const clientImportApplyKey = useRef<{ runId: string; key: string } | null>(null);
   const [clientCode, setClientCode] = useState('');
   const [clientName, setClientName] = useState('');
   const [clientType, setClientType] = useState<'HOLDING' | 'SUBSIDIARY' | 'STANDALONE'>('STANDALONE');
@@ -702,6 +711,90 @@ export function BusinessWorkspaceConsole() {
     } catch (reason) {
       setRecordError(reason instanceof Error ? reason.message : 'More leads could not be loaded. Retry.');
     } finally { setLoadingMore(null); }
+  };
+
+  const validateClientImportFile = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const selected = currentSelection();
+    const upload = clientImportFile;
+    if (!selected || !upload || context?.actor.persona !== 'APPROVER' || context.actor.staffGrade !== 'PARTNER') return;
+    setClientImportBusy(true);
+    setClientImportMessage('');
+    setClientImportRun(null);
+    try {
+      if (!upload.name.toLowerCase().endsWith('.csv')) throw new Error('Choose a .csv client export.');
+      if (upload.size < 1 || upload.size > 25 * 1024 * 1024) throw new Error('Choose a CSV between 1 byte and 25 MiB.');
+      const input = { purpose: 'TEMPLATE' as const, originalName: upload.name, mediaType: 'text/csv' as const, sizeBytes: upload.size };
+      const reservation = await initializeBusinessFile(
+        selected.workspaceId, selected, input,
+        commandKeyFor('client-import.file-reserve', { ...input, lastModified: upload.lastModified })
+      );
+      const staged = await uploadBusinessFile(
+        selected.workspaceId, selected, reservation, upload, 'text/csv',
+        commandKeyFor(`client-import.file-stage.${reservation.fileId}`, {
+          fileId: reservation.fileId, version: reservation.version, name: upload.name, size: upload.size, lastModified: upload.lastModified
+        })
+      );
+      const committed = await completeBusinessFile(
+        selected.workspaceId, selected, staged,
+        commandKeyFor(`client-import.file-commit.${reservation.fileId}`, staged)
+      );
+      const validation = await runBusinessCommand<{
+        runId: string; status: 'VALIDATED' | 'REJECTED'; rowCount: number; errorCount: number;
+        report: { errors: Array<{ sourceRow: number; issues: Array<{ field: string; message: string }> }> };
+      }>(selected.workspaceId, selected, { type: 'clientImport.validate', payload: { fileVersionId: committed.fileId } },
+        commandKeyFor('client-import.validate', { fileVersionId: committed.fileId }));
+      setClientImportRun({ ...validation.result, appliedCount: 0 });
+      setClientImportMessage(validation.result.status === 'VALIDATED'
+        ? `${validation.result.rowCount.toLocaleString()} rows passed validation. Review the report before applying.`
+        : `${validation.result.errorCount.toLocaleString()} row${validation.result.errorCount === 1 ? '' : 's'} need correction.`);
+      setClientImportFile(null);
+      if (clientImportFileInput.current) clientImportFileInput.current.value = '';
+      setRecordsKey(value => value + 1);
+      businessCommandKeys.current.delete('client-import.file-reserve');
+      businessCommandKeys.current.delete(`client-import.file-stage.${reservation.fileId}`);
+      businessCommandKeys.current.delete(`client-import.file-commit.${reservation.fileId}`);
+      businessCommandKeys.current.delete('client-import.validate');
+    } catch (reason) {
+      setClientImportMessage(reason instanceof Error ? reason.message : 'The CSV could not be validated. Retry with the same file.');
+    } finally { setClientImportBusy(false); }
+  };
+
+  const applyClientImport = async () => {
+    const selected = currentSelection();
+    const run = clientImportRun;
+    if (!selected || !run || run.status !== 'VALIDATED' || run.errorCount !== 0
+      || context?.actor.persona !== 'APPROVER' || context.actor.staffGrade !== 'PARTNER') return;
+    setClientImportBusy(true);
+    setClientImportMessage('Applying validated rows…');
+    try {
+      let status: 'VALIDATED' | 'APPLIED' = 'VALIDATED';
+      let appliedCount = run.appliedCount ?? 0;
+      while (status === 'VALIDATED') {
+        if (clientImportApplyKey.current?.runId !== run.runId) {
+          clientImportApplyKey.current = { runId: run.runId, key: newBusinessIdempotencyKey() };
+        }
+        const response = await runBusinessCommand<{
+          runId: string; status: 'VALIDATED' | 'APPLIED'; rowCount: number; appliedCount: number; remainingRows: number;
+        }>(selected.workspaceId, selected, { type: 'clientImport.apply', payload: { runId: run.runId } }, clientImportApplyKey.current.key);
+        clientImportApplyKey.current = null;
+        const result = response.result;
+        if (result.appliedCount <= appliedCount && result.status !== 'APPLIED') {
+          throw new Error('The import did not advance. Retry once or report the run ID shown above.');
+        }
+        status = result.status;
+        appliedCount = result.appliedCount;
+        setClientImportRun(current => current?.runId === run.runId
+          ? { ...current, status, appliedCount, rowCount: result.rowCount }
+          : current);
+        setClientImportMessage(status === 'APPLIED'
+          ? `Import complete: ${appliedCount.toLocaleString()} client rows applied.`
+          : `Applied ${appliedCount.toLocaleString()} of ${result.rowCount.toLocaleString()} client rows…`);
+      }
+      setRecordsKey(value => value + 1);
+    } catch (reason) {
+      setClientImportMessage(reason instanceof Error ? reason.message : 'The import paused. Retry to resume from the last committed batch.');
+    } finally { setClientImportBusy(false); }
   };
 
   const createClient = async (event: React.FormEvent<HTMLFormElement>) => {
@@ -1257,6 +1350,35 @@ export function BusinessWorkspaceConsole() {
               <strong>{client.legalName}</strong><span>{client.code ?? client.id.slice(0, 8)} · {client.entityType ?? 'CLIENT'}</span>
             </button>
           </li>)}</ul> : <p className="business-muted">No clients are registered. Add the first real client and primary contact below.</p>}
+
+          {context.actor.persona === 'APPROVER' && context.actor.staffGrade === 'PARTNER' && <section className="business-form business-commercial-form" aria-labelledby="business-client-import-heading">
+            <h3 id="business-client-import-heading">Bulk import clients and contacts</h3>
+            <p className="business-note">Upload a UTF-8 CSV using the documented template. Validation reports row-level problems without creating client records; only an error-free run can be applied.</p>
+            <form className="business-form-grid" onSubmit={validateClientImportFile}>
+              <label className="business-field" htmlFor="business-client-import-file"><span>Client export CSV</span><input
+                id="business-client-import-file" ref={clientImportFileInput} type="file" accept=".csv,text/csv" required
+                disabled={clientImportBusy} onChange={event => setClientImportFile(event.target.files?.[0] ?? null)} /></label>
+              <div className="business-dialog-actions"><button className="btn primary" type="submit" disabled={clientImportBusy || !clientImportFile}>
+                {clientImportBusy ? 'Validating…' : 'Upload and validate CSV'}
+              </button></div>
+            </form>
+            {clientImportMessage && <p className="business-note" role="status" aria-live="polite">{clientImportMessage}</p>}
+            {clientImportRun && <div className="business-note" aria-live="polite">
+              <p>Run <code>{clientImportRun.runId}</code> · {clientImportRun.status} · {clientImportRun.rowCount.toLocaleString()} rows · {clientImportRun.errorCount.toLocaleString()} errors
+                {clientImportRun.appliedCount !== undefined ? ` · ${clientImportRun.appliedCount.toLocaleString()} applied` : ''}</p>
+              {clientImportRun.report?.errors.length ? <details>
+                <summary>Review {clientImportRun.report.errors.length.toLocaleString()} row error{clientImportRun.report.errors.length === 1 ? '' : 's'}</summary>
+                <ul aria-label="Client import row errors">{clientImportRun.report.errors.map(row => <li key={row.sourceRow}>
+                  Row {row.sourceRow}: {row.issues.map(issue => `${issue.field} — ${issue.message}`).join('; ')}
+                </li>)}</ul>
+              </details> : null}
+              {clientImportRun.status === 'VALIDATED' && clientImportRun.errorCount === 0 && <div className="business-dialog-actions">
+                <button type="button" className="btn primary" disabled={clientImportBusy} onClick={() => void applyClientImport()}>
+                  {clientImportBusy ? 'Applying…' : 'Apply validated import'}
+                </button>
+              </div>}
+            </div>}
+          </section>}
 
           {context.allowedActions.includes('client.manage') && <form className="business-form business-commercial-form" onSubmit={createClient}>
             <h3>Create client and primary contact</h3>

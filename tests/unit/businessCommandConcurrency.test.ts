@@ -107,7 +107,13 @@ it('retries audit-head compare-and-swap races so 20 concurrent commands persist'
   }
   assert.equal(new Set(results.map(result => result.body.result.clientId)).size, commandCount,
     'each idempotent command persists one distinct client');
+  const auditRowsByCommand = db.prepare(`SELECT command_id,COUNT(*) AS count FROM audit_events
+    WHERE workspace_id=? AND command_type='client.create' GROUP BY command_id ORDER BY command_id`)
+    .bind(workspaceId).all<{ command_id: string; count: number }>().results ?? [];
+  assert.equal(auditRowsByCommand.length, commandCount, 'every successful command has one audit group');
+  assert.ok(auditRowsByCommand.every(row => row.count === 4),
+    'every client.create command audits its client, primary contact and both contact routes');
   assert.equal(db.prepare(`SELECT COUNT(*) AS count FROM audit_events
     WHERE workspace_id=? AND command_type='client.create'`).bind(workspaceId).first<{ count: number }>()?.count,
-  commandCount, 'all successful commands append one workspace audit event');
+  commandCount * 4, 'all successful commands append a complete entity-level workspace audit chain');
 });

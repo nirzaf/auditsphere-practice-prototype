@@ -28,3 +28,11 @@ Validation logic is shared with existing commands — no second copy of client/c
 ```bash
 npx tsx --test tests/unit/clientImport.test.ts && npm run test:unit
 ```
+
+## Implementation and acceptance status — 2026-10-09
+
+- **Code implemented:** canonical CSV upload and Partner-only validation; per-row error reports without business-record writes; duplicate source SHA-256 rejection; shared `client.create` and `client.affiliation.add` builders; parent-first apply in 40-row atomic batches; resume through `client_import_row_map`; contact routes and affiliations; chained audit events for every created client, contact, route, and affiliation.
+- **Local evidence:** `tests/unit/clientImport.test.ts` exercises malformed/quoted CSV, row-level invalid email/unknown parent/hierarchy cycle/route errors, no-write validation, duplicate file rejection, 42-row parent-first import over two commands, resume mapping, and entity audit counts. Local typecheck also passes.
+- **Verification — 2026-10-09:** `npm run test:unit` passed (197 passed, 1 opt-in stress test skipped, 0 failed); `npm run build` and `npm run cloud:typecheck` passed. The concurrency regression verifies all four audit rows per client command (client, contact, and two routes). A local browser walkthrough could not be started: Wrangler hit sandbox `EACCES` while binding its loopback inspector and `EPERM` writing its user log. The production Worker was not used for UI testing.
+- **Open acceptance:** the 5,000-row `<60s` validation and `<5m` apply targets still need representative synthetic data on an isolated staging workspace. Cloudflare currently exposes Production only; no production database was used for this test.
+- **Open dependency:** SP-03 still needs the incumbent platform name, owner-approved day-one scope, and an anonymized sample export/mapping. The importer implements the generic canonical CSV contract but does not claim that it maps the firm’s unknown incumbent export.

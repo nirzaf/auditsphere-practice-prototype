@@ -16,6 +16,7 @@ import { businessReportingCommands, buildBusinessReportingMutation, isBusinessRe
 import { businessPolicyCommands, buildBusinessPolicyMutation, isBusinessPolicyCommand } from './businessPolicy';
 import { presentationEditionBlocker } from '../src/domain/reportingStandards';
 import { projectClientDocuments, type ClientDocumentSourceRow } from './clientDocumentProjection';
+import { parseClientImportCsv, type ClientImportCsvRow } from './clientImportCsv';
 
 export const BUSINESS_SCHEMA_VERSION = 10;
 
@@ -687,6 +688,11 @@ async function businessCommandScope(
   command: { type?: string; payload?: Record<string, unknown> },
   mutation: BusinessMutation
 ): Promise<{ clientId: string | null; engagementId: string | null; known: boolean }> {
+  if (command.type === 'clientImport.validate') return { clientId: null, engagementId: null, known: true };
+  if (command.type === 'clientImport.apply') {
+    const clientId = firstStringField([mutation.result], 'clientId');
+    return { clientId, engagementId: null, known: true };
+  }
   // Workspace configuration changes stay workspace-scoped even when the UI
   // carries an active client or engagement selection in its request context.
   if (['STAFF_MEMBER', 'ACTOR_PROFILE', 'FIRM_PROFILE', 'STANDARDS_PROFILE', 'WORKPROGRAM_TEMPLATE', 'SAMPLING_POLICY'].includes(mutation.entityType)) {
@@ -1020,6 +1026,14 @@ const clientAffiliationCommand = z.strictObject({
   type: z.literal('client.affiliation.add'),
   payload: z.strictObject({ clientId: clientIdSchema, relatedClientId: clientIdSchema, relationship: z.string().trim().min(1).max(200) })
 });
+const clientImportValidateCommand = z.strictObject({
+  type: z.literal('clientImport.validate'),
+  payload: z.strictObject({ fileVersionId: clientIdSchema })
+});
+const clientImportApplyCommand = z.strictObject({
+  type: z.literal('clientImport.apply'),
+  payload: z.strictObject({ runId: clientIdSchema })
+});
 const leadCreateCommand = z.strictObject({
   type: z.literal('lead.create'),
   payload: z.strictObject({
@@ -1305,6 +1319,8 @@ export const businessCommandSchema = z.discriminatedUnion('type', [
   contactUpdateCommand,
   contactRouteCommand,
   clientAffiliationCommand,
+  clientImportValidateCommand,
+  clientImportApplyCommand,
   leadCreateCommand,
   leadUpdateCommand,
   leadLoseCommand,
@@ -1681,7 +1697,17 @@ export interface BusinessMutation {
   beforeVersion: number | null;
   afterVersion: number;
   auditDetails?: Record<string, unknown>;
+  additionalAuditEvents?: BusinessAuditEvent[];
   responseStatus?: number;
+}
+
+interface BusinessAuditEvent {
+  entityType: string;
+  entityId: string;
+  clientId?: string | null;
+  details?: Record<string, unknown>;
+  beforeVersion?: number | null;
+  afterVersion?: number | null;
 }
 
 const BUSINESS_FILE_MAX_BYTES = 25 * 1024 * 1024;
@@ -2770,7 +2796,7 @@ function requireCommercialStaff(context: BusinessContext, command: string): void
   if (!['PREPARER', 'APPROVER'].includes(context.actor.persona)) {
     throw new ApiError('PERSONA_ACTION_DENIED', 'This commercial action is limited to PREPARER or APPROVER profiles.');
   }
-  const requiredAction = command.startsWith('client.') || command.startsWith('contact.')
+  const requiredAction = command.startsWith('client.') || command.startsWith('contact.') || command.startsWith('clientImport.')
       ? 'client.manage'
       : command === 'lead.convert' ? 'lead.convert'
         : command.startsWith('lead.') || command === 'publicLead.triage' ? 'lead.manage'
@@ -2781,6 +2807,10 @@ function requireCommercialStaff(context: BusinessContext, command: string): void
   }
   if (command === 'client.deactivate' && context.actor.persona !== 'APPROVER') {
     throw new ApiError('PERSONA_ACTION_DENIED', 'Only an APPROVER can deactivate a client.');
+  }
+  if (command.startsWith('clientImport.')
+    && (context.actor.persona !== 'APPROVER' || context.actor.staffGrade !== 'PARTNER')) {
+    throw new ApiError('PERSONA_ACTION_DENIED', 'Bulk client import is limited to a Partner APPROVER.');
   }
 }
 
@@ -2803,6 +2833,534 @@ function primaryContactRoleForPurpose(purpose: z.infer<typeof contactPurposeSche
   return 'CHIEF_ACCOUNTANT_LIAISON';
 }
 
+type ClientCreatePayload = z.infer<typeof clientCreateCommand>['payload'];
+type ClientAffiliationPayload = z.infer<typeof clientAffiliationCommand>['payload'];
+type ContactPurpose = z.infer<typeof contactPurposeSchema>;
+
+interface ClientCreateOptions {
+  assertionSequence?: number;
+  skipDatabasePreflight?: boolean;
+  routePurposes?: ContactPurpose[];
+}
+
+/** Shared implementation for single and bulk client creation. */
+async function buildClientCreateMutation(
+  env: Env,
+  workspaceId: string,
+  context: BusinessContext,
+  payload: ClientCreatePayload,
+  now: string,
+  options: ClientCreateOptions = {}
+): Promise<BusinessMutation> {
+  if (!options.skipDatabasePreflight) {
+    const duplicateCode = await env.DB.prepare(`SELECT id FROM clients WHERE workspace_id=? AND code=?`)
+      .bind(workspaceId, payload.code).first<{ id: string }>();
+    if (duplicateCode) throw new ApiError('VERSION_CONFLICT', 'A client already uses this code. Choose a unique client code.');
+    if (payload.parentClientId) {
+      const parent = await env.DB.prepare(`SELECT id FROM clients WHERE workspace_id=? AND id=? AND active=1`)
+        .bind(workspaceId, payload.parentClientId).first<{ id: string }>();
+      if (!parent) throw new ApiError('VALIDATION_FAILED', 'The subsidiary parent must be an active client in this workspace.');
+    }
+  }
+  const clientId = crypto.randomUUID();
+  const contactId = crypto.randomUUID();
+  const routes = options.routePurposes ?? contactRoutePurposes(payload.primaryContact.role);
+  const routeIds = routes.map(() => crypto.randomUUID());
+  const statements = [
+    env.DB.prepare(`INSERT INTO command_assertions(workspace_id,seq,ok)
+      SELECT ?,?,CASE WHEN NOT EXISTS(SELECT 1 FROM clients WHERE workspace_id=? AND code=?)
+        AND (? IS NULL OR EXISTS(SELECT 1 FROM clients WHERE workspace_id=? AND id=? AND active=1))
+      THEN 1 ELSE 0 END`).bind(workspaceId, options.assertionSequence ?? 20, workspaceId, payload.code,
+        payload.parentClientId ?? null, workspaceId, payload.parentClientId ?? null),
+    env.DB.prepare(`INSERT INTO clients(
+      id,workspace_id,version,code,legal_name,trading_name,entity_type,parent_client_id,
+      commercial_registration,tax_id,industry,address,country_code,active,created_at,updated_at,
+      created_by_actor_id,updated_by_actor_id
+    ) VALUES(?,?,1,?,?,?,?,?,?, ?,?,?,?,1,?,?,?,?)`).bind(
+      clientId, workspaceId, payload.code, payload.legalName, payload.tradingName ?? null,
+      payload.entityType, payload.parentClientId ?? null, payload.commercialRegistration ?? null,
+      payload.taxId ?? null, payload.industry, payload.address, payload.countryCode,
+      now, now, context.actor.id, context.actor.id
+    ),
+    env.DB.prepare(`INSERT INTO contacts(
+      id,workspace_id,version,client_id,full_name,email,phone,title,role,is_primary,is_signatory,active,
+      effective_from,effective_to,created_at,updated_at,created_by_actor_id,updated_by_actor_id
+    ) VALUES(?,?,1,?,?,?,?,?, ?,1,?,1,?,NULL,?,?,?,?)`).bind(
+      contactId, workspaceId, clientId, payload.primaryContact.fullName, payload.primaryContact.email ?? null,
+      payload.primaryContact.phone ?? null, payload.primaryContact.title, payload.primaryContact.role,
+      payload.primaryContact.isSignatory ? 1 : 0, payload.primaryContact.effectiveFrom, now, now, context.actor.id, context.actor.id
+    ),
+    ...routes.map((purpose, index) => env.DB.prepare(`INSERT INTO contact_routes(
+      id,workspace_id,version,client_id,purpose,contact_id,is_primary,created_at,updated_at,created_by_actor_id,updated_by_actor_id
+    ) VALUES(?,?,1,?,?,?,1,?,?,?,?)`).bind(
+      routeIds[index], workspaceId, clientId, purpose, contactId, now, now, context.actor.id, context.actor.id
+    ))
+  ];
+  return {
+    statements,
+    result: { clientId, primaryContactId: contactId, version: 1, routePurposes: routes },
+    entityType: 'CLIENT', entityId: clientId, beforeVersion: null, afterVersion: 1,
+    additionalAuditEvents: [
+      { entityType: 'CONTACT', entityId: contactId, clientId, afterVersion: 1 },
+      ...routeIds.map(entityId => ({ entityType: 'CONTACT_ROUTE', entityId, clientId, afterVersion: 1 }))
+    ]
+  };
+}
+
+interface ClientAffiliationOptions { assertionSequence?: number; skipDatabasePreflight?: boolean; }
+
+/** Shared implementation for single and bulk affiliation creation. */
+async function buildClientAffiliationMutation(
+  env: Env,
+  workspaceId: string,
+  context: BusinessContext,
+  payload: ClientAffiliationPayload,
+  now: string,
+  options: ClientAffiliationOptions = {}
+): Promise<BusinessMutation> {
+  if (!options.skipDatabasePreflight) {
+    const clients = await env.DB.prepare(`SELECT id FROM clients WHERE workspace_id=? AND active=1 AND id IN (?,?)`)
+      .bind(workspaceId, payload.clientId, payload.relatedClientId).all<{ id: string }>();
+    if ((clients.results ?? []).length !== 2) {
+      throw new ApiError('VALIDATION_FAILED', 'Both related clients must be active records in this workspace.');
+    }
+  }
+  if (payload.clientId === payload.relatedClientId) throw new ApiError('VALIDATION_FAILED', 'A client cannot be affiliated with itself.');
+  const affiliationId = crypto.randomUUID();
+  return {
+    statements: [
+      env.DB.prepare(`INSERT INTO command_assertions(workspace_id,seq,ok)
+        SELECT ?,?,CASE WHEN EXISTS(SELECT 1 FROM clients WHERE workspace_id=? AND id=? AND active=1)
+          AND EXISTS(SELECT 1 FROM clients WHERE workspace_id=? AND id=? AND active=1) AND ?<>?
+        THEN 1 ELSE 0 END`).bind(workspaceId, options.assertionSequence ?? 26,
+          workspaceId, payload.clientId, workspaceId, payload.relatedClientId, payload.clientId, payload.relatedClientId),
+      env.DB.prepare(`INSERT INTO client_affiliations(id,workspace_id,version,client_id,related_client_id,relationship,created_at,updated_at,created_by_actor_id,updated_by_actor_id)
+        VALUES(?,?,1,?,?,?,?,?,?,?)`).bind(affiliationId, workspaceId, payload.clientId, payload.relatedClientId,
+        payload.relationship, now, now, context.actor.id, context.actor.id)
+    ],
+    result: { affiliationId, clientId: payload.clientId, relatedClientId: payload.relatedClientId },
+    entityType: 'CLIENT_AFFILIATION', entityId: affiliationId, beforeVersion: null, afterVersion: 1
+  };
+}
+
+interface ClientImportRowIssue { field: string; message: string; }
+interface NormalizedClientImportRow {
+  sourceRow: number;
+  externalRef: string;
+  parentExternalRef: string;
+  relationship: string;
+  payload: ClientCreatePayload;
+  routePurposes?: ContactPurpose[];
+  issues: ClientImportRowIssue[];
+}
+interface ClientImportValidationReport {
+  rowCount: number;
+  errorCount: number;
+  errors: Array<{ sourceRow: number; issues: ClientImportRowIssue[] }>;
+  order: number[];
+  appliedCount?: number;
+}
+
+const IMPORT_PARENT_ID_PLACEHOLDER = '00000000-0000-4000-8000-000000000001';
+const CLIENT_IMPORT_APPLY_BATCH_SIZE = 40;
+const CLIENT_IMPORT_ASSERTION_BASE = 20_000;
+const CLIENT_IMPORT_AFFILIATION_ASSERTION_BASE = 40_000;
+
+function normalizeClientImportRows(csvRows: ClientImportCsvRow[]): {
+  rows: NormalizedClientImportRow[];
+  report: ClientImportValidationReport;
+  topologicalRows: NormalizedClientImportRow[];
+} {
+  const issuesByRow = new Map<number, ClientImportRowIssue[]>();
+  const addIssue = (sourceRow: number, field: string, message: string) => {
+    const issues = issuesByRow.get(sourceRow) ?? [];
+    issues.push({ field, message });
+    issuesByRow.set(sourceRow, issues);
+  };
+
+  const rows: NormalizedClientImportRow[] = csvRows.map(csv => {
+    const sourceRow = csv.sourceRow;
+    const externalRef = csv.external_ref.trim();
+    const parentExternalRef = csv.parent_external_ref.trim();
+    const entityType = csv.entity_type.trim().toUpperCase();
+    const role = csv.contact_role.trim().toUpperCase();
+    let isSignatory = false;
+    if (csv.contact_is_signatory.trim()) {
+      const normalized = csv.contact_is_signatory.trim().toLowerCase();
+      if (normalized === 'true') isSignatory = true;
+      else if (normalized !== 'false') addIssue(sourceRow, 'contact_is_signatory', 'Use true or false.');
+    }
+    let routePurposes: ContactPurpose[] | undefined;
+    if (csv.route_purposes.trim()) {
+      const values = csv.route_purposes.split('|').map(value => value.trim().toUpperCase());
+      const parsed = z.array(contactPurposeSchema).safeParse(values);
+      if (!parsed.success) addIssue(sourceRow, 'route_purposes', 'Contains an unknown route purpose.');
+      else if (new Set(parsed.data).size !== parsed.data.length) addIssue(sourceRow, 'route_purposes', 'Route purposes must be unique.');
+      else routePurposes = parsed.data;
+    }
+
+    const candidate = {
+      code: csv.client_code,
+      legalName: csv.legal_name,
+      ...(csv.trading_name ? { tradingName: csv.trading_name } : {}),
+      entityType,
+      ...(parentExternalRef ? { parentClientId: IMPORT_PARENT_ID_PLACEHOLDER } : {}),
+      ...(csv.commercial_registration ? { commercialRegistration: csv.commercial_registration } : {}),
+      ...(csv.tax_id ? { taxId: csv.tax_id } : {}),
+      industry: csv.industry,
+      address: csv.address,
+      countryCode: csv.country_code,
+      primaryContact: {
+        fullName: csv.contact_name,
+        ...(csv.contact_email ? { email: csv.contact_email } : {}),
+        ...(csv.contact_phone ? { phone: csv.contact_phone } : {}),
+        title: csv.contact_title,
+        role,
+        isSignatory,
+        effectiveFrom: csv.effective_from
+      }
+    };
+    const parsed = clientCreateCommand.shape.payload.safeParse(candidate);
+    if (!parsed.success) {
+      for (const issue of parsed.error.issues) {
+        const schemaPath = issue.path.map(String).join('.');
+        const csvFieldBySchemaPath: Record<string, string> = {
+          code: 'client_code', legalName: 'legal_name', tradingName: 'trading_name', entityType: 'entity_type',
+          parentClientId: 'parent_external_ref', commercialRegistration: 'commercial_registration', taxId: 'tax_id',
+          industry: 'industry', address: 'address', countryCode: 'country_code',
+          'primaryContact.fullName': 'contact_name', 'primaryContact.email': 'contact_email',
+          'primaryContact.phone': 'contact_phone', 'primaryContact.title': 'contact_title',
+          'primaryContact.role': 'contact_role', 'primaryContact.isSignatory': 'contact_is_signatory',
+          'primaryContact.effectiveFrom': 'effective_from'
+        };
+        const field = (csvFieldBySchemaPath[schemaPath] ?? schemaPath) || 'row';
+        addIssue(sourceRow, field, issue.message);
+      }
+    }
+    if (!externalRef) addIssue(sourceRow, 'external_ref', 'An external reference is required.');
+    else if (externalRef.length > 200) addIssue(sourceRow, 'external_ref', 'Use at most 200 characters.');
+    if (parentExternalRef && entityType !== 'SUBSIDIARY') {
+      addIssue(sourceRow, 'parent_external_ref', 'Only a SUBSIDIARY can name a parent.');
+    }
+    if (entityType === 'SUBSIDIARY' && !parentExternalRef) {
+      addIssue(sourceRow, 'parent_external_ref', 'A subsidiary must name a parent external reference.');
+    }
+    const relationship = csv.relationship.trim();
+    if (parentExternalRef && !relationship) addIssue(sourceRow, 'relationship', 'A subsidiary affiliation needs a relationship.');
+    if (relationship.length > 200) addIssue(sourceRow, 'relationship', 'Use at most 200 characters.');
+
+    const fallbackPayload = {
+      code: csv.client_code.trim(), legalName: csv.legal_name.trim(), entityType: 'STANDALONE' as const,
+      industry: csv.industry.trim(), address: csv.address.trim(), countryCode: csv.country_code.trim().toUpperCase(),
+      primaryContact: {
+        fullName: csv.contact_name.trim(), ...(csv.contact_email ? { email: csv.contact_email.trim() } : {}),
+        ...(csv.contact_phone ? { phone: csv.contact_phone.trim() } : {}), title: csv.contact_title.trim(),
+        role: (contactRoleSchema.safeParse(role).success ? role : 'OTHER') as z.infer<typeof contactRoleSchema>,
+        isSignatory, effectiveFrom: csv.effective_from.trim()
+      }
+    };
+    const validatedPayload = parsed.success ? parsed.data : fallbackPayload;
+    return {
+      sourceRow, externalRef, parentExternalRef, relationship, payload: validatedPayload,
+      routePurposes, issues: []
+    };
+  });
+
+  const countValues = (value: string, select: (row: NormalizedClientImportRow) => string) => {
+    const map = new Map<string, number[]>();
+    for (const row of rows) {
+      const key = select(row);
+      if (!key) continue;
+      const sourceRows = map.get(key) ?? [];
+      sourceRows.push(row.sourceRow);
+      map.set(key, sourceRows);
+    }
+    for (const [key, sourceRows] of map) {
+      if (sourceRows.length > 1) for (const sourceRow of sourceRows) addIssue(sourceRow, value, `Duplicate ${value.replaceAll('_', ' ')} in this file.`);
+    }
+  };
+  countValues('external_ref', row => row.externalRef);
+  countValues('client_code', row => row.payload.code.trim());
+
+  const byRef = new Map<string, NormalizedClientImportRow>();
+  for (const row of rows) if (row.externalRef && !byRef.has(row.externalRef)) byRef.set(row.externalRef, row);
+  for (const row of rows) {
+    if (row.parentExternalRef && !byRef.has(row.parentExternalRef)) {
+      addIssue(row.sourceRow, 'parent_external_ref', 'The parent external reference is not in this file.');
+    }
+  }
+
+  // Walk each single-parent chain iteratively to detect cycles without recursion limits.
+  const completed = new Set<string>();
+  const cycleRefs = new Set<string>();
+  for (const row of rows) {
+    if (!row.externalRef || completed.has(row.externalRef) || !byRef.has(row.externalRef)) continue;
+    const path: string[] = [];
+    const positions = new Map<string, number>();
+    let current: string | undefined = row.externalRef;
+    while (current && byRef.has(current) && !completed.has(current)) {
+      const cycleStart = positions.get(current);
+      if (cycleStart !== undefined) {
+        for (const ref of path.slice(cycleStart)) cycleRefs.add(ref);
+        break;
+      }
+      positions.set(current, path.length);
+      path.push(current);
+      current = byRef.get(current)?.parentExternalRef || undefined;
+    }
+    for (const ref of path) completed.add(ref);
+  }
+  for (const ref of cycleRefs) {
+    const row = byRef.get(ref);
+    if (row) addIssue(row.sourceRow, 'parent_external_ref', 'The client hierarchy contains a parent cycle.');
+  }
+
+  const childRows = new Map<string, NormalizedClientImportRow[]>();
+  const pendingParents = new Map<string, number>();
+  for (const row of rows) {
+    if (!row.externalRef || !byRef.has(row.externalRef)) continue;
+    const parent = row.parentExternalRef;
+    if (!parent || !byRef.has(parent)) pendingParents.set(row.externalRef, 0);
+    else {
+      pendingParents.set(row.externalRef, 1);
+      const children = childRows.get(parent) ?? [];
+      children.push(row);
+      childRows.set(parent, children);
+    }
+  }
+  const ready = rows.filter(row => row.externalRef && byRef.get(row.externalRef) === row && pendingParents.get(row.externalRef) === 0)
+    .sort((left, right) => left.sourceRow - right.sourceRow);
+  const topologicalRows: NormalizedClientImportRow[] = [];
+  for (let index = 0; index < ready.length; index += 1) {
+    const row = ready[index]!;
+    topologicalRows.push(row);
+    for (const child of childRows.get(row.externalRef) ?? []) {
+      pendingParents.set(child.externalRef, 0);
+      ready.push(child);
+    }
+  }
+  if (topologicalRows.length !== byRef.size) {
+    for (const row of rows) if (!topologicalRows.includes(row) && row.externalRef && byRef.get(row.externalRef) === row) {
+      if (!cycleRefs.has(row.externalRef)) addIssue(row.sourceRow, 'parent_external_ref', 'The parent cannot be imported before this row.');
+    }
+  }
+
+  for (const row of rows) row.issues = issuesByRow.get(row.sourceRow) ?? [];
+  const errors = rows.filter(row => row.issues.length).map(row => ({ sourceRow: row.sourceRow, issues: row.issues }));
+  const report: ClientImportValidationReport = {
+    rowCount: rows.length,
+    errorCount: errors.length,
+    errors,
+    order: topologicalRows.map(row => row.sourceRow)
+  };
+  return { rows, report, topologicalRows };
+}
+
+async function readClientImportSource(
+  env: Env,
+  workspaceId: string,
+  fileVersionId: string
+): Promise<{ file: BusinessFileRow; bytes: Uint8Array; rows: ClientImportCsvRow[] }> {
+  const file = await businessFileRow(env, workspaceId, fileVersionId);
+  if (!file || file.purpose !== 'TEMPLATE' || file.media_type !== 'text/csv' || file.client_id || file.engagement_id
+    || file.state !== 'COMMITTED' || file.immutable !== 1 || !file.sha256 || !file.committed_at) {
+    throw new ApiError('VALIDATION_FAILED', 'Choose a committed workspace-level CSV template file.');
+  }
+  const stored = await env.FILES.get(file.object_key);
+  if (!stored) throw new ApiError('INTEGRITY_MISMATCH', 'The committed CSV file is missing from object storage.');
+  const bytes = new Uint8Array(await stored.arrayBuffer());
+  if (bytes.length !== file.size_bytes || await sha256Bytes(bytes) !== file.sha256) {
+    throw new ApiError('INTEGRITY_MISMATCH', 'The committed CSV bytes failed their stored integrity check.');
+  }
+  verifyBusinessFileBytes(file.media_type, bytes);
+  let source: string;
+  try { source = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(bytes); }
+  catch { throw new ApiError('VALIDATION_FAILED', 'The CSV must be valid UTF-8 text.'); }
+  try { return { file, bytes, rows: parseClientImportCsv(source) }; }
+  catch (error) {
+    throw new ApiError('VALIDATION_FAILED', error instanceof Error ? error.message : 'The CSV structure is invalid.');
+  }
+}
+
+async function existingClientCodes(env: Env, workspaceId: string, codes: string[]): Promise<Set<string>> {
+  const existing = new Set<string>();
+  for (let offset = 0; offset < codes.length; offset += 80) {
+    const chunk = codes.slice(offset, offset + 80);
+    if (!chunk.length) continue;
+    const placeholders = chunk.map(() => '?').join(',');
+    const result = await env.DB.prepare(`SELECT code FROM clients WHERE workspace_id=? AND code IN (${placeholders})`)
+      .bind(workspaceId, ...chunk).all<{ code: string }>();
+    for (const row of result.results ?? []) existing.add(row.code);
+  }
+  return existing;
+}
+
+async function buildClientImportMutation(
+  env: Env,
+  workspaceId: string,
+  context: BusinessContext,
+  command: Extract<BusinessCommercialCommand, { type: 'clientImport.validate' | 'clientImport.apply' }>,
+  now: string
+): Promise<BusinessMutation> {
+  if (context.actor.persona !== 'APPROVER' || context.actor.staffGrade !== 'PARTNER'
+    || !context.allowedActions.includes('client.manage')) {
+    throw new ApiError('PERSONA_ACTION_DENIED', 'Bulk client import is limited to a Partner APPROVER.');
+  }
+  if (command.type === 'clientImport.validate') {
+    const { file, rows: csvRows } = await readClientImportSource(env, workspaceId, command.payload.fileVersionId);
+    const normalized = normalizeClientImportRows(csvRows);
+    const existingCodes = await existingClientCodes(env, workspaceId,
+      [...new Set(normalized.rows.map(row => row.payload.code.trim()).filter(Boolean))]);
+    for (const row of normalized.rows) {
+      if (existingCodes.has(row.payload.code.trim())) row.issues.push({ field: 'client_code', message: 'A client already uses this code.' });
+    }
+    const errors = normalized.rows.filter(row => row.issues.length)
+      .map(row => ({ sourceRow: row.sourceRow, issues: row.issues }));
+    const report: ClientImportValidationReport = {
+      ...normalized.report,
+      errorCount: errors.length,
+      errors
+    };
+    const status = report.errorCount === 0 ? 'VALIDATED' : 'REJECTED';
+    const runId = crypto.randomUUID();
+    return {
+      statements: [env.DB.prepare(`INSERT INTO client_import_runs(
+        id,workspace_id,source_file_version_id,source_sha256,status,row_count,error_count,report_json,created_by_actor_id,created_at,applied_at
+      ) VALUES(?,?,?,?,?,?,?,?,?,?,NULL)`).bind(
+        runId, workspaceId, file.id, file.sha256, status, report.rowCount, report.errorCount, JSON.stringify(report), context.actor.id, now
+      )],
+      result: { runId, sourceSha256: file.sha256, status, rowCount: report.rowCount, errorCount: report.errorCount, report },
+      entityType: 'CLIENT_IMPORT_RUN', entityId: runId, beforeVersion: null, afterVersion: 1,
+      auditDetails: { status, rowCount: report.rowCount, errorCount: report.errorCount, sourceSha256: file.sha256 }
+    };
+  }
+
+  const run = await env.DB.prepare(`SELECT id,source_file_version_id,source_sha256,status,row_count,error_count,report_json,created_by_actor_id
+    FROM client_import_runs WHERE workspace_id=? AND id=?`)
+    .bind(workspaceId, command.payload.runId)
+    .first<{ id: string; source_file_version_id: string; source_sha256: string; status: string; row_count: number;
+      error_count: number; report_json: string; created_by_actor_id: string }>();
+  if (!run) throw new ApiError('NOT_FOUND', 'The client import run was not found.');
+  if (run.status !== 'VALIDATED' || run.error_count !== 0) {
+    throw new ApiError('INVALID_TRANSITION', 'Only a validated import with no row errors can be applied.');
+  }
+  const { file, rows: csvRows } = await readClientImportSource(env, workspaceId, run.source_file_version_id);
+  if (file.sha256 !== run.source_sha256) throw new ApiError('INTEGRITY_MISMATCH', 'The source CSV no longer matches the validated import run.');
+  const normalized = normalizeClientImportRows(csvRows);
+  if (normalized.report.errorCount || normalized.rows.length !== run.row_count) {
+    throw new ApiError('INTEGRITY_MISMATCH', 'The validated import rows no longer match the source CSV.');
+  }
+  let savedReport: ClientImportValidationReport;
+  try { savedReport = JSON.parse(run.report_json) as ClientImportValidationReport; }
+  catch { throw new ApiError('INTEGRITY_MISMATCH', 'The stored import report is invalid.'); }
+  if (savedReport.rowCount !== normalized.report.rowCount || savedReport.errorCount !== 0) {
+    throw new ApiError('INTEGRITY_MISMATCH', 'The stored import report does not match the source CSV.');
+  }
+
+  const mapped = await env.DB.prepare(`SELECT source_row,external_ref,client_id,contact_id FROM client_import_row_map
+    WHERE workspace_id=? AND run_id=?`).bind(workspaceId, run.id)
+    .all<{ source_row: number; external_ref: string; client_id: string | null; contact_id: string | null }>();
+  const mappedByRow = new Set((mapped.results ?? []).map(row => row.source_row));
+  const mappedByRef = new Map((mapped.results ?? []).map(row => [row.external_ref, row.client_id]).filter((entry): entry is [string, string] => Boolean(entry[1])));
+  if (mappedByRow.size !== (mapped.results ?? []).length || mappedByRow.size > run.row_count) {
+    throw new ApiError('INTEGRITY_MISMATCH', 'The import resume map contains duplicate or unexpected source rows.');
+  }
+
+  const plannedClientIds = new Map<string, string>();
+  const plannedRefs = new Set<string>();
+  const pendingRows = normalized.topologicalRows.filter(row => !mappedByRow.has(row.sourceRow));
+  const selectedRows: NormalizedClientImportRow[] = [];
+  for (const row of pendingRows) {
+    if (selectedRows.length >= CLIENT_IMPORT_APPLY_BATCH_SIZE) break;
+    if (row.parentExternalRef && !mappedByRef.has(row.parentExternalRef) && !plannedRefs.has(row.parentExternalRef)) continue;
+    selectedRows.push(row);
+    plannedRefs.add(row.externalRef);
+  }
+  if (pendingRows.length && selectedRows.length === 0) {
+    throw new ApiError('INTEGRITY_MISMATCH', 'The import hierarchy cannot be resumed because a parent mapping is missing.');
+  }
+
+  const timestamp = now;
+  const rowStatements: D1PreparedStatement[] = [];
+  const entityEvents: BusinessAuditEvent[] = [];
+  const duplicateCodes = await existingClientCodes(env, workspaceId, selectedRows.map(row => row.payload.code.trim()));
+  if (duplicateCodes.size) {
+    throw new ApiError('VERSION_CONFLICT', 'A client already uses a code in this import batch. Resolve the directory conflict before resuming.');
+  }
+  for (const [index, row] of selectedRows.entries()) {
+    const parentClientId = row.parentExternalRef
+      ? mappedByRef.get(row.parentExternalRef) ?? plannedClientIds.get(row.parentExternalRef)
+      : undefined;
+    const payload = clientCreateCommand.shape.payload.parse({
+      ...row.payload,
+      ...(parentClientId ? { parentClientId } : {})
+    });
+    const clientMutation = await buildClientCreateMutation(env, workspaceId, context, payload, timestamp, {
+      assertionSequence: CLIENT_IMPORT_ASSERTION_BASE + index,
+      skipDatabasePreflight: true,
+      routePurposes: row.routePurposes
+    });
+    const result = clientMutation.result as { clientId: string; primaryContactId: string };
+    plannedClientIds.set(row.externalRef, result.clientId);
+    const createdEntities = [
+      { entityType: 'CLIENT', entityId: result.clientId, clientId: result.clientId, afterVersion: 1 },
+      ...(clientMutation.additionalAuditEvents ?? []).map(event => ({ ...event, details: { sourceRow: row.sourceRow } }))
+    ];
+    const firstClientEvent = entityEvents.length === 0;
+    if (!firstClientEvent) entityEvents.push(createdEntities[0]!);
+    entityEvents.push(...createdEntities.slice(1));
+    rowStatements.push(...clientMutation.statements);
+    rowStatements.push(env.DB.prepare(`INSERT INTO client_import_row_map(workspace_id,run_id,source_row,external_ref,client_id,contact_id)
+      VALUES(?,?,?,?,?,?)`).bind(workspaceId, run.id, row.sourceRow, row.externalRef, result.clientId, result.primaryContactId));
+
+    if (parentClientId) {
+      const affiliation = await buildClientAffiliationMutation(env, workspaceId, context, {
+        clientId: result.clientId,
+        relatedClientId: parentClientId,
+        relationship: row.relationship
+      }, timestamp, {
+        assertionSequence: CLIENT_IMPORT_AFFILIATION_ASSERTION_BASE + index,
+        skipDatabasePreflight: true
+      });
+      rowStatements.push(...affiliation.statements);
+      entityEvents.push({ entityType: 'CLIENT_AFFILIATION', entityId: affiliation.entityId,
+        clientId: result.clientId, details: { sourceRow: row.sourceRow }, afterVersion: 1 });
+    }
+  }
+
+  const totalApplied = mappedByRow.size + selectedRows.length;
+  const completed = totalApplied === run.row_count;
+  const status = completed ? 'APPLIED' : 'VALIDATED';
+  const updatedReport = { ...savedReport, appliedCount: totalApplied };
+  const runAssertionSequence = CLIENT_IMPORT_AFFILIATION_ASSERTION_BASE + CLIENT_IMPORT_APPLY_BATCH_SIZE + 1;
+  const statements = [
+    env.DB.prepare(`INSERT INTO command_assertions(workspace_id,seq,ok)
+      SELECT ?,?,CASE WHEN EXISTS(SELECT 1 FROM client_import_runs WHERE workspace_id=? AND id=? AND status='VALIDATED'
+        AND error_count=0 AND source_sha256=? AND source_file_version_id=?) THEN 1 ELSE 0 END`)
+      .bind(workspaceId, runAssertionSequence, workspaceId, run.id, run.source_sha256, run.source_file_version_id),
+    ...rowStatements,
+    env.DB.prepare(`UPDATE client_import_runs SET status=?,report_json=?,applied_at=CASE WHEN ?='APPLIED' THEN ? ELSE applied_at END
+      WHERE workspace_id=? AND id=? AND status='VALIDATED' AND error_count=0`)
+      .bind(status, JSON.stringify(updatedReport), status, timestamp, workspaceId, run.id)
+  ];
+
+  const firstCreatedRow = selectedRows[0];
+  const firstClientId = firstCreatedRow ? plannedClientIds.get(firstCreatedRow.externalRef) : undefined;
+  const entityType = firstClientId ? 'CLIENT' : 'CLIENT_IMPORT_RUN';
+  const entityId = firstClientId ?? run.id;
+  const firstRowDetails = firstCreatedRow ? { sourceRow: firstCreatedRow.sourceRow } : {};
+  return {
+    statements,
+    result: {
+      runId: run.id, status, rowCount: run.row_count, appliedCount: totalApplied,
+      remainingRows: run.row_count - totalApplied, ...(firstClientId ? { clientId: firstClientId } : {})
+    },
+    entityType, entityId, beforeVersion: null, afterVersion: 1,
+    auditDetails: { runId: run.id, importedRows: selectedRows.length, ...firstRowDetails },
+    additionalAuditEvents: entityEvents
+  };
+}
+
 async function buildCommercialMutation(
   env: Env,
   workspaceId: string,
@@ -2813,6 +3371,10 @@ async function buildCommercialMutation(
 ): Promise<BusinessMutation> {
   requireCommercialStaff(context, command.type);
   const actorId = context.actor.id;
+
+  if (command.type === 'clientImport.validate' || command.type === 'clientImport.apply') {
+    return buildClientImportMutation(env, workspaceId, context, command, now);
+  }
 
   if (command.type === 'publicLead.triage') {
     const payload = command.payload;
@@ -2913,53 +3475,7 @@ async function buildCommercialMutation(
   }
 
   if (command.type === 'client.create') {
-    const payload = command.payload;
-    const duplicateCode = await env.DB.prepare(`SELECT id FROM clients WHERE workspace_id=? AND code=?`)
-      .bind(workspaceId, payload.code).first<{ id: string }>();
-    if (duplicateCode) throw new ApiError('VERSION_CONFLICT', 'A client already uses this code. Choose a unique client code.');
-    if (payload.parentClientId) {
-      const parent = await env.DB.prepare(`SELECT id FROM clients WHERE workspace_id=? AND id=? AND active=1`)
-        .bind(workspaceId, payload.parentClientId).first<{ id: string }>();
-      if (!parent) throw new ApiError('VALIDATION_FAILED', 'The subsidiary parent must be an active client in this workspace.');
-    }
-    const clientId = crypto.randomUUID();
-    const contactId = crypto.randomUUID();
-    const routes = contactRoutePurposes(payload.primaryContact.role);
-    const routeIds = routes.map(() => crypto.randomUUID());
-    const statements = [
-      env.DB.prepare(`INSERT INTO command_assertions(workspace_id,seq,ok)
-        SELECT ?,20,CASE WHEN NOT EXISTS(SELECT 1 FROM clients WHERE workspace_id=? AND code=?)
-          AND (? IS NULL OR EXISTS(SELECT 1 FROM clients WHERE workspace_id=? AND id=? AND active=1))
-        THEN 1 ELSE 0 END`).bind(workspaceId, workspaceId, payload.code, payload.parentClientId ?? null, workspaceId, payload.parentClientId ?? null),
-      env.DB.prepare(`INSERT INTO clients(
-        id,workspace_id,version,code,legal_name,trading_name,entity_type,parent_client_id,
-        commercial_registration,tax_id,industry,address,country_code,active,created_at,updated_at,
-        created_by_actor_id,updated_by_actor_id
-      ) VALUES(?,?,1,?,?,?,?,?,?, ?,?,?,?,1,?,?,?,?)`).bind(
-        clientId, workspaceId, payload.code, payload.legalName, payload.tradingName ?? null,
-        payload.entityType, payload.parentClientId ?? null, payload.commercialRegistration ?? null,
-        payload.taxId ?? null, payload.industry, payload.address, payload.countryCode,
-        now, now, actorId, actorId
-      ),
-      env.DB.prepare(`INSERT INTO contacts(
-        id,workspace_id,version,client_id,full_name,email,phone,title,role,is_primary,is_signatory,active,
-        effective_from,effective_to,created_at,updated_at,created_by_actor_id,updated_by_actor_id
-      ) VALUES(?,?,1,?,?,?,?,?, ?,1,?,1,?,NULL,?,?,?,?)`).bind(
-        contactId, workspaceId, clientId, payload.primaryContact.fullName, payload.primaryContact.email ?? null,
-        payload.primaryContact.phone ?? null, payload.primaryContact.title, payload.primaryContact.role,
-        payload.primaryContact.isSignatory ? 1 : 0, payload.primaryContact.effectiveFrom, now, now, actorId, actorId
-      ),
-      ...routes.map((purpose, index) => env.DB.prepare(`INSERT INTO contact_routes(
-        id,workspace_id,version,client_id,purpose,contact_id,is_primary,created_at,updated_at,created_by_actor_id,updated_by_actor_id
-      ) VALUES(?,?,1,?,?,?,1,?,?,?,?)`).bind(
-        routeIds[index], workspaceId, clientId, purpose, contactId, now, now, actorId, actorId
-      ))
-    ];
-    return {
-      statements,
-      result: { clientId, primaryContactId: contactId, version: 1, routePurposes: routes },
-      entityType: 'CLIENT', entityId: clientId, beforeVersion: null, afterVersion: 1
-    };
+    return buildClientCreateMutation(env, workspaceId, context, command.payload, now);
   }
 
   if (command.type === 'client.update') {
@@ -3215,24 +3731,7 @@ async function buildCommercialMutation(
   if (command.type === 'client.affiliation.add') {
     const payload = command.payload;
     requireClientScope(context, payload.clientId);
-    const clients = await env.DB.prepare(`SELECT COUNT(*) AS count FROM clients WHERE workspace_id=? AND active=1 AND id IN (?,?)`)
-      .bind(workspaceId, payload.clientId, payload.relatedClientId).first<{ count: number }>();
-    if ((clients?.count ?? 0) !== 2) throw new ApiError('VALIDATION_FAILED', 'Both related clients must be active records in this workspace.');
-    if (payload.clientId === payload.relatedClientId) throw new ApiError('VALIDATION_FAILED', 'A client cannot be affiliated with itself.');
-    const affiliationId = crypto.randomUUID();
-    return {
-      statements: [
-        env.DB.prepare(`INSERT INTO command_assertions(workspace_id,seq,ok)
-          SELECT ?,26,CASE WHEN EXISTS(SELECT 1 FROM clients WHERE workspace_id=? AND id=? AND active=1)
-            AND EXISTS(SELECT 1 FROM clients WHERE workspace_id=? AND id=? AND active=1) AND ?<>?
-          THEN 1 ELSE 0 END`).bind(workspaceId, workspaceId, payload.clientId, workspaceId, payload.relatedClientId, payload.clientId, payload.relatedClientId),
-        env.DB.prepare(`INSERT INTO client_affiliations(id,workspace_id,version,client_id,related_client_id,relationship,created_at,updated_at,created_by_actor_id,updated_by_actor_id)
-          VALUES(?,?,1,?,?,?,?,?,?,?)`).bind(affiliationId, workspaceId, payload.clientId, payload.relatedClientId,
-          payload.relationship, now, now, actorId, actorId)
-      ],
-      result: { affiliationId, clientId: payload.clientId, relatedClientId: payload.relatedClientId },
-      entityType: 'CLIENT_AFFILIATION', entityId: affiliationId, beforeVersion: null, afterVersion: 1
-    };
+    return buildClientAffiliationMutation(env, workspaceId, context, payload, now);
   }
 
   if (command.type === 'lead.create') {
@@ -4251,29 +4750,55 @@ export async function runBusinessDirectoryCommand(
                          : isBusinessPolicyCommand(envelope.command)
                            ? await buildBusinessPolicyMutation(env, workspaceId, context, envelope.command, commandId, timestamp)
                     : await buildCommercialMutation(env, workspaceId, context, envelope.command, commandId, timestamp);
-    const sequence = head.last_sequence + 1;
     const scope = await businessCommandScope(env, workspaceId, context,
       envelope.command as { type?: string; payload?: Record<string, unknown> }, mutation);
-    const eventDetails = JSON.stringify({
-      commandId,
-      result: mutation.result,
+    const auditRows: Array<{
+      id: string; sequence: number; entityType: string; entityId: string; clientId: string | null;
+      engagementId: string | null; beforeVersion: number | null; afterVersion: number; details: string;
+      previousHash: string | null; eventHash: string;
+    }> = [];
+    const appendAuditRow = async (event: BusinessAuditEvent, previousHash: string | null, sequence: number,
+      eventDetails: string): Promise<string> => {
+      const id = auditRows.length === 0 ? auditEventId : crypto.randomUUID();
+      const eventHash = await sha256Hex(JSON.stringify({
+        id, workspaceId, sequence, previousHash, actorId: context.actor.id,
+        actorPersona: context.actor.persona, commandType: envelope.command.type,
+        entityType: event.entityType, entityId: event.entityId, details: eventDetails, timestamp
+      }));
+      auditRows.push({
+        id, sequence, entityType: event.entityType, entityId: event.entityId,
+        clientId: event.clientId === undefined ? scope.clientId : event.clientId,
+        engagementId: scope.engagementId, beforeVersion: event.beforeVersion ?? null,
+        afterVersion: event.afterVersion ?? mutation.afterVersion, details: eventDetails, previousHash, eventHash
+      });
+      return eventHash;
+    };
+    const mainEvent: BusinessAuditEvent = {
+      entityType: mutation.entityType, entityId: mutation.entityId, clientId: scope.clientId,
+      beforeVersion: mutation.beforeVersion, afterVersion: mutation.afterVersion,
+      details: mutation.auditDetails
+    };
+    const eventScopeJson = (clientId: string | null, engagementId: string | null, known: boolean) =>
+      known ? { clientId, engagementId } : null;
+    const mainDetails = JSON.stringify({
+      commandId, result: mutation.result,
       ...(mutation.auditDetails ? { details: mutation.auditDetails } : {}),
-      scope: scope.known ? { clientId: scope.clientId, engagementId: scope.engagementId } : null,
-      provenance: 'SELF_ASSERTED'
+      scope: eventScopeJson(scope.clientId, scope.engagementId, scope.known), provenance: 'SELF_ASSERTED'
     });
-    const eventHash = await sha256Hex(JSON.stringify({
-      id: auditEventId,
-      workspaceId,
-      sequence,
-      previousHash: head.last_event_hash,
-      actorId: context.actor.id,
-      actorPersona: context.actor.persona,
-      commandType: envelope.command.type,
-      entityType: mutation.entityType,
-      entityId: mutation.entityId,
-      details: eventDetails,
-      timestamp
-    }));
+    let lastHash = await appendAuditRow(mainEvent, head.last_event_hash, head.last_sequence + 1, mainDetails);
+    const additionalAuditEvents = (mutation as BusinessMutation).additionalAuditEvents ?? [];
+    for (const [index, event] of additionalAuditEvents.entries()) {
+      const clientId = event.clientId === undefined ? scope.clientId : event.clientId;
+      const extraDetails = JSON.stringify({
+        commandId, result: mutation.result,
+        ...(event.details ? { details: event.details } : {}),
+        scope: eventScopeJson(clientId, scope.engagementId, Boolean(clientId || scope.engagementId || scope.known)),
+        provenance: 'SELF_ASSERTED'
+      });
+      lastHash = await appendAuditRow(event, lastHash, head.last_sequence + index + 2, extraDetails);
+    }
+    const sequence = head.last_sequence + auditRows.length;
+    const eventHash = lastHash;
     const response = { commandId, result: mutation.result, replayed: false };
     const responseStatus = 'responseStatus' in mutation && typeof mutation.responseStatus === 'number' ? mutation.responseStatus : 200;
     const actorSnapshot = JSON.stringify({
@@ -4283,6 +4808,19 @@ export async function runBusinessDirectoryCommand(
       staffGrade: context.actor.staffGrade,
       assurance: 'SELF_ASSERTED'
     });
+
+    const auditInsertStatements = auditRows.map(row => env.DB.prepare(`INSERT INTO audit_events(
+        id,workspace_id,sequence,actor_user_id,actor_role,command_type,entity_kind,entity_id,
+        client_id,engagement_id,before_version,after_version,details_json,created_at,
+        actor_assurance,source,chain_scope_kind,chain_scope_id,previous_hash,event_hash,actor_id,
+        event_type,entity_type,command_id,actor_persona
+      ) VALUES(?,?,?,NULL,?,?,?,?,?,?,?,?,?,?,'SELF_ASSERTED','USER','WORKSPACE',?,?,?,?,?,?,?,?)`)
+      .bind(
+        row.id, workspaceId, row.sequence, context.actor.persona, envelope.command.type,
+        row.entityType.toLowerCase(), row.entityId, row.clientId, row.engagementId,
+        row.beforeVersion, row.afterVersion, row.details, now, workspaceId, row.previousHash,
+        row.eventHash, context.actor.id, envelope.command.type, row.entityType, commandId, context.actor.persona
+      ));
 
     const statements: D1PreparedStatement[] = [
       env.DB.prepare(`INSERT INTO command_assertions(workspace_id,seq,ok)
@@ -4300,19 +4838,7 @@ export async function runBusinessDirectoryCommand(
       env.DB.prepare(`INSERT INTO command_assertions(workspace_id,seq,ok)
         SELECT ?,901,CASE WHEN EXISTS(SELECT 1 FROM audit_chain_heads WHERE id=? AND last_sequence=? AND last_event_hash=?) THEN 1 ELSE 0 END`)
         .bind(workspaceId, head.id, sequence, eventHash),
-      env.DB.prepare(`INSERT INTO audit_events(
-        id,workspace_id,sequence,actor_user_id,actor_role,command_type,entity_kind,entity_id,
-        client_id,engagement_id,before_version,after_version,details_json,created_at,
-        actor_assurance,source,chain_scope_kind,chain_scope_id,previous_hash,event_hash,actor_id,
-        event_type,entity_type,command_id,actor_persona
-      ) VALUES(?,?,?,NULL,?,?,?,?,?,?,?,?,?,?,'SELF_ASSERTED','USER','WORKSPACE',?,?,?,?,?,?,?,?)`)
-        .bind(
-          auditEventId, workspaceId, sequence, context.actor.persona, envelope.command.type,
-          mutation.entityType.toLowerCase(), mutation.entityId, scope.clientId, scope.engagementId,
-          mutation.beforeVersion, mutation.afterVersion, eventDetails, now, workspaceId, head.last_event_hash,
-          eventHash, context.actor.id, envelope.command.type, mutation.entityType,
-          commandId, context.actor.persona
-        ),
+      ...auditInsertStatements,
       env.DB.prepare(`UPDATE workspaces SET revision=revision+1,version=version+1,updated_at=?,updated_at_utc=?
         WHERE id=? AND business_status='ACTIVE'`).bind(now, timestamp, workspaceId),
       env.DB.prepare('DELETE FROM command_assertions WHERE workspace_id=?').bind(workspaceId)
@@ -4340,6 +4866,9 @@ export async function runBusinessDirectoryCommand(
       if (headAdvanced) throw new ApiError('VERSION_CONFLICT', 'The audit lineage is busy. Retry this command with the same idempotency key.');
       if (error instanceof Error && /command_assertions|CHECK constraint failed: ok = 1|version|audit_chain_heads/i.test(error.message)) {
         throw new ApiError('VERSION_CONFLICT', 'The record or audit lineage changed. Reload and retry with the current version.');
+      }
+      if (error instanceof Error && /UNIQUE constraint failed: client_import_runs\.workspace_id, client_import_runs\.source_sha256/i.test(error.message)) {
+        throw new ApiError('VERSION_CONFLICT', 'A validation run already exists for a file with the same SHA-256 in this workspace.');
       }
       if (error instanceof Error && /actor_profiles_one_active|UNIQUE constraint/i.test(error.message)) {
         throw new ApiError('VERSION_CONFLICT', 'That active persona is already assigned. Refresh the directory and choose another profile.');

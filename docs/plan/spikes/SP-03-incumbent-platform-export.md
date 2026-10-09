@@ -21,4 +21,4 @@ Owner provides an **anonymised** sample export (replace names/emails; keep struc
 - If historical engagements are required: a new story draft (prior-year TB import as comparative, reusing `tb.import` + mapping memory), **not** an expansion of E05-S06.
 
 ## Result
-*(fill in)*
+**Open — owner input not supplied.** The canonical CSV importer is implemented in [E05-S06](../stories/E05-S06-bulk-client-contact-import.md) and documented in [client-import.md](../../ops/client-import.md). The actual incumbent platform, its export fields/format, day-one data scope, data-quality counts, anonymized sample, and approved source-to-canonical mapping remain unknown. No platform or client data was inferred or fabricated. Until the owner supplies the sample and approves the mapping, E05-S06 source-format and staging-performance acceptance remain open.
