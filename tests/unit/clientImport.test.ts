@@ -54,6 +54,8 @@ it('parses quoted CSV and reports physical source row numbers', () => {
 });
 
 it('validates without business writes, applies parent-first in resumable batches, and audits every created entity', async () => {
+  const benchmark5k = process.env.AUDITSPHERE_CLIENT_IMPORT_BENCHMARK_5K === '1';
+  const expectedRowCount = benchmark5k ? 5000 : 42;
   const origin = 'https://local.auditsphere.test';
   async function call(path: string, options: { method?: string; body?: unknown; headers?: Record<string, string> } = {}) {
     const headers = new Headers({ Origin: origin, ...options.headers });
@@ -128,17 +130,19 @@ it('validates without business writes, applies parent-first in resumable batches
     ['CHILD-1', 'IMPORT-CHILD', 'Example Subsidiary', '', 'SUBSIDIARY', 'PARENT-1', 'Wholly owned subsidiary', '', '', 'Technology', 'Doha', 'QA', 'Child Contact', 'child@example.test', '', 'Finance Director', 'OTHER', 'false', '2026-01-01', 'INVOICE|RECEIPT'],
     ['GRAND-1', 'IMPORT-GRAND', 'Example Grandchild', '', 'SUBSIDIARY', 'CHILD-1', 'Operating subsidiary', '', '', 'Technology', 'Doha', 'QA', 'Grandchild Contact', 'grand@example.test', '', 'Accountant', 'OTHER', 'false', '2026-01-01', '']
   ];
-  for (let index = 0; index < 39; index += 1) {
+  for (let index = 0; index < (benchmark5k ? 4997 : 39); index += 1) {
     const code = `IMPORT-${String(index + 1).padStart(3, '0')}`;
     validRows.push([`REF-${index + 1}`, code, `Example Entity ${index + 1}`, '', 'STANDALONE', '', '', '', '', 'Technology', 'Doha', 'QA', `Contact ${index + 1}`, `contact${index + 1}@example.test`, '', 'Director', 'OTHER', 'false', '2026-01-01', '']);
   }
   validRows.push(['PARENT-1', 'IMPORT-PARENT', 'Example Holding', '', 'HOLDING', '', '', '', '', 'Technology', 'Doha', 'QA', 'Parent Contact', 'parent@example.test', '', 'Managing Director', 'OTHER', 'false', '2026-01-01', '']);
   const validCsv = [CLIENT_IMPORT_COLUMNS.join(','), ...validRows.map(row => row.join(','))].join('\r\n');
   const validFile = await commitCsv(workspaceId, actorId, 'valid-client-import.csv', validCsv);
+  const validationStartedAt = performance.now();
   const validValidation = await command(workspaceId, actorId, 'clientImport.validate', { fileVersionId: validFile.fileId });
+  const validationMs = performance.now() - validationStartedAt;
   assert.equal(validValidation.response.status, 200, JSON.stringify(validValidation.body));
   assert.equal(validValidation.body.result.status, 'VALIDATED');
-  assert.equal(validValidation.body.result.rowCount, 42);
+  assert.equal(validValidation.body.result.rowCount, expectedRowCount);
   assert.equal(validValidation.body.result.errorCount, 0);
   assert.equal(Number(db.prepare('SELECT COUNT(*) AS count FROM clients WHERE workspace_id=?').bind(workspaceId).first<any>()?.count ?? 0), beforeValidationClients,
     'an error-free validation still creates no business records');
@@ -148,17 +152,25 @@ it('validates without business writes, applies parent-first in resumable batches
   assert.match(duplicateValidation.body.message, /same file|SHA-256/i);
 
   const auditBeforeApply = Number(db.prepare('SELECT COUNT(*) AS count FROM audit_events WHERE workspace_id=?').bind(workspaceId).first<any>()?.count ?? 0);
+  const applyStartedAt = performance.now();
   const firstApply = await command(workspaceId, actorId, 'clientImport.apply', { runId: validValidation.body.result.runId });
   assert.equal(firstApply.response.status, 200, JSON.stringify(firstApply.body));
   assert.equal(firstApply.body.result.status, 'VALIDATED');
   assert.equal(firstApply.body.result.appliedCount, 40);
-  const firstParent = db.prepare('SELECT id FROM clients WHERE workspace_id=? AND code=?').bind(workspaceId, 'IMPORT-PARENT').first<any>()?.id;
-  assert.ok(firstParent, 'the top-level holding is in the first committed batch');
-
-  const secondApply = await command(workspaceId, actorId, 'clientImport.apply', { runId: validValidation.body.result.runId });
-  assert.equal(secondApply.response.status, 200, JSON.stringify(secondApply.body));
-  assert.equal(secondApply.body.result.status, 'APPLIED');
-  assert.equal(secondApply.body.result.appliedCount, 42);
+  if (!benchmark5k) {
+    const firstParent = db.prepare('SELECT id FROM clients WHERE workspace_id=? AND code=?').bind(workspaceId, 'IMPORT-PARENT').first<any>()?.id;
+    assert.ok(firstParent, 'the top-level holding is in the first committed batch');
+  }
+  let latestApply = firstApply;
+  let applyCommands = 1;
+  while (latestApply.body.result.status !== 'APPLIED') {
+    assert.ok(applyCommands <= Math.ceil(expectedRowCount / 40), 'the import completes within one command per bounded row batch');
+    latestApply = await command(workspaceId, actorId, 'clientImport.apply', { runId: validValidation.body.result.runId });
+    assert.equal(latestApply.response.status, 200, JSON.stringify(latestApply.body));
+    applyCommands += 1;
+  }
+  const applyMs = performance.now() - applyStartedAt;
+  assert.equal(latestApply.body.result.appliedCount, expectedRowCount);
   const imported = db.prepare('SELECT id,entity_type,parent_client_id FROM clients WHERE workspace_id=? AND code IN (?,?,?) ORDER BY code')
     .bind(workspaceId, 'IMPORT-PARENT', 'IMPORT-CHILD', 'IMPORT-GRAND').all<any>().results;
   const idsByTypeAndCode = new Map(db.prepare('SELECT id,code,parent_client_id FROM clients WHERE workspace_id=? AND code IN (?,?,?)')
@@ -171,15 +183,18 @@ it('validates without business writes, applies parent-first in resumable batches
   assert.equal(grandchild.parent_client_id, child.id);
   assert.equal(imported.length, 3);
   assert.equal(Number(db.prepare('SELECT COUNT(*) AS count FROM client_import_row_map WHERE workspace_id=? AND run_id=?')
-    .bind(workspaceId, validValidation.body.result.runId).first<any>()?.count), 42);
+    .bind(workspaceId, validValidation.body.result.runId).first<any>()?.count), expectedRowCount);
+  assert.equal(Number(db.prepare('SELECT COUNT(*) AS count FROM clients WHERE workspace_id=? AND code LIKE ?')
+    .bind(workspaceId, 'IMPORT-%').first<any>()?.count), expectedRowCount);
   assert.equal(Number(db.prepare('SELECT COUNT(*) AS count FROM contacts WHERE workspace_id=? AND client_id IN (SELECT id FROM clients WHERE workspace_id=? AND code LIKE ?)')
-    .bind(workspaceId, workspaceId, 'IMPORT-%').first<any>()?.count), 42);
+    .bind(workspaceId, workspaceId, 'IMPORT-%').first<any>()?.count), expectedRowCount);
   assert.equal(Number(db.prepare('SELECT COUNT(*) AS count FROM contact_routes WHERE workspace_id=? AND client_id IN (SELECT id FROM clients WHERE workspace_id=? AND code LIKE ?)')
     .bind(workspaceId, workspaceId, 'IMPORT-%').first<any>()?.count), 2);
   assert.equal(Number(db.prepare('SELECT COUNT(*) AS count FROM client_affiliations WHERE workspace_id=? AND client_id IN (?,?)')
     .bind(workspaceId, child.id, grandchild.id).first<any>()?.count), 2);
   const auditAfterApply = Number(db.prepare('SELECT COUNT(*) AS count FROM audit_events WHERE workspace_id=?').bind(workspaceId).first<any>()?.count ?? 0);
-  assert.equal(auditAfterApply - auditBeforeApply, 88, 'client import writes one chained event for each created client, contact, route and affiliation');
+  assert.equal(auditAfterApply - auditBeforeApply, expectedRowCount * 2 + 4,
+    'client import writes one chained event per client and contact, plus its two routes and two affiliations');
   const auditHead = db.prepare(`SELECT last_sequence FROM audit_chain_heads WHERE workspace_id=? AND scope_kind='WORKSPACE' AND scope_id=?`)
     .bind(workspaceId, workspaceId).first<any>();
   const latestEvent = db.prepare('SELECT sequence,previous_hash,event_hash FROM audit_events WHERE workspace_id=? ORDER BY sequence DESC LIMIT 1')
@@ -187,4 +202,7 @@ it('validates without business writes, applies parent-first in resumable batches
   assert.equal(latestEvent.sequence, auditHead.last_sequence);
   assert.equal(latestEvent.event_hash?.length, 64);
   assert.ok(latestEvent.previous_hash);
+  if (benchmark5k) {
+    console.log('CLIENT_IMPORT_BENCHMARK ' + JSON.stringify({ rowCount: expectedRowCount, validationMs: Math.round(validationMs), applyMs: Math.round(applyMs), applyCommands }));
+  }
 });
