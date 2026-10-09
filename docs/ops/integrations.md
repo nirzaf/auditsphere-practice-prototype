@@ -121,11 +121,11 @@ Accepted public inquiry submissions queue a notification to that mailbox
 through the private `EMAIL_PROVIDER` service binding and Cloudflare Email
 Sending. A notification contains the submitted company and contact name, email,
 phone (if provided), service interest, received time, and message. Honeypot/spam
-submissions do not send notifications. The Exchange rule above adds a copy of
-messages addressed exactly to `audit@steaudit.com` to the owner-selected external
-mailbox while
-retaining the alias mailbox's normal delivery. It does not change any other
-mailbox route or domain DNS/MX record.
+submissions do not send notifications. The former Exchange rule that copied
+messages addressed exactly to `audit@steaudit.com` to `fazrin@quadrate.lk` is
+disabled. The alias now delivers through the owner's normal M365 mailbox, and
+the `steaudit.com` apex MX remains unchanged so other domain mail keeps its
+existing route.
 
 The production Worker now has a dedicated managed Turnstile widget named
 `AuditSphere website inquiries`, allowed for the Cloudflare-managed
