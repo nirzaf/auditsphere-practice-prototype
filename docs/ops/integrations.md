@@ -5,8 +5,8 @@ blocked. It records the integration code and configuration in the repository and
 the account-owner steps that still gate live acceptance. Integration status must
 come from the deployed Worker; local configuration is not evidence of connectivity.
 
-Main commit `85263fc2aa151c748774faf99a411ad2afc59aa9` was deployed by
-[GitHub Actions run 37943011263](https://github.com/nirzaf/auditsphere-practice-prototype/actions/runs/37943011263)
+Implementation commit `cc4a08395e292b2933c90c46ddda7d93d23902c2` was deployed by
+[GitHub Actions run 37947624693](https://github.com/nirzaf/auditsphere-practice-prototype/actions/runs/37947624693)
 on 2026-10-09. The verification job (typecheck, unit tests, browser E2E and
 production build) and Cloudflare deployment job passed. This confirms the
 Worker/assets were published, but does not establish application readiness or
