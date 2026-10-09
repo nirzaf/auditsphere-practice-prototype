@@ -6,8 +6,6 @@ import { getBusinessAcceptanceGate } from './businessRisk';
 import { prepareTrialBalanceImport } from './businessTb';
 import { prepareBusinessInvoiceJournal } from './businessPractice';
 import { processBusinessReportingDocument } from './businessReportingJobs';
-import { preparePortalCredentialProvisioning } from './businessPortalCredentials';
-import { generateTemporaryPassword, hashPassword } from './auth/passwords';
 import { ApiError } from './errors';
 import { safeErrorKind } from './observability';
 
@@ -656,20 +654,6 @@ async function renderAndStoreCommercialDocument(env: Env, job: OutboxJob): Promi
         const engagement = await env.DB.prepare(`SELECT version,lifecycle_state FROM engagements WHERE workspace_id=? AND id=?`)
           .bind(job.workspace_id, payload.engagementId).first<{ version: number; lifecycle_state: string }>();
         if (engagement?.lifecycle_state === 'ADVANCE_BILLING') {
-          const verifiedPayment = await env.DB.prepare(`SELECT verified_by_actor_id FROM payments
-            WHERE workspace_id=? AND id=? AND client_id=? AND engagement_id=?`)
-            .bind(job.workspace_id, receipt.payment_id, receipt.client_id, receipt.engagement_id)
-            .first<{ verified_by_actor_id: string }>();
-          if (!verifiedPayment) throw new OutboxError('VERIFIED_PAYMENT_REQUIRED', 'The settled payment no longer has its verified audit actor.');
-          const portalProvisioning = await preparePortalCredentialProvisioning(env, {
-            workspaceId: job.workspace_id,
-            clientId: receipt.client_id,
-            engagementId: receipt.engagement_id,
-            trigger: 'ADVANCE_PAYMENT',
-            commandId: payload.commandId,
-            createdByActorId: verifiedPayment.verified_by_actor_id,
-            createdAt: generatedAt
-          });
           const transitionId = crypto.randomUUID();
           const reason = 'The issued advance invoice is fully settled by verified allocations with committed receipt vouchers.';
           const dependencyHash = await sha256Hex(JSON.stringify({ engagementId: payload.engagementId, invoiceId: advance.id, totalMinor: advance.total_minor, paymentId: receipt.payment_id }));
@@ -681,8 +665,7 @@ async function renderAndStoreCommercialDocument(env: Env, job: OutboxJob): Promi
               WHERE workspace_id=? AND id=? AND version=? AND lifecycle_state='ADVANCE_BILLING'`).bind(generatedAt, generatedAt, job.workspace_id, payload.engagementId, engagement.version),
             env.DB.prepare(`INSERT INTO state_transitions(id,workspace_id,client_id,engagement_id,version,from_state,to_state,command_id,reason,dependency_hash,transitioned_at)
               VALUES(?,?,?, ?,1,'ADVANCE_BILLING','PORTAL_ACTIVE_PLANNING',?,?,?,?)`)
-              .bind(transitionId, job.workspace_id, payload.clientId, payload.engagementId, payload.commandId, reason, dependencyHash, generatedAt),
-            ...portalProvisioning.statements
+              .bind(transitionId, job.workspace_id, payload.clientId, payload.engagementId, payload.commandId, reason, dependencyHash, generatedAt)
           ];
         }
       }
@@ -934,172 +917,6 @@ async function dispatchCommercial(env: Env, job: OutboxJob): Promise<void> {
   });
 }
 
-async function dispatchPortalCredentials(env: Env, job: OutboxJob, payload: Record<string, any>): Promise<void> {
-  if (payload.documentType !== 'PORTAL_CREDENTIALS'
-    || !['TEMP_PASSWORD', 'ACCESS_NOTICE'].includes(payload.mode)
-    || typeof payload.userAccountId !== 'string' || typeof payload.contactRouteId !== 'string'
-    || typeof payload.contactRouteVersion !== 'number' || typeof payload.contactId !== 'string'
-    || typeof payload.contactVersion !== 'number') {
-    throw new OutboxError('INVALID_PORTAL_CREDENTIAL_PAYLOAD', 'The portal credential job is missing its exact account and contact route references.');
-  }
-  const isTemporaryPassword = payload.mode === 'TEMP_PASSWORD';
-  if (isTemporaryPassword && (typeof payload.portalCredentialIssueId !== 'string' || typeof payload.credentialTokenId !== 'string')) {
-    throw new OutboxError('INVALID_PORTAL_CREDENTIAL_PAYLOAD', 'The temporary credential job is missing its issue or expiry reference.');
-  }
-  const recipient = await env.DB.prepare(`SELECT cr.version AS route_version,cr.contact_id,ct.version AS contact_version,ct.full_name,ct.email,
-      c.active AS client_active,e.code AS engagement_code,e.lifecycle_state,e.portal_frozen_at,e.locked_at,
-      u.id AS user_account_id,u.version AS account_version,u.email_normalized,u.status,u.password_must_change
-    FROM engagements e JOIN clients c ON c.workspace_id=e.workspace_id AND c.id=e.client_id
-    JOIN contact_routes cr ON cr.workspace_id=e.workspace_id AND cr.client_id=e.client_id
-    JOIN contacts ct ON ct.workspace_id=cr.workspace_id AND ct.client_id=cr.client_id AND ct.id=cr.contact_id
-    JOIN user_accounts u ON u.workspace_id=ct.workspace_id AND u.contact_id=ct.id AND u.id=? AND u.kind='CLIENT'
-    WHERE e.workspace_id=? AND e.id=? AND e.client_id=? AND cr.id=? AND cr.purpose='PBC' AND cr.is_primary=1
-      AND cr.contact_id=? AND cr.version=? AND ct.version=? AND ct.active=1 AND ct.role='CHIEF_ACCOUNTANT_LIAISON'
-      AND ct.email IS NOT NULL AND c.active=1`)
-    .bind(payload.userAccountId, job.workspace_id, payload.engagementId, payload.clientId, payload.contactRouteId,
-      payload.contactId, payload.contactRouteVersion, payload.contactVersion)
-    .first<{ route_version: number; contact_id: string; contact_version: number; full_name: string; email: string;
-      client_active: number; engagement_code: string; lifecycle_state: string; portal_frozen_at: string | null; locked_at: string | null;
-      user_account_id: string; account_version: number; email_normalized: string; status: string; password_must_change: number }>();
-  const activeStates = ['PORTAL_ACTIVE_PLANNING', 'FIELDWORK_EXECUTION', 'MANAGERIAL_REVIEW', 'PARTNER_APPROVAL',
-    'DELIVERABLE_RELEASE', 'COMPLIANCE_COUNTDOWN'];
-  if (!recipient || recipient.email_normalized !== recipient.email.trim().toLowerCase() || recipient.portal_frozen_at
-    || recipient.locked_at || !activeStates.includes(recipient.lifecycle_state)) {
-    throw new OutboxError('PORTAL_CREDENTIAL_SCOPE_STALE', 'The client portal account, engagement or active Audit Liaison route changed before delivery.');
-  }
-  if (isTemporaryPassword && !['INVITED', 'ACTIVE'].includes(recipient.status)) {
-    throw new OutboxError('PORTAL_CLIENT_ACCOUNT_UNAVAILABLE', 'The client portal account is not eligible to receive credentials.');
-  }
-  if (!isTemporaryPassword && (recipient.status !== 'ACTIVE' || recipient.password_must_change !== 0)) {
-    throw new OutboxError('PORTAL_ACCESS_NOTICE_INELIGIBLE', 'The existing client portal account requires a new temporary password instead of an access notice.');
-  }
-
-  let expiresAt: string | null = null;
-  if (isTemporaryPassword) {
-    const issue = await env.DB.prepare(`SELECT id,user_account_id,credential_token_id,outbox_job_id FROM portal_credential_issues
-      WHERE workspace_id=? AND id=? AND user_account_id=? AND credential_token_id=? AND outbox_job_id=? AND engagement_id=? AND contact_route_id=?`)
-      .bind(job.workspace_id, payload.portalCredentialIssueId, payload.userAccountId, payload.credentialTokenId, job.id,
-        payload.engagementId, payload.contactRouteId)
-      .first<{ id: string; user_account_id: string; credential_token_id: string; outbox_job_id: string }>();
-    const token = await env.DB.prepare(`SELECT id,expires_at,consumed_at FROM credential_tokens
-      WHERE workspace_id=? AND id=? AND user_account_id=? AND purpose='CLIENT_TEMP_PASSWORD'`)
-      .bind(job.workspace_id, payload.credentialTokenId, payload.userAccountId)
-      .first<{ id: string; expires_at: string; consumed_at: string | null }>();
-    const latest = await env.DB.prepare(`SELECT id FROM credential_tokens WHERE workspace_id=? AND user_account_id=? AND purpose='CLIENT_TEMP_PASSWORD'
-      ORDER BY created_at DESC,id DESC LIMIT 1`).bind(job.workspace_id, payload.userAccountId).first<{ id: string }>();
-    if (!issue || !token || token.consumed_at || latest?.id !== token.id || Date.parse(token.expires_at) <= Date.now()) {
-      throw new OutboxError('PORTAL_CREDENTIAL_EXPIRED', 'The latest client portal credential issue is missing, consumed or expired. Reissue credentials.');
-    }
-    expiresAt = token.expires_at;
-  }
-
-  let portalUrl: string;
-  try {
-    const url = new URL(env.PUBLIC_APP_URL ?? '');
-    if ((url.protocol !== 'https:' && !(url.protocol === 'http:' && ['localhost', '127.0.0.1'].includes(url.hostname)))
-      || url.username || url.password || url.search || url.hash) throw new Error('invalid URL');
-    portalUrl = url.href.replace(/\/$/, '');
-  } catch {
-    throw new OutboxError('PUBLIC_APP_URL_NOT_CONFIGURED', 'Set PUBLIC_APP_URL to the HTTPS application origin before issuing portal credentials.');
-  }
-  if (!env.EMAIL_PROVIDER) throw new OutboxError('EMAIL_PROVIDER_NOT_CONFIGURED', 'Configure the EMAIL_PROVIDER service binding before sending portal credentials.');
-
-  const temporaryPassword = isTemporaryPassword ? generateTemporaryPassword() : null;
-  const passwordHash = temporaryPassword ? await hashPassword(temporaryPassword) : null;
-  const subject = isTemporaryPassword ? 'Your AuditSphere client portal access' : `Your AuditSphere portal is open for ${recipient.engagement_code}`;
-  const text = temporaryPassword
-    ? `Your AuditSphere client portal is ready.\n\nPortal: ${portalUrl}\nLogin email: ${recipient.email}\nTemporary password: ${temporaryPassword}\nExpires: ${expiresAt} (seven days after issue).\n\nYou must change this password at your first sign-in.`
-    : `The AuditSphere client portal is now open for ${recipient.engagement_code}.\n\nPortal: ${portalUrl}\nLogin email: ${recipient.email}`;
-  const form = new FormData();
-  form.set('message', JSON.stringify({ to: recipient.email, subject, text,
-    purpose: isTemporaryPassword ? 'PORTAL_CREDENTIALS' : 'PORTAL_ACCESS_NOTICE' }));
-  let response: Response;
-  try {
-    response = await env.EMAIL_PROVIDER.fetch(new Request('https://email-provider.local/send', {
-      method: 'POST', headers: { 'Idempotency-Key': job.deduplication_key }, body: form
-    }));
-  } catch {
-    throw new OutboxError('EMAIL_PROVIDER_OUTCOME_UNKNOWN', 'The portal email provider connection ended without a verifiable outcome. Reconcile before resending.', 'UNKNOWN');
-  }
-  if (response.status === 408 || response.status === 429) {
-    throw new OutboxError(`EMAIL_PROVIDER_HTTP_${response.status}`, `The portal email provider returned HTTP ${response.status}; delivery will retry.`, 'RETRY');
-  }
-  if (response.status >= 500) {
-    throw new OutboxError(`EMAIL_PROVIDER_HTTP_${response.status}`, `The portal email provider returned HTTP ${response.status}; delivery status is unknown.`, 'UNKNOWN');
-  }
-  if (!response.ok) throw new OutboxError(`EMAIL_PROVIDER_HTTP_${response.status}`, `The portal email provider rejected the message with HTTP ${response.status}.`);
-  let providerMessageId: string;
-  try {
-    const result = await response.json() as { messageId?: unknown };
-    if (typeof result.messageId !== 'string' || !result.messageId.trim() || result.messageId.length > 512) throw new Error('missing message id');
-    providerMessageId = result.messageId.trim();
-  } catch {
-    throw new OutboxError('EMAIL_PROVIDER_RESPONSE_INVALID', 'The portal email provider returned success without a verifiable message ID.', 'UNKNOWN');
-  }
-
-  const acceptedAt = nowIso();
-  const successStatements: D1PreparedStatement[] = [];
-  if (temporaryPassword && passwordHash && expiresAt) {
-    successStatements.push(
-      env.DB.prepare(`INSERT INTO command_assertions(workspace_id,seq,ok)
-        SELECT ?,996,CASE WHEN EXISTS(SELECT 1 FROM portal_credential_issues i
-          JOIN credential_tokens t ON t.workspace_id=i.workspace_id AND t.id=i.credential_token_id
-          JOIN user_accounts u ON u.workspace_id=i.workspace_id AND u.id=i.user_account_id
-          JOIN contact_routes cr ON cr.workspace_id=i.workspace_id AND cr.id=i.contact_route_id
-          JOIN contacts ct ON ct.workspace_id=cr.workspace_id AND ct.id=cr.contact_id
-          JOIN clients c ON c.workspace_id=i.workspace_id AND c.id=i.client_id
-          JOIN engagements e ON e.workspace_id=i.workspace_id AND e.id=i.engagement_id
-          WHERE i.workspace_id=? AND i.id=? AND i.outbox_job_id=? AND i.user_account_id=? AND i.credential_token_id=?
-            AND t.purpose='CLIENT_TEMP_PASSWORD' AND t.consumed_at IS NULL AND t.expires_at>? AND cr.version=? AND ct.version=?
-            AND cr.contact_id=? AND cr.purpose='PBC' AND cr.is_primary=1 AND ct.active=1 AND ct.email=? AND c.active=1
-            AND e.id=? AND e.client_id=? AND e.portal_frozen_at IS NULL AND e.locked_at IS NULL AND e.lifecycle_state IN
-              ('PORTAL_ACTIVE_PLANNING','FIELDWORK_EXECUTION','MANAGERIAL_REVIEW','PARTNER_APPROVAL','DELIVERABLE_RELEASE','COMPLIANCE_COUNTDOWN')
-            AND u.kind='CLIENT' AND u.version=? AND u.status IN ('INVITED','ACTIVE')
-            AND NOT EXISTS(SELECT 1 FROM credential_tokens newer WHERE newer.workspace_id=t.workspace_id AND newer.user_account_id=t.user_account_id
-              AND newer.purpose='CLIENT_TEMP_PASSWORD' AND (newer.created_at>t.created_at OR (newer.created_at=t.created_at AND newer.id>t.id)))
-        ) THEN 1 ELSE 0 END`)
-        .bind(job.workspace_id, job.workspace_id, payload.portalCredentialIssueId, job.id, payload.userAccountId, payload.credentialTokenId,
-          acceptedAt, payload.contactRouteVersion, payload.contactVersion, payload.contactId, recipient.email, payload.engagementId,
-          payload.clientId, recipient.account_version),
-      env.DB.prepare(`UPDATE user_accounts SET status='ACTIVE',password_hash=?,password_must_change=1,password_changed_at=?,
-        failed_login_count=0,locked_until=NULL,version=version+1,updated_at=?
-        WHERE workspace_id=? AND id=? AND kind='CLIENT' AND version=? AND status IN ('INVITED','ACTIVE')`)
-        .bind(passwordHash, acceptedAt, acceptedAt, job.workspace_id, payload.userAccountId, recipient.account_version),
-      env.DB.prepare(`INSERT INTO auth_events(id,workspace_id,user_account_id,event,detail_json,created_at)
-        VALUES(?,?,?,'TEMP_PASSWORD_ISSUED',?,?)`)
-        .bind(crypto.randomUUID(), job.workspace_id, payload.userAccountId,
-          JSON.stringify({ issueId: payload.portalCredentialIssueId, credentialTokenId: payload.credentialTokenId, jobId: job.id }), acceptedAt),
-    );
-  } else {
-    successStatements.push(env.DB.prepare(`INSERT INTO command_assertions(workspace_id,seq,ok)
-      SELECT ?,996,CASE WHEN EXISTS(SELECT 1 FROM engagements e
-        JOIN clients c ON c.workspace_id=e.workspace_id AND c.id=e.client_id
-        JOIN contact_routes cr ON cr.workspace_id=e.workspace_id AND cr.client_id=e.client_id
-        JOIN contacts ct ON ct.workspace_id=cr.workspace_id AND ct.client_id=cr.client_id AND ct.id=cr.contact_id
-        JOIN user_accounts u ON u.workspace_id=ct.workspace_id AND u.contact_id=ct.id
-        WHERE e.workspace_id=? AND e.id=? AND e.client_id=? AND e.portal_frozen_at IS NULL AND e.locked_at IS NULL
-          AND e.lifecycle_state IN ('PORTAL_ACTIVE_PLANNING','FIELDWORK_EXECUTION','MANAGERIAL_REVIEW','PARTNER_APPROVAL','DELIVERABLE_RELEASE','COMPLIANCE_COUNTDOWN')
-          AND c.active=1 AND cr.id=? AND cr.version=? AND cr.contact_id=? AND cr.purpose='PBC' AND cr.is_primary=1
-          AND ct.version=? AND ct.email=? AND ct.active=1 AND ct.role='CHIEF_ACCOUNTANT_LIAISON'
-          AND u.id=? AND u.kind='CLIENT' AND u.status='ACTIVE' AND u.password_must_change=0 AND u.email_normalized=lower(trim(ct.email)))
-        THEN 1 ELSE 0 END`).bind(job.workspace_id, job.workspace_id, payload.engagementId, payload.clientId,
-      payload.contactRouteId, payload.contactRouteVersion, payload.contactId, payload.contactVersion, recipient.email, payload.userAccountId));
-  }
-  successStatements.push(env.DB.prepare(`UPDATE outbox_jobs SET status='SUCCEEDED',provider_reference=?,result_json=?,last_error_code=NULL,completed_at=?,lease_until=NULL,updated_at=?,version=version+1
-    WHERE workspace_id=? AND id=? AND status='RUNNING' AND lease_until=?`)
-    .bind(providerMessageId, JSON.stringify({ status: 'ACCEPTED', providerMessageId, mode: payload.mode }), acceptedAt, acceptedAt,
-      job.workspace_id, job.id, job.lease_until));
-  await commitJobMutation(env, job, {
-    entityType: isTemporaryPassword ? 'PORTAL_CREDENTIAL_ISSUE' : 'USER_ACCOUNT',
-    entityId: isTemporaryPassword ? payload.portalCredentialIssueId : payload.userAccountId,
-    clientId: payload.clientId,
-    engagementId: payload.engagementId,
-    details: { jobId: job.id, mode: payload.mode, providerMessageId, status: 'ACCEPTED' },
-    result: { status: 'ACCEPTED', providerMessageId, mode: payload.mode },
-    statements: successStatements
-  });
-}
-
 interface JobMutation {
   entityType: string;
   entityId: string;
@@ -1200,10 +1017,8 @@ async function recordJobFailure(env: Env, job: OutboxJob, error: unknown): Promi
                   : documentType === 'BUNDLE_CANDIDATE' && typeof payload.bundleCandidateId === 'string' ? { type: 'BUNDLE_CANDIDATE', id: payload.bundleCandidateId }
                   : documentType === 'SEAL_ARCHIVE' && typeof payload.archiveRunId === 'string' ? { type: 'ARCHIVE_RUN', id: payload.archiveRunId }
                     : documentType === 'PRACTICE_REPORT' && typeof payload.reportSnapshotId === 'string' ? { type: 'FIRM_REPORT_SNAPSHOT', id: payload.reportSnapshotId } : null;
-  const portalIssueId = typeof payload.portalCredentialIssueId === 'string' ? payload.portalCredentialIssueId : null;
-  const portalEntityType = documentType === 'PORTAL_CREDENTIALS' ? portalIssueId ? 'PORTAL_CREDENTIAL_ISSUE' : 'USER_ACCOUNT' : null;
-  const failureEntityType = job.kind === 'IMPORT_TB' ? 'TB_IMPORT' : job.kind === 'EMAIL' ? portalEntityType ?? 'DISPATCH' : documentEntity?.type ?? 'PROPOSAL_VERSION';
-  const failureEntityId = dispatchId ?? portalIssueId ?? documentEntity?.id ?? job.aggregate_id;
+  const failureEntityType = job.kind === 'IMPORT_TB' ? 'TB_IMPORT' : job.kind === 'EMAIL' ? 'DISPATCH' : documentEntity?.type ?? 'PROPOSAL_VERSION';
+  const failureEntityId = dispatchId ?? documentEntity?.id ?? job.aggregate_id;
   await commitJobMutation(env, job, {
     entityType: failureEntityType,
     entityId: failureEntityId,
@@ -1248,10 +1063,8 @@ async function markExpiredEmailUnknown(env: Env, candidate: { id: string; worksp
   if (!job) return;
   const payload = parseRawPayload(job);
   const now = nowIso();
-  const portalIssueId = typeof payload.portalCredentialIssueId === 'string' ? payload.portalCredentialIssueId : null;
   await commitJobMutation(env, job, {
-    entityType: payload.documentType === 'PORTAL_CREDENTIALS' ? portalIssueId ? 'PORTAL_CREDENTIAL_ISSUE' : 'USER_ACCOUNT' : 'DISPATCH',
-    entityId: typeof payload.dispatchId === 'string' ? payload.dispatchId : portalIssueId ?? job.aggregate_id,
+    entityType: 'DISPATCH', entityId: typeof payload.dispatchId === 'string' ? payload.dispatchId : job.aggregate_id,
     clientId: payload.clientId, engagementId: payload.engagementId,
     details: { jobId: job.id, status: 'UNKNOWN', errorCode: 'EMAIL_PROVIDER_OUTCOME_UNKNOWN',
       errorMessage: 'The Worker stopped after the provider call began. Reconcile the provider record before any retry.' },
@@ -1302,8 +1115,7 @@ export async function processBusinessOutbox(env: Env, limit = 20): Promise<numbe
           if(!reportingHandled)await renderAndStoreCommercialDocument(env,job);
         }
         else await renderAndStoreProposal(env, job);
-      } else if (payload.documentType === 'PORTAL_CREDENTIALS') await dispatchPortalCredentials(env, job, payload);
-      else if (payload.documentType === 'COMMERCIAL_EMAIL') await dispatchCommercial(env, job);
+      } else if (payload.documentType === 'COMMERCIAL_EMAIL') await dispatchCommercial(env, job);
       else await dispatchProposal(env, job);
       processed += 1;
     } catch (error) {

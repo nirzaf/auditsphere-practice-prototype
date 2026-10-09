@@ -64,8 +64,6 @@ export interface Env {
   BUSINESS_SETUP_ENABLED?: string;
   /** Enables CI metadata ingestion only on a separately configured verification sandbox Worker. */
   VERIFICATION_INGEST_ENABLED?: string;
-  /** Public Worker URL included in client portal sign-in emails. */
-  PUBLIC_APP_URL?: string;
   VERIFICATION_INGEST_TOKEN?: string;
   /** Fixed workspace scope for trusted CI metadata; never supplied by the caller. */
   VERIFICATION_INGEST_WORKSPACE_ID?: string;

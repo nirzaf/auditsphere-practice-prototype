@@ -51,7 +51,6 @@
   // app identifiers are configured below. Supply SHAREPOINT_CLIENT_SECRET using
   // Cloudflare Worker secrets after the site-specific Sites.Selected grant.
   "vars": {
-    "PUBLIC_APP_URL": "https://auditsphere-visual-prototype.quadrate-lk.workers.dev",
     "SHAREPOINT_TENANT_ID": "4de3e6fd-51aa-4ba7-b2c5-82106d2e45f0",
     "SHAREPOINT_CLIENT_ID": "69eddc6b-194f-411a-9d77-5b96fa1602ad",
     "SHAREPOINT_SITE_HOSTNAME": "easyguide.sharepoint.com",
