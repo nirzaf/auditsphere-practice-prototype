@@ -231,6 +231,12 @@ it('E06-S04 keeps the no-auth workspace, CLIENT portal, and populated business m
   const findings: Array<{ screen: string; violation: AxeViolation }> = [];
   const audit = async (screen: string, width: number, height: number, mobile: boolean) => {
     await setViewport(width, height, mobile);
+    const pageWidth = await tab!.evaluate<{ clientWidth: number; scrollWidth: number }>(`({
+      clientWidth: document.documentElement.clientWidth,
+      scrollWidth: document.documentElement.scrollWidth
+    })`);
+    assert.ok(pageWidth.scrollWidth <= pageWidth.clientWidth,
+      `${screen} has no horizontal page overflow: ${JSON.stringify(pageWidth)}`);
     for (const violation of await scan(screen)) findings.push({ screen, violation });
   };
 

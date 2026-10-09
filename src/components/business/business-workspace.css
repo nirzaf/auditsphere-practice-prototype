@@ -116,6 +116,7 @@
   .business-module-links { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .business-module-links a:last-child { grid-column: 1 / -1; }
   .business-route-select { grid-template-columns: minmax(0, 1fr); }
+  .business-risk-card > .business-section-heading { align-items: flex-start; flex-direction: column; }
   .business-reference-grid { grid-template-columns: minmax(0, 1fr); }
   .business-setup-head, .business-overview-card { align-items: stretch; flex-direction: column; }
   .business-setup-head > .btn { align-self: flex-end; }
