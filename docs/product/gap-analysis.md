@@ -124,8 +124,8 @@ Evidence column: confirmed = seen in source during this audit; *reported* = take
 | US-PBC-001 Isolated client workspace | 🔐 DONE-UNAUTH | CLIENT profile bound to `client_id`; scope checks | E03-S03…S05 |
 | US-PBC-002 Upload | ✅ DONE | file reserve/content/commit + SHA-256 | Forced-reset gate → E03-S05 |
 | US-PBC-003 Review feedback | ✅ DONE | `pbc.review` | — |
-| US-PBC-004 Finance documents (invoices, receipts) | 🔎 VERIFY | CLIENT has `billing.read`; consolidated client view not confirmed | E05-S04 |
-| US-PBC-005 Holding letters | 🔎 VERIFY | `HOLDING_LETTER` route + outbox; client view not confirmed | E05-S04 |
+| US-PBC-004 Finance documents (invoices, receipts) | 🟡 PARTIAL | E05-S04 now projects only issued invoices and receipts in the CLIENT document centre; API integration coverage passes. Full browser/download acceptance remains open. | E05-S04 |
+| US-PBC-005 Holding letters | 🟡 PARTIAL | E05-S04 exposes only accepted/delivered Holding Letters and preserves their saved blocker snapshot in the CLIENT document centre; API integration coverage passes. Full browser/download acceptance remains open. | E05-S04 |
 | US-PBC-006 Final deliverables | ✅ DONE | released bundle downloads remain after freeze (*reported*) | — |
 
 ## Not in spec but required for production (NFR-driven)
