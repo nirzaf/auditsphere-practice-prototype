@@ -39,14 +39,14 @@ jobs:
       support_bundle_written: ${{ steps.support_bundle.outputs.bundle_written }}
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Record verification start time
         id: verification_start
         shell: bash
         run: echo "started_at=$(date -u +'%Y-%m-%dT%H:%M:%S.000Z')" >> "$GITHUB_OUTPUT"
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           # Matches the lockfile generation and the local dev toolchain.
           node-version: '24'
@@ -93,7 +93,7 @@ jobs:
 
       - name: Upload verification support bundle
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: auditsphere-verification-${{ github.run_id }}-${{ github.run_attempt }}
           path: verification-support-bundle.json
@@ -115,11 +115,11 @@ jobs:
     environment:
       name: cloudflare-verification-sandbox
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: ${{ github.sha }}
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: auditsphere-verification-${{ github.run_id }}-${{ github.run_attempt }}
           path: .verification-artifact
@@ -148,11 +148,11 @@ jobs:
       cancel-in-progress: false
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: ${{ github.sha }}
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: '24'
           cache: 'npm'
