@@ -743,7 +743,7 @@ export function benchmarkContributingLines<T extends {code:string;statement:stri
 
 export function materialityBenchmarkValue(benchmark:string,rawBase:bigint,normalization:bigint,adjustmentCount:number,normalizationReason?:string):bigint{
   if(benchmark!=='PBT'&&(adjustmentCount>0||normalizationReason))throw new ApiError('VALIDATION_FAILED','Normalization adjustments are available only for a PBT benchmark.');
-  if(benchmark==='PBT'&&adjustmentCount>0&&!normalizationReason)throw new ApiError('VALIDATION_FAILED','PBT normalization needs an itemized reviewer rationale.');
+  if(benchmark==='PBT'&&adjustmentCount>0&&(!normalizationReason||normalizationReason.trim().length<10))throw new ApiError('VALIDATION_FAILED','PBT normalization needs an itemized reviewer rationale of at least 10 characters.');
   if(benchmark==='PBT'&&adjustmentCount===0&&normalizationReason)throw new ApiError('VALIDATION_FAILED','A PBT normalization rationale requires at least one evidenced adjustment item.');
   const benchmarkValue=rawBase+normalization;
   if(benchmarkValue<=0n)throw new ApiError('VALIDATION_FAILED','PBT is zero or loss-making. Select a supported alternative benchmark or provide documented, evidenced normalization; loss is never treated as positive profit.');

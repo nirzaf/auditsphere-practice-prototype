@@ -35,6 +35,7 @@ describe('materiality benchmark contribution (US-GAP-09)', () => {
     assert.throws(() => materialityBenchmarkValue('PBT', -1000n, 0n, 0), /PBT is zero or loss-making/);
     assert.equal(materialityBenchmarkValue('PBT', -1000n, 1500n, 1, 'Exclude a documented one-time nonrecurring charge.'), 500n);
     assert.throws(() => materialityBenchmarkValue('PBT', 1000n, 100n, 1), /itemized reviewer rationale/);
+    assert.throws(() => materialityBenchmarkValue('PBT', 1000n, 100n, 1, 'short'), /at least 10 characters/);
     assert.throws(() => materialityBenchmarkValue('PBT', 1000n, 0n, 0, 'No adjustment item was supplied.'), /requires at least one evidenced adjustment item/);
     assert.throws(() => materialityBenchmarkValue('REVENUE', 1000n, 100n, 1, 'Do not alter revenue.'), /only for a PBT benchmark/);
   });
