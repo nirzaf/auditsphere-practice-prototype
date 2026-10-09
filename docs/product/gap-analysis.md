@@ -138,4 +138,4 @@ Evidence column: confirmed = seen in source during this audit; *reported* = take
 | Alert routing for outbox failures / overdue archives (logs exist, no alerts) | ❌ | E06-S03 |
 | Accessibility WCAG 2.2 AA audit | 🟡 PARTIAL | E06-S04 local axe gate and keyboard path pass through CLIENT projection; client upload and deployed UAT remain blocked on commercial handover, verified advance receipt and trusted staging |
 | Load test at target concurrency | 🟡 PARTIAL | E06-S05 guarded 50-user/15-minute staging benchmark and report template implemented; measured acceptance still blocked on isolated staging Worker/D1/R2 and Cloudflare dashboard metrics |
-| Go-live runbook + UAT sign-off | ❌ | E06-S06 |
+| Go-live runbook + UAT sign-off | 🟡 PARTIAL | E06-S06 prepared journey/negative-case plan and release/rollback checklist; execution and sign-off remain blocked on SP-04 residency decision, trusted isolated staging, integration evidence, and owner-approved no-auth perimeter |
