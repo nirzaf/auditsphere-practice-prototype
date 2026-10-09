@@ -44,7 +44,7 @@ Evidence column: confirmed = seen in source during this audit; *reported* = take
 | US-M1-003 Role-based contact directory | ✅ DONE | `contact.route` purposes `PROPOSAL, EL, FINAL_REPORT, INVOICE, RECEIPT, PBC, HOLDING_LETTER`; MD/GM default routing (`worker/business.ts:2638`) | — |
 | US-M1-004 Brief quotation | ✅ DONE | `worker/proposalDocument.ts`; *reported* 1–2-page enforcement | — |
 | US-M1-005 Comprehensive proposal | ✅ DONE | CVs, credentials, portfolio, evidence files (migrations 0036–0037) | — |
-| US-M1-006 Proposal dispatch | 🟡 PARTIAL | Email via outbox (`COMMERCIAL_EMAIL`); WhatsApp explicitly rejected as a provider (`worker/business.ts:3657`) | Live email → E04-S01; manual WhatsApp record → E04-S02 |
+| US-M1-006 Proposal dispatch | 🟡 PARTIAL | Email uses the provider outbox; E04-S02 records manual WhatsApp/hand delivery against the current Partner-approved PDF in an append-only correspondence trail. No WhatsApp API is used. | Live email acceptance → E04-S01 |
 | US-M1-007 Client commercial approval | 🔐 DONE-UNAUTH | `commercialAcceptance.record/revoke` (CLIENT action) | E03 |
 | US-M1-008 Dual-key gate | ✅ DONE | acceptance + `risk.clear`; EL generation blocked otherwise | — |
 | US-M1-009 Engagement Letter (statutory / IA / AUP) | ✅ DONE | `serviceType` enum incl. `AGREED_UPON_PROCEDURES`; `engagementLetter.generate/issue` | — |
