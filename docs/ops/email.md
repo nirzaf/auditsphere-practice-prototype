@@ -22,6 +22,14 @@ put the token in Wrangler vars, source, logs, or a message. See Cloudflare's
 [send-binding restrictions](https://developers.cloudflare.com/email-service/configuration/send-bindings/)
 and [REST API](https://developers.cloudflare.com/email-service/api/send-emails/rest-api/).
 
+Cloudflare Email Sending's **Email preview** setting is enabled by the owner's
+choice (verified 2026-10-09). Cloudflare may show sent-message content in the
+Email Sending activity view for about seven days. This is an accepted provider-
+console privacy exception, not evidence that the strict no-content-in-logs
+requirement has passed. Keep the application and Worker logs free of message
+bodies and attachments; do not use this exception as approval to send client
+content through the prototype.
+
 Deploy the private production provider only after its API secret exists:
 
 ```sh
