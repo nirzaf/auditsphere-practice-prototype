@@ -4,6 +4,7 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import worker from '../worker/index.js';
 import { SqliteD1 } from '../tests/helpers/sqliteD1.js';
+import { benchmarkHelp, parseBenchmarkOptions } from './benchmark-options.js';
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const userCount = 20;
@@ -14,6 +15,7 @@ const commandTargetMs = 1000;
 const origin = 'https://benchmark.auditsphere.invalid';
 const originalConsoleLog = console.log;
 const requestStatusCounts: Record<string, number> = {};
+const pause = (milliseconds: number) => new Promise(resolve => setTimeout(resolve, milliseconds));
 
 // The Worker emits one structured request metric per call. Keep the benchmark
 // output machine-readable while retaining aggregate status evidence.
@@ -129,6 +131,186 @@ function clientPayload(code: string) {
   };
 }
 
+type StagingActor = { id: string; persona: 'PREPARER' };
+type StagingSample = { status: number; elapsedMs: number };
+
+async function stagingRequest(target: URL, path: string, options: {
+  method?: string;
+  payload?: unknown;
+  actor?: StagingActor;
+  idempotencyKey?: string;
+} = {}): Promise<StagingSample> {
+  const headers = new Headers({ Origin: target.origin });
+  if (options.actor) {
+    headers.set('X-Actor-Id', options.actor.id);
+    headers.set('X-Active-Persona', options.actor.persona);
+  }
+  if (options.idempotencyKey) headers.set('Idempotency-Key', options.idempotencyKey);
+  if (options.payload !== undefined) headers.set('Content-Type', 'application/json');
+  const started = performance.now();
+  try {
+    const response = await fetch(new URL(path.replace(/^\//, ''), target), {
+      method: options.method ?? 'GET',
+      headers,
+      redirect: 'error',
+      credentials: 'omit',
+      signal: AbortSignal.timeout(15000),
+      ...(options.payload === undefined ? {} : { body: JSON.stringify(options.payload) })
+    });
+    await response.body?.cancel();
+    return { status: response.status, elapsedMs: performance.now() - started };
+  } catch {
+    return { status: 0, elapsedMs: performance.now() - started };
+  }
+}
+
+async function stagingJson<T>(target: URL, path: string): Promise<{ status: number; body: T | null }> {
+  const response = await fetch(new URL(path.replace(/^\//, ''), target), {
+    headers: { Origin: target.origin },
+    redirect: 'error',
+    credentials: 'omit',
+    signal: AbortSignal.timeout(15000)
+  });
+  const raw = await response.text();
+  let body: T | null = null;
+  try { body = JSON.parse(raw) as T; } catch { /* Do not print response bodies that may contain private details. */ }
+  return { status: response.status, body };
+}
+
+function summarizeStaging(samples: StagingSample[], targetMs: number) {
+  const summary = samples.length
+    ? summarize(samples.map(sample => sample.elapsedMs), targetMs)
+    : { samples: 0, p50Ms: null, p95Ms: null, p99Ms: null, maxMs: null, targetMs, meetsLocalTarget: false };
+  const failed = samples.filter(sample => sample.status < 200 || sample.status >= 300).length;
+  return {
+    ...summary,
+    failedRequests: failed,
+    errorRate: samples.length ? Number((failed / samples.length).toFixed(6)) : 1
+  };
+}
+
+async function runStagingBenchmark(options: Extract<ReturnType<typeof parseBenchmarkOptions>, { mode: 'staging' }>): Promise<void> {
+  const health = await stagingJson<{ status?: string; readinessChecks?: { environment?: string } }>(options.target, '/api/health/ready');
+  if (health.status !== 200 || health.body?.status !== 'ready' || health.body.readinessChecks?.environment !== 'staging') {
+    throw new Error(`Staging readiness must be healthy and report environment=staging (HTTP ${health.status}). No load was sent.`);
+  }
+
+  const actorResponse = await stagingJson<{ items?: Array<{ id: string; persona: string }> }>(
+    options.target, `/api/workspaces/${encodeURIComponent(options.workspaceId)}/actor-profiles`
+  );
+  if (actorResponse.status !== 200 || !Array.isArray(actorResponse.body?.items)) {
+    throw new Error(`Could not read synthetic PREPARER profiles from the specified staging workspace (HTTP ${actorResponse.status}). No load was sent.`);
+  }
+  const actors = actorResponse.body.items
+    .filter((item): item is { id: string; persona: 'PREPARER' } => item.persona === 'PREPARER' && typeof item.id === 'string')
+    .slice(0, options.users);
+  if (actors.length < options.users) {
+    throw new Error(`The staging workspace has ${actors.length} usable PREPARER profiles; ${options.users} are required. No load was sent.`);
+  }
+  const contextProbe = await stagingRequest(options.target,
+    `/api/workspaces/${encodeURIComponent(options.workspaceId)}/context`, { actor: actors[0] });
+  if (contextProbe.status !== 200) throw new Error(`The staging actor preflight failed (HTTP ${contextProbe.status}). No load was sent.`);
+
+  const contextReads: StagingSample[] = [];
+  const clientListReads: StagingSample[] = [];
+  const clientCommands: StagingSample[] = [];
+  const statusCounts: Record<string, number> = {};
+  const startedAt = new Date();
+  const startedClock = performance.now();
+  const endAt = Date.now() + options.durationSeconds * 1000;
+  const runId = crypto.randomUUID().replaceAll('-', '').slice(0, 8);
+  let sequence = 0;
+
+  async function runVirtualUser(actor: StagingActor): Promise<void> {
+    while (Date.now() < endAt) {
+      const requestNumber = sequence++;
+      let sample: StagingSample;
+      if (requestNumber % 10 < 7) {
+        if (requestNumber % 2 === 0) {
+          sample = await stagingRequest(options.target,
+            `/api/workspaces/${encodeURIComponent(options.workspaceId)}/context`, { actor });
+          contextReads.push(sample);
+        } else {
+          sample = await stagingRequest(options.target,
+            `/api/workspaces/${encodeURIComponent(options.workspaceId)}/clients?limit=25`, { actor });
+          clientListReads.push(sample);
+        }
+      } else {
+        const code = `LOAD-${runId}-${requestNumber.toString(36)}`;
+        sample = await stagingRequest(options.target,
+          `/api/workspaces/${encodeURIComponent(options.workspaceId)}/commands`, {
+            method: 'POST', actor, idempotencyKey: crypto.randomUUID(), payload: {
+              actor: { actorId: actor.id, persona: actor.persona },
+              context: {}, expectedVersions: [],
+              command: { type: 'client.create', payload: clientPayload(code) }
+            }
+          });
+        clientCommands.push(sample);
+      }
+      statusCounts[String(sample.status)] = (statusCounts[String(sample.status)] ?? 0) + 1;
+      if (options.thinkTimeMs > 0 && Date.now() < endAt) await pause(options.thinkTimeMs);
+    }
+  }
+
+  await Promise.all(actors.map(actor => runVirtualUser(actor)));
+  const elapsedMs = performance.now() - startedClock;
+  const readSamples = [...contextReads, ...clientListReads];
+  const readSummary = summarizeStaging(readSamples, 400);
+  const commandSummary = summarizeStaging(clientCommands, 800);
+  const fullLoadProfile = actors.length === 50 && options.durationSeconds >= 900;
+  const totalRequests = readSamples.length + clientCommands.length;
+  const report = {
+    result: fullLoadProfile && readSummary.p95Ms !== null && readSummary.p95Ms < 400 && readSummary.p99Ms !== null && readSummary.p99Ms < 1000 && commandSummary.p95Ms !== null && commandSummary.p95Ms < 800 && readSummary.errorRate < 0.01 && commandSummary.errorRate < 0.01
+      ? 'PASS_APPLICATION_LATENCY'
+      : 'FAIL_OR_INCOMPLETE_APPLICATION_LATENCY',
+    acceptanceBoundary: 'Remote Worker measurements only; Cloudflare D1, Worker CPU and outbox metrics must be completed from the same staging window in the dashboard.',
+    recordedAt: new Date().toISOString(),
+    target: options.target.origin,
+    workspaceId: options.workspaceId,
+    deployedBuildId: options.buildId,
+    dataClassification: 'synthetic staging only',
+    identityProfile: 'no application authentication; self-selected PREPARER workflow context',
+    durationSeconds: options.durationSeconds,
+    fullAcceptanceLoadProfile: fullLoadProfile,
+    actualElapsedSeconds: Number((elapsedMs / 1000).toFixed(3)),
+    syntheticActors: actors.length,
+    thinkTimeMs: options.thinkTimeMs,
+    requestCount: totalRequests,
+    averageRequestsPerSecond: Number((totalRequests / (elapsedMs / 1000)).toFixed(3)),
+    requestStatusCounts: statusCounts,
+    routeMix: {
+      requestedReadPercent: 70,
+      requestedCommandPercent: 30,
+      actual: {
+        contextReads: contextReads.length,
+        paginatedClientListReads: clientListReads.length,
+        clientCreateCommands: clientCommands.length
+      }
+    },
+    thresholds: { readP95Ms: 400, readP99Ms: 1000, commandP95Ms: 800, maxErrorRate: 0.01, minimumDurationSeconds: 900 },
+    latency: {
+      reads: readSummary,
+      contextRead: summarizeStaging(contextReads, 400),
+      paginatedClientListRead: summarizeStaging(clientListReads, 400),
+      clientCreateCommand: commandSummary
+    },
+    cloudflareDashboardMetrics: {
+      d1RowsReadPerMinute: 'PENDING: capture from staging D1 analytics for the recorded time window',
+      d1RowsWrittenPerMinute: 'PENDING: capture from staging D1 analytics for the recorded time window',
+      workerCpuTimePercentiles: 'PENDING: capture from the staging Worker dashboard for the recorded time window',
+      outboxDrainTime: 'PENDING: capture queue-to-complete duration from sanitized staging outbox metrics',
+      cloudflareWindowStartedAt: startedAt.toISOString()
+    },
+    limitations: [
+      'Workflow persona headers are self-selected context, not authenticated sessions or identity assurance.',
+      'The load run creates synthetic clients in the supplied dedicated staging workspace; isolate or reset that staging dataset after acceptance.',
+      'Application latency and error rate alone do not close capacity acceptance until the pending Cloudflare D1, Worker CPU and outbox metrics are added.'
+    ]
+  };
+  process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
+  if (report.result !== 'PASS_APPLICATION_LATENCY') process.exitCode = 1;
+}
+
 function percentile(samples: number[], quantile: number): number {
   const sorted = [...samples].sort((left, right) => left - right);
   return sorted[Math.max(0, Math.ceil(quantile * sorted.length) - 1)];
@@ -147,6 +329,16 @@ function summarize(samples: number[], targetMs: number) {
 }
 
 async function main(): Promise<void> {
+  const options = parseBenchmarkOptions(process.argv.slice(2));
+  if (options.mode === 'help') {
+    process.stdout.write(`${benchmarkHelp}\n`);
+    return;
+  }
+  if (options.mode === 'staging') {
+    await runStagingBenchmark(options);
+    return;
+  }
+
   db.migrate(repositoryRoot);
   const commit = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: repositoryRoot, encoding: 'utf8' }).trim();
   const changedPaths = execFileSync('git', ['status', '--porcelain'], { cwd: repositoryRoot, encoding: 'utf8' })
@@ -276,7 +468,7 @@ async function main(): Promise<void> {
     limitations: [
       'The in-memory SQLite adapter serializes database calls and has different latency and concurrency characteristics from Cloudflare D1.',
       'No browser, network, Cloudflare runtime, deployed Worker, production data, or provider job was exercised.',
-      'Passing this local benchmark is useful for regression detection but does not close the deployed 20-active-user p95 criterion.'
+      'Passing this local benchmark is useful for regression detection but does not close the deployed 50-concurrent-workflow-user p95 criterion.'
     ]
   };
 
