@@ -47,9 +47,9 @@
   ],
 
   // --- Optional integrations (see docs/prototype/integration-configuration.md) ---
-  // Email delivery (US-GAP-05/06): CI deploys the internal provider first; it uses
-  // Cloudflare Email Service with a one-recipient UAT allowlist. No public endpoint
-  // or unbounded client-recipient sending is enabled.
+  // Email delivery (US-GAP-05/06): CI deploys the internal provider first. Public
+  // website inquiries notify the firm's AuditSphere inbox through this private
+  // service binding; arbitrary client-recipient sending is not enabled.
   "services": [{ "binding": "EMAIL_PROVIDER", "service": "auditsphere-email-provider", "environment": "production" }],
   //
   // SharePoint / Microsoft Graph document integration (US-GAP-25..28): site and
@@ -62,7 +62,8 @@
     "SHAREPOINT_SITE_HOSTNAME": "easyguide.sharepoint.com",
     "SHAREPOINT_SITE_PATH": "/sites/AuditSphereJSAcceptance",
     "SHAREPOINT_DRIVE_NAME": "Documents",
-    "PUBLIC_LEAD_DEFAULT_COUNTRY_CODE": "QA"
+    "PUBLIC_LEAD_DEFAULT_COUNTRY_CODE": "QA",
+    "PUBLIC_LEAD_NOTIFICATION_EMAIL": "audit@steaudit.com"
   },
 
   "observability": { "enabled": true },

@@ -92,6 +92,20 @@ existing `@steaudit.com` mail. On 2026-10-09 the owner chose to preserve the
 Microsoft 365 MX, so this apex route remains inactive. Revisit only with a
 planned inbound-mail migration or a separately approved subdomain route.
 
+The owner created the Microsoft 365 mailbox `audit@steaudit.com` and asked
+AuditSphere to use it for inbound website inquiries. The production Worker now
+sets `PUBLIC_LEAD_NOTIFICATION_EMAIL=audit@steaudit.com`. Accepted public inquiry
+submissions queue a notification to that mailbox through the private
+`EMAIL_PROVIDER` service binding and Cloudflare Email Sending. A notification
+contains the submitted company and contact name, email, phone (if provided),
+service interest, received time, and message. Honeypot/spam submissions do not
+send notifications. This is outbound delivery of application notifications to
+the M365 mailbox; it does not configure a Worker to receive arbitrary inbound
+email and does not change DNS/MX or any other `@steaudit.com` mailbox routing.
+No message has been sent as a test, so mailbox delivery remains unverified until
+an authorized non-production inquiry is submitted and the provider outcome and
+mailbox are checked.
+
 ## 2. SharePoint / Microsoft Graph (US-GAP-25 – US-GAP-28)
 
 The adapter (`worker/integrations/sharepoint.ts`) resolves the configured site to
