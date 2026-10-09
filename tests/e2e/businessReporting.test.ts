@@ -1530,6 +1530,14 @@ it('US-REP-001–007 covers all report categories, representation, atomic releas
   const clientPortal = await clientPortalResponse.json() as { clientDocuments?: Array<{ category: string; fileVersionId: string; engagementId: string }> };
   assert.equal(clientPortalResponse.status, 200, JSON.stringify(clientPortal));
   const finalClientDocuments = (clientPortal.clientDocuments ?? []).filter(document => document.category === 'FINAL_DELIVERABLE');
+  const finalDocumentIds = finalClientDocuments.map(document => document.fileVersionId);
+  const finalDocumentPlaceholders = finalDocumentIds.map(() => '?').join(',');
+  const finalDocumentFiles = server.db.prepare(`SELECT id,media_type,sha256,size_bytes FROM file_versions
+    WHERE workspace_id=? AND id IN (${finalDocumentPlaceholders})`).bind(fixture.workspaceId, ...finalDocumentIds).all<{
+      id: string; media_type: string; sha256: string; size_bytes: number
+    }>().results ?? [];
+  const finalDocumentMetadata = new Map(finalDocumentFiles.map(file => [file.id, file]));
+  assert.equal(finalDocumentMetadata.size, finalClientDocuments.length, 'each released client document has committed type and hash metadata');
   const releasedAttachmentRows = server.db.prepare(`SELECT f.id FROM deliverable_attachments a
     JOIN deliverable_parts p ON p.workspace_id=a.workspace_id AND p.id=a.part_id
     JOIN file_versions f ON f.workspace_id=a.workspace_id AND f.id=a.file_version_id WHERE a.workspace_id=? AND p.bundle_id=?`)
@@ -1539,12 +1547,20 @@ it('US-REP-001–007 covers all report categories, representation, atomic releas
     'the client document centre exposes only the exact committed parts and attachments in the Partner-released bundle');
   assert.ok(finalClientDocuments.every(document => document.engagementId === fixture.engagementId));
   for (const document of finalClientDocuments) {
+    const expectedFile = finalDocumentMetadata.get(document.fileVersionId);
+    assert.ok(expectedFile, 'released client document resolves to committed file metadata');
     const clientPart = await fetch(`${server.origin}/api/workspaces/${fixture.workspaceId}/files/${document.fileVersionId}`, {
       headers: { Origin: server.origin, 'X-Actor-Id': fixture.clientActorId, 'X-Active-Persona': 'CLIENT', 'X-Client-Id': fixture.clientId,
         'X-Engagement-Id': fixture.engagementId }
     });
     assert.equal(clientPart.status, 200, 'each released bundle part and signed representation attachment is downloadable by the client');
-    assert.equal(new TextDecoder().decode(new Uint8Array(await clientPart.arrayBuffer()).slice(0, 5)), '%PDF-');
+    assert.equal(clientPart.headers.get('content-type'), expectedFile.media_type, 'download preserves the committed document media type');
+    const clientBytes = new Uint8Array(await clientPart.arrayBuffer());
+    assert.equal(clientBytes.byteLength, expectedFile.size_bytes, 'download preserves the committed file size');
+    assert.equal(sha256(clientBytes), expectedFile.sha256, 'download returns the exact committed document bytes');
+    if (expectedFile.media_type === 'application/pdf') {
+      assert.equal(new TextDecoder().decode(clientBytes.slice(0, 5)), '%PDF-', 'PDF downloads contain a PDF signature');
+    }
   }
   await waitFor('the client document centre with all four groups and a released part', `(() => {
     const centre=document.querySelector('.business-client-documents');
