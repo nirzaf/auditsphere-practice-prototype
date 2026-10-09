@@ -50,6 +50,18 @@ async function command(workspaceId: string, actor: { actorId: string; persona: s
   });
 }
 
+it('US-SYS-001 keeps historical authentication routes out of the no-auth product profile', async () => {
+  const results = await Promise.all([
+    call('/api/auth/staff/login'),
+    call('/api/auth/me'),
+    call('/api/auth/client/login', { method: 'POST', payload: {} }),
+    call('/api/auth/active-profile', { method: 'POST', payload: {} }),
+    call('/api/auth/logout', { method: 'POST', payload: {} }),
+    call('/api/auth/password/reset', { method: 'POST', payload: {} })
+  ]);
+  assert.deepEqual(results.map(result => result.response.status), [404, 404, 404, 404, 404, 404]);
+});
+
 it('retries audit-head compare-and-swap races so 20 concurrent commands persist', async () => {
   const bootstrap = await call('/api/workspaces', {
     method: 'POST',
