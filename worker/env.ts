@@ -50,6 +50,8 @@ export interface Env {
   SHAREPOINT_SENDER_MAILBOX?: string;
   /** Cloudflare Turnstile verification secret for public lead intake. */
   TURNSTILE_SECRET_KEY?: string;
+  /** Comma-separated hostnames permitted by the Turnstile siteverify response. */
+  PUBLIC_LEAD_TURNSTILE_HOSTNAMES?: string;
   /** HMAC key used to store salted hashes of public lead requester IPs. */
   PUBLIC_LEAD_IP_HASH_SECRET?: string;
   /** Default two-letter firm jurisdiction for prospect records from the public form. */

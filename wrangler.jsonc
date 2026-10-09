@@ -63,7 +63,9 @@
     "SHAREPOINT_SITE_PATH": "/sites/AuditSphereJSAcceptance",
     "SHAREPOINT_DRIVE_NAME": "Documents",
     "PUBLIC_LEAD_DEFAULT_COUNTRY_CODE": "QA",
-    "PUBLIC_LEAD_NOTIFICATION_EMAIL": "audit@steaudit.com"
+    "PUBLIC_LEAD_NOTIFICATION_EMAIL": "audit@steaudit.com",
+    "PUBLIC_LEAD_ALLOWED_ORIGINS": "https://www.steaudit.com",
+    "PUBLIC_LEAD_TURNSTILE_HOSTNAMES": "www.steaudit.com"
   },
 
   "observability": { "enabled": true },

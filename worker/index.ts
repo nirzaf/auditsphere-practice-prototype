@@ -25,7 +25,7 @@ import { APPLICATION_SCHEMA_VERSION } from './versions';
 import { enforceNamedRateLimit } from './rateLimits';
 import { buildVerificationSupportBundle, type VerificationRunRow } from './verificationSupportBundle';
 import { ingestVerificationRun } from './verificationIngest';
-import { handlePublicLeadSubmission, publicLeadCorsHeaders } from './publicLeadIntake';
+import { configuredTurnstileHostnames, handlePublicLeadSubmission, publicLeadCorsHeaders } from './publicLeadIntake';
 import { handleEmailStatusWebhook } from './emailStatusWebhook';
 import {
   bootstrapBusinessWorkspace,
@@ -158,6 +158,7 @@ const handleHealthReady = async (ctx: RouteContext): Promise<Response> => {
     rateLimiter: ctx.env.RATE_LIMITER ? 'BOUND' : 'MISSING',
     emailProvider: email.providerReadiness === 'NOT_PROBED' ? email.transport : email.providerReadiness,
     turnstile: ctx.env.TURNSTILE_SECRET_KEY ? 'CONFIGURED' : 'NOT_CONFIGURED',
+    turnstileHostnames: configuredTurnstileHostnames(ctx.env).size ? 'CONFIGURED' : 'NOT_CONFIGURED',
     publicLead: {
       ipHashKey: (ctx.env.PUBLIC_LEAD_IP_HASH_SECRET?.length ?? 0) >= 32 ? 'CONFIGURED' : 'NOT_CONFIGURED',
       defaultCountry: /^[A-Z]{2}$/.test(ctx.env.PUBLIC_LEAD_DEFAULT_COUNTRY_CODE?.trim().toUpperCase() ?? '') ? 'CONFIGURED' : 'NOT_CONFIGURED',
@@ -173,6 +174,7 @@ const handleHealthReady = async (ctx: RouteContext): Promise<Response> => {
   }
   if (environment === 'production') {
     if (readinessChecks.turnstile !== 'CONFIGURED') dependencyCodes.push('TURNSTILE_NOT_CONFIGURED');
+    if (readinessChecks.turnstileHostnames !== 'CONFIGURED') dependencyCodes.push('TURNSTILE_HOSTNAMES_NOT_CONFIGURED');
   }
   if (environment === 'production' || environment === 'staging') {
     if (readinessChecks.publicLead.ipHashKey !== 'CONFIGURED') dependencyCodes.push('PUBLIC_LEAD_IP_HASH_SECRET_NOT_CONFIGURED');

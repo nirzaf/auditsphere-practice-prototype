@@ -29,7 +29,7 @@ async function ready(env: Env) {
   return { response, body: await response.json() as {
     status: string;
     dependencyCodes: string[];
-    readinessChecks: { environment: string; rateLimiter: string; emailProvider: string; turnstile: string; publicLead: { ipHashKey: string; defaultCountry: string; notification: string; crossOrigin: string }; sharepoint: string };
+    readinessChecks: { environment: string; rateLimiter: string; emailProvider: string; turnstile: string; turnstileHostnames: string; publicLead: { ipHashKey: string; defaultCountry: string; notification: string; crossOrigin: string }; sharepoint: string };
   } };
 }
 
@@ -41,7 +41,7 @@ it('keeps local readiness compatible while reporting unconfigured optional integ
   assert.deepEqual(result.body.dependencyCodes, []);
   assert.deepEqual(result.body.readinessChecks, {
     environment: 'local', rateLimiter: 'MISSING', emailProvider: 'UNCONFIGURED',
-    turnstile: 'NOT_CONFIGURED', publicLead: { ipHashKey: 'NOT_CONFIGURED', defaultCountry: 'NOT_CONFIGURED', notification: 'OFF', crossOrigin: 'SAME_ORIGIN_ONLY' }, sharepoint: 'NOT_CONFIGURED'
+    turnstile: 'NOT_CONFIGURED', turnstileHostnames: 'NOT_CONFIGURED', publicLead: { ipHashKey: 'NOT_CONFIGURED', defaultCountry: 'NOT_CONFIGURED', notification: 'OFF', crossOrigin: 'SAME_ORIGIN_ONLY' }, sharepoint: 'NOT_CONFIGURED'
   });
 });
 
@@ -67,12 +67,13 @@ it('fails production readiness for each missing binding or unavailable provider'
     ENVIRONMENT: 'production',
     RATE_LIMITER: { limit: async () => ({ success: true }) },
     EMAIL_PROVIDER: readyEmailProvider,
-    TURNSTILE_SECRET_KEY: 'turnstile-secret', PUBLIC_LEAD_IP_HASH_SECRET: 'production-public-lead-ip-key-at-least-32-characters',
+    TURNSTILE_SECRET_KEY: 'turnstile-secret', PUBLIC_LEAD_TURNSTILE_HOSTNAMES: 'www.firm.example',
+    PUBLIC_LEAD_IP_HASH_SECRET: 'production-public-lead-ip-key-at-least-32-characters',
     PUBLIC_LEAD_DEFAULT_COUNTRY_CODE: 'QA'
   } satisfies Partial<Env>;
   const missingBoth = await ready(readinessEnv({ ENVIRONMENT: 'production' }));
   assert.equal(missingBoth.response.status, 503);
-  assert.deepEqual(missingBoth.body.dependencyCodes, ['RATE_LIMITER_UNBOUND', 'EMAIL_PROVIDER_UNBOUND', 'TURNSTILE_NOT_CONFIGURED', 'PUBLIC_LEAD_IP_HASH_SECRET_NOT_CONFIGURED', 'PUBLIC_LEAD_DEFAULT_COUNTRY_NOT_CONFIGURED']);
+  assert.deepEqual(missingBoth.body.dependencyCodes, ['RATE_LIMITER_UNBOUND', 'EMAIL_PROVIDER_UNBOUND', 'TURNSTILE_NOT_CONFIGURED', 'TURNSTILE_HOSTNAMES_NOT_CONFIGURED', 'PUBLIC_LEAD_IP_HASH_SECRET_NOT_CONFIGURED', 'PUBLIC_LEAD_DEFAULT_COUNTRY_NOT_CONFIGURED']);
 
   const unavailableEmail = await ready(readinessEnv({
     ...common,
@@ -84,6 +85,9 @@ it('fails production readiness for each missing binding or unavailable provider'
   const missingTurnstile = await ready(readinessEnv({ ...common, TURNSTILE_SECRET_KEY: undefined }));
   assert.equal(missingTurnstile.response.status, 503);
   assert.deepEqual(missingTurnstile.body.dependencyCodes, ['TURNSTILE_NOT_CONFIGURED']);
+  const missingTurnstileHostnames = await ready(readinessEnv({ ...common, PUBLIC_LEAD_TURNSTILE_HOSTNAMES: undefined }));
+  assert.equal(missingTurnstileHostnames.response.status, 503);
+  assert.deepEqual(missingTurnstileHostnames.body.dependencyCodes, ['TURNSTILE_HOSTNAMES_NOT_CONFIGURED']);
   const missingLeadKey = await ready(readinessEnv({ ...common, PUBLIC_LEAD_IP_HASH_SECRET: undefined }));
   assert.equal(missingLeadKey.response.status, 503);
   assert.deepEqual(missingLeadKey.body.dependencyCodes, ['PUBLIC_LEAD_IP_HASH_SECRET_NOT_CONFIGURED']);

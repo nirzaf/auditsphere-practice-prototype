@@ -22,6 +22,15 @@ function allowedOrigins(env: Env): Set<string> {
   return new Set((env.PUBLIC_LEAD_ALLOWED_ORIGINS ?? '').split(',').map(value => value.trim()).filter(Boolean));
 }
 
+export function configuredTurnstileHostnames(env: Pick<Env, 'PUBLIC_LEAD_TURNSTILE_HOSTNAMES'>): Set<string> {
+  const hostnames = (env.PUBLIC_LEAD_TURNSTILE_HOSTNAMES ?? '').split(',')
+    .map(value => value.trim().toLocaleLowerCase())
+    .filter(value => value.length <= 253
+      && value.split('.').every(label => label.length >= 1 && label.length <= 63
+        && /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/i.test(label)));
+  return new Set(hostnames);
+}
+
 export function publicLeadCorsHeaders(request: Request, env: Env): Record<string, string> {
   const origin = request.headers.get('Origin');
   if (!origin || origin === new URL(request.url).origin || !allowedOrigins(env).has(origin)) return {};
@@ -60,6 +69,7 @@ export async function verifyTurnstile(
   token: string,
   secret: string,
   ip: string,
+  expectedHostnames: ReadonlySet<string>,
   requestFetch: typeof fetch = fetch
 ): Promise<boolean> {
   const body = new URLSearchParams({ secret, response: token, remoteip: ip });
@@ -72,8 +82,10 @@ export async function verifyTurnstile(
     throw new ApiError('UNAVAILABLE', 'Inquiry verification is temporarily unavailable.');
   }
   if (!response.ok) throw new ApiError('UNAVAILABLE', 'Inquiry verification is temporarily unavailable.');
-  const result = await response.json() as { success?: boolean };
-  return result.success === true;
+  const result = await response.json() as { success?: boolean; hostname?: string };
+  return result.success === true
+    && typeof result.hostname === 'string'
+    && expectedHostnames.has(result.hostname.trim().toLocaleLowerCase());
 }
 
 export const handlePublicLeadSubmission: Handler = async ctx => {
@@ -100,7 +112,9 @@ export const handlePublicLeadSubmission: Handler = async ctx => {
 
   if (!isSpam) {
     if (!ctx.env.TURNSTILE_SECRET_KEY) throw new ApiError('UNAVAILABLE', 'Inquiry verification is not configured.');
-    turnstileVerified = await verifyTurnstile(body.data.turnstileToken, ctx.env.TURNSTILE_SECRET_KEY, ip);
+    const expectedHostnames = configuredTurnstileHostnames(ctx.env);
+    if (!expectedHostnames.size) throw new ApiError('UNAVAILABLE', 'Inquiry verification is not configured.');
+    turnstileVerified = await verifyTurnstile(body.data.turnstileToken, ctx.env.TURNSTILE_SECRET_KEY, ip, expectedHostnames);
     if (!turnstileVerified) throw new ApiError('VALIDATION_FAILED', 'Inquiry verification failed. Retry the verification and submit again.');
   }
 

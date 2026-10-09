@@ -18,6 +18,7 @@ const env = {
   ASSETS: { fetch: async () => new Response('not found', { status: 404 }) },
   BUSINESS_SETUP_ENABLED: 'true',
   TURNSTILE_SECRET_KEY: 'test-turnstile-secret',
+  PUBLIC_LEAD_TURNSTILE_HOSTNAMES: 'www.firm.example',
   PUBLIC_LEAD_IP_HASH_SECRET: 'test-public-ip-hash-secret-at-least-32-chars',
   PUBLIC_LEAD_DEFAULT_COUNTRY_CODE: 'QA',
   PUBLIC_LEAD_ALLOWED_ORIGINS: 'https://www.firm.example',
@@ -66,7 +67,7 @@ it('accepts an inquiry, redacts the IP, triages it into an audited lead, and det
   globalThis.fetch = async (input: RequestInfo | URL) => {
     if (String(input) === 'https://challenges.cloudflare.com/turnstile/v0/siteverify') {
       siteverifyCalls += 1;
-      return Response.json({ success: true });
+      return Response.json({ success: true, hostname: 'www.firm.example' });
     }
     return originalFetch(input);
   };
@@ -139,7 +140,7 @@ it('queues an optional notification with only a submission reference when a firm
   const originalEmailProvider = env.EMAIL_PROVIDER;
   env.PUBLIC_LEAD_NOTIFICATION_EMAIL = 'audit@firm.example';
   globalThis.fetch = async (input: RequestInfo | URL) => String(input) === 'https://challenges.cloudflare.com/turnstile/v0/siteverify'
-    ? Response.json({ success: true }) : originalFetch(input);
+    ? Response.json({ success: true, hostname: 'www.firm.example' }) : originalFetch(input);
   try {
     const accepted = await submit(validBody({ email: 'notify@example.invalid' }));
     assert.equal(accepted.status, 202, await accepted.clone().text());
@@ -176,7 +177,7 @@ it('queues an optional notification with only a submission reference when a firm
 it('denies inquiry triage to a reviewer persona', async () => {
   const originalFetch = globalThis.fetch;
   globalThis.fetch = async (input: RequestInfo | URL) => String(input) === 'https://challenges.cloudflare.com/turnstile/v0/siteverify'
-    ? Response.json({ success: true }) : originalFetch(input);
+    ? Response.json({ success: true, hostname: 'www.firm.example' }) : originalFetch(input);
   try {
     const accepted = await submit(validBody({ email: 'reviewer-check@example.invalid' }));
     assert.equal(accepted.status, 202);
@@ -218,7 +219,7 @@ it('denies inquiry triage to a reviewer persona', async () => {
 it('limits valid public submissions to five per hashed IP in a rolling hour', async () => {
   const originalFetch = globalThis.fetch;
   globalThis.fetch = async (input: RequestInfo | URL) => String(input) === 'https://challenges.cloudflare.com/turnstile/v0/siteverify'
-    ? Response.json({ success: true }) : originalFetch(input);
+    ? Response.json({ success: true, hostname: 'www.firm.example' }) : originalFetch(input);
   try {
     for (let attempt = 0; attempt < 5; attempt += 1) {
       const response = await submit(validBody({ email: `hour-limit-${attempt}@example.invalid` }), { ip: '203.0.113.91' });
@@ -266,6 +267,22 @@ it('stores honeypot submissions as spam without calling Turnstile and rejects in
     }), env, {} as ExecutionContext);
     assert.equal(preflight.status, 204);
     assert.equal(preflight.headers.get('Access-Control-Allow-Origin'), 'https://www.firm.example');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+it('rejects a valid Turnstile response for a hostname outside the configured marketing host', async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (input: RequestInfo | URL) => String(input) === 'https://challenges.cloudflare.com/turnstile/v0/siteverify'
+    ? Response.json({ success: true, hostname: 'attacker.example' }) : originalFetch(input);
+  try {
+    const response = await submit(validBody({ email: 'wrong-hostname@example.invalid' }));
+    assert.equal(response.status, 422);
+    assert.equal((await response.json() as { code: string }).code, 'VALIDATION_FAILED');
+    const persisted = await db.prepare(`SELECT COUNT(*) AS count FROM public_lead_submissions WHERE workspace_id=?
+      AND email_normalized='wrong-hostname@example.invalid'`).bind(workspace.workspaceId).first<{ count: number }>();
+    assert.equal(persisted?.count, 0, 'a valid challenge for an unapproved hostname is not stored as an inquiry');
   } finally {
     globalThis.fetch = originalFetch;
   }

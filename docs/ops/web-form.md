@@ -4,12 +4,14 @@ AuditSphere accepts public inquiries at `POST https://YOUR_WORKER_ORIGIN/api/pub
 
 ## Configure before embedding
 
-1. Create a Cloudflare Turnstile widget for the marketing-site hostname. Put its public site key in the page and the matching secret in the Worker secret `TURNSTILE_SECRET_KEY`.
+1. Create a Cloudflare Turnstile widget for the marketing-site hostname. Put its public site key in the page and the matching secret in the Worker secret `TURNSTILE_SECRET_KEY`. Set `PUBLIC_LEAD_TURNSTILE_HOSTNAMES` to the exact expected hostname or comma-separated hostname list; Siteverify must return one of these hostnames before an inquiry is accepted.
 2. Set `PUBLIC_LEAD_ALLOWED_ORIGINS` to the exact origin or comma-separated origins allowed to submit the form, for example `https://www.example.com,https://example.com`. Include scheme and port where applicable; do not add paths or trailing slashes.
 3. Set `PUBLIC_LEAD_IP_HASH_SECRET` to a randomly generated secret with at least 32 characters. The D1 hourly limiter and stored keyed IP digest fail closed without it. Rotate it only with awareness that the active rate-limit window is keyed by the prior value.
 4. Set `PUBLIC_LEAD_DEFAULT_COUNTRY_CODE` to the firm's two-letter jurisdiction. It is applied when staff accept an inquiry and create a prospect.
 5. If more than one active BUSINESS workspace exists, set `PUBLIC_LEAD_WORKSPACE_ID` to the workspace that owns web inquiries. Without it, intake requires exactly one active BUSINESS workspace.
 6. To send a staff notification for non-spam submissions, set `PUBLIC_LEAD_NOTIFICATION_EMAIL` to the authorized firm inbox. The Worker queues notifications through the configured `EMAIL_PROVIDER` outbox. Leave it unset to keep notifications off.
+
+For the AuditSphere website inquiry integration, the configured marketing origin and expected Turnstile hostname are `https://www.steaudit.com` and `www.steaudit.com`; notifications are addressed to the Microsoft 365 mailbox `audit@steaudit.com`. Keep the `steaudit.com` apex MX on Microsoft 365. Cloudflare Email Routing on the apex would divert the domain's inbound mail away from M365; Cloudflare Email Sending and its bounce records do not require that MX change.
 
 The public lead endpoint must pass the production readiness checks for Turnstile, the IP hashing secret, the default country, and the shared email/rate-limit dependencies before production is considered ready. Never put the Turnstile secret, email credentials, or IP-hash secret in page markup.
 

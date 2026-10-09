@@ -102,9 +102,20 @@ service interest, received time, and message. Honeypot/spam submissions do not
 send notifications. This is outbound delivery of application notifications to
 the M365 mailbox; it does not configure a Worker to receive arbitrary inbound
 email and does not change DNS/MX or any other `@steaudit.com` mailbox routing.
-No message has been sent as a test, so mailbox delivery remains unverified until
-an authorized non-production inquiry is submitted and the provider outcome and
-mailbox are checked.
+
+The production Worker now has a dedicated managed Turnstile widget named
+`AuditSphere website inquiries`, allowed for the Cloudflare-managed
+`steaudit.com` hostname; the application validates Siteverify against the exact
+`www.steaudit.com` hostname. The widget verification key and public-lead IP
+hashing key are stored as encrypted Worker secrets. The production Worker also
+allows the exact marketing origin `https://www.steaudit.com`. The public site key
+still needs to be embedded in the marketing contact form and that form must POST
+to the Worker endpoint before the live site uses this intake path. A read-only
+inspection of `https://www.steaudit.com/contact` found a contact form, but it
+has not been submitted or verified as connected to AuditSphere. No test message
+has been sent; mailbox delivery remains unverified until an authorized
+non-production inquiry is submitted and the provider outcome and mailbox are
+checked.
 
 ## 2. SharePoint / Microsoft Graph (US-GAP-25 – US-GAP-28)
 
