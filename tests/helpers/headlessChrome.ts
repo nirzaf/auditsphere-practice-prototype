@@ -1,8 +1,8 @@
 import { execFile, spawn, type ChildProcess } from 'node:child_process';
 import { createServer } from 'node:net';
-import { existsSync, mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { existsSync, mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 const sleep = (milliseconds: number) => new Promise(resolve => setTimeout(resolve, milliseconds));
 
@@ -54,7 +54,14 @@ export async function launchHeadlessChrome(
 ): Promise<HeadlessChromeInstance> {
   if (!existsSync(executable)) throw new Error(`Chrome executable does not exist: ${executable}`);
   const port = await reserveLoopbackPort();
-  const profileDirectory = mkdtempSync(join(tmpdir(), options.profilePrefix ?? 'auditsphere-e2e-'));
+  // Some sandboxed Windows hosts expose a temp directory where Chrome can
+  // create files but cannot atomically rename its profile databases. Keep the
+  // disposable profile under the checked-out repo, where the test runner has
+  // write access, so Chrome can bring up its DevTools endpoint reliably.
+  const profileRoot = fileURLToPath(new URL('../..', import.meta.url));
+  const profileDirectoryRoot = join(profileRoot, '.tmp-e2e-profiles');
+  mkdirSync(profileDirectoryRoot, { recursive: true });
+  const profileDirectory = mkdtempSync(join(profileDirectoryRoot, options.profilePrefix ?? 'auditsphere-e2e-'));
   const child = spawn(executable, [
     '--headless=new', '--no-sandbox', '--disable-gpu', `--window-size=${options.windowSize ?? '1440,900'}`,
     `--remote-debugging-port=${port}`, '--remote-debugging-address=127.0.0.1', '--remote-allow-origins=*',

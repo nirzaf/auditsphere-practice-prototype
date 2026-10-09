@@ -11,6 +11,7 @@ __pycache__/
 *.pyc
 .claude/
 .tmp-build/
+.tmp-e2e-profiles/
 .wrangler/
 .DS_Store
 Thumbs.db
