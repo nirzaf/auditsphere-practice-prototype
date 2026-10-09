@@ -4,7 +4,6 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import worker from '../../worker/index.js';
 import { SqliteD1 } from '../helpers/sqliteD1.js';
-import { authSessionCookie } from '../helpers/authSession.js';
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const db = new SqliteD1();
@@ -31,8 +30,6 @@ async function call(path: string, options: {
   }
   if (options.idempotencyKey) headers.set('Idempotency-Key', options.idempotencyKey);
   if (options.payload !== undefined) headers.set('Content-Type', 'application/json');
-  const workspaceId = path.match(/^\/api\/workspaces\/([^/?]+)/)?.[1];
-  if (workspaceId) headers.set('Cookie', await authSessionCookie(db, workspaceId, options.actor?.actorId));
   const response = await worker.fetch(new Request(`https://local.auditsphere.test${path}`, {
     method: options.method ?? 'GET', headers,
     ...(options.payload === undefined ? {} : { body: JSON.stringify(options.payload) })

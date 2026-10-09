@@ -6,7 +6,6 @@ import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import worker from '../../worker/index.js';
 import { SqliteD1 } from '../helpers/sqliteD1.js';
-import { authSessionCookie } from '../helpers/authSession.js';
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 
@@ -33,8 +32,6 @@ it('BUSINESS records survive a Worker restart and scheduled maintenance after ei
     if (options.actorId) headers.set('X-Actor-Id', options.actorId);
     if (options.persona) headers.set('X-Active-Persona', options.persona);
     if (options.idempotencyKey) headers.set('Idempotency-Key', options.idempotencyKey);
-    const workspaceId = path.match(/^\/api\/workspaces\/([^/?]+)/)?.[1];
-    if (workspaceId) headers.set('Cookie', await authSessionCookie(db!, workspaceId, options.actorId));
     const request = new Request(`https://restart.auditsphere.test${path}`, {
       method,
       headers,

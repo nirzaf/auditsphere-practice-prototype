@@ -1,14 +1,13 @@
 import assert from 'node:assert/strict';
 import { createHash, randomUUID } from 'node:crypto';
 import type { ChildProcess } from 'node:child_process';
-import { existsSync, writeFileSync } from 'node:fs';
+import { existsSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, before, it } from 'node:test';
 import { CdpTab } from '../helpers/cdp.js';
-import { launchHeadlessChrome, removeHeadlessChromeProfile, stopHeadlessChrome, type HeadlessChromeInstance } from '../helpers/headlessChrome.js';
-import { authenticatedBusinessFetch, startBusinessE2eServer, type BusinessE2eServer } from '../helpers/businessE2eServer.js';
-import { setBrowserAuthSession } from '../helpers/authSession.js';
+import { launchHeadlessChrome, stopHeadlessChrome, type HeadlessChromeInstance } from '../helpers/headlessChrome.js';
+import { startBusinessE2eServer, type BusinessE2eServer } from '../helpers/businessE2eServer.js';
 
 let server: BusinessE2eServer | undefined;
 let browserA: HeadlessChromeInstance | undefined;
@@ -259,7 +258,6 @@ function addTimeEntryPreparer(fixture: Awaited<ReturnType<typeof createFieldwork
 
 async function selectPracticeWorkspace(tab: CdpTab, fixture: Awaited<ReturnType<typeof createFieldworkFixture>>,
   actorId: string, persona: 'PREPARER' | 'APPROVER', grade: string): Promise<void> {
-  await setBrowserAuthSession(tab, server!, fixture.workspaceId, actorId);
   await tab.command('Page.navigate', { url: server!.origin });
   await waitFor(tab, 'the isolated local BUSINESS app origin', `location.origin === ${JSON.stringify(new URL(server!.origin).origin)}`);
   await tab.evaluate(`localStorage.removeItem('auditsphere.business-context.v1')`);
@@ -358,7 +356,6 @@ async function readPracticeDiagnostics(tab: CdpTab, engagementId: string): Promi
 }
 
 async function selectWorkspace(tab: CdpTab, fixture: Awaited<ReturnType<typeof createFieldworkFixture>>, actorId: string): Promise<void> {
-  await setBrowserAuthSession(tab, server!, fixture.workspaceId, actorId);
   await tab.command('Page.navigate', { url: server!.origin });
   await waitFor(tab, 'the isolated local BUSINESS app origin', `location.origin === ${JSON.stringify(new URL(server!.origin).origin)}`);
   await tab.evaluate(`localStorage.removeItem('auditsphere.business-context.v1')`);
@@ -537,16 +534,15 @@ before(async () => {
 after(async () => {
   tabA?.close();
   tabB?.close();
-  const browsers = [browserA, browserB].filter((browser): browser is HeadlessChromeInstance => Boolean(browser));
-  try {
-    await Promise.all(browsers.map(browser => stopHeadlessChrome(browser.child)));
-  } finally {
-    try {
-      if (server) await server.close();
-    } finally {
-      await Promise.all(browsers.map(browser => removeHeadlessChromeProfile(browser.profileDirectory)));
-    }
+  if (browserA) {
+    await stopHeadlessChrome(browserA.child);
+    rmSync(browserA.profileDirectory, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
   }
+  if (browserB) {
+    await stopHeadlessChrome(browserB.child);
+    rmSync(browserB.profileDirectory, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
+  }
+  if (server) await server.close();
 });
 
 it('US-FLD-006 preserves same-procedure drafts across a two-browser version conflict and requires rebase or discard', { timeout: 120000 }, async () => {
@@ -1339,7 +1335,7 @@ it('US-FLD-012 compiles and clears a Worker SRM, then rejects clearance after an
     const expectedVersions = ['procedure.update', 'procedure.mark-not-applicable', 'procedure.submit', 'procedure.review'].includes(String(command.type))
       ? [{ entity: 'Procedure', id: payload.procedureId, version: payload.expectedVersion }]
       : [];
-    const response = await authenticatedBusinessFetch(server!, `${server!.origin}/api/workspaces/${fixture.workspaceId}/commands`, {
+    const response = await fetch(`${server!.origin}/api/workspaces/${fixture.workspaceId}/commands`, {
       method: 'POST',
       headers: {
         Origin: server!.origin,
@@ -1361,7 +1357,7 @@ it('US-FLD-012 compiles and clears a Worker SRM, then rejects clearance after an
     return { response, body: { ...body, commandType: String(command.type) } };
   };
   const readWorkflowStage = async (expectedState: string) => {
-    const response = await authenticatedBusinessFetch(server!, `${server!.origin}/api/workspaces/${fixture.workspaceId}/engagements/${fixture.engagementId}/workflow`, {
+    const response = await fetch(`${server!.origin}/api/workspaces/${fixture.workspaceId}/engagements/${fixture.engagementId}/workflow`, {
       headers: { Origin: server!.origin, 'X-Actor-Id': fixture.actorProfileId, 'X-Active-Persona': 'APPROVER',
         'X-Client-Id': fixture.clientId, 'X-Engagement-Id': fixture.engagementId }
     });
@@ -1610,7 +1606,7 @@ it('US-FLD-012 compiles and clears a Worker SRM, then rejects clearance after an
   assert.ok(partnerStage.blockers.some(item => item.code === 'FIVE_PART_BUNDLE_CANDIDATE_REQUIRED'),
     'Partner approval identifies the final reporting package as the remaining stage gate');
 
-  const statementBeforeLateAje = await authenticatedBusinessFetch(server!, `${server!.origin}/api/workspaces/${fixture.workspaceId}/engagements/${fixture.engagementId}/financial-statements`, {
+  const statementBeforeLateAje = await fetch(`${server!.origin}/api/workspaces/${fixture.workspaceId}/engagements/${fixture.engagementId}/financial-statements`, {
     headers: { Origin: server!.origin, 'X-Actor-Id': fixture.actorProfileId, 'X-Active-Persona': 'APPROVER', 'X-Client-Id': fixture.clientId, 'X-Engagement-Id': fixture.engagementId }
   });
   assert.equal(statementBeforeLateAje.status, 200);
@@ -1640,7 +1636,7 @@ it('US-FLD-012 compiles and clears a Worker SRM, then rejects clearance after an
   } });
   assert.equal(lateAjeApproval.response.status, 200, JSON.stringify(lateAjeApproval.body));
   assert.equal(lateAjeApproval.body.result?.status, 'REVIEW_APPROVED');
-  const statementAfterLateAje = await authenticatedBusinessFetch(server!, `${server!.origin}/api/workspaces/${fixture.workspaceId}/engagements/${fixture.engagementId}/financial-statements`, {
+  const statementAfterLateAje = await fetch(`${server!.origin}/api/workspaces/${fixture.workspaceId}/engagements/${fixture.engagementId}/financial-statements`, {
     headers: { Origin: server!.origin, 'X-Actor-Id': fixture.actorProfileId, 'X-Active-Persona': 'APPROVER', 'X-Client-Id': fixture.clientId, 'X-Engagement-Id': fixture.engagementId }
   });
   assert.equal(statementAfterLateAje.status, 200);

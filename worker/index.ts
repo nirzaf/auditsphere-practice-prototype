@@ -44,7 +44,6 @@ import {
   parseBusinessCommandEnvelope,
   runBusinessFileContent,
   resolveBusinessContext,
-  resolveBusinessSession,
   runBusinessDirectoryCommand
 } from './business';
 import { getBusinessAcceptanceGate, getBusinessRiskWorkspace } from './businessRisk';
@@ -234,19 +233,7 @@ const handleCreateWorkspace = async (ctx: RouteContext): Promise<Response> => {
 };
 
 const handleBusinessActorProfiles = async (ctx: RouteContext): Promise<Response> => {
-  const session = await resolveBusinessSession(ctx.env, ctx.request);
-  if (session.workspace_id !== ctx.params.workspaceId) throw new ApiError('NOT_FOUND', 'Workspace not found.');
-  const account = await ctx.env.DB.prepare('SELECT is_firm_admin FROM user_accounts WHERE workspace_id=? AND id=?')
-    .bind(session.workspace_id, session.user_account_id).first<{ is_firm_admin: number }>();
-  if (!account) throw new ApiError('UNAUTHENTICATED', 'The session is not valid.');
   const profiles = await listBusinessActorProfiles(ctx.env, ctx.params.workspaceId);
-  if (account.is_firm_admin !== 1) {
-    const grants = await ctx.env.DB.prepare(`SELECT actor_profile_id FROM user_profile_grants
-      WHERE workspace_id=? AND user_account_id=? AND revoked_at IS NULL`)
-      .bind(session.workspace_id, session.user_account_id).all<{ actor_profile_id: string }>();
-    const allowed = new Set((grants.results ?? []).map(item => item.actor_profile_id));
-    return jsonResponse({ ...profiles, items: profiles.items.filter(profile => allowed.has(profile.id)) }, 200, ctx.requestId);
-  }
   return jsonResponse(profiles, 200, ctx.requestId);
 };
 
@@ -503,7 +490,6 @@ const handleBusinessPbcRequest = async (ctx: RouteContext): Promise<Response> =>
 };
 
 const handleGetWorkspace = async (ctx: RouteContext): Promise<Response> => {
-  await resolveBusinessContext(ctx.env, ctx.params.workspaceId, ctx.request);
   const row = await requireWorkspace(ctx.env, ctx.params.workspaceId);
   if (row.data_mode !== 'BUSINESS') throw new ApiError('NOT_FOUND', 'Workspace not found.');
   const directory = await ctx.env.DB.prepare(`SELECT version,business_status,currency,timezone
@@ -736,10 +722,6 @@ export default {
     }
 
     try {
-      if (match.params.workspaceId) {
-        const session = await resolveBusinessSession(env, request);
-        if (session.workspace_id !== match.params.workspaceId) throw new ApiError('NOT_FOUND', 'Workspace not found.');
-      }
       return finishApiResponse(await match.handler({ ...context, params: match.params }), match.routePattern);
     } catch (error) {
       const mapped = toApiError(error, requestId);

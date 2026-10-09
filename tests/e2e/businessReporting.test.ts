@@ -1,12 +1,11 @@
 import assert from 'node:assert/strict';
 import { createHash, randomUUID } from 'node:crypto';
-import { existsSync } from 'node:fs';
+import { existsSync, rmSync } from 'node:fs';
 import { after, before, it } from 'node:test';
 import { unzipSync, zlibSync } from 'fflate';
 import { CdpTab } from '../helpers/cdp.js';
-import { launchHeadlessChrome, removeHeadlessChromeProfile, stopHeadlessChrome, type HeadlessChromeInstance } from '../helpers/headlessChrome.js';
-import { authenticatedBusinessFetch, startBusinessE2eServer, type BusinessE2eServer } from '../helpers/businessE2eServer.js';
-import { setBrowserAuthSession } from '../helpers/authSession.js';
+import { launchHeadlessChrome, stopHeadlessChrome, type HeadlessChromeInstance } from '../helpers/headlessChrome.js';
+import { startBusinessE2eServer, type BusinessE2eServer } from '../helpers/businessE2eServer.js';
 import { extractReportingPdfText } from '../helpers/reportingPdf.js';
 
 let server: BusinessE2eServer | undefined;
@@ -401,21 +400,14 @@ before(async () => {
 
 after(async () => {
   tab?.close();
-  try {
-    if (browser) await stopHeadlessChrome(browser.child);
-  } finally {
-    try {
-      if (server) await server.close();
-    } finally {
-      if (browser?.profileDirectory) await removeHeadlessChromeProfile(browser.profileDirectory);
-    }
-  }
+  if (browser) await stopHeadlessChrome(browser.child);
+  if (server) await server.close();
+  if (browser?.profileDirectory) rmSync(browser.profileDirectory, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
 });
 
 async function verifyOpinionVariants(): Promise<void> {
   assert.ok(server && tab);
   const setWorkspace = async (fixture: Awaited<ReturnType<typeof seedReportingFixture>>) => {
-    await setBrowserAuthSession(tab!, server!, fixture.workspaceId, fixture.actorId);
     await tab!.evaluate(`localStorage.setItem('auditsphere.business-context.v1', ${JSON.stringify(JSON.stringify({
       version: 1, workspaceId: fixture.workspaceId, actorId: fixture.actorId, persona: 'APPROVER', clientId: fixture.clientId, engagementId: fixture.engagementId
     }))})`);
@@ -453,21 +445,10 @@ async function verifyOpinionVariants(): Promise<void> {
     })()`);
     assert.equal(clicked, true, `the visible Partner opinion form saves ${expected}`);
     const exactTextCondition = expectedPreviewText.map(text => `preview.includes(${JSON.stringify(text)})`).join(' && ') || 'true';
-    try {
-      await waitFor(`the ${expected} opinion to appear with its exact approved text in the preview`, `
-        (() => { const report=document.querySelector('#business-reporting-${fixture.engagementId}')?.closest('section');
-          const preview=document.querySelector('#opinion-preview-title')?.closest('section')?.innerText ?? '';
-          return preview.includes(${JSON.stringify(expected)}) && report?.innerText.includes('Current cleared SRM') && (${exactTextCondition}); })()`);
-    } catch (error) {
-      const diagnostics = await tab!.evaluate<{ preview: string; reportFound: boolean; expectedOpinionVisible: boolean; currentSrmVisible: boolean; exactTextMatches: boolean[] }>(`(() => {
-        const report = document.querySelector('#business-reporting-${fixture.engagementId}')?.closest('section');
-        const preview = document.querySelector('#opinion-preview-title')?.closest('section')?.innerText ?? '';
-        return { preview: preview.slice(0, 4000), reportFound: Boolean(report), expectedOpinionVisible: preview.includes(${JSON.stringify(expected)}),
-          currentSrmVisible: report?.innerText.includes('Current cleared SRM') ?? false,
-          exactTextMatches: ${JSON.stringify(expectedPreviewText)}.map(text => preview.includes(text)) };
-      })()`);
-      throw new Error(`${error instanceof Error ? error.message : String(error)}\nOpinion preview diagnostics: ${JSON.stringify(diagnostics)}`);
-    }
+    await waitFor(`the ${expected} opinion to appear with its exact approved text in the preview`, `
+      (() => { const report=document.querySelector('#business-reporting-${fixture.engagementId}')?.closest('section');
+        const preview=document.querySelector('#opinion-preview-title')?.closest('section')?.innerText ?? '';
+        return preview.includes(${JSON.stringify(expected)}) && report?.innerText.includes('Current cleared SRM') && (${exactTextCondition}); })()`);
   };
 
   const audit = await seedReportingFixture();
@@ -522,9 +503,9 @@ async function verifyOpinionVariants(): Promise<void> {
     await setField(audit, 'Quantifiable amount (QAR, optional)', '1250.75');
     await setField(audit, 'Nature and explanation', affectedExplanation);
     await saveOpinion(audit, category.label, [category.basis, rationale, basisText, materiality, pervasiveness,
-      'QA-REV', 'Synthetic revenue', 'QAR 1250.75', affectedExplanation]);
+      'QA-REV', 'SYNTHETIC REVENUE', 'QAR 1250.75', affectedExplanation]);
     const preview = await tab.evaluate<string>(`document.querySelector('#opinion-preview-title')?.closest('section')?.innerText ?? ''`);
-    for (const exactText of [category.basis, rationale, basisText, materiality, pervasiveness, 'QA-REV', 'Synthetic revenue',
+    for (const exactText of [category.basis, rationale, basisText, materiality, pervasiveness, 'QA-REV', 'SYNTHETIC REVENUE',
       'QAR 1250.75', affectedExplanation]) {
       assert.ok(preview.includes(exactText), `${category.value} preview preserves exact approved text: ${exactText}`);
     }
@@ -569,7 +550,6 @@ it('US-REP-001–007 covers all report categories, representation, atomic releas
   await tab.command('Page.reload');
   await waitFor('the clean reporting landing page after opinion category acceptance', `document.querySelector('#production-workspace-heading')?.textContent?.trim() === 'Open your business workspace'`);
   const fixture = await seedReportingFixture();
-  await setBrowserAuthSession(tab, server, fixture.workspaceId, fixture.actorId);
   const reportDate = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Qatar', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
   const futureRevenuePolicy = { name: 'Future milestone recognition policy', effectiveFrom: '2999-01-01',
     recognitionMethod: 'APPROVED_MILESTONE', recognitionRules: 'Future milestone claims require committed approval evidence.' };
@@ -744,7 +724,6 @@ it('US-REP-001–007 covers all report categories, representation, atomic releas
     await waitFor('the refreshed reporting projection', `document.querySelector('#business-reporting-${fixture.engagementId}')?.closest('section') !== null`);
   };
   const switchActor = async (actorId: string, persona: 'APPROVER' | 'CLIENT' | 'REVIEWER') => {
-    await setBrowserAuthSession(tab!, server!, fixture.workspaceId, actorId);
     await tab!.evaluate(`localStorage.setItem('auditsphere.business-context.v1', ${JSON.stringify(JSON.stringify({
       version: 1, workspaceId: fixture.workspaceId, actorId, persona, clientId: fixture.clientId, engagementId: fixture.engagementId
     }))})`);
@@ -1121,7 +1100,7 @@ it('US-REP-001–007 covers all report categories, representation, atomic releas
     Origin: server.origin, 'Content-Type': 'application/json', 'X-Actor-Id': fixture.clientActorId, 'X-Active-Persona': 'CLIENT',
     'X-Client-Id': fixture.clientId, 'X-Engagement-Id': fixture.engagementId
   };
-  const pendingReservationResponse = await authenticatedBusinessFetch(server, `${server.origin}/api/workspaces/${fixture.workspaceId}/files`, {
+  const pendingReservationResponse = await fetch(`${server.origin}/api/workspaces/${fixture.workspaceId}/files`, {
     method: 'POST', headers: { ...clientContextHeaders, 'Idempotency-Key': randomUUID() },
     body: JSON.stringify({ purpose: 'EVIDENCE', originalName: 'qa-in-flight-late.pdf', mediaType: 'application/pdf', sizeBytes: pendingClientBytes.byteLength,
       clientId: fixture.clientId, engagementId: fixture.engagementId, representationRequestId: preparedRequest.id })
@@ -1129,7 +1108,7 @@ it('US-REP-001–007 covers all report categories, representation, atomic releas
   assert.equal(pendingReservationResponse.status, 201, await pendingReservationResponse.clone().text());
   const pendingReservation = await pendingReservationResponse.json() as { fileId: string; version: number; state: string };
   assert.equal(pendingReservation.state, 'INITIALIZED');
-  const pendingStageResponse = await authenticatedBusinessFetch(server, `${server.origin}/api/workspaces/${fixture.workspaceId}/files/${pendingReservation.fileId}/content`, {
+  const pendingStageResponse = await fetch(`${server.origin}/api/workspaces/${fixture.workspaceId}/files/${pendingReservation.fileId}/content`, {
     method: 'PUT', headers: { ...clientContextHeaders, 'Idempotency-Key': randomUUID(), 'X-File-Version': String(pendingReservation.version), 'Content-Type': 'application/pdf' },
     body: new Blob([pendingClientBytes], { type: 'application/pdf' })
   });
@@ -1272,7 +1251,7 @@ it('US-REP-001–007 covers all report categories, representation, atomic releas
     .first<{ fsli_id: string }>();
   assert.ok(confirmationFsli?.fsli_id, 'the release fixture has a current active statement line for confirmation scope');
   const postWorkerCommand = async (actorId: string, persona: 'REVIEWER' | 'APPROVER', type: string, payload: Record<string, unknown>) => {
-    const response = await authenticatedBusinessFetch(server!, `${server!.origin}/api/workspaces/${fixture.workspaceId}/commands`, {
+    const response = await fetch(`${server!.origin}/api/workspaces/${fixture.workspaceId}/commands`, {
       method: 'POST', headers: { Origin: server!.origin, 'Content-Type': 'application/json', 'X-Actor-Id': actorId, 'X-Active-Persona': persona,
         'X-Client-Id': fixture.clientId, 'X-Engagement-Id': fixture.engagementId, 'Idempotency-Key': randomUUID() },
       body: JSON.stringify({ actor: { actorId, persona }, context: { clientId: fixture.clientId, engagementId: fixture.engagementId },
@@ -1340,7 +1319,7 @@ it('US-REP-001–007 covers all report categories, representation, atomic releas
   const responseBytes = minimalPdf('Synthetic third-party bank confirmation response for the release-gate acceptance fixture.');
   const reviewerHeaders = { Origin: server.origin, 'Content-Type': 'application/json', 'X-Actor-Id': fixture.reviewerActorId,
     'X-Active-Persona': 'REVIEWER', 'X-Client-Id': fixture.clientId, 'X-Engagement-Id': fixture.engagementId };
-  const responseReservation = await authenticatedBusinessFetch(server, `${server.origin}/api/workspaces/${fixture.workspaceId}/files`, {
+  const responseReservation = await fetch(`${server.origin}/api/workspaces/${fixture.workspaceId}/files`, {
     method: 'POST', headers: { ...reviewerHeaders, 'Idempotency-Key': randomUUID() },
     body: JSON.stringify({ purpose: 'EVIDENCE', originalName: 'qa-bank-confirmation-response.pdf', mediaType: 'application/pdf',
       sizeBytes: responseBytes.byteLength, clientId: fixture.clientId, engagementId: fixture.engagementId })
@@ -1348,14 +1327,14 @@ it('US-REP-001–007 covers all report categories, representation, atomic releas
   assert.equal(responseReservation.status, 201, await responseReservation.clone().text());
   const reservedResponseFile = await responseReservation.json() as { fileId: string; version: number; state: string };
   assert.equal(reservedResponseFile.state, 'INITIALIZED');
-  const stagedResponse = await authenticatedBusinessFetch(server, `${server.origin}/api/workspaces/${fixture.workspaceId}/files/${reservedResponseFile.fileId}/content`, {
+  const stagedResponse = await fetch(`${server.origin}/api/workspaces/${fixture.workspaceId}/files/${reservedResponseFile.fileId}/content`, {
     method: 'PUT', headers: { ...reviewerHeaders, 'Idempotency-Key': randomUUID(), 'X-File-Version': String(reservedResponseFile.version), 'Content-Type': 'application/pdf' },
     body: responseBytes
   });
   assert.equal(stagedResponse.status, 200, await stagedResponse.clone().text());
   const stagedResponseFile = await stagedResponse.json() as { fileId: string; version: number; state: string; sha256: string };
   assert.equal(stagedResponseFile.state, 'STAGED');
-  const committedResponse = await authenticatedBusinessFetch(server, `${server.origin}/api/workspaces/${fixture.workspaceId}/files/${reservedResponseFile.fileId}/complete`, {
+  const committedResponse = await fetch(`${server.origin}/api/workspaces/${fixture.workspaceId}/files/${reservedResponseFile.fileId}/complete`, {
     method: 'POST', headers: { ...reviewerHeaders, 'Idempotency-Key': randomUUID() },
     body: JSON.stringify({ expectedVersion: stagedResponseFile.version, sizeBytes: responseBytes.byteLength, sha256: stagedResponseFile.sha256 })
   });
@@ -1421,7 +1400,7 @@ it('US-REP-001–007 covers all report categories, representation, atomic releas
   assert.equal(released.locked_at, null, 'the report release freezes client uploads but starts an unlocked 60-day archive countdown');
   assert.equal(Date.parse(released.archive_due_at), Date.parse(released.report_signed_at) + 60 * 86_400_000,
     'the deadline is exactly 60 days from the recorded report signature time');
-  const countdownWorkflowResponse = await authenticatedBusinessFetch(server, `${server.origin}/api/workspaces/${fixture.workspaceId}/engagements/${fixture.engagementId}/workflow`, {
+  const countdownWorkflowResponse = await fetch(`${server.origin}/api/workspaces/${fixture.workspaceId}/engagements/${fixture.engagementId}/workflow`, {
     headers: { Origin: server.origin, 'X-Actor-Id': fixture.actorId, 'X-Active-Persona': 'APPROVER', 'X-Client-Id': fixture.clientId, 'X-Engagement-Id': fixture.engagementId }
   });
   const countdownWorkflow = await countdownWorkflowResponse.json() as { state: string; stages: Array<{ id: string; status: string; blockerCoverage: string; blockers: unknown[] }> };
@@ -1472,7 +1451,7 @@ it('US-REP-001–007 covers all report categories, representation, atomic releas
   assert.equal(signature.signature_file_sha256, registered.signature_sha256);
   assert.equal(signature.seal_file_sha256, registered.seal_sha256);
   assert.equal(signature.final_file_sha256, releasedParts?.find(part => part.kind === 'REPORT_AND_FS')?.sha256);
-  const provenanceResponse = await authenticatedBusinessFetch(server, `${server.origin}/api/workspaces/${fixture.workspaceId}/engagements/${fixture.engagementId}/released-report/provenance`, {
+  const provenanceResponse = await fetch(`${server.origin}/api/workspaces/${fixture.workspaceId}/engagements/${fixture.engagementId}/released-report/provenance`, {
     headers: { Origin: server.origin, 'X-Actor-Id': fixture.actorId, 'X-Active-Persona': 'APPROVER', 'X-Client-Id': fixture.clientId,
       'X-Engagement-Id': fixture.engagementId }
   });
@@ -1526,7 +1505,7 @@ it('US-REP-001–007 covers all report categories, representation, atomic releas
   assert.equal(sha256(server.getTestObject(releasedReturn.object_key) ?? new Uint8Array()), uploadedSignedReturn.sha256,
     'the accepted signed return is retained as an immutable release attachment');
 
-  const frozenCommitResponse = await authenticatedBusinessFetch(server, `${server.origin}/api/workspaces/${fixture.workspaceId}/files/${pendingStage.fileId}/complete`, {
+  const frozenCommitResponse = await fetch(`${server.origin}/api/workspaces/${fixture.workspaceId}/files/${pendingStage.fileId}/complete`, {
     method: 'POST', headers: { ...clientContextHeaders, 'Idempotency-Key': randomUUID() },
     body: JSON.stringify({ expectedVersion: pendingStage.version, sizeBytes: pendingStage.sizeBytes, sha256: pendingStage.sha256 })
   });
@@ -1651,7 +1630,7 @@ it('US-REP-001–007 covers all report categories, representation, atomic releas
   assert.equal(queuedArchive.status, 'QUEUED');
   assert.ok(queuedArchive.locked_at, 'early lock takes effect before asynchronous archive generation');
   assert.equal(queuedArchive.lifecycle_state, 'COMPLIANCE_COUNTDOWN');
-  const queuedArchiveWorkflowResponse = await authenticatedBusinessFetch(server, `${server.origin}/api/workspaces/${fixture.workspaceId}/engagements/${fixture.engagementId}/workflow`, {
+  const queuedArchiveWorkflowResponse = await fetch(`${server.origin}/api/workspaces/${fixture.workspaceId}/engagements/${fixture.engagementId}/workflow`, {
     headers: { Origin: server.origin, 'X-Actor-Id': fixture.actorId, 'X-Active-Persona': 'APPROVER', 'X-Client-Id': fixture.clientId, 'X-Engagement-Id': fixture.engagementId }
   });
   const queuedArchiveWorkflow = await queuedArchiveWorkflowResponse.json() as { stages: Array<{ id: string; status: string; blockerCoverage: string; blockers: unknown[] }> };
@@ -1679,7 +1658,7 @@ it('US-REP-001–007 covers all report categories, representation, atomic releas
   assert.equal(sealedArchive.retention_policy_id, retention.id);
   assert.equal(sealedArchive.frozen_snapshot_hash, sealedArchive.manifest_sha256);
   assert.equal(sealedArchive.archive_due_at, released.archive_due_at, 'early administrative sealing does not rewrite the report-signature deadline');
-  const archivedWorkflowResponse = await authenticatedBusinessFetch(server, `${server.origin}/api/workspaces/${fixture.workspaceId}/engagements/${fixture.engagementId}/workflow`, {
+  const archivedWorkflowResponse = await fetch(`${server.origin}/api/workspaces/${fixture.workspaceId}/engagements/${fixture.engagementId}/workflow`, {
     headers: { Origin: server.origin, 'X-Actor-Id': fixture.actorId, 'X-Active-PERSONA': 'APPROVER', 'X-Client-Id': fixture.clientId, 'X-Engagement-Id': fixture.engagementId }
   });
   const archivedWorkflow = await archivedWorkflowResponse.json() as { state: string; stages: Array<{ id: string; status: string; blockerCoverage: string; blockers: Array<{ code: string }> }> };
@@ -1718,7 +1697,7 @@ it('US-REP-001–007 covers all report categories, representation, atomic releas
   assert.ok(issuedInvoiceBytesBefore);
   const currentDate = reportDate;
   const practicePath = `${server.origin}/api/workspaces/${fixture.workspaceId}/practice?from=${currentDate}&to=${currentDate}&engagementId=${fixture.engagementId}&asOfDate=${currentDate}`;
-  const beforeCollectionAgingResponse = await authenticatedBusinessFetch(server, practicePath, { headers: reviewerHeaders });
+  const beforeCollectionAgingResponse = await fetch(practicePath, { headers: reviewerHeaders });
   const beforeCollectionAging = await beforeCollectionAgingResponse.json() as { arAging?: { invoices: Array<{ invoiceId: string; kind: string; totalMinor: string; paidMinor: string; creditedMinor: string; outstandingMinor: string }>; unallocatedMinor: string } };
   assert.equal(beforeCollectionAgingResponse.status, 200, JSON.stringify(beforeCollectionAging));
   const outstandingBeforeCollection = beforeCollectionAging.arAging?.invoices.find(row => row.invoiceId === finalInvoiceSnapshot.id)?.outstandingMinor;
@@ -1726,13 +1705,13 @@ it('US-REP-001–007 covers all report categories, representation, atomic releas
 
   const postArchivePaymentEvidenceId = randomUUID();
   const postArchivePaymentEvidenceBytes = minimalPdf('Synthetic verified final collection evidence recorded after archive seal.');
-  const ordinaryPostArchiveEvidence = await authenticatedBusinessFetch(server, `${server.origin}/api/workspaces/${fixture.workspaceId}/files`, {
+  const ordinaryPostArchiveEvidence = await fetch(`${server.origin}/api/workspaces/${fixture.workspaceId}/files`, {
     method: 'POST', headers: { ...reviewerHeaders, 'Idempotency-Key': randomUUID() },
     body: JSON.stringify({ purpose: 'EVIDENCE', originalName: 'qa-unrelated-post-archive-evidence.pdf', mediaType: 'application/pdf',
       sizeBytes: postArchivePaymentEvidenceBytes.byteLength, clientId: fixture.clientId, engagementId: fixture.engagementId })
   });
   assert.equal(ordinaryPostArchiveEvidence.status, 423, await ordinaryPostArchiveEvidence.clone().text());
-  const postArchivePaymentEvidenceReservation = await authenticatedBusinessFetch(server, `${server.origin}/api/workspaces/${fixture.workspaceId}/files`, {
+  const postArchivePaymentEvidenceReservation = await fetch(`${server.origin}/api/workspaces/${fixture.workspaceId}/files`, {
     method: 'POST', headers: { ...reviewerHeaders, 'Idempotency-Key': randomUUID() },
     body: JSON.stringify({ purpose: 'EVIDENCE', originalName: 'qa-post-archive-final-payment.pdf', mediaType: 'application/pdf',
       sizeBytes: postArchivePaymentEvidenceBytes.byteLength, clientId: fixture.clientId, engagementId: fixture.engagementId,
@@ -1740,13 +1719,13 @@ it('US-REP-001–007 covers all report categories, representation, atomic releas
   });
   assert.equal(postArchivePaymentEvidenceReservation.status, 201, await postArchivePaymentEvidenceReservation.clone().text());
   const postArchivePaymentEvidenceFile = await postArchivePaymentEvidenceReservation.json() as { fileId: string; version: number; state: string };
-  const stagedPaymentEvidenceResponse = await authenticatedBusinessFetch(server, `${server.origin}/api/workspaces/${fixture.workspaceId}/files/${postArchivePaymentEvidenceFile.fileId}/content`, {
+  const stagedPaymentEvidenceResponse = await fetch(`${server.origin}/api/workspaces/${fixture.workspaceId}/files/${postArchivePaymentEvidenceFile.fileId}/content`, {
     method: 'PUT', headers: { ...reviewerHeaders, 'Idempotency-Key': randomUUID(), 'X-File-Version': String(postArchivePaymentEvidenceFile.version), 'Content-Type': 'application/pdf' },
     body: postArchivePaymentEvidenceBytes
   });
   assert.equal(stagedPaymentEvidenceResponse.status, 200, await stagedPaymentEvidenceResponse.clone().text());
   const stagedPaymentEvidence = await stagedPaymentEvidenceResponse.json() as { fileId: string; version: number; sha256: string };
-  const committedPaymentEvidenceResponse = await authenticatedBusinessFetch(server, `${server.origin}/api/workspaces/${fixture.workspaceId}/files/${stagedPaymentEvidence.fileId}/complete`, {
+  const committedPaymentEvidenceResponse = await fetch(`${server.origin}/api/workspaces/${fixture.workspaceId}/files/${stagedPaymentEvidence.fileId}/complete`, {
     method: 'POST', headers: { ...reviewerHeaders, 'Idempotency-Key': randomUUID() },
     body: JSON.stringify({ expectedVersion: stagedPaymentEvidence.version, sizeBytes: postArchivePaymentEvidenceBytes.byteLength, sha256: stagedPaymentEvidence.sha256 })
   });
@@ -1786,7 +1765,7 @@ it('US-REP-001–007 covers all report categories, representation, atomic releas
     { code: '1100', debit_minor: 0, credit_minor: finalInvoiceSnapshot.total_minor }
   ], 'the post-archive receipt posts Bank and Accounts Receivable in one balanced bookkeeping journal');
 
-  const currentAgingResponse = await authenticatedBusinessFetch(server, practicePath, { headers: reviewerHeaders });
+  const currentAgingResponse = await fetch(practicePath, { headers: reviewerHeaders });
   const currentAging = await currentAgingResponse.json() as { arAging?: { invoices: Array<{ invoiceId: string; kind: string; totalMinor: string; paidMinor: string; creditedMinor: string; outstandingMinor: string }>; unallocatedMinor: string } };
   assert.equal(currentAgingResponse.status, 200, JSON.stringify(currentAging));
   assert.equal(currentAging.arAging?.invoices.find(row => row.invoiceId === finalInvoiceSnapshot.id)?.outstandingMinor, '0',
@@ -1817,7 +1796,7 @@ it('US-REP-001–007 covers all report categories, representation, atomic releas
 
   const archivedReadPaths = ['acceptance-gate', 'risk-workspace', 'planning-workspace', 'trial-balance-workspace', 'planning-readiness', 'folders'];
   const archivedReads = await Promise.all(archivedReadPaths.map(async path => {
-    const response = await authenticatedBusinessFetch(server, `${server.origin}/api/workspaces/${fixture.workspaceId}/engagements/${fixture.engagementId}/${path}`, {
+    const response = await fetch(`${server.origin}/api/workspaces/${fixture.workspaceId}/engagements/${fixture.engagementId}/${path}`, {
       headers: { ...clientContextHeaders, 'X-Actor-Id': fixture.actorId, 'X-Active-Persona': 'APPROVER' }
     });
     return { path, status: response.status, body: response.ok ? '' : await response.text() };
@@ -1903,7 +1882,7 @@ it('US-REP-001–007 covers all report categories, representation, atomic releas
   assert.equal(exportedManifest.type, 'application/json');
   assert.equal(sha256(exportedManifest.bytes), sealedArchive.manifest_sha256, 'the UI export verifies the exact sealed manifest hash');
 
-  const frozenArchiveWrite = await authenticatedBusinessFetch(server, `${server.origin}/api/workspaces/${fixture.workspaceId}/commands`, {
+  const frozenArchiveWrite = await fetch(`${server.origin}/api/workspaces/${fixture.workspaceId}/commands`, {
     method: 'POST', headers: { ...clientContextHeaders, 'X-Actor-Id': fixture.reviewerActorId, 'X-Active-Persona': 'REVIEWER', 'Idempotency-Key': randomUUID() },
     body: JSON.stringify({ actor: { actorId: fixture.reviewerActorId, persona: 'REVIEWER' }, context: { clientId: fixture.clientId, engagementId: fixture.engagementId },
       expectedVersions: [], command: { type: 'archive.note', payload: {

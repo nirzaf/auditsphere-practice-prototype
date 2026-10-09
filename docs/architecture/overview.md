@@ -60,13 +60,13 @@ flowchart TB
 
 ## 4. Request path (current)
 
-1. SPA calls `/api/workspaces/:workspaceId/...` with the host-only session cookie, optional `X-Client-Id` / `X-Engagement-Id` scope, and temporary `X-Actor-Id` / `X-Active-Persona` compatibility assertions.
+1. SPA calls `/api/workspaces/:workspaceId/...` with headers `X-Actor-Id`, `X-Active-Persona`, optional `X-Client-Id`, `X-Engagement-Id`.
 2. `worker/index.ts` router → handler.
 3. Reads: handler → `getBusiness*` in a `worker/business*.ts` module → `resolveBusinessContext(env, workspaceId, request)` (43 call sites) → SQL.
 4. Writes: `POST …/commands` with `Idempotency-Key` → `parseBusinessCommandEnvelope` → `runBusinessDirectoryCommand` → per-module builder returns `D1PreparedStatement[]` → executed as one `batch` (atomic) with `command_receipts`, `audit_events`, change-feed rows.
 5. Async follow-up via `outbox_jobs`.
 
-**[E03-S03 implemented]** The router requires a valid workspace-bound session on every `/api/workspaces/:workspaceId/**` route. `resolveBusinessContext` derives the actor from `auth_sessions.active_actor_profile_id`; legacy actor/persona headers and `envelope.actor` are rejected if they disagree. E03-S08 removes those compatibility assertions from clients.
+**[TARGET E03-S03]** Step 1 sends only the session cookie (+ optional scope headers). `resolveBusinessContext` derives the actor from `auth_sessions.active_actor_profile_id`; `X-Actor-Id`/`X-Active-Persona` and `envelope.actor` are rejected if they disagree, then removed (E03-S08).
 
 ## 5. Module map (code)
 
