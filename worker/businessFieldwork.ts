@@ -7,6 +7,7 @@ import type { Env } from './env';
 import { ApiError } from './errors';
 import { randomToken, sha256Hex } from './http';
 import type { BusinessContext, BusinessMutation } from './business';
+import { activationStatements, businessPolicyDate, isPolicyActiveAt } from './businessPolicy';
 
 const id = z.uuid();
 const minor = z.string().regex(/^-?(0|[1-9]\d{0,15})$/).refine(value => Number.isSafeInteger(Number(value)), 'Amount is outside safe QAR minor-unit precision.');
@@ -39,7 +40,7 @@ const workprogramTemplateCreate = z.strictObject({ type: z.literal('workprogram.
   fsliCode: text(1,120), title: text(1,300), standardsProfileId: id,
   procedures: z.array(z.strictObject({ title: text(1,500), instructions: text(1,10000), assertion, mandatory: z.boolean() })).min(1).max(30)
 }) });
-const workprogramTemplateApprove = z.strictObject({ type: z.literal('workprogram.template.approve'), payload: z.strictObject({ templateId: id, expectedVersion: z.number().int().positive() }) });
+const workprogramTemplateApprove = z.strictObject({ type: z.literal('workprogram.template.approve'), payload: z.strictObject({ templateId: id, expectedVersion: z.number().int().positive(), effectiveFrom: z.iso.date(), rationale: text(10,10000) }) });
 const workprogramProvision = z.strictObject({ type: z.literal('workprogram.provision'), payload: z.strictObject({
   engagementId: id, fsliId: id, planningVersionId: id, templateId: id, assignedStaffId: id
 }) });
@@ -92,7 +93,7 @@ const confirmationAlternative = z.strictObject({ type: z.literal('confirmation.a
 const samplingPolicyCreate = z.strictObject({ type: z.literal('sampling.policy.create'), payload: z.strictObject({
   name: text(1,300), method: z.enum(['MUS_BINOMIAL_PPS','SYSTEMATIC','STRATIFIED_ATTRIBUTE']), assumptions: text(10,10000)
 }) });
-const samplingPolicyApprove = z.strictObject({ type: z.literal('sampling.policy.approve'), payload: z.strictObject({ policyId: id, expectedVersion: z.number().int().positive(), rationale: text(10,10000) }) });
+const samplingPolicyApprove = z.strictObject({ type: z.literal('sampling.policy.approve'), payload: z.strictObject({ policyId: id, expectedVersion: z.number().int().positive(), effectiveFrom: z.iso.date(), rationale: text(10,10000) }) });
 const samplingPopulationCreate = z.strictObject({ type: z.literal('sampling.population.create'), payload: z.strictObject({
   engagementId: id, name: text(1,300), fsliId: id, sourceFileId: id, worksheet: text(1,200).optional(), headerRow: z.number().int().min(1).max(10000),
   referenceColumn: z.number().int().min(0).max(255), amountColumn: z.number().int().min(0).max(255), descriptionColumn: z.number().int().min(0).max(255).optional(),
@@ -368,9 +369,18 @@ export async function getBusinessFsliSourceLines(env:Env,workspaceId:string,cont
 export async function getBusinessFieldworkWorkspace(env:Env,workspaceId:string,context:BusinessContext,engagementId:string){
   const engagement=await getEngagement(env,workspaceId,context,engagementId);
   const statements=await financialStatements(env,workspaceId,context,engagementId);
+  const policyDate=businessPolicyDate(new Date().toISOString());
   const [templates,reviews,going,programs,procedures,evidence,policies,populations,plans,changes]=await Promise.all([
-    env.DB.prepare(`SELECT id,version,fsli_code AS fsliCode,revision,title,standards_profile_id AS standardsProfileId,status,approved_by_actor_id AS approvedByActorId,approved_at AS approvedAt
-      FROM workprogram_templates WHERE workspace_id=? AND standards_profile_id=? ORDER BY fsli_code,revision DESC`).bind(workspaceId,engagement.standards_profile_id).all<Record<string,unknown>>(),
+    env.DB.prepare(`SELECT t.id,t.version,t.fsli_code AS fsliCode,t.revision,t.title,t.standards_profile_id AS standardsProfileId,t.status,t.approved_by_actor_id AS approvedByActorId,t.approved_at AS approvedAt,
+        EXISTS(SELECT 1 FROM policy_activation_intervals a WHERE a.workspace_id=t.workspace_id AND a.policy_kind='WORKPROGRAM_TEMPLATE' AND a.workprogram_template_id=t.id
+          AND a.action='ACTIVATE' AND a.effective_from<=? AND (a.next_effective_from IS NULL OR ?<a.next_effective_from)) AS activeAsOfToday,
+        (SELECT le.action FROM policy_activations le WHERE le.workspace_id=t.workspace_id AND le.workprogram_template_id=t.id
+          ORDER BY le.effective_from DESC,le.approved_at DESC,le.rowid DESC LIMIT 1) AS latestPolicyAction,
+        (SELECT le.effective_from FROM policy_activations le WHERE le.workspace_id=t.workspace_id AND le.workprogram_template_id=t.id
+          ORDER BY le.effective_from DESC,le.approved_at DESC,le.rowid DESC LIMIT 1) AS latestPolicyEffectiveFrom,
+        (SELECT le.reason FROM policy_activations le WHERE le.workspace_id=t.workspace_id AND le.workprogram_template_id=t.id
+          ORDER BY le.effective_from DESC,le.approved_at DESC,le.rowid DESC LIMIT 1) AS latestPolicyReason
+      FROM workprogram_templates t WHERE t.workspace_id=? AND t.standards_profile_id=? ORDER BY t.fsli_code,t.revision DESC`).bind(policyDate,policyDate,workspaceId,engagement.standards_profile_id).all<Record<string,unknown>>(),
     env.DB.prepare(`SELECT a.id,a.version,a.fsli_id AS fsliId,c.code AS fsliCode,c.name AS fsliName,a.statement_snapshot_id AS statementSnapshotId,a.expectation_text AS expectationText,
       a.threshold_minor AS thresholdMinor,a.threshold_bps AS thresholdBps,a.explanation,a.conclusion,a.status,a.source_hash AS sourceHash,a.prepared_by_actor_id AS preparedByActorId,
       (SELECT COUNT(*) FROM evidence_links l LEFT JOIN evidence_unlinks u ON u.workspace_id=l.workspace_id AND u.evidence_link_id=l.id
@@ -392,8 +402,16 @@ export async function getBusinessFieldworkWorkspace(env:Env,workspaceId:string,c
       (SELECT d.rationale FROM evidence_adequacy_decisions d WHERE d.workspace_id=e.workspace_id AND d.evidence_id=e.id ORDER BY d.reviewed_at DESC LIMIT 1) AS adequacyRationale
       FROM evidence_records e LEFT JOIN file_versions f ON f.workspace_id=e.workspace_id AND f.id=e.file_version_id WHERE e.workspace_id=? AND e.engagement_id=?
       AND e.version=(SELECT MAX(e2.version) FROM evidence_records e2 WHERE e2.workspace_id=e.workspace_id AND e2.family_id=e.family_id) ORDER BY e.created_at DESC`).bind(workspaceId,engagementId).all<Record<string,unknown>>(),
-    env.DB.prepare(`SELECT id,version,name,method,algorithm_version AS algorithmVersion,assumptions,status,approved_by_actor_id AS approvedByActorId,approved_at AS approvedAt
-      FROM sampling_policies WHERE workspace_id=? ORDER BY name,version DESC`).bind(workspaceId).all<Record<string,unknown>>(),
+    env.DB.prepare(`SELECT p.id,p.version,p.name,p.method,p.algorithm_version AS algorithmVersion,p.assumptions,p.status,p.approved_by_actor_id AS approvedByActorId,p.approved_at AS approvedAt,
+        EXISTS(SELECT 1 FROM policy_activation_intervals a WHERE a.workspace_id=p.workspace_id AND a.policy_kind='SAMPLING_POLICY' AND a.sampling_policy_id=p.id
+          AND a.action='ACTIVATE' AND a.effective_from<=? AND (a.next_effective_from IS NULL OR ?<a.next_effective_from)) AS activeAsOfToday,
+        (SELECT le.action FROM policy_activations le WHERE le.workspace_id=p.workspace_id AND le.sampling_policy_id=p.id
+          ORDER BY le.effective_from DESC,le.approved_at DESC,le.rowid DESC LIMIT 1) AS latestPolicyAction,
+        (SELECT le.effective_from FROM policy_activations le WHERE le.workspace_id=p.workspace_id AND le.sampling_policy_id=p.id
+          ORDER BY le.effective_from DESC,le.approved_at DESC,le.rowid DESC LIMIT 1) AS latestPolicyEffectiveFrom,
+        (SELECT le.reason FROM policy_activations le WHERE le.workspace_id=p.workspace_id AND le.sampling_policy_id=p.id
+          ORDER BY le.effective_from DESC,le.approved_at DESC,le.rowid DESC LIMIT 1) AS latestPolicyReason
+      FROM sampling_policies p WHERE p.workspace_id=? ORDER BY p.name,p.version DESC`).bind(policyDate,policyDate,workspaceId).all<Record<string,unknown>>(),
     env.DB.prepare(`SELECT id,name,source_file_id AS sourceFileId,fsli_id AS fsliId,source_hash AS sourceHash,order_hash AS orderHash,row_count AS rowCount,
       positive_total_minor AS positiveTotalMinor,excluded_count AS excludedCount,exclusions_reason AS exclusionsReason FROM sample_populations WHERE workspace_id=? AND engagement_id=? ORDER BY created_at DESC`).bind(workspaceId,engagementId).all<Record<string,unknown>>(),
     env.DB.prepare(`SELECT p.id,p.population_id AS populationId,p.policy_id AS policyId,p.policy_version AS policyVersion,p.seed_hex AS seedHex,p.revision,p.method,p.confidence_bps AS confidenceBps,p.tolerable_minor AS tolerableMinor,
@@ -835,11 +853,13 @@ async function createWorkprogramTemplate(env:Env,workspaceId:string,context:Busi
 }
 
 async function approveWorkprogramTemplate(env:Env,workspaceId:string,context:BusinessContext,command:Extract<BusinessFieldworkCommand,{type:'workprogram.template.approve'}>,now:string):Promise<BusinessMutation>{
-  requirePartner(context);const p=command.payload;const row=await env.DB.prepare(`SELECT version,status FROM workprogram_templates WHERE workspace_id=? AND id=?`).bind(workspaceId,p.templateId).first<{version:number;status:string}>();
+  requirePartner(context);const p=command.payload;const row=await env.DB.prepare(`SELECT version,status,fsli_code AS fsliCode,standards_profile_id AS standardsProfileId FROM workprogram_templates WHERE workspace_id=? AND id=?`).bind(workspaceId,p.templateId).first<{version:number;status:string;fsliCode:string;standardsProfileId:string}>();
   if(!row)throw new ApiError('NOT_FOUND','The workprogram template was not found.');if(row.version!==p.expectedVersion)throw new ApiError('VERSION_CONFLICT',JSON.stringify({entity:'WorkprogramTemplate',id:p.templateId,expectedVersion:p.expectedVersion,currentVersion:row.version}));
   if(row.status!=='DRAFT')throw new ApiError('INVALID_STATE','Only a draft template can receive initial approval.');
+  const policyEvents=await activationStatements(env,{workspaceId,group:{kind:'WORKPROGRAM_TEMPLATE',fsliCode:row.fsliCode,standardsProfileId:row.standardsProfileId},policyId:p.templateId,effectiveFrom:p.effectiveFrom,reason:p.rationale,actorId:context.actor.id,approvedAt:now});
+  const approvalHash=await rowHash({templateId:p.templateId,version:p.expectedVersion+1,effectiveFrom:p.effectiveFrom,rationale:p.rationale,approvedBy:context.actor.id});
   return commandMutation([versionGuard(env,workspaceId,990,'workprogram_templates','id',p.templateId,p.expectedVersion),env.DB.prepare(`UPDATE workprogram_templates SET version=version+1,status='APPROVED',approved_by_actor_id=?,approved_at=? WHERE workspace_id=? AND id=? AND version=?`)
-    .bind(context.actor.id,now,workspaceId,p.templateId,p.expectedVersion)],{templateId:p.templateId,version:p.expectedVersion+1,status:'APPROVED'},'WORKPROGRAM_TEMPLATE',p.templateId,p.expectedVersion,p.expectedVersion+1);
+    .bind(context.actor.id,now,workspaceId,p.templateId,p.expectedVersion),...policyEvents],{templateId:p.templateId,version:p.expectedVersion+1,status:'APPROVED',effectiveFrom:p.effectiveFrom,approvalHash},'WORKPROGRAM_TEMPLATE',p.templateId,p.expectedVersion,p.expectedVersion+1,{effectiveFrom:p.effectiveFrom,rationale:p.rationale,approvalHash});
 }
 
 async function provisionWorkprogram(env:Env,workspaceId:string,context:BusinessContext,command:Extract<BusinessFieldworkCommand,{type:'workprogram.provision'}>,now:string):Promise<BusinessMutation>{
@@ -853,7 +873,9 @@ async function provisionWorkprogram(env:Env,workspaceId:string,context:BusinessC
     env.DB.prepare(`SELECT id,grade FROM staff_members WHERE workspace_id=? AND id=? AND active=1`).bind(workspaceId,p.assignedStaffId).first<{id:string;grade:string}>(),
     env.DB.prepare(`SELECT band FROM fsli_risks WHERE workspace_id=? AND engagement_id=? AND fsli_id=? AND materiality_version_id=? ORDER BY revision DESC LIMIT 1`).bind(workspaceId,p.engagementId,p.fsliId,engagement.active_materiality_version_id).first<{band:string}>()
   ]);
-  if(!catalog||!template||template.status!=='APPROVED'||template.fsli_code!==catalog.code||template.standards_profile_id!==engagement.standards_profile_id)throw new ApiError('GATE_BLOCKED','Select an approved versioned template for this FSLI and standards profile.');
+  if(!catalog||!template||template.status!=='APPROVED'||template.fsli_code!==catalog.code||template.standards_profile_id!==engagement.standards_profile_id
+    ||!await isPolicyActiveAt(env,workspaceId,{kind:'WORKPROGRAM_TEMPLATE',fsliCode:template.fsli_code,standardsProfileId:template.standards_profile_id},template.id,businessPolicyDate(now)))
+    throw new ApiError('GATE_BLOCKED','Select a currently effective approved template for this FSLI and standards profile.');
   if(!staff)throw new ApiError('NOT_FOUND','The assigned active staff member was not found.');const band=risk?.band??'GREEN';
   if(band==='RED'&&staff.grade!=='MANAGER'&&staff.grade!=='PARTNER')throw new ApiError('PERSONA_ACTION_DENIED','Red-risk execution must be assigned to a Manager-grade staff member.');
   const templateSteps=await env.DB.prepare(`SELECT id,ordinal,title,instructions,assertion,mandatory FROM procedure_templates WHERE workspace_id=? AND template_id=? ORDER BY ordinal`).bind(workspaceId,p.templateId).all<Record<string,unknown>>();
@@ -1540,9 +1562,10 @@ async function approveSamplingPolicy(env:Env,workspaceId:string,context:Business
     .bind(workspaceId,p.policyId).first<{version:number;status:string;method:string;algorithmVersion:string;assumptions:string}>();
   if(!row)throw new ApiError('NOT_FOUND','Sampling methodology policy was not found.');if(row.version!==p.expectedVersion)throw new ApiError('VERSION_CONFLICT',JSON.stringify({entity:'SamplingPolicy',id:p.policyId,expectedVersion:p.expectedVersion,currentVersion:row.version}));
   if(row.status!=='DRAFT')throw new ApiError('INVALID_STATE','Only a draft sampling policy can receive initial approval.');
-  const nextVersion=p.expectedVersion+1;const policyHash=await rowHash({method:row.method,algorithm:row.algorithmVersion,assumptions:row.assumptions,approvedBy:context.actor.id,rationale:p.rationale});
+  const nextVersion=p.expectedVersion+1;const policyHash=await rowHash({method:row.method,algorithm:row.algorithmVersion,assumptions:row.assumptions,approvedBy:context.actor.id,effectiveFrom:p.effectiveFrom,rationale:p.rationale});
+  const policyEvents=await activationStatements(env,{workspaceId,group:{kind:'SAMPLING_POLICY',method:row.method},policyId:p.policyId,effectiveFrom:p.effectiveFrom,reason:p.rationale,actorId:context.actor.id,approvedAt:now});
   return commandMutation([versionGuard(env,workspaceId,990,'sampling_policies','id',p.policyId,p.expectedVersion),env.DB.prepare(`UPDATE sampling_policies SET version=?,status='APPROVED',approved_by_actor_id=?,approved_at=? WHERE workspace_id=? AND id=? AND version=?`)
-    .bind(nextVersion,context.actor.id,now,workspaceId,p.policyId,p.expectedVersion)],{policyId:p.policyId,version:nextVersion,status:'APPROVED',policyHash,rationale:p.rationale},'SAMPLING_POLICY',p.policyId,p.expectedVersion,nextVersion);
+    .bind(nextVersion,context.actor.id,now,workspaceId,p.policyId,p.expectedVersion),...policyEvents],{policyId:p.policyId,version:nextVersion,status:'APPROVED',effectiveFrom:p.effectiveFrom,policyHash,rationale:p.rationale},'SAMPLING_POLICY',p.policyId,p.expectedVersion,nextVersion,{effectiveFrom:p.effectiveFrom,rationale:p.rationale,policyHash});
 }
 
 async function bytesHash(bytes:Uint8Array):Promise<string>{
@@ -1592,11 +1615,13 @@ async function createSamplingPlan(env:Env,workspaceId:string,context:BusinessCon
     env.DB.prepare(`SELECT id,client_id,engagement_id,source_file_id,tb_version_id,fsli_id,source_hash,order_hash,row_count,positive_total_minor,excluded_count,exclusions_reason FROM sample_populations WHERE workspace_id=? AND id=?`)
       .bind(workspaceId,p.populationId).first<Record<string,unknown>>(),
     env.DB.prepare(`SELECT id,version,method,algorithm_version AS algorithmVersion,status,approved_by_actor_id AS approvedByActorId FROM sampling_policies WHERE workspace_id=? AND id=?`)
-      .bind(workspaceId,p.policyId).first<Record<string,unknown>>()
+      .bind(workspaceId,p.policyId).first<{id:string;version:number;method:string;algorithmVersion:string;status:string;approvedByActorId:string|null}>()
   ]);
   if(!population||population.engagement_id!==engagement.id||population.client_id!==engagement.client_id)throw new ApiError('FORBIDDEN_SCOPE','The sampling population is outside this engagement.');
   if(population.tb_version_id!==engagement.active_tb_version_id)throw new ApiError('STALE_DEPENDENCY','The population was imported from a prior TB version. Re-import the population before sampling.');
-  if(!policy||policy.status!=='APPROVED'||policy.method!==p.method)throw new ApiError('GATE_BLOCKED','An approved firm sampling policy for the selected method is required before operational use.');
+  if(!policy||policy.status!=='APPROVED'||policy.method!==p.method
+    ||!await isPolicyActiveAt(env,workspaceId,{kind:'SAMPLING_POLICY',method:policy.method},policy.id,businessPolicyDate(now)))
+    throw new ApiError('GATE_BLOCKED','A currently effective approved firm sampling policy for the selected method is required before operational use.');
   if(p.procedureId){
     const procedure=await currentProcedure(env,workspaceId,p.procedureId);await verifyProcedureScope(context,procedure);
     if(procedure.engagement_id!==engagement.id||procedure.fsli_id!==population.fsli_id)throw new ApiError('FORBIDDEN_SCOPE','A sample plan must use a population for the linked procedure FSLI and engagement.');

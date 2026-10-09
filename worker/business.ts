@@ -13,6 +13,7 @@ import { businessTbCommands, buildBusinessTbMutation, isBusinessTbCommand } from
 import { businessFieldworkCommands, buildBusinessFieldworkMutation, isBusinessFieldworkCommand } from './businessFieldwork';
 import { businessPracticeCommands, buildBusinessPracticeMutation, businessPracticeBootstrapStatements, getBusinessPracticeWorkspace, isBusinessPracticeCommand } from './businessPractice';
 import { businessReportingCommands, buildBusinessReportingMutation, isBusinessReportingCommand } from './businessReporting';
+import { businessPolicyCommands, buildBusinessPolicyMutation, isBusinessPolicyCommand } from './businessPolicy';
 import { presentationEditionBlocker } from '../src/domain/reportingStandards';
 import { projectClientDocuments, type ClientDocumentSourceRow } from './clientDocumentProjection';
 
@@ -1335,7 +1336,8 @@ export const businessCommandSchema = z.discriminatedUnion('type', [
   ...businessTbCommands,
   ...businessFieldworkCommands,
   ...businessPracticeCommands,
-  ...businessReportingCommands
+  ...businessReportingCommands,
+  ...businessPolicyCommands
 ]);
 
 const expectedVersionSchema = z.strictObject({
@@ -1363,7 +1365,8 @@ type BusinessTbCommandType = import('./businessTb').BusinessTbCommand;
 type BusinessFieldworkCommandType = import('./businessFieldwork').BusinessFieldworkCommand;
 type BusinessPracticeCommandType = import('./businessPractice').BusinessPracticeCommand;
 type BusinessReportingCommandType = import('./businessReporting').BusinessReportingCommand;
-type BusinessCommercialCommand = Exclude<BusinessCommand, BusinessDirectoryCommand | BusinessFileCommand | BusinessPbcCommand | BusinessProposalCommand | BusinessPlanningCommandType | BusinessTbCommandType | BusinessFieldworkCommandType | BusinessPracticeCommandType | BusinessReportingCommandType | import('./businessRisk').BusinessRiskCommand | import('./businessDelivery').BusinessDeliveryCommand>;
+type BusinessPolicyCommandType = import('./businessPolicy').BusinessPolicyCommand;
+type BusinessCommercialCommand = Exclude<BusinessCommand, BusinessDirectoryCommand | BusinessFileCommand | BusinessPbcCommand | BusinessProposalCommand | BusinessPlanningCommandType | BusinessTbCommandType | BusinessFieldworkCommandType | BusinessPracticeCommandType | BusinessReportingCommandType | BusinessPolicyCommandType | import('./businessRisk').BusinessRiskCommand | import('./businessDelivery').BusinessDeliveryCommand>;
 
 function isBusinessDirectoryCommand(command: BusinessCommand): command is BusinessDirectoryCommand {
   return command.type === 'staff.create' || command.type === 'staff.update'
@@ -1437,7 +1440,8 @@ export function parseBusinessCommandEnvelope(value: unknown, idempotencyKey: str
                               : command.type === 'sampling.policy.approve' ? { entity: 'SamplingPolicy', id: command.payload.policyId, version: command.payload.expectedVersion }
                                 : command.type === 'sampling.record-test' && command.payload.expectedVersion > 0
                                   ? { entity: 'SampleTest', id: command.payload.populationRowId, version: command.payload.expectedVersion }
-                         : command.type === 'time.submit' || command.type === 'time.approve' || command.type === 'time.return' || command.type === 'time.correct'
+                         : command.type === 'policy.retire' ? { entity: command.payload.policyKind === 'WORKPROGRAM_TEMPLATE' ? 'WorkprogramTemplate' : command.payload.policyKind === 'SAMPLING_POLICY' ? 'SamplingPolicy' : 'ChargeOutRate', id: command.payload.policyId, version: command.payload.expectedVersion }
+                           : command.type === 'time.submit' || command.type === 'time.approve' || command.type === 'time.return' || command.type === 'time.correct'
                            ? { entity: 'TimeEntry', id: command.payload.timeEntryId, version: command.payload.expectedVersion }
                            : command.type === 'ledger.post' ? { entity: 'FirmJournal', id: command.payload.journalId, version: command.payload.expectedVersion }
                         : null;
@@ -4244,6 +4248,8 @@ export async function runBusinessDirectoryCommand(
                        ? await buildBusinessReportingMutation(env, workspaceId, context, envelope.command, commandId, timestamp)
                        : isBusinessPracticeCommand(envelope.command)
                          ? await buildBusinessPracticeMutation(env, workspaceId, context, envelope.command, commandId, timestamp)
+                         : isBusinessPolicyCommand(envelope.command)
+                           ? await buildBusinessPolicyMutation(env, workspaceId, context, envelope.command, commandId, timestamp)
                     : await buildCommercialMutation(env, workspaceId, context, envelope.command, commandId, timestamp);
     const sequence = head.last_sequence + 1;
     const scope = await businessCommandScope(env, workspaceId, context,

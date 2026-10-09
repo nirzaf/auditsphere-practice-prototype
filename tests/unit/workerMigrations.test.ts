@@ -49,7 +49,7 @@ it('applies each migration using Wrangler statement splitting to an isolated SQL
     assert.deepEqual(database.prepare('PRAGMA foreign_key_check').all(), [], 'the migrated schema has no foreign-key violations');
     assert.ok(database.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='report_signatures'").get(),
       'the latest reporting migrations are present');
-    assert.equal(database.prepare('SELECT version FROM application_schema_version WHERE singleton=1').get()?.version, 51);
+    assert.equal(database.prepare('SELECT version FROM application_schema_version WHERE singleton=1').get()?.version, 52);
     assert.ok(database.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='business_bootstrap_lock'").get());
     assert.ok(database.prepare("SELECT 1 FROM sqlite_master WHERE type='trigger' AND name='business_bootstrap_lock_no_update'").get());
     assert.ok(database.prepare("SELECT 1 FROM sqlite_master WHERE type='trigger' AND name='business_bootstrap_lock_no_delete'").get());
@@ -61,6 +61,10 @@ it('applies each migration using Wrangler statement splitting to an isolated SQL
     assert.ok(database.prepare("SELECT 1 FROM sqlite_master WHERE type='trigger' AND name='manual_dispatch_records_no_delete'").get());
     assert.ok(database.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='public_lead_submissions'").get());
     assert.ok(database.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='public_lead_rate_limit_events'").get());
+    assert.ok(database.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='policy_activations'").get());
+    assert.ok(database.prepare("SELECT 1 FROM sqlite_master WHERE type='view' AND name='policy_activation_intervals'").get());
+    assert.ok(database.prepare("SELECT 1 FROM sqlite_master WHERE type='trigger' AND name='policy_activations_no_update'").get());
+    assert.ok(database.prepare("SELECT 1 FROM sqlite_master WHERE type='trigger' AND name='policy_activations_no_delete'").get());
     database.exec('PRAGMA foreign_keys=OFF; SAVEPOINT manual_dispatch_records_append_only');
     database.prepare(`INSERT INTO manual_dispatch_records(id,workspace_id,client_id,engagement_id,purpose,channel,proposal_version_id,
       contact_id,contact_name_snapshot,recipient_phone_snapshot,file_version_id,evidence_file_version_id,sent_at,note,recorded_by_actor_id,created_at)
@@ -79,6 +83,16 @@ it('applies each migration using Wrangler statement splitting to an isolated SQL
     assert.throws(() => database.prepare("DELETE FROM dispatch_delivery_events WHERE provider_event_id='provider-event-test'").run(),
       /dispatch delivery events are append-only/);
     database.exec('ROLLBACK TO email_delivery_events_append_only; RELEASE email_delivery_events_append_only; PRAGMA foreign_keys=ON');
+    database.exec('PRAGMA foreign_keys=OFF; SAVEPOINT policy_activations_append_only');
+    database.prepare(`INSERT INTO policy_activations(id,workspace_id,policy_kind,workprogram_template_id,sampling_policy_id,charge_out_rate_id,
+      action,effective_from,reason,approved_by_actor_id,approved_at)
+      VALUES('policy-event-test','verification-workspace','SAMPLING_POLICY',NULL,'sampling-policy',NULL,'ACTIVATE','2026-10-09',
+        'Synthetic activation rationale for immutable ledger verification.','actor','2026-10-09T12:00:00.000Z')`).run();
+    assert.throws(() => database.prepare("UPDATE policy_activations SET reason='Changed rationale' WHERE id='policy-event-test'").run(),
+      /policy activation history is append only/);
+    assert.throws(() => database.prepare("DELETE FROM policy_activations WHERE id='policy-event-test'").run(),
+      /policy activation history is append only/);
+    database.exec('ROLLBACK TO policy_activations_append_only; RELEASE policy_activations_append_only; PRAGMA foreign_keys=ON');
     for (const table of [
       'workspace_entities', 'workspace_root_documents', 'workspace_sessions', 'workspace_seeds',
       'test_workspace_expiry', 'demo_workspaces', 'demo_creation_limits'

@@ -10,6 +10,7 @@ import { criticalConfirmationBlockers, queueHoldingLetterForBlockers } from '../
 import { SqliteD1 } from '../helpers/sqliteD1.js';
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
+const policyEffectiveDate = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Qatar', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
 
 function decodedPdfContent(bytes: Uint8Array): string {
   const pdf = Buffer.from(bytes);
@@ -166,6 +167,7 @@ async function call(path: string, options: {
                           : ['procedure.update', 'procedure.mark-not-applicable', 'procedure.submit', 'procedure.review'].includes(String(request.command.type))
                             ? { entity: 'Procedure', id: commandPayload.procedureId }
                           : request.command.type === 'sampling.policy.approve' ? { entity: 'SamplingPolicy', id: commandPayload.policyId }
+                          : request.command.type === 'policy.retire' ? { entity: commandPayload.policyKind === 'WORKPROGRAM_TEMPLATE' ? 'WorkprogramTemplate' : commandPayload.policyKind === 'SAMPLING_POLICY' ? 'SamplingPolicy' : 'ChargeOutRate', id: commandPayload.policyId }
                           : request.command.type === 'sampling.record-test' && commandPayload.expectedVersion > 0
                             ? { entity: 'SampleTest', id: commandPayload.populationRowId }
                   : request.command.type === 'time.submit' || request.command.type === 'time.approve'
@@ -206,13 +208,13 @@ it('bootstraps a no-session BUSINESS workspace, records manual dispatch and main
   const ready = await call('/api/health/ready');
   assert.equal(ready.response.status, 200, JSON.stringify(ready.body));
   assert.equal(ready.body.status, 'ready');
-  assert.equal(ready.body.schemaVersion, 51);
+  assert.equal(ready.body.schemaVersion, 52);
   assert.deepEqual(ready.body.dependencyCodes, []);
   const supportBundle = await call('/api/health/support-bundle');
   assert.equal(supportBundle.response.status, 200);
   assert.match(supportBundle.response.headers.get('content-disposition') ?? '', /attachment; filename="auditsphere-support-bundle.json"/);
-  assert.equal(supportBundle.body.applicationSchemaVersion, 51);
-  assert.equal(supportBundle.body.installedSchemaVersion, 51);
+  assert.equal(supportBundle.body.applicationSchemaVersion, 52);
+  assert.equal(supportBundle.body.installedSchemaVersion, 52);
   assert.equal(supportBundle.body.readiness, 'ready');
   assert.deepEqual(supportBundle.body.verificationRuns, []);
   assert.equal(JSON.stringify(supportBundle.body).includes('workspaceId'), false);
@@ -2845,10 +2847,16 @@ it('bootstraps a no-session BUSINESS workspace, records manual dispatch and main
   assert.equal(revenueTemplate.body.result.procedureCount, 5);
   const revenueTemplateId = revenueTemplate.body.result.templateId as string;
   const approveRevenueTemplate = await post(`/api/workspaces/${workspaceId}/commands`, {
-    idempotencyKey: crypto.randomUUID(), command: { type: 'workprogram.template.approve', payload: { templateId: revenueTemplateId, expectedVersion: 1 } }
+    idempotencyKey: crypto.randomUUID(), command: { type: 'workprogram.template.approve', payload: { templateId: revenueTemplateId, expectedVersion: 1, effectiveFrom: policyEffectiveDate, rationale: 'Partner approved the revenue procedures after evaluating the engagement assertions and current risk.' } }
   }, samplingApproverHeaders);
   assert.equal(approveRevenueTemplate.response.status, 200, JSON.stringify(approveRevenueTemplate.body));
   assert.equal(approveRevenueTemplate.body.result.status, 'APPROVED');
+  const templateActivation = db.prepare(`SELECT action,effective_from,reason FROM policy_activation_intervals WHERE workspace_id=?
+    AND policy_kind='WORKPROGRAM_TEMPLATE' AND workprogram_template_id=? AND action='ACTIVATE'`).bind(workspaceId,revenueTemplateId).first<any>();
+  assert.equal(templateActivation.effective_from, policyEffectiveDate);
+  assert.match(templateActivation.reason, /Partner approved the revenue procedures/);
+  assert.throws(() => db.prepare('UPDATE workprogram_templates SET title=? WHERE workspace_id=? AND id=?')
+    .bind('Attempted edit after approval',workspaceId,revenueTemplateId).run(), /approved workprogram templates are immutable/);
   const redWorkprogramPayload = { engagementId, fsliId: revenueLine.fsliId, planningVersionId: planningApproved.body.result.planningVersionId,
     templateId: revenueTemplateId, assignedStaffId: preparerStaff.body.result.staffMemberId };
   const associateRedProvision = await post(`/api/workspaces/${workspaceId}/commands`, {
@@ -2878,9 +2886,12 @@ it('bootstraps a no-session BUSINESS workspace, records manual dispatch and main
   assert.equal(revenueTemplateRevision.response.status, 200, JSON.stringify(revenueTemplateRevision.body));
   assert.equal(revenueTemplateRevision.body.result.revision, 2);
   const approveRevenueTemplateRevision = await post(`/api/workspaces/${workspaceId}/commands`, {
-    idempotencyKey: crypto.randomUUID(), command: { type: 'workprogram.template.approve', payload: { templateId: revenueTemplateRevision.body.result.templateId, expectedVersion: 1 } }
+    idempotencyKey: crypto.randomUUID(), command: { type: 'workprogram.template.approve', payload: { templateId: revenueTemplateRevision.body.result.templateId, expectedVersion: 1, effectiveFrom: policyEffectiveDate, rationale: 'Partner approved this new immutable revenue procedure revision after reviewing the revised instructions.' } }
   }, samplingApproverHeaders);
   assert.equal(approveRevenueTemplateRevision.response.status, 200, JSON.stringify(approveRevenueTemplateRevision.body));
+  assert.equal(db.prepare(`SELECT action FROM policy_activation_intervals WHERE workspace_id=? AND policy_kind='WORKPROGRAM_TEMPLATE'
+    AND workprogram_template_id=? AND action='RETIRE' AND effective_from=?`).bind(workspaceId,revenueTemplateId,policyEffectiveDate).first<any>()?.action,
+  'RETIRE', 'approving a replacement appends a same-day retirement for the superseded template revision');
   const activeWorkprogramTemplate = db.prepare('SELECT template_id FROM workprograms WHERE workspace_id=? AND id=?')
     .bind(workspaceId, revenueWorkprogramId).first<any>()?.template_id;
   assert.equal(activeWorkprogramTemplate, revenueTemplateId, 'approving a later template revision does not repoint an active workprogram');
@@ -3019,7 +3030,7 @@ it('bootstraps a no-session BUSINESS workspace, records manual dispatch and main
   }, samplingApproverHeaders);
   assert.equal(greenTemplate.response.status, 200, JSON.stringify(greenTemplate.body));
   const greenTemplateApproval = await post(`/api/workspaces/${workspaceId}/commands`, {
-    idempotencyKey: crypto.randomUUID(), command: { type: 'workprogram.template.approve', payload: { templateId: greenTemplate.body.result.templateId, expectedVersion: 1 } }
+    idempotencyKey: crypto.randomUUID(), command: { type: 'workprogram.template.approve', payload: { templateId: greenTemplate.body.result.templateId, expectedVersion: 1, effectiveFrom: policyEffectiveDate, rationale: 'Partner approved the green risk workprogram methodology for the scoped FSLI.' } }
   }, samplingApproverHeaders);
   assert.equal(greenTemplateApproval.response.status, 200, JSON.stringify(greenTemplateApproval.body));
   const greenProgram = await post(`/api/workspaces/${workspaceId}/commands`, {
@@ -3175,13 +3186,13 @@ it('bootstraps a no-session BUSINESS workspace, records manual dispatch and main
     const policyId = created.body.result.policyId as string;
     const reviewerCannotApprove = await post(`/api/workspaces/${workspaceId}/commands`, {
       idempotencyKey: crypto.randomUUID(), command: { type: 'sampling.policy.approve', payload: {
-        policyId, expectedVersion: 1, rationale: 'Only Partner-grade methodology approval permits this method for operational sampling.'
+        policyId, expectedVersion: 1, effectiveFrom: policyEffectiveDate, rationale: 'Only Partner-grade methodology approval permits this method for operational sampling.'
       } }
     }, samplingReviewerHeaders);
     assert.equal(reviewerCannotApprove.response.status, 403, 'sampling methodology requires Partner approval');
     const approved = await post(`/api/workspaces/${workspaceId}/commands`, {
       idempotencyKey: crypto.randomUUID(), command: { type: 'sampling.policy.approve', payload: {
-        policyId, expectedVersion: 1, rationale: 'Partner-approved synthetic methodology, with its assumptions and limits retained alongside each plan.'
+        policyId, expectedVersion: 1, effectiveFrom: policyEffectiveDate, rationale: 'Partner-approved synthetic methodology, with its assumptions and limits retained alongside each plan.'
       } }
     }, samplingApproverHeaders);
     assert.equal(approved.response.status, 200, JSON.stringify(approved.body));
@@ -4499,14 +4510,34 @@ it('bootstraps a no-session BUSINESS workspace, records manual dispatch and main
   // rate that was effective on its work date.
   const rateUpdate = await post(`/api/workspaces/${workspaceId}/commands`, {
     idempotencyKey: crypto.randomUUID(), command: { type: 'practice.rate.set', payload: {
-      grade: 'ASSOCIATE', hourlyMinor: '22000', effectiveFrom: '2027-01-01' } }
+      grade: 'ASSOCIATE', hourlyMinor: '22000', effectiveFrom: '2027-01-01', rationale: 'Annual rate review approved after considering salary, realization and the firm budget.' } }
   }, approverHeaders);
   assert.equal(rateUpdate.response.status, 200, JSON.stringify(rateUpdate.body));
   const historicalRateEdit = await post(`/api/workspaces/${workspaceId}/commands`, {
     idempotencyKey: crypto.randomUUID(), command: { type: 'practice.rate.set', payload: {
-      grade: 'ASSOCIATE', hourlyMinor: '22000', effectiveFrom: planDate } }
+      grade: 'ASSOCIATE', hourlyMinor: '22000', effectiveFrom: planDate, rationale: 'Attempted historical change should remain rejected and preserve prior time pricing.' } }
   }, approverHeaders);
   assert.equal(historicalRateEdit.response.status, 422, 'a new rate cannot rewrite the effective rate of recorded work');
+  const scheduledRateId = rateUpdate.body.result.rateId as string;
+  const reviewerCannotRetireRate = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'policy.retire', payload: {
+      policyKind: 'CHARGE_OUT_RATE', policyId: scheduledRateId, expectedVersion: 2, effectiveFrom: '2028-01-01',
+      reason: 'Only a Partner may retire an approved future-effective charge-out rate.' } }
+  }, samplingReviewerHeaders);
+  assert.equal(reviewerCannotRetireRate.response.status, 403, 'policy retirement is Partner-only');
+  const rateRetirement = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'policy.retire', payload: {
+      policyKind: 'CHARGE_OUT_RATE', policyId: scheduledRateId, expectedVersion: 2, effectiveFrom: '2028-01-01',
+      reason: 'The revised firm economics supersede this approved rate schedule from the new financial year.' } }
+  }, approverHeaders);
+  assert.equal(rateRetirement.response.status, 200, JSON.stringify(rateRetirement.body));
+  assert.equal(rateRetirement.body.result.action, 'RETIRE');
+  assert.equal(db.prepare(`SELECT action FROM policy_activation_intervals WHERE workspace_id=? AND policy_kind='CHARGE_OUT_RATE'
+    AND charge_out_rate_id=? AND action='ACTIVATE' AND effective_from<='2027-12-31' AND (next_effective_from IS NULL OR '2027-12-31'<next_effective_from)`)
+    .bind(workspaceId,scheduledRateId).first<any>()?.action, 'ACTIVATE', 'the rate remains effective until its scheduled retirement date');
+  assert.equal(db.prepare(`SELECT action FROM policy_activation_intervals WHERE workspace_id=? AND policy_kind='CHARGE_OUT_RATE'
+    AND charge_out_rate_id=? AND action='ACTIVATE' AND effective_from<='2028-01-01' AND (next_effective_from IS NULL OR '2028-01-01'<next_effective_from)`)
+    .bind(workspaceId,scheduledRateId).first<any>()?.action, undefined, 'retirement closes the rate interval on its effective date');
 
   const mismatchedProcedureFsli = await post(`/api/workspaces/${workspaceId}/commands`, {
     idempotencyKey: crypto.randomUUID(), command: { type: 'time.create', payload: {

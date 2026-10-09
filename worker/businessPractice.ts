@@ -5,6 +5,7 @@ import type { Env } from './env';
 import { ApiError } from './errors';
 import { sha256Hex } from './http';
 import type { BusinessContext, BusinessMutation } from './business';
+import { activationStatements, businessPolicyDate } from './businessPolicy';
 
 const id = z.uuid();
 const date = z.iso.date();
@@ -19,7 +20,7 @@ const timeLine = z.strictObject({ accountId: id, debitMinor: amount, creditMinor
   .refine(line => (BigInt(line.debitMinor)>0n)!==(BigInt(line.creditMinor)>0n), 'Each journal line must have exactly one positive debit or credit.');
 
 const chargeRateSet = z.strictObject({ type:z.literal('practice.rate.set'),payload:z.strictObject({
-  grade:grades,hourlyMinor:amount,effectiveFrom:date
+  grade:grades,hourlyMinor:amount,effectiveFrom:date,rationale:reason(10)
 })});
 const timeCreate = z.strictObject({ type:z.literal('time.create'),payload:z.strictObject({
   engagementId:id,staffMemberId:id,workDate:date,phase:phases,fsliId:id.optional(),procedureId:id.optional(),minutes:z.number().int().min(1).max(1440),
@@ -118,8 +119,12 @@ export async function businessPracticeBootstrapStatements(env:Env,workspaceId:st
   const statements:D1PreparedStatement[]=[];
   for(const rate of rateDefaults){
     const contentHash=await sha256Hex(JSON.stringify({grade:rate.grade,hourlyMinor:rate.hourlyMinor,effectiveFrom:'1970-01-01'}));
+    const rateId=crypto.randomUUID();
     statements.push(env.DB.prepare(`INSERT INTO firm_charge_out_rates(id,workspace_id,grade,hourly_minor,effective_from,effective_to,revision,content_sha256,approved_by_actor_id,approved_at)
-      VALUES(?,?,?,?,'1970-01-01',NULL,1,?,?,?)`).bind(crypto.randomUUID(),workspaceId,rate.grade,Number(rate.hourlyMinor),contentHash,partnerActorId,now));
+      VALUES(?,?,?,?,'1970-01-01',NULL,1,?,?,?)`).bind(rateId,workspaceId,rate.grade,Number(rate.hourlyMinor),contentHash,partnerActorId,now));
+    statements.push(env.DB.prepare(`INSERT INTO policy_activations(id,workspace_id,policy_kind,workprogram_template_id,sampling_policy_id,charge_out_rate_id,action,effective_from,reason,approved_by_actor_id,approved_at)
+      VALUES(?,?,'CHARGE_OUT_RATE',NULL,NULL,?,'ACTIVATE','1970-01-01',?,?,?)`).bind(crypto.randomUUID(),workspaceId,rateId,
+      'Initial firm grade rate activated by the Partner during workspace setup.',partnerActorId,now));
   }
   for(const account of accountDefaults){
     statements.push(env.DB.prepare(`INSERT INTO firm_accounts(id,workspace_id,code,name,account_type,parent_account_id,normal_side,posting_allowed,active,control_type,created_by_actor_id,created_at,updated_at)
@@ -250,15 +255,18 @@ export async function prepareBusinessPaymentJournal(env:Env,workspaceId:string,c
 
 async function timeValue(env:Env,workspaceId:string,staffMemberId:string,workDate:string){
   const row=await env.DB.prepare(`SELECT r.id,r.hourly_minor FROM staff_members s JOIN firm_charge_out_rates r ON r.workspace_id=s.workspace_id AND r.grade=s.grade
-    WHERE s.workspace_id=? AND s.id=? AND s.active=1 AND r.effective_from<=? AND (r.effective_to IS NULL OR r.effective_to>=?)
-    ORDER BY r.effective_from DESC,r.revision DESC LIMIT 1`).bind(workspaceId,staffMemberId,workDate,workDate)
+    JOIN policy_activation_intervals a ON a.workspace_id=r.workspace_id AND a.policy_kind='CHARGE_OUT_RATE' AND a.charge_out_rate_id=r.id
+    WHERE s.workspace_id=? AND s.id=? AND s.active=1 AND a.action='ACTIVATE' AND a.effective_from<=? AND (a.next_effective_from IS NULL OR ?<a.next_effective_from)
+    ORDER BY a.effective_from DESC,a.approved_at DESC,a.event_order DESC LIMIT 1`).bind(workspaceId,staffMemberId,workDate,workDate)
     .first<{id:string;hourly_minor:number}>();
   if(!row)throw new ApiError('GATE_BLOCKED','No effective approved grade-based charge-out rate exists for this work date.');
   return row;
 }
 async function rateForGrade(env:Env,workspaceId:string,grade:string,workDate:string){
-  const row=await env.DB.prepare(`SELECT id,hourly_minor FROM firm_charge_out_rates WHERE workspace_id=? AND grade=? AND effective_from<=?
-    AND (effective_to IS NULL OR effective_to>=?) ORDER BY effective_from DESC,revision DESC LIMIT 1`).bind(workspaceId,grade,workDate,workDate)
+  const row=await env.DB.prepare(`SELECT r.id,r.hourly_minor FROM firm_charge_out_rates r JOIN policy_activation_intervals a
+    ON a.workspace_id=r.workspace_id AND a.policy_kind='CHARGE_OUT_RATE' AND a.charge_out_rate_id=r.id
+    WHERE r.workspace_id=? AND r.grade=? AND a.action='ACTIVATE' AND a.effective_from<=? AND (a.next_effective_from IS NULL OR ?<a.next_effective_from)
+    ORDER BY a.effective_from DESC,a.approved_at DESC,a.event_order DESC LIMIT 1`).bind(workspaceId,grade,workDate,workDate)
     .first<{id:string;hourly_minor:number}>();
   if(!row)throw new ApiError('GATE_BLOCKED',`No approved ${grade} rate covers the selected budget date.`);
   return row;
@@ -266,17 +274,18 @@ async function rateForGrade(env:Env,workspaceId:string,grade:string,workDate:str
 
 async function buildRateSet(env:Env,workspaceId:string,context:BusinessContext,command:Extract<BusinessPracticeCommand,{type:'practice.rate.set'}>,now:string){
   partner(context);const p=command.payload;
-  if(p.effectiveFrom<=now.slice(0,10))throw new ApiError('VALIDATION_FAILED','A new charge-out rate must be future-effective; historical work keeps its approved rate.');
+  if(p.effectiveFrom<=businessPolicyDate(now))throw new ApiError('VALIDATION_FAILED','A new charge-out rate must be future-effective; historical work keeps its approved rate.');
   const prior=await env.DB.prepare(`SELECT COALESCE(MAX(revision),0) AS revision,MAX(effective_from) AS latest FROM firm_charge_out_rates WHERE workspace_id=? AND grade=?`)
     .bind(workspaceId,p.grade).first<{revision:number;latest:string|null}>();
   if(prior?.latest&&p.effectiveFrom<=prior.latest)throw new ApiError('VERSION_CONFLICT','Rate revisions must be effective after the latest approved rate for this grade.');
   const idValue=crypto.randomUUID(),revision=(prior?.revision??0)+1;
-  const canonical={grade:p.grade,hourlyMinor:p.hourlyMinor,effectiveFrom:p.effectiveFrom};
+  const canonical={grade:p.grade,hourlyMinor:p.hourlyMinor,effectiveFrom:p.effectiveFrom,rationale:p.rationale};
   const digest=await sha256Hex(JSON.stringify(canonical));
+  const policyEvents=await activationStatements(env,{workspaceId,group:{kind:'CHARGE_OUT_RATE',grade:p.grade},policyId:idValue,effectiveFrom:p.effectiveFrom,reason:p.rationale,actorId:context.actor.id,approvedAt:now});
   return mutation([env.DB.prepare(`INSERT INTO firm_charge_out_rates(id,workspace_id,grade,hourly_minor,effective_from,effective_to,revision,content_sha256,approved_by_actor_id,approved_at)
-    VALUES(?,?,?,?,?,NULL,?,?,?,?)`).bind(idValue,workspaceId,p.grade,Number(p.hourlyMinor),p.effectiveFrom,revision,digest,context.actor.id,now)],
+    VALUES(?,?,?,?,?,NULL,?,?,?,?)`).bind(idValue,workspaceId,p.grade,Number(p.hourlyMinor),p.effectiveFrom,revision,digest,context.actor.id,now),...policyEvents],
     {rateId:idValue,grade:p.grade,hourlyMinor:p.hourlyMinor,effectiveFrom:p.effectiveFrom,revision,contentSha256:digest},'CHARGE_OUT_RATE',idValue,null,revision,
-    {rateId:idValue,grade:p.grade,hourlyMinor:p.hourlyMinor,effectiveFrom:p.effectiveFrom,contentSha256:digest});
+    {rateId:idValue,grade:p.grade,hourlyMinor:p.hourlyMinor,effectiveFrom:p.effectiveFrom,rationale:p.rationale,contentSha256:digest});
 }
 
 async function timeAssignment(env:Env,workspaceId:string,staffMemberId:string,engagementId:string,workDate:string,phase:string){
@@ -1117,8 +1126,16 @@ export async function getBusinessPracticeWorkspace(env:Env,workspaceId:string,co
     env.DB.prepare(timeQuery).bind(...timeBindings).all<Record<string,unknown>>(),
     env.DB.prepare(`SELECT id,display_name AS displayName,grade FROM staff_members WHERE workspace_id=? AND active=1${context.actor.persona==='PREPARER'?' AND id=?':''} ORDER BY grade,display_name,id`)
       .bind(...(context.actor.persona==='PREPARER'&&context.actor.staffMemberId?[workspaceId,context.actor.staffMemberId]:[workspaceId])).all<Record<string,unknown>>(),
-    env.DB.prepare(`SELECT id,grade,hourly_minor AS hourlyMinor,effective_from AS effectiveFrom,effective_to AS effectiveTo,revision,content_sha256 AS contentSha256,approved_at AS approvedAt
-      FROM firm_charge_out_rates WHERE workspace_id=? ORDER BY grade,effective_from DESC`).bind(workspaceId).all<Record<string,unknown>>(),
+    env.DB.prepare(`SELECT r.id,r.grade,r.hourly_minor AS hourlyMinor,r.effective_from AS effectiveFrom,r.effective_to AS effectiveTo,r.revision,r.content_sha256 AS contentSha256,r.approved_at AS approvedAt,
+        EXISTS(SELECT 1 FROM policy_activation_intervals a WHERE a.workspace_id=r.workspace_id AND a.policy_kind='CHARGE_OUT_RATE' AND a.charge_out_rate_id=r.id
+          AND a.action='ACTIVATE' AND a.effective_from<=? AND (a.next_effective_from IS NULL OR ?<a.next_effective_from)) AS activeAsOfToday,
+        (SELECT le.action FROM policy_activations le WHERE le.workspace_id=r.workspace_id AND le.charge_out_rate_id=r.id
+          ORDER BY le.effective_from DESC,le.approved_at DESC,le.rowid DESC LIMIT 1) AS latestPolicyAction,
+        (SELECT le.effective_from FROM policy_activations le WHERE le.workspace_id=r.workspace_id AND le.charge_out_rate_id=r.id
+          ORDER BY le.effective_from DESC,le.approved_at DESC,le.rowid DESC LIMIT 1) AS latestPolicyEffectiveFrom,
+        (SELECT le.reason FROM policy_activations le WHERE le.workspace_id=r.workspace_id AND le.charge_out_rate_id=r.id
+          ORDER BY le.effective_from DESC,le.approved_at DESC,le.rowid DESC LIMIT 1) AS latestPolicyReason
+      FROM firm_charge_out_rates r WHERE r.workspace_id=? ORDER BY r.grade,r.effective_from DESC`).bind(today,today,workspaceId).all<Record<string,unknown>>(),
     env.DB.prepare(`SELECT id,code,name,account_type AS accountType,normal_side AS normalSide,posting_allowed AS postingAllowed,active,control_type AS controlType FROM firm_accounts WHERE workspace_id=? ORDER BY code`)
       .bind(workspaceId).all<Record<string,unknown>>(),
     env.DB.prepare(`SELECT id,start_date AS startDate,end_date AS endDate,status FROM accounting_periods WHERE workspace_id=? ORDER BY start_date DESC`).bind(workspaceId).all<Record<string,unknown>>(),

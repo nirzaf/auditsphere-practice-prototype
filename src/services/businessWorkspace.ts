@@ -721,7 +721,8 @@ export async function runBusinessCommand<T = Record<string, unknown>>(
                       : value.type === 'procedure.update' || value.type === 'procedure.mark-not-applicable' || value.type === 'procedure.submit' || value.type === 'procedure.review' ? { entity: 'Procedure', id: payload.procedureId }
                         : value.type === 'sampling.policy.approve' ? { entity: 'SamplingPolicy', id: payload.policyId }
                           : value.type === 'sampling.record-test' && Number(commandVersion)>0 ? { entity: 'SampleTest', id: payload.populationRowId }
-                            : value.type === 'time.submit' || value.type === 'time.approve' || value.type === 'time.return' || value.type === 'time.correct'
+                : value.type === 'policy.retire' ? { entity: payload.policyKind === 'WORKPROGRAM_TEMPLATE' ? 'WorkprogramTemplate' : payload.policyKind === 'SAMPLING_POLICY' ? 'SamplingPolicy' : 'ChargeOutRate', id: payload.policyId }
+                  : value.type === 'time.submit' || value.type === 'time.approve' || value.type === 'time.return' || value.type === 'time.correct'
                               ? { entity: 'TimeEntry', id: payload.timeEntryId }
                 : null
     : null;

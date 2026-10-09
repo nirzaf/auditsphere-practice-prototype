@@ -8,7 +8,7 @@ type Account = { id: string; code: string; name: string; accountType: string; no
 type Staff = { id: string; displayName: string; grade: string };
 type TimeEntry = { id: string; version: number; staff_member_id?: string; staffMemberId?: string; display_name?: string; grade?: string; work_date?: string; phase?: string; fsli_id?: string | null; procedure_id?: string | null; minutes: number; description: string; billable: boolean; status: string; chargeOutMinor?: string | null };
 type PracticeData = {
-  staff: Staff[]; rates: Array<Record<string, unknown>>; timeEntries: TimeEntry[];
+  staff: Staff[]; rates: Array<{ id: string; grade: string; hourlyMinor: number; effectiveFrom: string; effectiveTo: string | null; revision: number; approvedAt: string; activeAsOfToday: boolean | number; latestPolicyAction: 'ACTIVATE' | 'RETIRE' | null; latestPolicyEffectiveFrom: string | null; latestPolicyReason: string | null }>; timeEntries: TimeEntry[];
   fsliCatalog: Array<{ id: string; code: string; name: string; statement: string }>;
   procedureCatalog: Array<{ id: string; ordinal: number; title: string; status: string; fsliId: string; fsliCode: string | null }>;
   utilization: Array<{ staffMemberId: string; displayName?: string; grade?: string; scheduledMinutes: number; leaveMinutes: number; availableMinutes: number; recordedMinutes: number; approvedMinutes: number; approvedBillableMinutes: number; approvedNonbillableMinutes: number; utilizationBps: number | null; resultReason: string; missingCapacityDates: string[]; sourceUpdatedAt: string | null }>;
@@ -87,6 +87,9 @@ export function BusinessPracticePanel({ workspaceId, selected, context, engageme
   const [rateGrade, setRateGrade] = useState('ASSOCIATE');
   const [rateQar, setRateQar] = useState('200');
   const [rateEffectiveFrom, setRateEffectiveFrom] = useState(qatarTomorrow());
+  const [rateRationale, setRateRationale] = useState('');
+  const [rateRetirementDates, setRateRetirementDates] = useState<Record<string, string>>({});
+  const [rateRetirementRationales, setRateRetirementRationales] = useState<Record<string, string>>({});
   const [accountCode, setAccountCode] = useState('5400');
   const [accountName, setAccountName] = useState('Other operating expense');
   const [accountType, setAccountType] = useState<'ASSET' | 'LIABILITY' | 'EQUITY' | 'REVENUE' | 'EXPENSE'>('EXPENSE');
@@ -183,7 +186,7 @@ export function BusinessPracticePanel({ workspaceId, selected, context, engageme
   };
   const saveRate = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    try { await perform('practice.rate.set', { grade: rateGrade, hourlyMinor: qatarMinor(rateQar), effectiveFrom: rateEffectiveFrom }, `Approved ${rateGrade.toLowerCase()} rate effective ${rateEffectiveFrom}.`); }
+    try { await perform('practice.rate.set', { grade: rateGrade, hourlyMinor: qatarMinor(rateQar), effectiveFrom: rateEffectiveFrom, rationale: rateRationale }, `Approved ${rateGrade.toLowerCase()} rate effective ${rateEffectiveFrom}.`); }
     catch (reason) { setError(reason instanceof Error ? reason.message : 'Enter a valid charge-out rate.'); }
   };
   const createExpense = async (event: React.FormEvent<HTMLFormElement>) => {
@@ -419,12 +422,15 @@ export function BusinessPracticePanel({ workspaceId, selected, context, engageme
         </div><button className="btn primary" disabled={busy}>Save draft time entry</button>
       </form>}
 
-      {canManage && <form className="business-form business-commercial-form" onSubmit={saveRate}>
+      {data.rates.length > 0 && <section className="business-record-list"><h3>Approved grade charge-out rate history</h3><div className="business-utilization-table-wrap"><table className="business-table"><thead><tr><th>Grade</th><th>QAR / hour</th><th>Revision</th><th>Effective from</th><th>Policy status</th><th>Approved</th><th>Action</th></tr></thead><tbody>{data.rates.map(rate => <tr key={rate.id}><td>{rate.grade}</td><td>{money(rate.hourlyMinor)}</td><td>{rate.revision}</td><td>{rate.effectiveFrom}</td><td>{Boolean(rate.activeAsOfToday) ? 'Effective today' : rate.latestPolicyAction === 'RETIRE' ? `Retired ${rate.latestPolicyEffectiveFrom}` : `Scheduled ${rate.latestPolicyEffectiveFrom ?? rate.effectiveFrom}`}<details><summary>Approval record</summary><p className="business-note">{rate.latestPolicyAction ?? 'No activation'} · {rate.latestPolicyReason ?? 'No activation rationale recorded.'}</p></details></td><td>{rate.approvedAt ? formatQatarTimestamp(String(rate.approvedAt)) : '—'}</td><td>{isPartner && <details><summary>Retire</summary><label className="business-field"><span>Effective date</span><input type="date" min={today} value={rateRetirementDates[rate.id] ?? today} onChange={event => setRateRetirementDates(current => ({ ...current, [rate.id]: event.target.value }))} /></label><label className="business-field"><span>Rationale</span><textarea minLength={10} value={rateRetirementRationales[rate.id] ?? ''} onChange={event => setRateRetirementRationales(current => ({ ...current, [rate.id]: event.target.value }))} /></label><button type="button" className="btn sm" disabled={busy || (rateRetirementRationales[rate.id] ?? '').trim().length < 10} onClick={() => void perform('policy.retire', { policyKind: 'CHARGE_OUT_RATE', policyId: rate.id, expectedVersion: rate.revision, effectiveFrom: rateRetirementDates[rate.id] ?? today, reason: rateRetirementRationales[rate.id] }, 'Approved charge-out rate retirement recorded.')}>Record retirement</button></details>}</td></tr>)}</tbody></table></div><p className="business-note">Effective dates and retirement periods come from the append-only Partner activation ledger. Historical time retains its original approved rate snapshot.</p></section>}
+
+      {isPartner && <form className="business-form business-commercial-form" onSubmit={saveRate}>
         <h3>Set a grade charge-out rate</h3><div className="business-form-grid">
           <label className="business-field"><span>Grade</span><select value={rateGrade} onChange={event => setRateGrade(event.target.value)}>{grades.map(item => <option key={item}>{item}</option>)}</select></label>
           <label className="business-field"><span>QAR per hour</span><input required inputMode="decimal" value={rateQar} onChange={event => setRateQar(event.target.value)} /></label>
-          <label className="business-field"><span>Effective from</span><input type="date" required value={rateEffectiveFrom} onChange={event => setRateEffectiveFrom(event.target.value)} /></label>
-        </div><button className="btn sm" disabled={busy}>Save rate revision</button>
+          <label className="business-field"><span>Effective from</span><input type="date" min={qatarTomorrow()} required value={rateEffectiveFrom} onChange={event => setRateEffectiveFrom(event.target.value)} /></label>
+          <label className="business-field"><span>Partner approval rationale</span><textarea required minLength={10} value={rateRationale} onChange={event => setRateRationale(event.target.value)} /></label>
+        </div><button className="btn sm" disabled={busy || rateRationale.trim().length < 10}>Save rate revision</button>
         <small>A new rate must be future-effective; historical work keeps its pinned rate. Each time submission pins the effective rate and calculates value in QAR minor units.</small>
       </form>}
 

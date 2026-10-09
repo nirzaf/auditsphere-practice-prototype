@@ -501,7 +501,7 @@ export interface BusinessFieldworkWorkspace {
   evidenceLinks: Array<{ id: string; evidenceId: string; evidenceVersion: number; targetVersion: number; targetType: string; targetId: string;
     currentEvidenceVersion: number; unlinkReason: string | null; unlinkActorId: string | null; unlinkedAt: string | null; linkedAt: string }>;
   statements: BusinessFinancialStatements;
-  templates: Array<{ id: string; version: number; fsliCode: string; revision: number; title: string; standardsProfileId: string; status: string; approvedByActorId: string | null; approvedAt: string | null }>;
+  templates: Array<{ id: string; version: number; fsliCode: string; revision: number; title: string; standardsProfileId: string; status: string; approvedByActorId: string | null; approvedAt: string | null; activeAsOfToday: boolean | number; latestPolicyAction: 'ACTIVATE' | 'RETIRE' | null; latestPolicyEffectiveFrom: string | null; latestPolicyReason: string | null }>;
   analyticalReviews: Array<Record<string, unknown>>;
   goingConcern: null | { id: string; version: number; revision: number; isa570Edition: string; assessmentStart: string; assessmentEnd: string; checklist: Record<string, boolean>;
     eventsText: string; mitigatingPlansText: string; conclusion: string; rationale: string; status: string; sourceHash: string; createdAt: string };
@@ -527,7 +527,7 @@ export interface BusinessFieldworkWorkspace {
   evidence: Array<{ id: string; familyId: string; version: number; mode: 'DIGITAL' | 'PHYSICAL' | 'HYBRID'; title: string; fileVersionId: string | null; physicalIndex: string | null;
     physicalDescription: string | null; binder: string | null; box: string | null; shelf: string | null; externalSourceUrl: string | null; retrievedAt: string | null;
     fileSha256: string | null; adequacy: 'ADEQUATE' | 'DEFICIENT' | null; adequacyRationale: string | null }>;
-  samplingPolicies: Array<{ id: string; version: number; name: string; method: 'MUS_BINOMIAL_PPS' | 'SYSTEMATIC' | 'STRATIFIED_ATTRIBUTE'; algorithmVersion: string; assumptions: string; status: string; approvedByActorId: string | null; approvedAt: string | null }>;
+  samplingPolicies: Array<{ id: string; version: number; name: string; method: 'MUS_BINOMIAL_PPS' | 'SYSTEMATIC' | 'STRATIFIED_ATTRIBUTE'; algorithmVersion: string; assumptions: string; status: string; approvedByActorId: string | null; approvedAt: string | null; activeAsOfToday: boolean | number; latestPolicyAction: 'ACTIVATE' | 'RETIRE' | null; latestPolicyEffectiveFrom: string | null; latestPolicyReason: string | null }>;
   populations: Array<{ id: string; name: string; sourceFileId: string; fsliId: string; sourceHash: string; orderHash: string; rowCount: number; positiveTotalMinor: number; excludedCount: number; exclusionsReason: string }>;
   samplingPlans: Array<{ id: string; populationId: string; policyId: string; procedureId: string | null; revision: number; method: string; confidenceBps: number | null; tolerableMinor: number | null;
     expectedTaintedBps: number | null; requestedCount: number | null; calculatedCount: number; parameters: Record<string, unknown>; inputHash: string; reason: string; createdAt: string;

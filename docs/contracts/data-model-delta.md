@@ -2,11 +2,11 @@
 
 > **Historical proposal notice:** this delta includes auth/account tables for a superseded E03 design. Migrations 0046–0048 are preserved as applied-history compatibility; they do not mean the current no-auth epic requires account/session runtime behavior. Do not edit applied migration history or drop remote tables without a separately verified data-retirement plan.
 
-**Executable source of truth:** `worker/migrations/*.sql` (51 files, last = `0051_public_lead_submissions.sql`). This document specifies the **remaining** migrations the backlog requires. Agents copy the SQL into a new numbered migration file, adjust only what the story's acceptance criteria demand, and record any deviation in the story's report.
+**Executable source of truth:** `worker/migrations/*.sql` (52 files, last = `0052_policy_activations.sql`). This document specifies the **remaining** migrations the backlog requires. Agents copy the SQL into a new numbered migration file, adjust only what the story's acceptance criteria demand, and record any deviation in the story's report.
 
 ## Migration rules (existing conventions — follow exactly)
 
-1. Forward-only, numbered `NNNN_snake_case.sql`, next free number is **0052**. Never edit an applied migration. E01-S05 used 0045, E03-S01 added auth tables in 0046, E03-S04 added portal credential issues in 0047, E03-S06 added the single-use first-Partner lock in 0048, E04-S01 added email delivery events in 0049, E04-S02 added manual dispatch records in 0050, and E04-S03 added public lead submissions and their short-lived rate-limit events in 0051. Also bump `APPLICATION_SCHEMA_VERSION` in `worker/versions.ts` (currently `51`), which readiness compares against the DB (`handleHealthReady` → `SCHEMA_VERSION_MISMATCH`).
+1. Forward-only, numbered `NNNN_snake_case.sql`, next free number is **0053**. Never edit an applied migration. E01-S05 used 0045, E03-S01 added auth tables in 0046, E03-S04 added portal credential issues in 0047, E03-S06 added the single-use first-Partner lock in 0048, E04-S01 added email delivery events in 0049, E04-S02 added manual dispatch records in 0050, E04-S03 added public lead submissions and their short-lived rate-limit events in 0051, and the approved PolicyActivation ledger is in 0052. Also bump `APPLICATION_SCHEMA_VERSION` in `worker/versions.ts` (currently `52`), which readiness compares against the DB (`handleHealthReady` → `SCHEMA_VERSION_MISMATCH`).
 2. Every business table has `id TEXT PRIMARY KEY`, `workspace_id TEXT NOT NULL`, `UNIQUE (workspace_id, id)`, composite FKs `(workspace_id, x_id)` → `parent(workspace_id, id)`, `ON DELETE RESTRICT`.
 3. Mutable rows carry `version INTEGER NOT NULL DEFAULT 1 CHECK (version > 0)`; updates use `WHERE version = ?` and `version = version + 1`.
 4. Append-only tables get `BEFORE UPDATE` and `BEFORE DELETE` triggers that `RAISE(ABORT, '…')` (pattern: `worker/migrations/0006_business_foundation.sql` lines 301–304).
@@ -263,7 +263,11 @@ CREATE INDEX IF NOT EXISTS public_lead_rate_limit_events_window_idx
   ON public_lead_rate_limit_events(ip_sha256,created_at);
 ```
 
-## 6. `0053_client_import_runs.sql` — E05-S06 (after SP-03)
+## 6. `0052_policy_activations.sql` — shared approved policy lifecycle
+
+The migration adds the append-only `policy_activations` event ledger for workprogram templates, sampling policies, and charge-out rates. Every event names exactly one typed policy FK, an `ACTIVATE` or `RETIRE` action, an effective date, a Partner rationale, and the approving actor/time. `policy_activation_intervals` derives non-overlapping effective intervals by the policy's semantic scope (FSLI + standards profile, sampling method, or staff grade). Existing approved rows are backfilled using their stored approval date and actor; the backfill explicitly records that their original activation rationale was not retained. Approved template and sampling-policy rows become immutable; create a new row for changes.
+
+## 7. `0053_client_import_runs.sql` — E05-S06 (after SP-03)
 
 ```sql
 CREATE TABLE IF NOT EXISTS client_import_runs (
@@ -297,7 +301,7 @@ CREATE TABLE IF NOT EXISTS client_import_row_map (
 );
 ```
 
-## 7. `0045_drop_legacy_snapshot_tables.sql` — E01-S05 (CONDITIONAL on decision D2)
+## 8. `0045_drop_legacy_snapshot_tables.sql` — E01-S05 (CONDITIONAL on decision D2)
 
 The owner directed retirement of the legacy tables. The remote per-environment row count is still unverified because the configured Wrangler session has expired. Do not claim that no TEST records remain; before any manual migration outside the already-authorized deployment path, run the E01-S05 query against every environment. Runtime code, tests, and tooling must not reference the dropped tables; historical migrations are retained and the forward migration removes their dependent trigger objects.
 
@@ -318,6 +322,6 @@ DROP TABLE IF EXISTS demo_creation_limits;
 
 > `migration_runs` and `migration_id_map` are retained to avoid an unrequested second data deletion. The US-SYS-002 tooling is retired, so migration 0045 removes its 0039–0041 guard triggers that depend on the legacy snapshot tables.
 
-## 8. No schema change required
+## 9. No schema change required
 
 E05-S01 (milestone defaults), E05-S02 (workprogram gates), E05-S03 (going-concern UI), E05-S04 (client document centre) are code-only unless the verify step proves otherwise.

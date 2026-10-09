@@ -31,11 +31,11 @@
 | US-FLD-002 | FSLI Mapping with Scoped Historical Memory and Coverage Checks | Code baseline; acceptance open |
 | US-FLD-003 | Live Split Financial Statement Dashboard and Comparative Variances | Code baseline; visual parity evidence open |
 | US-FLD-004 | Analytical Review and Period-Appropriate Going Concern Assessment | Code baseline; firm policy/content acceptance open |
-| US-FLD-005 | Versioned Substantive Workprograms and Ad-Hoc Procedures | Code baseline; approved workprogram matrix acceptance open |
+| US-FLD-005 | Versioned Substantive Workprograms and Ad-Hoc Procedures | Policy activation ledger, approved-row immutability and effective-date provisioning gate implemented; approved workprogram matrix acceptance open |
 | US-FLD-006 | Independent Row Concurrency, Conflict Resolution and Stale-Review Protection | Code baseline; two-browser race evidence open |
-| US-FLD-007 | Reproducible Monetary Unit Sampling with Conservative Statistical Evaluation | Code baseline; firm-approved sampling policy and independent calculations open |
-| US-FLD-008 | Systematic Random Sampling with Stable Order and Honest Sample-Size Basis | Code baseline; independent calculations open |
-| US-FLD-009 | Stratified Attribute Sampling with Finite-Population Evaluation | Code baseline; independent calculations open |
+| US-FLD-007 | Reproducible Monetary Unit Sampling with Conservative Statistical Evaluation | Effective-dated approved-policy activation implemented; firm methodology and independent calculations open |
+| US-FLD-008 | Systematic Random Sampling with Stable Order and Honest Sample-Size Basis | Effective-dated approved-policy activation implemented; independent calculations open |
+| US-FLD-009 | Stratified Attribute Sampling with Finite-Population Evaluation | Effective-dated approved-policy activation implemented; independent calculations open |
 | US-FLD-010 | Hybrid Digital and Physical Evidence with Version-Pinned References | Code baseline; opened-file/hash reconciliation open |
 | US-FLD-011 | Three-Tier Review, Mandatory Rework and Independent Decisions | Code baseline; workflow acceptance open |
 | US-FLD-012 | Balanced AJEs, Unadjusted Differences and Versioned Summary Review Memorandum | Code baseline; independent ledger/calculation evidence open |
@@ -47,7 +47,7 @@
 | US-REP-005 | Atomic Five-Part Release, Final Fee Note and Reliable Delivery | Code baseline; provider delivery and atomic failure evidence open |
 | US-REP-006 | Immediate Portal Upload Freeze Including In-Flight Uploads | Code baseline; two-browser freeze race evidence open |
 | US-REP-007 | 60-Day Assembly Deadline and Sealed Read-Only Archive | Code baseline; isolated restore and large-archive evidence open |
-| US-PRC-001 | Grade-Based Charge-Out Rates and Approved Time Recording | Code baseline; firm-approved rates and end-to-end evidence open |
+| US-PRC-001 | Grade-Based Charge-Out Rates and Approved Time Recording | Effective-dated rate activation/retirement and Partner rationale implemented; firm-approved rates and full end-to-end evidence open |
 | US-PRC-002 | Capacity-Adjusted Utilization and Transparent Availability | Code baseline; cross-record reconciliation open |
 | US-PRC-003 | Engagement Profitability and Phase Budget Variances | Code baseline; independent financial reconciliation open |
 | US-PRC-004 | Firm Chart of Accounts and Atomic Double-Entry Journals | Code baseline; ledger reconciliation open |
@@ -61,6 +61,7 @@
 - Before this client-document increment, `npm run lint`, `npm run cloud:typecheck`, `npm run build`, and `npm run test:unit` passed with 176 unit tests passed, 1 opt-in stress test skipped, and 0 failed.
 - The pre-increment `npm run test:e2e` passed all 13 browser acceptance tests against the isolated local Worker/D1/R2 fixture. Coverage includes workspace/persona persistence and offline failure, visible lead-to-engagement creation, quote revision and fail-closed email, opinion variants and atomic report lifecycle, isolated backup restore with every committed original byte, two-browser fieldwork conflict, and the listed sampling, hybrid evidence, SRM, going-concern, and time-recording journeys. The current post-increment full E2E rerun has not yet returned a final result.
 - Two stale test expectations found by the browser run were corrected: an unsupported POST against the workspace resource path receives the router's documented 400 method-mismatch response, and the rendered FSLI label preserves its catalog capitalization (`Synthetic revenue`).
+- Migration 0052 adds append-only `PolicyActivation` history for workprogram templates, sampling policies and charge-out rates. Approval now records rationale and effective date; replaced policies retire at the supersession date, retirement is Partner-only, and workprogram provisioning, sampling-plan creation and charge-out lookup use the effective ledger. Approved template and sampling-policy source rows are immutable. `npm run build`, `npm run cloud:typecheck`, and the focused migration plus BUSINESS workspace tests pass (2/2); the focused two-browser fieldwork journey is in progress. This covers an implementation gap only and does not close the stories' remaining acceptance gates.
 
 ## Epic-wide release gates still open
 

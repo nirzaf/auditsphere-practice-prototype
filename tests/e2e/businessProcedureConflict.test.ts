@@ -17,6 +17,7 @@ let tabB: CdpTab | undefined;
 
 const sleep = (milliseconds: number) => new Promise(resolve => setTimeout(resolve, milliseconds));
 const sha256 = (value: string) => createHash('sha256').update(value).digest('hex');
+const qatarDate = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Qatar', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
 
 function chromeExecutable(): string | undefined {
   const candidates = [
@@ -208,6 +209,10 @@ async function createFieldworkFixture() {
     { title: 'Same-row concurrent edits', instructions: 'Inspect the synthetic source row and preserve the review trail.', assertion: 'COMPLETENESS', mandatory: true },
     { title: 'Explicit draft discard', instructions: 'Inspect the synthetic source row and preserve the review trail.', assertion: 'VALUATION', mandatory: true }
   ]), workspace.actorProfileId, now, workspace.actorProfileId, now);
+  runFixtureSql(`INSERT INTO policy_activations(id,workspace_id,policy_kind,workprogram_template_id,sampling_policy_id,charge_out_rate_id,
+    action,effective_from,reason,approved_by_actor_id,approved_at)
+    VALUES(?,?,'WORKPROGRAM_TEMPLATE',?,NULL,NULL,'ACTIVATE',?,?,?,?)`, randomUUID(),workspaceId,ids.templateId,
+    qatarDate(),'Synthetic E2E approval activates this approved immutable template.',workspace.actorProfileId,now);
   runFixtureSql(`INSERT INTO procedure_templates(id,workspace_id,template_id,ordinal,title,instructions,assertion,mandatory)
     VALUES(?,?,?,1,'Same-row concurrent edits','Inspect the synthetic source row and preserve the review trail.','COMPLETENESS',1)`,
   ids.templateStepA, workspaceId, ids.templateId);
