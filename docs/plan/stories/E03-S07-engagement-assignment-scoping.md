@@ -1,5 +1,7 @@
 # E03-S07 — Engagement-assignment access scoping (VERIFY FIRST)
 
+> **Retired scope:** the current user-provided real-implementation epic explicitly excludes application authentication, accounts, passwords, sessions, and RBAC. This historical E03 story is not an active requirement. Do not implement it unless the user authorizes a new scope.
+
 | ID | Epic | Type | Priority | Size | Depends on | Spec trace |
 |---|---|---|---|---|---|---|
 | E03-S07 | E03 | Verify → Feature | P1 | M | E03-S03; decision D3 | §1.2 (Preparer "assigned FSLI"), ISA 220 confidentiality; NFR SEC-11 |

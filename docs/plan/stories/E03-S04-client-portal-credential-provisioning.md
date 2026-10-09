@@ -1,5 +1,7 @@
 # E03-S04 — Client portal credential provisioning on advance payment
 
+> **Retired scope:** the current user-provided real-implementation epic explicitly excludes application authentication, accounts, passwords, sessions, and RBAC. This historical E03 story is not an active requirement. Do not implement it unless the user authorizes a new scope.
+
 | ID | Epic | Type | Priority | Size | Depends on | Spec trace |
 |---|---|---|---|---|---|---|
 | E03-S04 | E03 | Feature | P0 | M | E03-S03; email provider (staging) for live check | §3.1 "Provision Client Portal • System emails credentials • Mandatory password reset"; §4.1.5; US-M1-012 |

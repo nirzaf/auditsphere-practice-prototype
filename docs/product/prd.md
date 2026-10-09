@@ -1,5 +1,7 @@
 # PRD — AuditSphere: Production Completion of STE Audit Management Tool v2.1
 
+> **Authority and scope notice (2026-10-09):** This is a historical production-hardening PRD and contains E03 login/account requirements that are not in the current user-authorized implementation scope. The attached `EPIC-AUDITSPHERE-REAL-IMPLEMENTATION.md` explicitly requires four self-selected workflow personas and excludes application authentication, sessions, passwords, and RBAC. Use that epic and `docs/plan/roadmap.md` for current scope. The historical identity requirements below are not acceptance criteria and must not be implemented implicitly.
+
 | Field | Value |
 |---|---|
 | Source specification | *STE Audit Management Tool — Functional Requirements & End-to-End System Workflow Specification*, v2.1 |
@@ -21,7 +23,7 @@ It is **not production-usable** for one dominant reason and several secondary on
 2. **Client portal onboarding is incomplete.** The portal activates on advance payment, but no client credentials are issued, emailed, or force-reset (spec §4.1.5, `US-M1-012`).
 3. **Prototype residue.** Three parallel implementations live in one repo: the real BUSINESS workspace, a legacy browser-store prototype kept for a test harness, and an unrelated Next.js/Prisma demo (`ste-audit/`). Plus large volumes of demo evidence, screenshots and pinned-to-another-repo process packs. This confuses AI agents and humans.
 4. **Single, prototype-named environment.** One Worker (`auditsphere-visual-prototype`), one D1 (`steaudit-prototype-demo`), one R2 bucket, `workers_dev: true`, no staging.
-5. **Live integrations unproven.** Email provider is deployed but no real delivery accepted; rate limiter binding absent (limiter silently no-ops); no CSP on the app shell.
+5. **Live integrations and hardening acceptance remain open.** Email provider is deployed but no real delivery accepted; the app shell now has CSP and security headers, while the ASVS self-assessment and browser CSP-violation sweep remain unrecorded.
 6. **A short list of functional partials** (public web-form intake, manual WhatsApp dispatch record, large-archive acceptance) plus items to *verify* (workprogram acceptance matrix, consolidated client document centre) and two optional P2 conveniences (suggested milestone schedule, going-concern UI polish).
 
 ## 2. Target users (unchanged from spec §1.2)

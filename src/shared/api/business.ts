@@ -208,6 +208,22 @@ export interface BusinessLead {
   contactName: string | null;
 }
 
+export type PublicLeadStatus = 'RECEIVED' | 'ACCEPTED_AS_LEAD' | 'REJECTED_SPAM' | 'DUPLICATE';
+export interface PublicLeadSubmission {
+  id: string;
+  version: number;
+  status: PublicLeadStatus;
+  companyName: string;
+  contactName: string;
+  email: string;
+  phone: string | null;
+  serviceInterest: 'STATUTORY_AUDIT' | 'INTERNAL_AUDIT' | 'AGREED_UPON_PROCEDURES' | 'OTHER' | null;
+  message: string | null;
+  leadId: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface BusinessStandardsProfile {
   id: string;
   version: number;

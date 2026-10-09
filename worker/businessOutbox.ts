@@ -92,6 +92,25 @@ async function sha256HexBytes(bytes: Uint8Array): Promise<string> {
   return Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, '0')).join('');
 }
 
+async function emailRecipientSha256(recipient: string): Promise<string> {
+  return sha256HexBytes(new TextEncoder().encode(recipient.trim().toLocaleLowerCase()));
+}
+
+async function readEmailProviderOutcome(response: Response): Promise<{ providerMessageId: string; status: 'ACCEPTED' | 'DELIVERED' }> {
+  try {
+    const result = await response.json() as { messageId?: unknown; status?: unknown };
+    if (typeof result.messageId !== 'string' || !result.messageId.trim() || result.messageId.length > 512) throw new Error('missing message id');
+    if (result.status === 'BOUNCED') {
+      throw new OutboxError('EMAIL_PROVIDER_RECIPIENT_BOUNCED', 'The configured inquiry notification destination rejected the message.');
+    }
+    if (result.status !== 'ACCEPTED' && result.status !== 'DELIVERED') throw new Error('missing delivery status');
+    return { providerMessageId: result.messageId.trim(), status: result.status };
+  } catch (error) {
+    if (error instanceof OutboxError) throw error;
+    throw new OutboxError('EMAIL_PROVIDER_RESPONSE_INVALID', 'The provider returned success without a verifiable message ID and delivery outcome; delivery status is unknown.', 'UNKNOWN');
+  }
+}
+
 function parsePayload(job: OutboxJob): JobPayload {
   try {
     const payload = JSON.parse(job.payload_json) as Partial<JobPayload>;
@@ -107,6 +126,11 @@ function parsePayload(job: OutboxJob): JobPayload {
 function parseRawPayload(job: OutboxJob): Record<string, any> {
   try {
     const payload = JSON.parse(job.payload_json) as Record<string, unknown>;
+    if (job.kind === 'EMAIL' && payload?.documentType === 'PUBLIC_LEAD_NOTIFICATION') {
+      if (typeof payload.submissionId !== 'string' || payload.submissionId !== job.aggregate_id
+        || Object.keys(payload).sort().join(',') !== 'documentType,submissionId') throw new Error('public lead notification shape');
+      return payload;
+    }
     if (job.kind === 'GENERATE_DOCUMENT' && payload?.documentType === 'PRACTICE_REPORT') {
       if (typeof payload.reportSnapshotId !== 'string' || payload.reportSnapshotId !== job.aggregate_id
         || !['TRIAL_BALANCE','MONTHLY_PROFIT_LOSS'].includes(String(payload.kind))
@@ -713,16 +737,20 @@ async function dispatchProposal(env: Env, job: OutboxJob): Promise<void> {
   if (!payload.dispatchId || !payload.fileVersionId || !payload.recipient) {
     throw new OutboxError('INVALID_DISPATCH_PAYLOAD', 'The dispatch is missing its exact proposal artifact or recipient snapshot.');
   }
-  const approved = await env.DB.prepare(`SELECT pv.proposal_id,pv.revision,pv.mode,pv.team_cv_file_ids_json,pv.firm_credential_file_ids_json,pv.firm_portfolio_file_ids_json,p.current_version_id,e.version AS engagement_version,e.lifecycle_state,
+  const approved = await env.DB.prepare(`SELECT pv.proposal_id,pv.revision,pv.mode,pv.team_cv_file_ids_json,pv.firm_credential_file_ids_json,pv.firm_portfolio_file_ids_json,p.current_version_id,e.version AS engagement_version,e.lifecycle_state,e.active_proposal_version_id,
       a.approval_decision_id
     FROM proposal_versions pv JOIN proposals p ON p.workspace_id=pv.workspace_id AND p.id=pv.proposal_id
     JOIN engagements e ON e.workspace_id=pv.workspace_id AND e.client_id=pv.client_id AND e.id=pv.engagement_id
     JOIN proposal_approvals a ON a.workspace_id=pv.workspace_id AND a.proposal_version_id=pv.id AND a.decision='APPROVE'
     WHERE pv.workspace_id=? AND pv.id=? ORDER BY a.decided_at DESC,a.id DESC LIMIT 1`)
     .bind(job.workspace_id, payload.proposalVersionId)
-    .first<{ proposal_id: string; revision: number; mode: string; team_cv_file_ids_json: string; firm_credential_file_ids_json: string; firm_portfolio_file_ids_json: string; current_version_id: string; engagement_version: number; lifecycle_state: string; approval_decision_id: string }>();
-  if (!approved || approved.current_version_id !== payload.proposalVersionId || approved.lifecycle_state !== 'PROPOSAL_GENERATION') {
-    throw new OutboxError('STALE_APPROVED_PROPOSAL', 'Dispatch requires Partner approval of the current proposal revision while its engagement remains in proposal generation.');
+    .first<{ proposal_id: string; revision: number; mode: string; team_cv_file_ids_json: string; firm_credential_file_ids_json: string; firm_portfolio_file_ids_json: string; current_version_id: string; engagement_version: number; lifecycle_state: string; active_proposal_version_id: string | null; approval_decision_id: string }>();
+  const canStartTransition = approved?.lifecycle_state === 'PROPOSAL_GENERATION' && approved.active_proposal_version_id === null;
+  const canRecordFollowup = approved?.active_proposal_version_id === payload.proposalVersionId
+    && ['DUAL_KEY_PENDING', 'ADVANCE_BILLING', 'PORTAL_ACTIVE_PLANNING', 'FIELDWORK_EXECUTION',
+      'MANAGERIAL_REVIEW', 'PARTNER_APPROVAL', 'DELIVERABLE_RELEASE', 'COMPLIANCE_COUNTDOWN'].includes(approved.lifecycle_state);
+  if (!approved || approved.current_version_id !== payload.proposalVersionId || (!canStartTransition && !canRecordFollowup)) {
+    throw new OutboxError('STALE_APPROVED_PROPOSAL', 'Dispatch requires Partner approval of the current proposal revision and an engagement still linked to that revision.');
   }
   const primary = await exactFile(env, job.workspace_id, payload.fileVersionId);
   if (primary.metadata.purpose !== 'GENERATED' || primary.metadata.media_type !== 'application/pdf') {
@@ -806,8 +834,12 @@ async function dispatchProposal(env: Env, job: OutboxJob): Promise<void> {
             JOIN proposal_versions pv ON pv.workspace_id=p.workspace_id AND pv.id=p.current_version_id
             JOIN engagements e ON e.workspace_id=d.workspace_id AND e.client_id=d.client_id AND e.id=d.engagement_id
           WHERE d.workspace_id=? AND d.id=? AND d.job_id=? AND d.status='QUEUED' AND pv.id=?
-            AND e.version=? AND e.lifecycle_state='PROPOSAL_GENERATION') THEN 1 ELSE 0 END`)
-        .bind(job.workspace_id, job.workspace_id, payload.dispatchId, job.id, payload.proposalVersionId, approved.engagement_version),
+            AND ((e.version=? AND e.lifecycle_state='PROPOSAL_GENERATION' AND e.active_proposal_version_id IS NULL)
+              OR (e.active_proposal_version_id=? AND e.lifecycle_state IN
+                ('DUAL_KEY_PENDING','ADVANCE_BILLING','PORTAL_ACTIVE_PLANNING','FIELDWORK_EXECUTION',
+                  'MANAGERIAL_REVIEW','PARTNER_APPROVAL','DELIVERABLE_RELEASE','COMPLIANCE_COUNTDOWN')))) THEN 1 ELSE 0 END`)
+        .bind(job.workspace_id, job.workspace_id, payload.dispatchId, job.id, payload.proposalVersionId,
+          approved.engagement_version, payload.proposalVersionId),
       env.DB.prepare(`UPDATE outbox_jobs SET status='SUCCEEDED',provider_reference=?,result_json=?,last_error_code=NULL,completed_at=?,lease_until=NULL,updated_at=?,version=version+1
         WHERE workspace_id=? AND id=? AND status='RUNNING' AND lease_until=?`)
         .bind(providerMessageId, JSON.stringify({ dispatchId: payload.dispatchId, providerMessageId, status: 'ACCEPTED' }), acceptedAt, acceptedAt,
@@ -819,10 +851,13 @@ async function dispatchProposal(env: Env, job: OutboxJob): Promise<void> {
         WHERE workspace_id=? AND client_id=? AND id=? AND version=? AND lifecycle_state='PROPOSAL_GENERATION'`)
         .bind(payload.proposalVersionId, acceptedAt, job.workspace_id, payload.clientId, payload.engagementId, approved.engagement_version),
       env.DB.prepare(`INSERT INTO state_transitions(id,workspace_id,client_id,engagement_id,version,from_state,to_state,command_id,reason,dependency_hash,transitioned_at)
-        VALUES(?,?,?, ?,1,'PROPOSAL_GENERATION','DUAL_KEY_PENDING',?,?,?,?)`)
-        .bind(transitionId, job.workspace_id, payload.clientId, payload.engagementId, payload.commandId, reason, dependencyHash, acceptedAt)
+        SELECT ?,?,?,?,1,'PROPOSAL_GENERATION','DUAL_KEY_PENDING',?,?,?,? FROM engagements e
+        WHERE e.workspace_id=? AND e.client_id=? AND e.id=? AND e.version=? AND e.lifecycle_state='PROPOSAL_GENERATION'
+          AND e.active_proposal_version_id IS NULL`)
+        .bind(transitionId, job.workspace_id, payload.clientId, payload.engagementId, payload.commandId, reason, dependencyHash, acceptedAt,
+          job.workspace_id, payload.clientId, payload.engagementId, approved.engagement_version)
     ],
-    result: { dispatchId: payload.dispatchId, providerMessageId, status: 'ACCEPTED', transitionId }
+    result: { dispatchId: payload.dispatchId, providerMessageId, status: 'ACCEPTED', transitionId: canStartTransition ? transitionId : null }
   });
 }
 
@@ -917,6 +952,66 @@ async function dispatchCommercial(env: Env, job: OutboxJob): Promise<void> {
   });
 }
 
+async function dispatchPublicLeadNotification(env: Env, job: OutboxJob, payload: Record<string, any>): Promise<void> {
+  if (payload.documentType !== 'PUBLIC_LEAD_NOTIFICATION' || typeof payload.submissionId !== 'string'
+    || payload.submissionId !== job.aggregate_id) {
+    throw new OutboxError('INVALID_PUBLIC_LEAD_NOTIFICATION', 'The public inquiry notification job is invalid.');
+  }
+  const recipient = env.PUBLIC_LEAD_NOTIFICATION_EMAIL?.trim().toLocaleLowerCase();
+  if (!recipient || !/^\S+@\S+\.\S+$/.test(recipient)) {
+    throw new OutboxError('PUBLIC_LEAD_NOTIFICATION_NOT_CONFIGURED', 'Configure a valid public inquiry notification destination before processing this job.');
+  }
+  const submission = await env.DB.prepare(`SELECT company_name,contact_name,email_normalized,phone,service_interest,message,created_at
+    FROM public_lead_submissions WHERE workspace_id=? AND id=?`)
+    .bind(job.workspace_id, payload.submissionId)
+    .first<{ company_name: string; contact_name: string; email_normalized: string; phone: string | null;
+      service_interest: string | null; message: string | null; created_at: string }>();
+  if (!submission) throw new OutboxError('PUBLIC_LEAD_NOT_FOUND', 'The inquiry for this notification no longer exists.');
+  if (!env.EMAIL_PROVIDER) throw new OutboxError('EMAIL_PROVIDER_NOT_CONFIGURED', 'Configure the EMAIL_PROVIDER service binding before sending inquiry notifications.');
+
+  const lines = [
+    'A new website inquiry was received by AuditSphere.',
+    '',
+    `Company: ${submission.company_name}`,
+    `Contact: ${submission.contact_name}`,
+    `Email: ${submission.email_normalized}`,
+    `Phone: ${submission.phone ?? 'Not provided'}`,
+    `Service interest: ${submission.service_interest ?? 'Not specified'}`,
+    `Received: ${submission.created_at}`,
+    ...(submission.message ? ['', 'Message:', submission.message] : [])
+  ];
+  const form = new FormData();
+  form.set('message', JSON.stringify({ to: recipient, routeId: payload.submissionId,
+    recipientSha256: await emailRecipientSha256(recipient), subject: 'New AuditSphere website inquiry',
+    text: lines.join('\n'), purpose: 'PUBLIC_LEAD_NOTIFICATION' }));
+  let response: Response;
+  try {
+    response = await env.EMAIL_PROVIDER.fetch(new Request('https://email-provider.local/send', {
+      method: 'POST', headers: { 'Idempotency-Key': job.deduplication_key }, body: form
+    }));
+  } catch {
+    throw new OutboxError('EMAIL_PROVIDER_OUTCOME_UNKNOWN', 'The inquiry notification provider connection ended without a verifiable outcome.', 'UNKNOWN');
+  }
+  if (response.status === 408 || response.status === 429) {
+    throw new OutboxError(`EMAIL_PROVIDER_HTTP_${response.status}`, 'The provider asked to retry the inquiry notification.', 'RETRY');
+  }
+  if (response.status >= 500) {
+    throw new OutboxError(`EMAIL_PROVIDER_HTTP_${response.status}`, 'The provider outcome for the inquiry notification is unknown.', 'UNKNOWN');
+  }
+  if (!response.ok) throw new OutboxError(`EMAIL_PROVIDER_HTTP_${response.status}`, 'The provider rejected the inquiry notification.');
+  const { providerMessageId, status: deliveryStatus } = await readEmailProviderOutcome(response);
+  const completedAt = nowIso();
+  await commitJobMutation(env, job, {
+    entityType: 'PUBLIC_LEAD_SUBMISSION', entityId: payload.submissionId,
+    details: { jobId: job.id, providerMessageId, status: deliveryStatus },
+    result: { providerMessageId, status: deliveryStatus },
+    statements: [env.DB.prepare(`UPDATE outbox_jobs SET status='SUCCEEDED',provider_reference=?,result_json=?,last_error_code=NULL,
+      completed_at=?,lease_until=NULL,updated_at=?,version=version+1 WHERE workspace_id=? AND id=? AND status='RUNNING' AND lease_until=?`)
+      .bind(providerMessageId, JSON.stringify({ providerMessageId, status: deliveryStatus }), completedAt, completedAt,
+        job.workspace_id, job.id, job.lease_until)]
+  });
+}
+
 interface JobMutation {
   entityType: string;
   entityId: string;
@@ -1001,6 +1096,8 @@ async function recordJobFailure(env: Env, job: OutboxJob, error: unknown): Promi
   const dispatchStatus = disposition === 'UNKNOWN' ? 'UNKNOWN' : disposition === 'FAIL' ? 'FAILED' : null;
   const dispatchId = job.kind === 'EMAIL' && typeof payload.dispatchId === 'string' ? payload.dispatchId : null;
   const documentType = typeof payload.documentType === 'string' ? payload.documentType : null;
+  const publicLeadSubmissionId = documentType === 'PUBLIC_LEAD_NOTIFICATION' && typeof payload.submissionId === 'string'
+    ? payload.submissionId : null;
   let archiveMissingFiles: string[] = [];
   if (failure.code === 'ARCHIVE_INCOMPLETE') {
     try { archiveMissingFiles = JSON.parse(failure.message.replace(/^ARCHIVE_INCOMPLETE:/, '')) as string[]; }
@@ -1017,8 +1114,10 @@ async function recordJobFailure(env: Env, job: OutboxJob, error: unknown): Promi
                   : documentType === 'BUNDLE_CANDIDATE' && typeof payload.bundleCandidateId === 'string' ? { type: 'BUNDLE_CANDIDATE', id: payload.bundleCandidateId }
                   : documentType === 'SEAL_ARCHIVE' && typeof payload.archiveRunId === 'string' ? { type: 'ARCHIVE_RUN', id: payload.archiveRunId }
                     : documentType === 'PRACTICE_REPORT' && typeof payload.reportSnapshotId === 'string' ? { type: 'FIRM_REPORT_SNAPSHOT', id: payload.reportSnapshotId } : null;
-  const failureEntityType = job.kind === 'IMPORT_TB' ? 'TB_IMPORT' : job.kind === 'EMAIL' ? 'DISPATCH' : documentEntity?.type ?? 'PROPOSAL_VERSION';
-  const failureEntityId = dispatchId ?? documentEntity?.id ?? job.aggregate_id;
+  const failureEntityType = job.kind === 'IMPORT_TB' ? 'TB_IMPORT'
+    : publicLeadSubmissionId ? 'PUBLIC_LEAD_SUBMISSION'
+      : job.kind === 'EMAIL' ? 'DISPATCH' : documentEntity?.type ?? 'PROPOSAL_VERSION';
+  const failureEntityId = publicLeadSubmissionId ?? dispatchId ?? documentEntity?.id ?? job.aggregate_id;
   await commitJobMutation(env, job, {
     entityType: failureEntityType,
     entityId: failureEntityId,
@@ -1063,8 +1162,11 @@ async function markExpiredEmailUnknown(env: Env, candidate: { id: string; worksp
   if (!job) return;
   const payload = parseRawPayload(job);
   const now = nowIso();
+  const isPublicLeadNotification = payload.documentType === 'PUBLIC_LEAD_NOTIFICATION'
+    && typeof payload.submissionId === 'string';
   await commitJobMutation(env, job, {
-    entityType: 'DISPATCH', entityId: typeof payload.dispatchId === 'string' ? payload.dispatchId : job.aggregate_id,
+    entityType: isPublicLeadNotification ? 'PUBLIC_LEAD_SUBMISSION' : 'DISPATCH',
+    entityId: isPublicLeadNotification ? payload.submissionId : typeof payload.dispatchId === 'string' ? payload.dispatchId : job.aggregate_id,
     clientId: payload.clientId, engagementId: payload.engagementId,
     details: { jobId: job.id, status: 'UNKNOWN', errorCode: 'EMAIL_PROVIDER_OUTCOME_UNKNOWN',
       errorMessage: 'The Worker stopped after the provider call began. Reconcile the provider record before any retry.' },
@@ -1115,7 +1217,8 @@ export async function processBusinessOutbox(env: Env, limit = 20): Promise<numbe
           if(!reportingHandled)await renderAndStoreCommercialDocument(env,job);
         }
         else await renderAndStoreProposal(env, job);
-      } else if (payload.documentType === 'COMMERCIAL_EMAIL') await dispatchCommercial(env, job);
+      } else if (payload.documentType === 'PUBLIC_LEAD_NOTIFICATION') await dispatchPublicLeadNotification(env, job, payload);
+      else if (payload.documentType === 'COMMERCIAL_EMAIL') await dispatchCommercial(env, job);
       else await dispatchProposal(env, job);
       processed += 1;
     } catch (error) {

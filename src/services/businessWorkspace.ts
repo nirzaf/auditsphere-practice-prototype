@@ -32,7 +32,9 @@ import type {
   BusinessWorkspaceBootstrapRequest,
   BusinessWorkspaceBootstrapResponse,
   BusinessWorkspacePreference,
-  BusinessWorkspaceSummary
+  BusinessWorkspaceSummary,
+  PublicLeadSubmission,
+  PublicLeadStatus
 } from '../shared/api/business';
 
 const STORAGE_KEY = 'auditsphere.business-context.v1';
@@ -287,6 +289,19 @@ export async function getBusinessLeads(
   const query = new URLSearchParams({ limit: String(options.limit ?? 100) });
   if (options.cursor) query.set('cursor', options.cursor);
   return requestJson(`/api/workspaces/${encodeURIComponent(workspaceId)}/leads?${query}`, { context: selected, signal: options.signal });
+}
+
+export async function getPublicLeadSubmissions(
+  workspaceId: string,
+  selected: BusinessWorkspacePreference,
+  status?: PublicLeadStatus,
+  signal?: AbortSignal
+): Promise<PublicLeadSubmission[]> {
+  const query = status ? `?status=${encodeURIComponent(status)}` : '';
+  const result = await requestJson<{ items: PublicLeadSubmission[] }>(
+    `/api/workspaces/${encodeURIComponent(workspaceId)}/public-lead-submissions${query}`, { context: selected, signal }
+  );
+  return result.items;
 }
 
 export async function getBusinessStandardsProfiles(
@@ -692,7 +707,8 @@ export async function runBusinessCommand<T = Record<string, unknown>>(
       : value.type === 'actor-profile.deactivate' ? { entity: 'ActorProfile', id: payload.actorProfileId }
         : value.type === 'client.update' || value.type === 'client.deactivate' ? { entity: 'Client', id: payload.clientId }
           : value.type === 'contact.update' ? { entity: 'Contact', id: payload.contactId }
-            : value.type === 'lead.update' || value.type === 'lead.lose' || value.type === 'lead.convert' ? { entity: 'Lead', id: payload.leadId }
+            : value.type === 'publicLead.triage' ? { entity: 'PublicLeadSubmission', id: payload.submissionId }
+              : value.type === 'lead.update' || value.type === 'lead.lose' || value.type === 'lead.convert' ? { entity: 'Lead', id: payload.leadId }
               : value.type === 'engagement.advance' ? { entity: 'Engagement', id: payload.engagementId }
             : value.type === 'team-cv.approve' ? { entity: 'TeamCv', id: payload.teamCvId }
                 : value.type === 'pbc.submit' || value.type === 'pbc.review' ? { entity: 'PbcRequest', id: payload.requestId }

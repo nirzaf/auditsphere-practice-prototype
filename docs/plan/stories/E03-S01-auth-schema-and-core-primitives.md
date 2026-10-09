@@ -1,5 +1,7 @@
 # E03-S01 — Auth schema (0045) and `worker/auth` core primitives
 
+> **Retired scope:** the current user-provided real-implementation epic explicitly excludes application authentication, accounts, passwords, sessions, and RBAC. This historical E03 story is not an active requirement. Do not implement it unless the user authorizes a new scope.
+
 | ID | Epic | Type | Priority | Size | Depends on | Spec trace |
 |---|---|---|---|---|---|---|
 | E03-S01 | E03 Identity & access | Feature | P0 | M | SP-01 complete; ADR-0005 Accepted | §1.2; NFR SEC-04, SEC-05 |

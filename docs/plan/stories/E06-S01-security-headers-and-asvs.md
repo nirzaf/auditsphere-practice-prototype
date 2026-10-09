@@ -7,6 +7,12 @@
 ## Intent
 Harden the app shell against XSS/clickjacking and record a structured security self-assessment before real data.
 
+## Implementation progress
+- App-shell and asset responses now set the CSP, production-only HSTS, frame denial, COOP, and minimal Permissions-Policy. The CSP retains `style-src 'unsafe-inline'` because the BUSINESS UI has a React inline `whiteSpace` style in `BusinessReportingPanel.tsx`; blob frames are allowed for the hash-verified report preview.
+- API response finalization enforces `Cache-Control: no-store` and `X-Content-Type-Options: nosniff`, including directly constructed auth responses.
+- `tests/unit/securityHeaders.test.ts` covers `/`, a hashed asset URL, production-only HSTS, and `/api/health/live`.
+- Remaining acceptance: E2E CSP-violation sweep across business panels and auth pages, and the full OWASP ASVS 4.0.3 L2 checklist. This story is not complete until both are evidenced.
+
 ## Read first
 - `worker/index.ts` static-asset branch (sets only `X-Content-Type-Options`, `Referrer-Policy`)
 - `worker/http.ts` `baseHeaders` (API responses), `worker/business.ts:2605` (file download CSP `default-src 'none'; sandbox` — keep)

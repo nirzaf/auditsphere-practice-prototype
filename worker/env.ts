@@ -48,13 +48,18 @@ export interface Env {
   SHAREPOINT_DRIVE_NAME?: string;
   /** Optional sender mailbox used when dispatching through Microsoft Graph instead of Email Routing. */
   SHAREPOINT_SENDER_MAILBOX?: string;
-  /** Microsoft Entra OIDC configuration; the client secret is supplied as a Worker secret. */
-  OIDC_TENANT_ID?: string;
-  OIDC_CLIENT_ID?: string;
-  OIDC_CLIENT_SECRET?: string;
-  OIDC_REDIRECT_URI?: string;
   /** Cloudflare Turnstile verification secret for public lead intake. */
   TURNSTILE_SECRET_KEY?: string;
+  /** HMAC key used to store salted hashes of public lead requester IPs. */
+  PUBLIC_LEAD_IP_HASH_SECRET?: string;
+  /** Default two-letter firm jurisdiction for prospect records from the public form. */
+  PUBLIC_LEAD_DEFAULT_COUNTRY_CODE?: string;
+  /** Optional notification destination for new public inquiries; disabled when unset. */
+  PUBLIC_LEAD_NOTIFICATION_EMAIL?: string;
+  /** Optional fixed workspace target; omitted only when exactly one active BUSINESS workspace exists. */
+  PUBLIC_LEAD_WORKSPACE_ID?: string;
+  /** Comma-separated exact origins allowed to post from a firm's marketing site. */
+  PUBLIC_LEAD_ALLOWED_ORIGINS?: string;
   /** Comma-separated allowed origins. Same-origin deployments need not list one. */
   ALLOWED_ORIGINS?: string;
   ENVIRONMENT?: string;
@@ -65,6 +70,6 @@ export interface Env {
   VERIFICATION_INGEST_TOKEN?: string;
   /** Fixed workspace scope for trusted CI metadata; never supplied by the caller. */
   VERIFICATION_INGEST_WORKSPACE_ID?: string;
-  /** Optional Cloudflare Worker Rate Limiting binding. */
+  /** General Worker rate limiting for command and workspace request buckets. */
   RATE_LIMITER?: RateLimiterBinding;
 }

@@ -1,5 +1,7 @@
 # E03-S08 — Auth UI; own-profile switcher; remove self-selection, setup/connect and actor headers
 
+> **Retired scope:** the current user-provided real-implementation epic explicitly excludes application authentication, accounts, passwords, sessions, and RBAC. This historical E03 story is not an active requirement. Do not implement it unless the user authorizes a new scope.
+
 | ID | Epic | Type | Priority | Size | Depends on | Spec trace |
 |---|---|---|---|---|---|---|
 | E03-S08 | E03 | Feature + Cleanup | P0 | L (split UI / API-removal if needed) | E03-S05, E03-S06 | §1.2; ADR-0005, ADR-0008; api-delta §2 final phase |

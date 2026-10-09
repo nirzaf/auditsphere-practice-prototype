@@ -8,9 +8,6 @@ import * as XLSX from 'xlsx';
 import worker, { businessCommandHttpResult } from '../../worker/index.js';
 import { criticalConfirmationBlockers, queueHoldingLetterForBlockers } from '../../worker/businessFieldwork.js';
 import { SqliteD1 } from '../helpers/sqliteD1.js';
-import { authSessionCookie } from '../helpers/authSession.js';
-import { verifyPassword } from '../../worker/auth/passwords.js';
-import { preparePortalCredentialProvisioning } from '../../worker/businessPortalCredentials.js';
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 
@@ -133,17 +130,6 @@ const env = {
   PUBLIC_APP_URL: 'https://local.auditsphere.test'
 } as any;
 
-async function testFetch(request: Request, requestEnv = env, executionContext = {} as any): Promise<Response> {
-  const workspaceId = new URL(request.url).pathname.match(/^\/api\/workspaces\/([^/?]+)/)?.[1];
-  if (workspaceId && !request.headers.has('Cookie')) {
-    const actorId = request.headers.get('X-Actor-Id') ?? undefined;
-    const headers = new Headers(request.headers);
-    headers.set('Cookie', await authSessionCookie(db, workspaceId, actorId));
-    request = new Request(request, { headers });
-  }
-  return worker.fetch(request, requestEnv, executionContext);
-}
-
 after(() => db.close());
 
 async function call(path: string, options: {
@@ -201,14 +187,12 @@ async function call(path: string, options: {
     };
   }
   if (options.payload !== undefined) headers.set('Content-Type', 'application/json');
-  const workspaceId = path.match(/^\/api\/workspaces\/([^/?]+)/)?.[1];
-  if (workspaceId) headers.set('Cookie', await authSessionCookie(db as any, workspaceId, headers.get('X-Actor-Id') ?? undefined));
   const request = new Request(`https://local.auditsphere.test${path}`, {
     method,
     headers,
     ...(options.payload === undefined ? {} : { body: JSON.stringify(payload) })
   });
-  const response = await testFetch(request, env, {} as any);
+  const response = await worker.fetch(request, env, {} as any);
   return { response, body: await response.json() };
 }
 
@@ -222,13 +206,13 @@ it('bootstraps a no-session BUSINESS workspace, records manual dispatch and main
   const ready = await call('/api/health/ready');
   assert.equal(ready.response.status, 200, JSON.stringify(ready.body));
   assert.equal(ready.body.status, 'ready');
-  assert.equal(ready.body.schemaVersion, 50);
+  assert.equal(ready.body.schemaVersion, 51);
   assert.deepEqual(ready.body.dependencyCodes, []);
   const supportBundle = await call('/api/health/support-bundle');
   assert.equal(supportBundle.response.status, 200);
   assert.match(supportBundle.response.headers.get('content-disposition') ?? '', /attachment; filename="auditsphere-support-bundle.json"/);
-  assert.equal(supportBundle.body.applicationSchemaVersion, 50);
-  assert.equal(supportBundle.body.installedSchemaVersion, 50);
+  assert.equal(supportBundle.body.applicationSchemaVersion, 51);
+  assert.equal(supportBundle.body.installedSchemaVersion, 51);
   assert.equal(supportBundle.body.readiness, 'ready');
   assert.deepEqual(supportBundle.body.verificationRuns, []);
   assert.equal(JSON.stringify(supportBundle.body).includes('workspaceId'), false);
@@ -323,7 +307,7 @@ it('bootstraps a no-session BUSINESS workspace, records manual dispatch and main
   const approverContext = await call(`/api/workspaces/${workspaceId}/context`, { headers: approverHeaders });
   assert.equal(approverContext.response.status, 200, JSON.stringify(approverContext.body));
   assert.deepEqual(approverContext.body.allowedActions, [
-    'directory.manage', 'client.read', 'client.manage', 'lead.read', 'lead.manage', 'lead.convert', 'engagement.read', 'engagement.advance', 'standards.read', 'standards.manage', 'file.read', 'file.upload', 'proposal.read', 'proposal.create', 'proposal.generate', 'proposal.approve', 'proposal.dispatch', 'firm.manage', 'risk.read', 'riskAssessment.draft', 'riskAssessment.submit', 'riskAssessment.resolveEscalation', 'risk.clear', 'commercialAcceptance.read', 'engagementLetter.manage', 'invoice.issue', 'payment.record', 'payment.reverse', 'billing.read', 'pbc.read', 'pbc.manage', 'pbc.review', 'planning.read', 'staffing.manage', 'tb.manage', 'fieldwork.read', 'fieldwork.manage', 'fieldwork.review', 'sampling.manage', 'evidence.review', 'practice.read', 'practice.manage', 'practice.approve', 'ledger.read', 'ledger.manage', 'ledger.post', 'reporting.read', 'reporting.prepare', 'reporting.approve', 'reporting.release', 'firm.admin'
+    'directory.manage', 'client.read', 'client.manage', 'lead.read', 'lead.manage', 'lead.convert', 'engagement.read', 'engagement.advance', 'standards.read', 'standards.manage', 'file.read', 'file.upload', 'proposal.read', 'proposal.create', 'proposal.generate', 'proposal.approve', 'proposal.dispatch', 'firm.manage', 'risk.read', 'riskAssessment.draft', 'riskAssessment.submit', 'riskAssessment.resolveEscalation', 'risk.clear', 'commercialAcceptance.read', 'engagementLetter.manage', 'invoice.issue', 'payment.record', 'payment.reverse', 'billing.read', 'pbc.read', 'pbc.manage', 'pbc.review', 'planning.read', 'staffing.manage', 'tb.manage', 'fieldwork.read', 'fieldwork.manage', 'fieldwork.review', 'sampling.manage', 'evidence.review', 'practice.read', 'practice.manage', 'practice.approve', 'ledger.read', 'ledger.manage', 'ledger.post', 'reporting.read', 'reporting.prepare', 'reporting.approve', 'reporting.release'
   ]);
 
   const staffKey = crypto.randomUUID();
@@ -745,12 +729,11 @@ it('bootstraps a no-session BUSINESS workspace, records manual dispatch and main
       method: 'PUT',
       headers: {
         Origin: 'https://local.auditsphere.test', ...preparerHeaders, 'Idempotency-Key': idempotencyKey,
-        'X-File-Version': '1', 'Content-Type': 'application/pdf',
-        Cookie: await authSessionCookie(db, workspaceId, preparerHeaders['X-Actor-Id'])
+        'X-File-Version': '1', 'Content-Type': 'application/pdf'
       },
       body: bytes
     });
-    const response = await testFetch(uploadRequest, env, {} as any);
+    const response = await worker.fetch(uploadRequest, env, {} as any);
     return { response, body: await response.json() };
   };
   const disguisedBytes = new Uint8Array(pdf.length);
@@ -795,7 +778,7 @@ it('bootstraps a no-session BUSINESS workspace, records manual dispatch and main
   assert.equal(listedFiles.response.status, 200, JSON.stringify(listedFiles.body));
   assert.equal(listedFiles.body.files.length, 1);
   assert.equal(listedFiles.body.files[0].id, fileId);
-  const download = await testFetch(new Request(`https://local.auditsphere.test/api/workspaces/${workspaceId}/files/${fileId}`, { headers: preparerHeaders }), env, {} as any);
+  const download = await worker.fetch(new Request(`https://local.auditsphere.test/api/workspaces/${workspaceId}/files/${fileId}`, { headers: preparerHeaders }), env, {} as any);
   assert.equal(download.status, 200);
   assert.deepEqual(new Uint8Array(await download.arrayBuffer()), pdf, 'download returns the verified committed bytes');
   const otherClientFile = await call(`/api/workspaces/${workspaceId}/files/${crypto.randomUUID()}/metadata`, { headers: preparerHeaders });
@@ -859,7 +842,7 @@ it('bootstraps a no-session BUSINESS workspace, records manual dispatch and main
       purpose: 'TEMPLATE', originalName, mediaType: 'application/pdf', sizeBytes: bytes.length
     }, { ...approverHeaders, 'Idempotency-Key': crypto.randomUUID() });
     assert.equal(reservation.response.status, 201, JSON.stringify(reservation.body));
-    const staged = await testFetch(new Request(`https://local.auditsphere.test/api/workspaces/${workspaceId}/files/${reservation.body.fileId}/content`, {
+    const staged = await worker.fetch(new Request(`https://local.auditsphere.test/api/workspaces/${workspaceId}/files/${reservation.body.fileId}/content`, {
       method: 'PUT', headers: { Origin: 'https://local.auditsphere.test', ...approverHeaders, 'Idempotency-Key': crypto.randomUUID(),
         'X-File-Version': '1', 'Content-Type': 'application/pdf' }, body: bytes
     }), env, {} as any);
@@ -905,7 +888,7 @@ it('bootstraps a no-session BUSINESS workspace, records manual dispatch and main
     purpose: 'TEMPLATE', originalName: 'approved-partner-cv.pdf', mediaType: 'application/pdf', sizeBytes: cvBytes.length
   }, { ...approverHeaders, 'Idempotency-Key': crypto.randomUUID() });
   assert.equal(cvReservation.response.status, 201, JSON.stringify(cvReservation.body));
-  const cvUpload = await testFetch(new Request(`https://local.auditsphere.test/api/workspaces/${workspaceId}/files/${cvReservation.body.fileId}/content`, {
+  const cvUpload = await worker.fetch(new Request(`https://local.auditsphere.test/api/workspaces/${workspaceId}/files/${cvReservation.body.fileId}/content`, {
     method: 'PUT', headers: { Origin: 'https://local.auditsphere.test', ...approverHeaders, 'Idempotency-Key': crypto.randomUUID(), 'X-File-Version': '1', 'Content-Type': 'application/pdf' }, body: cvBytes
   }), env, {} as any);
   const cvStaged = await cvUpload.json() as any;
@@ -968,7 +951,7 @@ it('bootstraps a no-session BUSINESS workspace, records manual dispatch and main
   assert.ok(generatedFile.sha256 && generatedFile.size_bytes > 500);
   assert.equal(db.prepare(`SELECT COUNT(*) AS count FROM proposal_artifacts WHERE workspace_id=? AND proposal_version_id=?`)
     .bind(workspaceId, revisedProposal.body.result.proposalVersionId).first<any>()?.count, 1);
-  const downloadedProposal = await testFetch(new Request(`https://local.auditsphere.test/api/workspaces/${workspaceId}/files/${generatedJob.result_file_id}`, {
+  const downloadedProposal = await worker.fetch(new Request(`https://local.auditsphere.test/api/workspaces/${workspaceId}/files/${generatedJob.result_file_id}`, {
     headers: { Origin: 'https://local.auditsphere.test', ...reviewerHeaders }
   }), env, {} as any);
   const downloadedBytes = new Uint8Array(await downloadedProposal.arrayBuffer());
@@ -1104,7 +1087,6 @@ it('bootstraps a no-session BUSINESS workspace, records manual dispatch and main
   let deliveredAttachments = 0;
   let deliveredAttachmentNames: string[] = [];
   const deliveredRecipients: string[] = [];
-  const deliveredPortalMessages: Array<{ to: string; subject: string; text: string; purpose: string }> = [];
   let emailProviderMessageSequence = 0;
   env.EMAIL_PROVIDER = { fetch: async (request: Request) => {
     const form = await request.formData();
@@ -1112,13 +1094,8 @@ it('bootstraps a no-session BUSINESS workspace, records manual dispatch and main
     assert.match(message.to, /^[^@]+@example\.invalid$/);
     deliveredRecipients.push(message.to);
     const files = form.getAll('attachment').filter((item): item is File => typeof item !== 'string');
-    if (message.purpose === 'PORTAL_CREDENTIALS' || message.purpose === 'PORTAL_ACCESS_NOTICE') {
-      assert.equal(files.length, 0, 'portal credentials are never written into a document attachment');
-      deliveredPortalMessages.push(message);
-    } else {
-      deliveredAttachments = files.length;
-      deliveredAttachmentNames = files.map(file => file.name);
-    }
+    deliveredAttachments = files.length;
+    deliveredAttachmentNames = files.map(file => file.name);
     assert.ok(request.headers.get('Idempotency-Key'));
     emailProviderMessageSequence += 1;
     return Response.json({ messageId: `local-provider-message-${emailProviderMessageSequence}` }, { status: 202 });
@@ -1403,7 +1380,7 @@ it('bootstraps a no-session BUSINESS workspace, records manual dispatch and main
       { ...headers, 'Idempotency-Key': crypto.randomUUID() });
     assert.equal(reservation.response.status, 201, JSON.stringify(reservation.body));
     const fileId = reservation.body.fileId as string;
-    const staged = await testFetch(new Request(`https://local.auditsphere.test/api/workspaces/${workspaceId}/files/${fileId}/content`, {
+    const staged = await worker.fetch(new Request(`https://local.auditsphere.test/api/workspaces/${workspaceId}/files/${fileId}/content`, {
       method: 'PUT', headers: { Origin: 'https://local.auditsphere.test', ...headers, 'Idempotency-Key': crypto.randomUUID(), 'X-File-Version': '1', 'Content-Type': mediaType }, body: bytes
     }), env, {} as any);
     const stagedBody = await staged.json() as any;
@@ -1469,7 +1446,7 @@ it('bootstraps a no-session BUSINESS workspace, records manual dispatch and main
   const renderedDraft = renderedDelivery.body.letterDrafts.find((draft: any) => draft.id === generatedLetter.body.result.draftId);
   assert.equal(renderedDraft?.status, 'SUCCEEDED', JSON.stringify(renderedDraft));
   assert.ok(renderedDraft.fileVersionId);
-  const renderedLetterFile = await testFetch(new Request(`https://local.auditsphere.test/api/workspaces/${workspaceId}/files/${renderedDraft.fileVersionId}`, { headers: makeRiskHeaders(approverHeaders) }), env, {} as any);
+  const renderedLetterFile = await worker.fetch(new Request(`https://local.auditsphere.test/api/workspaces/${workspaceId}/files/${renderedDraft.fileVersionId}`, { headers: makeRiskHeaders(approverHeaders) }), env, {} as any);
   const renderedLetterBytes = new Uint8Array(await renderedLetterFile.arrayBuffer());
   assert.equal(renderedLetterFile.status, 200);
   assert.equal(new TextDecoder().decode(renderedLetterBytes.slice(0, 8)), '%PDF-1.3', 'the approved clause and actual PNG assets produced a PDF');
@@ -1534,7 +1511,7 @@ it('bootstraps a no-session BUSINESS workspace, records manual dispatch and main
   assert.ok(issuedInvoice?.fileVersionId);
   assert.equal(issuedInvoice?.dueDate, '2099-12-31');
   assert.equal(issuedInvoice?.totalMinor, '125001');
-  const invoiceFile = await testFetch(new Request(`https://local.auditsphere.test/api/workspaces/${workspaceId}/files/${issuedInvoice.fileVersionId}`,
+  const invoiceFile = await worker.fetch(new Request(`https://local.auditsphere.test/api/workspaces/${workspaceId}/files/${issuedInvoice.fileVersionId}`,
     { headers: makeRiskHeaders(reviewerHeaders) }), env, {} as any);
   assert.equal(invoiceFile.status, 200);
   const invoicePdfBytes = new Uint8Array(await invoiceFile.arrayBuffer());
@@ -1614,7 +1591,7 @@ it('bootstraps a no-session BUSINESS workspace, records manual dispatch and main
   const partialPaymentRecord = partialPaymentView.body.payments.find((payment: any) => payment.id === partialPayment.body.result.paymentId);
   assert.equal(partialPaymentRecord.receiptStatus, 'ISSUED');
   assert.ok(partialPaymentRecord.receiptFileId, 'payment verification commits an actual receipt PDF');
-  const receiptFile = await testFetch(new Request(`https://local.auditsphere.test/api/workspaces/${workspaceId}/files/${partialPaymentRecord.receiptFileId}`,
+  const receiptFile = await worker.fetch(new Request(`https://local.auditsphere.test/api/workspaces/${workspaceId}/files/${partialPaymentRecord.receiptFileId}`,
     { headers: makeRiskHeaders(reviewerHeaders) }), env, {} as any);
   assert.equal(receiptFile.status, 200);
   const receiptPdfBytes = new Uint8Array(await receiptFile.arrayBuffer());
@@ -1661,21 +1638,6 @@ it('bootstraps a no-session BUSINESS workspace, records manual dispatch and main
   assert.equal(reversedView.body.payments.find((payment: any) => payment.id === reversedPayment.body.result.paymentId).reversal, true);
   assert.deepEqual((await readWorkflowStage('ADVANCE_BILLING')).blockers.map((item: any) => item.code), ['ADVANCE_PAYMENT_UNSETTLED'],
     'a payment reversal restores the advance-billing blocker');
-  const portalRouteFixture = db.prepare(`SELECT cr.id,cr.version,cr.purpose,cr.is_primary,ct.id AS contact_id,ct.version AS contact_version,
-      ct.role,ct.active,ct.email,c.active AS client_active FROM contact_routes cr
-    JOIN contacts ct ON ct.workspace_id=cr.workspace_id AND ct.client_id=cr.client_id AND ct.id=cr.contact_id
-    JOIN clients c ON c.workspace_id=cr.workspace_id AND c.id=cr.client_id
-    WHERE cr.workspace_id=? AND cr.client_id=? AND cr.purpose='PBC'`)
-    .bind(workspaceId, clientId).all<any>().results;
-  assert.equal(portalRouteFixture?.length, 1);
-  assert.deepEqual({ purpose: portalRouteFixture?.[0]?.purpose, primary: portalRouteFixture?.[0]?.is_primary,
-    role: portalRouteFixture?.[0]?.role, active: portalRouteFixture?.[0]?.active, hasEmail: Boolean(portalRouteFixture?.[0]?.email),
-    clientActive: portalRouteFixture?.[0]?.client_active },
-  { purpose: 'PBC', primary: 1, role: 'CHIEF_ACCOUNTANT_LIAISON', active: 1, hasEmail: true, clientActive: 1 },
-  `the PBC Audit Liaison route is fully eligible for portal provisioning: ${JSON.stringify(portalRouteFixture)}`);
-  db.prepare(`UPDATE user_accounts SET password_must_change=1,version=version+1
-    WHERE workspace_id=? AND contact_id=? AND kind='CLIENT' AND status='ACTIVE'`)
-    .bind(workspaceId, pbcContactId).run();
   const settlement = await post(`/api/workspaces/${workspaceId}/commands`, {
     idempotencyKey: crypto.randomUUID(), command: { type: 'payment.record', payload: {
       clientId, engagementId, amountMinor: '125001', receivedOn: '2026-10-05', method: 'BANK_TRANSFER', reference: 'BANK-LOCAL-SETTLEMENT',
@@ -1687,195 +1649,6 @@ it('bootstraps a no-session BUSINESS workspace, records manual dispatch and main
   const settledView = await call(deliveryPath, { headers: makeRiskHeaders(reviewerHeaders) });
   assert.equal(settledView.body.engagement.lifecycleState, 'PORTAL_ACTIVE_PLANNING', 'planning unlocks only when the full advance and committed final receipt exist');
   assert.equal(settledView.body.invoices.find((invoice: any) => invoice.id === issuedInvoice.id).outstandingMinor, '0');
-  assert.deepEqual(deliveredPortalMessages, [], 'credential delivery is queued atomically with the receipt transition and runs in the next outbox pass');
-  const credentialJobLogs: string[] = [];
-  const mutableConsole = console as unknown as Record<string, (...args: unknown[]) => void>;
-  const savedConsoleMethods = new Map<string, (...args: unknown[]) => void>();
-  for (const method of ['log', 'info', 'warn', 'error']) {
-    savedConsoleMethods.set(method, mutableConsole[method]);
-    mutableConsole[method] = (...args) => credentialJobLogs.push(args.map(value => typeof value === 'string' ? value : JSON.stringify(value)).join(' '));
-  }
-  try {
-    await worker.scheduled({ scheduledTime: Date.now(), cron: '*/5 * * * *' } as any, env);
-  } finally {
-    for (const [method, original] of savedConsoleMethods) mutableConsole[method] = original;
-  }
-  const portalJobStates = db.prepare(`SELECT status,last_error_code FROM outbox_jobs WHERE workspace_id=?
-    AND json_extract(payload_json,'$.documentType')='PORTAL_CREDENTIALS' AND json_extract(payload_json,'$.engagementId')=?`)
-    .bind(workspaceId, engagementId).all<any>().results;
-  assert.equal(deliveredPortalMessages.length, 1, `settling the advance sends one Audit Liaison portal credential email; jobs=${JSON.stringify(portalJobStates)}, logs=${credentialJobLogs.join('|')}`);
-  const portalEmail = deliveredPortalMessages[0];
-  assert.equal(portalEmail.purpose, 'PORTAL_CREDENTIALS');
-  assert.equal(portalEmail.to, 'chief-accountant@example.invalid');
-  assert.match(portalEmail.text, /Portal: https:\/\/local\.auditsphere\.test/);
-  assert.match(portalEmail.text, /Login email: chief-accountant@example\.invalid/);
-  assert.match(portalEmail.text, /Temporary password: [A-Za-z0-9!@#$%]{24}/);
-  assert.match(portalEmail.text, /Expires: .* \(seven days after issue\)/);
-  assert.match(portalEmail.text, /must change this password at your first sign-in/i);
-  assert.equal(portalEmail.text.includes(clientLegalName), false, 'credential email contains no other engagement or client data');
-  assert.equal(portalEmail.text.includes('E2026-001'), false, 'credential email does not disclose an engagement code');
-  const temporaryPassword = portalEmail.text.match(/Temporary password: ([^\r\n]+)/)?.[1];
-  assert.ok(temporaryPassword, 'the delivered message has a temporary password');
-  const portalIssue = db.prepare(`SELECT id,trigger,contact_route_id,user_account_id,credential_token_id,outbox_job_id,created_at
-    FROM portal_credential_issues WHERE workspace_id=? AND engagement_id=? AND trigger='ADVANCE_PAYMENT'`)
-    .bind(workspaceId, engagementId).first<any>();
-  assert.ok(portalIssue);
-  assert.equal(db.prepare(`SELECT COUNT(*) AS count FROM portal_credential_issues WHERE workspace_id=? AND engagement_id=? AND trigger='ADVANCE_PAYMENT'`)
-    .bind(workspaceId, engagementId).first<any>()?.count, 1);
-  const portalAccount = db.prepare(`SELECT id,status,password_hash,password_must_change,email_normalized FROM user_accounts
-    WHERE workspace_id=? AND contact_id=? AND kind='CLIENT'`).bind(workspaceId, pbcContactId).first<any>();
-  assert.deepEqual({ status: portalAccount?.status, passwordMustChange: portalAccount?.password_must_change, email: portalAccount?.email_normalized },
-    { status: 'ACTIVE', passwordMustChange: 1, email: 'chief-accountant@example.invalid' });
-  assert.equal(await verifyPassword(temporaryPassword, portalAccount.password_hash), true, 'the delivered password matches the stored Argon2id hash');
-  assert.equal(db.prepare(`SELECT COUNT(*) AS count FROM user_profile_grants WHERE workspace_id=? AND user_account_id=?
-    AND actor_profile_id=? AND revoked_at IS NULL`).bind(workspaceId, portalAccount.id, pbcClientProfile.body.result.actorProfileId)
-    .first<any>()?.count, 1, 'the client portal account receives one active grant to its CLIENT actor profile');
-  const portalToken = db.prepare(`SELECT purpose,expires_at,created_at FROM credential_tokens WHERE workspace_id=? AND id=?`)
-    .bind(workspaceId, portalIssue.credential_token_id).first<any>();
-  assert.equal(portalToken.purpose, 'CLIENT_TEMP_PASSWORD');
-  assert.equal(Date.parse(portalToken.expires_at) - Date.parse(portalToken.created_at), 7 * 24 * 60 * 60 * 1000);
-  const portalPayload = db.prepare('SELECT payload_json FROM outbox_jobs WHERE workspace_id=? AND id=?')
-    .bind(workspaceId, portalIssue.outbox_job_id).first<any>()?.payload_json as string;
-  const portalAudit = db.prepare(`SELECT COALESCE(group_concat(details_json,''),'') AS details FROM audit_events
-    WHERE workspace_id=? AND engagement_id=?`).bind(workspaceId, engagementId).first<any>()?.details as string;
-  const portalAuthEvent = db.prepare(`SELECT detail_json FROM auth_events WHERE workspace_id=? AND user_account_id=?
-    AND event='TEMP_PASSWORD_ISSUED' ORDER BY created_at DESC,id DESC LIMIT 1`).bind(workspaceId, portalAccount.id).first<any>()?.detail_json as string;
-  assert.equal([portalPayload, portalAudit, portalAuthEvent, ...credentialJobLogs].join('\n').includes(temporaryPassword), false,
-    'neither durable outbox/audit/auth data nor captured Worker logs contain the plaintext password');
-  await worker.scheduled({ scheduledTime: Date.now(), cron: '*/5 * * * *' } as any, env);
-  assert.equal(deliveredPortalMessages.length, 1, 'replaying an idle outbox pass does not send a second automatic credential message');
-  const currentPbcContactVersion = db.prepare('SELECT version FROM contacts WHERE workspace_id=? AND id=?')
-    .bind(workspaceId, pbcContactId).first<any>()?.version as number;
-  const deactivateLiaison = await post(`/api/workspaces/${workspaceId}/commands`, {
-    idempotencyKey: crypto.randomUUID(), command: { type: 'contact.update', payload: {
-      contactId: pbcContactId, expectedVersion: currentPbcContactVersion, active: false
-    } }
-  }, makeRiskHeaders(preparerHeaders));
-  assert.equal(deactivateLiaison.response.status, 200, JSON.stringify(deactivateLiaison.body));
-  const missingRoutePreparation = await preparePortalCredentialProvisioning(env, {
-    workspaceId, clientId, engagementId, trigger: 'ADVANCE_PAYMENT', commandId: crypto.randomUUID(),
-    createdByActorId: reviewerHeaders['X-Actor-Id'], createdAt: new Date().toISOString()
-  });
-  assert.equal(missingRoutePreparation.blockedCode, 'PORTAL_LIAISON_ROUTE_MISSING');
-  assert.equal(missingRoutePreparation.statements.length, 0, 'a missing active PBC Audit Liaison never queues credentials');
-  const missingRouteWorkflow = await readWorkflowStage('PORTAL_ACTIVE_PLANNING');
-  assert.ok(missingRouteWorkflow.blockers.some((item: any) => item.code === 'PORTAL_LIAISON_ROUTE_MISSING'),
-    'staff workflow names the missing liaison route while keeping the lifecycle active');
-  const replacementLiaison = await post(`/api/workspaces/${workspaceId}/commands`, {
-    idempotencyKey: crypto.randomUUID(), command: { type: 'contact.create', payload: {
-      clientId, contact: { fullName: 'Replacement Audit Liaison', email: 'replacement-liaison@example.invalid',
-        title: 'Chief Accountant', role: 'CHIEF_ACCOUNTANT_LIAISON', effectiveFrom: '2026-10-08' }
-    } }
-  }, makeRiskHeaders(preparerHeaders));
-  assert.equal(replacementLiaison.response.status, 200, JSON.stringify(replacementLiaison.body));
-  assert.deepEqual(replacementLiaison.body.result.routePurposes, [], 'a replacement contact does not silently take over an existing route');
-  const replacementPrimaryRoute = await post(`/api/workspaces/${workspaceId}/commands`, {
-    idempotencyKey: crypto.randomUUID(), command: { type: 'contact.route', payload: {
-      clientId, contactId: replacementLiaison.body.result.contactId, purpose: 'PBC', isPrimary: true,
-      rationale: 'The prior liaison is inactive; assign this active contact as the replacement portal recipient.', expectedVersion: null
-    } }
-  }, makeRiskHeaders(preparerHeaders));
-  assert.equal(replacementPrimaryRoute.response.status, 200, JSON.stringify(replacementPrimaryRoute.body));
-  const replacementRouteId = replacementPrimaryRoute.body.result.contactRouteId as string;
-  const deniedCredentialReissue = await post(`/api/workspaces/${workspaceId}/commands`, {
-    idempotencyKey: crypto.randomUUID(), command: { type: 'portal.credentials.reissue', payload: {
-      engagementId, contactRouteId: replacementRouteId, reason: 'A Preparer cannot reissue a client credential.'
-    } }
-  }, makeRiskHeaders(preparerHeaders));
-  assert.equal(deniedCredentialReissue.response.status, 403);
-  assert.equal(deniedCredentialReissue.body.code, 'PERSONA_ACTION_DENIED');
-  const reissueCommand = () => ({ idempotencyKey: crypto.randomUUID(), command: { type: 'portal.credentials.reissue', payload: {
-    engagementId, contactRouteId: replacementRouteId, reason: 'The Reviewer approved a replacement client portal credential.'
-  } } });
-  const reviewerReissue = await post(`/api/workspaces/${workspaceId}/commands`, reissueCommand(), makeRiskHeaders(reviewerHeaders));
-  assert.equal(reviewerReissue.response.status, 200, JSON.stringify(reviewerReissue.body));
-  assert.equal(reviewerReissue.body.result.status, 'QUEUED');
-  const queuedReissue = db.prepare(`SELECT id,credential_token_id,outbox_job_id FROM portal_credential_issues
-    WHERE workspace_id=? AND id=? AND trigger='MANUAL_REISSUE'`).bind(workspaceId, reviewerReissue.body.result.issueId).first<any>();
-  assert.ok(queuedReissue);
-  await worker.scheduled({ scheduledTime: Date.now(), cron: '*/5 * * * *' } as any, env);
-  assert.equal(deliveredPortalMessages.length, 2, 'a Reviewer reissue delivers a fresh credential');
-  const replacementPassword = deliveredPortalMessages[1].text.match(/Temporary password: ([^\r\n]+)/)?.[1];
-  assert.ok(replacementPassword);
-  const replacementAccount = db.prepare(`SELECT id,status,password_hash,password_must_change FROM user_accounts
-    WHERE workspace_id=? AND contact_id=? AND kind='CLIENT'`).bind(workspaceId, replacementLiaison.body.result.contactId).first<any>();
-  assert.equal(replacementAccount.status, 'ACTIVE');
-  assert.equal(replacementAccount.password_must_change, 1);
-  assert.equal(await verifyPassword(replacementPassword, replacementAccount.password_hash), true);
-  const replacementProfile = db.prepare(`SELECT id FROM actor_profiles WHERE workspace_id=? AND contact_id=? AND persona='CLIENT' AND active=1`)
-    .bind(workspaceId, replacementLiaison.body.result.contactId).first<any>();
-  assert.ok(replacementProfile, 'credential reissue provisions a CLIENT actor profile when the contact has none');
-  assert.equal(db.prepare(`SELECT COUNT(*) AS count FROM user_profile_grants WHERE workspace_id=? AND user_account_id=?
-    AND actor_profile_id=? AND revoked_at IS NULL`).bind(workspaceId, replacementAccount.id, replacementProfile.id).first<any>()?.count, 1,
-    'credential reissue grants the account its new CLIENT actor profile');
-  const secondReviewerReissue = await post(`/api/workspaces/${workspaceId}/commands`, reissueCommand(), makeRiskHeaders(reviewerHeaders));
-  assert.equal(secondReviewerReissue.response.status, 200, JSON.stringify(secondReviewerReissue.body));
-  await worker.scheduled({ scheduledTime: Date.now(), cron: '*/5 * * * *' } as any, env);
-  assert.equal(deliveredPortalMessages.length, 3);
-  const latestReplacementPassword = deliveredPortalMessages[2].text.match(/Temporary password: ([^\r\n]+)/)?.[1];
-  assert.ok(latestReplacementPassword);
-  const latestReplacementAccount = db.prepare('SELECT password_hash FROM user_accounts WHERE workspace_id=? AND id=?')
-    .bind(workspaceId, replacementAccount.id).first<any>();
-  assert.equal(await verifyPassword(latestReplacementPassword, latestReplacementAccount.password_hash), true);
-  assert.equal(await verifyPassword(replacementPassword, latestReplacementAccount.password_hash), false,
-    'a new delivered credential invalidates the prior temporary password');
-  const latestQueuedReissue = db.prepare(`SELECT id,credential_token_id,outbox_job_id FROM portal_credential_issues
-    WHERE workspace_id=? AND id=? AND trigger='MANUAL_REISSUE'`).bind(workspaceId, secondReviewerReissue.body.result.issueId).first<any>();
-  assert.ok(latestQueuedReissue);
-  assert.equal(db.prepare(`SELECT id FROM credential_tokens WHERE workspace_id=? AND user_account_id=? AND purpose='CLIENT_TEMP_PASSWORD'
-    ORDER BY created_at DESC,id DESC LIMIT 1`).bind(workspaceId, replacementAccount.id).first<any>()?.id, latestQueuedReissue.credential_token_id,
-    'the latest issued token controls expiry and invalidates earlier password issuance');
-  db.prepare(`UPDATE user_accounts SET password_must_change=0,version=version+1,updated_at=? WHERE workspace_id=? AND id=?`)
-    .bind(new Date().toISOString(), workspaceId, replacementAccount.id).run();
-  const accessNoticePreparation = await preparePortalCredentialProvisioning(env, {
-    workspaceId, clientId, engagementId, contactRouteId: replacementRouteId, trigger: 'ADVANCE_PAYMENT',
-    commandId: crypto.randomUUID(), createdByActorId: reviewerHeaders['X-Actor-Id'], createdAt: new Date().toISOString()
-  });
-  assert.equal(accessNoticePreparation.mode, 'ACCESS_NOTICE', 'an active CLIENT account that has completed its password change receives an access notice');
-  assert.equal(accessNoticePreparation.issueId, undefined, 'an access notice does not create a temporary-password issue');
-  assert.ok(accessNoticePreparation.jobId);
-  db.batch(accessNoticePreparation.statements);
-  const accessNoticePayload = db.prepare('SELECT payload_json FROM outbox_jobs WHERE workspace_id=? AND id=?')
-    .bind(workspaceId, accessNoticePreparation.jobId).first<any>()?.payload_json as string;
-  assert.equal(accessNoticePayload.includes(latestReplacementPassword), false, 'the access-notice job does not contain the existing password');
-  await worker.scheduled({ scheduledTime: Date.now(), cron: '*/5 * * * *' } as any, env);
-  assert.equal(deliveredPortalMessages.length, 4);
-  assert.equal(deliveredPortalMessages[3].purpose, 'PORTAL_ACCESS_NOTICE');
-  assert.match(deliveredPortalMessages[3].text, /portal is now open for/i);
-  assert.equal(/Temporary password:/i.test(deliveredPortalMessages[3].text), false, 'an access notice never includes a new password');
-  const accountAfterAccessNotice = db.prepare('SELECT password_hash,password_must_change FROM user_accounts WHERE workspace_id=? AND id=?')
-    .bind(workspaceId, replacementAccount.id).first<any>();
-  assert.equal(accountAfterAccessNotice.password_must_change, 0);
-  assert.equal(await verifyPassword(latestReplacementPassword, accountAfterAccessNotice.password_hash), true,
-    'an access notice reuses the active account without changing its password');
-  const workingEmailProvider = env.EMAIL_PROVIDER;
-  env.EMAIL_PROVIDER = { fetch: async () => Response.json({ error: 'EMAIL_PROVIDER_THROTTLED' }, { status: 429 }) };
-  const retryableReissue = await post(`/api/workspaces/${workspaceId}/commands`, reissueCommand(), makeRiskHeaders(reviewerHeaders));
-  assert.equal(retryableReissue.response.status, 200, JSON.stringify(retryableReissue.body));
-  const retryableIssue = db.prepare('SELECT outbox_job_id FROM portal_credential_issues WHERE workspace_id=? AND id=?')
-    .bind(workspaceId, retryableReissue.body.result.issueId).first<any>();
-  await worker.scheduled({ scheduledTime: Date.now(), cron: '*/5 * * * *' } as any, env);
-  const retryableJob = db.prepare('SELECT status,attempts FROM outbox_jobs WHERE workspace_id=? AND id=?')
-    .bind(workspaceId, retryableIssue.outbox_job_id).first<any>();
-  assert.deepEqual({ status: retryableJob.status, attempts: retryableJob.attempts }, { status: 'RETRYABLE_FAILED', attempts: 1 });
-  db.prepare('UPDATE outbox_jobs SET attempts=4,next_attempt_at=? WHERE workspace_id=? AND id=?')
-    .bind(new Date().toISOString(), workspaceId, retryableIssue.outbox_job_id).run();
-  await worker.scheduled({ scheduledTime: Date.now(), cron: '*/5 * * * *' } as any, env);
-  assert.equal(db.prepare('SELECT status FROM outbox_jobs WHERE workspace_id=? AND id=?')
-    .bind(workspaceId, retryableIssue.outbox_job_id).first<any>()?.status, 'PERMANENT_FAILED',
-    'the last retry after provider throttling becomes a terminal failure');
-  env.EMAIL_PROVIDER = workingEmailProvider;
-  const failedEmailWorkflow = await readWorkflowStage('PORTAL_ACTIVE_PLANNING');
-  assert.ok(failedEmailWorkflow.blockers.some((item: any) => item.code === 'PORTAL_CREDENTIAL_EMAIL_FAILED'),
-    'staff workflow exposes the exhausted credential email failure');
-  const replacementRoute = db.prepare(`SELECT id FROM contact_routes WHERE workspace_id=? AND contact_id=? AND purpose='PBC'`)
-    .bind(workspaceId, replacementLiaison.body.result.contactId).first<any>();
-  db.prepare(`UPDATE contact_routes SET is_primary=0,rationale='Synthetic test fixture cleanup restores its original liaison route.',version=version+1
-    WHERE workspace_id=? AND id=? AND is_primary=1`).bind(workspaceId, replacementRoute.id).run();
-  db.prepare(`UPDATE contacts SET active=1,version=version+1,updated_at=? WHERE workspace_id=? AND id=? AND active=0`)
-    .bind(new Date().toISOString(), workspaceId, pbcContactId).run();
-  db.prepare(`UPDATE contact_routes SET is_primary=1,rationale=NULL,version=version+1 WHERE workspace_id=? AND id=?`)
-    .bind(workspaceId, portalIssue.contact_route_id).run();
   const planningWorkflow = await readWorkflowStage('PORTAL_ACTIVE_PLANNING');
   assert.equal(planningWorkflow.status, 'blocked');
   assert.ok(planningWorkflow.blockers.some((item: any) => item.code === 'ACTIVE_TB_REQUIRED'),
@@ -1988,7 +1761,7 @@ it('bootstraps a no-session BUSINESS workspace, records manual dispatch and main
     }, { ...clientPbcHeaders, 'Idempotency-Key': crypto.randomUUID() });
     assert.equal(reservation.response.status, 201, JSON.stringify(reservation.body));
     const fileId = reservation.body.fileId as string;
-    const staged = await testFetch(new Request(`https://local.auditsphere.test/api/workspaces/${workspaceId}/files/${fileId}/content`, {
+    const staged = await worker.fetch(new Request(`https://local.auditsphere.test/api/workspaces/${workspaceId}/files/${fileId}/content`, {
       method: 'PUT', headers: { Origin: 'https://local.auditsphere.test', ...clientPbcHeaders,
         'Idempotency-Key': crypto.randomUUID(), 'X-File-Version': '1', 'Content-Type': 'application/pdf' }, body: bytes
     }), env, {} as any);
@@ -2012,7 +1785,7 @@ it('bootstraps a no-session BUSINESS workspace, records manual dispatch and main
   }, { ...clientPbcHeaders, 'Idempotency-Key': crypto.randomUUID() });
   assert.equal(lateContentReservation.response.status, 201, JSON.stringify(lateContentReservation.body));
   const lateContentFileId = lateContentReservation.body.fileId as string;
-  const staleStage = await testFetch(new Request(`https://local.auditsphere.test/api/workspaces/${workspaceId}/files/${staleFileId}/content`, {
+  const staleStage = await worker.fetch(new Request(`https://local.auditsphere.test/api/workspaces/${workspaceId}/files/${staleFileId}/content`, {
     method: 'PUT', headers: { Origin: 'https://local.auditsphere.test', ...clientPbcHeaders,
       'Idempotency-Key': crypto.randomUUID(), 'X-File-Version': '1', 'Content-Type': 'application/pdf' }, body: pdf
   }), env, {} as any);
@@ -2039,7 +1812,7 @@ it('bootstraps a no-session BUSINESS workspace, records manual dispatch and main
   assert.deepEqual(pbcFrozenStaleCommit.body.details, { engagementId, frozenAt, bundleId: null });
   assert.equal(db.prepare('SELECT state FROM file_versions WHERE workspace_id=? AND id=?').bind(workspaceId, staleFileId).first<any>()?.state, 'STAGED',
     'a reservation staged before release cannot be committed after portal freeze');
-  const lateContent = await testFetch(new Request(`https://local.auditsphere.test/api/workspaces/${workspaceId}/files/${lateContentFileId}/content`, {
+  const lateContent = await worker.fetch(new Request(`https://local.auditsphere.test/api/workspaces/${workspaceId}/files/${lateContentFileId}/content`, {
     method: 'PUT', headers: { Origin: 'https://local.auditsphere.test', ...clientPbcHeaders,
       'Idempotency-Key': crypto.randomUUID(), 'X-File-Version': '1', 'Content-Type': 'application/pdf' }, body: pdf
   }), env, {} as any);
@@ -2091,7 +1864,7 @@ it('bootstraps a no-session BUSINESS workspace, records manual dispatch and main
   const directPbcRequest = await call(`/api/workspaces/${workspaceId}/engagements/${engagementId}/pbc/${pbcRequestId}`, { headers: clientPbcHeaders });
   assert.equal(directPbcRequest.response.status, 200, JSON.stringify(directPbcRequest.body));
   assert.equal(directPbcRequest.body.request.currentSubmissionId, firstSubmissionId);
-  const originalPbcDownload = await testFetch(new Request(`https://local.auditsphere.test/api/workspaces/${workspaceId}/files/${firstPbcFile.fileId}`,
+  const originalPbcDownload = await worker.fetch(new Request(`https://local.auditsphere.test/api/workspaces/${workspaceId}/files/${firstPbcFile.fileId}`,
     { headers: { Origin: 'https://local.auditsphere.test', ...clientPbcHeaders } }), env, {} as any);
   assert.equal(originalPbcDownload.status, 200);
   assert.deepEqual(new Uint8Array(await originalPbcDownload.arrayBuffer()), pdf,
@@ -2137,9 +1910,9 @@ it('bootstraps a no-session BUSINESS workspace, records manual dispatch and main
   assert.equal(historyAfterReplacement.body.requests[0].submissions.length, 2);
   assert.equal(historyAfterReplacement.body.requests[0].submissions[1].supersedesSubmissionId, firstSubmissionId);
   assert.equal(historyAfterReplacement.body.requests[0].submissions[0].reviews[0].decision, 'REJECT');
-  const retainedRejectedDownload = await testFetch(new Request(`https://local.auditsphere.test/api/workspaces/${workspaceId}/files/${firstPbcFile.fileId}`,
+  const retainedRejectedDownload = await worker.fetch(new Request(`https://local.auditsphere.test/api/workspaces/${workspaceId}/files/${firstPbcFile.fileId}`,
     { headers: { Origin: 'https://local.auditsphere.test', ...clientPbcHeaders } }), env, {} as any);
-  const correctedPbcDownload = await testFetch(new Request(`https://local.auditsphere.test/api/workspaces/${workspaceId}/files/${replacementPbcFile.fileId}`,
+  const correctedPbcDownload = await worker.fetch(new Request(`https://local.auditsphere.test/api/workspaces/${workspaceId}/files/${replacementPbcFile.fileId}`,
     { headers: { Origin: 'https://local.auditsphere.test', ...clientPbcHeaders } }), env, {} as any);
   assert.equal(retainedRejectedDownload.status, 200);
   assert.equal(correctedPbcDownload.status, 200);
@@ -4398,7 +4171,7 @@ it('bootstraps a no-session BUSINESS workspace, records manual dispatch and main
     'every difference pins the exact active TB, mapping and materiality versions');
 
   for (const file of [firstPbcFile, replacementPbcFile]) {
-    const downloaded = await testFetch(new Request(`https://local.auditsphere.test/api/workspaces/${workspaceId}/files/${file.fileId}`, {
+    const downloaded = await worker.fetch(new Request(`https://local.auditsphere.test/api/workspaces/${workspaceId}/files/${file.fileId}`, {
       headers: clientPbcHeaders
     }), env, {} as any);
     const downloadedBytes = new Uint8Array(await downloaded.arrayBuffer());
@@ -4414,7 +4187,7 @@ it('bootstraps a no-session BUSINESS workspace, records manual dispatch and main
   const clientInvoice = clientDelivery.body.invoices.find((invoice: any) => invoice.id === issuedInvoice.id);
   assert.equal(clientInvoice.status, 'ISSUED');
   for (const fileVersionId of [issuedLetter.body.result.fileId, clientInvoice.fileVersionId]) {
-    const clientDocument = await testFetch(new Request(`https://local.auditsphere.test/api/workspaces/${workspaceId}/files/${fileVersionId}`, { headers: makeRiskHeaders(clientHeaders) }), env, {} as any);
+    const clientDocument = await worker.fetch(new Request(`https://local.auditsphere.test/api/workspaces/${workspaceId}/files/${fileVersionId}`, { headers: makeRiskHeaders(clientHeaders) }), env, {} as any);
     assert.equal(clientDocument.status, 200, 'the client can download an issued document scoped to its engagement');
     assert.equal(new TextDecoder().decode(new Uint8Array(await clientDocument.arrayBuffer()).slice(0, 5)), '%PDF-');
   }

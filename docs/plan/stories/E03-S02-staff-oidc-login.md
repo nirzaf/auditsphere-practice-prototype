@@ -1,5 +1,7 @@
 # E03-S02 — Staff Entra ID OIDC login, callback, logout and `/api/auth/me`
 
+> **Retired scope:** the current user-provided real-implementation epic explicitly excludes application authentication, accounts, passwords, sessions, and RBAC. This historical E03 story is not an active requirement. Do not implement it unless the user authorizes a new scope.
+
 | ID | Epic | Type | Priority | Size | Depends on | Spec trace |
 |---|---|---|---|---|---|---|
 | E03-S02 | E03 | Feature | P0 | M | E03-S01 | §1.2 Preparer/Reviewer/Approver; NFR SEC-03, SEC-05 |

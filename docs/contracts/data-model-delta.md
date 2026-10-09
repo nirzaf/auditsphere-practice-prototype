@@ -1,10 +1,12 @@
 # Data Model Delta (remaining work only)
 
-**Executable source of truth:** `worker/migrations/*.sql` (50 files, last = `0050_manual_dispatch_records.sql`). This document specifies the **remaining** migrations the backlog requires. Agents copy the SQL into a new numbered migration file, adjust only what the story's acceptance criteria demand, and record any deviation in the story's report.
+> **Historical proposal notice:** this delta includes auth/account tables for a superseded E03 design. Migrations 0046–0048 are preserved as applied-history compatibility; they do not mean the current no-auth epic requires account/session runtime behavior. Do not edit applied migration history or drop remote tables without a separately verified data-retirement plan.
+
+**Executable source of truth:** `worker/migrations/*.sql` (51 files, last = `0051_public_lead_submissions.sql`). This document specifies the **remaining** migrations the backlog requires. Agents copy the SQL into a new numbered migration file, adjust only what the story's acceptance criteria demand, and record any deviation in the story's report.
 
 ## Migration rules (existing conventions — follow exactly)
 
-1. Forward-only, numbered `NNNN_snake_case.sql`, next free number is **0051**. Never edit an applied migration. E01-S05 used 0045, E03-S01 added auth tables in 0046, E03-S04 added portal credential issues in 0047, E03-S06 added the single-use first-Partner lock in 0048, E04-S01 added email delivery events in 0049, and E04-S02 added manual dispatch records in 0050. Also bump `APPLICATION_SCHEMA_VERSION` in `worker/versions.ts` (currently `50`), which readiness compares against the DB (`handleHealthReady` → `SCHEMA_VERSION_MISMATCH`).
+1. Forward-only, numbered `NNNN_snake_case.sql`, next free number is **0052**. Never edit an applied migration. E01-S05 used 0045, E03-S01 added auth tables in 0046, E03-S04 added portal credential issues in 0047, E03-S06 added the single-use first-Partner lock in 0048, E04-S01 added email delivery events in 0049, E04-S02 added manual dispatch records in 0050, and E04-S03 added public lead submissions and their short-lived rate-limit events in 0051. Also bump `APPLICATION_SCHEMA_VERSION` in `worker/versions.ts` (currently `51`), which readiness compares against the DB (`handleHealthReady` → `SCHEMA_VERSION_MISMATCH`).
 2. Every business table has `id TEXT PRIMARY KEY`, `workspace_id TEXT NOT NULL`, `UNIQUE (workspace_id, id)`, composite FKs `(workspace_id, x_id)` → `parent(workspace_id, id)`, `ON DELETE RESTRICT`.
 3. Mutable rows carry `version INTEGER NOT NULL DEFAULT 1 CHECK (version > 0)`; updates use `WHERE version = ?` and `version = version + 1`.
 4. Append-only tables get `BEFORE UPDATE` and `BEFORE DELETE` triggers that `RAISE(ABORT, '…')` (pattern: `worker/migrations/0006_business_foundation.sql` lines 301–304).
@@ -250,9 +252,18 @@ CREATE TABLE IF NOT EXISTS public_lead_submissions (
   UNIQUE (workspace_id, id)
 );
 CREATE INDEX IF NOT EXISTS public_lead_submissions_status_idx ON public_lead_submissions(workspace_id, status, created_at);
+
+-- E06-S02: short-lived HMAC-SHA256 IP hashes enforce the exact rolling-hour limit.
+CREATE TABLE IF NOT EXISTS public_lead_rate_limit_events (
+  id TEXT PRIMARY KEY,
+  ip_sha256 TEXT NOT NULL CHECK (length(ip_sha256)=64),
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS public_lead_rate_limit_events_window_idx
+  ON public_lead_rate_limit_events(ip_sha256,created_at);
 ```
 
-## 6. `0052_client_import_runs.sql` — E05-S06 (after SP-03)
+## 6. `0053_client_import_runs.sql` — E05-S06 (after SP-03)
 
 ```sql
 CREATE TABLE IF NOT EXISTS client_import_runs (

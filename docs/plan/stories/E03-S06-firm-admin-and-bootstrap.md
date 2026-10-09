@@ -1,5 +1,7 @@
 # E03-S06 — Firm administration (invite staff, grants, disable) and first-Partner bootstrap CLI
 
+> **Retired scope:** the current user-provided real-implementation epic explicitly excludes application authentication, accounts, passwords, sessions, and RBAC. This historical E03 story is not an active requirement. Do not implement it unless the user authorizes a new scope.
+
 | ID | Epic | Type | Priority | Size | Depends on | Spec trace |
 |---|---|---|---|---|---|---|
 | E03-S06 | E03 | Feature | P0 | M | E03-S03 | §1.2 personas; ADR-0005 §5; ADR-0008 |

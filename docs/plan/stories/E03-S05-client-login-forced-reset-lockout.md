@@ -1,5 +1,7 @@
 # E03-S05 — Client login, forced password change gate, password reset and lockout
 
+> **Retired scope:** the current user-provided real-implementation epic explicitly excludes application authentication, accounts, passwords, sessions, and RBAC. This historical E03 story is not an active requirement. Do not implement it unless the user authorizes a new scope.
+
 | ID | Epic | Type | Priority | Size | Depends on | Spec trace |
 |---|---|---|---|---|---|---|
 | E03-S05 | E03 | Feature | P0 | M | E03-S04 | §4.1.5 "Enforce mandatory password reset on first login before document submission features are unlocked"; US-PBC-001/002; NFR SEC-04, SEC-06 |

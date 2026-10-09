@@ -52,6 +52,7 @@ import { BusinessFieldworkPanel } from './BusinessFieldworkPanel';
 import { BusinessPracticePanel } from './BusinessPracticePanel';
 import { BusinessReportingPanel } from './BusinessReportingPanel';
 import { BusinessWorkflowProgress } from './BusinessWorkflowProgress';
+import { PublicLeadQueue } from './PublicLeadQueue';
 
 type SetupMode = 'create' | 'connect';
 
@@ -1326,6 +1327,8 @@ export function BusinessWorkspaceConsole() {
         {context?.allowedActions.includes('lead.read') && <section className="business-directory-card" aria-labelledby="business-leads-heading">
           <div className="business-section-heading"><div><p className="business-eyebrow">COMMERCIAL · US-ENG-002</p><h2 id="business-leads-heading">Lead pipeline</h2></div><span className="business-count">{leads.length} loaded</span></div>
           {leadCursor && <div className="business-pagination-controls"><span className="business-muted" role="status">Showing the first {leads.length} leads; more records are available.</span><button type="button" className="btn sm" disabled={loadingMore !== null} onClick={() => void loadMoreLeads()}>{loadingMore === 'leads' ? 'Loading…' : 'Load more leads'}</button></div>}
+          {preference && preference.workspaceId && <PublicLeadQueue workspaceId={preference.workspaceId} preference={preference}
+            canManage={context.allowedActions.includes('lead.manage')} leads={leads} />}
           {context.allowedActions.includes('lead.manage') && <form className="business-form business-commercial-form" onSubmit={createLead}>
             <h3>Record an inquiry</h3>
             <div className="business-form-grid">

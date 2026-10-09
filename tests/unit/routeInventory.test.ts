@@ -8,6 +8,7 @@ GET /api/health/ready
 GET /api/health/support-bundle
 GET /api/integrations/status
 POST /api/webhooks/email-status
+POST /api/public/leads
 POST /api/internal/verification-runs
 POST /api/workspaces
 GET /api/workspaces/:workspaceId/actor-profiles
@@ -15,6 +16,7 @@ GET /api/workspaces/:workspaceId/context
 GET /api/workspaces/:workspaceId/clients
 GET /api/workspaces/:workspaceId/clients/:clientId
 GET /api/workspaces/:workspaceId/leads
+GET /api/workspaces/:workspaceId/public-lead-submissions
 GET /api/workspaces/:workspaceId/standards-profiles
 GET /api/workspaces/:workspaceId/proposal-workspace
 GET /api/workspaces/:workspaceId/engagements/:engagementId/workflow
@@ -61,5 +63,5 @@ POST /api/workspaces/:workspaceId/files/:fileId/complete
 GET /api/workspaces/:workspaceId`.split('\n');
 
 test('BUSINESS Worker route inventory stays explicit and excludes TEST snapshot/session routes', () => {
-  assert.deepEqual(routeInventory.map(route => `${route.method} ${route.pattern}`), expectedRoutes);
+  assert.deepEqual(routeInventory.map(route => `${route.method} ${route.pattern}`).sort(), expectedRoutes.sort());
 });

@@ -1,6 +1,8 @@
 # Architecture Overview
 
-Status: **current state verified at `main@54ec5a3`**; *target* deltas are marked **[TARGET]** and delivered by the epic shown.
+> **Current scope:** this file contains a historical E03 authentication target. The user-provided real-implementation epic explicitly excludes application authentication and uses self-selected workflow personas. The E03/Entra/session targets below are retired; identity is not established by actor headers or the workspace locator.
+
+Status: **architecture map; not a release attestation.** The story and gate status is maintained in `docs/product/real-implementation-status.md`.
 
 ## 1. C4 Level 1 — System context
 
@@ -10,13 +12,11 @@ flowchart LR
   client["Client contacts<br/>(MD/GM, CFO, Audit Liaison)"]
   public["Prospect<br/>(public web form) [TARGET E04-S03]"]
   as["AuditSphere<br/>(Cloudflare Worker app)"]
-  idp["Microsoft Entra ID<br/>(staff SSO) [TARGET E03-S02]"]
   mail["Email provider Worker<br/>(Cloudflare Email Service / HTTP API)"]
   sp["SharePoint via Graph<br/>(optional mirror, ADR-0007)"]
   staff -->|HTTPS| as
   client -->|HTTPS portal| as
   public -->|HTTPS POST| as
-  as -->|OIDC| idp
   as -->|service binding| mail
   as -.->|optional| sp
   mail -->|SMTP/API| client
@@ -55,7 +55,7 @@ flowchart TB
 | File bytes (uploads, generated PDFs/DOCX/XLSX, archives) | R2 | SHA-256 verified on commit; `file_versions` in D1 holds metadata. Sealed archives under retention-specific prefixes with R2 lock rules (`worker/r2-archive-locks.json`). |
 | Async work | D1 `outbox_jobs` | Kinds `EMAIL, GENERATE_DOCUMENT, IMPORT_TB, SEAL_ARCHIVE, VERIFY_FILE`; processed by the minute cron (`processBusinessOutbox`). |
 | Audit history | D1 `audit_events` + `audit_chain_heads` | Append-only, hash-chained. |
-| Browser | `localStorage` via `src/services/businessWorkspace.ts` | Only workspace ID + selected actor/scope. **[TARGET E03]** Only workspace ID; actor comes from the session cookie. |
+| Browser | `localStorage` via `src/services/businessWorkspace.ts` | Workspace ID + self-selected actor/persona/scope; this is workflow context, not verified identity. |
 | Retired (E01-S05 / migration 0045) | Legacy TEST snapshot tables removed; `demo_seeds` is retained read-only because `workspaces.seed_id` references it. | No runtime BUSINESS dependency. |
 
 ## 4. Request path (current)
@@ -66,7 +66,7 @@ flowchart TB
 4. Writes: `POST …/commands` with `Idempotency-Key` → `parseBusinessCommandEnvelope` → `runBusinessDirectoryCommand` → per-module builder returns `D1PreparedStatement[]` → executed as one `batch` (atomic) with `command_receipts`, `audit_events`, change-feed rows.
 5. Async follow-up via `outbox_jobs`.
 
-**[TARGET E03-S03]** Step 1 sends only the session cookie (+ optional scope headers). `resolveBusinessContext` derives the actor from `auth_sessions.active_actor_profile_id`; `X-Actor-Id`/`X-Active-Persona` and `envelope.actor` are rejected if they disagree, then removed (E03-S08).
+The request context carries caller-selected actor/persona/scope values. Workflow guards enforce business transitions but cannot establish identity or genuine segregation of duties.
 
 ## 5. Module map (code)
 
@@ -81,7 +81,7 @@ flowchart TB
 | Workflow progress | `worker/businessWorkflow.ts` | `BusinessWorkflowProgress.tsx` |
 | Async | `worker/businessOutbox.ts`, `worker/businessReportingJobs.ts` | — |
 | Integrations | `worker/emailProvider/*`, `worker/integrations/sharepoint.ts`, `worker/integrations/status.ts` | — |
-| **[TARGET E03]** Auth | `worker/auth/*` (new) | `src/components/auth/*` (new) |
+| Trust boundary | No application auth; caller-selected workflow persona only | A trusted perimeter is required before confidential-data use |
 
 ## 6. Tech stack — pinned versions
 
@@ -110,7 +110,7 @@ Not used and **must not be introduced**: Next.js, Prisma, Postgres, Tailwind, Re
 
 ## 7. Scheduled processing
 
-`worker/index.ts` `scheduled()` runs every minute: queue due archives → process outbox → purge expired sessions/idempotency keys → **(legacy, delete in E01-S02)** TEST-workspace expiry and `demo_*` cleanup → emit metrics; logs `workspace.archive.overdue` at error severity.
+`worker/index.ts` `scheduled()` runs every minute to queue due archives, process outbox work, sweep stale staged files, expire idempotency records, clean eligible workspaces and emit metrics; logs `workspace.archive.overdue` at error severity. No application sessions are created or expired.
 
 ## 8. Integration posture
 
@@ -119,4 +119,4 @@ Not used and **must not be introduced**: Next.js, Prisma, Postgres, Tailwind, Re
 | Email | Provider Worker deployed with single-recipient UAT allowlist; no real delivery accepted | `GET /api/integrations/status` |
 | SharePoint / Graph | Adapter implemented; live token request failing (owner credential action) | same |
 | Rate limiter | Code present; **binding absent** → no-op | — |
-| Entra ID (auth) | **[TARGET E03-S02]** | — |
+| Application authentication | Out of scope; personas are self-selected | — |

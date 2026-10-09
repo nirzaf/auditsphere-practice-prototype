@@ -422,4 +422,32 @@
 .business-capacity-calendar td[data-status='EXCEPTION_APPROVED'] { color: #b45309; }
 .business-capacity-calendar td[data-status='MISSING_CAPACITY'], .business-capacity-calendar td[data-status='NONE'] { color: var(--muted); font-style: italic; }
 
+.business-public-lead-queue { display: grid; gap: 12px; margin: 14px 0; padding: 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--color-site-bg); }
+.business-public-lead-filter { display: grid; grid-template-columns: auto minmax(150px, 1fr); align-items: center; gap: 8px; color: var(--muted); font-size: 13px; }
+.business-public-lead-filter select, .business-public-lead-actions select { min-width: 0; min-height: 44px; border: 1px solid var(--ui-control-border); border-radius: 7px; padding: 8px 10px; background: #fff; color: var(--ink); font: inherit; }
+.business-public-lead-list { display: grid; gap: 10px; margin: 0; padding: 0; list-style: none; }
+.business-public-lead-card { min-width: 0; display: grid; gap: 12px; padding: 14px; border: 1px solid var(--line); border-radius: 9px; background: #fff; }
+.business-public-lead-summary { display: grid; gap: 5px; min-width: 0; }
+.business-public-lead-summary > p { margin: 0; overflow-wrap: anywhere; color: var(--muted); font-size: 13px; }
+.business-public-lead-summary a { color: var(--primary); overflow-wrap: anywhere; }
+.business-public-lead-summary blockquote { margin: 5px 0 0; padding: 9px 11px; border-left: 3px solid var(--primary); background: var(--color-site-bg); white-space: pre-wrap; overflow-wrap: anywhere; }
+.business-public-lead-title { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; min-width: 0; }
+.business-public-lead-title > strong { overflow-wrap: anywhere; }
+.business-public-lead-status { width: max-content; border-radius: 99px; padding: 3px 8px; background: #eff6ff; color: #1e40af; font-size: 10px; font-weight: 700; }
+.business-public-lead-status.status-rejected_spam { background: #fef2f2; color: #991b1b; }
+.business-public-lead-status.status-duplicate { background: #fffbeb; color: #92400e; }
+.business-public-lead-status.status-accepted_as_lead { background: #f0fdf4; color: #166534; }
+.business-public-lead-triage { display: grid; gap: 10px; padding-top: 12px; border-top: 1px solid var(--line); }
+.business-public-lead-triage .business-form-grid { grid-template-columns: repeat(auto-fit, minmax(min(100%, 190px), 1fr)); }
+.business-public-lead-actions { display: flex; align-items: end; flex-wrap: wrap; gap: 8px; }
+.business-public-lead-actions .business-field { flex: 1 1 250px; }
+.business-public-lead-actions button { min-height: 44px; }
+.business-public-lead-queue :is(button, select, input):focus-visible { outline: 3px solid #60a5fa; outline-offset: 2px; }
+@media (max-width: 700px) {
+  .business-public-lead-queue > .business-section-heading { align-items: stretch; flex-direction: column; }
+  .business-public-lead-filter { grid-template-columns: minmax(0, 1fr); }
+  .business-public-lead-actions { align-items: stretch; }
+  .business-public-lead-actions .business-field, .business-public-lead-actions button { flex: 1 1 100%; }
+}
+
 

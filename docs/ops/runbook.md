@@ -188,8 +188,8 @@ The Worker serves both the app and the API, so rollback is per deployment:
 
 ## Scheduled cleanup
 
-The minute cron removes expired workspace sessions, expired idempotency keys,
-soft-deletes expired workspaces, purges abandoned `INITIALIZED`/`UPLOADING`/
+The minute cron removes expired idempotency keys, soft-deletes expired workspaces,
+purges abandoned `INITIALIZED`/`UPLOADING`/
 `STAGED` file rows and their R2 objects. The legacy snapshot tables are removed
 by forward migration 0045 after owner authorization; `demo_seeds` remains with
 inserts blocked because `workspaces.seed_id` retains its foreign key.

@@ -1,5 +1,7 @@
 # API Contract Delta (remaining work only)
 
+> **Historical proposal notice:** this contract contains a superseded E03 authentication design (`/api/auth/*`, sessions and `firm.admin`). The current real-implementation epic excludes application authentication and keeps actor/persona request context self-selected. Those auth paths and requirements are not part of the runtime contract. Use the registered route inventory and current Worker schemas as the source of truth; do not implement this historical proposal.
+
 ## 0. Where the contract lives today
 
 There is no OpenAPI file. The executable contract is:
@@ -139,7 +141,7 @@ Payloads are zod `z.strictObject`. All return the standard command result and wr
 | `user.unlock` | `firm.admin` | `{ userAccountId, expectedVersion }` | Clears lockout. | E03-S05 |
 | `portal.credentials.reissue` | `REVIEWER` or Partner `APPROVER` | `{ engagementId, contactRouteId, reason }` | New temp password + email, prior unconsumed `CLIENT_TEMP_PASSWORD` tokens invalidated (set `expires_at` = now via new token row; tokens are immutable, so validation must check "latest issued"). | E03-S04 |
 | `proposal.dispatch.recordManual` | same allowed action as email dispatch: `proposal.dispatch` (today Partner `APPROVER` only — do not widen) | `{ engagementId, proposalVersionId, channel: 'WHATSAPP'\|'HAND_DELIVERY', contactId, sentAt, evidenceFileVersionId?, note? }` | Inserts append-only `manual_dispatch_records`; performs the same `PROPOSAL_GENERATION → DUAL_KEY_PENDING` transition as email acceptance, but never transitions a second time when another channel already advanced this exact proposal. Requires the current Partner-approved version. | E04-S02 |
-| `publicLead.triage` | `lead.manage` | `{ submissionId, decision: 'ACCEPT'\|'SPAM'\|'DUPLICATE', expectedVersion, existingLeadId? }` | `ACCEPT` creates a `lead` with `source='WEB_FORM'`. | E04-S03 |
+| `publicLead.triage` | `lead.manage` | `{ submissionId, decision: 'ACCEPT'\|'SPAM'\|'DUPLICATE', expectedVersion, existingLeadId?, requestedService?, periodStart?, periodEnd?, estimatedFeeMinor? }` | `ACCEPT` requires a requested service and ordered audited period, creates a `lead` with `source='WEB_FORM'` and the original received time. An optional duplicate link must have a primary contact whose email matches the inquiry. | E04-S03 |
 | `milestone.applyDefaults` | `staffing.manage` | `{ engagementId, periodEnd: 'YYYY-MM-DD', overwrite?: boolean, suggestedDates?: { FIELDWORK_START, DRAFT_REPORT, FINAL_REPORT } }` | Applies the three suggested milestones from the default rule (E05-S01), with optional reviewed date edits; never overwrites existing unless `overwrite:true`. STATUTORY_CUTOFF is never inferred. | E05-S01 |
 | `clientImport.validate` / `clientImport.apply` | Partner `APPROVER` + `client.manage` | `{ fileVersionId }` / `{ runId }` | Validates CSV → `client_import_runs` report; apply creates clients/contacts/routes atomically (chunked ≤ 500 rows per batch, resumable by `client_import_row_map`). | E05-S06 |
 
@@ -169,12 +171,14 @@ paths:
                 website: { type: string, maxLength: 0, description: honeypot — must be empty }
       responses:
         '202': { description: Accepted for triage (also returned for honeypot hits, silently stored as REJECTED_SPAM) }
-        '400': { description: VALIDATION_FAILED }
+        '403': { description: FORBIDDEN_SCOPE (origin is not allowlisted) }
+        '422': { description: VALIDATION_FAILED (invalid body or Turnstile verification) }
         '429': { description: RATE_LIMITED (per IP hash, 5/hour) }
+        '503': { description: UNAVAILABLE (verification, hashing, persistence or notification configuration unavailable) }
 ```
 
-CORS: same-origin only by default; `PUBLIC_LEAD_ALLOWED_ORIGINS` env var lists the firm's marketing site origin(s) for cross-origin posts.
+`GET /api/workspaces/{workspaceId}/public-lead-submissions` returns rows to staff with `lead.read`; the optional `status` query filters by `RECEIVED`, `ACCEPTED_AS_LEAD`, `REJECTED_SPAM` or `DUPLICATE`. CORS is same-origin only by default; `PUBLIC_LEAD_ALLOWED_ORIGINS` lists exact marketing-site origins for cross-origin `POST` and `OPTIONS`, without credentials. A verified Turnstile token is required for non-honeypot submissions. `PUBLIC_LEAD_IP_HASH_SECRET` must contain at least 32 characters; the rolling five-per-hour D1 limiter fails closed when it is absent. `PUBLIC_LEAD_DEFAULT_COUNTRY_CODE` is the two-letter firm jurisdiction used when triage creates a prospect. `PUBLIC_LEAD_NOTIFICATION_EMAIL` optionally queues a staff notification through the existing email outbox; notifications are off when unset.
 
 ## 5. Readiness changes — E02-S04, E04-S04
 
-`GET /api/health/ready` reports `readinessChecks` for `environment`, `rateLimiter` (`BOUND`/`MISSING`), `emailProvider`, `auth.entra` (`CONFIGURED`/`NOT_CONFIGURED`), `turnstile` (`CONFIGURED`/`NOT_CONFIGURED`), and `sharepoint` (`NOT_CONFIGURED` when absent). Production fails with machine-readable `dependencyCodes` if rate limiting, the email provider, Entra OIDC settings, Turnstile, D1, R2, or the expected schema is unavailable. Staging reports the same checks and fails for missing rate limiting or email only; OIDC and Turnstile remain informational until production. OIDC status currently reflects the complete required configuration set; discovery health is added with E03-S02.
+`GET /api/health/ready` reports `readinessChecks` for `environment`, the general rate limiter, `emailProvider`, `turnstile`, public-lead hashing/jurisdiction/notification/origin settings, D1, R2 and schema version. There is no `auth.entra` check in the current no-auth profile. Readiness requirements vary by environment as implemented in `worker/index.ts`; staging checks documented here are not evidence that a named staging app Worker is deployed.

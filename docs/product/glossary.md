@@ -1,5 +1,7 @@
 # Glossary / Domain Language
 
+> **Current scope:** the AuditSphere real-implementation epic specifies freely selected workflow personas and no application authentication. The legacy E03 account/session entries below are historical design material and are not part of the current runtime contract. These persona checks are not identity or access security.
+
 **Naming convention (existing):** singular code terms map to plural `snake_case` tables (`client` → `clients`, `contact_route` → `contact_routes`, `engagement_letter` → `engagement_letters`); command types are `entity.verb` in camelCase (`commercialAcceptance.record`).
 
 **Rule:** use the *Code term* exactly in identifiers, table names, command types, API fields and UI copy keys. Never introduce a synonym. If a concept is missing, add it here in the same PR that introduces it.
@@ -15,12 +17,8 @@
 | Persona | `persona` = `PREPARER` \| `REVIEWER` \| `APPROVER` \| `CLIENT` | The role a request acts under. `APPROVER` requires `PARTNER`; `REVIEWER` requires `MANAGER`/`SENIOR`. | Grade. |
 | Actor profile | `actor_profile` | Binding of one persona to one staff member **or** one client contact. The thing every command is attributed to. | User account. |
 | Natural person key | `natural_person_key` | Unique per person; segregation-of-duties checks compare it, not profile IDs. | Email. |
-| **User account** *(new, E03)* | `user_account` | A login identity. Kind `STAFF` (linked to a staff member) or `CLIENT` (linked to a contact). Owns one or more actor profiles. | Actor profile. |
-| **Auth session** *(new, E03)* | `auth_session` | Server-side session row keyed by SHA-256 of an opaque cookie token. Holds the *active actor profile*. Replaces `X-Actor-Id` headers. | Legacy `workspace_sessions` (removed). |
-| **Active profile** *(new, E03)* | `active_actor_profile_id` | Which of the user's own actor profiles the session currently acts as. Switching is only among profiles the user owns. | "Persona switcher" (legacy, removed). |
-| **Credential token** *(new, E03)* | `credential_token` | Single-use, hashed, expiring token for `INVITE`, `TEMP_PASSWORD`, `PASSWORD_RESET`. | Session token. |
-| **Temporary password** *(new, E03)* | `password_must_change = 1` | Password emailed at portal provisioning; blocks every PBC action until changed (spec §4.1.5). | — |
-| **Firm administrator** *(new, E03)* | capability `firm.admin` | Partner-held capability to invite/disable users and grant/revoke actor profiles. Not a persona. | `APPROVER`. |
+| Workflow actor | `actor_profile` + request context | Self-selected persona and actor used for workflow attribution. Caller supplied and not verified identity. | Authenticated user. |
+| Workspace locator | `workspace_id` | Identifies a workspace; it is not a password, bearer token, or access credential. | Authorization. |
 
 ## Commercial (Module 1)
 
@@ -103,7 +101,7 @@
 | Term | Code term | Meaning |
 |---|---|---|
 | Command | `{ type, payload }` | The only way to mutate business state. `POST /api/workspaces/:id/commands`. |
-| Command envelope | `businessCommandEnvelopeSchema` | `{ actor, context, expectedVersions, command }` + `Idempotency-Key` header. **E03 removes `actor` from the trust path.** |
+| Command envelope | `businessCommandEnvelopeSchema` | `{ actor, context, expectedVersions, command }` + `Idempotency-Key` header. Actor/persona values are caller supplied workflow context, not trusted identity. |
 | Expected version | `expectedVersions[]` | Optimistic concurrency per entity. |
 | Outbox job | `outbox_jobs.kind` ∈ `EMAIL, GENERATE_DOCUMENT, IMPORT_TB, SEAL_ARCHIVE, VERIFY_FILE` | Durable async work processed by the minute cron. |
 | Change feed | `GET …/changes` | Sequence-ordered change events for concurrency refresh. |

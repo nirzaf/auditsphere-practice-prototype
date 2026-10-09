@@ -1,5 +1,7 @@
 # Roadmap — remaining work to production
 
+> **Current scope authority:** this roadmap's older E03 authentication milestone is superseded by the user-provided `EPIC-AUDITSPHERE-REAL-IMPLEMENTATION.md`, which specifies a no-application-auth trusted-environment profile. Do not implement E03/OIDC/password/session stories from the historical tables below. `docs/product/real-implementation-status.md` is the current 46-story evidence tracker.
+
 Each milestone ends in a **working, deployable state** (CI green, staging deploy healthy). Stories inside a milestone run in the listed order unless marked ∥ (parallel-safe).
 
 ```mermaid
@@ -69,7 +71,7 @@ flowchart LR
 | E05-S03 ∥ | *(P2)* Going-concern no-forecast UI polish (verify-first) | Feature | M3 |
 | E05-S04 ∥ | Client document centre (verify-first) | Verify/Feature | E03-S05 |
 | E05-S05 | Large-archive and R2 retention-lock acceptance on staging | Verify | E02-S01 |
-| E05-S06 | Bulk client/contact import (0052) | Feature | SP-03 |
+| E05-S06 | Bulk client/contact import (0053) | Feature | SP-03 |
 
 ## M6 — Hardening & go-live (E06)
 

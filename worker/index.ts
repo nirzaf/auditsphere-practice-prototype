@@ -3,8 +3,8 @@
 // One Worker serves the built React app (Workers Static Assets) and its same-origin
 // JSON API under /api/*.
 //
-// BUSINESS mutations resolve the authenticated actor on each request,
-// enforce scope/version inside the domain command, and append an audit event.
+// BUSINESS mutations resolve the self-asserted actor/persona context on each request,
+// enforce workflow scope/version inside the domain command, and append an audit event.
 
 import {
   getWorkspace,
@@ -22,14 +22,18 @@ import { sweepStaleBusinessFiles } from './businessFileSweep';
 import { queueDueBusinessArchives } from './businessReporting';
 import { apiRequestMetric, outboxSnapshot, safeErrorKind, type OutboxMetricRow } from './observability';
 import { APPLICATION_SCHEMA_VERSION } from './versions';
+import { enforceNamedRateLimit } from './rateLimits';
 import { buildVerificationSupportBundle, type VerificationRunRow } from './verificationSupportBundle';
 import { ingestVerificationRun } from './verificationIngest';
+import { handlePublicLeadSubmission, publicLeadCorsHeaders } from './publicLeadIntake';
+import { handleEmailStatusWebhook } from './emailStatusWebhook';
 import {
   bootstrapBusinessWorkspace,
   listBusinessActorProfiles,
   listBusinessClients,
   getBusinessClient,
   listBusinessLeads,
+  listPublicLeadSubmissions,
   listBusinessStandardsProfiles,
   getBusinessProposalWorkspace,
   getBusinessPbcRequestPortal,
@@ -92,10 +96,7 @@ export function businessCommandHttpResult(
 
 /** Per-IP/route rate limit using the optional Worker Rate Limiting binding. */
 async function enforceRateLimit(ctx: RouteContext, bucket: string, key: string): Promise<void> {
-  const limiter = ctx.env.RATE_LIMITER;
-  if (!limiter) return;
-  const outcome = await limiter.limit({ key: `${bucket}:${key}` });
-  if (!outcome.success) throw new ApiError('RATE_LIMITED', 'Too many requests. Wait a moment and try again.');
+  await enforceNamedRateLimit(ctx, 'RATE_LIMITER', `${bucket}:${key}`);
 }
 
 const clientKey = (ctx: RouteContext): string =>
@@ -156,9 +157,13 @@ const handleHealthReady = async (ctx: RouteContext): Promise<Response> => {
     environment,
     rateLimiter: ctx.env.RATE_LIMITER ? 'BOUND' : 'MISSING',
     emailProvider: email.providerReadiness === 'NOT_PROBED' ? email.transport : email.providerReadiness,
-    auth: { entra: ctx.env.OIDC_TENANT_ID && ctx.env.OIDC_CLIENT_ID && ctx.env.OIDC_CLIENT_SECRET && ctx.env.OIDC_REDIRECT_URI
-      ? 'CONFIGURED' : 'NOT_CONFIGURED' },
     turnstile: ctx.env.TURNSTILE_SECRET_KEY ? 'CONFIGURED' : 'NOT_CONFIGURED',
+    publicLead: {
+      ipHashKey: (ctx.env.PUBLIC_LEAD_IP_HASH_SECRET?.length ?? 0) >= 32 ? 'CONFIGURED' : 'NOT_CONFIGURED',
+      defaultCountry: /^[A-Z]{2}$/.test(ctx.env.PUBLIC_LEAD_DEFAULT_COUNTRY_CODE?.trim().toUpperCase() ?? '') ? 'CONFIGURED' : 'NOT_CONFIGURED',
+      notification: ctx.env.PUBLIC_LEAD_NOTIFICATION_EMAIL ? 'CONFIGURED' : 'OFF',
+      crossOrigin: ctx.env.PUBLIC_LEAD_ALLOWED_ORIGINS?.split(',').some(origin => origin.trim()) ? 'CONFIGURED' : 'SAME_ORIGIN_ONLY'
+    },
     sharepoint: sharepoint.state === 'UNCONFIGURED' ? 'NOT_CONFIGURED' : sharepoint.state
   };
   if (environment === 'production' || environment === 'staging') {
@@ -167,8 +172,11 @@ const handleHealthReady = async (ctx: RouteContext): Promise<Response> => {
     else if (email.providerReadiness !== 'READY') dependencyCodes.push('EMAIL_PROVIDER_NOT_READY');
   }
   if (environment === 'production') {
-    if (readinessChecks.auth.entra !== 'CONFIGURED') dependencyCodes.push('OIDC_NOT_CONFIGURED');
     if (readinessChecks.turnstile !== 'CONFIGURED') dependencyCodes.push('TURNSTILE_NOT_CONFIGURED');
+  }
+  if (environment === 'production' || environment === 'staging') {
+    if (readinessChecks.publicLead.ipHashKey !== 'CONFIGURED') dependencyCodes.push('PUBLIC_LEAD_IP_HASH_SECRET_NOT_CONFIGURED');
+    if (readinessChecks.publicLead.defaultCountry !== 'CONFIGURED') dependencyCodes.push('PUBLIC_LEAD_DEFAULT_COUNTRY_NOT_CONFIGURED');
   }
   const ready = dependencyCodes.length === 0;
   return jsonResponse({ status: ready ? 'ready' : 'degraded', schemaVersion, dependencyCodes, readinessChecks }, ready ? 200 : 503, ctx.requestId);
@@ -253,6 +261,11 @@ const handleBusinessClient = async (ctx: RouteContext): Promise<Response> => {
 
 const handleBusinessLeads = async (ctx: RouteContext): Promise<Response> => {
   const result = await listBusinessLeads(ctx.env, ctx.params.workspaceId, ctx.request, ctx.url);
+  return jsonResponse(result, 200, ctx.requestId);
+};
+
+const handlePublicLeadSubmissions = async (ctx: RouteContext): Promise<Response> => {
+  const result = await listPublicLeadSubmissions(ctx.env, ctx.params.workspaceId, ctx.request, ctx.url);
   return jsonResponse(result, 200, ctx.requestId);
 };
 
@@ -608,14 +621,19 @@ const handleFileMetadata = async (ctx: RouteContext): Promise<Response> => {
 const handleIntegrationStatus = async (ctx: RouteContext): Promise<Response> =>
   jsonResponse(await integrationStatus(ctx.env), 200, ctx.requestId);
 
+const handleEmailStatus = async (ctx: RouteContext): Promise<Response> =>
+  handleEmailStatusWebhook(ctx.request, ctx.env, ctx.requestId);
+
 // --- Router -----------------------------------------------------------------
 
 const router = createRouter()
+  .post('/api/public/leads', handlePublicLeadSubmission)
   .get('/api/health', handleHealth)
   .get('/api/health/live', handleHealthLive)
   .get('/api/health/ready', handleHealthReady)
   .get('/api/health/support-bundle', handleSupportBundle)
   .get('/api/integrations/status', handleIntegrationStatus)
+  .post('/api/webhooks/email-status', handleEmailStatus)
   .post('/api/internal/verification-runs', ingestVerificationRun)
   .post('/api/workspaces', handleCreateWorkspace)
   .get('/api/workspaces/:workspaceId/actor-profiles', handleBusinessActorProfiles)
@@ -623,6 +641,7 @@ const router = createRouter()
   .get('/api/workspaces/:workspaceId/clients', handleBusinessClients)
   .get('/api/workspaces/:workspaceId/clients/:clientId', handleBusinessClient)
   .get('/api/workspaces/:workspaceId/leads', handleBusinessLeads)
+  .get('/api/workspaces/:workspaceId/public-lead-submissions', handlePublicLeadSubmissions)
   .get('/api/workspaces/:workspaceId/standards-profiles', handleBusinessStandardsProfiles)
   .get('/api/workspaces/:workspaceId/proposal-workspace', handleBusinessProposalWorkspace)
   .get('/api/workspaces/:workspaceId/engagements/:engagementId/workflow', handleBusinessWorkflow)
@@ -680,7 +699,19 @@ export default {
         console.log(JSON.stringify(apiRequestMetric({ requestId, route, method: request.method, status: response.status,
           durationMs: performance.now() - startedAt })));
       }
-      return response;
+      // API responses can be returned by handlers that construct Response
+      // directly (for example auth redirects and empty success responses).
+      // Apply the no-store and MIME-sniffing protections at the route boundary
+      // so those responses cannot accidentally bypass the JSON helper defaults.
+      const headers = new Headers(response.headers);
+      if (url.pathname.startsWith('/api/')) {
+        headers.set('Cache-Control', 'no-store');
+        headers.set('X-Content-Type-Options', 'nosniff');
+      }
+      if (env.ENVIRONMENT === 'production') {
+        headers.set('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+      }
+      return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
     };
 
     // Anything outside /api/* is the built React app (Workers Static Assets).
@@ -689,6 +720,13 @@ export default {
       const headers = new Headers(asset.headers);
       headers.set('X-Content-Type-Options', 'nosniff');
       headers.set('Referrer-Policy', 'no-referrer');
+      headers.set('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self'; frame-src 'self' blob:; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'");
+      headers.set('X-Frame-Options', 'DENY');
+      headers.set('Cross-Origin-Opener-Policy', 'same-origin');
+      headers.set('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
+      if (env.ENVIRONMENT === 'production') {
+        headers.set('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+      }
       return new Response(asset.body, { status: asset.status, statusText: asset.statusText, headers });
     }
 
@@ -702,7 +740,17 @@ export default {
       origin: url.origin
     };
 
-    if (request.method === 'OPTIONS') return finishApiResponse(new Response(null, { status: 204, headers: baseHeaders(requestId) }), 'OPTIONS');
+    if (request.method === 'OPTIONS') {
+      if (url.pathname === '/api/public/leads') {
+        const cors = publicLeadCorsHeaders(request, env);
+        const origin = request.headers.get('Origin');
+        if (origin && origin !== url.origin && !cors['Access-Control-Allow-Origin']) {
+          return finishApiResponse(new Response(null, { status: 403, headers: baseHeaders(requestId) }), 'OPTIONS');
+        }
+        return finishApiResponse(new Response(null, { status: 204, headers: { ...baseHeaders(requestId), ...cors } }), 'OPTIONS');
+      }
+      return finishApiResponse(new Response(null, { status: 204, headers: baseHeaders(requestId) }), 'OPTIONS');
+    }
 
     const match = router.match(request.method, url.pathname);
     if (!match) {
@@ -728,7 +776,8 @@ export default {
         code: mapped.body.code,
         status: mapped.status
       }));
-      return finishApiResponse(jsonResponse(mapped.body, mapped.status, requestId), match.routePattern);
+      const cors = match.routePattern === '/api/public/leads' ? publicLeadCorsHeaders(request, env) : {};
+      return finishApiResponse(jsonResponse(mapped.body, mapped.status, requestId, cors), match.routePattern);
     }
   },
 

@@ -41,6 +41,11 @@
     }
   ],
 
+  // General API limit complements the durable public-lead hourly enforcement.
+  "ratelimits": [
+    { "name": "RATE_LIMITER", "namespace_id": "420060201", "simple": { "limit": 1000, "period": 60 } }
+  ],
+
   // --- Optional integrations (see docs/prototype/integration-configuration.md) ---
   // Email delivery (US-GAP-05/06): CI deploys the internal provider first; it uses
   // Cloudflare Email Service with a one-recipient UAT allowlist. No public endpoint
@@ -51,11 +56,13 @@
   // app identifiers are configured below. Supply SHAREPOINT_CLIENT_SECRET using
   // Cloudflare Worker secrets after the site-specific Sites.Selected grant.
   "vars": {
+    "ENVIRONMENT": "production",
     "SHAREPOINT_TENANT_ID": "4de3e6fd-51aa-4ba7-b2c5-82106d2e45f0",
     "SHAREPOINT_CLIENT_ID": "69eddc6b-194f-411a-9d77-5b96fa1602ad",
     "SHAREPOINT_SITE_HOSTNAME": "easyguide.sharepoint.com",
     "SHAREPOINT_SITE_PATH": "/sites/AuditSphereJSAcceptance",
-    "SHAREPOINT_DRIVE_NAME": "Documents"
+    "SHAREPOINT_DRIVE_NAME": "Documents",
+    "PUBLIC_LEAD_DEFAULT_COUNTRY_CODE": "QA"
   },
 
   "observability": { "enabled": true },

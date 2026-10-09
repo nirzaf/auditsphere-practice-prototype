@@ -394,6 +394,31 @@ export async function listBusinessLeads(
   };
 }
 
+export async function listPublicLeadSubmissions(
+  env: Env,
+  workspaceId: string,
+  request: Request,
+  url: URL
+): Promise<{ items: Array<Record<string, unknown>> }> {
+  const context = await resolveBusinessContext(env, workspaceId, request) as BusinessReadContext;
+  if (!context.allowedActions.includes('lead.read')) throw new ApiError('PERSONA_ACTION_DENIED', 'This persona cannot read lead records.');
+  const status = url.searchParams.get('status');
+  if (status && !['RECEIVED', 'ACCEPTED_AS_LEAD', 'REJECTED_SPAM', 'DUPLICATE'].includes(status)) {
+    throw new ApiError('BAD_REQUEST', 'Choose a valid web inquiry status.');
+  }
+  const result = await env.DB.prepare(`SELECT id,version,status,company_name,contact_name,email_normalized,phone,service_interest,
+      message,lead_id,created_at,updated_at
+    FROM public_lead_submissions WHERE workspace_id=? AND (? IS NULL OR status=?)
+    ORDER BY created_at DESC,id DESC LIMIT 100`)
+    .bind(workspaceId, status, status).all<Record<string, unknown>>();
+  return { items: (result.results ?? []).map(row => ({
+    id: row.id, version: row.version, status: row.status, companyName: row.company_name,
+    contactName: row.contact_name, email: row.email_normalized, phone: row.phone,
+    serviceInterest: row.service_interest, message: row.message, leadId: row.lead_id,
+    createdAt: row.created_at, updatedAt: row.updated_at
+  })) };
+}
+
 export async function listBusinessStandardsProfiles(
   env: Env,
   workspaceId: string,
@@ -672,6 +697,15 @@ async function businessCommandScope(
   if (command.type === 'client.create') {
     const clientId = firstStringField([mutation.result, command.payload], 'clientId');
     return { clientId, engagementId: null, known: Boolean(clientId) };
+  }
+
+  if (mutation.entityType === 'PUBLIC_LEAD_SUBMISSION') {
+    const clientId = firstStringField([mutation.result, command.payload], 'clientId');
+    if (context.scope.engagementId) throw new ApiError('FORBIDDEN_SCOPE', 'Clear the engagement scope before triaging a web inquiry.');
+    if (context.scope.clientId && clientId && context.scope.clientId !== clientId) {
+      throw new ApiError('FORBIDDEN_SCOPE', 'The inquiry is outside the selected client scope.');
+    }
+    return { clientId, engagementId: null, known: true };
   }
 
   const candidates = [mutation.result, mutation.auditDetails, command.payload];
@@ -1049,6 +1083,24 @@ const leadConvertCommand = z.strictObject({
     contractFeeMinor: moneyMinorSchema.optional()
   })
 });
+const publicLeadTriageCommand = z.strictObject({
+  type: z.literal('publicLead.triage'),
+  payload: z.strictObject({
+    submissionId: clientIdSchema,
+    decision: z.enum(['ACCEPT', 'SPAM', 'DUPLICATE']),
+    expectedVersion: z.number().int().positive(),
+    existingLeadId: clientIdSchema.optional(),
+    requestedService: serviceTypeSchema.optional(),
+    periodStart: dateSchema.optional(),
+    periodEnd: dateSchema.optional(),
+    estimatedFeeMinor: moneyMinorSchema.optional()
+  }).refine(payload => payload.decision !== 'ACCEPT'
+    || Boolean(payload.requestedService && payload.periodStart && payload.periodEnd), {
+    message: 'Accepting a web inquiry requires a service and audited period.'
+  }).refine(payload => !payload.periodStart || !payload.periodEnd || payload.periodStart <= payload.periodEnd, {
+    message: 'The audited period end must not precede its start.'
+  })
+});
 const engagementAdvanceCommand = z.strictObject({
   type: z.literal('engagement.advance'),
   payload: z.strictObject({ engagementId: clientIdSchema, expectedVersion: z.number().int().positive(), expectedState: z.literal('LEAD_INGESTION') })
@@ -1255,6 +1307,7 @@ export const businessCommandSchema = z.discriminatedUnion('type', [
   leadUpdateCommand,
   leadLoseCommand,
   leadConvertCommand,
+  publicLeadTriageCommand,
   engagementAdvanceCommand,
   standardsProfileCreateCommand,
   businessFileReserveCommand,
@@ -1362,6 +1415,8 @@ export function parseBusinessCommandEnvelope(value: unknown, idempotencyKey: str
         : command.type === 'contact.update' ? { entity: 'Contact', id: command.payload.contactId, version: command.payload.expectedVersion }
           : command.type === 'lead.update' || command.type === 'lead.lose' || command.type === 'lead.convert'
             ? { entity: 'Lead', id: command.payload.leadId, version: command.payload.expectedVersion }
+            : command.type === 'publicLead.triage'
+              ? { entity: 'PublicLeadSubmission', id: command.payload.submissionId, version: command.payload.expectedVersion }
             : command.type === 'engagement.advance' ? { entity: 'Engagement', id: command.payload.engagementId, version: command.payload.expectedVersion }
         : command.type === 'file.stage' || command.type === 'file.commit' || command.type === 'file.reject'
                 ? { entity: 'FileVersion', id: command.payload.fileId, version: command.payload.expectedVersion }
@@ -2656,7 +2711,7 @@ function requireCommercialStaff(context: BusinessContext, command: string): void
   const requiredAction = command.startsWith('client.') || command.startsWith('contact.')
       ? 'client.manage'
       : command === 'lead.convert' ? 'lead.convert'
-        : command.startsWith('lead.') ? 'lead.manage'
+        : command.startsWith('lead.') || command === 'publicLead.triage' ? 'lead.manage'
           : command === 'engagement.advance' ? 'engagement.advance'
             : command === 'standards-profile.create' ? 'standards.manage' : null;
   if (!requiredAction || !context.allowedActions.includes(requiredAction)) {
@@ -2696,6 +2751,104 @@ async function buildCommercialMutation(
 ): Promise<BusinessMutation> {
   requireCommercialStaff(context, command.type);
   const actorId = context.actor.id;
+
+  if (command.type === 'publicLead.triage') {
+    const payload = command.payload;
+    const submission = await env.DB.prepare(`SELECT id,version,status,company_name,contact_name,email_normalized,phone,
+        service_interest,created_at,lead_id
+      FROM public_lead_submissions WHERE workspace_id=? AND id=?`)
+      .bind(workspaceId, payload.submissionId)
+      .first<{ id: string; version: number; status: string; company_name: string; contact_name: string; email_normalized: string;
+        phone: string | null; service_interest: string | null; created_at: string; lead_id: string | null }>();
+    if (!submission) throw new ApiError('NOT_FOUND', 'The web inquiry was not found.');
+    if (submission.version !== payload.expectedVersion) throw new ApiError('VERSION_CONFLICT', 'The web inquiry changed. Reload it before triage.');
+    if (!['RECEIVED', 'DUPLICATE'].includes(submission.status)) {
+      throw new ApiError('INVALID_TRANSITION', 'Only an untriaged web inquiry can be accepted, marked spam, or closed as a duplicate.');
+    }
+
+    const status = payload.decision === 'ACCEPT' ? 'ACCEPTED_AS_LEAD'
+      : payload.decision === 'SPAM' ? 'REJECTED_SPAM' : 'DUPLICATE';
+    let leadId = payload.decision === 'DUPLICATE' ? (payload.existingLeadId ?? submission.lead_id) : null;
+    let clientId: string | null = null;
+    let primaryContactId: string | null = null;
+    const statements: D1PreparedStatement[] = [env.DB.prepare(`INSERT INTO command_assertions(workspace_id,seq,ok)
+      SELECT ?,9900,CASE WHEN EXISTS(SELECT 1 FROM public_lead_submissions WHERE workspace_id=? AND id=?
+        AND version=? AND status IN ('RECEIVED','DUPLICATE')) THEN 1 ELSE 0 END`)
+      .bind(workspaceId, workspaceId, submission.id, payload.expectedVersion)];
+
+    if (payload.decision === 'DUPLICATE' && leadId) {
+      const linked = await env.DB.prepare(`SELECT l.id FROM leads l JOIN contacts c ON c.workspace_id=l.workspace_id
+          AND c.client_id=l.client_id AND c.id=l.primary_contact_id
+        WHERE l.workspace_id=? AND l.id=? AND lower(trim(c.email))=?`)
+        .bind(workspaceId, leadId, submission.email_normalized).first<{ id: string }>();
+      if (!linked) throw new ApiError('VALIDATION_FAILED', 'Choose an existing lead with the same contact email, or leave the link empty.');
+      leadId = linked.id;
+    }
+
+    if (payload.decision === 'ACCEPT') {
+      const countryCode = env.PUBLIC_LEAD_DEFAULT_COUNTRY_CODE?.trim().toUpperCase();
+      if (!countryCode || !/^[A-Z]{2}$/.test(countryCode)) {
+        throw new ApiError('UNAVAILABLE', 'The firm default country code is not configured for prospect creation.');
+      }
+      const legalNameMatches = await env.DB.prepare(`SELECT id FROM clients WHERE workspace_id=? AND active=1
+        AND lower(trim(legal_name))=lower(trim(?)) ORDER BY id LIMIT 2`)
+        .bind(workspaceId, submission.company_name).all<{ id: string }>();
+      if ((legalNameMatches.results ?? []).length > 1) throw new ApiError('VERSION_CONFLICT', 'The company name matches more than one active client; resolve the directory duplicates first.');
+      const existingClientId = legalNameMatches.results?.[0]?.id;
+      if (existingClientId && context.scope.clientId && context.scope.clientId !== existingClientId) {
+        throw new ApiError('FORBIDDEN_SCOPE', 'The matching client is outside the selected request scope.');
+      }
+      clientId = existingClientId ?? crypto.randomUUID();
+      const currentContact = existingClientId ? await env.DB.prepare(`SELECT id FROM contacts WHERE workspace_id=?
+        AND client_id=? AND active=1 AND lower(trim(email))=? ORDER BY is_primary DESC,id LIMIT 1`)
+        .bind(workspaceId, existingClientId, submission.email_normalized).first<{ id: string }>() : null;
+      primaryContactId = currentContact?.id ?? crypto.randomUUID();
+
+      if (!existingClientId) {
+        const clientCode = `WEB-${submission.id.replaceAll('-', '').slice(0, 16).toUpperCase()}`;
+        statements.push(env.DB.prepare(`INSERT INTO clients(
+          id,workspace_id,version,code,legal_name,trading_name,entity_type,parent_client_id,
+          commercial_registration,tax_id,industry,address,country_code,active,created_at,updated_at,
+          created_by_actor_id,updated_by_actor_id
+        ) VALUES(?,?,1,?,?,NULL,'STANDALONE',NULL,NULL,NULL,'Not provided','Not provided',?,1,?,?,?,?)`)
+          .bind(clientId, workspaceId, clientCode, submission.company_name, countryCode, now, now, actorId, actorId));
+      }
+      if (!currentContact) {
+        const primary = !existingClientId || !(await env.DB.prepare(`SELECT id FROM contacts WHERE workspace_id=?
+          AND client_id=? AND active=1 AND is_primary=1 LIMIT 1`)
+          .bind(workspaceId, clientId).first<{ id: string }>());
+        statements.push(env.DB.prepare(`INSERT INTO contacts(
+          id,workspace_id,version,client_id,full_name,email,phone,title,role,is_primary,is_signatory,active,
+          effective_from,effective_to,created_at,updated_at,created_by_actor_id,updated_by_actor_id
+        ) VALUES(?,?,1,?,?,?,?, 'Prospective contact','OTHER',?,0,1,?,NULL,?,?,?,?)`)
+          .bind(primaryContactId, workspaceId, clientId, submission.contact_name, submission.email_normalized,
+            submission.phone, primary ? 1 : 0, now.slice(0, 10), now, now, actorId, actorId));
+      }
+
+      if (!payload.requestedService || !payload.periodStart || !payload.periodEnd) {
+        throw new ApiError('VALIDATION_FAILED', 'Select the requested service and audited period before accepting this inquiry.');
+      }
+      leadId = crypto.randomUUID();
+      statements.push(env.DB.prepare(`INSERT INTO leads(
+        id,workspace_id,version,client_id,primary_contact_id,source,received_at,requested_service,period_start,period_end,
+        estimated_fee_minor,status,loss_reason,converted_engagement_id,created_at,updated_at,created_by_actor_id,updated_by_actor_id
+      ) VALUES(?,?,1,?,?,'WEB_FORM',?,?,?,?,?,'OPEN',NULL,NULL,?,?,?,?)`)
+        .bind(leadId, workspaceId, clientId, primaryContactId, submission.created_at, payload.requestedService,
+          payload.periodStart, payload.periodEnd, payload.estimatedFeeMinor === undefined ? null : Number(payload.estimatedFeeMinor),
+          now, now, actorId, actorId));
+    }
+
+    statements.push(env.DB.prepare(`UPDATE public_lead_submissions SET status=?,lead_id=?,triaged_by_actor_id=?,
+        version=version+1,updated_at=? WHERE workspace_id=? AND id=? AND version=? AND status IN ('RECEIVED','DUPLICATE')`)
+      .bind(status, leadId, actorId, now, workspaceId, submission.id, payload.expectedVersion));
+    return {
+      statements,
+      result: { submissionId: submission.id, status, leadId, clientId },
+      entityType: 'PUBLIC_LEAD_SUBMISSION', entityId: submission.id,
+      beforeVersion: submission.version, afterVersion: submission.version + 1,
+      auditDetails: { decision: payload.decision, leadId, clientId }
+    };
+  }
 
   if (command.type === 'client.create') {
     const payload = command.payload;

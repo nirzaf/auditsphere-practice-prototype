@@ -8,10 +8,10 @@
     "npm": ">=11"
   },
   "scripts": {
-    "dev": "npm run build && wrangler dev --config wrangler.jsonc --local --port 3000",
+    "dev": "npm run build && wrangler dev --config wrangler.jsonc --local --var ENVIRONMENT:local --port 3000",
     "build": "tsc --noEmit && vite build",
     "lint": "tsc --noEmit",
-    "preview": "wrangler dev --config wrangler.jsonc --local --port 3000",
+    "preview": "wrangler dev --config wrangler.jsonc --local --var ENVIRONMENT:local --port 3000",
     "test:unit": "tsx --test --test-concurrency=1 tests/unit/*.test.ts",
     "benchmark:local-api": "tsx tools/benchmark-local-worker-20-users.ts",
     "cloud:typecheck": "tsc --noEmit -p worker/tsconfig.json",

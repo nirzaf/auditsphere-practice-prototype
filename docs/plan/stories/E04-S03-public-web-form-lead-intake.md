@@ -23,6 +23,13 @@ Prospects submit an inquiry from the firm's website; staff triage it into a `WEB
 ## Constraints
 No new dependency for Turnstile (single `fetch` to the siteverify endpoint). Response bodies never echo submitted data.
 
+## Implementation progress — 2026-10-09
+- Added the forward-only `0051_public_lead_submissions.sql` migration, schema version 51, strict public POST validation, server-side Turnstile verification, exact-origin CORS, honeypot storage, duplicate detection, HMAC IP redaction and a fail-closed rolling five-per-hour D1 limiter.
+- Added the `lead.read` Web inquiries queue and status filter, plus `lead.manage` acceptance/spam/duplicate triage with optimistic versions. Accept requires service and audited period, links/creates the client and primary contact, and preserves original receipt time.
+- Optional inbox notification is disabled by default; when configured, a minimal submission-reference job enters the existing email outbox. Added the HTML/Turnstile embed runbook.
+- Acceptance coverage includes valid/invalid requests, Turnstile rejection, honeypot, CORS, duplicates, hourly rate limits, triage, reviewer denial and queued/delivered optional notification. Focused tests and Worker typecheck pass.
+- Production/staging still need the secret `PUBLIC_LEAD_IP_HASH_SECRET` (32+ characters), and the deployment must configure the matching Turnstile secret and allowed form origin before external submissions can work.
+
 ## Verify with
 ```bash
 npx tsx --test tests/unit/publicLeadIntake.test.ts && npm run test:unit

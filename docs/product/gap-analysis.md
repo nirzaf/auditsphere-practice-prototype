@@ -1,5 +1,7 @@
 # Gap Analysis — STE v2.1 vs. repository `main@54ec5a3`
 
+> **Superseded baseline:** this matrix predates the no-application-auth real-implementation epic. Its E03 identity gaps, authentication-specific limiter claims, and `DONE-UNAUTH` statuses are not current requirements. The epic's self-selected-persona model governs. Use current implementation and acceptance evidence; do not add login/RBAC to close rows in this historical matrix.
+
 **Purpose:** tell an agent, per requirement, whether to build, finish, verify, or leave alone.
 **Method:** source inspection of the BUSINESS workspace path only (`worker/business*.ts`, `worker/migrations/0006…0044`, `src/components/business/*`, `src/shared/api/business.ts`), cross-checked with `docs/prototype/us-gap-completion-status.md` and a local run of the unit suite (630/631 pass). The legacy browser-store prototype (`src/PrototypeApp.tsx`, `src/store/**`) is **not** counted as implementation.
 
@@ -30,14 +32,14 @@ Evidence column: confirmed = seen in source during this audit; *reported* = take
 | 11-state lifecycle + immutable transitions | ✅ DONE | `engagements.lifecycle_state` CHECK (0006:224); `state_transitions_no_update/no_delete` triggers | — |
 | Immutable audit history (hash chain) | ✅ DONE | `audit_events_no_update/no_delete`, `audit_chain_heads` (0006) | — |
 | Idempotent commands + optimistic concurrency | ✅ DONE | `Idempotency-Key` required; `expectedVersions`; `command_receipts` immutable | — |
-| Rate limiting | 🟡 PARTIAL | `enforceRateLimit` no-ops when `RATE_LIMITER` unbound; not bound in `wrangler.jsonc` (confirmed) | E06-S02 |
-| Security headers on app shell | 🟡 PARTIAL | Assets get `nosniff` + `Referrer-Policy` only; no CSP/HSTS/frame-ancestors (confirmed `worker/index.ts`) | E06-S01 |
+| Rate limiting | ✅ DONE | Root Worker config binds separate general, auth-IP and auth-strict buckets; production/staging fail closed when required bindings are missing; login, password reset and public intake use hashed keys; public intake adds an atomic D1 five-per-hour window. Focused rate-limit and readiness tests pass. | E06-S02 |
+| Security headers on app shell | 🟡 PARTIAL | Asset responses now set CSP (including `frame-ancestors 'none'` and blob previews), production-only HSTS, `X-Frame-Options`, COOP, minimal Permissions-Policy, and existing headers; the API response boundary enforces `no-store` + `nosniff`. Focused `securityHeaders.test.ts` passes; the all-panels CSP browser sweep and ASVS L2 assessment remain open. | E06-S01 |
 
 ## Module 1 — Commercial & CRM
 
 | Story | Status | Evidence | Remaining → story |
 |---|---|---|---|
-| US-M1-001 Multi-channel lead capture | 🟡 PARTIAL | `leads.source IN (PHONE,WHATSAPP,EMAIL,WEB_FORM,REFERRAL)`; `lead.create/update/lose/convert` | Public web-form endpoint → E04-S03 |
+| US-M1-001 Multi-channel lead capture | ✅ DONE | `leads.source IN (PHONE,WHATSAPP,EMAIL,WEB_FORM,REFERRAL)`; `POST /api/public/leads` verifies Turnstile, applies hashed-IP limits, detects duplicates, redacts stored IPs and feeds the staff Web inquiries queue; triage creates `WEB_FORM` leads with receipt timestamps. Focused E04-S03 tests pass. | — |
 | US-M1-002 Organisational hierarchy | ✅ DONE | `client.affiliation.add`, relationship groups, `HOLDING/SUBSIDIARY/STANDALONE` with parent rules | — |
 | US-M1-003 Role-based contact directory | ✅ DONE | `contact.route` purposes `PROPOSAL, EL, FINAL_REPORT, INVOICE, RECEIPT, PBC, HOLDING_LETTER`; MD/GM default routing (`worker/business.ts:2638`) | — |
 | US-M1-004 Brief quotation | ✅ DONE | `worker/proposalDocument.ts`; *reported* 1–2-page enforcement | — |

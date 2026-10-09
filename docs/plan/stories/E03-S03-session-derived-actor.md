@@ -1,5 +1,7 @@
 # E03-S03 — Session-derived actor in `resolveBusinessContext`; migrate test helpers
 
+> **Retired scope:** the current user-provided real-implementation epic explicitly excludes application authentication, accounts, passwords, sessions, and RBAC. This historical E03 story is not an active requirement. Do not implement it unless the user authorizes a new scope.
+
 | ID | Epic | Type | Priority | Size | Depends on | Spec trace |
 |---|---|---|---|---|---|---|
 | E03-S03 | E03 | Refactor | P0 | M | E03-S02 | NFR SEC-01, SEC-02, SEC-08 |

@@ -1,5 +1,7 @@
 # ADR-0008 — Single-firm tenancy: one BUSINESS workspace per deployment
 
+> **Status correction:** this ADR's login-derived workspace discovery and removal of workspace setup are superseded by the current no-auth real-implementation epic. Do not remove create/connect workflow or infer tenant identity from a login session without a new scope decision.
+
 - **Status:** Proposed
 - **Date:** 2026-10-08
 

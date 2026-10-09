@@ -503,11 +503,11 @@ async function verifyOpinionVariants(): Promise<void> {
     await setField(audit, 'Quantifiable amount (QAR, optional)', '1250.75');
     await setField(audit, 'Nature and explanation', affectedExplanation);
     await saveOpinion(audit, category.label, [category.basis, rationale, basisText, materiality, pervasiveness,
-      'QA-REV', 'SYNTHETIC REVENUE', 'QAR 1250.75', affectedExplanation]);
+      'QA-REV', 'Synthetic revenue', 'QAR 1250.75', affectedExplanation]);
     const preview = await tab.evaluate<string>(`document.querySelector('#opinion-preview-title')?.closest('section')?.innerText ?? ''`);
-    for (const exactText of [category.basis, rationale, basisText, materiality, pervasiveness, 'QA-REV', 'SYNTHETIC REVENUE',
+    for (const exactText of [category.basis, rationale, basisText, materiality, pervasiveness, 'QA-REV', 'Synthetic revenue',
       'QAR 1250.75', affectedExplanation]) {
-      assert.ok(preview.includes(exactText), `${category.value} preview preserves exact approved text: ${exactText}`);
+    assert.ok(preview.includes(exactText), `${category.value} preview preserves exact approved text: ${exactText}`);
     }
   }
 

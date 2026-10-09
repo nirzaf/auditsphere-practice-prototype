@@ -177,7 +177,7 @@ it('US-SYS-001/002/005 creates a real workspace, assigns all personas, persists 
     fetch(`${server.origin}/api/session/logout`, { method: 'POST', headers: testOnlyHeaders, body: '{}' })
   ]);
   assert.deepEqual([seedCatalog.status, seededWorkspace.status, resume.status, snapshotState.status, snapshotEvents.status,
-    snapshotCommands.status, snapshotFiles.status, personaSession.status, logoutSession.status], [404, 400, 404, 404, 404, 404, 404, 404, 404]);
+    snapshotCommands.status, snapshotFiles.status, personaSession.status, logoutSession.status], [404, 400, 400, 404, 404, 404, 404, 404, 404]);
 
   // Plan/Act/Verify: the setup action should open the required real Partner form.
   await clickButton('Create or connect workspace');

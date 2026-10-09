@@ -29,7 +29,7 @@ async function ready(env: Env) {
   return { response, body: await response.json() as {
     status: string;
     dependencyCodes: string[];
-    readinessChecks: { environment: string; rateLimiter: string; emailProvider: string; auth: { entra: string }; turnstile: string; sharepoint: string };
+    readinessChecks: { environment: string; rateLimiter: string; emailProvider: string; turnstile: string; publicLead: { ipHashKey: string; defaultCountry: string; notification: string; crossOrigin: string }; sharepoint: string };
   } };
 }
 
@@ -40,25 +40,26 @@ it('keeps local readiness compatible while reporting unconfigured optional integ
   assert.equal(result.response.status, 200);
   assert.deepEqual(result.body.dependencyCodes, []);
   assert.deepEqual(result.body.readinessChecks, {
-    environment: 'local', rateLimiter: 'MISSING', emailProvider: 'UNCONFIGURED', auth: { entra: 'NOT_CONFIGURED' },
-    turnstile: 'NOT_CONFIGURED', sharepoint: 'NOT_CONFIGURED'
+    environment: 'local', rateLimiter: 'MISSING', emailProvider: 'UNCONFIGURED',
+    turnstile: 'NOT_CONFIGURED', publicLead: { ipHashKey: 'NOT_CONFIGURED', defaultCountry: 'NOT_CONFIGURED', notification: 'OFF', crossOrigin: 'SAME_ORIGIN_ONLY' }, sharepoint: 'NOT_CONFIGURED'
   });
 });
 
 it('fails staging readiness when required rate limiting and email are absent, then passes when both are ready', async () => {
   const missing = await ready(readinessEnv({ ENVIRONMENT: 'staging' }));
   assert.equal(missing.response.status, 503);
-  assert.deepEqual(missing.body.dependencyCodes, ['RATE_LIMITER_UNBOUND', 'EMAIL_PROVIDER_UNBOUND']);
+  assert.deepEqual(missing.body.dependencyCodes, ['RATE_LIMITER_UNBOUND', 'EMAIL_PROVIDER_UNBOUND', 'PUBLIC_LEAD_IP_HASH_SECRET_NOT_CONFIGURED', 'PUBLIC_LEAD_DEFAULT_COUNTRY_NOT_CONFIGURED']);
 
   const configured = await ready(readinessEnv({
     ENVIRONMENT: 'staging',
     RATE_LIMITER: { limit: async () => ({ success: true }) },
-    EMAIL_PROVIDER: readyEmailProvider
+    EMAIL_PROVIDER: readyEmailProvider,
+    PUBLIC_LEAD_IP_HASH_SECRET: 'staging-public-lead-ip-key-at-least-32-characters',
+    PUBLIC_LEAD_DEFAULT_COUNTRY_CODE: 'QA'
   }));
   assert.equal(configured.response.status, 200);
   assert.deepEqual(configured.body.dependencyCodes, []);
-  assert.equal(configured.body.readinessChecks.auth.entra, 'NOT_CONFIGURED');
-  assert.equal(configured.body.readinessChecks.turnstile, 'NOT_CONFIGURED', 'staging reports but does not fail on OIDC or Turnstile configuration');
+  assert.equal(configured.body.readinessChecks.turnstile, 'NOT_CONFIGURED', 'staging reports but does not fail on Turnstile configuration');
 });
 
 it('fails production readiness for each missing binding or unavailable provider', async () => {
@@ -66,12 +67,12 @@ it('fails production readiness for each missing binding or unavailable provider'
     ENVIRONMENT: 'production',
     RATE_LIMITER: { limit: async () => ({ success: true }) },
     EMAIL_PROVIDER: readyEmailProvider,
-    OIDC_TENANT_ID: 'tenant', OIDC_CLIENT_ID: 'client', OIDC_CLIENT_SECRET: 'secret', OIDC_REDIRECT_URI: 'https://audit.example.test/callback',
-    TURNSTILE_SECRET_KEY: 'turnstile-secret'
+    TURNSTILE_SECRET_KEY: 'turnstile-secret', PUBLIC_LEAD_IP_HASH_SECRET: 'production-public-lead-ip-key-at-least-32-characters',
+    PUBLIC_LEAD_DEFAULT_COUNTRY_CODE: 'QA'
   } satisfies Partial<Env>;
   const missingBoth = await ready(readinessEnv({ ENVIRONMENT: 'production' }));
   assert.equal(missingBoth.response.status, 503);
-  assert.deepEqual(missingBoth.body.dependencyCodes, ['RATE_LIMITER_UNBOUND', 'EMAIL_PROVIDER_UNBOUND', 'OIDC_NOT_CONFIGURED', 'TURNSTILE_NOT_CONFIGURED']);
+  assert.deepEqual(missingBoth.body.dependencyCodes, ['RATE_LIMITER_UNBOUND', 'EMAIL_PROVIDER_UNBOUND', 'TURNSTILE_NOT_CONFIGURED', 'PUBLIC_LEAD_IP_HASH_SECRET_NOT_CONFIGURED', 'PUBLIC_LEAD_DEFAULT_COUNTRY_NOT_CONFIGURED']);
 
   const unavailableEmail = await ready(readinessEnv({
     ...common,
@@ -80,12 +81,15 @@ it('fails production readiness for each missing binding or unavailable provider'
   assert.equal(unavailableEmail.response.status, 503);
   assert.deepEqual(unavailableEmail.body.dependencyCodes, ['EMAIL_PROVIDER_NOT_READY']);
 
-  const missingOidc = await ready(readinessEnv({ ...common, OIDC_CLIENT_SECRET: undefined }));
-  assert.equal(missingOidc.response.status, 503);
-  assert.deepEqual(missingOidc.body.dependencyCodes, ['OIDC_NOT_CONFIGURED']);
   const missingTurnstile = await ready(readinessEnv({ ...common, TURNSTILE_SECRET_KEY: undefined }));
   assert.equal(missingTurnstile.response.status, 503);
   assert.deepEqual(missingTurnstile.body.dependencyCodes, ['TURNSTILE_NOT_CONFIGURED']);
+  const missingLeadKey = await ready(readinessEnv({ ...common, PUBLIC_LEAD_IP_HASH_SECRET: undefined }));
+  assert.equal(missingLeadKey.response.status, 503);
+  assert.deepEqual(missingLeadKey.body.dependencyCodes, ['PUBLIC_LEAD_IP_HASH_SECRET_NOT_CONFIGURED']);
+  const missingCountry = await ready(readinessEnv({ ...common, PUBLIC_LEAD_DEFAULT_COUNTRY_CODE: undefined }));
+  assert.equal(missingCountry.response.status, 503);
+  assert.deepEqual(missingCountry.body.dependencyCodes, ['PUBLIC_LEAD_DEFAULT_COUNTRY_NOT_CONFIGURED']);
   const fullyConfigured = await ready(readinessEnv(common));
   assert.equal(fullyConfigured.response.status, 200);
   assert.deepEqual(fullyConfigured.body.dependencyCodes, []);

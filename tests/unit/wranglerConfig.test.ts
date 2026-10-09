@@ -60,4 +60,9 @@ it('keeps email-provider staging allowlisted and production routed without a pub
   const app = parseJsonc('wrangler.jsonc');
   assert.ok(app.services.some((binding: Record<string, string>) => binding.binding === 'EMAIL_PROVIDER'
     && binding.service === 'auditsphere-email-provider' && binding.environment === 'production'));
+  assert.deepEqual(app.ratelimits.map((binding: any) => [binding.name, binding.simple.limit, binding.simple.period]), [
+    ['RATE_LIMITER', 1000, 60]
+  ]);
+  assert.equal(new Set(app.ratelimits.map((binding: any) => binding.namespace_id)).size, 1,
+    'the general request limit uses one configured namespace');
 });
