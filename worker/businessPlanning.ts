@@ -60,6 +60,17 @@ export function isBusinessPlanningCommand(command: { type: string }): command is
 
 type PlanningEngagement = { id: string; client_id: string; lifecycle_state: string; period_start: string; period_end: string; locked_at: string | null };
 
+function folderUploadRule(code: string): string {
+  switch (code) {
+    case 'ADMIN_PLANNING': return 'Use for administration and planning records scoped to this client and engagement.';
+    case 'TB_SCHEDULES': return 'Trial-balance source files must be stored here before import; only committed, immutable files in this folder can be imported.';
+    case 'FIELDWORK_TESTING': return 'Use for testing support and evidence; link evidence to its workpaper through the fieldwork workflow.';
+    case 'DRAFTS_DELIVERABLES': return 'Use for drafts and generated deliverables; issue final artifacts through their controlled workflow.';
+    case 'FINAL_SIGNED_ARCHIVE': return 'Read-only. Only release or archive workflow artifacts are accepted; direct and client uploads are rejected.';
+    default: return 'Follow the applicable controlled engagement workflow for uploads.';
+  }
+}
+
 function requirePlanner(context: BusinessContext, action: string): void {
   if (!context.allowedActions.includes(action) || !['REVIEWER', 'APPROVER'].includes(context.actor.persona)) {
     throw new ApiError('PERSONA_ACTION_DENIED', 'Only internal REVIEWER or APPROVER profiles can manage engagement planning.');
@@ -176,7 +187,10 @@ export async function getBusinessPlanningWorkspace(env: Env, workspaceId: string
   return { engagement: { id: engagement.id, clientId: engagement.client_id, lifecycleState: engagement.lifecycle_state,
       periodStart: engagement.period_start, periodEnd: engagement.period_end },
     staff: staff.results ?? [], assignments: (assignments.results ?? []).map(row => ({ ...row, dailyMinutes: JSON.parse(String(row.dailyMinutes)) })),
-    milestones: milestones.results ?? [], folders: folders.results ?? [] };
+    milestones: milestones.results ?? [], folders: (folders.results ?? []).map(folder => ({
+      ...folder,
+      uploadRule: folderUploadRule(String(folder.code))
+    })) };
 }
 
 export async function buildBusinessPlanningMutation(env: Env, workspaceId: string, context: BusinessContext,
@@ -471,7 +485,10 @@ export async function listBusinessEngagementFolders(env: Env, workspaceId: strin
       CASE WHEN f.code='FINAL_SIGNED_ARCHIVE' THEN 1 ELSE 0 END AS readOnly
     FROM engagement_folders f WHERE f.workspace_id=? AND f.engagement_id=? ORDER BY f.ordinal`)
     .bind(workspaceId, engagement.id).all<Record<string, unknown>>();
-  return { folders: result.results ?? [] };
+  return { folders: (result.results ?? []).map(folder => ({
+    ...folder,
+    uploadRule: folderUploadRule(String(folder.code))
+  })) };
 }
 
 export async function provisionEngagementFolders(env: Env, workspaceId: string, clientId: string, engagementId: string,

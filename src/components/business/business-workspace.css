@@ -231,6 +231,7 @@
 .business-folder-list li { padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; }
 .business-folder-list li strong, .business-folder-list li span { display: block; }
 .business-folder-list li span { color: var(--muted); font-size: 12px; margin-top: 3px; }
+.business-folder-list li small { display: block; color: var(--muted); font-size: 12px; line-height: 1.45; margin-top: 6px; }
 @media (max-width: 700px) {
   .business-pbc-panel .business-section-heading { align-items: stretch; flex-direction: column; }
   .business-pbc-panel .business-section-heading .business-field { width: 100%; }

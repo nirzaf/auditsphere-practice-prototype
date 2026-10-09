@@ -439,7 +439,7 @@ export interface BusinessPlanningWorkspace {
     startDate: string; endDate: string; plannedMinutes: number; dailyMinutes: Array<{ date: string; minutes: number }> }>;
   milestones: Array<{ id: string; version: number; code: 'FIELDWORK_START' | 'DRAFT_REPORT' | 'FINAL_REPORT' | 'STATUTORY_CUTOFF';
     targetDate: string; actualDate: string | null; sourceReference: string; approvedByActorId: string | null }>;
-  folders: Array<{ id: string; code: string; displayName: string; ordinal: number; fileCount: number; readOnly: number }>;
+  folders: Array<{ id: string; code: string; displayName: string; ordinal: number; fileCount: number; readOnly: number; uploadRule: string }>;
 }
 export interface BusinessPlanningReadiness {
   ready: boolean;
