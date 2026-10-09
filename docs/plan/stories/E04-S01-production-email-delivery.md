@@ -12,8 +12,27 @@ Every client-facing document the system already generates (proposal, EL, invoice
 - `worker/businessOutbox.ts` (`COMMERCIAL_EMAIL`, dispatch rows), `dispatches` table (`0009`, rebuilt in `0019`: statuses `QUEUED, ACCEPTED, DELIVERED, BOUNCED, FAILED, UNKNOWN`)
 - `docs/ops/integrations.md` (moved in E01-S01)
 
-## Current state (verified)
-The production provider is deployed. Cloudflare dashboard state inspected on 2026-10-09 shows native `SEND_EMAIL`, sender `audit-dispatch@mail.steaudit.com`, and allowlist containing `audit@steaudit.com`; version `684f342b` was active at 100% with 0% reported errors. The M365 Admin Center later confirmed `steaudit.com` is Healthy in the tenant that owns it, and Exchange confirmed `audit@steaudit.com` is an alias on the owner's M365 mailbox. Exchange enabled a rule matching only that alias and adding an owner-selected external BCC; normal alias delivery and the M365 apex MX remain in place. The Worker has no inbound email-routing trigger and does not ingest mailbox content. This dashboard configuration differs from checked-in production config, which uses routed REST delivery; reconcile the transport before deploying the provider from the repository. No successful application email delivery is recorded.
+## Current state (verified 2026-10-10)
+GitHub Actions run [37999901510](https://github.com/nirzaf/auditsphere-practice-prototype/actions/runs/37999901510)
+deployed the checked-in routed REST provider configuration. The Cloudflare
+production dashboard showed `auditsphere-email-provider` version `e92a09d6` Ready
+at 100% traffic with Workers.dev disabled. Its workflow step succeeded but
+displayed an unexplained bare `Error:` line; investigate this on the next
+provider deployment. This provider replaces the earlier dashboard-only native
+`SEND_EMAIL` configuration (version `684f342b`). The GitHub environment's
+`CLOUDFLARE_EMAIL_SENDING_TOKEN` was updated on 2026-10-10, while
+`CLOUDFLARE_API_TOKEN` remained last updated on 2026-10-07 at the latest check;
+its replacement is not yet verified. The application readiness job passed, but
+no successful application email delivery or mailbox receipt is recorded.
+
+The M365 Admin Center confirmed `steaudit.com` is Healthy in the tenant that
+owns it, and Exchange confirmed `audit@steaudit.com` is an alias on the owner's
+M365 mailbox. The former Exchange rule that BCCed an owner-selected external
+address was disabled on 2026-10-09. Normal alias delivery and the M365 apex MX
+remain in place. The Worker has no inbound email-routing trigger and does not
+ingest mailbox content. Cloudflare Email Preview remains enabled by the owner's
+choice; this is an accepted provider-console privacy exception, not proof of
+the strict no-content-in-logs criterion.
 
 ## Step 0 — Verify transport capability (no code)
 Fetch current Cloudflare documentation for the `send_email` binding / Email Service and record in the PR: can it send to **arbitrary external recipients** from a verified domain, and with what limits? If **not**, production must use the `HTTP_API` transport with a transactional email provider chosen by the firm (owner decision; the provider becomes a data processor — add it to SP-04's inventory).
