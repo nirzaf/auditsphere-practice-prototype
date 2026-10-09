@@ -4,10 +4,12 @@
 |---|---|---|---|---|---|---|
 | E01-S05 | E01 | Migration | P2 | M | E01-S04; owner authorized retirement; remote data inventory outstanding | ADR-0003 |
 
-## Current implementation status (2026-10-08)
-- Owner instruction: “drop it” — authorizes retiring the legacy TEST schema and migration tooling. This is not evidence that remote TEST workspaces contain no live records.
+## Current implementation status (2026-10-09)
+- Owner directly authorized deletion of the TEST workspace data and application of migration `0045` after seeing the live inventory and its row counts. This treats that TEST data as disposable for the developer/testing environment; it is not a claim that the records were empty.
 - Implemented locally in migration `0045_drop_legacy_snapshot_tables.sql`; retained migration rows are not dropped.
-- Live D1 inventory is **pending**: Wrangler authentication expired and the auth server could not be reached. Do not report the remote data precondition as verified.
+- A fresh inventory of remote D1 database `steaudit-prototype-demo` found **21 active, unexpired TEST workspaces**, containing **998** `workspace_entities`, **84** `workspace_root_documents`, and **21** `workspace_sessions`. Before cleanup, table-wide totals were 1,412 entities, 120 root documents, 30 sessions, 30 expiry rows, and 2 retained seed rows.
+- After the action-time confirmation, the 21 matching active/unexpired TEST rows were soft-deleted with the existing `status='deleted'` lifecycle field; a follow-up query returned **0 active TEST workspaces**. Workspace rows are retained because relational business/audit tables use `ON DELETE RESTRICT`. The exact legacy tables remain until migration `0045` applies.
+- The GitHub Actions deploy for main commit `98c6c8b` had previously reached migration `0045`, where its preflight aborted before any DDL. A new push is required to retry; do not report E01-S05 or the deployment complete until the migration and post-deploy checks pass.
 - The deployment workflow applies D1 migrations from `main` after verification. Migration 0045 runs a D1 preflight first and aborts before table removal if any active TEST workspace remains.
 
 ## Intent
@@ -19,13 +21,13 @@ Remove dead schema and the US-SYS-002 legacy-to-BUSINESS cutover tooling once it
 - `tools/business-migration-*.ts`, `docs/prototype/business-data-migration-audit.md` (if still present)
 
 ## Data-loss control
-1. The owner authorized retirement with “drop it”. This direct authorization is recorded here; it does not establish that TEST rows are absent.
-2. The operator query result for **each** environment is still outstanding because Wrangler credentials have expired:
+1. The owner explicitly authorized removal of the TEST data after reviewing the live inventory. The active workspaces were retired using the schema's soft-delete status so FK-restricted business/audit records are not orphaned.
+2. The earlier main deployment run stopped at the migration preflight. The exact preflight that must pass before migration is:
    ```bash
    npx wrangler d1 execute <db> --remote --command "SELECT data_mode,status,COUNT(*) FROM workspaces GROUP BY 1,2"
    ```
-   The result must be reviewed for rows with `data_mode='TEST' AND status<>'deleted'` before manually applying this migration to any additional environment.
-3. Runtime code, tools, and tests no longer reference the legacy tables. Historical SQL files retain their original references and are never rewritten.
+   The verified result for the configured main environment is now zero active TEST rows. Re-inventory any additional environment before applying migration `0045` there.
+3. Migration `0045` drops entire legacy tables, so its removal includes inactive/history rows as well as rows associated with the 21 active workspaces. Pre-migration table totals were 1,412 entities, 120 root documents, 30 sessions, and 30 expiry rows. Runtime code, tools, and tests no longer reference the legacy tables. Historical SQL files retain their original references and are never rewritten.
 
 ## Scope
 **In:** new migration `0045_drop_legacy_snapshot_tables.sql` per data-model-delta §6 (keeping `demo_seeds` with an insert-blocking trigger); delete `tools/business-migration-*.ts`, `tests/unit/businessMigration*.test.ts`, the `migration:audit` script, the `/api/workspaces/:id/migration-status` route, and their docs.

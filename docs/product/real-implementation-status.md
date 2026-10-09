@@ -67,12 +67,14 @@
 
 ## Epic-wide release gates still open
 
-1. Re-run the complete verification gates on the pushed main commit; current local evidence on the working diff is 179 unit tests passed, 1 opt-in stress test skipped, and 13/13 browser acceptance tests passed on the prior baseline, alongside lint, Worker typecheck, and production build. The current full browser run has not yet returned.
+1. Complete the deployment gate after retiring TEST workspaces. GitHub Actions verification for `98c6c8b` passed typecheck, production build, 183/184 unit tests (1 opt-in stress test skipped), and all 13 browser acceptance tests. Its Cloudflare deploy job stopped safely at migration `0045`; after explicit owner authorization, 21 active/unexpired TEST workspaces were soft-deleted and a follow-up query verified zero active TEST workspaces. Push the updated status and confirm migration `0045`, Worker/assets deployment, and readiness before closing this gate.
 2. Complete the cross-slice acceptance matrix in an isolated Worker/D1/R2 environment, including business failure gates and live service integrations; the current browser suite verifies representative journeys, not every criterion in slices 2–7.
 3. Capture current UI parity evidence at 1440px and 390px for every retained route, including keyboard and loading/empty/error/conflict/read-only states.
 4. Extend the file evidence matrix across all generated/uploaded artifact classes and retain explicit two-browser evidence for independent-row and release-freeze races; the current suite already verifies representative committed-byte/hash, version-conflict, report-release, and portal-freeze journeys.
 5. The isolated synthetic backup/restore journey passed and reconciled the restored financial totals, manifest, and all committed original bytes. A tenant backup/restore rehearsal remains open.
 6. Obtain firm-approved templates, methodology, policy, chart-of-accounts, retention and other activation inputs. Missing inputs must continue to block affected actions; they must not be filled with synthetic approvals.
 7. Establish and verify a trusted access perimeter before using confidential records. The current `workers_dev: true` endpoint is public and the application has no authentication; it is not an approved confidential-data environment.
+
+8. The owner authorized deletion of the developer-environment TEST data after reviewing the exact D1 counts. The 21 active, unexpired TEST workspaces (998 `workspace_entities`, 84 `workspace_root_documents`, and 21 `workspace_sessions`) were soft-deleted through the existing lifecycle status; a fresh query verified zero active TEST workspaces. Migration `0045` is pending the next successful Cloudflare deployment. Its table drops will also remove legacy inactive/history rows (pre-migration totals: 1,412 entities, 120 root documents, 30 sessions, and 30 expiry rows).
 
 The build and unit evidence above is local engineering evidence only. It is not a signed business UAT, security certification, or production deployment approval.
