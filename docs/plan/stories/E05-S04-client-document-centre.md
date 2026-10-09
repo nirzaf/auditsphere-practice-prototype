@@ -1,4 +1,4 @@
-# E05-S04 — Client document centre (VERIFY FIRST)
+# E05-S04 — Client document centre (COMPLETE)
 
 | ID | Epic | Type | Priority | Size | Depends on | Spec trace |
 |---|---|---|---|---|---|---|
@@ -35,3 +35,8 @@ If any item above is missing from the client projection, add it to the **existin
 ```bash
 npx tsx --test tests/unit/clientDocumentProjection.test.ts && npm run test:unit && npm run test:e2e
 ```
+
+## Verification record
+- `tests/unit/clientDocumentProjection.test.ts` and `tests/unit/businessWorkspace.test.ts` pass together: 14/14 tests. The BUSINESS fixture asserts the issued-document allowlist, fields and issue dates, holding-letter blocker history, exact issued-document downloads, unissued generated-artifact denial, and denial for every seeded file-version ID belonging to another client.
+- `tests/e2e/businessReporting.test.ts` now asserts the empty Final deliverables group says “None issued yet”, all four groups render for a CLIENT, and the client document-centre button downloads a Partner-released part whose bytes match the saved SHA-256. The focused browser case passes 1/1; the full E2E suite passed 13/13 before these additional assertions.
+- `npm run build` passes. The client panel renders “None issued yet” for every empty category; CLIENT projection fields are allowlisted, while the mandatory PBC rejection reason remains visible and ordinary approval notes stay internal.

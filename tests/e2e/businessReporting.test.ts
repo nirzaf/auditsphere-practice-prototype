@@ -1081,6 +1081,11 @@ it('US-REP-001–007 covers all report categories, representation, atomic releas
     return report?.innerText.includes('SENT · proposed report date ${reportDate}') &&
       [...(report?.querySelectorAll('input[type="file"]') ?? [])].some(input => !input.disabled);
   })()`);
+  await waitFor('the empty final-deliverables group before Partner release', `(() => {
+    const centre=document.querySelector('.business-client-documents');
+    const group=[...(centre?.querySelectorAll(':scope > section')??[])].find(section=>section.getAttribute('aria-label')==='Final deliverables');
+    return group?.innerText.includes('None issued yet.');
+  })()`);
   const signedReturnBytes = minimalPdf('QA Managing Director signed the synthetic letter of representation.');
   const attachedSignedReturn = await tab.evaluate<boolean>(`(() => {
     const report = document.querySelector('#business-reporting-${fixture.engagementId}')?.closest('section');
@@ -1568,6 +1573,29 @@ it('US-REP-001–007 covers all report categories, representation, atomic releas
     return text.includes('Engagement letters & invoices') && text.includes('Receipts') && text.includes('Holding letters') &&
       text.includes('Final deliverables') && text.includes(${JSON.stringify(releasedParts?.[0]?.original_name ?? '')});
   })()`);
+  await installDownloadCapture();
+  const documentCentreFileId = releasedParts?.[0]?.primary_file_id;
+  const documentCentreFileName = releasedParts?.[0]?.original_name;
+  assert.ok(documentCentreFileId && documentCentreFileName);
+  const documentCentreFile = finalClientDocuments.find(document => document.fileVersionId === documentCentreFileId);
+  assert.ok(documentCentreFile, 'the Partner-released file appears in the client document centre projection');
+  const documentCentreMetadata = finalDocumentMetadata.get(documentCentreFileId);
+  assert.ok(documentCentreMetadata);
+  const documentCentreDownloadIndex = await tab.evaluate<number>('window.__qaDownloadCapture.downloads.length');
+  const documentCentreDownloadClicked = await tab.evaluate<boolean>(`(() => {
+    const centre=document.querySelector('.business-client-documents');
+    const group=[...(centre?.querySelectorAll(':scope > section')??[])].find(section=>section.getAttribute('aria-label')==='Final deliverables');
+    const row=[...(group?.querySelectorAll('li')??[])].find(item=>item.innerText.includes(${JSON.stringify(documentCentreFileName)}));
+    const button=[...(row?.querySelectorAll('button')??[])].find(item=>item.textContent?.trim()==='Download'&&!item.disabled);
+    if (!button) return false;
+    button.click();
+    return true;
+  })()`);
+  assert.equal(documentCentreDownloadClicked, true, 'the client can activate the download control in the final-deliverables group');
+  const documentCentreDownload = await readCapturedDownload(documentCentreDownloadIndex, 'client document-centre final deliverable');
+  assert.equal(documentCentreDownload.size, documentCentreMetadata.size_bytes);
+  assert.equal(sha256(documentCentreDownload.bytes), documentCentreMetadata.sha256,
+    'the document-centre download returns the exact Partner-released bytes');
   const portalControls = await tab.evaluate<{ fileInputs: number; enabledFileInputs: number; enabledUploadButtons: number }>(`(() => {
     const report=document.querySelector('#business-reporting-${fixture.engagementId}')?.closest('section');
     const inputs=[...(report?.querySelectorAll('input[type="file"]')??[])];

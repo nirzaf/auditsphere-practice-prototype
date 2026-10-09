@@ -4391,6 +4391,27 @@ it('bootstraps a no-session BUSINESS workspace, records manual dispatch and main
     assert.equal(clientDocument.status, 200, 'the client can download an issued document scoped to its engagement');
     assert.equal(new TextDecoder().decode(new Uint8Array(await clientDocument.arrayBuffer()).slice(0, 5)), '%PDF-');
   }
+  const unissuedGeneratedFileId = crypto.randomUUID();
+  const unissuedGeneratedCreatedAt = new Date().toISOString();
+  db.prepare(`INSERT INTO file_versions(id,workspace_id,version,client_id,engagement_id,original_name,media_type,size_bytes,sha256,object_key,
+      purpose,state,committed_at,created_at,updated_at,created_by_actor_id,updated_by_actor_id)
+    VALUES(?,?,1,?,?,?,'application/pdf',0,?,?,'GENERATED','COMMITTED',?,?,?, ?,?)`)
+    .bind(unissuedGeneratedFileId, workspaceId, clientId, engagementId, 'unissued-management-letter.pdf', 'a'.repeat(64),
+      `test/unissued/${unissuedGeneratedFileId}`, unissuedGeneratedCreatedAt, unissuedGeneratedCreatedAt, unissuedGeneratedCreatedAt,
+      preparerHeaders['X-Actor-Id'], preparerHeaders['X-Actor-Id']).run();
+  const clientCannotDownloadUnissuedArtifact = await worker.fetch(new Request(
+    `https://local.auditsphere.test/api/workspaces/${workspaceId}/files/${unissuedGeneratedFileId}`, { headers: makeRiskHeaders(clientHeaders) }), env, {} as any);
+  assert.equal(clientCannotDownloadUnissuedArtifact.status, 403,
+    'a committed generated file without an issued business record is not a client document');
+  const childClientFiles = db.prepare(`SELECT id FROM file_versions WHERE workspace_id=? AND client_id=? ORDER BY engagement_id,id`)
+    .bind(workspaceId, childClientId).all<{ id: string }>().results ?? [];
+  assert.ok(childClientFiles.length > 0, 'the separate subsidiary client has file-version identifiers for scope testing');
+  for (const childClientFile of childClientFiles) {
+    const clientCannotDownloadChildDocument = await worker.fetch(new Request(
+      `https://local.auditsphere.test/api/workspaces/${workspaceId}/files/${childClientFile.id}`, { headers: makeRiskHeaders(clientHeaders) }), env, {} as any);
+    assert.equal(clientCannotDownloadChildDocument.status, 403,
+      `a CLIENT bound to client A cannot read client B file version ${childClientFile.id}`);
+  }
   assert.equal(clientDelivery.body.payments.every((payment: any) => !('receiptFileId' in payment) && !('receiptErrorCode' in payment)), true,
     'client payment history omits duplicate receipt document identifiers and provider internals');
   const clientCannotReadDeliveryElsewhere = await call(`/api/workspaces/${workspaceId}/engagements/${conversion.body.result.engagementId}/delivery-workspace`, {
