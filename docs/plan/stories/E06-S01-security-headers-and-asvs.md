@@ -11,7 +11,8 @@ Harden the app shell against XSS/clickjacking and record a structured security s
 - App-shell and asset responses now set the CSP, production-only HSTS, frame denial, COOP, and minimal Permissions-Policy. The reporting paragraph's `whiteSpace` style now uses a stylesheet class, so `style-src` is restricted to `'self'`; blob frames remain allowed for the hash-verified report preview.
 - API response finalization enforces `Cache-Control: no-store` and `X-Content-Type-Options: nosniff`, including directly constructed auth responses.
 - `tests/unit/securityHeaders.test.ts` covers `/`, a hashed asset URL, production-only HSTS, and `/api/health/live`.
-- Remaining acceptance: E2E CSP-violation sweep across business panels and the retained public surfaces, and the full OWASP ASVS 4.0.3 L2 checklist. This story is not complete until both are evidenced. A fresh local browser sweep remains blocked because Wrangler cannot bind its inspector socket in this sandbox; the deployed Worker is not an approved UI test target.
+- Verification — 2026-10-09: focused security-header tests pass (2/2), `npm run build` passes, and `npm run cloud:typecheck` passes. There are no remaining JSX inline-style props.
+- Remaining acceptance: E2E CSP-violation sweep across business panels and the retained public surfaces, and the full OWASP ASVS 4.0.3 L2 checklist. This story is not complete until both are evidenced. A local browser sweep remains blocked because the local Wrangler runtime exits with Windows `CreateDirectory: Access is denied` for `miniflare-email-store`; the production Worker is not an approved UI test target.
 
 ## Read first
 - `worker/index.ts` static-asset branch (sets only `X-Content-Type-Options`, `Referrer-Policy`)

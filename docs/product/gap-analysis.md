@@ -33,7 +33,7 @@ Evidence column: confirmed = seen in source during this audit; *reported* = take
 | Immutable audit history (hash chain) | ✅ DONE | `audit_events_no_update/no_delete`, `audit_chain_heads` (0006) | — |
 | Idempotent commands + optimistic concurrency | ✅ DONE | `Idempotency-Key` required; `expectedVersions`; `command_receipts` immutable | — |
 | Rate limiting | ✅ DONE | Root Worker config binds separate general, auth-IP and auth-strict buckets; production/staging fail closed when required bindings are missing; login, password reset and public intake use hashed keys; public intake adds an atomic D1 five-per-hour window. Focused rate-limit and readiness tests pass. | E06-S02 |
-| Security headers on app shell | 🟡 PARTIAL | Asset responses now set CSP (including `frame-ancestors 'none'` and blob previews), production-only HSTS, `X-Frame-Options`, COOP, minimal Permissions-Policy, and existing headers; the API response boundary enforces `no-store` + `nosniff`. Focused `securityHeaders.test.ts` passes; the all-panels CSP browser sweep and ASVS L2 assessment remain open. | E06-S01 |
+| Security headers on app shell | 🟡 PARTIAL | Asset responses set CSP with `style-src 'self'` (no inline styles), `frame-ancestors 'none'` and blob previews, production-only HSTS, `X-Frame-Options`, COOP, minimal Permissions-Policy, and existing headers; the API response boundary enforces `no-store` + `nosniff`. Focused `securityHeaders.test.ts` passes; local browser sweep is blocked by Wrangler's `miniflare-email-store` directory access error, and ASVS L2 remains open. | E06-S01 |
 
 ## Module 1 — Commercial & CRM
 
