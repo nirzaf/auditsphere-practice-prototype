@@ -1,5 +1,7 @@
 # Cloud full-stack runbook
 
+See [operational alert definitions, response steps, and staging evidence status](alerting.md).
+
 ## Bindings
 
 | Binding | Resource | Source of truth |

@@ -7,6 +7,12 @@
 ## Intent
 Structured logs already exist (`workspace.api.request`, `workspace.api.error`, outbox snapshot, `workspace.archive.overdue`). Nobody is notified. Route them to the firm.
 
+> **Scope reconciliation:** The current user-provided epic explicitly uses a
+> no-application-auth profile and supersedes historical E03 login requirements.
+> The `LOGIN_FAILED` threshold below is therefore not applicable: do not add a
+> login endpoint or emit synthetic login events for this alert. See
+> [the alerting decision and current evidence status](../../ops/alerting.md).
+
 ## Read first
 - `worker/observability.ts`, `worker/index.ts` `scheduled()` + `logScheduledOperationalMetrics`
 - Current Cloudflare Workers Logs / Logpush / Notifications documentation (fetch; choose the simplest supported mechanism on the firm's plan)
