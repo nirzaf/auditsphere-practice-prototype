@@ -13,6 +13,7 @@
   "compatibility_date": "2026-09-30",
   "compatibility_flags": ["nodejs_compat"],
   "workers_dev": false,
+  "preview_urls": false,
   "vars": {
     "EMAIL_FROM": "audit-dispatch@mail.steaudit.com",
     "EMAIL_FROM_NAME": "AuditSphere",
@@ -43,7 +44,7 @@
         "EMAIL_FROM": "audit-dispatch@mail.steaudit.com",
         "EMAIL_FROM_NAME": "AuditSphere",
         "EMAIL_RECIPIENT_POLICY": "ROUTED",
-        "EMAIL_ALLOWED_RECIPIENTS": "testing@mail.steauditing.com",
+        "EMAIL_ALLOWED_RECIPIENTS": "testing@mail.steauditing.com,audit@steaudit.com",
         "EMAIL_API_FORMAT": "CLOUDFLARE_EMAIL_SERVICE_REST",
         "EMAIL_API_URL": "https://api.cloudflare.com/client/v4/accounts/2db09fcf0200901fe505244faa2f81d9/email/sending/send"
       }
