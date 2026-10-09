@@ -98,7 +98,47 @@ async function setViewport(width: number, height: number, mobile: boolean): Prom
   try {
     await waitFor(`${width} by ${height} viewport`, `window.innerWidth === ${width} && window.innerHeight === ${height}`);
   } catch (error) {
-    const metrics = await tab!.evaluate(`JSON.stringify({ innerWidth: window.innerWidth, innerHeight: window.innerHeight, outerWidth: window.outerWidth, outerHeight: window.outerHeight, screenWidth: screen.width, screenHeight: screen.height, visualViewport: window.visualViewport ? { width: window.visualViewport.width, height: window.visualViewport.height, scale: window.visualViewport.scale } : null, devicePixelRatio: window.devicePixelRatio, hasFocus: document.hasFocus() })`);
+    const metrics = await tab!.evaluate(`JSON.stringify((() => {
+      const width = screen.width;
+      const overflow = [...document.querySelectorAll('body *')]
+        .map(element => {
+          const rect = element.getBoundingClientRect();
+          const style = getComputedStyle(element);
+          const scrollContainer = element.closest('[class*="scroll"], [class*="table-wrap"], [class*="preview-wrap"]');
+          return {
+            tag: element.tagName.toLowerCase(),
+            id: element.id || undefined,
+            className: typeof element.className === 'string' ? element.className.slice(0, 100) : undefined,
+            left: Math.round(rect.left),
+            right: Math.round(rect.right),
+            width: Math.round(rect.width),
+            scrollWidth: element.scrollWidth,
+            clientWidth: element.clientWidth,
+            overflowX: style.overflowX,
+            scrollContainer: scrollContainer ? String(scrollContainer.className).slice(0, 100) : null,
+            text: (element.textContent || '').trim().slice(0, 100)
+          };
+        })
+        .filter(item => item.right > width + 1 || item.left < -1 || item.scrollWidth > item.clientWidth + 2)
+        .sort((a, b) => Math.max(b.right - width, b.scrollWidth - b.clientWidth) - Math.max(a.right - width, a.scrollWidth - a.clientWidth))
+        .slice(0, 12);
+      return {
+        innerWidth: window.innerWidth,
+        innerHeight: window.innerHeight,
+        outerWidth: window.outerWidth,
+        outerHeight: window.outerHeight,
+        screenWidth: width,
+        screenHeight: screen.height,
+        documentClientWidth: document.documentElement.clientWidth,
+        documentScrollWidth: document.documentElement.scrollWidth,
+        bodyClientWidth: document.body.clientWidth,
+        bodyScrollWidth: document.body.scrollWidth,
+        visualViewport: window.visualViewport ? { width: window.visualViewport.width, height: window.visualViewport.height, scale: window.visualViewport.scale } : null,
+        devicePixelRatio: window.devicePixelRatio,
+        hasFocus: document.hasFocus(),
+        overflow
+      };
+    })())`);
     throw new Error(`${error instanceof Error ? error.message : String(error)}; viewport metrics: ${metrics}; requested mobile emulation: ${mobile}`);
   }
 }
