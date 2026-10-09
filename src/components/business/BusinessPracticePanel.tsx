@@ -339,7 +339,7 @@ export function BusinessPracticePanel({ workspaceId, selected, context, engageme
       </div>
 
       {monthlyProfitLoss && <><h3>Monthly P&amp;L by firm account · {profitLossMonth}</h3>
-        <div className="business-table-wrap"><table className="business-table"><thead><tr><th>Account</th><th>Type</th><th>Amount</th></tr></thead><tbody>
+        <div className="business-table-wrap" role="region" aria-label="Monthly firm profit and loss by account; scroll horizontally to view all columns" tabIndex={0}><table className="business-table"><caption className="business-sr-only">Monthly firm profit and loss amounts grouped by account.</caption><thead><tr><th>Account</th><th>Type</th><th>Amount</th></tr></thead><tbody>
           {monthlyProfitLoss.accounts.map(row => <tr key={row.accountId}><td>{row.code} · {row.name}</td><td>{row.accountType}</td><td>{money(row.amountMinor)}</td></tr>)}
         </tbody></table></div>
       </>}
@@ -382,7 +382,7 @@ export function BusinessPracticePanel({ workspaceId, selected, context, engageme
           <small>{data.profitability.metricLabel} · pending {data.profitability.pendingMinutes} min · billed {money(data.profitability.billedMinor)} · collected {money(data.profitability.collectedMinor)}.</small>
           <small>Accepted letter rev {data.profitability.letterRevision} · proposal rev {data.profitability.feeProposalRevision} · phase budget rev {data.profitability.budgetRevision} · accepted {formatQatarTimestamp(data.profitability.acceptedAt)}.</small>
           <small>{data.profitability.formula}</small>
-          <div className="business-table-wrap"><table className="business-table"><caption className="business-sr-only">Approved actual minutes compared with the pinned phase budget. Positive variance means over budget.</caption><thead><tr>
+          <div className="business-table-wrap" role="region" aria-label="Profitability phase budget variance table; scroll horizontally to view all columns" tabIndex={0}><table className="business-table"><caption className="business-sr-only">Approved actual minutes compared with the pinned phase budget. Positive variance means over budget.</caption><thead><tr>
             <th scope="col">Phase</th><th scope="col">Planned</th><th scope="col">Actual</th><th scope="col">Variance</th><th scope="col">Variance %</th><th scope="col">Status</th>
           </tr></thead><tbody>
             {data.profitability.phases.map(row => { const variancePercent = row.varianceBps === null ? (row.varianceStatus === 'UNBUDGETED' ? 'UNBUDGETED' : '—') : `${row.varianceBps > 0 ? '+' : ''}${(row.varianceBps / 100).toFixed(2)}%`;
@@ -435,7 +435,7 @@ export function BusinessPracticePanel({ workspaceId, selected, context, engageme
       </form>}
 
       <h3 id="route-my-time">Actual time entries</h3>
-      {data.timeEntries.length ? <div className="business-table-wrap"><table className="business-table"><thead><tr><th>Date</th><th>Staff / grade</th><th>Phase</th><th>FSLI / procedure</th><th>Minutes</th><th>Value</th><th>Status</th><th>Action</th></tr></thead><tbody>
+      {data.timeEntries.length ? <div className="business-table-wrap" role="region" aria-label="Actual firm time entries; scroll horizontally to view all columns" tabIndex={0}><table className="business-table"><caption className="business-sr-only">Actual time entries with staff, phase, amount and status.</caption><thead><tr><th>Date</th><th>Staff / grade</th><th>Phase</th><th>FSLI / procedure</th><th>Minutes</th><th>Value</th><th>Status</th><th>Action</th></tr></thead><tbody>
         {data.timeEntries.map(entry => {
           const fsli = data.fsliCatalog.find(item => item.id === entry.fsli_id);
           const procedure = data.procedureCatalog.find(item => item.id === entry.procedure_id);
@@ -567,7 +567,7 @@ export function BusinessPracticePanel({ workspaceId, selected, context, engageme
       </div>)}</div> : <p className="business-muted">No firm journals exist for the selected period.</p>}
 
       <h3>Internal firm trial balance</h3>
-      <div className="business-table-wrap"><table className="business-table"><thead><tr><th>Account</th><th>Opening</th><th>Period debits</th><th>Period credits</th><th>Closing</th></tr></thead><tbody>
+      <div className="business-table-wrap" role="region" aria-label="Internal firm trial balance; scroll horizontally to view all columns" tabIndex={0}><table className="business-table"><caption className="business-sr-only">Internal firm trial balance by account with opening balance, activity and closing balance.</caption><thead><tr><th>Account</th><th>Opening</th><th>Period debits</th><th>Period credits</th><th>Closing</th></tr></thead><tbody>
         {data.trialBalance.rows.map(row => <tr key={row.accountId}><td>{row.code} · {row.name}</td><td>{money(row.openingMinor)}</td><td>{money(row.periodDebitMinor)}</td><td>{money(row.periodCreditMinor)}</td><td>{money(row.closingMinor)}</td></tr>)}
       </tbody></table></div>
 
