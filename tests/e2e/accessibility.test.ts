@@ -95,7 +95,12 @@ async function chooseOption(selectId: string, predicate: string): Promise<string
 
 async function setViewport(width: number, height: number, mobile: boolean): Promise<void> {
   await tab!.command('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor: 1, mobile });
-  await waitFor(`${width} by ${height} viewport`, `window.innerWidth === ${width} && window.innerHeight === ${height}`);
+  try {
+    await waitFor(`${width} by ${height} viewport`, `window.innerWidth === ${width} && window.innerHeight === ${height}`);
+  } catch (error) {
+    const metrics = await tab!.evaluate(`JSON.stringify({ innerWidth: window.innerWidth, innerHeight: window.innerHeight, outerWidth: window.outerWidth, outerHeight: window.outerHeight, screenWidth: screen.width, screenHeight: screen.height, visualViewport: window.visualViewport ? { width: window.visualViewport.width, height: window.visualViewport.height, scale: window.visualViewport.scale } : null, devicePixelRatio: window.devicePixelRatio, hasFocus: document.hasFocus() })`);
+    throw new Error(`${error instanceof Error ? error.message : String(error)}; viewport metrics: ${metrics}; requested mobile emulation: ${mobile}`);
+  }
 }
 
 async function installAxe(): Promise<void> {
