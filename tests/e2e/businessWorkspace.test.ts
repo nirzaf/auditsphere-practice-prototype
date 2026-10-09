@@ -7,7 +7,7 @@ import { join } from 'node:path';
 import { CdpTab } from '../helpers/cdp.js';
 import { launchHeadlessChrome, stopHeadlessChrome } from '../helpers/headlessChrome.js';
 import { startBusinessE2eServer, type BusinessE2eServer } from '../helpers/businessE2eServer.js';
-import { authSessionCookie, setBrowserAuthSession } from '../helpers/authSession.js';
+import { authSessionCookie, bootstrapBusinessFixture, setBrowserAuthSession } from '../helpers/authSession.js';
 
 let server: BusinessE2eServer | undefined;
 let chrome: ChildProcess | undefined;
@@ -41,25 +41,23 @@ async function waitFor(label: string, predicate: string, timeoutMs = 20000): Pro
   throw new Error(`Timed out waiting for ${label}. Current page text: ${await tab!.evaluate<string>('document.body.innerText')}`);
 }
 
-/** The public workspace bootstrap is unauthenticated; install its synthetic staff session before retrying protected reads. */
-async function authenticateBootstrappedWorkspace(name: string): Promise<{ workspaceId: string; actorProfileId: string }> {
+/** Seeds isolated data outside the public API, then injects a real session as the browser's sign-in fixture. */
+async function createAuthenticatedWorkspace(name: string, partnerName = 'QA Partner'):
+Promise<{ workspaceId: string; actorProfileId: string }> {
   assert.ok(server && tab);
-  const deadline = Date.now() + 10000;
-  let workspaceId: string | undefined;
-  while (Date.now() < deadline) {
-    workspaceId = server.db.prepare('SELECT id FROM workspaces WHERE data_mode=? AND name=? ORDER BY created_at DESC LIMIT 1')
-      .bind('BUSINESS', name).first<{ id: string }>()?.id;
-    if (workspaceId) break;
-    await sleep(50);
-  }
-  assert.ok(workspaceId, `the bootstrap Worker created the BUSINESS workspace ${name}`);
-  const actorId = server.db.prepare(`SELECT id FROM actor_profiles WHERE workspace_id=? AND persona='APPROVER' AND active=1 ORDER BY created_at,id LIMIT 1`)
-    .bind(workspaceId).first<{ id: string }>()?.id;
-  assert.ok(actorId, `the bootstrap Worker created an active APPROVER for ${name}`);
-  await installFirmAdminTestSession(workspaceId, actorId);
+  const workspace = await bootstrapBusinessFixture(server.db, {
+    name, currency: 'QAR', timezone: 'Asia/Qatar',
+    initialPartner: {
+      displayName: partnerName,
+      naturalPersonKey: `QA-${name.replace(/[^A-Za-z0-9]/g, '-').toUpperCase()}`,
+      email: `partner.${Date.now()}@example.invalid`
+    }
+  });
+  const { workspaceId, actorProfileId } = workspace;
+  await installFirmAdminTestSession(workspaceId, actorProfileId);
   await tab.command('Page.reload');
-  await waitFor(`the authenticated workspace ${name}`, `document.querySelector('#business-workspace-heading')?.innerText === ${JSON.stringify(name)} && document.querySelector('#business-active-persona')?.selectedOptions[0]?.textContent?.includes('APPROVER')`);
-  return { workspaceId, actorProfileId: actorId };
+  await waitFor(`the authenticated workspace ${name}`, `document.querySelector('#business-workspace-heading')?.innerText === ${JSON.stringify(name)} && document.querySelector('.business-actor-summary')?.innerText.includes('APPROVER')`);
+  return { workspaceId, actorProfileId };
 }
 
 async function installFirmAdminTestSession(workspaceId: string, actorProfileId: string): Promise<void> {
@@ -70,9 +68,6 @@ async function installFirmAdminTestSession(workspaceId: string, actorProfileId: 
     WHERE grant_row.workspace_id=? AND grant_row.actor_profile_id=? AND grant_row.revoked_at IS NULL ORDER BY grant_row.granted_at,grant_row.id LIMIT 1`)
     .bind(workspaceId, actorProfileId).first<{ id: string; kind: string }>();
   assert.ok(account, `a test user account is granted profile ${actorProfileId}`);
-  if (account.kind === 'STAFF') {
-    server.db.prepare('UPDATE user_accounts SET is_firm_admin=1 WHERE workspace_id=? AND id=?').bind(workspaceId, account.id).run();
-  }
   await setBrowserAuthSession(tab, server, workspaceId, actorProfileId);
 }
 
@@ -111,14 +106,25 @@ async function clickButton(label: string): Promise<void> {
 async function chooseOption(selectId: string, predicate: string): Promise<string> {
   if (selectId === 'business-active-persona') {
     assert.ok(server && tab);
-    const target = await tab.evaluate<{ profileId: string; workspaceId: string }>(`(() => {
-      const control = document.querySelector('#business-active-persona');
-      const option = control instanceof HTMLSelectElement ? [...control.options].find(item => ${predicate}) : null;
-      const context = JSON.parse(localStorage.getItem('auditsphere.business-context.v1') ?? '{}');
-      return { profileId: option?.value ?? '', workspaceId: context.workspaceId ?? '' };
-    })()`);
-    assert.ok(target.profileId && target.workspaceId, `an authenticated profile is available in #${selectId}`);
-    await installFirmAdminTestSession(target.workspaceId, target.profileId);
+    const requestedLabel = predicate.match(/includes\(['"](.+?)['"]\)/)?.[1];
+    assert.ok(requestedLabel, `the requested session profile label is parseable: ${predicate}`);
+    const workspaceName = await tab.evaluate<string>(`document.querySelector('#business-workspace-heading')?.textContent?.trim() ?? ''`);
+    const workspaceId = server.db.prepare('SELECT id FROM workspaces WHERE data_mode=? AND name=? ORDER BY created_at DESC LIMIT 1')
+      .bind('BUSINESS', workspaceName).first<{ id: string }>()?.id;
+    assert.ok(workspaceId, `the active BUSINESS workspace ${workspaceName} exists`);
+    const profiles = server.db.prepare(`SELECT ap.id,ap.persona,COALESCE(sm.display_name,c.full_name) AS display_name
+      FROM actor_profiles ap LEFT JOIN staff_members sm ON sm.workspace_id=ap.workspace_id AND sm.id=ap.staff_member_id
+      LEFT JOIN contacts c ON c.workspace_id=ap.workspace_id AND c.id=ap.contact_id
+      WHERE ap.workspace_id=? AND ap.active=1 ORDER BY ap.created_at,ap.id`).bind(workspaceId).all<{
+        id: string; persona: string; display_name: string;
+      }>().results;
+    const target = profiles.find(profile => `${profile.persona} · ${profile.display_name}`.includes(requestedLabel));
+    assert.ok(target, `an active database profile matches ${requestedLabel}`);
+    await installFirmAdminTestSession(workspaceId, target.id);
+    await tab.command('Page.reload');
+    await waitFor(`the session profile ${target.persona} · ${target.display_name}`,
+      `document.querySelector('.business-actor-summary')?.innerText.includes(${JSON.stringify(target.persona)}) && document.querySelector('.business-actor-summary')?.innerText.includes(${JSON.stringify(target.display_name)})`);
+    return target.id;
   }
   const selected = await tab!.evaluate<string>(`(() => {
     const control = document.getElementById(${JSON.stringify(selectId)});
@@ -159,7 +165,9 @@ before(async () => {
   await tab.command('Network.enable');
   await tab.blockExternalHttp();
   await tab.command('Page.navigate', { url: server.origin });
-  await waitFor('the production workspace landing screen', `document.querySelector('#production-workspace-heading')?.innerText === 'Open your business workspace'`);
+  await waitFor('the signed-out authentication screen', `document.querySelector('h1')?.innerText === 'Sign in to AuditSphere'`);
+  assert.ok(tab.requests.some(url => new URL(url).pathname === '/api/auth/me'), 'the signed-out shell checks authentication first');
+  assert.equal(tab.requests.some(url => new URL(url).pathname === '/api/workspaces'), false, 'no business API is called before authentication succeeds');
 }, { timeout: 90000 });
 
 after(async () => {
@@ -189,17 +197,17 @@ after(async () => {
   }
 });
 
-it('US-SYS-001/002/005 creates a real workspace, assigns all personas, persists UI records, and fails closed offline', { timeout: 90000 }, async () => {
+it('US-SYS-001/002/005 authenticates before business data, assigns profiles, persists UI records, and fails closed offline', { timeout: 120000 }, async () => {
   assert.ok(tab && server);
 
-  // Observe: the production shell is ready, with no workspace preference or local business fixture.
+  // Observe: the signed-out auth screen is ready and no business workspace is stored in the browser.
   const landing = await tab.evaluate<{ heading: string; buttons: string[]; preference: string | null }>(`({
-    heading: document.querySelector('#production-workspace-heading')?.textContent?.trim() ?? '',
+    heading: document.querySelector('h1')?.textContent?.trim() ?? '',
     buttons: [...document.querySelectorAll('button')].map(button => button.innerText.trim()),
     preference: localStorage.getItem('auditsphere.business-context.v1')
   })`);
-  assert.equal(landing.heading, 'Open your business workspace');
-  assert.ok(landing.buttons.includes('Create or connect workspace'));
+  assert.equal(landing.heading, 'Sign in to AuditSphere');
+  assert.equal(await tab.evaluate<boolean>(`!!document.querySelector('.business-setup-dialog')`), false, 'workspace setup is not exposed to a signed-out user');
   assert.equal(landing.preference, null, 'the isolated browser starts without business context');
 
   // The shipped Worker exposes the no-auth BUSINESS contract. Legacy demo
@@ -224,34 +232,12 @@ it('US-SYS-001/002/005 creates a real workspace, assigns all personas, persists 
     fetch(`${server.origin}/api/session/logout`, { method: 'POST', headers: testOnlyHeaders, body: '{}' })
   ]);
   assert.deepEqual([seedCatalog.status, seededWorkspace.status, resume.status, snapshotState.status, snapshotEvents.status,
-    snapshotCommands.status, snapshotFiles.status, personaSession.status, logoutSession.status], [404, 400, 400, 404, 404, 401, 401, 404, 404]);
-
-  // Plan/Act/Verify: the setup action should open the required real Partner form.
-  await clickButton('Create or connect workspace');
-  await waitFor('the workspace setup form', `document.querySelector('#business-partner-email') !== null`);
-  const emptyForm = await tab.evaluate<{ required: number; blank: boolean; defaults: string[] }>(`(() => {
-    const form = document.querySelector('.business-setup-dialog form');
-    return {
-      required: form?.querySelectorAll('[required]').length ?? 0,
-      blank: [...(form?.querySelectorAll('input[required]') ?? [])].every(input => input.value === ''),
-      defaults: [...document.querySelectorAll('.business-static-fields strong')].map(item => item.textContent?.trim() ?? '')
-    };
-  })()`);
-  assert.equal(emptyForm.required, 4);
-  assert.equal(emptyForm.blank, true);
-  assert.deepEqual(emptyForm.defaults, ['QAR', 'Asia/Qatar']);
+    snapshotCommands.status, snapshotFiles.status, personaSession.status, logoutSession.status], [404, 404, 400, 404, 404, 401, 401, 404, 404]);
 
   const unique = Date.now();
-  await fillFields({
-    'business-workspace-name': `QA Workspace ${unique}`,
-    'business-partner-name': 'QA Partner',
-    'business-partner-key': `QA-PARTNER-${unique}`,
-    'business-partner-email': 'partner.qa@example.invalid'
-  });
-  await clickButton('Create business workspace');
-  const initialBusinessSession = await authenticateBootstrappedWorkspace(`QA Workspace ${unique}`);
+  const initialBusinessSession = await createAuthenticatedWorkspace(`QA Workspace ${unique}`);
   await waitFor('the database-backed workspace console', `document.querySelector('#business-workspace-heading')?.innerText === ${JSON.stringify(`QA Workspace ${unique}`)}`);
-  await waitFor('the initial APPROVER context and empty client state', `document.querySelector('#business-active-persona')?.selectedOptions[0]?.textContent?.includes('APPROVER') && document.body.innerText.includes('No clients are registered.')`);
+  await waitFor('the initial APPROVER context and empty client state', `document.querySelector('.business-actor-summary')?.innerText.includes('APPROVER') && document.body.innerText.includes('No clients are registered.')`);
   assert.equal(await tab.evaluate<boolean>(`document.querySelector('.business-console-alert') === null`), true);
 
   const createClient = async (suffix: string) => {
@@ -276,7 +262,7 @@ it('US-SYS-001/002/005 creates a real workspace, assigns all personas, persists 
   await waitFor('Alpha contact details to load', `document.querySelector('#business-client-profile-contact')?.innerText.includes('Finance ALPHA')`);
   const alphaContactId = await chooseOption('business-client-profile-contact', `item.textContent?.includes('Finance ALPHA')`);
   await clickButton('Add CLIENT profile');
-  await waitFor('a new CLIENT profile in the selector', `([...document.querySelectorAll('#business-active-persona option')].some(option => option.textContent?.includes('CLIENT · Finance ALPHA')))`);
+  await waitFor('a new CLIENT profile in the firm directory', `document.querySelector('.business-profile-list')?.innerText.includes('Finance ALPHA') && document.querySelector('.business-profile-list')?.innerText.includes('CLIENT')`);
 
   const addStaffProfile = async (displayName: string, persona: 'PREPARER' | 'REVIEWER', grade: 'ASSOCIATE' | 'MANAGER') => {
     await fillFields({
@@ -287,20 +273,21 @@ it('US-SYS-001/002/005 creates a real workspace, assigns all personas, persists 
       'business-staff-persona': persona
     });
     await clickButton(`Add ${persona.toLowerCase()} profile`);
-    await waitFor(`${persona} profile in the selector`, `([...document.querySelectorAll('#business-active-persona option')].some(option => option.textContent?.includes(${JSON.stringify(`${persona} · ${displayName}`)})))`);
+    await waitFor(`${persona} profile in the firm directory`, `document.querySelector('.business-profile-list')?.innerText.includes(${JSON.stringify(displayName)}) && document.querySelector('.business-profile-list')?.innerText.includes(${JSON.stringify(persona)})`);
   };
   await addStaffProfile('QA Reviewer', 'REVIEWER', 'MANAGER');
   await addStaffProfile('QA Preparer', 'PREPARER', 'ASSOCIATE');
 
-  const personaInventory = await tab.evaluate<string[]>(`[...document.querySelectorAll('#business-active-persona option')].filter(option => option.value).map(option => option.textContent?.split(' · ')[0] ?? '').filter(Boolean)`);
+  const personaInventory = server.db.prepare('SELECT DISTINCT persona FROM actor_profiles WHERE workspace_id=? AND active=1 ORDER BY persona')
+    .bind(initialBusinessSession.workspaceId).all<{ persona: string }>().results.map(row => row.persona);
   assert.deepEqual(new Set(personaInventory), new Set(['APPROVER', 'CLIENT', 'PREPARER', 'REVIEWER']));
 
   // A CLIENT profile can see its own client only and never gets the staff directory form.
   server.setContextResponseDelay(750);
   await chooseOption('business-active-persona', `item.textContent?.includes('CLIENT · Finance ALPHA')`);
   const duringPersonaSwitch = await tab.evaluate<{ selectedClientPersona: boolean; staleInternalDirectoryVisible: boolean; staleOtherClientVisible: boolean }>(`({
-    selectedClientPersona: document.querySelector('#business-active-persona')?.selectedOptions[0]?.textContent?.includes('CLIENT') ?? false,
-    staleInternalDirectoryVisible: !!document.querySelector('#business-directory-heading') || !!document.querySelector('.business-client-list'),
+    selectedClientPersona: document.querySelector('.business-actor-summary')?.innerText.includes('CLIENT') ?? false,
+    staleInternalDirectoryVisible: !!document.querySelector('#business-directory-heading'),
     staleOtherClientVisible: document.body.innerText.includes('QA BETA Services LLC')
   })`);
   server.setContextResponseDelay(0);
@@ -317,17 +304,17 @@ it('US-SYS-001/002/005 creates a real workspace, assigns all personas, persists 
   assert.equal(clientProjection.staffDirectoryVisible, false);
   assert.equal(clientProjection.betaVisible, false);
 
-  // Persona selection and business records survive a browser reload through local preference + Worker DB.
+  // The selected profile comes from the server session; record scope survives reload without an actor in local storage.
   await tab.command('Page.reload');
   await waitFor('the selected CLIENT profile after reload', `document.querySelector('.business-actor-summary')?.innerText.includes('CLIENT') && document.querySelector('.business-client-list')?.innerText.includes('QA ALPHA Services LLC')`);
-  const preference = await tab.evaluate<{ workspaceId: string; actorId: string; persona: string; clientId: string }>(`JSON.parse(localStorage.getItem('auditsphere.business-context.v1') ?? '{}')`);
-  assert.equal(preference.persona, 'CLIENT');
+  const preference = await tab.evaluate<{ workspaceId: string; clientId: string }>(`JSON.parse(localStorage.getItem('auditsphere.business-context.v1') ?? '{}')`);
   assert.equal(preference.clientId, alphaId);
-  assert.ok(preference.workspaceId && preference.actorId);
+  assert.equal(preference.workspaceId, initialBusinessSession.workspaceId);
+  const authMe = await tab.evaluate<{ activeProfileId: string }>(`fetch('/api/auth/me').then(response => response.json())`);
   assert.equal(server.db.prepare('SELECT COUNT(*) AS count FROM clients WHERE workspace_id=?').bind(preference.workspaceId).first<{ count: number }>()?.count, 2);
   assert.equal(server.db.prepare('SELECT COUNT(*) AS count FROM contacts WHERE workspace_id=?').bind(preference.workspaceId).first<{ count: number }>()?.count, 2);
   assert.equal(server.db.prepare("SELECT COUNT(*) AS count FROM actor_profiles WHERE workspace_id=? AND persona IN ('APPROVER','CLIENT','PREPARER','REVIEWER') AND active=1").bind(preference.workspaceId).first<{ count: number }>()?.count, 4);
-  assert.equal(server.db.prepare('SELECT contact_id FROM actor_profiles WHERE workspace_id=? AND id=?').bind(preference.workspaceId, preference.actorId).first<{ contact_id: string }>()?.contact_id, alphaContactId);
+  assert.equal(server.db.prepare('SELECT contact_id FROM actor_profiles WHERE workspace_id=? AND id=?').bind(preference.workspaceId, authMe.activeProfileId).first<{ contact_id: string }>()?.contact_id, alphaContactId);
 
   // Backend failure is visible and retryable; no browser/demo records appear while offline.
   server.setApiAvailable(false);
@@ -347,13 +334,6 @@ it('US-SYS-001/002/005 creates a real workspace, assigns all personas, persists 
 
   // Observe the restored record workspace, then use the visible directory and route forms.
   await installFirmAdminTestSession(initialBusinessSession.workspaceId, initialBusinessSession.actorProfileId);
-  await tab.evaluate(`(() => {
-    const key = 'auditsphere.business-context.v1';
-    const context = JSON.parse(localStorage.getItem(key) ?? '{}');
-    context.actorId = ${JSON.stringify(initialBusinessSession.actorProfileId)};
-    context.persona = 'APPROVER';
-    localStorage.setItem(key, JSON.stringify(context));
-  })()`);
   await tab.command('Page.reload');
   await waitFor('the authenticated Partner context after recovery', `document.querySelector('.business-actor-summary')?.innerText.includes('APPROVER') && document.querySelector('.business-client-list')?.innerText.includes('QA ALPHA Services LLC')`);
   await chooseOption('business-active-persona', `item.textContent?.includes('APPROVER · QA Partner')`);
@@ -390,7 +370,8 @@ it('US-SYS-001/002/005 creates a real workspace, assigns all personas, persists 
   assert.equal(persistedAlternate?.is_primary, 0);
   assert.equal(persistedAlternate?.rationale, 'The finance director covers invoice delivery during the CFO absence.');
 
-  assert.ok(tab.requests.some(url => new URL(url).pathname === '/api/workspaces'), 'the browser used the real Worker bootstrap endpoint');
+  assert.equal(tab.requests.some(url => new URL(url).pathname === '/api/workspaces'), false, 'the browser has no public workspace-bootstrap call');
+  assert.ok(tab.requests.some(url => new URL(url).pathname === '/api/auth/me'), 'the app resolves its real authenticated session');
   assert.ok(tab.requests.some(url => new URL(url).pathname.endsWith('/commands')), 'directory and commercial writes used the command API');
   assert.equal(tab.blockedExternalRequests.length, 0, 'the journey made no external HTTP requests');
   assert.deepEqual(tab.exceptions, [], 'the production browser journey raised no uncaught JavaScript exceptions');
@@ -398,38 +379,11 @@ it('US-SYS-001/002/005 creates a real workspace, assigns all personas, persists 
 
 it('US-ENG-001/002 creates a client-linked lead from the visible forms and advances one real engagement', { timeout: 180000 }, async () => {
   assert.ok(tab && server);
-
-  // Observe the current real workspace before switching to a second, empty D1 workspace.
-  const current = await tab.evaluate<{ heading: string; switchButton: boolean }>(`({
-    heading: document.querySelector('#business-workspace-heading')?.textContent?.trim() ?? '',
-    switchButton: [...document.querySelectorAll('button')].some(button => button.textContent?.trim() === 'Switch workspace' && !button.disabled)
-  })`);
-  assert.ok(current.heading.startsWith('QA Workspace '));
-  assert.equal(current.switchButton, true);
-  await clickButton('Switch workspace');
-  await waitFor('the empty-workspace landing page', `document.querySelector('#production-workspace-heading')?.textContent === 'Open your business workspace'`);
-  const landing = await tab.evaluate<{ preference: string | null; createButton: boolean }>(`({
-    preference: localStorage.getItem('auditsphere.business-context.v1'),
-    createButton: [...document.querySelectorAll('button')].some(button => button.textContent.trim() === 'Create or connect workspace')
-  })`);
-  assert.equal(landing.preference, null);
-  assert.equal(landing.createButton, true);
-
-  // Plan/Act/Verify: create a fresh workspace, then check that its real database is empty.
-  await clickButton('Create or connect workspace');
-  await waitFor('the fresh workspace form', `document.querySelector('#business-partner-email') !== null`);
   const unique = Date.now();
-  await fillFields({
-    'business-workspace-name': `Lead Journey ${unique}`,
-    'business-partner-name': 'QA Lead Partner',
-    'business-partner-key': `QA-LEAD-PARTNER-${unique}`,
-    'business-partner-email': 'lead.partner@example.invalid'
-  });
-  await clickButton('Create business workspace');
-  await authenticateBootstrappedWorkspace(`Lead Journey ${unique}`);
+  const leadJourney = await createAuthenticatedWorkspace(`Lead Journey ${unique}`, 'QA Lead Partner');
   await waitFor('the empty new workspace', `document.querySelector('#business-workspace-heading')?.textContent === ${JSON.stringify(`Lead Journey ${unique}`)} && document.body.innerText.includes('No clients are registered.')`);
-  const preference = await tab.evaluate<{ workspaceId: string; actorId: string; persona: string }>(`JSON.parse(localStorage.getItem('auditsphere.business-context.v1') ?? '{}')`);
-  assert.equal(preference.persona, 'APPROVER');
+  const preference = await tab.evaluate<{ workspaceId: string }>(`JSON.parse(localStorage.getItem('auditsphere.business-context.v1') ?? '{}')`);
+  assert.equal(preference.workspaceId, leadJourney.workspaceId);
   assert.equal(server.db.prepare('SELECT COUNT(*) AS count FROM clients WHERE workspace_id=?').bind(preference.workspaceId).first<{ count: number }>()?.count, 0);
   assert.equal(server.db.prepare('SELECT COUNT(*) AS count FROM leads WHERE workspace_id=?').bind(preference.workspaceId).first<{ count: number }>()?.count, 0);
 
@@ -451,7 +405,7 @@ it('US-ENG-001/002 creates a client-linked lead from the visible forms and advan
     'business-staff-persona': 'PREPARER'
   });
   await clickButton('Add preparer profile');
-  await waitFor('the new PREPARER profile', `([...document.querySelectorAll('#business-active-persona option')].some(option => option.textContent?.includes('PREPARER · QA Lead Preparer')))`);
+  await waitFor('the new PREPARER profile', `document.querySelector('.business-profile-list')?.innerText.includes('QA Lead Preparer')`);
   await chooseOption('business-active-persona', `item.textContent?.includes('PREPARER · QA Lead Preparer')`);
   await waitFor('the PREPARER context', `document.querySelector('.business-actor-summary')?.innerText.includes('PREPARER')`);
   await waitFor('the PREPARER lead intake form', `document.getElementById('business-lead-client-code')?.getClientRects().length > 0`);
@@ -609,36 +563,11 @@ it('US-ENG-001/002 creates a client-linked lead from the visible forms and advan
 it('US-ENG-003 renders and approves an exact quote revision, then fails closed when email is unconfigured', { timeout: 120000 }, async () => {
   assert.ok(tab && server);
 
-  // Observe: the prior journey left its synthetic workspace selected and the shell is interactive.
-  const current = await tab.evaluate<{ workspaceHeading: string; landingHeading: string; switchButton: boolean }>(`({
-    workspaceHeading: document.querySelector('#business-workspace-heading')?.textContent?.trim() ?? '',
-    landingHeading: document.querySelector('#production-workspace-heading')?.textContent?.trim() ?? '',
-    switchButton: [...document.querySelectorAll('button')].some(button => button.textContent?.trim() === 'Switch workspace' && !button.disabled)
-  })`);
-  if (current.workspaceHeading) {
-    assert.ok(current.workspaceHeading.startsWith('Lead Journey '));
-    assert.equal(current.switchButton, true);
-    await clickButton('Switch workspace');
-    await waitFor('the empty-workspace landing page', `document.querySelector('#production-workspace-heading')?.textContent === 'Open your business workspace'`);
-  } else {
-    assert.equal(current.landingHeading, 'Open your business workspace');
-  }
-
-  // Plan/Act/Verify: create an isolated workspace before exercising the real commercial UI.
-  await clickButton('Create or connect workspace');
-  await waitFor('the fresh workspace form', `document.querySelector('#business-partner-email') !== null`);
   const unique = Date.now();
-  await fillFields({
-    'business-workspace-name': `Quote Journey ${unique}`,
-    'business-partner-name': 'QA Commercial Partner',
-    'business-partner-key': `QA-COMMERCIAL-PARTNER-${unique}`,
-    'business-partner-email': 'commercial.partner@example.invalid'
-  });
-  await clickButton('Create business workspace');
-  await authenticateBootstrappedWorkspace(`Quote Journey ${unique}`);
+  const quoteJourney = await createAuthenticatedWorkspace(`Quote Journey ${unique}`, 'QA Commercial Partner');
   await waitFor('the empty commercial workspace', `document.querySelector('#business-workspace-heading')?.textContent === ${JSON.stringify(`Quote Journey ${unique}`)} && document.body.innerText.includes('No clients are registered.')`);
-  const preference = await tab.evaluate<{ workspaceId: string; persona: string }>(`JSON.parse(localStorage.getItem('auditsphere.business-context.v1') ?? '{}')`);
-  assert.equal(preference.persona, 'APPROVER');
+  const preference = await tab.evaluate<{ workspaceId: string }>(`JSON.parse(localStorage.getItem('auditsphere.business-context.v1') ?? '{}')`);
+  assert.equal(preference.workspaceId, quoteJourney.workspaceId);
 
   await fillFields({
     'business-standards-name': `QA Standards ${unique}`,
@@ -669,7 +598,7 @@ it('US-ENG-003 renders and approves an exact quote revision, then fails closed w
       'business-staff-persona': persona
     });
     await clickButton(`Add ${persona.toLowerCase()} profile`);
-    await waitFor(`${persona} profile in the selector`, `([...document.querySelectorAll('#business-active-persona option')].some(option => option.textContent?.includes(${JSON.stringify(`${persona} · ${displayName}`)})))`);
+    await waitFor(`${persona} profile in the directory`, `document.querySelector('.business-profile-list')?.innerText.includes(${JSON.stringify(displayName)})`);
   };
   await addStaffProfile('QA Quote Reviewer', 'REVIEWER', 'MANAGER');
   await addStaffProfile('QA Quote Preparer', 'PREPARER', 'ASSOCIATE');

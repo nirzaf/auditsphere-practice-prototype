@@ -8,6 +8,7 @@ import type {
   BusinessClientDetail,
   BusinessClientSummary,
   BusinessDirectoryCommandResponse,
+  BusinessUserSummary,
   BusinessFileMediaType,
   BusinessFileMetadata,
   BusinessFilePurpose,
@@ -29,8 +30,6 @@ import type {
   BusinessPersona,
   BusinessProposalWorkspace,
   BusinessStandardsProfile,
-  BusinessWorkspaceBootstrapRequest,
-  BusinessWorkspaceBootstrapResponse,
   BusinessWorkspacePreference,
   BusinessWorkspaceSummary
 } from '../shared/api/business';
@@ -42,15 +41,11 @@ function parsePreference(value: unknown): BusinessWorkspacePreference | null {
   if (!value || typeof value !== 'object') return null;
   const item = value as Partial<BusinessWorkspacePreference>;
   if (item.version !== 1 || typeof item.workspaceId !== 'string' || !item.workspaceId.trim()) return null;
-  if (item.persona !== undefined && !['PREPARER', 'REVIEWER', 'APPROVER', 'CLIENT'].includes(item.persona)) return null;
-  if (item.actorId !== undefined && typeof item.actorId !== 'string') return null;
   if (item.clientId !== undefined && typeof item.clientId !== 'string') return null;
   if (item.engagementId !== undefined && typeof item.engagementId !== 'string') return null;
   return {
     version: 1,
     workspaceId: item.workspaceId.trim(),
-    ...(item.actorId ? { actorId: item.actorId } : {}),
-    ...(item.persona ? { persona: item.persona } : {}),
     ...(item.clientId ? { clientId: item.clientId } : {}),
     ...(item.engagementId ? { engagementId: item.engagementId } : {})
   };
@@ -103,12 +98,12 @@ export interface LoadedBusinessContext {
 
 export function isBusinessContextCurrent(
   context: LoadedBusinessContext | null,
-  selected: BusinessWorkspacePreference | null
+  selected: BusinessWorkspacePreference | null,
+  activeProfileId: string | null
 ): context is LoadedBusinessContext {
-  return Boolean(context && selected?.actorId && selected.persona
+  return Boolean(context && selected && activeProfileId
     && context.workspaceId === selected.workspaceId
-    && context.response.actor.id === selected.actorId
-    && context.response.actor.persona === selected.persona
+    && context.response.actor.id === activeProfileId
     && context.response.scope.clientId === (selected.clientId ?? null)
     && context.response.scope.engagementId === (selected.engagementId ?? null));
 }
@@ -123,23 +118,8 @@ export function clearBusinessWorkspacePreference(): void {
   publish(null);
 }
 
-export function selectBusinessActor(profile: BusinessActorProfile): void {
-  if (!preference) return;
-  publish({
-    version: 1,
-    workspaceId: preference.workspaceId,
-    actorId: profile.id,
-    persona: profile.persona,
-    ...(profile.persona === 'CLIENT' && profile.clientId ? { clientId: profile.clientId } : {})
-  });
-}
-
 function contextHeaders(current: BusinessWorkspacePreference | null = preference): Headers {
   const headers = new Headers();
-  if (current?.actorId && current.persona) {
-    headers.set('X-Actor-Id', current.actorId);
-    headers.set('X-Active-Persona', current.persona);
-  }
   if (current?.clientId) headers.set('X-Client-Id', current.clientId);
   if (current?.engagementId) headers.set('X-Engagement-Id', current.engagementId);
   return headers;
@@ -171,6 +151,9 @@ async function requestJson<T>(path: string, options: {
   }
   const body = await response.json().catch(() => null);
   if (!response.ok) {
+    if (response.status === 401 && typeof window !== 'undefined' && path.startsWith('/api/workspaces/')) {
+      window.dispatchEvent(new CustomEvent('auditsphere:session-expired'));
+    }
     if (isApiErrorBody(body)) throw Object.assign(new Error(body.message), { code: body.code, requestId: body.requestId });
     throw new Error('The business workspace request failed. Retry or check the service status.');
   }
@@ -183,7 +166,7 @@ async function requestBinary<T>(path: string, file: Blob, options: {
   idempotencyKey: string;
   context: BusinessWorkspacePreference;
 }): Promise<T> {
-  if (!options.context.actorId || !options.context.persona) throw new Error('Select an active actor profile before uploading a file.');
+  if (!options.context.workspaceId) throw new Error('An authenticated business workspace is required before uploading a file.');
   const headers = contextHeaders(options.context);
   headers.set('Content-Type', options.contentType);
   headers.set('X-File-Version', String(options.expectedVersion));
@@ -203,15 +186,6 @@ async function requestBinary<T>(path: string, file: Blob, options: {
   return body as T;
 }
 
-export async function createBusinessWorkspace(
-  input: BusinessWorkspaceBootstrapRequest,
-  idempotencyKey: string
-): Promise<BusinessWorkspaceBootstrapResponse> {
-  return requestJson<BusinessWorkspaceBootstrapResponse>('/api/workspaces', {
-    method: 'POST', body: input, idempotencyKey, context: null
-  });
-}
-
 export async function getBusinessWorkspace(workspaceId: string, signal?: AbortSignal): Promise<BusinessWorkspaceSummary> {
   const result = await requestJson<{ workspace: BusinessWorkspaceSummary }>(
     `/api/workspaces/${encodeURIComponent(workspaceId)}`, { context: null, signal }
@@ -223,6 +197,13 @@ export async function getBusinessWorkspace(workspaceId: string, signal?: AbortSi
 export async function getBusinessActorProfiles(workspaceId: string, signal?: AbortSignal): Promise<BusinessActorProfile[]> {
   const result = await requestJson<{ items: BusinessActorProfile[]; nextCursor: null }>(
     `/api/workspaces/${encodeURIComponent(workspaceId)}/actor-profiles`, { context: null, signal }
+  );
+  return result.items;
+}
+
+export async function getBusinessUsers(workspaceId: string, signal?: AbortSignal): Promise<BusinessUserSummary[]> {
+  const result = await requestJson<{ items: BusinessUserSummary[]; nextCursor: null }>(
+    `/api/workspaces/${encodeURIComponent(workspaceId)}/users`, { context: null, signal }
   );
   return result.items;
 }
@@ -682,7 +663,7 @@ export async function runBusinessCommand<T = Record<string, unknown>>(
   idempotencyKey: string,
   signal?: AbortSignal
 ): Promise<BusinessDirectoryCommandResponse<T>> {
-  if (!selected.actorId || !selected.persona) throw new Error('Select an active actor profile before making a business change.');
+  if (!selected.workspaceId) throw new Error('An authenticated business workspace is required before making a business change.');
   const value = command && typeof command === 'object' ? command as { type?: string; payload?: Record<string, unknown> } : {};
   const payload = value.payload ?? {};
   const commandVersion = value.type === 'proposal.create' ? payload.expectedEngagementVersion
@@ -690,6 +671,8 @@ export async function runBusinessCommand<T = Record<string, unknown>>(
   const versionTarget = typeof commandVersion === 'number'
     ? value.type === 'staff.update' ? { entity: 'StaffMember', id: payload.staffMemberId }
       : value.type === 'actor-profile.deactivate' ? { entity: 'ActorProfile', id: payload.actorProfileId }
+        : ['user.unlock', 'user.grantProfile', 'user.disable', 'user.enable'].includes(String(value.type))
+          ? { entity: 'UserAccount', id: payload.userAccountId }
         : value.type === 'client.update' || value.type === 'client.deactivate' ? { entity: 'Client', id: payload.clientId }
           : value.type === 'contact.update' ? { entity: 'Contact', id: payload.contactId }
             : value.type === 'lead.update' || value.type === 'lead.lose' || value.type === 'lead.convert' ? { entity: 'Lead', id: payload.leadId }
@@ -715,7 +698,6 @@ export async function runBusinessCommand<T = Record<string, unknown>>(
   return requestJson(`/api/workspaces/${encodeURIComponent(workspaceId)}/commands`, {
     method: 'POST',
     body: {
-      actor: { persona: selected.persona, actorId: selected.actorId },
       context: {
         ...(selected.clientId ? { clientId: selected.clientId } : {}),
         ...(selected.engagementId ? { engagementId: selected.engagementId } : {})

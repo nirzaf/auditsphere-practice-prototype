@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import worker, { routeInventory } from '../../worker/index.js';
 import type { Env } from '../../worker/env.js';
 import { SqliteD1 } from '../helpers/sqliteD1.js';
-import { authSessionCookie } from '../helpers/authSession.js';
+import { authSessionCookie, bootstrapBusinessFixture } from '../helpers/authSession.js';
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const db = new SqliteD1();
@@ -13,8 +13,7 @@ db.migrate(repositoryRoot);
 const env = {
   DB: db,
   FILES: {},
-  ASSETS: { fetch: async () => new Response('not found', { status: 404 }) },
-  BUSINESS_SETUP_ENABLED: 'true'
+  ASSETS: { fetch: async () => new Response('not found', { status: 404 }) }
 } as unknown as Env;
 const origin = 'https://assignment-scope.auditsphere.test';
 after(() => db.close());
@@ -29,7 +28,7 @@ let engagements: EngagementFixture[];
 let clients: Array<{ id: string; contactId: string }>;
 
 async function call(path: string, actor: Actor, options: { method?: string; body?: unknown; clientId?: string } = {}): Promise<Response> {
-  const headers = new Headers({ Origin: origin, Cookie: actor.cookie, 'X-Actor-Id': actor.id, 'X-Active-Persona': actor.persona });
+  const headers = new Headers({ Origin: origin, Cookie: actor.cookie });
   if (options.clientId) headers.set('X-Client-Id', options.clientId);
   if (options.body !== undefined) {
     headers.set('Content-Type', 'application/json');
@@ -44,7 +43,7 @@ async function call(path: string, actor: Actor, options: { method?: string; body
 async function command(actor: Actor, type: string, payload: Record<string, unknown>,
   expectedVersions: Array<{ entity: string; id: string; version: number }> = []): Promise<Response> {
   return call(`/api/workspaces/${workspaceId}/commands`, actor, { body: {
-    actor: { actorId: actor.id, persona: actor.persona }, context: {}, expectedVersions, command: { type, payload }
+    context: {}, expectedVersions, command: { type, payload }
   } });
 }
 
@@ -83,14 +82,9 @@ async function createEngagement(client: { id: string; contactId: string }, index
 }
 
 it('creates three post-commercial engagements with disjoint, historical assignments for the access audit', async () => {
-  const bootstrap = await worker.fetch(new Request(`${origin}/api/workspaces`, {
-    method: 'POST', headers: { Origin: origin, 'Content-Type': 'application/json', 'Idempotency-Key': crypto.randomUUID() },
-    body: JSON.stringify({ name: `Assignment Scope ${crypto.randomUUID()}`, currency: 'QAR', timezone: 'Asia/Qatar', initialPartner: {
+  const initial = await bootstrapBusinessFixture(db, { name: `Assignment Scope ${crypto.randomUUID()}`, currency: 'QAR', timezone: 'Asia/Qatar', initialPartner: {
       displayName: 'Scope Partner', naturalPersonKey: `SCOPE-PARTNER-${crypto.randomUUID()}`, email: `scope-partner-${crypto.randomUUID()}@example.invalid`
-    } })
-  }), env, {} as any);
-  assert.equal(bootstrap.status, 201, await bootstrap.clone().text());
-  const initial = await bootstrap.json() as { workspaceId: string; actorProfileId: string };
+    } });
   workspaceId = initial.workspaceId;
   const partnerCookie = await authSessionCookie(db, workspaceId, initial.actorProfileId);
   partner = { id: initial.actorProfileId, persona: 'APPROVER', cookie: partnerCookie };

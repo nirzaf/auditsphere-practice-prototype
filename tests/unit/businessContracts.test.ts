@@ -42,12 +42,10 @@ describe('BUSINESS workspace and directory contracts', () => {
 
   it('accepts implemented strict directory and commercial command families only', () => {
     assert.deepEqual(parseBusinessCommandEnvelope({
-      actor: { persona: 'APPROVER', actorId: '00000000-0000-4000-8000-000000000010' },
       context: {}, expectedVersions: [],
       command: { type: 'actor-profile.assign', payload: { persona: 'APPROVER', staffMemberId: '00000000-0000-4000-8000-000000000001' } }
     }, 'test-key-0001').command.type, 'actor-profile.assign');
     assert.equal(parseBusinessCommandEnvelope({
-      actor: { persona: 'PREPARER', actorId: '00000000-0000-4000-8000-000000000010' },
       context: {}, expectedVersions: [],
       command: { type: 'lead.create', payload: {
         clientId: '00000000-0000-4000-8000-000000000001',
@@ -57,14 +55,17 @@ describe('BUSINESS workspace and directory contracts', () => {
       } }
     }, 'test-key-0004').command.type, 'lead.create');
     assert.throws(() => parseBusinessCommandEnvelope({
-      actor: { persona: 'APPROVER', actorId: '00000000-0000-4000-8000-000000000010' },
       context: {}, expectedVersions: [],
       command: { type: 'staff.create', payload: { displayName: 'Aisha', naturalPersonKey: 'P1', grade: 'PARTNER', isSuperuser: true } }
     }, 'test-key-0002'), /invalid/i);
     assert.throws(() => parseBusinessCommandEnvelope({
-      actor: { persona: 'APPROVER', actorId: '00000000-0000-4000-8000-000000000010' },
       context: {}, expectedVersions: [],
       command: { type: 'workspace.status.set', payload: { state: 'PARTNER_APPROVAL' } }
     }, 'test-key-0003'), /invalid/i);
+    assert.throws(() => parseBusinessCommandEnvelope({
+      actor: { persona: 'APPROVER', actorId: '00000000-0000-4000-8000-000000000010' },
+      context: {}, expectedVersions: [],
+      command: { type: 'client.create', payload: { code: 'ACTOR', legalName: 'Actor Spoof Test', entityType: 'STANDALONE', industry: 'Test', address: 'Doha', countryCode: 'QA', primaryContact: { fullName: 'Test Contact', email: 'contact@example.invalid', title: 'Finance', role: 'OTHER', effectiveFrom: '2026-01-01' } } }
+    }, 'test-key-0005'), (error: any) => error?.code === 'BAD_REQUEST');
   });
 });

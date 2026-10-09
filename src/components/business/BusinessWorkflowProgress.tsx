@@ -43,7 +43,7 @@ export function BusinessWorkflowProgress({
       if (!controller.signal.aborted) setLoadingEngagements(false);
     });
     return () => controller.abort();
-  }, [selected.workspaceId, selected.actorId, selected.persona, selected.clientId, selected.engagementId, refreshKey]);
+  }, [selected.workspaceId, selected.clientId, selected.engagementId, refreshKey]);
 
   useEffect(() => {
     if (!engagement) {
@@ -64,7 +64,7 @@ export function BusinessWorkflowProgress({
       if (!controller.signal.aborted) setLoadingProgress(false);
     });
     return () => controller.abort();
-  }, [selected.workspaceId, selected.actorId, selected.persona, selected.clientId, engagement?.id, refreshKey]);
+  }, [selected.workspaceId, selected.clientId, engagement?.id, refreshKey]);
 
   return <section className="business-directory-card business-workflow-card" aria-labelledby="business-workflow-heading">
     <div className="business-section-heading">

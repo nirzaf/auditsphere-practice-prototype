@@ -101,7 +101,7 @@ export function BusinessFieldworkPanel({ workspaceId, selected, context, engagem
   onChanged: () => void;
 }) {
   const scope = useMemo(() => ({ ...selected, clientId: engagement.clientId, engagementId: engagement.id }),
-    [selected.actorId, selected.persona, engagement.clientId, engagement.id]);
+    [engagement.clientId, engagement.id]);
   const available = activeStates.has(engagement.lifecycleState);
   const [workspace, setWorkspace] = useState<BusinessFieldworkWorkspace | null>(null);
   const [loading, setLoading] = useState(available);
@@ -299,7 +299,7 @@ export function BusinessFieldworkPanel({ workspaceId, selected, context, engagem
       .catch(reason => { if (!controller.signal.aborted) setError(reason instanceof Error ? reason.message : 'Fieldwork records could not be loaded.'); })
       .finally(() => { if (!controller.signal.aborted) setLoading(false); });
     return () => controller.abort();
-  }, [available, workspaceId, engagement.id, scope.actorId, scope.persona, scope.clientId, scope.engagementId, refresh]);
+  }, [available, workspaceId, engagement.id, scope.clientId, scope.engagementId, refresh]);
 
   useEffect(() => {
     if (!selectedPopulationId || !available) { setPopulation(null); return; }
@@ -308,7 +308,7 @@ export function BusinessFieldworkPanel({ workspaceId, selected, context, engagem
       .then(value => { if (!controller.signal.aborted) { const data = value as unknown as PopulationPayload; setPopulation(data); setStratumByRow({}); setAttributePage(0); } })
       .catch(reason => { if (!controller.signal.aborted) setError(reason instanceof Error ? reason.message : 'Population rows could not be loaded.'); });
     return () => controller.abort();
-  }, [workspaceId, engagement.id, selectedPopulationId, scope.actorId, scope.persona, scope.clientId, scope.engagementId, available]);
+  }, [workspaceId, engagement.id, selectedPopulationId, scope.clientId, scope.engagementId, available]);
 
   useEffect(() => { setPeriodicityAssessment(''); setSamplingProcedureId(''); }, [selectedPopulationId]);
 
@@ -319,7 +319,7 @@ export function BusinessFieldworkPanel({ workspaceId, selected, context, engagem
       .then(value => { if (!controller.signal.aborted) setPlanDetail(value as unknown as SamplingPlanPayload); })
       .catch(reason => { if (!controller.signal.aborted) setError(reason instanceof Error ? reason.message : 'Sampling plan details could not be loaded.'); });
     return () => controller.abort();
-  }, [workspaceId, engagement.id, selectedPlanId, scope.actorId, scope.persona, scope.clientId, scope.engagementId, available, refresh]);
+  }, [workspaceId, engagement.id, selectedPlanId, scope.clientId, scope.engagementId, available, refresh]);
 
   async function command<T extends Record<string, unknown> = Record<string, unknown>>(type: string, payload: Record<string, unknown>, success: string, idempotencyKey = newBusinessIdempotencyKey()): Promise<T | null> {
     setBusy(true); setError(''); setMessage('');

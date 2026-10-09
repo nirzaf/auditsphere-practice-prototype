@@ -93,7 +93,7 @@ export function BusinessTrialBalancePanel({
   onChanged: () => void;
 }) {
   const scope = useMemo(() => ({ ...selected, clientId: engagement.clientId, engagementId: engagement.id }),
-    [selected.actorId, selected.persona, engagement.clientId, engagement.id]);
+    [engagement.clientId, engagement.id]);
   const [workspace, setWorkspace] = useState<BusinessTrialBalanceWorkspace | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -150,7 +150,7 @@ export function BusinessTrialBalancePanel({
       .catch(reason => { if (!controller.signal.aborted) setError(reason instanceof Error ? reason.message : 'Trial-balance planning records could not be loaded.'); })
       .finally(() => { if (!controller.signal.aborted) setLoading(false); });
     return () => controller.abort();
-  }, [workspaceId, engagement.id, scope.actorId, scope.persona, scope.clientId, scope.engagementId, refresh]);
+  }, [workspaceId, engagement.id, scope.clientId, scope.engagementId, refresh]);
 
   useEffect(() => {
     if (!importId) { setImportDetail(null); return; }
@@ -167,7 +167,7 @@ export function BusinessTrialBalancePanel({
     };
     void poll();
     return () => { cancelled = true; if (timer) window.clearTimeout(timer); };
-  }, [workspaceId, engagement.id, importId, scope.actorId, scope.persona, scope.clientId, scope.engagementId]);
+  }, [workspaceId, engagement.id, importId, scope.clientId, scope.engagementId]);
 
   async function command(type: string, payload: Record<string, unknown>, success: string) {
     setBusy(true); setError(''); setMessage('');

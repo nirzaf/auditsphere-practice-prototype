@@ -117,7 +117,7 @@ export function BusinessPbcPanel({
       if (!controller.signal.aborted) setError(reason instanceof Error ? reason.message : 'The PBC engagement list could not be loaded.');
     }).finally(() => { if (!controller.signal.aborted) setLoading(false); });
     return () => controller.abort();
-  }, [workspaceId, selected.actorId, selected.persona, selected.clientId]);
+  }, [workspaceId, selected.clientId]);
 
   useEffect(() => {
     if (!engagement || context.actor.persona === 'CLIENT' || !context.allowedActions.includes('pbc.manage')) {
@@ -147,7 +147,7 @@ export function BusinessPbcPanel({
       }
     });
     return () => controller.abort();
-  }, [workspaceId, selected.actorId, selected.persona, selected.clientId, engagement?.id, engagement?.clientId, context.actor.id, context.actor.persona, context.allowedActions, directoryRevision]);
+  }, [workspaceId, selected.clientId, engagement?.id, engagement?.clientId, context.actor.id, context.actor.persona, context.allowedActions, directoryRevision]);
 
   useEffect(() => {
     if (!engagement || !requestContext) { setPortal(null); setPortalScopeKey(''); setPortalError(''); return; }
@@ -185,7 +185,7 @@ export function BusinessPbcPanel({
       document.removeEventListener('visibilitychange', onVisible);
       polling.current = false;
     };
-  }, [workspaceId, activePortalScopeKey, engagement?.id, requestContext?.actorId, requestContext?.persona, requestContext?.clientId]);
+  }, [workspaceId, activePortalScopeKey, engagement?.id, requestContext?.clientId]);
 
   const commandKeyFor = (slot: string, payload: unknown): string => {
     const signature = JSON.stringify(payload);

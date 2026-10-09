@@ -376,7 +376,7 @@ export async function getBusinessClient(
 ): Promise<Record<string, unknown>> {
   const context = await resolveBusinessContext(env, workspaceId, request) as BusinessReadContext;
   if (!context.allowedActions.includes('client.read')) throw new ApiError('PERSONA_ACTION_DENIED', 'This persona cannot read client records.');
-  if (context.scope.clientId && context.scope.clientId !== clientId) throw new ApiError('FORBIDDEN_SCOPE', 'This client record is outside the selected persona scope.');
+  if (context.scope.clientId && context.scope.clientId !== clientId) throw new ApiError('FORBIDDEN_SCOPE', 'This client record is outside the active profile scope.');
   const row = await env.DB.prepare(`SELECT id,version,code,legal_name,trading_name,entity_type,parent_client_id,
       commercial_registration,tax_id,industry,address,country_code,active
     FROM clients WHERE workspace_id=? AND id=? AND active=1`).bind(workspaceId, clientId)
@@ -682,24 +682,17 @@ export async function resolveBusinessSession(env: Env, request: Request): Promis
   return pending;
 }
 
-/** Resolves each request from its authenticated session; legacy actor headers are assertions only. */
+/** Resolves the actor only from the authenticated session; browser identity claims are never trusted. */
 export async function resolveBusinessContext(env: Env, workspaceId: string, request: Request): Promise<BusinessContext> {
   const session = await resolveBusinessSession(env, request);
   if (session.workspace_id !== workspaceId) throw new ApiError('NOT_FOUND', 'Workspace not found.');
   await requireBusinessWorkspace(env, workspaceId);
   const actorId = session.active_actor_profile_id;
   if (!actorId) throw new ApiError('PERSONA_ACTION_DENIED', 'Choose an active profile before using this workspace.', { code: 'PROFILE_SELECTION_REQUIRED' });
-  const suppliedActorId = request.headers.get('X-Actor-Id')?.trim();
-  const requestedPersona = request.headers.get('X-Active-Persona')?.trim();
-  if ((suppliedActorId && suppliedActorId !== actorId)) throw new ApiError('PERSONA_ACTION_DENIED', 'The request actor does not match the signed-in session.');
   const row = await findBusinessActorProfile(env, workspaceId, actorId);
   if (!row || !isUsableProfile(row)) {
     throw new ApiError('DISABLED_IDENTITY', 'That actor profile is unavailable. Select another configured profile.');
   }
-  if (requestedPersona && requestedPersona !== row.persona) {
-    throw new ApiError('PERSONA_ACTION_DENIED', 'The selected persona does not match this actor profile.');
-  }
-
   const requestedClientId = request.headers.get('X-Client-Id')?.trim() || null;
   const requestedEngagementId = request.headers.get('X-Engagement-Id')?.trim() || null;
   const actorClientId = row.persona === 'CLIENT' ? row.clientId : null;
@@ -1480,7 +1473,6 @@ const expectedVersionSchema = z.strictObject({
 });
 
 export const businessCommandEnvelopeSchema = z.strictObject({
-  actor: z.strictObject({ persona: z.enum(['PREPARER', 'REVIEWER', 'APPROVER', 'CLIENT']), actorId: z.uuid() }),
   context: z.strictObject({ clientId: clientIdSchema.optional(), engagementId: clientIdSchema.optional() }).default({}),
   expectedVersions: z.array(expectedVersionSchema).max(20).default([]),
   command: businessCommandSchema
@@ -1605,12 +1597,9 @@ export function businessEnvelopeFromRequest(
   command: unknown,
   expectedVersions: Array<{ entity: string; id: string; version: number }> = []
 ): BusinessCommandEnvelope {
-  const actorId = request.headers.get('X-Actor-Id');
-  const persona = request.headers.get('X-Active-Persona');
   const clientId = request.headers.get('X-Client-Id');
   const engagementId = request.headers.get('X-Engagement-Id');
   return parseBusinessCommandEnvelope({
-    actor: { actorId, persona },
     context: {
       ...(clientId ? { clientId } : {}),
       ...(engagementId ? { engagementId } : {})
@@ -1637,10 +1626,10 @@ function replayCommand(receipt: CommandReceiptRow, requestHash: string): Record<
   return { ...(JSON.parse(receipt.response_json) as Record<string, unknown>), replayed: true };
 }
 
-function businessRequestHash(envelope: BusinessCommandEnvelope): Promise<string> {
+function businessRequestHash(envelope: BusinessCommandEnvelope, actor: BusinessContext['actor']): Promise<string> {
   return sha256Hex(JSON.stringify({
     command: envelope.command,
-    actor: envelope.actor,
+    actor: { id: actor.id, persona: actor.persona },
     context: envelope.context,
     expectedVersions: envelope.expectedVersions
   }));
@@ -1649,10 +1638,13 @@ function businessRequestHash(envelope: BusinessCommandEnvelope): Promise<string>
 export async function findBusinessCommandReplay(
   env: Env,
   workspaceId: string,
+  request: Request,
   envelope: BusinessCommandEnvelope
 ): Promise<Record<string, unknown> | null> {
   const prior = await findCommandReceipt(env, workspaceId, envelope.idempotencyKey);
-  return prior ? replayCommand(prior, await businessRequestHash(envelope)) : null;
+  if (!prior) return null;
+  const context = await resolveBusinessContext(env, workspaceId, request);
+  return replayCommand(prior, await businessRequestHash(envelope, context.actor));
 }
 
 function requireDirectoryApprover(context: BusinessContext): void {
@@ -2873,7 +2865,7 @@ export async function runBusinessFileContent(
     type: 'file.stage',
     payload: { fileId, expectedVersion, sizeBytes: bytes.length, sha256: digest }
   }, [{ entity: 'FileVersion', id: fileId, version: expectedVersion }]);
-  const replay = await findBusinessCommandReplay(env, workspaceId, envelope);
+  const replay = await findBusinessCommandReplay(env, workspaceId, request, envelope);
   if (replay) return replay;
   if (file.version !== expectedVersion || file.state !== 'INITIALIZED') {
     throw new ApiError(file.state === 'COMMITTED' ? 'IMMUTABLE_RECORD' : 'VERSION_CONFLICT', 'The file is not an open reservation at that version.');
@@ -4396,18 +4388,10 @@ export async function runBusinessDirectoryCommand(
     throw new ApiError('FORBIDDEN_SCOPE', 'The request scope does not match the command envelope.');
   }
   const context = await resolveBusinessContext(env, workspaceId, request);
-  if (context.actor.id !== envelope.actor.actorId || context.actor.persona !== envelope.actor.persona) {
-    throw new ApiError('PERSONA_ACTION_DENIED', 'The command actor does not match the active workspace profile.');
-  }
   if (envelope.context.engagementId) {
     await assertBusinessEngagementAccess(env, workspaceId, context, envelope.context.engagementId);
   }
-  const requestHash = await sha256Hex(JSON.stringify({
-    command: envelope.command,
-    actor: envelope.actor,
-    context: envelope.context,
-    expectedVersions: envelope.expectedVersions
-  }));
+  const requestHash = await businessRequestHash(envelope, context.actor);
   const prior = await findCommandReceipt(env, workspaceId, envelope.idempotencyKey);
   if (prior) return replayCommand(prior, requestHash);
 

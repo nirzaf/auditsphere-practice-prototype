@@ -1,4 +1,5 @@
 import { createAuthSession } from '../../worker/auth/sessions';
+import { bootstrapBusinessWorkspace, parseBusinessBootstrapInput } from '../../worker/business';
 import type { Env } from '../../worker/env';
 import type { BusinessE2eServer } from './businessE2eServer.js';
 
@@ -12,6 +13,12 @@ type TestDatabase = {
 };
 
 const tokens = new WeakMap<object, Map<string, string>>();
+export const testSessionProfileHeader = 'X-Test-Session-Profile';
+
+/** Builds isolated test data directly; production bootstrap remains a protected operator route. */
+export async function bootstrapBusinessFixture(db: TestDatabase, input: unknown, idempotencyKey = crypto.randomUUID()) {
+  return bootstrapBusinessWorkspace({ DB: db } as unknown as Env, parseBusinessBootstrapInput(input), idempotencyKey);
+}
 
 /** Creates a real session and profile grant for API tests without driving Entra. */
 export async function authSessionCookie(db: TestDatabase, workspaceId: string, requestedActorProfileId?: string): Promise<string> {
@@ -71,6 +78,18 @@ export async function authSessionCookie(db: TestDatabase, workspaceId: string, r
   const cookie = `__Host-as_session=${created.token}`;
   byProfile.set(key, cookie);
   return cookie;
+}
+
+/** Replaces a harness-only selected-profile marker with a real signed-in test session cookie. */
+export async function withTestAuthSession(db: TestDatabase, request: Request): Promise<Request> {
+  const url = new URL(request.url);
+  const workspaceId = url.pathname.match(/^\/api\/workspaces\/([^/?]+)/)?.[1];
+  if (!workspaceId) return request;
+  const headers = new Headers(request.headers);
+  const requestedProfileId = headers.get(testSessionProfileHeader) ?? undefined;
+  headers.delete(testSessionProfileHeader);
+  if (!headers.has('Cookie')) headers.set('Cookie', await authSessionCookie(db, workspaceId, requestedProfileId));
+  return new Request(request, { headers });
 }
 
 /** Installs a real test session in a headless browser through its CDP Network domain. */

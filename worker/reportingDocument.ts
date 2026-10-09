@@ -61,7 +61,7 @@ export function renderReportingPdf(input: ReportingPdfInput): Uint8Array {
     doc.addImage(`data:image/png;base64,${base64(input.signatureBytes)}`, 'PNG', margin, y, 55, 20); y += 23;
     if (input.partnerName) write(`Partner profile: ${input.partnerName}`, 8, { gap: 2 });
     doc.addImage(`data:image/png;base64,${base64(input.sealBytes)}`, 'PNG', margin, y, 24, 24); y += 28;
-    write('The image is associated with a self-selected Partner persona. It is not a certificate-based digital signature or identity verification.', 8);
+    write('The image is associated with the authenticated Partner approval record. It is not a certificate-based digital signature or independent identity verification.', 8);
   }
   for (let page = 1; page <= doc.getNumberOfPages(); page += 1) {
     doc.setPage(page); doc.setFont('helvetica', 'normal'); doc.setFontSize(7); doc.setTextColor(100, 110, 120);

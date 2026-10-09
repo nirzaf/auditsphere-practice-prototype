@@ -9,7 +9,7 @@ import { tokenHash } from '../../worker/auth/tokens.js';
 import { processBusinessOutbox } from '../../worker/businessOutbox.js';
 import type { Env } from '../../worker/env.js';
 import { SqliteD1 } from '../helpers/sqliteD1.js';
-import { authSessionCookie } from '../helpers/authSession.js';
+import { authSessionCookie, bootstrapBusinessFixture } from '../helpers/authSession.js';
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const db = new SqliteD1();
@@ -21,7 +21,6 @@ const env = {
   DB: db,
   FILES: { put: async () => { throw new Error('Not used by this test.'); } },
   ASSETS: { fetch: async () => new Response('not found', { status: 404 }) },
-  BUSINESS_SETUP_ENABLED: 'true',
   PUBLIC_APP_URL: 'https://audit.example',
   RATE_LIMITER: { limit: async ({ key }: { key: string }) => { limiterKeys.push(key); return { success: !rejectRateLimit }; } },
   EMAIL_PROVIDER: { fetch: async (request: Request) => {
@@ -37,6 +36,10 @@ const origin = 'https://client-auth.auditsphere.test';
 async function call(path: string, options: { method?: string; cookie?: string; body?: unknown; headers?: Record<string, string> } = {}): Promise<Response> {
   const headers = new Headers({ Origin: origin, ...options.headers });
   if (options.cookie) headers.set('Cookie', options.cookie);
+  const workspaceId = path.match(/^\/api\/workspaces\/([^/?]+)/)?.[1];
+  const testProfileId = headers.get('X-Test-Session-Profile') ?? undefined;
+  headers.delete('X-Test-Session-Profile');
+  if (workspaceId && !headers.has('Cookie')) headers.set('Cookie', await authSessionCookie(db, workspaceId, testProfileId));
   if (options.body !== undefined) headers.set('Content-Type', 'application/json');
   return worker.fetch(new Request(`${origin}${path}`, {
     method: options.method ?? (options.body === undefined ? 'GET' : 'POST'), headers,
@@ -48,18 +51,16 @@ async function command(workspaceId: string, cookie: string, actorId: string, per
   type: string, payload: unknown, expectedVersions: Array<{ entity: string; id: string; version: number }> = []): Promise<Response> {
   return call(`/api/workspaces/${workspaceId}/commands`, {
     method: 'POST', cookie,
-    headers: { 'X-Actor-Id': actorId, 'X-Active-Persona': persona, 'Idempotency-Key': crypto.randomUUID() },
-    body: { actor: { actorId, persona }, context: {}, expectedVersions, command: { type, payload } }
+    headers: { 'Idempotency-Key': crypto.randomUUID() },
+    body: { context: {}, expectedVersions, command: { type, payload } }
   });
 }
 
 it('enforces client login, forced password change, lockout, reset, rate limits, and firm-admin unlock', async () => {
-  const createdWorkspace = await call('/api/workspaces', { method: 'POST', body: {
+  const workspace = await bootstrapBusinessFixture(db, {
     name: 'Client Auth Acceptance', currency: 'QAR', timezone: 'Asia/Qatar',
     initialPartner: { displayName: 'Auth Partner', naturalPersonKey: `AUTH-PARTNER-${crypto.randomUUID()}`, email: 'auth.partner@example.invalid' }
-  }, headers: { 'Idempotency-Key': crypto.randomUUID() } });
-  assert.equal(createdWorkspace.status, 201, await createdWorkspace.clone().text());
-  const workspace = await createdWorkspace.json() as { workspaceId: string; actorProfileId: string };
+  });
   const partnerCookie = await authSessionCookie(db, workspace.workspaceId, workspace.actorProfileId);
 
   const associate = await command(workspace.workspaceId, partnerCookie, workspace.actorProfileId, 'APPROVER', 'staff.create', {

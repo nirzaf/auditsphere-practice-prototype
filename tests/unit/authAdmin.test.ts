@@ -7,7 +7,7 @@ import { processBusinessOutbox } from '../../worker/businessOutbox.js';
 import { createAuthSession } from '../../worker/auth/sessions.js';
 import type { Env } from '../../worker/env.js';
 import { SqliteD1 } from '../helpers/sqliteD1.js';
-import { authSessionCookie } from '../helpers/authSession.js';
+import { authSessionCookie, bootstrapBusinessFixture } from '../helpers/authSession.js';
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const db = new SqliteD1();
@@ -17,7 +17,6 @@ const env = {
   DB: db,
   FILES: {},
   ASSETS: { fetch: async () => new Response('not found', { status: 404 }) },
-  BUSINESS_SETUP_ENABLED: 'true',
   PUBLIC_APP_URL: 'https://staging.auditsphere.test',
   EMAIL_PROVIDER: { fetch: async (request: Request) => {
     const form = await request.formData();
@@ -30,21 +29,16 @@ after(() => db.close());
 const origin = 'https://staging.auditsphere.test';
 
 async function bootstrap(): Promise<{ workspaceId: string; actorProfileId: string; staffMemberId: string; userAccountId: string }> {
-  const response = await worker.fetch(new Request(`${origin}/api/workspaces`, {
-    method: 'POST', headers: { Origin: origin, 'Content-Type': 'application/json', 'Idempotency-Key': crypto.randomUUID() },
-    body: JSON.stringify({ name: `Auth Admin ${crypto.randomUUID()}`, currency: 'QAR', timezone: 'Asia/Qatar', initialPartner: {
+  return bootstrapBusinessFixture(db, { name: `Auth Admin ${crypto.randomUUID()}`, currency: 'QAR', timezone: 'Asia/Qatar', initialPartner: {
       displayName: 'Admin Partner', naturalPersonKey: `ADMIN-${crypto.randomUUID()}`, email: `${crypto.randomUUID()}@auditsphere.test`
-    } })
-  }), env, {} as any);
-  assert.equal(response.status, 201, await response.clone().text());
-  return response.json() as Promise<{ workspaceId: string; actorProfileId: string; staffMemberId: string; userAccountId: string }>;
+    } });
 }
 
-async function command(workspaceId: string, cookie: string, actorId: string, persona: string, type: string, payload: unknown,
+async function command(workspaceId: string, cookie: string, _actorId: string, _persona: string, type: string, payload: unknown,
   expectedVersions: Array<{ entity: string; id: string; version: number }> = [], idempotencyKey = crypto.randomUUID()): Promise<Response> {
   return worker.fetch(new Request(`${origin}/api/workspaces/${workspaceId}/commands`, {
     method: 'POST', headers: { Origin: origin, Cookie: cookie, 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey },
-    body: JSON.stringify({ actor: { actorId, persona }, context: {}, expectedVersions, command: { type, payload } })
+    body: JSON.stringify({ context: {}, expectedVersions, command: { type, payload } })
   }), env, {} as any);
 }
 
@@ -103,6 +97,9 @@ it('limits user administration to firm admins and audits invite, grant, revoke, 
 
   const listed = await worker.fetch(new Request(`${origin}/api/workspaces/${workspace.workspaceId}/users`, { headers: { Cookie: adminCookie } }), env, {} as any);
   assert.equal(listed.status, 200, await listed.clone().text());
+  const listedProfiles = await worker.fetch(new Request(`${origin}/api/workspaces/${workspace.workspaceId}/actor-profiles`, { headers: { Cookie: adminCookie } }), env, {} as any);
+  assert.equal(listedProfiles.status, 200, await listedProfiles.clone().text());
+  assert.ok((await listedProfiles.json() as { items: Array<{ id: string }> }).items.some(item => item.id === profileId));
   const users = await listed.json() as { items: Array<Record<string, any>> };
   const listedInvitee = users.items.find(item => item.id === inviteResult.userAccountId);
   assert.equal(listedInvitee?.status, 'INVITED');
@@ -123,6 +120,9 @@ it('limits user administration to firm admins and audits invite, grant, revoke, 
   const nonAdminList = await worker.fetch(new Request(`${origin}/api/workspaces/${workspace.workspaceId}/users`, { headers: { Cookie: inviteeCookie } }), env, {} as any);
   assert.equal(nonAdminList.status, 403);
   assert.equal((await nonAdminList.json() as any).code, 'PERSONA_ACTION_DENIED');
+  const nonAdminProfiles = await worker.fetch(new Request(`${origin}/api/workspaces/${workspace.workspaceId}/actor-profiles`, { headers: { Cookie: inviteeCookie } }), env, {} as any);
+  assert.equal(nonAdminProfiles.status, 403);
+  assert.equal((await nonAdminProfiles.json() as any).code, 'PERSONA_ACTION_DENIED');
   const nonAdminInvite = await command(workspace.workspaceId, inviteeCookie, profileId, 'PREPARER', 'user.inviteStaff', invitePayload);
   assert.equal(nonAdminInvite.status, 403);
   assert.equal((await nonAdminInvite.json() as any).code, 'PERSONA_ACTION_DENIED');

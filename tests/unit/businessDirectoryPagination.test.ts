@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import { getBusinessClients, getBusinessLeads } from '../../src/services/businessWorkspace.js';
 import type { BusinessWorkspacePreference } from '../../src/shared/api/business.js';
 
-const preference: BusinessWorkspacePreference = { version: 1, workspaceId: 'ws-1', actorId: 'actor-1', persona: 'PREPARER' };
+const preference: BusinessWorkspacePreference = { version: 1, workspaceId: 'ws-1' };
 const originalFetch = globalThis.fetch;
 const requests: string[] = [];
 const capturedHeaders: Array<Headers | undefined> = [];
@@ -42,13 +42,11 @@ describe('business directory pagination requests (US-GAP-29)', () => {
   it('preserves the selected reviewer client context while requesting the next filtered page', async () => {
     stubFetch();
     const scoped: BusinessWorkspacePreference = {
-      ...preference, actorId: 'reviewer-1', persona: 'REVIEWER', clientId: 'assigned-client-2'
+      ...preference, clientId: 'assigned-client-2'
     };
     await getBusinessClients('ws-1', scoped, { cursor: 'assigned-client-cursor', limit: 1 });
     assert.equal(requests[0], '/api/workspaces/ws-1/clients?limit=1&cursor=assigned-client-cursor');
     const headers = capturedHeaders[0];
-    assert.equal(headers?.get('X-Actor-Id'), 'reviewer-1');
-    assert.equal(headers?.get('X-Active-Persona'), 'REVIEWER');
     assert.equal(headers?.get('X-Client-Id'), 'assigned-client-2');
   });
 
@@ -58,14 +56,14 @@ describe('business directory pagination requests (US-GAP-29)', () => {
     assert.equal(requests[0], '/api/workspaces/ws-1/leads?limit=100&cursor=lead-cursor');
   });
 
-  it('keeps the supplied actor, persona and client scope headers while paging', async () => {
+  it('keeps only the selected client scope while paging', async () => {
     stubFetch();
-    const scoped: BusinessWorkspacePreference = { ...preference, clientId: 'client-9', persona: 'REVIEWER' };
+    const scoped: BusinessWorkspacePreference = { ...preference, clientId: 'client-9' };
     await getBusinessLeads('ws-1', scoped, { cursor: 'lead-cursor' });
     assert.equal(requests.length, 1);
     const headers = capturedHeaders[0];
-    assert.equal(headers?.get('X-Actor-Id'), 'actor-1');
-    assert.equal(headers?.get('X-Active-Persona'), 'REVIEWER');
+    assert.equal(headers?.get('Cookie'), null);
+    assert.equal(headers?.get('Authorization'), null);
     assert.equal(headers?.get('X-Client-Id'), 'client-9');
   });
 });

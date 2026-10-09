@@ -188,7 +188,7 @@ export function BusinessAcceptanceRiskPanel({
       if (!controller.signal.aborted) setError(reason instanceof Error ? reason.message : 'The risk workspace could not be loaded.');
     });
     return () => controller.abort();
-  }, [workspaceId, engagementId, scoped.actorId, scoped.persona, scoped.clientId, scoped.engagementId, isClient, context.allowedActions.join(','), refresh]);
+  }, [workspaceId, engagementId, scoped.clientId, scoped.engagementId, isClient, context.allowedActions.join(','), refresh]);
 
   useEffect(() => {
     if (!selectedOwner) {

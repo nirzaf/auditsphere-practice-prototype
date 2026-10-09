@@ -22,7 +22,7 @@ export type UserRow = {
   status: 'INVITED' | 'ACTIVE' | 'LOCKED' | 'DISABLED'; external_issuer: string | null; external_subject: string | null;
   is_firm_admin: number; password_must_change: number;
 };
-export type ProfileRow = { id: string; persona: 'PREPARER' | 'REVIEWER' | 'APPROVER' | 'CLIENT'; display_name: string; staff_grade: string | null; client_id: string | null };
+export type ProfileRow = { id: string; persona: 'PREPARER' | 'REVIEWER' | 'APPROVER' | 'CLIENT'; display_name: string; staff_grade: string | null; client_id: string | null; staff_member_id: string | null; contact_id: string | null };
 
 function appendCookie(headers: Headers, value: string): void { headers.append('Set-Cookie', value); }
 function cookieState(value: string, secret: string, now: number) {
@@ -42,7 +42,8 @@ function safeReturnTo(value: string | null, origin: string): string {
 }
 
 export async function profilesFor(env: RouteContext['env'], user: UserRow): Promise<ProfileRow[]> {
-  return (await env.DB.prepare(`SELECT ap.id,ap.persona,COALESCE(sm.display_name,ct.full_name,'') AS display_name,sm.grade AS staff_grade,ct.client_id
+  return (await env.DB.prepare(`SELECT ap.id,ap.persona,COALESCE(sm.display_name,ct.full_name,'') AS display_name,
+      sm.grade AS staff_grade,ct.client_id,ap.staff_member_id,ap.contact_id
     FROM user_profile_grants g JOIN actor_profiles ap ON ap.workspace_id=g.workspace_id AND ap.id=g.actor_profile_id
     LEFT JOIN staff_members sm ON sm.workspace_id=ap.workspace_id AND sm.id=ap.staff_member_id
     LEFT JOIN contacts ct ON ct.workspace_id=ap.workspace_id AND ct.id=ap.contact_id
@@ -56,7 +57,8 @@ export async function meBody(env: RouteContext['env'], user: UserRow, session: A
   return {
     user: { id: user.id, kind: user.kind, displayName: user.display_name, email: user.email_normalized, isFirmAdmin: user.is_firm_admin === 1 },
     workspaceId: user.workspace_id,
-    profiles: profiles.map(profile => ({ id: profile.id, persona: profile.persona, displayName: profile.display_name, staffGrade: profile.staff_grade, clientId: profile.client_id })),
+    profiles: profiles.map(profile => ({ id: profile.id, persona: profile.persona, displayName: profile.display_name,
+      staffGrade: profile.staff_grade, clientId: profile.client_id, staffMemberId: profile.staff_member_id, contactId: profile.contact_id })),
     activeProfileId: session.active_actor_profile_id,
     passwordMustChange: user.password_must_change === 1,
     idleExpiresAt: session.idle_expires_at

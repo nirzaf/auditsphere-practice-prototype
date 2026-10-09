@@ -28,6 +28,7 @@
 .business-console { min-height: 100vh; background: var(--bg); color: var(--ink); }
 .business-console-header { min-height: 68px; padding: 10px clamp(14px, 4vw, 48px); border-bottom: 1px solid var(--line); background: #fff; }
 .business-console-brand { gap: 11px; }
+.business-console-account { display: flex; align-items: center; gap: 14px; }
 .business-console-brand > div { display: grid; gap: 2px; }
 .business-console-brand strong { font-size: 15px; }
 .business-console-brand span:last-child { color: var(--muted); font-size: 12px; }
@@ -44,10 +45,8 @@
 .business-status-dot.error { background: #b91c1c; }
 .business-console-alert { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .business-context-card { display: grid; grid-template-columns: minmax(0, 1fr) minmax(220px, 360px); align-items: start; gap: 12px 22px; }
-.business-persona-select { grid-column: 2; grid-row: 1 / span 2; }
 .business-actor-summary { display: grid; gap: 3px; min-width: 0; }
 .business-actor-summary span { color: var(--muted); font-size: 13px; }
-.business-self-select-note { grid-column: 1 / -1; border-top: 1px solid var(--line); padding-top: 12px; margin: 2px 0 0; color: var(--muted); font-size: 12px; }
 .business-profile-list { list-style: none; margin: 14px 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 8px; }
 .business-profile-list li { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 5px 9px; min-width: 0; border: 1px solid var(--line); border-radius: 8px; padding: 10px 11px; }
 .business-profile-persona { width: max-content; border-radius: 99px; background: #eff6ff; color: #1e40af; padding: 3px 8px; font-size: 10px; font-weight: 700; }
@@ -101,11 +100,10 @@
   .business-setup-head > .btn { align-self: flex-end; }
   .business-form-grid, .business-static-fields { grid-template-columns: minmax(0, 1fr); }
   .business-context-card { grid-template-columns: minmax(0, 1fr); }
-  .business-persona-select { grid-column: 1; grid-row: auto; }
   .business-client-context { grid-column: 1; grid-row: auto; }
   .business-convert-controls { grid-template-columns: minmax(0, 1fr); }
   .business-console-header { align-items: flex-start; }
-  .business-console-header > .btn { max-width: 44%; white-space: normal; }
+  .business-console-account { align-items: flex-end; flex-direction: column; gap: 8px; }
   .business-console-alert { align-items: flex-start; flex-direction: column; }
   .business-workflow-card > .business-section-heading { align-items: stretch; flex-direction: column; }
   .business-workflow-select { width: 100%; }

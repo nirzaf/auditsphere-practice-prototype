@@ -149,22 +149,20 @@ export function BusinessPracticePanel({ workspaceId, selected, context, engageme
     && file.engagementId === engagement.id), [files, engagement.id]);
 
   useEffect(() => {
-    if (!selected.actorId || !selected.persona) return;
     const controller = new AbortController();
     getBusinessPracticeWorkspace(workspaceId, selected, { from, to, engagementId: engagement.id, asOfDate: arAgingAsOf }, controller.signal)
       .then(result => { if (!controller.signal.aborted) { setData(result as unknown as PracticeData); setError(''); } })
       .catch(reason => { if (!controller.signal.aborted) setError(reason instanceof Error ? reason.message : 'Firm practice data could not be loaded.'); });
     return () => controller.abort();
-  }, [workspaceId, selected.actorId, selected.persona, selected.clientId, selected.engagementId, engagement.id, from, to, arAgingAsOf, refresh]);
+  }, [workspaceId, selected.clientId, selected.engagementId, engagement.id, from, to, arAgingAsOf, refresh]);
 
   useEffect(() => {
-    if (!selected.actorId || !selected.persona) return;
     const controller = new AbortController();
     getBusinessFirmProfitLossReport(workspaceId, selected, profitLossMonth, controller.signal)
       .then(result => { if (!controller.signal.aborted) setProfitLossReport(result as unknown as MonthlyProfitLossReport); })
       .catch(reason => { if (!controller.signal.aborted) setError(reason instanceof Error ? reason.message : 'Monthly firm profit and loss could not be loaded.'); });
     return () => controller.abort();
-  }, [workspaceId, selected.actorId, selected.persona, selected.clientId, selected.engagementId, profitLossMonth, refresh]);
+  }, [workspaceId, selected.clientId, selected.engagementId, profitLossMonth, refresh]);
 
   const perform = async (type: string, payload: Record<string, unknown>, success: string) => {
     setBusy(true); setError(''); setMessage('');

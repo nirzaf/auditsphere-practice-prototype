@@ -5,7 +5,7 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import worker from '../../worker/index';
 import { SqliteD1 } from '../helpers/sqliteD1';
-import { authSessionCookie } from '../helpers/authSession';
+import { authSessionCookie, bootstrapBusinessFixture } from '../helpers/authSession';
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 
@@ -28,7 +28,7 @@ it('expires an abandoned staged upload after 24 hours and preserves committed fi
       for (const key of Array.isArray(keys) ? keys : [keys]) objects.delete(key);
     }
   } as any;
-  const env = { DB: db, FILES: r2, ASSETS: { fetch: async () => new Response('not found', { status: 404 }) }, BUSINESS_SETUP_ENABLED: 'true' } as any;
+  const env = { DB: db, FILES: r2, ASSETS: { fetch: async () => new Response('not found', { status: 404 }) } as any };
   const origin = 'https://file-sweep.auditsphere.test';
   const request = async (method: string, path: string, options: { body?: unknown; raw?: Uint8Array; headers?: Record<string, string> } = {}) => {
     const headers = new Headers({ Origin: origin, ...options.headers });
@@ -42,18 +42,13 @@ it('expires an abandoned staged upload after 24 hours and preserves committed fi
 
   try {
     db.migrate(repositoryRoot);
-    const created = await request('POST', '/api/workspaces', { headers: { 'Idempotency-Key': crypto.randomUUID() }, body: {
+    const created = await bootstrapBusinessFixture(db, {
       name: 'File sweep acceptance', currency: 'QAR', timezone: 'Asia/Qatar',
       initialPartner: { displayName: 'Sweep Partner', naturalPersonKey: 'FILE-SWEEP-PARTNER', email: 'sweep@example.invalid' }
-    } });
-    assert.equal(created.response.status, 201, JSON.stringify(created.body));
-    const workspaceId = created.body.workspaceId as string;
-    const actorId = created.body.actorProfileId as string;
-    const actorHeaders = {
-      Cookie: await authSessionCookie(db as any, workspaceId, actorId),
-      'X-Actor-Id': actorId,
-      'X-Active-Persona': 'APPROVER'
-    };
+    });
+    const workspaceId = created.workspaceId;
+    const actorId = created.actorProfileId;
+    const actorHeaders = { Cookie: await authSessionCookie(db as any, workspaceId, actorId) };
     const bytes = new TextEncoder().encode('%PDF-1.4\n1 0 obj\n<< /Type /Catalog >>\nendobj\n%%EOF\n');
     const reserve = async (originalName: string) => {
       const result = await request('POST', `/api/workspaces/${workspaceId}/files`, {

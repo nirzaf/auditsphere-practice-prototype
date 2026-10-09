@@ -17,10 +17,11 @@ import type {
   BusinessWorkspaceSummary,
   StaffGrade
 } from '../../shared/api/business';
+import type { AuthMe } from '../../shared/api/auth';
+import { ProfileSwitcher } from '../auth/AuthPages';
+import { UsersPanel } from '../auth/UsersPanel';
 import {
   businessWorkspaceSnapshot,
-  clearBusinessWorkspacePreference,
-  createBusinessWorkspace,
   completeBusinessFile,
   downloadBusinessFile,
   getBusinessFiles,
@@ -37,7 +38,6 @@ import {
   newBusinessIdempotencyKey,
   runBusinessCommand,
   saveBusinessWorkspacePreference,
-  selectBusinessActor,
   subscribeBusinessWorkspace,
   uploadBusinessFile
 } from '../../services/businessWorkspace';
@@ -53,147 +53,6 @@ import { BusinessPracticePanel } from './BusinessPracticePanel';
 import { BusinessReportingPanel } from './BusinessReportingPanel';
 import { BusinessWorkflowProgress } from './BusinessWorkflowProgress';
 
-type SetupMode = 'create' | 'connect';
-
-export function BusinessWorkspaceSetupDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
-  const [mode, setMode] = useState<SetupMode>('create');
-  const [workspaceName, setWorkspaceName] = useState('');
-  const [partnerName, setPartnerName] = useState('');
-  const [naturalPersonKey, setNaturalPersonKey] = useState('');
-  const [email, setEmail] = useState('');
-  const [workspaceId, setWorkspaceId] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState('');
-  const createKey = useRef<string | undefined>(undefined);
-
-  useEffect(() => {
-    if (!open) return;
-    setError('');
-    setBusy(false);
-  }, [open]);
-
-  if (!open) return null;
-
-  const clearKey = () => { createKey.current = undefined; };
-  const create = async (event: React.FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    setBusy(true);
-    setError('');
-    try {
-      createKey.current ??= newBusinessIdempotencyKey();
-      const created = await createBusinessWorkspace({
-        name: workspaceName,
-        currency: 'QAR',
-        timezone: 'Asia/Qatar',
-        initialPartner: { displayName: partnerName, naturalPersonKey, email }
-      }, createKey.current);
-      saveBusinessWorkspacePreference({
-        version: 1,
-        workspaceId: created.workspaceId,
-        actorId: created.actorProfileId,
-        persona: 'APPROVER'
-      });
-      createKey.current = undefined;
-      onClose();
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : 'The workspace could not be created. Retry the request.');
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const connect = async (event: React.FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    setBusy(true);
-    setError('');
-    try {
-      const id = workspaceId.trim();
-      const [workspace, profiles] = await Promise.all([
-        getBusinessWorkspace(id),
-        getBusinessActorProfiles(id)
-      ]);
-      const firstProfile = profiles[0];
-      saveBusinessWorkspacePreference({
-        version: 1,
-        workspaceId: workspace.id,
-        ...(firstProfile ? { actorId: firstProfile.id, persona: firstProfile.persona } : {})
-      });
-      onClose();
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : 'The workspace could not be opened. Check the ID and retry.');
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  return <div className="modal-overlay business-setup-overlay" role="presentation" data-dismiss-guard="self" onClick={event => {
-    // The shared app Escape handler dispatches an untrusted click on the active
-    // backdrop. Ignore pointer backdrop clicks so setup fields are not discarded.
-    if (event.target === event.currentTarget && event.detail === 0) onClose();
-  }}>
-    <section className="modal-card business-setup-dialog" role="dialog" aria-modal="true" aria-labelledby="business-setup-title" aria-describedby="business-setup-description">
-      <div className="business-setup-head">
-        <div>
-          <p className="business-eyebrow">AUDITSPHERE · BUSINESS MODE</p>
-          <h2 id="business-setup-title">Open a business workspace</h2>
-          <p id="business-setup-description" className="business-muted">Business workspaces start empty and persist in the server database. Persona selection is self-asserted; it does not verify identity.</p>
-        </div>
-        <button className="btn sm" type="button" onClick={onClose}>Close</button>
-      </div>
-
-      <div className="business-mode-tabs" role="group" aria-label="Workspace action">
-        <button type="button" className={mode === 'create' ? 'business-mode-tab selected' : 'business-mode-tab'} aria-pressed={mode === 'create'} onClick={() => { setMode('create'); setError(''); }}>Create workspace</button>
-        <button type="button" className={mode === 'connect' ? 'business-mode-tab selected' : 'business-mode-tab'} aria-pressed={mode === 'connect'} onClick={() => { setMode('connect'); setError(''); }}>Connect by workspace ID</button>
-      </div>
-
-      {error && <p className="business-alert" role="alert">{error}</p>}
-
-      {mode === 'create' ? <form className="business-form" onSubmit={create}>
-        <label className="business-field" htmlFor="business-workspace-name">
-          <span>Workspace name</span>
-          <input id="business-workspace-name" autoComplete="organization" required minLength={1} maxLength={200} value={workspaceName} onChange={event => { clearKey(); setWorkspaceName(event.target.value); }} />
-        </label>
-        <div className="business-static-fields" aria-label="Workspace defaults">
-          <div><span>Currency</span><strong>QAR</strong></div>
-          <div><span>Timezone</span><strong>Asia/Qatar</strong></div>
-        </div>
-        <h3>Initial Partner directory record</h3>
-        <div className="business-form-grid">
-          <label className="business-field" htmlFor="business-partner-name">
-            <span>Display name</span>
-            <input id="business-partner-name" autoComplete="name" required maxLength={200} value={partnerName} onChange={event => { clearKey(); setPartnerName(event.target.value); }} />
-          </label>
-          <label className="business-field" htmlFor="business-partner-key">
-            <span>Natural-person key</span>
-            <input id="business-partner-key" autoComplete="off" required maxLength={200} value={naturalPersonKey} onChange={event => { clearKey(); setNaturalPersonKey(event.target.value); }} />
-            <small>Firm-maintained unique reference used for independence checks.</small>
-          </label>
-          <label className="business-field" htmlFor="business-partner-email">
-            <span>Email</span>
-            <input id="business-partner-email" type="email" autoComplete="email" required maxLength={254} value={email} onChange={event => { clearKey(); setEmail(event.target.value); }} />
-          </label>
-        </div>
-        <p className="business-note">This creates one Partner staff record and one APPROVER profile. It does not create clients, engagements, invoices, approvals, or payment history.</p>
-        <div className="business-dialog-actions">
-          <button type="button" className="btn" onClick={onClose}>Cancel</button>
-          <button type="submit" className="btn primary" disabled={busy}>{busy ? 'Creating workspace…' : 'Create business workspace'}</button>
-        </div>
-      </form> : <form className="business-form" onSubmit={connect}>
-        <label className="business-field" htmlFor="business-connect-id">
-          <span>Workspace ID</span>
-          <input id="business-connect-id" autoComplete="off" required minLength={36} maxLength={36} value={workspaceId} onChange={event => setWorkspaceId(event.target.value)} />
-          <small>The ID is a locator, not an access credential. This profile runs in a trusted environment.</small>
-        </label>
-        <p className="business-note">The browser will load configured profiles from the workspace and keep your selection in this browser only. No cookie, password, or access token is created.</p>
-        <div className="business-dialog-actions">
-          <button type="button" className="btn" onClick={onClose}>Cancel</button>
-          <button type="submit" className="btn primary" disabled={busy}>{busy ? 'Connecting…' : 'Connect workspace'}</button>
-        </div>
-      </form>}
-    </section>
-  </div>;
-}
-
 interface PendingStaffAssignment {
   staffMemberId: string;
   persona: Exclude<BusinessPersona, 'CLIENT'>;
@@ -201,16 +60,25 @@ interface PendingStaffAssignment {
   displayName: string;
 }
 
-function gradeAllowsPersona(grade: StaffGrade, persona: Exclude<BusinessPersona, 'CLIENT'>): boolean {
-  if (persona === 'APPROVER') return grade === 'PARTNER';
-  if (persona === 'REVIEWER') return grade === 'MANAGER' || grade === 'SENIOR';
-  return true;
-}
-
-export function BusinessWorkspaceConsole() {
-  const preference = useSyncExternalStore(subscribeBusinessWorkspace, businessWorkspaceSnapshot);
+export function BusinessWorkspaceConsole({ auth, onProfileSwitch, onSignOut }: {
+  auth: AuthMe;
+  onProfileSwitch: (profileId: string) => Promise<void>;
+  onSignOut: () => Promise<void>;
+}) {
+  const storedPreference = useSyncExternalStore(subscribeBusinessWorkspace, businessWorkspaceSnapshot);
+  const selectedProfile = auth.profiles.find(profile => profile.id === auth.activeProfileId) ?? null;
+  const preference = useMemo<BusinessWorkspacePreference>(() => {
+    const scope = storedPreference?.workspaceId === auth.workspaceId ? storedPreference : null;
+    const isClientProfile = selectedProfile?.persona === 'CLIENT';
+    // A client's immutable client scope comes from its granted profile, never browser storage.
+    const scopeMatchesProfile = !isClientProfile || Boolean(scope?.clientId && scope.clientId === selectedProfile.clientId);
+    const currentScope = scopeMatchesProfile ? scope : null;
+    return { version: 1, workspaceId: auth.workspaceId,
+      ...(isClientProfile && selectedProfile.clientId ? { clientId: selectedProfile.clientId } : currentScope?.clientId ? { clientId: currentScope.clientId } : {}),
+      ...(currentScope?.engagementId ? { engagementId: currentScope.engagementId } : {}) };
+  }, [auth.workspaceId, selectedProfile, storedPreference]);
   const [workspace, setWorkspace] = useState<BusinessWorkspaceSummary | null>(null);
-  const [profiles, setProfiles] = useState<BusinessActorProfile[]>([]);
+  const [directoryProfiles, setDirectoryProfiles] = useState<BusinessActorProfile[]>([]);
   const [loadedContext, setLoadedContext] = useState<LoadedBusinessContext | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -309,21 +177,17 @@ export function BusinessWorkspaceConsole() {
   const [createdEngagement, setCreatedEngagement] = useState<{ id: string; version: number; state: string } | null>(null);
   const businessCommandKeys = useRef(new Map<string, { signature: string; key: string }>());
 
-  const selectedProfile = useMemo(
-    () => profiles.find(profile => profile.id === preference?.actorId && profile.persona === preference?.persona) ?? null,
-    [profiles, preference?.actorId, preference?.persona]
-  );
+  useEffect(() => {
+    if (storedPreference?.workspaceId !== auth.workspaceId) saveBusinessWorkspacePreference(preference);
+  }, [auth.workspaceId, preference, storedPreference?.workspaceId]);
 
-  // A context response belongs to the exact browser selection that requested it.
-  // Hide its permissions immediately when the workspace, actor, persona or scope
-  // changes; effects run after render and must not leave one frame of the prior
-  // client's records or controls visible under the new selection.
-  const context = isBusinessContextCurrent(loadedContext, preference) ? loadedContext.response : null;
+  // The context must belong to this session profile and its current non-identity scope.
+  const context = isBusinessContextCurrent(loadedContext, preference, auth.activeProfileId) ? loadedContext.response : null;
 
   useEffect(() => {
     if (!preference?.workspaceId) {
       setWorkspace(null);
-      setProfiles([]);
+      setDirectoryProfiles([]);
       setLoadedContext(null);
       setLoading(false);
       setError('');
@@ -332,17 +196,9 @@ export function BusinessWorkspaceConsole() {
     const controller = new AbortController();
     setLoading(true);
     setError('');
-    Promise.all([
-      getBusinessWorkspace(preference.workspaceId, controller.signal),
-      getBusinessActorProfiles(preference.workspaceId, controller.signal)
-    ]).then(([summary, items]) => {
+    getBusinessWorkspace(preference.workspaceId, controller.signal).then(summary => {
       if (controller.signal.aborted) return;
       setWorkspace(summary);
-      setProfiles(items);
-      if (preference.actorId && !items.some(profile => profile.id === preference.actorId && profile.persona === preference.persona)) {
-        saveBusinessWorkspacePreference({ version: 1, workspaceId: preference.workspaceId });
-        setError('The previously selected profile is no longer active. Choose an available profile.');
-      }
     }).catch(reason => {
       if (controller.signal.aborted) return;
       setError(reason instanceof Error ? reason.message : 'Business workspace is unavailable. Retry the connection.');
@@ -350,10 +206,21 @@ export function BusinessWorkspaceConsole() {
       if (!controller.signal.aborted) setLoading(false);
     });
     return () => controller.abort();
-  }, [preference?.workspaceId, retryKey]);
+  }, [preference.workspaceId, retryKey]);
 
   useEffect(() => {
-    if (!preference?.workspaceId || !preference.actorId || !preference.persona) {
+    if (!auth.user.isFirmAdmin) { setDirectoryProfiles([]); return; }
+    const controller = new AbortController();
+    getBusinessActorProfiles(auth.workspaceId, controller.signal).then(result => {
+      if (!controller.signal.aborted) setDirectoryProfiles(result);
+    }).catch(reason => {
+      if (!controller.signal.aborted) setError(reason instanceof Error ? reason.message : 'The firm directory could not be loaded.');
+    });
+    return () => controller.abort();
+  }, [auth.user.isFirmAdmin, auth.workspaceId, retryKey]);
+
+  useEffect(() => {
+    if (!preference.workspaceId || !auth.activeProfileId) {
       setLoadedContext(null);
       return;
     }
@@ -365,16 +232,16 @@ export function BusinessWorkspaceConsole() {
       if (controller.signal.aborted) return;
       if (reason && typeof reason === 'object' && 'code' in reason && ['DISABLED_IDENTITY', 'PERSONA_ACTION_DENIED'].includes(String(reason.code))) {
         saveBusinessWorkspacePreference({ version: 1, workspaceId: preference.workspaceId });
-        setError('That profile is unavailable or does not match its persona. Select an active profile.');
+        setError('Your active session profile is unavailable. Sign out and ask a firm administrator to restore your access.');
       } else {
         setError(reason instanceof Error ? reason.message : 'The selected workspace context could not be loaded.');
       }
     });
     return () => controller.abort();
-  }, [preference?.workspaceId, preference?.actorId, preference?.persona, preference?.clientId, preference?.engagementId, retryKey]);
+  }, [preference.workspaceId, auth.activeProfileId, preference.clientId, preference.engagementId, retryKey]);
 
   useEffect(() => {
-    if (!preference?.workspaceId || !preference.actorId || !context || context.actor.id !== preference.actorId) {
+    if (!preference.workspaceId || !auth.activeProfileId || !context || context.actor.id !== auth.activeProfileId) {
       setClients([]);
       setClientCursor(null);
       setClientDetail(null);
@@ -416,10 +283,10 @@ export function BusinessWorkspaceConsole() {
       if (!controller.signal.aborted) setRecordError(reason instanceof Error ? reason.message : 'Business records could not be loaded. Retry.');
     });
     return () => controller.abort();
-  }, [preference?.workspaceId, preference?.actorId, preference?.persona, preference?.clientId, context?.actor.id, context?.allowedActions.join(','), recordsKey]);
+  }, [preference.workspaceId, auth.activeProfileId, preference.clientId, context?.actor.id, context?.allowedActions.join(','), recordsKey]);
 
   useEffect(() => {
-    if (!preference?.workspaceId || !preference.actorId || !context?.allowedActions.includes('proposal.read')) {
+    if (!preference.workspaceId || !auth.activeProfileId || !context?.allowedActions.includes('proposal.read')) {
       setProposalWorkspace(null);
       return;
     }
@@ -449,7 +316,7 @@ export function BusinessWorkspaceConsole() {
       if (!controller.signal.aborted) setRecordError(reason instanceof Error ? reason.message : 'Proposal workspace could not be loaded.');
     });
     return () => controller.abort();
-  }, [preference?.workspaceId, preference?.actorId, preference?.persona, preference?.clientId, preference?.engagementId, context?.actor.id, context?.allowedActions.join(','), recordsKey]);
+  }, [preference.workspaceId, auth.activeProfileId, preference.clientId, preference.engagementId, context?.actor.id, context?.allowedActions.join(','), recordsKey]);
 
   useEffect(() => {
     const pending = proposalWorkspace?.proposals.some(proposal => ['PENDING', 'RUNNING'].includes(proposal.documentStatus)
@@ -460,7 +327,7 @@ export function BusinessWorkspaceConsole() {
   }, [proposalWorkspace]);
 
   useEffect(() => {
-    if (!preference?.workspaceId || !preference.actorId || !context?.allowedActions.includes('file.read')) {
+    if (!preference.workspaceId || !auth.activeProfileId || !context?.allowedActions.includes('file.read')) {
       setFiles([]);
       return;
     }
@@ -471,10 +338,10 @@ export function BusinessWorkspaceConsole() {
       if (!controller.signal.aborted) setRecordError(reason instanceof Error ? reason.message : 'Stored files could not be loaded.');
     });
     return () => controller.abort();
-  }, [preference?.workspaceId, preference?.actorId, preference?.persona, preference?.clientId, preference?.engagementId, context?.actor.id, context?.allowedActions.join(','), recordsKey]);
+  }, [preference.workspaceId, auth.activeProfileId, preference.clientId, preference.engagementId, context?.actor.id, context?.allowedActions.join(','), recordsKey]);
 
   useEffect(() => {
-    if (!preference?.workspaceId || !preference.actorId || !preference.clientId || !context?.allowedActions.includes('client.read')) {
+    if (!preference.workspaceId || !auth.activeProfileId || !preference.clientId || !context?.allowedActions.includes('client.read')) {
       setClientDetail(null);
       return;
     }
@@ -488,12 +355,12 @@ export function BusinessWorkspaceConsole() {
       }
     });
     return () => controller.abort();
-  }, [preference?.workspaceId, preference?.actorId, preference?.persona, preference?.clientId, context?.actor.id, recordsKey]);
+  }, [preference.workspaceId, auth.activeProfileId, preference.clientId, context?.actor.id, recordsKey]);
 
   const refreshProfiles = async () => {
     if (!preference?.workspaceId) return;
     try {
-      setProfiles(await getBusinessActorProfiles(preference.workspaceId));
+      setDirectoryProfiles(await getBusinessActorProfiles(preference.workspaceId));
       setCommandMessage('Directory refreshed.');
     } catch (reason) {
       setCommandMessage(reason instanceof Error ? reason.message : 'The directory could not be refreshed.');
@@ -531,7 +398,7 @@ export function BusinessWorkspaceConsole() {
         commandKeyFor('actor-profile.assign.client', payload)
       );
       businessCommandKeys.current.delete('actor-profile.assign.client');
-      setProfiles(await getBusinessActorProfiles(selected.workspaceId));
+      await refreshProfiles();
       setClientProfileContactId('');
       setCommandMessage(`${contact.full_name} was added as a CLIENT profile for ${client.legalName}.`);
     } catch (reason) {
@@ -609,7 +476,7 @@ export function BusinessWorkspaceConsole() {
 
   const addStaffPersona = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (!preference?.actorId || !preference.persona || !context?.allowedActions.includes('directory.manage')) return;
+    if (!auth.user.isFirmAdmin || !selectedProfile || !context?.allowedActions.includes('directory.manage')) return;
     setCommandBusy(true);
     setCommandMessage('');
     try {
@@ -666,18 +533,18 @@ export function BusinessWorkspaceConsole() {
   };
 
   const currentSelection = (): BusinessWorkspacePreference | null =>
-    preference?.actorId && preference.persona ? preference : null;
+    selectedProfile ? preference : null;
 
   const selectClientContext = (clientId: string) => {
-    if (!preference?.workspaceId || !preference.actorId || !preference.persona || preference.persona === 'CLIENT') return;
+    if (!preference.workspaceId || !auth.activeProfileId || selectedProfile?.persona === 'CLIENT') return;
     saveBusinessWorkspacePreference({
-      version: 1, workspaceId: preference.workspaceId, actorId: preference.actorId, persona: preference.persona,
+      version: 1, workspaceId: preference.workspaceId,
       ...(clientId ? { clientId } : {})
     });
   };
 
   const loadMoreClients = async () => {
-    if (!preference?.workspaceId || !preference.actorId || !preference.persona || !clientCursor || loadingMore) return;
+    if (!preference.workspaceId || !auth.activeProfileId || !clientCursor || loadingMore) return;
     setLoadingMore('clients');
     try {
       const page = await getBusinessClients(preference.workspaceId, preference, { cursor: clientCursor });
@@ -689,7 +556,7 @@ export function BusinessWorkspaceConsole() {
   };
 
   const loadMoreLeads = async () => {
-    if (!preference?.workspaceId || !preference.actorId || !preference.persona || !leadCursor || loadingMore) return;
+    if (!preference.workspaceId || !auth.activeProfileId || !leadCursor || loadingMore) return;
     setLoadingMore('leads');
     try {
       const page = await getBusinessLeads(preference.workspaceId, preference, { cursor: leadCursor });
@@ -1092,7 +959,7 @@ export function BusinessWorkspaceConsole() {
   const riskEngagement = proposalWorkspace?.engagements.find(item => item.id === riskEngagementId) ?? null;
   const reportingEngagementId = riskEngagement?.id
     ?? (context?.actor.persona === 'CLIENT' ? preference?.engagementId : undefined);
-  const assignedClientContactIds = new Set(profiles
+  const assignedClientContactIds = new Set(directoryProfiles
     .filter(profile => profile.persona === 'CLIENT' && profile.contactId)
     .map(profile => profile.contactId));
   const availableClientContacts = clientDetail?.contacts.filter(contact => contact.active && !assignedClientContactIds.has(contact.id)) ?? [];
@@ -1103,7 +970,10 @@ export function BusinessWorkspaceConsole() {
         <span className="business-brand-mark" aria-hidden="true">AS</span>
         <div><strong>AuditSphere</strong><span>Business workspace</span></div>
       </div>
-      <button type="button" className="btn sm" onClick={clearBusinessWorkspacePreference}>Switch workspace</button>
+      <div className="business-console-account">
+        <ProfileSwitcher me={auth} onSwitch={onProfileSwitch} />
+        <button type="button" className="btn sm" onClick={() => void onSignOut()}>Sign out</button>
+      </div>
     </header>
 
     <div className="business-console-content">
@@ -1129,19 +999,9 @@ export function BusinessWorkspaceConsole() {
       {!loading && workspace && <>
         <section className="business-context-card" aria-labelledby="business-context-heading">
           <div>
-            <p className="business-eyebrow">CURRENT REQUEST CONTEXT</p>
-            <h2 id="business-context-heading">Self-selected persona</h2>
+            <p className="business-eyebrow">SIGNED-IN PROFILE</p>
+            <h2 id="business-context-heading">Verified session context</h2>
           </div>
-          <label className="business-field business-persona-select" htmlFor="business-active-persona">
-            <span>Active persona</span>
-            <select id="business-active-persona" value={selectedProfile?.id ?? ''} disabled={!profiles.length || loading} onChange={event => {
-              const chosen = profiles.find(profile => profile.id === event.target.value);
-              if (chosen) selectBusinessActor(chosen);
-            }}>
-              <option value="">Choose a configured profile</option>
-              {profiles.map(profile => <option key={profile.id} value={profile.id}>{profile.persona} · {profile.displayName}{profile.staffGrade ? ` · ${profile.staffGrade}` : ''}</option>)}
-            </select>
-          </label>
           {context?.allowedActions.includes('client.read') && selectedProfile?.persona !== 'CLIENT' && <label className="business-field business-client-context" htmlFor="business-selected-client">
             <span>Selected client context</span>
             <select id="business-selected-client" value={preference?.clientId ?? ''} onChange={event => selectClientContext(event.target.value)}>
@@ -1153,21 +1013,20 @@ export function BusinessWorkspaceConsole() {
             <strong>{selectedProfile.displayName}</strong>
             <span>{selectedProfile.persona}{selectedProfile.staffGrade ? ` · ${selectedProfile.staffGrade}` : ''}</span>
             {selectedProfile.persona === 'CLIENT' && <span>Client projection only</span>}
-          </div> : <p className="business-muted">No active profile is selected. Choose a configured profile or add one from the directory setup below.</p>}
-          <p className="business-self-select-note">Persona selection changes the request context in this browser only. It is not authentication or identity verification.</p>
+          </div> : <p className="business-muted">No active profile is selected for this secure session.</p>}
           {context?.readOnlyReasons.map(reason => <p className="business-muted" key={reason}>{reason.replaceAll('_', ' ').toLowerCase()}</p>)}
         </section>
 
         {selectedProfile && preference && context?.allowedActions.includes('engagement.read')
           && <BusinessWorkflowProgress selected={preference} refreshKey={recordsKey} />}
 
-        {context?.allowedActions.includes('directory.manage') && <section className="business-directory-card" aria-labelledby="business-directory-heading">
+        {auth.user.isFirmAdmin && context?.allowedActions.includes('directory.manage') && <section className="business-directory-card" aria-labelledby="business-directory-heading">
           <div className="business-section-heading">
-            <div><p className="business-eyebrow">WORKSPACE DIRECTORY</p><h2 id="business-directory-heading">Configure staff personas</h2></div>
+            <div><p className="business-eyebrow">WORKSPACE DIRECTORY</p><h2 id="business-directory-heading">Staff and profile setup</h2></div>
             <button type="button" className="btn sm" onClick={() => void refreshProfiles()}>Refresh profiles</button>
           </div>
-          {profiles.length ? <ul className="business-profile-list" aria-label="Configured actor profiles">
-            {profiles.map(profile => <li key={profile.id}><span className="business-profile-persona">{profile.persona}</span><span>{profile.displayName}</span><small>{profile.staffGrade ?? `Client ${profile.clientId ?? ''}`}</small></li>)}
+          {directoryProfiles.length ? <ul className="business-profile-list" aria-label="Firm profiles">
+            {directoryProfiles.map(profile => <li key={profile.id}><span className="business-profile-persona">{profile.persona}</span><span>{profile.displayName}</span><small>{profile.staffGrade ?? `Client ${profile.clientId ?? ''}`}</small></li>)}
           </ul> : <p className="business-muted">There are no configured actor profiles yet.</p>}
           <form className="business-form business-staff-form" onSubmit={addStaffPersona}>
             <div className="business-form-grid">
@@ -1177,19 +1036,18 @@ export function BusinessWorkspaceConsole() {
               <label className="business-field" htmlFor="business-staff-grade"><span>Staff grade</span><select id="business-staff-grade" value={staffGrade} onChange={event => {
                 const grade = event.target.value as StaffGrade;
                 setStaffGrade(grade);
-                setStaffPersona(current => gradeAllowsPersona(grade, current) ? current : 'PREPARER');
                 pendingCreate.current = null;
               }}><option value="PARTNER">PARTNER</option><option value="MANAGER">MANAGER</option><option value="SENIOR">SENIOR</option><option value="ASSOCIATE">ASSOCIATE</option></select></label>
               <label className="business-field" htmlFor="business-staff-persona"><span>Persona profile</span><select id="business-staff-persona" value={staffPersona} onChange={event => setStaffPersona(event.target.value as Exclude<BusinessPersona, 'CLIENT'>)}>
                 <option value="PREPARER">PREPARER</option>
-                <option value="REVIEWER" disabled={!gradeAllowsPersona(staffGrade, 'REVIEWER')}>REVIEWER · manager or senior</option>
-                <option value="APPROVER" disabled={!gradeAllowsPersona(staffGrade, 'APPROVER')}>APPROVER · partner</option>
+                <option value="REVIEWER">REVIEWER</option>
+                <option value="APPROVER">APPROVER</option>
               </select></label>
             </div>
-            <p className="business-note">Staff and profile changes use separate idempotent commands. The profile is assigned only when its grade rules pass.</p>
+            <p className="business-note">Staff and profile changes use separate idempotent commands. The server validates profile eligibility against the staff grade.</p>
             {pendingAssignment && <div className="business-pending-assignment" role="status">Staff record saved for {pendingAssignment.displayName}; profile assignment is pending.</div>}
             {commandMessage && <p className="business-command-message" role="status">{commandMessage}</p>}
-            <div className="business-dialog-actions"><button className="btn primary" type="submit" disabled={commandBusy || !selectedProfile || !gradeAllowsPersona(staffGrade, staffPersona)}>{commandBusy ? 'Saving…' : pendingAssignment ? `Retry ${pendingAssignment.persona} assignment` : `Add ${staffPersona.toLowerCase()} profile`}</button></div>
+            <div className="business-dialog-actions"><button className="btn primary" type="submit" disabled={commandBusy || !selectedProfile}>{commandBusy ? 'Saving…' : pendingAssignment ? `Retry ${pendingAssignment.persona} assignment` : `Add ${staffPersona.toLowerCase()} profile`}</button></div>
           </form>
           <div className="business-client-profile-assignment" aria-labelledby="business-client-profile-heading">
             <h3 id="business-client-profile-heading">Assign a CLIENT profile</h3>
@@ -1209,6 +1067,9 @@ export function BusinessWorkspaceConsole() {
             </form>}
           </div>
         </section>}
+
+        {auth.user.isFirmAdmin && context?.allowedActions.includes('firm.admin') && <UsersPanel
+          workspaceId={auth.workspaceId} selected={preference} staffMembers={proposalWorkspace?.staffMembers ?? []} />}
 
         {context?.allowedActions.includes('client.read') && <section className="business-directory-card" aria-labelledby="business-clients-heading">
           <div className="business-section-heading"><div><p className="business-eyebrow">COMMERCIAL · US-ENG-001</p><h2 id="business-clients-heading">Client registry</h2></div><span className="business-count">{clients.length} loaded</span></div>

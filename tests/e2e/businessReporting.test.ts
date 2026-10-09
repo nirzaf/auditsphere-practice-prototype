@@ -6,8 +6,9 @@ import { unzipSync, zlibSync } from 'fflate';
 import { CdpTab } from '../helpers/cdp.js';
 import { launchHeadlessChrome, removeHeadlessChromeProfile, stopHeadlessChrome, type HeadlessChromeInstance } from '../helpers/headlessChrome.js';
 import { authenticatedBusinessFetch, startBusinessE2eServer, type BusinessE2eServer } from '../helpers/businessE2eServer.js';
-import { setBrowserAuthSession } from '../helpers/authSession.js';
+import { authSessionCookie, bootstrapBusinessFixture, setBrowserAuthSession } from '../helpers/authSession.js';
 import { extractReportingPdfText } from '../helpers/reportingPdf.js';
+import { hashPassword } from '../../worker/auth/passwords';
 
 let server: BusinessE2eServer | undefined;
 let browser: HeadlessChromeInstance | undefined;
@@ -113,18 +114,12 @@ async function seedReportingFixture(engagementType: 'STATUTORY_AUDIT' | 'AGREED_
   const now = new Date().toISOString();
   const todayQatar = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Qatar', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
   const digest = (label: string) => sha256(label);
-  const bootstrap = await fetch(`${server.origin}/api/workspaces`, {
-    method: 'POST',
-    headers: { Origin: server.origin, 'Content-Type': 'application/json', 'Idempotency-Key': `reporting-${key}` },
-    body: JSON.stringify({
+  const workspace = await bootstrapBusinessFixture(server.db, {
       name: `Reporting journey ${key.slice(0, 8)}`,
       currency: 'QAR',
       timezone: 'Asia/Qatar',
       initialPartner: { displayName: 'QA Reporting Partner', naturalPersonKey: `QA-PARTNER-${key}`, email: 'qa.partner@example.invalid' }
-    })
   });
-  assert.equal(bootstrap.status, 201, 'the local Worker creates an isolated BUSINESS workspace');
-  const workspace = await bootstrap.json() as { workspaceId: string; staffMemberId: string; actorProfileId: string };
   const ids = {
     client: randomUUID(), standards: randomUUID(), engagement: randomUUID(), firmProfile: randomUUID(),
     tbFile: randomUUID(), tbImport: randomUUID(), tb: randomUUID(), mappingDraft: randomUUID(), mappingVersion: randomUUID(),
@@ -170,6 +165,10 @@ async function seedReportingFixture(engagementType: 'STATUTORY_AUDIT' | 'AGREED_
       standards_profile_id,created_at,updated_at,created_by_actor_id,updated_by_actor_id)
     VALUES(?,?,1,?,?,'2025-01-01','2025-12-31',?,'PARTNER_APPROVAL',100000,?,?,?,?,?)`,
   ids.engagement, workspaceId, ids.client, `QA-REPORT-${key.slice(0, 8)}`, engagementType, ids.standards, now, now, actorId, actorId);
+  runFixtureSql(`INSERT INTO engagement_assignments(id,workspace_id,version,client_id,engagement_id,staff_member_id,persona,phase,
+      start_date,end_date,planned_minutes,created_by_actor_id,created_at)
+    VALUES(?,?,1,?,?,?,'REVIEWER','REPORTING','2025-01-01','2025-12-31',600,?,?)`,
+  randomUUID(), workspaceId, ids.client, ids.engagement, ids.reviewerStaff, actorId, now);
   runFixtureSql(`INSERT INTO firm_profiles(id,workspace_id,version,legal_name,registration_number,address,profile_text,methodology_text,created_at,updated_at,created_by_actor_id,updated_by_actor_id)
     VALUES(?,?,1,'QA Audit Partners WLL','CR-QA-001',?,'Synthetic audit firm profile for local browser acceptance.',
       'Synthetic local report rendering fixture. No professional assurance is represented by this test data.',?,?,?,?)`,
@@ -396,7 +395,7 @@ before(async () => {
   await tab.command('Network.enable');
   await tab.blockExternalHttp();
   await tab.command('Page.navigate', { url: server.origin });
-  await waitFor('the clean BUSINESS landing page', `document.querySelector('#production-workspace-heading')?.textContent?.trim() === 'Open your business workspace'`);
+  await waitFor('the signed-out authentication screen', `document.querySelector('h1')?.textContent?.trim() === 'Sign in to AuditSphere'`);
 }, { timeout: 90000 });
 
 after(async () => {
@@ -417,7 +416,7 @@ async function verifyOpinionVariants(): Promise<void> {
   const setWorkspace = async (fixture: Awaited<ReturnType<typeof seedReportingFixture>>) => {
     await setBrowserAuthSession(tab!, server!, fixture.workspaceId, fixture.actorId);
     await tab!.evaluate(`localStorage.setItem('auditsphere.business-context.v1', ${JSON.stringify(JSON.stringify({
-      version: 1, workspaceId: fixture.workspaceId, actorId: fixture.actorId, persona: 'APPROVER', clientId: fixture.clientId, engagementId: fixture.engagementId
+      version: 1, workspaceId: fixture.workspaceId, clientId: fixture.clientId, engagementId: fixture.engagementId
     }))})`);
     await tab!.command('Page.reload');
     await waitFor('the isolated Partner reporting workspace', `
@@ -565,11 +564,14 @@ it('US-REP-001–007 covers all report categories, representation, atomic releas
   assert.ok(server && tab);
   try {
   await verifyOpinionVariants();
-  await tab.evaluate(`localStorage.removeItem('auditsphere.business-context.v1')`);
-  await tab.command('Page.reload');
-  await waitFor('the clean reporting landing page after opinion category acceptance', `document.querySelector('#production-workspace-heading')?.textContent?.trim() === 'Open your business workspace'`);
+  const signOutClicked = await tab.evaluate<boolean>(`(() => {
+    const button = [...document.querySelectorAll('button')].find(item => item.textContent?.trim() === 'Sign out');
+    if (!button || button.disabled || !button.getClientRects().length) return false;
+    button.click(); return true;
+  })()`);
+  assert.equal(signOutClicked, true, 'the signed-in UI exposes a working sign-out action');
+  await waitFor('the signed-out authentication screen after opinion acceptance', `document.querySelector('h1')?.textContent?.trim() === 'Sign in to AuditSphere'`);
   const fixture = await seedReportingFixture();
-  await setBrowserAuthSession(tab, server, fixture.workspaceId, fixture.actorId);
   const reportDate = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Qatar', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
   const futureRevenuePolicy = { name: 'Future milestone recognition policy', effectiveFrom: '2999-01-01',
     recognitionMethod: 'APPROVED_MILESTONE', recognitionRules: 'Future milestone claims require committed approval evidence.' };
@@ -578,13 +580,14 @@ it('US-REP-001–007 covers all report categories, representation, atomic releas
     VALUES(?,?,2,?,?,?,?,?,?,?)`, randomUUID(), fixture.workspaceId, futureRevenuePolicy.name, futureRevenuePolicy.effectiveFrom,
     futureRevenuePolicy.recognitionMethod, futureRevenuePolicy.recognitionRules, futurePolicyDigest, fixture.actorId, new Date().toISOString());
   const beforeAction = await tab.evaluate<{ heading: string; preference: string | null }>(`({
-    heading: document.querySelector('#production-workspace-heading')?.textContent?.trim() ?? '',
+    heading: document.querySelector('h1')?.textContent?.trim() ?? '',
     preference: localStorage.getItem('auditsphere.business-context.v1')
   })`);
-  assert.equal(beforeAction.heading, 'Open your business workspace');
-  assert.equal(beforeAction.preference, null, 'the synthetic browser starts without stored persona or client data');
+  assert.equal(beforeAction.heading, 'Sign in to AuditSphere');
+  assert.equal(beforeAction.preference, null, 'the synthetic browser starts without stored identity or client data');
+  await setBrowserAuthSession(tab, server, fixture.workspaceId, fixture.actorId);
   await tab.evaluate(`localStorage.setItem('auditsphere.business-context.v1', ${JSON.stringify(JSON.stringify({
-    version: 1, workspaceId: fixture.workspaceId, actorId: fixture.actorId, persona: 'APPROVER', clientId: fixture.clientId, engagementId: fixture.engagementId
+    version: 1, workspaceId: fixture.workspaceId, clientId: fixture.clientId, engagementId: fixture.engagementId
   }))})`);
   await tab.command('Page.reload');
   await waitFor('the synthetic Partner and reporting workspace', `
@@ -746,7 +749,7 @@ it('US-REP-001–007 covers all report categories, representation, atomic releas
   const switchActor = async (actorId: string, persona: 'APPROVER' | 'CLIENT' | 'REVIEWER') => {
     await setBrowserAuthSession(tab!, server!, fixture.workspaceId, actorId);
     await tab!.evaluate(`localStorage.setItem('auditsphere.business-context.v1', ${JSON.stringify(JSON.stringify({
-      version: 1, workspaceId: fixture.workspaceId, actorId, persona, clientId: fixture.clientId, engagementId: fixture.engagementId
+      version: 1, workspaceId: fixture.workspaceId, clientId: fixture.clientId, engagementId: fixture.engagementId
     }))})`);
     await tab!.command('Page.reload');
     await waitFor(`the selected ${persona} actor and scoped reporting page`, `
@@ -971,7 +974,7 @@ it('US-REP-001–007 covers all report categories, representation, atomic releas
     'Source and completeness', `Statement snapshot ${fixture.snapshotId} · source ${fixture.sourceHash}.`,
     `Presentation profile ${fixture.standardsProfileId}.`, 'professional review remains required.',
     'Partner approval assets displayed for review', 'Partner profile: QA Reporting Partner',
-    'not a certificate-based digital signature or identity verification.'
+    'not a certificate-based digital signature or independent identity verification.'
   ]) assert.ok(normalizedReportText.includes(exactText.replace(/\s+/g, ' ')), `the persisted report PDF contains its required approved content: ${exactText}`);
   const signaturePage = reportContent.pages.find(page => page.includes('Partner approval assets displayed for review'));
   assert.ok(signaturePage, 'the rendered signature and seal block is placed on a readable PDF page');
@@ -1118,7 +1121,7 @@ it('US-REP-001–007 covers all report categories, representation, atomic releas
 
   const pendingClientBytes = minimalPdf('Synthetic upload staged before report release and committed after portal freeze.');
   const clientContextHeaders = {
-    Origin: server.origin, 'Content-Type': 'application/json', 'X-Actor-Id': fixture.clientActorId, 'X-Active-Persona': 'CLIENT',
+    Origin: server.origin, 'Content-Type': 'application/json', 'X-Test-Session-Profile': fixture.clientActorId,
     'X-Client-Id': fixture.clientId, 'X-Engagement-Id': fixture.engagementId
   };
   const pendingReservationResponse = await authenticatedBusinessFetch(server, `${server.origin}/api/workspaces/${fixture.workspaceId}/files`, {
@@ -1271,11 +1274,11 @@ it('US-REP-001–007 covers all report categories, representation, atomic releas
     WHERE s.workspace_id=? AND s.engagement_id=? ORDER BY l.rowid LIMIT 1`).bind(fixture.workspaceId, fixture.engagementId)
     .first<{ fsli_id: string }>();
   assert.ok(confirmationFsli?.fsli_id, 'the release fixture has a current active statement line for confirmation scope');
-  const postWorkerCommand = async (actorId: string, persona: 'REVIEWER' | 'APPROVER', type: string, payload: Record<string, unknown>) => {
+  const postWorkerCommand = async (actorId: string, _persona: 'REVIEWER' | 'APPROVER', type: string, payload: Record<string, unknown>) => {
     const response = await authenticatedBusinessFetch(server!, `${server!.origin}/api/workspaces/${fixture.workspaceId}/commands`, {
-      method: 'POST', headers: { Origin: server!.origin, 'Content-Type': 'application/json', 'X-Actor-Id': actorId, 'X-Active-Persona': persona,
+      method: 'POST', headers: { Origin: server!.origin, 'Content-Type': 'application/json', 'X-Test-Session-Profile': actorId,
         'X-Client-Id': fixture.clientId, 'X-Engagement-Id': fixture.engagementId, 'Idempotency-Key': randomUUID() },
-      body: JSON.stringify({ actor: { actorId, persona }, context: { clientId: fixture.clientId, engagementId: fixture.engagementId },
+      body: JSON.stringify({ context: { clientId: fixture.clientId, engagementId: fixture.engagementId },
         expectedVersions: [], command: { type, payload } })
     });
     return { response, body: await response.json() as { code?: string; details?: Record<string, unknown>; result?: Record<string, unknown> } };
@@ -1338,8 +1341,8 @@ it('US-REP-001–007 covers all report categories, representation, atomic releas
   assert.ok(localEmailPurposes.includes('HOLDING_LETTER'), 'the local provider accepts the generated Holding Letter dispatch');
 
   const responseBytes = minimalPdf('Synthetic third-party bank confirmation response for the release-gate acceptance fixture.');
-  const reviewerHeaders = { Origin: server.origin, 'Content-Type': 'application/json', 'X-Actor-Id': fixture.reviewerActorId,
-    'X-Active-Persona': 'REVIEWER', 'X-Client-Id': fixture.clientId, 'X-Engagement-Id': fixture.engagementId };
+  const reviewerHeaders = { Origin: server.origin, 'Content-Type': 'application/json', 'X-Test-Session-Profile': fixture.reviewerActorId,
+     'X-Client-Id': fixture.clientId, 'X-Engagement-Id': fixture.engagementId };
   const responseReservation = await authenticatedBusinessFetch(server, `${server.origin}/api/workspaces/${fixture.workspaceId}/files`, {
     method: 'POST', headers: { ...reviewerHeaders, 'Idempotency-Key': randomUUID() },
     body: JSON.stringify({ purpose: 'EVIDENCE', originalName: 'qa-bank-confirmation-response.pdf', mediaType: 'application/pdf',
@@ -1422,7 +1425,7 @@ it('US-REP-001–007 covers all report categories, representation, atomic releas
   assert.equal(Date.parse(released.archive_due_at), Date.parse(released.report_signed_at) + 60 * 86_400_000,
     'the deadline is exactly 60 days from the recorded report signature time');
   const countdownWorkflowResponse = await authenticatedBusinessFetch(server, `${server.origin}/api/workspaces/${fixture.workspaceId}/engagements/${fixture.engagementId}/workflow`, {
-    headers: { Origin: server.origin, 'X-Actor-Id': fixture.actorId, 'X-Active-Persona': 'APPROVER', 'X-Client-Id': fixture.clientId, 'X-Engagement-Id': fixture.engagementId }
+    headers: { Origin: server.origin, 'X-Test-Session-Profile': fixture.actorId,  'X-Client-Id': fixture.clientId, 'X-Engagement-Id': fixture.engagementId }
   });
   const countdownWorkflow = await countdownWorkflowResponse.json() as { state: string; stages: Array<{ id: string; status: string; blockerCoverage: string; blockers: unknown[] }> };
   assert.equal(countdownWorkflowResponse.status, 200, JSON.stringify(countdownWorkflow));
@@ -1473,7 +1476,7 @@ it('US-REP-001–007 covers all report categories, representation, atomic releas
   assert.equal(signature.seal_file_sha256, registered.seal_sha256);
   assert.equal(signature.final_file_sha256, releasedParts?.find(part => part.kind === 'REPORT_AND_FS')?.sha256);
   const provenanceResponse = await authenticatedBusinessFetch(server, `${server.origin}/api/workspaces/${fixture.workspaceId}/engagements/${fixture.engagementId}/released-report/provenance`, {
-    headers: { Origin: server.origin, 'X-Actor-Id': fixture.actorId, 'X-Active-Persona': 'APPROVER', 'X-Client-Id': fixture.clientId,
+    headers: { Origin: server.origin, 'X-Test-Session-Profile': fixture.actorId,  'X-Client-Id': fixture.clientId,
       'X-Engagement-Id': fixture.engagementId }
   });
   const provenance = await provenanceResponse.json() as {
@@ -1505,7 +1508,7 @@ it('US-REP-001–007 covers all report categories, representation, atomic releas
       text.includes(${JSON.stringify(signature.final_file_sha256)});
   })()`);
   const visibleProvenance = await tab.evaluate<string>(`document.querySelector('#business-reporting-${fixture.engagementId}')?.closest('section')?.querySelector('.business-report-provenance')?.innerText ?? ''`);
-  assert.match(visibleProvenance, /not certificate-backed or verified identity/i);
+  assert.match(visibleProvenance, /not a certificate-based digital signature or independent identity verification/i);
   assert.match(visibleProvenance, /Consented candidate SHA-256/);
   assert.equal(server.db.prepare(`SELECT COUNT(*) AS count FROM portal_freezes WHERE workspace_id=? AND engagement_id=? AND bundle_id=? AND frozen_at=? AND reason='FINAL_REPORT_RELEASE' AND actor_id=?`)
     .bind(fixture.workspaceId, fixture.engagementId, released.id, released.released_at, fixture.actorId).first<{ count: number }>()?.count, 1);
@@ -1652,7 +1655,7 @@ it('US-REP-001–007 covers all report categories, representation, atomic releas
   assert.ok(queuedArchive.locked_at, 'early lock takes effect before asynchronous archive generation');
   assert.equal(queuedArchive.lifecycle_state, 'COMPLIANCE_COUNTDOWN');
   const queuedArchiveWorkflowResponse = await authenticatedBusinessFetch(server, `${server.origin}/api/workspaces/${fixture.workspaceId}/engagements/${fixture.engagementId}/workflow`, {
-    headers: { Origin: server.origin, 'X-Actor-Id': fixture.actorId, 'X-Active-Persona': 'APPROVER', 'X-Client-Id': fixture.clientId, 'X-Engagement-Id': fixture.engagementId }
+    headers: { Origin: server.origin, 'X-Test-Session-Profile': fixture.actorId,  'X-Client-Id': fixture.clientId, 'X-Engagement-Id': fixture.engagementId }
   });
   const queuedArchiveWorkflow = await queuedArchiveWorkflowResponse.json() as { stages: Array<{ id: string; status: string; blockerCoverage: string; blockers: unknown[] }> };
   assert.equal(queuedArchiveWorkflowResponse.status, 200, JSON.stringify(queuedArchiveWorkflow));
@@ -1680,7 +1683,7 @@ it('US-REP-001–007 covers all report categories, representation, atomic releas
   assert.equal(sealedArchive.frozen_snapshot_hash, sealedArchive.manifest_sha256);
   assert.equal(sealedArchive.archive_due_at, released.archive_due_at, 'early administrative sealing does not rewrite the report-signature deadline');
   const archivedWorkflowResponse = await authenticatedBusinessFetch(server, `${server.origin}/api/workspaces/${fixture.workspaceId}/engagements/${fixture.engagementId}/workflow`, {
-    headers: { Origin: server.origin, 'X-Actor-Id': fixture.actorId, 'X-Active-PERSONA': 'APPROVER', 'X-Client-Id': fixture.clientId, 'X-Engagement-Id': fixture.engagementId }
+    headers: { Origin: server.origin, 'X-Test-Session-Profile': fixture.actorId, 'X-Client-Id': fixture.clientId, 'X-Engagement-Id': fixture.engagementId }
   });
   const archivedWorkflow = await archivedWorkflowResponse.json() as { state: string; stages: Array<{ id: string; status: string; blockerCoverage: string; blockers: Array<{ code: string }> }> };
   assert.equal(archivedWorkflowResponse.status, 200, JSON.stringify(archivedWorkflow));
@@ -1818,7 +1821,7 @@ it('US-REP-001–007 covers all report categories, representation, atomic releas
   const archivedReadPaths = ['acceptance-gate', 'risk-workspace', 'planning-workspace', 'trial-balance-workspace', 'planning-readiness', 'folders'];
   const archivedReads = await Promise.all(archivedReadPaths.map(async path => {
     const response = await authenticatedBusinessFetch(server, `${server.origin}/api/workspaces/${fixture.workspaceId}/engagements/${fixture.engagementId}/${path}`, {
-      headers: { ...clientContextHeaders, 'X-Actor-Id': fixture.actorId, 'X-Active-Persona': 'APPROVER' }
+      headers: { ...clientContextHeaders, 'X-Test-Session-Profile': fixture.actorId, }
     });
     return { path, status: response.status, body: response.ok ? '' : await response.text() };
   }));
@@ -1904,8 +1907,8 @@ it('US-REP-001–007 covers all report categories, representation, atomic releas
   assert.equal(sha256(exportedManifest.bytes), sealedArchive.manifest_sha256, 'the UI export verifies the exact sealed manifest hash');
 
   const frozenArchiveWrite = await authenticatedBusinessFetch(server, `${server.origin}/api/workspaces/${fixture.workspaceId}/commands`, {
-    method: 'POST', headers: { ...clientContextHeaders, 'X-Actor-Id': fixture.reviewerActorId, 'X-Active-Persona': 'REVIEWER', 'Idempotency-Key': randomUUID() },
-    body: JSON.stringify({ actor: { actorId: fixture.reviewerActorId, persona: 'REVIEWER' }, context: { clientId: fixture.clientId, engagementId: fixture.engagementId },
+    method: 'POST', headers: { ...clientContextHeaders, 'X-Test-Session-Profile': fixture.reviewerActorId,  'Idempotency-Key': randomUUID() },
+    body: JSON.stringify({ context: { clientId: fixture.clientId, engagementId: fixture.engagementId },
       expectedVersions: [], command: { type: 'archive.note', payload: {
         engagementId: fixture.engagementId, text: 'Attempted post-seal assembly change must be rejected.', relatedRecordType: 'DELIVERABLE_BUNDLE', relatedRecordId: released.id
       } } })
@@ -1931,4 +1934,268 @@ it('US-REP-001–007 covers all report categories, representation, atomic releas
     console.error('Worker-backed reporting journey failed:', error);
     throw error;
   }
+});
+
+async function signOutThroughUi(): Promise<void> {
+  assert.ok(tab);
+  const clicked = await tab.evaluate<boolean>(`(() => {
+    const button = [...document.querySelectorAll('button')].find(item => item.textContent?.trim() === 'Sign out');
+    if (!button || button.disabled || !button.getClientRects().length) return false;
+    button.click(); return true;
+  })()`);
+  if (!clicked) {
+    await waitFor('the signed-out sign-in page', `document.querySelector('h1')?.textContent?.trim() === 'Sign in to AuditSphere'`);
+    return;
+  }
+  assert.equal(clicked, true, 'the visible sign-out button is actionable');
+  await waitFor('the signed-out sign-in page', `document.querySelector('h1')?.textContent?.trim() === 'Sign in to AuditSphere'`);
+}
+
+async function fillAuthField(id: string, value: string): Promise<{ valid: boolean; label: string; value: string }> {
+  assert.ok(tab);
+  return tab.evaluate<{ valid: boolean; label: string; value: string }>(`(() => {
+    const input = document.getElementById(${JSON.stringify(id)});
+    if (!(input instanceof HTMLInputElement)) return { valid: false, label: '', value: '' };
+    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;
+    setter?.call(input, ${JSON.stringify(value)});
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    input.dispatchEvent(new Event('change', { bubbles: true }));
+    input.focus();
+    return { valid: input.form?.checkValidity() ?? false, label: [...(input.labels ?? [])].map(label => label.textContent?.trim() ?? '').join(' '), value: input.value };
+  })()`);
+}
+
+async function pressEnter(): Promise<void> {
+  assert.ok(tab);
+  const focused = await tab.evaluate<{ id: string; inForm: boolean }>(`({ id: document.activeElement?.id ?? '', inForm: Boolean(document.activeElement?.closest('form')) })`);
+  assert.notEqual(focused.id, '', 'the keyboard submit control has focus');
+  assert.equal(focused.inForm, true, 'Enter will submit the focused auth form');
+  await tab.command('Input.dispatchKeyEvent', { type: 'rawKeyDown', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13, nativeVirtualKeyCode: 13 });
+  await tab.command('Input.dispatchKeyEvent', { type: 'char', key: 'Enter', code: 'Enter', text: '\r', unmodifiedText: '\r', windowsVirtualKeyCode: 13, nativeVirtualKeyCode: 13 });
+  await tab.command('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13, nativeVirtualKeyCode: 13 });
+}
+
+async function assertAuthResponsive(width: number, height: number): Promise<void> {
+  assert.ok(tab);
+  await tab.command('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor: 1, mobile: false });
+  const layout = await tab.evaluate<{ width: number; height: number; scrollWidth: number; cardLeft: number; cardRight: number; cardVisible: boolean }>(`(() => {
+    const card = document.querySelector('.auth-card');
+    const rect = card?.getBoundingClientRect();
+    return { width: window.innerWidth, height: window.innerHeight, scrollWidth: document.documentElement.scrollWidth,
+      cardLeft: rect?.left ?? -1, cardRight: rect?.right ?? -1, cardVisible: Boolean(card && rect?.width && rect?.height) };
+  })()`);
+  assert.equal(layout.width, width);
+  assert.equal(layout.height, height);
+  assert.equal(layout.scrollWidth, width, `auth form fits ${width}x${height} without horizontal overflow`);
+  assert.equal(layout.cardVisible, true, 'the auth form card remains visible at this viewport');
+  assert.ok(layout.cardLeft >= 0 && layout.cardRight <= width, `auth form card is inside the ${width}px viewport`);
+}
+
+it('E03-S08 offers only granted profiles and switches through the authenticated profile endpoint', { timeout: 120000 }, async () => {
+  assert.ok(server && tab);
+  await signOutThroughUi();
+  const fixture = await seedReportingFixture();
+  await authSessionCookie(server.db, fixture.workspaceId, fixture.actorId);
+  const account = server.db.prepare(`SELECT id FROM user_accounts WHERE workspace_id=? AND kind='STAFF' AND staff_member_id=?`)
+    .bind(fixture.workspaceId, fixture.staffMemberId).first<{ id: string }>();
+  assert.ok(account, 'the isolated staff account exists');
+  runFixtureSql(`INSERT INTO user_profile_grants(id,workspace_id,user_account_id,actor_profile_id,granted_by_actor_id,granted_at)
+    VALUES(?,?,?,?,?,?)`, randomUUID(), fixture.workspaceId, account.id, fixture.reviewerActorId, fixture.actorId, new Date().toISOString());
+  runFixtureSql(`UPDATE auth_sessions SET active_actor_profile_id=NULL WHERE workspace_id=? AND user_account_id=? AND revoked_at IS NULL`,
+    fixture.workspaceId, account.id);
+  await tab.evaluate(`localStorage.removeItem('auditsphere.business-context.v1')`);
+  await setBrowserAuthSession(tab, server, fixture.workspaceId, fixture.actorId);
+  await tab.command('Page.reload');
+  await waitFor('the first-login profile selection screen', `document.querySelector('h1')?.textContent?.trim() === 'Choose your profile'`);
+
+  const selection = await tab.evaluate<{ choices: string[]; clientProfileVisible: boolean; grantedIds: string[] }>(`(async () => {
+    const me = await fetch('/api/auth/me', { credentials: 'same-origin', cache: 'no-store' }).then(response => response.json());
+    return { choices: [...document.querySelectorAll('.auth-profile-option')].map(button => button.innerText.replace(/\\s+/g, ' ').trim()),
+      clientProfileVisible: [...document.querySelectorAll('.auth-profile-option')].some(button => button.innerText.includes('CLIENT')),
+      grantedIds: me.profiles.map(profile => profile.id) };
+  })()`);
+  assert.equal(selection.choices.length, 2, 'first login lists both and only the two granted staff profiles');
+  assert.equal(selection.clientProfileVisible, false, 'an ungranted client profile is not disclosed');
+  assert.deepEqual(new Set(selection.grantedIds), new Set([fixture.actorId, fixture.reviewerActorId]));
+  const selected = await tab.evaluate<boolean>(`(() => {
+    const button = [...document.querySelectorAll('.auth-profile-option')].find(item => item.innerText.includes('QA Reporting Reviewer'));
+    if (!button || button.disabled || !button.getClientRects().length) return false;
+    button.click(); return true;
+  })()`);
+  assert.equal(selected, true, 'the granted reviewer profile is selectable');
+  await waitFor('the selected REVIEWER session and profile switcher', `
+    document.querySelector('.business-actor-summary')?.innerText.includes('REVIEWER') && Boolean(document.querySelector('#auth-profile-switch'))`);
+
+  const grantedProfileState = await tab.evaluate<{ values: string[]; texts: string[]; clientId: string; activeProfileId: string | null }>(`(async () => {
+    const select = document.querySelector('#auth-profile-switch');
+    const me = await fetch('/api/auth/me', { credentials: 'same-origin', cache: 'no-store' }).then(response => response.json());
+    return { values: select ? [...select.options].map(option => option.value) : [],
+      texts: select ? [...select.options].map(option => option.textContent?.trim() ?? '') : [],
+      clientId: ${JSON.stringify(fixture.clientActorId)}, activeProfileId: me.activeProfileId };
+  })()`);
+  assert.equal(grantedProfileState.values.length, 2);
+  assert.ok(!grantedProfileState.values.includes(grantedProfileState.clientId));
+  assert.ok(grantedProfileState.texts.some(text => text.includes('QA Reporting Partner') && text.includes('APPROVER')));
+  assert.ok(grantedProfileState.texts.some(text => text.includes('QA Reporting Reviewer') && text.includes('REVIEWER')));
+  assert.equal(grantedProfileState.activeProfileId, fixture.reviewerActorId, 'the chooser uses POST /api/auth/active-profile');
+
+  const switched = await tab.evaluate<boolean>(`(() => {
+    const select = document.querySelector('#auth-profile-switch');
+    if (!(select instanceof HTMLSelectElement)) return false;
+    Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')?.set?.call(select, ${JSON.stringify(fixture.actorId)});
+    select.dispatchEvent(new Event('change', { bubbles: true })); return true;
+  })()`);
+  assert.equal(switched, true);
+  await waitFor('the authenticated switch back to the Partner profile', `document.querySelector('.business-actor-summary')?.innerText.includes('APPROVER')`);
+  const activeProfile = server.db.prepare(`SELECT active_actor_profile_id FROM auth_sessions WHERE workspace_id=? AND user_account_id=? AND revoked_at IS NULL`)
+    .bind(fixture.workspaceId, account.id).first<{ active_actor_profile_id: string }>();
+  assert.equal(activeProfile?.active_actor_profile_id, fixture.actorId, 'the profile change is stored on the server session');
+});
+
+it('E03-S08 supports keyboard auth, forced password change, five-attempt lockout, PBC upload and password reset', { timeout: 180000 }, async () => {
+  assert.ok(server && tab);
+  await signOutThroughUi();
+  const fixture = await seedReportingFixture();
+  const uniqueClientEmail = `pbc.${randomUUID()}@example.invalid`;
+  runFixtureSql('UPDATE contacts SET email=? WHERE workspace_id=? AND id=?', uniqueClientEmail, fixture.workspaceId, fixture.managementContactId);
+  const requestId = randomUUID();
+  const now = new Date().toISOString();
+  const dueDate = new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 10);
+  runFixtureSql(`INSERT INTO pbc_requests(id,workspace_id,version,client_id,engagement_id,title,description,due_date,requested_by_actor_id,
+      assigned_contact_id,category,required_for_planning,required_for_release,status,current_submission_id,created_at,updated_at,created_by_actor_id,updated_by_actor_id)
+    VALUES(?,?,1,?,?,?,?,?,?,?,'GENERAL',0,0,'PENDING_UPLOAD',NULL,?,?,?,?)`,
+  requestId, fixture.workspaceId, fixture.clientId, fixture.engagementId, 'E03-S08 synthetic PBC evidence',
+  'Synthetic file for the local client portal authentication acceptance journey.', dueDate, fixture.actorId,
+  fixture.managementContactId, now, now, fixture.actorId, fixture.actorId);
+
+  await authSessionCookie(server.db, fixture.workspaceId, fixture.clientActorId);
+  const account = server.db.prepare(`SELECT id,email_normalized FROM user_accounts WHERE workspace_id=? AND kind='CLIENT' AND contact_id=?`)
+    .bind(fixture.workspaceId, fixture.managementContactId).first<{ id: string; email_normalized: string }>();
+  assert.ok(account, 'the synthetic client account exists');
+  const temporaryPassword = 'Temp-Client-Portal-2026!';
+  const initialHash = await hashPassword(temporaryPassword, { m: 1024, t: 1, p: 1 });
+  runFixtureSql(`UPDATE user_accounts SET status='ACTIVE',password_hash=?,password_must_change=1,failed_login_count=0,locked_until=NULL,
+      version=version+1,updated_at=? WHERE workspace_id=? AND id=?`, initialHash, now, fixture.workspaceId, account.id);
+  const tempPasswordTokenHash = sha256(randomUUID());
+  runFixtureSql(`INSERT INTO credential_tokens(id,workspace_id,user_account_id,purpose,token_sha256,expires_at,created_by_actor_id,created_at)
+    VALUES(?,?,?,'CLIENT_TEMP_PASSWORD',?,?,?,?)`, randomUUID(), fixture.workspaceId, account.id, tempPasswordTokenHash,
+  new Date(Date.now() + 86400000).toISOString(), fixture.actorId, now);
+
+  await tab.command('Emulation.setDeviceMetricsOverride', { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });
+  await tab.command('Page.navigate', { url: server.origin });
+  await waitFor('the client sign-in page', `document.querySelector('h1')?.textContent?.trim() === 'Sign in to AuditSphere'`);
+  await assertAuthResponsive(1440, 900);
+  await assertAuthResponsive(390, 844);
+  const emptyValidity = await tab.evaluate<boolean>(`!document.querySelector('#auth-client-email')?.form?.checkValidity()`);
+  assert.equal(emptyValidity, true, 'required sign-in fields are validated before submission');
+  const emailField = await fillAuthField('auth-client-email', account.email_normalized);
+  assert.equal(emailField.label, 'Email address');
+  assert.equal(emailField.value, account.email_normalized);
+  const wrongPassword = 'Wrong-Client-Password-2026!';
+  for (let attempt = 1; attempt <= 5; attempt += 1) {
+    const passwordField = await fillAuthField('auth-client-password', wrongPassword);
+    assert.equal(passwordField.label, 'Password');
+    assert.equal(passwordField.valid, true, `sign-in fields are valid before failed attempt ${attempt}`);
+    await pressEnter();
+    const expectedError = attempt === 5 ? 'This client account is temporarily locked.' : 'Email or password is incorrect.';
+    await waitFor(`the visible login result for wrong-password attempt ${attempt}`,
+      `document.querySelector('[role="alert"]')?.textContent?.trim() === ${JSON.stringify(expectedError)}`);
+  }
+  const lock = server.db.prepare('SELECT status,failed_login_count FROM user_accounts WHERE workspace_id=? AND id=?')
+    .bind(fixture.workspaceId, account.id).first<{ status: string; failed_login_count: number }>();
+  assert.deepEqual({ ...lock }, { status: 'LOCKED', failed_login_count: 5 });
+
+  runFixtureSql(`UPDATE user_accounts SET status='ACTIVE',failed_login_count=0,locked_until=NULL,version=version+1,updated_at=?
+    WHERE workspace_id=? AND id=?`, new Date().toISOString(), fixture.workspaceId, account.id);
+  const validPasswordField = await fillAuthField('auth-client-password', temporaryPassword);
+  assert.equal(validPasswordField.valid, true);
+  await pressEnter();
+  await waitFor('the forced password change page after the first client login', `document.querySelector('h1')?.textContent?.trim() === 'Change your password'`);
+  await assertAuthResponsive(390, 844);
+  const forcedFields = await tab.evaluate<{ labels: string[]; valid: boolean }>(`(() => {
+    const ids = ['auth-current-password','auth-new-password','auth-confirm-password'];
+    return { labels: ids.map(id => [...(document.getElementById(id)?.labels ?? [])].map(label => label.textContent?.trim()).join(' ')),
+      valid: document.querySelector('#auth-current-password')?.form?.checkValidity() ?? false };
+  })()`);
+  assert.deepEqual(forcedFields.labels, ['Temporary password','New password','Confirm new password']);
+  assert.equal(forcedFields.valid, false);
+  const newPassword = 'QA-Client-Strong-Fresh-2026!';
+  for (const [id, value] of [['auth-current-password', temporaryPassword], ['auth-new-password', newPassword], ['auth-confirm-password', newPassword]] as const) {
+    const field = await fillAuthField(id, value);
+    assert.equal(field.value, value);
+  }
+  await assertAuthResponsive(1440, 900);
+  await pressEnter();
+  await waitFor('the authenticated client workspace after forced password change', `document.querySelector('#business-workspace-heading')?.textContent?.includes('Reporting journey')`);
+  const changedPasswordState = server.db.prepare('SELECT password_must_change,failed_login_count,status FROM user_accounts WHERE workspace_id=? AND id=?')
+    .bind(fixture.workspaceId, account.id).first<{ password_must_change: number; failed_login_count: number; status: string }>();
+  assert.deepEqual({ ...changedPasswordState }, { password_must_change: 0, failed_login_count: 0, status: 'ACTIVE' });
+  await waitFor('the client portal PBC request and response upload field', `(() => {
+    const panel = document.querySelector('.business-pbc-panel');
+    return panel?.innerText.includes('E03-S08 synthetic PBC evidence') && Boolean(panel.querySelector('#business-pbc-upload-${requestId}'));
+  })()`);
+
+  const fileBytes = minimalPdf('QA client response evidence for local acceptance.');
+  const fileHash = sha256(fileBytes);
+  const attached = await tab.evaluate<boolean>(`(() => {
+    const input = document.getElementById('business-pbc-upload-${requestId}');
+    if (!(input instanceof HTMLInputElement) || input.disabled) return false;
+    const file = new File([new Uint8Array(${JSON.stringify([...fileBytes])})], 'qa-client-evidence.pdf', { type: 'application/pdf' });
+    const transfer = new DataTransfer(); transfer.items.add(file);
+    Object.defineProperty(input, 'files', { configurable: true, value: transfer.files });
+    input.dispatchEvent(new Event('change', { bubbles: true })); return true;
+  })()`);
+  assert.equal(attached, true, 'the visible client upload control accepts the synthetic PDF file');
+  await waitFor('the Worker-confirmed PBC submission result', `document.querySelector('.business-pbc-panel')?.innerText.includes('The verified response was submitted and is now Under Review.')`);
+  const submitted = server.db.prepare(`SELECT r.status,s.uploaded_by_contact_id,s.file_version_id,f.sha256,f.state,f.immutable,f.object_key
+    FROM pbc_requests r JOIN pbc_submissions s ON s.workspace_id=r.workspace_id AND s.request_id=r.id
+    JOIN file_versions f ON f.workspace_id=s.workspace_id AND f.id=s.file_version_id WHERE r.workspace_id=? AND r.id=?`)
+    .bind(fixture.workspaceId, requestId).first<{ status: string; uploaded_by_contact_id: string; file_version_id: string; sha256: string; state: string; immutable: number; object_key: string }>();
+  assert.ok(submitted);
+  assert.equal(submitted.status, 'UNDER_REVIEW');
+  assert.equal(submitted.uploaded_by_contact_id, fixture.managementContactId);
+  assert.equal(submitted.sha256, fileHash);
+  assert.equal(submitted.state, 'COMMITTED');
+  assert.equal(submitted.immutable, 1);
+  assert.equal(sha256(server.getTestObject(submitted.object_key) ?? new Uint8Array()), fileHash, 'uploaded object bytes match the committed PBC digest');
+
+  await signOutThroughUi();
+  const resetLinkClicked = await tab.evaluate<boolean>(`(() => {
+    const link = [...document.querySelectorAll('a')].find(item => item.textContent?.trim() === 'Forgot your password?');
+    if (!link || !link.getClientRects().length) return false;
+    link.click(); return true;
+  })()`);
+  assert.equal(resetLinkClicked, true);
+  await waitFor('the password reset request form', `location.pathname === '/reset' && document.querySelector('h1')?.textContent?.trim() === 'Reset your password'`);
+  await assertAuthResponsive(390, 844);
+  const resetEmail = await fillAuthField('auth-reset-email', account.email_normalized);
+  assert.equal(resetEmail.label, 'Email address');
+  assert.equal(resetEmail.valid, true);
+  await pressEnter();
+  await waitFor('the non-enumerating reset request confirmation', `document.querySelector('[role="status"]')?.textContent?.includes('If an active portal account matches that address')`);
+
+  const resetToken = `${randomUUID()}${randomUUID()}`;
+  const resetTokenHash = sha256(resetToken);
+  const resetCreatedAt = new Date().toISOString();
+  runFixtureSql(`INSERT INTO credential_tokens(id,workspace_id,user_account_id,purpose,token_sha256,expires_at,created_by_actor_id,created_at)
+    VALUES(?,?,?,'PASSWORD_RESET',?,?,?,?)`, randomUUID(), fixture.workspaceId, account.id, resetTokenHash,
+  new Date(Date.now() + 3600000).toISOString(), fixture.actorId, resetCreatedAt);
+  await tab.command('Page.navigate', { url: `${server.origin}/reset?token=${encodeURIComponent(resetToken)}` });
+  await waitFor('the reset confirmation form', `location.pathname === '/reset' && document.querySelector('h1')?.textContent?.trim() === 'Choose a new password'`);
+  await assertAuthResponsive(1440, 900);
+  const resetPassword = 'QA-Client-Reset-Strong-2026!';
+  await fillAuthField('auth-reset-new-password', resetPassword);
+  await fillAuthField('auth-reset-confirm-password', 'QA-Client-Mismatch-2026!');
+  await pressEnter();
+  await waitFor('the accessible reset mismatch message', `document.querySelector('[role="alert"]')?.textContent?.trim() === 'The passwords do not match.'`);
+  await fillAuthField('auth-reset-confirm-password', resetPassword);
+  await pressEnter();
+  await waitFor('the successful password reset confirmation', `document.querySelector('[role="status"]')?.textContent?.includes('Your password has been reset.')`);
+  const resetState = server.db.prepare(`SELECT u.password_must_change,u.status,t.consumed_at FROM user_accounts u JOIN credential_tokens t
+    ON t.workspace_id=u.workspace_id AND t.user_account_id=u.id AND t.purpose='PASSWORD_RESET' AND t.token_sha256=?
+    WHERE u.workspace_id=? AND u.id=?`).bind(resetTokenHash, fixture.workspaceId, account.id)
+    .first<{ password_must_change: number; status: string; consumed_at: string | null }>();
+  assert.equal(resetState?.status, 'ACTIVE');
+  assert.equal(resetState?.password_must_change, 0);
+  assert.ok(resetState?.consumed_at, 'the successful reset consumes the single-use local token');
 });

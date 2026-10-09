@@ -19,7 +19,6 @@ GET /api/health/support-bundle
 GET /api/integrations/status
 POST /api/internal/verification-runs
 POST /api/internal/bootstrap
-POST /api/workspaces
 GET /api/workspaces/:workspaceId/actor-profiles
 GET /api/workspaces/:workspaceId/users
 GET /api/workspaces/:workspaceId/context
@@ -73,5 +72,7 @@ GET /api/workspaces/:workspaceId`.split('\n');
 
 test('Worker route inventory lists staff auth routes alongside BUSINESS routes', () => {
   assert.deepEqual(routeInventory.map(route => `${route.method} ${route.pattern}`), expectedRoutes);
+  assert.equal(routeInventory.some(route => route.method === 'POST' && route.pattern === '/api/workspaces'), false,
+    'workspace creation stays on the protected operator bootstrap path');
   for (const route of authHandlerRoutes) assert.ok(routeInventory.some(item => `${item.method} ${item.pattern}` === route), `${route} must remain in the route inventory`);
 });
