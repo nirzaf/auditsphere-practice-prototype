@@ -17,6 +17,7 @@ import { businessPolicyCommands, buildBusinessPolicyMutation, isBusinessPolicyCo
 import { presentationEditionBlocker } from '../src/domain/reportingStandards';
 import { projectClientDocuments, type ClientDocumentSourceRow } from './clientDocumentProjection';
 import { parseClientImportCsv, type ClientImportCsvRow } from './clientImportCsv';
+import { inspectOfficePackage } from './officePackage';
 
 export const BUSINESS_SCHEMA_VERSION = 10;
 
@@ -1792,16 +1793,23 @@ export function verifyBusinessFileBytes(mediaType: string, bytes: Uint8Array): v
     return;
   }
   if (mediaType === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
-    || mediaType === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-    || mediaType === 'application/zip') {
+    || mediaType === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet') {
     if (!isZipContainer(bytes)) throw new ApiError('UNSUPPORTED_MEDIA_TYPE', 'The uploaded bytes are not a complete ZIP-based document.');
-    if (mediaType !== 'application/zip') {
-      const directory = new TextDecoder().decode(bytes);
-      const expectedEntry = mediaType.endsWith('wordprocessingml.document') ? 'word/document.xml' : 'xl/workbook.xml';
-      if (!directory.includes('[Content_Types].xml') || !directory.includes(expectedEntry)) {
-        throw new ApiError('UNSUPPORTED_MEDIA_TYPE', 'The ZIP archive does not contain the required Office document parts.');
-      }
+    const inspection = inspectOfficePackage(bytes);
+    if (inspection.tooLarge) {
+      throw new ApiError('PAYLOAD_TOO_LARGE', 'The Office document exceeds the safe expanded size or member-count limit.');
     }
+    if (!inspection.valid) {
+      throw new ApiError('UNSUPPORTED_MEDIA_TYPE', 'The uploaded Office document is not a valid ZIP package.');
+    }
+    const expectedEntry = mediaType.endsWith('wordprocessingml.document') ? 'word/document.xml' : 'xl/workbook.xml';
+    if (!inspection.entries.has('[Content_Types].xml') || !inspection.entries.has(expectedEntry)) {
+      throw new ApiError('UNSUPPORTED_MEDIA_TYPE', 'The ZIP archive does not contain the required Office document parts.');
+    }
+    return;
+  }
+  if (mediaType === 'application/zip') {
+    if (!isZipContainer(bytes)) throw new ApiError('UNSUPPORTED_MEDIA_TYPE', 'The uploaded bytes are not a complete ZIP-based document.');
     return;
   }
   if (mediaType === 'text/plain' || mediaType === 'text/csv') {

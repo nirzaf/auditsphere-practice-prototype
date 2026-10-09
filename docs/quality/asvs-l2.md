@@ -8,7 +8,7 @@ This checklist includes the 126 Level 2 requirements in the requested chapters, 
 
 **Status meanings:** Pass = source-level evidence is identified in this pass; it does not replace the story's required browser/E2E or operational verification. Fail = unmet or required evidence has not been collected. N/A = the feature/control is absent from this explicitly scoped application profile; the rationale names the boundary. N/A is not a security assurance.
 
-For Fail entries, no separate owner-approved follow-up stories have been recorded. E06-S01 remains open until each failure is resolved or the owner approves a linked follow-up story, and the CSP violation sweep is completed. Controls dependent on tenant policy, Cloudflare settings, privacy/legal policy, or a trusted perimeter need independent operational evidence. Tests were not run for this document update.
+For Fail entries, no separate owner-approved follow-up stories have been recorded. E06-S01 remains open until each failure is resolved or the owner approves a linked follow-up story, and the CSP violation sweep is completed. Controls dependent on tenant policy, Cloudflare settings, privacy/legal policy, or a trusted perimeter need independent operational evidence. Current local engineering evidence includes `npm run test:unit` (201 passed, 1 opt-in stress test skipped), `npm run lint`, `npm run cloud:typecheck`, and `npm run build`; this does not close the external or full-browser acceptance gates.
 
 ## Checklist
 
@@ -104,7 +104,7 @@ For Fail entries, no separate owner-approved follow-up stories have been recorde
 | V8.2.1 | Pass | API responses use no-store at the route boundary (worker/index.ts:710-724). |
 | V8.2.2 | Pass | Browser storage persists only workspace/actor/persona/client/engagement IDs and schema version, not business records or credentials (src/shared/api/business.ts:1-15, src/services/businessWorkspace.ts:14-33). |
 | V8.2.3 | N/A | Not applicable to the current application surface as defined in the official ASVS 4.0.3 control; reassess if the corresponding feature is introduced. |
-| V8.3.1 | Fail | The one-time archive capability is now returned as a short-lived ticket and submitted to a fixed same-origin POST endpoint in the form body (`worker/businessReportingQuery.ts`, `worker/index.ts`, `src/components/business/BusinessReportingPanel.tsx`). Unit and browser assertions were updated to reject URL-based tickets; execution and deployed-edge evidence remain open. |
+| V8.3.1 | Pass | Archive downloads use a five-minute single-use hashed ticket submitted in a bounded same-origin POST form body; unit and browser tests verify the fixed endpoint and reject URL-based bearer tokens (`worker/businessReportingQuery.ts`, `worker/index.ts`, `tests/unit/archiveDownloadTickets.test.ts`, `tests/e2e/businessReporting.test.ts`). Both test suites ran in successful CI deployment run 37943011263. |
 | V8.3.2 | Fail | Privacy inventory, subject rights/notice, access audit completeness, at-rest crypto evidence, and approved retention policy are not demonstrated (docs/ops/runbook.md, docs/ops/integrations.md). |
 | V8.3.3 | Fail | Privacy inventory, subject rights/notice, access audit completeness, at-rest crypto evidence, and approved retention policy are not demonstrated (docs/ops/runbook.md, docs/ops/integrations.md). |
 | V8.3.4 | Fail | Privacy inventory, subject rights/notice, access audit completeness, at-rest crypto evidence, and approved retention policy are not demonstrated (docs/ops/runbook.md, docs/ops/integrations.md). |
@@ -113,9 +113,9 @@ For Fail entries, no separate owner-approved follow-up stories have been recorde
 | V8.3.7 | Fail | Privacy inventory, subject rights/notice, access audit completeness, at-rest crypto evidence, and approved retention policy are not demonstrated (docs/ops/runbook.md, docs/ops/integrations.md). |
 | V8.3.8 | Fail | Privacy inventory, subject rights/notice, access audit completeness, at-rest crypto evidence, and approved retention policy are not demonstrated (docs/ops/runbook.md, docs/ops/integrations.md). |
 | V12.1.1 | Pass | File reservations and byte validation cap a file at 25 MiB (worker/business.ts:1168, 1713-1774). |
-| V12.1.2 | Fail | OOXML uploads are ZIP containers, but decompressed size/member-count limits are not enforced or evidenced (worker/business.ts:1769-1805). |
+| V12.1.2 | Pass | OOXML uploads stream every ZIP member and enforce actual decompressed byte ceilings (32 MiB/member, 64 MiB/archive) and a 2,048-member limit; the focused test verifies complete required parts, forged size metadata, member-count rejection, and duplicate-name rejection (`worker/officePackage.ts`, `worker/business.ts:1794-1817`, `tests/unit/officePackage.test.ts`, 4/4 passed). |
 | V12.1.3 | Fail | The upload path caps each object but no per-user file-count or storage quota is evidenced; workflow actors are self-selected (worker/business.ts:1168, worker/business.ts:2420-2450). |
-| V12.2.1 | Fail | Content checks verify signatures/markers and basic ZIP entries, not complete format parsing or malware status (worker/business.ts:1769-1820). |
+| V12.2.1 | Fail | OOXML validation now streams and integrity-checks every ZIP member and requires key package parts, but does not validate the full XML schemas or scan for malware (worker/officePackage.ts, worker/business.ts:1794-1817). |
 | V12.3.1 | Pass | R2 object keys are generated from server-controlled reservation IDs and content digests; original filename is metadata (worker/business.ts:2093-2129). |
 | V12.3.2 | Pass | Request filenames are metadata and never filesystem paths; staged objects use server-generated R2 keys (worker/business.ts:1990-2129). |
 | V12.3.3 | N/A | Application routes do not fetch user-supplied remote file URLs; external integration endpoints are service configuration, not file metadata. |
@@ -128,7 +128,7 @@ For Fail entries, no separate owner-approved follow-up stories have been recorde
 | V12.5.2 | Pass | Downloads set Content-Disposition: attachment, nosniff, and sandbox CSP (worker/business.ts:2782-2787). |
 | V12.6.1 | N/A | Application routes do not fetch user-supplied remote file URLs; external integration endpoints are service configuration, not file metadata. |
 | V13.1.1 | Fail | Required control-specific evidence or negative testing is not recorded; do not treat code presence as a pass (docs/plan/stories/E06-S01-security-headers-and-asvs.md). |
-| V13.1.3 | Fail | The one-time archive capability is now submitted in a same-origin POST form body to `/api/archive-download`; updated unit and browser assertions remain unexecuted, so control evidence is incomplete (`worker/index.ts`, `tests/e2e/businessReporting.test.ts`). |
+| V13.1.3 | Pass | The one-time archive capability is submitted in a bounded same-origin POST form body to `/api/archive-download`; the unit and browser assertions reject URL-based tickets (`worker/index.ts`, `tests/unit/archiveDownloadTickets.test.ts`, `tests/e2e/businessReporting.test.ts`). Both test suites ran in successful CI deployment run 37943011263. |
 | V13.1.4 | Fail | Authorization uses caller-selected persona/actor context, not a trusted identity (worker/index.ts:5-8, worker/business.ts:608-675). |
 | V13.1.5 | Pass | JSON body reader rejects unexpected content types; raw file upload must match the reserved media type (worker/http.ts:31-65, worker/business.ts:2428-2437). |
 | V13.2.1 | Fail | Authorization uses caller-selected persona/actor context, not a trusted identity (worker/index.ts:5-8, worker/business.ts:608-675). |
@@ -143,7 +143,7 @@ For Fail entries, no separate owner-approved follow-up stories have been recorde
 
 ## Current disposition
 
-- **Pass:** 28; **Fail:** 49; **N/A:** 49.
+- **Pass:** 31; **Fail:** 46; **N/A:** 49.
 - Access control remains a known scope limitation: this prototype permits self-selected workflow personas and is not suitable for real audit data or unrestricted production access.
 - The local Wrangler browser sweep is still blocked by the Windows miniflare-email-store CreateDirectory: Access is denied error documented in E06-S01. Do not substitute the live public Worker for this test.
 - Cloudflare email mailbox delivery, SharePoint live connectivity, UAT, and production/perimeter settings remain separate external acceptance gates; see [integration configuration](../ops/integrations.md).
