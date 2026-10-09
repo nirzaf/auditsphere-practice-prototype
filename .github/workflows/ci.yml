@@ -225,8 +225,4 @@ jobs:
         run: npx wrangler deploy --config wrangler.jsonc
 
       - name: Verify deployed Worker readiness
-        shell: bash
-        run: >-
-          curl --fail --silent --show-error --retry 12 --retry-all-errors
-          --retry-delay 5 --retry-max-time 90
-          https://auditsphere-visual-prototype.quadrate-lk.workers.dev/api/health/ready
+        run: npx tsx tools/verify-deployed-readiness.ts
