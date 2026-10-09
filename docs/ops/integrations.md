@@ -80,17 +80,17 @@ as the Worker secret `EMAIL_API_KEY`. DNS, HMAC callback, and rotation steps are
 dashboard inspection shows the production Worker is bound to the private
 `auditsphere-email-provider` service and sets
 `PUBLIC_LEAD_NOTIFICATION_EMAIL=audit@steaudit.com`. The owner confirmed that
-`audit@steaudit.com` is an alias on their Microsoft 365 mailbox in the
-Microsoft 365 tenant that owns `steaudit.com` (tenant default domain
-`gbskandy.onmicrosoft.com`). On 2026-10-09, Exchange Admin Center created and
-enabled the transport rule **AuditSphere route audit alias to Quadrate**. Its
-recipient condition is the exact regex `^audit@steaudit\.com$`, and its action
-adds the owner-selected external mailbox as a BCC. This preserves delivery to the original
-mailbox and scopes the extra copy to that alias; it does not redirect other
-`@steaudit.com` mail. The `steaudit.com` apex MX remains on Microsoft 365 and
-Cloudflare Email Routing remains disabled for the apex. No end-to-end message
-receipt or successful application send has been recorded; outbound delivery
-remains unverified.
+`audit@steaudit.com` is an alias on the M365 mailbox `fazrin@gbschool.cc` in the
+tenant that owns `steaudit.com` (default domain `gbskandy.onmicrosoft.com`). The
+transport rule **AuditSphere route audit alias to Quadrate** matched only the
+exact recipient pattern `^audit@steaudit\.com$` and BCCed a second copy to the
+previously selected `fazrin@quadrate.lk` destination. On 2026-10-09, the rule
+was disabled in Exchange after the owner identified the direct M365 alias
+mailbox; mail to the alias should now use the mailbox's normal M365 delivery,
+without a second copy to the old destination. The `steaudit.com` apex MX remains
+on Microsoft 365 and Cloudflare Email Routing remains disabled for the apex. No
+end-to-end message receipt or successful application send has been recorded;
+outbound delivery remains unverified.
 
 A 2026-10-09 built-in-browser configuration change added
 `audit@steaudit.com` to the production Worker's `EMAIL_ALLOWED_RECIPIENTS`,
@@ -170,15 +170,18 @@ secret is configured but is not currently authenticating successfully.
 The app remains limited to `Sites.Selected`; do not give it tenant-wide
 `Sites.ReadWrite.All` or `Sites.FullControl.All`.
 
-The configured SharePoint client secret was exposed in browser accessibility
-output during the setup session. Treat it as compromised. Azure currently lists
-one replacement secret labeled `AuditSphere UAT Cloudflare Worker rotated
-(180-day)`, expiring 2027-04-06. Its validity period does not establish that the
-Cloudflare Worker contains the matching value: Graph still rejects the deployed
-credential. If the replacement value is no longer available, create another and
-enter it directly as `SHAREPOINT_CLIENT_SECRET` in Cloudflare Worker settings.
-Never copy it into this runbook, chat, or repository. Repeat the live status probe
-and a real site read/write check after the Worker secret is updated; a successful
+Two SharePoint client-secret values created during the setup session were exposed
+in browser accessibility output. Treat both as compromised. Azure lists them as
+`AuditSphere UAT Cloudflare Worker rotated (180-day)` (expires 2027-04-06) and
+`AuditSphere UAT Cloudflare Worker rotated 2026-10 (180-day)` (expires
+2027-04-07). The fresh Entra tab currently requires sign-in before they can be
+revoked and a clean replacement can be created. The Cloudflare Worker still has
+an encrypted `SHAREPOINT_CLIENT_SECRET`, but the last Graph token request was
+rejected; the configured value is not verified. After Entra sign-in, revoke the
+two exposed credentials, create a fresh 180-day client secret, and enter it
+directly as `SHAREPOINT_CLIENT_SECRET` in Cloudflare Worker settings. Never copy
+it into this runbook, chat, or repository. Repeat the live status probe and a
+synthetic site read/write check after the Worker secret is updated; a successful
 token request alone does not prove the site grant works.
 
 The deployed Worker token cache keys entries by a non-reversible SHA-256 fingerprint of
