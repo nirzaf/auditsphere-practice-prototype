@@ -1697,6 +1697,59 @@ it('bootstraps a no-session BUSINESS workspace, records manual dispatch and main
     available: capacityView.body.staffDays[0].availableMinutes, assigned: capacityView.body.staffDays[0].assignedMinutes,
     exception: capacityView.body.staffDays[0].approvedExceptionMinutes, status: capacityView.body.staffDays[0].capacityStatus },
     { scheduled: 480, leave: 120, available: 360, assigned: 420, exception: 60, status: 'EXCEPTION_APPROVED' });
+  const concurrentExceptionDate = '2026-10-20';
+  const exceptionAvailability = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'staffing.availability.set', payload: {
+      staffMemberId: preparerStaff.body.result.staffMemberId, workDate: concurrentExceptionDate, scheduledMinutes: 480
+    } }
+  }, makeRiskHeaders(reviewerHeaders));
+  assert.equal(exceptionAvailability.response.status, 200, JSON.stringify(exceptionAvailability.body));
+  const concurrentExceptions = await Promise.all([1, 2].map(index => post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'staffing.capacityException.approve', payload: {
+      staffMemberId: preparerStaff.body.result.staffMemberId, workDate: concurrentExceptionDate, excessMinutes: 800,
+      reason: `Partner approves documented concurrent workload exception ${index} for this staff date.`
+    } }
+  }, makeRiskHeaders(approverHeaders))));
+  assert.equal(concurrentExceptions.filter(item => item.response.status === 200).length, 1,
+    'one of two concurrent capacity exceptions is rejected when both would exceed the daily exception cap');
+  assert.ok(['VERSION_CONFLICT', 'VALIDATION_FAILED'].includes(concurrentExceptions.find(item => item.response.status !== 200)?.body.code),
+    'the losing exception request reports the capacity race instead of an unrelated failure');
+  assert.equal(db.prepare(`SELECT COALESCE(SUM(excess_minutes),0) AS minutes FROM capacity_exceptions
+    WHERE workspace_id=? AND staff_member_id=? AND work_date=?`).bind(workspaceId, preparerStaff.body.result.staffMemberId,
+    concurrentExceptionDate).first<any>()?.minutes, 800, 'a race cannot record more than one day of capacity exceptions');
+  const concurrentCapacityDate = '2026-10-21';
+  const capacityRaceAvailability = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'staffing.availability.set', payload: {
+      staffMemberId: preparerStaff.body.result.staffMemberId, workDate: concurrentCapacityDate, scheduledMinutes: 480
+    } }
+  }, makeRiskHeaders(reviewerHeaders));
+  assert.equal(capacityRaceAvailability.response.status, 200, JSON.stringify(capacityRaceAvailability.body));
+  const reducedSchedulePayload = { staffMemberId: preparerStaff.body.result.staffMemberId, workDate: concurrentCapacityDate, scheduledMinutes: 400 };
+  const concurrentCapacityChanges = await Promise.all([
+    post(`/api/workspaces/${workspaceId}/commands`, {
+      idempotencyKey: crypto.randomUUID(), command: { type: 'staffing.availability.set', payload: reducedSchedulePayload }
+    }, makeRiskHeaders(reviewerHeaders)),
+    post(`/api/workspaces/${workspaceId}/commands`, {
+      idempotencyKey: crypto.randomUUID(), command: { type: 'staffing.assign', payload: {
+        ...assignmentPayload, startDate: concurrentCapacityDate, endDate: concurrentCapacityDate, plannedMinutes: 420,
+        dailyMinutes: [{ date: concurrentCapacityDate, minutes: 420 }]
+      } }
+    }, makeRiskHeaders(reviewerHeaders))
+  ]);
+  assert.equal(concurrentCapacityChanges.filter(item => item.response.status === 200).length, 1,
+    'a schedule reduction and assignment cannot both commit when they would violate capacity');
+  assert.ok(['GATE_BLOCKED', 'VERSION_CONFLICT'].includes(concurrentCapacityChanges.find(item => item.response.status !== 200)?.body.code),
+    'the losing schedule or assignment request reports the capacity conflict');
+  const capacityRaceState = db.prepare(`SELECT sa.scheduled_minutes AS scheduled,sa.approved_leave_minutes AS leave,
+      COALESCE((SELECT SUM(d.planned_minutes) FROM engagement_assignment_days d JOIN engagement_assignments a
+        ON a.workspace_id=d.workspace_id AND a.id=d.assignment_id WHERE a.workspace_id=sa.workspace_id
+          AND a.staff_member_id=sa.staff_member_id AND d.work_date=sa.work_date),0) AS assigned,
+      COALESCE((SELECT SUM(x.excess_minutes) FROM capacity_exceptions x WHERE x.workspace_id=sa.workspace_id
+        AND x.staff_member_id=sa.staff_member_id AND x.work_date=sa.work_date),0) AS exceptions
+    FROM staff_availability sa WHERE sa.workspace_id=? AND sa.staff_member_id=? AND sa.work_date=?`)
+    .bind(workspaceId, preparerStaff.body.result.staffMemberId, concurrentCapacityDate).first<any>();
+  assert.ok(capacityRaceState.assigned <= capacityRaceState.scheduled - capacityRaceState.leave + capacityRaceState.exceptions,
+    'the committed staff-day remains within scheduled capacity plus explicit Partner exceptions');
   const cutoffByReviewer = await post(`/api/workspaces/${workspaceId}/commands`, {
     idempotencyKey: crypto.randomUUID(), command: { type: 'milestone.set', payload: {
       engagementId, code: 'STATUTORY_CUTOFF', targetDate: '2027-03-15', sourceReference: 'Firm-supplied statutory timetable for QA.'

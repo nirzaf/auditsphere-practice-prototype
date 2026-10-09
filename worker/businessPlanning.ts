@@ -210,6 +210,18 @@ export async function buildBusinessPlanningMutation(env: Env, workspaceId: strin
             AND approved_leave_minutes<=?))) THEN 1 ELSE 0 END`)
         .bind(workspaceId, prior?.version ?? null, workspaceId, command.payload.staffMemberId, command.payload.workDate,
           prior?.version ?? null, workspaceId, command.payload.staffMemberId, command.payload.workDate, prior?.version ?? 0, command.payload.scheduledMinutes),
+      env.DB.prepare(`INSERT INTO command_assertions(workspace_id,seq,ok)
+        SELECT ?,93,CASE WHEN COALESCE((SELECT SUM(d.planned_minutes) FROM engagement_assignment_days d
+            JOIN engagement_assignments a ON a.workspace_id=d.workspace_id AND a.id=d.assignment_id
+            WHERE a.workspace_id=? AND a.staff_member_id=? AND d.work_date=?),0)
+          <= ?-COALESCE((SELECT approved_leave_minutes FROM staff_availability
+            WHERE workspace_id=? AND staff_member_id=? AND work_date=?),0)
+            +COALESCE((SELECT SUM(excess_minutes) FROM capacity_exceptions
+              WHERE workspace_id=? AND staff_member_id=? AND work_date=?),0)
+        THEN 1 ELSE 0 END`)
+        .bind(workspaceId, workspaceId, command.payload.staffMemberId, command.payload.workDate, command.payload.scheduledMinutes,
+          workspaceId, command.payload.staffMemberId, command.payload.workDate,
+          workspaceId, command.payload.staffMemberId, command.payload.workDate),
       env.DB.prepare(`INSERT INTO staff_availability(id,workspace_id,staff_member_id,work_date,version,scheduled_minutes,approved_leave_minutes,updated_by_actor_id,updated_at)
         VALUES(?,?,?,?,1,?,0,?,?) ON CONFLICT(workspace_id,staff_member_id,work_date) DO UPDATE SET
         version=staff_availability.version+1,scheduled_minutes=excluded.scheduled_minutes,updated_by_actor_id=excluded.updated_by_actor_id,updated_at=excluded.updated_at
@@ -326,6 +338,12 @@ export async function buildBusinessPlanningMutation(env: Env, workspaceId: strin
     const snapshot = JSON.stringify({ actorId: context.actor.id, persona: context.actor.persona, displayName: context.actor.displayName,
       staffGrade: context.actor.staffGrade, assurance: 'SELF_ASSERTED' });
     return { statements: [
+      env.DB.prepare(`INSERT INTO command_assertions(workspace_id,seq,ok)
+        SELECT ?,97,CASE WHEN EXISTS(SELECT 1 FROM staff_availability WHERE workspace_id=? AND staff_member_id=? AND work_date=? AND version=?)
+          AND COALESCE((SELECT SUM(excess_minutes) FROM capacity_exceptions WHERE workspace_id=? AND staff_member_id=? AND work_date=?),0)+?<=1440
+        THEN 1 ELSE 0 END`)
+        .bind(workspaceId, workspaceId, staff.id, command.payload.workDate, availability.version,
+          workspaceId, staff.id, command.payload.workDate, command.payload.excessMinutes),
       env.DB.prepare(`INSERT INTO approval_decisions(id,workspace_id,client_id,engagement_id,version,subject_type,subject_id,subject_version,
         decision,rationale,actor_snapshot_json,decided_at,supersedes_decision_id) VALUES(?,?,NULL,NULL,1,'CAPACITY_EXCEPTION',?,1,'APPROVE',?,?,?,NULL)`)
         .bind(decisionId, workspaceId, exceptionId, command.payload.reason, snapshot, now),
