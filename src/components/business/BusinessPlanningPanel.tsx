@@ -184,7 +184,7 @@ export function BusinessPlanningPanel({
       excessMinutes: Number(exceptionMinutes), reason: exceptionReason }, 'Partner-approved capacity exception recorded.');
   }
 
-  return <section className="business-directory-card business-planning-panel" aria-labelledby="business-planning-heading">
+  return <section id="route-audit-planning" className="business-directory-card business-planning-panel" aria-labelledby="business-planning-heading">
     <div className="business-section-heading">
       <div><p className="business-eyebrow">PLANNING · US-GOV-003 / US-GOV-004</p><h2 id="business-planning-heading">Staffing, milestones and engagement folders</h2>
         <p className="business-muted">{engagement.clientName} · {engagement.code} · {engagement.lifecycleState.replaceAll('_', ' ')}</p></div>
@@ -232,7 +232,7 @@ export function BusinessPlanningPanel({
         </div>
       </section>}
 
-      <form className="business-form business-commercial-form" onSubmit={assignStaff}>
+      <form id="route-scheduling" className="business-form business-commercial-form" onSubmit={assignStaff}>
         <h3>Assign a staff member to this engagement</h3>
         <p className="business-note">Enter every assigned day explicitly. Planned daily minutes must sum to the assignment total and fit the recorded capacity.</p>
         <div className="business-form-grid">

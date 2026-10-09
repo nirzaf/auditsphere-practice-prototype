@@ -309,7 +309,7 @@ export function BusinessPracticePanel({ workspaceId, selected, context, engageme
   const selectedAllocation = data?.paymentAllocations.find(allocation => allocation.id === allocationToReverseId);
   const accountOptions = data?.accounts.filter(account => Boolean(account.active) && Boolean(account.postingAllowed)) ?? [];
 
-  return <section className="business-directory-card" aria-labelledby={`business-practice-${engagement.id}`}>
+  return <section id="route-reports" className="business-directory-card" aria-labelledby={`business-practice-${engagement.id}`}>
     <div className="business-section-heading">
       <div><p className="business-eyebrow">PRACTICE MANAGEMENT · INTERNAL FIRM RECORDS</p><h2 id={`business-practice-${engagement.id}`}>Time, firm ledger and receivables</h2></div>
       <button type="button" className="btn sm" disabled={busy} onClick={() => setRefresh(value => value + 1)}>Refresh practice data</button>
@@ -434,7 +434,7 @@ export function BusinessPracticePanel({ workspaceId, selected, context, engageme
         <small>A new rate must be future-effective; historical work keeps its pinned rate. Each time submission pins the effective rate and calculates value in QAR minor units.</small>
       </form>}
 
-      <h3>Actual time entries</h3>
+      <h3 id="route-my-time">Actual time entries</h3>
       {data.timeEntries.length ? <div className="business-table-wrap"><table className="business-table"><thead><tr><th>Date</th><th>Staff / grade</th><th>Phase</th><th>FSLI / procedure</th><th>Minutes</th><th>Value</th><th>Status</th><th>Action</th></tr></thead><tbody>
         {data.timeEntries.map(entry => {
           const fsli = data.fsliCatalog.find(item => item.id === entry.fsli_id);
@@ -559,7 +559,7 @@ export function BusinessPracticePanel({ workspaceId, selected, context, engageme
         </div><button className="btn sm" disabled={busy}>Save journal draft</button>
       </form>}
 
-      <h3>Firm journal activity</h3>
+      <h3 id="route-practice-ledger">Firm journal activity</h3>
       {data.journals.length ? <div className="business-record-list">{data.journals.map(journal => <div className="business-delivery-row" key={journal.id}>
         <strong>{journal.number} · {journal.status}</strong><span>{journal.postingDate} · {journal.description} · debit {money(journal.debitTotalMinor)} / credit {money(journal.creditTotalMinor)}</span>
         {journal.status === 'DRAFT' && canReview && <button type="button" className="btn sm" disabled={busy} onClick={() => void perform('ledger.post', { journalId: journal.id, expectedVersion: journal.version }, 'Journal independently posted.')}>Post journal</button>}

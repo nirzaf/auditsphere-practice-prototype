@@ -12,7 +12,7 @@
 | US-SYS-002 | Normalize Persistence and Remove Demo-Only Authority | Code baseline; acceptance open |
 | US-SYS-003 | Atomic Commands, Lifecycle Gates and Honest Progress | Code baseline; acceptance open |
 | US-SYS-004 | Verified File Bytes, Real Documents and Recoverable Jobs | In progress; OOXML ZIP expansion and path ambiguity limits implemented and covered, document/restore acceptance remains open |
-| US-SYS-005 | Visual Parity, Operational Quality and Evidence-Based Completion | In progress; synthetic Worker browser journey passed, full route/viewport evidence open |
+| US-SYS-005 | Visual Parity, Operational Quality and Evidence-Based Completion | In progress; current five-module navigation and 30 route targets are implemented, route/viewport evidence open |
 | US-ENG-001 | Client Hierarchies and Multi-Contact Routing | Code baseline; acceptance open |
 | US-ENG-002 | Lead Ingestion and Real Engagement Creation | In progress; synthetic public lead-to-engagement browser journey passed, full commercial acceptance open |
 | US-ENG-003 | Versioned Quote and Comprehensive Proposal Generator | Code baseline; acceptance open |
@@ -57,6 +57,7 @@
 
 ## Current verified work
 
+- The Business console now exposes the five current modules and a grouped jump menu for all 30 current routes. Deep links remain current-only, fieldwork hashes select their corresponding tabs, and missing context is reported instead of opening a retired surface. Lint, Worker typecheck, and production build passed after this change; the most recent full E2E run predates the navigation change, so route/viewport acceptance remains open.
 - E06-S04 adds a vendored axe-core browser gate and fixes three detected accessibility defects: semantic group roles for acceptance details, a programmatic label for the engagement field, and a keyboard-focusable AR aging region with a visible focus ring. The isolated local accessibility test passes eight 1440×900 / 390×844 scans with zero critical, serious, or moderate violations. A separate built-in-browser keyboard-only path reached the synthetic CLIENT projection; upload remained correctly gated because commercial handover and a committed settled-advance receipt were absent. The story stays partial; see `docs/ops/uat-log.md`.
 - E06-S05 extends the local benchmark entry point with a guarded remote staging mode for 50 synthetic, self-selected PREPARER profiles, a 70/30 read/command mix, and a 15-minute default duration. It refuses production or unlabeled hosts, requires a dedicated workspace/build identity and an explicit synthetic-staging acknowledgement, and sends no cookies. The date-specific load report remains blocked until isolated staging D1/R2/Worker resources and matching Cloudflare dashboard CPU, D1 and outbox metrics exist; see `docs/quality/load-test-template.md`.
 - E06-S06 prepares a no-auth UAT plan for all five journeys and the source-story negative scenarios, plus a gated go-live/rollback checklist. It does not claim executed UAT or approve production. Residency, isolated staging, trusted perimeter, backup/alert drills, SharePoint credential verification, and the no-auth release boundary still need owner evidence; see `docs/ops/uat-plan.md` and `docs/ops/go-live-checklist.md`.

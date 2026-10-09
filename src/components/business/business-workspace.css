@@ -33,6 +33,22 @@
 .business-console-brand span:last-child { color: var(--muted); font-size: 12px; }
 .business-brand-mark { display: grid; width: 38px; height: 38px; place-items: center; border-radius: 10px; background: var(--primary); color: #fff; font-size: 12px; font-weight: 800; letter-spacing: .03em; }
 .business-console-content { width: min(1120px, 100%); margin: 0 auto; display: grid; gap: 16px; padding: clamp(14px, 3vw, 32px); }
+.business-module-navigation { display: grid; gap: 12px; min-width: 0; padding: 14px; border: 1px solid var(--line); border-radius: 12px; background: #fff; box-shadow: var(--shadow); }
+.business-module-links { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px; }
+.business-module-links a { display: flex; min-height: 44px; align-items: center; justify-content: center; border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; color: var(--ink); background: var(--color-site-bg); text-align: center; text-decoration: none; font-size: 13px; font-weight: 650; line-height: 1.3; }
+.business-module-links a:hover { border-color: var(--primary); color: var(--primary); }
+.business-module-links a.active { border-color: var(--primary); background: var(--primary); color: #fff; }
+.business-module-links a:focus-visible, .business-route-select select:focus-visible, .business-reference-guide :focus-visible { outline: 3px solid #60a5fa; outline-offset: 2px; }
+.business-route-select { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 10px; color: var(--muted); font-size: 13px; font-weight: 600; }
+.business-route-select select { min-width: 0; min-height: 44px; border: 1px solid var(--ui-control-border); border-radius: 7px; padding: 8px 10px; background: #fff; color: var(--ink); font: inherit; }
+.business-module-unavailable { margin: 0; color: #7c2d12; font-size: 13px; line-height: 1.45; }
+.business-reference-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.business-reference-grid article { min-width: 0; border: 1px solid var(--line); border-radius: 8px; padding: 12px; background: var(--color-site-bg); scroll-margin-block-start: 12px; }
+.business-reference-grid h3 { margin: 0 0 7px; }
+.business-reference-grid p, .business-reference-grid li { color: var(--muted); font-size: 13px; line-height: 1.5; }
+.business-reference-grid p { margin: 0; }
+.business-reference-grid ul { margin: 8px 0 0; padding-left: 20px; }
+[id^="route-"] { scroll-margin-block-start: 12px; }
 .business-overview-card, .business-context-card, .business-directory-card, .business-workflows-placeholder { min-width: 0; border: 1px solid var(--line); border-radius: 12px; background: #fff; padding: clamp(16px, 2.5vw, 24px); box-shadow: var(--shadow); }
 .business-overview-card { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; border-top: 3px solid var(--primary); }
 .business-overview-copy { max-width: 760px; }
@@ -97,6 +113,10 @@
 .business-created-engagement span { color: var(--muted); }
 .business-console .btn { min-height: 44px; }
 @media (max-width: 700px) {
+  .business-module-links { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .business-module-links a:last-child { grid-column: 1 / -1; }
+  .business-route-select { grid-template-columns: minmax(0, 1fr); }
+  .business-reference-grid { grid-template-columns: minmax(0, 1fr); }
   .business-setup-head, .business-overview-card { align-items: stretch; flex-direction: column; }
   .business-setup-head > .btn { align-self: flex-end; }
   .business-form-grid, .business-static-fields { grid-template-columns: minmax(0, 1fr); }

@@ -52,6 +52,8 @@ import { BusinessFieldworkPanel } from './BusinessFieldworkPanel';
 import { BusinessPracticePanel } from './BusinessPracticePanel';
 import { BusinessReportingPanel } from './BusinessReportingPanel';
 import { BusinessWorkflowProgress } from './BusinessWorkflowProgress';
+import { BusinessModuleNavigation } from './BusinessModuleNavigation';
+import { BusinessReferenceGuide } from './BusinessReferenceGuide';
 import { PublicLeadQueue } from './PublicLeadQueue';
 
 type SetupMode = 'create' | 'connect';
@@ -1239,7 +1241,7 @@ export function BusinessWorkspaceConsole() {
     </header>
 
     <div className="business-console-content">
-      <section className="business-overview-card" aria-labelledby="business-workspace-heading">
+      <section id="route-overview" className="business-overview-card" aria-labelledby="business-workspace-heading">
         <div className="business-overview-copy">
           <p className="business-eyebrow">SERVER-PERSISTED · QAR · ASIA/QATAR</p>
           <h1 id="business-workspace-heading">{workspace?.name ?? 'Business workspace'}</h1>
@@ -1250,6 +1252,8 @@ export function BusinessWorkspaceConsole() {
           <span role="status">{loading ? 'Connecting' : error ? 'Unavailable / needs attention' : workspace?.status ?? 'Ready'}</span>
         </div>
       </section>
+
+      <BusinessModuleNavigation />
 
       {error && <div className="business-alert business-console-alert" role="alert">
         <span>{error}</span>
@@ -1291,7 +1295,7 @@ export function BusinessWorkspaceConsole() {
         </section>
 
         {selectedProfile && preference && context?.allowedActions.includes('engagement.read')
-          && <BusinessWorkflowProgress selected={preference} refreshKey={recordsKey} />}
+          && <div id="route-engagements"><BusinessWorkflowProgress selected={preference} refreshKey={recordsKey} /></div>}
 
         {context?.allowedActions.includes('directory.manage') && <section className="business-directory-card" aria-labelledby="business-directory-heading">
           <div className="business-section-heading">
@@ -1342,7 +1346,7 @@ export function BusinessWorkspaceConsole() {
           </div>
         </section>}
 
-        {context?.allowedActions.includes('client.read') && <section className="business-directory-card" aria-labelledby="business-clients-heading">
+        {context?.allowedActions.includes('client.read') && <section id="route-clients" className="business-directory-card" aria-labelledby="business-clients-heading">
           <div className="business-section-heading"><div><p className="business-eyebrow">COMMERCIAL · US-ENG-001</p><h2 id="business-clients-heading">Client registry</h2></div><span className="business-count">{clients.length} loaded</span></div>
           {clientCursor && <div className="business-pagination-controls"><span className="business-muted" role="status">Showing the first {clients.length} clients; more records are available.</span><button type="button" className="btn sm" disabled={loadingMore !== null} onClick={() => void loadMoreClients()}>{loadingMore === 'clients' ? 'Loading…' : 'Load more clients'}</button></div>}
           {clients.length ? <ul className="business-client-list" aria-label="Workspace clients">{clients.map(client => <li key={client.id}>
@@ -1398,7 +1402,7 @@ export function BusinessWorkspaceConsole() {
             <div className="business-dialog-actions"><button className="btn primary" type="submit" disabled={commandBusy || (clientType === 'SUBSIDIARY' && !preference?.clientId)}>{commandBusy ? 'Saving…' : 'Create client'}</button></div>
           </form>}
 
-          {preference?.clientId && clientDetail && <div className="business-client-detail">
+          {preference?.clientId && clientDetail && <div id="route-client-detail" className="business-client-detail">
             <div className="business-section-heading"><div><p className="business-eyebrow">SELECTED CLIENT</p><h3>{clientDetail.client.legalName}</h3></div><span>v{clientDetail.client.version}</span></div>
             <p>{clientDetail.client.entityType ?? 'Client'} · {clientDetail.client.industry} · {clientDetail.client.countryCode}</p>
             <h4>Active contacts</h4>
@@ -1446,7 +1450,7 @@ export function BusinessWorkspaceConsole() {
           </div>}
         </section>}
 
-        {context?.allowedActions.includes('lead.read') && <section className="business-directory-card" aria-labelledby="business-leads-heading">
+        {context?.allowedActions.includes('lead.read') && <section id="route-acquisition" className="business-directory-card" aria-labelledby="business-leads-heading">
           <div className="business-section-heading"><div><p className="business-eyebrow">COMMERCIAL · US-ENG-002</p><h2 id="business-leads-heading">Lead pipeline</h2></div><span className="business-count">{leads.length} loaded</span></div>
           {leadCursor && <div className="business-pagination-controls"><span className="business-muted" role="status">Showing the first {leads.length} leads; more records are available.</span><button type="button" className="btn sm" disabled={loadingMore !== null} onClick={() => void loadMoreLeads()}>{loadingMore === 'leads' ? 'Loading…' : 'Load more leads'}</button></div>}
           {preference && preference.workspaceId && <PublicLeadQueue workspaceId={preference.workspaceId} preference={preference}
@@ -1531,7 +1535,7 @@ export function BusinessWorkspaceConsole() {
           </form>}
         </section>}
 
-        {context?.allowedActions.includes('proposal.read') && <section className="business-directory-card" aria-labelledby="business-proposals-heading">
+        {context?.allowedActions.includes('proposal.read') && <section id="route-proposals" className="business-directory-card" aria-labelledby="business-proposals-heading">
           <div className="business-section-heading">
             <div><p className="business-eyebrow">COMMERCIAL · US-ENG-003</p><h2 id="business-proposals-heading">Quotes and proposals</h2></div>
             <span className="business-count">{proposalWorkspace?.proposals.length ?? 0} current revisions</span>
@@ -1770,17 +1774,17 @@ export function BusinessWorkspaceConsole() {
               {proposalWorkspace?.engagements.map(item => <option key={item.id} value={item.id}>{item.clientName} · {item.code} · {item.lifecycleState.replaceAll('_', ' ')}</option>)}
             </select></label>
           </div>
-          <BusinessAcceptanceRiskPanel workspaceId={preference.workspaceId} selected={preference} context={context}
+          <div id="route-onboarding"><BusinessAcceptanceRiskPanel workspaceId={preference.workspaceId} selected={preference} context={context}
             engagementId={riskEngagement.id} clientId={riskEngagement.clientId}
             engagementName={`${riskEngagement.clientName} · ${riskEngagement.code}`} files={files}
-            onChanged={() => setRecordsKey(value => value + 1)} />
-          {context.allowedActions.includes('billing.read') && <BusinessDeliveryPanel workspaceId={preference.workspaceId} selected={preference} context={context}
-            engagement={riskEngagement} files={files} onChanged={() => setRecordsKey(value => value + 1)} />}
+            onChanged={() => setRecordsKey(value => value + 1)} /></div>
+          {context.allowedActions.includes('billing.read') && <div id="route-billing"><BusinessDeliveryPanel workspaceId={preference.workspaceId} selected={preference} context={context}
+            engagement={riskEngagement} files={files} onChanged={() => setRecordsKey(value => value + 1)} /></div>}
           {context.allowedActions.includes('planning.read') && <BusinessPlanningPanel workspaceId={preference.workspaceId} selected={preference}
             context={context} engagement={riskEngagement} onChanged={() => setRecordsKey(value => value + 1)} />}
-          {context.allowedActions.includes('planning.read') && <BusinessTrialBalancePanel workspaceId={preference.workspaceId}
+          {context.allowedActions.includes('planning.read') && <div id="route-trial-balance"><BusinessTrialBalancePanel workspaceId={preference.workspaceId}
             selected={preference} context={context} engagement={riskEngagement} files={files}
-            onChanged={() => setRecordsKey(value => value + 1)} />}
+            onChanged={() => setRecordsKey(value => value + 1)} /></div>}
           {context.allowedActions.includes('fieldwork.read') && <BusinessFieldworkPanel workspaceId={preference.workspaceId}
             selected={preference} context={context} engagement={riskEngagement} files={files}
             onChanged={() => setRecordsKey(value => value + 1)} />}
@@ -1789,8 +1793,8 @@ export function BusinessWorkspaceConsole() {
             onChanged={() => setRecordsKey(value => value + 1)} />}
         </section>}
 
-        {context?.allowedActions.includes('pbc.read') && preference && <BusinessPbcPanel workspaceId={preference.workspaceId}
-          selected={preference} context={context} directoryRevision={recordsKey} onChanged={() => setRecordsKey(value => value + 1)} />}
+        {context?.allowedActions.includes('pbc.read') && preference && <div id="route-documents"><div id="route-portal"><BusinessPbcPanel workspaceId={preference.workspaceId}
+          selected={preference} context={context} directoryRevision={recordsKey} onChanged={() => setRecordsKey(value => value + 1)} /></div></div>}
 
         {context?.allowedActions.includes('reporting.read') && preference && reportingEngagementId && <BusinessReportingPanel workspaceId={preference.workspaceId}
           selected={preference} context={context} engagement={riskEngagement ?? undefined} engagementId={reportingEngagementId} files={files}
@@ -1817,6 +1821,7 @@ export function BusinessWorkspaceConsole() {
             <button type="button" className="btn sm" disabled={downloadingFileId === file.id} onClick={() => void downloadStoredFile(file)}>{downloadingFileId === file.id ? 'Checking…' : 'Download verified bytes'}</button>
           </li>)}</ul> : <p className="business-muted">No committed files are visible in this request context.</p>}
         </section>}
+        <BusinessReferenceGuide />
       </>}
     </div>
   </main>;

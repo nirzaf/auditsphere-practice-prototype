@@ -396,7 +396,7 @@ export function BusinessReportingPanel({ workspaceId, selected, context, engagem
 
   if (!activeEngagementId) return null;
 
-  return <section className="business-directory-card" aria-labelledby={`business-reporting-${activeEngagementId}`}>
+  return <section id="route-delivery" className="business-directory-card" aria-labelledby={`business-reporting-${activeEngagementId}`}>
     <div className="business-section-heading">
       <div><p className="business-eyebrow">REPORTING · PUBLICATION · RETENTION</p><h2 id={`business-reporting-${activeEngagementId}`}>Reporting and final deliverables</h2></div>
       <button type="button" className="btn sm" disabled={busy} onClick={() => setRefresh(value => value + 1)}>Refresh reporting</button>
@@ -408,7 +408,7 @@ export function BusinessReportingPanel({ workspaceId, selected, context, engagem
       <div className="business-delivery-grid">
         <div className="business-record-list"><h3>Portal upload status</h3><p><strong>{rowText(data?.engagement, 'portalFrozenAt') ? 'Read only' : 'Open'}</strong></p>
           {rowText(data?.engagement, 'portalFrozenAt') && <small>Frozen at {rowText(data?.engagement, 'portalFrozenAt')}; released audit content remains available below.</small>}</div>
-        <div className="business-record-list"><h3>Archive status</h3><p>{rowText(data?.archive, 'status', 'Assembly has not started')}</p>
+        <div id="route-records" className="business-record-list"><h3>Archive status</h3><p>{rowText(data?.archive, 'status', 'Assembly has not started')}</p>
           {rowText(archiveStatus ?? undefined, 'sealedAt') && <small>Sealed {rowText(archiveStatus ?? undefined, 'sealedAt')}</small>}
           {archiveStatusError && <small role="status">{archiveStatusError}</small>}</div>
       </div>
@@ -469,7 +469,7 @@ export function BusinessReportingPanel({ workspaceId, selected, context, engagem
       <div className="business-delivery-grid">
         <div className="business-record-list"><h3>Current statement source</h3><p>{snapshot ? `Snapshot ${rowText(snapshot, 'id')} · ${rows(snapshot.lines).length} presentation lines` : 'A cleared statement snapshot is required.'}</p>
           {snapshot && <small>Source hash {rowText(snapshot, 'sourceHash').slice(0, 18)}… · generated {rowText(snapshot, 'generatedAt')}</small>}</div>
-        <div className="business-record-list"><h3>Assembly deadline</h3><p>{currentArchiveDue ? `${daysUntilArchive === null ? 'Server time unavailable' : archiveDeadlinePassed ? 'Overdue' : `${daysUntilArchive} days remaining`} · ${currentArchiveDue}` : 'The 60-day clock starts only after successful report release.'}</p>
+        <div id="route-records" className="business-record-list"><h3>Assembly deadline</h3><p>{currentArchiveDue ? `${daysUntilArchive === null ? 'Server time unavailable' : archiveDeadlinePassed ? 'Overdue' : `${daysUntilArchive} days remaining`} · ${currentArchiveDue}` : 'The 60-day clock starts only after successful report release.'}</p>
           <small>Deadline is derived from the report signature timestamp and does not move when email or downloads are retried.</small></div>
       </div>
 

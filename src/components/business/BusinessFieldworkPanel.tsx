@@ -15,9 +15,14 @@ import {
   newBusinessIdempotencyKey,
   runBusinessCommand
 } from '../../services/businessWorkspace';
+import { resolveRouteHash, routeHash, ROUTE_CATALOG, type RouteKey } from '../../services/routeCatalog';
 
 type EngagementRef = { id: string; clientId: string; code: string; clientName: string; lifecycleState: string; periodStart: string; periodEnd: string };
 type Tab = 'statements' | 'workprograms' | 'sampling' | 'evidence' | 'confirmations' | 'findings' | 'reviews';
+const ROUTE_FOR_TAB: Record<Tab, RouteKey> = {
+  statements: 'financial-statements', workprograms: 'audit-fieldwork', sampling: 'sampling',
+  evidence: 'evidence', confirmations: 'confirmations', findings: 'findings', reviews: 'reviews'
+};
 type Assertion = 'EXISTENCE' | 'RIGHTS_OBLIGATIONS' | 'COMPLETENESS' | 'VALUATION' | 'CUTOFF' | 'PRESENTATION';
 type ProcedureDraft = ProcedureDraftValues;
 type ProcedureDraftBase = ProcedureDraft & { version: number };
@@ -111,6 +116,16 @@ export function BusinessFieldworkPanel({ workspaceId, selected, context, engagem
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
   const [tab, setTab] = useState<Tab>('statements');
+  useEffect(() => {
+    const syncRoute = () => {
+      const route = resolveRouteHash(window.location.hash);
+      const routeInfo = route ? ROUTE_CATALOG[route] : undefined;
+      if (routeInfo && 'fieldworkTab' in routeInfo) setTab(routeInfo.fieldworkTab);
+    };
+    syncRoute();
+    window.addEventListener('hashchange', syncRoute);
+    return () => window.removeEventListener('hashchange', syncRoute);
+  }, []);
   const [selectedFsliId, setSelectedFsliId] = useState('');
   const [snapshotId, setSnapshotId] = useState('');
   const [expectation, setExpectation] = useState('');
@@ -588,10 +603,10 @@ export function BusinessFieldworkPanel({ workspaceId, selected, context, engagem
       </div>
       <nav className="business-fieldwork-tabs" aria-label="Fieldwork sections">
         {([['statements','Financial statements'],['workprograms','Workprograms'],['sampling','Sampling'],['evidence','Evidence'],['confirmations',`Confirmations${workspace.confirmations.some(item=>item.critical&&item.status!=='RETURNED_VERIFIED'&&item.status!=='CANCELLED')?' · gate open':''}`],['findings','Findings & SRM'],['reviews','Review queue']] as Array<[Tab,string]>).map(([key,title]) =>
-          <button type="button" key={key} className={tab === key ? 'selected' : ''} aria-pressed={tab === key} onClick={() => setTab(key)}>{title}</button>)}
+          <button type="button" key={key} className={tab === key ? 'selected' : ''} aria-pressed={tab === key} onClick={() => { setTab(key); window.location.hash = routeHash(ROUTE_FOR_TAB[key]); }}>{title}</button>)}
       </nav>
 
-      {tab === 'statements' && <div className="business-fieldwork-body">
+      {tab === 'statements' && <div id="route-financial-statements" className="business-fieldwork-body">
         <div className="business-fieldwork-actions"><div><strong>Adjusted reporting view</strong><span>Source TB and mapping remain unchanged; accepted adjustment hash {workspace.statements.adjustmentSetHash.slice(0, 14)}.</span></div>
           <button type="button" className="btn sm" disabled={busy} onClick={() => void createSnapshot()}>Create current snapshot</button></div>
         <StatementPane title="Profit and loss" lines={workspace.statements.profitLoss} selectedFsliId={selectedFsliId} onAnalysis={line => { setSelectedFsliId(line.fsliId); setShowAnalysis(true); }} onWorkprogram={line => { setSelectedFsliId(line.fsliId); setTab('workprograms'); }} onSources={id => { setSourceRowsPage(0); setSourceFsliId(id); }}
@@ -662,8 +677,8 @@ export function BusinessFieldworkPanel({ workspaceId, selected, context, engagem
         </section>
       </div>}
 
-      {tab === 'workprograms' && <div className="business-fieldwork-body">
-        <div className="business-fieldwork-card"><h3>Choose a statement line</h3><div className="business-fieldwork-picklist">{allLines.map(line => <button key={line.fsliId} type="button" aria-pressed={line.fsliId === selectedFsliId} className={line.fsliId === selectedFsliId ? 'selected' : ''}
+      {tab === 'workprograms' && <div id="route-audit-risks" className="business-fieldwork-body">
+        <div id="route-audit-fieldwork" className="business-fieldwork-card"><h3>Choose a statement line</h3><div className="business-fieldwork-picklist">{allLines.map(line => <button key={line.fsliId} type="button" aria-pressed={line.fsliId === selectedFsliId} className={line.fsliId === selectedFsliId ? 'selected' : ''}
           onClick={() => setSelectedFsliId(line.fsliId)}><strong>{line.code}</strong><span>{line.name}</span><small>{line.riskBand} risk</small></button>)}</div></div>
         {selectedLine && <>
           <div className="business-fieldwork-card"><div className="business-section-heading"><div><p className="business-eyebrow">APPROVED STANDARD PROCEDURES</p><h3>Templates · {selectedLine.code} {selectedLine.name}</h3></div></div>
@@ -765,7 +780,7 @@ export function BusinessFieldworkPanel({ workspaceId, selected, context, engagem
         </>}
       </div>}
 
-      {tab === 'sampling' && <div className="business-fieldwork-body">
+      {tab === 'sampling' && <div id="route-sampling" className="business-fieldwork-body">
         {canReview && <form className="business-fieldwork-card business-form" onSubmit={event => { event.preventDefault(); void command('sampling.policy.create', { name: `${method.replaceAll('_',' ')} · firm policy`, method,
           assumptions: 'Document the population assumptions, method limitations, exception handling and reviewer assessment required before client use.' }, 'Draft sampling methodology created. Partner approval is required.'); }}>
           <h3>Firm sampling methodology</h3><div className="business-form-grid"><label className="business-field"><span>Method</span><select value={method} onChange={event => setMethod(event.target.value as typeof method)}><option value="MUS_BINOMIAL_PPS">Monetary-unit sampling</option><option value="SYSTEMATIC">Systematic random</option><option value="STRATIFIED_ATTRIBUTE">Stratified attribute</option></select></label>
@@ -884,7 +899,7 @@ export function BusinessFieldworkPanel({ workspaceId, selected, context, engagem
         </section>}
       </div>}
 
-      {tab === 'evidence' && <div className="business-fieldwork-body">
+      {tab === 'evidence' && <div id="route-evidence" className="business-fieldwork-body">
         <form className="business-fieldwork-card business-form" onSubmit={createEvidence}><h3>Retain digital, physical or hybrid evidence</h3>
           <div className="business-form-grid"><label className="business-field"><span>Evidence mode</span><select value={evidenceMode} onChange={event => setEvidenceMode(event.target.value as typeof evidenceMode)}><option value="DIGITAL">Digital</option><option value="PHYSICAL">Physical</option><option value="HYBRID">Hybrid</option></select></label>
             <label className="business-field"><span>Evidence title</span><input required value={evidenceTitle} onChange={event => setEvidenceTitle(event.target.value)} /></label>
@@ -935,7 +950,7 @@ export function BusinessFieldworkPanel({ workspaceId, selected, context, engagem
           <button className="btn sm" type="button" disabled={busy} onClick={async () => { try { const result = await getBusinessFieldworkChanges<{changes:unknown[];nextCursor:string;hasMore:boolean}>(workspaceId, engagement.id, scope, changeCursor); setChangeCursor(Number(result.nextCursor)); setMessage(`${result.changes.length} changes loaded${result.hasMore ? '; more are available' : ''}.`); if (result.changes.length > 0) setRefresh(value => value + 1); } catch (reason) { setError(reason instanceof Error ? reason.message : 'Fieldwork changes could not be loaded.'); } }}>Read next events</button></div>
         </div>
       </div>}
-      {tab === 'confirmations' && <div className="business-fieldwork-body">
+      {tab === 'confirmations' && <div id="route-confirmations" className="business-fieldwork-body">
         <section className="business-fieldwork-card"><p className="business-eyebrow">US-FLD-013 · INDEPENDENT THIRD-PARTY EVIDENCE</p><h3>External confirmations</h3>
           <p className="business-note">Critical requests block Manager handover and final release until the direct response is independently verified against its current TB, mapping, and materiality pins. An alternative procedure is retained separately and never waives that policy gate.</p>
           {workspace.confirmations.some(item=>item.critical&&item.status!=='RETURNED_VERIFIED'&&item.status!=='CANCELLED')&&<p className="business-alert" role="alert">Critical confirmation gate is open. Complete and independently verify each critical response before handover.</p>}
@@ -994,7 +1009,7 @@ export function BusinessFieldworkPanel({ workspaceId, selected, context, engagem
         })}
         {!workspace.confirmations.length&&<p className="business-muted">No third-party confirmations have been scoped.</p>}
       </div>}
-      {tab === 'findings' && <div className="business-fieldwork-body">
+      {tab === 'findings' && <div id="route-findings" className="business-fieldwork-body">
         <section className="business-fieldwork-card">
           <p className="business-eyebrow">US-FLD-012 · SOURCE-PINNED</p><h3>Findings, adjustments and unadjusted differences</h3>
           <p className="business-note">Current SAD {qar(workspace.materiality?.sadMinor as number|null)} · TE {qar(workspace.materiality?.performanceMinor as number|null)} · PM {qar(workspace.materiality?.planningMinor as number|null)}. AJEs remain in the audit reporting layer and never post to the client TB.</p>
@@ -1100,7 +1115,7 @@ export function BusinessFieldworkPanel({ workspaceId, selected, context, engagem
         </section>
       </div>}
 
-      {tab === 'reviews' && <div className="business-fieldwork-body">
+      {tab === 'reviews' && <div id="route-reviews" className="business-fieldwork-body">
         {(workspace.engagement.state === 'FIELDWORK_EXECUTION' && context.actor.staffGrade === 'MANAGER' || workspace.engagement.state === 'MANAGERIAL_REVIEW' && canPartner) && <section className="business-fieldwork-card">
           <p className="business-eyebrow">LIFECYCLE GATE</p><h3>{workspace.engagement.state === 'FIELDWORK_EXECUTION' ? 'Hand over for Manager review' : 'Hand over for Partner approval'}</h3>
           <p className="business-note">The server rechecks every current submission, decision, source pin and open rework note inside the handover command.</p>
