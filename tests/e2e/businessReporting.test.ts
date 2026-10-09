@@ -33,12 +33,28 @@ function chromeExecutable(): string | undefined {
 
 async function waitFor(label: string, predicate: string, timeoutMs = 20000): Promise<void> {
   const deadline = Date.now() + timeoutMs;
+  let lastNavigationRace: unknown;
   while (Date.now() < deadline) {
-    if (await tab!.evaluate<boolean>(predicate)) return;
+    try {
+      if (await tab!.evaluate<boolean>(predicate)) return;
+    } catch (error) {
+      // Page.reload resolves before Chrome has restored the Runtime execution
+      // context. Treat that narrow transition as not-ready and keep polling;
+      // all other CDP errors still fail immediately.
+      if (!/Inspected target navigated or closed/i.test(String(error))) throw error;
+      lastNavigationRace = error;
+    }
     await sleep(80);
   }
-  const text = await tab!.evaluate<string>('document.body.innerText.slice(-6000)');
-  throw new Error(`Timed out waiting for ${label}. Current page text: ${text}`);
+  let text = 'Page text unavailable after the wait timed out.';
+  try {
+    text = await tab!.evaluate<string>('document.body.innerText.slice(-6000)');
+  } catch (error) {
+    if (!/Inspected target navigated or closed/i.test(String(error))) throw error;
+    lastNavigationRace = error;
+  }
+  const navigationDetail = lastNavigationRace ? ` Last navigation race: ${String(lastNavigationRace)}` : '';
+  throw new Error(`Timed out waiting for ${label}. Current page text: ${text}.${navigationDetail}`);
 }
 
 function runFixtureSql(sql: string, ...values: unknown[]): void {
