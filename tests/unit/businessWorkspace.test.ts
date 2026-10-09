@@ -8,6 +8,7 @@ import * as XLSX from 'xlsx';
 import worker, { businessCommandHttpResult } from '../../worker/index.js';
 import { criticalConfirmationBlockers, queueHoldingLetterForBlockers } from '../../worker/businessFieldwork.js';
 import { SqliteD1 } from '../helpers/sqliteD1.js';
+import { runFieldworkAcceptanceMatrix } from './fieldworkAcceptance.test.js';
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const policyEffectiveDate = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Qatar', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
@@ -201,7 +202,7 @@ async function call(path: string, options: {
 const post = (path: string, payload: unknown, headers: Record<string, string> = {}) =>
   call(path, { method: 'POST', payload, headers });
 
-it('bootstraps a no-session BUSINESS workspace, records manual dispatch and maintains atomic directory profiles', async () => {
+it('bootstraps a no-session BUSINESS workspace, records manual dispatch and maintains atomic directory profiles', async t => {
   const live = await call('/api/health/live');
   assert.equal(live.response.status, 200);
   assert.deepEqual(live.body, { status: 'ok' });
@@ -2960,6 +2961,11 @@ it('bootstraps a no-session BUSINESS workspace, records manual dispatch and main
   assert.equal(managerRedProvision.body.result.procedureCount, 5);
   const revenueWorkprogramId = managerRedProvision.body.result.workprogramId as string;
   const revenueProcedureIds = managerRedProvision.body.result.procedureIds as string[];
+  const provisionedRevenueWorkspace = await call(`/api/workspaces/${workspaceId}/engagements/${engagementId}/fieldwork-workspace`, { headers: technicalHeaders });
+  const provisionedRevenueProcedures = provisionedRevenueWorkspace.body.procedures.filter((row: any) => row.workprogramId === revenueWorkprogramId);
+  assert.deepEqual(new Set(provisionedRevenueProcedures.map((row: any) => row.assertion)),
+    new Set(['RIGHTS_OBLIGATIONS', 'VALUATION', 'COMPLETENESS', 'EXISTENCE', 'CUTOFF']),
+    'the provisioned FSLI workprogram exposes ownership/rights, valuation, completeness, existence and cutoff coverage through the persisted Worker projection');
   const revenueTemplateRevision = await post(`/api/workspaces/${workspaceId}/commands`, {
     idempotencyKey: crypto.randomUUID(), command: { type: 'workprogram.template.create', payload: {
       fsliCode: 'REVENUE', title: 'Revenue assertions and cutoff — revised', standardsProfileId: planningApproved.body.result.standardsProfileId ?? fieldworkWorkspace.body.engagement.standardsProfileId,
@@ -3007,14 +3013,48 @@ it('bootstraps a no-session BUSINESS workspace, records manual dispatch and main
   }, technicalHeaders);
   assert.equal(associateRedExecution.response.status, 403);
   assert.equal(associateRedExecution.body.code, 'PERSONA_ACTION_DENIED');
+  const adHocPayload = {
+    workprogramId: revenueWorkprogramId,
+    afterProcedureId: revenueProcedureIds[0],
+    title: 'Investigate an unusual year-end credit note',
+    instructions: 'Inspect the full source record and assess whether the credit note masks revenue cutoff or an undisclosed customer concession.',
+    assertion: 'CUTOFF',
+    scopeReason: 'Current-year analytics identified an unusual year-end credit requiring an engagement-specific procedure.'
+  };
+  const missingAdHocTitle = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'procedure.insert', payload: { ...adHocPayload, title: undefined } }
+  }, technicalHeaders);
+  const missingAdHocInstructions = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'procedure.insert', payload: { ...adHocPayload, instructions: undefined } }
+  }, technicalHeaders);
+  const missingAdHocReason = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'procedure.insert', payload: { ...adHocPayload, scopeReason: undefined } }
+  }, technicalHeaders);
+  for (const [label, result] of [
+    ['title', missingAdHocTitle], ['instructions', missingAdHocInstructions], ['insertion reason', missingAdHocReason]
+  ] as const) {
+    assert.equal(result.response.status, 422, `ad-hoc insertion without ${label} must be rejected`);
+    assert.equal(result.body.code, 'VALIDATION_FAILED', `ad-hoc insertion without ${label} reports validation failure`);
+  }
   const addAdHocProcedure = await post(`/api/workspaces/${workspaceId}/commands`, {
-    idempotencyKey: crypto.randomUUID(), command: { type: 'procedure.insert', payload: {
-      workprogramId: revenueWorkprogramId, afterProcedureId: revenueProcedureIds[0], title: 'Investigate an unusual year-end credit note',
-      instructions: 'Inspect the full source record and assess whether the credit note masks revenue cutoff or an undisclosed customer concession.',
-      assertion: 'CUTOFF', scopeReason: 'Current-year analytics identified an unusual year-end credit requiring an engagement-specific procedure.'
-    } }
+    idempotencyKey: crypto.randomUUID(), command: { type: 'procedure.insert', payload: adHocPayload }
   }, technicalHeaders);
   assert.equal(addAdHocProcedure.response.status, 200, JSON.stringify(addAdHocProcedure.body));
+  const insertedAdHocProcedureId = String(addAdHocProcedure.body.result.procedureId);
+  const insertedAdHocRevision = db.prepare(`SELECT changed_by_actor_id,reason,content_snapshot_json FROM procedure_revisions
+    WHERE workspace_id=? AND procedure_id=? AND row_version=1`).bind(workspaceId, insertedAdHocProcedureId).first<any>();
+  assert.equal(insertedAdHocRevision.changed_by_actor_id, technicalHeaders['X-Actor-Id']);
+  assert.equal(insertedAdHocRevision.reason, adHocPayload.scopeReason);
+  assert.equal(JSON.parse(insertedAdHocRevision.content_snapshot_json).origin, 'AD_HOC');
+  assert.equal(db.prepare(`SELECT COUNT(*) AS count FROM fieldwork_change_feed
+    WHERE workspace_id=? AND engagement_id=? AND entity_type='Procedure' AND entity_id=? AND row_version=1`)
+    .bind(workspaceId, engagementId, insertedAdHocProcedureId).first<any>()?.count, 1,
+    'the new ad-hoc row is in the engagement change feed at its initial revision');
+  const insertedAdHocAudit = db.prepare(`SELECT actor_id,details_json FROM audit_events
+    WHERE workspace_id=? AND command_type='procedure.insert' AND entity_id=?`).bind(workspaceId, insertedAdHocProcedureId).first<any>();
+  assert.equal(insertedAdHocAudit.actor_id, technicalHeaders['X-Actor-Id']);
+  assert.equal(JSON.parse(insertedAdHocAudit.details_json).details.scopeReason, adHocPayload.scopeReason,
+    'the insertion actor and reason are retained in the append-only command audit beside the change-feed event');
   const revenueWorkspaceAfterInsert = await call(`/api/workspaces/${workspaceId}/engagements/${engagementId}/fieldwork-workspace`, { headers: technicalHeaders });
   const revenueProcedureRows = revenueWorkspaceAfterInsert.body.procedures.filter((row: any) => row.workprogramId === revenueWorkprogramId);
   assert.equal(revenueProcedureRows.length, 6, 'five copied standard steps coexist with one persistent ad-hoc procedure');
@@ -3194,6 +3234,23 @@ it('bootstraps a no-session BUSINESS workspace, records manual dispatch and main
     idempotencyKey: crypto.randomUUID(), command: { type: 'procedure.submit', payload: { procedureId: greenProcedureId, expectedVersion: 3 } }
   }, technicalHeaders);
   assert.equal(greenProcedureSubmission.response.status, 200, JSON.stringify(greenProcedureSubmission.body));
+  const preparerEditAfterSubmission = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'procedure.update', payload: {
+      procedureId: greenProcedureId, expectedVersion: greenProcedureSubmission.body.result.version,
+      workPerformed: 'Attempted to change a submitted procedure after independent review began.',
+      conclusion: 'The submitted row must remain immutable until the reviewer returns it.'
+    } }
+  }, technicalHeaders);
+  assert.equal(preparerEditAfterSubmission.response.status, 422);
+  assert.equal(preparerEditAfterSubmission.body.code, 'INVALID_STATE', 'preparer edits remain locked after submission');
+  const preparerCannotReviewProcedure = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'procedure.review', payload: {
+      procedureId: greenProcedureId, expectedVersion: greenProcedureSubmission.body.result.version, decision: 'ACCEPT',
+      comments: 'The preparer cannot perform independent review of their submitted procedure.'
+    } }
+  }, technicalHeaders);
+  assert.equal(preparerCannotReviewProcedure.response.status, 403);
+  assert.equal(preparerCannotReviewProcedure.body.code, 'PERSONA_ACTION_DENIED');
   const rejectedEmptyProcedureReturn = await post(`/api/workspaces/${workspaceId}/commands`, {
     idempotencyKey: crypto.randomUUID(), command: { type: 'review.decide', payload: {
       submissionId: greenProcedureSubmission.body.result.reviewSubmissionId, decision: 'RETURN', comment: '   ',
@@ -3928,6 +3985,18 @@ it('bootstraps a no-session BUSINESS workspace, records manual dispatch and main
   }, samplingReviewerHeaders);
   assert.equal(returnStaleEvidenceProcedure.response.status, 200, JSON.stringify(returnStaleEvidenceProcedure.body));
   assert.equal(returnStaleEvidenceProcedure.body.result.status, 'UNDER_REWORK');
+  const staleEvidenceProcedureVersion = Number(returnStaleEvidenceProcedure.body.result.version);
+  const staleEvidenceProcedureSubmit = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'procedure.submit', payload: {
+      procedureId: greenProcedureId, expectedVersion: staleEvidenceProcedureVersion
+    } }
+  }, technicalHeaders);
+  assert.equal(staleEvidenceProcedureSubmit.response.status, 409);
+  assert.equal(staleEvidenceProcedureSubmit.body.code, 'STALE_DEPENDENCY',
+    'a procedure cannot be submitted against an evidence pin that became stale after the source was superseded');
+  assert.equal(db.prepare(`SELECT COUNT(*) AS count FROM procedure_submissions WHERE workspace_id=? AND procedure_id=? AND row_version=?`)
+    .bind(workspaceId, greenProcedureId, staleEvidenceProcedureVersion + 1).first<any>()?.count, 0,
+    'stale evidence does not create a new procedure submission');
   const secondProcedureReviewNoteId = returnStaleEvidenceProcedure.body.result.noteId as string;
   const secondProcedureNoteResponse = await post(`/api/workspaces/${workspaceId}/commands`, {
     idempotencyKey: crypto.randomUUID(), command: { type: 'review.respond', payload: {
@@ -4009,6 +4078,10 @@ it('bootstraps a no-session BUSINESS workspace, records manual dispatch and main
   const firstGreenWorkprogramSnapshot = db.prepare('SELECT snapshot_json FROM review_submissions WHERE workspace_id=? AND id=?')
     .bind(workspaceId, firstGreenWorkprogramSubmission.body.result.submissionId).first<any>();
   const firstGreenWorkprogramContent = JSON.parse(firstGreenWorkprogramSnapshot.snapshot_json);
+  const adHocWorkprogramRow = firstGreenWorkprogramContent.procedures.find((row: any) => row.id === conditionalAdHoc.body.result.procedureId);
+  assert.equal(adHocWorkprogramRow?.origin, 'AD_HOC');
+  assert.equal(adHocWorkprogramRow?.status, 'REVIEWED', 'the inserted mandatory procedure is included in the active workprogram review snapshot');
+  assert.ok(adHocWorkprogramRow?.scopeReason, 'the inserted step remains required work with its scope rationale in the immutable submission');
   assert.equal(firstGreenWorkprogramContent.procedures[0].instructions, 'Inspect the retained source and recalculate the other current asset amount.');
   assert.equal(firstGreenWorkprogramContent.procedures[0].workPerformed, 'Inspected the corrected source record and recalculated the relevant current-period amount against the ledger.');
   assert.equal(firstGreenWorkprogramContent.procedures[0].conclusion, 'The corrected current-period source supports the recorded amount and the revised audit conclusion.');
@@ -5605,4 +5678,42 @@ it('bootstraps a no-session BUSINESS workspace, records manual dispatch and main
   assert.equal(legacyScopeFeed.body.resyncRequired, true,
     'unknown structured scope metadata must not be mistaken for a known workspace-only event');
   assert.deepEqual(legacyScopeFeed.body.events, []);
+
+  const workprogramResubmission = db.prepare(`SELECT target_version FROM review_submissions WHERE workspace_id=? AND id=?`)
+    .bind(workspaceId, returnedGreenProcedureSubmission.body.result.reviewSubmissionId).first<any>();
+  const redProgramAssignment = db.prepare(`SELECT assigned_staff_id FROM workprograms WHERE workspace_id=? AND id=?`)
+    .bind(workspaceId, revenueWorkprogramId).first<any>();
+  await runFieldworkAcceptanceMatrix(t, {
+    getFieldworkWorkspace: () => call(`/api/workspaces/${workspaceId}/engagements/${engagementId}/fieldwork-workspace`, { headers: technicalHeaders }),
+    revenueWorkprogramId,
+    insertedAdHocProcedureId,
+    activeProgramAdHocProcedureId: String(conditionalAdHoc.body.result.procedureId),
+    provisionedRevenueProcedures,
+    persistedRevenueProcedures: revenueProcedureRows,
+    missingAdHocInputs: [missingAdHocTitle, missingAdHocInstructions, missingAdHocReason],
+    insertedAdHocRevision,
+    insertedAdHocAudit,
+    insertedAdHocChangeFeedCount: Number(db.prepare(`SELECT COUNT(*) AS count FROM fieldwork_change_feed
+      WHERE workspace_id=? AND engagement_id=? AND entity_type='Procedure' AND entity_id=? AND row_version=1`)
+      .bind(workspaceId, engagementId, insertedAdHocProcedureId).first<any>()?.count),
+    linkedEvidence: greenEvidenceLink,
+    unlinkedEvidence: unlinkGreenProcedureEvidence,
+    staleEvidenceSubmit: staleEvidenceProcedureSubmit,
+    incompleteSubmit: blankProcedureSubmit,
+    completedSubmit: greenProcedureSubmission,
+    adHocWorkprogramRow,
+    submittedProcedureEdit: preparerEditAfterSubmission,
+    preparerReviewAttempt: preparerCannotReviewProcedure,
+    emptyReturn: rejectedEmptyProcedureReturn,
+    returnedForRework: returnGreenProcedure,
+    preparerReworkUpdate: revisedProcedureForEvidenceV3,
+    resubmission: returnedGreenProcedureSubmission,
+    resubmissionTargetVersion: Number(workprogramResubmission?.target_version),
+    preparerSelfReview: redManagerSelfReview,
+    associateRedProvision,
+    managerRedProvision,
+    redProgramAssignedStaffId: String(redProgramAssignment?.assigned_staff_id),
+    managerStaffId: String(staff.body.result.staffMemberId),
+    prematurePartnerClearance: partnerCannotClearAreaDuringExecution
+  });
 });

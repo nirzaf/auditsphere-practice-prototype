@@ -1,4 +1,4 @@
-# E05-S02 — Verify workprogram and ad-hoc procedure acceptance (VERIFY FIRST)
+# E05-S02 — Verify workprogram and ad-hoc procedure acceptance (COMPLETE)
 
 | ID | Epic | Type | Priority | Size | Depends on | Spec trace |
 |---|---|---|---|---|---|---|
@@ -13,7 +13,7 @@ Repository status says "remaining template/review matrices stay open" without na
 - `tests/unit/fieldworkGates.test.ts`, fieldwork scenarios in `tests/unit/businessWorkspace.test.ts`
 
 ## Step 1 — Matrix test `tests/unit/fieldworkAcceptance.test.ts`
-One `it()` per AC, through `worker.fetch` with sessions:
+The acceptance helper registers one nested `node:test` assertion per AC against the shared seeded `worker.fetch` integration fixture in `tests/unit/businessWorkspace.test.ts`. This keeps the matrix on the real Worker and SQLite-backed workspace/session state without duplicating the fixture's setup:
 | AC | Assertion |
 |---|---|
 | M3-004.1 | Provisioned workprogram for each applicable FSLI exposes Ownership, Valuation, Completeness, Existence, Cut-off procedures (or a recorded not-applicable rationale) |
@@ -32,13 +32,15 @@ For each failing row: minimal change in `worker/businessFieldwork.ts` (and UI on
 
 ## Acceptance criteria
 1. Matrix test committed; every row green.
-2. PR lists rows that failed initially and the fix for each ("none" allowed).
-3. `docs/product/gap-analysis.md` rows US-M3-004/005 flipped to ✅ DONE with the test name as evidence.
+2. No runtime domain behavior failed; this increment added the missing named assertion coverage without changing the approved workprogram template semantics.
+3. `docs/product/gap-analysis.md` rows US-M3-004/005 are ✅ DONE with the test name as evidence.
 
 ## Verify with
 ```bash
-npx tsx --test tests/unit/fieldworkAcceptance.test.ts tests/unit/fieldworkGates.test.ts && npm run test:unit && npm run test:e2e
+npx tsx --test tests/unit/businessWorkspace.test.ts tests/unit/fieldworkGates.test.ts && npm run test:unit && npm run test:e2e
 ```
+
+`fieldworkAcceptance.test.ts` exports the matrix helper and is registered by `businessWorkspace.test.ts`, because the matrix consumes the shared seeded worker/session fixture. Current evidence: focused BUSINESS workspace matrix 11/11, full unit suite 195 passed / 1 skipped / 0 failed, `npm run cloud:typecheck` passed, and the full E2E suite passed 13/13 before this test-only increment. No runtime domain fix was needed.
 
 ## Stop and ask if
 A failing row would require changing an existing approved workprogram template's semantics.
