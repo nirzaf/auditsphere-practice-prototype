@@ -93,6 +93,38 @@ async function waitForStable(tab: CdpTab, label: string, predicate: string, requ
   throw new Error(`Timed out waiting for stable ${label}. Fieldwork diagnostics: ${diagnostic}`);
 }
 
+async function installStoredFileDownloadCapture(tab: CdpTab): Promise<void> {
+  await tab.evaluate(`(() => {
+    if (window.__qaStoredFileDownloadCapture) return;
+    const state = { urls: new Map(), downloads: [], errors: [], originalClick: HTMLAnchorElement.prototype.click };
+    const createObjectUrl = URL.createObjectURL.bind(URL);
+    URL.createObjectURL = blob => {
+      const url = createObjectUrl(blob);
+      state.urls.set(url, blob);
+      return url;
+    };
+    HTMLAnchorElement.prototype.click = function() {
+      if (!this.download) return state.originalClick.call(this);
+      const blob = state.urls.get(this.href);
+      if (!blob) { state.errors.push('Download link did not refer to a captured object URL.'); return; }
+      const item = { fileName: this.download, size: blob.size, type: blob.type, base64: '', done: false };
+      state.downloads.push(item);
+      blob.arrayBuffer().then(buffer => {
+        const bytes = new Uint8Array(buffer);
+        let binary = '';
+        for (let offset = 0; offset < bytes.length; offset += 32768) {
+          binary += String.fromCharCode(...bytes.subarray(offset, Math.min(offset + 32768, bytes.length)));
+        }
+        item.base64 = btoa(binary);
+        item.done = true;
+      }).catch(error => state.errors.push(String(error)));
+    };
+    window.__qaStoredFileDownloadCapture = state;
+  })()`);
+  assert.equal(await tab.evaluate<boolean>('Boolean(window.__qaStoredFileDownloadCapture?.downloads)'), true,
+    'the browser download capture is installed in the active document');
+}
+
 function runFixtureSql(sql: string, ...values: unknown[]): void {
   assert.ok(server);
   server.db.prepare(sql).bind(...values).run();
@@ -240,7 +272,7 @@ async function createFieldworkFixture() {
       VALUES(?,?,?,1,?,?,?, ?,NULL)`, randomUUID(), workspaceId, step.id, snapshot, emptyEvidenceHash, workspace.actorProfileId, now);
   }
 
-  return { ...workspace, ...ids, name: `Conflict Journey ${key.slice(0, 8)}` };
+  return { ...workspace, ...ids, samplingSource, name: `Conflict Journey ${key.slice(0, 8)}` };
 }
 
 function addTimeEntryPreparer(fixture: Awaited<ReturnType<typeof createFieldworkFixture>>) {
@@ -1225,6 +1257,33 @@ it('US-FLD-010 retains hybrid provenance, links Findings, and preserves replacem
   const fixture = await createFieldworkFixture();
   await selectWorkspace(tabA, fixture, fixture.actorProfileId);
 
+  const expectedSamplingHash = sha256(fixture.samplingSource);
+  const sourceFileRow = await tabA.evaluate<{ text: string; downloadButton: boolean }>(`(() => {
+    const row = [...document.querySelectorAll('.business-file-list > li')]
+      .find(item => item.querySelector('strong')?.textContent?.trim() === 'qa-sampling-population.csv');
+    return { text: row?.innerText ?? '', downloadButton: [...(row?.querySelectorAll('button') ?? [])]
+      .some(button => button.textContent?.trim() === 'Download verified bytes' && !button.disabled) };
+  })()`);
+  assert.ok(sourceFileRow.text.includes(expectedSamplingHash.slice(0, 16)), 'the stored-file list exposes the pinned source SHA-256 prefix');
+  assert.equal(sourceFileRow.downloadButton, true, 'the pinned source file has its real verified-download control');
+  await installStoredFileDownloadCapture(tabA);
+  await tabA.evaluate(`(() => {
+    const row = [...document.querySelectorAll('.business-file-list > li')]
+      .find(item => item.querySelector('strong')?.textContent?.trim() === 'qa-sampling-population.csv');
+    [...(row?.querySelectorAll('button') ?? [])].find(button => button.textContent?.trim() === 'Download verified bytes')?.click();
+  })()`);
+  await waitFor(tabA, 'the pinned sampling source bytes from the verified download',
+    'Boolean(window.__qaStoredFileDownloadCapture?.downloads[0]?.done)');
+  const capturedSource = await tabA.evaluate<{ fileName: string; size: number; base64: string; done: boolean }>(
+    'window.__qaStoredFileDownloadCapture.downloads[0]');
+  assert.equal(capturedSource.done, true);
+  assert.equal(capturedSource.fileName, 'qa-sampling-population.csv');
+  const downloadedSourceBytes = Buffer.from(capturedSource.base64, 'base64');
+  assert.equal(capturedSource.size, downloadedSourceBytes.byteLength, 'downloaded browser Blob size matches its bytes');
+  assert.deepEqual(downloadedSourceBytes, Buffer.from(fixture.samplingSource, 'utf8'), 'opened/downloaded bytes exactly match the immutable fixture source');
+  assert.equal(createHash('sha256').update(downloadedSourceBytes).digest('hex'), expectedSamplingHash,
+    'the independently recomputed downloaded-byte SHA-256 matches the pinned file version');
+
   // Observe the settled Worker-backed workspace before the evidence journey.
   const initialUi = await tabA.evaluate<{ heading: string; persona: string; evidenceTabVisible: boolean }>(`({
     heading: document.querySelector('#business-fieldwork-heading')?.textContent?.trim() ?? '',
@@ -1255,7 +1314,7 @@ it('US-FLD-010 retains hybrid provenance, links Findings, and preserves replacem
   await setVisibleFieldByLabel(tabA, 'External source URL (optional)', externalSourceUrl);
   await setVisibleFieldByLabel(tabA, 'Retrieved at', '2026-10-01T12:30');
   await clickVisibleButton(tabA, 'Create evidence record');
-  await waitFor(tabA, 'the committed hybrid evidence metadata', `document.body.innerText.includes(${JSON.stringify(evidenceTitleV1)}) && document.body.innerText.includes('SHA-256') && document.body.innerText.includes('Purchases binder 2') && document.body.innerText.includes('Box 3') && document.body.innerText.includes('Shelf B') && document.body.innerText.includes(${JSON.stringify(externalSourceUrl)})`);
+  await waitFor(tabA, 'the committed hybrid evidence metadata and exact source hash prefix', `document.body.innerText.includes(${JSON.stringify(evidenceTitleV1)}) && document.body.innerText.includes('SHA-256 ${expectedSamplingHash.slice(0, 16)}') && document.body.innerText.includes('Purchases binder 2') && document.body.innerText.includes('Box 3') && document.body.innerText.includes('Shelf B') && document.body.innerText.includes(${JSON.stringify(externalSourceUrl)})`);
 
   await selectWorkspace(tabA, fixture, fixture.actorB);
   await clickVisibleButton(tabA, 'Evidence');
