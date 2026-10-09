@@ -1,4 +1,4 @@
-# E03-S01 — Auth schema (0046) and `worker/auth` core primitives
+# E03-S01 — Auth schema (0045) and `worker/auth` core primitives
 
 | ID | Epic | Type | Priority | Size | Depends on | Spec trace |
 |---|---|---|---|---|---|---|
@@ -15,9 +15,9 @@ Create the identity tables and pure, well-tested primitives (token generation, h
 
 ## Scope
 **In:**
-- `worker/migrations/0046_auth_accounts_sessions.sql` exactly as data-model-delta §1 (with the SP-01 Argon2id hash format), schema version bump.
+- `worker/migrations/0045_auth_accounts_sessions.sql` exactly as data-model-delta §1 (adjust only if SP-01 changed the hash format), schema version bump.
 - `worker/auth/tokens.ts`: `newOpaqueToken(): string` (32 random bytes, base64url), `tokenHash(token): Promise<string>` (SHA-256 hex).
-- `worker/auth/passwords.ts`: `hashPassword(pw, params?)`, `verifyPassword(pw, stored)` (constant-time compare), `needsRehash(stored)`, `generateTemporaryPassword()` (≥ 16 chars, CSPRNG, unambiguous alphabet), `checkPasswordPolicy(pw, { email })` per api-delta §1. Argon2id parameters and serialization follow ADR-0005.
+- `worker/auth/passwords.ts`: `hashPassword(pw, params?)`, `verifyPassword(pw, stored)` (constant-time compare), `needsRehash(stored)`, `generateTemporaryPassword()` (≥ 16 chars, CSPRNG, unambiguous alphabet), `checkPasswordPolicy(pw, { email })` per api-delta §1.
 - `worker/auth/sessions.ts`: `createAuthSession(env, { workspaceId, userAccountId, authMethod, activeActorProfileId, now })` → `{ token, row }`; `validateAuthSession(env, token, now)` (idle + absolute expiry, revoked, user ACTIVE, profile grant still active) → session context or typed error; `touchSession` (sliding idle, at most one write per 60 s); `revokeSession(s)`; `revokeAllForUser(userId, reason)`.
 - `worker/auth/events.ts`: `authEventStatement(...)` returning a `D1PreparedStatement` for `auth_events`.
 - `worker/auth/cookies.ts`: `sessionCookie(token, maxAge)`, `clearedSessionCookie()` using `__Host-as_session`, `HttpOnly; Secure; SameSite=Lax; Path=/`.
@@ -50,10 +50,3 @@ npm run cloud:typecheck && npx tsx --test tests/unit/authPrimitives.test.ts test
 
 ## Stop and ask if
 - SP-01's chosen hash parameters exceed the Worker CPU budget measured in SP-01.
-
-## Implementation record (2026-10-08)
-- Added migration `0046_auth_accounts_sessions.sql`; the isolated migration suite verifies schema version 46, required tables, account CHECK constraints, and append-only/single-use protections.
-- Added opaque token/hash, Argon2id hash/verify, unknown-user dummy verification, 10,000-sample temporary-password, password policy, session lifecycle, auth event statement and cookie helpers.
-- Built the offline SHA-1 denylist from the first 10,000 entries of SecLists `10k-most-common.txt`; the plaintext source was removed after hash generation. Source: https://github.com/danielmiessler/SecLists/tree/master/Passwords/Common-Credentials.
-- Verification: `npm run cloud:typecheck`; `npx tsx --test tests/unit/authPrimitives.test.ts tests/unit/workerMigrations.test.ts`; coverage via `node --experimental-test-coverage --import tsx --test tests/unit/authPrimitives.test.ts` (100% line coverage for every reported `worker/auth` module).
-- The full unit suite is run before committing this slice; the epic remains in progress because E03-S02… and later dependent stories are outstanding.

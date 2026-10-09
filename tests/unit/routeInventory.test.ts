@@ -1,14 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { routeInventory } from '../../worker/index';
-import { authHandlerRoutes } from '../../worker/auth/oidcRoutes';
 
-const expectedRoutes = `GET /api/auth/staff/login
-GET /api/auth/staff/callback
-GET /api/auth/me
-POST /api/auth/active-profile
-POST /api/auth/logout
-GET /api/health
+const expectedRoutes = `GET /api/health
 GET /api/health/live
 GET /api/health/ready
 GET /api/health/support-bundle
@@ -66,7 +60,6 @@ PUT /api/workspaces/:workspaceId/files/:fileId/content
 POST /api/workspaces/:workspaceId/files/:fileId/complete
 GET /api/workspaces/:workspaceId`.split('\n');
 
-test('Worker route inventory lists staff auth routes alongside BUSINESS routes', () => {
+test('BUSINESS Worker route inventory stays explicit and excludes TEST snapshot/session routes', () => {
   assert.deepEqual(routeInventory.map(route => `${route.method} ${route.pattern}`), expectedRoutes);
-  for (const route of authHandlerRoutes) assert.ok(routeInventory.some(item => `${item.method} ${item.pattern}` === route), `${route} must remain in the route inventory`);
 });

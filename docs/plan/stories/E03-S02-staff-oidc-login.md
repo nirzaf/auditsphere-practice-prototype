@@ -41,14 +41,6 @@ No OIDC/JWT library dependency. Do not store ID/access tokens. Do not request `o
 npm run cloud:typecheck && npx tsx --test tests/unit/authOidc.test.ts tests/unit/routeInventory.test.ts && npm run test:unit
 ```
 
-## Implementation record
-
-Implemented Entra authorization-code login with PKCE, HMAC-signed short-lived state, RS256/JWKS validation, invite activation, server-side sessions, active-profile selection, `/me`, and logout. The Worker does not persist the ID token or access token. OIDC discovery and signing keys are cached for at most 24 hours, and an unknown key causes a bounded refresh.
-
-Verification: `npm run cloud:typecheck`; `npx tsx --test tests/unit/authOidc.test.ts tests/unit/routeInventory.test.ts` (10 passed); `npm run test:unit` (172 passed, 1 skipped); `git diff --check` (passed).
-
-For a deployment with multiple BUSINESS workspaces, set `OIDC_AUDIT_WORKSPACE_ID` so login failures before account identification can still be attributed to the right workspace. If there is exactly one BUSINESS workspace, the Worker can infer it.
-
 ## Stop and ask if
 - The firm's Entra app registration cannot be configured with the staging/production redirect URIs (owner action).
 - Entra tokens for the tenant are not RS256.

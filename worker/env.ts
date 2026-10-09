@@ -53,8 +53,6 @@ export interface Env {
   OIDC_CLIENT_ID?: string;
   OIDC_CLIENT_SECRET?: string;
   OIDC_REDIRECT_URI?: string;
-  /** Workspace used to retain failed OIDC attempts that cannot yet be tied to an account. */
-  OIDC_AUDIT_WORKSPACE_ID?: string;
   /** Cloudflare Turnstile verification secret for public lead intake. */
   TURNSTILE_SECRET_KEY?: string;
   /** Comma-separated allowed origins. Same-origin deployments need not list one. */
