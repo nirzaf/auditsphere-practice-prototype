@@ -1742,9 +1742,6 @@ it('bootstraps a no-session BUSINESS workspace, records manual dispatch and main
     AND event='TEMP_PASSWORD_ISSUED' ORDER BY created_at DESC,id DESC LIMIT 1`).bind(workspaceId, portalAccount.id).first<any>()?.detail_json as string;
   assert.equal([portalPayload, portalAudit, portalAuthEvent, ...credentialJobLogs].join('\n').includes(temporaryPassword), false,
     'neither durable outbox/audit/auth data nor captured Worker logs contain the plaintext password');
-  db.prepare(`UPDATE user_accounts SET password_must_change=0,password_changed_at=?,version=version+1,updated_at=?
-    WHERE workspace_id=? AND id=? AND kind='CLIENT' AND status='ACTIVE'`)
-    .bind(new Date().toISOString(), new Date().toISOString(), workspaceId, portalAccount.id).run();
   await worker.scheduled({ scheduledTime: Date.now(), cron: '*/5 * * * *' } as any, env);
   assert.equal(deliveredPortalMessages.length, 1, 'replaying an idle outbox pass does not send a second automatic credential message');
   const currentPbcContactVersion = db.prepare('SELECT version FROM contacts WHERE workspace_id=? AND id=?')

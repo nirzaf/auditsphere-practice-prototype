@@ -17,12 +17,12 @@ export const authHandlerRoutes = new Set([
   'POST /api/auth/active-profile', 'POST /api/auth/logout'
 ]);
 
-export type UserRow = {
+type UserRow = {
   id: string; workspace_id: string; kind: 'STAFF' | 'CLIENT'; email_normalized: string; display_name: string;
   status: 'INVITED' | 'ACTIVE' | 'LOCKED' | 'DISABLED'; external_issuer: string | null; external_subject: string | null;
   is_firm_admin: number; password_must_change: number;
 };
-export type ProfileRow = { id: string; persona: 'PREPARER' | 'REVIEWER' | 'APPROVER' | 'CLIENT'; display_name: string; staff_grade: string | null; client_id: string | null };
+type ProfileRow = { id: string; persona: 'PREPARER' | 'REVIEWER' | 'APPROVER' | 'CLIENT'; display_name: string; staff_grade: string | null; client_id: string | null };
 
 function appendCookie(headers: Headers, value: string): void { headers.append('Set-Cookie', value); }
 function cookieState(value: string, secret: string, now: number) {
@@ -41,17 +41,16 @@ function safeReturnTo(value: string | null, origin: string): string {
   } catch { return '/'; }
 }
 
-export async function profilesFor(env: RouteContext['env'], user: UserRow): Promise<ProfileRow[]> {
-  return (await env.DB.prepare(`SELECT ap.id,ap.persona,COALESCE(sm.display_name,ct.full_name,'') AS display_name,sm.grade AS staff_grade,ct.client_id
+async function profilesFor(env: RouteContext['env'], user: UserRow): Promise<ProfileRow[]> {
+  return (await env.DB.prepare(`SELECT ap.id,ap.persona,COALESCE(sm.display_name,'') AS display_name,sm.grade AS staff_grade,NULL AS client_id
     FROM user_profile_grants g JOIN actor_profiles ap ON ap.workspace_id=g.workspace_id AND ap.id=g.actor_profile_id
     LEFT JOIN staff_members sm ON sm.workspace_id=ap.workspace_id AND sm.id=ap.staff_member_id
-    LEFT JOIN contacts ct ON ct.workspace_id=ap.workspace_id AND ct.id=ap.contact_id
     WHERE g.workspace_id=? AND g.user_account_id=? AND g.revoked_at IS NULL AND ap.active=1
       AND (ap.persona='CLIENT' OR sm.active=1)
     ORDER BY ap.persona,ap.id`).bind(user.workspace_id, user.id).all<ProfileRow>()).results ?? [];
 }
 
-export async function meBody(env: RouteContext['env'], user: UserRow, session: AuthSessionRow, now: number) {
+async function meBody(env: RouteContext['env'], user: UserRow, session: AuthSessionRow, now: number) {
   const profiles = await profilesFor(env, user);
   return {
     user: { id: user.id, kind: user.kind, displayName: user.display_name, email: user.email_normalized, isFirmAdmin: user.is_firm_admin === 1 },
@@ -213,9 +212,6 @@ export function createStaffOidcHandlers(depsFactory: (env: RouteContext['env']) 
       assertSameOrigin(ctx.request, ctx.url);
       const deps = depsFactory(ctx.env);
       const current = await currentSession(ctx, deps);
-      if (current.user.password_must_change === 1) {
-        throw new ApiError('PASSWORD_CHANGE_REQUIRED', 'Change your temporary password before switching profiles.');
-      }
       const body = profileRequest.safeParse(await readJson<unknown>(ctx.request, 2048).catch(() => null));
       if (!body.success) throw new ApiError('VALIDATION_FAILED', 'Choose a valid actor profile.');
       const { actorProfileId } = body.data;

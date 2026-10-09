@@ -56,8 +56,6 @@ import { getBusinessPracticeWorkspace, getBusinessProfitability, getBusinessUtil
 import { consumeBusinessArchiveDownloadTicket, createBusinessArchiveDownloadTicket, getBusinessArchiveExport, getBusinessArchiveStatus, getBusinessOpinionPreview, getBusinessReleasedReportProvenance, getBusinessReportingWorkspace } from './businessReportingQuery';
 import { getBusinessWorkflow } from './businessWorkflow';
 import { handleActiveProfile, handleAuthLogout, handleAuthMe, handleStaffCallback, handleStaffLogin } from './auth/oidcRoutes';
-import { handleClientPasswordChange, handleClientPasswordLogin, handlePasswordResetConfirm, handlePasswordResetRequest } from './auth/clientPasswordRoutes';
-import { handleEmailStatusWebhook } from './emailStatusWebhook';
 
 const JSON_BODY_LIMIT = 1_000_000;
 /** Hard ceiling for a single command payload; the domain model is small. */
@@ -630,11 +628,7 @@ const handleIntegrationStatus = async (ctx: RouteContext): Promise<Response> =>
 const router = createRouter()
   .get('/api/auth/staff/login', handleStaffLogin)
   .get('/api/auth/staff/callback', handleStaffCallback)
-  .post('/api/auth/client/login', handleClientPasswordLogin)
   .get('/api/auth/me', handleAuthMe)
-  .post('/api/auth/password', handleClientPasswordChange)
-  .post('/api/auth/password-reset/request', handlePasswordResetRequest)
-  .post('/api/auth/password-reset/confirm', handlePasswordResetConfirm)
   .post('/api/auth/active-profile', handleActiveProfile)
   .post('/api/auth/logout', handleAuthLogout)
   .get('/api/health', handleHealth)
@@ -642,7 +636,6 @@ const router = createRouter()
   .get('/api/health/ready', handleHealthReady)
   .get('/api/health/support-bundle', handleSupportBundle)
   .get('/api/integrations/status', handleIntegrationStatus)
-  .post('/api/webhooks/email-status', ctx => handleEmailStatusWebhook(ctx.request, ctx.env, ctx.requestId))
   .post('/api/internal/verification-runs', ingestVerificationRun)
   .post('/api/workspaces', handleCreateWorkspace)
   .get('/api/workspaces/:workspaceId/actor-profiles', handleBusinessActorProfiles)

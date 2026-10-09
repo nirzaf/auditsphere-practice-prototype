@@ -589,9 +589,6 @@ export async function resolveBusinessSession(env: Env, request: Request): Promis
       if (!token) throw new SessionError('UNKNOWN');
       const now = new Date().toISOString();
       const session = await validateAuthSession(env, token, now);
-      if (session.password_must_change === 1) {
-        throw new ApiError('PASSWORD_CHANGE_REQUIRED', 'Change your temporary password before using the workspace.');
-      }
       try { session.idle_expires_at = await touchSession(env, session, now); } catch { /* session authorization remains valid if activity tracking is unavailable */ }
       return session;
     })();
@@ -929,10 +926,6 @@ const staffActorAssignment = z.strictObject({
 const actorProfileDeactivate = z.strictObject({
   type: z.literal('actor-profile.deactivate'),
   payload: z.strictObject({ actorProfileId: staffIdSchema, expectedVersion: z.number().int().positive() })
-});
-const userUnlockCommand = z.strictObject({
-  type: z.literal('user.unlock'),
-  payload: z.strictObject({ userAccountId: z.string().trim().min(1).max(120), expectedVersion: z.number().int().positive() })
 });
 
 const clientCreateCommand = z.strictObject({
@@ -1274,7 +1267,6 @@ export const businessCommandSchema = z.discriminatedUnion('type', [
   staffUpdateCommand,
   staffActorAssignment,
   actorProfileDeactivate,
-  userUnlockCommand,
   clientCreateCommand,
   clientUpdateCommand,
   clientDeactivateCommand,
@@ -1332,7 +1324,7 @@ export const businessCommandEnvelopeSchema = z.strictObject({
 type BusinessCommandBody = z.infer<typeof businessCommandEnvelopeSchema>;
 export type BusinessCommandEnvelope = BusinessCommandBody & { idempotencyKey: string };
 type BusinessCommand = BusinessCommandBody['command'];
-type BusinessDirectoryCommand = Extract<BusinessCommand, { type: 'staff.create' | 'staff.update' | 'actor-profile.assign' | 'actor-profile.deactivate' | 'user.unlock' }>;
+type BusinessDirectoryCommand = Extract<BusinessCommand, { type: 'staff.create' | 'staff.update' | 'actor-profile.assign' | 'actor-profile.deactivate' }>;
 type BusinessFileCommand = Extract<BusinessCommand, { type: 'file.reserve' | 'file.stage' | 'file.commit' | 'file.reject' }>;
 type BusinessPbcCommand = Extract<BusinessCommand, { type: 'pbc.request.create' | 'pbc.submit' | 'pbc.review' }>;
 type BusinessProposalCommand = Extract<BusinessCommand, { type: 'firm-profile.save' | 'team-cv.attach' | 'team-cv.approve' | 'proposal.create' | 'proposal.revise' | 'proposal.generate' | 'proposal.generate.retry' | 'proposal.approve' | 'proposal.dispatch' | 'proposal.dispatch.recordManual' | 'proposal.dispatch.retry' }>;
@@ -1345,7 +1337,7 @@ type BusinessCommercialCommand = Exclude<BusinessCommand, BusinessDirectoryComma
 
 function isBusinessDirectoryCommand(command: BusinessCommand): command is BusinessDirectoryCommand {
   return command.type === 'staff.create' || command.type === 'staff.update'
-    || command.type === 'actor-profile.assign' || command.type === 'actor-profile.deactivate' || command.type === 'user.unlock';
+    || command.type === 'actor-profile.assign' || command.type === 'actor-profile.deactivate';
 }
 
 function isBusinessFileCommand(command: BusinessCommand): command is BusinessFileCommand {
@@ -1526,42 +1518,10 @@ async function buildDirectoryMutation(
   context: BusinessContext,
   command: BusinessDirectoryCommand,
   commandId: string,
-  now: string,
-  request: Request
+  now: string
 ): Promise<BusinessMutation> {
-  const actorId = context.actor.id;
-
-  if (command.type === 'user.unlock') {
-    const session = await resolveBusinessSession(env, request);
-    const administrator = await env.DB.prepare(`SELECT kind,status,is_firm_admin FROM user_accounts WHERE workspace_id=? AND id=?`)
-      .bind(workspaceId, session.user_account_id).first<{ kind: string; status: string; is_firm_admin: number }>();
-    if (!administrator || administrator.kind !== 'STAFF' || administrator.status !== 'ACTIVE' || administrator.is_firm_admin !== 1) {
-      throw new ApiError('PERSONA_ACTION_DENIED', 'Only an active firm administrator can unlock a client portal account.');
-    }
-    const target = await env.DB.prepare(`SELECT id,version,kind,status FROM user_accounts WHERE workspace_id=? AND id=?`)
-      .bind(workspaceId, command.payload.userAccountId).first<{ id: string; version: number; kind: string; status: string }>();
-    if (!target) throw new ApiError('NOT_FOUND', 'Client account not found.');
-    if (target.kind !== 'CLIENT' || target.status !== 'LOCKED') throw new ApiError('PERSONA_ACTION_DENIED', 'Only a locked client account can be unlocked.');
-    const expected = command.payload.expectedVersion;
-    return {
-      statements: [
-        env.DB.prepare(`INSERT INTO command_assertions(workspace_id,seq,ok)
-          SELECT ?,12,CASE WHEN EXISTS(SELECT 1 FROM user_accounts WHERE workspace_id=? AND id=? AND version=?
-            AND kind='CLIENT' AND status='LOCKED') THEN 1 ELSE 0 END`)
-          .bind(workspaceId, workspaceId, target.id, expected),
-        env.DB.prepare(`UPDATE user_accounts SET status='ACTIVE',failed_login_count=0,locked_until=NULL,
-          version=version+1,updated_at=? WHERE workspace_id=? AND id=? AND version=? AND kind='CLIENT' AND status='LOCKED'`)
-          .bind(now, workspaceId, target.id, expected),
-        env.DB.prepare(`INSERT INTO auth_events(id,workspace_id,user_account_id,event,detail_json,created_at)
-          VALUES(?,?,?,'UNLOCKED',?,?)`)
-          .bind(crypto.randomUUID(), workspaceId, target.id, JSON.stringify({ actorProfileId: actorId, method: 'FIRM_ADMIN' }), now)
-      ],
-      result: { userAccountId: target.id, version: expected + 1 }, entityType: 'USER_ACCOUNT', entityId: target.id,
-      beforeVersion: expected, afterVersion: expected + 1
-    };
-  }
-
   requireDirectoryApprover(context);
+  const actorId = context.actor.id;
 
   if (command.type === 'staff.create') {
     const duplicate = await staffByNaturalKey(env, workspaceId, command.payload.naturalPersonKey);
@@ -4069,7 +4029,7 @@ export async function runBusinessDirectoryCommand(
     const mutation = isBusinessPortalCredentialCommand(envelope.command)
       ? await buildPortalCredentialReissueMutation(env, workspaceId, context, envelope.command, commandId, timestamp)
       : isBusinessDirectoryCommand(envelope.command)
-      ? await buildDirectoryMutation(env, workspaceId, context, envelope.command, commandId, timestamp, request)
+      ? await buildDirectoryMutation(env, workspaceId, context, envelope.command, commandId, timestamp)
       : isBusinessFileCommand(envelope.command)
         ? await buildBusinessFileMutation(env, workspaceId, context, envelope.command, timestamp)
         : isBusinessPbcCommand(envelope.command)

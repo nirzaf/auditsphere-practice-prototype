@@ -14,7 +14,7 @@ export interface AuthSessionRow {
   active_actor_profile_id: string | null; auth_method: 'OIDC_ENTRA' | 'PASSWORD'; created_at: string;
   last_seen_at: string; idle_expires_at: string; absolute_expires_at: string; revoked_at: string | null;
 }
-export interface SessionContext extends AuthSessionRow { email_normalized: string; display_name: string; kind: string; password_must_change: number; }
+export interface SessionContext extends AuthSessionRow { email_normalized: string; display_name: string; kind: string; }
 export async function createAuthSession(env: Env, input: { workspaceId: string; userAccountId: string; authMethod: 'OIDC_ENTRA' | 'PASSWORD'; activeActorProfileId?: string | null; now: string }): Promise<{ token: string; row: AuthSessionRow }> {
   const token = newOpaqueToken(); const digest = await tokenHash(token); const id = crypto.randomUUID();
   const nowMs = Date.parse(input.now); const idle = new Date(nowMs + (input.authMethod === 'OIDC_ENTRA' ? 30 : 15) * 60_000).toISOString(); const absolute = new Date(nowMs + 12 * 60 * 60_000).toISOString();
@@ -28,7 +28,7 @@ export async function createAuthSession(env: Env, input: { workspaceId: string; 
 
 export async function validateAuthSession(env: Env, token: string, now: string): Promise<SessionContext> {
   const digest = await tokenHash(token);
-  const row = await env.DB.prepare(`SELECT s.*,u.email_normalized,u.display_name,u.kind,u.password_must_change,u.status AS account_status
+  const row = await env.DB.prepare(`SELECT s.*,u.email_normalized,u.display_name,u.kind,u.status AS account_status
     FROM auth_sessions s JOIN user_accounts u ON u.workspace_id=s.workspace_id AND u.id=s.user_account_id WHERE s.token_sha256=?`).bind(digest).first<any>();
   if (!row) throw new SessionError('UNKNOWN');
   if (row.revoked_at) throw new SessionError('REVOKED');

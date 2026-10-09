@@ -44,7 +44,7 @@ paths:
         content: { application/json: { schema: { $ref: '#/components/schemas/PasswordLogin' } } }
       responses:
         '200': { description: Session created, content: { application/json: { schema: { $ref: '#/components/schemas/Me' } } } }
-        '401': { description: UNAUTHENTICATED (generic for invalid credentials; TEMP_PASSWORD_EXPIRED only after the correct temporary password is verified) }
+        '401': { description: UNAUTHENTICATED (generic message; never reveal which field was wrong) }
         '423': { description: ACCOUNT_LOCKED with retryAfterSeconds }
         '429': { description: RATE_LIMITED }
   /api/auth/password:
@@ -64,7 +64,6 @@ paths:
         content: { application/json: { schema: { type: object, required: [email], properties: { email: { type: string, format: email } }, additionalProperties: false } } }
       responses:
         '202': { description: Always 202 (no account enumeration); emails a single-use link if a CLIENT account exists }
-        '429': { description: RATE_LIMITED when the Worker RATE_LIMITER binding is configured }
   /api/auth/password-reset/confirm:
     post:
       requestBody:
@@ -73,7 +72,6 @@ paths:
       responses:
         '204': { description: Password set; token consumed; passwordMustChange cleared; sessions revoked }
         '400': { description: INVALID_TOKEN (expired, consumed, unknown) or VALIDATION_FAILED }
-        '429': { description: RATE_LIMITED when the Worker RATE_LIMITER binding is configured }
   /api/auth/me:
     get:
       responses:
@@ -118,7 +116,7 @@ components:
 
 **Password policy (client accounts):** 12–256 chars; reject if in a bundled top-10k breached list (ship as a static hashed set; no network call); reject if it contains the email local part. Lockout: 5 consecutive failures → `LOCKED` for 15 min (exponential to 24 h), `auth_events` row each time.
 
-**New error codes** (add to `src/shared/api/errors.ts`): `ACCOUNT_LOCKED` (423), `PASSWORD_CHANGE_REQUIRED` (403), `TEMP_PASSWORD_EXPIRED` (401; returned only after a correct temporary password is verified), `INVALID_TOKEN` (400).
+**New error codes** (add to `src/shared/api/errors.ts`): `ACCOUNT_LOCKED` (423), `PASSWORD_CHANGE_REQUIRED` (403), `INVALID_TOKEN` (400).
 
 ## 2. Changes to existing business routes — E03-S03, E03-S08
 
