@@ -1051,15 +1051,20 @@ it('US-FLD-007, US-FLD-008 and US-FLD-009 verify MUS, systematic and stratified 
   await clickWhenEnabled(tabA, 'Evaluate current tests');
   await waitFor(tabA, 'the sampling evaluation response', `document.body.innerText.includes('WITHIN TOLERANCE') || !!document.querySelector('.business-fieldwork-panel > .business-alert')`);
 
-  const finalUi = await tabA.evaluate<{ withinToleranceVisible: boolean; boundVisible: boolean; evidenceVisible: boolean; alert: string | null }>(`({
+  const finalUi = await tabA.evaluate<{ withinToleranceVisible: boolean; boundVisible: boolean; evidenceVisible: boolean; evidenceOptions: Array<{ value: string; selectedText: string; options: string[] }>; alert: string | null }>(`({
     withinToleranceVisible: document.body.innerText.includes('WITHIN TOLERANCE'),
     boundVisible: document.body.innerText.includes('49,507.61'),
+    evidenceOptions: [...document.querySelectorAll('.business-fieldwork-sample-test select')].map(select => ({
+      value: select.value,
+      selectedText: select.selectedOptions[0]?.textContent?.trim() ?? '',
+      options: [...select.options].map(option => option.textContent?.trim() ?? '')
+    })),
     evidenceVisible: [...document.querySelectorAll('.business-fieldwork-sample-test select')]
       .some(select => select.selectedOptions[0]?.textContent?.includes(${JSON.stringify(evidenceTitle)})),
     alert: document.querySelector('.business-fieldwork-panel > .business-alert')?.textContent?.trim() ?? null
   })`);
   assert.equal(finalUi.alert, null, `sampling evaluation was rejected: ${finalUi.alert}`);
-  assert.equal(finalUi.evidenceVisible, true);
+  assert.equal(finalUi.evidenceVisible, true, `the selected exact evidence remains available after evaluation: ${JSON.stringify(finalUi.evidenceOptions)}`);
   assert.equal(finalUi.withinToleranceVisible, true);
   assert.equal(finalUi.boundVisible, true);
   assert.ok(tabA.requests.some(url => new URL(url).pathname.includes('/sampling-plans/')));

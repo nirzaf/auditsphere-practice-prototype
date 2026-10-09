@@ -101,10 +101,17 @@ async function setViewport(width: number, height: number, mobile: boolean): Prom
     const metrics = await tab!.evaluate(`JSON.stringify((() => {
       const width = screen.width;
       const overflow = [...document.querySelectorAll('body *')]
+        .filter(element => {
+          const rect = element.getBoundingClientRect();
+          if (rect.right <= width + 1 && rect.left >= -1) return false;
+          for (let ancestor = element.parentElement; ancestor; ancestor = ancestor.parentElement) {
+            if (['auto', 'scroll', 'hidden', 'clip'].includes(getComputedStyle(ancestor).overflowX)) return false;
+          }
+          return true;
+        })
         .map(element => {
           const rect = element.getBoundingClientRect();
           const style = getComputedStyle(element);
-          const scrollContainer = element.closest('[class*="scroll"], [class*="table-wrap"], [class*="preview-wrap"]');
           return {
             tag: element.tagName.toLowerCase(),
             id: element.id || undefined,
@@ -115,13 +122,11 @@ async function setViewport(width: number, height: number, mobile: boolean): Prom
             scrollWidth: element.scrollWidth,
             clientWidth: element.clientWidth,
             overflowX: style.overflowX,
-            scrollContainer: scrollContainer ? String(scrollContainer.className).slice(0, 100) : null,
             text: (element.textContent || '').trim().slice(0, 100)
           };
         })
-        .filter(item => item.right > width + 1 || item.left < -1 || item.scrollWidth > item.clientWidth + 2)
-        .sort((a, b) => Math.max(b.right - width, b.scrollWidth - b.clientWidth) - Math.max(a.right - width, a.scrollWidth - a.clientWidth))
-        .slice(0, 12);
+        .sort((a, b) => b.right - a.right)
+        .slice(0, 16);
       return {
         innerWidth: window.innerWidth,
         innerHeight: window.innerHeight,
