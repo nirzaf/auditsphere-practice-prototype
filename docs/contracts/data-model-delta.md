@@ -301,9 +301,9 @@ CREATE TABLE IF NOT EXISTS client_import_row_map (
 );
 ```
 
-## 8. `0045_drop_legacy_snapshot_tables.sql` — E01-S05 (CONDITIONAL on decision D2)
+## 8. `0045_drop_legacy_snapshot_tables.sql` — E01-S05 (APPLIED; COMPLETE)
 
-The owner directed retirement of the legacy tables. The remote per-environment row count is still unverified because the configured Wrangler session has expired. Do not claim that no TEST records remain; before any manual migration outside the already-authorized deployment path, run the E01-S05 query against every environment. Runtime code, tests, and tooling must not reference the dropped tables; historical migrations are retained and the forward migration removes their dependent trigger objects.
+The owner authorized retirement of the legacy tables after reviewing the configured production D1 inventory. Migration `0045` applied on 2026-10-09 through GitHub Actions run `37912091736`; post-deploy reads confirmed schema version 52 and absence of all seven retired tables. The 21 active/unexpired TEST workspaces were soft-deleted first, and the preflight confirmed zero active TEST rows before destructive DDL. This authorization applies to the configured production database only; inventory each additional environment before applying the migration there. Runtime code, tests, and tooling no longer reference the dropped tables; historical migrations are retained and the forward migration removes their dependent trigger objects.
 
 ```sql
 DROP TABLE IF EXISTS workspace_entities;
@@ -320,7 +320,7 @@ DROP TABLE IF EXISTS demo_creation_limits;
 -- Agent MUST grep every remaining migration for FKs/triggers referencing a dropped table before finalising this list.
 ```
 
-> `migration_runs` and `migration_id_map` are retained to avoid an unrequested second data deletion. The US-SYS-002 tooling is retired, so migration 0045 removes its 0039–0041 guard triggers that depend on the legacy snapshot tables.
+> `migration_runs` and `migration_id_map` were retained. The US-SYS-002 tooling is retired, so migration 0045 removed its 0039–0041 guard triggers that depended on the legacy snapshot tables. The deployment also verified schema version 52 and that the legacy snapshot tables are absent.
 
 ## 9. No schema change required
 

@@ -5,23 +5,26 @@ blocked. It records the integration code and configuration in the repository and
 the account-owner steps that still gate live acceptance. Integration status must
 come from the deployed Worker; local configuration is not evidence of connectivity.
 
-The latest verified production Worker is main commit
-`446f27583bc261d3a66cc580b98713d0357edf83`, deployed by [GitHub Actions run
-37781910365](https://github.com/nirzaf/auditsphere-practice-prototype/actions/runs/37781910365)
-on 2026-10-08 at 13:12 UTC. CI passed application/Worker typecheck, unit tests,
-browser E2E, and production build. The deployment job applied and verified
-R2 archive-retention locks, deployed the restricted Email Service provider,
-applied approved D1 migrations, deployed the Worker/static assets, and passed
-the Worker readiness probe. This proves deployment health, not outbound email
-delivery or SharePoint authentication. The main Worker deploys from checked-in
-`wrangler.jsonc`; the earlier strict-mode config conflict is resolved.
+Main commit `4ff0fe0ef375efc9c35e5960b0287ef3f6ad5469` was deployed by
+[GitHub Actions run 37912091736](https://github.com/nirzaf/auditsphere-practice-prototype/actions/runs/37912091736)
+on 2026-10-09 at 12:37 UTC. The verification job passed. The deployment job
+applied R2 archive-retention locks, deployed the Email Service provider, applied
+the approved D1 migrations (including `0045`), and deployed the Worker/static
+assets. Its final readiness probe returned HTTP 503, so this is a completed
+deployment but **not a ready release**. The observed readiness blockers are
+missing Worker secrets `TURNSTILE_SECRET_KEY` and `PUBLIC_LEAD_IP_HASH_SECRET`,
+plus the SharePoint app's rejected client-credential request. The main Worker
+deploys from checked-in `wrangler.jsonc`; the earlier strict-mode config conflict
+is resolved.
 
-A `GET /api/integrations/status` observed at 2026-10-08 12:39:59 UTC reported
-email `configured: true` with transport `SERVICE_BINDING` and
+The deployed Worker's last observed `/api/integrations/status` reported email
+`configured: true` with transport `SERVICE_BINDING` and
 `providerReadiness: READY`; SharePoint reports `FAILED` because Microsoft Graph
-rejected the token request. A healthy deployment does not by itself establish
-email delivery or SharePoint connectivity; the integration probe remains failed
-for SharePoint and pending for real email delivery.
+rejected the token request. The 2026-10-09 readiness probe returned HTTP 503
+with `TURNSTILE_NOT_CONFIGURED` and
+`PUBLIC_LEAD_IP_HASH_SECRET_NOT_CONFIGURED`. A healthy provider probe does not
+prove a successful message delivery, and the SharePoint site read/write check is
+still outstanding.
 
 Verify the current state of every integration at any time:
 
@@ -72,16 +75,22 @@ as the Worker secret `EMAIL_API_KEY`. DNS, HMAC callback, and rotation steps are
 
 `mail.steaudit.com` was last observed as **Enabled / DNS Configured** for Email
 Sending. The approved UAT destination `testing@mail.steauditing.com` was last
-observed as **Pending**. No successful application send is recorded; recheck the
-destination and complete a controlled staging delivery before claiming the live
-email acceptance criterion.
+observed as **Pending**. A user-provided Cloudflare confirmation screen shows
+`fazrin@quadrate.lk` is verified as an Email Routing destination; this does not
+verify the separate outbound Email Sending recipient or prove delivery. No
+successful application send is recorded; recheck the outbound destination and
+complete a controlled staging delivery before claiming the live email acceptance
+criterion.
 
 Cloudflare Email Routing is inbound forwarding and separate from outbound Email
 Sending. The requested inbound alias `audit@steaudit.com` → `fazrin@quadrate.lk`
-is not active until a routing rule is created and tested. Do not enable Email
-Routing on the root zone while its apex MX points to Microsoft 365; the onboarding
-preview proposes replacing that MX and could interrupt existing `@steaudit.com`
-mail. Keep the current inbound provider while configuring outbound sender records.
+is not active until a routing rule is created and tested. The current Cloudflare
+DNS records show the `steaudit.com` apex MX points to Microsoft 365
+(`steaudit-com.mail.protection.outlook.com`). Cloudflare Email Routing on the
+apex requires changing MX delivery for the domain and could interrupt all
+existing `@steaudit.com` mail. On 2026-10-09 the owner chose to preserve the
+Microsoft 365 MX, so this apex route remains inactive. Revisit only with a
+planned inbound-mail migration or a separately approved subdomain route.
 
 ## 2. SharePoint / Microsoft Graph (US-GAP-25 – US-GAP-28)
 
@@ -113,15 +122,15 @@ The app remains limited to `Sites.Selected`; do not give it tenant-wide
 `Sites.ReadWrite.All` or `Sites.FullControl.All`.
 
 The configured SharePoint client secret was exposed in browser accessibility
-output during the setup session. Treat it as compromised. The app currently lists
+output during the setup session. Treat it as compromised. Azure currently lists
 one replacement secret labeled `AuditSphere UAT Cloudflare Worker rotated
-(180-day)`, expiring 2027-04-06. Microsoft shows secret values only at creation;
-the live Worker still receives a rejected Graph token response, so the deployed
-secret has not been proven to match. If the owner no longer has that replacement
-value, create another and enter it directly as `SHAREPOINT_CLIENT_SECRET` in the
-Cloudflare Worker secret UI. Never copy it into this runbook, chat, or repository.
-Repeat the live status probe and a real site read/write check after the Cloudflare
-secret is updated; a successful token request alone does not prove the site grant works.
+(180-day)`, expiring 2027-04-06. Its validity period does not establish that the
+Cloudflare Worker contains the matching value: Graph still rejects the deployed
+credential. If the replacement value is no longer available, create another and
+enter it directly as `SHAREPOINT_CLIENT_SECRET` in Cloudflare Worker settings.
+Never copy it into this runbook, chat, or repository. Repeat the live status probe
+and a real site read/write check after the Worker secret is updated; a successful
+token request alone does not prove the site grant works.
 
 The deployed Worker token cache keys entries by a non-reversible SHA-256 fingerprint of
 the client secret, tenant and app identity. A same-length secret rotation now
@@ -178,12 +187,12 @@ below before acceptance:
 
 | Field | Source |
 | --- | --- |
-| Application URL | https://auditsphere-visual-prototype.quadrate-lk.workers.dev (readiness returns `ready`) |
-| Deployed build identity | `446f27583bc261d3a66cc580b98713d0357edf83` (verified Worker deployment, 2026-10-08; GitHub Actions run 37781910365) |
+| Application URL | https://auditsphere-visual-prototype.quadrate-lk.workers.dev (2026-10-09 readiness returned HTTP 503; not ready) |
+| Deployed build identity | `4ff0fe0ef375efc9c35e5960b0287ef3f6ad5469` (Worker/assets deployment completed, 2026-10-09; GitHub Actions run 37912091736; readiness failed) |
 | Workspace and actors | **Blocked.** The deployed public `workers.dev` Worker returned `Business workspace setup is not enabled for this trusted deployment.` when the synthetic create flow was submitted. No workspace or actors were created. Keep the setup gate disabled on this unrestricted, no-auth endpoint; establish a trusted test perimeter and explicitly enable bootstrap there before recording UAT evidence. |
 | Client / engagement ids | **Not created.** There are no deployed UAT records or IDs to record until the trusted test workspace flow is enabled and verified. |
-| SharePoint site/library/root ids | values returned by `/api/integrations/status` after the site grant and secret are configured |
-| Email provider | `SERVICE_BINDING` is configured; recipient verification and a controlled UAT delivery are still unverified |
+| SharePoint site/library/root ids | values returned by `/api/integrations/status` after the deployed client secret authenticates and the granted site is reachable |
+| Email provider | `SERVICE_BINDING` reports `READY`; approved outbound recipient status and a controlled UAT delivery are still unverified |
 
 Do not store passwords, tokens, real client evidence or actor identity assertions
 in this file. The no-auth deployment boundary remains: use synthetic data and a
