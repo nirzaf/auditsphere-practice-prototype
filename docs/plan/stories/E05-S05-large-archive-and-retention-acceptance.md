@@ -22,5 +22,37 @@ Prove on real Cloudflare infrastructure (staging) that sealed archives are byte-
 ## Constraints
 Synthetic data only. Do not weaken lock rules to make the test pass.
 
+## Current execution status (2026-10-09)
+
+**Blocked on isolated staging infrastructure; not accepted.** A read-only review
+of the built-in Cloudflare dashboard shows the main Worker has only the
+Production environment and offers “Create your first Preview.” Its current D1,
+R2, and email bindings are production bindings. No isolated staging Worker,
+database, or archive bucket was available, so this run did not create records,
+advance `archive_due_at`, exercise object-lock mutations, or run against those
+production resources.
+
+- **AC1 — blocked:** no staging engagement or ≥2 GiB synthetic dataset was
+  created; the normal 60-day and early Partner-lock paths remain unverified on
+  real staging infrastructure.
+- **AC2 — partial local evidence only:** the local Worker browser journey covers
+  the native archive download ticket and verifies the streamed ZIP against its
+  sealed SHA-256 and size. The large archive and File System Access paths have
+  local streaming/unit coverage, but have not been accepted on a real browser
+  with a multi-gigabyte staging archive.
+- **AC3 — blocked:** no staging R2 bucket lock was available for overwrite and
+  delete canaries. No mutation was attempted on the production bucket.
+- **AC4 — partial local evidence only:** existing local Worker coverage checks
+  `423 WORKSPACE_FROZEN` for a post-seal archive note and ordinary file
+  reservation, as well as the client portal upload freeze. This is not a full
+  operator-recorded mutation matrix on a staging engagement.
+- **AC5 — blocked:** no staging run measurements, archive sizes, operation
+  durations, or staging operator result exist to record.
+
+The built-in-browser preflight is recorded in `docs/ops/uat-log.md`. To unblock,
+provide a separate non-production Worker with isolated D1 and R2 bindings and
+retention lock enabled. Do not use the current production resources or weaken
+their retention policy for this acceptance.
+
 ## Stop and ask if
 Any step requires production credentials.
