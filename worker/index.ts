@@ -36,6 +36,8 @@ import {
   getBusinessPbcRequestPortal,
   getBusinessPbcPortal,
   listBusinessPbcEngagements,
+  assertBusinessEngagementAccess,
+  assertBusinessClientAccess,
   getBusinessChanges,
   businessEnvelopeFromRequest,
   getBusinessFileDownload,
@@ -788,6 +790,14 @@ export default {
       if (match.params.workspaceId) {
         const session = await resolveBusinessSession(env, request);
         if (session.workspace_id !== match.params.workspaceId) throw new ApiError('NOT_FOUND', 'Workspace not found.');
+      }
+      if (match.params.workspaceId && match.params.engagementId) {
+        const businessContext = await resolveBusinessContext(env, match.params.workspaceId, request);
+        await assertBusinessEngagementAccess(env, match.params.workspaceId, businessContext, match.params.engagementId);
+      }
+      if (match.params.workspaceId && match.params.clientId) {
+        const businessContext = await resolveBusinessContext(env, match.params.workspaceId, request);
+        await assertBusinessClientAccess(env, match.params.workspaceId, businessContext, match.params.clientId);
       }
       return finishApiResponse(await match.handler({ ...context, params: match.params }), match.routePattern);
     } catch (error) {

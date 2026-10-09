@@ -39,6 +39,19 @@ describe('business directory pagination requests (US-GAP-29)', () => {
     assert.equal(roundTripped, 'opaque%2Fcursor');
   });
 
+  it('preserves the selected reviewer client context while requesting the next filtered page', async () => {
+    stubFetch();
+    const scoped: BusinessWorkspacePreference = {
+      ...preference, actorId: 'reviewer-1', persona: 'REVIEWER', clientId: 'assigned-client-2'
+    };
+    await getBusinessClients('ws-1', scoped, { cursor: 'assigned-client-cursor', limit: 1 });
+    assert.equal(requests[0], '/api/workspaces/ws-1/clients?limit=1&cursor=assigned-client-cursor');
+    const headers = capturedHeaders[0];
+    assert.equal(headers?.get('X-Actor-Id'), 'reviewer-1');
+    assert.equal(headers?.get('X-Active-Persona'), 'REVIEWER');
+    assert.equal(headers?.get('X-Client-Id'), 'assigned-client-2');
+  });
+
   it('forwards an explicit cursor for subsequent lead pages', async () => {
     stubFetch();
     await getBusinessLeads('ws-1', preference, { cursor: 'lead-cursor' });

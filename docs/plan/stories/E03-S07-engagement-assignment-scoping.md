@@ -45,5 +45,21 @@ Practice reports (firm TB/P&L/AR ageing, utilisation, profitability) remain Part
 4. Client and lead lists for non-Partners filtered per table; pagination cursors still work (`tests/unit/businessDirectoryPagination.test.ts` extended).
 5. Partners unaffected (existing suites green).
 
+## Step 3 — Implementation and post-change verification
+
+**Status: implemented on 2026-10-09.** `worker/businessScope.ts` centralizes the engagement and client authorization rules. `resolveBusinessContext` checks selected engagements; route dispatch checks every `:engagementId` and `:clientId`; command processing checks explicit engagement targets and resolves ID-only mutation ownership before commit. File reads, uploads and lists, PBC engagement lists, query-filtered changes, and practice engagement access use the same rule. The owner lookup fails closed for scoped mutation entities that cannot be tied to a client or engagement.
+
+The rule preserves these boundaries:
+
+- Partner `APPROVER` and `CLIENT` projections retain their existing behavior.
+- `PREPARER` and `REVIEWER` access is granted by any assignment row, without date or phase filtering. The audit includes assignments whose dates ended in 2020.
+- Commercial-phase access remains available to staff profiles with the relevant commercial action until planning starts.
+- A staff member can still open a client record they just created during intake, before that client has an engagement. The client and contact creation flow depends on this exception; later directory pages otherwise show assigned or commercially visible clients.
+- Historical files linked to an assigned continuing engagement remain readable through the existing continuation relationship.
+
+`tests/unit/assignmentScopeAudit.test.ts` now has required (non-TODO) assertions. It checks every `GET` route in `routeInventory` containing `:engagementId` for both unassigned personas, selected-engagement filters on `/changes` and `/practice`, paged client filtering, commercial/PBC visibility, and three denied command shapes: self-assignment, PBC request creation, and approving another user's time entry by ID. All return `403 FORBIDDEN_SCOPE`; rejected commands leave the audit, assignment and PBC counts unchanged, and the time entry remains submitted. The assigned Reviewer/Preparer and firm Partner controls continue to return `200`.
+
+**Verification:** `npm run test:unit` passed (185 passed, 1 skipped, 0 failed); the focused assignment audit passed (7/7); `npm run cloud:typecheck`, `npm run lint`, `npm run build`, and `git diff --check` passed. The production build reports the existing advisory for the 508 kB main UI chunk.
+
 ## Stop and ask if
 - An existing flow requires an unassigned Reviewer to act (e.g. covering for a colleague) — propose an explicit "temporary assignment" rather than a bypass.

@@ -149,7 +149,7 @@ it('keeps assigned staff and firm Partners able to read assigned engagement work
   }
 });
 
-it('records the as-is read matrix for unassigned staff on each engagement route', { todo: 'S07 assignment guards have not yet been implemented; this VERIFY FIRST case records current access.' }, async () => {
+it('blocks unassigned staff with FORBIDDEN_SCOPE on every engagement read route', async () => {
   const routes = routeInventory.filter(route => route.method === 'GET' && route.pattern.includes(':engagementId'));
   const matrix: Record<string, Array<{ route: string; status: number; code?: string }>> = {};
   for (const [name, actor, engagement] of [['Reviewer', reviewer, engagements[1]], ['Preparer', preparer, engagements[0]]] as const) {
@@ -172,7 +172,20 @@ it('records the as-is read matrix for unassigned staff on each engagement route'
   assert.ok(outcomes.every(item => item.code === 'FORBIDDEN_SCOPE'), 'every blocked read reports FORBIDDEN_SCOPE');
 });
 
-it('filters staff client pages to their assigned clients while preserving cursors', { todo: 'S07 assigned-client filtering has not yet been implemented.' }, async () => {
+it('blocks engagement filters supplied in collection query parameters', async () => {
+  for (const [actor, engagement] of [[reviewer, engagements[1]], [preparer, engagements[0]]] as const) {
+    for (const path of [
+      `/api/workspaces/${workspaceId}/changes?after=0&engagementId=${engagement.id}`,
+      `/api/workspaces/${workspaceId}/practice?engagementId=${engagement.id}`
+    ]) {
+      const response = await call(path, actor, { clientId: engagement.clientId });
+      assert.equal(response.status, 403, `${path}: ${await response.clone().text()}`);
+      assert.equal((await response.json() as any).code, 'FORBIDDEN_SCOPE');
+    }
+  }
+});
+
+it('filters staff client pages to their assigned clients while preserving cursors', async () => {
   const assignedClientIds = new Set([engagements[0].clientId, engagements[2].clientId]);
   const first = await call(`/api/workspaces/${workspaceId}/clients?limit=1`, reviewer);
   assert.equal(first.status, 200, await first.clone().text());
@@ -190,9 +203,32 @@ it('filters staff client pages to their assigned clients while preserving cursor
   assert.deepEqual((await preparerPage.json() as any).items.map((item: any) => item.id), [engagements[1].clientId]);
   const partnerPage = await call(`/api/workspaces/${workspaceId}/clients?limit=100`, partner);
   assert.equal((await partnerPage.json() as any).items.length, 3, 'firm-wide Partner list remains unchanged');
+  const hiddenClient = await call(`/api/workspaces/${workspaceId}/clients/${engagements[1].clientId}`, reviewer);
+  assert.equal(hiddenClient.status, 403);
+  assert.equal((await hiddenClient.json() as any).code, 'FORBIDDEN_SCOPE');
 });
 
-it('denies unassigned Reviewer and Preparer engagement commands before any write', { todo: 'S07 command-scope guards have not yet been implemented.' }, async () => {
+it('shows commercial engagements before assignment and filters PBC engagement lists by D3', async () => {
+  db.prepare(`UPDATE engagements SET lifecycle_state='ADVANCE_BILLING',portal_activated_at=NULL
+    WHERE workspace_id=? AND id=?`).bind(workspaceId, engagements[2].id).run();
+  try {
+    const workflow = await call(`/api/workspaces/${workspaceId}/engagements/${engagements[2].id}/workflow`, preparer,
+      { clientId: engagements[2].clientId });
+    assert.equal(workflow.status, 200, await workflow.clone().text());
+    const clientsPage = await call(`/api/workspaces/${workspaceId}/clients?limit=100`, preparer);
+    assert.deepEqual(new Set((await clientsPage.json() as any).items.map((item: any) => item.id)),
+      new Set([engagements[1].clientId, engagements[2].clientId]));
+    const pbc = await call(`/api/workspaces/${workspaceId}/pbc-engagements`, preparer);
+    assert.equal(pbc.status, 200, await pbc.clone().text());
+    assert.deepEqual(new Set(((await pbc.json() as any).engagements as Array<{ id: string }>).map(item => item.id)),
+      new Set([engagements[1].id, engagements[2].id]));
+  } finally {
+    db.prepare(`UPDATE engagements SET lifecycle_state='PORTAL_ACTIVE_PLANNING',portal_activated_at=?
+      WHERE workspace_id=? AND id=?`).bind(new Date().toISOString(), workspaceId, engagements[2].id).run();
+  }
+});
+
+it('denies unassigned Reviewer and Preparer engagement commands before any write', async () => {
   const reviewerStaffMemberId = db.prepare('SELECT staff_member_id FROM actor_profiles WHERE workspace_id=? AND id=?')
     .bind(workspaceId, reviewer.id).first<any>()!.staff_member_id as string;
   const available = await command(reviewer, 'staffing.availability.set', {
@@ -204,6 +240,20 @@ it('denies unassigned Reviewer and Preparer engagement commands before any write
     assignments: db.prepare('SELECT COUNT(*) AS count FROM engagement_assignments WHERE workspace_id=?').bind(workspaceId).first<any>()?.count,
     pbc: db.prepare('SELECT COUNT(*) AS count FROM pbc_requests WHERE workspace_id=?').bind(workspaceId).first<any>()?.count
   };
+  const submittedByPreparerId = crypto.randomUUID();
+  const submittedByPreparer = db.prepare(`SELECT id FROM firm_charge_out_rates WHERE workspace_id=? AND grade='ASSOCIATE' ORDER BY revision DESC LIMIT 1`)
+    .bind(workspaceId).first<{ id: string }>();
+  assert.ok(submittedByPreparer, 'the workspace has the synthetic Preparer rate needed for a submitted time record');
+  const submittedAt = new Date().toISOString();
+  db.prepare(`INSERT INTO firm_time_entries(id,workspace_id,version,client_id,engagement_id,staff_member_id,work_date,phase,
+      fsli_id,procedure_id,minutes,start_at,end_at,description,billable,status,rate_id,hourly_minor_snapshot,charge_numerator,
+      charge_denominator,submitted_by_actor_id,submitted_at,approved_by_actor_id,approved_at,created_by_actor_id,created_at,updated_at)
+    VALUES(?,?,1,?,?,?,?,?,NULL,NULL,60,NULL,NULL,?,1,'SUBMITTED',?,20000,'1200000',60,?,?,NULL,NULL,?,?,?)`)
+    .bind(submittedByPreparerId, workspaceId, engagements[1].clientId, engagements[1].id,
+      db.prepare('SELECT staff_member_id FROM actor_profiles WHERE workspace_id=? AND id=?').bind(workspaceId, preparer.id)
+        .first<{ staff_member_id: string }>()!.staff_member_id,
+      '2026-10-11', 'FIELDWORK', 'Synthetic submitted time reserved for assignment-scope verification.', submittedByPreparer.id,
+      preparer.id, submittedAt, preparer.id, submittedAt, submittedAt).run();
   const reviewerAttempt = await command(reviewer, 'staffing.assign', {
     engagementId: engagements[1].id, staffMemberId: reviewerStaffMemberId, persona: 'REVIEWER', phase: 'FIELDWORK',
     startDate: '2026-10-11', endDate: '2026-10-11', plannedMinutes: 240, dailyMinutes: [{ date: '2026-10-11', minutes: 240 }]
@@ -213,17 +263,22 @@ it('denies unassigned Reviewer and Preparer engagement commands before any write
     description: 'The unassigned synthetic preparer must not create a PBC request for this engagement.', dueDate: '2026-11-15',
     assignedContactId: clients[0].contactId, category: 'GENERAL', requiredForPlanning: true, requiredForRelease: false
   });
+  const reviewerTimeApproval = await command(reviewer, 'time.approve', { timeEntryId: submittedByPreparerId, expectedVersion: 1 }, [
+    { entity: 'TimeEntry', id: submittedByPreparerId, version: 1 }
+  ]);
   const after = db.prepare('SELECT COUNT(*) AS count FROM audit_events WHERE workspace_id=?').bind(workspaceId).first<any>()?.count;
-  const outcomes = await Promise.all([reviewerAttempt, preparerAttempt].map(async response => ({
+  const outcomes = await Promise.all([reviewerAttempt, preparerAttempt, reviewerTimeApproval].map(async response => ({
     status: response.status, body: await response.json().catch(() => ({}))
   })));
   console.log(`ASSIGNMENT_SCOPE_COMMAND_MATRIX ${JSON.stringify(outcomes)}`);
   assert.deepEqual(outcomes.map(item => [item.status, (item.body as any).code]), [
-    [403, 'FORBIDDEN_SCOPE'], [403, 'FORBIDDEN_SCOPE']
+    [403, 'FORBIDDEN_SCOPE'], [403, 'FORBIDDEN_SCOPE'], [403, 'FORBIDDEN_SCOPE']
   ]);
   const afterAssignments = db.prepare('SELECT COUNT(*) AS count FROM engagement_assignments WHERE workspace_id=?').bind(workspaceId).first<any>()?.count;
   const afterPbc = db.prepare('SELECT COUNT(*) AS count FROM pbc_requests WHERE workspace_id=?').bind(workspaceId).first<any>()?.count;
   assert.equal(after, before.audit, 'denied out-of-scope commands create no audit events');
   assert.equal(afterAssignments, before.assignments, 'an unassigned Reviewer cannot add themselves to the engagement');
   assert.equal(afterPbc, before.pbc, 'an unassigned Preparer cannot add engagement PBC requests');
+  assert.equal(db.prepare('SELECT status FROM firm_time_entries WHERE workspace_id=? AND id=?')
+    .bind(workspaceId, submittedByPreparerId).first<any>()?.status, 'SUBMITTED', 'an unassigned Reviewer cannot approve a colleague’s engagement time');
 });

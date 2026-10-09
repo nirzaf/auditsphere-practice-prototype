@@ -16,6 +16,8 @@ import { businessFieldworkCommands, buildBusinessFieldworkMutation, isBusinessFi
 import { businessPracticeCommands, buildBusinessPracticeMutation, businessPracticeBootstrapStatements, getBusinessPracticeWorkspace, isBusinessPracticeCommand } from './businessPractice';
 import { businessReportingCommands, buildBusinessReportingMutation, isBusinessReportingCommand } from './businessReporting';
 import { businessPortalCredentialCommands, buildPortalCredentialReissueMutation } from './businessPortalCredentials';
+import { assertBusinessEngagementAccess, assertBusinessClientAccess } from './businessScope';
+export { assertBusinessEngagementAccess, assertBusinessClientAccess } from './businessScope';
 import { authEventStatement } from './auth/events';
 import { presentationEditionBlocker } from '../src/domain/reportingStandards';
 
@@ -322,6 +324,19 @@ export async function listBusinessClients(
     clauses.push('id=?');
     bindings.push(context.scope.clientId);
   }
+  if (isAssignmentScopedStaff(context)) {
+    if (!context.actor.staffMemberId) clauses.push('0=1');
+    else {
+      clauses.push(`(clients.created_by_actor_id=? OR EXISTS(SELECT 1 FROM engagements scoped_engagement
+        WHERE scoped_engagement.workspace_id=clients.workspace_id AND scoped_engagement.client_id=clients.id AND (
+          EXISTS(SELECT 1 FROM engagement_assignments scoped_assignment
+            WHERE scoped_assignment.workspace_id=scoped_engagement.workspace_id
+              AND scoped_assignment.engagement_id=scoped_engagement.id AND scoped_assignment.staff_member_id=?)
+          OR (?=1 AND scoped_engagement.lifecycle_state IN ('LEAD_INGESTION','PROPOSAL_GENERATION','DUAL_KEY_PENDING','ADVANCE_BILLING'))
+        )))`);
+      bindings.push(context.actor.id, context.actor.staffMemberId, hasCommercialEngagementAccess(context) ? 1 : 0);
+    }
+  }
   if (cursor) {
     clauses.push('(legal_name>? OR (legal_name=? AND id>?))');
     bindings.push(cursor.sort, cursor.sort, cursor.id);
@@ -367,6 +382,7 @@ export async function getBusinessClient(
     FROM clients WHERE workspace_id=? AND id=? AND active=1`).bind(workspaceId, clientId)
     .first<Record<string, unknown> & { id: string; version: number; legal_name: string }>();
   if (!row) throw new ApiError('NOT_FOUND', 'Active client not found.');
+  await assertBusinessClientAccess(env, workspaceId, context, clientId);
   if (context.actor.persona === 'CLIENT') {
     const profile = await env.DB.prepare(`SELECT contact_id FROM actor_profiles WHERE workspace_id=? AND id=? AND active=1`)
       .bind(workspaceId, context.actor.id).first<{ contact_id: string }>();
@@ -615,6 +631,30 @@ export interface BusinessContext {
   readOnlyReasons: string[];
 }
 
+const COMMERCIAL_ENGAGEMENT_STATES = ['LEAD_INGESTION', 'PROPOSAL_GENERATION', 'DUAL_KEY_PENDING', 'ADVANCE_BILLING'] as const;
+type BusinessScopeContext = Pick<BusinessContext, 'actor' | 'scope' | 'allowedActions'>;
+const ENGAGEMENT_SCOPED_MUTATION_ENTITIES = new Set([
+  'ENGAGEMENT', 'MILESTONE_SCHEDULE', 'ENGAGEMENT_ASSIGNMENT', 'MILESTONE', 'PROPOSAL_VERSION', 'DISPATCH',
+  'ENGAGEMENT_LETTER_DRAFT', 'ENGAGEMENT_LETTER', 'INVOICE', 'PAYMENT', 'PORTAL_CREDENTIAL_ISSUE',
+  'FILE_VERSION', 'PBC_REQUEST', 'PBC_SUBMISSION', 'PBC_REVIEW', 'CONTINUANCE_REVIEW', 'COMMERCIAL_ACCEPTANCE',
+  'RISK_ASSESSMENT_DRAFT', 'RISK_ASSESSMENT_VERSION', 'RISK_ESCALATION', 'RISK_CLEARANCE', 'TB_IMPORT', 'TB_VERSION',
+  'MAPPING_DRAFT', 'MAPPING_DRAFT_LINE', 'MAPPING_VERSION', 'MATERIALITY_VERSION', 'FSLI_RISK', 'PLANNING_VERSION',
+  'PLANNING_SIGNOFF', 'STATEMENT_SNAPSHOT', 'GOING_CONCERN_ASSESSMENT', 'EVIDENCE', 'EVIDENCE_ADEQUACY_DECISION',
+  'EVIDENCE_LINK', 'EVIDENCE_UNLINK', 'FINDING', 'PROCEDURE', 'WORKPROGRAM', 'ANALYTICAL_REVIEW', 'SAMPLE_POPULATION',
+  'SAMPLE_TEST', 'SAMPLING_PLAN', 'SAMPLING_EVALUATION', 'AUDIT_ADJUSTMENT', 'AUDIT_DIFFERENCE', 'REVIEW_SUBMISSION',
+  'REVIEW_NOTE', 'CONFIRMATION', 'CONFIRMATION_FOLLOWUP', 'CONFIRMATION_ALTERNATIVE_PROCEDURE',
+  'CONFIRMATION_SCOPE_REASSESSMENT', 'CONFIRMATION_GATE', 'SRM', 'SRM_CLEARANCE', 'TIME_ENTRY', 'TIME_CORRECTION',
+  'PAYMENT_ALLOCATION', 'PAYMENT_ALLOCATION_REVERSAL', 'CREDIT_NOTE'
+]);
+
+function hasCommercialEngagementAccess(context: BusinessScopeContext): boolean {
+  return context.allowedActions.some(action => action.startsWith('proposal.') || action.startsWith('lead.') || action === 'billing.read');
+}
+
+function isAssignmentScopedStaff(context: BusinessScopeContext): boolean {
+  return context.actor.persona === 'PREPARER' || context.actor.persona === 'REVIEWER';
+}
+
 async function findBusinessActorProfile(env: Env, workspaceId: string, actorId: string): Promise<BusinessActorProfileRow | null> {
   return env.DB.prepare(`${actorProfileSelect} WHERE ap.workspace_id=? AND ap.id=?`)
     .bind(workspaceId, actorId).first<BusinessActorProfileRow>();
@@ -681,7 +721,7 @@ export async function resolveBusinessContext(env: Env, workspaceId: string, requ
         : row.persona === 'REVIEWER' ? ['client.read', 'lead.read', 'engagement.read', 'standards.read', 'file.read', 'file.upload', 'proposal.read', 'proposal.create', 'proposal.generate', 'risk.read', 'riskAssessment.draft', 'riskAssessment.submit', 'riskAssessment.escalate', 'commercialAcceptance.read', 'invoice.issue', 'payment.record', 'payment.reverse', 'billing.read', 'pbc.read', 'pbc.manage', 'pbc.review', 'planning.read', 'staffing.manage', 'tb.manage', 'fieldwork.read', 'fieldwork.manage', 'fieldwork.review', 'sampling.manage', 'evidence.review', 'practice.read', 'practice.approve', 'ledger.read', 'ledger.post', 'reporting.read', 'reporting.prepare', 'reporting.approve']
           : ['client.read', 'engagement.read', 'file.read', 'file.upload', 'proposal.read', 'commercialAcceptance.read', 'commercialAcceptance.record', 'commercialAcceptance.revoke', 'billing.read', 'pbc.read', 'pbc.submit', 'reporting.read'];
   if (!isClient && session.is_firm_admin === 1) allowedActions.push('firm.admin');
-  return {
+  const context: BusinessContext = {
     actor: {
       id: row.id,
       persona: row.persona,
@@ -694,6 +734,10 @@ export async function resolveBusinessContext(env: Env, workspaceId: string, requ
     allowedActions,
     readOnlyReasons: isClient ? ['CLIENT_PROJECTION_ONLY'] : []
   };
+  if (requestedEngagementId && !isClient) {
+    await assertBusinessEngagementAccess(env, workspaceId, context, requestedEngagementId);
+  }
+  return context;
 }
 
 interface BusinessChangeEventRow {
@@ -781,12 +825,64 @@ async function businessCommandScope(
     const ownerScopeQueryByEntity: Record<string, string> = {
       CONTACT: `SELECT client_id,NULL AS engagement_id FROM contacts WHERE workspace_id=? AND id=?`,
       CONTACT_ROUTE: `SELECT client_id,NULL AS engagement_id FROM contact_routes WHERE workspace_id=? AND id=?`,
+      CLIENT_AFFILIATION: `SELECT client_id,NULL AS engagement_id FROM client_affiliations WHERE workspace_id=? AND id=?`,
       LEAD: `SELECT client_id,converted_engagement_id AS engagement_id FROM leads WHERE workspace_id=? AND id=?`,
       ENGAGEMENT: `SELECT client_id,id AS engagement_id FROM engagements WHERE workspace_id=? AND id=?`,
+      MILESTONE_SCHEDULE: `SELECT client_id,id AS engagement_id FROM engagements WHERE workspace_id=? AND id=?`,
+      ENGAGEMENT_ASSIGNMENT: `SELECT client_id,engagement_id FROM engagement_assignments WHERE workspace_id=? AND id=?`,
+      MILESTONE: `SELECT client_id,engagement_id FROM milestones WHERE workspace_id=? AND id=?`,
+      PROPOSAL_VERSION: `SELECT client_id,engagement_id FROM proposal_versions WHERE workspace_id=? AND id=?`,
+      DISPATCH: `SELECT client_id,engagement_id FROM dispatches WHERE workspace_id=? AND id=?`,
+      ENGAGEMENT_LETTER_DRAFT: `SELECT client_id,engagement_id FROM engagement_letter_drafts WHERE workspace_id=? AND id=?`,
+      ENGAGEMENT_LETTER: `SELECT client_id,engagement_id FROM engagement_letters WHERE workspace_id=? AND id=?`,
+      INVOICE: `SELECT client_id,engagement_id FROM invoices WHERE workspace_id=? AND id=?`,
+      PAYMENT: `SELECT client_id,engagement_id FROM payments WHERE workspace_id=? AND id=?`,
+      PAYMENT_ALLOCATION: `SELECT client_id,engagement_id FROM payments WHERE workspace_id=? AND id=?`,
+      PAYMENT_ALLOCATION_REVERSAL: `SELECT a.client_id,a.engagement_id FROM payment_allocation_reversals r
+        JOIN payment_allocations a ON a.workspace_id=r.workspace_id AND a.id=r.allocation_id WHERE r.workspace_id=? AND r.id=?`,
+      CREDIT_NOTE: `SELECT client_id,engagement_id FROM firm_credit_notes WHERE workspace_id=? AND id=?`,
+      TIME_ENTRY: `SELECT client_id,engagement_id FROM firm_time_entries WHERE workspace_id=? AND id=?`,
+      TIME_CORRECTION: `SELECT t.client_id,t.engagement_id FROM firm_time_corrections c
+        JOIN firm_time_entries t ON t.workspace_id=c.workspace_id AND t.id=c.original_time_entry_id WHERE c.workspace_id=? AND c.id=?`,
+      PORTAL_CREDENTIAL_ISSUE: `SELECT client_id,engagement_id FROM portal_credential_issues WHERE workspace_id=? AND id=?`,
+      PBC_SUBMISSION: `SELECT r.client_id,r.engagement_id FROM pbc_submissions s JOIN pbc_requests r ON r.workspace_id=s.workspace_id AND r.id=s.request_id WHERE s.workspace_id=? AND s.id=?`,
+      PBC_REVIEW: `SELECT r.client_id,r.engagement_id FROM pbc_reviews v JOIN pbc_requests r ON r.workspace_id=v.workspace_id AND r.id=v.request_id WHERE v.workspace_id=? AND v.id=?`,
+      CONTINUANCE_REVIEW: `SELECT client_id,engagement_id FROM continuance_reviews WHERE workspace_id=? AND id=?`,
+      COMMERCIAL_ACCEPTANCE: `SELECT client_id,engagement_id FROM commercial_acceptances WHERE workspace_id=? AND id=?`,
+      RISK_ASSESSMENT_VERSION: `SELECT client_id,engagement_id FROM risk_assessment_versions WHERE workspace_id=? AND id=?`,
+      RISK_ESCALATION: `SELECT client_id,engagement_id FROM risk_escalations WHERE workspace_id=? AND id=?`,
+      RISK_CLEARANCE: `SELECT client_id,engagement_id FROM risk_clearances WHERE workspace_id=? AND id=?`,
+      TB_IMPORT: `SELECT client_id,engagement_id FROM tb_imports WHERE workspace_id=? AND id=?`,
+      TB_VERSION: `SELECT client_id,engagement_id FROM tb_versions WHERE workspace_id=? AND id=?`,
+      MAPPING_DRAFT: `SELECT client_id,engagement_id FROM mapping_drafts WHERE workspace_id=? AND id=?`,
+      MAPPING_DRAFT_LINE: `SELECT d.client_id,d.engagement_id FROM mapping_draft_lines l JOIN mapping_drafts d ON d.workspace_id=l.workspace_id AND d.id=l.draft_id WHERE l.workspace_id=? AND l.id=?`,
+      MAPPING_VERSION: `SELECT client_id,engagement_id FROM mapping_versions WHERE workspace_id=? AND id=?`,
+      MATERIALITY_VERSION: `SELECT client_id,engagement_id FROM materiality_versions WHERE workspace_id=? AND id=?`,
+      FSLI_RISK: `SELECT client_id,engagement_id FROM fsli_risks WHERE workspace_id=? AND id=?`,
+      PLANNING_VERSION: `SELECT client_id,engagement_id FROM planning_versions WHERE workspace_id=? AND id=?`,
+      PLANNING_SIGNOFF: `SELECT p.client_id,p.engagement_id FROM planning_signoffs s JOIN planning_versions p ON p.workspace_id=s.workspace_id AND p.id=s.planning_version_id WHERE s.workspace_id=? AND s.id=?`,
+      STATEMENT_SNAPSHOT: `SELECT client_id,engagement_id FROM statement_snapshots WHERE workspace_id=? AND id=?`,
+      GOING_CONCERN_ASSESSMENT: `SELECT client_id,engagement_id FROM going_concern_assessments WHERE workspace_id=? AND id=?`,
+      EVIDENCE: `SELECT client_id,engagement_id FROM evidence_records WHERE workspace_id=? AND id=?`,
+      EVIDENCE_ADEQUACY_DECISION: `SELECT e.client_id,e.engagement_id FROM evidence_adequacy_decisions d JOIN evidence_records e ON e.workspace_id=d.workspace_id AND e.id=d.evidence_id WHERE d.workspace_id=? AND d.id=?`,
+      EVIDENCE_LINK: `SELECT client_id,engagement_id FROM evidence_links WHERE workspace_id=? AND id=?`,
+      EVIDENCE_UNLINK: `SELECT e.client_id,e.engagement_id FROM evidence_unlinks u JOIN evidence_links l ON l.workspace_id=u.workspace_id AND l.id=u.evidence_link_id JOIN evidence_records e ON e.workspace_id=l.workspace_id AND e.id=l.evidence_id WHERE u.workspace_id=? AND u.id=?`,
+      FINDING: `SELECT client_id,engagement_id FROM findings WHERE workspace_id=? AND id=?`,
+      REVIEW_SUBMISSION: `SELECT client_id,engagement_id FROM review_submissions WHERE workspace_id=? AND id=?`,
+      REVIEW_NOTE: `SELECT s.client_id,s.engagement_id FROM review_notes n JOIN review_submissions s ON s.workspace_id=n.workspace_id AND s.id=n.submission_id WHERE n.workspace_id=? AND n.id=?`,
+      AUDIT_DIFFERENCE: `SELECT client_id,engagement_id FROM audit_differences WHERE workspace_id=? AND id=?`,
+      CONFIRMATION: `SELECT client_id,engagement_id FROM confirmations WHERE workspace_id=? AND id=?`,
+      CONFIRMATION_FOLLOWUP: `SELECT c.client_id,c.engagement_id FROM confirmation_followups f JOIN confirmations c ON c.workspace_id=f.workspace_id AND c.id=f.confirmation_id WHERE f.workspace_id=? AND f.id=?`,
+      CONFIRMATION_ALTERNATIVE_PROCEDURE: `SELECT c.client_id,c.engagement_id FROM confirmation_alternative_procedures a JOIN confirmations c ON c.workspace_id=a.workspace_id AND c.id=a.confirmation_id WHERE a.workspace_id=? AND a.id=?`,
+      CONFIRMATION_SCOPE_REASSESSMENT: `SELECT client_id,engagement_id FROM confirmation_scope_reassessments WHERE workspace_id=? AND id=?`,
+      CONFIRMATION_GATE: `SELECT client_id,id AS engagement_id FROM engagements WHERE workspace_id=? AND id=?`,
+      SRM: `SELECT client_id,engagement_id FROM srm_versions WHERE workspace_id=? AND id=?`,
+      SRM_CLEARANCE: `SELECT s.client_id,s.engagement_id FROM srm_clearances c JOIN srm_versions s ON s.workspace_id=c.workspace_id AND s.id=c.srm_version_id WHERE c.workspace_id=? AND c.id=?`,
       PROCEDURE: `SELECT w.client_id,w.engagement_id FROM procedures p JOIN workprograms w ON w.workspace_id=p.workspace_id AND w.id=p.workprogram_id WHERE p.workspace_id=? AND p.id=?`,
       WORKPROGRAM: `SELECT client_id,engagement_id FROM workprograms WHERE workspace_id=? AND id=?`,
       SAMPLE_POPULATION: `SELECT client_id,engagement_id FROM sample_populations WHERE workspace_id=? AND id=?`,
       SAMPLE_TEST: `SELECT pop.client_id,pop.engagement_id FROM sample_tests t JOIN sampling_plans sp ON sp.workspace_id=t.workspace_id AND sp.id=t.plan_id JOIN sample_populations pop ON pop.workspace_id=sp.workspace_id AND pop.id=sp.population_id WHERE t.workspace_id=? AND t.id=?`,
+      SAMPLING_EVALUATION: `SELECT pop.client_id,pop.engagement_id FROM sampling_evaluations v JOIN sampling_plans sp ON sp.workspace_id=v.workspace_id AND sp.id=v.plan_id JOIN sample_populations pop ON pop.workspace_id=sp.workspace_id AND pop.id=sp.population_id WHERE v.workspace_id=? AND v.id=?`,
       SAMPLING_PLAN: `SELECT pop.client_id,pop.engagement_id FROM sampling_plans sp JOIN sample_populations pop ON pop.workspace_id=sp.workspace_id AND pop.id=sp.population_id WHERE sp.workspace_id=? AND sp.id=?`,
       AUDIT_ADJUSTMENT: `SELECT client_id,engagement_id FROM audit_adjustments WHERE workspace_id=? AND id=?`,
       ANALYTICAL_REVIEW: `SELECT client_id,engagement_id FROM analytical_reviews WHERE workspace_id=? AND id=?`,
@@ -803,6 +899,10 @@ async function businessCommandScope(
         known = true;
       }
     }
+  }
+
+  if (!known && isAssignmentScopedStaff(context) && ENGAGEMENT_SCOPED_MUTATION_ENTITIES.has(mutation.entityType)) {
+    throw new ApiError('FORBIDDEN_SCOPE', 'The command could not be tied to an engagement assigned to this staff member.');
   }
 
   if (context.actor.persona === 'CLIENT' && context.actor.clientId !== clientId) {
@@ -852,6 +952,7 @@ export async function getBusinessChanges(
   const engagementId = context.scope.engagementId ?? queryEngagementId;
   let clientId = context.scope.clientId ?? context.actor.clientId;
   if (engagementId) {
+    await assertBusinessEngagementAccess(env, workspaceId, context, engagementId);
     const engagement = await env.DB.prepare(`SELECT client_id FROM engagements WHERE workspace_id=? AND id=?`)
       .bind(workspaceId, engagementId).first<{ client_id: string }>();
     if (!engagement) throw new ApiError('NOT_FOUND', 'The engagement was not found in this workspace.');
@@ -2307,6 +2408,8 @@ export async function getBusinessFileForUpload(
   const file = await businessFileRow(env, workspaceId, fileId);
   if (!file) throw new ApiError('NOT_FOUND', 'File reservation not found.');
   assertBusinessFileAction(context, file, 'upload');
+  if (file.engagement_id) await assertBusinessEngagementAccess(env, workspaceId, context, file.engagement_id);
+  else if (file.client_id) await assertBusinessClientAccess(env, workspaceId, context, file.client_id);
   if (file.client_id && file.engagement_id) {
     await assertFileEngagementWritable(env, workspaceId, file.client_id, file.engagement_id, context.actor.persona === 'CLIENT', Boolean(file.payment_evidence_reservation_id));
   }
@@ -2721,7 +2824,8 @@ async function buildBusinessPbcMutation(
     ],
     result: { requestId: request.id, reviewId, submissionId: submission.id, status, version: payload.expectedRequestVersion + 1 },
     entityType: 'PBC_REVIEW', entityId: reviewId, beforeVersion: payload.expectedRequestVersion, afterVersion: payload.expectedRequestVersion + 1,
-    auditDetails: { requestId: request.id, submissionId: submission.id, decision: payload.decision, comments: payload.comments ?? null, fileSha256: submission.sha256 }
+    auditDetails: { clientId: request.client_id, engagementId: request.engagement_id, requestId: request.id,
+      submissionId: submission.id, decision: payload.decision, comments: payload.comments ?? null, fileSha256: submission.sha256 }
   };
 }
 
@@ -2811,6 +2915,35 @@ export async function listBusinessFiles(
       bindings.push(context.scope.engagementId, context.scope.engagementId);
     }
   }
+  if (isAssignmentScopedStaff(context)) {
+    if (!context.actor.staffMemberId) clauses.push('0=1');
+    else {
+      clauses.push(`(
+        (engagement_id IS NOT NULL AND (
+          EXISTS(SELECT 1 FROM engagements scoped_engagement WHERE scoped_engagement.workspace_id=file_versions.workspace_id
+            AND scoped_engagement.id=file_versions.engagement_id AND (
+              EXISTS(SELECT 1 FROM engagement_assignments scoped_assignment WHERE scoped_assignment.workspace_id=scoped_engagement.workspace_id
+                AND scoped_assignment.engagement_id=scoped_engagement.id AND scoped_assignment.staff_member_id=?)
+              OR (?=1 AND scoped_engagement.lifecycle_state IN ('LEAD_INGESTION','PROPOSAL_GENERATION','DUAL_KEY_PENDING','ADVANCE_BILLING'))
+            ))
+          OR (? IS NOT NULL AND EXISTS(SELECT 1 FROM continuance_reviews scoped_continuance
+            WHERE scoped_continuance.workspace_id=file_versions.workspace_id AND scoped_continuance.engagement_id=?
+              AND scoped_continuance.prior_engagement_id=file_versions.engagement_id))
+        ))
+        OR (engagement_id IS NULL AND (client_id IS NULL OR EXISTS(SELECT 1 FROM engagements scoped_engagement
+          WHERE scoped_engagement.workspace_id=file_versions.workspace_id AND scoped_engagement.client_id=file_versions.client_id AND (
+            EXISTS(SELECT 1 FROM engagement_assignments scoped_assignment WHERE scoped_assignment.workspace_id=scoped_engagement.workspace_id
+              AND scoped_assignment.engagement_id=scoped_engagement.id AND scoped_assignment.staff_member_id=?)
+            OR (?=1 AND scoped_engagement.lifecycle_state IN ('LEAD_INGESTION','PROPOSAL_GENERATION','DUAL_KEY_PENDING','ADVANCE_BILLING'))
+          )) OR EXISTS(SELECT 1 FROM clients accessible_client WHERE accessible_client.workspace_id=file_versions.workspace_id
+            AND accessible_client.id=file_versions.client_id AND accessible_client.created_by_actor_id=?)))
+      )`);
+      const staffMemberId = context.actor.staffMemberId;
+      const commercial = hasCommercialEngagementAccess(context) ? 1 : 0;
+      bindings.push(staffMemberId, commercial, context.scope.engagementId, context.scope.engagementId,
+        staffMemberId, commercial, context.actor.id);
+    }
+  }
   if (context.actor.persona === 'CLIENT') clauses.push(`(
     (purpose='PBC' AND pbc_request_id IS NOT NULL AND EXISTS(SELECT 1 FROM pbc_requests pr JOIN actor_profiles ap
       ON ap.workspace_id=pr.workspace_id AND ap.id=? WHERE pr.workspace_id=file_versions.workspace_id AND pr.id=file_versions.pbc_request_id
@@ -2856,6 +2989,17 @@ export async function listBusinessPbcEngagements(env: Env, workspaceId: string, 
   const bindings: unknown[] = [workspaceId];
   if (clientId) { clauses.push('e.client_id=?'); bindings.push(clientId); }
   if (context.scope.engagementId) { clauses.push('e.id=?'); bindings.push(context.scope.engagementId); }
+  if (isAssignmentScopedStaff(context)) {
+    if (!context.actor.staffMemberId) clauses.push('0=1');
+    else {
+      clauses.push(`(
+        EXISTS(SELECT 1 FROM engagement_assignments a WHERE a.workspace_id=e.workspace_id
+          AND a.engagement_id=e.id AND a.staff_member_id=?)
+        OR (?=1 AND e.lifecycle_state IN ('LEAD_INGESTION','PROPOSAL_GENERATION','DUAL_KEY_PENDING','ADVANCE_BILLING'))
+      )`);
+      bindings.push(context.actor.staffMemberId, hasCommercialEngagementAccess(context) ? 1 : 0);
+    }
+  }
   const result = await env.DB.prepare(`SELECT e.id,e.client_id,e.code,e.period_start,e.period_end,e.lifecycle_state,e.portal_activated_at,e.portal_frozen_at,e.locked_at
     FROM engagements e WHERE ${clauses.join(' AND ')} ORDER BY e.period_end DESC,e.code,e.id LIMIT 100`)
     .bind(...bindings).all<{ id: string; code: string; period_start: string; period_end: string; lifecycle_state: string;
@@ -2994,6 +3138,12 @@ async function readableBusinessFile(env: Env, workspaceId: string, request: Requ
       WHERE cr.workspace_id=? AND cr.client_id=? AND cr.engagement_id=? AND cr.prior_engagement_id=?`)
       .bind(workspaceId, context.scope.clientId, context.scope.engagementId, file.engagement_id).first<{ found: number }>();
     if (linkedPrior) fileContext = { ...context, scope: { ...context.scope, engagementId: null } };
+  }
+  if (file.engagement_id) {
+    await assertBusinessEngagementAccess(env, workspaceId,
+      fileContext === context ? fileContext : context, fileContext === context ? file.engagement_id : context.scope.engagementId!);
+  } else if (file.client_id) {
+    await assertBusinessClientAccess(env, workspaceId, fileContext, file.client_id);
   }
   assertBusinessFileAction(fileContext, file, 'read');
   await assertClientPbcDownloadScope(env, workspaceId, context, file);
@@ -4249,6 +4399,9 @@ export async function runBusinessDirectoryCommand(
   if (context.actor.id !== envelope.actor.actorId || context.actor.persona !== envelope.actor.persona) {
     throw new ApiError('PERSONA_ACTION_DENIED', 'The command actor does not match the active workspace profile.');
   }
+  if (envelope.context.engagementId) {
+    await assertBusinessEngagementAccess(env, workspaceId, context, envelope.context.engagementId);
+  }
   const requestHash = await sha256Hex(JSON.stringify({
     command: envelope.command,
     actor: envelope.actor,
@@ -4269,6 +4422,7 @@ export async function runBusinessDirectoryCommand(
     &&commandPayload.engagementId===envelope.context.engagementId
     &&['application/pdf','image/png','image/jpeg'].includes(String(commandPayload.mediaType));
   if(targetEngagementId&&!postArchiveBookkeeping.has(envelope.command.type)&&envelope.command.type!=='archive.lock'&&!postArchivePaymentEvidenceReservation){
+    await assertBusinessEngagementAccess(env, workspaceId, context, targetEngagementId);
     const engagement=await env.DB.prepare(`SELECT lifecycle_state,locked_at,archive_due_at FROM engagements WHERE workspace_id=? AND id=?`)
       .bind(workspaceId,targetEngagementId).first<{lifecycle_state:string;locked_at:string|null;archive_due_at:string|null}>();
     if(!engagement)throw new ApiError('NOT_FOUND','The engagement was not found.');
@@ -4324,6 +4478,11 @@ export async function runBusinessDirectoryCommand(
     const sequence = head.last_sequence + 1;
     const scope = await businessCommandScope(env, workspaceId, context,
       envelope.command as { type?: string; payload?: Record<string, unknown> }, mutation);
+    if (scope.engagementId && envelope.command.type !== 'lead.convert') {
+      await assertBusinessEngagementAccess(env, workspaceId, context, scope.engagementId);
+    } else if (scope.clientId && envelope.command.type !== 'client.create' && !envelope.command.type.startsWith('lead.')) {
+      await assertBusinessClientAccess(env, workspaceId, context, scope.clientId);
+    }
     const eventDetails = JSON.stringify({
       commandId,
       result: mutation.result,

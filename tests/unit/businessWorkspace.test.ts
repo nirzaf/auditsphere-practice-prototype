@@ -1638,6 +1638,21 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
   }, makeRiskHeaders(reviewerHeaders));
   assert.equal(settlement.response.status, 202, JSON.stringify(settlement.body));
   await worker.scheduled({ scheduledTime: Date.now(), cron: '*/5 * * * *' } as any, env);
+  // D3 requires named staff assignments as soon as the commercial billing phase
+  // advances into client planning. Keep this end-to-end fixture representative
+  // of the authorization state used by its remaining internal reads/commands.
+  for (const [actorHeaders, persona, phase] of [
+    [preparerHeaders, 'PREPARER', 'PLANNING'], [reviewerHeaders, 'REVIEWER', 'REVIEW']
+  ] as const) {
+    const staffMemberId = db.prepare(`SELECT staff_member_id FROM actor_profiles WHERE workspace_id=? AND id=?`)
+      .bind(workspaceId, actorHeaders['X-Actor-Id']).first<{ staff_member_id: string }>()?.staff_member_id;
+    assert.ok(staffMemberId, `${persona} profile has a staff identity for its engagement assignment`);
+    db.prepare(`INSERT INTO engagement_assignments(id,workspace_id,version,client_id,engagement_id,staff_member_id,persona,phase,
+      start_date,end_date,planned_minutes,created_by_actor_id,created_at)
+      VALUES(?,?,1,?,?,?,?,?,'2020-01-01','2020-01-02',240,?,?)`)
+      .bind(crypto.randomUUID(), workspaceId, clientId, engagementId, staffMemberId, persona, phase,
+        approverHeaders['X-Actor-Id'], new Date().toISOString()).run();
+  }
   const settledView = await call(deliveryPath, { headers: makeRiskHeaders(reviewerHeaders) });
   assert.equal(settledView.body.engagement.lifecycleState, 'PORTAL_ACTIVE_PLANNING', 'planning unlocks only when the full advance and committed final receipt exist');
   assert.equal(settledView.body.invoices.find((invoice: any) => invoice.id === issuedInvoice.id).outstandingMinor, '0');
@@ -1854,13 +1869,15 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
   assert.equal(approvedLeave.body.result.availableMinutes, 360);
   const assignmentPayload = { engagementId, staffMemberId: preparerStaff.body.result.staffMemberId, persona: 'PREPARER', phase: 'FIELDWORK',
     startDate: planDate, endDate: planDate, plannedMinutes: 420, dailyMinutes: [{ date: planDate, minutes: 420 }] };
+  const assignmentsBeforeCapacityAttempt = db.prepare('SELECT COUNT(*) AS count FROM engagement_assignments WHERE workspace_id=? AND engagement_id=?')
+    .bind(workspaceId, engagementId).first<any>()?.count;
   const overCapacity = await post(`/api/workspaces/${workspaceId}/commands`, {
     idempotencyKey: crypto.randomUUID(), command: { type: 'staffing.assign', payload: assignmentPayload }
   }, makeRiskHeaders(reviewerHeaders));
   assert.equal(overCapacity.response.status, 409, JSON.stringify(overCapacity.body));
   assert.equal(overCapacity.body.code, 'GATE_BLOCKED');
   assert.equal(db.prepare('SELECT COUNT(*) AS count FROM engagement_assignments WHERE workspace_id=? AND engagement_id=?')
-    .bind(workspaceId, engagementId).first<any>()?.count, 0, 'over-capacity assignment does not persist a partial row');
+    .bind(workspaceId, engagementId).first<any>()?.count, assignmentsBeforeCapacityAttempt, 'over-capacity assignment does not persist a partial row');
   const capacityException = await post(`/api/workspaces/${workspaceId}/commands`, {
     idempotencyKey: crypto.randomUUID(), command: { type: 'staffing.capacityException.approve', payload: {
       staffMemberId: preparerStaff.body.result.staffMemberId, workDate: planDate, excessMinutes: 60,
@@ -2412,6 +2429,14 @@ it('bootstraps a no-session BUSINESS workspace and maintains atomic directory pr
         crypto.randomUUID(), workspaceId, childClientId, id, tbVersionId).run();
     db.prepare(`UPDATE engagements SET active_tb_version_id=?,updated_at=?,version=version+1 WHERE workspace_id=? AND id=?`)
       .bind(tbVersionId, now, workspaceId, id).run();
+    const reviewerStaffMemberId = db.prepare(`SELECT staff_member_id FROM actor_profiles WHERE workspace_id=? AND id=?`)
+      .bind(workspaceId, reviewerHeaders['X-Actor-Id']).first<{ staff_member_id: string }>()?.staff_member_id;
+    assert.ok(reviewerStaffMemberId, 'mapping history fixture has an assigned Reviewer identity');
+    db.prepare(`INSERT INTO engagement_assignments(id,workspace_id,version,client_id,engagement_id,staff_member_id,persona,phase,
+      start_date,end_date,planned_minutes,created_by_actor_id,created_at)
+      VALUES(?,?,1,?,?,?,'REVIEWER','REVIEW','2020-01-01','2020-01-02',240,?,?)`)
+      .bind(crypto.randomUUID(), workspaceId, childClientId, id, reviewerStaffMemberId,
+        approverHeaders['X-Actor-Id'], now).run();
     return { id, tbVersionId, headers: { ...reviewerHeaders, 'X-Client-Id': childClientId, 'X-Engagement-Id': id } };
   };
   const proposeMapping = async (target: ReturnType<typeof createMappingTestEngagement>) => post(`/api/workspaces/${workspaceId}/commands`, {
