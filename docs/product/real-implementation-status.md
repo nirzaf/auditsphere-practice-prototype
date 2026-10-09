@@ -19,8 +19,8 @@
 | US-ENG-004 | Dual-Key Client Acceptance Gatekeeper | Code baseline; acceptance open |
 | US-ENG-005 | Gated Engagement Letter with Actual Signature and Seal Rendering | Code baseline; firm asset/content acceptance open |
 | US-ENG-006 | 50% Advance Invoice, Payment Allocation and Receipt Voucher | Code baseline; acceptance open |
-| US-ENG-007 | Persona-Scoped Client PBC Workspace and Versioned Uploads | Code baseline; two-browser scope/race evidence open |
-| US-ENG-008 | PBC Review, Mandatory Rejection Reasons and Live Status | Code baseline; acceptance open |
+| US-ENG-007 | Persona-Scoped Client PBC Workspace and Versioned Uploads | In progress; client document allowlist and response-history projection pass integration coverage, two-browser scope/race evidence open |
+| US-ENG-008 | PBC Review, Mandatory Rejection Reasons and Live Status | In progress; required rejection reason remains client-visible while approval notes are withheld, broader acceptance open |
 | US-GOV-001 | Track A — New Client KYC, AML, UBO and Independence Assessment | Code baseline; firm policy/content acceptance open |
 | US-GOV-002 | Track B — Recurring Client Continuance Delta Review | Code baseline; firm policy/content acceptance open |
 | US-GOV-003 | Capacity-Based Resource Assignment and Milestone Cutoffs | Code baseline; leave/capacity acceptance open |
@@ -57,8 +57,9 @@
 
 ## Current verified work
 
-- `npm run lint`, `npm run cloud:typecheck`, `npm run build`, and `npm run test:unit` pass. Unit result: 176 passed, 1 opt-in stress test skipped, 0 failed.
-- Fresh `npm run test:e2e` passes all 13 browser acceptance tests against the isolated local Worker/D1/R2 fixture. Coverage includes workspace/persona persistence and offline failure, visible lead-to-engagement creation, quote revision and fail-closed email, opinion variants and atomic report lifecycle, isolated backup restore with every committed original byte, two-browser fieldwork conflict, and the listed sampling, hybrid evidence, SRM, going-concern, and time-recording journeys.
+- The E05-S04 client-document-centre increment supports the client projection in US-ENG-007/008: the portal returns only issued letters/invoices/receipts, accepted Holding Letters with their saved blocker snapshot, and committed parts/attachments in Partner-released bundles. Client responses omit findings, adjustments and ordinary approval notes while preserving the required PBC rejection reason. The delivery summary omits pending invoices and duplicate receipt/provider identifiers. The latest full unit run reports 179 passed, 0 failed; the focused client-document/workspace file reports 4 passed, 0 failed.
+- Before this client-document increment, `npm run lint`, `npm run cloud:typecheck`, `npm run build`, and `npm run test:unit` passed with 176 unit tests passed, 1 opt-in stress test skipped, and 0 failed.
+- The pre-increment `npm run test:e2e` passed all 13 browser acceptance tests against the isolated local Worker/D1/R2 fixture. Coverage includes workspace/persona persistence and offline failure, visible lead-to-engagement creation, quote revision and fail-closed email, opinion variants and atomic report lifecycle, isolated backup restore with every committed original byte, two-browser fieldwork conflict, and the listed sampling, hybrid evidence, SRM, going-concern, and time-recording journeys. The current post-increment full E2E rerun has not yet returned a final result.
 - Two stale test expectations found by the browser run were corrected: an unsupported POST against the workspace resource path receives the router's documented 400 method-mismatch response, and the rendered FSLI label preserves its catalog capitalization (`Synthetic revenue`).
 
 ## Epic-wide release gates still open

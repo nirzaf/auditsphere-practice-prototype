@@ -212,6 +212,14 @@
 .business-pbc-documents ul { list-style: none; display: grid; gap: 8px; margin: 0; padding: 0; }
 .business-pbc-documents li { display: flex; align-items: center; justify-content: space-between; gap: 8px; overflow-wrap: anywhere; }
 .business-pbc-documents li span { min-width: 0; }
+.business-pbc-documents > .business-client-documents { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.business-client-documents > h3 { grid-column: 1 / -1; }
+.business-client-documents > section { min-width: 0; padding: 12px; border: 1px solid var(--line); border-radius: 9px; background: #fff; }
+.business-client-documents h4 { margin: 0 0 8px; color: var(--ink); font-size: 0.95rem; }
+.business-client-documents li > div { min-width: 0; display: grid; gap: 4px; }
+.business-client-documents li small { color: var(--muted); }
+.business-client-documents details summary { min-height: 44px; display: flex; align-items: center; cursor: pointer; font-weight: 600; }
+.business-client-documents li button { min-width: 88px; min-height: 44px; }
 .business-pbc-panel .business-form { margin-top: 14px; }
 .business-planning-panel { display: grid; gap: 14px; margin-top: 16px; }
 .business-planning-panel .business-section-heading { align-items: flex-start; }
@@ -228,6 +236,8 @@
   .business-pbc-panel .business-section-heading .business-field { width: 100%; }
   .business-pbc-card-head { flex-direction: column; }
   .business-pbc-documents { grid-template-columns: minmax(0, 1fr); }
+  .business-pbc-documents > .business-client-documents { grid-template-columns: minmax(0, 1fr); }
+  .business-client-documents > h3 { grid-column: auto; }
   .business-planning-panel .business-form-grid { grid-template-columns: minmax(0, 1fr); }
 }
 .business-tb-panel { min-width: 0; display: grid; gap: 16px; margin-top: 16px; padding: clamp(16px, 2.5vw, 24px); border: 1px solid #b9c8d8; border-radius: 12px; background: #fff; box-shadow: var(--shadow); }

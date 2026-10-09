@@ -1523,6 +1523,35 @@ it('US-REP-001–007 covers all report categories, representation, atomic releas
     return report?.innerText.includes('Read only') && report.innerText.includes('Frozen at ${released.released_at}') &&
       report.innerText.includes('COMPLIANCE COUNTDOWN') && report.innerText.includes('qa-signed-representation.pdf');
   })()`);
+  const clientPortalResponse = await fetch(`${server.origin}/api/workspaces/${fixture.workspaceId}/engagements/${fixture.engagementId}/portal`, {
+    headers: { Origin: server.origin, 'X-Actor-Id': fixture.clientActorId, 'X-Active-Persona': 'CLIENT', 'X-Client-Id': fixture.clientId,
+      'X-Engagement-Id': fixture.engagementId }
+  });
+  const clientPortal = await clientPortalResponse.json() as { clientDocuments?: Array<{ category: string; fileVersionId: string; engagementId: string }> };
+  assert.equal(clientPortalResponse.status, 200, JSON.stringify(clientPortal));
+  const finalClientDocuments = (clientPortal.clientDocuments ?? []).filter(document => document.category === 'FINAL_DELIVERABLE');
+  const releasedAttachmentRows = server.db.prepare(`SELECT f.id FROM deliverable_attachments a
+    JOIN deliverable_parts p ON p.workspace_id=a.workspace_id AND p.id=a.part_id
+    JOIN file_versions f ON f.workspace_id=a.workspace_id AND f.id=a.file_version_id WHERE a.workspace_id=? AND p.bundle_id=?`)
+    .bind(fixture.workspaceId, released.id).all<{ id: string }>().results ?? [];
+  const expectedReleasedDocumentIds = [...(releasedParts ?? []).map(part => part.primary_file_id), ...releasedAttachmentRows.map(row => row.id)].sort();
+  assert.deepEqual(finalClientDocuments.map(document => document.fileVersionId).sort(), expectedReleasedDocumentIds,
+    'the client document centre exposes only the exact committed parts and attachments in the Partner-released bundle');
+  assert.ok(finalClientDocuments.every(document => document.engagementId === fixture.engagementId));
+  for (const document of finalClientDocuments) {
+    const clientPart = await fetch(`${server.origin}/api/workspaces/${fixture.workspaceId}/files/${document.fileVersionId}`, {
+      headers: { Origin: server.origin, 'X-Actor-Id': fixture.clientActorId, 'X-Active-Persona': 'CLIENT', 'X-Client-Id': fixture.clientId,
+        'X-Engagement-Id': fixture.engagementId }
+    });
+    assert.equal(clientPart.status, 200, 'each released bundle part and signed representation attachment is downloadable by the client');
+    assert.equal(new TextDecoder().decode(new Uint8Array(await clientPart.arrayBuffer()).slice(0, 5)), '%PDF-');
+  }
+  await waitFor('the client document centre with all four groups and a released part', `(() => {
+    const centre=document.querySelector('.business-client-documents');
+    const text=centre?.innerText ?? '';
+    return text.includes('Engagement letters & invoices') && text.includes('Receipts') && text.includes('Holding letters') &&
+      text.includes('Final deliverables') && text.includes(${JSON.stringify(releasedParts?.[0]?.original_name ?? '')});
+  })()`);
   const portalControls = await tab.evaluate<{ fileInputs: number; enabledFileInputs: number; enabledUploadButtons: number }>(`(() => {
     const report=document.querySelector('#business-reporting-${fixture.engagementId}')?.closest('section');
     const inputs=[...(report?.querySelectorAll('input[type="file"]')??[])];

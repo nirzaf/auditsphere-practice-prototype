@@ -14,6 +14,7 @@ import { businessFieldworkCommands, buildBusinessFieldworkMutation, isBusinessFi
 import { businessPracticeCommands, buildBusinessPracticeMutation, businessPracticeBootstrapStatements, getBusinessPracticeWorkspace, isBusinessPracticeCommand } from './businessPractice';
 import { businessReportingCommands, buildBusinessReportingMutation, isBusinessReportingCommand } from './businessReporting';
 import { presentationEditionBlocker } from '../src/domain/reportingStandards';
+import { projectClientDocuments, type ClientDocumentSourceRow } from './clientDocumentProjection';
 
 export const BUSINESS_SCHEMA_VERSION = 10;
 
@@ -2455,8 +2456,15 @@ export async function listBusinessFiles(
     (purpose='PBC' AND pbc_request_id IS NOT NULL AND EXISTS(SELECT 1 FROM pbc_requests pr JOIN actor_profiles ap
       ON ap.workspace_id=pr.workspace_id AND ap.id=? WHERE pr.workspace_id=file_versions.workspace_id AND pr.id=file_versions.pbc_request_id
         AND pr.client_id=file_versions.client_id AND pr.engagement_id=file_versions.engagement_id AND pr.assigned_contact_id=ap.contact_id))
-    OR (purpose='RELEASE' AND EXISTS(SELECT 1 FROM engagements e WHERE e.workspace_id=file_versions.workspace_id
-      AND e.client_id=file_versions.client_id AND e.id=file_versions.engagement_id AND e.released_at IS NOT NULL))
+    OR (purpose='RELEASE' AND (
+      EXISTS(SELECT 1 FROM deliverable_bundles b JOIN deliverable_parts dp ON dp.workspace_id=b.workspace_id AND dp.bundle_id=b.id
+        WHERE b.workspace_id=file_versions.workspace_id AND b.client_id=file_versions.client_id AND b.engagement_id=file_versions.engagement_id
+          AND dp.primary_file_id=file_versions.id)
+      OR EXISTS(SELECT 1 FROM deliverable_bundles b JOIN deliverable_parts dp ON dp.workspace_id=b.workspace_id AND dp.bundle_id=b.id
+        JOIN deliverable_attachments da ON da.workspace_id=dp.workspace_id AND da.part_id=dp.id
+        WHERE b.workspace_id=file_versions.workspace_id AND b.client_id=file_versions.client_id AND b.engagement_id=file_versions.engagement_id
+          AND da.file_version_id=file_versions.id)
+    ))
     OR (purpose='GENERATED' AND (
     EXISTS(SELECT 1 FROM generated_artifacts ga JOIN proposal_artifacts pa ON pa.workspace_id=ga.workspace_id AND pa.artifact_id=ga.id
       JOIN proposals p ON p.workspace_id=pa.workspace_id AND p.current_version_id=pa.proposal_version_id
@@ -2467,13 +2475,18 @@ export async function listBusinessFiles(
     OR EXISTS(SELECT 1 FROM engagement_letters l WHERE l.workspace_id=file_versions.workspace_id AND l.client_id=? AND l.file_version_id=file_versions.id)
     OR EXISTS(SELECT 1 FROM invoices i WHERE i.workspace_id=file_versions.workspace_id AND i.client_id=? AND i.file_version_id=file_versions.id AND i.status='ISSUED')
     OR EXISTS(SELECT 1 FROM receipt_vouchers rv WHERE rv.workspace_id=file_versions.workspace_id AND rv.client_id=? AND rv.file_version_id=file_versions.id AND rv.status='ISSUED')
+    OR EXISTS(SELECT 1 FROM holding_letters h JOIN dispatches d ON d.workspace_id=h.workspace_id AND d.id=h.dispatch_id AND d.status IN ('ACCEPTED','DELIVERED')
+      JOIN generated_artifacts ga ON ga.workspace_id=h.workspace_id AND ga.id=h.artifact_id
+      WHERE h.workspace_id=file_versions.workspace_id AND h.client_id=? AND h.engagement_id=file_versions.engagement_id
+        AND ga.source_entity_type='HOLDING_LETTER' AND ga.source_entity_id=h.id AND ga.file_version_id=file_versions.id)
+   ))
     OR (purpose='EVIDENCE' AND media_type='application/pdf' AND EXISTS(SELECT 1 FROM representation_file_reservations rfr
       JOIN representation_requests rr ON rr.workspace_id=rfr.workspace_id AND rr.id=rfr.request_id
       JOIN contact_routes cr ON cr.workspace_id=rr.workspace_id AND cr.id=rr.contact_route_id AND cr.client_id=rr.client_id AND cr.purpose='FINAL_REPORT'
       JOIN actor_profiles ap ON ap.workspace_id=rr.workspace_id AND ap.id=? AND ap.persona='CLIENT' AND ap.active=1 AND ap.contact_id=cr.contact_id
       WHERE rfr.workspace_id=file_versions.workspace_id AND rfr.file_version_id=file_versions.id AND rr.client_id=?
         AND rr.engagement_id=file_versions.engagement_id AND rr.status IN ('SENT','RECEIVED','REJECTED','ACCEPTED')))
-   )))`), bindings.push(context.actor.id, clientId, clientId, clientId, clientId, context.actor.id, clientId);
+   )`), bindings.push(context.actor.id, clientId, clientId, clientId, clientId, clientId, context.actor.id, clientId);
   const result = await env.DB.prepare(`SELECT id,version,client_id,engagement_id,original_name,media_type,size_bytes,
       pbc_request_id,pbc_request_version,
       (SELECT rfr.request_id FROM representation_file_reservations rfr WHERE rfr.workspace_id=file_versions.workspace_id AND rfr.file_version_id=file_versions.id) AS representation_request_id,
@@ -2486,6 +2499,50 @@ export async function listBusinessFiles(
 function portalMode(row: { portal_activated_at: string | null; portal_frozen_at: string | null; locked_at: string | null }): 'NOT_ACTIVE' | 'ACTIVE' | 'FROZEN' {
   if (row.portal_frozen_at || row.locked_at) return 'FROZEN';
   return row.portal_activated_at ? 'ACTIVE' : 'NOT_ACTIVE';
+}
+
+async function listClientDocuments(env: Env, workspaceId: string, clientId: string, engagementId: string) {
+  const result = await env.DB.prepare(`
+    SELECT l.id AS id,l.file_version_id,'ENGAGEMENT_LETTER' AS category,f.original_name,l.issued_at AS issue_date,l.engagement_id,e.code AS engagement_code,NULL AS blockers_json
+      FROM engagement_letters l JOIN file_versions f ON f.workspace_id=l.workspace_id AND f.id=l.file_version_id
+      JOIN engagements e ON e.workspace_id=l.workspace_id AND e.id=l.engagement_id
+      WHERE l.workspace_id=? AND l.client_id=? AND l.engagement_id=? AND f.state='COMMITTED' AND f.immutable=1
+    UNION ALL
+    SELECT i.id,i.file_version_id,'INVOICE',f.original_name,COALESCE(i.issue_date,i.issued_at),i.engagement_id,e.code,NULL
+      FROM invoices i JOIN file_versions f ON f.workspace_id=i.workspace_id AND f.id=i.file_version_id
+      JOIN engagements e ON e.workspace_id=i.workspace_id AND e.id=i.engagement_id
+      WHERE i.workspace_id=? AND i.client_id=? AND i.engagement_id=? AND i.status='ISSUED' AND f.state='COMMITTED' AND f.immutable=1
+    UNION ALL
+    SELECT rv.id,rv.file_version_id,'RECEIPT',f.original_name,rv.issued_at,rv.engagement_id,e.code,NULL
+      FROM receipt_vouchers rv JOIN file_versions f ON f.workspace_id=rv.workspace_id AND f.id=rv.file_version_id
+      JOIN engagements e ON e.workspace_id=rv.workspace_id AND e.id=rv.engagement_id
+      WHERE rv.workspace_id=? AND rv.client_id=? AND rv.engagement_id=? AND rv.status='ISSUED' AND f.state='COMMITTED' AND f.immutable=1
+    UNION ALL
+    SELECT h.id,ga.file_version_id,'HOLDING_LETTER',f.original_name,h.created_at,h.engagement_id,e.code,h.confirmation_ids_snapshot_json
+      FROM holding_letters h JOIN dispatches d ON d.workspace_id=h.workspace_id AND d.id=h.dispatch_id AND d.status IN ('ACCEPTED','DELIVERED')
+      JOIN generated_artifacts ga ON ga.workspace_id=h.workspace_id AND ga.id=h.artifact_id
+        AND ga.source_entity_type='HOLDING_LETTER' AND ga.source_entity_id=h.id
+      JOIN file_versions f ON f.workspace_id=ga.workspace_id AND f.id=ga.file_version_id
+      JOIN engagements e ON e.workspace_id=h.workspace_id AND e.id=h.engagement_id
+      WHERE h.workspace_id=? AND h.client_id=? AND h.engagement_id=? AND f.state='COMMITTED' AND f.immutable=1
+    UNION ALL
+    SELECT dp.id,dp.primary_file_id,'FINAL_DELIVERABLE',f.original_name,b.released_at,b.engagement_id,e.code,NULL
+      FROM deliverable_bundles b JOIN deliverable_parts dp ON dp.workspace_id=b.workspace_id AND dp.bundle_id=b.id
+      JOIN file_versions f ON f.workspace_id=b.workspace_id AND f.id=dp.primary_file_id
+      JOIN engagements e ON e.workspace_id=b.workspace_id AND e.id=b.engagement_id
+      WHERE b.workspace_id=? AND b.client_id=? AND b.engagement_id=? AND f.state='COMMITTED' AND f.immutable=1
+    UNION ALL
+    SELECT 'attachment:'||da.id,da.file_version_id,'FINAL_DELIVERABLE',f.original_name,b.released_at,b.engagement_id,e.code,NULL
+      FROM deliverable_bundles b JOIN deliverable_parts dp ON dp.workspace_id=b.workspace_id AND dp.bundle_id=b.id
+      JOIN deliverable_attachments da ON da.workspace_id=dp.workspace_id AND da.part_id=dp.id
+      JOIN file_versions f ON f.workspace_id=b.workspace_id AND f.id=da.file_version_id
+      JOIN engagements e ON e.workspace_id=b.workspace_id AND e.id=b.engagement_id
+      WHERE b.workspace_id=? AND b.client_id=? AND b.engagement_id=? AND f.state='COMMITTED' AND f.immutable=1
+    ORDER BY 5 DESC,1`)
+    .bind(workspaceId,clientId,engagementId, workspaceId,clientId,engagementId, workspaceId,clientId,engagementId,
+      workspaceId,clientId,engagementId, workspaceId,clientId,engagementId, workspaceId,clientId,engagementId)
+    .all<ClientDocumentSourceRow>();
+  return projectClientDocuments(result.results ?? []);
 }
 
 export async function listBusinessPbcEngagements(env: Env, workspaceId: string, request: Request): Promise<{ engagements: Array<Record<string, unknown>> }> {
@@ -2566,33 +2623,16 @@ export async function getBusinessPbcPortal(env: Env, workspaceId: string, reques
         originalName: item.original_name, sha256: item.sha256, submittedAt: item.submitted_at, clientComment: item.client_comment,
         supersedesSubmissionId: item.supersedes_submission_id,
         reviews: (reviewsBySubmission.get(item.id) ?? []).map(review => ({ id: review.id, decision: review.decision,
-          comments: review.comments, reviewedAt: review.reviewed_at, fileSha256: review.file_sha256 }))
+          ...(context.actor.persona !== 'CLIENT' || review.decision === 'REJECT' ? { comments: review.comments } : {}),
+          reviewedAt: review.reviewed_at, fileSha256: review.file_sha256 }))
       }))
     }));
-  const fieldworkFindings=context.actor.persona==='CLIENT'?await env.DB.prepare(`SELECT f.id,f.version,f.fsli_id AS fsliId,c.code AS fsliCode,c.name AS fsliName,f.title,f.description,f.severity,
-      f.qualitative_significance AS qualitativeSignificance,f.status,f.client_response AS clientResponse,f.source_hash AS sourceHash,f.created_at AS createdAt
-    FROM findings f JOIN fsli_catalog c ON c.workspace_id=f.workspace_id AND c.id=f.fsli_id WHERE f.workspace_id=? AND f.client_id=? AND f.engagement_id=? ORDER BY f.created_at DESC LIMIT 200`)
-    .bind(workspaceId,engagement.client_id,engagement.id).all<Record<string,unknown>>() : null;
-  const fieldworkAdjustmentRows=context.actor.persona==='CLIENT'?await env.DB.prepare(`SELECT a.id,a.version,a.number,a.finding_id AS findingId,a.description,a.status,a.client_response_decision AS clientResponse,
-      a.client_response AS clientResponseText,a.source_hash AS sourceHash,a.created_at AS createdAt
-    FROM audit_adjustments a WHERE a.workspace_id=? AND a.client_id=? AND a.engagement_id=? AND a.status IN ('PROPOSED','CLIENT_ACCEPTED','CLIENT_DECLINED','REVIEW_APPROVED')
-    ORDER BY a.created_at DESC LIMIT 80`).bind(workspaceId,engagement.client_id,engagement.id).all<Record<string,unknown>>() : null;
-  const fieldworkAdjustmentIds=(fieldworkAdjustmentRows?.results??[]).map(row=>String(row.id));
-  const fieldworkAdjustmentLines=fieldworkAdjustmentIds.length?await env.DB.prepare(`SELECT l.adjustment_id AS adjustmentId,l.fsli_id AS fsliId,c.code AS fsliCode,c.name AS fsliName,l.account_code AS accountCode,l.debit_minor AS debitMinor,l.credit_minor AS creditMinor
-    FROM audit_adjustment_lines l JOIN fsli_catalog c ON c.workspace_id=l.workspace_id AND c.id=l.fsli_id WHERE l.workspace_id=? AND l.adjustment_id IN (${fieldworkAdjustmentIds.map(()=>'?').join(',')}) ORDER BY l.adjustment_id,l.id`)
-    .bind(workspaceId,...fieldworkAdjustmentIds).all<Record<string,unknown>>() : null;
-  const fieldworkEvidence=fieldworkAdjustmentIds.length?await env.DB.prepare(`SELECT l.adjustment_id AS adjustmentId,l.evidence_id AS evidenceId,l.evidence_version AS evidenceVersion,l.file_sha256 AS fileSha256,l.source_snapshot_json AS sourceSnapshotJson
-    FROM audit_adjustment_evidence_links l WHERE l.workspace_id=? AND l.adjustment_id IN (${fieldworkAdjustmentIds.map(()=>'?').join(',')}) ORDER BY l.adjustment_id,l.id`)
-    .bind(workspaceId,...fieldworkAdjustmentIds).all<Record<string,unknown>>() : null;
-  const fieldworkLineMap=new Map<string,Record<string,unknown>[]>();for(const line of fieldworkAdjustmentLines?.results??[]){const rows=fieldworkLineMap.get(String(line.adjustmentId))??[];rows.push(line);fieldworkLineMap.set(String(line.adjustmentId),rows);}
-  const fieldworkEvidenceMap=new Map<string,Record<string,unknown>[]>();for(const link of fieldworkEvidence?.results??[]){const rows=fieldworkEvidenceMap.get(String(link.adjustmentId))??[];rows.push({...link,sourceSnapshot:JSON.parse(String(link.sourceSnapshotJson))});fieldworkEvidenceMap.set(String(link.adjustmentId),rows);}
-  const fieldworkAdjustments=(fieldworkAdjustmentRows?.results??[]).map(row=>({id:row.id,version:row.version,number:row.number,findingId:row.findingId,description:row.description,status:row.status,
-    clientResponse:row.clientResponse,clientResponseText:row.clientResponseText,sourceHash:row.sourceHash,createdAt:row.createdAt,
-    lines:fieldworkLineMap.get(String(row.id))??[],evidence:fieldworkEvidenceMap.get(String(row.id))??[]}));
-  const allFiles = await listBusinessFiles(env, workspaceId, request, 100);
-  const scopedFiles = allFiles.items.filter(file => file.engagementId === engagement.id);
-  const changeCursor = await sha256Hex(JSON.stringify({requests:requests.map(item => [item.id,item.version]),findings:(fieldworkFindings?.results??[]).map(item=>[item.id,item.version,item.sourceHash]),
-    adjustments:fieldworkAdjustments.map(item=>[item.id,item.version,item.sourceHash])}));
+  const scopedFiles = context.actor.persona === 'CLIENT' ? [] : (await listBusinessFiles(env, workspaceId, request, 100)).items
+    .filter(file => file.engagementId === engagement.id);
+  const clientDocuments = context.actor.persona === 'CLIENT'
+    ? await listClientDocuments(env, workspaceId, engagement.client_id, engagement.id)
+    : [];
+  const changeCursor = await sha256Hex(JSON.stringify({ requests: requests.map(item => [item.id,item.version]) }));
   const mode = portalMode(engagement);
   return {
     engagement: { id: engagement.id, code: engagement.code, periodStart: engagement.period_start, periodEnd: engagement.period_end,
@@ -2600,10 +2640,11 @@ export async function getBusinessPbcPortal(env: Env, workspaceId: string, reques
     mode, canUpload: context.actor.persona === 'CLIENT' && mode === 'ACTIVE',
     ...(mode === 'NOT_ACTIVE' ? { uploadBlocker: 'Uploads open after the commercial handover is complete and the advance is fully settled with its committed receipt.' } : {}),
     requests,
-    findings:fieldworkFindings?.results??[],adjustments:fieldworkAdjustments,
-    canRespondFieldwork:context.actor.persona==='CLIENT'&&['FIELDWORK_EXECUTION','MANAGERIAL_REVIEW'].includes(engagement.lifecycle_state)&&!engagement.locked_at,
-    commercialDocuments: scopedFiles.filter(file => file.purpose === 'GENERATED'),
-    releasedDeliverables: scopedFiles.filter(file => file.purpose === 'RELEASE'),
+    ...(context.actor.persona !== 'CLIENT' ? {
+      commercialDocuments: scopedFiles.filter(file => file.purpose === 'GENERATED'),
+      releasedDeliverables: scopedFiles.filter(file => file.purpose === 'RELEASE')
+    } : {}),
+    clientDocuments,
     changeCursor
   };
 }
@@ -2647,10 +2688,27 @@ async function readableBusinessFile(env: Env, workspaceId: string, request: Requ
           AND later.proposal_version_id=a.proposal_version_id AND (later.decided_at>a.decided_at OR (later.decided_at=a.decided_at AND later.id>a.id))))
       OR EXISTS(SELECT 1 FROM engagement_letters l WHERE l.workspace_id=? AND l.client_id=? AND l.file_version_id=?)
       OR EXISTS(SELECT 1 FROM invoices i WHERE i.workspace_id=? AND i.client_id=? AND i.file_version_id=? AND i.status='ISSUED')
-      OR EXISTS(SELECT 1 FROM receipt_vouchers rv WHERE rv.workspace_id=? AND rv.client_id=? AND rv.file_version_id=? AND rv.status='ISSUED')`)
-      .bind(workspaceId, fileId, context.actor.clientId, workspaceId, context.actor.clientId, fileId,
-        workspaceId, context.actor.clientId, fileId, workspaceId, context.actor.clientId, fileId).first<{ found: number }>();
-    if (!issued) throw new ApiError('FORBIDDEN_SCOPE', 'This generated file is not the current Partner-approved proposal for the selected client.');
+      OR EXISTS(SELECT 1 FROM receipt_vouchers rv WHERE rv.workspace_id=? AND rv.client_id=? AND rv.file_version_id=? AND rv.status='ISSUED')
+      OR EXISTS(SELECT 1 FROM holding_letters h JOIN dispatches d ON d.workspace_id=h.workspace_id AND d.id=h.dispatch_id AND d.status IN ('ACCEPTED','DELIVERED')
+        JOIN generated_artifacts ga ON ga.workspace_id=h.workspace_id AND ga.id=h.artifact_id
+        WHERE h.workspace_id=? AND h.client_id=? AND h.engagement_id=? AND ga.source_entity_type='HOLDING_LETTER'
+          AND ga.source_entity_id=h.id AND ga.file_version_id=?)`)
+      .bind(workspaceId, fileId, context.actor.clientId,
+        workspaceId, context.actor.clientId, fileId,
+        workspaceId, context.actor.clientId, fileId,
+        workspaceId, context.actor.clientId, fileId,
+        workspaceId, context.actor.clientId, file.engagement_id, fileId).first<{ found: number }>();
+    if (!issued) throw new ApiError('FORBIDDEN_SCOPE', 'This generated file is not an issued client document for the selected client.');
+  }
+  if (context.actor.persona === 'CLIENT' && file.purpose === 'RELEASE') {
+    const released = await env.DB.prepare(`SELECT 1 AS found WHERE
+      EXISTS(SELECT 1 FROM deliverable_bundles b JOIN deliverable_parts dp ON dp.workspace_id=b.workspace_id AND dp.bundle_id=b.id
+        WHERE b.workspace_id=? AND b.client_id=? AND b.engagement_id=? AND dp.primary_file_id=?)
+      OR EXISTS(SELECT 1 FROM deliverable_bundles b JOIN deliverable_parts dp ON dp.workspace_id=b.workspace_id AND dp.bundle_id=b.id
+        JOIN deliverable_attachments da ON da.workspace_id=dp.workspace_id AND da.part_id=dp.id
+        WHERE b.workspace_id=? AND b.client_id=? AND b.engagement_id=? AND da.file_version_id=?)`)
+      .bind(workspaceId,file.client_id,file.engagement_id,file.id,workspaceId,file.client_id,file.engagement_id,file.id).first<{ found: number }>();
+    if (!released) throw new ApiError('FORBIDDEN_SCOPE', 'This release file is not a part of the client’s Partner-released bundle.');
   }
   if (file.state !== 'COMMITTED' || !file.sha256 || !file.committed_at) {
     throw new ApiError('NOT_FOUND', 'A committed file was not found in this scope.');

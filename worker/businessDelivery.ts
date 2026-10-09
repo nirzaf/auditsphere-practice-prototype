@@ -616,7 +616,7 @@ export async function getBusinessDeliveryWorkspace(env: Env, workspaceId: string
       .bind(workspaceId, engagementId).all<Record<string, unknown>>(),
     env.DB.prepare(`SELECT i.id,i.version,i.kind,i.engagement_letter_id,i.number,i.subtotal_minor,i.tax_minor,i.total_minor,i.due_date,i.status,i.artifact_id,i.file_version_id,i.issue_date,i.issued_at,
         (SELECT j.last_error_code FROM outbox_jobs j WHERE j.workspace_id=i.workspace_id AND j.kind='GENERATE_DOCUMENT' AND j.aggregate_id=i.id ORDER BY j.created_at DESC LIMIT 1) AS document_error_code
-      FROM invoices i WHERE i.workspace_id=? AND i.engagement_id=? ORDER BY i.created_at DESC,i.id`)
+      FROM invoices i WHERE i.workspace_id=? AND i.engagement_id=? ${isInternal ? '' : "AND i.status='ISSUED'"} ORDER BY i.created_at DESC,i.id`)
       .bind(workspaceId, engagementId).all<Record<string, unknown>>(),
     env.DB.prepare(`SELECT p.id,p.amount_minor,p.received_on,p.method,p.reverses_payment_id,pv.id AS receipt_id,pv.number AS receipt_number,pv.status AS receipt_status,pv.file_version_id AS receipt_file_id,
         (SELECT j.last_error_code FROM outbox_jobs j WHERE j.workspace_id=pv.workspace_id AND j.kind='GENERATE_DOCUMENT' AND j.aggregate_id=pv.id ORDER BY j.created_at DESC LIMIT 1) AS receipt_error_code
@@ -656,21 +656,27 @@ export async function getBusinessDeliveryWorkspace(env: Env, workspaceId: string
     engagement: { id: engagement.id, clientId: engagement.client_id, code: engagement.code, version: engagement.version,
       lifecycleState: engagement.lifecycle_state, periodStart: engagement.period_start, periodEnd: engagement.period_end,
       serviceType: engagement.engagement_type, clientName: engagement.client_name, contractFeeMinor: String(engagement.contract_fee_minor) },
-    letters: (letters.results ?? []).map(row => ({ id: row.id, revision: row.revision, proposalVersionId: isInternal ? row.proposal_version_id : undefined,
-      commercialAcceptanceId: isInternal ? row.commercial_acceptance_id : undefined, riskClearanceId: isInternal ? row.risk_clearance_id : undefined,
-      templateVersionId: row.template_version_id, artifactId: row.artifact_id, fileVersionId: row.file_version_id,
-      contentSha256: row.content_sha256, feeMinor: String(row.fee_minor), periodStart: row.period_start, periodEnd: row.period_end, issuedAt: row.issued_at })),
+    letters: (letters.results ?? []).map(row => isInternal ? ({ id: row.id, revision: row.revision, proposalVersionId: row.proposal_version_id,
+      commercialAcceptanceId: row.commercial_acceptance_id, riskClearanceId: row.risk_clearance_id, templateVersionId: row.template_version_id,
+      artifactId: row.artifact_id, fileVersionId: row.file_version_id, contentSha256: row.content_sha256, feeMinor: String(row.fee_minor),
+      periodStart: row.period_start, periodEnd: row.period_end, issuedAt: row.issued_at }) : ({ id: row.id, revision: row.revision,
+      fileVersionId: row.file_version_id, feeMinor: String(row.fee_minor), periodStart: row.period_start, periodEnd: row.period_end, issuedAt: row.issued_at })),
     invoices: invoiceRows.map(row => {
       const paid = balances.get(String(row.id)) ?? 0n;
       const total = BigInt(Number(row.total_minor));
+      const publicInvoice = { id: row.id, version: row.version, number: row.number, totalMinor: String(row.total_minor), dueDate: row.due_date,
+        status: row.status, outstandingMinor: String(total > paid ? total - paid : 0n) };
+      if (!isInternal) return publicInvoice;
       return { id: row.id, version: row.version, kind: row.kind, engagementLetterId: row.engagement_letter_id, number: row.number, subtotalMinor: String(row.subtotal_minor), taxMinor: String(row.tax_minor),
         totalMinor: String(row.total_minor), dueDate: row.due_date, status: row.status, artifactId: row.artifact_id, fileVersionId: row.file_version_id,
         issueDate: row.issue_date, issuedAt: row.issued_at, documentErrorCode: row.document_error_code ?? null, outstandingMinor: String(total > paid ? total - paid : 0n),
         allocations: allocationsByInvoice.get(String(row.id)) ?? [] };
     }),
-    payments: (payments.results ?? []).map(row => ({ id: row.id, amountMinor: String(row.amount_minor), receivedOn: row.received_on,
+    payments: (payments.results ?? []).map(row => isInternal ? ({ id: row.id, amountMinor: String(row.amount_minor), receivedOn: row.received_on,
       method: row.method, reversal: Boolean(row.reverses_payment_id), receiptId: row.receipt_id, receiptNumber: row.receipt_number,
-      receiptStatus: row.receipt_status, receiptFileId: row.receipt_file_id, receiptErrorCode: row.receipt_error_code ?? null })),
+      receiptStatus: row.receipt_status, receiptFileId: row.receipt_file_id, receiptErrorCode: row.receipt_error_code ?? null }) : ({
+      id: row.id, amountMinor: String(row.amount_minor), receivedOn: row.received_on, method: row.method, reversal: Boolean(row.reverses_payment_id)
+    })),
     ...(isInternal ? {
       letterDrafts: (drafts.results ?? []).map(row => ({ id: row.id, revision: row.revision, proposalVersionId: row.proposal_version_id,
         commercialAcceptanceId: row.commercial_acceptance_id, riskClearanceId: row.risk_clearance_id, templateVersionId: row.template_version_id,

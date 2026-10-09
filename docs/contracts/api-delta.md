@@ -182,3 +182,9 @@ paths:
 ## 5. Readiness changes — E02-S04, E04-S04
 
 `GET /api/health/ready` reports `readinessChecks` for `environment`, the general rate limiter, `emailProvider`, `turnstile`, public-lead hashing/jurisdiction/notification/origin settings, D1, R2 and schema version. There is no `auth.entra` check in the current no-auth profile. Readiness requirements vary by environment as implemented in `worker/index.ts`; staging checks documented here are not evidence that a named staging app Worker is deployed.
+
+## 6. Client document centre — E05-S04
+
+`GET /api/workspaces/{workspaceId}/engagements/{engagementId}/portal`, when called with the selected `CLIENT` persona, includes `clientDocuments`. Each row is an explicit allowlist: `id`, `fileVersionId`, `category`, `originalName`, `issueDate`, `engagementId` and `engagementCode`; `HOLDING_LETTER` rows may additionally include the saved blocker snapshot fields `id`, `type`, `status`, `dueDate` and `stalePins`. Categories are `ENGAGEMENT_LETTER`, `INVOICE`, `RECEIPT`, `HOLDING_LETTER` and `FINAL_DELIVERABLE`. Draft/unissued invoices, pending receipts, undelivered holding letters, uncommitted bytes and bundle files outside a committed Partner-released bundle are excluded.
+
+The CLIENT response does not include staff `commercialDocuments` / `releasedDeliverables`, findings, adjustments, SRM content, or ordinary approval review notes. The mandatory reason on a rejected PBC submission remains visible for correction as required by US-ENG-008. `GET /api/workspaces/{workspaceId}/files/{fileId}` independently rechecks the client's client/engagement scope and the issued-document or released-bundle membership before serving committed bytes; membership in a list is not a download capability by itself.

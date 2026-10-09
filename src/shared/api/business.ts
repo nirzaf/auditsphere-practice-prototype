@@ -357,13 +357,13 @@ export interface BusinessDeliveryWorkspace {
   engagement: { id: string; clientId: string; code: string; version: number; lifecycleState: string; periodStart: string; periodEnd: string;
     serviceType: 'STATUTORY_AUDIT' | 'INTERNAL_AUDIT' | 'AGREED_UPON_PROCEDURES'; clientName: string; contractFeeMinor: string };
   letters: Array<{ id: string; revision: number; proposalVersionId?: string; commercialAcceptanceId?: string; riskClearanceId?: string;
-    templateVersionId: string; artifactId: string; fileVersionId: string; contentSha256: string; feeMinor: string;
+    templateVersionId?: string; artifactId?: string; fileVersionId: string; contentSha256?: string; feeMinor: string;
     periodStart: string; periodEnd: string; issuedAt: string }>;
-  invoices: Array<{ id: string; version: number; kind: 'ADVANCE' | 'FINAL'; engagementLetterId: string; number: string; subtotalMinor: string; taxMinor: string; totalMinor: string;
-    dueDate: string; status: 'DRAFT' | 'PENDING_DOCUMENT' | 'ISSUED' | 'VOID'; artifactId: string | null; fileVersionId: string | null;
-    issueDate: string | null; issuedAt: string | null; documentErrorCode: string | null; outstandingMinor: string; allocations: Array<{ amountMinor: string; reversal: boolean }> }>;
+  invoices: Array<{ id: string; version: number; kind?: 'ADVANCE' | 'FINAL'; engagementLetterId?: string; number: string; subtotalMinor?: string; taxMinor?: string; totalMinor: string;
+    dueDate: string; status: 'DRAFT' | 'PENDING_DOCUMENT' | 'ISSUED' | 'VOID'; artifactId?: string | null; fileVersionId?: string | null;
+    issueDate?: string | null; issuedAt?: string | null; documentErrorCode?: string | null; outstandingMinor: string; allocations?: Array<{ amountMinor: string; reversal: boolean }> }>;
   payments: Array<{ id: string; amountMinor: string; receivedOn: string; method: 'BANK_TRANSFER' | 'CHEQUE' | 'CASH'; reversal: boolean;
-    receiptId: string | null; receiptNumber: string | null; receiptStatus: 'PENDING' | 'ISSUED' | null; receiptFileId: string | null; receiptErrorCode: string | null }>;
+    receiptId?: string | null; receiptNumber?: string | null; receiptStatus?: 'PENDING' | 'ISSUED' | null; receiptFileId?: string | null; receiptErrorCode?: string | null }>;
   letterDrafts?: Array<{ id: string; revision: number; proposalVersionId: string; commercialAcceptanceId: string; riskClearanceId: string;
     templateVersionId: string; signatureFileVersionId: string; sealFileVersionId: string; status: string; jobId: string;
     fileVersionId: string | null; errorCode: string | null }>;
@@ -406,7 +406,7 @@ export interface BusinessPbcRequest {
     submittedAt: string;
     clientComment: string | null;
     supersedesSubmissionId: string | null;
-    reviews: Array<{ id: string; decision: 'APPROVE' | 'REJECT'; comments: string | null; reviewedAt: string; fileSha256: string }>;
+    reviews: Array<{ id: string; decision: 'APPROVE' | 'REJECT'; comments?: string | null; reviewedAt: string; fileSha256: string }>;
   }>;
 }
 export interface BusinessPbcPortal {
@@ -415,13 +415,21 @@ export interface BusinessPbcPortal {
   canUpload: boolean;
   uploadBlocker?: string;
   requests: BusinessPbcRequest[];
-  findings: Array<{ id: string; version: number; fsliId: string; fsliCode: string; fsliName: string; title: string; description: string; severity: string;
-    qualitativeSignificance: number; status: string; clientResponse: string | null; sourceHash: string; createdAt: string }>;
-  adjustments: Array<Record<string, unknown> & { lines: Array<Record<string, unknown>>; evidence: Array<Record<string, unknown>> }>;
-  canRespondFieldwork: boolean;
-  commercialDocuments: BusinessFileMetadata[];
-  releasedDeliverables: BusinessFileMetadata[];
+  commercialDocuments?: BusinessFileMetadata[];
+  releasedDeliverables?: BusinessFileMetadata[];
+  clientDocuments: BusinessClientDocument[];
   changeCursor: string;
+}
+
+export interface BusinessClientDocument {
+  id: string;
+  fileVersionId: string;
+  category: 'ENGAGEMENT_LETTER' | 'INVOICE' | 'RECEIPT' | 'HOLDING_LETTER' | 'FINAL_DELIVERABLE';
+  originalName: string;
+  issueDate: string;
+  engagementId: string;
+  engagementCode: string;
+  blockers?: Array<{ id: string; type: string; status: string; dueDate: string; stalePins: boolean }>;
 }
 
 export interface BusinessPlanningWorkspace {

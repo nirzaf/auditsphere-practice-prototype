@@ -193,7 +193,7 @@ export function BusinessDeliveryPanel({ workspaceId, selected, context, engageme
       'Payment reversal recorded with a new immutable receipt voucher.');
   };
 
-  const download = async (fileId: string | null, name: string) => {
+  const download = async (fileId: string | null | undefined, name: string) => {
     if (!fileId) return;
     const file = files.find(item => item.id === fileId);
     if (!file) { setError('The exact committed file is not in the current file projection. Refresh stored files and retry.'); return; }
@@ -326,16 +326,11 @@ export function BusinessDeliveryPanel({ workspaceId, selected, context, engageme
         <span>Due {invoice.dueDate} · total {invoice.totalMinor} · outstanding {invoice.outstandingMinor}</span>
         {invoice.fileVersionId && <button type="button" className="btn sm" onClick={() => void download(invoice.fileVersionId, `${invoice.number}.pdf`)}>Download invoice</button>}</div>)}
       {data.payments.map(payment => <div className="business-delivery-row" key={payment.id}><strong>{payment.reversal ? 'Reversal' : 'Verified payment'} · QAR minor {payment.amountMinor}</strong>
-        <span>{payment.receivedOn} · {payment.method} · receipt {payment.receiptNumber ?? 'pending'} · {payment.receiptStatus ?? 'pending'}</span>
-        {payment.receiptFileId && <button type="button" className="btn sm" onClick={() => void download(payment.receiptFileId, `${payment.receiptNumber}.pdf`)}>Download receipt</button>}
+        <span>{payment.receivedOn} · {payment.method}{!isClient && ` · receipt ${payment.receiptNumber ?? 'pending'} · ${payment.receiptStatus ?? 'pending'}`}</span>
+        {!isClient && payment.receiptFileId && <button type="button" className="btn sm" onClick={() => void download(payment.receiptFileId, `${payment.receiptNumber}.pdf`)}>Download receipt</button>}
         {!isClient && !payment.reversal && context.allowedActions.includes('payment.reverse') && <button type="button" className="btn sm" disabled={busy || payment.receiptStatus !== 'ISSUED'} onClick={() => void reversePayment(payment.id)}>Record reversal</button>}
       </div>)}
       {!activeLetters.length && !data.invoices.length && !data.payments.length && <p className="business-muted">No issued commercial documents or payments are recorded for this engagement.</p>}
-      {isClient && activeLetters.map(letter => <div className="business-delivery-row" key={letter.id}><strong>Engagement letter · revision {letter.revision}</strong>
-        <span>QAR fee minor {letter.feeMinor} · issued {letter.issuedAt}</span><button type="button" className="btn sm" onClick={() => void download(letter.fileVersionId, `engagement-letter-r${letter.revision}.pdf`)}>Download letter</button></div>)}
-      {isClient && data.invoices.filter(invoice => invoice.status === 'ISSUED').map(invoice => <div className="business-delivery-row" key={invoice.id}><strong>{invoice.number}</strong>
-        <span>Due {invoice.dueDate} · total QAR minor {invoice.totalMinor} · outstanding QAR minor {invoice.outstandingMinor}</span>
-        <button type="button" className="btn sm" onClick={() => void download(invoice.fileVersionId, `${invoice.number}.pdf`)}>Download invoice</button></div>)}
     </div>}
   </section>;
 }

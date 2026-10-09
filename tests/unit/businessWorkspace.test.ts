@@ -1563,7 +1563,7 @@ it('bootstraps a no-session BUSINESS workspace, records manual dispatch and main
   assert.equal(pbcBeforeHandover.body.mode, 'NOT_ACTIVE');
   assert.equal(pbcBeforeHandover.body.canUpload, false);
   assert.equal(pbcBeforeHandover.body.requests[0].status, 'PENDING_UPLOAD');
-  for (const forbiddenField of ['risk', 'srm', 'firmLedger', 'staffRates', 'otherClients']) {
+  for (const forbiddenField of ['risk', 'srm', 'firmLedger', 'staffRates', 'otherClients', 'findings', 'adjustments', 'commercialDocuments', 'releasedDeliverables']) {
     assert.equal(forbiddenField in pbcBeforeHandover.body, false, `client PBC projection excludes ${forbiddenField}`);
   }
   const blockedPbcReservation = await post(`/api/workspaces/${workspaceId}/files`, {
@@ -1891,6 +1891,9 @@ it('bootstraps a no-session BUSINESS workspace, records manual dispatch and main
   const rejectedForClient = await call(pbcPortalPath, { headers: clientPbcHeaders });
   assert.equal(rejectedForClient.body.requests[0].status, 'REJECTED_REUPLOAD_REQUIRED');
   assert.equal(rejectedForClient.body.requests[0].submissions[0].reviews[0].comments, 'The trial balance is missing the final credit total.');
+  for (const forbiddenField of ['findings', 'adjustments', 'commercialDocuments', 'releasedDeliverables']) {
+    assert.equal(forbiddenField in rejectedForClient.body, false, `client PBC projection excludes ${forbiddenField}`);
+  }
 
   const replacementBytes = pdf.slice();
   replacementBytes[5] = '2'.charCodeAt(0);
@@ -1930,7 +1933,8 @@ it('bootstraps a no-session BUSINESS workspace, records manual dispatch and main
   assert.equal(obsoleteApproval.body.code, 'VERSION_CONFLICT');
   const pbcApproval = await post(`/api/workspaces/${workspaceId}/commands`, {
     idempotencyKey: crypto.randomUUID(), command: { type: 'pbc.review', payload: {
-      requestId: pbcRequestId, expectedRequestVersion: 4, submissionId: secondSubmissionId, decision: 'APPROVE'
+      requestId: pbcRequestId, expectedRequestVersion: 4, submissionId: secondSubmissionId, decision: 'APPROVE',
+      comments: 'Cross-footing confirmed against the uploaded source statement.'
     } }
   }, reviewerPbcHeaders);
   assert.equal(pbcApproval.response.status, 200, JSON.stringify(pbcApproval.body));
@@ -1939,6 +1943,25 @@ it('bootstraps a no-session BUSINESS workspace, records manual dispatch and main
   assert.equal(approvedForClient.body.requests[0].status, 'APPROVED');
   assert.equal(approvedForClient.body.requests[0].submissions.length, 2, 'approval preserves both exact submitted files');
   assert.equal(approvedForClient.body.requests[0].submissions[1].reviews[0].fileSha256, replacementPbcFile.sha256);
+  assert.equal('comments' in approvedForClient.body.requests[0].submissions[1].reviews[0], false,
+    'client projection omits an internal approval note');
+  assert.equal(approvedForClient.body.requests[0].submissions[0].reviews[0].comments, 'The trial balance is missing the final credit total.',
+    'the client still receives the mandatory rejection reason needed to correct the submission');
+  const approvedForReviewer = await call(pbcPortalPath, { headers: reviewerPbcHeaders });
+  assert.equal(approvedForReviewer.body.requests[0].submissions[1].reviews[0].comments,
+    'Cross-footing confirmed against the uploaded source statement.', 'internal reviewers retain access to their approval notes');
+  const clientDocumentCenter = approvedForClient.body.clientDocuments as Array<Record<string, any>>;
+  assert.deepEqual(new Set(clientDocumentCenter.map(document => document.category)), new Set(['ENGAGEMENT_LETTER', 'INVOICE', 'RECEIPT']),
+    'the client centre groups only issued engagement letters, invoices and receipts');
+  for (const document of clientDocumentCenter) {
+    assert.ok(document.issueDate, 'every issued document has its original issue date');
+    assert.equal(document.engagementId, engagementId);
+    assert.equal(document.engagementCode, 'E2026-001');
+    assert.deepEqual(Object.keys(document).sort(), ['category', 'engagementCode', 'engagementId', 'fileVersionId', 'id', 'issueDate', 'originalName'].sort(),
+      'client document rows expose only their allowlisted display and download fields');
+  }
+  assert.equal(clientDocumentCenter.some(document => ['PENDING_DOCUMENT', 'DRAFT'].includes(document.status)), false,
+    'the client centre never returns unissued documents');
 
   const tbFolderId = foldersAfterClearance.body.folders.find((folder: any) => folder.code === 'TB_SCHEDULES').id as string;
   const tbCsv = new TextEncoder().encode([
@@ -4186,11 +4209,17 @@ it('bootstraps a no-session BUSINESS workspace, records manual dispatch and main
   assert.equal('letterDrafts' in clientDelivery.body, false, 'the client projection excludes internal letter drafts');
   const clientInvoice = clientDelivery.body.invoices.find((invoice: any) => invoice.id === issuedInvoice.id);
   assert.equal(clientInvoice.status, 'ISSUED');
-  for (const fileVersionId of [issuedLetter.body.result.fileId, clientInvoice.fileVersionId]) {
+  assert.equal(clientInvoice.fileVersionId, undefined, 'client delivery summaries do not duplicate file-download access outside the document centre');
+  assert.equal(clientDelivery.body.invoices.some((invoice: any) => invoice.status !== 'ISSUED'), false,
+    'client delivery summaries exclude draft and pending invoices');
+  assert.equal(clientDelivery.body.letters[0].artifactId, undefined, 'client delivery summaries omit internal artifact references');
+  for (const fileVersionId of clientDocumentCenter.map(document => document.fileVersionId)) {
     const clientDocument = await worker.fetch(new Request(`https://local.auditsphere.test/api/workspaces/${workspaceId}/files/${fileVersionId}`, { headers: makeRiskHeaders(clientHeaders) }), env, {} as any);
     assert.equal(clientDocument.status, 200, 'the client can download an issued document scoped to its engagement');
     assert.equal(new TextDecoder().decode(new Uint8Array(await clientDocument.arrayBuffer()).slice(0, 5)), '%PDF-');
   }
+  assert.equal(clientDelivery.body.payments.every((payment: any) => !('receiptFileId' in payment) && !('receiptErrorCode' in payment)), true,
+    'client payment history omits duplicate receipt document identifiers and provider internals');
   const clientCannotReadDeliveryElsewhere = await call(`/api/workspaces/${workspaceId}/engagements/${conversion.body.result.engagementId}/delivery-workspace`, {
     headers: { ...clientHeaders, 'X-Client-Id': childClientId }
   });
@@ -5359,6 +5388,19 @@ it('bootstraps a no-session BUSINESS workspace, records manual dispatch and main
     'the Holding Letter pipeline retains verified PDF bytes');
   assert.ok(confirmationDeliveries.some(message => message.purpose === 'HOLDING_LETTER'),
     'the generated Holding Letter is delivered through the email outbox');
+  const clientPortalWithHoldingLetter = await call(pbcPortalPath, { headers: clientPbcHeaders });
+  const heldLetterDocument = (clientPortalWithHoldingLetter.body.clientDocuments as Array<Record<string, any>>)
+    .find(document => document.category === 'HOLDING_LETTER');
+  assert.ok(heldLetterDocument, 'the generated Holding Letter appears in the client document centre');
+  assert.deepEqual(heldLetterDocument.blockers.map((item: any) => ({ type: item.type, status: item.status, dueDate: item.dueDate, stalePins: item.stalePins })),
+    [{ type: blockers[0].type, status: 'RETURNED_UNVERIFIED', dueDate: blockers[0].dueDate, stalePins: blockers[0].stalePins }],
+    'the client sees the blocker snapshot that was saved when the letter was issued');
+  assert.deepEqual(Object.keys(heldLetterDocument).sort(), ['blockers', 'category', 'engagementCode', 'engagementId', 'fileVersionId', 'id', 'issueDate', 'originalName'].sort(),
+    'holding-letter output excludes source hashes, third-party details and other internal snapshot fields');
+  const holdingLetterDownload = await worker.fetch(new Request(`https://local.auditsphere.test/api/workspaces/${workspaceId}/files/${heldLetterDocument.fileVersionId}`,
+    { headers: clientPbcHeaders }), env, {} as any);
+  assert.equal(holdingLetterDownload.status, 200, 'a generated and issued Holding Letter can be downloaded by its scoped client');
+  assert.equal(new TextDecoder().decode(new Uint8Array(await holdingLetterDownload.arrayBuffer()).slice(0, 5)), '%PDF-');
 
   const independentlyVerified = await post(`/api/workspaces/${workspaceId}/commands`, {
     idempotencyKey: crypto.randomUUID(), command: { type: 'confirmation.verify', payload: {
@@ -5370,6 +5412,11 @@ it('bootstraps a no-session BUSINESS workspace, records manual dispatch and main
   assert.equal(independentlyVerified.body.result.status, 'RETURNED_VERIFIED');
   assert.equal((await criticalConfirmationBlockers(env, workspaceId, gateEngagement)).length, 0,
     'independent verification satisfies the critical return gate');
+  const clientPortalAfterBlockerCleared = await call(pbcPortalPath, { headers: clientPbcHeaders });
+  const historicHoldingLetter = (clientPortalAfterBlockerCleared.body.clientDocuments as Array<Record<string, any>>)
+    .find(document => document.category === 'HOLDING_LETTER');
+  assert.equal(historicHoldingLetter.blockers[0].status, 'RETURNED_UNVERIFIED',
+    'subsequent verification does not rewrite the historical blocker snapshot on an issued letter');
 
   const partnerReassessment = await post(`/api/workspaces/${workspaceId}/commands`, {
     idempotencyKey: crypto.randomUUID(), command: { type: 'confirmation.scope-reassess', payload: {
