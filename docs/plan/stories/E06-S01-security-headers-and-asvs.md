@@ -13,6 +13,7 @@ Harden the app shell against XSS/clickjacking and record a structured security s
 - `tests/unit/securityHeaders.test.ts` covers `/`, a hashed asset URL, production-only HSTS, and `/api/health/live`.
 - Verification — 2026-10-09: focused security-header tests pass (2/2), `npm run build` passes, and `npm run cloud:typecheck` passes. There are no remaining JSX inline-style props.
 - The HTML meta CSP now also uses style-src self, matching the Worker response header. docs/quality/asvs-l2.md inventories all 126 Level 2 controls in the requested chapters: 28 Pass, 49 Fail/open, and 49 N/A for the explicitly scoped no-auth profile. No separate owner-approved follow-up stories exist for the open findings.
+- The one-time sealed-archive capability was moved out of the URL and is now submitted in a bounded same-origin POST form body. Updated unit/E2E assertions cover the fixed URL and POST method; this change has not yet been executed in CI, so V8.3.1 and V13.1.3 remain open pending verification.
 - Remaining acceptance: E2E CSP-violation sweep across business panels and retained public surfaces, resolve or obtain owner-approved follow-up stories for all 49 open ASVS findings, and complete operational evidence review. This story is not complete. A local browser sweep remains blocked because the local Wrangler runtime exits with Windows CreateDirectory: Access is denied for miniflare-email-store; the production Worker is not an approved UI test target. Tests were not run during this update.
 
 ## Read first

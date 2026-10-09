@@ -45,7 +45,7 @@ GET /api/workspaces/:workspaceId/engagements/:engagementId/reporting-workspace
 GET /api/workspaces/:workspaceId/engagements/:engagementId/archive-status
 GET /api/workspaces/:workspaceId/engagements/:engagementId/archive/export
 POST /api/workspaces/:workspaceId/engagements/:engagementId/archive/download-ticket
-GET /api/archive-download/:token
+POST /api/archive-download
 GET /api/workspaces/:workspaceId/engagements/:engagementId/opinion-preview
 GET /api/workspaces/:workspaceId/engagements/:engagementId/released-report/provenance
 GET /api/workspaces/:workspaceId/pbc-engagements

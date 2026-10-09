@@ -761,7 +761,8 @@ it('US-REP-001–007 covers all report categories, representation, atomic releas
   const installDownloadCapture = async () => {
     await tab!.evaluate(`(() => {
       if (window.__qaDownloadCapture) return;
-      const state = { urls: new Map(), downloads: [], errors: [], originalClick: HTMLAnchorElement.prototype.click };
+      const state = { urls: new Map(), downloads: [], errors: [], originalClick: HTMLAnchorElement.prototype.click,
+        originalFormSubmit: HTMLFormElement.prototype.submit };
       const createObjectUrl = URL.createObjectURL.bind(URL);
       URL.createObjectURL = blob => {
         const url = createObjectUrl(blob);
@@ -771,11 +772,29 @@ it('US-REP-001–007 covers all report categories, representation, atomic releas
       HTMLAnchorElement.prototype.click = function() {
         if (!this.download) return state.originalClick.call(this);
         const blob = state.urls.get(this.href);
-        if (!blob && new URL(this.href).pathname.startsWith('/api/archive-download/')) {
-          const item = { fileName: this.download, size: 0, type: '', base64: '', done: false, status: 0, url: this.href,
+        if (!blob) { state.errors.push('Download link did not refer to a captured object URL.'); return; }
+        const item = { fileName: this.download, size: blob.size, type: blob.type, base64: '', done: false, status: 200, url: this.href, method:'BLOB',
+          archiveSha256: '', manifestSha256: '', contentDisposition: '' };
+        state.downloads.push(item);
+        blob.arrayBuffer().then(buffer => {
+          const bytes = new Uint8Array(buffer);
+          let binary = '';
+          for (let offset = 0; offset < bytes.length; offset += 32768) {
+            binary += String.fromCharCode(...bytes.subarray(offset, Math.min(offset + 32768, bytes.length)));
+          }
+          item.base64 = btoa(binary);
+          item.done = true;
+        }).catch(error => state.errors.push(String(error)));
+      };
+      HTMLFormElement.prototype.submit = function() {
+        const target = new URL(this.action, window.location.href);
+        if (this.method.toUpperCase() === 'POST' && target.pathname === '/api/archive-download') {
+          const body = new URLSearchParams();
+          new FormData(this).forEach((value, key) => body.append(key, String(value)));
+          const item = { fileName: 'sealed-audit-archive.zip', size: 0, type: '', base64: '', done: false, status: 0, url: target.href, method:'POST',
             archiveSha256: '', manifestSha256: '', contentDisposition: '' };
           state.downloads.push(item);
-          fetch(this.href, { credentials: 'omit', cache: 'no-store' }).then(async response => {
+          fetch(target.href, { method:'POST', body, credentials: 'omit', cache: 'no-store' }).then(async response => {
             item.status = response.status;
             item.size = Number(response.headers.get('Content-Length') ?? 0);
             item.type = response.headers.get('Content-Type') ?? '';
@@ -794,19 +813,7 @@ it('US-REP-001–007 covers all report categories, representation, atomic releas
           }).catch(error => state.errors.push(String(error)));
           return;
         }
-        if (!blob) { state.errors.push('Download link did not refer to a captured object URL or native archive ticket.'); return; }
-        const item = { fileName: this.download, size: blob.size, type: blob.type, base64: '', done: false, status: 200, url: this.href,
-          archiveSha256: '', manifestSha256: '', contentDisposition: '' };
-        state.downloads.push(item);
-        blob.arrayBuffer().then(buffer => {
-          const bytes = new Uint8Array(buffer);
-          let binary = '';
-          for (let offset = 0; offset < bytes.length; offset += 32768) {
-            binary += String.fromCharCode(...bytes.subarray(offset, Math.min(offset + 32768, bytes.length)));
-          }
-          item.base64 = btoa(binary);
-          item.done = true;
-        }).catch(error => state.errors.push(String(error)));
+        return state.originalFormSubmit.call(this);
       };
       window.__qaDownloadCapture = state;
     })()`);
@@ -814,7 +821,7 @@ it('US-REP-001–007 covers all report categories, representation, atomic releas
   };
   const readCapturedDownload = async (index: number, label: string) => {
     await waitFor(`${label} bytes to reach the browser download control`, `Boolean(window.__qaDownloadCapture?.downloads[${index}]?.done)`);
-    const result = await tab!.evaluate<{ fileName: string; size: number; type: string; base64: string; done: boolean; status:number; url:string;
+    const result = await tab!.evaluate<{ fileName: string; size: number; type: string; base64: string; done: boolean; status:number; url:string; method:string;
       archiveSha256:string; manifestSha256:string; contentDisposition:string }>(
       `window.__qaDownloadCapture.downloads[${index}]`);
     assert.equal(result.done, true);
@@ -1941,7 +1948,8 @@ it('US-REP-001–007 covers all report categories, representation, atomic releas
   assert.equal(exportedArchive.fileName, 'sealed-audit-archive.zip');
   assert.equal(exportedArchive.type, 'application/zip');
   assert.equal(exportedArchive.status, 200);
-  assert.ok(new URL(exportedArchive.url).pathname.startsWith('/api/archive-download/'), 'the archive uses the native download ticket path');
+  assert.equal(new URL(exportedArchive.url).pathname, '/api/archive-download', 'the archive capability is sent to the fixed download endpoint');
+  assert.equal(exportedArchive.method, 'POST', 'the archive capability is carried in the POST body, outside the URL');
   assert.equal(exportedArchive.archiveSha256, sealedArchive.archive_sha256, 'the response carries the independently recorded archive seal');
   assert.equal(exportedArchive.manifestSha256, sealedArchive.manifest_sha256);
   assert.match(exportedArchive.contentDisposition, /attachment; filename="sealed-audit-archive\.zip"/);

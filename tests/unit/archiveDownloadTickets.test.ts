@@ -73,11 +73,12 @@ async function ticketEnv(sealed=true){
   return {env,manifestBytes,archiveBytes,tickets,used,writes};
 }
 
-it('issues a five-minute single-use native-download URL without storing its bearer token',async()=>{
+it('issues a five-minute single-use native-download ticket without storing its bearer token in a URL',async()=>{
   const {env,tickets,writes}=await ticketEnv();
   const issued=await createBusinessArchiveDownloadTicket(env,workspaceId,reviewContext(),engagementId,at);
-  const token=new URL(issued.downloadUrl,'https://audit.test').pathname.split('/').at(-1)!;
+  const token=issued.token;
   assert.match(token,/^[a-f0-9]{64}$/);
+  assert.equal('downloadUrl' in issued,false);
   assert.equal(issued.expiresAt,'2026-10-08T12:05:00.000Z');
   const ticket=[...tickets.values()][0]!;
   assert.equal(ticket.token_sha256,await sha256Hex(token));
@@ -88,10 +89,10 @@ it('issues a five-minute single-use native-download URL without storing its bear
   await assert.rejects(()=>createBusinessArchiveDownloadTicket(unsealed,workspaceId,reviewContext(),engagementId,at),/successfully sealed archive/);
 });
 
-it('consumes a native-download URL once, rechecks the seal, and streams verified bytes',async()=>{
+it('consumes a native-download ticket once, rechecks the seal, and streams verified bytes',async()=>{
   const {env,archiveBytes,tickets,used}=await ticketEnv();
   const issued=await createBusinessArchiveDownloadTicket(env,workspaceId,reviewContext(),engagementId,at);
-  const token=new URL(issued.downloadUrl,'https://audit.test').pathname.split('/').at(-1)!;
+  const token=issued.token;
   const download=await consumeBusinessArchiveDownloadTicket(env,token,'2026-10-08T12:01:00.000Z');
   assert.equal(download.sizeBytes,archiveBytes.byteLength);
   assert.equal(download.fileName,'sealed-audit-archive.zip');

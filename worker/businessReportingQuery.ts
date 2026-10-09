@@ -399,7 +399,7 @@ export async function getBusinessArchiveStatus(env:Env,workspaceId:string,contex
 const ARCHIVE_DOWNLOAD_TICKET_TTL_MS=5*60*1000;
 
 /** Issues a hashed, short-lived one-use capability for the browser's native download manager. */
-export async function createBusinessArchiveDownloadTicket(env:Env,workspaceId:string,context:BusinessContext,engagementId:string,now:string=new Date().toISOString()):Promise<{downloadUrl:string;expiresAt:string}>{
+export async function createBusinessArchiveDownloadTicket(env:Env,workspaceId:string,context:BusinessContext,engagementId:string,now:string=new Date().toISOString()):Promise<{token:string;expiresAt:string}>{
   if(!context.allowedActions.includes('reporting.read')||!(context.actor.persona==='REVIEWER'||context.actor.persona==='APPROVER'&&context.actor.staffGrade==='PARTNER'))
     throw new ApiError('PERSONA_ACTION_DENIED','Only a Reviewer or Partner may export a sealed internal audit archive.');
   if(!Number.isFinite(Date.parse(now)))throw new ApiError('BAD_REQUEST','The archive download ticket clock is invalid.');
@@ -409,7 +409,7 @@ export async function createBusinessArchiveDownloadTicket(env:Env,workspaceId:st
   const ticketId=crypto.randomUUID(),expiresAt=new Date(Date.parse(now)+ARCHIVE_DOWNLOAD_TICKET_TTL_MS).toISOString();
   await env.DB.prepare(`INSERT INTO archive_download_tickets(workspace_id,id,token_sha256,engagement_id,actor_id,actor_persona,actor_staff_grade,expires_at,created_at)
     VALUES(?,?,?,?,?,?,?,?,?)`).bind(workspaceId,ticketId,await sha256Hex(rawToken),engagementId,context.actor.id,context.actor.persona,context.actor.staffGrade,expiresAt,now).run();
-  return {downloadUrl:`/api/archive-download/${rawToken}`,expiresAt};
+  return {token:rawToken,expiresAt};
 }
 
 /** Consumes a capability atomically, rechecks the actor and seal, and streams the verified archive. */

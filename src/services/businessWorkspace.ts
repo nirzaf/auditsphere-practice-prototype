@@ -584,7 +584,7 @@ export async function createBusinessArchiveDownloadTicket(
   workspaceId:string,
   engagementId:string,
   selected:BusinessWorkspacePreference
-):Promise<{downloadUrl:string;expiresAt:string}>{
+):Promise<{token:string;expiresAt:string}>{
   return requestJson(`/api/workspaces/${encodeURIComponent(workspaceId)}/engagements/${encodeURIComponent(engagementId)}/archive/download-ticket`,{
     method:'POST',context:selected
   });

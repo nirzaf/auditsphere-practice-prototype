@@ -104,7 +104,7 @@ For Fail entries, no separate owner-approved follow-up stories have been recorde
 | V8.2.1 | Pass | API responses use no-store at the route boundary (worker/index.ts:710-724). |
 | V8.2.2 | Pass | Browser storage persists only workspace/actor/persona/client/engagement IDs and schema version, not business records or credentials (src/shared/api/business.ts:1-15, src/services/businessWorkspace.ts:14-33). |
 | V8.2.3 | N/A | Not applicable to the current application surface as defined in the official ASVS 4.0.3 control; reassess if the corresponding feature is introduced. |
-| V8.3.1 | Fail | The one-time archive download capability is carried in the URL path (worker/businessReportingQuery.ts:412, worker/index.ts:675); no-referrer mitigates referrer disclosure but does not remove URL exposure. |
+| V8.3.1 | Fail | The one-time archive capability is now returned as a short-lived ticket and submitted to a fixed same-origin POST endpoint in the form body (`worker/businessReportingQuery.ts`, `worker/index.ts`, `src/components/business/BusinessReportingPanel.tsx`). Unit and browser assertions were updated to reject URL-based tickets; execution and deployed-edge evidence remain open. |
 | V8.3.2 | Fail | Privacy inventory, subject rights/notice, access audit completeness, at-rest crypto evidence, and approved retention policy are not demonstrated (docs/ops/runbook.md, docs/ops/integrations.md). |
 | V8.3.3 | Fail | Privacy inventory, subject rights/notice, access audit completeness, at-rest crypto evidence, and approved retention policy are not demonstrated (docs/ops/runbook.md, docs/ops/integrations.md). |
 | V8.3.4 | Fail | Privacy inventory, subject rights/notice, access audit completeness, at-rest crypto evidence, and approved retention policy are not demonstrated (docs/ops/runbook.md, docs/ops/integrations.md). |
@@ -128,7 +128,7 @@ For Fail entries, no separate owner-approved follow-up stories have been recorde
 | V12.5.2 | Pass | Downloads set Content-Disposition: attachment, nosniff, and sandbox CSP (worker/business.ts:2782-2787). |
 | V12.6.1 | N/A | Application routes do not fetch user-supplied remote file URLs; external integration endpoints are service configuration, not file metadata. |
 | V13.1.1 | Fail | Required control-specific evidence or negative testing is not recorded; do not treat code presence as a pass (docs/plan/stories/E06-S01-security-headers-and-asvs.md). |
-| V13.1.3 | Fail | The one-time archive download capability is carried in the URL path (worker/businessReportingQuery.ts:412, worker/index.ts:675); no-referrer mitigates referrer disclosure but does not remove URL exposure. |
+| V13.1.3 | Fail | The one-time archive capability is now submitted in a same-origin POST form body to `/api/archive-download`; updated unit and browser assertions remain unexecuted, so control evidence is incomplete (`worker/index.ts`, `tests/e2e/businessReporting.test.ts`). |
 | V13.1.4 | Fail | Authorization uses caller-selected persona/actor context, not a trusted identity (worker/index.ts:5-8, worker/business.ts:608-675). |
 | V13.1.5 | Pass | JSON body reader rejects unexpected content types; raw file upload must match the reserved media type (worker/http.ts:31-65, worker/business.ts:2428-2437). |
 | V13.2.1 | Fail | Authorization uses caller-selected persona/actor context, not a trusted identity (worker/index.ts:5-8, worker/business.ts:608-675). |

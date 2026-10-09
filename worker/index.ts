@@ -453,8 +453,43 @@ const handleBusinessArchiveDownloadTicket = async (ctx: RouteContext): Promise<R
   return jsonResponse(result,201,ctx.requestId,{'Referrer-Policy':'no-referrer'});
 };
 
+const readArchiveDownloadTicket = async (request: Request): Promise<string> => {
+  if (!request.headers.get('content-type')?.toLocaleLowerCase().startsWith('application/x-www-form-urlencoded')) {
+    throw new ApiError('UNSUPPORTED_MEDIA_TYPE', 'Submit the archive download ticket as a form body.');
+  }
+  const declaredLength = Number(request.headers.get('content-length'));
+  if (Number.isFinite(declaredLength) && declaredLength > 256) {
+    throw new ApiError('PAYLOAD_TOO_LARGE', 'The archive download ticket form is too large.');
+  }
+  const reader = request.body?.getReader();
+  if (!reader) throw new ApiError('BAD_REQUEST', 'An archive download ticket form is required.');
+  const decoder = new TextDecoder();
+  let formBody = '';
+  let size = 0;
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    size += value.byteLength;
+    if (size > 256) {
+      await reader.cancel();
+      throw new ApiError('PAYLOAD_TOO_LARGE', 'The archive download ticket form is too large.');
+    }
+    formBody += decoder.decode(value, { stream: true });
+  }
+  formBody += decoder.decode();
+  const fields = new URLSearchParams(formBody);
+  const keys = Array.from(fields.keys());
+  const tickets = fields.getAll('ticket');
+  if (keys.length !== 1 || keys[0] !== 'ticket' || tickets.length !== 1) {
+    throw new ApiError('BAD_REQUEST', 'Submit exactly one archive download ticket.');
+  }
+  return tickets[0];
+};
+
 const handleNativeArchiveDownload = async (ctx: RouteContext): Promise<Response> => {
-  const result=await consumeBusinessArchiveDownloadTicket(ctx.env,ctx.params.token);
+  assertSameOrigin(ctx.request, ctx.url);
+  const rawToken = await readArchiveDownloadTicket(ctx.request);
+  const result=await consumeBusinessArchiveDownloadTicket(ctx.env,rawToken);
   return new Response(result.body,{headers:{
     'Content-Type':result.contentType,
     'Content-Disposition':`attachment; filename="${result.fileName}"`,
@@ -672,7 +707,7 @@ const router = createRouter()
   .get('/api/workspaces/:workspaceId/engagements/:engagementId/archive-status', handleBusinessArchiveStatus)
   .get('/api/workspaces/:workspaceId/engagements/:engagementId/archive/export', handleBusinessArchiveExport)
   .post('/api/workspaces/:workspaceId/engagements/:engagementId/archive/download-ticket', handleBusinessArchiveDownloadTicket)
-  .get('/api/archive-download/:token', handleNativeArchiveDownload)
+  .post('/api/archive-download', handleNativeArchiveDownload)
   .get('/api/workspaces/:workspaceId/engagements/:engagementId/opinion-preview', handleBusinessOpinionPreview)
   .get('/api/workspaces/:workspaceId/engagements/:engagementId/released-report/provenance', handleBusinessReleasedReportProvenance)
   .get('/api/workspaces/:workspaceId/pbc-engagements', handleBusinessPbcEngagements)

@@ -281,10 +281,9 @@ export function BusinessReportingPanel({ workspaceId, selected, context, engagem
       } else if(streamToDisk&&part==='archive') useNativeDownload=true;
       if(useNativeDownload){
         const ticket=await createBusinessArchiveDownloadTicket(workspaceId,activeEngagementId,selected);
-        const target=new URL(ticket.downloadUrl,window.location.origin);
-        if(target.origin!==window.location.origin)throw new Error('The archive download link was not issued by this application.');
-        const anchor=document.createElement('a');anchor.href=target.href;anchor.download='sealed-audit-archive.zip';anchor.rel='noreferrer';
-        document.body.append(anchor);anchor.click();anchor.remove();
+        const form=document.createElement('form');form.method='POST';form.action='/api/archive-download';form.hidden=true;
+        const input=document.createElement('input');input.type='hidden';input.name='ticket';input.value=ticket.token;form.append(input);
+        document.body.append(form);form.submit();form.remove();
         return;
       }
       writable = saveHandle ? await saveHandle.createWritable() : undefined;
