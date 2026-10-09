@@ -545,7 +545,7 @@ export function BusinessReportingPanel({ workspaceId, selected, context, engagem
             <ul>{opinionPreview.reportingBlockers.map(blocker => <li key={blocker}>{blocker}</li>)}</ul></div>}
           {opinionPreview.sections.map((section, index) => <section key={`${index}-${section.heading}`} aria-labelledby={`opinion-preview-section-${index}`}>
             <h4 id={`opinion-preview-section-${index}`}>{section.heading}</h4>
-            {(section.paragraphs ?? []).map((paragraph, paragraphIndex) => <p key={paragraphIndex} style={{ whiteSpace: 'pre-wrap' }}>{paragraph}</p>)}
+            {(section.paragraphs ?? []).map((paragraph, paragraphIndex) => <p key={paragraphIndex} className="business-reporting-paragraph">{paragraph}</p>)}
             {section.rows && <table><thead><tr><th scope="col">Financial statement line</th><th scope="col">Amount</th><th scope="col">Nature and explanation</th></tr></thead>
               <tbody>{section.rows.map((line, lineIndex) => <tr key={`${line.label}-${lineIndex}`}><th scope="row">{line.label}</th><td>{line.current ?? '—'}</td><td>{line.detail ?? ''}</td></tr>)}</tbody></table>}
           </section>)}

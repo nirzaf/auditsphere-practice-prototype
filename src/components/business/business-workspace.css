@@ -407,6 +407,7 @@
 .business-fieldwork-conflict-grid > div { min-width: 0; display: grid; align-content: start; gap: 7px; padding: 10px; border: 1px solid #fed7aa; border-radius: 7px; background: #fff; }
 .business-fieldwork-conflict-grid h4 { margin: 0; }
 .business-fieldwork-conflict-grid p { overflow-wrap: anywhere; white-space: pre-wrap; }
+.business-reporting-paragraph { white-space: pre-wrap; }
 .business-fieldwork-conflict .business-fieldwork-action-row { align-items: center; }
 .business-fieldwork-action-row { justify-content: flex-start; }
 .business-fieldwork-sample-test { display: grid; gap: 9px; padding: 12px; border: 1px solid var(--line); border-radius: 9px; }

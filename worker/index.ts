@@ -722,7 +722,7 @@ export default {
       const headers = new Headers(asset.headers);
       headers.set('X-Content-Type-Options', 'nosniff');
       headers.set('Referrer-Policy', 'no-referrer');
-      headers.set('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self'; frame-src 'self' blob:; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'");
+      headers.set('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self'; frame-src 'self' blob:; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'");
       headers.set('X-Frame-Options', 'DENY');
       headers.set('Cross-Origin-Opener-Policy', 'same-origin');
       headers.set('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
