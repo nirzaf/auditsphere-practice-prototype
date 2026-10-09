@@ -1049,7 +1049,11 @@ it('US-FLD-007, US-FLD-008 and US-FLD-009 verify MUS, systematic and stratified 
   await clickVisibleButton(tabA, 'Save test');
   await waitFor(tabA, 'the version-pinned tested item', `document.querySelector('.business-fieldwork-panel [role="status"]')?.textContent?.includes('Sample test saved with exact evidence version.')`);
   await clickWhenEnabled(tabA, 'Evaluate current tests');
-  await waitFor(tabA, 'the sampling evaluation response', `document.body.innerText.includes('WITHIN TOLERANCE') || !!document.querySelector('.business-fieldwork-panel > .business-alert')`);
+  await waitForStable(tabA, 'the sampling evaluation and reloaded exact evidence selection', `
+    document.body.innerText.includes('WITHIN TOLERANCE') &&
+    [...document.querySelectorAll('.business-fieldwork-sample-test select')]
+      .some(select => select.selectedOptions[0]?.textContent?.includes(${JSON.stringify(evidenceTitle)}))
+  `);
 
   const finalUi = await tabA.evaluate<{ withinToleranceVisible: boolean; boundVisible: boolean; evidenceVisible: boolean; evidenceOptions: Array<{ value: string; selectedText: string; options: string[] }>; alert: string | null }>(`({
     withinToleranceVisible: document.body.innerText.includes('WITHIN TOLERANCE'),
