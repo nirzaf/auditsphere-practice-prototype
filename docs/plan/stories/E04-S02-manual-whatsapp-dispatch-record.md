@@ -27,3 +27,29 @@ No WhatsApp API, links that auto-send, or phone-number scraping.
 ```bash
 npx tsx --test --test-name-pattern="manual dispatch" tests/unit/businessWorkspace.test.ts && npm run test:unit && npm run test:e2e
 ```
+
+## Current acceptance evidence (2026-10-10)
+
+- Migration `0050` is present, schema version is 57, and the migration suite
+  asserts both update/delete immutability triggers.
+- The focused BUSINESS integration journey passed 11/11. It verifies manual
+  delivery of the approved PDF, the one-time lifecycle transition, the exact
+  proposal-file snapshot, email-first/manual-first coexistence, and the returned
+  correspondence channels. The full unit suite passed 225 tests, with one
+  opt-in stress test skipped and 0 failures.
+- Source review confirms the command requires `proposal.dispatch`, a current
+  Partner-approved revision, committed generated PDF, engagement-client contact,
+  send time between approval and now, and optional committed engagement evidence.
+  The UI renders the channel/contact/time/evidence/note form only for the action-
+  entitled actor and shows the WhatsApp/Hand delivery label in correspondence.
+- Browser acceptance is **not verified in this run**. `npm run test:e2e` built
+  successfully but its first E06-S01/E06-S04 accessibility/CSP case failed after
+  about 56 seconds; the runner then stalled before diagnostics or subsequent
+  cases and was stopped. An isolated retry reproduced the stall. Starting the
+  local Wrangler preview also failed in Workerd before the page could load
+  (`CreateDirectory: Access is denied; path = miniflare-email-store`), including
+  with a workspace-local persistence path. The UI evidence above is source/API
+  review, not a rendered-browser assertion. Resolve the shared local browser
+  harness issue and rerun the full E2E gate before declaring acceptance.
+
+No WhatsApp API or real outbound message was used.
