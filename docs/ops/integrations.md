@@ -31,11 +31,16 @@ for commit `be46d99` passed the complete `verify` job but failed before any R2
 write, migration, email-provider deployment, or main Worker deployment. The
 R2 lock script's initial `GET` returned HTTP 403 `Authentication error`. This
 run started at 03:28 GMT+3, before the deployment-token secret was updated at
-03:34, and therefore did not test the current token. The pending workflow
-change routes the R2 configuration operation through a separate
+03:34, and therefore did not test the current token. The workflow change
+routes the R2 configuration operation through a separate
 `CLOUDFLARE_R2_LOCKS_TOKEN`; its scope and consequences are documented in
-[`environments.md`](environments.md). The secret must be configured before
-that workflow change is pushed to `main`.
+[`environments.md`](environments.md). The change is on `main` at `5344bfb`.
+GitHub Actions [run 38033740303](https://github.com/nirzaf/auditsphere-practice-prototype/actions/runs/38033740303)
+passed the full verification job but stopped at the deployment credential
+preflight because `CLOUDFLARE_R2_LOCKS_TOKEN` is absent from
+`cloudflare-production`. No R2 lock, D1 migration, email-provider deploy, or
+Worker deploy step ran. The release remains blocked until the secret is
+configured and the deployment is explicitly verified.
 
 The latest successful deploy readiness result is not a current
 `/api/integrations/status` probe. The last recorded SharePoint result, on
