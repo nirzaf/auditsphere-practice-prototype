@@ -4,7 +4,7 @@
 
 ## Scope and method
 
-This checklist includes the 126 Level 2 requirements in the requested chapters, selected using the Level 2 column in the [OWASP ASVS 4.0.3 verification CSV](https://github.com/OWASP/ASVS/blob/51aa459ebf8fc35b455442d9a0ecc401d94e224f/4.0/docs_en/OWASP%20Application%20Security%20Verification%20Standard%204.0.3-en.csv). Counts: V2 15, V3 17, V4 9, V5 30, V7 12, V8 15, V12 15, V13 13. The descriptions are intentionally not copied from the standard; use the control ID to look up its normative text.
+This checklist includes the 126 Level 2 requirements in the requested chapters, selected using the Level 2 column in the [OWASP ASVS 4.0.3 verification CSV](https://github.com/OWASP/ASVS/blob/51aa459ebf8fc35b455442d9a0ecc401d94e224f/4.0/docs_en/OWASP%20Application%20Security%20Verification%20Standard%204.0.3-en.csv). Counts: V2 15, V3 17, V4 9, V5 30, V7 12, V8 15, V12 15, V13 13. Current status totals: 32 Pass, 44 Fail, and 50 N/A. The descriptions are intentionally not copied from the standard; use the control ID to look up its normative text.
 
 **Status meanings:** Pass = source-level evidence is identified in this pass; it does not replace the story's required browser/E2E or operational verification. Fail = unmet or required evidence has not been collected. N/A = the feature/control is absent from this explicitly scoped application profile; the rationale names the boundary. N/A is not a security assurance.
 
@@ -55,14 +55,14 @@ For Fail entries, no separate owner-approved follow-up stories have been recorde
 | V4.3.1 | Fail | No authenticated identity binds the selected actor/persona to the caller; workflow role checks do not establish trusted access control (worker/index.ts:5-8, worker/business.ts:608-675). |
 | V4.3.2 | Fail | No authenticated identity binds the selected actor/persona to the caller; workflow role checks do not establish trusted access control (worker/index.ts:5-8, worker/business.ts:608-675). |
 | V4.3.3 | Fail | No authenticated identity binds the selected actor/persona to the caller; workflow role checks do not establish trusted access control (worker/index.ts:5-8, worker/business.ts:608-675). |
-| V5.1.1 | Fail | Control-specific negative-input/security evidence and complete static review remain open; the CSP/browser sweep passed on 2026-10-10 (docs/plan/stories/E06-S01-security-headers-and-asvs.md). |
+| V5.1.1 | Fail | The API rejects duplicate query keys, the email provider rejects duplicate scalar `message` fields, and the archive-download form requires exactly one ticket (`worker/index.ts`, `worker/emailProvider/handler.ts`, `tests/unit/securityHeaders.test.ts`, `tests/unit/emailProvider.test.ts`). A complete request-source review remains open; the CSP/browser sweep passed on 2026-10-10. |
 | V5.1.2 | Pass | Strict command payload schemas reject unknown fields (worker/business.ts:1417). |
 | V5.1.3 | Pass | Business request payloads are schema-validated (worker/business.ts:1417); JSON bodies have a streaming byte ceiling (worker/http.ts:31-65). |
 | V5.1.4 | Pass | Command payloads use bounded, typed Zod schemas (worker/business.ts command schema declarations and :1417). |
-| V5.1.5 | Fail | Control-specific negative-input/security evidence and complete static review remain open; the CSP/browser sweep passed on 2026-10-10 (docs/plan/stories/E06-S01-security-headers-and-asvs.md). |
+| V5.1.5 | N/A | The application has no HTTP redirect/forward handler or user-controlled redirect destination; SPA route hashes resolve only through the canonical route catalog (`worker/index.ts`, `src/components/business/BusinessModuleNavigation.tsx`). |
 | V5.2.1 | N/A | The product has no user-supplied XML/XPath, SVG, WYSIWYG HTML, or executable template editor in the current UI/API scope; revisit if that input surface is added. |
 | V5.2.2 | Pass | Unstructured command text uses schema-defined type and length constraints (worker/business.ts command schema declarations). |
-| V5.2.3 | Fail | Control-specific negative-input/security evidence and complete static review remain open; the CSP/browser sweep passed on 2026-10-10 (docs/plan/stories/E06-S01-security-headers-and-asvs.md). |
+| V5.2.3 | Pass | The email provider validates sender/recipient addresses and rejects CR/LF/NUL in subjects and attachment filenames; sender display names with header breaks are omitted, and repeated scalar message fields fail closed (`worker/emailProvider/handler.ts`, `tests/unit/emailProvider.test.ts`). |
 | V5.2.4 | Pass | Static application and Worker code uses no dynamic eval execution; JSON uses JSON.parse (worker/http.ts:31-65). |
 | V5.2.5 | Fail | Control-specific negative-input/security evidence and complete static review remain open; the CSP/browser sweep passed on 2026-10-10 (docs/plan/stories/E06-S01-security-headers-and-asvs.md). |
 | V5.2.6 | Fail | Control-specific negative-input/security evidence and complete static review remain open; the CSP/browser sweep passed on 2026-10-10 (docs/plan/stories/E06-S01-security-headers-and-asvs.md). |

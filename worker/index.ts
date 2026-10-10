@@ -62,6 +62,16 @@ import { getBusinessWorkflow } from './businessWorkflow';
 const JSON_BODY_LIMIT = 1_000_000;
 /** Hard ceiling for a single command payload; the domain model is small. */
 const COMMAND_BODY_LIMIT = 512_000;
+
+function hasDuplicateQueryParameter(parameters: URLSearchParams): boolean {
+  const seen = new Set<string>();
+  for (const key of parameters.keys()) {
+    if (seen.has(key)) return true;
+    seen.add(key);
+  }
+  return false;
+}
+
 const ASYNC_BUSINESS_COMMANDS = new Set([
   'proposal.generate', 'proposal.generate.retry', 'proposal.dispatch', 'proposal.dispatch.retry',
   'engagementLetter.generate', 'engagementLetter.issue', 'invoice.issueAdvance', 'payment.record', 'payment.reverse',
@@ -787,6 +797,16 @@ export default {
         return finishApiResponse(new Response(null, { status: 204, headers: { ...baseHeaders(requestId), ...cors } }), 'OPTIONS');
       }
       return finishApiResponse(new Response(null, { status: 204, headers: baseHeaders(requestId) }), 'OPTIONS');
+    }
+
+    // Every API query parameter is scalar. Reject duplicate keys instead of
+    // allowing different layers to choose different values for the same input.
+    if (hasDuplicateQueryParameter(url.searchParams)) {
+      return finishApiResponse(jsonResponse({
+        code: 'BAD_REQUEST',
+        message: 'Repeated query parameters are not supported.',
+        requestId
+      }, 400, requestId), 'repeated-query-parameter');
     }
 
     const match = router.match(request.method, url.pathname);

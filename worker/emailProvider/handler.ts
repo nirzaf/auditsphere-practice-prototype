@@ -126,8 +126,10 @@ export async function handleProviderSend(request: Request, env: EmailProviderEnv
   } catch {
     return jsonResponse(400, { error: 'INVALID_FORM' });
   }
-  const raw = form.get('message');
-  if (typeof raw !== 'string') return jsonResponse(400, { error: 'MISSING_MESSAGE' });
+  const messages = form.getAll('message');
+  if (messages.length !== 1) return jsonResponse(400, { error: messages.length ? 'DUPLICATE_MESSAGE' : 'MISSING_MESSAGE' });
+  const raw = messages[0];
+  if (typeof raw !== 'string') return jsonResponse(400, { error: 'INVALID_MESSAGE' });
   let parsed: Record<string, unknown>;
   try {
     parsed = JSON.parse(raw) as Record<string, unknown>;
@@ -135,6 +137,9 @@ export async function handleProviderSend(request: Request, env: EmailProviderEnv
     return jsonResponse(400, { error: 'INVALID_MESSAGE' });
   }
   const message = normalizeMessage(parsed);
+  if (message.subject.length > 998 || /[\r\n\0]/.test(message.subject)) {
+    return jsonResponse(400, { error: 'INVALID_MESSAGE_HEADER' });
+  }
   if (!message.to.length) return jsonResponse(400, { error: 'MISSING_RECIPIENT' });
   const normalizedRecipients = message.to.map(address => address.trim().toLocaleLowerCase());
   const policy = recipientPolicy(env);
@@ -175,8 +180,12 @@ export async function handleProviderSend(request: Request, env: EmailProviderEnv
   message.to = normalizedRecipients;
   for (const entry of form.getAll('attachment')) {
     const blob = entry as unknown as Blob & { name?: string };
+    const filename = asString(blob.name) ?? 'attachment';
+    if (filename.length > 255 || /[\r\n\0]/.test(filename)) {
+      return jsonResponse(400, { error: 'INVALID_ATTACHMENT_FILENAME' });
+    }
     message.attachments.push({
-      filename: asString(blob.name) ?? 'attachment',
+      filename,
       content: await blob.arrayBuffer(),
       type: blob.type || 'application/octet-stream',
       disposition: 'attachment'

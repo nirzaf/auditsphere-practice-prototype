@@ -42,3 +42,20 @@ it('applies no-store and nosniff to API responses at the route boundary', async 
   assert.equal(response.headers.get('Cache-Control'), 'no-store');
   assert.equal(response.headers.get('X-Content-Type-Options'), 'nosniff');
 });
+
+it('rejects HTTP parameter pollution while allowing distinct query parameters', async () => {
+  const duplicate = await worker.fetch(
+    new Request('https://audit.example/api/health/live?probe=first&probe=second'), env(), {} as ExecutionContext
+  );
+  assert.equal(duplicate.status, 400);
+  assert.deepEqual(await duplicate.json(), {
+    code: 'BAD_REQUEST',
+    message: 'Repeated query parameters are not supported.',
+    requestId: duplicate.headers.get('X-Request-Id')
+  });
+
+  const distinct = await worker.fetch(
+    new Request('https://audit.example/api/health/live?probe=first&other=second'), env(), {} as ExecutionContext
+  );
+  assert.equal(distinct.status, 200);
+});

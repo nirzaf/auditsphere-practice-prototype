@@ -72,6 +72,51 @@ describe('email-provider transport selection (US-GAP-05/06)', () => {
     assert.equal(response.status, 400);
   });
 
+  it('rejects duplicate scalar message fields before parsing or sending', async () => {
+    let sendCount = 0;
+    const form = new FormData();
+    form.append('message', JSON.stringify({ to: 'testing@mail.steauditing.com', text: 'first' }));
+    form.append('message', JSON.stringify({ to: 'attacker@example.org', text: 'second' }));
+    const response = await handleProviderSend(new Request('https://email-provider.local/send', {
+      method: 'POST', headers: { 'Idempotency-Key': 'idem-duplicate-message' }, body: form
+    }), {
+      SEND_EMAIL: { send: async () => { sendCount++; return { messageId: 'must-not-send' }; } },
+      EMAIL_ALLOWED_RECIPIENTS: 'testing@mail.steauditing.com'
+    } as ProviderEnv);
+    assert.equal(response.status, 400);
+    assert.deepEqual(await response.json(), { error: 'DUPLICATE_MESSAGE' });
+    assert.equal(sendCount, 0);
+  });
+
+  it('rejects CRLF in email subject headers before either transport is called', async () => {
+    let sendCount = 0;
+    const response = await handleProviderSend(sendRequest({
+      message: JSON.stringify({ to: 'testing@mail.steauditing.com', subject: 'Report\r\nBcc: attacker@example.org', text: 'body' })
+    }), {
+      SEND_EMAIL: { send: async () => { sendCount++; return { messageId: 'must-not-send' }; } },
+      EMAIL_ALLOWED_RECIPIENTS: 'testing@mail.steauditing.com'
+    } as ProviderEnv);
+    assert.equal(response.status, 400);
+    assert.deepEqual(await response.json(), { error: 'INVALID_MESSAGE_HEADER' });
+    assert.equal(sendCount, 0);
+  });
+
+  it('rejects CRLF in attachment filenames before either transport is called', async () => {
+    let sendCount = 0;
+    const form = new FormData();
+    form.set('message', JSON.stringify({ to: 'testing@mail.steauditing.com', subject: 'Receipt', text: 'body' }));
+    form.append('attachment', new Blob(['synthetic attachment'], { type: 'text/plain' }), 'report\r\nBcc:attacker.txt');
+    const response = await handleProviderSend(new Request('https://email-provider.local/send', {
+      method: 'POST', headers: { 'Idempotency-Key': 'idem-crlf-filename' }, body: form
+    }), {
+      SEND_EMAIL: { send: async () => { sendCount++; return { messageId: 'must-not-send' }; } },
+      EMAIL_ALLOWED_RECIPIENTS: 'testing@mail.steauditing.com'
+    } as ProviderEnv);
+    assert.equal(response.status, 400);
+    assert.deepEqual(await response.json(), { error: 'INVALID_ATTACHMENT_FILENAME' });
+    assert.equal(sendCount, 0);
+  });
+
   it('delivers through Cloudflare Email Service and returns the provider message id', async () => {
     const captured: EmailServiceMessage[] = [];
     const env = { SEND_EMAIL: { send: async (message: EmailServiceMessage) => { captured.push(message); return { messageId: 'email-service-42' }; } }, EMAIL_FROM: 'audit-dispatch@mail.steaudit.com', EMAIL_ALLOWED_RECIPIENTS: 'testing@mail.steauditing.com' } as ProviderEnv;
