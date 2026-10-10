@@ -423,6 +423,12 @@ async function buildTimeCorrection(env:Env,workspaceId:string,context:BusinessCo
     {originalTimeEntryId:original.id,replacementTimeEntryId:replacementId,reason:p.reason});
 }
 
+export function summarizeCapacityUtilization(scheduledMinutes:number,leaveMinutes:number,approvedBillableMinutes:number,missingCapacityDates:readonly string[]){
+  const availableMinutes=Math.max(0,scheduledMinutes-leaveMinutes);
+  const resultReason=missingCapacityDates.length?'MISSING_CAPACITY':availableMinutes===0?'ZERO_AVAILABILITY':'CALCULATED';
+  return {availableMinutes,resultReason,utilizationBps:resultReason==='CALCULATED'?Math.round(approvedBillableMinutes*10000/availableMinutes):null};
+}
+
 async function utilizationFor(env:Env,workspaceId:string,staffMemberId:string,from:string,to:string){
   const days=dateRange(from,to);
   const availability=await env.DB.prepare(`SELECT work_date,scheduled_minutes,approved_leave_minutes,updated_at FROM staff_availability
@@ -439,13 +445,13 @@ async function utilizationFor(env:Env,workspaceId:string,staffMemberId:string,fr
     FROM firm_time_entries t WHERE t.workspace_id=? AND t.staff_member_id=? AND t.work_date BETWEEN ? AND ? AND t.status<>'REVERSED'
       AND NOT EXISTS(SELECT 1 FROM firm_time_corrections c WHERE c.workspace_id=t.workspace_id AND c.original_time_entry_id=t.id)`)
     .bind(workspaceId,staffMemberId,from,to).first<{recorded:number;approved:number;billable:number;nonbillable:number;updated_at:string|null}>();
-  const available=Math.max(0,scheduled-leave),billable=Number(time?.billable??0),nonbillable=Number(time?.nonbillable??0);
-  const reason=missing.length?'MISSING_CAPACITY':available===0?'ZERO_AVAILABILITY':'CALCULATED';
+  const billable=Number(time?.billable??0),nonbillable=Number(time?.nonbillable??0);
+  const summary=summarizeCapacityUtilization(scheduled,leave,billable,missing);
   const sourceUpdatedAt=[...(availability.results??[]).map(row=>row.updated_at),time?.updated_at]
     .filter((value):value is string=>Boolean(value)).sort().at(-1)??null;
-  return {staffMemberId,from,to,scheduledMinutes:scheduled,leaveMinutes:leave,availableMinutes:available,
+  return {staffMemberId,from,to,scheduledMinutes:scheduled,leaveMinutes:leave,availableMinutes:summary.availableMinutes,
     recordedMinutes:Number(time?.recorded??0),approvedMinutes:Number(time?.approved??0),approvedBillableMinutes:billable,approvedNonbillableMinutes:nonbillable,
-    utilizationBps:reason==='CALCULATED'?Math.round(billable*10000/available):null,resultReason:reason,missingCapacityDates:missing,sourceUpdatedAt};
+    utilizationBps:summary.utilizationBps,resultReason:summary.resultReason,missingCapacityDates:missing,sourceUpdatedAt};
 }
 
 /** Explicit, staff-scoped read API for a utilization period. Work dates are inclusive Qatar local dates. */

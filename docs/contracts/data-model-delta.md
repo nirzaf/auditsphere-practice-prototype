@@ -2,11 +2,11 @@
 
 > **Historical proposal notice:** this delta includes auth/account tables for a superseded E03 design. Migrations 0046–0048 are preserved as applied-history compatibility; they do not mean the current no-auth epic requires account/session runtime behavior. Do not edit applied migration history or drop remote tables without a separately verified data-retirement plan.
 
-**Executable source of truth:** `worker/migrations/*.sql` (53 files, last = `0053_client_import_runs.sql`). This document records both applied contracts and the remaining migrations the backlog requires. Agents copy the SQL into a new numbered migration file, adjust only what the story's acceptance criteria demand, and record any deviation in the story's report.
+**Executable source of truth:** `worker/migrations/*.sql` (55 files, last = `0055_leave_intervals.sql`). This document records both applied contracts and the remaining migrations the backlog requires. Agents copy the SQL into a new numbered migration file, adjust only what the story's acceptance criteria demand, and record any deviation in the story's report.
 
 ## Migration rules (existing conventions — follow exactly)
 
-1. Forward-only, numbered `NNNN_snake_case.sql`, next free number is **0055**. Never edit an applied migration. E01-S05 used 0045, E03-S01 added auth tables in 0046, E03-S04 added portal credential issues in 0047, E03-S06 added the single-use first-Partner lock in 0048, E04-S01 added email delivery events in 0049, E04-S02 added manual dispatch records in 0050, E04-S03 added public lead submissions and their short-lived rate-limit events in 0051, the approved PolicyActivation ledger is in 0052, E05-S06 adds client import runs in 0053, and migration 0054 retires the empty legacy authentication tables after a zero-row preflight. Also bump `APPLICATION_SCHEMA_VERSION` in `worker/versions.ts` (currently `54`), which readiness compares against the DB (`handleHealthReady` → `SCHEMA_VERSION_MISMATCH`).
+1. Forward-only, numbered `NNNN_snake_case.sql`, next free number is **0056**. Never edit an applied migration. E01-S05 used 0045, E03-S01 added auth tables in 0046, E03-S04 added portal credential issues in 0047, E03-S06 added the single-use first-Partner lock in 0048, E04-S01 added email delivery events in 0049, E04-S02 added manual dispatch records in 0050, E04-S03 added public lead submissions and their short-lived rate-limit events in 0051, the approved PolicyActivation ledger is in 0052, E05-S06 adds client import runs in 0053, migration 0054 retires the empty legacy authentication tables after a zero-row preflight, and migration 0055 stores approved leave intervals and blocks overlap double counting. Also bump `APPLICATION_SCHEMA_VERSION` in `worker/versions.ts` (currently `55`), which readiness compares against the DB (`handleHealthReady` → `SCHEMA_VERSION_MISMATCH`).
 2. Every business table has `id TEXT PRIMARY KEY`, `workspace_id TEXT NOT NULL`, `UNIQUE (workspace_id, id)`, composite FKs `(workspace_id, x_id)` → `parent(workspace_id, id)`, `ON DELETE RESTRICT`.
 3. Mutable rows carry `version INTEGER NOT NULL DEFAULT 1 CHECK (version > 0)`; updates use `WHERE version = ?` and `version = version + 1`.
 4. Append-only tables get `BEFORE UPDATE` and `BEFORE DELETE` triggers that `RAISE(ABORT, '…')` (pattern: `worker/migrations/0006_business_foundation.sql` lines 301–304).
@@ -327,3 +327,7 @@ DROP TABLE IF EXISTS demo_creation_limits;
 ## 9. No schema change required
 
 E05-S01 (milestone defaults), E05-S02 (workprogram gates), E05-S03 (going-concern UI), E05-S04 (client document centre) are code-only unless the verify step proves otherwise.
+
+## 10. US-PRC-002 approved leave intervals — migration 0055
+
+`leave_records.start_minute` and `end_minute` store a half-open interval in the staff member's local work date: start is 0–1439, end is 1–1440, and `minutes = end_minute - start_minute`. Adjacent intervals are valid; intersecting intervals are not. Migration 0055 leaves historical day-only approval rows null rather than inventing their times. New approvals on a date with any unresolved day-only row are blocked until its timing is explicitly reconciled. The D1 insert trigger repeats the interval and overlap checks so concurrent or alternate write paths cannot bypass them.

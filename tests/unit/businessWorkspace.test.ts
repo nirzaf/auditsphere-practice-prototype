@@ -1765,12 +1765,53 @@ it('bootstraps a no-session BUSINESS workspace, records manual dispatch and main
   assert.equal(availability.response.status, 200, JSON.stringify(availability.body));
   const approvedLeave = await post(`/api/workspaces/${workspaceId}/commands`, {
     idempotencyKey: crypto.randomUUID(), command: { type: 'staffing.leave.record', payload: {
-      staffMemberId: preparerStaff.body.result.staffMemberId, workDate: planDate, minutes: 120,
+      staffMemberId: preparerStaff.body.result.staffMemberId, workDate: planDate, startMinute: 540, endMinute: 660, minutes: 120,
       reason: 'Approved personal leave is documented against this scheduled working date.'
     } }
   }, makeRiskHeaders(approverHeaders));
   assert.equal(approvedLeave.response.status, 200, JSON.stringify(approvedLeave.body));
   assert.equal(approvedLeave.body.result.availableMinutes, 360);
+  const overlappingLeave = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'staffing.leave.record', payload: {
+      staffMemberId: preparerStaff.body.result.staffMemberId, workDate: planDate, startMinute: 600, endMinute: 720, minutes: 120,
+      reason: 'This overlapping leave must not be approved or counted twice.'
+    } }
+  }, makeRiskHeaders(approverHeaders));
+  assert.equal(overlappingLeave.response.status, 422, JSON.stringify(overlappingLeave.body));
+  assert.equal(overlappingLeave.body.code, 'VALIDATION_FAILED');
+  assert.equal(db.prepare('SELECT COUNT(*) AS count FROM leave_records WHERE workspace_id=? AND staff_member_id=? AND work_date=?')
+    .bind(workspaceId, preparerStaff.body.result.staffMemberId, planDate).first<any>()?.count, 1, 'an overlapping leave interval does not append a second approval');
+
+  const adjacentLeaveDate = '2026-10-08';
+  const adjacentStaffId = preparerStaff.body.result.staffMemberId;
+  const adjacentAvailability = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'staffing.availability.set', payload: {
+      staffMemberId: adjacentStaffId, workDate: adjacentLeaveDate, scheduledMinutes: 480
+    } }
+  }, makeRiskHeaders(reviewerHeaders));
+  assert.equal(adjacentAvailability.response.status, 200, JSON.stringify(adjacentAvailability.body));
+  for (const [startMinute, endMinute] of [[540, 600], [600, 660]]) {
+    const adjacentLeave = await post(`/api/workspaces/${workspaceId}/commands`, {
+      idempotencyKey: crypto.randomUUID(), command: { type: 'staffing.leave.record', payload: {
+        staffMemberId: adjacentStaffId, workDate: adjacentLeaveDate, startMinute, endMinute, minutes: endMinute - startMinute,
+        reason: 'Adjacent non-overlapping leave interval is approved once.'
+      } }
+    }, makeRiskHeaders(approverHeaders));
+    assert.equal(adjacentLeave.response.status, 200, JSON.stringify(adjacentLeave.body));
+  }
+  const adjacentOverlap = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'staffing.leave.record', payload: {
+      staffMemberId: adjacentStaffId, workDate: adjacentLeaveDate, startMinute: 570, endMinute: 630, minutes: 60,
+      reason: 'A partial overlap with both approved intervals must be rejected.'
+    } }
+  }, makeRiskHeaders(approverHeaders));
+  assert.equal(adjacentOverlap.body.code, 'VALIDATION_FAILED');
+  const adjacentLeaveTotals = db.prepare(`SELECT sa.approved_leave_minutes AS minutes,COUNT(l.id) AS records
+    FROM staff_availability sa LEFT JOIN leave_records l ON l.workspace_id=sa.workspace_id AND l.staff_member_id=sa.staff_member_id AND l.work_date=sa.work_date
+    WHERE sa.workspace_id=? AND sa.staff_member_id=? AND sa.work_date=? GROUP BY sa.id`)
+    .bind(workspaceId, adjacentStaffId, adjacentLeaveDate).first<any>();
+  assert.equal(adjacentLeaveTotals?.minutes, 120, 'adjacent intervals add their disjoint minutes exactly once');
+  assert.equal(adjacentLeaveTotals?.records, 2, 'the rejected overlap does not append a leave record');
   const assignmentPayload = { engagementId, staffMemberId: preparerStaff.body.result.staffMemberId, persona: 'PREPARER', phase: 'FIELDWORK',
     startDate: planDate, endDate: planDate, plannedMinutes: 420, dailyMinutes: [{ date: planDate, minutes: 420 }] };
   const overCapacity = await post(`/api/workspaces/${workspaceId}/commands`, {

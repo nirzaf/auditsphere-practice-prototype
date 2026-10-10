@@ -420,7 +420,7 @@ before(async () => {
 
 after(async () => {
   tab?.close();
-  if (browser) await stopHeadlessChrome(browser.child);
+  if (browser) await stopHeadlessChrome(browser.child, browser.port);
   if (server) await server.close();
   if (browser?.profileDirectory) rmSync(browser.profileDirectory, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
 });
@@ -930,6 +930,9 @@ it('US-REP-001–007 covers all report categories, representation, atomic releas
     AND draft_id=(SELECT draft_id FROM financial_statement_approvals WHERE workspace_id=? AND id=?) LIMIT 1`)
     .bind(fixture.workspaceId, fixture.workspaceId, fixture.reportApprovalId).first<{ id: string; prior_minor: number | null }>();
   assert.ok(incompleteSchedule && incompleteSchedule.prior_minor !== null, 'the approved fixture includes a comparative supplemental schedule line');
+  // Simulate storage-level corruption only in this isolated fixture. Ordinary SQL updates
+  // are correctly blocked because approved supplemental lines are immutable.
+  runFixtureSql(`DROP TRIGGER supplements_frozen_after_approval`);
   runFixtureSql(`UPDATE statement_supplement_lines SET prior_minor=NULL WHERE workspace_id=? AND id=?`, fixture.workspaceId, incompleteSchedule.id);
   const blockedCandidate = await fetch(`${server.origin}/api/workspaces/${fixture.workspaceId}/commands`, {
     method: 'POST', headers: { Origin: server.origin, 'Content-Type': 'application/json', 'X-Actor-Id': fixture.actorId, 'X-Active-Persona': 'APPROVER',
@@ -1657,6 +1660,10 @@ it('US-REP-001–007 covers all report categories, representation, atomic releas
   assert.equal(freezeAfterReviewerSwitch?.portal_frozen_at, released.released_at,
     'switching away from CLIENT does not clear the authoritative server freeze');
   await switchActor(fixture.clientActorId, 'CLIENT');
+  await waitFor('the refreshed CLIENT projection includes the saved portal freeze', `(() => {
+    const engagement=document.querySelector('#business-reporting-${fixture.engagementId}')?.closest('section');
+    return Boolean(engagement?.innerText.includes('Read only') && engagement.innerText.includes('Frozen at ${released.released_at}'));
+  })()`);
   const clientAfterPersonaSwitch = await tab.evaluate<{ readOnly: boolean; frozenAtVisible: boolean; enabledFileInputs: number; enabledUploadButtons: number }>(`(() => {
     const engagement=document.querySelector('#business-reporting-${fixture.engagementId}')?.closest('section');
     const inputs=[...(engagement?.querySelectorAll('input[type="file"]')??[])];

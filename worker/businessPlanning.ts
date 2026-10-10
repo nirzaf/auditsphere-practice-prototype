@@ -20,7 +20,11 @@ const availabilitySet = z.strictObject({
 });
 const leaveRecord = z.strictObject({
   type: z.literal('staffing.leave.record'),
-  payload: z.strictObject({ staffMemberId: id, workDate: date, minutes: z.number().int().min(1).max(1440), reason: z.string().trim().min(10).max(2000) })
+  payload: z.strictObject({ staffMemberId: id, workDate: date, minutes: z.number().int().min(1).max(1440),
+    startMinute: z.number().int().min(0).max(1439), endMinute: z.number().int().min(1).max(1440),
+    reason: z.string().trim().min(10).max(2000) })
+    .refine(value => value.endMinute > value.startMinute && value.minutes === value.endMinute - value.startMinute,
+      { message: 'Leave minutes must equal the non-overlapping local work-day interval.', path: ['minutes'] })
 });
 const staffingAssign = z.strictObject({
   type: z.literal('staffing.assign'),
@@ -254,6 +258,15 @@ export async function buildBusinessPlanningMutation(env: Env, workspaceId: strin
     const actorStaff = await env.DB.prepare(`SELECT staff_member_id FROM actor_profiles WHERE workspace_id=? AND id=?`)
       .bind(workspaceId, context.actor.id).first<{ staff_member_id: string | null }>();
     if (actorStaff?.staff_member_id === staff.id) throw new ApiError('PERSONA_ACTION_DENIED', 'A staff member cannot approve their own leave.');
+    const conflictingLeave = await env.DB.prepare(`SELECT start_minute,end_minute FROM leave_records
+      WHERE workspace_id=? AND staff_member_id=? AND work_date=? AND status='APPROVED'
+        AND (start_minute IS NULL OR end_minute IS NULL OR (start_minute<? AND end_minute>?)) LIMIT 1`)
+      .bind(workspaceId, staff.id, command.payload.workDate, command.payload.endMinute, command.payload.startMinute)
+      .first<{ start_minute: number | null; end_minute: number | null }>();
+    if (conflictingLeave && (conflictingLeave.start_minute == null || conflictingLeave.end_minute == null)) {
+      throw new ApiError('GATE_BLOCKED', 'Existing approved leave has no recorded interval for this date; reconcile its timing before adding more leave.');
+    }
+    if (conflictingLeave) throw new ApiError('VALIDATION_FAILED', 'Approved leave intervals for one staff member and date cannot overlap.');
     if (availability.approved_leave_minutes + command.payload.minutes > availability.scheduled_minutes) {
       throw new ApiError('VALIDATION_FAILED', 'Approved leave cannot exceed the scheduled minutes for that date.');
     }
@@ -263,14 +276,17 @@ export async function buildBusinessPlanningMutation(env: Env, workspaceId: strin
     return { statements: [
       env.DB.prepare(`INSERT INTO command_assertions(workspace_id,seq,ok)
         SELECT ?,95,CASE WHEN EXISTS(SELECT 1 FROM staff_availability WHERE workspace_id=? AND staff_member_id=? AND work_date=? AND version=?
-          AND approved_leave_minutes+?<=scheduled_minutes) THEN 1 ELSE 0 END`)
-        .bind(workspaceId, workspaceId, staff.id, command.payload.workDate, availability.version, command.payload.minutes),
+          AND approved_leave_minutes+?<=scheduled_minutes)
+          AND NOT EXISTS(SELECT 1 FROM leave_records WHERE workspace_id=? AND staff_member_id=? AND work_date=? AND status='APPROVED'
+            AND (start_minute IS NULL OR end_minute IS NULL OR (start_minute<? AND end_minute>?))) THEN 1 ELSE 0 END`)
+        .bind(workspaceId, workspaceId, staff.id, command.payload.workDate, availability.version, command.payload.minutes,
+          workspaceId, staff.id, command.payload.workDate, command.payload.endMinute, command.payload.startMinute),
       env.DB.prepare(`INSERT INTO approval_decisions(id,workspace_id,client_id,engagement_id,version,subject_type,subject_id,subject_version,
         decision,rationale,actor_snapshot_json,decided_at,supersedes_decision_id) VALUES(?,?,NULL,NULL,1,'STAFF_LEAVE',?,1,'APPROVE',?,?,?,NULL)`)
         .bind(decisionId, workspaceId, leaveId, command.payload.reason, snapshot, now),
-      env.DB.prepare(`INSERT INTO leave_records(id,workspace_id,staff_member_id,work_date,minutes,reason,status,approved_by_actor_id,approval_decision_id,recorded_at)
-        VALUES(?,?,?,?,?,?,'APPROVED',?,?,?)`).bind(leaveId, workspaceId, staff.id, command.payload.workDate, command.payload.minutes,
-        command.payload.reason, context.actor.id, decisionId, now),
+      env.DB.prepare(`INSERT INTO leave_records(id,workspace_id,staff_member_id,work_date,minutes,reason,status,approved_by_actor_id,approval_decision_id,recorded_at,start_minute,end_minute)
+        VALUES(?,?,?,?,?,?,'APPROVED',?,?,?,?,?)`).bind(leaveId, workspaceId, staff.id, command.payload.workDate, command.payload.minutes,
+        command.payload.reason, context.actor.id, decisionId, now, command.payload.startMinute, command.payload.endMinute),
       env.DB.prepare(`UPDATE staff_availability SET approved_leave_minutes=approved_leave_minutes+?,version=version+1,updated_by_actor_id=?,updated_at=?
         WHERE workspace_id=? AND staff_member_id=? AND work_date=? AND version=? AND approved_leave_minutes+?<=scheduled_minutes`)
         .bind(command.payload.minutes, context.actor.id, now, workspaceId, staff.id, command.payload.workDate, availability.version, command.payload.minutes)

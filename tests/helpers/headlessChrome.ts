@@ -6,8 +6,34 @@ import { fileURLToPath } from 'node:url';
 
 const sleep = (milliseconds: number) => new Promise(resolve => setTimeout(resolve, milliseconds));
 
-/** Stop only the Chrome process tree returned by launchHeadlessChrome. */
-export async function stopHeadlessChrome(child: ChildProcess): Promise<void> {
+/** Stop only the Chrome instance returned by launchHeadlessChrome. */
+export async function stopHeadlessChrome(child: ChildProcess, port?: number): Promise<void> {
+  if (port) {
+    try {
+      const version = await fetch(`http://127.0.0.1:${port}/json/version`, { signal: AbortSignal.timeout(1000) });
+      if (version.ok) {
+        const endpoint = (await version.json() as { webSocketDebuggerUrl?: string }).webSocketDebuggerUrl;
+        if (endpoint) {
+          const socket = new WebSocket(endpoint);
+          const opened = await Promise.race([
+            new Promise<boolean>(resolve => {
+              socket.addEventListener('open', () => resolve(true), { once: true });
+              socket.addEventListener('error', () => resolve(false), { once: true });
+            }),
+            sleep(1000).then(() => false)
+          ]);
+          if (opened && socket.readyState === WebSocket.OPEN) {
+            socket.send(JSON.stringify({ id: 1, method: 'Browser.close' }));
+            await Promise.race([
+              new Promise<void>(resolve => socket.addEventListener('close', () => resolve(), { once: true })),
+              sleep(1000)
+            ]);
+          }
+          socket.close();
+        }
+      }
+    } catch { /* Fall back to terminating the owned process tree below. */ }
+  }
   const exited = child.exitCode === null
     ? new Promise<void>(resolve => child.once('exit', () => resolve()))
     : Promise.resolve();
@@ -70,6 +96,7 @@ export async function launchHeadlessChrome(
 
   let spawnError: Error | undefined;
   let stderrOutput = '';
+  let endpointError = 'the endpoint has not returned a response';
   child.once('error', error => { spawnError = error; });
   child.stderr?.setEncoding('utf8');
   child.stderr?.on('data', chunk => { stderrOutput = (stderrOutput + String(chunk)).slice(-4000); });
@@ -85,11 +112,13 @@ export async function launchHeadlessChrome(
           await response.json();
           return { child, profileDirectory, port };
         }
-      } catch { /* Chrome has not bound its debugging endpoint yet. */ }
+      } catch (error) {
+        endpointError = error instanceof Error ? `${error.name}: ${error.message}` : String(error);
+      }
       await sleep(100);
     }
     const stderr = stderrOutput.trim() ? ` Browser stderr: ${stderrOutput.trim()}` : '';
-    throw new Error(`Chrome did not expose its debugging endpoint on 127.0.0.1:${port} within ${options.timeoutMs ?? 30000} ms.${stderr}`);
+    throw new Error(`Chrome did not expose its debugging endpoint on 127.0.0.1:${port} within ${options.timeoutMs ?? 30000} ms. Last endpoint request: ${endpointError}.${stderr}`);
   } catch (error) {
     await stopHeadlessChrome(child);
     let cleanupError: unknown;

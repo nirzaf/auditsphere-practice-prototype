@@ -51,7 +51,8 @@ export function BusinessPlanningPanel({
   const [milestoneDate, setMilestoneDate] = useState('');
   const [milestoneSource, setMilestoneSource] = useState('');
   const [suggestedSchedule, setSuggestedSchedule] = useState<SuggestedMilestones | null>(null);
-  const [leaveMinutes, setLeaveMinutes] = useState('');
+  const [leaveStart, setLeaveStart] = useState('09:00');
+  const [leaveEnd, setLeaveEnd] = useState('11:00');
   const [leaveReason, setLeaveReason] = useState('');
   const [exceptionMinutes, setExceptionMinutes] = useState('');
   const [exceptionReason, setExceptionReason] = useState('');
@@ -173,8 +174,18 @@ export function BusinessPlanningPanel({
   async function recordLeave(event: FormEvent) {
     event.preventDefault();
     if (!selectedStaff) return;
+    const minuteOfDay = (time: string) => {
+      const [hour, minute] = time.split(':').map(Number);
+      return hour * 60 + minute;
+    };
+    const startMinute = minuteOfDay(leaveStart);
+    const endMinute = leaveEnd === '00:00' ? 1440 : minuteOfDay(leaveEnd);
+    if (!Number.isInteger(startMinute) || !Number.isInteger(endMinute) || endMinute <= startMinute) {
+      setError('Leave end time must be after its start time on the selected work date.');
+      return;
+    }
     await command('staffing.leave.record', { staffMemberId: selectedStaff.id, workDate: availabilityDate,
-      minutes: Number(leaveMinutes), reason: leaveReason }, 'Approved leave recorded against staff capacity.');
+      startMinute, endMinute, minutes: endMinute - startMinute, reason: leaveReason }, 'Approved leave recorded against staff capacity.');
   }
 
   async function approveException(event: FormEvent) {
@@ -248,8 +259,12 @@ export function BusinessPlanningPanel({
 
       {isPartner && <div className="business-form-grid">
         <form className="business-form business-commercial-form" onSubmit={recordLeave}>
-          <h3>Approve leave against recorded capacity</h3>
-          <label className="business-field" htmlFor="business-planning-leave"><span>Leave minutes</span><input id="business-planning-leave" type="number" min="1" max="1440" required value={leaveMinutes} onChange={event => setLeaveMinutes(event.target.value)} /></label>
+          <h3>Approve a non-overlapping leave interval</h3>
+          <p className="business-note">Enter local work-day times. Overlapping approved intervals are rejected, so leave cannot be subtracted twice. A prior day-only record must be reconciled before adding another interval on that date.</p>
+          <div className="business-form-grid">
+            <label className="business-field" htmlFor="business-planning-leave-start"><span>Start time</span><input id="business-planning-leave-start" type="time" step="60" required value={leaveStart} onChange={event => setLeaveStart(event.target.value)} /></label>
+            <label className="business-field" htmlFor="business-planning-leave-end"><span>End time</span><input id="business-planning-leave-end" type="time" step="60" required value={leaveEnd} onChange={event => setLeaveEnd(event.target.value)} /></label>
+          </div>
           <label className="business-field" htmlFor="business-planning-leave-reason"><span>Approval reason</span><input id="business-planning-leave-reason" minLength={10} maxLength={2000} required value={leaveReason} onChange={event => setLeaveReason(event.target.value)} /></label>
           <button className="btn sm" type="submit" disabled={busy || !selectedStaff}>Approve leave</button>
         </form>
