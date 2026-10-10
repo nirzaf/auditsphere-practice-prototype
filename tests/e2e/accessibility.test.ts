@@ -342,7 +342,7 @@ it('E06-S01/E06-S04 keeps the workspace, CLIENT portal, and business routes free
   await chooseOption('business-selected-client', `item.textContent?.includes(${JSON.stringify(`QA Accessibility Client ${unique} WLL`)})`);
   await waitFor('the Partner-scoped client detail section', `document.querySelector('#route-client-detail')?.textContent?.includes(${JSON.stringify(`QA Accessibility Client ${unique} WLL`)})`);
   const requiredStaffHeadings = [
-    'Acceptance and risk', 'Engagement letters and billing', 'Staffing, milestones and engagement folders',
+    'Acceptance and risk', 'Engagement letters and billing', 'Staffing and milestones',
     'Trial balance, materiality and planning handover', 'Audit fieldwork', 'Time, firm ledger and receivables',
     'PBC requests and responses', 'Reporting and final deliverables'
   ];
@@ -350,6 +350,11 @@ it('E06-S01/E06-S04 keeps the workspace, CLIENT portal, and business routes free
     const headings = [...document.querySelectorAll('h2')].map(heading => heading.textContent?.trim() ?? '');
     return ${JSON.stringify(requiredStaffHeadings)}.every(expected => headings.some(heading => heading.includes(expected)));
   })()`);
+  const folderSummary = await tab.evaluate<{ heading: boolean; emptyState: boolean }>(`(() => {
+    const section = document.querySelector('#business-engagement-folders-heading')?.closest('section');
+    return { heading: Boolean(section), emptyState: section?.innerText.includes('The five engagement folders appear after Partner risk clearance.') ?? false };
+  })()`);
+  assert.deepEqual(folderSummary, { heading: true, emptyState: true }, 'the Documents view locates the selected engagement folder taxonomy and explains the pre-clearance state');
   const staffHeadings = await tab.evaluate<string[]>(`[...document.querySelectorAll('h2')].map(heading => heading.textContent?.trim() ?? '')`);
   for (const heading of requiredStaffHeadings) assert.ok(staffHeadings.some(item => item.includes(heading)), `populated staff view includes ${heading}`);
   await audit('populated staff modules · desktop', 1440, 900, false);

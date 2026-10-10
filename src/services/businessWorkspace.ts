@@ -21,6 +21,7 @@ import type {
   BusinessTrialBalancePreview,
   BusinessTrialBalanceImport,
   BusinessCapacity,
+  BusinessEngagementFoldersResponse,
   BusinessFileReservation,
   BusinessAcceptanceGate,
   BusinessRiskWorkspace,
@@ -407,6 +408,15 @@ export async function getBusinessPlanningWorkspace(
   signal?: AbortSignal
 ): Promise<BusinessPlanningWorkspace> {
   return requestJson(`/api/workspaces/${encodeURIComponent(workspaceId)}/engagements/${encodeURIComponent(engagementId)}/planning-workspace`, { context: selected, signal });
+}
+
+export async function getBusinessEngagementFolders(
+  workspaceId: string,
+  engagementId: string,
+  selected: BusinessWorkspacePreference,
+  signal?: AbortSignal
+): Promise<BusinessEngagementFoldersResponse> {
+  return requestJson(`/api/workspaces/${encodeURIComponent(workspaceId)}/engagements/${encodeURIComponent(engagementId)}/folders`, { context: selected, signal });
 }
 
 export async function getBusinessTrialBalanceWorkspace(

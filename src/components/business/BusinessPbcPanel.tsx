@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import type {
   BusinessContextResponse,
+  BusinessEngagementFolder,
   BusinessFileMediaType,
   BusinessPbcEngagement,
   BusinessPbcPortal,
@@ -11,6 +12,7 @@ import {
   completeBusinessFile,
   downloadBusinessFileVersion,
   getBusinessClient,
+  getBusinessEngagementFolders,
   getBusinessPbcEngagements,
   getBusinessPbcPortal,
   initializeBusinessFile,
@@ -18,6 +20,7 @@ import {
   runBusinessCommand,
   uploadBusinessFile
 } from '../../services/businessWorkspace';
+import { BusinessEngagementFolderList } from './BusinessEngagementFolderList';
 
 interface ContactChoice { id: string; full_name: string; active: boolean; is_primary: boolean; rationale: string | null }
 interface PendingUpload {
@@ -66,6 +69,10 @@ export function BusinessPbcPanel({
 }) {
   const [engagements, setEngagements] = useState<BusinessPbcEngagement[]>([]);
   const [engagementId, setEngagementId] = useState(selected.engagementId ?? '');
+  const [engagementFolders, setEngagementFolders] = useState<BusinessEngagementFolder[]>([]);
+  const [engagementFoldersScopeKey, setEngagementFoldersScopeKey] = useState('');
+  const [engagementFoldersLoading, setEngagementFoldersLoading] = useState(false);
+  const [engagementFoldersError, setEngagementFoldersError] = useState('');
   const [contacts, setContacts] = useState<ContactChoice[]>([]);
   const [contactsScopeKey, setContactsScopeKey] = useState('');
   const [portal, setPortal] = useState<BusinessPbcPortal | null>(null);
@@ -84,6 +91,8 @@ export function BusinessPbcPanel({
   const cursor = useRef<string | null>(null);
   const polling = useRef(false);
   const engagement = engagements.find(item => item.id === engagementId) ?? null;
+  const canReadEngagementFolders = context.actor.persona !== 'CLIENT'
+    && context.allowedActions.includes('engagement.read');
   const requestContext: BusinessWorkspacePreference | null = engagement
     ? { ...selected, clientId: engagement.clientId, engagementId: engagement.id }
     : null;
@@ -112,6 +121,35 @@ export function BusinessPbcPanel({
     }).finally(() => { if (!controller.signal.aborted) setLoading(false); });
     return () => controller.abort();
   }, [workspaceId, selected.actorId, selected.persona, selected.clientId]);
+
+  useEffect(() => {
+    if (!engagement || !canReadEngagementFolders) {
+      setEngagementFolders([]);
+      setEngagementFoldersScopeKey('');
+      setEngagementFoldersError('');
+      setEngagementFoldersLoading(false);
+      return;
+    }
+    const controller = new AbortController();
+    const folderContext = { ...selected, clientId: engagement.clientId, engagementId: engagement.id };
+    const requestedScopeKey = [workspaceId, context.actor.id, context.actor.persona, engagement.id].join('|');
+    setEngagementFolders([]);
+    setEngagementFoldersScopeKey('');
+    setEngagementFoldersError('');
+    setEngagementFoldersLoading(true);
+    getBusinessEngagementFolders(workspaceId, engagement.id, folderContext, controller.signal).then(result => {
+      if (controller.signal.aborted) return;
+      setEngagementFolders(result.folders);
+      setEngagementFoldersScopeKey(requestedScopeKey);
+    }).catch(reason => {
+      if (!controller.signal.aborted) setEngagementFoldersError(reason instanceof Error
+        ? reason.message : 'The engagement folder list could not be loaded.');
+    }).finally(() => {
+      if (!controller.signal.aborted) setEngagementFoldersLoading(false);
+    });
+    return () => controller.abort();
+  }, [workspaceId, selected.actorId, selected.persona, selected.clientId, engagement?.id, engagement?.clientId,
+    context.actor.id, context.actor.persona, canReadEngagementFolders]);
 
   useEffect(() => {
     if (!engagement || context.actor.persona === 'CLIENT' || !context.allowedActions.includes('pbc.manage')) {
@@ -328,6 +366,19 @@ export function BusinessPbcPanel({
     {portalError && <p className="business-alert" role="alert">{portalError}</p>}
     {error && <p className="business-alert" role="alert">{error}</p>}
     {message && <p className="business-command-message" role="status" aria-atomic="true">{message}</p>}
+    {canReadEngagementFolders && engagement && <section className="business-directory-card" aria-labelledby="business-engagement-folders-heading"
+      aria-busy={engagementFoldersLoading}>
+      <div className="business-section-heading">
+        <div><p className="business-eyebrow">DOCUMENTS · US-GOV-004</p><h3 id="business-engagement-folders-heading">Engagement document folders</h3></div>
+        <span className="business-muted">{engagement.code} · {engagement.periodEnd}</span>
+      </div>
+      {engagementFoldersError && <p className="business-alert" role="alert">{engagementFoldersError}</p>}
+      {engagementFoldersLoading && <p className="business-muted" role="status">Loading engagement folders…</p>}
+      {!engagementFoldersLoading && !engagementFoldersError && engagementFoldersScopeKey
+        === [workspaceId, context.actor.id, context.actor.persona, engagement.id].join('|') && (engagementFolders.length === 5
+          ? <BusinessEngagementFolderList folders={engagementFolders} />
+          : <p className="business-muted">The five engagement folders appear after Partner risk clearance. Empty folders are valid; no placeholder files are created.</p>)}
+    </section>}
     {portal && portalScopeKey === activePortalScopeKey && <>
       <div className="business-pbc-statusbar">
         <strong>Portal {portal.mode.replaceAll('_',' ').toLowerCase()}</strong>

@@ -186,7 +186,7 @@ export function BusinessPlanningPanel({
 
   return <section id="route-audit-planning" className="business-directory-card business-planning-panel" aria-labelledby="business-planning-heading">
     <div className="business-section-heading">
-      <div><p className="business-eyebrow">PLANNING · US-GOV-003 / US-GOV-004</p><h2 id="business-planning-heading">Staffing, milestones and engagement folders</h2>
+      <div><p className="business-eyebrow">PLANNING · US-GOV-003</p><h2 id="business-planning-heading">Staffing and milestones</h2>
         <p className="business-muted">{engagement.clientName} · {engagement.code} · {engagement.lifecycleState.replaceAll('_', ' ')}</p></div>
     </div>
     {error && <p className="business-alert" role="alert">{error}</p>}
@@ -292,7 +292,6 @@ export function BusinessPlanningPanel({
         <div><h3>Assigned staff</h3>{data.assignments.length ? <ul className="business-record-list">{data.assignments.map(item => <li key={item.id}><strong>{item.displayName} · {item.persona} · {item.phase}</strong><span>{item.startDate} to {item.endDate} · {item.plannedMinutes} minutes</span><small>{item.dailyMinutes.map(day => `${day.date}: ${day.minutes} min`).join(' · ')}</small></li>)}</ul> : <p className="business-muted">No staff assignments are recorded.</p>}</div>
         <div><h3>Milestones</h3>{data.milestones.length ? <ul className="business-record-list">{data.milestones.map(item => <li key={item.id}><strong>{item.code.replaceAll('_', ' ')} · {item.targetDate}</strong><small>{item.sourceReference}{item.approvedByActorId ? ' · Partner approved' : ''}</small></li>)}</ul> : <p className="business-muted">No sourced milestones are recorded.</p>}</div>
       </div>
-      <div><h3>Engagement folders</h3>{data.folders.length === 5 ? <ol className="business-folder-list">{data.folders.map(folder => <li key={folder.id}><strong>{folder.displayName}</strong><span>{folder.fileCount} committed files{folder.readOnly ? ' · Release workflow only' : ''}</span><small>Upload rule: {folder.uploadRule}</small></li>)}</ol> : <p className="business-muted">Five folders appear after current Partner risk clearance. Empty folders are valid and no placeholder files are created.</p>}</div>
     </>}
   </section>;
 }

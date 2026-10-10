@@ -7,6 +7,7 @@ import { inflateSync } from 'node:zlib';
 import * as XLSX from 'xlsx';
 import worker, { businessCommandHttpResult } from '../../worker/index.js';
 import { criticalConfirmationBlockers, queueHoldingLetterForBlockers } from '../../worker/businessFieldwork.js';
+import { provisionEngagementFolders } from '../../worker/businessPlanning.js';
 import { APPLICATION_SCHEMA_VERSION } from '../../worker/versions.js';
 import { SqliteD1 } from '../helpers/sqliteD1.js';
 import { runFieldworkAcceptanceMatrix } from './fieldworkAcceptance.test.js';
@@ -2160,6 +2161,24 @@ it('bootstraps a no-session BUSINESS workspace, records manual dispatch and main
     'an invalid replacement cannot change the active TB source');
   const tbFileId = await storeCommittedFile('TB', 'accepted-trial-balance.csv', 'text/csv', tbCsv, makeRiskHeaders(reviewerHeaders),
     { clientId, engagementId, folderId: tbFolderId });
+  const clearanceId = db.prepare(`SELECT id FROM risk_clearances WHERE workspace_id=? AND engagement_id=? ORDER BY sequence DESC LIMIT 1`)
+    .bind(workspaceId, engagementId).first<{ id: string }>()?.id;
+  assert.ok(clearanceId, 'the folder taxonomy is tied to the accepted risk-clearance event');
+  const folderRowsBeforeReplay = db.prepare(`SELECT id,code,ordinal FROM engagement_folders WHERE workspace_id=? AND engagement_id=? ORDER BY ordinal`)
+    .bind(workspaceId, engagementId).all<{ id: string; code: string; ordinal: number }>().results;
+  const fileReferencesBeforeReplay = db.prepare(`SELECT id,folder_id AS folderId,state FROM file_versions
+    WHERE workspace_id=? AND engagement_id=? AND folder_id IS NOT NULL ORDER BY id`)
+    .bind(workspaceId, engagementId).all<{ id: string; folderId: string; state: string }>().results;
+  assert.ok(fileReferencesBeforeReplay.some(file => file.id === tbFileId && file.folderId === tbFolderId && file.state === 'COMMITTED'),
+    'the taxonomy contains committed real work before provisioning is retried');
+  const replayedFolderProvision = await provisionEngagementFolders(env as any, workspaceId, clientId, engagementId, clearanceId, new Date().toISOString());
+  assert.equal(replayedFolderProvision.statements.length, 0, 'retrying the provisioning helper emits no insert statements');
+  assert.deepEqual(replayedFolderProvision.folders.map(folder => [folder.id, folder.code, folder.ordinal]),
+    folderRowsBeforeReplay?.map(folder => [folder.id, folder.code, folder.ordinal]), 'retry preserves the original folder identities and taxonomy');
+  const fileReferencesAfterReplay = db.prepare(`SELECT id,folder_id AS folderId,state FROM file_versions
+    WHERE workspace_id=? AND engagement_id=? AND folder_id IS NOT NULL ORDER BY id`)
+    .bind(workspaceId, engagementId).all<{ id: string; folderId: string; state: string }>().results;
+  assert.deepEqual(fileReferencesAfterReplay, fileReferencesBeforeReplay, 'retry leaves every existing folder file reference unchanged');
   const tbPreview = await call(`/api/workspaces/${workspaceId}/engagements/${engagementId}/trial-balance-preview?fileId=${tbFileId}`,
     { headers: makeRiskHeaders(reviewerHeaders) });
   assert.equal(tbPreview.response.status, 200, JSON.stringify(tbPreview.body));
