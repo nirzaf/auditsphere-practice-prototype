@@ -38,7 +38,13 @@ choice; this is an accepted provider-console privacy exception, not proof of
 the strict no-content-in-logs criterion.
 
 ## Step 0 — Verify transport capability (no code)
-Fetch current Cloudflare documentation for the `send_email` binding / Email Service and record in the PR: can it send to **arbitrary external recipients** from a verified domain, and with what limits? If **not**, production must use the `HTTP_API` transport with a transactional email provider chosen by the firm (owner decision; the provider becomes a data processor — add it to SP-04's inventory).
+Verified against the current Cloudflare Email Service documentation on 2026-10-10:
+
+- A native `send_email` binding can send only to destinations verified in the Cloudflare account, unless further restricted to a fixed destination or allowlist. Its sender must belong to a domain onboarded to Email Service.
+- The Email Sending REST API accepts an explicit recipient and returns per-recipient `delivered`, `permanent_bounces`, `queued`, and `suppressed_recipients` arrays plus a `message_id`. It is the selected transport for production routed contacts; its account API token must have permission to send email.
+- Sources: [send binding configuration](https://developers.cloudflare.com/email-service/configuration/send-bindings/), [Email Sending REST API](https://developers.cloudflare.com/email-service/api/send-emails/rest-api/), [send API response schema](https://developers.cloudflare.com/api/resources/email_sending/methods/send/).
+
+This records the transport decision in the implementation record because this repository is being updated directly on `main`, without a PR.
 
 ## Scope
 **In:** recipient policy modes in the provider: `ALLOWLIST` (staging; current behaviour) and `ROUTED` (production) where the business Worker is the only caller (service binding, `workers_dev:false`) and the provider requires each message to carry `routeId` + `recipientSha256`, re-validating that the address is a syntactically valid, non-role-blocked address; SPF/DKIM/DMARC records documented for the sender domain; delivery status updates (`ACCEPTED`/`DELIVERED`/`BOUNCED`) recorded on `dispatches` from provider responses or webhook (HTTP_API) — webhook endpoint authenticated with an HMAC secret; staff-visible dispatch history per engagement already rendered — confirm it shows the new statuses.
@@ -59,6 +65,25 @@ No email content (body/attachments) in logs. Keep the provider Worker free of bu
 ```bash
 npx tsx --test tests/unit/emailProvider.test.ts tests/unit/wranglerConfig.test.ts && npm run test:unit
 ```
+
+## Current code acceptance review (2026-10-10)
+
+The specified verification completed locally: the focused provider/config/webhook run
+passed 25/25 tests, and `npm run test:unit` passed 225 tests with 1 opt-in stress
+test skipped and 0 failures.
+
+| Criterion | Evidence / status |
+|---|---|
+| 1. Staging rejects recipients outside the explicit allowlist | **Verified in code/tests** — provider tests reject before either transport is invoked. |
+| 2. Production uses `ROUTED`, has no public route, and is distinct from staging | **Verified in code/tests** — staging is `ALLOWLIST`; production is private and REST-backed; config tests assert the separation. |
+| 3. Routed delivery requires a valid route ID and matching normalized-recipient hash before transport | **Verified in code/tests** — invalid/missing proof is rejected before the transport call. |
+| 4. Signed status callback is authenticated, idempotent, and does not downgrade terminal status | **Verified in code/tests** — valid signature, invalid signature, replay, conflicting event, and terminal-state cases are covered. Cloudflare REST reports status synchronously, so the callback is for HTTP API providers. |
+| 5. Operations instructions cover sender/DNS, recipient routing, status, token rotation, and delivery verification | **Documented** in `docs/ops/email.md`; exact DNS records remain sourced from the live sender-domain panel. |
+| 6. A synthetic staging EL is received and recorded | **Open** — no mailbox receipt is evidenced. The latest recorded Cloudflare check on 2026-10-07 showed `testing@mail.steauditing.com` as Pending; verify the current state and complete the isolated staging send before recording success. |
+
+The owner chose to leave Email Preview enabled. That is recorded as an accepted
+Cloudflare console privacy exception; it does not establish the strict
+no-content-in-logs criterion for provider-side activity views.
 
 ## Stop and ask if
 - Step 0 shows Cloudflare cannot send to external recipients and the firm has not chosen an ESP.
