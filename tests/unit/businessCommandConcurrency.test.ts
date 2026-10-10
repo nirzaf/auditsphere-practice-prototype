@@ -37,8 +37,8 @@ async function call(path: string, options: {
   return { response, body: await response.json() as any };
 }
 
-async function command(workspaceId: string, actor: { actorId: string; persona: string }, type: string, payload: unknown) {
-  const idempotencyKey = crypto.randomUUID();
+async function command(workspaceId: string, actor: { actorId: string; persona: string }, type: string, payload: unknown,
+  idempotencyKey = crypto.randomUUID()) {
   return call(`/api/workspaces/${workspaceId}/commands`, {
     method: 'POST', actor, idempotencyKey,
     payload: {
@@ -128,4 +128,91 @@ it('retries audit-head compare-and-swap races so 20 concurrent commands persist'
   assert.equal(db.prepare(`SELECT COUNT(*) AS count FROM audit_events
     WHERE workspace_id=? AND command_type='client.create'`).bind(workspaceId).first<{ count: number }>()?.count,
   commandCount * 4, 'all successful commands append a complete entity-level workspace audit chain');
+
+  const failedClientCode = `ATOMIC${crypto.randomUUID().replaceAll('-', '').slice(0, 12).toUpperCase()}`;
+  const failedClientEmail = `${failedClientCode.toLowerCase()}@example.invalid`;
+  const failedCommandKey = crypto.randomUUID();
+  const failedPayload = {
+    code: failedClientCode,
+    legalName: `${failedClientCode} Atomicity Test WLL`,
+    entityType: 'STANDALONE',
+    industry: 'Testing',
+    address: 'Doha, Qatar',
+    countryCode: 'QA',
+    primaryContact: {
+      fullName: `${failedClientCode} Contact`,
+      email: failedClientEmail,
+      title: 'Finance Manager',
+      role: 'CFO_FINANCE_DIRECTOR',
+      effectiveFrom: '2026-01-01'
+    }
+  };
+  const atomicityBefore = {
+    clientCount: db.prepare('SELECT COUNT(*) AS count FROM clients WHERE workspace_id=?').bind(workspaceId).first<{ count: number }>()?.count,
+    contactCount: db.prepare('SELECT COUNT(*) AS count FROM contacts WHERE workspace_id=?').bind(workspaceId).first<{ count: number }>()?.count,
+    routeCount: db.prepare('SELECT COUNT(*) AS count FROM contact_routes WHERE workspace_id=?').bind(workspaceId).first<{ count: number }>()?.count,
+    auditCount: db.prepare('SELECT COUNT(*) AS count FROM audit_events WHERE workspace_id=?').bind(workspaceId).first<{ count: number }>()?.count,
+    receiptCount: db.prepare('SELECT COUNT(*) AS count FROM command_receipts WHERE workspace_id=?').bind(workspaceId).first<{ count: number }>()?.count,
+    head: db.prepare(`SELECT last_sequence,last_event_hash FROM audit_chain_heads
+      WHERE workspace_id=? AND scope_kind='WORKSPACE' AND scope_id=?`).bind(workspaceId, workspaceId)
+      .first<{ last_sequence: number; last_event_hash: string | null }>(),
+    revision: db.prepare('SELECT revision FROM workspaces WHERE id=?').bind(workspaceId).first<{ revision: number }>()?.revision
+  };
+  const originalBatch = db.batch.bind(db);
+  let injectedFailure = false;
+  let statementsAppliedBeforeFailure = 0;
+  db.batch = ((statements: unknown[]) => {
+    if (injectedFailure) return originalBatch(statements as any);
+    injectedFailure = true;
+    const prepared = statements as Array<{ run: () => unknown }>;
+    const originalRuns = prepared.map(statement => statement.run.bind(statement));
+    const failAt = 5; // command receipt, assertions, client and contact have run; the first route write must fail.
+    prepared.forEach((statement, index) => {
+      statement.run = () => {
+        if (index === failAt) throw new Error('Injected command-batch interruption after the client and contact writes.');
+        statementsAppliedBeforeFailure += 1;
+        return originalRuns[index]();
+      };
+    });
+    try {
+      return originalBatch(prepared as any);
+    } finally {
+      prepared.forEach((statement, index) => { statement.run = originalRuns[index]; });
+    }
+  }) as any;
+  let failedCommand: Awaited<ReturnType<typeof command>>;
+  try {
+    failedCommand = await command(workspaceId, preparer, 'client.create', failedPayload, failedCommandKey);
+  } finally {
+    db.batch = originalBatch as any;
+  }
+  assert.equal(injectedFailure, true, 'the real command batch reaches the injected mid-batch failure');
+  assert.equal(statementsAppliedBeforeFailure, 5, 'the failure occurs after the command receipt, client and contact statements executed');
+  assert.equal(failedCommand.response.status, 503, JSON.stringify(failedCommand.body));
+  assert.equal(failedCommand.body.code, 'UNAVAILABLE');
+  assert.deepEqual({
+    clientCount: db.prepare('SELECT COUNT(*) AS count FROM clients WHERE workspace_id=?').bind(workspaceId).first<{ count: number }>()?.count,
+    contactCount: db.prepare('SELECT COUNT(*) AS count FROM contacts WHERE workspace_id=?').bind(workspaceId).first<{ count: number }>()?.count,
+    routeCount: db.prepare('SELECT COUNT(*) AS count FROM contact_routes WHERE workspace_id=?').bind(workspaceId).first<{ count: number }>()?.count,
+    auditCount: db.prepare('SELECT COUNT(*) AS count FROM audit_events WHERE workspace_id=?').bind(workspaceId).first<{ count: number }>()?.count,
+    receiptCount: db.prepare('SELECT COUNT(*) AS count FROM command_receipts WHERE workspace_id=?').bind(workspaceId).first<{ count: number }>()?.count,
+    head: db.prepare(`SELECT last_sequence,last_event_hash FROM audit_chain_heads
+      WHERE workspace_id=? AND scope_kind='WORKSPACE' AND scope_id=?`).bind(workspaceId, workspaceId)
+      .first<{ last_sequence: number; last_event_hash: string | null }>(),
+    revision: db.prepare('SELECT revision FROM workspaces WHERE id=?').bind(workspaceId).first<{ revision: number }>()?.revision
+  }, atomicityBefore, 'failure rolls back every statement in the command, including the early receipt, entities, audit head and revision');
+  assert.equal(db.prepare('SELECT id FROM clients WHERE workspace_id=? AND code=?').bind(workspaceId, failedClientCode).first(), null);
+  assert.equal(db.prepare('SELECT id FROM contacts WHERE workspace_id=? AND email=?').bind(workspaceId, failedClientEmail).first(), null);
+  assert.equal(db.prepare('SELECT id FROM command_receipts WHERE workspace_id=? AND idempotency_key=?')
+    .bind(workspaceId, failedCommandKey).first(), null, 'an aborted command cannot be replayed as if it committed');
+
+  const retriedCommand = await command(workspaceId, preparer, 'client.create', failedPayload, failedCommandKey);
+  assert.equal(retriedCommand.response.status, 200, JSON.stringify(retriedCommand.body));
+  assert.equal(retriedCommand.body.replayed, false, 'the identical idempotency key remains available after an atomic rollback');
+  assert.equal(db.prepare('SELECT COUNT(*) AS count FROM clients WHERE workspace_id=? AND code=?')
+    .bind(workspaceId, failedClientCode).first<{ count: number }>()?.count, 1);
+  assert.equal(db.prepare('SELECT COUNT(*) AS count FROM contacts WHERE workspace_id=? AND email=?')
+    .bind(workspaceId, failedClientEmail).first<{ count: number }>()?.count, 1);
+  assert.equal(db.prepare('SELECT COUNT(*) AS count FROM command_receipts WHERE workspace_id=? AND idempotency_key=?')
+    .bind(workspaceId, failedCommandKey).first<{ count: number }>()?.count, 1);
 });
