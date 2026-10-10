@@ -959,7 +959,9 @@ async function updateProcedure(env:Env,workspaceId:string,context:BusinessContex
   if(!['NOT_STARTED','IN_PROGRESS','UNDER_REWORK'].includes(String(row.status)))throw new ApiError('INVALID_STATE','Submitted or reviewed procedure content is frozen until an explicit rework decision.');
   if(row.status==='UNDER_REWORK'&&!p.reworkReason)throw new ApiError('VALIDATION_FAILED','Rework changes must retain the review rationale.');
   if(row.risk_band==='RED'&&context.actor.staffGrade!=='MANAGER'&&context.actor.staffGrade!=='PARTNER')throw new ApiError('PERSONA_ACTION_DENIED','A Manager-grade staff member must execute Red-risk work; preparers may draft supporting content only.');
-  const staff=await actorStaff(env,workspaceId,context);if(row.risk_band==='RED'&&staff.grade!=='MANAGER'&&staff.grade!=='PARTNER')throw new ApiError('PERSONA_ACTION_DENIED','Red-risk execution must be recorded against a Manager-grade staff member.');
+  const staff=await actorStaff(env,workspaceId,context);
+  if(row.risk_band==='RED'&&staff.grade!=='MANAGER'&&staff.grade!=='PARTNER')throw new ApiError('PERSONA_ACTION_DENIED','Red-risk execution must be recorded against a Manager-grade staff member.');
+  if(row.risk_band==='RED'&&staff.id!==row.assigned_staff_id)throw new ApiError('PERSONA_ACTION_DENIED','Only the Manager assigned to this Red-risk workprogram may execute its procedures.');
   const evidence=await evidenceSet(env,workspaceId,'procedure_id',p.procedureId,false);const nextVersion=p.expectedVersion+1;
   const content={procedureId:p.procedureId,workprogramId:row.workprogram_id,ordinal:row.ordinal,title:row.title,instructions:row.instructions,assertion:row.assertion,origin:row.origin,mandatory:row.mandatory,
     scopeReason:row.scope_reason,workPerformed:p.workPerformed,conclusion:p.conclusion,applicable:Boolean(row.applicable),notApplicableReason:row.not_applicable_reason,status:'IN_PROGRESS',
@@ -1014,6 +1016,12 @@ async function submitProcedure(env:Env,workspaceId:string,context:BusinessContex
     if(missingFields.length)throw new ApiError('VALIDATION_FAILED','Work performed and a conclusion are required before submission.',{fields:missingFields});
     const support=await evidenceSet(env,workspaceId,'procedure_id',p.procedureId,true);if(Number(row.mandatory)===1&&support.adequate===0)throw new ApiError('GATE_BLOCKED','A mandatory procedure needs at least one adequate current evidence item.');
   }
+  if(row.risk_band==='RED'){
+    const executor=row.executed_by_staff_id?await env.DB.prepare(`SELECT grade,active FROM staff_members WHERE workspace_id=? AND id=?`)
+      .bind(workspaceId,row.executed_by_staff_id).first<{grade:string;active:number}>():null;
+    if(!executor||executor.active!==1||!['MANAGER','PARTNER'].includes(executor.grade)||row.executed_by_staff_id!==row.assigned_staff_id)
+      throw new ApiError('GATE_BLOCKED','A Red-risk procedure must be executed by the active Manager assigned to its workprogram before submission.');
+  }
   const evidence=await evidenceSet(env,workspaceId,'procedure_id',p.procedureId,false);
   if(evidence.rows.some(item=>item.target_version!==p.expectedVersion))throw new ApiError('STALE_DEPENDENCY','Procedure evidence is linked to an older row version. Re-link it to the current procedure revision.');
   if(evidence.hash!==row.evidence_set_hash)throw new ApiError('STALE_DEPENDENCY','Evidence changed after the current procedure revision. Re-save and review the current source pins.');
@@ -1062,8 +1070,9 @@ async function reviewProcedure(env:Env,workspaceId:string,context:BusinessContex
     if(dependencyHash!==reviewSubmission.dependency_hash)throw new ApiError('STALE_DEPENDENCY','Procedure, evidence or sample dependencies changed after submission.');
   }
   if(row.risk_band==='RED'){
-    const executor=await env.DB.prepare(`SELECT grade FROM staff_members WHERE workspace_id=? AND id=?`).bind(workspaceId,row.executed_by_staff_id).first<{grade:string}>();
-    if(p.decision==='ACCEPT'&&(!executor||!['MANAGER','PARTNER'].includes(executor.grade)))throw new ApiError('GATE_BLOCKED','Red-risk procedures require recorded Manager-grade execution before review.');
+    const executor=await env.DB.prepare(`SELECT grade,active FROM staff_members WHERE workspace_id=? AND id=?`).bind(workspaceId,row.executed_by_staff_id).first<{grade:string;active:number}>();
+    if(p.decision!=='REWORK'&&(!executor||executor.active!==1||!['MANAGER','PARTNER'].includes(executor.grade)||row.executed_by_staff_id!==row.assigned_staff_id))
+      throw new ApiError('GATE_BLOCKED','Red-risk procedures require active execution by the Manager assigned to the workprogram before review.');
   }
   if(row.applicable===0&&p.decision!=='NOT_APPLICABLE_APPROVED'&&p.decision!=='REWORK')throw new ApiError('VALIDATION_FAILED','A not-applicable procedure requires an explicit independent approval.');
   if(row.applicable===1&&p.decision==='NOT_APPLICABLE_APPROVED')throw new ApiError('INVALID_STATE','Only a reasoned not-applicable procedure can receive that decision.');
@@ -1126,11 +1135,16 @@ async function submitReview(env:Env,workspaceId:string,context:BusinessContext,c
     const engagement=await getEngagement(env,workspaceId,context,String(row.engagement_id));if(Number(row.version)!==p.targetVersion)throw new ApiError('VERSION_CONFLICT',JSON.stringify({entity:'Workprogram',id:p.targetId,expectedVersion:p.targetVersion,currentVersion:row.version}));
     if(row.planning_version_id!==row.approved_planning_version_id)throw new ApiError('STALE_DEPENDENCY','The workprogram uses a stale planning version.');
     if(!['DRAFT','IN_PROGRESS','UNDER_REWORK'].includes(String(row.status)))throw new ApiError('INVALID_STATE','This workprogram has already been submitted or reviewed.');
-    const procedures=await env.DB.prepare(`SELECT id,version,ordinal,title,instructions,assertion,origin,mandatory,scope_reason AS scopeReason,work_performed AS workPerformed,
-        conclusion,applicable,not_applicable_reason AS notApplicableReason,status,source_hash AS sourceHash,evidence_set_hash AS evidenceSetHash,
-        prepared_by_staff_id AS preparedByStaffId,executed_by_staff_id AS executedByStaffId
-      FROM procedures WHERE workspace_id=? AND workprogram_id=? ORDER BY ordinal`).bind(workspaceId,p.targetId).all<Record<string,unknown>>();
+    const procedures=await env.DB.prepare(`SELECT p.id,p.version,p.ordinal,p.title,p.instructions,p.assertion,p.origin,p.mandatory,p.scope_reason AS scopeReason,p.work_performed AS workPerformed,
+        p.conclusion,p.applicable,p.not_applicable_reason AS notApplicableReason,p.status,p.source_hash AS sourceHash,p.evidence_set_hash AS evidenceSetHash,
+        p.prepared_by_staff_id AS preparedByStaffId,p.executed_by_staff_id AS executedByStaffId,w.risk_band AS riskBand,w.assigned_staff_id AS assignedStaffId,
+        executor.grade AS executorGrade,executor.active AS executorActive
+      FROM procedures p JOIN workprograms w ON w.workspace_id=p.workspace_id AND w.id=p.workprogram_id
+      LEFT JOIN staff_members executor ON executor.workspace_id=p.workspace_id AND executor.id=p.executed_by_staff_id
+      WHERE p.workspace_id=? AND p.workprogram_id=? ORDER BY p.ordinal`).bind(workspaceId,p.targetId).all<Record<string,unknown>>();
     const procedureRows=procedures.results??[];if(!procedureRows.length)throw new ApiError('GATE_BLOCKED','A workprogram needs procedure rows before submission.');
+    if(procedureRows.some(item=>item.riskBand==='RED'&&(item.executedByStaffId!==item.assignedStaffId||item.executorActive!==1||!['MANAGER','PARTNER'].includes(String(item.executorGrade)))))
+      throw new ApiError('GATE_BLOCKED','Every Red-risk procedure must be executed by the active Manager assigned to its workprogram before submission.');
     for(const item of procedureRows){
       await assertProcedureEvidenceCurrent(env,workspaceId,String(item.id),item.evidenceSetHash);
       await procedureSamplingPins(env,workspaceId,String(item.id),String(row.active_tb_version_id),true);
@@ -1316,7 +1330,7 @@ async function closeReviewNote(env:Env,workspaceId:string,context:BusinessContex
 }
 
 async function clearPartnerArea(env:Env,workspaceId:string,context:BusinessContext,command:Extract<BusinessFieldworkCommand,{type:'partner.clear-area'}>,now:string):Promise<BusinessMutation>{
-  requirePartner(context);const p=command.payload;const workprogram=await env.DB.prepare(`SELECT w.id,w.version,w.client_id,w.engagement_id,w.fsli_id,w.planning_version_id,w.risk_band,w.status,w.source_hash,e.approved_planning_version_id,e.active_tb_version_id,e.active_mapping_version_id FROM workprograms w JOIN engagements e ON e.workspace_id=w.workspace_id AND e.id=w.engagement_id WHERE w.workspace_id=? AND w.id=?`)
+  requirePartner(context);const p=command.payload;const workprogram=await env.DB.prepare(`SELECT w.id,w.version,w.client_id,w.engagement_id,w.fsli_id,w.planning_version_id,w.risk_band,w.assigned_staff_id,w.status,w.source_hash,e.approved_planning_version_id,e.active_tb_version_id,e.active_mapping_version_id FROM workprograms w JOIN engagements e ON e.workspace_id=w.workspace_id AND e.id=w.engagement_id WHERE w.workspace_id=? AND w.id=?`)
     .bind(workspaceId,p.workprogramId).first<Record<string,unknown>>();if(!workprogram)throw new ApiError('NOT_FOUND','The workprogram was not found.');
   const engagement=await getEngagement(env,workspaceId,context,String(workprogram.engagement_id));if(engagement.lifecycle_state!=='MANAGERIAL_REVIEW')throw new ApiError('INVALID_STATE','Partner area clearance opens after the Manager accepts engagement fieldwork for Partner approval.');
   if(workprogram.planning_version_id!==workprogram.approved_planning_version_id)throw new ApiError('STALE_DEPENDENCY','Partner clearance requires the currently approved planning version.');
@@ -1324,14 +1338,17 @@ async function clearPartnerArea(env:Env,workspaceId:string,context:BusinessConte
   const submission=await env.DB.prepare(`SELECT s.id,s.target_version,s.dependency_hash,d.decision FROM review_submissions s JOIN review_decisions d ON d.workspace_id=s.workspace_id AND d.submission_id=s.id
     WHERE s.workspace_id=? AND s.id=? AND s.workprogram_id=? AND s.target_kind='WORKPROGRAM'`).bind(workspaceId,p.submissionId,p.workprogramId).first<Record<string,unknown>>();
   if(!submission||submission.decision!=='ACCEPT'||submission.dependency_hash!==p.dependencyHash||Number(submission.target_version)+1!==Number(workprogram.version))throw new ApiError('STALE_DEPENDENCY','Partner clearance must pin the Manager-accepted current workprogram snapshot and exact dependency hash.');
-  const procedures=await env.DB.prepare(`SELECT p.id,p.version,p.status,w.risk_band,p.executed_by_staff_id,p.source_hash,p.evidence_set_hash,p.ordinal FROM procedures p JOIN workprograms w ON w.workspace_id=p.workspace_id AND w.id=p.workprogram_id WHERE p.workspace_id=? AND p.workprogram_id=? ORDER BY p.ordinal`).bind(workspaceId,p.workprogramId).all<Record<string,unknown>>();
+  const procedures=await env.DB.prepare(`SELECT p.id,p.version,p.status,w.risk_band,w.assigned_staff_id,p.executed_by_staff_id,p.source_hash,p.evidence_set_hash,p.ordinal,executor.grade AS executor_grade,executor.active AS executor_active
+    FROM procedures p JOIN workprograms w ON w.workspace_id=p.workspace_id AND w.id=p.workprogram_id
+    LEFT JOIN staff_members executor ON executor.workspace_id=p.workspace_id AND executor.id=p.executed_by_staff_id
+    WHERE p.workspace_id=? AND p.workprogram_id=? ORDER BY p.ordinal`).bind(workspaceId,p.workprogramId).all<Record<string,unknown>>();
   const items=procedures.results??[];if(items.some(row=>row.status!=='REVIEWED'))throw new ApiError('GATE_BLOCKED','Every procedure must be independently reviewed before Partner area clearance.');
   for(const item of items){
     await assertProcedureEvidenceCurrent(env,workspaceId,String(item.id),item.evidence_set_hash);
     await procedureSamplingPins(env,workspaceId,String(item.id),String(engagement.active_tb_version_id),true);
   }
-  const redIds=items.filter(row=>row.risk_band==='RED').map(row=>row.executed_by_staff_id).filter((value):value is string=>typeof value==='string');
-  if(redIds.length){const people=await env.DB.prepare(`SELECT id,grade FROM staff_members WHERE workspace_id=? AND id IN (${redIds.map(()=>'?').join(',')})`).bind(workspaceId,...redIds).all<{id:string;grade:string}>();if((people.results??[]).some(person=>!['MANAGER','PARTNER'].includes(person.grade)))throw new ApiError('GATE_BLOCKED','Red-risk area work must be executed by Manager-grade staff before Partner clearance.');}
+  if(items.some(row=>row.risk_band==='RED'&&(row.executed_by_staff_id!==row.assigned_staff_id||row.executor_active!==1||!['MANAGER','PARTNER'].includes(String(row.executor_grade)))))
+    throw new ApiError('GATE_BLOCKED','Every Red-risk procedure must have current execution by the active Manager assigned to the workprogram before Partner clearance.');
   const openNotes=await env.DB.prepare(`SELECT COUNT(*) AS count FROM review_notes n JOIN review_submissions s ON s.workspace_id=n.workspace_id AND s.id=n.submission_id
     LEFT JOIN procedures p ON p.workspace_id=n.workspace_id AND p.id=n.procedure_id WHERE s.workspace_id=? AND (s.workprogram_id=? OR p.workprogram_id=?) AND n.status<>'CLOSED'`)
     .bind(workspaceId,p.workprogramId,p.workprogramId).first<{count:number}>();
@@ -1358,14 +1375,18 @@ async function handoverToManager(env:Env,workspaceId:string,context:BusinessCont
     FROM workprograms w WHERE w.workspace_id=? AND w.engagement_id=? ORDER BY w.fsli_id`).bind(workspaceId,p.engagementId).all<Record<string,unknown>>();
   const programRows=programs.results??[];if(!programRows.length)throw new ApiError('GATE_BLOCKED','Provision and independently review the applicable workprograms before managerial handover.');
   const programBlockers=programRows.filter(row=>row.status!=='REVIEWED'||Number(row.independently_accepted)!==1||row.planning_version_id!==engagement.approved_planning_version_id);
-  const procedureRows=await env.DB.prepare(`SELECT p.id,p.version,p.status,p.source_hash,p.evidence_set_hash,p.mandatory,
+  const procedureRows=await env.DB.prepare(`SELECT p.id,p.version,p.status,p.source_hash,p.evidence_set_hash,p.mandatory,w.risk_band,w.assigned_staff_id AS assignedStaffId,
+      p.executed_by_staff_id AS executedByStaffId,executor.grade AS executorGrade,executor.active AS executorActive,
       EXISTS(SELECT 1 FROM review_submissions s JOIN review_decisions d ON d.workspace_id=s.workspace_id AND d.submission_id=s.id WHERE s.workspace_id=p.workspace_id AND s.procedure_id=p.id AND s.target_kind='PROCEDURE' AND d.decision='ACCEPT' AND s.target_version+1=p.version) AS independently_accepted
-    FROM procedures p JOIN workprograms w ON w.workspace_id=p.workspace_id AND w.id=p.workprogram_id WHERE p.workspace_id=? AND w.engagement_id=? ORDER BY w.fsli_id,p.ordinal`).bind(workspaceId,p.engagementId).all<Record<string,unknown>>();
+    FROM procedures p JOIN workprograms w ON w.workspace_id=p.workspace_id AND w.id=p.workprogram_id
+      LEFT JOIN staff_members executor ON executor.workspace_id=p.workspace_id AND executor.id=p.executed_by_staff_id
+    WHERE p.workspace_id=? AND w.engagement_id=? ORDER BY w.fsli_id,p.ordinal`).bind(workspaceId,p.engagementId).all<Record<string,unknown>>();
   for(const procedure of procedureRows.results??[]){
     await assertProcedureEvidenceCurrent(env,workspaceId,String(procedure.id),procedure.evidence_set_hash);
     await procedureSamplingPins(env,workspaceId,String(procedure.id),String(engagement.active_tb_version_id),true);
   }
-  const procedureBlockers=(procedureRows.results??[]).filter(row=>row.status!=='REVIEWED'||Number(row.independently_accepted)!==1);
+  const procedureBlockers=(procedureRows.results??[]).filter(row=>row.status!=='REVIEWED'||Number(row.independently_accepted)!==1
+    ||(row.risk_band==='RED'&&(row.executedByStaffId!==row.assignedStaffId||row.executorActive!==1||!['MANAGER','PARTNER'].includes(String(row.executorGrade)))));
   const pendingReviews=await env.DB.prepare(`SELECT s.id,s.target_kind AS targetKind,s.target_version AS targetVersion FROM review_submissions s LEFT JOIN review_decisions d ON d.workspace_id=s.workspace_id AND d.submission_id=s.id
     WHERE s.workspace_id=? AND s.engagement_id=? AND s.target_kind IN ('ANALYTICAL_REVIEW','GOING_CONCERN') AND d.id IS NULL ORDER BY s.submitted_at`).bind(workspaceId,p.engagementId).all<Record<string,unknown>>();
   const openNotes=await env.DB.prepare(`SELECT n.id,n.text FROM review_notes n JOIN review_submissions s ON s.workspace_id=n.workspace_id AND s.id=n.submission_id WHERE s.workspace_id=? AND s.engagement_id=? AND n.status<>'CLOSED' ORDER BY n.created_at`).bind(workspaceId,p.engagementId).all<Record<string,unknown>>();

@@ -3336,27 +3336,40 @@ it('bootstraps a no-session BUSINESS workspace, records manual dispatch and main
   }, samplingApproverHeaders);
   assert.equal(secondManagerPreparerProfile.response.status, 200, JSON.stringify(secondManagerPreparerProfile.body));
   const secondManagerPreparerHeaders = makeRiskHeaders({ 'X-Actor-Id': secondManagerPreparerProfile.body.result.actorProfileId as string, 'X-Active-Persona': 'PREPARER' });
+  const independentFieldworkReviewer = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'staff.create', payload: {
+      displayName: 'Independent Fieldwork Reviewer', naturalPersonKey: `TEST-PERSON-${crypto.randomUUID()}`,
+      email: `independent.reviewer.${crypto.randomUUID()}@example.invalid`, grade: 'MANAGER'
+    } }
+  }, samplingApproverHeaders);
+  assert.equal(independentFieldworkReviewer.response.status, 200, JSON.stringify(independentFieldworkReviewer.body));
+  const independentFieldworkReviewerProfile = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'actor-profile.assign', payload: {
+      persona: 'REVIEWER', staffMemberId: independentFieldworkReviewer.body.result.staffMemberId
+    } }
+  }, samplingApproverHeaders);
+  assert.equal(independentFieldworkReviewerProfile.response.status, 200, JSON.stringify(independentFieldworkReviewerProfile.body));
+  const independentFieldworkReviewerHeaders = makeRiskHeaders({
+    'X-Actor-Id': independentFieldworkReviewerProfile.body.result.actorProfileId as string, 'X-Active-Persona': 'REVIEWER'
+  });
   const earlierRedProcedureVersion = Number(db.prepare('SELECT version FROM procedures WHERE workspace_id=? AND id=?')
     .bind(workspaceId, revenueProcedureIds[0]).first<any>()?.version);
   const secondManagerRedExecution = await post(`/api/workspaces/${workspaceId}/commands`, {
     idempotencyKey: crypto.randomUUID(), command: { type: 'procedure.update', payload: {
       procedureId: revenueProcedureIds[0], expectedVersion: earlierRedProcedureVersion,
-      workPerformed: 'The second Manager rechecked the original Manager work and retained the source recalculation.',
-      conclusion: 'The second Manager confirmed the evidence and preserved the original contributor in the revision history.'
+      workPerformed: 'The unassigned Manager attempted the required Red-risk execution.',
+      conclusion: 'An unassigned Manager must not satisfy the execution and review gate.'
     } }
   }, secondManagerPreparerHeaders);
-  assert.equal(secondManagerRedExecution.response.status, 200, JSON.stringify(secondManagerRedExecution.body));
-  assert.equal(db.prepare('SELECT prepared_by_staff_id FROM procedures WHERE workspace_id=? AND id=?')
-    .bind(workspaceId,revenueProcedureIds[0]).first<any>()?.prepared_by_staff_id,staff.body.result.staffMemberId,
-    'later procedure edits preserve the original preparer identity');
-  assert.equal(db.prepare('SELECT executed_by_staff_id FROM procedures WHERE workspace_id=? AND id=?')
-    .bind(workspaceId,revenueProcedureIds[0]).first<any>()?.executed_by_staff_id,secondManagerStaff.body.result.staffMemberId,
-    'the current revision records its executing Manager separately');
+  assert.equal(secondManagerRedExecution.response.status, 403);
+  assert.equal(secondManagerRedExecution.body.code, 'PERSONA_ACTION_DENIED', 'an unassigned Manager cannot execute a Red-risk procedure');
+  assert.equal(db.prepare('SELECT version FROM procedures WHERE workspace_id=? AND id=?').bind(workspaceId,revenueProcedureIds[0]).first<any>()?.version,
+    earlierRedProcedureVersion, 'rejected Red-risk execution creates no procedure revision');
   const redProcedureEvidenceLink = await post(`/api/workspaces/${workspaceId}/commands`, {
     idempotencyKey: crypto.randomUUID(), command: { type: 'evidence.link', payload: {
-      evidenceId: hybridEvidence.body.result.evidenceId, evidenceVersion: 1, targetVersion: secondManagerRedExecution.body.result.version, procedureId: revenueProcedureIds[0]
+      evidenceId: hybridEvidence.body.result.evidenceId, evidenceVersion: 1, targetVersion: earlierRedProcedureVersion, procedureId: revenueProcedureIds[0]
     } }
-  }, secondManagerPreparerHeaders);
+  }, managerPreparerHeaders);
   assert.equal(redProcedureEvidenceLink.response.status, 200, JSON.stringify(redProcedureEvidenceLink.body));
   const redProcedureVersionBeforeSubmit = Number(db.prepare('SELECT version FROM procedures WHERE workspace_id=? AND id=?')
     .bind(workspaceId, revenueProcedureIds[0]).first<any>()?.version);
@@ -3364,17 +3377,14 @@ it('bootstraps a no-session BUSINESS workspace, records manual dispatch and main
     idempotencyKey: crypto.randomUUID(), command: { type: 'procedure.submit', payload: {
       procedureId: revenueProcedureIds[0], expectedVersion: redProcedureVersionBeforeSubmit
     } }
-  }, secondManagerPreparerHeaders);
+  }, managerPreparerHeaders);
   assert.equal(redManagerSubmission.response.status, 200, JSON.stringify(redManagerSubmission.body));
   const immutableRedSubmission = db.prepare('SELECT contributor_natural_person_keys_json,snapshot_json FROM review_submissions WHERE workspace_id=? AND id=?')
     .bind(workspaceId,redManagerSubmission.body.result.reviewSubmissionId).first<any>();
   const redContributorKeys = JSON.parse(immutableRedSubmission.contributor_natural_person_keys_json) as string[];
   const originalManagerNaturalPersonKey = db.prepare('SELECT natural_person_key FROM staff_members WHERE workspace_id=? AND id=?')
     .bind(workspaceId,staff.body.result.staffMemberId).first<any>()?.natural_person_key;
-  const secondManagerNaturalPersonKey = db.prepare('SELECT natural_person_key FROM staff_members WHERE workspace_id=? AND id=?')
-    .bind(workspaceId,secondManagerStaff.body.result.staffMemberId).first<any>()?.natural_person_key;
-  assert.ok(redContributorKeys.includes(originalManagerNaturalPersonKey), 'the earlier procedure contributor remains pinned after later edits');
-  assert.ok(redContributorKeys.includes(secondManagerNaturalPersonKey), 'the current Manager execution is pinned in the same submission');
+  assert.ok(redContributorKeys.includes(originalManagerNaturalPersonKey), 'the assigned Manager execution is pinned in the submission');
   assert.deepEqual(JSON.parse(immutableRedSubmission.snapshot_json).contributorNaturalPersonKeys, redContributorKeys,
     'the immutable JSON snapshot and normalized contributor-key column agree');
   const redManagerSelfReview = await post(`/api/workspaces/${workspaceId}/commands`, {
@@ -3464,18 +3474,44 @@ it('bootstraps a no-session BUSINESS workspace, records manual dispatch and main
       workPerformed: 'Inspected the complete retained asset support and recalculated the carrying value.',
       conclusion: 'The sampled carrying value agrees to source support and remains appropriately presented.'
     } }
-  }, technicalHeaders);
+  }, managerPreparerHeaders);
   assert.equal(greenProcedureUpdate.response.status, 200, JSON.stringify(greenProcedureUpdate.body));
+  const secondGreenProcedureUpdate = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'procedure.update', payload: {
+      procedureId: greenProcedureId, expectedVersion: greenProcedureUpdate.body.result.version,
+      workPerformed: 'A second Manager rechecked the retained asset support and recalculated the current-year balance independently.',
+      conclusion: 'The second Manager agrees the support and recalculation are complete for the current-year balance.'
+    } }
+  }, secondManagerPreparerHeaders);
+  assert.equal(secondGreenProcedureUpdate.response.status, 200, JSON.stringify(secondGreenProcedureUpdate.body));
   const greenEvidenceLink = await post(`/api/workspaces/${workspaceId}/commands`, {
     idempotencyKey: crypto.randomUUID(), command: { type: 'evidence.link', payload: {
-      evidenceId: hybridEvidence.body.result.evidenceId, evidenceVersion: 1, targetVersion: 2, procedureId: greenProcedureId
+      evidenceId: hybridEvidence.body.result.evidenceId, evidenceVersion: 1, targetVersion: secondGreenProcedureUpdate.body.result.version, procedureId: greenProcedureId
     } }
-  }, technicalHeaders);
+  }, secondManagerPreparerHeaders);
   assert.equal(greenEvidenceLink.response.status, 200, JSON.stringify(greenEvidenceLink.body));
   const greenProcedureSubmission = await post(`/api/workspaces/${workspaceId}/commands`, {
-    idempotencyKey: crypto.randomUUID(), command: { type: 'procedure.submit', payload: { procedureId: greenProcedureId, expectedVersion: 3 } }
-  }, technicalHeaders);
+    idempotencyKey: crypto.randomUUID(), command: { type: 'procedure.submit', payload: { procedureId: greenProcedureId, expectedVersion: 4 } }
+  }, secondManagerPreparerHeaders);
   assert.equal(greenProcedureSubmission.response.status, 200, JSON.stringify(greenProcedureSubmission.body));
+  const immutableGreenSubmission = db.prepare('SELECT contributor_natural_person_keys_json,snapshot_json FROM review_submissions WHERE workspace_id=? AND id=?')
+    .bind(workspaceId,greenProcedureSubmission.body.result.reviewSubmissionId).first<any>();
+  const greenContributorKeys = JSON.parse(immutableGreenSubmission.contributor_natural_person_keys_json) as string[];
+  const originalGreenManagerNaturalPersonKey = db.prepare('SELECT natural_person_key FROM staff_members WHERE workspace_id=? AND id=?')
+    .bind(workspaceId,staff.body.result.staffMemberId).first<any>()?.natural_person_key;
+  const secondGreenManagerNaturalPersonKey = db.prepare('SELECT natural_person_key FROM staff_members WHERE workspace_id=? AND id=?')
+    .bind(workspaceId,secondManagerStaff.body.result.staffMemberId).first<any>()?.natural_person_key;
+  assert.ok(greenContributorKeys.includes(originalGreenManagerNaturalPersonKey), 'an earlier contributor remains pinned after a later Manager edit');
+  assert.ok(greenContributorKeys.includes(secondGreenManagerNaturalPersonKey), 'the current Manager contributor is pinned in the same submission');
+  assert.deepEqual(JSON.parse(immutableGreenSubmission.snapshot_json).contributorNaturalPersonKeys, greenContributorKeys,
+    'the immutable JSON snapshot and normalized contributor-key column agree');
+  const greenEarlierContributorSelfReview = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'review.decide', payload: {
+      submissionId: greenProcedureSubmission.body.result.reviewSubmissionId, decision: 'ACCEPT',
+      comment: 'Attempt to self-review an exact procedure revision after a later editor overwrote its current executor.'
+    } }
+  }, samplingReviewerHeaders);
+  assert.equal(greenEarlierContributorSelfReview.body.code, 'SELF_REVIEW_BLOCKED', 'the original contributor remains excluded after a different Manager edits and submits');
   const preparerEditAfterSubmission = await post(`/api/workspaces/${workspaceId}/commands`, {
     idempotencyKey: crypto.randomUUID(), command: { type: 'procedure.update', payload: {
       procedureId: greenProcedureId, expectedVersion: greenProcedureSubmission.body.result.version,
@@ -3498,7 +3534,7 @@ it('bootstraps a no-session BUSINESS workspace, records manual dispatch and main
       submissionId: greenProcedureSubmission.body.result.reviewSubmissionId, decision: 'RETURN', comment: '   ',
       assignedPreparerId: preparerStaff.body.result.staffMemberId
     } }
-  }, samplingReviewerHeaders);
+  }, samplingApproverHeaders);
   assert.equal(rejectedEmptyProcedureReturn.response.status, 422);
   assert.equal(rejectedEmptyProcedureReturn.body.code, 'VALIDATION_FAILED', 'a return requires a substantive reviewer comment');
   const returnGreenProcedure = await post(`/api/workspaces/${workspaceId}/commands`, {
@@ -3507,7 +3543,7 @@ it('bootstraps a no-session BUSINESS workspace, records manual dispatch and main
       comment: 'Clarify the source period and the recalculation basis before final review.',
       assignedPreparerId: preparerStaff.body.result.staffMemberId
     } }
-  }, samplingReviewerHeaders);
+  }, samplingApproverHeaders);
   assert.equal(returnGreenProcedure.response.status, 200, JSON.stringify(returnGreenProcedure.body));
   assert.equal(returnGreenProcedure.body.result.status, 'UNDER_REWORK');
   const firstProcedureReviewNoteId = returnGreenProcedure.body.result.noteId as string;
@@ -3534,7 +3570,7 @@ it('bootstraps a no-session BUSINESS workspace, records manual dispatch and main
   assert.equal(prematureProcedureNoteClose.body.code, 'GATE_BLOCKED');
   const greenReworkRevision = await post(`/api/workspaces/${workspaceId}/commands`, {
     idempotencyKey: crypto.randomUUID(), command: { type: 'procedure.update', payload: {
-      procedureId: greenProcedureId, expectedVersion: 5, reworkReason: 'Reviewer requested a more explicit period and recalculation reference.',
+      procedureId: greenProcedureId, expectedVersion: 6, reworkReason: 'Reviewer requested a more explicit period and recalculation reference.',
       workPerformed: 'Rechecked the current-period asset listing and independently recalculated the recorded amount.',
       conclusion: 'The current-period source supports the recorded amount and the revised conclusion.'
     } }
@@ -3542,14 +3578,14 @@ it('bootstraps a no-session BUSINESS workspace, records manual dispatch and main
   assert.equal(greenReworkRevision.response.status, 200, JSON.stringify(greenReworkRevision.body));
   const staleProcedureApproval = await post(`/api/workspaces/${workspaceId}/commands`, {
     idempotencyKey: crypto.randomUUID(), command: { type: 'procedure.review', payload: {
-      procedureId: greenProcedureId, expectedVersion: 4, decision: 'ACCEPT', comments: 'Attempt to accept the obsolete submitted revision after its rework replacement.'
+      procedureId: greenProcedureId, expectedVersion: 5, decision: 'ACCEPT', comments: 'Attempt to accept the obsolete submitted revision after its rework replacement.'
     } }
-  }, samplingReviewerHeaders);
+  }, samplingApproverHeaders);
   assert.equal(staleProcedureApproval.response.status, 409);
   assert.equal(staleProcedureApproval.body.code, 'STALE_DEPENDENCY', 'an obsolete submission cannot receive a current reviewed status');
   const currentGreenProcedure = db.prepare('SELECT status,version FROM procedures WHERE workspace_id=? AND id=?').bind(workspaceId, greenProcedureId).first<any>();
   assert.equal(currentGreenProcedure?.status, 'IN_PROGRESS', 'the explicit rework edit remains an editable new revision');
-  assert.equal(currentGreenProcedure?.version, 6);
+  assert.equal(currentGreenProcedure?.version, 7);
 
   // US-FLD-007..009 — sampling policies, committed source populations,
   // reproducible selections and conservative incomplete/evaluation outcomes.
@@ -4114,7 +4150,7 @@ it('bootstraps a no-session BUSINESS workspace, records manual dispatch and main
   assert.equal(replacementHybridEvidence.body.result.version, 2);
   assert.equal(replacementHybridEvidence.body.result.supersedesEvidenceId, hybridEvidence.body.result.evidenceId);
   const staleEvidenceSubmission = await post(`/api/workspaces/${workspaceId}/commands`, {
-    idempotencyKey: crypto.randomUUID(), command: { type: 'procedure.submit', payload: { procedureId: greenProcedureId, expectedVersion: 6 } }
+    idempotencyKey: crypto.randomUUID(), command: { type: 'procedure.submit', payload: { procedureId: greenProcedureId, expectedVersion: greenReworkRevision.body.result.version } }
   }, technicalHeaders);
   assert.equal(staleEvidenceSubmission.response.status, 409, JSON.stringify(staleEvidenceSubmission.body));
   assert.equal(staleEvidenceSubmission.body.code, 'STALE_DEPENDENCY',
@@ -4136,7 +4172,7 @@ it('bootstraps a no-session BUSINESS workspace, records manual dispatch and main
   assert.equal(replacementEvidenceReview.response.status, 200, JSON.stringify(replacementEvidenceReview.body));
   const refreshedProcedureEvidenceLink = await post(`/api/workspaces/${workspaceId}/commands`, {
     idempotencyKey: crypto.randomUUID(), command: { type: 'evidence.link', payload: {
-      evidenceId: replacementHybridEvidence.body.result.evidenceId, evidenceVersion: 2, targetVersion: 6, procedureId: greenProcedureId
+      evidenceId: replacementHybridEvidence.body.result.evidenceId, evidenceVersion: 2, targetVersion: greenReworkRevision.body.result.version, procedureId: greenProcedureId
     } }
   }, technicalHeaders);
   assert.equal(refreshedProcedureEvidenceLink.response.status, 200, JSON.stringify(refreshedProcedureEvidenceLink.body));
@@ -4213,18 +4249,18 @@ it('bootstraps a no-session BUSINESS workspace, records manual dispatch and main
   assert.equal(replacementEvidenceReviewV3.response.status, 200, JSON.stringify(replacementEvidenceReviewV3.body));
   const staleReplacementProcedureAcceptance = await post(`/api/workspaces/${workspaceId}/commands`, {
     idempotencyKey: crypto.randomUUID(), command: { type: 'procedure.review', payload: {
-      procedureId: greenProcedureId, expectedVersion: 8, decision: 'ACCEPT', comments: 'Attempt to accept the submission after its exact evidence was superseded.'
+      procedureId: greenProcedureId, expectedVersion: reassessedProcedureSubmission.body.result.version, decision: 'ACCEPT', comments: 'Attempt to accept the submission after its exact evidence was superseded.'
     } }
-  }, samplingReviewerHeaders);
+  }, independentFieldworkReviewerHeaders);
   assert.equal(staleReplacementProcedureAcceptance.response.status, 409);
   assert.equal(staleReplacementProcedureAcceptance.body.code, 'STALE_DEPENDENCY',
     'new evidence bytes invalidate the pending procedure conclusion until the reviewer returns it for reassessment');
   const returnStaleEvidenceProcedure = await post(`/api/workspaces/${workspaceId}/commands`, {
     idempotencyKey: crypto.randomUUID(), command: { type: 'procedure.review', payload: {
-      procedureId: greenProcedureId, expectedVersion: 8, decision: 'REWORK', comments: 'Reassess the procedure against the corrected evidence version.',
+      procedureId: greenProcedureId, expectedVersion: reassessedProcedureSubmission.body.result.version, decision: 'REWORK', comments: 'Reassess the procedure against the corrected evidence version.',
       assignedPreparerId: preparerStaff.body.result.staffMemberId
     } }
-  }, samplingReviewerHeaders);
+  }, independentFieldworkReviewerHeaders);
   assert.equal(returnStaleEvidenceProcedure.response.status, 200, JSON.stringify(returnStaleEvidenceProcedure.body));
   assert.equal(returnStaleEvidenceProcedure.body.result.status, 'UNDER_REWORK');
   const staleEvidenceProcedureVersion = Number(returnStaleEvidenceProcedure.body.result.version);
@@ -4252,9 +4288,11 @@ it('bootstraps a no-session BUSINESS workspace, records manual dispatch and main
     } }
   }, technicalHeaders);
   assert.equal(unlinkStaleEvidencePin.response.status, 200, JSON.stringify(unlinkStaleEvidencePin.body));
+  const procedureVersionAfterStaleEvidenceUnlink = Number(db.prepare('SELECT version FROM procedures WHERE workspace_id=? AND id=?')
+    .bind(workspaceId, greenProcedureId).first<any>()?.version);
   const revisedProcedureForEvidenceV3 = await post(`/api/workspaces/${workspaceId}/commands`, {
     idempotencyKey: crypto.randomUUID(), command: { type: 'procedure.update', payload: {
-      procedureId: greenProcedureId, expectedVersion: 10, reworkReason: 'The evidence family advanced to its corrected third version.',
+      procedureId: greenProcedureId, expectedVersion: procedureVersionAfterStaleEvidenceUnlink, reworkReason: 'The evidence family advanced to its corrected third version.',
       workPerformed: 'Inspected the corrected source record and recalculated the relevant current-period amount against the ledger.',
       conclusion: 'The corrected current-period source supports the recorded amount and the revised audit conclusion.'
     } }
@@ -4262,7 +4300,7 @@ it('bootstraps a no-session BUSINESS workspace, records manual dispatch and main
   assert.equal(revisedProcedureForEvidenceV3.response.status, 200, JSON.stringify(revisedProcedureForEvidenceV3.body));
   const refreshedProcedureEvidenceLinkV3 = await post(`/api/workspaces/${workspaceId}/commands`, {
     idempotencyKey: crypto.randomUUID(), command: { type: 'evidence.link', payload: {
-      evidenceId: replacementHybridEvidenceV3.body.result.evidenceId, evidenceVersion: 3, targetVersion: 11, procedureId: greenProcedureId
+      evidenceId: replacementHybridEvidenceV3.body.result.evidenceId, evidenceVersion: 3, targetVersion: revisedProcedureForEvidenceV3.body.result.version, procedureId: greenProcedureId
     } }
   }, technicalHeaders);
   assert.equal(refreshedProcedureEvidenceLinkV3.response.status, 200, JSON.stringify(refreshedProcedureEvidenceLinkV3.body));
@@ -4285,15 +4323,17 @@ it('bootstraps a no-session BUSINESS workspace, records manual dispatch and main
     } }
   }, samplingReviewerHeaders);
   assert.equal(reassessedGreenSampleEvaluation.response.status, 200, JSON.stringify(reassessedGreenSampleEvaluation.body));
+  const greenProcedureVersionBeforeEvidenceV3Submission = Number(db.prepare('SELECT version FROM procedures WHERE workspace_id=? AND id=?')
+    .bind(workspaceId, greenProcedureId).first<any>()?.version);
   const reassessedProcedureSubmissionV3 = await post(`/api/workspaces/${workspaceId}/commands`, {
-    idempotencyKey: crypto.randomUUID(), command: { type: 'procedure.submit', payload: { procedureId: greenProcedureId, expectedVersion: 12 } }
+    idempotencyKey: crypto.randomUUID(), command: { type: 'procedure.submit', payload: { procedureId: greenProcedureId, expectedVersion: greenProcedureVersionBeforeEvidenceV3Submission } }
   }, technicalHeaders);
   assert.equal(reassessedProcedureSubmissionV3.response.status, 200, JSON.stringify(reassessedProcedureSubmissionV3.body));
   const reassessedProcedureAcceptanceV3 = await post(`/api/workspaces/${workspaceId}/commands`, {
     idempotencyKey: crypto.randomUUID(), command: { type: 'procedure.review', payload: {
-      procedureId: greenProcedureId, expectedVersion: 13, decision: 'ACCEPT', comments: 'Accepted after independent reassessment of the corrected evidence.'
+      procedureId: greenProcedureId, expectedVersion: reassessedProcedureSubmissionV3.body.result.version, decision: 'ACCEPT', comments: 'Accepted after independent reassessment of the corrected evidence.'
     } }
-  }, samplingReviewerHeaders);
+  }, independentFieldworkReviewerHeaders);
   assert.equal(reassessedProcedureAcceptanceV3.response.status, 200, JSON.stringify(reassessedProcedureAcceptanceV3.body));
   assert.equal(reassessedProcedureAcceptanceV3.body.result.status, 'REVIEWED');
 
@@ -4305,7 +4345,7 @@ it('bootstraps a no-session BUSINESS workspace, records manual dispatch and main
         noteId, resubmissionId: reassessedProcedureAcceptanceV3.body.result.reviewSubmissionId,
         closureReason: 'The exact later procedure revision was independently accepted after the assigned preparer response.'
       } }
-    }, samplingReviewerHeaders);
+    }, independentFieldworkReviewerHeaders);
     assert.equal(closedProcedureNote.response.status, 200, JSON.stringify(closedProcedureNote.body));
     assert.equal(closedProcedureNote.body.result.status, 'CLOSED');
   }
@@ -4334,7 +4374,7 @@ it('bootstraps a no-session BUSINESS workspace, records manual dispatch and main
       comment: 'Clarify the final asset reconciliation and retain the refreshed sample reference in the procedure conclusion.',
       assignedPreparerId: preparerStaff.body.result.staffMemberId, procedureIds: [greenProcedureId]
     } }
-  }, samplingReviewerHeaders);
+  }, independentFieldworkReviewerHeaders);
   assert.equal(returnedGreenWorkprogram.response.status, 200, JSON.stringify(returnedGreenWorkprogram.body));
   assert.equal(returnedGreenWorkprogram.body.result.status, 'UNDER_REWORK');
   const greenWorkprogramNoteId = returnedGreenWorkprogram.body.result.noteIds[0] as string;
@@ -4380,7 +4420,7 @@ it('bootstraps a no-session BUSINESS workspace, records manual dispatch and main
       submissionId: returnedGreenProcedureSubmission.body.result.reviewSubmissionId, decision: 'ACCEPT',
       comment: 'The revised asset reconciliation and current sample evidence are complete.'
     } }
-  }, samplingReviewerHeaders);
+  }, independentFieldworkReviewerHeaders);
   assert.equal(acceptReturnedGreenProcedure.response.status, 200, JSON.stringify(acceptReturnedGreenProcedure.body));
   const workprogramResubmitStillBlockedByOpenNote = await post(`/api/workspaces/${workspaceId}/commands`, {
     idempotencyKey: crypto.randomUUID(), command: { type: 'review.submit', payload: {
@@ -4407,14 +4447,14 @@ it('bootstraps a no-session BUSINESS workspace, records manual dispatch and main
       noteId: greenWorkprogramNoteId, resubmissionId: greenWorkprogramResubmission.body.result.submissionId,
       closureReason: 'This submission must be accepted before the reviewer closes the note.'
     } }
-  }, samplingReviewerHeaders);
+  }, independentFieldworkReviewerHeaders);
   assert.equal(prematureWorkprogramNoteClose.body.code, 'GATE_BLOCKED', 'a responded note remains open until independent acceptance of the later exact workprogram');
   const acceptGreenWorkprogramResubmission = await post(`/api/workspaces/${workspaceId}/commands`, {
     idempotencyKey: crypto.randomUUID(), command: { type: 'review.decide', payload: {
       submissionId: greenWorkprogramResubmission.body.result.submissionId, decision: 'ACCEPT',
       comment: 'The revised procedure and workprogram evidence are current and independently accepted.'
     } }
-  }, samplingReviewerHeaders);
+  }, independentFieldworkReviewerHeaders);
   assert.equal(acceptGreenWorkprogramResubmission.response.status, 200, JSON.stringify(acceptGreenWorkprogramResubmission.body));
   const preparerCannotCloseWorkprogramNote = await post(`/api/workspaces/${workspaceId}/commands`, {
     idempotencyKey: crypto.randomUUID(), command: { type: 'review.close-note', payload: {
@@ -4428,7 +4468,7 @@ it('bootstraps a no-session BUSINESS workspace, records manual dispatch and main
       noteId: greenWorkprogramNoteId, resubmissionId: greenWorkprogramResubmission.body.result.submissionId,
       closureReason: 'The exact returned step was revised by its assigned preparer and the later workprogram was independently accepted.'
     } }
-  }, samplingReviewerHeaders);
+  }, independentFieldworkReviewerHeaders);
   assert.equal(closedGreenWorkprogramNote.response.status, 200, JSON.stringify(closedGreenWorkprogramNote.body));
 
   // US-FLD-012 — an AJE is a reviewed reporting overlay, while signed and gross
