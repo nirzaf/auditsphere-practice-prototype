@@ -98,3 +98,61 @@ it('fails production readiness for each missing binding or unavailable provider'
   assert.equal(fullyConfigured.response.status, 200);
   assert.deepEqual(fullyConfigured.body.dependencyCodes, []);
 });
+
+it('fails readiness for unavailable D1, missing/mismatched schema, and R2 in every environment', async () => {
+  const environmentConfig: Record<string, Partial<Env>> = {
+    local: { ENVIRONMENT: 'local' },
+    staging: {
+      ENVIRONMENT: 'staging',
+      RATE_LIMITER: { limit: async () => ({ success: true }) },
+      EMAIL_PROVIDER: readyEmailProvider,
+      PUBLIC_LEAD_IP_HASH_SECRET: 'staging-public-lead-ip-key-at-least-32-characters',
+      PUBLIC_LEAD_DEFAULT_COUNTRY_CODE: 'QA'
+    },
+    production: {
+      ENVIRONMENT: 'production',
+      RATE_LIMITER: { limit: async () => ({ success: true }) },
+      EMAIL_PROVIDER: readyEmailProvider,
+      TURNSTILE_SECRET_KEY: 'turnstile-secret',
+      PUBLIC_LEAD_TURNSTILE_HOSTNAMES: 'www.firm.example',
+      PUBLIC_LEAD_IP_HASH_SECRET: 'production-public-lead-ip-key-at-least-32-characters',
+      PUBLIC_LEAD_DEFAULT_COUNTRY_CODE: 'QA'
+    }
+  };
+
+  for (const environment of ['local', 'staging', 'production'] as const) {
+    const configured = environmentConfig[environment];
+    const unavailableDb = readinessEnv({
+      ...configured,
+      DB: { prepare: () => ({ first: async () => { throw new Error('D1 unavailable'); } }) } as unknown as D1Database
+    });
+    const dbResult = await ready(unavailableDb);
+    assert.equal(dbResult.response.status, 503, `${environment} must fail when D1 is unavailable`);
+    assert.ok(dbResult.body.dependencyCodes.includes('D1_UNAVAILABLE'));
+
+    for (const schemaCase of ['missing', 'mismatch'] as const) {
+      const schemaDb = {
+        prepare(sql: string) {
+          return {
+            first: async () => sql.includes('application_schema_version')
+              ? schemaCase === 'missing' ? null : { version: APPLICATION_SCHEMA_VERSION + 1 }
+              : { ok: 1 }
+          };
+        }
+      } as unknown as D1Database;
+      const schemaResult = await ready(readinessEnv({ ...configured, DB: schemaDb }));
+      assert.equal(schemaResult.response.status, 503, `${environment} must fail for ${schemaCase} schema state`);
+      assert.ok(schemaResult.body.dependencyCodes.includes(
+        schemaCase === 'missing' ? 'SCHEMA_VERSION_UNAVAILABLE' : 'SCHEMA_VERSION_MISMATCH'
+      ));
+    }
+
+    const unavailableR2 = readinessEnv({
+      ...configured,
+      FILES: { head: async () => { throw new Error('R2 unavailable'); } } as unknown as R2Bucket
+    });
+    const r2Result = await ready(unavailableR2);
+    assert.equal(r2Result.response.status, 503, `${environment} must fail when R2 is unavailable`);
+    assert.ok(r2Result.body.dependencyCodes.includes('R2_UNAVAILABLE'));
+  }
+});

@@ -39,3 +39,35 @@ The root `wrangler.jsonc` is the production app Worker config and declares the t
 ```bash
 npx tsx --test tests/unit/integrationStatus.test.ts tests/unit/workerObservability.test.ts
 ```
+
+## Implementation progress — 2026-10-10
+
+**Readiness policy and CI guard are implemented; live post-deploy acceptance is
+pending deployment.** `/api/health/ready` defaults an absent `ENVIRONMENT` to
+`local`. Staging and production require the general rate-limit binding, a ready
+email provider, public-lead key and country; production also requires Turnstile
+and its allowed hostname. D1, schema-version and R2 failures always degrade
+readiness with machine-readable codes. SharePoint remains optional and reports
+`NOT_CONFIGURED` without blocking readiness. The current product excludes app
+authentication, so readiness does not require OIDC.
+
+The post-deploy `tools/verify-deployed-readiness.ts` accepts only a 2xx HTTP
+response whose JSON says `ready`, has the exact application schema version and
+an empty dependency-code list. HTTP 503 and every other failure retry a
+bounded number of times, then set a nonzero process exit code; both staging and
+production workflow jobs run that checker through their configured Access
+service-token headers.
+
+**Verification — 2026-10-10:** `tests/unit/workerReadiness.test.ts` passed
+(4/4), including missing D1, absent/mismatched schema and missing R2 across
+local, staging and production. The story's specified
+`integrationStatus.test.ts` and `workerObservability.test.ts` passed (6/6), as
+did `npm run cloud:typecheck`. Existing readiness tests also cover missing
+limiting, email, Turnstile, public-lead settings, and successful configuration.
+
+The staging and production D1 IDs remain placeholders and the readiness URL,
+Access credentials, worker secrets, and deployed build are not available as
+verified environment evidence. No remote deployment or readiness probe was
+performed. Therefore this story's **runtime policy code is complete**, while
+deployed staging/production readiness remains unverified under E02-S01's
+provisioning and trusted-boundary gates.
