@@ -42,5 +42,17 @@ npx tsx --test tests/unit/businessWorkspace.test.ts tests/unit/fieldworkGates.te
 
 `fieldworkAcceptance.test.ts` exports the matrix helper and is registered by `businessWorkspace.test.ts`, because the matrix consumes the shared seeded worker/session fixture. Current evidence: focused BUSINESS workspace matrix 11/11, full unit suite 195 passed / 1 skipped / 0 failed, `npm run cloud:typecheck` passed, and the full E2E suite passed 13/13 before this test-only increment. No runtime domain fix was needed.
 
+## Current verification (2026-10-10)
+
+The registered matrix still passes as part of the focused BUSINESS workspace
+test (11/11); the current full unit suite passes 225 tests with 1 opt-in stress
+test skipped and 0 failures, and `npm run cloud:typecheck` passes. The gap
+analysis rows US-M3-004/005 remain ✅ DONE with the matrix test cited. A current
+`npm run test:e2e` attempt does not pass: its first E06-S01/E06-S04 accessibility
+case failed after about 56 seconds, then the runner stalled before reporting
+diagnostics or later cases and was stopped. This does not fail a matrix row, but
+the repository-wide browser verification is open until the shared harness is
+repaired and rerun.
+
 ## Stop and ask if
 A failing row would require changing an existing approved workprogram template's semantics.
