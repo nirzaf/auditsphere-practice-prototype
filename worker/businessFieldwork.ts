@@ -193,6 +193,11 @@ async function getEngagement(env: Env, workspaceId: string, context: BusinessCon
   return row;
 }
 function rowHash(input: unknown): Promise<string> { return sha256Hex(JSON.stringify(input)); }
+function deterministicUuidFromHash(hash:string):string {
+  const hex=hash.slice(0,32).split('');
+  hex[12]='8';hex[16]=((Number.parseInt(hex[16],16)&0x3)|0x8).toString(16);
+  const value=hex.join('');return `${value.slice(0,8)}-${value.slice(8,12)}-${value.slice(12,16)}-${value.slice(16,20)}-${value.slice(20,32)}`;
+}
 export function assertGoingConcernComplete(conclusion: string): void {
   if (conclusion === 'UNASSESSED') throw new ApiError('GATE_BLOCKED', 'An unfinished going-concern assessment (conclusion UNASSESSED) cannot be submitted for independent review.');
 }
@@ -2213,7 +2218,8 @@ export async function queueHoldingLetterForBlockers(env:Env,workspaceId:string,c
   }
   const deduplicationKey=`holding-letter:${engagement.id}:${outstandingSetHash}`;
   const prior=await env.DB.prepare(`SELECT id,status FROM outbox_jobs WHERE workspace_id=? AND deduplication_key=?`).bind(workspaceId,deduplicationKey).first<{id:string;status:string}>();
-  const jobId=prior?.id??crypto.randomUUID();const recipient={contactRouteId:route.id,contactRouteVersion:route.version,contactId:route.contact_id,name:route.full_name,email:route.email};
+  const stableJobId=deterministicUuidFromHash(await rowHash({purpose:'HOLDING_LETTER_JOB',engagementId:engagement.id,outstandingSetHash}));
+  const jobId=prior?.id??stableJobId;const recipient={contactRouteId:route.id,contactRouteVersion:route.version,contactId:route.contact_id,name:route.full_name,email:route.email};
   const payload={commandId,documentType:'HOLDING_LETTER',holdingLetterId:crypto.randomUUID(),engagementId:engagement.id,clientId:engagement.client_id,
     outstandingSetHash,confirmations:snapshot,recipient};
   const statements:D1PreparedStatement[]=[env.DB.prepare(`INSERT INTO command_assertions(workspace_id,seq,ok)
@@ -2228,7 +2234,7 @@ export async function queueHoldingLetterForBlockers(env:Env,workspaceId:string,c
       .bind(workspaceId,workspaceId,engagement.id,engagement.version,engagement.active_tb_version_id,engagement.active_mapping_version_id,engagement.active_materiality_version_id,
         workspaceId,engagement.id,snapshot.length,JSON.stringify(snapshot),workspaceId)];
   if(!prior)statements.push(env.DB.prepare(`INSERT INTO outbox_jobs(id,workspace_id,version,kind,aggregate_id,aggregate_version,payload_json,deduplication_key,status,attempts,next_attempt_at,lease_until,last_error_code,provider_reference,result_file_id,result_json,completed_at,created_at,updated_at)
-      VALUES(?,?,1,'GENERATE_DOCUMENT',?,?,?,?, 'PENDING',0,?,NULL,NULL,NULL,NULL,NULL,NULL,?,?)`).bind(jobId,workspaceId,engagement.id,engagement.version,JSON.stringify(payload),deduplicationKey,now,now,now));
+      VALUES(?,?,1,'GENERATE_DOCUMENT',?,?,?,?, 'PENDING',0,?,NULL,NULL,NULL,NULL,NULL,NULL,?,?) ON CONFLICT DO NOTHING`).bind(jobId,workspaceId,engagement.id,engagement.version,JSON.stringify(payload),deduplicationKey,now,now,now));
   const mutation=commandMutation(statements,{blocked:true,blockers:baseBlockers,holdingLetterJobId:jobId,holdingLetterJobStatus:prior?.status??'PENDING',holdingLetterReused:Boolean(prior),outstandingSetHash},'CONFIRMATION_GATE',engagement.id,engagement.version,engagement.version,
     {blocked:true,outstandingSetHash,holdingLetterJobId:jobId,holdingLetterReused:Boolean(prior)});
   return responseStatus===undefined?mutation:{...mutation,responseStatus};

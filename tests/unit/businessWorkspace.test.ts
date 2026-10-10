@@ -5872,12 +5872,18 @@ it('bootstraps a no-session BUSINESS workspace, records manual dispatch and main
   assert.equal(blockers.length, 1, 'the outstanding critical confirmation is detected at release time');
   assert.equal(blockers[0].status, 'RETURNED_UNVERIFIED', 'uploading a response without independent verification still blocks release');
 
-  const queuedHoldingLetter = await queueHoldingLetterForBlockers(env, workspaceId, {} as any, gateEngagement,
-    crypto.randomUUID(), new Date().toISOString(), blockers, 409);
+  const concurrentHoldingLetterAttempts = await Promise.all([1,2].map(() => queueHoldingLetterForBlockers(env, workspaceId, {} as any, gateEngagement,
+    crypto.randomUUID(), new Date().toISOString(), blockers, 409)));
+  const queuedHoldingLetter = concurrentHoldingLetterAttempts[0];
   assert.equal(queuedHoldingLetter.responseStatus, 409, 'the blocked release persists its required HTTP status');
   assert.equal(queuedHoldingLetter.result.blocked, true);
   assert.ok(queuedHoldingLetter.result.holdingLetterJobId);
-  await db.batch([...queuedHoldingLetter.statements, db.prepare('DELETE FROM command_assertions WHERE workspace_id=?').bind(workspaceId)]);
+  assert.equal(concurrentHoldingLetterAttempts[1].result.holdingLetterJobId, queuedHoldingLetter.result.holdingLetterJobId,
+    'simultaneous blocked releases reserve the same deterministic Holding Letter job id');
+  await Promise.all(concurrentHoldingLetterAttempts.map(mutation => db.batch([...mutation.statements,
+    db.prepare('DELETE FROM command_assertions WHERE workspace_id=?').bind(workspaceId)])));
+  assert.equal(db.prepare(`SELECT COUNT(*) AS count FROM outbox_jobs WHERE workspace_id=? AND deduplication_key LIKE 'holding-letter:%'`)
+    .bind(workspaceId).first<any>()?.count, 1, 'concurrent blocked releases create only one durable Holding Letter job');
 
   for (let retry = 1; retry <= 3; retry += 1) {
     const replayedHoldingLetter = await queueHoldingLetterForBlockers(env, workspaceId, {} as any, gateEngagement,
