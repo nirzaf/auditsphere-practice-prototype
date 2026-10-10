@@ -606,10 +606,12 @@ async function setMapping(env: Env, workspaceId: string, context: BusinessContex
     const fsli=await env.DB.prepare(`SELECT id FROM fsli_catalog WHERE workspace_id=? AND id=? AND reporting_framework=? AND active=1`)
       .bind(workspaceId,fsliId,draft.reporting_framework).first<{id:string}>();
     if(!fsli)throw new ApiError('FORBIDDEN_SCOPE','The selected FSLI is outside this engagement reporting framework.');
-    if(historicalFsli&&historicalFsli!==fsliId&&(!command.payload.reason||command.payload.reason.trim().length<10)){
-      throw new ApiError('VALIDATION_FAILED','Changing an approved historical account mapping requires a reason of at least 10 characters.');
-    }
     if(historicalFsli===fsliId&&historicalId){origin='EXACT_HISTORY';sourceHistory=historicalId;}else origin='MANUAL';
+  }
+  const changingPrefilledMapping=row.fsli_id!==null&&row.fsli_id!==fsliId;
+  const replacingHistoricalMapping=historicalFsli!==null&&historicalFsli!==fsliId;
+  if((changingPrefilledMapping||replacingHistoricalMapping)&&(!command.payload.reason||command.payload.reason.trim().length<10)){
+    throw new ApiError('VALIDATION_FAILED','Replacing or clearing a prefilled account mapping requires a reason of at least 10 characters.');
   }
   const rows=await mappingDraftRows(env,workspaceId,draftId);
   const nextRows=rows.map(item=>item.tb_line_id!==tbLineId?item:{...item,fsli_id:fsliId,origin,source_historical_mapping_id:sourceHistory,

@@ -399,7 +399,7 @@ export function BusinessTrialBalancePanel({
         {!mappingDraft && !workspace.engagement.activeMappingVersionId && canWrite && canPlan && <button type="button" className="btn" disabled={busy || !canReview}
           onClick={() => void proposeMapping()}>Suggest mappings from scoped history</button>}
         {mappingDraft && <>
-          <p className="business-note">Historical matches are suggestions scoped to this client and reporting framework. Confirm each row and add a reason when changing an approved prior mapping.</p>
+          <p className="business-note">Historical matches are suggestions scoped to this client and reporting framework. Confirm each row; add a reason of at least 10 characters when replacing or clearing any prefilled mapping.</p>
           <div className="business-tb-table-wrap"><table className="business-tb-data-table"><caption>Trial-balance account mapping draft</caption>
             <thead><tr><th scope="col">Account</th><th scope="col">Current / prior balance</th><th scope="col">Suggested FSLI</th><th scope="col">Change reason</th><th scope="col">Confirmed</th></tr></thead>
             <tbody>{mappingDraft.lines.map(line => <tr key={line.tbLineId}><th scope="row"><strong>{line.accountCode}</strong><small>{line.accountName}</small></th>
@@ -412,9 +412,9 @@ export function BusinessTrialBalancePanel({
                   : line.suggestionKind === 'NAME_SIMILARITY' && line.suggestionScore !== null
                     ? `${line.confirmed ? 'Reviewer-confirmed' : 'Unapproved'} name similarity suggestion · ${line.suggestionScore}% match${line.confirmed ? '' : ' · confirm or change'}`
                     : line.confirmed ? 'Manual selection' : 'Needs mapping confirmation'}</small></td>
-              <td><label className="business-sr-only" htmlFor={`mapping-reason-${line.tbLineId}`}>Reason if changing prior mapping for {line.accountCode}</label>
+              <td><label className="business-sr-only" htmlFor={`mapping-reason-${line.tbLineId}`}>Reason if replacing or clearing a prefilled mapping for {line.accountCode}</label>
                 <input id={`mapping-reason-${line.tbLineId}`} maxLength={2000} value={mappingReasons[line.tbLineId] ?? line.reason ?? ''}
-                  disabled={busy || !canWrite || !canPlan} placeholder="Required when changing history" onChange={event => setMappingReasons(current => ({ ...current, [line.tbLineId]: event.target.value }))} /></td>
+                  disabled={busy || !canWrite || !canPlan} placeholder="10+ characters for a change" onChange={event => setMappingReasons(current => ({ ...current, [line.tbLineId]: event.target.value }))} /></td>
               <td>{line.confirmed ? 'Confirmed' : <>
                 Pending
                 {(line.origin === 'EXACT_HISTORY' || line.suggestionKind === 'NAME_SIMILARITY') && line.fsliId && <button type="button"
