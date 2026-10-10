@@ -94,7 +94,7 @@ before(async () => {
   chrome = browser.child;
   profileDirectory = browser.profileDirectory;
   browserPort = browser.port;
-  const targetResponse = await fetch(`http://127.0.0.1:${browserPort}/json/new?${server.origin}`, {
+  const targetResponse = await fetch(`${browser.debuggingOrigin}/json/new?${server.origin}`, {
     method: 'PUT', signal: AbortSignal.timeout(10000)
   });
   if (!targetResponse.ok) throw new Error(`Chrome could not create the E2E page (HTTP ${targetResponse.status}).`);
@@ -117,7 +117,7 @@ before(async () => {
 
 after(async () => {
   tab?.close();
-  if (chrome) await stopHeadlessChrome(chrome);
+  if (chrome) await stopHeadlessChrome(chrome, browserPort);
   if (server) await server.close();
   if (profileDirectory) {
     let cleanupError: unknown;

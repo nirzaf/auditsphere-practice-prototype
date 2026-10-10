@@ -10,9 +10,9 @@ const sleep = (milliseconds: number) => new Promise(resolve => setTimeout(resolv
 export async function stopHeadlessChrome(child: ChildProcess, port?: number): Promise<void> {
   if (port) {
     try {
-      const version = await fetch(`http://127.0.0.1:${port}/json/version`, { signal: AbortSignal.timeout(1000) });
-      if (version.ok) {
-        const endpoint = (await version.json() as { webSocketDebuggerUrl?: string }).webSocketDebuggerUrl;
+      const { version } = await fetchDevToolsVersion(port, 500);
+      if (version) {
+        const endpoint = version.webSocketDebuggerUrl;
         if (endpoint) {
           const socket = new WebSocket(endpoint);
           const opened = await Promise.race([
@@ -59,6 +59,29 @@ export interface HeadlessChromeInstance {
   child: ChildProcess;
   profileDirectory: string;
   port: number;
+  debuggingOrigin: string;
+}
+
+interface DevToolsVersion {
+  webSocketDebuggerUrl?: string;
+}
+
+async function fetchDevToolsVersion(port: number, timeoutMs: number): Promise<{ origin: string; version: DevToolsVersion }> {
+  const origins = [`http://127.0.0.1:${port}`, `http://[::1]:${port}`];
+  const failures: string[] = [];
+  for (const origin of origins) {
+    try {
+      const response = await fetch(`${origin}/json/version`, { signal: AbortSignal.timeout(timeoutMs) });
+      if (!response.ok) {
+        failures.push(`${origin}: HTTP ${response.status}`);
+        continue;
+      }
+      return { origin, version: await response.json() as DevToolsVersion };
+    } catch (error) {
+      failures.push(`${origin}: ${error instanceof Error ? `${error.name}: ${error.message}` : String(error)}`);
+    }
+  }
+  throw new Error(failures.join('; '));
 }
 
 async function reserveLoopbackPort(): Promise<number> {
@@ -107,13 +130,10 @@ export async function launchHeadlessChrome(
       if (spawnError) throw new Error(`Chrome could not start: ${spawnError.message}.${stderr}`);
       if (child.exitCode !== null) throw new Error(`Chrome exited before exposing CDP (exit ${child.exitCode}).${stderr}`);
       try {
-        const response = await fetch(`http://127.0.0.1:${port}/json/version`, { signal: AbortSignal.timeout(1000) });
-        if (response.ok) {
-          await response.json();
-          return { child, profileDirectory, port };
-        }
+        const { origin } = await fetchDevToolsVersion(port, 250);
+        return { child, profileDirectory, port, debuggingOrigin: origin };
       } catch (error) {
-        endpointError = error instanceof Error ? `${error.name}: ${error.message}` : String(error);
+        endpointError = error instanceof Error ? error.message : String(error);
       }
       await sleep(100);
     }

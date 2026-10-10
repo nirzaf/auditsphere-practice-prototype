@@ -36,7 +36,7 @@ function chromeExecutable(): string | undefined {
 }
 
 async function connectTab(browser: HeadlessChromeInstance, origin: string): Promise<CdpTab> {
-  const target = await fetch(`http://127.0.0.1:${browser.port}/json/new?${origin}`, { method: 'PUT' })
+  const target = await fetch(`${browser.debuggingOrigin}/json/new?${origin}`, { method: 'PUT' })
     .then(response => response.json()) as { webSocketDebuggerUrl: string };
   const socket = new WebSocket(target.webSocketDebuggerUrl);
   await new Promise<void>((resolve, reject) => {
@@ -572,11 +572,11 @@ after(async () => {
   tabA?.close();
   tabB?.close();
   if (browserA) {
-    await stopHeadlessChrome(browserA.child);
+    await stopHeadlessChrome(browserA.child, browserA.port);
     rmSync(browserA.profileDirectory, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
   }
   if (browserB) {
-    await stopHeadlessChrome(browserB.child);
+    await stopHeadlessChrome(browserB.child, browserB.port);
     rmSync(browserB.profileDirectory, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
   }
   if (server) await server.close();

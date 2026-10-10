@@ -402,7 +402,7 @@ before(async () => {
   const executable = chromeExecutable();
   assert.ok(executable, 'Chrome or Edge is available for Worker-backed reporting browser acceptance.');
   browser = await launchHeadlessChrome(executable, { profilePrefix: 'auditsphere-reporting-e2e-', timeoutMs: 45000 });
-  const target = await fetch(`http://127.0.0.1:${browser.port}/json/new?${server.origin}`, { method: 'PUT' })
+  const target = await fetch(`${browser.debuggingOrigin}/json/new?${server.origin}`, { method: 'PUT' })
     .then(response => response.json()) as { webSocketDebuggerUrl: string };
   const socket = new WebSocket(target.webSocketDebuggerUrl);
   await new Promise<void>((resolve, reject) => {
