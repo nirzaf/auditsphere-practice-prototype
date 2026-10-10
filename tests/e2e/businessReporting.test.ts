@@ -11,6 +11,8 @@ import { extractReportingPdfText } from '../helpers/reportingPdf.js';
 let server: BusinessE2eServer | undefined;
 let browser: HeadlessChromeInstance | undefined;
 let tab: CdpTab | undefined;
+let isolatedClientBrowser: HeadlessChromeInstance | undefined;
+let isolatedClientTab: CdpTab | undefined;
 
 const sleep = (milliseconds: number) => new Promise(resolve => setTimeout(resolve, milliseconds));
 const sha256 = (value: Uint8Array | string) => createHash('sha256').update(value).digest('hex');
@@ -31,12 +33,12 @@ function chromeExecutable(): string | undefined {
   return candidates.find(path => path && existsSync(path));
 }
 
-async function waitFor(label: string, predicate: string, timeoutMs = 20000): Promise<void> {
+async function waitForTab(target: CdpTab, label: string, predicate: string, timeoutMs = 20000): Promise<void> {
   const deadline = Date.now() + timeoutMs;
   let lastNavigationRace: unknown;
   while (Date.now() < deadline) {
     try {
-      if (await tab!.evaluate<boolean>(predicate)) return;
+      if (await target.evaluate<boolean>(predicate)) return;
     } catch (error) {
       // Page.reload resolves before Chrome has restored the Runtime execution
       // context. Treat that narrow transition as not-ready and keep polling;
@@ -48,13 +50,17 @@ async function waitFor(label: string, predicate: string, timeoutMs = 20000): Pro
   }
   let text = 'Page text unavailable after the wait timed out.';
   try {
-    text = await tab!.evaluate<string>('document.body.innerText.slice(-6000)');
+    text = await target.evaluate<string>('document.body.innerText.slice(-6000)');
   } catch (error) {
     if (!/Inspected target navigated or closed/i.test(String(error))) throw error;
     lastNavigationRace = error;
   }
   const navigationDetail = lastNavigationRace ? ` Last navigation race: ${String(lastNavigationRace)}` : '';
   throw new Error(`Timed out waiting for ${label}. Current page text: ${text}.${navigationDetail}`);
+}
+
+async function waitFor(label: string, predicate: string, timeoutMs = 20000): Promise<void> {
+  return waitForTab(tab!, label, predicate, timeoutMs);
 }
 
 function runFixtureSql(sql: string, ...values: unknown[]): void {
@@ -419,9 +425,12 @@ before(async () => {
 }, { timeout: 90000 });
 
 after(async () => {
+  isolatedClientTab?.close();
+  if (isolatedClientBrowser) await stopHeadlessChrome(isolatedClientBrowser.child, isolatedClientBrowser.port);
   tab?.close();
   if (browser) await stopHeadlessChrome(browser.child, browser.port);
   if (server) await server.close();
+  if (isolatedClientBrowser?.profileDirectory) rmSync(isolatedClientBrowser.profileDirectory, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
   if (browser?.profileDirectory) rmSync(browser.profileDirectory, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
 });
 
@@ -1188,22 +1197,51 @@ it('US-REP-001–007 covers all report categories, representation, atomic releas
     Origin: server.origin, 'Content-Type': 'application/json', 'X-Actor-Id': fixture.clientActorId, 'X-Active-Persona': 'CLIENT',
     'X-Client-Id': fixture.clientId, 'X-Engagement-Id': fixture.engagementId
   };
-  const pendingReservationResponse = await fetch(`${server.origin}/api/workspaces/${fixture.workspaceId}/files`, {
-    method: 'POST', headers: { ...clientContextHeaders, 'Idempotency-Key': randomUUID() },
-    body: JSON.stringify({ purpose: 'EVIDENCE', originalName: 'qa-in-flight-late.pdf', mediaType: 'application/pdf', sizeBytes: pendingClientBytes.byteLength,
-      clientId: fixture.clientId, engagementId: fixture.engagementId, representationRequestId: preparedRequest.id })
+  const isolatedExecutable = chromeExecutable();
+  assert.ok(isolatedExecutable, 'a second isolated Chrome process is available for the stale CLIENT browser acceptance');
+  isolatedClientBrowser = await launchHeadlessChrome(isolatedExecutable, { profilePrefix: 'auditsphere-reporting-stale-client-', timeoutMs: 45000 });
+  const isolatedTarget = await fetch(`${isolatedClientBrowser.debuggingOrigin}/json/new?${server.origin}`, { method: 'PUT' })
+    .then(response => response.json()) as { webSocketDebuggerUrl: string };
+  const isolatedSocket = new WebSocket(isolatedTarget.webSocketDebuggerUrl);
+  await new Promise<void>((resolve, reject) => {
+    isolatedSocket.addEventListener('open', () => resolve(), { once: true });
+    isolatedSocket.addEventListener('error', () => reject(new Error('The isolated stale CLIENT browser could not connect over CDP.')), { once: true });
   });
-  assert.equal(pendingReservationResponse.status, 201, await pendingReservationResponse.clone().text());
-  const pendingReservation = await pendingReservationResponse.json() as { fileId: string; version: number; state: string };
-  assert.equal(pendingReservation.state, 'INITIALIZED');
-  const pendingStageResponse = await fetch(`${server.origin}/api/workspaces/${fixture.workspaceId}/files/${pendingReservation.fileId}/content`, {
-    method: 'PUT', headers: { ...clientContextHeaders, 'Idempotency-Key': randomUUID(), 'X-File-Version': String(pendingReservation.version), 'Content-Type': 'application/pdf' },
-    body: new Blob([pendingClientBytes], { type: 'application/pdf' })
-  });
-  assert.equal(pendingStageResponse.status, 200, await pendingStageResponse.clone().text());
-  const pendingStage = await pendingStageResponse.json() as { fileId: string; version: number; state: string; sizeBytes: number; sha256: string };
-  assert.equal(pendingStage.state, 'STAGED');
-  assert.equal(server.db.prepare('SELECT state FROM file_versions WHERE workspace_id=? AND id=?').bind(fixture.workspaceId, pendingStage.fileId)
+  isolatedClientTab = new CdpTab(isolatedSocket, server.origin);
+  await isolatedClientTab.command('Runtime.enable');
+  await isolatedClientTab.command('Page.enable');
+  await isolatedClientTab.command('Network.enable');
+  await isolatedClientTab.blockExternalHttp();
+  await isolatedClientTab.command('Page.navigate', { url: server.origin });
+  await waitForTab(isolatedClientTab, 'the second browser clean BUSINESS landing page',
+    `document.querySelector('#production-workspace-heading')?.textContent?.trim() === 'Open your business workspace'`);
+  await isolatedClientTab.evaluate(`localStorage.setItem('auditsphere.business-context.v1', ${JSON.stringify(JSON.stringify({
+    version: 1, workspaceId: fixture.workspaceId, actorId: fixture.clientActorId, persona: 'CLIENT', clientId: fixture.clientId, engagementId: fixture.engagementId
+  }))})`);
+  await isolatedClientTab.command('Page.reload');
+  await waitForTab(isolatedClientTab, 'the separate stale CLIENT portal before Partner release',
+    `document.querySelector('.business-actor-summary')?.textContent?.includes('CLIENT') && Boolean(document.querySelector('#business-reporting-${fixture.engagementId}')?.closest('section'))`);
+  const browserClientHeaders = {
+    'Content-Type': 'application/json', 'X-Actor-Id': fixture.clientActorId, 'X-Active-Persona': 'CLIENT',
+    'X-Client-Id': fixture.clientId, 'X-Engagement-Id': fixture.engagementId
+  };
+  const pendingReservation = await isolatedClientTab.evaluate<{ status: number; body: { fileId: string; version: number; state: string } }>(`(async()=>{
+    const response=await fetch(${JSON.stringify(`${server.origin}/api/workspaces/${fixture.workspaceId}/files`)},{method:'POST',headers:{...${JSON.stringify(browserClientHeaders)},'Idempotency-Key':${JSON.stringify(randomUUID())}},
+      body:JSON.stringify({purpose:'EVIDENCE',originalName:'qa-in-flight-late.pdf',mediaType:'application/pdf',sizeBytes:${pendingClientBytes.byteLength},
+        clientId:${JSON.stringify(fixture.clientId)},engagementId:${JSON.stringify(fixture.engagementId)},representationRequestId:${JSON.stringify(preparedRequest.id)}})});
+    return {status:response.status,body:await response.json()};})()`);
+  assert.equal(pendingReservation.status, 201, JSON.stringify(pendingReservation.body));
+  assert.equal(pendingReservation.body.state, 'INITIALIZED');
+  const pendingStage = await isolatedClientTab.evaluate<{ status: number; body: { fileId: string; version: number; state: string; sizeBytes: number; sha256: string } }>(`(async()=>{
+    const response=await fetch(${JSON.stringify(`${server.origin}/api/workspaces/${fixture.workspaceId}/files/${pendingReservation.body.fileId}/content`)},{method:'PUT',
+      headers:{...${JSON.stringify(browserClientHeaders)},'Idempotency-Key':${JSON.stringify(randomUUID())},'X-File-Version':${JSON.stringify(String(pendingReservation.body.version))},'Content-Type':'application/pdf'},
+      body:new Blob([Uint8Array.from(${JSON.stringify(Array.from(pendingClientBytes))})],{type:'application/pdf'})});
+    return {status:response.status,body:await response.json()};})()`);
+  assert.equal(pendingStage.status, 200, JSON.stringify(pendingStage.body));
+  assert.equal(pendingStage.body.fileId, pendingReservation.body.fileId);
+  assert.equal(pendingStage.body.state, 'STAGED');
+  const pendingUpload = pendingStage.body;
+  assert.equal(server.db.prepare('SELECT state FROM file_versions WHERE workspace_id=? AND id=?').bind(fixture.workspaceId, pendingUpload.fileId)
     .first<{ state: string }>()?.state, 'STAGED', 'the late upload has durable staged bytes before report release');
 
   await waitFor('the enabled signed-PDF upload action', `(() => { const report=document.querySelector('#business-reporting-${fixture.engagementId}')?.closest('section'); const button=[...(report?.querySelectorAll('button')??[])].find(item=>item.textContent?.trim()==='Upload and verify signed PDF'); return Boolean(button && !button.disabled); })()`);
@@ -1593,17 +1631,18 @@ it('US-REP-001–007 covers all report categories, representation, atomic releas
   assert.equal(sha256(server.getTestObject(releasedReturn.object_key) ?? new Uint8Array()), uploadedSignedReturn.sha256,
     'the accepted signed return is retained as an immutable release attachment');
 
-  const frozenCommitResponse = await fetch(`${server.origin}/api/workspaces/${fixture.workspaceId}/files/${pendingStage.fileId}/complete`, {
-    method: 'POST', headers: { ...clientContextHeaders, 'Idempotency-Key': randomUUID() },
-    body: JSON.stringify({ expectedVersion: pendingStage.version, sizeBytes: pendingStage.sizeBytes, sha256: pendingStage.sha256 })
-  });
-  const frozenCommit = await frozenCommitResponse.json() as { code?: string; message?: string };
-  assert.equal(frozenCommitResponse.status, 423, JSON.stringify(frozenCommit));
-  assert.equal(frozenCommit.code, 'PORTAL_FROZEN', 'an in-flight upload cannot cross the atomic report-release freeze');
-  assert.equal(server.db.prepare('SELECT state FROM file_versions WHERE workspace_id=? AND id=?').bind(fixture.workspaceId, pendingStage.fileId)
+  assert.ok(isolatedClientTab);
+  const frozenCommit = await isolatedClientTab.evaluate<{ status: number; body: { code?: string; message?: string } }>(`(async()=>{
+    const response=await fetch(${JSON.stringify(`${server.origin}/api/workspaces/${fixture.workspaceId}/files/${pendingUpload.fileId}/complete`)},{method:'POST',
+      headers:{...${JSON.stringify(browserClientHeaders)},'Idempotency-Key':${JSON.stringify(randomUUID())}},
+      body:JSON.stringify({expectedVersion:${pendingUpload.version},sizeBytes:${pendingUpload.sizeBytes},sha256:${JSON.stringify(pendingUpload.sha256)}})});
+    return {status:response.status,body:await response.json()};})()`);
+  assert.equal(frozenCommit.status, 423, JSON.stringify(frozenCommit.body));
+  assert.equal(frozenCommit.body.code, 'PORTAL_FROZEN', 'a separate stale CLIENT browser cannot complete its in-flight upload after atomic report release');
+  assert.equal(server.db.prepare('SELECT state FROM file_versions WHERE workspace_id=? AND id=?').bind(fixture.workspaceId, pendingUpload.fileId)
     .first<{ state: string }>()?.state, 'STAGED');
   assert.equal(server.db.prepare('SELECT COUNT(*) AS count FROM representation_returns WHERE workspace_id=? AND signed_file_id=?')
-    .bind(fixture.workspaceId, pendingStage.fileId).first<{ count: number }>()?.count, 0, 'a rejected stale upload cannot become signed-return evidence');
+    .bind(fixture.workspaceId, pendingUpload.fileId).first<{ count: number }>()?.count, 0, 'a rejected stale upload cannot become signed-return evidence');
 
   await switchActor(fixture.clientActorId, 'CLIENT');
   await waitFor('the client release, portal freeze and retained signed return', `(() => {
@@ -2009,8 +2048,8 @@ it('US-REP-001–007 covers all report categories, representation, atomic releas
     assert.equal(sha256(bytes), file.sha256, `${file.originalName} archive bytes match their manifest digest`);
   }
   assert.deepEqual(new Set(Object.keys(zipEntries)), expectedEntries, 'the sealed ZIP contains exactly the manifest and every listed committed source file');
-  assert.equal(manifest.files.some(file => file.id === pendingStage.fileId), false, 'the rejected staged upload is excluded from the committed archive file set');
-  assert.equal(server.db.prepare('SELECT state FROM file_versions WHERE workspace_id=? AND id=?').bind(fixture.workspaceId, pendingStage.fileId)
+  assert.equal(manifest.files.some(file => file.id === pendingUpload.fileId), false, 'the rejected staged upload is excluded from the committed archive file set');
+  assert.equal(server.db.prepare('SELECT state FROM file_versions WHERE workspace_id=? AND id=?').bind(fixture.workspaceId, pendingUpload.fileId)
     .first<{ state: string }>()?.state, 'STAGED');
 
   await switchActor(fixture.actorId, 'APPROVER');
