@@ -777,6 +777,10 @@ async function calculateMateriality(env:Env,workspaceId:string,context:BusinessC
     const amount=amountBigInt(adjustment.amountMinor);normalization+=amount;
     adjustmentFiles.push({id:adjustment.evidenceFileId,amount,description:adjustment.description});
   }
+  // Each adjustment is individually within the JS safe-integer domain, but their
+  // aggregate is persisted as one MONEY value. Validate the exact BigInt total
+  // before converting it to Number for the D1 binding below.
+  amountBigInt(normalization.toString());
   const benchmarkValue=materialityBenchmarkValue(p.benchmark,rawBase,normalization,adjustmentFiles.length,p.normalizationReason);
   if(benchmarkValue>BigInt(Number.MAX_SAFE_INTEGER))throw new ApiError('VALIDATION_FAILED','The selected benchmark exceeds supported minor-unit precision.');
   const pmN=benchmarkValue*BigInt(p.benchmarkRateBps),pmD=10000n;
