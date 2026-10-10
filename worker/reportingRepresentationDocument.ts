@@ -15,11 +15,16 @@ export type RepresentationDocumentInput = {
   signatories: string[];
   statementSnapshotId: string;
   statementSourceHash: string;
+  approvedClauses: string[];
+  approvedClausesHash: string;
   figures: RepresentationFigure[];
 };
 
 /** Creates an editable draft template; the firm must review its clauses before issue. */
 export async function renderRepresentationTemplateDocx(input: RepresentationDocumentInput): Promise<Uint8Array> {
+  if (input.approvedClauses.length < 1 || input.approvedClauses.length > 30 || !/^[a-f0-9]{64}$/.test(input.approvedClausesHash)) {
+    throw new Error('A firm-approved, hash-pinned representation clause set is required.');
+  }
   const children = [
     new Paragraph({ text: 'Management Representation Letter', heading: HeadingLevel.TITLE }),
     new Paragraph({ children: [new TextRun({ text: 'DRAFT TEMPLATE · NOT SIGNED · NOT EVIDENCE OF REPRESENTATION', bold: true, color: '9C3A20' })] }),
@@ -34,13 +39,9 @@ export async function renderRepresentationTemplateDocx(input: RepresentationDocu
     ...input.figures.map(figure => new Paragraph({
       children: [new TextRun({ text: `${figure.label}: `, bold: true }), new TextRun({ text: `${figure.current}${figure.comparative ? ` · comparative ${figure.comparative}` : ' · comparative not presented' })` })]
     })),
-    new Paragraph({ text: 'Management representations (review against the firm-approved wording before issue)', heading: HeadingLevel.HEADING_2 }),
-    new Paragraph({ text: '1. We have fulfilled our responsibilities for the preparation and fair presentation of the financial statements in accordance with the applicable financial reporting framework, including the accounting policies and disclosures approved for this engagement.' }),
-    new Paragraph({ text: '2. We have provided the auditor with access to all information and records relevant to the preparation of the financial statements, all requested explanations, and unrestricted access to persons from whom the auditor determined it necessary to obtain evidence.' }),
-    new Paragraph({ text: '3. We have recorded all transactions and events in the accounting records and reflected them in the financial statements. We have disclosed known or suspected fraud, non-compliance with laws and regulations, related parties, commitments, guarantees and subsequent events requiring adjustment or disclosure.' }),
-    new Paragraph({ text: '4. We have provided the schedule of uncorrected misstatements, confirmed that each is immaterial individually and in aggregate, and disclosed our reasons for not correcting them.' }),
-    new Paragraph({ text: '5. We have disclosed all information relevant to the use of the going-concern basis, our plans for future action, and any material uncertainties that may cast significant doubt on the entity’s ability to continue as a going concern.' }),
-    new Paragraph({ text: '6. The financial statement figures above agree to the identified approved statement snapshot. Any disagreement, omitted representation, or change through the report date must be raised with the auditor before this letter is signed.' }),
+    new Paragraph({ text: 'Firm-approved management representations', heading: HeadingLevel.HEADING_2 }),
+    new Paragraph({ text: `Approved wording set SHA-256: ${input.approvedClausesHash}` }),
+    ...input.approvedClauses.map((clause, index) => new Paragraph({ text: `${index + 1}. ${clause}` })),
     new Paragraph({ text: 'Authorised management signatories', heading: HeadingLevel.HEADING_2 }),
     ...input.signatories.flatMap((name, index) => [
       new Paragraph({ text: `${index + 1}. ${name}` }),

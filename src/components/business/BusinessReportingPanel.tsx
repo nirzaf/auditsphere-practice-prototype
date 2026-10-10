@@ -139,6 +139,9 @@ export function BusinessReportingPanel({ workspaceId, selected, context, engagem
   const [reportConsentText, setReportConsentText] = useState('I reviewed the exact report and statement candidate hash, opinion, entity, period, fee and signature rendering shown here and consent to image application for this candidate.');
   const [representationDate, setRepresentationDate] = useState(today);
   const [requiredSignatories, setRequiredSignatories] = useState('');
+  const [approvedRepresentationClauses, setApprovedRepresentationClauses] = useState('');
+  const [approvedRepresentationWording, setApprovedRepresentationWording] = useState(false);
+  const [representationWordingRationale, setRepresentationWordingRationale] = useState('');
   const [routeId, setRouteId] = useState('');
   const [selectedRepresentationRequestId, setSelectedRepresentationRequestId] = useState('');
   const [signedFileIds, setSignedFileIds] = useState<Record<string, string>>({});
@@ -662,18 +665,25 @@ export function BusinessReportingPanel({ workspaceId, selected, context, engagem
       </form>}
       {management.length > 0 && <div className="business-record-list"><h3>Management letter history</h3>{management.map(item => <p key={String(item.id)}>v{rowText(item, 'revision')} · {rowText(item, 'status')} · SHA-256 {rowText(item, 'sourceHash').slice(0, 16)}… · {rowText(item, 'failureCode')}</p>)}</div>}
 
-      {canReview && <form className="business-form business-commercial-form" onSubmit={event => { event.preventDefault();
+      {isPartner && <form className="business-form business-commercial-form" onSubmit={event => { event.preventDefault();
         const names = requiredSignatories.split(/\r?\n/).map(value => value.trim()).filter(Boolean);
-        void perform('representation.prepare', { engagementId: activeEngagementId, proposedReportDate: today, requiredSignatories: names, contactRouteId: routeId }, 'Representation letter template queued before report signing.'); }}>
+        const clauses = approvedRepresentationClauses.split(/\r?\n/).map(value => value.trim()).filter(Boolean);
+        void perform('representation.prepare', { engagementId: activeEngagementId, proposedReportDate: today, requiredSignatories: names, contactRouteId: routeId,
+          approvedClauses: clauses, firmApprovedWording: approvedRepresentationWording, approvalRationale: representationWordingRationale }, 'Partner-approved representation wording pinned to the template before report signing.'); }}>
         <h3>Prepare pre-report letter of representation</h3><div className="business-form-grid">
           <label className="business-field"><span>Primary management report route</span><select required value={routeId} onChange={event => setRouteId(event.target.value)}><option value="">Choose FINAL_REPORT contact</option>{(data?.contactRoutes ?? []).map(item => <option key={String(item.id)} value={String(item.id)}>{rowText(item, 'contactName')} · {rowText(item, 'email')}</option>)}</select></label>
           <label className="business-field"><span>Required management signatories (one per line)</span><textarea required value={requiredSignatories} onChange={event => setRequiredSignatories(event.target.value)} /></label>
+          <label className="business-field"><span>Exact firm-approved representation clauses (one per line)</span><textarea required minLength={10} value={approvedRepresentationClauses} onChange={event => { setApprovedRepresentationClauses(event.target.value); setApprovedRepresentationWording(false); }} /></label>
+          <label className="business-field"><span>Approval rationale for this exact wording</span><textarea required minLength={10} value={representationWordingRationale} onChange={event => setRepresentationWordingRationale(event.target.value)} /></label>
           <label className="business-field"><span>Proposed report date</span><input type="date" readOnly value={today} /></label></div>
-        <button className="btn sm" disabled={busy}>Prepare representation template</button>
+        <label className="business-check-row"><input type="checkbox" required checked={approvedRepresentationWording} onChange={event => setApprovedRepresentationWording(event.target.checked)} /> I confirm these exact clauses are approved firm wording for this engagement.</label>
+        <button className="btn sm" disabled={busy || !approvedRepresentationWording}>Prepare representation template</button>
       </form>}
       {requests.length > 0 && <div className="business-record-list"><h3>Representation requests and returned evidence</h3>{requests.map(request => <div className="business-delivery-row" key={String(request.id)}>
         <strong>{rowText(request, 'status')} · {rowText(request, 'proposedReportDate')}</strong><span>Request {rowText(request, 'id')} · email dispatch {rowText(request, 'dispatchStatus', 'not queued')}</span>
-        {request.status === 'PREPARED' && canReview && <button type="button" className="btn sm" disabled={busy} onClick={() => void perform('representation.send', { requestId: rowText(request, 'id') }, 'Representation email queued with the actual editable template. Provider outcome remains pending until confirmed.')}>Send template</button>}
+        {rowText(request, 'templateApprovalId') && <span>Firm wording SHA-256 {rowText(request, 'approvedClausesHash').slice(0, 16)}… · approved by {rowText(request, 'wordingApprovedBy')} at {rowText(request, 'wordingApprovedAt')}</span>}
+        {request.status === 'PREPARED' && !rowText(request, 'templateApprovalId') && <span role="alert">This legacy template has no immutable firm-wording approval. Prepare a new Partner-approved request before sending.</span>}
+        {request.status === 'PREPARED' && canReview && Boolean(rowText(request, 'templateApprovalId')) && <button type="button" className="btn sm" disabled={busy} onClick={() => void perform('representation.send', { requestId: rowText(request, 'id') }, 'Representation email queued with the exact Partner-approved editable template. Provider outcome remains pending until confirmed.')}>Send template</button>}
         {request.status === 'RECEIVED' && canReview && returns.filter(item => item.requestId === request.id).map(item => {
           const returnId = rowText(item, 'id');
           const checks = reviewConfirmations[returnId] ?? {};

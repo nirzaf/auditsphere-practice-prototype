@@ -293,8 +293,12 @@ export async function getBusinessReportingWorkspace(env: Env, workspaceId: strin
       FROM management_letter_versions WHERE workspace_id=? AND engagement_id=? ORDER BY revision DESC`).bind(workspaceId, engagementId).all<Row>(),
     env.DB.prepare(`SELECT r.id,r.version,r.status,r.proposed_report_date AS proposedReportDate,r.required_signatories_json AS requiredSignatoriesJson,
         r.dependency_hash AS dependencyHash,r.template_file_id AS templateFileId,r.dispatch_id AS dispatchId,r.current_return_id AS currentReturnId,
-        r.contact_route_id AS contactRouteId,d.status AS dispatchStatus,d.provider_message_id AS providerMessageId
+        r.contact_route_id AS contactRouteId,a.id AS templateApprovalId,a.clauses_hash AS approvedClausesHash,
+        a.approved_at AS wordingApprovedAt,sm.display_name AS wordingApprovedBy,d.status AS dispatchStatus,d.provider_message_id AS providerMessageId
       FROM representation_requests r LEFT JOIN dispatches d ON d.workspace_id=r.workspace_id AND d.id=r.dispatch_id
+      LEFT JOIN representation_template_approvals a ON a.workspace_id=r.workspace_id AND a.request_id=r.id
+      LEFT JOIN actor_profiles ap ON ap.workspace_id=a.workspace_id AND ap.id=a.approved_by_actor_id
+      LEFT JOIN staff_members sm ON sm.workspace_id=ap.workspace_id AND sm.id=ap.staff_member_id
       WHERE r.workspace_id=? AND r.engagement_id=? ORDER BY r.created_at DESC`).bind(workspaceId, engagementId).all<Row>(),
     env.DB.prepare(`SELECT r.id,r.request_id AS requestId,r.revision,r.signed_file_id AS signedFileId,r.file_sha256 AS fileSha256,r.representation_date AS representationDate,
         r.signatory_names AS signatoryNames,r.received_at AS receivedAt,v.original_name AS fileName,rv.decision AS reviewDecision,rv.review_reason AS reviewReason,

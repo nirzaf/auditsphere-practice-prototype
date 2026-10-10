@@ -35,7 +35,9 @@ const fsApprove=z.strictObject({type:z.literal('financial-statements.approve'),p
 const reportPrepare=z.strictObject({type:z.literal('report.prepare'),payload:z.strictObject({engagementId:id,opinionVersionId:id,financialStatementApprovalId:id,signatureAssetId:id,proposedReportDate:date})});
 const reportConsent=z.strictObject({type:z.literal('report.consent'),payload:z.strictObject({engagementId:id,reportCandidateId:id,signatureAssetId:id,candidateContentHash:hash,proposedReportDate:date,consentText:text(10,10000)})});
 const managementPrepare=z.strictObject({type:z.literal('management-letter.prepare'),payload:z.strictObject({engagementId:id,items:z.array(z.strictObject({findingId:id,impact:text(10,10000),recommendation:text(10,10000),responsibleParty:z.string().trim().max(300).optional(),targetDate:date.optional()})).max(300),noReportableDeficienciesReason:z.string().trim().max(10000).optional()})});
-const representationPrepare=z.strictObject({type:z.literal('representation.prepare'),payload:z.strictObject({engagementId:id,proposedReportDate:date,requiredSignatories:z.array(z.string().trim().min(1).max(200)).min(1).max(20),contactRouteId:id})});
+const representationPrepare=z.strictObject({type:z.literal('representation.prepare'),payload:z.strictObject({engagementId:id,proposedReportDate:date,
+  requiredSignatories:z.array(z.string().trim().min(1).max(200)).min(1).max(20),contactRouteId:id,
+  approvedClauses:z.array(text(10,4000)).min(1).max(30),firmApprovedWording:z.literal(true),approvalRationale:text(10,2000)})});
 const representationSend=z.strictObject({type:z.literal('representation.send'),payload:z.strictObject({requestId:id})});
 const representationReceive=z.strictObject({type:z.literal('representation.receive'),payload:z.strictObject({requestId:id,signedFileId:id,representationDate:date,signatoryNames:text(1,2000)})});
 const representationReview=z.strictObject({type:z.literal('representation.review'),payload:z.strictObject({requestId:id,returnId:id,decision:z.enum(['ACCEPT','REJECT']),reviewReason:text(10),dependencyHash:hash,
@@ -398,40 +400,54 @@ async function buildManagementPrepare(env:Env,workspaceId:string,context:Busines
 }
 
 async function buildRepresentationPrepare(env:Env,workspaceId:string,context:BusinessContext,command:Extract<BusinessReportingCommand,{type:'representation.prepare'}>,now:string){
-  reviewer(context);const p=command.payload,engagement=await engagementRow(env,workspaceId,context,p.engagementId);
+  partner(context);const p=command.payload,engagement=await engagementRow(env,workspaceId,context,p.engagementId);
   if(engagement.lifecycle_state!=='PARTNER_APPROVAL'||engagement.locked_at||p.proposedReportDate!==currentQatarDate())throw new ApiError('INVALID_STATE','Prepare the representation request during unlocked Partner Approval for the current Qatar report date.');
+  const approvedClauses=p.approvedClauses.map(clause=>clause.trim());
+  if(approvedClauses.some(clause=>clause.length<10)||new Set(approvedClauses.map(clause=>clause.toLocaleLowerCase())).size!==approvedClauses.length
+    ||approvedClauses.reduce((total,clause)=>total+clause.length,0)>30000)
+    throw new ApiError('VALIDATION_FAILED','Provide 1–30 distinct firm-approved clauses with at least 10 characters each and no more than 30,000 characters total.');
   const route=await env.DB.prepare(`SELECT cr.id,cr.version,cr.contact_id,ct.full_name,ct.email FROM contact_routes cr JOIN contacts ct ON ct.workspace_id=cr.workspace_id AND ct.client_id=cr.client_id AND ct.id=cr.contact_id
     WHERE cr.workspace_id=? AND cr.id=? AND cr.client_id=? AND cr.purpose='FINAL_REPORT' AND cr.is_primary=1 AND ct.active=1 AND ct.email IS NOT NULL`)
     .bind(workspaceId,p.contactRouteId,engagement.client_id).first<{id:string;version:number;contact_id:string;full_name:string;email:string}>();
   if(!route)throw new ApiError('GATE_BLOCKED','Choose the active primary FINAL_REPORT contact route for management.');
-  const pins=await reportPins(env,workspaceId,engagement.id),dependencyHash=await sha256Hex(JSON.stringify({engagementId:engagement.id,srmVersionId:pins.srm.id,srmHash:pins.srm.dependency_hash,
-    statementSnapshotId:pins.snapshot.id,statementSourceHash:pins.snapshot.source_hash,standardsProfileId:pins.profile.id,reportDate:p.proposedReportDate,requiredSignatories:p.requiredSignatories}));
-  const requestId=crypto.randomUUID(),jobId=crypto.randomUUID(),required=[...new Set(p.requiredSignatories.map(name=>name.trim()))];
+  const pins=await reportPins(env,workspaceId,engagement.id);
+  const requestId=crypto.randomUUID(),templateApprovalId=crypto.randomUUID(),jobId=crypto.randomUUID(),required=[...new Set(p.requiredSignatories.map(name=>name.trim()))];
   if(required.length!==p.requiredSignatories.length)throw new ApiError('VALIDATION_FAILED','Required representation signatories must be unique.');
-  const payload={documentType:'REPRESENTATION_TEMPLATE',requestId,engagementId:engagement.id,clientId:engagement.client_id,requiredSignatories:required,
+  const approvedClausesHash=await sha256Hex(JSON.stringify(approvedClauses)),approvalSourceHash=await sha256Hex(JSON.stringify({approvedClauses,approvalRationale:p.approvalRationale,approvedByActorId:context.actor.id}));
+  const dependencyHash=await sha256Hex(JSON.stringify({engagementId:engagement.id,srmVersionId:pins.srm.id,srmHash:pins.srm.dependency_hash,
+    statementSnapshotId:pins.snapshot.id,statementSourceHash:pins.snapshot.source_hash,standardsProfileId:pins.profile.id,reportDate:p.proposedReportDate,
+    requiredSignatories:required,templateApprovalId,approvedClausesHash}));
+  const payload={documentType:'REPRESENTATION_TEMPLATE',requestId,templateApprovalId,approvedClausesHash,engagementId:engagement.id,clientId:engagement.client_id,requiredSignatories:required,
     proposedReportDate:p.proposedReportDate,dependencyHash,recipient:{contactRouteId:route.id,contactRouteVersion:route.version,contactId:route.contact_id,name:route.full_name,email:route.email},commandId:crypto.randomUUID()};
   const statements=[env.DB.prepare(`INSERT INTO representation_requests(id,workspace_id,client_id,engagement_id,version,template_artifact_id,template_file_id,proposed_report_date,required_signatories_json,dependency_hash,status,dispatch_id,current_return_id,created_by_actor_id,created_at,updated_at,contact_route_id)
       VALUES(?,?,?, ?,1,NULL,NULL,?,?,?,'PREPARING',NULL,NULL,?,?,?,?)`).bind(requestId,workspaceId,engagement.client_id,engagement.id,p.proposedReportDate,JSON.stringify(required),dependencyHash,context.actor.id,now,now,route.id),
+    env.DB.prepare(`INSERT INTO representation_template_approvals(id,workspace_id,request_id,clauses_json,clauses_hash,approval_rationale,source_hash,approved_by_actor_id,approved_at)
+      VALUES(?,?,?,?,?,?,?,?,?)`).bind(templateApprovalId,workspaceId,requestId,JSON.stringify(approvedClauses),approvedClausesHash,p.approvalRationale,approvalSourceHash,context.actor.id,now),
     outboxJob(env,workspaceId,jobId,requestId,1,payload,`representation-template:${requestId}`,now)];
-  return mut(statements,{jobId,requestId,status:'PREPARING',dependencyHash,requiredSignatories:required},'REPRESENTATION_REQUEST',requestId,null,1,{jobId,dependencyHash});
+  return mut(statements,{jobId,requestId,status:'PREPARING',dependencyHash,requiredSignatories:required,templateApprovalId,approvedClausesHash},
+    'REPRESENTATION_REQUEST',requestId,null,1,{jobId,dependencyHash,templateApprovalId,approvedClausesHash});
 }
 
 async function buildRepresentationSend(env:Env,workspaceId:string,context:BusinessContext,command:Extract<BusinessReportingCommand,{type:'representation.send'}>,now:string){
-  reviewer(context);const request=await env.DB.prepare(`SELECT r.id,r.version,r.client_id,r.engagement_id,r.template_file_id,r.proposed_report_date,r.status,r.dependency_hash,r.contact_route_id,cr.version AS route_version,cr.contact_id,ct.full_name,ct.email
+  reviewer(context);const request=await env.DB.prepare(`SELECT r.id,r.version,r.client_id,r.engagement_id,r.template_file_id,r.proposed_report_date,r.status,r.dependency_hash,r.contact_route_id,
+      a.id AS template_approval_id,a.clauses_hash,cr.version AS route_version,cr.contact_id,ct.full_name,ct.email
     FROM representation_requests r JOIN contact_routes cr ON cr.workspace_id=r.workspace_id AND cr.id=r.contact_route_id JOIN contacts ct ON ct.workspace_id=cr.workspace_id AND ct.id=cr.contact_id
+    LEFT JOIN representation_template_approvals a ON a.workspace_id=r.workspace_id AND a.request_id=r.id
     WHERE r.workspace_id=? AND r.id=?`).bind(workspaceId,command.payload.requestId)
-    .first<{id:string;version:number;client_id:string;engagement_id:string;template_file_id:string|null;proposed_report_date:string;status:string;dependency_hash:string;contact_route_id:string;route_version:number;contact_id:string;full_name:string;email:string}>();
+    .first<{id:string;version:number;client_id:string;engagement_id:string;template_file_id:string|null;proposed_report_date:string;status:string;dependency_hash:string;contact_route_id:string;
+      template_approval_id:string|null;clauses_hash:string|null;route_version:number;contact_id:string;full_name:string;email:string}>();
   if(!request||request.status!=='PREPARED'||!request.template_file_id)throw new ApiError('INVALID_TRANSITION','Only a prepared representation template can be sent.');
+  if(!request.template_approval_id||!request.clauses_hash)throw new ApiError('GATE_BLOCKED','The exact firm-approved representation wording is not recorded for this template. Prepare a new Partner-approved request.');
   const engagement=await engagementRow(env,workspaceId,context,request.engagement_id);if(engagement.portal_frozen_at||engagement.lifecycle_state!=='PARTNER_APPROVAL')throw new ApiError('WORKSPACE_FROZEN','The representation request cannot be sent after portal freeze.');
-  const pins=await reportPins(env,workspaceId,engagement.id),expected=await sha256Hex(JSON.stringify({engagementId:engagement.id,srmVersionId:pins.srm.id,srmHash:pins.srm.dependency_hash,
-    statementSnapshotId:pins.snapshot.id,statementSourceHash:pins.snapshot.source_hash,standardsProfileId:pins.profile.id,reportDate:request.proposed_report_date,
-    requiredSignatories:JSON.parse(String((await env.DB.prepare(`SELECT required_signatories_json FROM representation_requests WHERE workspace_id=? AND id=?`).bind(workspaceId,request.id).first<{required_signatories_json:string}>())?.required_signatories_json??'[]'))}));
+  const expected=await currentRepresentationHash(env,workspaceId,engagement.id,request.proposed_report_date,request.id);
   if(expected!==request.dependency_hash)throw new ApiError('STALE_DEPENDENCY','The report or statement source changed after the representation template was prepared.');
   const dispatchId=crypto.randomUUID(),jobId=crypto.randomUUID(),dedup=`representation:${request.id}:${request.version}`;
   const recipient={contactRouteId:request.contact_route_id,contactRouteVersion:request.route_version,contactId:request.contact_id,name:request.full_name,email:request.email};
   const payload={documentType:'COMMERCIAL_EMAIL',purpose:'BUNDLE',commandId:crypto.randomUUID(),engagementId:engagement.id,clientId:engagement.client_id,dispatchId,fileVersionId:request.template_file_id,recipient,
     subject:`Letter of representation · ${engagement.code}`,body:`Please review, sign and return the attached representation letter for ${engagement.client_name}, period ${engagement.period_start} to ${engagement.period_end}.`};
-  const statements=[assertDb(env,workspaceId,703,`EXISTS(SELECT 1 FROM representation_requests WHERE workspace_id=? AND id=? AND version=? AND status='PREPARED' AND dependency_hash=?)`,workspaceId,request.id,request.version,request.dependency_hash),
+  const statements=[assertDb(env,workspaceId,703,`EXISTS(SELECT 1 FROM representation_requests r JOIN representation_template_approvals a ON a.workspace_id=r.workspace_id AND a.request_id=r.id
+      WHERE r.workspace_id=? AND r.id=? AND r.version=? AND r.status='PREPARED' AND r.dependency_hash=? AND a.id=? AND a.clauses_hash=?)`,
+      workspaceId,request.id,request.version,request.dependency_hash,request.template_approval_id,request.clauses_hash),
     emailOutboxJob(env,workspaceId,jobId,dispatchId,1,payload,dedup,now),
     env.DB.prepare(`INSERT INTO dispatches(id,workspace_id,version,client_id,engagement_id,purpose,file_version_id,recipient_snapshot_json,status,provider_message_id,sent_at,deduplication_key,job_id,created_at,updated_at)
       VALUES(?,?,1,?,?, 'BUNDLE',?,?,'QUEUED',NULL,NULL,?,?,?,?)`).bind(dispatchId,workspaceId,engagement.client_id,engagement.id,request.template_file_id,JSON.stringify(recipient),dedup,jobId,now,now),
@@ -486,10 +502,8 @@ async function buildRepresentationReview(env:Env,workspaceId:string,context:Busi
     .first<{id:string;version:number;client_id:string;engagement_id:string;proposed_report_date:string;dependency_hash:string;current_return_id:string;status:string;signed_file_id:string;file_sha256:string;representation_date:string;signatory_names:string;source_hash:string}>();
   if(!request||request.status!=='RECEIVED')throw new ApiError('VERSION_CONFLICT','Review the current received signed representation.');
   if(request.representation_date>request.proposed_report_date)throw new ApiError('VALIDATION_FAILED','A signed representation dated after the proposed auditor’s report date cannot be accepted.');
-  const engagement=await engagementRow(env,workspaceId,context,request.engagement_id),pins=await reportPins(env,workspaceId,engagement.id);
-  if(engagement.portal_frozen_at||p.dependencyHash!==request.dependency_hash||p.dependencyHash!==await sha256Hex(JSON.stringify({engagementId:engagement.id,srmVersionId:pins.srm.id,srmHash:pins.srm.dependency_hash,
-    statementSnapshotId:pins.snapshot.id,statementSourceHash:pins.snapshot.source_hash,standardsProfileId:pins.profile.id,reportDate:request.proposed_report_date,
-    requiredSignatories:JSON.parse(String((await env.DB.prepare(`SELECT required_signatories_json FROM representation_requests WHERE workspace_id=? AND id=?`).bind(workspaceId,request.id).first<{required_signatories_json:string}>())?.required_signatories_json??'[]'))})))
+  const engagement=await engagementRow(env,workspaceId,context,request.engagement_id);
+  if(engagement.portal_frozen_at||p.dependencyHash!==request.dependency_hash||p.dependencyHash!==await currentRepresentationHash(env,workspaceId,engagement.id,request.proposed_report_date,request.id))
     throw new ApiError('STALE_DEPENDENCY','The accepted representation would not cover the current report source pins. Prepare and review a new request.');
   const expectedDecision=p.decision==='ACCEPT';
   const evidenceChecks={identity:p.identityConfirmed,capacity:p.capacityConfirmed,completeness:p.completenessConfirmed,period:p.periodConfirmed,date:p.dateConfirmed,consistency:p.consistencyConfirmed};
@@ -658,10 +672,13 @@ async function sha256BytesDigest(bytes:Uint8Array):Promise<string>{
 }
 
 async function currentRepresentationHash(env:Env,workspaceId:string,engagementId:string,reportDate:string,requestId:string){
-  const pins=await reportPins(env,workspaceId,engagementId);const required=await env.DB.prepare(`SELECT required_signatories_json FROM representation_requests WHERE workspace_id=? AND id=?`)
-    .bind(workspaceId,requestId).first<{required_signatories_json:string}>();
+  const pins=await reportPins(env,workspaceId,engagementId);const required=await env.DB.prepare(`SELECT r.required_signatories_json,a.id AS template_approval_id,a.clauses_hash
+    FROM representation_requests r LEFT JOIN representation_template_approvals a ON a.workspace_id=r.workspace_id AND a.request_id=r.id
+    WHERE r.workspace_id=? AND r.id=?`).bind(workspaceId,requestId).first<{required_signatories_json:string;template_approval_id:string|null;clauses_hash:string|null}>();
+  if(!required?.template_approval_id||!required.clauses_hash)throw new ApiError('GATE_BLOCKED','The current representation request has no immutable Partner-approved clause set.');
   return sha256Hex(JSON.stringify({engagementId,srmVersionId:pins.srm.id,srmHash:pins.srm.dependency_hash,statementSnapshotId:pins.snapshot.id,
-    statementSourceHash:pins.snapshot.source_hash,standardsProfileId:pins.profile.id,reportDate,requiredSignatories:JSON.parse(required?.required_signatories_json??'[]')}));
+    statementSourceHash:pins.snapshot.source_hash,standardsProfileId:pins.profile.id,reportDate,requiredSignatories:JSON.parse(required.required_signatories_json),
+    templateApprovalId:required.template_approval_id,approvedClausesHash:required.clauses_hash}));
 }
 
 async function buildRetentionSave(env:Env,workspaceId:string,context:BusinessContext,command:Extract<BusinessReportingCommand,{type:'retention-policy.save'}>,now:string){

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { createHash, randomUUID } from 'node:crypto';
 import { existsSync, rmSync } from 'node:fs';
 import { after, before, it } from 'node:test';
-import { unzipSync, zlibSync } from 'fflate';
+import { strFromU8, unzipSync, zlibSync } from 'fflate';
 import { CdpTab } from '../helpers/cdp.js';
 import { launchHeadlessChrome, stopHeadlessChrome, type HeadlessChromeInstance } from '../helpers/headlessChrome.js';
 import { startBusinessE2eServer, type BusinessE2eServer } from '../helpers/businessE2eServer.js';
@@ -692,22 +692,22 @@ it('US-REP-001–007 covers all report categories, representation, atomic releas
   await tab.command('Emulation.clearDeviceMetricsOverride');
 
   const fillReportField = async (labelPrefix: string, value: string, select = false) => {
-    const observed = await tab!.evaluate<{ found: boolean; value: string }>(`(() => {
+    const observed = await tab!.evaluate<{ found: boolean; value: string; labels: string[] }>(`(() => {
       const report = document.querySelector('#business-reporting-${fixture.engagementId}')?.closest('section');
       const labels = [...(report?.querySelectorAll('label') ?? [])];
       const labelText = item => item.querySelector('span')?.textContent?.trim() ?? item.textContent?.trim() ?? '';
       const label = labels.find(item => labelText(item) === ${JSON.stringify(labelPrefix)})
         ?? labels.find(item => labelText(item).startsWith(${JSON.stringify(labelPrefix)}));
       const control = label?.querySelector('input,textarea,select');
-      if (!control) return { found: false, value: '' };
+      if (!control) return { found: false, value: '', labels: labels.map(labelText) };
       const prototype = control instanceof HTMLSelectElement ? HTMLSelectElement.prototype
         : control instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
       Object.getOwnPropertyDescriptor(prototype, 'value')?.set?.call(control, ${JSON.stringify(value)});
       control.dispatchEvent(new Event(control instanceof HTMLSelectElement ? 'change' : 'input', { bubbles: true }));
       if (!(control instanceof HTMLSelectElement)) control.dispatchEvent(new Event('change', { bubbles: true }));
-      return { found: true, value: control.value };
+      return { found: true, value: control.value, labels: labels.map(labelText) };
     })()`);
-    assert.equal(observed.found, true, `the visible ${labelPrefix} form field exists`);
+    assert.equal(observed.found, true, `the visible ${labelPrefix} form field exists; current reporting labels: ${observed.labels.join(' | ')}`);
     assert.equal(observed.value, value, `the visible ${labelPrefix} form field accepted its value`);
     if (!select) assert.ok(value.length > 0);
   };
@@ -1106,8 +1106,29 @@ it('US-REP-001–007 covers all report categories, representation, atomic releas
 
   await fillReportField('Primary management report route', fixture.reportRouteId, true);
   await fillReportField('Required management signatories (one per line)', 'QA Managing Director');
+  const approvedClause = 'Synthetic QA clause: management confirms the fixture records relate to the stated reporting period.';
+  await fillReportField('Exact firm-approved representation clauses (one per line)', approvedClause);
+  await fillReportField('Approval rationale for this exact wording', 'Synthetic local fixture approval; this wording is not firm policy or professional advice.');
+  const clauseAttestationBefore = await tab.evaluate<boolean>(`(() => {
+    const form = [...document.querySelectorAll('form')].find(item => item.querySelector('h3')?.textContent?.includes('Prepare pre-report letter of representation'));
+    const label = [...(form?.querySelectorAll('label') ?? [])].find(item => item.textContent?.includes('I confirm these exact clauses are approved firm wording'));
+    return label?.querySelector('input[type="checkbox"]')?.checked === false;
+  })()`);
+  assert.equal(clauseAttestationBefore, true, 'exact-wording approval starts unchecked before Partner review');
+  const clauseAttestationChecked = await tab.evaluate<boolean>(`(() => {
+    const form = [...document.querySelectorAll('form')].find(item => item.querySelector('h3')?.textContent?.includes('Prepare pre-report letter of representation'));
+    const label = [...(form?.querySelectorAll('label') ?? [])].find(item => item.textContent?.includes('I confirm these exact clauses are approved firm wording'));
+    const checkbox = label?.querySelector('input[type="checkbox"]'); if (!(checkbox instanceof HTMLInputElement) || checkbox.disabled) return false;
+    checkbox.click(); return checkbox.checked;
+  })()`);
+  assert.equal(clauseAttestationChecked, true, 'the Partner explicitly approves the exact entered fixture clauses');
+  await waitFor('the visible exact-clause approval checkbox', `(() => {
+    const form = [...document.querySelectorAll('form')].find(item => item.querySelector('h3')?.textContent?.includes('Prepare pre-report letter of representation'));
+    const label = [...(form?.querySelectorAll('label') ?? [])].find(item => item.textContent?.includes('I confirm these exact clauses are approved firm wording'));
+    return label?.querySelector('input[type="checkbox"]')?.checked === true;
+  })()`);
   await clickInForm('Prepare pre-report letter of representation', 'Prepare representation template');
-  await waitFor('the queued representation request', `document.querySelector('#business-reporting-${fixture.engagementId}')?.closest('section')?.innerText.includes('Representation letter template queued before report signing.')`);
+  await waitFor('the queued representation request', `document.querySelector('#business-reporting-${fixture.engagementId}')?.closest('section')?.innerText.includes('Partner-approved representation wording pinned to the template before report signing.')`);
   const preparingRequest = await waitForDbRow('the pre-report representation request', () => server!.db.prepare(`SELECT id,status,dependency_hash FROM representation_requests
     WHERE workspace_id=? AND engagement_id=? ORDER BY created_at DESC,id DESC LIMIT 1`).bind(fixture.workspaceId, fixture.engagementId)
     .first<{ id: string; status: string; dependency_hash: string }>());
@@ -1117,6 +1138,20 @@ it('US-REP-001–007 covers all report categories, representation, atomic releas
     FROM representation_requests WHERE workspace_id=? AND id=? AND status='PREPARED' AND template_artifact_id IS NOT NULL AND template_file_id IS NOT NULL`)
     .bind(fixture.workspaceId, preparingRequest.id).first<{ id: string; status: string; template_artifact_id: string; template_file_id: string; dependency_hash: string }>());
   assert.equal(preparedRequest.dependency_hash, preparingRequest.dependency_hash);
+  const pinnedWording = server.db.prepare(`SELECT clauses_json,clauses_hash,approval_rationale,approved_by_actor_id FROM representation_template_approvals WHERE workspace_id=? AND request_id=?`)
+    .bind(fixture.workspaceId, preparedRequest.id).first<{ clauses_json: string; clauses_hash: string; approval_rationale: string; approved_by_actor_id: string }>();
+  assert.ok(pinnedWording, 'the exact clauses have an append-only Partner approval record');
+  assert.deepEqual(JSON.parse(pinnedWording.clauses_json), [approvedClause]);
+  assert.equal(pinnedWording.approval_rationale, 'Synthetic local fixture approval; this wording is not firm policy or professional advice.');
+  assert.equal(pinnedWording.approved_by_actor_id, fixture.actorId);
+  assert.equal(pinnedWording.clauses_hash, sha256(JSON.stringify([approvedClause])));
+  const templateObject = server.db.prepare('SELECT object_key FROM file_versions WHERE workspace_id=? AND id=?')
+    .bind(fixture.workspaceId, preparedRequest.template_file_id).first<{ object_key: string }>();
+  assert.ok(templateObject);
+  const templateBytes = server.getTestObject(templateObject.object_key);
+  assert.ok(templateBytes);
+  const templateDocument = strFromU8(unzipSync(templateBytes)['word/document.xml']);
+  assert.ok(templateDocument.includes(approvedClause), 'the exact approved wording is present in the immutable editable DOCX');
   await refreshReporting();
   await waitFor('the prepared representation request and send control', `document.querySelector('#business-reporting-${fixture.engagementId}')?.closest('section')?.innerText.includes('PREPARED · ${reportDate}')`);
   await clickReportRowButton('PREPARED', 'Send template');

@@ -172,10 +172,18 @@ async function managementLetter(env:Env,job:Job,p:Payload,commit:Commit){
 
 async function representationTemplate(env:Env,job:Job,p:Payload,commit:Commit){
   const row=await env.DB.prepare(`SELECT r.id,r.client_id,r.engagement_id,r.proposed_report_date,r.required_signatories_json,r.dependency_hash,r.status,e.code,e.period_start,e.period_end,e.engagement_type,
-      c.legal_name AS client_name,fp.legal_name AS firm_name FROM representation_requests r JOIN engagements e ON e.workspace_id=r.workspace_id AND e.id=r.engagement_id
+      a.id AS template_approval_id,a.clauses_json,a.clauses_hash,a.approval_rationale,a.source_hash AS approval_source_hash,a.approved_by_actor_id,a.approved_at,
+      c.legal_name AS client_name,fp.legal_name AS firm_name FROM representation_requests r
+      JOIN representation_template_approvals a ON a.workspace_id=r.workspace_id AND a.request_id=r.id
+      JOIN engagements e ON e.workspace_id=r.workspace_id AND e.id=r.engagement_id
       JOIN clients c ON c.workspace_id=e.workspace_id AND c.id=e.client_id JOIN firm_profiles fp ON fp.workspace_id=e.workspace_id WHERE r.workspace_id=? AND r.id=?`)
     .bind(job.workspace_id,p.requestId).first<Record<string,any>>();
   if(!row||row.status!=='PREPARING'||row.dependency_hash!==p.dependencyHash||row.engagement_id!==p.engagementId)throw new Error('The representation request is no longer eligible for rendering.');
+  const approvedClauses=JSON.parse(String(row.clauses_json)) as string[];
+  if(row.template_approval_id!==p.templateApprovalId||row.clauses_hash!==p.approvedClausesHash||approvedClauses.length<1
+    ||await sha256Hex(JSON.stringify(approvedClauses))!==row.clauses_hash
+    ||await sha256Hex(JSON.stringify({approvedClauses,approvalRationale:row.approval_rationale,approvedByActorId:row.approved_by_actor_id}))!==row.approval_source_hash)
+    throw new Error('The representation wording failed its immutable Partner approval hash check.');
   const names=JSON.parse(String(row.required_signatories_json)) as string[];
   const snapshot=await env.DB.prepare(`SELECT s.id,s.source_hash FROM financial_statement_approvals a
       JOIN statement_snapshots s ON s.workspace_id=a.workspace_id AND s.id=a.statement_snapshot_id
@@ -192,7 +200,8 @@ async function representationTemplate(env:Env,job:Job,p:Payload,commit:Commit){
     current:money(figure.current_minor),comparative:figure.comparative_minor===null?null:money(figure.comparative_minor)
   }));
   const documentBytes=await renderRepresentationTemplateDocx({clientName:String(row.client_name),engagementCode:String(row.code),periodStart:String(row.period_start),periodEnd:String(row.period_end),
-    proposedReportDate:String(row.proposed_report_date),signatories:names,statementSnapshotId:snapshot.id,statementSourceHash:snapshot.source_hash,figures});
+    proposedReportDate:String(row.proposed_report_date),signatories:names,statementSnapshotId:snapshot.id,statementSourceHash:snapshot.source_hash,
+    approvedClauses,approvedClausesHash:String(row.clauses_hash),figures});
   const output=await storeDocx(env,job,p,`LOR-${row.code}-${String(row.proposed_report_date).replaceAll('-','')}`,documentBytes,
     'REPRESENTATION','REPRESENTATION_REQUEST',row.id,1,'representations');
   await commit({entityType:'REPRESENTATION_REQUEST',entityId:row.id,clientId:row.client_id,engagementId:row.engagement_id,details:{dependencyHash:row.dependency_hash,contentSha256:output.digest},

@@ -331,3 +331,7 @@ E05-S01 (milestone defaults), E05-S02 (workprogram gates), E05-S03 (going-concer
 ## 10. US-PRC-002 approved leave intervals — migration 0055
 
 `leave_records.start_minute` and `end_minute` store a half-open interval in the staff member's local work date: start is 0–1439, end is 1–1440, and `minutes = end_minute - start_minute`. Adjacent intervals are valid; intersecting intervals are not. Migration 0055 leaves historical day-only approval rows null rather than inventing their times. New approvals on a date with any unresolved day-only row are blocked until its timing is explicitly reconciled. The D1 insert trigger repeats the interval and overlap checks so concurrent or alternate write paths cannot bypass them.
+
+## 11. US-REP-004 immutable representation wording — migration 0056
+
+`representation_template_approvals` stores one append-only approval per request: the exact approved clause JSON, clause SHA-256, approval rationale and source hash, approving actor, and approval time. The migration enforces the JSON array size and both 64-character hashes; command validation also bounds individual and total clause text. Update/delete triggers preserve the evidence. The clause set is included in the request dependency hash so generated templates and later delivery checks remain bound to the wording the Partner approved. Historical requests have no fabricated clause approval; attempting to send one fails closed.
