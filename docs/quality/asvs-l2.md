@@ -143,8 +143,8 @@ For Fail entries, no separate owner-approved follow-up stories have been recorde
 
 ## Current disposition
 
-- **Pass:** 31; **Fail:** 46; **N/A:** 49.
+- **Pass:** 34; **Fail:** 39; **N/A:** 53. These counts match the 126 control rows above.
 - Access control remains a known scope limitation: this prototype permits self-selected workflow personas and is not suitable for real audit data or unrestricted production access.
-- The local Wrangler browser sweep is still blocked by the Windows miniflare-email-store CreateDirectory: Access is denied error documented in E06-S01. Do not substitute the live public Worker for this test.
+- The in-process CDP sweep recorded in E06-S01 passed on 2026-10-10. A separate Wrangler-backed browser sweep remains blocked by the Windows `miniflare-email-store` CreateDirectory access error documented in E06-S01. Do not substitute the live public Worker for this test.
 - Cloudflare email mailbox delivery, SharePoint live connectivity, UAT, and production/perimeter settings remain separate external acceptance gates; see [integration configuration](../ops/integrations.md).
 
