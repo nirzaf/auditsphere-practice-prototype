@@ -9,15 +9,50 @@ export type ReportingStatementLine = {
 
 export type ReportingStatementRow = { label: string; current: string; comparative?: string };
 export type ReportingStatementProjection = { balanceSheetRows: ReportingStatementRow[]; profitLossRows: ReportingStatementRow[] };
+export type ReportingStatementReadiness = {
+  currentDifferenceMinor: string;
+  currentBalanced: boolean;
+  comparativesComplete: boolean;
+  comparativeDifferenceMinor: string | null;
+  comparativeBalanced: boolean;
+};
 
 function money(value: bigint): string {
   const absolute = value < 0n ? -value : value;
   return `QAR ${value < 0n ? '-' : ''}${absolute / 100n}.${(absolute % 100n).toString().padStart(2, '0')}`;
 }
 
+/** Evaluates exact current and comparative cross-casts without inventing missing values. */
+export function assessReportingStatementReadiness(lines: ReportingStatementLine[]): ReportingStatementReadiness {
+  const sum = (predicate: (line: ReportingStatementLine) => boolean, field: 'current_adjusted_minor' | 'prior_minor') =>
+    lines.filter(predicate).reduce((total, line) => total + BigInt(String(line[field] ?? 0)), 0n);
+  const difference = (field: 'current_adjusted_minor' | 'prior_minor') => {
+    const assets = sum(line => line.statement === 'BALANCE_SHEET' && line.category === 'ASSET', field);
+    const liabilities = sum(line => line.statement === 'BALANCE_SHEET' && line.category === 'LIABILITY', field);
+    const equity = sum(line => line.statement === 'BALANCE_SHEET' && line.category === 'EQUITY', field);
+    const revenue = sum(line => line.statement === 'PROFIT_LOSS' && line.category === 'REVENUE', field);
+    const expenses = sum(line => line.statement === 'PROFIT_LOSS' && line.category === 'EXPENSE', field);
+    return assets - liabilities - equity - (revenue - expenses);
+  };
+  const currentDifference = difference('current_adjusted_minor');
+  const comparativesComplete = lines.length > 0 && lines.every(line => line.prior_minor !== null);
+  const comparativeDifference = comparativesComplete ? difference('prior_minor') : null;
+  return {
+    currentDifferenceMinor: currentDifference.toString(),
+    currentBalanced: lines.length > 0 && currentDifference === 0n,
+    comparativesComplete,
+    comparativeDifferenceMinor: comparativeDifference?.toString() ?? null,
+    comparativeBalanced: comparativeDifference !== null && comparativeDifference === 0n
+  };
+}
+
 /** Projects approved statement lines and checks both current and complete comparative cross-casts. */
 export function buildReportingStatementProjection(lines: ReportingStatementLine[]): ReportingStatementProjection {
   if (!lines.length) throw new Error('The approved statement snapshot contains no presentation lines.');
+  const readiness = assessReportingStatementReadiness(lines);
+  if (!readiness.currentBalanced) throw new Error('The approved financial statement snapshot does not cross-cast to zero.');
+  if (!readiness.comparativesComplete) throw new Error('The approved financial statement snapshot is missing comparative balances.');
+  if (!readiness.comparativeBalanced) throw new Error('The approved comparative financial statement snapshot does not cross-cast to zero.');
   const sum = (predicate: (line: ReportingStatementLine) => boolean, field: 'current_adjusted_minor' | 'prior_minor') =>
     lines.filter(predicate).reduce((total, line) => total + BigInt(String(line[field] ?? 0)), 0n);
   const categoryTotal = (statement: string, category: string, field: 'current_adjusted_minor' | 'prior_minor') =>
@@ -43,32 +78,28 @@ export function buildReportingStatementProjection(lines: ReportingStatementLine[
     throw new Error('The approved financial statement snapshot does not cross-cast to zero.');
   }
 
-  const hasComparatives = lines.every(line => line.prior_minor !== null);
-  const comparativeTotals = hasComparatives ? {
+  const comparativeTotals = {
     assets: categoryTotal('BALANCE_SHEET', 'ASSET', 'prior_minor'),
     liabilities: categoryTotal('BALANCE_SHEET', 'LIABILITY', 'prior_minor'),
     equity: categoryTotal('BALANCE_SHEET', 'EQUITY', 'prior_minor'),
     revenue: categoryTotal('PROFIT_LOSS', 'REVENUE', 'prior_minor'),
     expenses: categoryTotal('PROFIT_LOSS', 'EXPENSE', 'prior_minor')
-  } : null;
-  const priorResult = comparativeTotals ? comparativeTotals.revenue - comparativeTotals.expenses : null;
-  if (comparativeTotals && comparativeTotals.assets !== comparativeTotals.liabilities + comparativeTotals.equity + priorResult!) {
-    throw new Error('The approved comparative financial statement snapshot does not cross-cast to zero.');
-  }
+  };
+  const priorResult = comparativeTotals.revenue - comparativeTotals.expenses;
 
   const balanceSheetRows = [
     ...rowsFor('BALANCE_SHEET'),
-    totalRow('Total assets', assets, comparativeTotals?.assets ?? null),
-    totalRow('Total liabilities', liabilities, comparativeTotals?.liabilities ?? null),
+    totalRow('Total assets', assets, comparativeTotals.assets),
+    totalRow('Total liabilities', liabilities, comparativeTotals.liabilities),
     totalRow('Total equity, including current-period result', equity + currentResult,
-      comparativeTotals ? comparativeTotals.equity + priorResult! : null),
+      comparativeTotals.equity + priorResult),
     totalRow('Total liabilities and equity', liabilities + equity + currentResult,
-      comparativeTotals ? comparativeTotals.liabilities + comparativeTotals.equity + priorResult! : null)
+      comparativeTotals.liabilities + comparativeTotals.equity + priorResult)
   ];
   const profitLossRows = [
     ...rowsFor('PROFIT_LOSS'),
-    totalRow('Total revenue', revenue, comparativeTotals?.revenue ?? null),
-    totalRow('Total expenses', expenses, comparativeTotals?.expenses ?? null),
+    totalRow('Total revenue', revenue, comparativeTotals.revenue),
+    totalRow('Total expenses', expenses, comparativeTotals.expenses),
     totalRow('Profit or (loss) for the period', currentResult, priorResult)
   ];
   return { balanceSheetRows, profitLossRows };

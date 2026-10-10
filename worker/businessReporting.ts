@@ -11,6 +11,7 @@ import { criticalConfirmationBlockers as currentCriticalConfirmationBlockers, qu
 import { opinionReportingBlockers, validateOpinionSelection } from './reportingOpinion';
 import { inspectReportingPng } from './reportingPng';
 import { presentationEditionBlocker } from '../src/domain/reportingStandards';
+import { assessReportingStatementReadiness, type ReportingStatementLine } from './reportingStatements';
 
 const id=z.uuid(),date=z.iso.date(),hash=z.string().regex(/^[a-f0-9]{64}$/);
 const text=(min=10,max=10000)=>z.string().trim().min(min).max(max);
@@ -117,6 +118,26 @@ async function reportPins(env:Env,workspaceId:string,engagementId:string){
   if(engagement.approved_planning_version_id===null||engagement.active_materiality_version_id===null)throw new ApiError('GATE_BLOCKED','Current planning and materiality pins are required before reporting.');
   return {engagement,srm,snapshot,profile};
 }
+async function statementReadiness(env:Env,workspaceId:string,snapshotId:string){
+  const rows=await env.DB.prepare(`SELECT c.code,c.name,c.statement,c.category,l.current_adjusted_minor,l.prior_minor
+    FROM statement_snapshot_lines l JOIN fsli_catalog c ON c.workspace_id=l.workspace_id AND c.id=l.fsli_id
+    WHERE l.workspace_id=? AND l.snapshot_id=? ORDER BY c.presentation_order,c.code`).bind(workspaceId,snapshotId).all<ReportingStatementLine>();
+  const lines=rows.results??[];
+  return {lines,analysis:assessReportingStatementReadiness(lines)};
+}
+type SupplementReadinessLine={section:string;prior_minor:number|string|null};
+function statementReadinessBlockers(analysis:ReturnType<typeof assessReportingStatementReadiness>,supplementRows:SupplementReadinessLine[],ociApplicable:boolean):string[]{
+  const blockers:string[]=[];
+  if(!analysis.currentBalanced)blockers.push(`The current statement cross-cast difference is ${analysis.currentDifferenceMinor} QAR minor units.`);
+  if(!analysis.comparativesComplete)blockers.push('Comparative figures are missing for one or more financial-statement lines.');
+  else if(!analysis.comparativeBalanced)blockers.push(`The comparative statement cross-cast difference is ${analysis.comparativeDifferenceMinor} QAR minor units.`);
+  const sections=new Set(supplementRows.map(row=>row.section));
+  if(!sections.has('CASH_FLOW'))blockers.push('A cash-flow schedule is required.');
+  if(!sections.has('EQUITY_CHANGE'))blockers.push('A statement of changes in equity schedule is required.');
+  if(ociApplicable&&!sections.has('OCI'))blockers.push('An OCI schedule is required because other comprehensive income is applicable.');
+  if(supplementRows.length===0||supplementRows.some(row=>row.prior_minor===null))blockers.push('Every cash-flow, equity-change and applicable OCI schedule line needs a prior-period comparative amount.');
+  return blockers;
+}
 async function criticalConfirmationBlockers(env:Env,workspaceId:string,engagementId:string){
   const engagement=await env.DB.prepare(`SELECT id,version,client_id,active_tb_version_id,active_mapping_version_id,active_materiality_version_id
     FROM engagements WHERE workspace_id=? AND id=?`).bind(workspaceId,engagementId).first<ConfirmationGateEngagement>();
@@ -201,7 +222,12 @@ async function buildStatementDraftSave(env:Env,workspaceId:string,context:Busine
       .bind(workspaceId,fileId,engagement.id).first<{id:string}>();if(!file)throw new ApiError('GATE_BLOCKED','Every supporting file must be committed and scoped to this engagement.');
   }
   const sectionSet=new Set(p.supplementLines.map(item=>item.section));
-  const completeness={accountingPolicies:p.accountingPolicies.trim().length>=20,notes:p.notes.length>0,cashFlow:sectionSet.has('CASH_FLOW'),equityChange:sectionSet.has('EQUITY_CHANGE'),oci:!p.ociApplicable||sectionSet.has('OCI')};
+  const statement=await statementReadiness(env,workspaceId,p.statementSnapshotId);
+  const supplementRows=p.supplementLines.map(line=>({section:line.section,prior_minor:line.priorMinor??null}));
+  const statementBlockers=statementReadinessBlockers(statement.analysis,supplementRows,p.ociApplicable);
+  const completeness={accountingPolicies:p.accountingPolicies.trim().length>=20,notes:p.notes.length>0,cashFlow:sectionSet.has('CASH_FLOW'),equityChange:sectionSet.has('EQUITY_CHANGE'),oci:!p.ociApplicable||sectionSet.has('OCI'),
+    currentStatementBalanced:statement.analysis.currentBalanced,comparativesComplete:statement.analysis.comparativesComplete,comparativeStatementBalanced:statement.analysis.comparativeBalanced,
+    supplementalComparativesComplete:supplementRows.length>0&&supplementRows.every(line=>line.prior_minor!==null)};
   const notesHash=await sha256Hex(JSON.stringify([...p.notes].sort((a,b)=>a.sortOrder-b.sortOrder||a.noteNumber.localeCompare(b.noteNumber))));
   const supplementHash=await sha256Hex(JSON.stringify([...p.supplementLines].sort((a,b)=>a.section.localeCompare(b.section)||a.code.localeCompare(b.code))));
   const sourceHash=await sha256Hex(JSON.stringify({statementSnapshotId:p.statementSnapshotId,statementSourceHash:pins.snapshot.source_hash,standardsProfileId:engagement.standards_profile_id,
@@ -220,7 +246,7 @@ async function buildStatementDraftSave(env:Env,workspaceId:string,context:Busine
     .bind(crypto.randomUUID(),workspaceId,draftId,note.noteNumber,note.title,note.body,note.amountMinor===undefined||note.amountMinor===null?null:Number(note.amountMinor),note.supportingFileId??null,note.sortOrder));
   for(const line of p.supplementLines)statements.push(env.DB.prepare(`INSERT INTO statement_supplement_lines(id,workspace_id,draft_id,section,code,label,current_minor,prior_minor,supporting_file_id,rationale) VALUES(?,?,?,?,?,?,?,?,?,?)`)
     .bind(crypto.randomUUID(),workspaceId,draftId,line.section,line.code,line.label,Number(line.currentMinor),line.priorMinor===undefined||line.priorMinor===null?null:Number(line.priorMinor),line.supportingFileId??null,line.rationale));
-  return mut(statements,{draftId,version,sourceHash,notesHash,supplementHash,completeness,ready:Object.values(completeness).every(Boolean)},'FINANCIAL_STATEMENT_DRAFT',draftId,existing?.version??null,version,
+  return mut(statements,{draftId,version,sourceHash,notesHash,supplementHash,completeness,blockers:statementBlockers,ready:Object.values(completeness).every(Boolean)},'FINANCIAL_STATEMENT_DRAFT',draftId,existing?.version??null,version,
     {statementSnapshotId:p.statementSnapshotId,sourceHash,notesHash,supplementHash,completeness});
 }
 
@@ -237,12 +263,21 @@ async function buildStatementApprove(env:Env,workspaceId:string,context:Business
   const engagement=await engagementRow(env,workspaceId,context,draft.engagement_id);if(engagement.lifecycle_state!=='PARTNER_APPROVAL'||engagement.locked_at)throw new ApiError('INVALID_STATE','Financial-statement approval is available only in Partner Approval.');
   const pins=await reportPins(env,workspaceId,engagement.id);if(pins.snapshot.id!==draft.statement_snapshot_id||draft.standards_profile_id!==engagement.standards_profile_id)
     throw new ApiError('STALE_DEPENDENCY','The statement snapshot or standards profile changed after draft preparation.');
-  const completeness=JSON.parse(String(draft.completeness_checklist_json)) as Record<string,boolean>;
-  if(!Object.values(completeness).every(Boolean))throw new ApiError('GATE_BLOCKED','Complete the cash-flow, equity, applicable OCI, accounting-policy and disclosure-note requirements before approval.');
   const [notes,supplements]=await Promise.all([
     env.DB.prepare(`SELECT note_number,title,body,amount_minor,supporting_file_id,sort_order FROM disclosure_notes WHERE workspace_id=? AND draft_id=? ORDER BY sort_order,note_number`).bind(workspaceId,draft.id).all<Record<string,unknown>>(),
     env.DB.prepare(`SELECT section,code,label,current_minor,prior_minor,supporting_file_id,rationale FROM statement_supplement_lines WHERE workspace_id=? AND draft_id=? ORDER BY section,code`).bind(workspaceId,draft.id).all<Record<string,unknown>>()
   ]);
+  const supplementRows=(supplements.results??[]) as Array<Record<string,unknown>&SupplementReadinessLine>;
+  const statement=await statementReadiness(env,workspaceId,draft.statement_snapshot_id);
+  const supplementSections=new Set(supplementRows.map(row=>String(row.section)));
+  const completeness={accountingPolicies:draft.accounting_policies.trim().length>=20,notes:(notes.results??[]).length>0,
+    cashFlow:supplementSections.has('CASH_FLOW'),equityChange:supplementSections.has('EQUITY_CHANGE'),oci:Number(draft.oci_applicable)!==1||supplementSections.has('OCI'),
+    currentStatementBalanced:statement.analysis.currentBalanced,comparativesComplete:statement.analysis.comparativesComplete,comparativeStatementBalanced:statement.analysis.comparativeBalanced,
+    supplementalComparativesComplete:supplementRows.length>0&&supplementRows.every(row=>row.prior_minor!==null)};
+  const blockers=statementReadinessBlockers(statement.analysis,supplementRows,Number(draft.oci_applicable)===1);
+  if(Object.values(completeness).some(value=>!value))throw new ApiError('GATE_BLOCKED',[
+    'Complete the cash-flow, equity, applicable OCI, accounting-policy and disclosure-note requirements before approval.',...blockers
+  ].join(' '));
   const notesHash=await sha256Hex(JSON.stringify(notes.results??[])),supplementHash=await sha256Hex(JSON.stringify(supplements.results??[]));
   const preparer=await naturalPersonKey(env,workspaceId,draft.created_by_actor_id),approver=await naturalPersonKey(env,workspaceId,context.actor.id);
   if(preparer&&approver&&preparer===approver)throw new ApiError('SELF_REVIEW_BLOCKED','Financial-statement approval must be performed by a different natural person from the preparer.');
@@ -270,12 +305,27 @@ async function buildReportPrepare(env:Env,workspaceId:string,context:BusinessCon
   const reportingBlockers=opinionReportingBlockers(opinion.report_type,going?.conclusion??null,opinion.going_concern_reporting_text);
   if(!going||going.status!=='REVIEWED'||latestGoing?.id!==going.id)reportingBlockers.unshift('The going-concern assessment pinned to this SRM is no longer the current independently reviewed assessment.');
   if(reportingBlockers.length)throw new ApiError('GATE_BLOCKED',reportingBlockers.join(' '));
-  const approval=await env.DB.prepare(`SELECT a.id,a.draft_id,a.draft_version,a.statement_snapshot_id,a.notes_hash,a.supplement_hash,a.source_hash,d.status,d.version,d.source_hash AS draft_hash
+  const approval=await env.DB.prepare(`SELECT a.id,a.draft_id,a.draft_version,a.statement_snapshot_id,a.notes_hash,a.supplement_hash,a.source_hash,d.status,d.version,d.source_hash AS draft_hash,d.accounting_policies,d.oci_applicable
     FROM financial_statement_approvals a JOIN financial_statement_drafts d ON d.workspace_id=a.workspace_id AND d.id=a.draft_id
     WHERE a.workspace_id=? AND a.id=? AND a.engagement_id=?`).bind(workspaceId,p.financialStatementApprovalId,engagement.id)
-    .first<{id:string;draft_id:string;draft_version:number;statement_snapshot_id:string;notes_hash:string;supplement_hash:string;source_hash:string;status:string;version:number;draft_hash:string}>();
+    .first<{id:string;draft_id:string;draft_version:number;statement_snapshot_id:string;notes_hash:string;supplement_hash:string;source_hash:string;status:string;version:number;draft_hash:string;accounting_policies:string;oci_applicable:number}>();
   if(!approval||approval.status!=='APPROVED'||approval.version!==approval.draft_version||approval.statement_snapshot_id!==pins.snapshot.id||approval.draft_hash!==approval.source_hash)
     throw new ApiError('STALE_DEPENDENCY','An approved complete financial-statement draft for the current SRM snapshot is required.');
+  const [approvedSupplements,approvedNotes]=await Promise.all([
+    env.DB.prepare(`SELECT section,code,label,current_minor,prior_minor,supporting_file_id,rationale FROM statement_supplement_lines WHERE workspace_id=? AND draft_id=? ORDER BY section,code`)
+      .bind(workspaceId,approval.draft_id).all<SupplementReadinessLine>(),
+    env.DB.prepare(`SELECT note_number,title,body,amount_minor,supporting_file_id,sort_order FROM disclosure_notes WHERE workspace_id=? AND draft_id=? ORDER BY sort_order,note_number`)
+      .bind(workspaceId,approval.draft_id).all<Record<string,unknown>>()
+  ]);
+  const approvedStatement=await statementReadiness(env,workspaceId,pins.snapshot.id);
+  const statementBlockers=statementReadinessBlockers(approvedStatement.analysis,approvedSupplements.results??[],Number(approval.oci_applicable)===1);
+  if(statementBlockers.length)throw new ApiError('GATE_BLOCKED',`The approved statement set is incomplete for report preparation. ${statementBlockers.join(' ')}`);
+  if(approval.accounting_policies.trim().length<20||(approvedNotes.results??[]).length===0)
+    throw new ApiError('GATE_BLOCKED','Approved statements require accounting policies and at least one disclosure note before report preparation.');
+  const approvedNotesHash=await sha256Hex(JSON.stringify(approvedNotes.results??[]));
+  const approvedSupplementsHash=await sha256Hex(JSON.stringify(approvedSupplements.results??[]));
+  if(approvedNotesHash!==approval.notes_hash||approvedSupplementsHash!==approval.supplement_hash)
+    throw new ApiError('STALE_DEPENDENCY','The approved disclosure notes or statement schedules changed after approval. Approve a new statement draft.');
   const asset=await env.DB.prepare(`SELECT a.id,a.staff_member_id,a.status,a.signature_sha256,a.seal_sha256,s.grade,s.active
     FROM report_signature_assets a JOIN staff_members s ON s.workspace_id=a.workspace_id AND s.id=a.staff_member_id
     WHERE a.workspace_id=? AND a.id=? AND a.status='ACTIVE' AND a.owner_grade='PARTNER'`)

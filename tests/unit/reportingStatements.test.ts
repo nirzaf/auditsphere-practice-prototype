@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { it } from 'node:test';
-import { buildReportingStatementProjection, type ReportingStatementLine } from '../../worker/reportingStatements.js';
+import { assessReportingStatementReadiness, buildReportingStatementProjection, type ReportingStatementLine } from '../../worker/reportingStatements.js';
 
 const balancedLines: ReportingStatementLine[] = [
   { code: 'QA-ASSET', name: 'Synthetic assets', statement: 'BALANCE_SHEET', category: 'ASSET', current_adjusted_minor: 190000, prior_minor: 175000 },
@@ -33,12 +33,12 @@ it('US-REP-003 fails closed when either current or available comparative balance
   )), /comparative financial statement snapshot does not cross-cast/);
 });
 
-it('US-REP-003 does not invent comparative totals when one source line has no comparative balance', () => {
-  const projection = buildReportingStatementProjection(balancedLines.map(line => ({ ...line, prior_minor: null })));
-  assert.deepEqual(projection.balanceSheetRows.find(row => row.label === 'Total assets'), {
-    label: 'Total assets', current: 'QAR 1900.00'
-  });
-  assert.deepEqual(projection.profitLossRows.find(row => row.label === 'Profit or (loss) for the period'), {
-    label: 'Profit or (loss) for the period', current: 'QAR 900.00'
-  });
+it('US-REP-003 blocks statement projection when any source line lacks a comparative balance', () => {
+  const lines = balancedLines.map((line, index) => index === 0 ? { ...line, prior_minor: null } : line);
+  const readiness = assessReportingStatementReadiness(lines);
+  assert.equal(readiness.currentBalanced, true);
+  assert.equal(readiness.comparativesComplete, false);
+  assert.equal(readiness.comparativeDifferenceMinor, null);
+  assert.equal(readiness.comparativeBalanced, false);
+  assert.throws(() => buildReportingStatementProjection(lines), /missing comparative balances/);
 });

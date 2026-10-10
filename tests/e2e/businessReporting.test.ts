@@ -296,9 +296,13 @@ async function seedReportingFixture(engagementType: 'STATUTORY_AUDIT' | 'AGREED_
       VALUES(?,?,?,?,?,?,?,?,NULL,'Synthetic supplemental schedule retained for local PDF rendering.')`, randomUUID(), workspaceId, ids.draft,
     line.section, line.code, line.label, line.current, line.prior);
   }
+  const pinnedNotes = server.db.prepare(`SELECT note_number,title,body,amount_minor,supporting_file_id,sort_order FROM disclosure_notes
+    WHERE workspace_id=? AND draft_id=? ORDER BY sort_order,note_number`).bind(workspaceId, ids.draft).all<Record<string, unknown>>().results;
+  const pinnedSupplements = server.db.prepare(`SELECT section,code,label,current_minor,prior_minor,supporting_file_id,rationale FROM statement_supplement_lines
+    WHERE workspace_id=? AND draft_id=? ORDER BY section,code`).bind(workspaceId, ids.draft).all<Record<string, unknown>>().results;
   runFixtureSql(`INSERT INTO financial_statement_approvals(id,workspace_id,client_id,engagement_id,draft_id,draft_version,statement_snapshot_id,notes_hash,supplement_hash,source_hash,approved_by_actor_id,approved_at)
     VALUES(?,?,?,?,?,1,?,?,?,?,?,?)`, ids.approval, workspaceId, ids.client, ids.engagement, ids.draft, ids.snapshot,
-  digest('synthetic disclosure-note pin'), digest('synthetic supplemental schedule pin'), sourceHash, actorId, now);
+  sha256(JSON.stringify(pinnedNotes)), sha256(JSON.stringify(pinnedSupplements)), sourceHash, actorId, now);
 
   const signature = png(255);
   const seal = png(0);
@@ -922,6 +926,24 @@ it('US-REP-001–007 covers all report categories, representation, atomic releas
   })()`);
   assert.equal(candidateSelections.length, 3);
   assert.ok(candidateSelections.every(value => value.length > 0), 'the report candidate uses an explicit Partner opinion, approved statement version and registered image asset');
+  const incompleteSchedule = server.db.prepare(`SELECT id,prior_minor FROM statement_supplement_lines WHERE workspace_id=?
+    AND draft_id=(SELECT draft_id FROM financial_statement_approvals WHERE workspace_id=? AND id=?) LIMIT 1`)
+    .bind(fixture.workspaceId, fixture.workspaceId, fixture.reportApprovalId).first<{ id: string; prior_minor: number | null }>();
+  assert.ok(incompleteSchedule && incompleteSchedule.prior_minor !== null, 'the approved fixture includes a comparative supplemental schedule line');
+  runFixtureSql(`UPDATE statement_supplement_lines SET prior_minor=NULL WHERE workspace_id=? AND id=?`, fixture.workspaceId, incompleteSchedule.id);
+  const blockedCandidate = await fetch(`${server.origin}/api/workspaces/${fixture.workspaceId}/commands`, {
+    method: 'POST', headers: { Origin: server.origin, 'Content-Type': 'application/json', 'X-Actor-Id': fixture.actorId, 'X-Active-Persona': 'APPROVER',
+      'X-Client-Id': fixture.clientId, 'X-Engagement-Id': fixture.engagementId, 'Idempotency-Key': randomUUID() },
+    body: JSON.stringify({ actor: { actorId: fixture.actorId, persona: 'APPROVER' }, context: { clientId: fixture.clientId, engagementId: fixture.engagementId }, expectedVersions: [],
+      command: { type: 'report.prepare', payload: { engagementId: fixture.engagementId, opinionVersionId: candidateSelections[0],
+        financialStatementApprovalId: candidateSelections[1], signatureAssetId: candidateSelections[2], proposedReportDate: reportDate } } })
+  });
+  const blockedCandidateBody = await blockedCandidate.json() as { code?: string; message?: string };
+  assert.equal(blockedCandidateBody.code, 'GATE_BLOCKED', `the Worker rejects report preparation when schedule comparatives are incomplete: ${JSON.stringify(blockedCandidateBody)}`);
+  assert.match(blockedCandidateBody.message ?? '', /prior-period comparative amount/);
+  assert.equal(server.db.prepare(`SELECT COUNT(*) AS count FROM report_candidates WHERE workspace_id=? AND engagement_id=?`)
+    .bind(fixture.workspaceId, fixture.engagementId).first<{ count: number }>()?.count, 0, 'a blocked statement set creates no report candidate');
+  runFixtureSql(`UPDATE statement_supplement_lines SET prior_minor=? WHERE workspace_id=? AND id=?`, incompleteSchedule.prior_minor, fixture.workspaceId, incompleteSchedule.id);
   await clickInForm('Prepare exact auditor-report and statement candidate', 'Generate report candidate');
   await waitFor('the committed Worker report candidate and durable rendering job', `
     document.querySelector('#business-reporting-${fixture.engagementId}')?.closest('section')?.innerText.includes('Report candidate queued for PDF generation.')`);

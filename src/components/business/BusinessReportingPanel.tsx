@@ -576,7 +576,7 @@ export function BusinessReportingPanel({ workspaceId, selected, context, engagem
             ociApplicable, notes, supplementLines }, 'Disclosure draft saved with visible completeness checks.');
         } catch (reason) { setError(reason instanceof Error ? reason.message : 'Enter valid statement amounts.'); }
       }}>
-        <h3>Complete statement schedules and disclosures</h3><label className="business-field"><span>Accounting policies</span><textarea required minLength={20} value={policyText} onChange={event => setPolicyText(event.target.value)} /></label>
+        <h3>Complete statement schedules and disclosures</h3><p className="business-note">Prior-period comparatives are required for every statement line and schedule before independent approval. The current and comparative statements must each cross-cast to zero.</p><label className="business-field"><span>Accounting policies</span><textarea required minLength={20} value={policyText} onChange={event => setPolicyText(event.target.value)} /></label>
         <div className="business-form-grid"><label className="business-field"><span>Note title</span><input required value={noteTitle} onChange={event => setNoteTitle(event.target.value)} /></label>
           <label className="business-field"><span>Note disclosure</span><textarea required minLength={10} value={noteBody} onChange={event => setNoteBody(event.target.value)} /></label>
           <label className="business-field"><span>Cash-flow line label</span><input required value={cashFlowLabel} onChange={event => setCashFlowLabel(event.target.value)} /></label>
