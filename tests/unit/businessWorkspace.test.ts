@@ -2669,14 +2669,53 @@ it('bootstraps a no-session BUSINESS workspace, records manual dispatch and main
       strategyText: 'Focus fieldwork on current revenue, property and receivables while retaining independent review and evidence tracing.' } }
   }, makeRiskHeaders(reviewerHeaders));
   assert.equal(refreshedPlanningCompile.response.status, 200, JSON.stringify(refreshedPlanningCompile.body));
-  const planningApproved = await post(`/api/workspaces/${workspaceId}/commands`, {
+  const planningCapacityBeforeChange = db.prepare(`SELECT version FROM staff_availability WHERE workspace_id=? AND staff_member_id=? AND work_date=?`)
+    .bind(workspaceId,staff.body.result.staffMemberId,planDate).first<any>();
+  assert.ok(planningCapacityBeforeChange, 'planning dependency snapshots include an explicit available-capacity row');
+  const changedPlanningCapacity = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'staffing.availability.set', payload: {
+      staffMemberId: staff.body.result.staffMemberId, workDate: planDate, scheduledMinutes: 600, expectedVersion: planningCapacityBeforeChange.version
+    } }
+  }, makeRiskHeaders(reviewerHeaders));
+  assert.equal(changedPlanningCapacity.response.status, 200, JSON.stringify(changedPlanningCapacity.body));
+  const staleCapacityApproval = await post(`/api/workspaces/${workspaceId}/commands`, {
     idempotencyKey: crypto.randomUUID(), command: { type: 'planning.approve', payload: {
       engagementId, planningVersionId: refreshedPlanningCompile.body.result.planningVersionId, dependencyHash: refreshedPlanningCompile.body.result.sourceHash,
+      rationale: 'The Partner attempted to approve the compiled capacity snapshot after staff availability changed.'
+    } }
+  }, makeRiskHeaders(approverHeaders));
+  assert.equal(staleCapacityApproval.response.status, 409, 'a changed availability row invalidates the compiled planning approval');
+  assert.equal(staleCapacityApproval.body.code, 'STALE_APPROVAL');
+  assert.deepEqual(staleCapacityApproval.body.details.changedDependencies, ['STAFFING_AND_CAPACITY']);
+  const capacityRefreshedPlanningCompile = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'planning.compile', payload: { engagementId,
+      tbVersionId: tbActivated.body.result.tbVersionId, mappingVersionId: mappingApproved.body.result.mappingVersionId,
+      materialityVersionId: activeMaterialityId, scopeText: 'Perform the statutory audit for the approved reporting period using the accepted source records.',
+      strategyText: 'Focus fieldwork on current revenue, property and receivables while retaining independent review and evidence tracing.' } }
+  }, makeRiskHeaders(reviewerHeaders));
+  assert.equal(capacityRefreshedPlanningCompile.response.status, 200, JSON.stringify(capacityRefreshedPlanningCompile.body));
+  const planningApproved = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'planning.approve', payload: {
+      engagementId, planningVersionId: capacityRefreshedPlanningCompile.body.result.planningVersionId, dependencyHash: capacityRefreshedPlanningCompile.body.result.sourceHash,
       rationale: 'The Partner reviewed the exact current trial balance, mapping, materiality, capacity, PBC status and risk assessment.'
     } }
   }, makeRiskHeaders(approverHeaders));
   assert.equal(planningApproved.response.status, 200, JSON.stringify(planningApproved.body));
   assert.equal(planningApproved.body.result.state, 'FIELDWORK_EXECUTION');
+  const planningApprovalDependencies = db.prepare(`SELECT entity_type,entity_id,entity_version,content_sha256 FROM approval_dependencies
+    WHERE workspace_id=? AND approval_id=? ORDER BY entity_type,entity_id`).bind(workspaceId,planningApproved.body.result.approvalDecisionId).all<any>();
+  const dependencyTypes = new Set(planningApprovalDependencies.results.map((dependency: any) => dependency.entity_type));
+  for (const dependencyType of ['TB_VERSION','MAPPING_VERSION','MATERIALITY_VERSION','STANDARDS_PROFILE','FSLI_RISK','STAFFING_ASSIGNMENT',
+    'STAFF_CAPACITY_DAY','MILESTONE','PBC_REQUEST','ENGAGEMENT_FOLDER']) {
+    assert.equal(dependencyTypes.has(dependencyType), true, `planning sign-off records its ${dependencyType} dependency`);
+  }
+  assert.ok(planningApprovalDependencies.results.every((dependency: any) => Number(dependency.entity_version) > 0 && /^[a-f0-9]{64}$/.test(dependency.content_sha256)),
+    'every immutable planning dependency carries a positive source version and SHA-256');
+  const pinnedTbDependency = planningApprovalDependencies.results.find((dependency: any) => dependency.entity_type === 'TB_VERSION');
+  const sourceTbHash = db.prepare(`SELECT revision,content_sha256 FROM tb_versions WHERE workspace_id=? AND id=?`)
+    .bind(workspaceId,tbActivated.body.result.tbVersionId).first<any>();
+  assert.equal(pinnedTbDependency.entity_version, sourceTbHash.revision);
+  assert.equal(pinnedTbDependency.content_sha256, sourceTbHash.content_sha256);
   assert.equal(db.prepare(`SELECT approved_planning_version_id,lifecycle_state FROM engagements WHERE workspace_id=? AND id=?`)
     .bind(workspaceId, engagementId).first<any>()?.lifecycle_state, 'FIELDWORK_EXECUTION');
   const managerCannotHandoverEmptyFieldwork = await post(`/api/workspaces/${workspaceId}/commands`, {

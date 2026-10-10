@@ -903,10 +903,11 @@ async function setFsliRisk(env:Env,workspaceId:string,context:BusinessContext,co
 type PlanningDependencySnapshot={
   engagementId:string;clientId:string;lifecycleState:string;tbVersionId:string|null;mappingVersionId:string|null;materialityVersionId:string|null;
   standardsProfileId:string;tbHash:string|null;mappingHash:string|null;materialityHash:string|null;
-  tb:{rowCount:number;debitsMinor:number;creditsMinor:number;priorPresent:boolean}|null;
-  mapping:{mappedCount:number;unmappedCount:number;nonzeroUnmapped:Array<{id:string;accountCode:string;balanceMinor:string;priorBalanceMinor:string|null}>}|null;
-  materiality:{benchmark:string;benchmarkMinor:string;planningMinor:string;performanceMinor:string;sadMinor:string;sourceHash:string}|null;
+  tb:{revision:number;rowCount:number;debitsMinor:number;creditsMinor:number;priorPresent:boolean}|null;
+  mapping:{revision:number;mappedCount:number;unmappedCount:number;nonzeroUnmapped:Array<{id:string;accountCode:string;balanceMinor:string;priorBalanceMinor:string|null}>}|null;
+  materiality:{revision:number;benchmark:string;benchmarkMinor:string;planningMinor:string;performanceMinor:string;sadMinor:string;sourceHash:string}|null;
   staffing:Array<Record<string,unknown>>;milestones:Array<Record<string,unknown>>;pbc:Array<Record<string,unknown>>;folders:Array<Record<string,unknown>>;risks:Array<Record<string,unknown>>;
+  standard:Record<string,unknown>|null;
   blockers:Array<{code:string;entityId?:string;description:string;route:string;details?:Record<string,unknown>}>;dependencyHash:string;
 };
 
@@ -916,17 +917,17 @@ async function collectPlanningDependencies(env:Env,workspaceId:string,context:Bu
   let tb:PlanningDependencySnapshot['tb']=null;let tbHash:string|null=null;
   if(!sources.active_tb_version_id){blockers.push({code:'ACTIVE_TB_REQUIRED',description:'Accept a balanced immutable trial-balance version before planning sign-off.',route:'trial-balance'});}
   else{
-    const row=await env.DB.prepare(`SELECT id,content_sha256,row_count,current_debits_minor,current_credits_minor,prior_present FROM tb_versions WHERE workspace_id=? AND id=? AND engagement_id=?`)
-      .bind(workspaceId,sources.active_tb_version_id,engagementId).first<{id:string;content_sha256:string;row_count:number;current_debits_minor:number;current_credits_minor:number;prior_present:number}>();
-    if(row){tbHash=row.content_sha256;tb={rowCount:row.row_count,debitsMinor:row.current_debits_minor,creditsMinor:row.current_credits_minor,priorPresent:Boolean(row.prior_present)};
+    const row=await env.DB.prepare(`SELECT id,revision,content_sha256,row_count,current_debits_minor,current_credits_minor,prior_present FROM tb_versions WHERE workspace_id=? AND id=? AND engagement_id=?`)
+      .bind(workspaceId,sources.active_tb_version_id,engagementId).first<{id:string;revision:number;content_sha256:string;row_count:number;current_debits_minor:number;current_credits_minor:number;prior_present:number}>();
+    if(row){tbHash=row.content_sha256;tb={revision:row.revision,rowCount:row.row_count,debitsMinor:row.current_debits_minor,creditsMinor:row.current_credits_minor,priorPresent:Boolean(row.prior_present)};
       if(row.current_debits_minor!==row.current_credits_minor)blockers.push({code:'UNBALANCED_TB',description:'The active TB control totals are not balanced.',route:'trial-balance'});}
     else blockers.push({code:'ACTIVE_TB_MISSING',description:'The engagement points at a missing TB version.',route:'trial-balance'});
   }
   let mapping:PlanningDependencySnapshot['mapping']=null;let mappingHash:string|null=null;
   if(!sources.active_mapping_version_id){blockers.push({code:'APPROVED_MAPPING_REQUIRED',description:'Approve an FSLI mapping for the active TB version.',route:'trial-balance'});}
   else{
-    const version=await env.DB.prepare(`SELECT content_sha256,tb_version_id FROM mapping_versions WHERE workspace_id=? AND id=? AND engagement_id=?`)
-      .bind(workspaceId,sources.active_mapping_version_id,engagementId).first<{content_sha256:string;tb_version_id:string}>();
+    const version=await env.DB.prepare(`SELECT revision,content_sha256,tb_version_id FROM mapping_versions WHERE workspace_id=? AND id=? AND engagement_id=?`)
+      .bind(workspaceId,sources.active_mapping_version_id,engagementId).first<{revision:number;content_sha256:string;tb_version_id:string}>();
     if(!version||version.tb_version_id!==sources.active_tb_version_id)blockers.push({code:'STALE_MAPPING',description:'The mapping is not pinned to the active TB version.',route:'trial-balance'});
     else{
       mappingHash=version.content_sha256;
@@ -938,7 +939,7 @@ async function collectPlanningDependencies(env:Env,workspaceId:string,context:Bu
       const allMapped=await env.DB.prepare(`SELECT COUNT(*) AS count FROM tb_mappings WHERE workspace_id=? AND mapping_version_id=?`)
         .bind(workspaceId,sources.active_mapping_version_id).first<{count:number}>();
       const nonzero=(unmapped.results??[]).filter(line=>line.current_minor!==0||(line.prior_minor??0)!==0);
-      mapping={mappedCount:allMapped?.count??0,unmappedCount:unmapped.results?.length??0,nonzeroUnmapped:nonzero.slice(0,50).map(line=>({id:line.id,accountCode:line.account_code,
+      mapping={revision:version.revision,mappedCount:allMapped?.count??0,unmappedCount:unmapped.results?.length??0,nonzeroUnmapped:nonzero.slice(0,50).map(line=>({id:line.id,accountCode:line.account_code,
         balanceMinor:String(line.current_minor),priorBalanceMinor:line.prior_minor==null?null:String(line.prior_minor)}))};
       if(nonzero.length)blockers.push({code:'UNMAPPED_TB_ACCOUNTS',description:`${nonzero.length} current- or prior-period TB accounts have no approved FSLI mapping: ${nonzero.slice(0,10).map(line=>line.account_code).join(', ')}.`,route:'trial-balance',
         details:{accounts:nonzero.slice(0,50).map(line=>({id:line.id,accountCode:line.account_code,balanceMinor:String(line.current_minor),currentMinor:String(line.current_minor),
@@ -948,13 +949,13 @@ async function collectPlanningDependencies(env:Env,workspaceId:string,context:Bu
   let materiality:PlanningDependencySnapshot['materiality']=null;let materialityHash:string|null=null;
   if(!sources.active_materiality_version_id){blockers.push({code:'CURRENT_MATERIALITY_REQUIRED',description:'Calculate and review materiality from the active TB and mapping.',route:'audit-planning'});}
   else{
-    const value=await env.DB.prepare(`SELECT id,benchmark,benchmark_minor,planning_minor,performance_minor,sad_minor,source_sha256,tb_version_id,mapping_version_id
+    const value=await env.DB.prepare(`SELECT id,revision,benchmark,benchmark_minor,planning_minor,performance_minor,sad_minor,source_sha256,tb_version_id,mapping_version_id
       FROM materiality_versions WHERE workspace_id=? AND id=? AND engagement_id=?`).bind(workspaceId,sources.active_materiality_version_id,engagementId)
-      .first<{id:string;benchmark:string;benchmark_minor:number;planning_minor:number;performance_minor:number;sad_minor:number;source_sha256:string;tb_version_id:string;mapping_version_id:string}>();
+      .first<{id:string;revision:number;benchmark:string;benchmark_minor:number;planning_minor:number;performance_minor:number;sad_minor:number;source_sha256:string;tb_version_id:string;mapping_version_id:string}>();
     if(!value||value.tb_version_id!==sources.active_tb_version_id||value.mapping_version_id!==sources.active_mapping_version_id){
       blockers.push({code:'STALE_MATERIALITY',description:'Materiality does not refer to the active TB and mapping versions.',route:'audit-planning'});
     }else{
-      materialityHash=value.source_sha256;materiality={benchmark:value.benchmark,benchmarkMinor:String(value.benchmark_minor),planningMinor:String(value.planning_minor),
+      materialityHash=value.source_sha256;materiality={revision:value.revision,benchmark:value.benchmark,benchmarkMinor:String(value.benchmark_minor),planningMinor:String(value.planning_minor),
         performanceMinor:String(value.performance_minor),sadMinor:String(value.sad_minor),sourceHash:value.source_sha256};
       const currentFsli=await env.DB.prepare(`SELECT DISTINCT fsli_id FROM tb_mappings WHERE workspace_id=? AND mapping_version_id=? ORDER BY fsli_id`)
         .bind(workspaceId,sources.active_mapping_version_id).all<{fsli_id:string}>();
@@ -976,13 +977,59 @@ async function collectPlanningDependencies(env:Env,workspaceId:string,context:Bu
       }
     }
   }
-  const staffingResult=await env.DB.prepare(`SELECT a.id,a.staff_member_id AS staffMemberId,sm.display_name AS displayName,sm.grade,a.persona,a.phase,a.start_date AS startDate,a.end_date AS endDate,a.planned_minutes AS plannedMinutes,
+  const staffingResult=await env.DB.prepare(`SELECT a.id,a.version,a.staff_member_id AS staffMemberId,sm.display_name AS displayName,sm.grade,a.persona,a.phase,a.start_date AS startDate,a.end_date AS endDate,a.planned_minutes AS plannedMinutes,
       COALESCE(json_group_array(json_object('date',d.work_date,'minutes',d.planned_minutes)) FILTER(WHERE d.id IS NOT NULL),'[]') AS dailyMinutes
     FROM engagement_assignments a JOIN staff_members sm ON sm.workspace_id=a.workspace_id AND sm.id=a.staff_member_id
     LEFT JOIN engagement_assignment_days d ON d.workspace_id=a.workspace_id AND d.assignment_id=a.id
     WHERE a.workspace_id=? AND a.engagement_id=? AND a.phase IN ('PLANNING','FIELDWORK','REVIEW') GROUP BY a.id ORDER BY a.phase,a.start_date,sm.display_name,a.id`)
     .bind(workspaceId,engagementId).all<Record<string,unknown>>();
-  const staffing:Array<Record<string,unknown>>=(staffingResult.results??[]).map(row=>({...row,dailyMinutes:JSON.parse(String(row.dailyMinutes)) as unknown[]}));
+  const staffingRows=staffingResult.results??[];
+  const targetDays=await env.DB.prepare(`SELECT DISTINCT a.staff_member_id AS staffMemberId,d.work_date AS workDate
+      FROM engagement_assignments a JOIN engagement_assignment_days d ON d.workspace_id=a.workspace_id AND d.assignment_id=a.id
+      WHERE a.workspace_id=? AND a.engagement_id=? AND a.phase IN ('PLANNING','FIELDWORK','REVIEW') ORDER BY a.staff_member_id,d.work_date`)
+    .bind(workspaceId,engagementId).all<{staffMemberId:string;workDate:string}>();
+  const [availabilityRows,leaveRows,exceptionRows,assignedDayRows]=await Promise.all([
+    env.DB.prepare(`SELECT sa.id,sa.staff_member_id AS staffMemberId,sa.work_date AS workDate,sa.version,sa.scheduled_minutes AS scheduledMinutes,sa.approved_leave_minutes AS approvedLeaveMinutes
+      FROM staff_availability sa WHERE sa.workspace_id=? AND EXISTS(SELECT 1 FROM engagement_assignments a JOIN engagement_assignment_days d
+        ON d.workspace_id=a.workspace_id AND d.assignment_id=a.id WHERE a.workspace_id=sa.workspace_id AND a.engagement_id=?
+          AND a.phase IN ('PLANNING','FIELDWORK','REVIEW') AND a.staff_member_id=sa.staff_member_id AND d.work_date=sa.work_date)
+      ORDER BY sa.staff_member_id,sa.work_date,sa.id`).bind(workspaceId,engagementId).all<Record<string,unknown>>(),
+    env.DB.prepare(`SELECT l.id,l.staff_member_id AS staffMemberId,l.work_date AS workDate,l.minutes,l.approval_decision_id AS approvalDecisionId
+      FROM leave_records l WHERE l.workspace_id=? AND EXISTS(SELECT 1 FROM engagement_assignments a JOIN engagement_assignment_days d
+        ON d.workspace_id=a.workspace_id AND d.assignment_id=a.id WHERE a.workspace_id=l.workspace_id AND a.engagement_id=?
+          AND a.phase IN ('PLANNING','FIELDWORK','REVIEW') AND a.staff_member_id=l.staff_member_id AND d.work_date=l.work_date)
+      ORDER BY l.staff_member_id,l.work_date,l.id`).bind(workspaceId,engagementId).all<Record<string,unknown>>(),
+    env.DB.prepare(`SELECT x.id,x.staff_member_id AS staffMemberId,x.work_date AS workDate,x.excess_minutes AS excessMinutes,x.approval_decision_id AS approvalDecisionId
+      FROM capacity_exceptions x WHERE x.workspace_id=? AND EXISTS(SELECT 1 FROM engagement_assignments a JOIN engagement_assignment_days d
+        ON d.workspace_id=a.workspace_id AND d.assignment_id=a.id WHERE a.workspace_id=x.workspace_id AND a.engagement_id=?
+          AND a.phase IN ('PLANNING','FIELDWORK','REVIEW') AND a.staff_member_id=x.staff_member_id AND d.work_date=x.work_date)
+      ORDER BY x.staff_member_id,x.work_date,x.id`).bind(workspaceId,engagementId).all<Record<string,unknown>>(),
+    env.DB.prepare(`SELECT a.id,a.version,a.engagement_id AS engagementId,a.phase,a.persona,a.staff_member_id AS staffMemberId,d.work_date AS workDate,d.planned_minutes AS plannedMinutes
+      FROM engagement_assignments a JOIN engagement_assignment_days d ON d.workspace_id=a.workspace_id AND d.assignment_id=a.id
+      WHERE a.workspace_id=? AND EXISTS(SELECT 1 FROM engagement_assignments t JOIN engagement_assignment_days td
+        ON td.workspace_id=t.workspace_id AND td.assignment_id=t.id WHERE t.workspace_id=a.workspace_id AND t.engagement_id=?
+          AND t.phase IN ('PLANNING','FIELDWORK','REVIEW') AND t.staff_member_id=a.staff_member_id AND td.work_date=d.work_date)
+      ORDER BY a.staff_member_id,d.work_date,a.id`).bind(workspaceId,engagementId).all<Record<string,unknown>>()
+  ]);
+  const availabilityByDay=new Map((availabilityRows.results??[]).map(row=>[`${String(row.staffMemberId)}\u0000${String(row.workDate)}`,row]));
+  const relatedRowsByDay=new Map<string,{leaveRecords:Record<string,unknown>[];capacityExceptions:Record<string,unknown>[];assignments:Record<string,unknown>[]}>();
+  const relatedFor=(staffMemberId:string,workDate:string)=>{
+    const key=`${staffMemberId}\u0000${workDate}`;let rows=relatedRowsByDay.get(key);
+    if(!rows){rows={leaveRecords:[],capacityExceptions:[],assignments:[]};relatedRowsByDay.set(key,rows);}return rows;
+  };
+  for(const row of leaveRows.results??[])relatedFor(String(row.staffMemberId),String(row.workDate)).leaveRecords.push(row);
+  for(const row of exceptionRows.results??[])relatedFor(String(row.staffMemberId),String(row.workDate)).capacityExceptions.push(row);
+  for(const row of assignedDayRows.results??[])relatedFor(String(row.staffMemberId),String(row.workDate)).assignments.push(row);
+  const capacityByDay=new Map<string,Record<string,unknown>>();
+  for(const day of targetDays.results??[]){
+    const key=`${day.staffMemberId}\u0000${day.workDate}`,related=relatedRowsByDay.get(key);
+    capacityByDay.set(key,{staffMemberId:day.staffMemberId,workDate:day.workDate,availability:availabilityByDay.get(key)??null,
+      leaveRecords:related?.leaveRecords??[],capacityExceptions:related?.capacityExceptions??[],assignments:related?.assignments??[]});
+  }
+  const staffing:Array<Record<string,unknown>>=staffingRows.map(row=>{
+    const dailyMinutes=JSON.parse(String(row.dailyMinutes)) as Array<{date:string;minutes:number}>;
+    return {...row,dailyMinutes:dailyMinutes.map(day=>({ ...day,capacity:capacityByDay.get(`${String(row.staffMemberId)}\u0000${day.date}`)??null }))};
+  });
   const covered=new Set(staffing.map(row=>String(row.persona)));
   if(!covered.has('PREPARER'))blockers.push({code:'PREPARER_ASSIGNMENT_REQUIRED',description:'Assign a PREPARER with explicit daily minutes for planning or fieldwork.',route:'scheduling'});
   if(!covered.has('REVIEWER'))blockers.push({code:'REVIEWER_ASSIGNMENT_REQUIRED',description:'Assign a REVIEWER with explicit daily minutes for planning or fieldwork.',route:'scheduling'});
@@ -1009,16 +1056,16 @@ async function collectPlanningDependencies(env:Env,workspaceId:string,context:Bu
     FROM milestones WHERE workspace_id=? AND engagement_id=? ORDER BY code`).bind(workspaceId,engagementId).all<Record<string,unknown>>();
   const milestones=milestonesResult.results??[];
   if(!milestones.some(item=>item.code==='STATUTORY_CUTOFF'))blockers.push({code:'STATUTORY_CUTOFF_REQUIRED',description:'Record the firm-supplied statutory cutoff and source reference.',route:'scheduling'});
-  const pbcResult=await env.DB.prepare(`SELECT id,title,status,due_date AS dueDate,category,required_for_planning AS requiredForPlanning
+  const pbcResult=await env.DB.prepare(`SELECT id,version,title,status,due_date AS dueDate,category,required_for_planning AS requiredForPlanning,current_submission_id AS currentSubmissionId
     FROM pbc_requests WHERE workspace_id=? AND engagement_id=? AND required_for_planning=1 ORDER BY due_date,title,id`).bind(workspaceId,engagementId).all<Record<string,unknown>>();
   const pbc=pbcResult.results??[];const pending=pbc.filter(item=>item.status!=='APPROVED');
   if(pending.length)blockers.push({code:'REQUIRED_PBC_PENDING',description:`${pending.length} required PBC item(s) remain unaccepted.`,route:'documents',details:{requests:pending}});
-  const folderResult=await env.DB.prepare(`SELECT id,code,display_name AS displayName,ordinal FROM engagement_folders WHERE workspace_id=? AND engagement_id=? ORDER BY ordinal`)
+  const folderResult=await env.DB.prepare(`SELECT id,version,code,display_name AS displayName,ordinal FROM engagement_folders WHERE workspace_id=? AND engagement_id=? ORDER BY ordinal`)
     .bind(workspaceId,engagementId).all<Record<string,unknown>>();
   const folders=folderResult.results??[];
   if(folders.length!==5)blockers.push({code:'ENGAGEMENT_FOLDERS_REQUIRED',description:'Provision the exact five engagement folders through current Partner risk clearance.',route:'onboarding',details:{count:folders.length}});
   const riskRows=((materiality as any)?.riskRows??[]) as Array<Record<string,unknown>>;
-  const standard=await env.DB.prepare(`SELECT id,name,version,reporting_framework,isa_220_edition,isa_570_edition,presentation_edition FROM standards_profiles WHERE workspace_id=? AND id=?`)
+  const standard=await env.DB.prepare(`SELECT id,name,version,reporting_framework,isa_220_edition,isa_570_edition,presentation_edition,content_sha256 FROM standards_profiles WHERE workspace_id=? AND id=?`)
     .bind(workspaceId,engagement.standards_profile_id).first<Record<string,unknown>>();
   if(!standard)blockers.push({code:'STANDARDS_PROFILE_REQUIRED',description:'The engagement standards profile is unavailable.',route:'audit-planning'});
   const deps={engagementId,clientId:engagement.client_id,lifecycleState:engagement.lifecycle_state,tbVersionId:sources.active_tb_version_id,
@@ -1027,7 +1074,7 @@ async function collectPlanningDependencies(env:Env,workspaceId:string,context:Bu
   const dependencyHash=await sha256Hex(JSON.stringify(deps));
   return {engagementId,clientId:engagement.client_id,lifecycleState:engagement.lifecycle_state,tbVersionId:sources.active_tb_version_id,
     mappingVersionId:sources.active_mapping_version_id,materialityVersionId:sources.active_materiality_version_id,standardsProfileId:engagement.standards_profile_id,
-    tbHash,mappingHash,materialityHash,tb,mapping,materiality,staffing,milestones,pbc,folders,risks:riskRows,blockers,dependencyHash};
+    tbHash,mappingHash,materialityHash,tb,mapping,materiality,staffing,milestones,pbc,folders,risks:riskRows,standard,blockers,dependencyHash};
 }
 
 export async function getBusinessPlanningReadiness(env:Env,workspaceId:string,context:BusinessContext,engagementId:string){
@@ -1235,6 +1282,38 @@ async function approvePlanning(env:Env,workspaceId:string,context:BusinessContex
   if(preparer&&approver&&preparer.natural_person_key===approver.natural_person_key){
     throw new ApiError('PERSONA_ACTION_DENIED','The planning approver must be a different natural-person record from the plan preparer.');
   }
+  const approvalDependencies:Array<{type:string;id:string;version:number;hash:string}> = [];
+  const addDependency=(type:string,id:string|undefined|null,version:number|undefined|null,hash:string|undefined|null)=>{
+    if(!id||!version||version<1||!hash)throw new ApiError('GATE_BLOCKED',`The ${type.toLowerCase().replaceAll('_',' ')} dependency could not be pinned for planning approval.`);
+    approvalDependencies.push({type,id,version,hash});
+  };
+  const hashDependency=async(value:unknown)=>sha256Hex(JSON.stringify(value));
+  addDependency('TB_VERSION',plan.tb_version_id,snapshot.tb?.revision,snapshot.tbHash);
+  addDependency('MAPPING_VERSION',plan.mapping_version_id,snapshot.mapping?.revision,snapshot.mappingHash);
+  addDependency('MATERIALITY_VERSION',plan.materiality_version_id,snapshot.materiality?.revision,snapshot.materialityHash);
+  addDependency('STANDARDS_PROFILE',plan.standards_profile_id,Number(snapshot.standard?.version),String(snapshot.standard?.content_sha256??''));
+  for(const risk of snapshot.risks){
+    addDependency('FSLI_RISK',String(risk.id),Number(risk.revision),String(risk.source_sha256??''));
+  }
+  const capacityDays=new Map<string,{id:string;version:number;value:Record<string,unknown>}>();
+  for(const assignment of snapshot.staffing){
+    const assignmentId=String(assignment.id),assignmentVersion=Number(assignment.version);
+    addDependency('STAFFING_ASSIGNMENT',assignmentId,assignmentVersion,await hashDependency(assignment));
+    const days=assignment.dailyMinutes as Array<Record<string,unknown>>;
+    for(const day of days){
+      const value=day.capacity as Record<string,unknown>|null;
+      if(!value)continue;
+      const staffMemberId=String(value.staffMemberId),workDate=String(value.workDate),id=`${staffMemberId}:${workDate}`;
+      if(!capacityDays.has(id)){
+        const availability=value.availability as Record<string,unknown>|null;
+        capacityDays.set(id,{id,version:Number(availability?.version??1),value});
+      }
+    }
+  }
+  for(const capacity of capacityDays.values())addDependency('STAFF_CAPACITY_DAY',capacity.id,capacity.version,await hashDependency(capacity.value));
+  for(const milestone of snapshot.milestones)addDependency('MILESTONE',String(milestone.id),Number(milestone.version),await hashDependency(milestone));
+  for(const request of snapshot.pbc)addDependency('PBC_REQUEST',String(request.id),Number(request.version),await hashDependency(request));
+  for(const folder of snapshot.folders)addDependency('ENGAGEMENT_FOLDER',String(folder.id),Number(folder.version),await hashDependency(folder));
   const engagement=await env.DB.prepare(`SELECT version,lifecycle_state FROM engagements WHERE workspace_id=? AND id=?`).bind(workspaceId,p.engagementId)
     .first<{version:number;lifecycle_state:string}>();
   if(!engagement||engagement.lifecycle_state!=='PORTAL_ACTIVE_PLANNING')throw new ApiError('INVALID_STATE','The engagement is no longer in active planning.');
@@ -1269,6 +1348,8 @@ async function approvePlanning(env:Env,workspaceId:string,context:BusinessContex
     env.DB.prepare(`INSERT INTO approval_decisions(id,workspace_id,client_id,engagement_id,version,subject_type,subject_id,subject_version,decision,rationale,actor_snapshot_json,decided_at,supersedes_decision_id)
       VALUES(?,?,?, ?,1,'PLANNING_VERSION',?,?, 'APPROVE',?,?,?,NULL)`)
       .bind(decisionId,workspaceId,plan.client_id,plan.engagement_id,plan.id,plan.revision,p.rationale,actorSnapshot,timestamp),
+    ...approvalDependencies.map(dep=>env.DB.prepare(`INSERT INTO approval_dependencies(id,workspace_id,client_id,engagement_id,version,approval_id,entity_type,entity_id,entity_version,content_sha256)
+      VALUES(?,?,?,?,1,?,?,?,?,?)`).bind(crypto.randomUUID(),workspaceId,plan.client_id,plan.engagement_id,decisionId,dep.type,dep.id,dep.version,dep.hash)),
     env.DB.prepare(`INSERT INTO planning_signoffs(id,workspace_id,planning_version_id,partner_actor_id,approved_at,rationale,dependency_sha256)
       VALUES(?,?,?,?,?,?,?)`).bind(signoffId,workspaceId,plan.id,context.actor.id,timestamp,p.rationale,plan.source_sha256),
     env.DB.prepare(`UPDATE engagements SET approved_planning_version_id=?,lifecycle_state='FIELDWORK_EXECUTION',version=version+1,updated_at=?,updated_by_actor_id=?
