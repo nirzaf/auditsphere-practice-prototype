@@ -30,7 +30,7 @@ const columnMap = z.strictObject({
 });
 
 const tbImport = z.strictObject({ type: z.literal('tb.import'), payload: z.strictObject({
-  engagementId: id, fileVersionId: id, worksheet: z.string().trim().max(200).optional(), columnMap
+  engagementId: id, fileVersionId: id, worksheet: z.string().trim().min(1).max(200).optional(), columnMap
 }) });
 const tbActivate = z.strictObject({ type: z.literal('tb.activate'), payload: z.strictObject({ engagementId: id, importId: id, contentSha256: z.string().regex(/^[a-f0-9]{64}$/) }) });
 const mappingPropose = z.strictObject({ type: z.literal('tb.mapping.propose'), payload: z.strictObject({ engagementId: id, tbVersionId: id }) });
@@ -301,7 +301,10 @@ export async function prepareTrialBalanceImport(env: Env, job: { id: string; wor
       if (!object) throw new ApiError('UNAVAILABLE', 'The committed TB file bytes are missing from private storage.');
       const bytes = new Uint8Array(await object.arrayBuffer());
       if (await digestBytes(bytes) !== file.sha256) throw new ApiError('UNAVAILABLE', 'The committed TB source bytes do not match their immutable hash.');
-      const { sheet } = toSheetRows(bytes, imported.worksheet ?? undefined);
+      const { workbook, sheet } = toSheetRows(bytes, imported.worksheet ?? undefined);
+      if (!imported.worksheet && workbook.SheetNames.length > 1) {
+        throw new ApiError('VALIDATION_FAILED', 'This workbook has multiple worksheets. Select the worksheet to import in the preview, then start the import again.');
+      }
       const config = columnMap.parse(JSON.parse(imported.column_map_json));
       parsed = parseTrialBalanceSheet(sheet, config);
       rows = parsed.lines;
