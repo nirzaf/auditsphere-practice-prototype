@@ -2,6 +2,7 @@ import React, { FormEvent, useEffect, useMemo, useRef, useState } from 'react';
 import type {
   BusinessContextResponse,
   BusinessFieldworkWorkspace,
+  BusinessFsliSourceLinesPage,
   BusinessFileMetadata,
   BusinessWorkspacePreference
 } from '../../shared/api/business';
@@ -9,6 +10,7 @@ import { ProcedureConflictReview, type ProcedureDraftValues } from './ProcedureC
 import { hasProcedureVersionConflict, procedureExpectedVersion } from '../../domain/procedureConflict';
 import {
   getBusinessFieldworkWorkspace,
+  getBusinessFsliSourceLines,
   getBusinessFieldworkChanges,
   getBusinessSamplingPlan,
   getBusinessSamplingPopulation,
@@ -141,6 +143,9 @@ export function BusinessFieldworkPanel({ workspaceId, selected, context, engagem
   const [showAnalysis, setShowAnalysis] = useState(false);
   const [sourceFsliId, setSourceFsliId] = useState('');
   const [sourceRowsPage, setSourceRowsPage] = useState(0);
+  const [sourcePageData, setSourcePageData] = useState<BusinessFsliSourceLinesPage | null>(null);
+  const [sourcePageLoading, setSourcePageLoading] = useState(false);
+  const [sourcePageError, setSourcePageError] = useState('');
   const [goingChecklist, setGoingChecklist] = useState({ managementAssessment: false, cashFlowForecasts: false, financingAndCovenants: false,
     adverseEvents: false, mitigatingPlans: false, uncertaintyEvaluation: false });
   const [goingManagementFile, setGoingManagementFile] = useState('');
@@ -290,7 +295,6 @@ export function BusinessFieldworkPanel({ workspaceId, selected, context, engagem
   });
   const savedStratumParameters = Array.isArray(planDetail?.plan.parameters.strata)
     ? planDetail.plan.parameters.strata as Array<Record<string, unknown>> : [];
-  const selectedSourceRows = allLines.find(line => line.fsliId === sourceFsliId)?.sourceRows ?? [];
   const currentSrm = workspace?.srmVersions[0];
   const currentSrmFindingsSnapshot=currentSrm?.findingsSnapshot as {thresholdAnalysis?:{aggregate?:Record<string,unknown>;perItem?:Array<Record<string,unknown>>}}|undefined;
 
@@ -319,6 +323,17 @@ export function BusinessFieldworkPanel({ workspaceId, selected, context, engagem
       .finally(() => { if (!controller.signal.aborted) setLoading(false); });
     return () => controller.abort();
   }, [available, workspaceId, engagement.id, scope.actorId, scope.persona, scope.clientId, scope.engagementId, refresh]);
+
+  useEffect(() => {
+    if (!sourceFsliId || !available) { setSourcePageData(null); setSourcePageError(''); setSourcePageLoading(false); return; }
+    const controller = new AbortController();
+    setSourcePageLoading(true); setSourcePageError(''); setSourcePageData(null);
+    getBusinessFsliSourceLines(workspaceId, engagement.id, sourceFsliId, scope, sourceRowsPage * 100, controller.signal)
+      .then(data => { if (!controller.signal.aborted) setSourcePageData(data); })
+      .catch(reason => { if (!controller.signal.aborted) setSourcePageError(reason instanceof Error ? reason.message : 'Statement source rows could not be loaded.'); })
+      .finally(() => { if (!controller.signal.aborted) setSourcePageLoading(false); });
+    return () => controller.abort();
+  }, [available, workspaceId, engagement.id, sourceFsliId, sourceRowsPage, scope.actorId, scope.persona, scope.clientId, scope.engagementId, refresh]);
 
   useEffect(() => {
     if (!selectedPopulationId || !available) { setPopulation(null); return; }
@@ -609,9 +624,9 @@ export function BusinessFieldworkPanel({ workspaceId, selected, context, engagem
       {tab === 'statements' && <div id="route-financial-statements" className="business-fieldwork-body">
         <div className="business-fieldwork-actions"><div><strong>Adjusted reporting view</strong><span>Source TB and mapping remain unchanged; accepted adjustment hash {workspace.statements.adjustmentSetHash.slice(0, 14)}.</span></div>
           <button type="button" className="btn sm" disabled={busy} onClick={() => void createSnapshot()}>Create current snapshot</button></div>
-        <StatementPane title="Profit and loss" lines={workspace.statements.profitLoss} selectedFsliId={selectedFsliId} onAnalysis={line => { setSelectedFsliId(line.fsliId); setShowAnalysis(true); }} onWorkprogram={line => { setSelectedFsliId(line.fsliId); setTab('workprograms'); }} onSources={id => { setSourceRowsPage(0); setSourceFsliId(id); }}
+        <StatementPane title="Profit and loss" lines={workspace.statements.profitLoss} selectedFsliId={selectedFsliId} onAnalysis={line => { setSelectedFsliId(line.fsliId); setShowAnalysis(true); }} onWorkprogram={line => { setSelectedFsliId(line.fsliId); setTab('workprograms'); }} onSources={id => { setSourceRowsPage(0); setSourcePageData(null); setSourceFsliId(id); }}
           reviews={workspace.analyticalReviews} workprograms={workspace.workprograms} />
-        <StatementPane title="Balance sheet" lines={workspace.statements.balanceSheet} selectedFsliId={selectedFsliId} onAnalysis={line => { setSelectedFsliId(line.fsliId); setShowAnalysis(true); }} onWorkprogram={line => { setSelectedFsliId(line.fsliId); setTab('workprograms'); }} onSources={id => { setSourceRowsPage(0); setSourceFsliId(id); }}
+        <StatementPane title="Balance sheet" lines={workspace.statements.balanceSheet} selectedFsliId={selectedFsliId} onAnalysis={line => { setSelectedFsliId(line.fsliId); setShowAnalysis(true); }} onWorkprogram={line => { setSelectedFsliId(line.fsliId); setTab('workprograms'); }} onSources={id => { setSourceRowsPage(0); setSourcePageData(null); setSourceFsliId(id); }}
           reviews={workspace.analyticalReviews} workprograms={workspace.workprograms} />
         <section className={`business-fieldwork-reconciliation ${workspace.statements.reconciliation.balanced ? 'balanced' : 'unbalanced'}`} aria-label="Balance sheet reconciliation">
           <div><strong>Assets</strong><span>{qar(workspace.statements.reconciliation.assetsMinor)}</span></div>
@@ -621,13 +636,33 @@ export function BusinessFieldworkPanel({ workspaceId, selected, context, engagem
         </section>
         {!workspace.statements.reconciliation.balanced && workspace.statements.blockers.map(item => <p className="business-alert" role="alert" key={item.code}>{item.message}</p>)}
         {sourceFsliId && <section className="business-fieldwork-source" aria-label="FSLI source lines">
-          <div className="business-section-heading"><h3>Source rows · {allLines.find(line => line.fsliId === sourceFsliId)?.code}</h3><button type="button" className="btn sm" onClick={() => setSourceFsliId('')}>Close</button></div>
-          <p className="business-muted">All contributing trial-balance rows are shown with raw and presented values.</p>
-          <div className="business-fieldwork-scroll"><table><thead><tr><th>Source row</th><th>Account</th><th>Raw CY</th><th>Presented CY</th><th>PY</th></tr></thead><tbody>
-            {selectedSourceRows.slice(sourceRowsPage * 100, (sourceRowsPage + 1) * 100).map(row => <tr key={row.tbLineId}><td>{row.sourceRowNumber}</td><td>{row.accountCode} · {row.accountName}</td>
-              <td>{qar(row.currentRawMinor)}</td><td>{qar(row.currentPresentedMinor)}</td><td>{qar(row.priorPresentedMinor)}</td></tr>)}
-          </tbody></table></div>
-          <PaginationControls page={sourceRowsPage} pageSize={100} total={selectedSourceRows.length} label="Source rows" onPage={setSourceRowsPage} />
+          <div className="business-section-heading"><h3>Source rows · {sourcePageData?.fsli.code ?? allLines.find(line => line.fsliId === sourceFsliId)?.code}</h3><button type="button" className="btn sm" onClick={() => { setSourceFsliId(''); setSourcePageData(null); setSourceRowsPage(0); }}>Close</button></div>
+          {sourcePageLoading && <p className="business-note" role="status">Loading pinned source rows and approved adjustments…</p>}
+          {sourcePageError && <p className="business-alert" role="alert">{sourcePageError}</p>}
+          {sourcePageData && <>
+            <div className="business-fieldwork-source-pins" aria-label="Statement source versions">
+              <span><strong>Trial balance</strong> v{sourcePageData.sourcePins.tbRevision} · {sourcePageData.sourcePins.tbVersionId}</span>
+              <span><strong>FSLI mapping</strong> v{sourcePageData.sourcePins.mappingRevision} · {sourcePageData.sourcePins.mappingVersionId}</span>
+              <span><strong>Statement source hash</strong> <code>{sourcePageData.sourceHash}</code></span>
+              <span><strong>Approved AJE set hash</strong> <code>{sourcePageData.adjustmentSetHash}</code></span>
+            </div>
+            <h4>Trial-balance rows · {sourcePageData.totalRows} contributors</h4>
+            {sourcePageData.rows.length ? <div className="business-fieldwork-scroll"><table><caption>Contributing trial-balance rows, current raw and presented amounts, and comparative amounts</caption><thead><tr>
+              <th scope="col">Source row</th><th scope="col">Account</th><th scope="col">Raw CY</th><th scope="col">Presented CY</th><th scope="col">Presented PY</th>
+            </tr></thead><tbody>
+              {sourcePageData.rows.map(row => <tr key={row.tbLineId}><td>{row.sourceRowNumber}</td><td>{row.accountCode} · {row.accountName}</td>
+                <td>{qar(row.currentRawMinor)}</td><td>{qar(row.currentPresentedMinor)}</td><td>{qar(row.priorPresentedMinor)}</td></tr>)}
+            </tbody></table></div> : <p className="business-muted">No trial-balance rows map to this financial statement line.</p>}
+            <PaginationControls page={sourceRowsPage} pageSize={100} total={sourcePageData.totalRows} label="Trial-balance source rows" onPage={setSourceRowsPage} />
+            <h4>Approved adjustment rows · {sourcePageData.adjustments.length} contributors</h4>
+            {sourcePageData.adjustments.length ? <div className="business-fieldwork-scroll"><table><caption>Approved adjusting-journal lines applied exactly once to this FSLI</caption><thead><tr>
+              <th scope="col">Adjustment / revision</th><th scope="col">Description</th><th scope="col">Account</th><th scope="col">Debit</th><th scope="col">Credit</th><th scope="col">Presented contribution</th><th scope="col">Revision hash</th>
+            </tr></thead><tbody>
+              {sourcePageData.adjustments.map(row => <tr key={row.adjustmentLineId}><th scope="row">{row.number} · v{row.revision}<small>TB {row.tbVersionId} · Mapping {row.mappingVersionId}</small></th>
+                <td>{row.description}</td><td>{row.accountCode ?? 'No account code'}</td><td>{qar(row.debitMinor)}</td><td>{qar(row.creditMinor)}</td><td>{qar(row.presentedMinor)}</td>
+                <td><code>{row.sourceHash}</code></td></tr>)}
+            </tbody></table></div> : <p className="business-muted">No approved adjustment rows are included in this statement line.</p>}
+          </>}
         </section>}
         {showAnalysis && selectedLine && <section className="business-fieldwork-card" aria-labelledby="business-fieldwork-ar-heading">
           <div className="business-section-heading"><div><p className="business-eyebrow">ISA 520 · SOURCE-LINKED REVIEW</p><h3 id="business-fieldwork-ar-heading">Analytical review · {selectedLine.code} {selectedLine.name}</h3></div><button className="btn sm" type="button" onClick={() => setShowAnalysis(false)}>Close</button></div>

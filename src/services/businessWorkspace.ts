@@ -17,6 +17,7 @@ import type {
   BusinessPlanningReadiness,
   BusinessTrialBalanceWorkspace,
   BusinessFinancialStatements,
+  BusinessFsliSourceLinesPage,
   BusinessFieldworkWorkspace,
   BusinessTrialBalancePreview,
   BusinessTrialBalanceImport,
@@ -431,8 +432,8 @@ export async function getBusinessTrialBalanceWorkspace(
 export async function getBusinessFinancialStatements(workspaceId:string,engagementId:string,selected:BusinessWorkspacePreference,signal?:AbortSignal):Promise<BusinessFinancialStatements>{
   return requestJson(`/api/workspaces/${encodeURIComponent(workspaceId)}/engagements/${encodeURIComponent(engagementId)}/financial-statements`,{context:selected,signal});
 }
-export async function getBusinessFsliSourceLines(workspaceId:string,engagementId:string,fsliId:string,selected:BusinessWorkspacePreference,signal?:AbortSignal){
-  const query=new URLSearchParams({limit:'100'});return requestJson(`/api/workspaces/${encodeURIComponent(workspaceId)}/engagements/${encodeURIComponent(engagementId)}/fslis/${encodeURIComponent(fsliId)}/source-lines?${query}`,{context:selected,signal});
+export async function getBusinessFsliSourceLines(workspaceId:string,engagementId:string,fsliId:string,selected:BusinessWorkspacePreference,cursor=0,signal?:AbortSignal):Promise<BusinessFsliSourceLinesPage>{
+  const query=new URLSearchParams({limit:'100',cursor:String(cursor)});return requestJson<BusinessFsliSourceLinesPage>(`/api/workspaces/${encodeURIComponent(workspaceId)}/engagements/${encodeURIComponent(engagementId)}/fslis/${encodeURIComponent(fsliId)}/source-lines?${query}`,{context:selected,signal});
 }
 export async function getBusinessFieldworkWorkspace(workspaceId:string,engagementId:string,selected:BusinessWorkspacePreference,signal?:AbortSignal):Promise<BusinessFieldworkWorkspace>{
   return requestJson(`/api/workspaces/${encodeURIComponent(workspaceId)}/engagements/${encodeURIComponent(engagementId)}/fieldwork-workspace`,{context:selected,signal});

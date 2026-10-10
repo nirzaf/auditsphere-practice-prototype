@@ -150,7 +150,7 @@ export function isBusinessFieldworkCommand(command: { type: string }): command i
 type Engagement = { id: string; version: number; client_id: string; lifecycle_state: string; period_start: string; period_end: string; locked_at: string | null; standards_profile_id: string; active_tb_version_id: string | null; active_mapping_version_id: string | null; active_materiality_version_id: string | null; approved_planning_version_id: string | null };
 export type ConfirmationGateEngagement = Pick<Engagement, 'id' | 'version' | 'client_id' | 'active_tb_version_id' | 'active_mapping_version_id' | 'active_materiality_version_id'>;
 export type CriticalConfirmationBlocker = { id: string; version: number; type: string; status: string; dueDate: string; sourceHash: string; externalPartyName: string; criticalityReason: string; stalePins: boolean };
-type StatementLine = { fsliId: string; code: string; name: string; statement: string; category: string; displaySign: number; currentBaseMinor: number; currentAdjustmentMinor: number; currentAdjustedMinor: number; priorMinor: number | null; varianceNumerator: string | null; varianceDenominator: string | null; variancePercent: number | null; varianceReason: string; riskBand: string; sourceRows: Array<Record<string, unknown>> };
+type StatementLine = { fsliId: string; code: string; name: string; statement: string; category: string; displaySign: number; currentBaseMinor: number; currentAdjustmentMinor: number; currentAdjustedMinor: number; priorMinor: number | null; varianceNumerator: string | null; varianceDenominator: string | null; variancePercent: number | null; varianceReason: string; riskBand: string };
 
 export function isIsa570EditionCompatible(periodStart: string, isa570Edition: string): boolean {
   return periodStart < '2026-12-15' || /2024/i.test(isa570Edition);
@@ -331,10 +331,7 @@ async function financialStatements(env:Env,workspaceId:string,context:BusinessCo
     const variance=calculateStatementVariance(current,prior);
     return {fsliId,code:String(item.code),name:String(item.name),statement:String(item.statement),category:String(item.category),displaySign:sign,
       currentBaseMinor:currentBase,currentAdjustmentMinor:adjustment,currentAdjustedMinor:current,priorMinor:prior,varianceNumerator:variance.numerator,varianceDenominator:variance.denominator,
-      variancePercent:variance.percent,varianceReason:variance.reason,riskBand:riskMap.get(fsliId)??'GREEN',
-      sourceRows:contributors.map(row=>({tbLineId:row.tbLineId,sourceRowNumber:row.sourceRowNumber,accountCode:row.accountCode,accountName:row.accountName,
-        currentRawMinor:String(row.currentRawMinor),currentPresentedMinor:String(Number(row.currentRawMinor)*sign),priorRawMinor:row.priorRawMinor===null?null:String(row.priorRawMinor),
-        priorPresentedMinor:row.priorRawMinor===null?null:String(Number(row.priorRawMinor)*sign),displaySign:sign}))};
+      variancePercent:variance.percent,varianceReason:variance.reason,riskBand:riskMap.get(fsliId)??'GREEN'};
   });
   const profitLoss=lines.filter(line=>line.statement==='PROFIT_LOSS');
   const balanceSheet=lines.filter(line=>line.statement==='BALANCE_SHEET');
@@ -358,17 +355,41 @@ export async function getBusinessFinancialStatements(env:Env,workspaceId:string,
 }
 
 export async function getBusinessFsliSourceLines(env:Env,workspaceId:string,context:BusinessContext,engagementId:string,fsliId:string,limit:number,cursor:number){
+  requireInternal(context);
   const statements=await financialStatements(env,workspaceId,context,engagementId);
   const line=[...statements.profitLoss,...statements.balanceSheet].find(item=>item.fsliId===fsliId);
   if(!line)throw new ApiError('NOT_FOUND','The financial statement line was not found in the current engagement.');
-  const start=Math.max(0,Math.min(line.sourceRows.length,cursor));const page=line.sourceRows.slice(start,start+Math.max(1,Math.min(200,limit)));
-  const adjustmentRows=await env.DB.prepare(`SELECT a.id AS adjustmentId,a.number,a.tb_version_id AS tbVersionId,a.source_hash AS sourceHash,a.description,
-      l.debit_minor AS debitMinor,l.credit_minor AS creditMinor
+  const take=Math.max(1,Math.min(200,limit));const start=Math.max(0,cursor);const tbVersionId=String(statements.sourcePins.tbVersionId);
+  const [sourceCount,sourcePage,adjustmentRows]=await Promise.all([
+    env.DB.prepare(`SELECT COUNT(*) AS totalRows FROM tb_lines l
+      JOIN tb_mappings m ON m.workspace_id=l.workspace_id AND m.tb_line_id=l.id AND m.mapping_version_id=?
+      WHERE l.workspace_id=? AND l.tb_version_id=? AND l.engagement_id=? AND m.fsli_id=?`)
+      .bind(statements.sourcePins.mappingVersionId,workspaceId,tbVersionId,engagementId,fsliId).first<{totalRows:number}>(),
+    env.DB.prepare(`SELECT l.id AS tbLineId,l.source_row_number AS sourceRowNumber,l.account_code AS accountCode,l.account_name AS accountName,
+        CAST(l.current_minor AS TEXT) AS currentRawMinor,CAST(l.prior_minor AS TEXT) AS priorRawMinor,c.display_sign AS displaySign
+      FROM tb_lines l JOIN tb_mappings m ON m.workspace_id=l.workspace_id AND m.tb_line_id=l.id AND m.mapping_version_id=?
+      JOIN fsli_catalog c ON c.workspace_id=m.workspace_id AND c.id=m.fsli_id
+      WHERE l.workspace_id=? AND l.tb_version_id=? AND l.engagement_id=? AND m.fsli_id=?
+      ORDER BY l.source_row_number,l.id LIMIT ? OFFSET ?`)
+      .bind(statements.sourcePins.mappingVersionId,workspaceId,tbVersionId,engagementId,fsliId,take,start).all<Record<string,unknown>>(),
+    env.DB.prepare(`SELECT a.id AS adjustmentId,a.number,a.version AS revision,a.tb_version_id AS tbVersionId,
+        a.mapping_version_id AS mappingVersionId,a.source_hash AS sourceHash,a.description,l.id AS adjustmentLineId,
+        l.account_code AS accountCode,CAST(l.debit_minor AS TEXT) AS debitMinor,CAST(l.credit_minor AS TEXT) AS creditMinor
     FROM audit_adjustments a JOIN audit_adjustment_lines l ON l.workspace_id=a.workspace_id AND l.adjustment_id=a.id
-    WHERE a.workspace_id=? AND a.engagement_id=? AND a.status='REVIEW_APPROVED' AND a.include_in_statements=1 AND l.fsli_id=? ORDER BY a.number,l.id`)
-    .bind(workspaceId,engagementId,fsliId).all<Record<string,unknown>>();
-  return {sourcePins:statements.sourcePins,sourceHash:statements.sourceHash,fsli:{id:line.fsliId,code:line.code,name:line.name},
-    rows:page,adjustments:adjustmentRows.results??[],nextCursor:start+page.length<line.sourceRows.length?String(start+page.length):null,totalRows:line.sourceRows.length};
+      WHERE a.workspace_id=? AND a.engagement_id=? AND a.tb_version_id=? AND a.mapping_version_id=?
+        AND a.status='REVIEW_APPROVED' AND a.include_in_statements=1 AND l.fsli_id=? ORDER BY a.number,l.id`)
+      .bind(workspaceId,engagementId,tbVersionId,statements.sourcePins.mappingVersionId,fsliId).all<Record<string,unknown>>()
+  ]);
+  const totalRows=Number(sourceCount?.totalRows??0);const rows=(sourcePage.results??[]).map(row=>{
+    const currentRawMinor=String(row.currentRawMinor);const priorRawMinor=row.priorRawMinor===null?null:String(row.priorRawMinor);const displaySign=Number(row.displaySign);
+    return {...row,currentRawMinor,currentPresentedMinor:(BigInt(currentRawMinor)*BigInt(displaySign)).toString(),priorRawMinor,
+      priorPresentedMinor:priorRawMinor===null?null:(BigInt(priorRawMinor)*BigInt(displaySign)).toString(),displaySign};
+  });
+  const adjustments=(adjustmentRows.results??[]).map(row=>({...row,
+    presentedMinor:((BigInt(String(row.debitMinor))-BigInt(String(row.creditMinor)))*BigInt(line.displaySign)).toString()}));
+  return {sourcePins:statements.sourcePins,sourceHash:statements.sourceHash,adjustmentSetHash:statements.adjustmentSetHash,
+    fsli:{id:line.fsliId,code:line.code,name:line.name},rows,adjustments,
+    nextCursor:start+rows.length<totalRows?String(start+rows.length):null,totalRows};
 }
 
 export async function getBusinessFieldworkWorkspace(env:Env,workspaceId:string,context:BusinessContext,engagementId:string){

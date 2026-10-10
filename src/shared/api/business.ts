@@ -499,8 +499,20 @@ export interface BusinessStatementLine {
   fsliId: string; code: string; name: string; statement: 'PROFIT_LOSS' | 'BALANCE_SHEET'; category: string; displaySign: number;
   currentBaseMinor: number; currentAdjustmentMinor: number; currentAdjustedMinor: number; priorMinor: number | null; varianceNumerator: string | null;
   varianceDenominator: string | null; variancePercent: number | null; varianceReason: 'CALCULATED' | 'NEW_BALANCE' | 'ZERO_BOTH' | 'NO_COMPARATIVE';
-  riskBand: 'GREEN' | 'AMBER' | 'RED'; sourceRows: Array<{ tbLineId: string; sourceRowNumber: number; accountCode: string; accountName: string;
+  riskBand: 'GREEN' | 'AMBER' | 'RED';
+}
+export interface BusinessFsliSourceLinesPage {
+  sourcePins: Record<string, string | number | null>;
+  sourceHash: string;
+  adjustmentSetHash: string;
+  fsli: { id: string; code: string; name: string };
+  rows: Array<{ tbLineId: string; sourceRowNumber: number; accountCode: string; accountName: string;
     currentRawMinor: string; currentPresentedMinor: string; priorRawMinor: string | null; priorPresentedMinor: string | null; displaySign: number }>;
+  adjustments: Array<{ adjustmentId: string; number: string; revision: number; tbVersionId: string; mappingVersionId: string;
+    sourceHash: string; description: string; adjustmentLineId: string; accountCode: string | null; debitMinor: string;
+    creditMinor: string; presentedMinor: string }>;
+  nextCursor: string | null;
+  totalRows: number;
 }
 export interface BusinessFinancialStatements {
   engagementId: string; sourcePins: Record<string, string | number | null>; sourceHash: string; adjustmentSetHash: string; basis: 'ADJUSTED';

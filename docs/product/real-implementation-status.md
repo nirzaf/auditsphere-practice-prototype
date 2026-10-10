@@ -29,7 +29,7 @@
 | US-GOV-006 | Version-Pinned Planning Sign-Off and Fieldwork Handover | In progress; approval dependency rows now pin source versions and SHA-256 values, and staffing/capacity changes invalidate compiled plans; firm-approved templates and race evidence remain open |
 | US-FLD-001 | Validated Excel/CSV Trial Balance Ingestion and Atomic Activation | Code baseline; multi-worksheet imports now require an explicit sheet selection; representative file acceptance open |
 | US-FLD-002 | FSLI Mapping with Scoped Historical Memory and Coverage Checks | Replacing or clearing any prefilled mapping now requires a 10-character rationale; wider coverage and acceptance remain open |
-| US-FLD-003 | Live Split Financial Statement Dashboard and Comparative Variances | Code baseline; visual parity evidence open |
+| US-FLD-003 | Live Split Financial Statement Dashboard and Comparative Variances | Code baseline; source drilldown now pages pinned TB rows and exposes approved AJE revisions/hashes; visual parity evidence open |
 | US-FLD-004 | Analytical Review and Period-Appropriate Going Concern Assessment | Going-concern no-forecast UI states pass 1440px/390px browser assertions; firm policy/content acceptance open |
 | US-FLD-005 | Versioned Substantive Workprograms and Ad-Hoc Procedures | Policy activation ledger, approved-row immutability and effective-date provisioning gate implemented; approved workprogram matrix acceptance open |
 | US-FLD-006 | Independent Row Concurrency, Conflict Resolution and Stale-Review Protection | Done (automated acceptance); independent-row and same-row races, explicit rebase/discard, and stale-review rejection are covered by passing Worker/browser tests; human UAT remains an epic-level gate |
