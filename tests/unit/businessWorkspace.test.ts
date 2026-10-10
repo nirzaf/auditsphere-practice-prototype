@@ -1495,9 +1495,10 @@ it('bootstraps a no-session BUSINESS workspace, records manual dispatch and main
     assert.equal(committed.body.state, 'COMMITTED');
     return fileId;
   };
-  const validPng = Uint8Array.from(atob('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGMQMQr4DwACigGWbdwAgAAAAABJRU5ErkJggg=='), value => value.charCodeAt(0));
-  const signatureFileId = await storeCommittedFile('SIGNATURE', 'partner-signature.png', 'image/png', validPng, approverHeaders);
-  const sealFileId = await storeCommittedFile('SEAL', 'firm-seal.png', 'image/png', validPng, approverHeaders);
+  const signaturePng = Uint8Array.from(atob('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4////fwAJ+wP9KobjigAAAABJRU5ErkJggg=='), value => value.charCodeAt(0));
+  const transparentSealPng = Uint8Array.from(atob('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR4nGNgAAIAAAUAAXpeqz8AAAAASUVORK5CYII='), value => value.charCodeAt(0));
+  const signatureFileId = await storeCommittedFile('SIGNATURE', 'partner-signature.png', 'image/png', signaturePng, approverHeaders);
+  const sealFileId = await storeCommittedFile('SEAL', 'firm-seal.png', 'image/png', transparentSealPng, approverHeaders);
   const wrongServiceTemplate = await post(`/api/workspaces/${workspaceId}/commands`, {
     idempotencyKey: crypto.randomUUID(), command: { type: 'document-template.save', payload: {
       serviceType: 'INTERNAL_AUDIT', name: 'Internal audit letter', clauses: 'Firm-approved internal audit service terms and scope.', expectedRevision: 0
