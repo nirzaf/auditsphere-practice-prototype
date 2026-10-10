@@ -1,4 +1,5 @@
 import { jsPDF } from 'jspdf';
+import { inspectReportingPng } from './reportingPng';
 
 export type CommercialDocumentInput = {
   kind: 'ENGAGEMENT_LETTER' | 'INVOICE' | 'RECEIPT' | 'CONFIRMATION_REQUEST' | 'HOLDING_LETTER';
@@ -47,20 +48,26 @@ function money(value: number): string {
   return `QAR ${(minor / 100n).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',')}.${(minor % 100n).toString().padStart(2, '0')}`;
 }
 
-function isPng(bytes: Uint8Array): boolean {
-  return bytes.length >= 8 && bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47
-    && bytes[4] === 0x0d && bytes[5] === 0x0a && bytes[6] === 0x1a && bytes[7] === 0x0a;
-}
-
 /** Renders the exact text and image bytes pinned to a committed commercial revision. */
 export function renderCommercialPdf(input: CommercialDocumentInput): Uint8Array {
   if (!input.number.trim() || !input.clientName.trim() || !input.firmName.trim()) {
     throw new CommercialDocumentError('INVALID_DOCUMENT_SNAPSHOT', 'The commercial document is missing a required party or number.');
   }
   if (input.kind === 'ENGAGEMENT_LETTER'
-    && (!input.signature || !isPng(input.signature.bytes) || !input.sealBytes || !isPng(input.sealBytes) || !input.clauses?.trim()
+    && (!input.signature || !input.sealBytes || !input.clauses?.trim()
       || !input.submissionDeadline || !/^\d{4}-\d{2}-\d{2}$/.test(input.submissionDeadline))) {
     throw new CommercialDocumentError('ENGAGEMENT_ASSET_INVALID', 'The engagement letter needs its pinned PNG signature, PNG seal, approved clauses and final accepted timetable deadline.');
+  }
+  let engagementSignature = input.signature;
+  let engagementSeal = input.sealBytes;
+  if (input.kind === 'ENGAGEMENT_LETTER') {
+    try {
+      engagementSignature = { ...input.signature!, bytes: inspectReportingPng(input.signature!.bytes).sanitizedBytes };
+      engagementSeal = inspectReportingPng(input.sealBytes!, true).sanitizedBytes;
+    } catch (error) {
+      throw new CommercialDocumentError('ENGAGEMENT_ASSET_INVALID', error instanceof Error
+        ? error.message : 'The engagement signature or seal is not a supported static PNG.');
+    }
   }
   const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4', compress: true });
   doc.setCreationDate(new Date(input.createdAt));
@@ -100,13 +107,13 @@ export function renderCommercialPdf(input: CommercialDocumentInput): Uint8Array 
     line('Approved engagement terms', 11, 1, true);
     line(input.clauses ?? '', 10, 4);
     line('Partner signature image', 10, 1, true);
-    const signature = input.signature!;
+    const signature = engagementSignature!;
     const sigData = `data:image/png;base64,${toBase64(signature.bytes)}`;
     doc.addImage(sigData, 'PNG', margin, y, 56, 22);
     y += 27;
     line(`Partner profile: ${signature.partnerName}`, 9, 3);
     line('Firm seal', 10, 1, true);
-    doc.addImage(`data:image/png;base64,${toBase64(input.sealBytes!)}`, 'PNG', margin, y, 28, 28);
+    doc.addImage(`data:image/png;base64,${toBase64(engagementSeal!)}`, 'PNG', margin, y, 28, 28);
     y += 34;
     line('The signature is an image associated with a self-selected Partner profile. It is not a certificate-based digital signature.', 8, 0);
   } else if (input.kind === 'INVOICE') {

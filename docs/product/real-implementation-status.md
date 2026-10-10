@@ -17,7 +17,7 @@
 | US-ENG-002 | Lead Ingestion and Real Engagement Creation | In progress; synthetic public lead-to-engagement browser journey passed, full commercial acceptance open |
 | US-ENG-003 | Versioned Quote and Comprehensive Proposal Generator | In progress; pre-billing proposal revision from `DUAL_KEY_PENDING` is implemented and focused Worker acceptance passes; broader acceptance remains open |
 | US-ENG-004 | Dual-Key Client Acceptance Gatekeeper | In progress; superseded commercial acceptance no longer satisfies a revised proposal, while an unchanged independent risk clearance remains active; focused Worker acceptance passes; broader acceptance remains open |
-| US-ENG-005 | Gated Engagement Letter with Actual Signature and Seal Rendering | Code baseline; firm asset/content acceptance open |
+| US-ENG-005 | Gated Engagement Letter with Actual Signature and Seal Rendering | Engagement-letter rendering now validates bounded static PNGs, strips unsupported chunks, sanitizes embedded assets, and requires a transparent seal; firm asset/content acceptance open |
 | US-ENG-006 | 50% Advance Invoice, Payment Allocation and Receipt Voucher | Code baseline; acceptance open |
 | US-ENG-007 | Persona-Scoped Client PBC Workspace and Versioned Uploads | In progress; client document allowlist and response-history projection pass integration coverage, two-browser scope/race evidence open |
 | US-ENG-008 | PBC Review, Mandatory Rejection Reasons and Live Status | In progress; required rejection reason remains client-visible while approval notes are withheld, broader acceptance open |
@@ -41,7 +41,7 @@
 | US-FLD-012 | Balanced AJEs, Unadjusted Differences and Versioned Summary Review Memorandum | Code baseline; independent ledger/calculation evidence open |
 | US-FLD-013 | External Confirmations and Idempotent Holding-Letter Release Blocker | In progress; concurrent blocked releases now reserve the same deterministic Holding Letter job and persist one outbox row; hosted delivery and full acceptance remain open |
 | US-REP-001 | Partner-Only Four-Way Opinion and Conditional Basis Builder | Code baseline; approved report policy and identity limitation acknowledged |
-| US-REP-002 | Signature/Seal Rendering with Explicit Consent and Artifact Provenance | Code baseline; approved firm assets and artifact reconciliation open |
+| US-REP-002 | Signature/Seal Rendering with Explicit Consent and Artifact Provenance | Engagement-letter and report rendering now use bounded, sanitized PNGs with real transparency required for seals; approved firm assets and artifact reconciliation open |
 | US-REP-003 | Auditor Report and Complete Financial Statement Compilation | Code baseline; rendered document acceptance open |
 | US-REP-004 | Management Letter and Pre-Report Signed Letter of Representation | In progress; Partner-attested exact clauses are hash-pinned and used in the editable template; real firm wording and opened-file review remain open |
 | US-REP-005 | Atomic Five-Part Release, Final Fee Note and Reliable Delivery | Code baseline; provider delivery and atomic failure evidence open |
