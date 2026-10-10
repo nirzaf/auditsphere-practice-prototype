@@ -5066,7 +5066,7 @@ it('bootstraps a no-session BUSINESS workspace, records manual dispatch and main
   // PRC-005: expense draft with an approved support exception, posted independently.
   const expenseCreate = await post(`/api/workspaces/${workspaceId}/commands`, {
     idempotencyKey: crypto.randomUUID(), command: { type: 'expense.create', payload: {
-      date: planDate, payee: 'West Bay Facilities LLC', category: 'RENT', amountMinor: '50000',
+      date: planDate, payee: 'West Bay Facilities LLC', category: 'RENT', amountMinor: '100000',
       description: 'Monthly engagement-period office rent for the practice.',
       missingSupportReason: 'The landlord invoice arrives after the month-end closing cut-off.',
       debitAccountId: accountId('5000'), settlementAccountId: accountId('1000'), paymentMethod: 'BANK' } }
@@ -5084,6 +5084,13 @@ it('bootstraps a no-session BUSINESS workspace, records manual dispatch and main
     .bind(workspaceId,expenseCreate.body.result.expenseId).first<any>();
   assert.equal(exceptionExpense.status, 'POSTED');
   assert.equal(exceptionExpense.missing_support_reason, 'The landlord invoice arrives after the month-end closing cut-off.');
+  const rentJournalLines = await db.prepare(`SELECT a.code,l.debit_minor,l.credit_minor FROM firm_journal_lines l
+    JOIN firm_accounts a ON a.workspace_id=l.workspace_id AND a.id=l.account_id WHERE l.workspace_id=? AND l.journal_id=? ORDER BY a.code`)
+    .bind(workspaceId,expensePost.body.result.journalId).all<any>();
+  assert.deepEqual((rentJournalLines.results??[]).map((line: any) => ({ code: line.code, debit: line.debit_minor, credit: line.credit_minor })), [
+    { code: '1000', debit: 0, credit: 100000 },
+    { code: '5000', debit: 100000, credit: 0 }
+  ], 'QAR 1000 rent debits Rent Expense and credits Bank exactly once');
 
   // PRC-005: a QAR 300 petty-cash voucher is the expense; replenishing that cash
   // from bank creates only an asset-to-asset transfer and never a second expense.
