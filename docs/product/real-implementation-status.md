@@ -18,7 +18,7 @@
 | US-ENG-003 | Versioned Quote and Comprehensive Proposal Generator | In progress; pre-billing proposal revision from `DUAL_KEY_PENDING` is implemented and focused Worker acceptance passes; broader acceptance remains open |
 | US-ENG-004 | Dual-Key Client Acceptance Gatekeeper | In progress; superseded commercial acceptance no longer satisfies a revised proposal, while an unchanged independent risk clearance remains active; focused Worker acceptance passes; broader acceptance remains open |
 | US-ENG-005 | Gated Engagement Letter with Actual Signature and Seal Rendering | Engagement-letter rendering now validates bounded static PNGs, strips unsupported chunks, sanitizes embedded assets, and requires a transparent seal; firm asset/content acceptance open |
-| US-ENG-006 | 50% Advance Invoice, Payment Allocation and Receipt Voucher | Code baseline; acceptance open |
+| US-ENG-006 | 50% Advance Invoice, Payment Allocation and Receipt Voucher | Code baseline; payment reversal now requires an operator-entered rationale; acceptance open |
 | US-ENG-007 | Persona-Scoped Client PBC Workspace and Versioned Uploads | In progress; client document allowlist and response-history projection pass integration coverage, two-browser scope/race evidence open |
 | US-ENG-008 | PBC Review, Mandatory Rejection Reasons and Live Status | In progress; required rejection reason remains client-visible while approval notes are withheld, broader acceptance open |
 | US-GOV-001 | Track A — New Client KYC, AML, UBO and Independence Assessment | Code baseline; firm policy/content acceptance open |

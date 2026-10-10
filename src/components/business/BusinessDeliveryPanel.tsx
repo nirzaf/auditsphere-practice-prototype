@@ -44,6 +44,8 @@ export function BusinessDeliveryPanel({ workspaceId, selected, context, engageme
   const [evidenceFileId, setEvidenceFileId] = useState('');
   const [paymentEvidenceFile, setPaymentEvidenceFile] = useState<BusinessFileMetadata | null>(null);
   const [allocations, setAllocations] = useState<AllocationDraft[]>([{ invoiceId: '', amountMinor: '' }]);
+  const [reversalForPayment, setReversalForPayment] = useState<string | null>(null);
+  const [paymentReversalRationales, setPaymentReversalRationales] = useState<Record<string, string>>({});
 
   const isPartner = context.actor.persona === 'APPROVER' && context.actor.staffGrade === 'PARTNER';
   const isClient = context.actor.persona === 'CLIENT';
@@ -188,9 +190,16 @@ export function BusinessDeliveryPanel({ workspaceId, selected, context, engageme
     } finally { setBusy(false); }
   };
 
-  const reversePayment = async (paymentId: string) => {
-    await perform({ type: 'payment.reverse', payload: { paymentId, rationale: 'The original receipt and supporting bank or cash evidence were reviewed; record an explicit payment reversal.' } },
+  const reversePayment = async (event: React.FormEvent<HTMLFormElement>, paymentId: string) => {
+    event.preventDefault();
+    const rationale = (paymentReversalRationales[paymentId] ?? '').trim();
+    if (rationale.length < 10) return;
+    const result = await perform({ type: 'payment.reverse', payload: { paymentId, rationale } },
       'Payment reversal recorded with a new immutable receipt voucher.');
+    if (result !== null) {
+      setReversalForPayment(null);
+      setPaymentReversalRationales(current => { const next = { ...current }; delete next[paymentId]; return next; });
+    }
   };
 
   const download = async (fileId: string | null | undefined, name: string) => {
@@ -328,7 +337,25 @@ export function BusinessDeliveryPanel({ workspaceId, selected, context, engageme
       {data.payments.map(payment => <div className="business-delivery-row" key={payment.id}><strong>{payment.reversal ? 'Reversal' : 'Verified payment'} · QAR minor {payment.amountMinor}</strong>
         <span>{payment.receivedOn} · {payment.method}{!isClient && ` · receipt ${payment.receiptNumber ?? 'pending'} · ${payment.receiptStatus ?? 'pending'}`}</span>
         {!isClient && payment.receiptFileId && <button type="button" className="btn sm" onClick={() => void download(payment.receiptFileId, `${payment.receiptNumber}.pdf`)}>Download receipt</button>}
-        {!isClient && !payment.reversal && context.allowedActions.includes('payment.reverse') && <button type="button" className="btn sm" disabled={busy || payment.receiptStatus !== 'ISSUED'} onClick={() => void reversePayment(payment.id)}>Record reversal</button>}
+        {!isClient && !payment.reversal && context.allowedActions.includes('payment.reverse') && <>
+          <button type="button" className="btn sm" disabled={busy || payment.receiptStatus !== 'ISSUED'}
+            aria-expanded={reversalForPayment === payment.id} aria-controls={reversalForPayment === payment.id ? `payment-reversal-${payment.id}` : undefined}
+            onClick={() => setReversalForPayment(current => current === payment.id ? null : payment.id)}>
+            {reversalForPayment === payment.id ? 'Cancel reversal' : 'Record reversal'}
+          </button>
+          {reversalForPayment === payment.id && <form id={`payment-reversal-${payment.id}`} className="business-delivery-reversal"
+            onSubmit={event => void reversePayment(event, payment.id)}>
+            <label className="business-field"><span>Reason for reversing this payment</span>
+              <textarea required minLength={10} maxLength={2000} value={paymentReversalRationales[payment.id] ?? ''}
+                onChange={event => setPaymentReversalRationales(current => ({ ...current, [payment.id]: event.target.value }))}
+                placeholder="Describe the evidence or allocation error that requires this reversal." />
+              <small>This reason is recorded with the immutable payment reversal.</small>
+            </label>
+            <button className="btn primary" type="submit" disabled={busy || (paymentReversalRationales[payment.id] ?? '').trim().length < 10}>
+              {busy ? 'Recording…' : 'Confirm payment reversal'}
+            </button>
+          </form>}
+        </>}
       </div>)}
       {!activeLetters.length && !data.invoices.length && !data.payments.length && <p className="business-muted">No issued commercial documents or payments are recorded for this engagement.</p>}
     </div>}

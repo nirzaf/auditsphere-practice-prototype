@@ -222,3 +222,7 @@ Procedure revision snapshots retain the natural-person key for each person who r
 ## 13. Paged financial-statement source provenance — US-FLD-003
 
 `GET /api/workspaces/{workspaceId}/engagements/{engagementId}/fieldwork-workspace` and `GET /api/workspaces/{workspaceId}/engagements/{engagementId}/financial-statements` return statement-line summaries and source pins without duplicating every mapped trial-balance row in the response. `GET /api/workspaces/{workspaceId}/engagements/{engagementId}/fslis/{fsliId}/source-lines?limit=100&cursor=0` is internal-persona only and returns at most 200 contributing TB rows per page, their raw and presented CY/PY values, and every approved AJE line included in that FSLI. The response pins the TB and mapping revisions, statement source hash, AJE-set hash, and each AJE revision/source hash. `nextCursor` is an offset string or `null`; `totalRows` is the mapped TB contributor count. Read-only source drilldown has no lifecycle side effects.
+
+## 14. Operator-supplied payment reversal rationale — US-ENG-006
+
+`C("payment.reverse", {paymentId,rationale})` requires a trimmed 10–2,000 character reason. The billing UI opens an explicit reversal form for the selected issued receipt and sends the operator-entered reason; it does not substitute a fixed generic rationale. The Worker remains authoritative for permission, payment, receipt, balance and lifecycle checks.

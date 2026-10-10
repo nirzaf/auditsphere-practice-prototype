@@ -179,6 +179,9 @@
 .business-delivery-row strong, .business-delivery-row span { overflow-wrap: anywhere; }
 .business-delivery-row span, .business-delivery-row small { color: #496174; font-size: .85rem; }
 .business-delivery-row small[role="alert"] { color: #991b1b; }
+.business-delivery-reversal { display: grid; gap: 10px; flex: 1 0 100%; min-width: 0; padding: 12px; border: 1px solid var(--line); border-radius: 8px; background: #fff; }
+.business-delivery-reversal .business-field { margin: 0; }
+.business-delivery-reversal textarea { min-height: 96px; }
 .business-delivery-allocations { display: grid; gap: 10px; min-width: 0; margin: 0; padding: 12px; border: 1px solid #d7e0e8; border-radius: 9px; }
 .business-delivery-allocations legend { padding: 0 6px; color: #17334a; font-weight: 700; }
 @media (max-width: 700px) {
