@@ -1131,6 +1131,79 @@ it('bootstraps a no-session BUSINESS workspace, records manual dispatch and main
   assert.deepEqual(manualDispatchHistory.body.proposals[0].manualDispatches.map((item: any) => item.channel).sort(),
     ['HAND_DELIVERY', 'WHATSAPP']);
 
+  const signatory = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'contact.update', payload: { contactId: financeContactId, expectedVersion: 1, isSignatory: true } }
+  }, preparerHeaders);
+  assert.equal(signatory.response.status, 200, JSON.stringify(signatory.body));
+
+  const oldRevisionAcceptance = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'commercialAcceptance.record', payload: {
+      engagementId: conversion.body.result.engagementId, proposalVersionId: thirdProposal.body.result.proposalVersionId,
+      acceptedFeeMinor: '250001', confirmationText: 'I accept the current proposal scope and QAR 2500.01 fee.'
+    } }
+  }, clientHeaders);
+  assert.equal(oldRevisionAcceptance.response.status, 200, JSON.stringify(oldRevisionAcceptance.body));
+  const acceptedOldRevisionGate = await call(`/api/workspaces/${workspaceId}/engagements/${engagementId}/acceptance-gate`, { headers: approverHeaders });
+  assert.equal(acceptedOldRevisionGate.body.commercialKey.status, 'ACTIVE');
+  assert.equal(acceptedOldRevisionGate.body.riskKey.status, 'PENDING');
+  assert.equal(acceptedOldRevisionGate.body.ready, false, 'commercial acceptance cannot advance while Partner risk clearance is pending');
+
+  const revisedBeforeBilling = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'proposal.revise', payload: {
+      ...proposalTerms, selectedTeamCvIds: [attachedCv.body.result.teamCvId], proposalId: proposal.body.result.proposalId,
+      expectedVersion: 3, feeMinor: '250003',
+      scope: 'Statutory audit and reporting for the approved reporting period with the updated proposed fee.'
+    } }
+  }, reviewerHeaders);
+  assert.equal(revisedBeforeBilling.response.status, 200, JSON.stringify(revisedBeforeBilling.body));
+  assert.equal(revisedBeforeBilling.body.result.revision, 4);
+  assert.equal(revisedBeforeBilling.body.result.lifecycleState, 'PROPOSAL_GENERATION');
+  const engagementAfterCommercialRevision = db.prepare(`SELECT lifecycle_state,active_proposal_version_id FROM engagements WHERE workspace_id=? AND id=?`)
+    .bind(workspaceId, engagementId).first<any>();
+  assert.equal(engagementAfterCommercialRevision?.lifecycle_state, 'PROPOSAL_GENERATION');
+  assert.equal(engagementAfterCommercialRevision?.active_proposal_version_id, null);
+  assert.equal(db.prepare(`SELECT COUNT(*) AS count FROM state_transitions WHERE workspace_id=? AND engagement_id=?
+      AND from_state='DUAL_KEY_PENDING' AND to_state='PROPOSAL_GENERATION'`)
+    .bind(workspaceId, engagementId).first<any>()?.count, 1, 'the pre-billing exception is recorded as an immutable backward transition');
+  const acceptanceAfterRevision = await call(`/api/workspaces/${workspaceId}/engagements/${engagementId}/acceptance-gate`, { headers: approverHeaders });
+  assert.equal(acceptanceAfterRevision.body.commercialKey.status, 'PENDING', 'acceptance of the superseded proposal cannot satisfy the new revision');
+  assert.equal(acceptanceAfterRevision.body.riskKey.status, 'PENDING');
+  assert.equal(db.prepare('SELECT COUNT(*) AS count FROM commercial_acceptances WHERE workspace_id=? AND engagement_id=? AND proposal_version_id=? AND decision=\'ACCEPT\'')
+    .bind(workspaceId, engagementId, thirdProposal.body.result.proposalVersionId).first<any>()?.count, 1,
+    'the original client decision remains immutable history while no longer satisfying the current proposal gate');
+
+  const generateAndManuallyDispatchRevision = async (proposalVersionId: string) => {
+    const generatedRevision = await post(`/api/workspaces/${workspaceId}/commands`, {
+      idempotencyKey: crypto.randomUUID(), command: { type: 'proposal.generate', payload: { proposalVersionId, expectedVersion: 1 } }
+    }, reviewerHeaders);
+    assert.equal(generatedRevision.response.status, 202, JSON.stringify(generatedRevision.body));
+    await worker.scheduled({ scheduledTime: Date.now(), cron: '*/5 * * * *' } as any, env);
+    assert.equal(db.prepare(`SELECT status FROM outbox_jobs WHERE workspace_id=? AND id=?`)
+      .bind(workspaceId, generatedRevision.body.result.jobId).first<any>()?.status, 'SUCCEEDED', 'the new revision PDF is generated and committed');
+    const approvedRevision = await post(`/api/workspaces/${workspaceId}/commands`, {
+      idempotencyKey: crypto.randomUUID(), command: { type: 'proposal.approve', payload: {
+        proposalVersionId, expectedVersion: 1, note: 'The Partner reviewed the regenerated proposal and its current terms.'
+      } }
+    }, approverHeaders);
+    assert.equal(approvedRevision.response.status, 200, JSON.stringify(approvedRevision.body));
+    const approvedAt = db.prepare(`SELECT decided_at FROM proposal_approvals WHERE workspace_id=? AND proposal_version_id=?
+      ORDER BY decided_at DESC,id DESC LIMIT 1`).bind(workspaceId, proposalVersionId).first<any>()?.decided_at;
+    assert.ok(approvedAt);
+    const manualDelivery = await post(`/api/workspaces/${workspaceId}/commands`, {
+      idempotencyKey: crypto.randomUUID(), command: { type: 'proposal.dispatch.recordManual', payload: {
+        engagementId: conversion.body.result.engagementId, proposalVersionId, channel: 'HAND_DELIVERY',
+        contactId: financeContactId, sentAt: approvedAt,
+        note: 'Synthetic acceptance fixture: regenerated proposal revision delivered manually.'
+      } }
+    }, approverHeaders);
+    assert.equal(manualDelivery.response.status, 200, JSON.stringify(manualDelivery.body));
+    assert.equal(manualDelivery.body.result.lifecycleState, 'DUAL_KEY_PENDING');
+  };
+  await generateAndManuallyDispatchRevision(revisedBeforeBilling.body.result.proposalVersionId);
+  const redispatchedGate = await call(`/api/workspaces/${workspaceId}/engagements/${engagementId}/acceptance-gate`, { headers: approverHeaders });
+  assert.equal(redispatchedGate.body.commercialKey.status, 'PENDING', 'the old acceptance remains detached after the replacement is sent');
+  assert.equal(redispatchedGate.body.riskKey.status, 'PENDING');
+
   const makeRiskHeaders = (headers: Record<string, string>) => ({ ...headers, 'X-Client-Id': clientId, 'X-Engagement-Id': engagementId });
   // US-REP-001 — a visible Partner opinion control is not an authorization boundary.
   const reviewerOpinionAttempt = await post(`/api/workspaces/${workspaceId}/commands`, {
@@ -1169,11 +1242,6 @@ it('bootstraps a no-session BUSINESS workspace, records manual dispatch and main
     { headers: makeRiskHeaders(approverHeaders) });
   assert.equal(unreleasedReportProvenance.response.status, 404, JSON.stringify(unreleasedReportProvenance.body));
   assert.equal(unreleasedReportProvenance.body.code, 'NOT_FOUND', 'a staged candidate or consent is not presented as released provenance');
-
-  const signatory = await post(`/api/workspaces/${workspaceId}/commands`, {
-    idempotencyKey: crypto.randomUUID(), command: { type: 'contact.update', payload: { contactId: financeContactId, expectedVersion: 1, isSignatory: true } }
-  }, preparerHeaders);
-  assert.equal(signatory.response.status, 200, JSON.stringify(signatory.body));
 
   const owner = await post(`/api/workspaces/${workspaceId}/commands`, {
     idempotencyKey: crypto.randomUUID(), command: { type: 'riskAssessment.owner.save', payload: {
@@ -1310,7 +1378,26 @@ it('bootstraps a no-session BUSINESS workspace, records manual dispatch and main
   assert.equal(oneKeyGate.body.riskKey.status, 'ACTIVE');
   assert.equal(oneKeyGate.body.ready, false);
 
-  const proposalVersionId = thirdProposal.body.result.proposalVersionId as string;
+  const revisedWithRiskStillCurrent = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'proposal.revise', payload: {
+      ...proposalTerms, selectedTeamCvIds: [attachedCv.body.result.teamCvId], proposalId: proposal.body.result.proposalId,
+      expectedVersion: 4, feeMinor: '250001',
+      scope: 'Statutory audit and reporting for the approved reporting period with the final agreed fee.'
+    } }
+  }, makeRiskHeaders(reviewerHeaders));
+  assert.equal(revisedWithRiskStillCurrent.response.status, 200, JSON.stringify(revisedWithRiskStillCurrent.body));
+  assert.equal(revisedWithRiskStillCurrent.body.result.revision, 5);
+  assert.equal(revisedWithRiskStillCurrent.body.result.lifecycleState, 'PROPOSAL_GENERATION');
+  const riskRemainsCurrent = await call(`/api/workspaces/${workspaceId}/engagements/${engagementId}/acceptance-gate`, { headers: makeRiskHeaders(approverHeaders) });
+  assert.equal(riskRemainsCurrent.body.commercialKey.status, 'PENDING');
+  assert.equal(riskRemainsCurrent.body.riskKey.status, 'ACTIVE', 'a commercial revision does not invalidate an unchanged independent risk clearance');
+  await generateAndManuallyDispatchRevision(revisedWithRiskStillCurrent.body.result.proposalVersionId);
+  const riskAfterRedispatch = await call(`/api/workspaces/${workspaceId}/engagements/${engagementId}/acceptance-gate`, { headers: makeRiskHeaders(approverHeaders) });
+  assert.equal(riskAfterRedispatch.body.commercialKey.status, 'PENDING');
+  assert.equal(riskAfterRedispatch.body.riskKey.status, 'ACTIVE');
+  assert.equal(riskAfterRedispatch.body.ready, false);
+
+  const proposalVersionId = revisedWithRiskStillCurrent.body.result.proposalVersionId as string;
   const forgedDualKey = await post(`/api/workspaces/${workspaceId}/commands`, {
     idempotencyKey: crypto.randomUUID(), command: { type: 'commercialAcceptance.record', payload: {
       engagementId, proposalVersionId, acceptedFeeMinor: '250001', confirmationText: 'I accept the agreed scope and fee.', dualKeyPassed: true
@@ -1340,6 +1427,17 @@ it('bootstraps a no-session BUSINESS workspace, records manual dispatch and main
   assert.equal(db.prepare(`SELECT lifecycle_state FROM engagements WHERE workspace_id=? AND id=?`)
     .bind(workspaceId, engagementId).first<any>()?.lifecycle_state, 'ADVANCE_BILLING',
     'both current keys advance the engagement atomically into advance billing');
+  const revisionAfterBilling = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'proposal.revise', payload: {
+      ...proposalTerms, selectedTeamCvIds: [attachedCv.body.result.teamCvId], proposalId: proposal.body.result.proposalId,
+      expectedVersion: 5, feeMinor: '250002', scope: 'This change must use the versioned amendment workflow after billing begins.'
+    } }
+  }, makeRiskHeaders(reviewerHeaders));
+  assert.equal(revisionAfterBilling.response.status, 409);
+  assert.equal(revisionAfterBilling.body.code, 'GATE_BLOCKED');
+  assert.equal(db.prepare(`SELECT version FROM proposals WHERE workspace_id=? AND id=?`)
+    .bind(workspaceId, proposal.body.result.proposalId).first<any>()?.version, 5,
+    'an attempted post-billing commercial change cannot mutate the proposal history');
   const readyGate = await call(`/api/workspaces/${workspaceId}/engagements/${engagementId}/acceptance-gate`, { headers: makeRiskHeaders(approverHeaders) });
   assert.equal(readyGate.body.ready, true);
   assert.equal(readyGate.body.commercialKey.status, 'ACTIVE');

@@ -977,20 +977,27 @@ export function BusinessWorkspaceConsole() {
     const selected = currentSelection();
     const engagement = proposalWorkspace?.engagements.find(item => item.id === proposalEngagementId);
     if (!selected || !engagement || !context?.allowedActions.includes('proposal.create')) return;
-    const payload = {
-      engagementId: engagement.id, expectedEngagementVersion: engagement.version, mode: proposalMode,
+    const existingProposal = proposalWorkspace?.proposals.find(item => item.engagementId === engagement.id);
+    const terms = {
+      mode: proposalMode,
       scope: proposalScope, feeMinor: proposalFeeMinor, validUntil: proposalValidUntil,
       selectedTeamCvIds: proposalMode === 'FULL_PROPOSAL' ? proposalTeamCvIds : [],
       timeline: proposalMilestones.map(milestone => ({ name: milestone.name.trim(), date: milestone.date }))
     };
+    const command = existingProposal
+      ? { type: 'proposal.revise', payload: { ...terms, proposalId: existingProposal.proposalId, expectedVersion: existingProposal.proposalVersion } }
+      : { type: 'proposal.create', payload: { ...terms, engagementId: engagement.id, expectedEngagementVersion: engagement.version } };
+    const commandKey = existingProposal ? `proposal.revise.${existingProposal.proposalId}` : 'proposal.create';
     setCommandBusy(true);
     setCommandMessage('');
     try {
       const created = await runBusinessCommand<{ proposalId: string; proposalVersionId: string; revision: number; advanceMinor: string; finalMinor: string }>(
-        selected.workspaceId, selected, { type: 'proposal.create', payload }, commandKeyFor('proposal.create', payload)
+        selected.workspaceId, selected, command, commandKeyFor(commandKey, command.payload)
       );
-      businessCommandKeys.current.delete('proposal.create');
-      setCommandMessage(`Proposal revision ${created.result.revision} saved. QAR minor-unit terms split to ${created.result.advanceMinor} advance and ${created.result.finalMinor} final.`);
+      businessCommandKeys.current.delete(commandKey);
+      setCommandMessage(existingProposal && engagement.lifecycleState === 'DUAL_KEY_PENDING'
+        ? `Proposal revision ${created.result.revision} saved. The engagement returned to proposal generation; generate and approve this revision, then obtain fresh client acceptance. The risk decision remains current only if its own dependencies are unchanged.`
+        : `Proposal revision ${created.result.revision} saved. QAR minor-unit terms split to ${created.result.advanceMinor} advance and ${created.result.finalMinor} final.`);
       setProposalScope(''); setProposalFeeMinor('');
       setProposalMilestones([{ name: 'Planning and fieldwork', date: '' }]);
       setProposalTeamCvIds([]);
@@ -1224,6 +1231,8 @@ export function BusinessWorkspaceConsole() {
   };
 
   const riskEngagement = proposalWorkspace?.engagements.find(item => item.id === riskEngagementId) ?? null;
+  const selectedProposalEngagement = proposalWorkspace?.engagements.find(item => item.id === proposalEngagementId) ?? null;
+  const proposalToRevise = proposalWorkspace?.proposals.find(item => item.engagementId === proposalEngagementId) ?? null;
   const reportingEngagementId = riskEngagement?.id
     ?? (context?.actor.persona === 'CLIENT' ? preference?.engagementId : undefined);
   const assignedClientContactIds = new Set(profiles
@@ -1617,13 +1626,14 @@ export function BusinessWorkspaceConsole() {
             </>}
 
             {context.allowedActions.includes('proposal.create') && <form className="business-form business-commercial-form" onSubmit={createProposal}>
-              <h3>Draft a versioned proposal</h3>
+              <h3>{proposalToRevise ? `Draft revision ${proposalToRevise.revision + 1} of ${proposalToRevise.clientName}’s proposal` : 'Draft a versioned proposal'}</h3>
               {!proposalWorkspace?.firmProfile && <p className="business-alert" role="alert">A Partner must save the firm’s legal registration, profile and methodology before a proposal can be created.</p>}
+              {selectedProposalEngagement?.lifecycleState === 'DUAL_KEY_PENDING' && <p className="business-note" role="status">A new commercial revision returns this pre-billing engagement to proposal generation. Its previous client acceptance will not apply; regenerate and reapprove the new revision before sending it for acceptance.</p>}
               {proposalMode === 'FULL_PROPOSAL' && (!proposalWorkspace?.firmProfile?.credentialsText.trim() || !proposalWorkspace?.firmProfile.industryPortfolioText.trim()
                 || !proposalWorkspace?.firmProfile.credentialFileVersionIds.length || !proposalWorkspace?.firmProfile.portfolioFileVersionIds.length)
                 && <p className="business-alert" role="alert">A comprehensive proposal needs verified credentials and portfolio text plus selected, committed evidence files in each category. The Worker blocks incomplete packages.</p>}
               <div className="business-form-grid">
-                <label className="business-field" htmlFor="business-proposal-engagement"><span>Engagement in proposal generation</span><select id="business-proposal-engagement" required value={proposalEngagementId} onChange={event => setProposalEngagementId(event.target.value)}><option value="">Select engagement</option>{proposalWorkspace?.engagements.filter(engagement => engagement.lifecycleState === 'PROPOSAL_GENERATION').map(engagement => <option key={engagement.id} value={engagement.id}>{engagement.clientName} · {engagement.code} · {engagement.periodStart}–{engagement.periodEnd}</option>)}</select></label>
+                <label className="business-field" htmlFor="business-proposal-engagement"><span>Engagement ready for a proposal or pre-billing revision</span><select id="business-proposal-engagement" required value={proposalEngagementId} onChange={event => setProposalEngagementId(event.target.value)}><option value="">Select engagement</option>{proposalWorkspace?.engagements.filter(engagement => ['PROPOSAL_GENERATION', 'DUAL_KEY_PENDING'].includes(engagement.lifecycleState)).map(engagement => <option key={engagement.id} value={engagement.id}>{engagement.clientName} · {engagement.code} · {engagement.periodStart}–{engagement.periodEnd}{engagement.lifecycleState === 'DUAL_KEY_PENDING' ? ' · revise before billing' : ''}</option>)}</select></label>
                 <label className="business-field" htmlFor="business-proposal-mode"><span>Document mode</span><select id="business-proposal-mode" value={proposalMode} onChange={event => setProposalMode(event.target.value as typeof proposalMode)}><option value="QUOTE">Quotation · 1–2 pages</option><option value="FULL_PROPOSAL">Comprehensive proposal · approved team CV required</option></select></label>
                 <label className="business-field" htmlFor="business-proposal-fee"><span>Total fee · QAR minor units</span><input id="business-proposal-fee" required inputMode="numeric" pattern="[0-9]*" value={proposalFeeMinor} onChange={event => setProposalFeeMinor(event.target.value)} /><small>Advance is rounded half-up; the final amount is the exact remainder.</small></label>
                 <label className="business-field" htmlFor="business-proposal-valid-until"><span>Offer valid until</span><input id="business-proposal-valid-until" type="date" required value={proposalValidUntil} onChange={event => setProposalValidUntil(event.target.value)} /></label>
@@ -1666,7 +1676,7 @@ export function BusinessWorkspaceConsole() {
               <div className="business-dialog-actions"><button className="btn primary" type="submit" disabled={commandBusy || !proposalWorkspace?.firmProfile || !proposalEngagementId
                 || (proposalMode === 'FULL_PROPOSAL' && (!proposalTeamCvIds.some(id => proposalWorkspace.teamCvs.some(cv => cv.id === id && cv.approved && cv.isCurrent && cv.grade === 'PARTNER'))
                   || !proposalWorkspace.firmProfile.credentialsText.trim() || !proposalWorkspace.firmProfile.industryPortfolioText.trim()
-                  || !proposalWorkspace.firmProfile.credentialFileVersionIds.length || !proposalWorkspace.firmProfile.portfolioFileVersionIds.length))}>{commandBusy ? 'Saving…' : 'Create proposal revision'}</button></div>
+                  || !proposalWorkspace.firmProfile.credentialFileVersionIds.length || !proposalWorkspace.firmProfile.portfolioFileVersionIds.length))}>{commandBusy ? 'Saving…' : proposalToRevise ? `Save revision ${proposalToRevise.revision + 1}` : 'Create proposal revision'}</button></div>
             </form>}
 
             {proposalWorkspace?.proposals.length ? <ul className="business-record-list business-proposal-list" aria-label="Current proposal revisions">{proposalWorkspace.proposals.map(proposal => {

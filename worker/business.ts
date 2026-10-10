@@ -4135,15 +4135,20 @@ async function buildBusinessProposalMutation(
   if (command.type === 'proposal.create' || command.type === 'proposal.revise') {
     requireProposalAction('proposal.create');
     const input = command.payload;
-    const engagement = await env.DB.prepare(`SELECT e.id,e.version,e.client_id,e.lifecycle_state,e.period_start,e.period_end,e.contract_fee_minor,
+    const engagement = await env.DB.prepare(`SELECT e.id,e.version,e.client_id,e.lifecycle_state,e.active_proposal_version_id,e.period_start,e.period_end,e.contract_fee_minor,
         c.legal_name,c.trading_name,c.commercial_registration,c.address,c.active AS client_active
       FROM engagements e JOIN clients c ON c.workspace_id=e.workspace_id AND c.id=e.client_id
       WHERE e.workspace_id=? AND e.id=?`).bind(workspaceId, input.engagementId)
-      .first<{ id: string; version: number; client_id: string; lifecycle_state: string; period_start: string; period_end: string; contract_fee_minor: number; legal_name: string; trading_name: string | null; commercial_registration: string | null; address: string; client_active: number }>();
+      .first<{ id: string; version: number; client_id: string; lifecycle_state: string; active_proposal_version_id: string | null; period_start: string; period_end: string; contract_fee_minor: number; legal_name: string; trading_name: string | null; commercial_registration: string | null; address: string; client_active: number }>();
     if (!engagement) throw new ApiError('NOT_FOUND', 'The engagement was not found.');
     requireClientScope(context, engagement.client_id);
     if (context.scope.engagementId && context.scope.engagementId !== engagement.id) throw new ApiError('FORBIDDEN_SCOPE', 'The engagement does not match the selected request context.');
-    if (engagement.lifecycle_state !== 'PROPOSAL_GENERATION' || engagement.client_active !== 1) throw new ApiError('GATE_BLOCKED', 'Proposals can be drafted only for an active engagement in PROPOSAL_GENERATION.');
+    const canCreateProposal = command.type === 'proposal.create' && engagement.lifecycle_state === 'PROPOSAL_GENERATION';
+    const canReviseProposal = command.type === 'proposal.revise'
+      && ['PROPOSAL_GENERATION', 'DUAL_KEY_PENDING'].includes(engagement.lifecycle_state);
+    if ((!canCreateProposal && !canReviseProposal) || engagement.client_active !== 1) {
+      throw new ApiError('GATE_BLOCKED', 'A proposal can be drafted in PROPOSAL_GENERATION or revised before billing while DUAL_KEY_PENDING. Issued financial documents require a versioned amendment.');
+    }
     const firm = await env.DB.prepare(`SELECT id,version,legal_name,registration_number,address,profile_text,methodology_text,credentials_text,industry_portfolio_text,credential_file_ids_json,portfolio_file_ids_json,logo_file_id
       FROM firm_profiles WHERE workspace_id=?`).bind(workspaceId)
       .first<{ id: string; version: number; legal_name: string; registration_number: string; address: string; profile_text: string; methodology_text: string; credentials_text: string; industry_portfolio_text: string; credential_file_ids_json: string; portfolio_file_ids_json: string; logo_file_id: string | null }>();
@@ -4195,6 +4200,7 @@ async function buildBusinessProposalMutation(
     }
 
     let proposalId: string;
+    let expectedCurrentProposalVersionId: string | null = null;
     let previousProposalVersion: number | null = null;
     let revision = 1;
     if (command.type === 'proposal.create') {
@@ -4207,7 +4213,11 @@ async function buildBusinessProposalMutation(
         .bind(workspaceId, command.payload.proposalId, engagement.id).first<{ id: string; version: number; current_version_id: string | null }>();
       if (!existing) throw new ApiError('NOT_FOUND', 'The proposal was not found for this engagement.');
       if (existing.version !== command.payload.expectedVersion) throw new ApiError('VERSION_CONFLICT', 'The proposal changed. Reload it before revising.');
+      if (engagement.lifecycle_state === 'DUAL_KEY_PENDING' && engagement.active_proposal_version_id !== existing.current_version_id) {
+        throw new ApiError('STALE_APPROVAL', 'Only the exact proposal currently pinned to DUAL_KEY_PENDING can be revised.');
+      }
       proposalId = existing.id;
+      expectedCurrentProposalVersionId = existing.current_version_id;
       previousProposalVersion = existing.version;
       const latest = await env.DB.prepare(`SELECT COALESCE(MAX(revision),0) AS revision FROM proposal_versions WHERE workspace_id=? AND proposal_id=?`)
         .bind(workspaceId, proposalId).first<{ revision: number }>();
@@ -4227,17 +4237,30 @@ async function buildBusinessProposalMutation(
       teamCvId: cv.id, staffMemberId: cv.staff_member_id, displayName: cv.display_name, grade: cv.grade,
       fileVersionId: cv.file_version_id, originalName: cv.original_name, sha256: cv.sha256
     }));
+    const reopenProposalGeneration = command.type === 'proposal.revise' && engagement.lifecycle_state === 'DUAL_KEY_PENDING';
+    const transitionId = reopenProposalGeneration ? crypto.randomUUID() : null;
+    const transitionReason = 'Proposal terms were revised before billing; regenerate, reapprove and obtain current client acceptance.';
+    const transitionDependencyHash = reopenProposalGeneration
+      ? await sha256Hex(JSON.stringify({
+        engagementId: engagement.id, priorProposalVersionId: expectedCurrentProposalVersionId,
+        nextProposalVersionId: proposalVersionId, reason: transitionReason
+      }))
+      : null;
+    const expectedEngagementVersion = command.type === 'proposal.create' ? command.payload.expectedEngagementVersion : engagement.version;
+    const expectedLifecycleState = engagement.lifecycle_state;
+    const expectedActiveProposalVersionId = engagement.lifecycle_state === 'DUAL_KEY_PENDING'
+      ? expectedCurrentProposalVersionId : null;
     const statements: D1PreparedStatement[] = [
       env.DB.prepare(`INSERT INTO command_assertions(workspace_id,seq,ok)
         SELECT ?,75,CASE WHEN EXISTS(SELECT 1 FROM engagements e JOIN clients c ON c.workspace_id=e.workspace_id AND c.id=e.client_id
           JOIN firm_profiles fp ON fp.workspace_id=e.workspace_id AND fp.version=?
-          WHERE e.workspace_id=? AND e.id=? AND e.lifecycle_state='PROPOSAL_GENERATION' AND c.active=1
-            AND (? IS NULL OR e.version=?))
+          WHERE e.workspace_id=? AND e.id=? AND e.lifecycle_state=? AND e.version=? AND c.active=1
+            AND e.active_proposal_version_id IS ?)
           AND ((? IS NULL AND NOT EXISTS(SELECT 1 FROM proposals WHERE workspace_id=? AND engagement_id=?))
             OR EXISTS(SELECT 1 FROM proposals WHERE workspace_id=? AND id=? AND version=?))
         THEN 1 ELSE 0 END`).bind(workspaceId, firm.version, workspaceId, engagement.id,
-        command.type === 'proposal.create' ? command.payload.expectedEngagementVersion : null,
-        command.type === 'proposal.create' ? command.payload.expectedEngagementVersion : null,
+        expectedLifecycleState, expectedEngagementVersion,
+        expectedActiveProposalVersionId,
         command.type === 'proposal.create' ? null : command.payload.proposalId,
         workspaceId, engagement.id, workspaceId,
         command.type === 'proposal.revise' ? command.payload.proposalId : '',
@@ -4259,13 +4282,25 @@ async function buildBusinessProposalMutation(
           .bind(proposalVersionId, now, actorId, workspaceId, proposalId)
         : env.DB.prepare(`UPDATE proposals SET current_version_id=?,version=version+1,updated_at=?,updated_by_actor_id=?
             WHERE workspace_id=? AND id=? AND version=?`)
-          .bind(proposalVersionId, now, actorId, workspaceId, proposalId, previousProposalVersion)
+          .bind(proposalVersionId, now, actorId, workspaceId, proposalId, previousProposalVersion),
+      ...(reopenProposalGeneration ? [
+        env.DB.prepare(`UPDATE engagements SET lifecycle_state='PROPOSAL_GENERATION',active_proposal_version_id=NULL,
+            version=version+1,updated_at=?,updated_by_actor_id=?
+          WHERE workspace_id=? AND id=? AND version=? AND lifecycle_state='DUAL_KEY_PENDING' AND active_proposal_version_id=?`)
+          .bind(now, actorId, workspaceId, engagement.id, engagement.version, expectedCurrentProposalVersionId),
+        env.DB.prepare(`INSERT INTO state_transitions(id,workspace_id,client_id,engagement_id,version,from_state,to_state,command_id,reason,dependency_hash,transitioned_at)
+          SELECT ?,?,?,?,1,'DUAL_KEY_PENDING','PROPOSAL_GENERATION',?,?,?,? WHERE changes()=1`)
+          .bind(transitionId, workspaceId, engagement.client_id, engagement.id, commandId, transitionReason, transitionDependencyHash, now)
+      ] : [])
     ];
     return {
       statements,
-      result: { proposalId, proposalVersionId, revision, mode: input.mode, feeMinor: input.feeMinor, currency: 'QAR', advanceMinor: String(Math.floor(Number(input.feeMinor) / 2) + (Number(input.feeMinor) % 2)), finalMinor: String(Math.floor(Number(input.feeMinor) / 2)) },
+      result: { proposalId, proposalVersionId, revision, mode: input.mode, feeMinor: input.feeMinor, currency: 'QAR', advanceMinor: String(Math.floor(Number(input.feeMinor) / 2) + (Number(input.feeMinor) % 2)), finalMinor: String(Math.floor(Number(input.feeMinor) / 2)), lifecycleState: 'PROPOSAL_GENERATION' },
       entityType: 'PROPOSAL_VERSION', entityId: proposalVersionId, beforeVersion: null, afterVersion: 1,
-      auditDetails: { proposalId, proposalVersionId, revision, firmProfileVersion: firm.version, methodologyVersion, teamCvFileVersionIds: cvSnapshot.map(cv => cv.fileVersionId) }
+      ...(reopenProposalGeneration ? { additionalAuditEvents: [{ entityType: 'ENGAGEMENT', entityId: engagement.id, clientId: engagement.client_id,
+        beforeVersion: engagement.version, afterVersion: engagement.version + 1, details: { fromState: 'DUAL_KEY_PENDING', toState: 'PROPOSAL_GENERATION', transitionId } }] } : {}),
+      auditDetails: { proposalId, proposalVersionId, revision, firmProfileVersion: firm.version, methodologyVersion,
+        teamCvFileVersionIds: cvSnapshot.map(cv => cv.fileVersionId), ...(reopenProposalGeneration ? { transitionId, supersededProposalVersionId: expectedCurrentProposalVersionId } : {}) }
     };
   }
 
