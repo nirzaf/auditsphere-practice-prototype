@@ -501,6 +501,11 @@ export interface BusinessStatementLine {
   varianceDenominator: string | null; variancePercent: number | null; varianceReason: 'CALCULATED' | 'NEW_BALANCE' | 'ZERO_BOTH' | 'NO_COMPARATIVE';
   riskBand: 'GREEN' | 'AMBER' | 'RED';
 }
+export interface BusinessStatementSourceRow {
+  tbLineId: string; sourceRowNumber: number; accountCode: string; accountName: string; currentRawMinor: string; currentPresentedMinor: string;
+  priorRawMinor: string | null; priorPresentedMinor: string | null; displaySign: number;
+}
+export type BusinessStatementLineWithSources = BusinessStatementLine & { sourceRows: BusinessStatementSourceRow[] };
 export interface BusinessFsliSourceLinesPage {
   sourcePins: Record<string, string | number | null>;
   sourceHash: string;
@@ -516,17 +521,20 @@ export interface BusinessFsliSourceLinesPage {
 }
 export interface BusinessFinancialStatements {
   engagementId: string; sourcePins: Record<string, string | number | null>; sourceHash: string; adjustmentSetHash: string; basis: 'ADJUSTED';
-  profitLoss: BusinessStatementLine[]; balanceSheet: BusinessStatementLine[];
+  profitLoss: BusinessStatementLineWithSources[]; balanceSheet: BusinessStatementLineWithSources[];
   reconciliation: { assetsMinor: string; liabilitiesMinor: string; equityMinor: string; currentResultMinor: string;
     equityIncludingCurrentResultMinor: string; differenceMinor: string; balanced: boolean };
   blockers: Array<{ code: string; differenceMinor: string; message: string }>;
+}
+export interface BusinessFinancialStatementsSummary extends Omit<BusinessFinancialStatements, 'profitLoss' | 'balanceSheet'> {
+  profitLoss: BusinessStatementLine[]; balanceSheet: BusinessStatementLine[];
 }
 export interface BusinessFieldworkWorkspace {
   engagement: { id: string; version: number; clientId: string; state: string; periodStart: string; periodEnd: string; standardsProfileId: string; activeTbVersionId: string | null; activeMappingVersionId: string | null; approvedPlanningVersionId: string | null };
   staff: Array<{ id: string; displayName: string; grade: StaffGrade }>;
   evidenceLinks: Array<{ id: string; evidenceId: string; evidenceVersion: number; targetVersion: number; targetType: string; targetId: string;
     currentEvidenceVersion: number; unlinkReason: string | null; unlinkActorId: string | null; unlinkedAt: string | null; linkedAt: string }>;
-  statements: BusinessFinancialStatements;
+  statements: BusinessFinancialStatementsSummary;
   templates: Array<{ id: string; version: number; fsliCode: string; revision: number; title: string; standardsProfileId: string; status: string; approvedByActorId: string | null; approvedAt: string | null; activeAsOfToday: boolean | number; latestPolicyAction: 'ACTIVATE' | 'RETIRE' | null; latestPolicyEffectiveFrom: string | null; latestPolicyReason: string | null }>;
   analyticalReviews: Array<Record<string, unknown>>;
   goingConcern: null | { id: string; version: number; revision: number; isa570Edition: string; assessmentStart: string; assessmentEnd: string; checklist: Record<string, boolean>;

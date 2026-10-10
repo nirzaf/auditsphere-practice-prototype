@@ -150,7 +150,12 @@ export function isBusinessFieldworkCommand(command: { type: string }): command i
 type Engagement = { id: string; version: number; client_id: string; lifecycle_state: string; period_start: string; period_end: string; locked_at: string | null; standards_profile_id: string; active_tb_version_id: string | null; active_mapping_version_id: string | null; active_materiality_version_id: string | null; approved_planning_version_id: string | null };
 export type ConfirmationGateEngagement = Pick<Engagement, 'id' | 'version' | 'client_id' | 'active_tb_version_id' | 'active_mapping_version_id' | 'active_materiality_version_id'>;
 export type CriticalConfirmationBlocker = { id: string; version: number; type: string; status: string; dueDate: string; sourceHash: string; externalPartyName: string; criticalityReason: string; stalePins: boolean };
-type StatementLine = { fsliId: string; code: string; name: string; statement: string; category: string; displaySign: number; currentBaseMinor: number; currentAdjustmentMinor: number; currentAdjustedMinor: number; priorMinor: number | null; varianceNumerator: string | null; varianceDenominator: string | null; variancePercent: number | null; varianceReason: string; riskBand: string };
+type StatementLine = { fsliId: string; code: string; name: string; statement: string; category: string; displaySign: number; currentBaseMinor: number; currentAdjustmentMinor: number; currentAdjustedMinor: number; priorMinor: number | null; varianceNumerator: string | null; varianceDenominator: string | null; variancePercent: number | null; varianceReason: string; riskBand: string;
+  sourceRows: Array<{ tbLineId: string; sourceRowNumber: number; accountCode: string; accountName: string; currentRawMinor: string; currentPresentedMinor: string;
+    priorRawMinor: string | null; priorPresentedMinor: string | null; displaySign: number }> };
+function statementSummary(line:StatementLine):Omit<StatementLine,'sourceRows'>{
+  const {sourceRows,...summary}=line;void sourceRows;return summary;
+}
 
 export function isIsa570EditionCompatible(periodStart: string, isa570Edition: string): boolean {
   return periodStart < '2026-12-15' || /2024/i.test(isa570Edition);
@@ -331,7 +336,10 @@ async function financialStatements(env:Env,workspaceId:string,context:BusinessCo
     const variance=calculateStatementVariance(current,prior);
     return {fsliId,code:String(item.code),name:String(item.name),statement:String(item.statement),category:String(item.category),displaySign:sign,
       currentBaseMinor:currentBase,currentAdjustmentMinor:adjustment,currentAdjustedMinor:current,priorMinor:prior,varianceNumerator:variance.numerator,varianceDenominator:variance.denominator,
-      variancePercent:variance.percent,varianceReason:variance.reason,riskBand:riskMap.get(fsliId)??'GREEN'};
+      variancePercent:variance.percent,varianceReason:variance.reason,riskBand:riskMap.get(fsliId)??'GREEN',
+      sourceRows:contributors.map(row=>({tbLineId:String(row.tbLineId),sourceRowNumber:Number(row.sourceRowNumber),accountCode:String(row.accountCode),accountName:String(row.accountName),
+        currentRawMinor:String(row.currentRawMinor),currentPresentedMinor:(BigInt(String(row.currentRawMinor))*BigInt(sign)).toString(),priorRawMinor:row.priorRawMinor===null?null:String(row.priorRawMinor),
+        priorPresentedMinor:row.priorRawMinor===null?null:(BigInt(String(row.priorRawMinor))*BigInt(sign)).toString(),displaySign:sign}))};
   });
   const profitLoss=lines.filter(line=>line.statement==='PROFIT_LOSS');
   const balanceSheet=lines.filter(line=>line.statement==='BALANCE_SHEET');
@@ -533,7 +541,8 @@ export async function getBusinessFieldworkWorkspace(env:Env,workspaceId:string,c
   return {engagement:{id:engagement.id,version:engagement.version,clientId:engagement.client_id,state:engagement.lifecycle_state,periodStart:engagement.period_start,periodEnd:engagement.period_end,standardsProfileId:engagement.standards_profile_id,
       activeTbVersionId:engagement.active_tb_version_id,activeMappingVersionId:engagement.active_mapping_version_id,approvedPlanningVersionId:engagement.approved_planning_version_id},
     staff:staff.results??[],evidenceLinks:evidenceLinks.results??[],
-    statements,templates:templates.results??[],analyticalReviews:reviews.results??[],goingConcern:going?{...going,checklist:JSON.parse(String(going.checklistJson))}:null,
+    statements:{...statements,profitLoss:statements.profitLoss.map(statementSummary),balanceSheet:statements.balanceSheet.map(statementSummary)},
+    templates:templates.results??[],analyticalReviews:reviews.results??[],goingConcern:going?{...going,checklist:JSON.parse(String(going.checklistJson))}:null,
     workprograms:programs.results??[],procedures:procedures.results??[],reviewSubmissions:reviewSubmissions.results??[],reviewNotes:reviewNotes.results??[],findings:findings.results??[],adjustments:adjustmentRows,
     differences:differences.results??[],srmVersions:srmRows,materiality,confirmations:confirmations.results??[],confirmationFollowups:confirmationFollowups.results??[],confirmationAlternatives:confirmationAlternatives.results??[],confirmationReassessments:confirmationReassessments.results??[],
     evidence:evidence.results??[],samplingPolicies:policies.results??[],populations:populations.results??[],samplingPlans:samplingPlanRows.map(row=>({...row,parameters:JSON.parse(String(row.parametersJson))})),changeCursor:changes?.cursor??0};
