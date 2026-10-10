@@ -43,3 +43,36 @@ npx wrangler deploy --env production --dry-run --outdir /tmp/wrangler-dry-prod
 ## Stop and ask if
 - SP-04/D5 is unanswered (location cannot be changed after D1 creation).
 - The custom domain (D6) is unknown — leave `routes` commented with a TODO and say so.
+
+## Implementation progress
+
+**Code-side configuration is implemented; the story is not accepted yet.** The
+app Wrangler file now defines isolated staging/production Workers, D1/R2
+bindings, rate-limit namespaces, Email Provider service bindings, vars, and
+cron triggers, plus a local-only dev environment with local D1/R2 and no Email
+Provider binding. D1 IDs remain placeholders, both app Workers have
+`workers_dev: false`, and the production route is a D6 TODO. CI keeps `verify`
+unchanged, gates staging deploys on completed setup, and restricts production
+to approved `workflow_dispatch`; readiness checks can use a Cloudflare Access
+service token. The lock-rule updater selects and validates its environment's
+bucket. Local `dev`/`preview` use the local binding shape and local storage.
+
+Cloud resources were not created or changed. D5 is still awaiting the firm's
+written residency/transfer decision; D6 still lacks an approved AuditSphere
+hostname and trusted perimeter. Deployment also needs owner-created resources,
+Worker secrets, GitHub environment variables/secrets (including the separate
+R2 lock token), and a protected readiness URL. Do not mark resource provisioning,
+staging deployment/readiness, production cutover, or this story fully accepted
+until those external gates have evidence.
+
+**Verification — 2026-10-10:** `tests/unit/wranglerConfig.test.ts` passed (2/2);
+`npm run cloud:typecheck`, `npm run build`, `git diff --check`, and Wrangler
+4.147 dry runs for both `--env staging` and `--env production` passed. The
+`npm run dev` build and local binding resolution succeeded, but the local
+workerd runtime exited before listening with `CreateDirectory: #5 Access is
+denied; path = miniflare-email-store`, including with `--persist-to` pointed at
+a temporary directory and execution outside the sandbox. No UI smoke was
+possible because port 3000 never opened. Treat the local server acceptance as
+unverified pending a machine/runtime that can create Miniflare's email-store
+directory; this is not recorded as a product-code pass. No remote deploy or
+resource mutation was run.

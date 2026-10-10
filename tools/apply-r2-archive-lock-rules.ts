@@ -6,10 +6,25 @@ type LockResponse = { success?: boolean; result?: { rules?: ExistingLockRule[] }
 
 // CI uses a dedicated R2 configuration token so the general Worker/D1 deploy
 // token does not also carry account-wide R2 bucket and object permissions.
-// Local `cloud:deploy` may continue to use Wrangler's shared API token.
+// A local operator may fall back to Wrangler's API token when applying either
+// explicitly selected environment; CI always uses the dedicated R2 token.
 const token = resolveR2LockToken(process.env);
 const accountId = process.env.CLOUDFLARE_ACCOUNT_ID;
-const bucketName = process.env.AUDITSPHERE_R2_BUCKET ?? 'auditsphere-prototype-files';
+const environmentOption = process.argv.indexOf('--environment');
+const environment = environmentOption >= 0 ? process.argv[environmentOption + 1] : undefined;
+const bucketByEnvironment = {
+  staging: 'auditsphere-staging-files',
+  production: 'auditsphere-production-files'
+} as const;
+if (environment !== 'staging' && environment !== 'production') {
+  throw new Error('Pass --environment staging or --environment production before applying R2 archive lock rules.');
+}
+const expectedBucket = bucketByEnvironment[environment];
+const configuredBucket = process.env.AUDITSPHERE_R2_BUCKET;
+if (configuredBucket && configuredBucket !== expectedBucket) {
+  throw new Error(`R2 bucket ${configuredBucket} does not match the ${environment} environment (${expectedBucket}).`);
+}
+const bucketName = configuredBucket ?? expectedBucket;
 if (!token || !accountId) throw new Error('CLOUDFLARE_R2_LOCKS_TOKEN (or local CLOUDFLARE_API_TOKEN) and CLOUDFLARE_ACCOUNT_ID are required to apply archive lock rules.');
 
 const endpoint = `https://api.cloudflare.com/client/v4/accounts/${encodeURIComponent(accountId)}/r2/buckets/${encodeURIComponent(bucketName)}/lock`;

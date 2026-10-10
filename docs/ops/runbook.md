@@ -6,13 +6,15 @@ See [operational alert definitions, response steps, and staging evidence status]
 
 | Binding | Resource | Source of truth |
 | --- | --- | --- |
-| `env.DB` | D1 `steaudit-prototype-demo` (`3562b9c7-742b-4a64-b250-64e1987f9b4b`) | `wrangler.jsonc` |
-| `env.FILES` | R2 `auditsphere-prototype-files` | `wrangler.jsonc` |
+| Staging `env.DB` / `env.FILES` | D1 `auditsphere-staging` / R2 `auditsphere-staging-files` | `wrangler.jsonc` `env.staging` (D1 ID awaits D5/resource creation) |
+| Production `env.DB` / `env.FILES` | D1 `auditsphere-production` / R2 `auditsphere-production-files` | `wrangler.jsonc` `env.production` (D1 ID awaits D5/resource creation) |
 | `env.ASSETS` | built `dist/` | `wrangler.jsonc` `assets` |
-| `env.ALLOWED_ORIGINS` | optional | only needed for a cross-origin deployment |
+| `env.EMAIL_PROVIDER` | per-environment private Email Provider Worker | `wrangler.jsonc` `env.<environment>.services` |
 
-Deployed at `https://auditsphere-visual-prototype.quadrate-lk.workers.dev`
-(workers.dev subdomain). No custom domain, DNS record or Pages route was changed.
+The legacy `auditsphere-visual-prototype` Worker still serves its existing
+workers.dev URL. It is not the new staging environment and remains in place
+until an approved cutover. The named environments have no public route until
+D6 and the trusted perimeter are configured.
 
 ## Local development
 
@@ -26,9 +28,15 @@ npm.cmd run cloud:typecheck  # typechecks the Worker + its transitive src import
 
 ```powershell
 npm.cmd run cloud:typecheck
-npm.cmd run cloud:migrate    # wrangler d1 migrations apply ... --remote --config wrangler.jsonc
-npm.cmd run cloud:deploy     # npm run build && wrangler deploy --config wrangler.jsonc
+npm.cmd run cloud:deploy:staging
 ```
+
+These commands target remote staging and require D5 approval, provisioned
+isolated resources, scoped Cloudflare credentials, installed Worker secrets,
+and an Access-protected staging route. Main-branch CI is the supported deploy
+path. Production deploys only through an approved `workflow_dispatch` with
+`confirm_production_deploy=true` and the `cloudflare-production` environment
+approval.
 
 > `npm` is blocked in some PowerShell sessions by execution policy; use
 > `npm.cmd` / `npx.cmd`. `wrangler` is a devDependency, so

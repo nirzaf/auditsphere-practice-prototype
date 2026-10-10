@@ -1,6 +1,23 @@
 import { APPLICATION_SCHEMA_VERSION } from '../worker/versions.js';
 
-const endpoint = 'https://auditsphere-visual-prototype.quadrate-lk.workers.dev/api/health/ready';
+const endpoint = process.env.AUDITSPHERE_READINESS_URL
+  ?? 'https://auditsphere-visual-prototype.quadrate-lk.workers.dev/api/health/ready';
+const readinessUrl = new URL(endpoint);
+if (readinessUrl.protocol !== 'https:' || readinessUrl.username || readinessUrl.password) {
+  throw new Error('AUDITSPHERE_READINESS_URL must be an HTTPS URL without embedded credentials.');
+}
+const accessClientId = process.env.CF_ACCESS_CLIENT_ID;
+const accessClientSecret = process.env.CF_ACCESS_CLIENT_SECRET;
+if (Boolean(accessClientId) !== Boolean(accessClientSecret)) {
+  throw new Error('CF_ACCESS_CLIENT_ID and CF_ACCESS_CLIENT_SECRET must be supplied together.');
+}
+const readinessHeaders: Record<string, string> = {
+  accept: 'application/json',
+  ...(accessClientId && accessClientSecret ? {
+    'CF-Access-Client-Id': accessClientId,
+    'CF-Access-Client-Secret': accessClientSecret
+  } : {})
+};
 const maxAttempts = 12;
 const deadline = Date.now() + 90_000;
 let lastFailure = 'no response received';
@@ -9,7 +26,7 @@ let verified = false;
 for (let attempt = 1; attempt <= maxAttempts && Date.now() < deadline; attempt += 1) {
   try {
     const response = await fetch(endpoint, {
-      headers: { accept: 'application/json' },
+      headers: readinessHeaders,
       signal: AbortSignal.timeout(Math.min(10_000, Math.max(1_000, deadline - Date.now())))
     });
     let payload: unknown;

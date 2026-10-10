@@ -1,22 +1,13 @@
-// Cloudflare Worker for the AuditSphere prototype.
-//
-// One Worker serves BOTH the built React/Vite app (Workers Static Assets from
-// dist/) and the JSON API under /api/*, same-origin, with D1 for structured
-// workspace state and R2 for exact file bytes.
-//
-// Design note: this uses Wrangler's first-class `assets.directory` static-asset
-// support instead of the @cloudflare/vite-plugin. Both produce the same runtime
-// shape (one Worker serving assets + API), but this route leaves the existing
-// `vite build` output and the Cloudflare Pages deployment byte-for-byte
-// unchanged, which keeps deployments low-risk (see
-// docs/prototype/cloud-full-stack-migration.md).
+// AuditSphere app Worker. Environment bindings are deliberately isolated.
+// Resource IDs remain placeholders until the firm records data residency (D5).
 {
   "$schema": "./node_modules/wrangler/config-schema.json",
-  "name": "auditsphere-visual-prototype",
+  // The base is not a deployment target; scripts and CI select staging/production.
+  "name": "auditsphere-config-only",
   "main": "worker/index.ts",
   "compatibility_date": "2026-09-30",
   "compatibility_flags": ["nodejs_compat"],
-  "workers_dev": true,
+  "workers_dev": false,
 
   "assets": {
     "directory": "./dist",
@@ -25,50 +16,99 @@
     "run_worker_first": ["/api/*"]
   },
 
-  "d1_databases": [
-    {
-      "binding": "DB",
-      "database_name": "steaudit-prototype-demo",
-      "database_id": "3562b9c7-742b-4a64-b250-64e1987f9b4b",
-      "migrations_dir": "worker/migrations"
-    }
-  ],
-
-  "r2_buckets": [
-    {
-      "binding": "FILES",
-      "bucket_name": "auditsphere-prototype-files"
-    }
-  ],
-
-  // General API limit complements the durable public-lead hourly enforcement.
-  "ratelimits": [
-    { "name": "RATE_LIMITER", "namespace_id": "420060201", "simple": { "limit": 1000, "period": 60 } }
-  ],
-
-  // --- Optional integrations (see docs/prototype/integration-configuration.md) ---
-  // Email delivery (US-GAP-05/06): CI deploys the internal provider first. Public
-  // website inquiries notify the firm's AuditSphere inbox through this private
-  // service binding; arbitrary client-recipient sending is not enabled.
-  "services": [{ "binding": "EMAIL_PROVIDER", "service": "auditsphere-email-provider", "environment": "production" }],
-  //
-  // SharePoint / Microsoft Graph document integration (US-GAP-25..28): site and
-  // app identifiers are configured below. Supply SHAREPOINT_CLIENT_SECRET using
-  // Cloudflare Worker secrets after the site-specific Sites.Selected grant.
-  "vars": {
-    "ENVIRONMENT": "production",
-    "SHAREPOINT_TENANT_ID": "4de3e6fd-51aa-4ba7-b2c5-82106d2e45f0",
-    "SHAREPOINT_CLIENT_ID": "69eddc6b-194f-411a-9d77-5b96fa1602ad",
-    "SHAREPOINT_SITE_HOSTNAME": "easyguide.sharepoint.com",
-    "SHAREPOINT_SITE_PATH": "/sites/AuditSphereJSAcceptance",
-    "SHAREPOINT_DRIVE_NAME": "Documents",
-    "PUBLIC_LEAD_DEFAULT_COUNTRY_CODE": "QA",
-    "PUBLIC_LEAD_NOTIFICATION_EMAIL": "audit@steaudit.com",
-    "PUBLIC_LEAD_ALLOWED_ORIGINS": "https://www.steaudit.com",
-    "PUBLIC_LEAD_TURNSTILE_HOSTNAMES": "www.steaudit.com"
-  },
-
   "observability": { "enabled": true },
 
-  "triggers": { "crons": ["* * * * *"] }
+  "env": {
+    "local": {
+      "name": "auditsphere-local",
+      "workers_dev": false,
+      "d1_databases": [{
+        "binding": "DB",
+        "database_name": "auditsphere-local",
+        "database_id": "00000000-0000-0000-0000-000000000000",
+        "migrations_dir": "worker/migrations"
+      }],
+      "r2_buckets": [{
+        "binding": "FILES",
+        "bucket_name": "auditsphere-local-files"
+      }],
+      "vars": {
+        "ENVIRONMENT": "local",
+        "PUBLIC_LEAD_DEFAULT_COUNTRY_CODE": "QA",
+        "PUBLIC_LEAD_ALLOWED_ORIGINS": "",
+        "PUBLIC_LEAD_TURNSTILE_HOSTNAMES": ""
+      }
+    },
+    "staging": {
+      "name": "auditsphere-staging",
+      "workers_dev": false,
+      "d1_databases": [{
+        "binding": "DB",
+        "database_name": "auditsphere-staging",
+        "database_id": "REPLACE_WITH_STAGING_D1_DATABASE_ID",
+        "migrations_dir": "worker/migrations"
+      }],
+      "r2_buckets": [{
+        "binding": "FILES",
+        "bucket_name": "auditsphere-staging-files"
+      }],
+      "ratelimits": [{
+        "name": "RATE_LIMITER",
+        "namespace_id": "2026101001",
+        "simple": { "limit": 1000, "period": 60 }
+      }],
+      "services": [{
+        "binding": "EMAIL_PROVIDER",
+        "service": "auditsphere-email-provider",
+        "environment": "staging"
+      }],
+      "vars": {
+        "ENVIRONMENT": "staging",
+        "SHAREPOINT_TENANT_ID": "4de3e6fd-51aa-4ba7-b2c5-82106d2e45f0",
+        "SHAREPOINT_CLIENT_ID": "69eddc6b-194f-411a-9d77-5b96fa1602ad",
+        "SHAREPOINT_SITE_HOSTNAME": "easyguide.sharepoint.com",
+        "SHAREPOINT_SITE_PATH": "/sites/AuditSphereJSAcceptance",
+        "SHAREPOINT_DRIVE_NAME": "Documents",
+        "PUBLIC_LEAD_DEFAULT_COUNTRY_CODE": "QA",
+        "PUBLIC_LEAD_NOTIFICATION_EMAIL": "testing@mail.steauditing.com",
+        "PUBLIC_LEAD_ALLOWED_ORIGINS": "",
+        "PUBLIC_LEAD_TURNSTILE_HOSTNAMES": ""
+      },
+      "triggers": { "crons": ["* * * * *"] }
+    },
+    "production": {
+      "name": "auditsphere",
+      "workers_dev": false,
+      "d1_databases": [{
+        "binding": "DB",
+        "database_name": "auditsphere-production",
+        "database_id": "REPLACE_WITH_PRODUCTION_D1_DATABASE_ID",
+        "migrations_dir": "worker/migrations"
+      }],
+      "r2_buckets": [{
+        "binding": "FILES",
+        "bucket_name": "auditsphere-production-files"
+      }],
+      "ratelimits": [{
+        "name": "RATE_LIMITER",
+        "namespace_id": "2026101002",
+        "simple": { "limit": 1000, "period": 60 }
+      }],
+      "services": [{
+        "binding": "EMAIL_PROVIDER",
+        "service": "auditsphere-email-provider",
+        "environment": "production"
+      }],
+      "vars": {
+        "ENVIRONMENT": "production",
+        "PUBLIC_LEAD_DEFAULT_COUNTRY_CODE": "QA",
+        "PUBLIC_LEAD_NOTIFICATION_EMAIL": "audit@steaudit.com",
+        "PUBLIC_LEAD_ALLOWED_ORIGINS": "https://www.steaudit.com",
+        "PUBLIC_LEAD_TURNSTILE_HOSTNAMES": "www.steaudit.com"
+      },
+      "triggers": { "crons": ["* * * * *"] }
+      // TODO(D6): add the approved custom-domain route after the firm selects
+      // the product hostname and a trusted perimeter. Do not expose workers.dev.
+    }
+  }
 }
