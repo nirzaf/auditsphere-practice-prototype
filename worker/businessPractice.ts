@@ -148,6 +148,16 @@ function reviewerOrPartner(context:BusinessContext):void { if(!(context.actor.pe
 function internal(context:BusinessContext):void { if(context.actor.persona==='CLIENT')throw new ApiError('PERSONA_ACTION_DENIED','Client profiles cannot use firm practice-management records.'); }
 function safeNumber(value:bigint):number { const n=Number(value); if(!Number.isSafeInteger(n))throw new ApiError('VALIDATION_FAILED','The amount is outside supported QAR minor-unit precision.'); return n; }
 function roundHalfUp(numerator:bigint,denominator:bigint):bigint { if(denominator<=0n)throw new ApiError('VALIDATION_FAILED','A positive denominator is required.'); return (numerator*2n+denominator)/(2n*denominator); }
+export function summarizeEngagementMargin(feeMinor:bigint,chargeOutNumerator:bigint){
+  const chargeOutValueMinor=roundHalfUp(chargeOutNumerator,60n);
+  return {chargeOutDenominator:'60',chargeOutValueMinor:String(chargeOutValueMinor),profitabilityMinor:String(feeMinor-chargeOutValueMinor)};
+}
+export function summarizePhaseVariance(phase:string,plannedMinutes:number,actualMinutes:number){
+  const varianceMinutes=actualMinutes-plannedMinutes;
+  return {phase,plannedMinutes,actualMinutes,varianceMinutes,
+    varianceBps:plannedMinutes>0?Math.round(varianceMinutes*10000/plannedMinutes):null,
+    varianceStatus:plannedMinutes===0&&actualMinutes>0?'UNBUDGETED':plannedMinutes===0?'NO_ACTIVITY':varianceMinutes>0?'OVERRUN':varianceMinutes<0?'UNDER_BUDGET':'ON_BUDGET'};
+}
 function qatarDate():string{return new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Qatar',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());}
 function dateRange(from:string,to:string,maxDays=366):string[]{
   if(from>to)throw new ApiError('VALIDATION_FAILED','The period end must not precede the start.');
@@ -556,15 +566,15 @@ async function profitability(env:Env,workspaceId:string,context:BusinessContext,
   for(const row of rows.results??[]){const key=`${row.phase}:${row.grade}`,current=groupedRows.get(key)??{phase:row.phase,grade:row.grade,minutes:0,numerator:0n};current.minutes+=Number(row.minutes);current.numerator+=BigInt(row.charge_numerator);groupedRows.set(key,current);}
   const groups=[...groupedRows.values()].sort((a,b)=>`${a.phase}:${a.grade}`.localeCompare(`${b.phase}:${b.grade}`));
   for(const row of groups){numerator+=row.numerator;approvedMinutes+=row.minutes;}
-  const rounded=roundHalfUp(numerator,60n),grouped=allocateRounded(rounded,groups.map(row=>({key:`${row.phase}:${row.grade}`,numerator:row.numerator})));
+  const margin=summarizeEngagementMargin(BigInt(accepted.fee_minor),numerator),rounded=BigInt(margin.chargeOutValueMinor);
+  const grouped=allocateRounded(rounded,groups.map(row=>({key:`${row.phase}:${row.grade}`,numerator:row.numerator})));
   const budgetLines=await env.DB.prepare(`SELECT phase,grade,planned_minutes,hourly_minor_snapshot FROM engagement_budget_phases WHERE workspace_id=? AND budget_id=? ORDER BY phase,grade`).bind(workspaceId,budget.id)
     .all<{phase:string;grade:string;planned_minutes:number;hourly_minor_snapshot:number}>();
   const phasesOut=[];
   for(const phase of phaseValues){
     const planned=(budgetLines.results??[]).filter(line=>line.phase===phase).reduce((sum,line)=>sum+Number(line.planned_minutes),0);
-    const actual=groups.filter(line=>line.phase===phase).reduce((sum,line)=>sum+line.minutes,0),delta=actual-planned;
-    phasesOut.push({phase,plannedMinutes:planned,actualMinutes:actual,varianceMinutes:delta,
-      varianceBps:planned>0?Math.round(delta*10000/planned):null,varianceStatus:planned===0&&actual>0?'UNBUDGETED':planned===0?'NO_ACTIVITY':delta>0?'OVERRUN':delta<0?'UNDER_BUDGET':'ON_BUDGET',
+    const actual=groups.filter(line=>line.phase===phase).reduce((sum,line)=>sum+line.minutes,0);
+    phasesOut.push({...summarizePhaseVariance(phase,planned,actual),
       chargeOutValueMinor:String(groups.filter(line=>line.phase===phase).reduce((sum,line)=>sum+(grouped.get(`${line.phase}:${line.grade}`)??0n),0n))});
   }
   const pending=await env.DB.prepare(`SELECT COALESCE(SUM(t.minutes),0) AS minutes FROM firm_time_entries t
@@ -587,7 +597,7 @@ async function profitability(env:Env,workspaceId:string,context:BusinessContext,
   return {engagementId,asOf,budgetId:budget.id,budgetRevision:budget.revision,feeProposalVersionId:budget.fee_proposal_version_id,
     feeProposalRevision:accepted.fee_proposal_revision,engagementLetterId:accepted.engagement_letter_id,letterRevision:accepted.letter_revision,acceptedAt:accepted.issued_at,
     acceptedFeeRevisions,feeMinor:String(accepted.fee_minor),
-    approvedMinutes,chargeOutNumerator:String(numerator),chargeOutDenominator:'60',chargeOutValueMinor:String(rounded),profitabilityMinor:String(BigInt(accepted.fee_minor)-rounded),
+    approvedMinutes,chargeOutNumerator:String(numerator),...margin,
     phases:phasesOut,phaseVariances:phasesOut,pendingMinutes,billedMinor,collectedMinor,
     metricLabel:'Engagement margin against charge-out value',formula:'Accepted contract fee less approved hours multiplied by each pinned grade charge-out rate. This is a management metric, not accounting profit or payroll cost.',sourceHash};
 }
