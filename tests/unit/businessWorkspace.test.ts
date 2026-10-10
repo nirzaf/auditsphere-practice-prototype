@@ -3322,11 +3322,41 @@ it('bootstraps a no-session BUSINESS workspace, records manual dispatch and main
   }, approverHeaders);
   assert.equal(managerPreparerProfile.response.status, 200, JSON.stringify(managerPreparerProfile.body));
   const managerPreparerHeaders = { 'X-Actor-Id': managerPreparerProfile.body.result.actorProfileId as string, 'X-Active-Persona': 'PREPARER' };
+  const secondManagerStaff = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'staff.create', payload: {
+      displayName: 'Second Local Manager', naturalPersonKey: `TEST-PERSON-${crypto.randomUUID()}`,
+      email: `second.manager.${crypto.randomUUID()}@example.invalid`, grade: 'MANAGER'
+    } }
+  }, samplingApproverHeaders);
+  assert.equal(secondManagerStaff.response.status, 200, JSON.stringify(secondManagerStaff.body));
+  const secondManagerPreparerProfile = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'actor-profile.assign', payload: {
+      persona: 'PREPARER', staffMemberId: secondManagerStaff.body.result.staffMemberId
+    } }
+  }, samplingApproverHeaders);
+  assert.equal(secondManagerPreparerProfile.response.status, 200, JSON.stringify(secondManagerPreparerProfile.body));
+  const secondManagerPreparerHeaders = makeRiskHeaders({ 'X-Actor-Id': secondManagerPreparerProfile.body.result.actorProfileId as string, 'X-Active-Persona': 'PREPARER' });
+  const earlierRedProcedureVersion = Number(db.prepare('SELECT version FROM procedures WHERE workspace_id=? AND id=?')
+    .bind(workspaceId, revenueProcedureIds[0]).first<any>()?.version);
+  const secondManagerRedExecution = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'procedure.update', payload: {
+      procedureId: revenueProcedureIds[0], expectedVersion: earlierRedProcedureVersion,
+      workPerformed: 'The second Manager rechecked the original Manager work and retained the source recalculation.',
+      conclusion: 'The second Manager confirmed the evidence and preserved the original contributor in the revision history.'
+    } }
+  }, secondManagerPreparerHeaders);
+  assert.equal(secondManagerRedExecution.response.status, 200, JSON.stringify(secondManagerRedExecution.body));
+  assert.equal(db.prepare('SELECT prepared_by_staff_id FROM procedures WHERE workspace_id=? AND id=?')
+    .bind(workspaceId,revenueProcedureIds[0]).first<any>()?.prepared_by_staff_id,staff.body.result.staffMemberId,
+    'later procedure edits preserve the original preparer identity');
+  assert.equal(db.prepare('SELECT executed_by_staff_id FROM procedures WHERE workspace_id=? AND id=?')
+    .bind(workspaceId,revenueProcedureIds[0]).first<any>()?.executed_by_staff_id,secondManagerStaff.body.result.staffMemberId,
+    'the current revision records its executing Manager separately');
   const redProcedureEvidenceLink = await post(`/api/workspaces/${workspaceId}/commands`, {
     idempotencyKey: crypto.randomUUID(), command: { type: 'evidence.link', payload: {
-      evidenceId: hybridEvidence.body.result.evidenceId, evidenceVersion: 1, targetVersion: 3, procedureId: revenueProcedureIds[0]
+      evidenceId: hybridEvidence.body.result.evidenceId, evidenceVersion: 1, targetVersion: secondManagerRedExecution.body.result.version, procedureId: revenueProcedureIds[0]
     } }
-  }, managerPreparerHeaders);
+  }, secondManagerPreparerHeaders);
   assert.equal(redProcedureEvidenceLink.response.status, 200, JSON.stringify(redProcedureEvidenceLink.body));
   const redProcedureVersionBeforeSubmit = Number(db.prepare('SELECT version FROM procedures WHERE workspace_id=? AND id=?')
     .bind(workspaceId, revenueProcedureIds[0]).first<any>()?.version);
@@ -3334,8 +3364,19 @@ it('bootstraps a no-session BUSINESS workspace, records manual dispatch and main
     idempotencyKey: crypto.randomUUID(), command: { type: 'procedure.submit', payload: {
       procedureId: revenueProcedureIds[0], expectedVersion: redProcedureVersionBeforeSubmit
     } }
-  }, managerPreparerHeaders);
+  }, secondManagerPreparerHeaders);
   assert.equal(redManagerSubmission.response.status, 200, JSON.stringify(redManagerSubmission.body));
+  const immutableRedSubmission = db.prepare('SELECT contributor_natural_person_keys_json,snapshot_json FROM review_submissions WHERE workspace_id=? AND id=?')
+    .bind(workspaceId,redManagerSubmission.body.result.reviewSubmissionId).first<any>();
+  const redContributorKeys = JSON.parse(immutableRedSubmission.contributor_natural_person_keys_json) as string[];
+  const originalManagerNaturalPersonKey = db.prepare('SELECT natural_person_key FROM staff_members WHERE workspace_id=? AND id=?')
+    .bind(workspaceId,staff.body.result.staffMemberId).first<any>()?.natural_person_key;
+  const secondManagerNaturalPersonKey = db.prepare('SELECT natural_person_key FROM staff_members WHERE workspace_id=? AND id=?')
+    .bind(workspaceId,secondManagerStaff.body.result.staffMemberId).first<any>()?.natural_person_key;
+  assert.ok(redContributorKeys.includes(originalManagerNaturalPersonKey), 'the earlier procedure contributor remains pinned after later edits');
+  assert.ok(redContributorKeys.includes(secondManagerNaturalPersonKey), 'the current Manager execution is pinned in the same submission');
+  assert.deepEqual(JSON.parse(immutableRedSubmission.snapshot_json).contributorNaturalPersonKeys, redContributorKeys,
+    'the immutable JSON snapshot and normalized contributor-key column agree');
   const redManagerSelfReview = await post(`/api/workspaces/${workspaceId}/commands`, {
     idempotencyKey: crypto.randomUUID(), command: { type: 'review.decide', payload: {
       submissionId: redManagerSubmission.body.result.reviewSubmissionId, decision: 'ACCEPT',

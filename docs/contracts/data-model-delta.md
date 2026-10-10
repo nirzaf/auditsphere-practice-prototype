@@ -335,3 +335,7 @@ E05-S01 (milestone defaults), E05-S02 (workprogram gates), E05-S03 (going-concer
 ## 11. US-REP-004 immutable representation wording — migration 0056
 
 `representation_template_approvals` stores one append-only approval per request: the exact approved clause JSON, clause SHA-256, approval rationale and source hash, approving actor, and approval time. The migration enforces the JSON array size and both 64-character hashes; command validation also bounds individual and total clause text. Update/delete triggers preserve the evidence. The clause set is included in the request dependency hash so generated templates and later delivery checks remain bound to the wording the Partner approved. Historical requests have no fabricated clause approval; attempting to send one fails closed.
+
+## 12. US-FLD-011 procedure contributor snapshots — no migration
+
+The existing append-only `procedure_revisions.content_snapshot_json` records the natural-person key of each work editor and the prepared/executed staff references on that revision. The existing append-only `review_submissions` row stores the deduplicated contributor keys in both `contributor_natural_person_keys_json` and its snapshot JSON. Workprogram submissions include the contributor keys per procedure and in the aggregate submission row. No new table or migration is needed; prior records are not rewritten.
