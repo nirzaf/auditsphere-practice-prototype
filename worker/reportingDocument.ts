@@ -40,6 +40,11 @@ export function renderReportingPdf(input: ReportingPdfInput): Uint8Array {
     for (const line of lines) { ensure(6); doc.text(line, margin, y); y += Math.max(4.5, size * 0.47); }
     y += options.gap ?? 1;
   };
+  const measureWrite = (text: string, size: number, options: { bold?: boolean; gap?: number } = {}) => {
+    doc.setFont('helvetica', options.bold ? 'bold' : 'normal'); doc.setFontSize(size);
+    const lines = doc.splitTextToSize(String(text), pageWidth - margin * 2) as string[];
+    return lines.length * Math.max(4.5, size * 0.47) + (options.gap ?? 1);
+  };
   doc.setProperties({ title: input.title, subject: `${input.engagementCode} · ${input.clientName}`, author: input.firmName, creator: 'AuditSphere' });
   doc.setTextColor(21, 51, 79); write(input.firmName, 16, { bold: true, gap: 2 });
   doc.setTextColor(26, 43, 61); write(input.title, 14, { bold: true, gap: 3 });
@@ -57,11 +62,18 @@ export function renderReportingPdf(input: ReportingPdfInput): Uint8Array {
   }
   if (input.signatureBytes || input.sealBytes) {
     assertPng(input.signatureBytes); assertPng(input.sealBytes);
-    ensure(72); y += 3; write('Partner approval assets displayed for review', 10, { bold: true, gap: 2 });
+    const disclaimer = 'The image is associated with a self-selected Partner persona. It is not a certificate-based digital signature or identity verification.';
+    const approvalBlockHeight = 3
+      + measureWrite('Partner approval assets displayed for review', 10, { bold: true, gap: 2 })
+      + 23
+      + (input.partnerName ? measureWrite(`Partner profile: ${input.partnerName}`, 8, { gap: 2 }) : 0)
+      + 28
+      + measureWrite(disclaimer, 8);
+    ensure(approvalBlockHeight); y += 3; write('Partner approval assets displayed for review', 10, { bold: true, gap: 2 });
     doc.addImage(`data:image/png;base64,${base64(input.signatureBytes)}`, 'PNG', margin, y, 55, 20); y += 23;
     if (input.partnerName) write(`Partner profile: ${input.partnerName}`, 8, { gap: 2 });
     doc.addImage(`data:image/png;base64,${base64(input.sealBytes)}`, 'PNG', margin, y, 24, 24); y += 28;
-    write('The image is associated with a self-selected Partner persona. It is not a certificate-based digital signature or identity verification.', 8);
+    write(disclaimer, 8);
   }
   for (let page = 1; page <= doc.getNumberOfPages(); page += 1) {
     doc.setPage(page); doc.setFont('helvetica', 'normal'); doc.setFontSize(7); doc.setTextColor(100, 110, 120);
