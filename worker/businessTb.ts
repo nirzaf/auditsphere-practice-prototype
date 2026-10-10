@@ -1197,16 +1197,37 @@ async function approvePlanning(env:Env,workspaceId:string,context:BusinessContex
     .first<{id:string;client_id:string;engagement_id:string;revision:number;tb_version_id:string;mapping_version_id:string;materiality_version_id:string;standards_profile_id:string;
       scope_text:string;strategy_text:string;staffing_snapshot_json:string;milestone_snapshot_json:string;risk_snapshot_json:string;pbc_dependency_snapshot_json:string;source_sha256:string;prepared_by_actor_id:string}>();
   if(!plan)throw new ApiError('NOT_FOUND','The planning version was not found.');
-  if(plan.tb_version_id!==snapshot.tbVersionId||plan.mapping_version_id!==snapshot.mappingVersionId||plan.materiality_version_id!==snapshot.materialityVersionId
-    ||plan.standards_profile_id!==snapshot.standardsProfileId)throw new ApiError('VERSION_CONFLICT','A planning source version changed after compilation. Compile a new plan against current sources.');
+  const changedSourcePins=[
+    ...(plan.tb_version_id!==snapshot.tbVersionId?[{dependency:'TB_VERSION',name:'trial balance (TB)',expected:plan.tb_version_id,current:snapshot.tbVersionId}]:[]),
+    ...(plan.mapping_version_id!==snapshot.mappingVersionId?[{dependency:'MAPPING_VERSION',name:'FSLI mapping',expected:plan.mapping_version_id,current:snapshot.mappingVersionId}]:[]),
+    ...(plan.materiality_version_id!==snapshot.materialityVersionId?[{dependency:'MATERIALITY_VERSION',name:'materiality',expected:plan.materiality_version_id,current:snapshot.materialityVersionId}]:[]),
+    ...(plan.standards_profile_id!==snapshot.standardsProfileId?[{dependency:'STANDARDS_PROFILE',name:'standards profile',expected:plan.standards_profile_id,current:snapshot.standardsProfileId}]:[])
+  ];
+  if(changedSourcePins.length){
+    const names=changedSourcePins.map(item=>item.name).join(', ');
+    throw new ApiError('STALE_APPROVAL',`Planning approval is stale because the ${names} dependency changed after compilation. Compile a new plan against current sources.`,
+      {changedDependencies:changedSourcePins});
+  }
   const recomputedHash=await sha256Hex(JSON.stringify({dependencyHash:snapshot.dependencyHash,tbVersionId:plan.tb_version_id,mappingVersionId:plan.mapping_version_id,
     materialityVersionId:plan.materiality_version_id,standardsProfileId:plan.standards_profile_id,scopeText:plan.scope_text,strategyText:plan.strategy_text}));
-  if(plan.source_sha256!==p.dependencyHash||plan.source_sha256!==recomputedHash){
-    throw new ApiError('VERSION_CONFLICT','The compiled planning dependency hash is stale. Review the current blockers and compile again.');
+  if(plan.source_sha256!==p.dependencyHash){
+    throw new ApiError('VERSION_CONFLICT','The submitted dependency hash does not match the selected planning version. Reload the compiled plan before approval.');
   }
-  const stale=await env.DB.prepare(`SELECT id,reason FROM planning_stale_events WHERE workspace_id=? AND planning_version_id=? ORDER BY recorded_at,id LIMIT 1`)
-    .bind(workspaceId,plan.id).first<{id:string;reason:string}>();
-  if(stale)throw new ApiError('VERSION_CONFLICT',`This planning version is stale: ${stale.reason}`);
+  if(plan.source_sha256!==recomputedHash){
+    const changedDependencies=[
+      ...(JSON.stringify(JSON.parse(plan.staffing_snapshot_json))!==JSON.stringify(snapshot.staffing)?['STAFFING_AND_CAPACITY']:[]),
+      ...(JSON.stringify(JSON.parse(plan.milestone_snapshot_json))!==JSON.stringify(snapshot.milestones)?['MILESTONES']:[]),
+      ...(JSON.stringify(JSON.parse(plan.risk_snapshot_json))!==JSON.stringify(snapshot.risks)?['FSLI_RISK_ASSESSMENTS']:[]),
+      ...(JSON.stringify(JSON.parse(plan.pbc_dependency_snapshot_json))!==JSON.stringify(snapshot.pbc)?['REQUIRED_PBC_STATUS']:[])
+    ];
+    if(!changedDependencies.length)changedDependencies.push('PLANNING_DEPENDENCIES');
+    throw new ApiError('STALE_APPROVAL',`Planning approval is stale because ${changedDependencies.map(item=>item.toLowerCase().replaceAll('_',' ')).join(', ')} changed after compilation. Review current inputs and compile again.`,
+      {changedDependencies});
+  }
+  const stale=await env.DB.prepare(`SELECT id,source_type,source_id,reason FROM planning_stale_events WHERE workspace_id=? AND planning_version_id=? ORDER BY recorded_at,id LIMIT 1`)
+    .bind(workspaceId,plan.id).first<{id:string;source_type:string;source_id:string;reason:string}>();
+  if(stale)throw new ApiError('STALE_APPROVAL',`This planning approval is stale because its source dependency changed: ${stale.reason}`,
+    {staleEventId:stale.id,changedDependencies:[stale.source_type],sourceId:stale.source_id});
   const preparer=await env.DB.prepare(`SELECT sm.natural_person_key FROM actor_profiles ap JOIN staff_members sm ON sm.workspace_id=ap.workspace_id AND sm.id=ap.staff_member_id
     WHERE ap.workspace_id=? AND ap.id=?`).bind(workspaceId,plan.prepared_by_actor_id).first<{natural_person_key:string}>();
   const approver=await env.DB.prepare(`SELECT sm.natural_person_key FROM actor_profiles ap JOIN staff_members sm ON sm.workspace_id=ap.workspace_id AND sm.id=ap.staff_member_id

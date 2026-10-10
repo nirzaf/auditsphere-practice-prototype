@@ -2659,6 +2659,9 @@ it('bootstraps a no-session BUSINESS workspace, records manual dispatch and main
     } }
   }, makeRiskHeaders(approverHeaders));
   assert.equal(stalePlanApproval.response.status, 409, 'a change after plan compilation blocks stale sign-off');
+  assert.equal(stalePlanApproval.body.code, 'STALE_APPROVAL');
+  assert.deepEqual(stalePlanApproval.body.details.changedDependencies, ['FSLI_RISK_ASSESSMENTS'],
+    'the stale approval response names the dependency that changed after compilation');
   const refreshedPlanningCompile = await post(`/api/workspaces/${workspaceId}/commands`, {
     idempotencyKey: crypto.randomUUID(), command: { type: 'planning.compile', payload: { engagementId,
       tbVersionId: tbActivated.body.result.tbVersionId, mappingVersionId: mappingApproved.body.result.mappingVersionId,
