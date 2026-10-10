@@ -5197,6 +5197,29 @@ it('bootstraps a no-session BUSINESS workspace, records manual dispatch and main
       ] } }
   }, reviewerHeaders);
   assert.equal(unbalancedDraft.response.status, 422, JSON.stringify(unbalancedDraft.body));
+  const revalidationDraft = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'ledger.create-draft', payload: {
+      postingDate: planDate, description: 'Posting must recheck persisted draft totals atomically.',
+      sourceType: 'MANUAL',
+      lines: [
+        { accountId: accountId('5100'), debitMinor: '100000', creditMinor: '0' },
+        { accountId: accountId('1000'), debitMinor: '0', creditMinor: '100000' }
+      ] } }
+  }, reviewerHeaders);
+  assert.equal(revalidationDraft.response.status, 200, JSON.stringify(revalidationDraft.body));
+  const revalidationJournalId = revalidationDraft.body.result.journalId as string;
+  db.prepare(`UPDATE firm_journal_lines SET credit_minor=99999 WHERE workspace_id=? AND journal_id=? AND account_id=?`)
+    .bind(workspaceId, revalidationJournalId, accountId('1000')).run();
+  const rejectedUnbalancedPost = await post(`/api/workspaces/${workspaceId}/commands`, {
+    idempotencyKey: crypto.randomUUID(), command: { type: 'ledger.post', payload: { journalId: revalidationJournalId, expectedVersion: 1 } }
+  }, approverHeaders);
+  assert.equal(rejectedUnbalancedPost.response.status, 422, JSON.stringify(rejectedUnbalancedPost.body));
+  assert.equal(rejectedUnbalancedPost.body.code, 'UNBALANCED_JOURNAL');
+  const rejectedJournalState = db.prepare(`SELECT status,posted_at,debit_total_minor,credit_total_minor,
+      (SELECT COUNT(*) FROM firm_journal_lines l WHERE l.workspace_id=j.workspace_id AND l.journal_id=j.id) AS line_count
+    FROM firm_journals j WHERE workspace_id=? AND id=?`).bind(workspaceId, revalidationJournalId).first<any>();
+  assert.deepEqual({ ...rejectedJournalState }, { status: 'DRAFT', posted_at: null, debit_total_minor: 100000, credit_total_minor: 100000, line_count: 2 },
+    'an unbalanced persisted draft remains unposted and retains only its original draft lines');
   const creatorCannotPost = await post(`/api/workspaces/${workspaceId}/commands`, {
     idempotencyKey: crypto.randomUUID(), command: { type: 'ledger.post', payload: { journalId: journalDraft.body.result.journalId, expectedVersion: 1 } }
   }, reviewerHeaders);

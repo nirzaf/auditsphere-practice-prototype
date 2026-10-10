@@ -192,3 +192,7 @@ The CLIENT response does not include staff `commercialDocuments` / `releasedDeli
 ## 7. Approved leave intervals — US-PRC-002
 
 `C("staffing.leave.record", {staffMemberId,workDate,startMinute,endMinute,minutes,reason})` requires a half-open local work-day interval: `startMinute` is 0–1439, `endMinute` is 1–1440, and `minutes` must equal `endMinute - startMinute`. Adjacent approved intervals are allowed; overlap is rejected and does not change the availability total. Existing day-only approvals remain in the total but block any additional leave for that staff member/date until the historical interval is explicitly reconciled; the application does not guess their timing.
+
+## 8. Atomic journal balance revalidation — US-PRC-004
+
+`C("ledger.post", {journalId,expectedVersion})` re-reads persisted journal lines before posting and the same D1 batch asserts that the draft header totals are positive, equal, and exactly match the sums of its lines, with at least two active posting-account lines. If the draft was altered or became unbalanced after creation, the command returns `422 UNBALANCED_JOURNAL`; the atomic batch aborts, leaving the journal in `DRAFT` with its lines unchanged by the posting command.

@@ -680,8 +680,8 @@ async function buildJournalCreate(env:Env,workspaceId:string,context:BusinessCon
 }
 async function buildJournalPost(env:Env,workspaceId:string,context:BusinessContext,command:Extract<BusinessPracticeCommand,{type:'ledger.post'}>,now:string){
   reviewerOrPartner(context);const p=command.payload;
-  const journal=await env.DB.prepare(`SELECT id,version,number,posting_date,period_id,created_by_actor_id,status FROM firm_journals WHERE workspace_id=? AND id=?`).bind(workspaceId,p.journalId)
-    .first<{id:string;version:number;number:string;posting_date:string;period_id:string;created_by_actor_id:string;status:string}>();
+  const journal=await env.DB.prepare(`SELECT id,version,number,posting_date,period_id,created_by_actor_id,status,debit_total_minor,credit_total_minor FROM firm_journals WHERE workspace_id=? AND id=?`).bind(workspaceId,p.journalId)
+    .first<{id:string;version:number;number:string;posting_date:string;period_id:string;created_by_actor_id:string;status:string;debit_total_minor:number;credit_total_minor:number}>();
   if(!journal)throw new ApiError('NOT_FOUND','The journal draft was not found.');
   if(journal.version!==p.expectedVersion)throw new ApiError('VERSION_CONFLICT','The journal draft changed. Reload it before posting.');
   if(journal.status!=='DRAFT')throw new ApiError('INVALID_TRANSITION','Only a draft journal can be posted.');
@@ -692,11 +692,16 @@ async function buildJournalPost(env:Env,workspaceId:string,context:BusinessConte
     .all<{account_id:string;debit_minor:number;credit_minor:number;active:number;posting_allowed:number}>();
   if((lines.results?.length??0)<2||(lines.results??[]).some(line=>line.active!==1||line.posting_allowed!==1))throw new ApiError('GATE_BLOCKED','A journal needs at least two lines with active posting accounts.');
   const debit=(lines.results??[]).reduce((sum,line)=>sum+BigInt(line.debit_minor),0n),credit=(lines.results??[]).reduce((sum,line)=>sum+BigInt(line.credit_minor),0n);
-  if(debit<=0n||debit!==credit)throw new ApiError('UNBALANCED_JOURNAL','The journal lines do not balance exactly; nothing was posted.');
+  if(debit<=0n||debit!==credit||debit!==BigInt(journal.debit_total_minor)||credit!==BigInt(journal.credit_total_minor))
+    throw new ApiError('UNBALANCED_JOURNAL','The journal lines do not reconcile to their draft totals; nothing was posted.');
   return mutation([assertion(env,workspaceId,507,`EXISTS(SELECT 1 FROM firm_journals j JOIN accounting_periods p ON p.workspace_id=j.workspace_id AND p.id=j.period_id
       WHERE j.workspace_id=? AND j.id=? AND j.version=? AND j.status='DRAFT' AND p.status='OPEN' AND p.start_date<=j.posting_date AND p.end_date>=j.posting_date)
       AND (SELECT COUNT(*) FROM firm_journal_lines l JOIN firm_accounts a ON a.workspace_id=l.workspace_id AND a.id=l.account_id
-        WHERE l.workspace_id=? AND l.journal_id=? AND a.active=1 AND a.posting_allowed=1)>=2`,workspaceId,journal.id,p.expectedVersion,workspaceId,journal.id),
+        WHERE l.workspace_id=? AND l.journal_id=? AND a.active=1 AND a.posting_allowed=1)>=2
+      AND EXISTS(SELECT 1 FROM firm_journals j WHERE j.workspace_id=? AND j.id=? AND j.debit_total_minor=j.credit_total_minor AND j.debit_total_minor>0
+        AND j.debit_total_minor=(SELECT COALESCE(SUM(l.debit_minor),0) FROM firm_journal_lines l WHERE l.workspace_id=j.workspace_id AND l.journal_id=j.id)
+        AND j.credit_total_minor=(SELECT COALESCE(SUM(l.credit_minor),0) FROM firm_journal_lines l WHERE l.workspace_id=j.workspace_id AND l.journal_id=j.id))`,
+      workspaceId,journal.id,p.expectedVersion,workspaceId,journal.id,workspaceId,journal.id),
     env.DB.prepare(`UPDATE firm_journals SET status='POSTED',posted_by_actor_id=?,posted_at=?,version=version+1 WHERE workspace_id=? AND id=? AND version=? AND status='DRAFT'`)
       .bind(context.actor.id,now,workspaceId,journal.id,p.expectedVersion)],
     {journalId:journal.id,number:journal.number,status:'POSTED',debitTotalMinor:String(debit),creditTotalMinor:String(credit),postedAt:now},'FIRM_JOURNAL',journal.id,p.expectedVersion,p.expectedVersion+1,
