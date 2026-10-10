@@ -161,11 +161,13 @@ jobs:
         shell: bash
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_R2_LOCKS_TOKEN: ${{ secrets.CLOUDFLARE_R2_LOCKS_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_EMAIL_SENDING_ENABLED: ${{ vars.CLOUDFLARE_EMAIL_SENDING_ENABLED }}
           CLOUDFLARE_EMAIL_SENDING_TOKEN: ${{ secrets.CLOUDFLARE_EMAIL_SENDING_TOKEN }}
         run: |
           test -n "$CLOUDFLARE_API_TOKEN" || { echo "Missing cloudflare-production secret CLOUDFLARE_API_TOKEN" >&2; exit 1; }
+          test -n "$CLOUDFLARE_R2_LOCKS_TOKEN" || { echo "Missing cloudflare-production secret CLOUDFLARE_R2_LOCKS_TOKEN" >&2; exit 1; }
           test -n "$CLOUDFLARE_ACCOUNT_ID" || { echo "Missing cloudflare-production secret CLOUDFLARE_ACCOUNT_ID" >&2; exit 1; }
           if [ "$CLOUDFLARE_EMAIL_SENDING_ENABLED" = "true" ]; then
             test -n "$CLOUDFLARE_EMAIL_SENDING_TOKEN" || { echo "Missing cloudflare-production secret CLOUDFLARE_EMAIL_SENDING_TOKEN" >&2; exit 1; }
@@ -182,7 +184,7 @@ jobs:
       # verifies the Cloudflare read-back before allowing later deploy steps.
       - name: Apply and verify R2 archive retention locks
         env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_R2_LOCKS_TOKEN: ${{ secrets.CLOUDFLARE_R2_LOCKS_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: npm run cloud:r2-archive-locks:apply
 

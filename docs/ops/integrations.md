@@ -21,17 +21,29 @@ workflow's routed production-provider step and overall deploy job succeeded,
 although that step displayed an unexplained bare `Error:` line; retain it as a
 CI-log anomaly to investigate on the next provider deployment. GitHub's
 `cloudflare-production` environment showed `CLOUDFLARE_EMAIL_SENDING_TOKEN` last
-updated on 2026-10-10 and `CLOUDFLARE_API_TOKEN` last updated on 2026-10-07.
-The replacement deployment token has not yet been saved. Do not describe token
-rotation as complete until the replacement secret is saved and a subsequent
-deployment accepts it.
+updated on 2026-10-10 at 01:33 GMT+3 and `CLOUDFLARE_API_TOKEN` updated at 03:34
+GMT+3. The current account-token inventory identifies the deploy token as
+`D1 Write` and `Individual Workers Editor`; it has no R2 bucket-configuration
+permission.
 
-The latest deploy readiness result is not a current `/api/integrations/status`
-probe. The last recorded SharePoint result, on 2026-10-08, was `FAILED` because
-Microsoft Graph rejected its client-credential request. The latest strict
-readiness check does not call Graph, so SharePoint connectivity is still
-unverified. A fresh built-in-browser request to `/api/integrations/status` on
-2026-10-10 was blocked by the browser before a Worker response was visible.
+GitHub Actions [run 38009173135](https://github.com/nirzaf/auditsphere-practice-prototype/actions/runs/38009173135)
+for commit `be46d99` passed the complete `verify` job but failed before any R2
+write, migration, email-provider deployment, or main Worker deployment. The
+R2 lock script's initial `GET` returned HTTP 403 `Authentication error`. This
+run started at 03:28 GMT+3, before the deployment-token secret was updated at
+03:34, and therefore did not test the current token. The pending workflow
+change routes the R2 configuration operation through a separate
+`CLOUDFLARE_R2_LOCKS_TOKEN`; its scope and consequences are documented in
+[`environments.md`](environments.md). The secret must be configured before
+that workflow change is pushed to `main`.
+
+The latest successful deploy readiness result is not a current
+`/api/integrations/status` probe. The last recorded SharePoint result, on
+2026-10-08, was `FAILED` because Microsoft Graph rejected its client-credential
+request. The latest strict readiness check does not call Graph, so SharePoint
+connectivity is still unverified. A fresh built-in-browser request to
+`/api/integrations/status` on 2026-10-10 was blocked by the browser before a
+Worker response was visible.
 Neither email-provider health nor a successful CI deployment proves
 an actual email receipt or SharePoint site document read/write; each needs a
 current integration check and controlled synthetic acceptance.

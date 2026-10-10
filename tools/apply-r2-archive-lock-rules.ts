@@ -1,12 +1,16 @@
 import { mergeArchiveLockRules, r2ArchiveLockRules, type R2ArchiveLockRule } from '../worker/archiveRetention.js';
+import { resolveR2LockToken } from './r2-lock-credentials.js';
 
 type ExistingLockRule = { id: string; [key: string]: unknown };
 type LockResponse = { success?: boolean; result?: { rules?: ExistingLockRule[] }; errors?: Array<{ message?: string }> };
 
-const token = process.env.CLOUDFLARE_API_TOKEN;
+// CI uses a dedicated R2 configuration token so the general Worker/D1 deploy
+// token does not also carry account-wide R2 bucket and object permissions.
+// Local `cloud:deploy` may continue to use Wrangler's shared API token.
+const token = resolveR2LockToken(process.env);
 const accountId = process.env.CLOUDFLARE_ACCOUNT_ID;
 const bucketName = process.env.AUDITSPHERE_R2_BUCKET ?? 'auditsphere-prototype-files';
-if (!token || !accountId) throw new Error('CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID are required to apply archive lock rules.');
+if (!token || !accountId) throw new Error('CLOUDFLARE_R2_LOCKS_TOKEN (or local CLOUDFLARE_API_TOKEN) and CLOUDFLARE_ACCOUNT_ID are required to apply archive lock rules.');
 
 const endpoint = `https://api.cloudflare.com/client/v4/accounts/${encodeURIComponent(accountId)}/r2/buckets/${encodeURIComponent(bucketName)}/lock`;
 
@@ -21,7 +25,10 @@ async function request(method: 'GET' | 'PUT', rules?: Array<ExistingLockRule | R
   catch { throw new Error(`Cloudflare R2 lock ${method} returned HTTP ${response.status} with invalid JSON.`); }
   if (!response.ok || body.success === false) {
     const details = body.errors?.map(error => error.message).filter(Boolean).join('; ');
-    throw new Error(`Cloudflare R2 lock ${method} failed (HTTP ${response.status})${details ? `: ${details}` : '.'}`);
+    const permissionHint = response.status === 403
+      ? ' Confirm the token has account-level Workers R2 Storage Write; object-only R2 permissions cannot edit bucket lock configuration.'
+      : '';
+    throw new Error(`Cloudflare R2 lock ${method} failed (HTTP ${response.status})${details ? `: ${details}` : '.'}${permissionHint}`);
   }
   return body;
 }

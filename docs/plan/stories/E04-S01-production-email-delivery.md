@@ -20,10 +20,13 @@ at 100% traffic with Workers.dev disabled. Its workflow step succeeded but
 displayed an unexplained bare `Error:` line; investigate this on the next
 provider deployment. This provider replaces the earlier dashboard-only native
 `SEND_EMAIL` configuration (version `684f342b`). The GitHub environment's
-`CLOUDFLARE_EMAIL_SENDING_TOKEN` was updated on 2026-10-10, while
-`CLOUDFLARE_API_TOKEN` remained last updated on 2026-10-07 at the latest check;
-its replacement is not yet verified. The application readiness job passed, but
-no successful application email delivery or mailbox receipt is recorded.
+`CLOUDFLARE_EMAIL_SENDING_TOKEN` was updated on 2026-10-10 at 01:33 GMT+3 and
+`CLOUDFLARE_API_TOKEN` at 03:34 GMT+3. GitHub Actions run [38009173135](https://github.com/nirzaf/auditsphere-practice-prototype/actions/runs/38009173135)
+started before that deployment-token update; it passed `verify` but stopped on
+the R2 lock-read HTTP 403 before deploying the provider or business Worker. The
+current deploy token lacks R2 bucket-configuration permission. The application
+readiness job passed in the earlier deployment, but no successful application
+email delivery or mailbox receipt is recorded.
 
 The M365 Admin Center confirmed `steaudit.com` is Healthy in the tenant that
 owns it, and Exchange confirmed `audit@steaudit.com` is an alias on the owner's

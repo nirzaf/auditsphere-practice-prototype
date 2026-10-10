@@ -30,3 +30,17 @@ See [web-form integration instructions](web-form.md) for an embeddable HTML exam
 ## Other deployment prerequisites
 
 Keep environment-specific credentials in Worker secrets and GitHub environment secrets. Do not place API tokens, SharePoint client secrets, or email provider keys in `wrangler.jsonc` or this document. See [integrations](integrations.md) for provider-specific setup.
+
+### GitHub Cloudflare token scopes
+
+The `cloudflare-production` environment uses `CLOUDFLARE_API_TOKEN` for D1
+migrations and Worker deployment. The R2 archive-lock step uses a separate
+`CLOUDFLARE_R2_LOCKS_TOKEN`; it must not reuse the general deployment token.
+Cloudflare documents `Workers R2 Storage Write` as the permission needed to edit
+bucket configuration. This permission is account-level and also grants bucket
+creation/deletion/listing plus object read/write/list access across the account;
+Cloudflare does not offer a bucket-scoped permission for lock configuration.
+Create and save this token only after approving that CI access scope. Do not
+grant the general deployment token the R2 permission. See Cloudflare's
+[R2 token permission reference](https://developers.cloudflare.com/r2/api/tokens/)
+and [bucket lock guide](https://developers.cloudflare.com/r2/buckets/bucket-locks/).
