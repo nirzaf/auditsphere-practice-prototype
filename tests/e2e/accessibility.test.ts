@@ -203,6 +203,7 @@ before(async () => {
   });
   tab = new CdpTab(socket, server.origin);
   await tab.command('Runtime.enable');
+  await tab.command('Log.enable');
   await tab.command('Page.enable');
   await tab.command('Network.enable');
   await tab.blockExternalHttp();
@@ -231,7 +232,7 @@ after(async () => {
   }
 });
 
-it('E06-S04 keeps the no-auth workspace, CLIENT portal, and populated business modules free of critical and serious WCAG 2.2 AA issues', { timeout: 180000 }, async () => {
+it('E06-S01/E06-S04 keeps the workspace, CLIENT portal, and business routes free of CSP violations and critical or serious WCAG 2.2 AA issues', { timeout: 180000 }, async () => {
   assert.ok(tab && server);
   await installAxe();
 
@@ -413,6 +414,7 @@ it('E06-S04 keeps the no-auth workspace, CLIENT portal, and populated business m
   const moderate = findings.filter(({ violation }) => violation.impact === 'moderate');
   if (moderate.length) console.log(`ACCESSIBILITY_MODERATE_SUMMARY ${JSON.stringify(moderate)}`);
   assert.deepEqual(blockers, [], `new critical/serious accessibility violations must fail E06-S04: ${JSON.stringify(blockers)}`);
+  assert.deepEqual(tab.cspViolations, [], `the enforced Worker CSP has no browser violation reports across the public landing/setup surfaces, all business routes, and CLIENT portal: ${JSON.stringify(tab.cspViolations)}`);
   assert.equal(tab.blockedExternalRequests.length, 0, 'the audit loaded no external assets or services');
   assert.deepEqual(tab.exceptions, [], 'the browser journey raised no uncaught JavaScript exceptions');
 });

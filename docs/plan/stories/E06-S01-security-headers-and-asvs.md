@@ -15,10 +15,11 @@ Harden the app shell against XSS/clickjacking and record a structured security s
 - The HTML meta CSP now also uses style-src self, matching the Worker response header. docs/quality/asvs-l2.md inventories all 126 Level 2 controls in the requested chapters: 31 Pass, 46 Fail/open, and 49 N/A for the explicitly scoped no-auth profile. No separate owner-approved follow-up stories exist for the open findings.
 - The one-time sealed-archive capability is submitted in a bounded same-origin POST form body. The unit and browser assertions reject URL-based tickets; GitHub Actions run 37943011263 executed the tests and deployed commit 85263fc2aa151c748774faf99a411ad2afc59aa9, so V8.3.1 and V13.1.3 now have current CI evidence.
 - OOXML upload verification now streams every ZIP member, rejects unsafe/duplicate paths, and enforces 32 MiB per member, 64 MiB total expansion, and 2,048 members. Focused adversarial package tests pass 4/4, and the full local unit suite passes 201 tests with 1 opt-in stress test skipped; lint, Worker typecheck, and production build pass.
-- Remaining acceptance: E2E CSP-violation sweep across business panels and retained public surfaces, resolve or obtain owner-approved follow-up stories for all 46 open ASVS findings, and complete operational evidence review. This story is not complete. A local browser sweep remains blocked because the local Wrangler runtime exits with Windows CreateDirectory: Access is denied for miniflare-email-store; the production Worker is not an approved UI test target.
+- Verification — 2026-10-10: the focused E06-S01/E06-S04 CDP sweep passes 1/1. It visits workspace landing/setup, populated staff routes, and the CLIENT portal at desktop and mobile widths through the in-process Worker, captures Chrome Log CSP reports, and asserts zero violations, zero critical/serious WCAG findings, zero external requests, and no uncaught browser exceptions. The production Worker is not used as a UI test target.
+- Remaining acceptance: resolve or obtain owner-approved follow-up stories for all 46 open ASVS findings and complete the operational evidence review. This story is not complete. The CDP test requires local loopback sockets; the default sandbox denies those connections, so it was run with the sandbox-reviewed localhost test permission.
 
 ## Read first
-- `worker/index.ts` static-asset branch (sets only `X-Content-Type-Options`, `Referrer-Policy`)
+- `worker/index.ts` response finalization and static-asset branch (applies the shell security headers)
 - `worker/http.ts` `baseHeaders` (API responses), `worker/business.ts:2605` (file download CSP `default-src 'none'; sandbox` — keep)
 - `index.html`, Vite build output in `dist/` (inline scripts/styles?)
 

@@ -86,10 +86,25 @@ export async function startBusinessE2eServer(): Promise<BusinessE2eServer> {
     },
     async delete(key: string) { objects.delete(key); }
   } as any;
+  const assets = {
+    async fetch(request: Request) {
+      const url = new URL(request.url);
+      let relativePath: string;
+      try { relativePath = decodeURIComponent(url.pathname).replace(/^\/+/, ''); }
+      catch { return new Response('Invalid path.', { status: 400 }); }
+      const candidate = resolve(builtAssets, relativePath || 'index.html');
+      const insideBuild = candidate === builtAssets || candidate.startsWith(`${builtAssets}${sep}`);
+      const assetPath = insideBuild && existsSync(candidate) && statSync(candidate).isFile()
+        ? candidate : join(builtAssets, 'index.html');
+      return new Response(readFileSync(assetPath), {
+        headers: { 'Content-Type': contentType(assetPath), 'Cache-Control': 'no-store' }
+      });
+    }
+  } as unknown as Fetcher;
   const env = {
     DB: db,
     FILES: files,
-    ASSETS: { fetch: async () => new Response('Not found', { status: 404 }) },
+    ASSETS: assets,
     BUSINESS_SETUP_ENABLED: 'true'
   } as any;
 
@@ -118,18 +133,12 @@ export async function startBusinessE2eServer(): Promise<BusinessE2eServer> {
         return;
       }
 
-      let relativePath: string;
-      try { relativePath = decodeURIComponent(url.pathname).replace(/^\/+/, ''); }
-      catch {
-        outgoing.writeHead(400).end('Invalid path.');
-        return;
-      }
-      const candidate = resolve(builtAssets, relativePath || 'index.html');
-      const insideBuild = candidate === builtAssets || candidate.startsWith(`${builtAssets}${sep}`);
-      const assetPath = insideBuild && existsSync(candidate) && statSync(candidate).isFile()
-        ? candidate : join(builtAssets, 'index.html');
-      outgoing.writeHead(200, { 'Content-Type': contentType(assetPath), 'Cache-Control': 'no-store' });
-      outgoing.end(readFileSync(assetPath));
+      const response = await worker.fetch(new Request(url, {
+        method: incoming.method ?? 'GET',
+        headers: requestHeaders(incoming)
+      }), env, {} as any);
+      outgoing.writeHead(response.status, Object.fromEntries(response.headers.entries()));
+      outgoing.end(Buffer.from(await response.arrayBuffer()));
     } catch (error) {
       if (!outgoing.headersSent) outgoing.writeHead(500, { 'Content-Type': 'text/plain; charset=utf-8' });
       outgoing.end(error instanceof Error ? error.message : 'Local business E2E server failed.');

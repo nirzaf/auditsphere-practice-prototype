@@ -66,15 +66,19 @@ export async function launchHeadlessChrome(
     '--headless=new', '--no-sandbox', '--disable-gpu', `--window-size=${options.windowSize ?? '1440,900'}`,
     `--remote-debugging-port=${port}`, '--remote-debugging-address=127.0.0.1', '--remote-allow-origins=*',
     `--user-data-dir=${profileDirectory}`, '--no-first-run', 'about:blank'
-  ], { stdio: 'ignore', windowsHide: true });
+  ], { stdio: ['ignore', 'ignore', 'pipe'], windowsHide: true });
 
   let spawnError: Error | undefined;
+  let stderrOutput = '';
   child.once('error', error => { spawnError = error; });
+  child.stderr?.setEncoding('utf8');
+  child.stderr?.on('data', chunk => { stderrOutput = (stderrOutput + String(chunk)).slice(-4000); });
   const deadline = Date.now() + (options.timeoutMs ?? 30000);
   try {
     while (Date.now() < deadline) {
-      if (spawnError) throw new Error(`Chrome could not start: ${spawnError.message}`);
-      if (child.exitCode !== null) throw new Error(`Chrome exited before exposing CDP (exit ${child.exitCode}).`);
+      const stderr = stderrOutput.trim() ? ` Browser stderr: ${stderrOutput.trim()}` : '';
+      if (spawnError) throw new Error(`Chrome could not start: ${spawnError.message}.${stderr}`);
+      if (child.exitCode !== null) throw new Error(`Chrome exited before exposing CDP (exit ${child.exitCode}).${stderr}`);
       try {
         const response = await fetch(`http://127.0.0.1:${port}/json/version`, { signal: AbortSignal.timeout(1000) });
         if (response.ok) {
@@ -84,7 +88,8 @@ export async function launchHeadlessChrome(
       } catch { /* Chrome has not bound its debugging endpoint yet. */ }
       await sleep(100);
     }
-    throw new Error(`Chrome did not expose its debugging endpoint on 127.0.0.1:${port} within ${options.timeoutMs ?? 30000} ms.`);
+    const stderr = stderrOutput.trim() ? ` Browser stderr: ${stderrOutput.trim()}` : '';
+    throw new Error(`Chrome did not expose its debugging endpoint on 127.0.0.1:${port} within ${options.timeoutMs ?? 30000} ms.${stderr}`);
   } catch (error) {
     await stopHeadlessChrome(child);
     let cleanupError: unknown;

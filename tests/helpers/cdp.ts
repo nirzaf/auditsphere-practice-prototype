@@ -6,6 +6,7 @@ export class CdpTab {
   readonly blockedExternalRequests: string[] = [];
   readonly exceptions: string[] = [];
   readonly networkFailures: string[] = [];
+  readonly cspViolations: string[] = [];
 
   constructor(
     private ws: WebSocket,
@@ -37,6 +38,15 @@ export class CdpTab {
           if (!/Fetch\.(?:continueRequest|failRequest): Invalid InterceptionId/i.test(detail))
             this.exceptions.push(detail);
         });
+      }
+      if (message.method === 'Log.entryAdded') {
+        const entry = message.params.entry;
+        const text = String(entry.text ?? '');
+        const source = String(entry.source ?? '');
+        if (/content security policy|csp violation|violates the following/i.test(text)
+          || (source === 'violation' && /content security policy|script|style|frame|connect/i.test(text))) {
+          this.cspViolations.push(`${source}: ${text}`);
+        }
       }
       if (message.method === 'Runtime.exceptionThrown')
         this.exceptions.push(
