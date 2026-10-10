@@ -8,7 +8,7 @@ This checklist includes the 126 Level 2 requirements in the requested chapters, 
 
 **Status meanings:** Pass = source-level evidence is identified in this pass; it does not replace the story's required browser/E2E or operational verification. Fail = unmet or required evidence has not been collected. N/A = the feature/control is absent from this explicitly scoped application profile; the rationale names the boundary. N/A is not a security assurance.
 
-For Fail entries, no separate owner-approved follow-up stories have been recorded. E06-S01 remains open until each failure is resolved or the owner approves a linked follow-up story, and the CSP violation sweep is completed. Controls dependent on tenant policy, Cloudflare settings, privacy/legal policy, or a trusted perimeter need independent operational evidence. Current local engineering evidence includes `npm run test:unit` (201 passed, 1 opt-in stress test skipped), `npm run lint`, `npm run cloud:typecheck`, and `npm run build`; this does not close the external or full-browser acceptance gates.
+For Fail entries, no separate owner-approved follow-up stories have been recorded. E06-S01 remains open until each failure is resolved or the owner approves a linked follow-up story. The cross-surface CSP browser sweep passed on 2026-10-10; that result does not close control-specific findings. Controls dependent on tenant policy, Cloudflare settings, privacy/legal policy, or a trusted perimeter need independent operational evidence. Current local engineering evidence includes `npm run test:unit` (201 passed, 1 opt-in stress test skipped), `npm run lint`, `npm run cloud:typecheck`, and `npm run build`; this does not close the external or full-browser acceptance gates.
 
 ## Checklist
 
@@ -55,24 +55,24 @@ For Fail entries, no separate owner-approved follow-up stories have been recorde
 | V4.3.1 | Fail | No authenticated identity binds the selected actor/persona to the caller; workflow role checks do not establish trusted access control (worker/index.ts:5-8, worker/business.ts:608-675). |
 | V4.3.2 | Fail | No authenticated identity binds the selected actor/persona to the caller; workflow role checks do not establish trusted access control (worker/index.ts:5-8, worker/business.ts:608-675). |
 | V4.3.3 | Fail | No authenticated identity binds the selected actor/persona to the caller; workflow role checks do not establish trusted access control (worker/index.ts:5-8, worker/business.ts:608-675). |
-| V5.1.1 | Fail | Full control-specific negative-input/security evidence is not recorded; the CSP/browser sweep and complete static review remain open (docs/plan/stories/E06-S01-security-headers-and-asvs.md). |
+| V5.1.1 | Fail | Control-specific negative-input/security evidence and complete static review remain open; the CSP/browser sweep passed on 2026-10-10 (docs/plan/stories/E06-S01-security-headers-and-asvs.md). |
 | V5.1.2 | Pass | Strict command payload schemas reject unknown fields (worker/business.ts:1417). |
 | V5.1.3 | Pass | Business request payloads are schema-validated (worker/business.ts:1417); JSON bodies have a streaming byte ceiling (worker/http.ts:31-65). |
 | V5.1.4 | Pass | Command payloads use bounded, typed Zod schemas (worker/business.ts command schema declarations and :1417). |
-| V5.1.5 | Fail | Full control-specific negative-input/security evidence is not recorded; the CSP/browser sweep and complete static review remain open (docs/plan/stories/E06-S01-security-headers-and-asvs.md). |
+| V5.1.5 | Fail | Control-specific negative-input/security evidence and complete static review remain open; the CSP/browser sweep passed on 2026-10-10 (docs/plan/stories/E06-S01-security-headers-and-asvs.md). |
 | V5.2.1 | N/A | The product has no user-supplied XML/XPath, SVG, WYSIWYG HTML, or executable template editor in the current UI/API scope; revisit if that input surface is added. |
 | V5.2.2 | Pass | Unstructured command text uses schema-defined type and length constraints (worker/business.ts command schema declarations). |
-| V5.2.3 | Fail | Full control-specific negative-input/security evidence is not recorded; the CSP/browser sweep and complete static review remain open (docs/plan/stories/E06-S01-security-headers-and-asvs.md). |
+| V5.2.3 | Fail | Control-specific negative-input/security evidence and complete static review remain open; the CSP/browser sweep passed on 2026-10-10 (docs/plan/stories/E06-S01-security-headers-and-asvs.md). |
 | V5.2.4 | Pass | Static application and Worker code uses no dynamic eval execution; JSON uses JSON.parse (worker/http.ts:31-65). |
-| V5.2.5 | Fail | Full control-specific negative-input/security evidence is not recorded; the CSP/browser sweep and complete static review remain open (docs/plan/stories/E06-S01-security-headers-and-asvs.md). |
-| V5.2.6 | Fail | Full control-specific negative-input/security evidence is not recorded; the CSP/browser sweep and complete static review remain open (docs/plan/stories/E06-S01-security-headers-and-asvs.md). |
+| V5.2.5 | Fail | Control-specific negative-input/security evidence and complete static review remain open; the CSP/browser sweep passed on 2026-10-10 (docs/plan/stories/E06-S01-security-headers-and-asvs.md). |
+| V5.2.6 | Fail | Control-specific negative-input/security evidence and complete static review remain open; the CSP/browser sweep passed on 2026-10-10 (docs/plan/stories/E06-S01-security-headers-and-asvs.md). |
 | V5.2.7 | N/A | The product has no user-supplied XML/XPath, SVG, WYSIWYG HTML, or executable template editor in the current UI/API scope; revisit if that input surface is added. |
 | V5.2.8 | N/A | The product has no user-supplied XML/XPath, SVG, WYSIWYG HTML, or executable template editor in the current UI/API scope; revisit if that input surface is added. |
-| V5.3.1 | Fail | Full control-specific negative-input/security evidence is not recorded; the CSP/browser sweep and complete static review remain open (docs/plan/stories/E06-S01-security-headers-and-asvs.md). |
-| V5.3.2 | Fail | Full control-specific negative-input/security evidence is not recorded; the CSP/browser sweep and complete static review remain open (docs/plan/stories/E06-S01-security-headers-and-asvs.md). |
-| V5.3.3 | Fail | Full control-specific negative-input/security evidence is not recorded; the CSP/browser sweep and complete static review remain open (docs/plan/stories/E06-S01-security-headers-and-asvs.md). |
+| V5.3.1 | Fail | Control-specific negative-input/security evidence and complete static review remain open; the CSP/browser sweep passed on 2026-10-10 (docs/plan/stories/E06-S01-security-headers-and-asvs.md). |
+| V5.3.2 | Fail | Control-specific negative-input/security evidence and complete static review remain open; the CSP/browser sweep passed on 2026-10-10 (docs/plan/stories/E06-S01-security-headers-and-asvs.md). |
+| V5.3.3 | Fail | Control-specific negative-input/security evidence and complete static review remain open; the CSP/browser sweep passed on 2026-10-10 (docs/plan/stories/E06-S01-security-headers-and-asvs.md). |
 | V5.3.4 | Pass | D1 query sites use prepared statements and bind request-derived values (worker/business*.ts). |
-| V5.3.5 | Fail | Full control-specific negative-input/security evidence is not recorded; the CSP/browser sweep and complete static review remain open (docs/plan/stories/E06-S01-security-headers-and-asvs.md). |
+| V5.3.5 | Fail | Control-specific negative-input/security evidence and complete static review remain open; the CSP/browser sweep passed on 2026-10-10 (docs/plan/stories/E06-S01-security-headers-and-asvs.md). |
 | V5.3.6 | Pass | JSON request parsing uses JSON.parse, not eval (worker/http.ts:31-65). |
 | V5.3.7 | N/A | No LDAP integration or directory query exists in the Worker route inventory (worker/index.ts). |
 | V5.3.8 | N/A | The Cloudflare Worker has no operating-system command execution surface; confirm again if runtime architecture changes. |
@@ -80,10 +80,10 @@ For Fail entries, no separate owner-approved follow-up stories have been recorde
 | V5.3.10 | N/A | The product has no user-supplied XML/XPath, SVG, WYSIWYG HTML, or executable template editor in the current UI/API scope; revisit if that input surface is added. |
 | V5.4.1 | N/A | TypeScript/JavaScript Worker code has no native pointer arithmetic or printf-style format-string API; revisit if unmanaged/native code is introduced. |
 | V5.4.2 | N/A | TypeScript/JavaScript Worker code has no native pointer arithmetic or printf-style format-string API; revisit if unmanaged/native code is introduced. |
-| V5.4.3 | Fail | Full control-specific negative-input/security evidence is not recorded; the CSP/browser sweep and complete static review remain open (docs/plan/stories/E06-S01-security-headers-and-asvs.md). |
-| V5.5.1 | Fail | Full control-specific negative-input/security evidence is not recorded; the CSP/browser sweep and complete static review remain open (docs/plan/stories/E06-S01-security-headers-and-asvs.md). |
-| V5.5.2 | Fail | Full control-specific negative-input/security evidence is not recorded; the CSP/browser sweep and complete static review remain open (docs/plan/stories/E06-S01-security-headers-and-asvs.md). |
-| V5.5.3 | Fail | Full control-specific negative-input/security evidence is not recorded; the CSP/browser sweep and complete static review remain open (docs/plan/stories/E06-S01-security-headers-and-asvs.md). |
+| V5.4.3 | Fail | Control-specific negative-input/security evidence and complete static review remain open; the CSP/browser sweep passed on 2026-10-10 (docs/plan/stories/E06-S01-security-headers-and-asvs.md). |
+| V5.5.1 | Fail | Control-specific negative-input/security evidence and complete static review remain open; the CSP/browser sweep passed on 2026-10-10 (docs/plan/stories/E06-S01-security-headers-and-asvs.md). |
+| V5.5.2 | Fail | Control-specific negative-input/security evidence and complete static review remain open; the CSP/browser sweep passed on 2026-10-10 (docs/plan/stories/E06-S01-security-headers-and-asvs.md). |
+| V5.5.3 | Fail | Control-specific negative-input/security evidence and complete static review remain open; the CSP/browser sweep passed on 2026-10-10 (docs/plan/stories/E06-S01-security-headers-and-asvs.md). |
 | V5.5.4 | Pass | JSON bodies are parsed with JSON.parse inside a bounded parser (worker/http.ts:31-65). |
 | V7.1.1 | Fail | Cloudflare log access/retention configuration and control-specific coverage are not verified; the self-assessment remains open (worker/index.ts, docs/ops/runbook.md). |
 | V7.1.2 | Fail | Cloudflare log access/retention configuration and control-specific coverage are not verified; the self-assessment remains open (worker/index.ts, docs/ops/runbook.md). |
