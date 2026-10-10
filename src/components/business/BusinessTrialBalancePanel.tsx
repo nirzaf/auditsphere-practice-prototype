@@ -372,7 +372,7 @@ export function BusinessTrialBalancePanel({
               {renderColumn('Current debit', 'debitColumn')}{renderColumn('Current credit', 'creditColumn')}</>}
             {renderColumn('Prior-year signed balance', 'priorBalanceColumn', true)}
             {renderColumn('Currency (QAR only)', 'currencyColumn', true)}</div>
-          <div className="business-tb-preview-wrap"><table className="business-tb-preview"><caption>First worksheet rows · formula cells are identified for rejection</caption>
+          <div className="business-tb-preview-wrap"><table className="business-tb-preview"><caption>Worksheet “{preview.selectedWorksheet}” preview · formula cells are identified for rejection</caption>
             <tbody>{preview.preview.slice(0, 6).map((row, index) => <tr key={index}><th scope="row">{preview.previewStartsAtRow + index}</th>
               {row.map((cell, cellIndex) => <td key={cellIndex}>{cell || '—'}</td>)}</tr>)}</tbody></table></div>
           <button className="btn primary" type="submit" disabled={busy || !canPlan}>{busy ? 'Queueing import…' : 'Validate and reconcile source'}</button>
