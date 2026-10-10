@@ -193,19 +193,17 @@ The app remains limited to `Sites.Selected`; do not give it tenant-wide
 `Sites.ReadWrite.All` or `Sites.FullControl.All`.
 
 Two SharePoint client-secret values created during the setup session were exposed
-in browser accessibility output. Treat both as compromised. At the last recorded
-inspection, Azure listed them as
+in browser accessibility output. Treat both as compromised. An Entra inspection
+on 2026-10-10 confirmed both credentials are still active:
 `AuditSphere UAT Cloudflare Worker rotated (180-day)` (expires 2027-04-06) and
 `AuditSphere UAT Cloudflare Worker rotated 2026-10 (180-day)` (expires
-2027-04-07). Whether those credentials have since been revoked has not been
-verified. The Cloudflare Worker still has an encrypted
+2027-04-07). The Cloudflare Worker still has an encrypted
 `SHAREPOINT_CLIENT_SECRET`, but the last Graph token request was rejected; the
-configured value is not verified. Revoke the two exposed credentials, create a
-fresh 180-day client secret, and enter it directly as `SHAREPOINT_CLIENT_SECRET`
-in Cloudflare Worker settings. Never copy it into this runbook, chat, or
-repository. Repeat the live status probe and a synthetic site read/write check
-after the Worker secret is updated; a successful token request alone does not
-prove the site grant works.
+configured value is not verified. Create a fresh 180-day client secret, enter it
+directly as `SHAREPOINT_CLIENT_SECRET` in Cloudflare Worker settings, and verify
+Graph authentication plus a synthetic site read/write check before revoking the
+two exposed credentials. Never copy the new value into this runbook, chat, or
+repository. A successful token request alone does not prove the site grant works.
 
 The deployed Worker token cache keys entries by a non-reversible SHA-256 fingerprint of
 the client secret, tenant and app identity. A same-length secret rotation now
