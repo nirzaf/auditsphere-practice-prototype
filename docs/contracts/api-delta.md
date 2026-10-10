@@ -196,3 +196,7 @@ The CLIENT response does not include staff `commercialDocuments` / `releasedDeli
 ## 8. Atomic journal balance revalidation — US-PRC-004
 
 `C("ledger.post", {journalId,expectedVersion})` re-reads persisted journal lines before posting and the same D1 batch asserts that the draft header totals are positive, equal, and exactly match the sums of its lines, with at least two active posting-account lines. If the draft was altered or became unbalanced after creation, the command returns `422 UNBALANCED_JOURNAL`; the atomic batch aborts, leaving the journal in `DRAFT` with its lines unchanged by the posting command.
+
+## 9. Posted-only firm reports and cutoffs — US-PRC-006
+
+`GET .../practice/reports/trial-balance?from=YYYY-MM-DD&to=YYYY-MM-DD&asOf=<UTC timestamp>` and `GET .../practice/reports/profit-loss?month=YYYY-MM&asOf=<UTC timestamp>` include only journals in `POSTED` status with `posted_at <= asOf`. Period movement uses each journal's actual `posting_date`; the trial balance exposes exact minor-unit debit/credit and closing-balance checks. A draft is excluded, and a backdated journal posted after the requested cutoff remains excluded. Reversals affect reports in their own posting period. Deferred advance invoices and receipts do not create revenue; an approved `revenue.recognize` event posts against the active versioned firm policy. Report exports use the same cutoff-bound computed snapshot as their screen projection.
