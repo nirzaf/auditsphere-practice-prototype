@@ -129,10 +129,10 @@ export async function bootstrapBusinessWorkspace(
         id,workspace_id,sequence,actor_user_id,actor_role,command_type,entity_kind,entity_id,
         client_id,engagement_id,before_version,after_version,details_json,created_at,
         actor_assurance,source,chain_scope_kind,chain_scope_id,previous_hash,event_hash,actor_id,
-        event_type,entity_type,command_id,actor_persona
+        event_type,entity_type,command_id,actor_persona,chain_timestamp
       ) VALUES(?,?,1,NULL,NULL,'workspace.bootstrap','workspace',?,NULL,NULL,NULL,1,?,?,
-        'SYSTEM','JOB','WORKSPACE',?,NULL,?,NULL,'BOOTSTRAP','WORKSPACE',NULL,NULL)`)
-        .bind(auditEventId, workspaceId, workspaceId, details, now, workspaceId, eventHash),
+        'SYSTEM','JOB','WORKSPACE',?,NULL,?,NULL,'BOOTSTRAP','WORKSPACE',NULL,NULL,?)`)
+        .bind(auditEventId, workspaceId, workspaceId, details, now, workspaceId, eventHash, timestamp),
       env.DB.prepare(`INSERT INTO business_bootstrap_receipts(
         idempotency_key_hash,request_hash,workspace_id,staff_member_id,actor_profile_id,response_json,created_at
       ) VALUES(?,?,?,?,?,?,?)`)
@@ -4856,13 +4856,13 @@ export async function runBusinessDirectoryCommand(
         id,workspace_id,sequence,actor_user_id,actor_role,command_type,entity_kind,entity_id,
         client_id,engagement_id,before_version,after_version,details_json,created_at,
         actor_assurance,source,chain_scope_kind,chain_scope_id,previous_hash,event_hash,actor_id,
-        event_type,entity_type,command_id,actor_persona
-      ) VALUES(?,?,?,NULL,?,?,?,?,?,?,?,?,?,?,'SELF_ASSERTED','USER','WORKSPACE',?,?,?,?,?,?,?,?)`)
+        event_type,entity_type,command_id,actor_persona,chain_timestamp
+      ) VALUES(?,?,?,NULL,?,?,?,?,?,?,?,?,?,?,'SELF_ASSERTED','USER','WORKSPACE',?,?,?,?,?,?,?,?,?)`)
       .bind(
         row.id, workspaceId, row.sequence, context.actor.persona, envelope.command.type,
         row.entityType.toLowerCase(), row.entityId, row.clientId, row.engagementId,
         row.beforeVersion, row.afterVersion, row.details, now, workspaceId, row.previousHash,
-        row.eventHash, context.actor.id, envelope.command.type, row.entityType, commandId, context.actor.persona
+        row.eventHash, context.actor.id, envelope.command.type, row.entityType, commandId, context.actor.persona, timestamp
       ));
 
     const statements: D1PreparedStatement[] = [

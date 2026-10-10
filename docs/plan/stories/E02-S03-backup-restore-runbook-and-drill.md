@@ -28,3 +28,39 @@ npx tsx --test tests/unit/verifyRestore.test.ts
 
 ## Stop and ask if
 - Time Travel retention on the firm's plan is shorter than 7 days.
+
+## Implementation progress
+
+**Code and operational procedures are implemented; the story is not fully
+accepted.** [backup-restore.md](../../ops/backup-restore.md) defines the RPO/RTO,
+roles, account-scoped read-only permissions, destructive restore procedure,
+private offline export, retention, validation and escalation steps. The owner
+schedule is documented as a nightly Task Scheduler job rather than a GitHub
+Actions upload so database contents do not enter CI artifacts. Its executable
+is [export-d1-backup.ps1](../../../tools/export-d1-backup.ps1), which refuses a
+repository destination, writes a D1 SQL export and SHA-256 manifest, and fails
+on missing/empty output or integrity mismatch. It does not prune exports.
+
+The read-only [verify-restore.ts](../../../tools/verify-restore.ts) recomputes
+the sequential audit chain against its workspace head, returns per-table
+workspace row counts, and fetches a deterministic sample of committed R2 files
+to compare their bytes to stored SHA-256. New audit writes preserve the exact
+hashed timestamp in migration `0057`; pre-existing outbox events with only
+whole-second timestamps are checked against their bounded millisecond window.
+The staging drill record is in [restore-drill.md](../../ops/restore-drill.md).
+
+**External acceptance is blocked:** both Cloudflare D1 IDs remain placeholders,
+no nightly task has been created, and neither the staging Time Travel backend
+nor plan retention window has been verified. No remote restore, backup,
+resource creation, or live drill was run. RPO/RTO and the drill remain
+unmeasured. Do not mark this story complete until an isolated staging drill is
+dated and signed by its operator and owner.
+
+**Verification — 2026-10-10:** `tests/unit/verifyRestore.test.ts` passed
+(5/5); `tests/unit/workerMigrations.test.ts` passed (1/1);
+`tests/unit/businessWorkspacePersistence.test.ts` and
+`tests/unit/businessWorkspace.test.ts` passed (12/12).
+`npm run cloud:typecheck`, `npm run build`, the PowerShell parser, and
+`git diff --check` passed. Vite reports the existing 500 KB+ bundle warning.
+The Cloudflare staging restore and scheduled owner task remain unrun due to
+the unprovisioned isolated resources.

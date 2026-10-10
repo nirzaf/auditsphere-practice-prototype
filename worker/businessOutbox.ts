@@ -1052,11 +1052,11 @@ async function commitJobMutation(env: Env, job: OutboxJob, mutation: JobMutation
         .bind(sequence, eventHash, timestamp, head.id, job.workspace_id, head.last_sequence, head.last_event_hash),
       env.DB.prepare(`INSERT INTO audit_events(id,workspace_id,sequence,actor_user_id,actor_role,command_type,entity_kind,entity_id,
           client_id,engagement_id,before_version,after_version,details_json,created_at,actor_assurance,source,chain_scope_kind,
-          chain_scope_id,previous_hash,event_hash,actor_id,event_type,entity_type,command_id,actor_persona)
-        VALUES(?,?,?,NULL,'SYSTEM',?,?,?,?,?,NULL,?,?,?, 'SYSTEM','JOB','WORKSPACE',?,?,?,?,?,?,?,?)`)
+          chain_scope_id,previous_hash,event_hash,actor_id,event_type,entity_type,command_id,actor_persona,chain_timestamp)
+        VALUES(?,?,?,NULL,'SYSTEM',?,?,?,?,?,NULL,?,?,?, 'SYSTEM','JOB','WORKSPACE',?,?,?,?,?,?,?,?,?)`)
         .bind(eventId, job.workspace_id, sequence, commandType, mutation.entityType.toLowerCase(), mutation.entityId,
           mutation.clientId ?? null, mutation.engagementId ?? null, job.version + 1, eventDetails, nowSeconds(), job.workspace_id,
-          head.last_event_hash, eventHash, null, commandType, mutation.entityType, job.id, null),
+          head.last_event_hash, eventHash, null, commandType, mutation.entityType, job.id, null, timestamp),
       env.DB.prepare(`UPDATE workspaces SET revision=revision+1,version=version+1,updated_at=?,updated_at_utc=? WHERE id=? AND data_mode='BUSINESS'`)
         .bind(nowSeconds(), timestamp, job.workspace_id),
       env.DB.prepare('DELETE FROM command_assertions WHERE workspace_id=?').bind(job.workspace_id)

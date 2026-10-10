@@ -2,11 +2,11 @@
 
 > **Historical proposal notice:** this delta includes auth/account tables for a superseded E03 design. Migrations 0046–0048 are preserved as applied-history compatibility; they do not mean the current no-auth epic requires account/session runtime behavior. Do not edit applied migration history or drop remote tables without a separately verified data-retirement plan.
 
-**Executable source of truth:** `worker/migrations/*.sql` (55 files, last = `0055_leave_intervals.sql`). This document records both applied contracts and the remaining migrations the backlog requires. Agents copy the SQL into a new numbered migration file, adjust only what the story's acceptance criteria demand, and record any deviation in the story's report.
+**Executable source of truth:** `worker/migrations/*.sql` (57 files, last = `0057_audit_event_chain_timestamp.sql`). This document records both applied contracts and the remaining migrations the backlog requires. Agents copy the SQL into a new numbered migration file, adjust only what the story's acceptance criteria demand, and record any deviation in the story's report.
 
 ## Migration rules (existing conventions — follow exactly)
 
-1. Forward-only, numbered `NNNN_snake_case.sql`, next free number is **0056**. Never edit an applied migration. E01-S05 used 0045, E03-S01 added auth tables in 0046, E03-S04 added portal credential issues in 0047, E03-S06 added the single-use first-Partner lock in 0048, E04-S01 added email delivery events in 0049, E04-S02 added manual dispatch records in 0050, E04-S03 added public lead submissions and their short-lived rate-limit events in 0051, the approved PolicyActivation ledger is in 0052, E05-S06 adds client import runs in 0053, migration 0054 retires the empty legacy authentication tables after a zero-row preflight, and migration 0055 stores approved leave intervals and blocks overlap double counting. Also bump `APPLICATION_SCHEMA_VERSION` in `worker/versions.ts` (currently `55`), which readiness compares against the DB (`handleHealthReady` → `SCHEMA_VERSION_MISMATCH`).
+1. Forward-only, numbered `NNNN_snake_case.sql`, next free number is **0058**. Never edit an applied migration. E01-S05 used 0045, E03-S01 added auth tables in 0046, E03-S04 added portal credential issues in 0047, E03-S06 added the single-use first-Partner lock in 0048, E04-S01 added email delivery events in 0049, E04-S02 added manual dispatch records in 0050, E04-S03 added public lead submissions and their short-lived rate-limit events in 0051, the approved PolicyActivation ledger is in 0052, E05-S06 adds client import runs in 0053, migration 0054 retires the empty legacy authentication tables after a zero-row preflight, migration 0055 stores approved leave intervals and blocks overlap double counting, migration 0056 adds immutable approved representation wording, and migration 0057 stores the exact audit-event hash timestamp. Also bump `APPLICATION_SCHEMA_VERSION` in `worker/versions.ts` (currently `57`), which readiness compares against the DB (`handleHealthReady` → `SCHEMA_VERSION_MISMATCH`).
 2. Every business table has `id TEXT PRIMARY KEY`, `workspace_id TEXT NOT NULL`, `UNIQUE (workspace_id, id)`, composite FKs `(workspace_id, x_id)` → `parent(workspace_id, id)`, `ON DELETE RESTRICT`.
 3. Mutable rows carry `version INTEGER NOT NULL DEFAULT 1 CHECK (version > 0)`; updates use `WHERE version = ?` and `version = version + 1`.
 4. Append-only tables get `BEFORE UPDATE` and `BEFORE DELETE` triggers that `RAISE(ABORT, '…')` (pattern: `worker/migrations/0006_business_foundation.sql` lines 301–304).
@@ -335,6 +335,10 @@ E05-S01 (milestone defaults), E05-S02 (workprogram gates), E05-S03 (going-concer
 ## 11. US-REP-004 immutable representation wording — migration 0056
 
 `representation_template_approvals` stores one append-only approval per request: the exact approved clause JSON, clause SHA-256, approval rationale and source hash, approving actor, and approval time. The migration enforces the JSON array size and both 64-character hashes; command validation also bounds individual and total clause text. Update/delete triggers preserve the evidence. The clause set is included in the request dependency hash so generated templates and later delivery checks remain bound to the wording the Partner approved. Historical requests have no fabricated clause approval; attempting to send one fails closed.
+
+## 12. E02-S03 exact audit hash timestamps — migration 0057
+
+`audit_events.chain_timestamp` stores the exact timestamp included in the event hash for new workspace bootstrap, user-command, and background-job events. Historical rows stay `NULL`; the restore verifier reconstructs their timestamp from `created_at` and fails if no candidate reproduces the stored digest. `APPLICATION_SCHEMA_VERSION` is 57 after this migration.
 
 ## 12. US-FLD-011 procedure contributor snapshots — no migration
 

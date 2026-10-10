@@ -133,35 +133,11 @@ bundle reports records already present in D1.
 
 ## Backup, restore and file integrity
 
-D1 Time Travel is the database point-in-time recovery mechanism. To inspect the
-available bookmark for an incident timestamp:
-
-```powershell
-npx.cmd wrangler d1 time-travel info steaudit-prototype-demo --timestamp="2026-10-07T00:00:00Z" --json
-```
-
-Restoring a D1 bookmark overwrites the database in place. Treat this as a
-disaster-recovery action: first record the incident, selected bookmark and
-current state; obtain the required operational approval; coordinate application
-write suspension; then run the command for the approved point:
-
-```powershell
-npx.cmd wrangler d1 time-travel restore steaudit-prototype-demo --timestamp="<approved RFC3339 timestamp>"
-```
-
-Do not use the production database as the restore-verification target.
-Cloudflare Time Travel retention depends on the database plan; confirm the
-available window before relying on a recovery point.
-
-For an isolated SQL export used for analysis or test recovery:
-
-```powershell
-npx.cmd wrangler d1 export steaudit-prototype-demo --remote --output="$env:TEMP\auditsphere-d1-export.sql"
-```
-
-Treat that export as confidential client data: store it only in an approved
-encrypted location, restrict access and securely dispose of it under the firm's
-approved retention policy. Never commit it or attach it to routine CI logs.
+Use the environment-specific procedures in [backup-restore.md](backup-restore.md).
+Earlier runbook examples referenced `steaudit-prototype-demo`; those commands
+are retired and do not target the isolated `auditsphere-staging` or
+`auditsphere-production` environments. Do not use the legacy demo resources for
+their recovery.
 
 The application-level recovery acceptance test is local and isolated:
 
