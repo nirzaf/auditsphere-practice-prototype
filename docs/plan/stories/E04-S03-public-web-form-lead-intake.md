@@ -34,3 +34,17 @@ No new dependency for Turnstile (single `fetch` to the siteverify endpoint). Res
 ```bash
 npx tsx --test tests/unit/publicLeadIntake.test.ts && npm run test:unit
 ```
+
+## Current verification (2026-10-10)
+
+- `tests/unit/publicLeadIntake.test.ts`: 6/6 passed, covering valid intake,
+  IP redaction, duplicate detection, optional reference-only notification,
+  persona denial, five-per-hour limit, honeypot, exact-origin CORS and Turnstile
+  failure/hostname checks.
+- `npm run cloud:typecheck`: passed. The repository full unit suite passed 225
+  tests with one opt-in stress test skipped and 0 failures.
+- Code and documentation acceptance criteria 1–7 are implemented. Production
+  and staging submissions remain unconfigured until `PUBLIC_LEAD_IP_HASH_SECRET`
+  (32+ characters), the matching Turnstile secret, and the allowed form origin
+  are saved in their environment secrets/vars. No live public submission was
+  attempted or claimed.
